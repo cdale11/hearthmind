@@ -2,7 +2,37 @@
 
 This is the long-term plan for Hearthmind, organized into phases rather than
 strict version numbers (see `CHANGELOG.md` for what's actually shipped).
-Two design principles drive the ordering below:
+
+**Emergence is the primary objective.** Every system below exists to produce
+behavior nobody scripted — a famine that reshapes settlement culture, a
+building that decays into a landmark, a tradition born from a specific
+agent's death. Systems are judged by what they let *emerge* from their
+interaction, not by how complete they are in isolation.
+
+## Feature checklist (original scope)
+
+The full feature set discussed at project inception, and where each one
+currently lives. This is the map back to "did we build what we said we'd
+build" — phases below are the *how*, this table is the *what*.
+
+| Feature | Status | Where |
+|---|---|---|
+| Terrain | shipped | `world/terrain.py`, Milestone 1 |
+| Weather | shipped | `world/weather.py`; qualitative labels since D6 |
+| Seasons | shipped | `world/clock.py` calendar (`year_end` etc. drive culture/chronicle cadence) |
+| Ecology & wildlife | **not started** | new Phase A4, below |
+| Humans (agents, needs, aging) | shipped | Phase A |
+| Relationships | partial | A3 (proximity affinity + birth) only; no ongoing bonds, rivalries, or memory of specific agents — see Phase A5 |
+| Economy | shipped (settlement-scale) | Phase D (D8-D10: materials, currency); no per-agent trade — see Phase D open item |
+| Agriculture | shipped | D1, D9 (farms, tool-boosted yield) |
+| Construction | shipped | Phase C |
+| Infrastructure | **not started** | new Phase C5, below (roads) |
+| Building decay | shipped | C1-C4 (weathering, ruin, reclamation) |
+| Culture | partial | E1 (naming, traditions); festivals/generational memory not built |
+| History | partial | B3 (chronicle) + E1 (traditions feed prompts); no replay/browsable history view (Phase F) |
+| Optional subtle supernatural elements | **not started** | Phase G, deliberately last |
+
+Two design principles drive the phase ordering below:
 
 1. **The LLM is expensive and slow relative to a tick.** It cannot run
    per-agent-per-tick on modest hardware. The architecture separates
@@ -34,6 +64,22 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   reproduce, gated by a hard population cap as a safety valve. This is
   deliberately *not* LLM-driven — it's cheap, deterministic scaffolding
   that gives the Phase B LLM something real to reason about later.
+- **A4. Ecology & wildlife (not yet built).** Discrete, mobile animal
+  populations (grazers on grassland, predators in forest/hills) with their
+  own simple deterministic behavior — reproduce, migrate, deplete/replenish
+  vegetation, and can be hunted for a food yield richer than static
+  resource nodes. This is the missing half of "terrain/weather/seasons" —
+  those systems currently only shape *where humans* forage/farm; nothing
+  living occupies the terrain besides the settlement itself. Scope
+  deliberately small at first (one or two species, no predator/prey AI):
+  the goal is a background ecological rhythm agents can disturb (overhunt
+  a valley, watch it recover), not a second simulation.
+- **A5. Deeper relationships (not yet built).** A3 shipped birth-gating
+  affinity but no persistent relationship *state* — agents don't remember
+  who they're bonded to, no rivalries, no grief on a bond's death. Natural
+  extension once Phase E's per-agent memory work exists to hang it on;
+  tracked here rather than folded into E1 because it's substrate
+  (deterministic state), not culture (LLM-authored content).
 
 ## Phase B — LLM infrastructure (the foundation, not a feature)
 
@@ -73,11 +119,18 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   ruins; long-abandoned ruins are eventually reclaimed and removed. This
   is where "prosper, stagnate, or disappear" becomes visible at the
   settlement level, not just per-agent.
-- Not yet built: roads connecting buildings, resource *cost* for
-  construction (currently free beyond agent presence/time), building
-  types beyond a single generic structure, and — the natural next
-  slice — tying `AgentGoal`/LLM cognition into *where* and *whether* to
-  build, rather than the current pure-chance placement.
+- **C5. Infrastructure (not yet built).** Roads connecting buildings —
+  the concrete piece of "infrastructure" from the original feature list.
+  Likely a deterministic, presence-driven mechanic mirroring C1-C4
+  (agents passing between two standing buildings repeatedly wear a path;
+  paths persist and eventually decay like buildings do), rather than
+  planned/pathfound. Gives future systems (trade, wildlife-avoidance,
+  culture) something spatial to react to besides raw tile biome.
+- Not yet built: resource *cost* for construction (currently free beyond
+  agent presence/time), building types beyond a single generic structure
+  plus the granary kind, and — the natural next slice — tying
+  `AgentGoal`/LLM cognition into *where* and *whether* to build, rather
+  than the current pure-chance placement.
 
 ## Phase D — Agriculture & economy
 
