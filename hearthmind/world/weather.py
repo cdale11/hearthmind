@@ -56,7 +56,16 @@ class WeatherState:
             sky = "overcast"
         else:
             sky = "clear"
-        return f"{sky}, {self.temperature_c:.1f}\u00b0C, wind {self.wind:.2f}"
+        return f"{sky}, {self.temperature_c:.1f}\u00b0C, {self.wind_label()} wind"
+
+    def wind_label(self) -> str:
+        if self.wind < 0.15:
+            return "calm"
+        if self.wind < 0.35:
+            return "breezy"
+        if self.wind < 0.6:
+            return "windy"
+        return "gale"
 
 
 def _tick_rng(seed: int, tick: int) -> random.Random:

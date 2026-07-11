@@ -300,6 +300,21 @@ timeout:
   anything happened yet" can be answered directly ("nobody's mature yet"
   vs. "something is actually broken") without reading source code.
 
+## D6 (bug fix, found via live-play diagnostics): FORAGE never targeted farms
+
+Diagnostic at tick 660 (30-agent config): 16 starvation deaths despite 27
+harvest-ready farms and 0 LLM fallbacks (LLM reasoning fine). Root cause:
+`_dispatch_movement`'s FORAGE branch only ever called `_nearest_resource`
+(wild nodes) — a ready farm plot was never a movement target, only
+harvestable by luck of standing on one. Fixed: added `_nearest_ready_farm`
+(uncapped distance, same rationale as D4's SOCIALIZE — cultivated land is
+known to its community, unlike wild forage) and FORAGE/critical-hunger
+movement now prefers it over wild nodes. Verified: seed=7/48x48/30-pop,
+6000 ticks, 0 starvation deaths (previously 16 by tick 660 on similar
+config). Also: wind now reported as a qualitative label
+(calm/breezy/windy/gale) via `WeatherState.wind_label()` instead of a raw
+float, in both `describe()` and future diagnostic output.
+
 ## C1: Building placement is deterministic in this slice, not yet an LLM/goal decision
 
 The roadmap describes buildings as "an agent/B2 decision," but this slice

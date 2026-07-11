@@ -4,6 +4,19 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.9.0] — Fix: FORAGE never targeted farms (D6); qualitative wind
+
+### Fixed
+- 16 starvation deaths at tick 660 despite 27 harvest-ready farms — FORAGE
+  movement only ever targeted wild resource nodes, never farms. Added
+  `_nearest_ready_farm` (uncapped, like D4's SOCIALIZE), preferred over
+  wild nodes. Verified: 0 starvation deaths over 6000 ticks, same config
+  that previously produced 16 by tick 660.
+
+### Changed
+- `WeatherState.describe()` reports wind as calm/breezy/windy/gale
+  (`wind_label()`) instead of a raw float.
+
 ## [0.8.0] — Fix: critical-hunger movement override (D5) + diagnostics
 
 ### Fixed

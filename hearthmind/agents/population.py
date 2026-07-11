@@ -154,7 +154,7 @@ class Population:
                 agent.state = AgentState.RESTING  # proactive rest: a chosen goal, not just necessity
             if agent.state is AgentState.AWAKE:
                 self._dispatch_movement(
-                    agent, terrain, rng, resources, position_snapshot, critically_hungry
+                    agent, terrain, rng, resources, farms, position_snapshot, critically_hungry
                 )
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
@@ -224,7 +224,7 @@ class Population:
     @classmethod
     def _dispatch_movement(
         cls, agent: Agent, terrain: list[list[Tile]], rng: random.Random,
-        resources: ResourceGrid, position_snapshot: list[tuple[int, int, int]],
+        resources: ResourceGrid, farms: FarmGrid, position_snapshot: list[tuple[int, int, int]],
         critically_hungry: bool = False,
     ) -> None:
         """Goal-directed agents (FORAGE/SOCIALIZE) take a deliberate step
@@ -243,13 +243,32 @@ class Population:
         effective_goal = AgentGoal.FORAGE if critically_hungry else agent.goal
         target = None
         if effective_goal is AgentGoal.FORAGE:
-            target = cls._nearest_resource(agent, resources)
+            target = cls._nearest_ready_farm(agent, farms) or cls._nearest_resource(agent, resources)
         elif effective_goal is AgentGoal.SOCIALIZE:
             target = cls._nearest_other_agent(agent, position_snapshot)
 
         if target is not None and cls._step_toward(agent, target, terrain):
             return
         cls._maybe_move(agent, terrain, rng)
+
+    @staticmethod
+    def _nearest_ready_farm(agent: Agent, farms: FarmGrid) -> tuple[int, int] | None:
+        """No distance cap, unlike `_nearest_resource`: found root cause of
+        the D6 starvation cascade — FORAGE previously only ever targeted
+        wild nodes, so a hungry agent standing next to dozens of
+        harvest-ready farms (planted by the same population) would starve
+        rather than walk to one, because nothing pointed it there.
+        Cultivated land is known to its community the same way SOCIALIZE
+        treats other agents as known (D4) — see docs/DECISIONS.md, D6."""
+        best: tuple[int, int] | None = None
+        best_dist: int | None = None
+        for (x, y), plot in farms.plots.items():
+            if plot.stage is not FarmStage.READY:
+                continue
+            dist = abs(x - agent.x) + abs(y - agent.y)
+            if best_dist is None or dist < best_dist:
+                best, best_dist = (x, y), dist
+        return best
 
     @staticmethod
     def _nearest_resource(agent: Agent, resources: ResourceGrid) -> tuple[int, int] | None:

@@ -13,7 +13,7 @@ from hearthmind.agents.agent import (
     AgentState,
 )
 from hearthmind.agents.population import WALKABLE_BIOMES, Population
-from hearthmind.economy.farms import FarmGrid
+from hearthmind.economy.farms import FarmGrid, FarmStage
 from hearthmind.settlement.buildings import Settlement
 from hearthmind.world.resources import ResourceGrid, ResourceNode
 from hearthmind.world.terrain import generate_terrain
@@ -423,6 +423,27 @@ class TestGoalDirectedMovement(unittest.TestCase):
             population.tick(seed=1, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
 
         self.assertGreater(agent.x, 5)  # stepped toward x=10
+
+    def test_forage_goal_prefers_ready_farm_over_far_wild_node_no_cap(self):
+        # D6 regression: FORAGE previously only ever targeted wild
+        # resource nodes, so an agent could starve standing near dozens of
+        # harvest-ready farms because nothing pointed it there. A ready
+        # farm beyond the wild-forage radius must still be reachable.
+        terrain = open_terrain(width=64, height=64)
+        resources = ResourceGrid(nodes={(6, 5): ResourceNode(x=6, y=5, amount=1.0)})
+        settlement = Settlement()
+        farms = FarmGrid()
+        farms.plant(40, 5)
+        farms.plots[(40, 5)].stage = FarmStage.READY
+        farms.plots[(40, 5)].amount = 3.0
+        agent = Agent(id=0, name="Seeker", x=0, y=5, hunger=0.1, goal=AgentGoal.FORAGE)
+        population = Population(agents=[agent], _next_id=1)
+
+        for tick in range(1, 6):
+            population.tick(seed=1, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
+
+        self.assertGreater(agent.x, 0)
+        self.assertLess(agent.x, 6)  # stepped toward the farm at x=40, ignoring the closer wild node
 
     def test_socialize_goal_moves_toward_nearest_agent(self):
         terrain = open_terrain()
