@@ -4,6 +4,55 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.4.0] — Phase B (slice 1): LLM cognition layer (Ollama)
+
+### Added
+- `hearthmind/llm/`: a stdlib-only (`urllib`) Ollama client
+  (`client.py`), a bounded-concurrency async job runner with mandatory
+  timeout + deterministic fallback (`jobs.py`), per-agent goal
+  prompt/parse/fallback logic (`cognition.py`), and seasonal chronicle
+  summarization (`chronicle.py`). Off by default (`Config.llm_enabled`,
+  `--llm-enabled`).
+- Agents now have a `goal` (wander/forage/socialize/rest), re-evaluated
+  once per sim-day (staggered across the day), that biases movement:
+  FORAGE/SOCIALIZE move toward the nearest visible resource node/agent,
+  REST proactively pauses activity, WANDER is the unchanged pre-Phase-B
+  behavior. Goal decisions come from the LLM when enabled, or a
+  deterministic hunger/energy rule when not — the simulation is
+  unaffected either way beyond richer/simpler goal choices.
+- A seasonal `chronicle` event (LLM-authored prose, or a deterministic
+  templated count-based summary as fallback) is logged on every
+  `season_end`, reusing the existing `events` table.
+- All LLM-backed work is scheduled and collected entirely inside
+  `SimulationEngine` as fire-and-forget background tasks — `World.tick()`
+  stays fully synchronous and unaware the LLM exists, preserving the
+  Milestone-1 invariant that the engine is the only thing that mutates
+  the World and never blocks the tick loop.
+- `inspect_world.py --agents`: lists each inhabitant's position, state,
+  goal, goal reason, needs, and age — the first way to inspect individual
+  agents rather than only population aggregates.
+- CLI flags: `--llm-enabled`, `--llm-host`, `--llm-model`,
+  `--llm-timeout`, `--llm-max-concurrent`.
+
+### Tested
+- LLM-facing code tested against a fake local HTTP server
+  (`tests/_llm_fake_server.py`) covering success, malformed JSON,
+  non-200 status, connection-refused, and timeout paths, plus an
+  engine-level end-to-end test proving a fake server's response actually
+  reaches an agent's `goal`/`goal_reason`.
+- **Not yet verified against a real Ollama installation** — no Ollama
+  available in the environment this was built in. See README's "LLM
+  cognition layer" section and `docs/TESTING.md` section 6b for the
+  checklist to run before trusting this in production.
+
+### Known gaps (intentional, tracked for later phases)
+- No priority distinction between cognition and background-enrichment
+  job types yet — a single bounded semaphore is enough at current scale.
+- The chronicle isn't read back into agent cognition prompts yet (no
+  long-term LLM memory loop) — planned once Phase E (culture) needs it.
+- Only four fixed goals; no free-form reasoning or richer triggers beyond
+  the daily cadence.
+
 ## [0.3.0] — Phase A: Foraging, lifecycle, relationships and birth
 
 ### Added

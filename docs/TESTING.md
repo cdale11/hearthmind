@@ -7,10 +7,10 @@ actual server behave correctly," which has burned us before (see
 `docs/DECISIONS.md`, M1-4a: the `sim_minutes_per_tick` bug was found by
 running the server and inspecting saved state, not by reasoning about it).
 
-None of this requires anything beyond the Python standard library today.
-Once Milestone 3 (Ollama) lands, add an "LLM path" section; once Milestone
-4 (browser) lands, add a "browser" section. Keep this file growing with the
-project rather than starting a new one per phase.
+Most of this requires nothing beyond the Python standard library. Section 6
+below covers the LLM path (Phase B onward). Once Phase F (browser) lands,
+add a "browser" section. Keep this file growing with the project rather
+than starting a new one per phase.
 
 ## 1. Unit tests
 
@@ -109,10 +109,58 @@ at exactly 1.0 for the whole population with no deaths ever triggering,
 resource nodes all permanently at zero) — the kind of bug that a
 20-tick unit test won't surface but a 3000-tick run will.
 
-## 6. Clean up
+## 6. LLM path (Phase B onward)
+
+The LLM-facing code (`hearthmind/llm/`) is covered by unit tests against a
+fake local HTTP server (`tests/_llm_fake_server.py`) that exercise the real
+client/timeout/JSON-parsing/fallback code paths without needing Ollama
+installed — always run these as part of section 1. That is **not** the
+same as verifying against a real Ollama server, and both matter:
+
+**6a. Fallback path (no Ollama needed) — run every release:**
 
 ```bash
-rm -f /tmp/hm_test.sqlite3* /tmp/hm_soak.sqlite3*
+rm -f /tmp/hm_llm.sqlite3*
+timeout 6 python3 -m hearthmind.server --db /tmp/hm_llm.sqlite3 \
+    --seed 1 --width 16 --height 16 --tick-seconds 0.2 --initial-population 4 -v
+python3 -m hearthmind.inspect_world --db /tmp/hm_llm.sqlite3 --agents
+```
+
+`--llm-enabled` is deliberately omitted — confirms agents still get a
+`goal`/`goal_reason` (via the deterministic fallback) even with Ollama
+untouched. If every agent stays at `goal=wander, reason=""` well past a
+full sim-day's worth of ticks, the cognition scheduling itself is broken
+(not just the LLM path).
+
+**6b. Real Ollama path — run whenever `hearthmind/llm/` changes, and
+before any release that touts LLM behavior:**
+
+```bash
+ollama pull qwen2.5:3b   # or whatever --llm-model you're testing
+rm -f /tmp/hm_llm.sqlite3*
+timeout 10 python3 -m hearthmind.server --db /tmp/hm_llm.sqlite3 \
+    --seed 1 --width 16 --height 16 --tick-seconds 0.2 --initial-population 4 \
+    --llm-enabled -v
+python3 -m hearthmind.inspect_world --db /tmp/hm_llm.sqlite3 --agents
+python3 -m hearthmind.inspect_world --db /tmp/hm_llm.sqlite3 --events 20
+```
+
+Confirm: at least one agent's `goal_reason` looks like real generated
+text (not the fallback's terse "hungry"/"tired"/"content"), no
+"LLM call failed, using deterministic fallback" warnings in the log
+(unless intentionally testing a bad `--llm-host`), and — if the run
+crossed a season boundary — a `chronicle` event with actual prose, not
+the fallback's templated count sentence.
+
+This step has not yet been run against a real Ollama install as part of
+this project's own development (no Ollama in the sandbox that built
+Phase B) — the maintainer running this checklist for the first time after
+Phase B should treat 6b as unverified until they've done it themselves.
+
+## 7. Clean up
+
+```bash
+rm -f /tmp/hm_test.sqlite3* /tmp/hm_soak.sqlite3* /tmp/hm_llm.sqlite3*
 ```
 
 Scratch databases are not committed and shouldn't linger in `/tmp` between

@@ -46,5 +46,18 @@ class Config:
 
     db_path: str = "world.sqlite3"
 
+    # --- runtime: LLM (Ollama) cognition layer, off by default -----------------
+    llm_enabled: bool = False
+    """Off by default: the simulation is fully deterministic and testable
+    without Ollama installed. Turning this on requires a reachable Ollama
+    server with `llm_model` pulled; see README."""
+
+    llm_host: str = "http://localhost:11434"
+    llm_model: str = "qwen2.5:3b"
+    llm_timeout_seconds: float = 10.0
+    llm_max_concurrent: int = 2
+    """How many LLM requests may be in flight at once — the lever for
+    keeping Ollama's own thread pool busy without overwhelming it."""
+
     def days_per_year(self) -> int:
         return self.days_per_season * len(self.seasons_per_year)

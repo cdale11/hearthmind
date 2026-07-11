@@ -18,6 +18,20 @@ class AgentState(str, Enum):
     RESTING = "resting"
 
 
+class AgentGoal(str, Enum):
+    """A high-level intention set periodically (Phase B: once per sim-day,
+    by the LLM cognition layer or its deterministic fallback) and executed
+    deterministically every tick until re-evaluated. WANDER is both the
+    default and the pre-Phase-B behavior, so agents with no goal set yet
+    (or loaded from a pre-Phase-B save) behave exactly as before — see
+    docs/DECISIONS.md, B2."""
+
+    WANDER = "wander"
+    FORAGE = "forage"
+    SOCIALIZE = "socialize"
+    REST = "rest"
+
+
 # Needs tuning. Kept as module constants rather than Config fields for now —
 # these are behavioral parameters of the agent model itself, not world-shape
 # parameters a deployer chooses at creation time. Revisit if that stops
@@ -90,6 +104,8 @@ class Agent:
     starving_ticks: int = 0
     relationships: dict[int, float] = field(default_factory=dict)
     parents: tuple[int, int] | None = None
+    goal: AgentGoal = AgentGoal.WANDER
+    goal_reason: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -105,6 +121,8 @@ class Agent:
             "starving_ticks": self.starving_ticks,
             "relationships": {str(k): round(v, 4) for k, v in self.relationships.items()},
             "parents": list(self.parents) if self.parents is not None else None,
+            "goal": self.goal.value,
+            "goal_reason": self.goal_reason,
         }
 
     @classmethod
@@ -123,4 +141,6 @@ class Agent:
             starving_ticks=data.get("starving_ticks", 0),
             relationships={int(k): v for k, v in data.get("relationships", {}).items()},
             parents=tuple(parents) if parents is not None else None,
+            goal=AgentGoal(data.get("goal", AgentGoal.WANDER.value)),
+            goal_reason=data.get("goal_reason", ""),
         )

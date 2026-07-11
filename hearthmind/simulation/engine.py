@@ -5,6 +5,14 @@ future browser interface talks to the engine (or a queue in front of it) to
 read state or queue interventions — it never ticks the world itself and
 never blocks the loop. This is what makes "closing the browser doesn't stop
 the simulation" true by construction rather than by convention.
+
+Phase B (LLM cognition) extends this without breaking that invariant: the
+tick itself (`_tick_once`) stays fully synchronous and deterministic.
+LLM-backed work (per-agent goal-setting, the seasonal chronicle) is kicked
+off as fire-and-forget background tasks that run concurrently with future
+ticks; their results are applied synchronously at the start of the *next*
+`_tick_once`, never awaited inline in the tick path. See
+docs/DECISIONS.md, B1/B2/B3.
 """
 from __future__ import annotations
 
@@ -13,7 +21,11 @@ import logging
 import sqlite3
 
 from hearthmind.config import Config
-from hearthmind.persistence.snapshot import load_latest_snapshot, log_event, save_snapshot
+from hearthmind.llm import chronicle
+from hearthmind.llm.client import OllamaClient
+from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
+from hearthmind.llm.jobs import CognitionRunner
+from hearthmind.persistence.snapshot import load_latest_snapshot, log_event, recent_events, save_snapshot
 from hearthmind.world.state import World
 
 logger = logging.getLogger("hearthmind.engine")
@@ -42,6 +54,16 @@ class SimulationEngine:
         self.world = world
         self._stop_event = asyncio.Event()
         self._ticks_since_snapshot = 0
+
+        client = None
+        if config.llm_enabled:
+            client = OllamaClient(
+                host=config.llm_host, model=config.llm_model, timeout_seconds=config.llm_timeout_seconds,
+            )
+        self._cognition_runner = CognitionRunner(client=client, max_concurrent=config.llm_max_concurrent)
+        self._pending_goal_results: dict[int, dict] = {}
+        self._inflight_cognition_agent_ids: set[int] = set()
+        self._background_tasks: set[asyncio.Task] = set()
 
     @classmethod
     def load_or_create(cls, conn: sqlite3.Connection, config: Config) -> "SimulationEngine":
@@ -75,8 +97,9 @@ class SimulationEngine:
 
     async def run_forever(self) -> None:
         logger.info(
-            "Engine starting: %.2fs/tick, %s sim-minutes/tick, snapshot every %s ticks.",
+            "Engine starting: %.2fs/tick, %s sim-minutes/tick, snapshot every %s ticks, LLM %s.",
             self.config.tick_seconds, self.world.config.sim_minutes_per_tick, self.config.snapshot_every_ticks,
+            "enabled" if self._cognition_runner.enabled else "disabled (deterministic fallback only)",
         )
         try:
             while not self._stop_event.is_set():
@@ -86,10 +109,18 @@ class SimulationEngine:
                 except asyncio.TimeoutError:
                     pass  # normal case: no stop requested within the tick interval
         finally:
+            if self._background_tasks:
+                logger.info("Cancelling %s in-flight LLM background task(s).", len(self._background_tasks))
+                for task in self._background_tasks:
+                    task.cancel()
+                await asyncio.gather(*self._background_tasks, return_exceptions=True)
             logger.info("Engine stopping — saving final snapshot at tick %s.", self.world.clock.tick_count)
             save_snapshot(self.conn, self.world)
 
     def _tick_once(self) -> None:
+        self._apply_pending_cognition_results()
+
+        previous_season = self.world.clock.season
         events = self.world.tick()
         for event in events:
             log_event(
@@ -110,8 +141,70 @@ class SimulationEngine:
                 self.world.clock.clock_string(), self.world.weather.describe(),
             )
 
+        self._maybe_schedule_chronicle(events, previous_season)
+        self._schedule_due_cognition()
+
         self._ticks_since_snapshot += 1
         if self._ticks_since_snapshot >= self.config.snapshot_every_ticks:
             save_snapshot(self.conn, self.world)
             self._ticks_since_snapshot = 0
             logger.debug("Snapshot saved at tick %s.", self.world.clock.tick_count)
+
+    # --- Phase B: per-agent cognition (goals) -------------------------------
+
+    def _apply_pending_cognition_results(self) -> None:
+        """Apply goal decisions completed by background tasks since the
+        last tick. Runs synchronously at the top of _tick_once, never
+        inline with the LLM call itself."""
+        if not self._pending_goal_results:
+            return
+        for agent_id, result in self._pending_goal_results.items():
+            goal, reason = parse_goal(result)
+            self.world.population.apply_goal(agent_id, goal, reason)
+        self._pending_goal_results.clear()
+
+    def _schedule_due_cognition(self) -> None:
+        """Fire-and-forget a goal-decision task for every agent whose
+        staggered daily slot is this tick. Scheduled unconditionally
+        (whether or not the LLM is enabled) — CognitionRunner resolves to
+        the deterministic fallback when it's not, so agents still get
+        periodic goal reevaluation either way."""
+        ticks_per_day = self.world.config.minutes_per_day // self.world.config.sim_minutes_per_tick
+        due = self.world.population.due_for_cognition(self.world.clock.tick_count, ticks_per_day)
+        for agent in due:
+            if agent.id in self._inflight_cognition_agent_ids:
+                continue
+            self._inflight_cognition_agent_ids.add(agent.id)
+            prompt = build_prompt(agent, self.world.clock.season, self.world.weather.describe())
+            hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
+            task = asyncio.create_task(self._run_cognition(agent.id, prompt, hunger_snapshot, energy_snapshot))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+    async def _run_cognition(self, agent_id: int, prompt: str, hunger: float, energy: float) -> None:
+        try:
+            result = await self._cognition_runner.run(
+                prompt, SYSTEM_PROMPT, fallback=lambda: fallback_goal(hunger, energy),
+            )
+            self._pending_goal_results[agent_id] = result
+        finally:
+            self._inflight_cognition_agent_ids.discard(agent_id)
+
+    # --- Phase B: world chronicle --------------------------------------------
+
+    def _maybe_schedule_chronicle(self, events: list[str], previous_season: str) -> None:
+        if "season_end" not in events:
+            return
+        recent = recent_events(self.conn, limit=50)
+        population_summary = self.world.population.summary()
+        year = self.world.clock.year
+        prompt = chronicle.build_prompt(recent, population_summary, previous_season, year)
+        fallback = chronicle.fallback_summary(recent, population_summary, previous_season, year)
+        task = asyncio.create_task(self._run_chronicle(prompt, fallback))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _run_chronicle(self, prompt: str, fallback: dict) -> None:
+        result = await self._cognition_runner.run(prompt, chronicle.SYSTEM_PROMPT, fallback=lambda: fallback)
+        summary = chronicle.parse_summary(result, fallback)
+        log_event(self.conn, tick=self.world.clock.tick_count, category="chronicle", description=summary)

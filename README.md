@@ -27,11 +27,18 @@ client at all, does not pause anything.
   compute bounded and avoids a "catch-up burst" of simulation; it can be
   revisited once we have costlier per-tick systems (agents, economy) where
   "what happened while I was gone" becomes an interesting question in itself.
-- **No external dependencies.** Everything here is Python standard library
-  (`sqlite3`, `asyncio`, `dataclasses`, `random`, `hashlib`, `json`). This
-  keeps the project trivially runnable on modest hardware and easy for new
-  open-source contributors to pick up. The LLM (Ollama) integration in a
-  later milestone will be the first real external dependency.
+- **No external Python dependencies.** Everything here is Python standard
+  library (`sqlite3`, `asyncio`, `dataclasses`, `random`, `hashlib`, `json`,
+  `urllib`). This keeps the project trivially runnable on modest hardware
+  and easy for new contributors to pick up. Ollama (see "LLM cognition
+  layer" below) is the project's first real *external* dependency, but
+  it's an optional local *service*, not a new pip package — talking to it
+  only needed `urllib`, already in the standard library.
+- **LLM failure degrades quality, never liveness.** Every LLM-backed
+  decision goes through a timeout and a deterministic, rule-based
+  fallback and never raises into the tick loop. Ollama being slow,
+  unreachable, or not installed at all makes agents behave more simply —
+  it never stalls or crashes the simulation. See `docs/DECISIONS.md`, B1.
 
 ## Project layout
 
@@ -51,11 +58,16 @@ hearthmind/
   persistence/
     database.py          # SQLite schema + connection helper
     snapshot.py           # save_snapshot / load_latest_snapshot / event log
+  llm/
+    client.py              # minimal stdlib-only Ollama HTTP client
+    jobs.py                  # CognitionRunner: bounded-concurrency async LLM calls with fallback
+    cognition.py              # per-agent goal prompt/parse/fallback
+    chronicle.py               # seasonal world-history summarization
   simulation/
-    engine.py              # SimulationEngine: the tick loop + lifecycle
-  server.py                 # CLI entrypoint that runs the engine forever
-  inspect_world.py           # CLI to print a summary of the saved world state
-tests/                        # unittest-based tests (stdlib only)
+    engine.py                   # SimulationEngine: the tick loop + lifecycle + LLM scheduling
+  server.py                      # CLI entrypoint that runs the engine forever
+  inspect_world.py                # CLI to print a summary of the saved world state
+tests/                             # unittest-based tests (stdlib only)
 ```
 
 ## Running it
@@ -77,11 +89,53 @@ Useful flags on `server.py`:
 - `--width / --height` — terrain grid size (default 64x64).
 - `--initial-population INT` — inhabitants spawned when a world is first
   created (default 12; only used the first time, like `--seed`).
+- `--llm-enabled` — turn on the Ollama cognition layer (off by default;
+  see below).
+- `--llm-host URL` (default `http://localhost:11434`), `--llm-model NAME`
+  (default `qwen2.5:3b`), `--llm-timeout SECONDS` (default 10),
+  `--llm-max-concurrent INT` (default 2) — all runtime settings, safe to
+  change between runs.
 
 With the defaults, 1 real second = 15 sim-minutes, so a full sim day
 (24h) passes roughly every 96 real seconds — fast enough to watch seasons
 turn over in a single sitting while developing, but every constant is a flag
 so this is easy to slow down later for a "real" long-running deployment.
+
+## LLM cognition layer (Ollama)
+
+Off by default — the simulation is fully deterministic and testable
+without Ollama installed at all (`fallback_goal`/`fallback_summary` stand
+in for it, see `docs/DECISIONS.md` B1-B3). To turn it on:
+
+```bash
+# 1. Install and start Ollama (see https://ollama.com), then pull a model:
+ollama pull qwen2.5:3b
+
+# 2. Run the server with the LLM enabled:
+python3 -m hearthmind.server --db world.sqlite3 --llm-enabled
+```
+
+With it enabled, each agent's daily goal (wander/forage/socialize/rest)
+and the seasonal chronicle entry are LLM-authored instead of rule-based;
+everything else about the simulation is unaffected. Any LLM failure
+(unreachable server, timeout, malformed response) transparently falls
+back to the same deterministic behavior used when it's disabled — see
+`hearthmind/llm/jobs.py`.
+
+**Honesty note:** the LLM integration code is tested against a fake local
+HTTP server standing in for Ollama's API shape (`tests/_llm_fake_server.py`,
+`tests/test_llm_client.py`), which exercises the real client/timeout/
+fallback code paths. It has **not** been verified against an actual
+running Ollama instance in this project's development environment.
+Before relying on this for anything real, run it against a genuine
+`ollama serve` yourself and check:
+
+```bash
+python3 -m hearthmind.inspect_world --db world.sqlite3 --agents
+```
+
+for each inhabitant's current `goal`/`goal_reason`, and watch the
+`Recent events` list for `chronicle` entries — see `docs/TESTING.md`.
 
 ## Testing
 
@@ -105,8 +159,14 @@ every release, not just unit tests.
       affinity with — all deterministic per `(seed, tick)`, all persisted.
       Still missing: any LLM involvement (still ahead in Phase B) and any
       settlement-level structure (buildings, roads — Phase C).
-- [ ] Phase B — LLM cognition layer (Ollama): agent decisions, world
-      chronicle/narrator. See `docs/ROADMAP.md`.
+- [~] **Phase B — LLM cognition layer (Ollama), slice 1.** Off by
+      default. When enabled: agents get a daily LLM-chosen goal
+      (wander/forage/socialize/rest) that biases their behavior, and a
+      seasonal chronicle entry is written to the event log. Deterministic
+      fallbacks make both features work even without Ollama installed.
+      LLM-facing code is tested against a fake local server, but **not
+      yet verified against a real running Ollama instance** — see
+      "LLM cognition layer" above.
 - [ ] Phase C — Settlements & construction.
 - [ ] Phase D — Agriculture & economy.
 - [ ] Phase E — Culture & history.

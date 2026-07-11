@@ -1,0 +1,59 @@
+"""A minimal, dependency-free client for a local Ollama server.
+
+Uses `urllib.request` (stdlib) rather than adding `requests`/`httpx` as a
+dependency — Ollama itself is the first real external dependency this
+project takes on (see README), but talking HTTP to it doesn't need a new
+pip package. See docs/DECISIONS.md, B1.
+"""
+from __future__ import annotations
+
+import json
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+
+
+class OllamaUnavailable(Exception):
+    """Raised when the LLM could not be reached, timed out, or returned
+    something we can't parse as JSON. Callers MUST catch this and fall
+    back to deterministic behavior — the LLM must never be able to stall
+    the simulation. See docs/DECISIONS.md, B1."""
+
+
+@dataclass
+class OllamaClient:
+    host: str
+    model: str
+    timeout_seconds: float
+
+    def generate_json(self, prompt: str, system: str | None = None) -> dict:
+        """Blocking call — issue one generate request and parse the
+        response as JSON. Callers running inside the event loop must wrap
+        this in `asyncio.to_thread` (see hearthmind/llm/jobs.py); this
+        method itself does no async work."""
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "format": "json",
+            "stream": False,
+        }
+        if system:
+            payload["system"] = system
+
+        request = urllib.request.Request(
+            f"{self.host.rstrip('/')}/api/generate",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+            raise OllamaUnavailable(f"Ollama request failed: {exc}") from exc
+
+        raw_response = body.get("response", "")
+        try:
+            return json.loads(raw_response)
+        except json.JSONDecodeError as exc:
+            raise OllamaUnavailable(f"Ollama returned non-JSON response: {raw_response!r}") from exc

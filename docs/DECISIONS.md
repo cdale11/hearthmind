@@ -163,6 +163,91 @@ deterministic, testable growth mechanic before Phase B's LLM gets involved
 in anything relationship-shaped — replacing or layering on top of this is
 expected, not something this decision tries to preempt.
 
+## B1: Ollama client built on stdlib `urllib`, not `requests`/`httpx`
+
+Ollama is the project's first real external dependency (see README), but
+talking HTTP to a local REST API doesn't need a new pip package on top of
+it — `urllib.request` is sufficient and keeps `pyproject.toml`'s
+`dependencies` list empty for one release longer. `requests` happened to
+already be present in this development sandbox, which made it tempting,
+but that's an environment accident, not something to design around;
+revisit only if the stdlib client becomes a real maintenance burden (e.g.
+needing HTTP/2 or connection pooling Ollama's API would actually benefit
+from).
+
+The client (`hearthmind/llm/client.py`) is deliberately dumb: one method,
+one endpoint (`/api/generate` with `format: "json"`), blocking by design.
+Async orchestration lives one layer up in `hearthmind/llm/jobs.py`
+(`CognitionRunner`), which wraps the blocking call in
+`asyncio.to_thread` — this keeps the client trivially unit-testable
+without any asyncio machinery, and keeps "how do we run this without
+blocking the event loop" as a separate, explicit concern.
+
+`CognitionRunner` is the single choke point every LLM-backed feature (B2
+goals, B3 chronicle) goes through: a bounded semaphore
+(`llm_max_concurrent`, default 2) caps in-flight requests — this is the
+idle-CPU-utilization lever described in the project brief. Ollama's own
+thread pool does the actual inference; keeping more than one request in
+flight is what lets it use more than one core. Every call goes through a
+timeout and a caller-supplied deterministic fallback and *never raises* —
+LLM failure must degrade quality, never liveness. This was tested against
+a fake local HTTP server standing in for Ollama (`tests/_llm_fake_server.py`)
+covering success, malformed JSON, non-200 status, connection-refused, and
+timeout paths — but genuine interop with a real Ollama installation has
+**not** been verified in this environment (Ollama isn't installed in this
+sandbox). Treat that as a real gap to close, not a formality — verify
+against an actual `ollama serve` + pulled model before relying on this in
+production.
+
+## B2: Goals are a fixed enum, not free text — decision-first, not dialogue-first
+
+The LLM chooses one of four fixed goals (`AgentGoal`: wander/forage/
+socialize/rest) rather than producing free-form text. This keeps the
+output structured, cheap to validate (`parse_goal` degrades any
+unexpected value to WANDER rather than guessing), and — critically —
+directly executable by deterministic movement logic. This is what
+"decision-first, not dialogue-first" (from the project roadmap) means
+concretely: the LLM's job is to pick from a small set of consequential
+choices, not to produce prose the rest of the system has to interpret.
+
+Goals are re-evaluated once per sim-day, staggered by agent id
+(`(tick + agent.id) % ticks_per_day == 0`) so a full day's cognition
+spreads evenly across the day's ticks instead of arriving as one burst
+that would spike LLM load and desync from a "thundering herd" pattern.
+WANDER is both the default goal and exactly the pre-Phase-B movement
+behavior — an agent with no goal assigned yet (or loaded from a
+pre-Phase-B save, where `Agent.from_dict`'s `.get("goal", "wander")`
+default applies) behaves identically to Phase A. FORAGE/SOCIALIZE bias
+movement toward the nearest visible target (`GOAL_SEARCH_RADIUS`, 6
+tiles) via a simple greedy step, falling back to ordinary wandering when
+nothing is in range; REST proactively pauses an agent even below the
+energy threshold that would otherwise force it. None of this requires the
+LLM to be enabled — `CognitionRunner` resolves to `fallback_goal()`
+(a simple hunger/energy rule) when disabled, so the goal system has real
+behavioral effect even without Ollama installed.
+
+Cognition requests are scheduled and their results collected entirely
+inside `SimulationEngine` (fire-and-forget `asyncio.Task`s, results
+applied at the top of the *next* `_tick_once`) rather than inside
+`Population`/`World`. This preserves the existing invariant from M1
+("the engine is the only thing that mutates the World... it never blocks
+the loop") without weakening it — `World.tick()` stays fully synchronous
+and is unaware the LLM exists at all.
+
+## B3: Chronicle reuses the `events` table; triggered on `season_end`
+
+Rather than a new `chronicle` table, chronicle entries are just `events`
+rows with `category="chronicle"` — the table already stores arbitrary
+tick/category/description text, and a chronicle paragraph is only a
+longer description. Avoids a schema migration for what is, structurally,
+the same kind of record. Triggered once per season turn (not every day —
+that would be both expensive and repetitive at this population/event
+scale) and built from the last 50 events plus a population summary.
+Falls back to a deterministic templated summary (birth/death counts) when
+the LLM is unavailable — less evocative than prose, but still a real,
+useful record, and consistent with every other Phase B fallback in this
+project: degrade quality, not existence.
+
 ## A4: Migration flag generalized to `migrated_subsystems`
 
 M2-3 introduced a single `migrated_population: bool`. Phase A needed the

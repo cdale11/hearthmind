@@ -8,11 +8,12 @@ from hearthmind.agents.agent import (
     STARVATION_HUNGER_THRESHOLD,
     STARVATION_TICKS_TO_DEATH,
     Agent,
+    AgentGoal,
     AgentState,
 )
 from hearthmind.agents.population import WALKABLE_BIOMES, Population
-from hearthmind.world.resources import ResourceGrid
-from hearthmind.world.terrain import generate_terrain
+from hearthmind.world.resources import ResourceGrid, ResourceNode
+from hearthmind.world.terrain import Biome, Tile, generate_terrain
 
 
 class TestPopulationSpawn(unittest.TestCase):
@@ -288,6 +289,111 @@ class TestSerialization(unittest.TestCase):
 
         restored = Population.from_dict(population.to_dict())
         self.assertEqual(population.to_dict(), restored.to_dict())
+
+
+def _open_terrain(width=16, height=16):
+    """An all-grassland terrain with no obstacles, so goal-directed
+    movement tests aren't at the mercy of a randomly generated map having
+    (or not having) a clear walkable path between two points."""
+    return [
+        [Tile(x=x, y=y, elevation=0.5, biome=Biome.GRASSLAND) for x in range(width)]
+        for y in range(height)
+    ]
+
+
+class TestGoalDirectedMovement(unittest.TestCase):
+    def test_forage_goal_moves_toward_nearest_node(self):
+        terrain = _open_terrain()
+        resources = ResourceGrid(nodes={(10, 5): ResourceNode(x=10, y=5, amount=1.0)})
+        agent = Agent(id=0, name="Seeker", x=5, y=5, hunger=0.1, goal=AgentGoal.FORAGE)
+        population = Population(agents=[agent], _next_id=1)
+
+        for tick in range(1, 6):
+            population.tick(seed=1, tick=tick, terrain=terrain, resources=resources)
+
+        self.assertGreater(agent.x, 5)  # stepped toward x=10
+
+    def test_socialize_goal_moves_toward_nearest_agent(self):
+        terrain = _open_terrain()
+        resources = ResourceGrid(nodes={})
+        a = Agent(id=0, name="Seeker", x=0, y=0, hunger=0.1, energy=0.9, goal=AgentGoal.SOCIALIZE)
+        b = Agent(id=1, name="Target", x=5, y=0, hunger=0.1, energy=0.9, goal=AgentGoal.WANDER)
+        population = Population(agents=[a, b], _next_id=2)
+
+        for tick in range(1, 6):
+            population.tick(seed=1, tick=tick, terrain=terrain, resources=resources)
+
+        self.assertGreater(a.x, 0)  # stepped toward b at x=5
+
+    def test_rest_goal_forces_resting_even_with_high_energy(self):
+        terrain = _open_terrain()
+        resources = ResourceGrid(nodes={})
+        agent = Agent(id=0, name="Weary", x=5, y=5, energy=0.9, state=AgentState.AWAKE, goal=AgentGoal.REST)
+        population = Population(agents=[agent], _next_id=1)
+
+        population.tick(seed=1, tick=1, terrain=terrain, resources=resources)
+
+        self.assertEqual(agent.state, AgentState.RESTING)
+
+    def test_wander_goal_unaffected_by_goal_machinery(self):
+        # Default goal (WANDER) should reproduce pre-Phase-B movement
+        # exactly — this is really a regression guard for the dispatch
+        # refactor, not a new behavior.
+        terrain = generate_terrain(seed=42, width=32, height=32)
+        resources = ResourceGrid.generate(seed=42, terrain=terrain)
+        population = Population.spawn_initial(seed=42, count=10, terrain=terrain)
+        for tick in range(1, 50):
+            population.tick(seed=42, tick=tick, terrain=terrain, resources=resources)
+        for agent in population.agents:
+            self.assertEqual(agent.goal, AgentGoal.WANDER)
+            self.assertIn(terrain[agent.y][agent.x].biome, WALKABLE_BIOMES)
+
+
+class TestCognitionScheduling(unittest.TestCase):
+    def test_due_for_cognition_is_staggered_by_agent_id(self):
+        terrain = _open_terrain()
+        agents = [Agent(id=i, name=f"A{i}", x=0, y=0) for i in range(5)]
+        population = Population(agents=agents, _next_id=5)
+
+        due_at_tick_0 = {a.id for a in population.due_for_cognition(tick=0, ticks_per_day=5)}
+        due_at_tick_3 = {a.id for a in population.due_for_cognition(tick=3, ticks_per_day=5)}
+
+        self.assertEqual(due_at_tick_0, {0})
+        self.assertEqual(due_at_tick_3, {2})
+
+    def test_due_for_cognition_empty_when_ticks_per_day_invalid(self):
+        population = Population(agents=[Agent(id=0, name="A", x=0, y=0)], _next_id=1)
+        self.assertEqual(population.due_for_cognition(tick=0, ticks_per_day=0), [])
+
+    def test_apply_goal_sets_goal_and_reason(self):
+        agent = Agent(id=0, name="A", x=0, y=0)
+        population = Population(agents=[agent], _next_id=1)
+
+        population.apply_goal(0, AgentGoal.FORAGE, "hungry")
+
+        self.assertEqual(agent.goal, AgentGoal.FORAGE)
+        self.assertEqual(agent.goal_reason, "hungry")
+
+    def test_apply_goal_is_noop_for_unknown_agent(self):
+        population = Population(agents=[], _next_id=0)
+        population.apply_goal(999, AgentGoal.REST, "n/a")  # must not raise
+
+
+class TestGoalSerialization(unittest.TestCase):
+    def test_goal_round_trips(self):
+        agent = Agent(id=0, name="A", x=0, y=0, goal=AgentGoal.SOCIALIZE, goal_reason="lonely")
+        restored = Agent.from_dict(agent.to_dict())
+        self.assertEqual(restored.goal, AgentGoal.SOCIALIZE)
+        self.assertEqual(restored.goal_reason, "lonely")
+
+    def test_pre_phase_b_agent_dict_defaults_to_wander(self):
+        agent = Agent(id=0, name="A", x=0, y=0)
+        data = agent.to_dict()
+        del data["goal"]
+        del data["goal_reason"]
+        restored = Agent.from_dict(data)
+        self.assertEqual(restored.goal, AgentGoal.WANDER)
+        self.assertEqual(restored.goal_reason, "")
 
 
 if __name__ == "__main__":

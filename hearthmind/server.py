@@ -31,6 +31,13 @@ def parse_args(argv: list[str] | None = None) -> Config:
     parser.add_argument("--snapshot-every", type=int, default=60, help="Ticks between snapshots.")
     parser.add_argument("--initial-population", type=int, default=12,
                          help="Used only when creating a new world.")
+    parser.add_argument("--llm-enabled", action="store_true",
+                         help="Enable the Ollama cognition layer (off by default).")
+    parser.add_argument("--llm-host", default="http://localhost:11434", help="Ollama server URL.")
+    parser.add_argument("--llm-model", default="qwen2.5:3b", help="Ollama model name (must be pulled already).")
+    parser.add_argument("--llm-timeout", type=float, default=10.0, help="Seconds before an LLM call falls back.")
+    parser.add_argument("--llm-max-concurrent", type=int, default=2,
+                         help="Max simultaneous in-flight LLM requests.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug-level logging.")
     args = parser.parse_args(argv)
 
@@ -48,6 +55,11 @@ def parse_args(argv: list[str] | None = None) -> Config:
         snapshot_every_ticks=args.snapshot_every,
         initial_population=args.initial_population,
         db_path=args.db,
+        llm_enabled=args.llm_enabled,
+        llm_host=args.llm_host,
+        llm_model=args.llm_model,
+        llm_timeout_seconds=args.llm_timeout,
+        llm_max_concurrent=args.llm_max_concurrent,
     )
 
 

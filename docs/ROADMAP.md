@@ -37,23 +37,30 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
 
 ## Phase B — LLM infrastructure (the foundation, not a feature)
 
-- **B1. Ollama client + job architecture.** Async client, prompt
-  templates, structured (JSON-mode) output parsing, timeouts with
-  deterministic fallback (the LLM must never be able to stall the tick
-  loop), and a priority job queue: tick-critical (none, by design) vs.
-  cognition vs. background enrichment. This is where the BOINC-style
-  idle-CPU model gets built — a worker pool sized to available cores
-  minus reserved headroom, continuously consuming the job queue.
-- **B2. Sparse agent cognition.** LLM invoked per-agent on a slow cadence
-  (roughly once per in-game day, or on significant triggers — a hunger
-  crisis, a nearby death, a stranger arriving) to set a goal or
-  disposition, which deterministic systems then execute tick-by-tick.
-  Decision-first, not dialogue-first.
-- **B3. World chronicle / narrator.** Periodic LLM summarization of
-  recent events into a persistent history log. This becomes long-term
-  memory the LLM itself reads back in later prompts (B2, and later
-  culture/horror layers), and it's the first real content for the future
-  browser's "history" panel.
+- **[x] B1. Ollama client + job architecture (slice 1 shipped).** A
+  stdlib-only (`urllib`) blocking client wrapped in an async, bounded-
+  concurrency `CognitionRunner` (`hearthmind/llm/`) — this is the
+  BOINC-style idle-CPU lever described in the project brief: Ollama's own
+  thread pool does inference, and `llm_max_concurrent` controls how many
+  requests are in flight to keep it busy. Every call has a timeout and a
+  deterministic fallback and never raises into the tick loop. Tested
+  against a fake local server; **not yet verified against a real Ollama
+  install** — see README. Not yet built: a true priority queue
+  distinguishing cognition vs. background-enrichment work — at current
+  scale (single population, no chronicle backlog) a flat semaphore was
+  enough; revisit once Phase C/D add more LLM-consuming subsystems.
+- **[x] B2. Sparse agent cognition (slice 1 shipped).** Agents get one of
+  four fixed goals (wander/forage/socialize/rest) once per sim-day,
+  staggered across the day, executed deterministically by `Population`'s
+  movement logic every tick until re-evaluated. Decision-first, not
+  dialogue-first, per the plan above. Not yet built: triggers beyond the
+  daily cadence (a hunger crisis, a nearby death, a stranger arriving),
+  and goals richer than the current four.
+- **[x] B3. World chronicle / narrator (slice 1 shipped).** Seasonal LLM
+  summarization of recent events into the existing `events` table
+  (category `chronicle`). This is early long-term memory content, not
+  yet read back into later prompts (B2's agent cognition doesn't consult
+  it) — that's the natural next slice once culture (Phase E) needs it.
 
 ## Phase C — Settlements & construction
 

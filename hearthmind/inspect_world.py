@@ -21,6 +21,8 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Inspect a Hearthmind world's saved state.")
     parser.add_argument("--db", default="world.sqlite3", help="Path to the SQLite world database.")
     parser.add_argument("--events", type=int, default=10, help="Number of recent events to show.")
+    parser.add_argument("--agents", action="store_true",
+                         help="List each inhabitant individually (name, needs, goal).")
     parser.add_argument("--json", action="store_true", help="Print raw JSON summary instead of text.")
     args = parser.parse_args(argv)
 
@@ -32,9 +34,13 @@ def main(argv: list[str] | None = None) -> None:
 
         summary = world.summary()
         events = recent_events(conn, limit=args.events)
+        agents = [a.to_dict() for a in world.population.agents] if args.agents else None
 
     if args.json:
-        print(json.dumps({"summary": summary, "recent_events": events}, indent=2))
+        payload = {"summary": summary, "recent_events": events}
+        if agents is not None:
+            payload["agents"] = agents
+        print(json.dumps(payload, indent=2))
         return
 
     print(f"=== Hearthmind world: {args.db} ===")
@@ -59,6 +65,18 @@ def main(argv: list[str] | None = None) -> None:
         f"Resources:   {res['total_nodes']} foraging grounds "
         f"({res['depleted']} depleted)  avg fullness {res['avg_amount']:.2f}"
     )
+
+    if agents is not None:
+        print(f"\nInhabitants ({len(agents)}):")
+        for agent in sorted(agents, key=lambda a: a["name"]):
+            print(
+                f"  {agent['name']:20s} ({agent['x']:>3},{agent['y']:>3})  "
+                f"{agent['state']:8s} goal={agent['goal']:9s} "
+                f"hunger={agent['hunger']:.2f} energy={agent['energy']:.2f} "
+                f"age={agent['age_ticks']}"
+            )
+            if agent["goal_reason"]:
+                print(f"    \"{agent['goal_reason']}\"")
 
     print(f"\nRecent events (latest {len(events)}):")
     for event in events:
