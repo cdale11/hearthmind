@@ -72,6 +72,8 @@ hearthmind/
     cognition.py              # per-agent goal prompt/parse/fallback
     chronicle.py               # seasonal world-history summarization
     culture.py                  # yearly tradition invention (Phase E)
+    invention.py                # rare, prosperity-gated tech unlocks (E3)
+    dialogue.py                 # NPC-to-NPC ambient dialogue (E2)
   interface/
     api.py                        # WorldBroadcaster: framework-free bridge from engine to web layer
     app.py                         # FastAPI app: /, /state, /terrain, /events, WS /ws

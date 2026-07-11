@@ -4,6 +4,21 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.17.0] — Add: Phase E slice 3 — inventions, tech-tier unlocks (E3)
+
+### Added
+- `hearthmind/llm/invention.py`: rare, prosperity-gated tech-tier
+  unlocks for a named settlement (LLM-authored with deterministic
+  fallback) — `Settlement.tech_level`/`inventions`.
+- Gated on surplus (currency or materials threshold) and an independent
+  `INVENTION_CHANCE_PER_YEAR = 0.5` roll — deliberately rarer than
+  traditions so it reads as a real event.
+- `Population._tech_factor`: each invention boosts construction/repair
+  work and cultivated-food yield (farm harvest, granary stock/withdraw)
+  by `TECH_BONUS_PER_LEVEL` (0.15/level); wild foraging is untouched.
+
+See `docs/DECISIONS.md`, E3.
+
 ## [0.16.0] — Add: Phase E slice 2 — NPC dialogue, rivalry, LLM on by default (E2)
 
 ### Added

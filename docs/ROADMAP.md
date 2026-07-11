@@ -28,7 +28,7 @@ build" — phases below are the *how*, this table is the *what*.
 | Construction | shipped | Phase C |
 | Infrastructure | **not started** | new Phase C5, below (roads) |
 | Building decay | shipped | C1-C4 (weathering, ruin, reclamation) |
-| Culture | partial | E1 (naming, traditions); festivals/generational memory not built |
+| Culture | partial | E1 (naming, traditions) + E3 (prosperity-gated inventions/tech unlocks); festivals/generational memory not built |
 | History | partial | B3 (chronicle) + E1 (traditions feed prompts); no replay/browsable history view (Phase F) |
 | Optional subtle supernatural elements | **not started** | Phase G, deliberately last |
 
@@ -211,10 +211,16 @@ starts producing content that surprises its creator.
   -1..1 (was 0..1) to represent rivalry, not just friendship. LLM is now
   on by default (`Config.llm_enabled = True`) with the user's local
   hardware confirmed not budget-constrained. See `docs/DECISIONS.md`, E2.
+- **[x] E3: Inventions, tech-tier unlocks.** Rare, prosperity-gated
+  (`hearthmind/llm/invention.py`): a named, surplus-rich settlement may
+  invent something once a year (independent 50% roll, deliberately rarer
+  than traditions). Each invention raises `Settlement.tech_level`,
+  boosting construction/repair speed and cultivated-food yield
+  (farm/granary) by 15% per level — wild foraging untouched. See
+  `docs/DECISIONS.md`, E3.
 - Not yet built: per-agent generational memory (an agent recalling their
   own family's history), multiple named settlements, culture-specific
-  building types, festivals as a distinct mechanic from traditions,
-  E3 (inventions/tech-tier unlocks — next up).
+  building types, festivals as a distinct mechanic from traditions.
 
 ## Phase F — Browser interface
 

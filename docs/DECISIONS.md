@@ -863,3 +863,48 @@ behavior change (an agent avoiding a rival, not just a relationship
 number going negative) are left for a future slice — this one makes
 dialogue *exist* and *feed relationships/culture*, not agents *reasoning*
 about their social history. Tracked as A5 in `docs/ROADMAP.md`.
+
+## E3: Inventions — rare, prosperity-gated tech-tier unlocks
+
+The last of the three systems from the "build all together" brief
+(dialogue/E2, inventions/E3, wildlife/A4 — this is E3). Mechanically a
+sibling of E1's traditions (same `year_end` cadence, same LLM-authored-
+name-plus-description shape, same deterministic-fallback-pool pattern)
+but deliberately rarer and gated, so it reads as a real event rather than
+a yearly formality:
+
+- **Gate:** only rolled for a *named* settlement that's also
+  *prosperous* — `currency >= INVENTION_CURRENCY_THRESHOLD` (10.0) or
+  `materials >= MATERIALS_CAPACITY * INVENTION_MATERIALS_FRACTION`
+  (half of 30.0). A settlement still scraping by never invents anything;
+  surplus is the precondition, matching the real-world intuition that
+  invention follows slack, not survival.
+- **Roll:** independent of the tradition roll, `INVENTION_CHANCE_PER_YEAR
+  = 0.5` via a new deterministic `_namespaced_roll(seed, tick, namespace)`
+  helper in `simulation/engine.py` — a lighter-weight sibling of
+  `Population`'s `_namespaced_rng` for the rare cases (just this one, so
+  far) where the engine needs a single deterministic float rather than a
+  full `random.Random`.
+- **Effect:** each invention increments `Settlement.tech_level`, read via
+  a new `Population._tech_factor(settlement) = 1 + TECH_BONUS_PER_LEVEL *
+  tech_level` (0.15/level) multiplier applied to construction work,
+  repair work, farm-harvest hunger relief, granary-withdraw hunger
+  relief, and granary deposit rate. Deliberately *not* applied to wild
+  foraging — invention represents cultivated/civilized technique, not
+  something that makes berries taste better. Uncapped: self-limiting in
+  practice since inventions themselves are rare and gated by surplus that
+  the compounding bonus itself helps generate (a believable "rich get
+  richer" dynamic, not a runaway exploit — a settlement still has to
+  survive weather decay, starvation risk, and reproduction gates
+  regardless of tech level).
+- **New module:** `hearthmind/llm/invention.py`, structurally identical
+  to `culture.py` (`build_prompt`/`fallback_invention`/`parse_invention`)
+  — kept as a separate file rather than folded into `culture.py` because
+  the two have materially different trigger conditions (prosperity-gated
+  + independent roll vs. flat yearly) even though the LLM-authoring shape
+  is the same.
+
+Settlement gained two new persisted fields (`tech_level: int`,
+`inventions: list[str]`) — both `Settlement.to_dict`/`from_dict` default
+missing keys to `0`/`[]`, so old saves load without a migration entry
+(same pattern as every other additive field in this project).

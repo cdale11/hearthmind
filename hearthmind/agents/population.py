@@ -68,6 +68,7 @@ from hearthmind.settlement.buildings import (
     REPAIR_THRESHOLD,
     REPAIR_WORK_PER_TICK,
     SETTLE_CHANCE_PER_TICK,
+    TECH_BONUS_PER_LEVEL,
     BuildingKind,
     BuildingStage,
     Settlement,
@@ -102,6 +103,12 @@ E2."""
 def _namespaced_rng(seed: int, tick: int, namespace: str) -> random.Random:
     digest = hashlib.sha256(f"{seed}:{namespace}:{tick}".encode()).hexdigest()
     return random.Random(int(digest[:16], 16))
+
+
+def _tech_factor(settlement: Settlement) -> float:
+    """Multiplicative bonus from established inventions — see
+    TECH_BONUS_PER_LEVEL, docs/DECISIONS.md, E3."""
+    return 1.0 + TECH_BONUS_PER_LEVEL * settlement.tech_level
 
 
 def _is_walkable(terrain: list[list[Tile]], x: int, y: int) -> bool:
@@ -229,7 +236,8 @@ class Population:
         if plot is not None and plot.stage is FarmStage.READY:
             consumed = farms.harvest(agent.x, agent.y, HARVEST_AMOUNT)
             if consumed > 0:
-                agent.hunger = max(0.0, agent.hunger - HARVEST_HUNGER_RELIEF * (consumed / HARVEST_AMOUNT))
+                relief = HARVEST_HUNGER_RELIEF * (consumed / HARVEST_AMOUNT) * _tech_factor(settlement)
+                agent.hunger = max(0.0, agent.hunger - relief)
                 return
 
         # A stocked granary is preferred over wild foraging too — a
@@ -241,7 +249,8 @@ class Population:
         ):
             consumed = min(granary.stored_food, GRANARY_WITHDRAW_AMOUNT)
             granary.stored_food -= consumed
-            agent.hunger = max(0.0, agent.hunger - GRANARY_HUNGER_RELIEF * (consumed / GRANARY_WITHDRAW_AMOUNT))
+            relief = GRANARY_HUNGER_RELIEF * (consumed / GRANARY_WITHDRAW_AMOUNT) * _tech_factor(settlement)
+            agent.hunger = max(0.0, agent.hunger - relief)
             return
 
         node = resources.get(agent.x, agent.y)
@@ -557,7 +566,7 @@ class Population:
             )
             if workers == 0:
                 continue
-            work = CONSTRUCTION_WORK_PER_TICK * min(workers, MAX_WORKERS)
+            work = CONSTRUCTION_WORK_PER_TICK * min(workers, MAX_WORKERS) * _tech_factor(settlement)
             if settlement.materials >= MATERIALS_PER_CONSTRUCTION_TICK:
                 settlement.materials -= MATERIALS_PER_CONSTRUCTION_TICK
                 work *= CONSTRUCTION_MATERIALS_MULTIPLIER
@@ -580,7 +589,8 @@ class Population:
             )
             if workers == 0:
                 continue
-            building.condition = min(1.0, building.condition + REPAIR_WORK_PER_TICK * min(workers, MAX_WORKERS))
+            repair = REPAIR_WORK_PER_TICK * min(workers, MAX_WORKERS) * _tech_factor(settlement)
+            building.condition = min(1.0, building.condition + repair)
         return []  # repair progress isn't eventful enough on its own to log per-tick
 
     @classmethod
@@ -620,7 +630,7 @@ class Population:
             )
             if contributors == 0:
                 continue
-            deposit = GRANARY_DEPOSIT_PER_TICK * contributors
+            deposit = GRANARY_DEPOSIT_PER_TICK * contributors * _tech_factor(settlement)
             if building.stored_food >= GRANARY_CAPACITY:
                 settlement.currency = min(
                     CURRENCY_CAPACITY, settlement.currency + deposit * CURRENCY_PER_OVERFLOW_UNIT

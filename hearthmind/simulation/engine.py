@@ -21,14 +21,31 @@ import logging
 import sqlite3
 from typing import TYPE_CHECKING
 
+import hashlib
+
 from hearthmind.agents.agent import DIALOGUE_COOLDOWN_TICKS
 from hearthmind.config import Config
-from hearthmind.llm import chronicle, culture, dialogue
+from hearthmind.llm import chronicle, culture, dialogue, invention
 from hearthmind.llm.client import OllamaClient
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import load_latest_snapshot, log_event, recent_events, save_snapshot
+from hearthmind.settlement.buildings import (
+    INVENTION_CHANCE_PER_YEAR,
+    INVENTION_CURRENCY_THRESHOLD,
+    INVENTION_MATERIALS_FRACTION,
+    MATERIALS_CAPACITY,
+)
 from hearthmind.world.state import World
+
+
+def _namespaced_roll(seed: int, tick: int, namespace: str) -> float:
+    """A single deterministic float in [0, 1) from (seed, tick, namespace)
+    — the same discipline as Population's namespaced RNG, for the rare
+    engine-level rolls (e.g. invention) that don't need a full
+    random.Random instance."""
+    digest = hashlib.sha256(f"{seed}:{namespace}:{tick}".encode()).hexdigest()
+    return int(digest[:8], 16) / 0xFFFFFFFF
 
 if TYPE_CHECKING:
     # Only imported for type hints — importing hearthmind.simulation.engine
@@ -184,6 +201,7 @@ class SimulationEngine:
 
         self._maybe_schedule_chronicle(events, previous_season)
         self._maybe_schedule_tradition(events)
+        self._maybe_schedule_invention(events)
         self._schedule_due_cognition()
         self._schedule_due_dialogue()
         self._maybe_broadcast()
@@ -343,6 +361,47 @@ class SimulationEngine:
         log_event(
             self.conn, tick=self.world.clock.tick_count, category="tradition",
             description=f"The village established a new tradition — {entry}",
+        )
+        self._record_llm_call(used_fallback)
+
+    # --- Phase E3: inventions (tech-tier unlocks) -----------------------------
+
+    def _maybe_schedule_invention(self, events: list[str]) -> None:
+        """A prosperous, named settlement may invent something once per
+        year — same cadence as tradition, but gated by surplus and rolled
+        independently (deliberately rare, see INVENTION_CHANCE_PER_YEAR),
+        so it stays a notable event rather than a yearly formality. See
+        docs/DECISIONS.md, E3."""
+        if "year_end" not in events or not self.world.settlement.name:
+            return
+        settlement = self.world.settlement
+        prosperous = (
+            settlement.currency >= INVENTION_CURRENCY_THRESHOLD
+            or settlement.materials >= MATERIALS_CAPACITY * INVENTION_MATERIALS_FRACTION
+        )
+        if not prosperous:
+            return
+        if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "invention_roll") >= INVENTION_CHANCE_PER_YEAR:
+            return
+        recent = recent_events(self.conn, limit=50)
+        inventions = settlement.inventions
+        prompt = invention.build_prompt(settlement.name, recent, inventions, settlement.tech_level)
+        fallback = invention.fallback_invention(settlement.name, settlement.tech_level, len(inventions))
+        task = asyncio.create_task(self._run_invention(prompt, fallback))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _run_invention(self, prompt: str, fallback: dict) -> None:
+        result, used_fallback = await self._cognition_runner.run(
+            prompt, invention.SYSTEM_PROMPT, fallback=lambda: fallback
+        )
+        name, description = invention.parse_invention(result, fallback)
+        entry = f"{name}: {description}"
+        self.world.settlement.inventions.append(entry)
+        self.world.settlement.tech_level += 1
+        log_event(
+            self.conn, tick=self.world.clock.tick_count, category="invention",
+            description=f"The village invented {entry}",
         )
         self._record_llm_call(used_fallback)
 

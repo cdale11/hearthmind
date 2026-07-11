@@ -137,6 +137,30 @@ CURRENCY_EMERGENCY_HUNGER_RELIEF = 0.4
 GRANARY_HUNGER_RELIEF: bought food is as good as stored food, just costs
 currency instead of being free."""
 
+# --- Phase E3: inventions (tech-tier unlocks) -------------------------------
+
+TECH_BONUS_PER_LEVEL = 0.15
+"""Multiplicative bonus per invention, applied to construction/repair
+work and to cultivated-food yield (farm harvest, granary stock/withdraw)
+— NOT wild foraging, which is deliberately untouched by "technique." A
+settlement with 3 inventions works/harvests/stores at 1.45x baseline.
+Uncapped: inventions are meant to be rare (see INVENTION_CHANCE_PER_YEAR),
+so runaway compounding is self-limiting in practice. See
+docs/DECISIONS.md, E3."""
+
+INVENTION_CURRENCY_THRESHOLD = 10.0
+INVENTION_MATERIALS_FRACTION = 0.5
+"""A settlement is "prosperous" enough to invent something when its
+currency or materials stockpile clears one of these bars — inventions
+are a product of surplus, not survival. Checked at the same `year_end`
+cadence as traditions (Population.tick -> SimulationEngine), one
+independent roll each. See docs/DECISIONS.md, E3."""
+
+INVENTION_CHANCE_PER_YEAR = 0.5
+"""Rolled once per year for a prosperous, named settlement — deliberately
+rare (half the eligible years produce nothing) so an invention stays a
+notable event, not a yearly formality."""
+
 
 @dataclass
 class Building:
@@ -211,6 +235,13 @@ class Settlement:
     year once the settlement is named — "Name: description" strings, in
     the order established. Generational memory, and fed back into both
     future chronicle entries and per-agent cognition prompts. See E1."""
+    tech_level: int = 0
+    """Count of inventions established — see `inventions` and
+    TECH_BONUS_PER_LEVEL. See docs/DECISIONS.md, E3."""
+    inventions: list[str] = field(default_factory=list)
+    """LLM-authored (or deterministic-fallback) tech-tier unlocks, "Name:
+    description" strings, in the order established — a rarer, prosperity-
+    gated sibling of `traditions`. See docs/DECISIONS.md, E3."""
 
     # --- queries -------------------------------------------------------------
 
@@ -281,6 +312,8 @@ class Settlement:
             "currency": round(self.currency, 3),
             "name": self.name,
             "traditions": list(self.traditions),
+            "tech_level": self.tech_level,
+            "inventions": list(self.inventions),
         }
 
     # --- (de)serialization -----------------------------------------------------
@@ -293,6 +326,8 @@ class Settlement:
             "currency": round(self.currency, 4),
             "name": self.name,
             "traditions": list(self.traditions),
+            "tech_level": self.tech_level,
+            "inventions": list(self.inventions),
         }
 
     @classmethod
@@ -302,4 +337,5 @@ class Settlement:
             buildings=buildings, _next_id=data["next_id"],
             materials=data.get("materials", 0.0), currency=data.get("currency", 0.0),
             name=data.get("name", ""), traditions=list(data.get("traditions", [])),
+            tech_level=data.get("tech_level", 0), inventions=list(data.get("inventions", [])),
         )
