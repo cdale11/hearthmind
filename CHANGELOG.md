@@ -4,6 +4,23 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.24.0] — Add: vehicles (hauling carts + personal mounts)
+
+### Added
+- `settlement/vehicles.py`: carts and mounts, built from settlement
+  materials the same way buildings are (colocated founding, presence-
+  driven construction/repair, weather decay + break-down).
+- Carts: settlement-wide, each ready cart adds 25% to gathered-material
+  haul yield (stacks up to 3).
+- Mounts: an awake agent claims a ready unclaimed mount and moves ~1.6x
+  faster (stacks with roads) until it breaks down or they die.
+- Browser UI: "Vehicles" stat tile, map markers (cart/mount), event
+  icons for `vehicle_started`/`vehicle_completed`/`vehicle_broken`.
+- `inspect_world` prints vehicle counts under the settlement summary.
+
+See `docs/DECISIONS.md`, "Vehicles: hauling carts and personal-travel
+mounts."
+
 ## [0.23.0] — Add: weather particle overlay; policy: determinism dropped
 
 ### Added

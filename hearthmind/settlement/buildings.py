@@ -12,6 +12,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from hearthmind.settlement.vehicles import (
+    VEHICLE_DECAY_PER_TICK_BASE,
+    VEHICLE_DECAY_WEATHER_MULTIPLIER,
+    Vehicle,
+    VehicleKind,
+    VehicleStage,
+)
 from hearthmind.world.weather import WeatherState
 
 
@@ -279,6 +286,10 @@ class Settlement:
     seasonal-cadence sibling of `traditions`/`inventions`, with a direct
     mechanical effect (see FESTIVAL_RELATIONSHIP_BOOST,
     Population.hold_festival) rather than being purely narrative."""
+    vehicles: list[Vehicle] = field(default_factory=list)
+    _next_vehicle_id: int = 0
+    """Carts and mounts — see settlement/vehicles.py. A separate id space
+    from `buildings` since they're a distinct kind of asset."""
 
     # --- queries -------------------------------------------------------------
 
@@ -288,6 +299,12 @@ class Settlement:
                 return building
         return None
 
+    def vehicle_at(self, x: int, y: int) -> Vehicle | None:
+        for vehicle in self.vehicles:
+            if vehicle.x == x and vehicle.y == y:
+                return vehicle
+        return None
+
     # --- construction ------------------------------------------------------
 
     def start_construction(self, x: int, y: int, kind: BuildingKind = BuildingKind.HUT) -> Building:
@@ -295,6 +312,12 @@ class Settlement:
         self._next_id += 1
         self.buildings.append(building)
         return building
+
+    def start_vehicle(self, x: int, y: int, kind: VehicleKind = VehicleKind.CART) -> Vehicle:
+        vehicle = Vehicle(id=self._next_vehicle_id, x=x, y=y, kind=kind)
+        self._next_vehicle_id += 1
+        self.vehicles.append(vehicle)
+        return vehicle
 
     # --- tick: weathering, ruin, reclamation ----------------------------------
 
@@ -327,6 +350,18 @@ class Settlement:
             survivors.append(building)
 
         self.buildings = survivors
+
+        vehicle_decay = VEHICLE_DECAY_PER_TICK_BASE * (VEHICLE_DECAY_WEATHER_MULTIPLIER if weather_harsh else 1.0)
+        for vehicle in self.vehicles:
+            if vehicle.stage is not VehicleStage.READY:
+                continue
+            vehicle.condition = max(0.0, vehicle.condition - vehicle_decay)
+            if vehicle.condition <= 0.0:
+                vehicle.stage = VehicleStage.BROKEN
+                vehicle.assigned_agent_id = None
+                noun = "cart" if vehicle.kind is VehicleKind.CART else "mount"
+                events.append(("vehicle_broken", f"A {noun} at ({vehicle.x}, {vehicle.y}) broke down."))
+
         return events
 
     # --- summary -------------------------------------------------------------
@@ -355,6 +390,24 @@ class Settlement:
             "tech_level": self.tech_level,
             "inventions": list(self.inventions),
             "festivals": list(self.festivals),
+            "vehicles": self._vehicle_summary(),
+        }
+
+    def _vehicle_summary(self) -> dict:
+        carts = [v for v in self.vehicles if v.kind is VehicleKind.CART]
+        mounts = [v for v in self.vehicles if v.kind is VehicleKind.MOUNT]
+        ready_carts = [v for v in carts if v.stage is VehicleStage.READY]
+        ready_mounts = [v for v in mounts if v.stage is VehicleStage.READY]
+        return {
+            "carts_total": len(carts),
+            "carts_ready": len(ready_carts),
+            "carts_building": sum(1 for v in carts if v.stage is VehicleStage.BUILDING),
+            "carts_broken": sum(1 for v in carts if v.stage is VehicleStage.BROKEN),
+            "mounts_total": len(mounts),
+            "mounts_ready": len(ready_mounts),
+            "mounts_building": sum(1 for v in mounts if v.stage is VehicleStage.BUILDING),
+            "mounts_broken": sum(1 for v in mounts if v.stage is VehicleStage.BROKEN),
+            "mounts_claimed": sum(1 for v in ready_mounts if v.assigned_agent_id is not None),
         }
 
     # --- (de)serialization -----------------------------------------------------
@@ -370,15 +423,19 @@ class Settlement:
             "tech_level": self.tech_level,
             "inventions": list(self.inventions),
             "festivals": list(self.festivals),
+            "vehicles": [v.to_dict() for v in self.vehicles],
+            "next_vehicle_id": self._next_vehicle_id,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "Settlement":
         buildings = [Building.from_dict(b) for b in data["buildings"]]
+        vehicles = [Vehicle.from_dict(v) for v in data.get("vehicles", [])]
         return cls(
             buildings=buildings, _next_id=data["next_id"],
             materials=data.get("materials", 0.0), currency=data.get("currency", 0.0),
             name=data.get("name", ""), traditions=list(data.get("traditions", [])),
             tech_level=data.get("tech_level", 0), inventions=list(data.get("inventions", [])),
             festivals=list(data.get("festivals", [])),
+            vehicles=vehicles, _next_vehicle_id=data.get("next_vehicle_id", 0),
         )

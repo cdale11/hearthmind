@@ -505,6 +505,7 @@ class SimulationEngine:
             ],
             "agents": [a.to_dict() for a in self.world.population.agents],
             "buildings": [b.to_dict() for b in self.world.settlement.buildings],
+            "vehicles": [v.to_dict() for v in self.world.settlement.vehicles],
             "farms": [p.to_dict() for p in self.world.farms.plots.values()],
             "wildlife": [h.to_dict() for h in self.world.wildlife.herds.values()],
             "roads": self.world.roads.to_dict()["wear"],

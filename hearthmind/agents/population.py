@@ -79,6 +79,23 @@ from hearthmind.settlement.buildings import (
     BuildingStage,
     Settlement,
 )
+from hearthmind.settlement.vehicles import (
+    CART_BONUS_CAP,
+    CART_HAUL_BONUS_PER_CART,
+    CART_MATERIALS_COST,
+    CART_USE_DECAY,
+    MOUNT_MATERIALS_COST,
+    MOUNT_SPEED_MULTIPLIER,
+    MOUNT_USE_DECAY,
+    VEHICLE_CHANCE_PER_TICK,
+    VEHICLE_CONSTRUCTION_WORK_PER_TICK,
+    VEHICLE_MAX_WORKERS,
+    VEHICLE_REPAIR_THRESHOLD,
+    VEHICLE_REPAIR_WORK_PER_TICK,
+    Vehicle,
+    VehicleKind,
+    VehicleStage,
+)
 from hearthmind.world.resources import ORE_BIOMES, ResourceGrid, ResourceKind
 from hearthmind.world.roads import ROAD_SPEED_MULTIPLIER, RoadNetwork
 from hearthmind.world.terrain import Biome, Tile
@@ -142,6 +159,24 @@ def _tech_factor(settlement: Settlement) -> float:
     """Multiplicative bonus from established inventions — see
     TECH_BONUS_PER_LEVEL, docs/DECISIONS.md, E3."""
     return 1.0 + TECH_BONUS_PER_LEVEL * settlement.tech_level
+
+
+def _haul_factor(settlement: Settlement) -> float:
+    """Multiplicative bonus from ready carts on gathered-material yield —
+    see CART_HAUL_BONUS_PER_CART/CART_BONUS_CAP, docs/DECISIONS.md,
+    vehicles pass."""
+    ready_carts = sum(1 for v in settlement.vehicles if v.kind is VehicleKind.CART and v.stage is VehicleStage.READY)
+    return 1.0 + CART_HAUL_BONUS_PER_CART * min(ready_carts, CART_BONUS_CAP)
+
+
+def _agent_mount(settlement: Settlement, agent_id: int) -> Vehicle | None:
+    for vehicle in settlement.vehicles:
+        if (
+            vehicle.kind is VehicleKind.MOUNT and vehicle.stage is VehicleStage.READY
+            and vehicle.assigned_agent_id == agent_id
+        ):
+            return vehicle
+    return None
 
 
 def _remember(agent: Agent, text: str) -> None:
@@ -229,6 +264,7 @@ class Population:
         life_events: list[tuple[str, str]] = []
         killed_by_predator: set[int] = set()
         by_position: dict[tuple[int, int], list[Agent]] = {}
+        any_gather_occurred = False
         for agent in self.agents:
             agent.age_ticks += 1
             self._update_needs(agent, weather_harsh)
@@ -236,7 +272,8 @@ class Population:
             if critically_hungry and agent.state is AgentState.RESTING:
                 agent.state = AgentState.AWAKE  # emergency wake: starving beats sleeping
             self._maybe_forage(agent, resources, farms, settlement, wildlife)  # can eat while resting, not just awake
-            self._maybe_gather(agent, terrain, settlement, resources)
+            if self._maybe_gather(agent, terrain, settlement, resources):
+                any_gather_occurred = True
             if agent.hunger >= STARVATION_HUNGER_THRESHOLD:
                 agent.starving_ticks += 1
             else:
@@ -265,8 +302,14 @@ class Population:
         self._maybe_stock_granaries(by_position, settlement)
         life_events.extend(self._maybe_start_construction(by_position, settlement, farms, rng))
         life_events.extend(self._maybe_plant(by_position, farms, settlement, terrain, rng))
+        life_events.extend(self._advance_vehicle_construction(by_position, settlement))
+        self._maybe_repair_vehicles(by_position, settlement)
+        self._maybe_assign_mounts(by_position, settlement)
+        if any_gather_occurred:
+            self._wear_carts(settlement)
+        life_events.extend(self._maybe_start_vehicle(by_position, settlement, farms, rng))
         life_events.extend(self._maybe_reproduce(by_position, rng))
-        life_events.extend(self._apply_deaths(killed_by_predator))
+        life_events.extend(self._apply_deaths(killed_by_predator, settlement))
         return life_events
 
     @staticmethod
@@ -371,7 +414,7 @@ class Population:
     @staticmethod
     def _maybe_gather(
         agent: Agent, terrain: list[list[Tile]], settlement: Settlement, resources: ResourceGrid,
-    ) -> None:
+    ) -> bool:
         """GATHER-goal agents on forest/hills feed the settlement's shared
         materials stockpile — awake-only (unlike foraging, this isn't a
         survival mechanic, so no resting-interrupt applies). See D8.
@@ -387,17 +430,21 @@ class Population:
         it's a foraging spot, not a mine."""
         biome = terrain[agent.y][agent.x].biome
         if agent.goal is not AgentGoal.GATHER or agent.state is not AgentState.AWAKE:
-            return
+            return False
         if biome not in MATERIAL_BIOMES:
-            return
+            return False
 
         gathered = MATERIALS_GATHER_PER_TICK
         if biome in ORE_BIOMES:
             node = resources.get(agent.x, agent.y)
             if node is None or node.kind is not ResourceKind.ORE or node.amount <= 0:
-                return
+                return False
             gathered = min(node.amount, MATERIALS_GATHER_PER_TICK)
             node.amount -= gathered
+
+        # Ready carts speed hauling of whatever was just gathered back to
+        # the stockpile — see CART_HAUL_BONUS_PER_CART, D8/vehicles pass.
+        gathered *= _haul_factor(settlement)
 
         # A full stockpile doesn't waste the surplus — it sells to an
         # abstract outside economy instead (D10).
@@ -405,8 +452,9 @@ class Population:
             settlement.currency = min(
                 CURRENCY_CAPACITY, settlement.currency + gathered * CURRENCY_PER_OVERFLOW_UNIT
             )
-            return
+            return True
         settlement.materials = min(MATERIALS_CAPACITY, settlement.materials + gathered)
+        return True
 
     @staticmethod
     def _maybe_plant(
@@ -468,9 +516,17 @@ class Population:
         elif effective_goal is AgentGoal.GATHER:
             target = cls._nearest_material_tile(agent, terrain)
 
+        mount = _agent_mount(settlement, agent.id)
         if target is not None and cls._step_toward(agent, target, terrain, predator_tiles):
+            if mount is not None and cls._step_toward(agent, target, terrain, predator_tiles):
+                # A ready mount covers ground twice as fast toward a
+                # deliberate target — the goal-directed equivalent of
+                # MOUNT_SPEED_MULTIPLIER's boost to the random walk below.
+                mount.condition = max(0.0, mount.condition - MOUNT_USE_DECAY)
             return
-        cls._maybe_move(agent, terrain, rng, roads, predator_tiles)
+        cls._maybe_move(agent, terrain, rng, roads, predator_tiles, mounted=mount is not None)
+        if mount is not None:
+            mount.condition = max(0.0, mount.condition - MOUNT_USE_DECAY)
 
     @staticmethod
     def _nearest_ready_farm(agent: Agent, farms: FarmGrid) -> tuple[int, int] | None:
@@ -613,11 +669,13 @@ class Population:
     @staticmethod
     def _maybe_move(
         agent: Agent, terrain: list[list[Tile]], rng: random.Random, roads: RoadNetwork,
-        predator_tiles: set[tuple[int, int]] = frozenset(),
+        predator_tiles: set[tuple[int, int]] = frozenset(), mounted: bool = False,
     ) -> None:
         move_chance = MOVE_CHANCE
         if roads.is_road(agent.x, agent.y):
             move_chance = min(1.0, move_chance * ROAD_SPEED_MULTIPLIER)
+        if mounted:
+            move_chance = min(1.0, move_chance * MOUNT_SPEED_MULTIPLIER)
         if rng.random() >= move_chance:
             return
         height = len(terrain)
@@ -816,7 +874,119 @@ class Population:
                 continue
             building.stored_food = min(GRANARY_CAPACITY, building.stored_food + deposit)
 
-    def _apply_deaths(self, killed_by_predator: set[int] = frozenset()) -> list[tuple[str, str]]:
+    # --- vehicles: hauling carts & personal mounts -------------------------
+
+    @staticmethod
+    def _advance_vehicle_construction(
+        by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement
+    ) -> list[tuple[str, str]]:
+        life_events: list[tuple[str, str]] = []
+        for vehicle in settlement.vehicles:
+            if vehicle.stage is not VehicleStage.BUILDING:
+                continue
+            workers = sum(
+                1 for a in by_position.get((vehicle.x, vehicle.y), []) if a.state is AgentState.AWAKE
+            )
+            if workers == 0:
+                continue
+            work = VEHICLE_CONSTRUCTION_WORK_PER_TICK * min(workers, VEHICLE_MAX_WORKERS) * _tech_factor(settlement)
+            vehicle.progress = min(1.0, vehicle.progress + work)
+            if vehicle.progress >= 1.0:
+                vehicle.stage = VehicleStage.READY
+                vehicle.condition = 1.0
+                noun = "cart" if vehicle.kind is VehicleKind.CART else "mount"
+                life_events.append(("vehicle_completed", f"A {noun} was finished at ({vehicle.x}, {vehicle.y})."))
+        return life_events
+
+    @staticmethod
+    def _maybe_repair_vehicles(
+        by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement
+    ) -> None:
+        for vehicle in settlement.vehicles:
+            if vehicle.stage not in (VehicleStage.READY, VehicleStage.BROKEN):
+                continue
+            if vehicle.stage is VehicleStage.READY and vehicle.condition >= VEHICLE_REPAIR_THRESHOLD:
+                continue
+            workers = sum(
+                1 for a in by_position.get((vehicle.x, vehicle.y), []) if a.state is AgentState.AWAKE
+            )
+            if workers == 0:
+                continue
+            repair = VEHICLE_REPAIR_WORK_PER_TICK * min(workers, VEHICLE_MAX_WORKERS) * _tech_factor(settlement)
+            vehicle.condition = min(1.0, vehicle.condition + repair)
+            if vehicle.stage is VehicleStage.BROKEN and vehicle.condition >= VEHICLE_REPAIR_THRESHOLD:
+                vehicle.stage = VehicleStage.READY
+
+    @classmethod
+    def _maybe_assign_mounts(
+        cls, by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement
+    ) -> None:
+        """An awake agent colocated with a ready, unclaimed mount and not
+        already riding one claims it — first-come, presence-driven like
+        everything else here, not a deliberate goal/cognition decision."""
+        mounted_ids = {
+            v.assigned_agent_id for v in settlement.vehicles
+            if v.kind is VehicleKind.MOUNT and v.assigned_agent_id is not None
+        }
+        for vehicle in settlement.vehicles:
+            if (
+                vehicle.kind is not VehicleKind.MOUNT or vehicle.stage is not VehicleStage.READY
+                or vehicle.assigned_agent_id is not None
+            ):
+                continue
+            for agent in by_position.get((vehicle.x, vehicle.y), []):
+                if agent.state is AgentState.AWAKE and agent.id not in mounted_ids:
+                    vehicle.assigned_agent_id = agent.id
+                    mounted_ids.add(agent.id)
+                    break
+
+    @staticmethod
+    def _wear_carts(settlement: Settlement) -> None:
+        ready_carts = [v for v in settlement.vehicles if v.kind is VehicleKind.CART and v.stage is VehicleStage.READY]
+        if not ready_carts:
+            return
+        wear = CART_USE_DECAY / len(ready_carts)
+        for cart in ready_carts:
+            cart.condition = max(0.0, cart.condition - wear)
+
+    @classmethod
+    def _maybe_start_vehicle(
+        cls, by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement,
+        farms: FarmGrid, rng: random.Random,
+    ) -> list[tuple[str, str]]:
+        """A vehicle presupposes an existing community (see
+        VEHICLE_CHANCE_PER_TICK) — nothing is built before the settlement
+        itself has a name."""
+        life_events: list[tuple[str, str]] = []
+        if not settlement.name:
+            return life_events
+        for (x, y), group in by_position.items():
+            if (
+                len(group) < 2 or settlement.at(x, y) is not None or farms.get(x, y) is not None
+                or settlement.vehicle_at(x, y) is not None
+            ):
+                continue
+            eligible = [a for a in group if cls._is_mature(a) and cls._is_healthy(a)]
+            if len(eligible) < 2:
+                continue
+            if rng.random() >= VEHICLE_CHANCE_PER_TICK:
+                continue
+            kind = VehicleKind.MOUNT if rng.random() < 0.5 else VehicleKind.CART
+            cost = MOUNT_MATERIALS_COST if kind is VehicleKind.MOUNT else CART_MATERIALS_COST
+            if settlement.materials < cost:
+                continue
+            settlement.materials -= cost
+            settlement.start_vehicle(x, y, kind=kind)
+            noun = "cart" if kind is VehicleKind.CART else "mount"
+            life_events.append((
+                "vehicle_started",
+                f"{noun.capitalize()} construction began at ({x}, {y}), using {cost:.0f} materials.",
+            ))
+        return life_events
+
+    def _apply_deaths(
+        self, killed_by_predator: set[int] = frozenset(), settlement: Settlement | None = None,
+    ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         dying_ids: set[int] = set()
         for agent in self.agents:
@@ -853,6 +1023,12 @@ class Population:
                     _remember(other, f"{agent.name} died. I miss them.")
                     other.energy = max(0.0, other.energy - GRIEF_ENERGY_PENALTY)
         self.agents = survivors
+        if settlement is not None and dying_ids:
+            # A dead rider's mount goes back to the unclaimed pool rather
+            # than staying claimed forever by nobody.
+            for vehicle in settlement.vehicles:
+                if vehicle.assigned_agent_id in dying_ids:
+                    vehicle.assigned_agent_id = None
         return life_events
 
     # --- cognition (Phase B) --------------------------------------------------

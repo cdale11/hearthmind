@@ -45,6 +45,9 @@ const CATEGORY_META = {
   festival: { icon: "🎉" },
   predator_attack: { icon: "🐺" },
   chronicle: { icon: "📜" },
+  vehicle_started: { icon: "🛠️" },
+  vehicle_completed: { icon: "🐎" },
+  vehicle_broken: { icon: "⚠️" },
 };
 function categoryMeta(category) {
   return CATEGORY_META[category] || (category.endsWith("_migration") ? { icon: "🔧" } : { icon: "•" });
@@ -134,6 +137,28 @@ function drawFrame() {
     ctx.globalAlpha = 1.0;
     ctx.strokeStyle = "#000";
     ctx.strokeRect(b.x * CELL + 0.5, b.y * CELL + 0.5, CELL - 1, CELL - 1);
+  }
+
+  // Vehicles: a small icon-like mark at their build/home tile — carts as
+  // an amber square (settlement-wide haul bonus), mounts as a violet
+  // diamond (personal, claimed/unclaimed shown via outline).
+  for (const v of latest.vehicles || []) {
+    const cx = v.x * CELL + CELL / 2, cy = v.y * CELL + CELL / 2;
+    ctx.globalAlpha = v.stage === "building" ? 0.4 : v.stage === "broken" ? 0.3 : 1.0;
+    if (v.kind === "cart") {
+      ctx.fillStyle = "#c9863c";
+      ctx.fillRect(cx - CELL / 4, cy - CELL / 4, CELL / 2, CELL / 2);
+    } else {
+      ctx.beginPath();
+      ctx.fillStyle = v.assigned_agent_id != null ? "#a679d6" : "#6b5580";
+      ctx.moveTo(cx, cy - CELL / 2.2);
+      ctx.lineTo(cx + CELL / 2.2, cy);
+      ctx.lineTo(cx, cy + CELL / 2.2);
+      ctx.lineTo(cx - CELL / 2.2, cy);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1.0;
   }
 
   // Wildlife: grazer herds as green dots (radius scales with herd size),
@@ -282,6 +307,15 @@ function renderStats(summary) {
       "Affinity moves via colocation and NPC dialogue sentiment; ranges -1 (rivalry) to 1 (bonded).",
     ],
     ["Buildings", `${s.total} (${s.standing} standing, ${s.under_construction} building, ${s.ruined} ruined)`, null],
+    [
+      "Vehicles",
+      `${s.vehicles.carts_ready} cart${s.vehicles.carts_ready === 1 ? "" : "s"}, ` +
+      `${s.vehicles.mounts_ready} mount${s.vehicles.mounts_ready === 1 ? "" : "s"} ` +
+      `(${s.vehicles.mounts_claimed} claimed)`,
+      "Carts: each ready cart adds 25% to gathered-material haul yield (up to 3 stacked). " +
+      "Mounts: an awake agent standing with an unclaimed ready mount claims it and moves ~1.6x faster " +
+      "for as long as it stays repaired. Both wear with use and weather, and break down if neglected.",
+    ],
     [
       "Granaries", `${s.granaries} (${s.granary_food.toFixed(1)} / ${s.granary_capacity.toFixed(1)} food)`,
       "Communal food buffer: well-fed agents present at a standing granary deposit surplus; hungry agents withdraw from it before resorting to wild foraging.",

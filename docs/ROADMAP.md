@@ -145,8 +145,12 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
 - Not yet built: building types beyond a single generic structure plus
   the granary kind, and — the natural next slice — tying `AgentGoal`/LLM
   cognition into *where* and *whether* to build, rather than the current
-  pure-chance placement. Vehicles (transport) not scoped yet — see open
-  questions in chat.
+  pure-chance placement.
+- **[x] Vehicles.** `hearthmind/settlement/vehicles.py`: hauling carts
+  (settlement-wide, boost gathered-material yield) and personal-travel
+  mounts (an agent claims one, moves faster), built/repaired/decayed the
+  same way buildings are. See `docs/DECISIONS.md`, "Vehicles: hauling
+  carts and personal-travel mounts."
 
 ## Phase D — Agriculture & economy
 

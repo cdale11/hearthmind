@@ -1276,3 +1276,62 @@ Vehicles (hauling carts + faster personal travel), terrain evolution
 (both local activity-driven change and longer-term climate/biome
 drift), and further visual richness are scoped but not yet built — see
 CLAUDE.md's "Known architectural gaps" for the current list.
+
+## Vehicles: hauling carts and personal-travel mounts
+
+Both requested modes ("both 1 and 2" — hauling carts and faster
+personal travel) built together as a new `settlement/vehicles.py`
+module (`Vehicle`, `VehicleKind` CART/MOUNT, `VehicleStage`
+BUILDING/READY/BROKEN), owned by `Settlement.vehicles` alongside
+`buildings`, following the exact same lifecycle shape as buildings
+(colocated-presence founding with a real material cost, presence-driven
+construction/repair, weather-driven decay) so the two asset types read
+consistently rather than inventing a second mechanic.
+
+**Founding** (`Population._maybe_start_vehicle`): same trigger shape as
+`_maybe_start_construction` — a colocated, mature, healthy pair, rolled
+at `VEHICLE_CHANCE_PER_TICK` (0.004, rarer than `SETTLE_CHANCE_PER_TICK`
+0.01: buildings stay the priority) — but gated on `settlement.name`
+being set, since a vehicle presupposes an existing named community.
+50/50 cart vs. mount; `CART_MATERIALS_COST` (4.0) / `MOUNT_MATERIALS_COST`
+(6.0) deducted up front, same "no stockpile, no start" rule as buildings.
+
+**Carts** are settlement-wide, not owned by any one agent: each ready
+cart adds 25% to the yield of `Population._maybe_gather` (wood/ore
+hauled per tick), stacking up to 3 carts (+75%), representing faster
+hauling of gathered material back to the stockpile rather than a literal
+per-trip inventory system (which this project doesn't have). Wear
+(`CART_USE_DECAY`) is spread across all ready carts on any tick at least
+one gather occurred, on top of passive weather decay.
+
+**Mounts** are personal: `Population._maybe_assign_mounts` lets an awake
+agent colocated with a ready, unclaimed mount claim it (first-come,
+presence-driven, not a cognition decision). A mounted agent moves at
+`MOUNT_SPEED_MULTIPLIER` (1.6x, slightly better than a road's 1.4x, and
+stacks with it) — applied to the random-walk move-chance in
+`_maybe_move`, and as a second `_step_toward` call toward the same
+target for goal-directed movement (FORAGE/SOCIALIZE/GATHER), so a mount
+helps a hungry agent reach food faster too, not just wandering. A dead
+rider's mount is freed back to the unclaimed pool in `_apply_deaths`
+rather than staying claimed by nobody forever.
+
+**Wear and repair**: both kinds decay from weather like buildings
+(`VEHICLE_DECAY_PER_TICK_BASE`/`VEHICLE_DECAY_WEATHER_MULTIPLIER`, milder
+than a building's since a vehicle isn't a fixed structure), plus a small
+extra use-decay while actively contributing. Hitting zero condition
+flips `READY` to `BROKEN` (a mount immediately unassigns its rider) —
+not lost, unlike a ruined building — and `Population._maybe_repair_vehicles`
+repairs presence-driven exactly like `_maybe_repair`, flipping back to
+`READY` once condition clears `VEHICLE_REPAIR_THRESHOLD`.
+
+UI: a new "Vehicles" stat tile (ready cart/mount counts, mounts
+claimed), map markers (amber square for a cart, violet diamond for a
+mount — outline color shows claimed vs. unclaimed), and event icons for
+`vehicle_started`/`vehicle_completed`/`vehicle_broken`. Verified via a
+forced-GATHER 6000-tick run (LLM disabled in this environment, so goals
+were pinned directly rather than relying on sparse cognition): a cart
+and a mount were both founded, built to READY, the mount was claimed,
+and both showed real condition wear from weather + use — plus a
+serialization round-trip (`to_dict`/`from_dict`) of a populated vehicle
+list. Terrain evolution (both local activity-driven and climate/biome
+drift) remains the other confirmed-scope, not-yet-built item.

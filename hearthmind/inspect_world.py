@@ -101,6 +101,13 @@ def main(argv: list[str] | None = None) -> None:
         print(f"             inventions: {'; '.join(settle['inventions'])}")
     if settle.get("festivals"):
         print(f"             festivals: {'; '.join(settle['festivals'])}")
+    if settle.get("vehicles"):
+        v = settle["vehicles"]
+        print(
+            f"             vehicles: {v['carts_ready']}/{v['carts_total']} carts ready "
+            f"({v['carts_broken']} broken), {v['mounts_ready']}/{v['mounts_total']} mounts ready "
+            f"({v['mounts_claimed']} claimed, {v['mounts_broken']} broken)"
+        )
 
     farms = summary["farms"]
     print(f"Farms:       {farms['total']} fields ({farms['growing']} growing, {farms['ready']} ready to harvest)")
