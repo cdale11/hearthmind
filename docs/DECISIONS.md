@@ -353,6 +353,46 @@ already established that model. Farm-yield boost from materials was
 scoped out of this slice to keep it to one clear effect (construction
 speed); flagged as the natural next slice if wanted.
 
+## D9: Farm-yield boost from materials ("tooled" plots)
+
+Closes the other end of D8's production chain. `_maybe_plant` spends
+`FARM_TOOL_MATERIALS_COST` (2.0) from the settlement stockpile, if
+available, to plant a "tooled" plot instead of a plain one — `FarmPlot`
+now carries its own `max_yield` (set at planting: `MAX_FARM_YIELD *
+FARM_TOOL_YIELD_MULTIPLIER`, 1.5x, or the plain constant), rather than
+every plot sharing one global constant. Verified directly: a tooled plot
+ripened to 4.5 (3.0 * 1.5) vs. a plain plot's 3.0, exactly as configured.
+
+## D10: Currency — settlement-wide, no per-agent trade
+
+The roadmap's "trade/currency" line item, scoped deliberately: this
+project has no per-agent inventory/wallet system, and building one from
+scratch to support literal peer-to-peer barter would be a much larger,
+separate design decision than "implement the next roadmap items" should
+make unilaterally. Instead, `Settlement.currency` (0..`CURRENCY_CAPACITY`,
+50.0) represents trade with an abstract outside economy, symmetric with
+the `materials`/granary pattern already established (D7/D8):
+
+- **Generated** from food/materials surplus that would otherwise be
+  wasted once a granary or the materials stockpile is already at
+  capacity — selling what the settlement can't use or store.
+- **Spent** as a last-resort "emergency rations" purchase
+  (`CURRENCY_EMERGENCY_RATION_COST` 2.0 for `CURRENCY_EMERGENCY_HUNGER_RELIEF`
+  0.4) at a standing granary, only once nothing free (farm, granary
+  stock, wild forage) is available — the granary doubles as the
+  settlement's trade post rather than introducing a new building kind.
+  `_nearest_stocked_granary` now also targets an empty granary if the
+  settlement can afford rations there.
+
+Verified directly: granary-at-capacity deposits converted to currency
+(0.18 accrued, granary held steady at its cap); a hungry agent with nothing
+else available bought emergency rations for the exact configured cost and
+relief.
+
+True per-agent trade (an agent with personal surplus selling directly to
+a hungry neighbor) remains unbuilt and would need an inventory system
+first — flagged for a future roadmap discussion, not assumed here.
+
 ## C1: Building placement is deterministic in this slice, not yet an LLM/goal decision
 
 The roadmap describes buildings as "an agent/B2 decision," but this slice

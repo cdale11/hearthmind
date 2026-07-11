@@ -4,6 +4,18 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.12.0] — Add: farm-yield materials boost (D9); settlement currency (D10)
+
+### Added
+- Tooled farm plots: planting spends `FARM_TOOL_MATERIALS_COST` (2.0
+  materials) for `FARM_TOOL_YIELD_MULTIPLIER` (1.5x) yield when materials
+  are available. `FarmPlot` now carries its own `max_yield`.
+- `Settlement.currency`: generated from food/materials surplus that would
+  otherwise be wasted at capacity; spent on emergency rations at a
+  standing granary as a last resort, once nothing free is available. No
+  per-agent inventory/trade system — see `docs/DECISIONS.md`, D10 for why
+  that's scoped out. `inspect_world` shows the currency balance.
+
 ## [0.11.0] — Add: production chains (D8)
 
 ### Added

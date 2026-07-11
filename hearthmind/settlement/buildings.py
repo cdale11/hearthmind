@@ -118,6 +118,25 @@ CONSTRUCTION_MATERIALS_MULTIPLIER = 2.0
 being consumed — the actual payoff of the D8 production chain (gather ->
 stockpile -> faster building) over presence alone."""
 
+CURRENCY_CAPACITY = 50.0
+"""Max settlement currency — see D10."""
+
+CURRENCY_PER_OVERFLOW_UNIT = 1.0
+"""Currency generated per unit of food/materials that would otherwise be
+wasted once a granary/the materials stockpile is already at capacity —
+"trade" here means selling surplus to an abstract outside economy, not
+literal per-agent barter, since no per-agent inventory exists in this
+project (see docs/DECISIONS.md, D10 for the full rationale)."""
+
+CURRENCY_EMERGENCY_RATION_COST = 2.0
+"""Currency spent per emergency-ration purchase — see
+Population._maybe_forage, D10."""
+
+CURRENCY_EMERGENCY_HUNGER_RELIEF = 0.4
+"""Hunger relief per emergency-ration purchase — matches
+GRANARY_HUNGER_RELIEF: bought food is as good as stored food, just costs
+currency instead of being free."""
+
 
 @dataclass
 class Building:
@@ -177,6 +196,12 @@ class Settlement:
     (which must be consumed near where it's stored), materials are
     fungible and this project has no hauling/transport system to move
     them tile-by-tile."""
+    currency: float = 0.0
+    """Settlement-wide wealth, 0..CURRENCY_CAPACITY — see D10. Generated
+    from food/materials surplus that would otherwise be wasted at
+    capacity; spent on emergency food when a granary's own stock runs
+    out. Settlement-wide for the same reason as `materials`: no
+    per-agent wallet/inventory system exists."""
 
     # --- queries -------------------------------------------------------------
 
@@ -244,6 +269,7 @@ class Settlement:
             "granaries": len(granaries),
             "granary_food": round(sum(b.stored_food for b in granaries), 3),
             "materials": round(self.materials, 3),
+            "currency": round(self.currency, 3),
         }
 
     # --- (de)serialization -----------------------------------------------------
@@ -253,9 +279,13 @@ class Settlement:
             "buildings": [b.to_dict() for b in self.buildings],
             "next_id": self._next_id,
             "materials": round(self.materials, 4),
+            "currency": round(self.currency, 4),
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "Settlement":
         buildings = [Building.from_dict(b) for b in data["buildings"]]
-        return cls(buildings=buildings, _next_id=data["next_id"], materials=data.get("materials", 0.0))
+        return cls(
+            buildings=buildings, _next_id=data["next_id"],
+            materials=data.get("materials", 0.0), currency=data.get("currency", 0.0),
+        )

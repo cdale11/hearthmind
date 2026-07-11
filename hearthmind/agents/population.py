@@ -40,6 +40,7 @@ from hearthmind.agents.agent import (
 )
 from hearthmind.agents.names import generate_names
 from hearthmind.economy.farms import (
+    FARM_TOOL_MATERIALS_COST,
     HARVEST_AMOUNT,
     HARVEST_HUNGER_RELIEF,
     PLANT_CHANCE_PER_TICK,
@@ -49,6 +50,10 @@ from hearthmind.economy.farms import (
 from hearthmind.settlement.buildings import (
     CONSTRUCTION_MATERIALS_MULTIPLIER,
     CONSTRUCTION_WORK_PER_TICK,
+    CURRENCY_CAPACITY,
+    CURRENCY_EMERGENCY_HUNGER_RELIEF,
+    CURRENCY_EMERGENCY_RATION_COST,
+    CURRENCY_PER_OVERFLOW_UNIT,
     GRANARY_CAPACITY,
     GRANARY_DEPOSIT_PER_TICK,
     GRANARY_KIND_CHANCE,
@@ -228,12 +233,23 @@ class Population:
             return
 
         node = resources.get(agent.x, agent.y)
-        if node is None or node.amount <= 0:
+        if node is not None and node.amount > 0:
+            consumed = min(node.amount, FORAGE_AMOUNT)
+            node.amount -= consumed
+            relief = FORAGE_HUNGER_RELIEF * (consumed / FORAGE_AMOUNT)
+            agent.hunger = max(0.0, agent.hunger - relief)
             return
-        consumed = min(node.amount, FORAGE_AMOUNT)
-        node.amount -= consumed
-        relief = FORAGE_HUNGER_RELIEF * (consumed / FORAGE_AMOUNT)
-        agent.hunger = max(0.0, agent.hunger - relief)
+
+        # Last resort: buy emergency rations with settlement currency at a
+        # standing granary (the village's trade post) — only reachable
+        # once nothing free is available. See D10.
+        if (
+            granary is not None and granary.kind is BuildingKind.GRANARY
+            and granary.stage is BuildingStage.STANDING
+            and settlement.currency >= CURRENCY_EMERGENCY_RATION_COST
+        ):
+            settlement.currency -= CURRENCY_EMERGENCY_RATION_COST
+            agent.hunger = max(0.0, agent.hunger - CURRENCY_EMERGENCY_HUNGER_RELIEF)
 
     @staticmethod
     def _maybe_gather(agent: Agent, terrain: list[list[Tile]], settlement: Settlement) -> None:
@@ -242,9 +258,14 @@ class Population:
         survival mechanic, so no resting-interrupt applies). See D8."""
         if agent.goal is not AgentGoal.GATHER or agent.state is not AgentState.AWAKE:
             return
-        if settlement.materials >= MATERIALS_CAPACITY:
-            return
         if terrain[agent.y][agent.x].biome not in MATERIAL_BIOMES:
+            return
+        # A full stockpile doesn't waste the surplus — it sells to an
+        # abstract outside economy instead (D10).
+        if settlement.materials >= MATERIALS_CAPACITY:
+            settlement.currency = min(
+                CURRENCY_CAPACITY, settlement.currency + MATERIALS_GATHER_PER_TICK * CURRENCY_PER_OVERFLOW_UNIT
+            )
             return
         settlement.materials = min(MATERIALS_CAPACITY, settlement.materials + MATERIALS_GATHER_PER_TICK)
 
@@ -263,8 +284,12 @@ class Population:
                 continue
             if rng.random() >= PLANT_CHANCE_PER_TICK:
                 continue
-            farms.plant(x, y)
-            life_events.append(("farm_planted", f"A field was planted at ({x}, {y})."))
+            tooled = settlement.materials >= FARM_TOOL_MATERIALS_COST
+            if tooled:
+                settlement.materials -= FARM_TOOL_MATERIALS_COST
+            farms.plant(x, y, tooled=tooled)
+            note = "tooled field" if tooled else "field"
+            life_events.append(("farm_planted", f"A {note} was planted at ({x}, {y})."))
         return life_events
 
     @classmethod
@@ -326,15 +351,15 @@ class Population:
     def _nearest_stocked_granary(agent: Agent, settlement: Settlement) -> tuple[int, int] | None:
         """No distance cap, same rationale as `_nearest_ready_farm` — a
         built granary is a known community landmark. See docs/DECISIONS.md,
-        D7."""
+        D7. Also a target when empty of stored food but the settlement has
+        currency for emergency rations (D10) — either way, worth the walk."""
+        can_buy_rations = settlement.currency >= CURRENCY_EMERGENCY_RATION_COST
         best: tuple[int, int] | None = None
         best_dist: int | None = None
         for building in settlement.buildings:
-            if (
-                building.kind is not BuildingKind.GRANARY
-                or building.stage is not BuildingStage.STANDING
-                or building.stored_food <= 0
-            ):
+            if building.kind is not BuildingKind.GRANARY or building.stage is not BuildingStage.STANDING:
+                continue
+            if building.stored_food <= 0 and not can_buy_rations:
                 continue
             dist = abs(building.x - agent.x) + abs(building.y - agent.y)
             if best_dist is None or dist < best_dist:
@@ -567,11 +592,10 @@ class Population:
         """Well-fed awake agents present at a standing granary passively
         contribute surplus each tick — presence-driven like every other
         mechanic here, not a hauling/inventory system. See
-        docs/DECISIONS.md, D7."""
+        docs/DECISIONS.md, D7. A full granary sells the surplus instead of
+        wasting it (D10)."""
         for building in settlement.buildings:
             if building.kind is not BuildingKind.GRANARY or building.stage is not BuildingStage.STANDING:
-                continue
-            if building.stored_food >= GRANARY_CAPACITY:
                 continue
             contributors = sum(
                 1 for a in by_position.get((building.x, building.y), [])
@@ -579,9 +603,13 @@ class Population:
             )
             if contributors == 0:
                 continue
-            building.stored_food = min(
-                GRANARY_CAPACITY, building.stored_food + GRANARY_DEPOSIT_PER_TICK * contributors
-            )
+            deposit = GRANARY_DEPOSIT_PER_TICK * contributors
+            if building.stored_food >= GRANARY_CAPACITY:
+                settlement.currency = min(
+                    CURRENCY_CAPACITY, settlement.currency + deposit * CURRENCY_PER_OVERFLOW_UNIT
+                )
+                continue
+            building.stored_food = min(GRANARY_CAPACITY, building.stored_food + deposit)
 
     def _apply_deaths(self) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []

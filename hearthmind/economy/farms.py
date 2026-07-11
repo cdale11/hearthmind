@@ -47,6 +47,15 @@ HARVEST_HUNGER_RELIEF = 0.5
 """Hunger relief for a full harvest — noticeably better than a wild
 forage's 0.3, the deliberate incentive to prefer farms once available."""
 
+FARM_TOOL_MATERIALS_COST = 2.0
+"""Materials consumed from the settlement stockpile (D8) to plant a
+"tooled" plot instead of a plain one — see Population._maybe_plant, D9."""
+
+FARM_TOOL_YIELD_MULTIPLIER = 1.5
+"""A tooled plot's max yield is MAX_FARM_YIELD * this — the payoff for
+spending materials on farming instead of construction, closing the D8
+production chain's other end. See D9."""
+
 
 class FarmStage(str, Enum):
     GROWING = "growing"
@@ -71,7 +80,11 @@ class FarmPlot:
     growth: float = 0.0
     """0..1, meaningful while GROWING."""
     amount: float = 0.0
-    """0..MAX_FARM_YIELD, meaningful while READY."""
+    """0..max_yield, meaningful while READY."""
+    max_yield: float = MAX_FARM_YIELD
+    """Set at planting time (see FarmGrid.plant) — MAX_FARM_YIELD for a
+    plain plot, or MAX_FARM_YIELD * FARM_TOOL_YIELD_MULTIPLIER for a
+    tooled one (D9)."""
 
     def to_dict(self) -> dict:
         return {
@@ -80,6 +93,7 @@ class FarmPlot:
             "stage": self.stage.value,
             "growth": round(self.growth, 4),
             "amount": round(self.amount, 4),
+            "max_yield": round(self.max_yield, 4),
         }
 
     @classmethod
@@ -90,6 +104,7 @@ class FarmPlot:
             stage=FarmStage(data["stage"]),
             growth=data["growth"],
             amount=data["amount"],
+            max_yield=data.get("max_yield", MAX_FARM_YIELD),
         )
 
 
@@ -108,8 +123,9 @@ class FarmGrid:
 
     # --- planting ------------------------------------------------------------
 
-    def plant(self, x: int, y: int) -> FarmPlot:
-        plot = FarmPlot(x=x, y=y)
+    def plant(self, x: int, y: int, tooled: bool = False) -> FarmPlot:
+        max_yield = MAX_FARM_YIELD * FARM_TOOL_YIELD_MULTIPLIER if tooled else MAX_FARM_YIELD
+        plot = FarmPlot(x=x, y=y, max_yield=max_yield)
         self.plots[(x, y)] = plot
         return plot
 
@@ -135,7 +151,7 @@ class FarmGrid:
                 plot.growth = min(1.0, plot.growth + GROWTH_PER_TICK)
                 if plot.growth >= 1.0:
                     plot.stage = FarmStage.READY
-                    plot.amount = MAX_FARM_YIELD
+                    plot.amount = plot.max_yield
 
     # --- summary -------------------------------------------------------------
 

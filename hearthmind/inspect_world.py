@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     print(
         f"             {settle['granaries']} granaries, {settle['granary_food']:.1f} food stored, "
-        f"{settle['materials']:.1f} materials stockpiled"
+        f"{settle['materials']:.1f} materials, {settle['currency']:.1f} currency"
     )
 
     farms = summary["farms"]

@@ -122,9 +122,16 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
 - **[x] D8: production chains, slice 1.** New `AgentGoal.GATHER` feeds a
   settlement-wide materials stockpile; construction consumes it for a 2x
   speed boost. See `docs/DECISIONS.md`, D8.
-- Not yet built: farm-yield boost from materials, trade between
-  agents/settlements, any currency or barter system. Economic decisions
-  are natural Phase B (LLM cognition) territory once they exist.
+- **[x] D9: farm-yield boost from materials.** Tooled plots (materials
+  spent at planting) yield 1.5x. See `docs/DECISIONS.md`, D9.
+- **[x] D10: settlement currency.** Generated from food/materials surplus
+  at capacity, spent on emergency rations as a last resort. Deliberately
+  settlement-wide, not per-agent — no inventory system exists to support
+  literal barter; see `docs/DECISIONS.md`, D10 for the scoping rationale.
+  **Phase D is now feature-complete per the original roadmap scope.**
+- Open for a future round: per-agent inventory/trade (would let D10's
+  currency become genuine peer-to-peer barter), tying `AgentGoal`/LLM
+  cognition into economic decisions now that an economy exists.
 
 ## Phase E — Culture & history
 
