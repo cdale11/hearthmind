@@ -47,6 +47,12 @@ class World:
     deterministic behavior — visible via `inspect_world` to diagnose a
     flaky/overloaded Ollama instance without reading server logs. See
     docs/DECISIONS.md, D5."""
+    dialogue_total: int = 0
+    rumor_total: int = 0
+    """Cumulative counts of NPC dialogue exchanges and the rumors they've
+    seeded since world creation — the same "make emergence visible in
+    diagnostics" rationale as llm_calls_total, for a system (E2) that has
+    no other cumulative counter. See docs/DECISIONS.md, E2/UI pass."""
     last_calendar_events: list[str] = field(default_factory=list)
     last_life_events: list[tuple[str, str]] = field(default_factory=list, compare=False)
     """(category, description) pairs from this tick's births/deaths, for the
@@ -137,6 +143,8 @@ class World:
                     round(self.llm_fallback_total / self.llm_calls_total, 3)
                     if self.llm_calls_total else 0.0
                 ),
+                "dialogue_total": self.dialogue_total,
+                "rumor_total": self.rumor_total,
             },
         }
 
@@ -165,6 +173,8 @@ class World:
             "roads": self.roads.to_dict(),
             "llm_calls_total": self.llm_calls_total,
             "llm_fallback_total": self.llm_fallback_total,
+            "dialogue_total": self.dialogue_total,
+            "rumor_total": self.rumor_total,
         }
 
     @classmethod
@@ -247,5 +257,7 @@ class World:
             wildlife=wildlife, roads=roads,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),
+            dialogue_total=data.get("dialogue_total", 0),
+            rumor_total=data.get("rumor_total", 0),
             migrated_subsystems=migrated_subsystems,
         )

@@ -93,6 +93,42 @@ main {
 #event-log li:last-child, #traditions-list li:last-child { border-bottom: none; }
 .event-tick { color: var(--muted); margin-right: 6px; }
 
+.dev-toggle {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.dev-toggle:hover, .dev-toggle.active { color: var(--accent); border-color: var(--accent); }
+
+#dev-console.hidden { display: none; }
+#dev-console-content {
+  margin: 0;
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--muted);
+}
+
+.event-icon { margin-right: 4px; }
+.event-category-dialogue .event-text,
+.event-category-rumor .event-text { color: var(--text); }
+.event-category-rumor { color: var(--accent); }
+.event-category-invention { color: var(--accent); font-weight: bold; }
+.event-category-birth { color: #7fae4a; }
+.event-category-death { color: #e0473c; }
+.event-category-day_end,
+.event-category-season_end,
+.event-category-year_end,
+.event-category-chronicle { color: var(--muted); font-style: italic; }
+
+.stat-tile[title] { cursor: help; }
+
 .tooltip {
   position: absolute;
   background: #05060a;

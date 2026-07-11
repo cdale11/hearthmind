@@ -17,11 +17,11 @@ docs/DECISIONS.md, B1/B2/B3.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import sqlite3
+import time
 from typing import TYPE_CHECKING
-
-import hashlib
 
 from hearthmind.agents.agent import DIALOGUE_COOLDOWN_TICKS
 from hearthmind.config import Config
@@ -104,6 +104,12 @@ class SimulationEngine:
         self._stop_event = asyncio.Event()
         self._ticks_since_snapshot = 0
         self._broadcaster = broadcaster
+        self._last_tick_duration_ms = 0.0
+        """Wall-clock time the most recent `_tick_once` took, in
+        milliseconds — surfaced in the browser dev console
+        (`_maybe_broadcast`'s `diagnostics` key) so a slow tick (LLM
+        contention, a huge population) is visible without reading server
+        logs. Purely diagnostic, never persisted."""
 
         client = None
         if config.llm_enabled:
@@ -183,6 +189,7 @@ class SimulationEngine:
             save_snapshot(self.conn, self.world)
 
     def _tick_once(self) -> None:
+        tick_start = time.perf_counter()
         self._apply_pending_cognition_results()
         self._apply_pending_dialogue_results()
 
@@ -212,6 +219,7 @@ class SimulationEngine:
         self._maybe_schedule_invention(events)
         self._schedule_due_cognition()
         self._schedule_due_dialogue()
+        self._last_tick_duration_ms = (time.perf_counter() - tick_start) * 1000
         self._maybe_broadcast()
 
         self._ticks_since_snapshot += 1
@@ -279,11 +287,13 @@ class SimulationEngine:
                 self.conn, tick=self.world.clock.tick_count, category="dialogue",
                 description=f'{agent_a.name}: "{parsed["line_a"]}" — {agent_b.name}: "{parsed["line_b"]}"',
             )
+            self.world.dialogue_total += 1
             if parsed["rumor"]:
                 log_event(
                     self.conn, tick=self.world.clock.tick_count, category="rumor",
                     description=f"{agent_a.name} and {agent_b.name}: {parsed['rumor']}",
                 )
+                self.world.rumor_total += 1
         self._pending_dialogue_results.clear()
 
     def _schedule_due_dialogue(self) -> None:
@@ -442,6 +452,15 @@ class SimulationEngine:
             "farms": [p.to_dict() for p in self.world.farms.plots.values()],
             "wildlife": [h.to_dict() for h in self.world.wildlife.herds.values()],
             "roads": self.world.roads.to_dict()["wear"],
+            "diagnostics": {
+                "tick_duration_ms": round(self._last_tick_duration_ms, 2),
+                "background_tasks": len(self._background_tasks),
+                "inflight_cognition": len(self._inflight_cognition_agent_ids),
+                "connected_clients": self._broadcaster.client_count(),
+                "llm_enabled": self._cognition_runner.enabled,
+                "llm_max_concurrent": self.config.llm_max_concurrent,
+                "llm_model": self.config.llm_model,
+            },
         }
         task = asyncio.create_task(self._broadcaster.broadcast(payload))
         self._background_tasks.add(task)

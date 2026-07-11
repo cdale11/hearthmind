@@ -4,6 +4,30 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.20.0] — Improve: browser UI — readable events, clearer economy, dev console
+
+### Added
+- Developer console: `⚙ dev` header toggle shows raw per-tick
+  diagnostics (tick duration, background/in-flight task counts,
+  connected clients, LLM config) as JSON.
+- Event log: per-category icons and color/emphasis (births, deaths,
+  rumors, inventions, etc.); noisy `day_end` events suppressed from the
+  rendered log (still queryable via `/events`).
+- Wildlife (grazer/predator markers) and road wear now drawn on the
+  canvas map, not just in stats.
+- New stat tiles: Relationships (bonds/rivalries/avg affinity), Tech
+  level, Wildlife, Roads, NPC dialogue counts. Materials/currency/
+  granary/tech tiles gained `title` tooltips and capacity fractions
+  instead of bare unlabeled numbers.
+- New Inventions sidebar panel (mirrors Traditions).
+- `Population.summary()`: `avg_affinity`/`close_bonds`/`rivalries`.
+  `Settlement.summary()`: `materials_capacity`/`currency_capacity`/
+  `granary_capacity`. `World`: `dialogue_total`/`rumor_total` counters.
+  `WorldBroadcaster.client_count()`. Engine: `diagnostics` block in the
+  per-tick broadcast payload.
+
+See `docs/DECISIONS.md`, "UI pass."
+
 ## [0.19.0] — Add: Phase C slice 5 — infrastructure, foot-traffic roads (C5)
 
 ### Added

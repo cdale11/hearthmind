@@ -56,6 +56,13 @@ class WorldBroadcaster:
     def get_terrain(self) -> dict | None:
         return self._terrain_payload
 
+    def client_count(self) -> int:
+        """Read-only diagnostic for the engine's broadcast payload (see
+        `_maybe_broadcast`'s `diagnostics` key) — lets the browser's dev
+        console show how many clients are actually connected without the
+        engine reaching into this class's private state."""
+        return len(self._clients)
+
     def add_client(self, websocket) -> None:
         self._clients.add(websocket)
         logger.info("Client connected (%d total).", len(self._clients))

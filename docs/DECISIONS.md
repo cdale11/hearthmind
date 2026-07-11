@@ -1011,3 +1011,60 @@ economy, agriculture, construction, infrastructure, building decay,
 culture, history, supernatural-reserved-for-Phase-G) — see
 `docs/ROADMAP.md`'s feature checklist table for the complete map from
 request to implementation.
+
+## UI pass: human-readable events, materials/currency clarity, dev console
+
+Direct user feedback: the browser window (Phase F) wasn't keeping pace
+with what the simulation could now do — new systems (dialogue, rumors,
+inventions, wildlife, roads) weren't visible, the event log was raw
+category/description text, and "materials/currency" as bare numbers gave
+no sense of what they represented. Four changes, no new backend
+subsystems:
+
+**Event log became human-readable.** `interface/static/app.js` gained a
+`CATEGORY_META` table mapping each event category to an icon and a CSS
+class (`event-category-<name>`) for color/emphasis — births green,
+deaths red, rumors/inventions accented, calendar/chronicle events
+muted+italic. `day_end` is suppressed from the rendered log entirely
+(still stored server-side, fetchable via `/events`) — at one line per
+day it drowned real events and duplicated what the header's date/clock
+already shows; `season_end`/`year_end` stay since they're real
+milestones. This is a display-only filter, not a backend change.
+
+**Materials/currency/granary/tech tiles gained `title` tooltips and
+capacity fractions.** Previously "Materials / Currency" was one
+unlabeled `12.3 / 4.1` tile — no way to tell what either number meant or
+how full the stockpile was. Split into separate tiles
+(`Materials: 12.3 / 30.0`, `Currency: 4.1 / 50.0`, etc.), each with a
+one-sentence `title` explaining what it tracks and how it's earned/spent
+— surfaced via native browser tooltip, no new JS interaction needed.
+`Settlement.summary()` gained `materials_capacity`/`currency_capacity`/
+`granary_capacity` (aggregated across granaries, not per-building) so
+the frontend doesn't hardcode constants that could drift from the
+backend.
+
+**New stat tiles for every system shipped this session:** Relationships
+(close bonds / rivalries / avg affinity — new `Population.summary()`
+fields), Tech level (inventions count), Wildlife (grazer/predator
+totals), Roads (established/worn tile counts), NPC dialogue (cumulative
+exchange/rumor counts — new `World.dialogue_total`/`rumor_total`
+counters, same "make emergence visible in diagnostics" precedent as
+`llm_calls_total`, D5). Wildlife herds and road wear are now also drawn
+on the canvas map itself (grazers as green dots sized by herd count,
+predators as red triangles, roads as a dirt-tint ground overlay under
+farms/buildings) — the C5 decision entry had flagged map rendering as an
+open follow-up; this closes it.
+
+**Developer console.** A `⚙ dev` header button toggles a hidden `<pre>`
+panel showing raw diagnostics as JSON: per-tick wall-clock duration
+(`_last_tick_duration_ms`, timed around `_tick_once`'s synchronous body),
+in-flight background task/cognition counts, connected WebSocket client
+count (`WorldBroadcaster.client_count()`, new public method — the engine
+no longer needs to reach into the broadcaster's private `_clients`), and
+LLM config (enabled/model/max_concurrent). Purely a read surface over
+counters that already existed or were trivial to add — no new engine
+behavior, consistent with the read-only API's one-way-data-flow
+invariant (F1/F2).
+
+**Inventions got their own sidebar panel**, previously only visible via
+the Tech level stat tile — mirrors the existing Traditions panel.

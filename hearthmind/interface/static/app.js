@@ -21,13 +21,49 @@ const BIOME_COLORS = {
 const BUILDING_COLORS = { hut: "#c98a3c", granary: "#d9a441" };
 const FARM_COLORS = { growing: "#7fae4a", ready: "#e0c34a" };
 
+// Per-event-category presentation: icon, human label prefix, and whether
+// it's noisy enough to skip in the log entirely (still stored server-side
+// via /events — this is a display-only filter). See docs/DECISIONS.md,
+// the "make recent events human-readable" UI pass.
+const CATEGORY_META = {
+  genesis: { icon: "🌍" },
+  day_end: { skip: true }, // redundant with the header's date/clock — one line per day would drown real events
+  season_end: { icon: "🍂" },
+  year_end: { icon: "🎆" },
+  settlement_named: { icon: "🏘️" },
+  construction_started: { icon: "🔨" },
+  building_completed: { icon: "🏠" },
+  building_ruined: { icon: "🏚️" },
+  building_reclaimed: { icon: "🌿" },
+  farm_planted: { icon: "🌱" },
+  birth: { icon: "👶" },
+  death: { icon: "💀" },
+  dialogue: { icon: "💬" },
+  rumor: { icon: "📣" },
+  tradition: { icon: "🎭" },
+  invention: { icon: "💡" },
+  chronicle: { icon: "📜" },
+};
+function categoryMeta(category) {
+  return CATEGORY_META[category] || (category.endsWith("_migration") ? { icon: "🔧" } : { icon: "•" });
+}
+
 let terrain = null;
-let latest = null; // last full payload: {summary, life_events, agents, buildings, farms}
+let latest = null; // last full payload: {summary, life_events, agents, buildings, farms, wildlife, roads, diagnostics}
 let staticCanvas = null; // offscreen: biome grid, drawn once
 
 const canvas = document.getElementById("map-canvas");
 const ctx = canvas.getContext("2d");
 const tooltip = document.getElementById("tooltip");
+const devConsole = document.getElementById("dev-console");
+const devToggle = document.getElementById("dev-toggle");
+const devConsoleContent = document.getElementById("dev-console-content");
+
+devToggle.addEventListener("click", () => {
+  devConsole.classList.toggle("hidden");
+  devToggle.classList.toggle("active");
+  if (!devConsole.classList.contains("hidden") && latest) renderDevConsole(latest);
+});
 
 async function fetchJSON(path) {
   const res = await fetch(path);
@@ -54,6 +90,13 @@ function drawFrame() {
   if (!staticCanvas || !latest) return;
   ctx.drawImage(staticCanvas, 0, 0);
 
+  // Roads: worn tiles get a faint dirt-path tint, darker as they approach
+  // "established" — drawn first so farms/buildings/agents sit on top.
+  for (const [x, y, wear] of latest.roads || []) {
+    ctx.fillStyle = `rgba(217, 164, 65, ${Math.min(0.55, wear * 0.6)})`;
+    ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+  }
+
   for (const farm of latest.farms) {
     ctx.fillStyle = FARM_COLORS[farm.stage] || "#888";
     ctx.fillRect(farm.x * CELL + 2, farm.y * CELL + 2, CELL - 4, CELL - 4);
@@ -66,6 +109,26 @@ function drawFrame() {
     ctx.globalAlpha = 1.0;
     ctx.strokeStyle = "#000";
     ctx.strokeRect(b.x * CELL + 0.5, b.y * CELL + 0.5, CELL - 1, CELL - 1);
+  }
+
+  // Wildlife: grazer herds as green dots (radius scales with herd size),
+  // predator packs as red triangles — a visible second trophic layer.
+  for (const h of latest.wildlife || []) {
+    const cx = h.x * CELL + CELL / 2, cy = h.y * CELL + CELL / 2;
+    if (h.species === "grazer") {
+      ctx.beginPath();
+      ctx.fillStyle = "#9fd66b";
+      ctx.arc(cx, cy, Math.min(CELL / 2, 1.5 + h.count * 0.25), 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.fillStyle = "#c94c4c";
+      ctx.moveTo(cx, cy - CELL / 2.4);
+      ctx.lineTo(cx - CELL / 2.4, cy + CELL / 2.4);
+      ctx.lineTo(cx + CELL / 2.4, cy + CELL / 2.4);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
 
   for (const a of latest.agents) {
@@ -111,23 +174,53 @@ function fmtPct(x) { return `${Math.round(x * 100)}%`; }
 
 function renderStats(summary) {
   const p = summary.population, s = summary.settlement, r = summary.resources;
-  const f = summary.farms, llm = summary.llm;
+  const f = summary.farms, llm = summary.llm, w = summary.wildlife, rd = summary.roads;
   const tiles = [
-    ["Tick", summary.tick],
-    ["Date", `${summary.date} (${summary.clock})`],
-    ["Weather", summary.weather],
-    ["Population", `${p.total} (${p.awake} awake, ${p.resting} resting)`],
-    ["Avg hunger / energy", `${p.avg_hunger.toFixed(2)} / ${p.avg_energy.toFixed(2)}`],
-    ["Deaths", `${p.deaths_starvation} starvation, ${p.deaths_old_age} old age`],
-    ["Buildings", `${s.total} (${s.standing} standing, ${s.under_construction} building, ${s.ruined} ruined)`],
-    ["Granaries", `${s.granaries} (${s.granary_food.toFixed(1)} food)`],
-    ["Materials / Currency", `${s.materials.toFixed(1)} / ${s.currency.toFixed(1)}`],
-    ["Farms", `${f.total} (${f.growing} growing, ${f.ready} ready)`],
-    ["Resources", `${r.total_nodes} nodes (${r.depleted} depleted)`],
-    ["LLM calls", `${llm.calls_total} (${fmtPct(llm.fallback_rate)} fallback)`],
+    ["Tick", summary.tick, null],
+    ["Date", `${summary.date} (${summary.clock})`, null],
+    ["Weather", summary.weather, null],
+    ["Population", `${p.total} (${p.awake} awake, ${p.resting} resting)`, null],
+    ["Avg hunger / energy", `${p.avg_hunger.toFixed(2)} / ${p.avg_energy.toFixed(2)}`, null],
+    ["Deaths", `${p.deaths_starvation} starvation, ${p.deaths_old_age} old age`, null],
+    [
+      "Relationships", `${p.close_bonds} close, ${p.rivalries} rivalries (avg ${p.avg_affinity.toFixed(2)})`,
+      "Close: affinity ≥ 0.6 (reproduction-eligible). Rivalries: affinity ≤ -0.4. " +
+      "Affinity moves via colocation and NPC dialogue sentiment; ranges -1 (rivalry) to 1 (bonded).",
+    ],
+    ["Buildings", `${s.total} (${s.standing} standing, ${s.under_construction} building, ${s.ruined} ruined)`, null],
+    [
+      "Granaries", `${s.granaries} (${s.granary_food.toFixed(1)} / ${s.granary_capacity.toFixed(1)} food)`,
+      "Communal food buffer: well-fed agents present at a standing granary deposit surplus; hungry agents withdraw from it before resorting to wild foraging.",
+    ],
+    [
+      "Materials", `${s.materials.toFixed(1)} / ${s.materials_capacity.toFixed(1)}`,
+      "Settlement-wide wood/stone stockpile, gathered by GATHER-goal agents from forest/hills. Spent on faster construction and tool-boosted farm plots.",
+    ],
+    [
+      "Currency", `${s.currency.toFixed(1)} / ${s.currency_capacity.toFixed(1)}`,
+      "Settlement-wide wealth, earned by selling food/materials surplus that would otherwise be wasted at capacity. Spent on emergency rations when a granary runs dry.",
+    ],
+    [
+      "Tech level", `${s.tech_level} invention${s.tech_level === 1 ? "" : "s"}`,
+      "Each invention permanently boosts construction/repair speed and cultivated-food yield (farm harvest, granary stock/withdraw) by 15% — wild foraging is unaffected. Rare: gated by settlement prosperity, rolled once a year.",
+    ],
+    ["Farms", `${f.total} (${f.growing} growing, ${f.ready} ready)`, null],
+    ["Wild resources", `${r.total_nodes} nodes (${r.depleted} depleted)`, "Wild forageable nodes (berries, etc.) — the last-resort food source, behind farms, granaries, and hunting."],
+    [
+      "Wildlife", `${w.grazer_total} grazers (${w.grazer_herds} herds), ${w.predator_total} predators (${w.predator_packs} packs)`,
+      "Grazer herds roam grassland/forest and can be hunted for food; predator packs roam forest/hills and hunt grazers, starving without a kill.",
+    ],
+    [
+      "Roads", `${rd.established_roads} established (${rd.worn_tiles} worn)`,
+      "Tiles worn by sustained foot traffic. An established road (wear ≥ 0.5) gives agents standing on it a 1.4x random-walk move-chance bonus.",
+    ],
+    ["LLM calls", `${llm.calls_total} (${fmtPct(llm.fallback_rate)} fallback)`, null],
+    ["NPC dialogue", `${llm.dialogue_total} exchanges, ${llm.rumor_total} rumors`, null],
   ];
   document.getElementById("stat-grid").innerHTML = tiles
-    .map(([label, value]) => `<div class="stat-tile"><div class="label">${label}</div><div class="value">${value}</div></div>`)
+    .map(([label, value, title]) =>
+      `<div class="stat-tile"${title ? ` title="${title}"` : ""}><div class="label">${label}</div><div class="value">${value}</div></div>`
+    )
     .join("");
 
   document.getElementById("settlement-name").textContent = s.name || "Hearthmind (unnamed settlement)";
@@ -137,6 +230,21 @@ function renderStats(summary) {
   traditionsEl.innerHTML = s.traditions.length
     ? s.traditions.map((t) => `<li>${t}</li>`).join("")
     : "<li>none yet</li>";
+
+  const inventionsEl = document.getElementById("inventions-list");
+  if (inventionsEl) {
+    inventionsEl.innerHTML = s.inventions.length
+      ? s.inventions.map((t) => `<li>${t}</li>`).join("")
+      : "<li>none yet</li>";
+  }
+}
+
+function renderDevConsole(payload) {
+  if (devConsole.classList.contains("hidden")) return;
+  devConsoleContent.textContent = JSON.stringify(
+    { diagnostics: payload.diagnostics, llm: payload.summary.llm },
+    null, 2,
+  );
 }
 
 function prependEvents(events) {
@@ -144,18 +252,22 @@ function prependEvents(events) {
   // the newest one ends up at the top of the log.
   const log = document.getElementById("event-log");
   for (const e of events) {
+    const meta = categoryMeta(e.category || "");
+    if (meta.skip) continue;
     const li = document.createElement("li");
+    li.className = `event-category-${e.category || "unknown"}`;
     const tickPart = e.tick !== undefined ? `<span class="event-tick">[${e.tick}]</span>` : "";
-    li.innerHTML = `${tickPart}${e.description}`;
+    li.innerHTML = `${tickPart}<span class="event-icon">${meta.icon}</span><span class="event-text">${e.description}</span>`;
     log.prepend(li);
   }
-  while (log.children.length > 100) log.removeChild(log.lastChild);
+  while (log.children.length > 150) log.removeChild(log.lastChild);
 }
 
 function applyPayload(payload) {
   latest = payload;
   renderStats(payload.summary);
   drawFrame();
+  if (payload.diagnostics) renderDevConsole(payload);
   if (payload.life_events && payload.life_events.length) {
     prependEvents(payload.life_events.map((e) => ({ ...e, tick: payload.summary.tick })));
   }

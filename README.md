@@ -182,10 +182,14 @@ for each inhabitant's current `goal`/`goal_reason`, and watch the
 ## Browser interface (Phase F)
 
 Off by default. A real, live window into the world: a canvas map
-(terrain, agents, buildings, farms), a stat dashboard, traditions, and a
-scrolling event log — all updating once per tick over a WebSocket. No
-intervention endpoints yet — this is observation-only, per the roadmap
-(`docs/ROADMAP.md`, Phase F).
+(terrain, agents, buildings, farms, wildlife, road wear), a stat
+dashboard covering every system (population, relationships, economy,
+tech level, wildlife, roads, LLM/dialogue diagnostics), a human-readable
+event log (icons, color-coded by category), traditions, inventions, and
+a `⚙ dev` toggle exposing raw engine telemetry (tick timing, background
+task counts, connected clients) — all updating once per tick over a
+WebSocket. No intervention endpoints yet — this is observation-only, per
+the roadmap (`docs/ROADMAP.md`, Phase F).
 
 ```bash
 pip install -r requirements.txt   # or: pip install hearthmind[api]

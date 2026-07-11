@@ -244,6 +244,13 @@ the simulation.
   `/state`, `/terrain`, `/events`, `WS /ws`). A real static browser page
   (plain HTML/CSS/JS, no build step) renders a live canvas map, stat
   dashboard, traditions, and event log. See `docs/DECISIONS.md`, F2.
+- **[x] UI pass: human-readable events, materials/currency clarity, dev
+  console.** Event log gained per-category icons/color, noisy `day_end`
+  suppressed; stat tiles gained tooltips/capacities and coverage for
+  every system shipped this session (relationships, tech level,
+  wildlife, roads, dialogue); wildlife and road wear are now drawn on
+  the map; a `⚙ dev` toggle exposes raw engine telemetry (tick timing,
+  task counts, connected clients). See `docs/DECISIONS.md`, "UI pass."
 - Not yet built: per-agent click-to-inspect beyond hover tooltips, a
   historical/replay view, and — last, per the ordering above — any
   intervention/"nudge" endpoints.

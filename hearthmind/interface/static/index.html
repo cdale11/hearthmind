@@ -9,6 +9,7 @@
   <header>
     <h1 id="settlement-name">Hearthmind</h1>
     <div id="clock-line" class="muted">connecting…</div>
+    <button id="dev-toggle" class="dev-toggle" title="Developer console: raw diagnostics/telemetry">⚙ dev</button>
   </header>
 
   <main>
@@ -28,8 +29,20 @@
       </div>
 
       <div class="panel">
+        <h2>Inventions</h2>
+        <ul id="inventions-list" class="muted">
+          <li>none yet</li>
+        </ul>
+      </div>
+
+      <div class="panel">
         <h2>Recent events</h2>
         <ul id="event-log"></ul>
+      </div>
+
+      <div class="panel hidden" id="dev-console">
+        <h2>Developer console</h2>
+        <pre id="dev-console-content"></pre>
       </div>
     </aside>
   </main>

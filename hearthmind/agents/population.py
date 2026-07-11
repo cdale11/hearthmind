@@ -32,6 +32,7 @@ from hearthmind.agents.agent import (
     RELATIONSHIP_DECAY_PER_TICK,
     RELATIONSHIP_GAIN_PER_TICK_COLOCATED,
     REST_THRESHOLD,
+    RIVALRY_THRESHOLD,
     STARVATION_HUNGER_THRESHOLD,
     STARVATION_TICKS_TO_DEATH,
     WAKE_THRESHOLD,
@@ -779,6 +780,13 @@ class Population:
         avg_hunger = sum(a.hunger for a in self.agents) / total if total else 0.0
         avg_energy = sum(a.energy for a in self.agents) / total if total else 0.0
         avg_age = sum(a.age_ticks for a in self.agents) / total if total else 0.0
+
+        all_values = [v for a in self.agents for v in a.relationships.values()]
+        avg_affinity = sum(all_values) / len(all_values) if all_values else 0.0
+        # Each relationship is stored on both sides, so count pairs once.
+        bonds = sum(1 for a in self.agents for v in a.relationships.values() if v >= REPRODUCTION_AFFINITY_THRESHOLD) // 2
+        rivalries = sum(1 for a in self.agents for v in a.relationships.values() if v <= RIVALRY_THRESHOLD) // 2
+
         return {
             "total": total,
             "awake": total - resting,
@@ -788,6 +796,9 @@ class Population:
             "avg_age_ticks": round(avg_age, 1),
             "deaths_starvation": self.deaths_starvation,
             "deaths_old_age": self.deaths_old_age,
+            "avg_affinity": round(avg_affinity, 3),
+            "close_bonds": bonds,
+            "rivalries": rivalries,
         }
 
     # --- (de)serialization -----------------------------------------------------
