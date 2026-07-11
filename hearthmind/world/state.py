@@ -19,6 +19,7 @@ from hearthmind.time_system import SimClock
 from hearthmind.world.resources import ResourceGrid
 from hearthmind.world.terrain import Tile, biome_counts, generate_terrain
 from hearthmind.world.weather import WeatherState, compute_weather
+from hearthmind.world.wildlife import WildlifeGrid
 
 
 def _namespaced_rng(seed: int, tick: int, namespace: str) -> random.Random:
@@ -36,6 +37,7 @@ class World:
     resources: ResourceGrid
     settlement: Settlement
     farms: FarmGrid
+    wildlife: WildlifeGrid
     llm_calls_total: int = 0
     llm_fallback_total: int = 0
     """Cumulative counts of every LLM-backed decision (cognition +
@@ -67,9 +69,11 @@ class World:
         resources = ResourceGrid.generate(seed=config.seed, terrain=terrain)
         settlement = Settlement()  # settlements emerge from population behavior, not pre-placed
         farms = FarmGrid()  # likewise: no farms exist until agents plant them
+        wildlife = WildlifeGrid.generate(seed=config.seed, terrain=terrain)
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             population=population, resources=resources, settlement=settlement, farms=farms,
+            wildlife=wildlife,
         )
 
     # --- tick --------------------------------------------------------------
@@ -88,6 +92,7 @@ class World:
         )
         self.resources.tick()
         self.farms.tick()
+        self.wildlife.tick(seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain)
         settlement_events = self.settlement.tick(weather=self.weather)
         if not self.settlement.name and any(
             b.stage is BuildingStage.STANDING for b in self.settlement.buildings
@@ -98,7 +103,7 @@ class World:
         population_events = self.population.tick(
             seed=self.config.seed, tick=self.clock.tick_count,
             terrain=self.terrain, resources=self.resources,
-            settlement=self.settlement, farms=self.farms,
+            settlement=self.settlement, farms=self.farms, wildlife=self.wildlife,
         )
         self.last_life_events = settlement_events + population_events
         self.last_calendar_events = events
@@ -120,6 +125,7 @@ class World:
             "resources": self.resources.summary(),
             "settlement": self.settlement.summary(),
             "farms": self.farms.summary(),
+            "wildlife": self.wildlife.summary(),
             "llm": {
                 "calls_total": self.llm_calls_total,
                 "fallback_total": self.llm_fallback_total,
@@ -151,6 +157,7 @@ class World:
             "resources": self.resources.to_dict(),
             "settlement": self.settlement.to_dict(),
             "farms": self.farms.to_dict(),
+            "wildlife": self.wildlife.to_dict(),
             "llm_calls_total": self.llm_calls_total,
             "llm_fallback_total": self.llm_fallback_total,
         }
@@ -217,9 +224,16 @@ class World:
             farms = FarmGrid()  # no retroactive guessing at pre-existing farmland
             migrated_subsystems.append("farms")
 
+        if "wildlife" in data:
+            wildlife = WildlifeGrid.from_dict(data["wildlife"])
+        else:
+            wildlife = WildlifeGrid.generate(seed=config.seed, terrain=terrain)
+            migrated_subsystems.append("wildlife")
+
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             population=population, resources=resources, settlement=settlement, farms=farms,
+            wildlife=wildlife,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),
             migrated_subsystems=migrated_subsystems,

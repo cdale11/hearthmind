@@ -75,6 +75,7 @@ from hearthmind.settlement.buildings import (
 )
 from hearthmind.world.resources import ResourceGrid
 from hearthmind.world.terrain import Biome, Tile
+from hearthmind.world.wildlife import HUNT_YIELD_PER_ANIMAL, WILDLIFE_SEARCH_RADIUS, Species, WildlifeGrid
 
 WALKABLE_BIOMES = frozenset({Biome.GRASSLAND, Biome.FOREST, Biome.HILLS, Biome.BEACH})
 MATERIAL_BIOMES = frozenset({Biome.FOREST, Biome.HILLS})
@@ -164,7 +165,7 @@ class Population:
 
     def tick(
         self, seed: int, tick: int, terrain: list[list[Tile]],
-        resources: ResourceGrid, settlement: Settlement, farms: FarmGrid,
+        resources: ResourceGrid, settlement: Settlement, farms: FarmGrid, wildlife: WildlifeGrid,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -183,7 +184,7 @@ class Population:
             critically_hungry = agent.hunger >= CRITICAL_HUNGER_THRESHOLD
             if critically_hungry and agent.state is AgentState.RESTING:
                 agent.state = AgentState.AWAKE  # emergency wake: starving beats sleeping
-            self._maybe_forage(agent, resources, farms, settlement)  # can eat while resting, not just awake
+            self._maybe_forage(agent, resources, farms, settlement, wildlife)  # can eat while resting, not just awake
             self._maybe_gather(agent, terrain, settlement)
             if agent.hunger >= STARVATION_HUNGER_THRESHOLD:
                 agent.starving_ticks += 1
@@ -196,7 +197,7 @@ class Population:
                 agent.state = AgentState.RESTING  # proactive rest: a chosen goal, not just necessity
             if agent.state is AgentState.AWAKE:
                 self._dispatch_movement(
-                    agent, terrain, rng, resources, farms, settlement, position_snapshot, critically_hungry
+                    agent, terrain, rng, resources, farms, settlement, wildlife, position_snapshot, critically_hungry
                 )
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
@@ -225,7 +226,7 @@ class Population:
 
     @staticmethod
     def _maybe_forage(
-        agent: Agent, resources: ResourceGrid, farms: FarmGrid, settlement: Settlement
+        agent: Agent, resources: ResourceGrid, farms: FarmGrid, settlement: Settlement, wildlife: WildlifeGrid,
     ) -> None:
         if agent.hunger < FORAGE_HUNGER_THRESHOLD:
             return
@@ -252,6 +253,17 @@ class Population:
             relief = GRANARY_HUNGER_RELIEF * (consumed / GRANARY_WITHDRAW_AMOUNT) * _tech_factor(settlement)
             agent.hunger = max(0.0, agent.hunger - relief)
             return
+
+        # A colocated grazer herd can be hunted for a richer yield than
+        # wild foraging — a finite, huntable resource like a resource
+        # node, but mobile and shared with predators. See docs/DECISIONS.md, A4.
+        for herd in wildlife.at(agent.x, agent.y):
+            if herd.species is Species.GRAZER and herd.count > 0:
+                killed = wildlife.hunt(herd.id, amount=1)
+                if killed > 0:
+                    agent.hunger = max(0.0, agent.hunger - HUNT_YIELD_PER_ANIMAL * killed)
+                    return
+                break
 
         node = resources.get(agent.x, agent.y)
         if node is not None and node.amount > 0:
@@ -316,7 +328,7 @@ class Population:
     @classmethod
     def _dispatch_movement(
         cls, agent: Agent, terrain: list[list[Tile]], rng: random.Random,
-        resources: ResourceGrid, farms: FarmGrid, settlement: Settlement,
+        resources: ResourceGrid, farms: FarmGrid, settlement: Settlement, wildlife: WildlifeGrid,
         position_snapshot: list[tuple[int, int, int]], critically_hungry: bool = False,
     ) -> None:
         """Goal-directed agents (FORAGE/SOCIALIZE) take a deliberate step
@@ -338,6 +350,7 @@ class Population:
             target = (
                 cls._nearest_ready_farm(agent, farms)
                 or cls._nearest_stocked_granary(agent, settlement)
+                or cls._nearest_grazer_herd(agent, wildlife)
                 or cls._nearest_resource(agent, resources)
             )
         elif effective_goal is AgentGoal.SOCIALIZE:
@@ -386,6 +399,11 @@ class Population:
             if best_dist is None or dist < best_dist:
                 best, best_dist = (building.x, building.y), dist
         return best
+
+    @staticmethod
+    def _nearest_grazer_herd(agent: Agent, wildlife: WildlifeGrid) -> tuple[int, int] | None:
+        herd = wildlife.nearest_grazer_herd(agent.x, agent.y, WILDLIFE_SEARCH_RADIUS)
+        return (herd.x, herd.y) if herd is not None else None
 
     @staticmethod
     def _nearest_resource(agent: Agent, resources: ResourceGrid) -> tuple[int, int] | None:

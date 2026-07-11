@@ -20,7 +20,7 @@ build" — phases below are the *how*, this table is the *what*.
 | Terrain | shipped | `world/terrain.py`, Milestone 1 |
 | Weather | shipped | `world/weather.py`; qualitative labels since D6 |
 | Seasons | shipped | `world/clock.py` calendar (`year_end` etc. drive culture/chronicle cadence) |
-| Ecology & wildlife | **not started** | new Phase A4, below |
+| Ecology & wildlife | shipped | A4 (`hearthmind/world/wildlife.py`) — grazer herds, predator packs, huntable |
 | Humans (agents, needs, aging) | shipped | Phase A |
 | Relationships | partial | A3 (proximity affinity + birth) + E2 (LLM dialogue nudges affinity, rivalry now representable, -1..1); no memory of *specific* exchanges yet — see A5 |
 | Economy | shipped (settlement-scale) | Phase D (D8-D10: materials, currency); no per-agent trade — see Phase D open item |
@@ -64,16 +64,19 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   reproduce, gated by a hard population cap as a safety valve. This is
   deliberately *not* LLM-driven — it's cheap, deterministic scaffolding
   that gives the Phase B LLM something real to reason about later.
-- **A4. Ecology & wildlife (not yet built).** Discrete, mobile animal
-  populations (grazers on grassland, predators in forest/hills) with their
-  own simple deterministic behavior — reproduce, migrate, deplete/replenish
-  vegetation, and can be hunted for a food yield richer than static
-  resource nodes. This is the missing half of "terrain/weather/seasons" —
-  those systems currently only shape *where humans* forage/farm; nothing
-  living occupies the terrain besides the settlement itself. Scope
-  deliberately small at first (one or two species, no predator/prey AI):
-  the goal is a background ecological rhythm agents can disturb (overhunt
-  a valley, watch it recover), not a second simulation.
+- **[x] A4. Ecology & wildlife.** Mobile `AnimalHerd`s
+  (`hearthmind/world/wildlife.py`): grazer herds (grassland/forest,
+  reproduce when uncrowded) and predator packs (forest/hills, hunt
+  colocated grazers, starve without a kill) — a real second trophic
+  level with its own dynamics independent of agents. Hungry agents can
+  hunt a colocated grazer herd for richer relief than wild foraging,
+  slotted into the existing forage priority chain. See
+  `docs/DECISIONS.md`, A4.
+- Not yet built: agent-vs-predator danger (predators currently only
+  threaten grazers, never agents), a hunting-specific `AgentGoal`
+  (currently opportunistic — only when a FORAGE-goal agent happens to be
+  colocated with a herd), vegetation depletion tied to grazing (herds
+  don't currently compete with agents for `ResourceGrid` nodes).
 - **A5. Deeper relationships (partial — remainder not yet built).** A3
   shipped birth-gating affinity; E2 added dialogue-driven rivalry (a
   relationship value, -1..1) and ambient LLM-authored exchanges. Still

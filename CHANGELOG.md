@@ -4,6 +4,21 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.18.0] — Add: Phase A slice 4 — wildlife & ecology (A4)
+
+### Added
+- `hearthmind/world/wildlife.py`: mobile `AnimalHerd`s — `GRAZER` herds
+  (grassland/forest, reproduce when uncrowded) and `PREDATOR` packs
+  (forest/hills, hunt colocated grazers, starve without a kill). A real
+  second trophic level with its own dynamics independent of agents.
+- Hungry agents can hunt a colocated grazer herd for richer hunger relief
+  than wild foraging — integrated into the existing forage priority
+  chain (farm > granary > hunt > wild resource > emergency rations), no
+  new `AgentGoal`.
+- `World.wildlife`, migration-backfilled for pre-A4 saves.
+
+See `docs/DECISIONS.md`, A4.
+
 ## [0.17.0] — Add: Phase E slice 3 — inventions, tech-tier unlocks (E3)
 
 ### Added

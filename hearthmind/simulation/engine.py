@@ -82,6 +82,10 @@ _MIGRATIONS = {
         "Farming was added to a world that predates Phase D ({count} pre-existing fields assumed).",
         lambda world: len(world.farms.plots),
     ),
+    "wildlife": (
+        "{count} animal populations took root, added to a world that predates Phase A4.",
+        lambda world: len(world.wildlife.herds),
+    ),
 }
 
 
@@ -432,6 +436,7 @@ class SimulationEngine:
             "agents": [a.to_dict() for a in self.world.population.agents],
             "buildings": [b.to_dict() for b in self.world.settlement.buildings],
             "farms": [p.to_dict() for p in self.world.farms.plots.values()],
+            "wildlife": [h.to_dict() for h in self.world.wildlife.herds.values()],
         }
         task = asyncio.create_task(self._broadcaster.broadcast(payload))
         self._background_tasks.add(task)

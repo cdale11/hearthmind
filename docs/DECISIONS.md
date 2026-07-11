@@ -908,3 +908,66 @@ Settlement gained two new persisted fields (`tech_level: int`,
 `inventions: list[str]`) — both `Settlement.to_dict`/`from_dict` default
 missing keys to `0`/`[]`, so old saves load without a migration entry
 (same pattern as every other additive field in this project).
+
+## A4: Wildlife & ecology — grazer herds, predator packs, huntable
+
+The last of the three "build all together" systems (dialogue/E2,
+inventions/E3, this one). Closes the biggest gap flagged in
+`docs/ROADMAP.md`'s original feature checklist: terrain/weather/seasons
+existed, but nothing *living* occupied the terrain besides the
+settlement itself.
+
+**Model (`hearthmind/world/wildlife.py`).** Discrete, mobile
+`AnimalHerd`s (not a per-animal simulation — herds, like `Population` is
+per-agent but wildlife doesn't need that granularity) of two species:
+`GRAZER` (grassland/forest, reproduces slowly when under
+`MAX_HERD_SIZE`) and `PREDATOR` (forest/hills, hunts colocated grazer
+herds, starves and shrinks if it goes too long without a kill —
+`PREDATOR_STARVE_GRACE_TICKS`/`PREDATOR_STARVE_CHANCE`). This is a real
+second trophic level, not flavor text: predators measurably suppress
+grazer growth, and a predator pack that can't find prey genuinely
+starves out (verified over a 2000-tick run: grazer population grew
+while the sole surviving predator pack dwindled from 4 to 1 for lack of
+prey in its wandering radius — the ecosystem has its own internal state,
+independent of anything agents do).
+
+**Movement is a slower, sparser drift than agent wandering**
+(`MOVE_CHANCE = 0.3` vs. agents' 0.5, `HERD_DENSITY = 0.02` vs.
+resources' `NODE_DENSITY = 0.12`) — herds should read as migrating
+wildlife, not another population of townsfolk.
+
+**Hunting integrates into the existing forage chain, not a new
+`AgentGoal`.** A hungry agent colocated with a live grazer herd hunts it
+automatically inside `Population._maybe_forage`, slotted between
+"stocked granary" and "wild resource node" — richer yield than either
+(`HUNT_YIELD_PER_ANIMAL = 0.6` vs. `FORAGE_HUNGER_RELIEF = 0.3`,
+`HARVEST_HUNGER_RELIEF = 0.5`), the payoff for a chancier food source
+(herds wander; a farm doesn't). `_dispatch_movement`'s FORAGE branch
+gained `_nearest_grazer_herd`, bounded by `WILDLIFE_SEARCH_RADIUS`
+(matches `FORAGE_SEARCH_RADIUS`'s "locally visible, not map-wide"
+rationale) — inserted after the granary check and before wild-resource
+search, so a known food source (farm/granary) is still preferred over a
+riskier hunt. Deliberately *not* a new `AgentGoal.HUNT`: adding one would
+require touching the cognition prompt/fallback/validation surface for a
+mechanic that fits naturally into the existing forage priority chain
+without it.
+
+**Threading `WildlifeGrid` through `Population.tick`.** Added as a
+required parameter (`wildlife: WildlifeGrid`) alongside `resources`/
+`farms`/`settlement`, same pattern as every other subsystem — not
+optional/defaulted, since every world has wildlife by construction (see
+migration below).
+
+**Persistence/migration.** `World` gained a `wildlife: WildlifeGrid`
+field; a snapshot missing it (any pre-A4 save) gets
+`WildlifeGrid.generate()` backfilled and logged via the existing
+`_MIGRATIONS` table in `simulation/engine.py` — same "detect absence,
+backfill, log it" pattern as `population`/`resources`/`settlement`/
+`farms`, no new mechanism invented.
+
+**Scoping note:** no per-agent "hunting goal" or pathfinding toward prey
+beyond the existing FORAGE-goal step-toward-target logic; no distinct
+predator-vs-agent interaction (predators only prey on grazers, never
+threaten agents) — kept out deliberately to avoid a second combat/danger
+system this slice didn't ask for. Revisit if the user wants wildlife to
+be a threat, not just a food source.
