@@ -28,14 +28,23 @@ def build_prompt(agent: Agent, season: str, weather: str) -> str:
     )
 
 
-def fallback_goal(hunger: float, energy: float) -> dict:
+def fallback_goal(hunger: float, energy: float, agent_id: int = 0) -> dict:
     """Deterministic rule-based stand-in for the LLM's choice, used when
     Ollama is disabled, unreachable, or misbehaves. Mirrors the kind of
-    reasoning the prompt asks for, just without an actual model behind it."""
+    reasoning the prompt asks for, just without an actual model behind it.
+
+    Content agents (not hungry, not tired) split deterministically by
+    `agent_id` parity between SOCIALIZE and WANDER, rather than always
+    wandering — without this, the fallback path could never produce
+    clustering at all (SOCIALIZE was previously unreachable without a live
+    LLM choosing it), which was a real contributor to the social-dispersion
+    finding in docs/DECISIONS.md, D2/D4."""
     if hunger > 0.6:
         return {"goal": AgentGoal.FORAGE.value, "reason": "hungry"}
     if energy < 0.3:
         return {"goal": AgentGoal.REST.value, "reason": "tired"}
+    if agent_id % 2 == 0:
+        return {"goal": AgentGoal.SOCIALIZE.value, "reason": "content, seeking company"}
     return {"goal": AgentGoal.WANDER.value, "reason": "content"}
 
 

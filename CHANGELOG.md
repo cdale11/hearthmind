@@ -4,6 +4,45 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.7.0] — Fix: social dispersion (D4) — the town finally forms
+
+### Fixed
+- **Root-caused and fixed the D2 finding** (farming let agents survive
+  indefinitely alone, with reproduction/construction never occurring even
+  with multiple mature, well-fed agents alive simultaneously). Two
+  concrete bugs, not a deep balance problem:
+  - `SOCIALIZE`'s target search shared `FORAGE`'s local radius
+    (`GOAL_SEARCH_RADIUS`, 6 tiles) — far too small for a 64x64+ map.
+    Once ordinary wander drift put two agents more than 6 tiles apart
+    (which happens within a few hundred ticks), `SOCIALIZE` could never
+    find them again — a one-way ratchet toward permanent isolation.
+    Removed the distance cap for agent-seeking entirely (renamed the
+    constant to `FORAGE_SEARCH_RADIUS`, now FORAGE-only).
+  - `fallback_goal` (used whenever Ollama is disabled/unreachable) never
+    returned `SOCIALIZE` at all — only forage/rest/wander. Every soak
+    test in this project's history ran without Ollama, so this alone was
+    enough to explain the total absence of clustering. Content agents now
+    split deterministically by `agent_id` parity between SOCIALIZE and
+    WANDER instead of always wandering.
+
+### Verified
+- Re-ran the *exact* 30-agent/48x48 configuration (seed 7) that produced
+  D2's "three lonely survivors, zero reproduction, zero construction"
+  result. With both fixes: **30+ births**, a building lifecycle
+  (construction → completion → weathering → ruin) repeating across at
+  least 8 distinct structures, and the first **old-age death** observed
+  in any soak test in this project — sustained for 25,657 ticks (~3
+  sim-years) with population fluctuating between ~10 and ~30 rather than
+  trending to zero. This is the first time every subsystem built so far
+  (terrain, weather, needs, foraging, farming, relationships,
+  reproduction, settlement, aging) has been observed working together as
+  a genuinely self-sustaining town, not just individually correct.
+- 3 new/updated tests (`test_cognition.py`, `test_agents.py`) covering
+  the parity split and the unbounded SOCIALIZE search. Full suite: 166
+  tests, all passing.
+
+See `docs/DECISIONS.md`, D4, for the full writeup.
+
 ## [0.6.1] — Fix: starvation trap found via live Ollama verification
 
 ### Fixed

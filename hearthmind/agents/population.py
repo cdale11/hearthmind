@@ -62,10 +62,11 @@ WALKABLE_BIOMES = frozenset({Biome.GRASSLAND, Biome.FOREST, Biome.HILLS, Biome.B
 
 _NEIGHBOR_OFFSETS = ((0, -1), (0, 1), (-1, 0), (1, 0))
 
-GOAL_SEARCH_RADIUS = 6
-"""How far a goal-directed agent (FORAGE/SOCIALIZE) can "see" a target to
-move toward, in Chebyshev distance. Beyond this, they fall back to the
-default wander behavior. See docs/DECISIONS.md, B2."""
+FORAGE_SEARCH_RADIUS = 6
+"""How far a FORAGE-goal agent can "see" a resource node to move toward,
+in Chebyshev distance — beyond this, they fall back to the default wander
+behavior. Deliberately local: wild food awareness is plausible only
+nearby. SOCIALIZE has no equivalent cap — see docs/DECISIONS.md, D4."""
 
 
 def _namespaced_rng(seed: int, tick: int, namespace: str) -> random.Random:
@@ -237,7 +238,7 @@ class Population:
         for (x, y), node in resources.nodes.items():
             if node.amount <= 0:
                 continue
-            if max(abs(x - agent.x), abs(y - agent.y)) > GOAL_SEARCH_RADIUS:
+            if max(abs(x - agent.x), abs(y - agent.y)) > FORAGE_SEARCH_RADIUS:
                 continue
             dist = abs(x - agent.x) + abs(y - agent.y)
             if best_dist is None or dist < best_dist:
@@ -248,12 +249,14 @@ class Population:
     def _nearest_other_agent(
         agent: Agent, position_snapshot: list[tuple[int, int, int]]
     ) -> tuple[int, int] | None:
+        """No distance cap, unlike _nearest_resource: an agent actively
+        seeking company is assumed to know roughly where the (small)
+        population's other members are, not just what's locally visible —
+        see docs/DECISIONS.md, D4."""
         best: tuple[int, int] | None = None
         best_dist: int | None = None
         for other_id, x, y in position_snapshot:
             if other_id == agent.id:
-                continue
-            if max(abs(x - agent.x), abs(y - agent.y)) > GOAL_SEARCH_RADIUS:
                 continue
             dist = abs(x - agent.x) + abs(y - agent.y)
             if best_dist is None or dist < best_dist:

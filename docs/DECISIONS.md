@@ -151,6 +151,9 @@ agent happens to be, or make `PLANT_CHANCE_PER_TICK` fire less often for
 solitary agents than colocated ones — either would make "settling near
 others" a more natural outcome of farming instead of purely coincidental.
 
+**Update (D4): resolved.** See below — the root cause turned out to be
+two concrete, fixable gaps rather than a deep balance problem.
+
 ## D3 (bug fix, found via live play with real Ollama): resting blocked foraging, creating a starvation trap
 
 The first real-world run against a live Ollama instance (not the fake
@@ -189,6 +192,53 @@ real LLM correctly identifying the emergency, which is what made the
 "correct goal, ignored" pattern legible at all) to surface. Regression
 tests were added afterward (`tests/test_agents.py`,
 `TestStarvationTrapFix`) replicating the exact trap shape.
+
+## D4: Fixing social dispersion — two concrete gaps, not a deep balance problem
+
+D2 found that farming let agents survive indefinitely alone, with no
+pressure pulling survivors toward each other — three well-fed, mature
+agents could sit alive simultaneously for tens of thousands of ticks
+without ever reproducing or building anything. Investigating turned up
+two specific, fixable causes rather than a fundamental design gap:
+
+1. **`SOCIALIZE`'s target search shared `FORAGE`'s local radius
+   (`GOAL_SEARCH_RADIUS`, 6 tiles).** That's a reasonable cap for wild
+   food awareness, but on a 64x64 (or larger) map, ordinary WANDER drift
+   routinely puts agents more than 6 tiles apart within a few hundred
+   ticks — at which point `SOCIALIZE`'s `_nearest_other_agent` finds
+   nobody, silently falls back to wandering, and there is no mechanism to
+   ever re-converge. Once agents exceed that distance, they're
+   permanently isolated from each other. Fixed by removing the distance
+   cap for `_nearest_other_agent` entirely (renamed the constant to
+   `FORAGE_SEARCH_RADIUS` since it's now FORAGE-only) — an agent actively
+   seeking company is assumed to know roughly where the (small)
+   population's other members are, not just what's locally visible.
+2. **`fallback_goal` (`hearthmind/llm/cognition.py`) never returned
+   SOCIALIZE at all** — only forage, rest, or wander. This meant that
+   whenever Ollama was disabled or unreachable, nothing in the entire
+   system could ever choose to socialize; only a live LLM could. Every
+   soak test in this project's own development (including all of C5/D2's
+   soak tests) ran without Ollama, so this alone would have been enough
+   to explain the total absence of clustering, independent of the radius
+   issue. Fixed by having content (not hungry, not tired) agents split
+   deterministically by `agent_id` parity between SOCIALIZE and WANDER,
+   rather than always wandering.
+
+**Verified with the exact 30-agent/48x48 configuration (seed 7) that
+produced D2's "three lonely survivors" result.** With both fixes: the
+population reached a self-sustaining, multi-generational equilibrium —
+**30+ births** across the run, a full building lifecycle repeating
+multiple times (`construction_started` → `building_completed` →
+`building_ruined`, across at least 8 distinct structures), and
+population turnover through both starvation *and*, for the first time in
+any soak test, **old age** (`Ursula died of old age` at tick 25,192) —
+sustained continuously for 25,657 ticks (~3 sim-years) with population
+fluctuating between roughly 10 and 30 individuals rather than trending to
+zero. This is the first time every subsystem built so far (terrain,
+weather, needs, foraging, farming, relationships, reproduction,
+settlement, aging) has been observed working together as a genuinely
+self-sustaining "town in a box," not just individually correct in
+isolation.
 
 ## C1: Building placement is deterministic in this slice, not yet an LLM/goal decision
 

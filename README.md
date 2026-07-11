@@ -192,21 +192,25 @@ every release, not just unit tests.
       long-abandoned ruins are eventually reclaimed and removed. Building
       placement is deterministic in this slice, not yet an
       LLM/goal-driven decision — see `docs/DECISIONS.md`, C1. **Not
-      personally witnessed through organic play:** two long soak tests
-      (~8,600 and ~17,000 ticks) saw populations collapse from starvation
-      before reaching the maturity needed to found a settlement — the
-      mechanism is unit- and CLI-verified, but not yet observed emerging
-      unassisted. See `docs/DECISIONS.md`, C5.
-- [~] **Phase D — Agriculture, slice 1.** Any awake agent can plant a
-      farm plot on grassland; it grows automatically and yields far more
-      food than wild foraging once ready. **Verified, not just built:**
-      re-running the exact soak configurations that caused total
-      population extinction in Phase C, farming measurably fixed
-      starvation-before-maturity — one run went from 0 survivors to 3
-      agents living to nearly 7x the maturity age. It did *not* produce
-      reproduction or construction, though: survivors ended up scattered
-      and lonely rather than clustered, a distinct bottleneck from the
-      one farming fixed. See `docs/DECISIONS.md`, D1-D2.
+      personally witnessed through organic play at first:** two early
+      soak tests (~8,600 and ~17,000 ticks) saw populations collapse from
+      starvation before reaching the maturity needed to found a
+      settlement — later resolved by Phase D; see below and
+      `docs/DECISIONS.md`, C5/D4.
+- [~] **Phase D — Agriculture, slice 1 + social-dispersion fix.** Any
+      awake agent can plant a farm plot on grassland; it grows
+      automatically and yields far more food than wild foraging once
+      ready. Farming alone fixed starvation-before-maturity (verified),
+      but revealed agents surviving indefinitely alone with no pressure
+      to cluster — traced to two concrete bugs (SOCIALIZE's search radius
+      too small for the map size, and the deterministic fallback never
+      choosing SOCIALIZE at all) and fixed. **Verified with the exact
+      30-agent/48x48 run that previously showed zero clustering:** with
+      both fixes, the same config produced a self-sustaining,
+      multi-generational population — 30+ births, a repeating building
+      lifecycle (construction → completion → weathering → ruin) across 8+
+      structures, and the first old-age death observed in any soak test —
+      sustained for ~3 sim-years. See `docs/DECISIONS.md`, D1-D4.
 - [ ] Phase E — Culture & history.
 - [ ] Phase F — Browser interface (read-mostly observation + sparse
       intervention actions).

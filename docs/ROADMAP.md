@@ -85,15 +85,24 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   farm plot on grassland; it grows automatically over time and yields
   substantially more food than wild foraging once ready — `Population`
   prefers a ready farm over wild forage whenever one's available.
-- **[verified] D2 finding: farming fixes starvation-before-maturity, but
-  reveals a social-dispersion bottleneck.** Re-running Phase C's soak
-  tests with farming: populations that previously went fully extinct now
-  produce survivors living well past `MATURITY_TICKS` (one run: 0 → 3
-  survivors at ~7x maturity age). But no reproduction/construction
-  occurred — survivors ended up scattered, with relationships decayed to
-  ~0, since farming lets an agent survive indefinitely alone. See
-  `docs/DECISIONS.md`, D2, for the full data and a candidate fix (bias
-  settling/farming toward proximity to other agents).
+- **[x] D2/D4: social dispersion found and fixed.** D2 found that farming
+  let agents survive indefinitely alone, with no pressure to cluster.
+  Root-caused to two concrete bugs, not a deep design gap: SOCIALIZE's
+  target search shared FORAGE's local radius (too small for the map, and
+  once agents drifted apart there was no way back), and the deterministic
+  fallback (used whenever Ollama is off) never chose SOCIALIZE at all.
+  Both fixed in D4. **Verified with the exact 30-agent/48x48 run that
+  previously produced zero clustering:** the same config now produces a
+  self-sustaining, multi-generational population — 30+ births, a
+  repeating building lifecycle across 8+ structures, and the first
+  old-age death observed in any soak test, sustained for ~3 sim-years.
+  See `docs/DECISIONS.md`, D2/D4.
+- **[x] D3: starvation trap found via live Ollama play, fixed.** The
+  first real run against live Ollama (not a fake test server) surfaced a
+  bug where a correctly LLM-assigned FORAGE goal was never executed
+  because resting blocked all foraging, with nothing able to interrupt
+  rest for a hunger emergency. Fixed with a critical-hunger emergency-wake
+  mechanism. See `docs/DECISIONS.md`, D3.
 - Not yet built: storage/granaries (would give starvation death more
   texture — right now food is consumed immediately, not stockpiled),
   production chains, trade between agents/settlements, and any currency

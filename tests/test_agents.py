@@ -434,6 +434,26 @@ class TestGoalDirectedMovement(unittest.TestCase):
 
         self.assertGreater(a.x, 0)  # stepped toward b at x=5
 
+    def test_socialize_goal_has_no_distance_cap(self):
+        # Regression coverage for D4: SOCIALIZE previously shared FORAGE's
+        # local search radius, so agents more than a few tiles apart could
+        # never find each other again once wander drifted them out of
+        # range -- a real contributor to the social-dispersion finding
+        # (docs/DECISIONS.md, D2). This target is far beyond that old
+        # radius.
+        terrain = open_terrain(width=64, height=64)
+        resources = ResourceGrid(nodes={})
+        settlement = Settlement()
+        farms = FarmGrid()
+        a = Agent(id=0, name="Seeker", x=0, y=0, hunger=0.1, energy=0.9, goal=AgentGoal.SOCIALIZE)
+        b = Agent(id=1, name="Target", x=50, y=0, hunger=0.1, energy=0.9, goal=AgentGoal.WANDER)
+        population = Population(agents=[a, b], _next_id=2)
+
+        for tick in range(1, 6):
+            population.tick(seed=1, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
+
+        self.assertGreater(a.x, 0)  # stepped toward b at x=50, far beyond the old radius cap
+
     def test_rest_goal_forces_resting_even_with_high_energy(self):
         terrain = open_terrain()
         resources = ResourceGrid(nodes={})

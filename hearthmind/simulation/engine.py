@@ -197,7 +197,7 @@ class SimulationEngine:
     async def _run_cognition(self, agent_id: int, prompt: str, hunger: float, energy: float) -> None:
         try:
             result = await self._cognition_runner.run(
-                prompt, SYSTEM_PROMPT, fallback=lambda: fallback_goal(hunger, energy),
+                prompt, SYSTEM_PROMPT, fallback=lambda: fallback_goal(hunger, energy, agent_id),
             )
             self._pending_goal_results[agent_id] = result
         finally:

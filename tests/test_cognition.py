@@ -13,13 +13,23 @@ class TestFallbackGoal(unittest.TestCase):
         result = fallback_goal(hunger=0.1, energy=0.2)
         self.assertEqual(result["goal"], "rest")
 
-    def test_content_wanders(self):
-        result = fallback_goal(hunger=0.2, energy=0.8)
-        self.assertEqual(result["goal"], "wander")
+    def test_content_splits_between_socialize_and_wander_by_agent_id(self):
+        # Content agents alternate by agent_id parity rather than always
+        # wandering -- without this split, SOCIALIZE was unreachable
+        # whenever the LLM was disabled, contributing to the social-
+        # dispersion finding (docs/DECISIONS.md, D2/D4).
+        even = fallback_goal(hunger=0.2, energy=0.8, agent_id=2)
+        odd = fallback_goal(hunger=0.2, energy=0.8, agent_id=3)
+        self.assertEqual(even["goal"], "socialize")
+        self.assertEqual(odd["goal"], "wander")
 
-    def test_hunger_takes_priority_over_tiredness(self):
-        result = fallback_goal(hunger=0.9, energy=0.1)
+    def test_hunger_takes_priority_over_tiredness_and_socializing(self):
+        result = fallback_goal(hunger=0.9, energy=0.1, agent_id=2)
         self.assertEqual(result["goal"], "forage")
+
+    def test_tiredness_takes_priority_over_socializing(self):
+        result = fallback_goal(hunger=0.2, energy=0.2, agent_id=2)
+        self.assertEqual(result["goal"], "rest")
 
 
 class TestParseGoal(unittest.TestCase):
