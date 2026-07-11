@@ -36,16 +36,27 @@ _CALENDAR_EVENT_DESCRIPTIONS = {
     "year_end": "A new year begins.",
 }
 
-_MIGRATION_DESCRIPTIONS = {
-    "population": "{count} inhabitants appeared, settling a world that predates Milestone 2.",
-    "resources": "{count} foraging grounds took root, added to a world that predates Phase A.",
-    "settlement": "Settlement tracking was added to a world that predates Phase C ({count} pre-existing structures assumed).",
-}
-
-_MIGRATION_COUNTS = {
-    "population": lambda world: len(world.population.agents),
-    "resources": lambda world: len(world.resources.nodes),
-    "settlement": lambda world: len(world.settlement.buildings),
+_MIGRATIONS = {
+    # subsystem name -> (description template, count-of-what-was-backfilled).
+    # One entry per subsystem `World.from_dict` can backfill (see its
+    # `migrated_subsystems` docstring) — kept as a single dict rather than
+    # two separate ones so adding a subsystem can't forget one half.
+    "population": (
+        "{count} inhabitants appeared, settling a world that predates Milestone 2.",
+        lambda world: len(world.population.agents),
+    ),
+    "resources": (
+        "{count} foraging grounds took root, added to a world that predates Phase A.",
+        lambda world: len(world.resources.nodes),
+    ),
+    "settlement": (
+        "Settlement tracking was added to a world that predates Phase C ({count} pre-existing structures assumed).",
+        lambda world: len(world.settlement.buildings),
+    ),
+    "farms": (
+        "Farming was added to a world that predates Phase D ({count} pre-existing fields assumed).",
+        lambda world: len(world.farms.plots),
+    ),
 }
 
 
@@ -86,10 +97,10 @@ class SimulationEngine:
                     ", ".join(world.migrated_subsystems),
                 )
                 for subsystem in world.migrated_subsystems:
-                    count = _MIGRATION_COUNTS[subsystem](world)
+                    description_template, count_of = _MIGRATIONS[subsystem]
                     log_event(
                         conn, tick=world.clock.tick_count, category=f"{subsystem}_migration",
-                        description=_MIGRATION_DESCRIPTIONS[subsystem].format(count=count),
+                        description=description_template.format(count=count_of(world)),
                     )
                 save_snapshot(conn, world)
         return cls(conn=conn, config=config, world=world)

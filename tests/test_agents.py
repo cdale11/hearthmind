@@ -12,9 +12,11 @@ from hearthmind.agents.agent import (
     AgentState,
 )
 from hearthmind.agents.population import WALKABLE_BIOMES, Population
+from hearthmind.economy.farms import FarmGrid
 from hearthmind.settlement.buildings import Settlement
 from hearthmind.world.resources import ResourceGrid, ResourceNode
-from hearthmind.world.terrain import Biome, Tile, generate_terrain
+from hearthmind.world.terrain import generate_terrain
+from tests._terrain_helpers import open_terrain
 
 
 class TestPopulationSpawn(unittest.TestCase):
@@ -64,17 +66,18 @@ class TestPopulationTick(unittest.TestCase):
         self.population = Population.spawn_initial(seed=42, count=10, terrain=self.terrain)
         self.resources = ResourceGrid.generate(seed=42, terrain=self.terrain)
         self.settlement = Settlement()
+        self.farms = FarmGrid()
 
     def test_hunger_increases_each_tick(self):
         before = [a.hunger for a in self.population.agents]
-        self.population.tick(seed=42, tick=1, terrain=self.terrain, resources=self.resources, settlement=self.settlement)
+        self.population.tick(seed=42, tick=1, terrain=self.terrain, resources=self.resources, settlement=self.settlement, farms=self.farms)
         after = [a.hunger for a in self.population.agents]
         for b, a in zip(before, after):
             self.assertGreaterEqual(a, b)  # foraging could offset the rise, never below 0
 
     def test_hunger_capped_at_one(self):
         for _ in range(500):
-            self.population.tick(seed=42, tick=1, terrain=self.terrain, resources=self.resources, settlement=self.settlement)
+            self.population.tick(seed=42, tick=1, terrain=self.terrain, resources=self.resources, settlement=self.settlement, farms=self.farms)
         for agent in self.population.agents:
             self.assertLessEqual(agent.hunger, 1.0)
 
@@ -82,7 +85,7 @@ class TestPopulationTick(unittest.TestCase):
         # Energy starts at 1.0 and drains ENERGY_DRAIN_AWAKE (0.015) per
         # tick; REST_THRESHOLD (0.2) is crossed after ~54 ticks.
         for tick in range(1, 60):
-            self.population.tick(seed=42, tick=tick, terrain=self.terrain, resources=self.resources, settlement=self.settlement)
+            self.population.tick(seed=42, tick=tick, terrain=self.terrain, resources=self.resources, settlement=self.settlement, farms=self.farms)
         self.assertTrue(any(a.state is AgentState.RESTING for a in self.population.agents))
 
     def test_resting_agent_recovers_energy_and_wakes(self):
@@ -90,19 +93,19 @@ class TestPopulationTick(unittest.TestCase):
         agent.energy = 0.1
         agent.state = AgentState.RESTING
         for tick in range(1, 30):
-            self.population.tick(seed=42, tick=tick, terrain=self.terrain, resources=self.resources, settlement=self.settlement)
+            self.population.tick(seed=42, tick=tick, terrain=self.terrain, resources=self.resources, settlement=self.settlement, farms=self.farms)
         self.assertGreater(agent.energy, 0.1)
 
     def test_movement_stays_in_bounds_and_walkable(self):
         for tick in range(1, 100):
-            self.population.tick(seed=42, tick=tick, terrain=self.terrain, resources=self.resources, settlement=self.settlement)
+            self.population.tick(seed=42, tick=tick, terrain=self.terrain, resources=self.resources, settlement=self.settlement, farms=self.farms)
         for agent in self.population.agents:
             self.assertTrue(0 <= agent.x < 32)
             self.assertTrue(0 <= agent.y < 32)
             self.assertIn(self.terrain[agent.y][agent.x].biome, WALKABLE_BIOMES)
 
     def test_age_increases_each_tick(self):
-        self.population.tick(seed=42, tick=1, terrain=self.terrain, resources=self.resources, settlement=self.settlement)
+        self.population.tick(seed=42, tick=1, terrain=self.terrain, resources=self.resources, settlement=self.settlement, farms=self.farms)
         for agent in self.population.agents:
             self.assertEqual(agent.age_ticks, 1)
 
@@ -112,11 +115,13 @@ class TestPopulationTick(unittest.TestCase):
         resources_b = ResourceGrid.generate(seed=42, terrain=terrain)
         settlement_a = Settlement()
         settlement_b = Settlement()
+        farms_a = FarmGrid()
+        farms_b = FarmGrid()
         pop_a = Population.spawn_initial(seed=42, count=10, terrain=terrain)
         pop_b = Population.spawn_initial(seed=42, count=10, terrain=terrain)
         for tick in range(1, 20):
-            pop_a.tick(seed=42, tick=tick, terrain=terrain, resources=resources_a, settlement=settlement_a)
-            pop_b.tick(seed=42, tick=tick, terrain=terrain, resources=resources_b, settlement=settlement_b)
+            pop_a.tick(seed=42, tick=tick, terrain=terrain, resources=resources_a, settlement=settlement_a, farms=farms_a)
+            pop_b.tick(seed=42, tick=tick, terrain=terrain, resources=resources_b, settlement=settlement_b, farms=farms_b)
         self.assertEqual(pop_a.to_dict(), pop_b.to_dict())
         self.assertEqual(resources_a.to_dict(), resources_b.to_dict())
 
@@ -126,6 +131,7 @@ class TestForaging(unittest.TestCase):
         terrain = generate_terrain(seed=42, width=8, height=8)
         resources = ResourceGrid.generate(seed=42, terrain=terrain)
         settlement = Settlement()
+        farms = FarmGrid()
         # Force a node at an arbitrary walkable spot regardless of what
         # generation produced, so the test doesn't depend on seed luck.
         agent = Agent(id=0, name="Test", x=0, y=0, hunger=0.9)
@@ -133,7 +139,7 @@ class TestForaging(unittest.TestCase):
         resources.nodes[(0, 0)] = ResourceNode(x=0, y=0, amount=1.0)
         population = Population(agents=[agent], _next_id=1)
 
-        population.tick(seed=42, tick=1, terrain=terrain, resources=resources, settlement=settlement)
+        population.tick(seed=42, tick=1, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
 
         self.assertLess(agent.hunger, 0.9)
         self.assertLess(resources.nodes[(0, 0)].amount, 1.0)
@@ -142,12 +148,13 @@ class TestForaging(unittest.TestCase):
         terrain = generate_terrain(seed=42, width=8, height=8)
         resources = ResourceGrid.generate(seed=42, terrain=terrain)
         settlement = Settlement()
+        farms = FarmGrid()
         from hearthmind.world.resources import ResourceNode
         resources.nodes[(0, 0)] = ResourceNode(x=0, y=0, amount=1.0)
         agent = Agent(id=0, name="Test", x=0, y=0, hunger=0.1, energy=0.5, state=AgentState.RESTING)
         population = Population(agents=[agent], _next_id=1)
 
-        population.tick(seed=42, tick=1, terrain=terrain, resources=resources, settlement=settlement)
+        population.tick(seed=42, tick=1, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
 
         self.assertEqual(resources.nodes[(0, 0)].amount, 1.0)
 
@@ -157,13 +164,14 @@ class TestDeath(unittest.TestCase):
         terrain = generate_terrain(seed=42, width=8, height=8)
         resources = ResourceGrid.generate(seed=42, terrain=terrain)
         settlement = Settlement()
+        farms = FarmGrid()
         resources.nodes.clear()  # no forage anywhere, including wherever the agent wanders
         agent = Agent(id=0, name="Doomed", x=0, y=0, hunger=STARVATION_HUNGER_THRESHOLD)
         population = Population(agents=[agent], _next_id=1)
 
         events = []
         for tick in range(1, STARVATION_TICKS_TO_DEATH + 5):
-            events.extend(population.tick(seed=42, tick=tick, terrain=terrain, resources=resources, settlement=settlement))
+            events.extend(population.tick(seed=42, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms))
 
         self.assertEqual(len(population.agents), 0)
         self.assertTrue(any(cat == "death" and "starvation" in desc for cat, desc in events))
@@ -172,12 +180,13 @@ class TestDeath(unittest.TestCase):
         terrain = generate_terrain(seed=42, width=8, height=8)
         resources = ResourceGrid.generate(seed=42, terrain=terrain)
         settlement = Settlement()
+        farms = FarmGrid()
         agent = Agent(id=0, name="Elder", x=0, y=0, age_ticks=9998, max_age_ticks=10000)
         population = Population(agents=[agent], _next_id=1)
 
         events = []
         for tick in range(1, 5):
-            events.extend(population.tick(seed=42, tick=tick, terrain=terrain, resources=resources, settlement=settlement))
+            events.extend(population.tick(seed=42, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms))
 
         self.assertEqual(len(population.agents), 0)
         self.assertTrue(any(cat == "death" and "old age" in desc for cat, desc in events))
@@ -186,11 +195,12 @@ class TestDeath(unittest.TestCase):
         terrain = generate_terrain(seed=42, width=8, height=8)
         resources = ResourceGrid.generate(seed=42, terrain=terrain)
         settlement = Settlement()
+        farms = FarmGrid()
         agent = Agent(id=0, name="Fine", x=0, y=0, age_ticks=0, max_age_ticks=1_000_000)
         population = Population(agents=[agent], _next_id=1)
 
         for tick in range(1, 50):
-            population.tick(seed=42, tick=tick, terrain=terrain, resources=resources, settlement=settlement)
+            population.tick(seed=42, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
 
         self.assertEqual(len(population.agents), 1)
 
@@ -244,6 +254,7 @@ class TestRelationshipsAndBirth(unittest.TestCase):
         terrain = generate_terrain(seed=42, width=8, height=8)
         resources = ResourceGrid.generate(seed=42, terrain=terrain)
         settlement = Settlement()
+        farms = FarmGrid()
         a = Agent(id=0, name="Young1", x=3, y=3, age_ticks=0, max_age_ticks=1_000_000)
         b = Agent(id=1, name="Young2", x=3, y=3, age_ticks=0, max_age_ticks=1_000_000)
         a.relationships[1] = 1.0
@@ -251,7 +262,7 @@ class TestRelationshipsAndBirth(unittest.TestCase):
         population = Population(agents=[a, b], _next_id=2)
 
         for tick in range(1, 200):
-            population.tick(seed=42, tick=tick, terrain=terrain, resources=resources, settlement=settlement)
+            population.tick(seed=42, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
 
         self.assertEqual(len(population.agents), 2)
 
@@ -259,6 +270,7 @@ class TestRelationshipsAndBirth(unittest.TestCase):
         terrain = generate_terrain(seed=42, width=16, height=16)
         resources = ResourceGrid.generate(seed=42, terrain=terrain)
         settlement = Settlement()
+        farms = FarmGrid()
         agents = []
         for i in range(POPULATION_CAP):
             a = Agent(id=i, name=f"A{i}", x=5, y=5, age_ticks=MATURITY_TICKS + 1,
@@ -271,7 +283,7 @@ class TestRelationshipsAndBirth(unittest.TestCase):
                     a.relationships[b.id] = 1.0
 
         for tick in range(1, 50):
-            population.tick(seed=42, tick=tick, terrain=terrain, resources=resources, settlement=settlement)
+            population.tick(seed=42, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
 
         self.assertLessEqual(len(population.agents), POPULATION_CAP)
 
@@ -295,58 +307,52 @@ class TestSerialization(unittest.TestCase):
         terrain = generate_terrain(seed=42, width=16, height=16)
         resources = ResourceGrid.generate(seed=42, terrain=terrain)
         settlement = Settlement()
+        farms = FarmGrid()
         population = Population.spawn_initial(seed=42, count=8, terrain=terrain)
         for tick in range(1, 10):
-            population.tick(seed=42, tick=tick, terrain=terrain, resources=resources, settlement=settlement)
+            population.tick(seed=42, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
 
         restored = Population.from_dict(population.to_dict())
         self.assertEqual(population.to_dict(), restored.to_dict())
 
 
-def _open_terrain(width=16, height=16):
-    """An all-grassland terrain with no obstacles, so goal-directed
-    movement tests aren't at the mercy of a randomly generated map having
-    (or not having) a clear walkable path between two points."""
-    return [
-        [Tile(x=x, y=y, elevation=0.5, biome=Biome.GRASSLAND) for x in range(width)]
-        for y in range(height)
-    ]
-
-
 class TestGoalDirectedMovement(unittest.TestCase):
     def test_forage_goal_moves_toward_nearest_node(self):
-        terrain = _open_terrain()
+        terrain = open_terrain()
         resources = ResourceGrid(nodes={(10, 5): ResourceNode(x=10, y=5, amount=1.0)})
         settlement = Settlement()
+        farms = FarmGrid()
         agent = Agent(id=0, name="Seeker", x=5, y=5, hunger=0.1, goal=AgentGoal.FORAGE)
         population = Population(agents=[agent], _next_id=1)
 
         for tick in range(1, 6):
-            population.tick(seed=1, tick=tick, terrain=terrain, resources=resources, settlement=settlement)
+            population.tick(seed=1, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
 
         self.assertGreater(agent.x, 5)  # stepped toward x=10
 
     def test_socialize_goal_moves_toward_nearest_agent(self):
-        terrain = _open_terrain()
+        terrain = open_terrain()
         resources = ResourceGrid(nodes={})
         settlement = Settlement()
+        farms = FarmGrid()
         a = Agent(id=0, name="Seeker", x=0, y=0, hunger=0.1, energy=0.9, goal=AgentGoal.SOCIALIZE)
         b = Agent(id=1, name="Target", x=5, y=0, hunger=0.1, energy=0.9, goal=AgentGoal.WANDER)
         population = Population(agents=[a, b], _next_id=2)
 
         for tick in range(1, 6):
-            population.tick(seed=1, tick=tick, terrain=terrain, resources=resources, settlement=settlement)
+            population.tick(seed=1, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
 
         self.assertGreater(a.x, 0)  # stepped toward b at x=5
 
     def test_rest_goal_forces_resting_even_with_high_energy(self):
-        terrain = _open_terrain()
+        terrain = open_terrain()
         resources = ResourceGrid(nodes={})
         settlement = Settlement()
+        farms = FarmGrid()
         agent = Agent(id=0, name="Weary", x=5, y=5, energy=0.9, state=AgentState.AWAKE, goal=AgentGoal.REST)
         population = Population(agents=[agent], _next_id=1)
 
-        population.tick(seed=1, tick=1, terrain=terrain, resources=resources, settlement=settlement)
+        population.tick(seed=1, tick=1, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
 
         self.assertEqual(agent.state, AgentState.RESTING)
 
@@ -357,9 +363,10 @@ class TestGoalDirectedMovement(unittest.TestCase):
         terrain = generate_terrain(seed=42, width=32, height=32)
         resources = ResourceGrid.generate(seed=42, terrain=terrain)
         settlement = Settlement()
+        farms = FarmGrid()
         population = Population.spawn_initial(seed=42, count=10, terrain=terrain)
         for tick in range(1, 50):
-            population.tick(seed=42, tick=tick, terrain=terrain, resources=resources, settlement=settlement)
+            population.tick(seed=42, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
         for agent in population.agents:
             self.assertEqual(agent.goal, AgentGoal.WANDER)
             self.assertIn(terrain[agent.y][agent.x].biome, WALKABLE_BIOMES)
@@ -367,7 +374,7 @@ class TestGoalDirectedMovement(unittest.TestCase):
 
 class TestCognitionScheduling(unittest.TestCase):
     def test_due_for_cognition_is_staggered_by_agent_id(self):
-        terrain = _open_terrain()
+        terrain = open_terrain()
         agents = [Agent(id=i, name=f"A{i}", x=0, y=0) for i in range(5)]
         population = Population(agents=agents, _next_id=5)
 

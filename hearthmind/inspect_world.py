@@ -73,6 +73,9 @@ def main(argv: list[str] | None = None) -> None:
         f"{settle['ruined']} ruined)  avg condition {settle['avg_condition']:.2f}"
     )
 
+    farms = summary["farms"]
+    print(f"Farms:       {farms['total']} fields ({farms['growing']} growing, {farms['ready']} ready to harvest)")
+
     if agents is not None:
         print(f"\nInhabitants ({len(agents)}):")
         for agent in sorted(agents, key=lambda a: a["name"]):

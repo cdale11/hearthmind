@@ -57,6 +57,8 @@ hearthmind/
     names.py               # deterministic name generation
   settlement/
     buildings.py            # Building/Settlement: construction, weathering, repair, reclamation
+  economy/
+    farms.py                 # FarmGrid/FarmPlot: planting, growth, harvest
   persistence/
     database.py          # SQLite schema + connection helper
     snapshot.py           # save_snapshot / load_latest_snapshot / event log
@@ -187,7 +189,16 @@ every release, not just unit tests.
       before reaching the maturity needed to found a settlement — the
       mechanism is unit- and CLI-verified, but not yet observed emerging
       unassisted. See `docs/DECISIONS.md`, C5.
-- [ ] Phase D — Agriculture & economy.
+- [~] **Phase D — Agriculture, slice 1.** Any awake agent can plant a
+      farm plot on grassland; it grows automatically and yields far more
+      food than wild foraging once ready. **Verified, not just built:**
+      re-running the exact soak configurations that caused total
+      population extinction in Phase C, farming measurably fixed
+      starvation-before-maturity — one run went from 0 survivors to 3
+      agents living to nearly 7x the maturity age. It did *not* produce
+      reproduction or construction, though: survivors ended up scattered
+      and lonely rather than clustered, a distinct bottleneck from the
+      one farming fixed. See `docs/DECISIONS.md`, D1-D2.
 - [ ] Phase E — Culture & history.
 - [ ] Phase F — Browser interface (read-mostly observation + sparse
       intervention actions).

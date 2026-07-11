@@ -4,6 +4,46 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.6.0] — Phase D (slice 1): Agriculture
+
+### Added
+- `hearthmind/economy/farms.py`: `FarmPlot`/`FarmGrid` — any single
+  awake agent may plant a farm plot on an unclaimed grassland tile (no
+  maturity/health/colocation requirement, unlike founding a building).
+  Plots grow automatically over ~250 ticks with no tending needed, then
+  yield substantially more food per harvest than wild foraging.
+  `Population._maybe_forage` prefers a ready farm over a wild resource
+  node whenever one's present at the agent's tile.
+- Farm planting is logged as a `farm_planted` event.
+- `World.summary()` / `inspect_world.py` now report farm counts
+  (growing / ready to harvest).
+- Generalized migration mechanism extended to the new `farms` subsystem.
+
+### Verified (not just built)
+Re-ran the exact soak configurations that produced total population
+extinction in Phase C (see `docs/DECISIONS.md`, C5), now with farming:
+- 6-agent/32x32 run (seed 42): 5 of 6 agents still died on essentially
+  the same schedule as before farming existed, but the 6th survived to
+  age 4082 — past `MATURITY_TICKS` (4000) — versus dying early in the
+  pre-farming run. A direct, measured ~3x lifespan improvement.
+- 30-agent/48x48 run (seed 7): **3 agents survived to age 27,035**
+  (nearly 7x `MATURITY_TICKS`), run still going when testing ended —
+  versus complete extinction in the equivalent pre-farming run.
+- Farming is a verified fix for starvation-before-maturity, not a
+  hoped-for one. See `docs/DECISIONS.md`, D2, for the full write-up.
+
+### Known gaps / new finding (tracked for later phases)
+- **No reproduction or construction occurred in either verification
+  run**, including the 27,035-tick one with three simultaneously alive,
+  well-fed, mature agents. They ended up scattered across the map with
+  decayed relationships — farming lets an agent survive indefinitely
+  *alone*, so nothing currently creates pressure to cluster. This is a
+  distinct bottleneck from the one farming fixed; see `docs/DECISIONS.md`,
+  D2, for a candidate next slice (bias settling/farming toward proximity
+  to other agents).
+- No storage/granaries (food is consumed immediately, not stockpiled),
+  no production chains, no trade/currency — later Phase D territory.
+
 ## [0.5.0] — Phase C (slice 1): Settlements & construction
 
 ### Added

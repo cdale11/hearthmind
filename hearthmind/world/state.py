@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 
 from hearthmind.agents.population import Population
 from hearthmind.config import Config
+from hearthmind.economy.farms import FarmGrid
 from hearthmind.settlement.buildings import Settlement
 from hearthmind.time_system import SimClock
 from hearthmind.world.resources import ResourceGrid
@@ -26,6 +27,7 @@ class World:
     population: Population
     resources: ResourceGrid
     settlement: Settlement
+    farms: FarmGrid
     last_calendar_events: list[str] = field(default_factory=list)
     last_life_events: list[tuple[str, str]] = field(default_factory=list, compare=False)
     """(category, description) pairs from this tick's births/deaths, for the
@@ -49,9 +51,10 @@ class World:
         )
         resources = ResourceGrid.generate(seed=config.seed, terrain=terrain)
         settlement = Settlement()  # settlements emerge from population behavior, not pre-placed
+        farms = FarmGrid()  # likewise: no farms exist until agents plant them
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
-            population=population, resources=resources, settlement=settlement,
+            population=population, resources=resources, settlement=settlement, farms=farms,
         )
 
     # --- tick --------------------------------------------------------------
@@ -59,8 +62,8 @@ class World:
     def tick(self) -> list[str]:
         """Advance the world by one tick. Returns calendar-boundary events
         crossed (e.g. ["day_end"]), for the caller to log. Births/deaths/
-        construction events from this tick are left on `last_life_events`
-        for the caller."""
+        construction/farming events from this tick are left on
+        `last_life_events` for the caller."""
         events = self.clock.advance()
         self.weather = compute_weather(
             seed=self.config.seed,
@@ -69,10 +72,12 @@ class World:
             previous=self.weather,
         )
         self.resources.tick()
+        self.farms.tick()
         settlement_events = self.settlement.tick(weather=self.weather)
         population_events = self.population.tick(
             seed=self.config.seed, tick=self.clock.tick_count,
-            terrain=self.terrain, resources=self.resources, settlement=self.settlement,
+            terrain=self.terrain, resources=self.resources,
+            settlement=self.settlement, farms=self.farms,
         )
         self.last_life_events = settlement_events + population_events
         self.last_calendar_events = events
@@ -93,6 +98,7 @@ class World:
             "population": self.population.summary(),
             "resources": self.resources.summary(),
             "settlement": self.settlement.summary(),
+            "farms": self.farms.summary(),
         }
 
     # --- (de)serialization --------------------------------------------------
@@ -115,6 +121,7 @@ class World:
             "population": self.population.to_dict(),
             "resources": self.resources.to_dict(),
             "settlement": self.settlement.to_dict(),
+            "farms": self.farms.to_dict(),
         }
 
     @classmethod
@@ -129,9 +136,10 @@ class World:
 
         Snapshots may be missing subsystems added by later releases (e.g.
         "population" pre-Milestone-2, "resources" pre-Phase-A, "settlement"
-        pre-Phase-C). Any missing subsystem is freshly backfilled and its
-        name recorded in `migrated_subsystems` so the caller can log/persist
-        the change once (see M2-3, generalized in A4)."""
+        pre-Phase-C, "farms" pre-Phase-D). Any missing subsystem is freshly
+        backfilled and its name recorded in `migrated_subsystems` so the
+        caller can log/persist the change once (see M2-3, generalized in
+        A4)."""
         saved = data["config"]
         config = Config(
             seed=saved["seed"],
@@ -172,8 +180,14 @@ class World:
             settlement = Settlement()  # no retroactive guessing at pre-existing structures
             migrated_subsystems.append("settlement")
 
+        if "farms" in data:
+            farms = FarmGrid.from_dict(data["farms"])
+        else:
+            farms = FarmGrid()  # no retroactive guessing at pre-existing farmland
+            migrated_subsystems.append("farms")
+
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
-            population=population, resources=resources, settlement=settlement,
+            population=population, resources=resources, settlement=settlement, farms=farms,
             migrated_subsystems=migrated_subsystems,
         )

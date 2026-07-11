@@ -102,6 +102,55 @@ same "detect absence, backfill, log it" shape we'll want for future save
 format changes, so it's worth establishing as the convention now rather than
 inventing a new one per field. (Generalized in A4, below.)
 
+## D1: Farms are a second food source, not a replacement for wild foraging
+
+`FarmGrid` (`hearthmind/economy/farms.py`) mirrors `ResourceGrid`'s shape
+closely (get/tick/summary/to_dict/from_dict) but adds a planting step:
+any single awake agent on an unclaimed grassland tile may plant a plot
+(no maturity/health/colocation requirement — farming is meant to be an
+easy, individual act, unlike founding a building), which then grows
+automatically over ~250 ticks with no further tending needed, and yields
+substantially more food per harvest (`MAX_FARM_YIELD` 3.0,
+`HARVEST_HUNGER_RELIEF` 0.5) than a wild `ResourceNode`. `Population.
+_maybe_forage` checks for a ready farm at the agent's tile before falling
+back to wild foraging, so once farms exist they're strictly preferred.
+Deliberately narrower biome eligibility (`FARMABLE_BIOMES` = grassland
+only) than `FORAGEABLE_BIOMES` (forest/grassland/hills) — cleared,
+cultivated fields shouldn't appear inside forest the same way wild
+berries do.
+
+## D2 (finding): Farming fixed survival-to-maturity, but revealed a second bottleneck — social dispersion
+
+Re-running the exact soak configurations that caused total population
+extinction in C5, now with farming: a 6-agent/32x32 run (seed 42) still
+lost 5 of 6 agents on essentially the *same* schedule as before farming
+existed (ticks 491–1581, unchanged), but the 6th survived to age 4082 —
+past `MATURITY_TICKS` (4000) — instead of dying early, a ~3x
+improvement in that agent's lifespan directly attributable to farming.
+A larger 30-agent/48x48 run (seed 7) went further: **3 agents survived
+to age 27,035** (nearly 7x `MATURITY_TICKS`) with the run still going
+when the test ended, versus complete extinction in the equivalent
+pre-farming C5 test. Farming is a verified, working fix for the
+starvation-before-maturity problem, not just a plausible one.
+
+But no reproduction or construction occurred in either run, including
+the 27,035-tick one where three mature, farm-fed, well-nourished agents
+were alive simultaneously. Inspecting their final positions explained
+why: they'd ended up scattered across the map (tens of tiles apart) with
+`relationships` decayed to ~0 — farming lets an agent survive
+indefinitely *alone*, since it doesn't require another agent's presence
+the way foraging-adjacent survival tactics might, so there's no pressure
+pulling survivors toward each other. This is a different bottleneck than
+C5's (which was raw survival) — reproduction/construction need
+`REPRODUCTION_AFFINITY_THRESHOLD`/colocation, which requires agents to
+actually spend time together, and nothing currently creates that
+pressure once individual survival is solved. A candidate next slice:
+either bias the SOCIALIZE goal (or a new farming-adjacent goal) to prefer
+settling *near* other agents' farms rather than planting wherever an
+agent happens to be, or make `PLANT_CHANCE_PER_TICK` fire less often for
+solitary agents than colocated ones — either would make "settling near
+others" a more natural outcome of farming instead of purely coincidental.
+
 ## C1: Building placement is deterministic in this slice, not yet an LLM/goal decision
 
 The roadmap describes buildings as "an agent/B2 decision," but this slice
@@ -187,6 +236,12 @@ should either tune Phase A's forage/movement balance directly (increase
 `GOAL_SEARCH_RADIUS`, `NODE_DENSITY`, or the FORAGE goal's trigger
 threshold) or treat it as expected and let Phase D's agriculture be the
 actual fix.
+
+**Update (D2):** Phase D's agriculture was the actual fix, and this was
+re-verified, not just hoped for — see D2 below. Farming resolved the
+starvation-before-maturity problem this entry describes; a related but
+distinct bottleneck (agents surviving alone rather than forming groups)
+took its place.
 
 ## A1: Foraging uses discrete, depletable resource nodes, not a passive per-biome rate
 
@@ -372,9 +427,21 @@ before it's changing the default model.
 M2-3 introduced a single `migrated_population: bool`. Phase A needed the
 same "detect absence, backfill, log it" behavior for a second subsystem
 (`resources`), so the boolean became `migrated_subsystems: list[str]`,
-and `SimulationEngine.load_or_create` iterates it against small
-per-subsystem description/count-lookup tables (`_MIGRATION_DESCRIPTIONS`,
-`_MIGRATION_COUNTS` in `simulation/engine.py`) instead of hand-writing a
-new `if world.migrated_x:` branch per subsystem. Future subsystems that
-need backfill-on-load should add an entry to those two tables and a branch
-in `World.from_dict`, not invent a third mechanism.
+and `SimulationEngine.load_or_create` iterates it against a
+per-subsystem lookup table (`_MIGRATIONS` in `simulation/engine.py`,
+mapping subsystem name to `(description_template, count_fn)`) instead of
+hand-writing a new `if world.migrated_x:` branch per subsystem. Future
+subsystems that need backfill-on-load should add an entry to that table
+and a branch in `World.from_dict`, not invent a third mechanism.
+
+**Update (Phase D code review):** originally this was two separate
+dicts, `_MIGRATION_DESCRIPTIONS` and `_MIGRATION_COUNTS`, keyed by the
+same subsystem names — a code review after Phase D added a 4th subsystem
+(`farms`) flagged that two parallel dicts needing to stay in sync by hand
+was already showing strain, so they were merged into one `_MIGRATIONS`
+dict of tuples. `World.from_dict`'s four sequential if/else blocks were
+*not* further generalized into a registry/loop — with only four
+subsystems, each needing a genuinely different `from_dict`/default-factory
+pair, a loop-based registry felt like premature abstraction for the
+current scale; revisit if a 5th or 6th subsystem makes the copy-paste
+pattern there start to hurt.

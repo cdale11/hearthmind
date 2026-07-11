@@ -3,6 +3,7 @@ import unittest
 
 from hearthmind.agents.agent import MATURITY_TICKS, Agent, AgentState
 from hearthmind.agents.population import Population
+from hearthmind.economy.farms import FarmGrid
 from hearthmind.settlement.buildings import (
     DECAY_PER_TICK_BASE,
     REPAIR_THRESHOLD,
@@ -12,15 +13,8 @@ from hearthmind.settlement.buildings import (
     Settlement,
 )
 from hearthmind.world.resources import ResourceGrid
-from hearthmind.world.terrain import Biome, Tile
 from hearthmind.world.weather import WeatherState
-
-
-def _open_terrain(width=16, height=16):
-    return [
-        [Tile(x=x, y=y, elevation=0.5, biome=Biome.GRASSLAND) for x in range(width)]
-        for y in range(height)
-    ]
+from tests._terrain_helpers import open_terrain
 
 
 def _clear_weather():
@@ -58,6 +52,7 @@ class TestConstructionAndRepair(unittest.TestCase):
         # to observe the low per-tick roll would make this both slow and
         # seed-fragile.
         settlement = Settlement()
+        farms = FarmGrid()
         a = Agent(id=0, name="Founder1", x=5, y=5, age_ticks=MATURITY_TICKS + 1,
                   max_age_ticks=1_000_000, hunger=0.1, energy=0.9)
         b = Agent(id=1, name="Founder2", x=5, y=5, age_ticks=MATURITY_TICKS + 1,
@@ -67,7 +62,7 @@ class TestConstructionAndRepair(unittest.TestCase):
         started = False
         for tick in range(1, 3000):
             rng = random.Random(tick)
-            events = population._maybe_start_construction({(5, 5): [a, b]}, settlement, rng)
+            events = population._maybe_start_construction({(5, 5): [a, b]}, settlement, farms, rng)
             if any(cat == "construction_started" for cat, _ in events):
                 started = True
                 break
@@ -77,9 +72,10 @@ class TestConstructionAndRepair(unittest.TestCase):
         self.assertEqual(settlement.buildings[0].stage, BuildingStage.UNDER_CONSTRUCTION)
 
     def test_lone_agent_cannot_start_construction(self):
-        terrain = _open_terrain()
+        terrain = open_terrain()
         resources = ResourceGrid(nodes={})
         settlement = Settlement()
+        farms = FarmGrid()
         agent = Agent(id=0, name="Solo", x=5, y=5, age_ticks=MATURITY_TICKS + 1,
                       max_age_ticks=1_000_000, hunger=0.1, energy=0.9)
         population = Population(agents=[agent], _next_id=1)
@@ -89,20 +85,21 @@ class TestConstructionAndRepair(unittest.TestCase):
         # construction regardless of how many ticks pass — a short loop
         # proves this as well as a long one, much faster.
         for tick in range(1, 50):
-            population.tick(seed=1, tick=tick, terrain=terrain, resources=resources, settlement=settlement)
+            population.tick(seed=1, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
 
         self.assertEqual(len(settlement.buildings), 0)
 
     def test_immature_pair_cannot_start_construction(self):
-        terrain = _open_terrain()
+        terrain = open_terrain()
         resources = ResourceGrid(nodes={})
         settlement = Settlement()
+        farms = FarmGrid()
         a = Agent(id=0, name="Young1", x=5, y=5, age_ticks=0, max_age_ticks=1_000_000, hunger=0.1, energy=0.9)
         b = Agent(id=1, name="Young2", x=5, y=5, age_ticks=0, max_age_ticks=1_000_000, hunger=0.1, energy=0.9)
         population = Population(agents=[a, b], _next_id=2)
 
         for tick in range(1, 50):
-            population.tick(seed=1, tick=tick, terrain=terrain, resources=resources, settlement=settlement)
+            population.tick(seed=1, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
 
         self.assertEqual(len(settlement.buildings), 0)
 

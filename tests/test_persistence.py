@@ -59,6 +59,17 @@ class TestWorldSerialization(unittest.TestCase):
         self.assertIn("settlement", restored.migrated_subsystems)
         self.assertEqual(len(restored.settlement.buildings), 0)
 
+    def test_loading_pre_phase_d_snapshot_migrates_farms(self):
+        config = Config(seed=42, width=8, height=8)
+        world = World.create_new(config)
+        data = world.to_dict()
+        del data["farms"]  # simulate a snapshot saved before Phase D
+
+        restored = World.from_dict(data, runtime_config=config)
+
+        self.assertIn("farms", restored.migrated_subsystems)
+        self.assertEqual(len(restored.farms.plots), 0)
+
     def test_loading_current_snapshot_does_not_migrate(self):
         config = Config(seed=42, width=8, height=8)
         world = World.create_new(config)

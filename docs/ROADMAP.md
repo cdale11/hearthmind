@@ -81,10 +81,24 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
 
 ## Phase D — Agriculture & economy
 
-Farming (building on A1's foraging), storage/granaries (finally gives
-starvation death some texture instead of a countdown), production
-chains, trade between agents/settlements, a simple currency or barter
-system. Economic decisions are natural B2 territory.
+- **[x] D1. Farming (slice 1 shipped).** Any awake agent can plant a
+  farm plot on grassland; it grows automatically over time and yields
+  substantially more food than wild foraging once ready — `Population`
+  prefers a ready farm over wild forage whenever one's available.
+- **[verified] D2 finding: farming fixes starvation-before-maturity, but
+  reveals a social-dispersion bottleneck.** Re-running Phase C's soak
+  tests with farming: populations that previously went fully extinct now
+  produce survivors living well past `MATURITY_TICKS` (one run: 0 → 3
+  survivors at ~7x maturity age). But no reproduction/construction
+  occurred — survivors ended up scattered, with relationships decayed to
+  ~0, since farming lets an agent survive indefinitely alone. See
+  `docs/DECISIONS.md`, D2, for the full data and a candidate fix (bias
+  settling/farming toward proximity to other agents).
+- Not yet built: storage/granaries (would give starvation death more
+  texture — right now food is consumed immediately, not stockpiled),
+  production chains, trade between agents/settlements, and any currency
+  or barter system. Economic decisions are natural Phase B (LLM
+  cognition) territory once they exist.
 
 ## Phase E — Culture & history
 

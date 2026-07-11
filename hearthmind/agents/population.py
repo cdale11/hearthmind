@@ -38,6 +38,13 @@ from hearthmind.agents.agent import (
     AgentState,
 )
 from hearthmind.agents.names import generate_names
+from hearthmind.economy.farms import (
+    HARVEST_AMOUNT,
+    HARVEST_HUNGER_RELIEF,
+    PLANT_CHANCE_PER_TICK,
+    FarmGrid,
+    FarmStage,
+)
 from hearthmind.settlement.buildings import (
     CONSTRUCTION_WORK_PER_TICK,
     MAX_WORKERS,
@@ -107,11 +114,12 @@ class Population:
 
     def tick(
         self, seed: int, tick: int, terrain: list[list[Tile]],
-        resources: ResourceGrid, settlement: Settlement,
+        resources: ResourceGrid, settlement: Settlement, farms: FarmGrid,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
-        relationships, construction/repair, birth, and death. Returns life
-        events as (category, description) pairs for the caller to log."""
+        relationships, construction/repair, farming, birth, and death.
+        Returns life events as (category, description) pairs for the
+        caller to log."""
         rng = _namespaced_rng(seed, tick=tick, namespace="population_tick")
         # Snapshot positions before anyone moves this tick, so goal-directed
         # search (SOCIALIZE) sees a consistent picture rather than a mix of
@@ -123,7 +131,7 @@ class Population:
             agent.age_ticks += 1
             self._update_needs(agent)
             if agent.state is AgentState.AWAKE:
-                self._maybe_forage(agent, resources)
+                self._maybe_forage(agent, resources, farms)
             if agent.hunger >= STARVATION_HUNGER_THRESHOLD:
                 agent.starving_ticks += 1
             else:
@@ -138,7 +146,8 @@ class Population:
         life_events: list[tuple[str, str]] = []
         life_events.extend(self._advance_construction(by_position, settlement))
         life_events.extend(self._maybe_repair(by_position, settlement))
-        life_events.extend(self._maybe_start_construction(by_position, settlement, rng))
+        life_events.extend(self._maybe_start_construction(by_position, settlement, farms, rng))
+        life_events.extend(self._maybe_plant(by_position, farms, settlement, terrain, rng))
         life_events.extend(self._maybe_reproduce(by_position, rng))
         life_events.extend(self._apply_deaths())
         return life_events
@@ -156,9 +165,19 @@ class Population:
                 agent.state = AgentState.RESTING
 
     @staticmethod
-    def _maybe_forage(agent: Agent, resources: ResourceGrid) -> None:
+    def _maybe_forage(agent: Agent, resources: ResourceGrid, farms: FarmGrid) -> None:
         if agent.hunger < FORAGE_HUNGER_THRESHOLD:
             return
+
+        # A ready farm plot is preferred over wild foraging — better yield,
+        # and it's the deliberate incentive for cultivating one at all.
+        plot = farms.get(agent.x, agent.y)
+        if plot is not None and plot.stage is FarmStage.READY:
+            consumed = farms.harvest(agent.x, agent.y, HARVEST_AMOUNT)
+            if consumed > 0:
+                agent.hunger = max(0.0, agent.hunger - HARVEST_HUNGER_RELIEF * (consumed / HARVEST_AMOUNT))
+                return
+
         node = resources.get(agent.x, agent.y)
         if node is None or node.amount <= 0:
             return
@@ -166,6 +185,25 @@ class Population:
         node.amount -= consumed
         relief = FORAGE_HUNGER_RELIEF * (consumed / FORAGE_AMOUNT)
         agent.hunger = max(0.0, agent.hunger - relief)
+
+    @staticmethod
+    def _maybe_plant(
+        by_position: dict[tuple[int, int], list[Agent]], farms: FarmGrid, settlement: Settlement,
+        terrain: list[list[Tile]], rng: random.Random,
+    ) -> list[tuple[str, str]]:
+        life_events: list[tuple[str, str]] = []
+        for (x, y), group in by_position.items():
+            if farms.get(x, y) is not None or settlement.at(x, y) is not None:
+                continue
+            if not FarmGrid.is_farmable(terrain, x, y):
+                continue
+            if not any(a.state is AgentState.AWAKE for a in group):
+                continue
+            if rng.random() >= PLANT_CHANCE_PER_TICK:
+                continue
+            farms.plant(x, y)
+            life_events.append(("farm_planted", f"A field was planted at ({x}, {y})."))
+        return life_events
 
     @classmethod
     def _dispatch_movement(
@@ -359,11 +397,12 @@ class Population:
 
     @classmethod
     def _maybe_start_construction(
-        cls, by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement, rng: random.Random
+        cls, by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement,
+        farms: FarmGrid, rng: random.Random,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         for (x, y), group in by_position.items():
-            if len(group) < 2 or settlement.at(x, y) is not None:
+            if len(group) < 2 or settlement.at(x, y) is not None or farms.get(x, y) is not None:
                 continue
             eligible = [a for a in group if cls._is_mature(a) and cls._is_healthy(a)]
             if len(eligible) < 2:
