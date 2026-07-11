@@ -4,6 +4,30 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.16.0] — Add: Phase E slice 2 — NPC dialogue, rivalry, LLM on by default (E2)
+
+### Added
+- `hearthmind/llm/dialogue.py`: colocated agents periodically exchange an
+  LLM-authored short dialogue (with deterministic fallback), scheduled
+  fire-and-forget like cognition/chronicle/culture.
+- `Population.due_for_dialogue`/`apply_dialogue`: deterministic,
+  cooldown-gated, capped-per-tick pair selection; dialogue sentiment
+  nudges relationship affinity.
+- Dialogue lines and any seeded rumor are logged as `dialogue`/`rumor`
+  events — automatically visible to the chronicle and culture prompts
+  (both already read recent events), no extra wiring needed.
+
+### Changed
+- `Agent.relationships` now range -1..1 (was 0..1): a `tense` dialogue
+  can push a pair into rivalry, not just toward friendship. Decay now
+  pulls toward 0 from either sign.
+- `Config.llm_enabled` defaults to `True` (was `False`); `server.py`'s
+  flag inverted to `--llm-disabled`. Every LLM call still has a
+  deterministic fallback if Ollama is unreachable.
+- `llm_max_concurrent` default raised 2 -> 4.
+
+See `docs/DECISIONS.md`, E2.
+
 ## [0.15.0] — Add: Phase F slice 2 — FastAPI backend + browser client (F2)
 
 ### Added

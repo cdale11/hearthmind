@@ -807,3 +807,59 @@ subsystems, each needing a genuinely different `from_dict`/default-factory
 pair, a loop-based registry felt like premature abstraction for the
 current scale; revisit if a 5th or 6th subsystem makes the copy-paste
 pattern there start to hurt.
+
+## E2: NPC-to-NPC dialogue, relationships extended to rivalry, LLM on by default
+
+The user's explicit brief: "NPCs talk/speak with each other and
+influence each other and the world," with emergence as the primary
+objective, and "local LLM has no budget constraints — enable by
+default." Three changes:
+
+**LLM enabled by default.** `Config.llm_enabled` flips `False -> True`;
+`llm_max_concurrent` raised `2 -> 4`. `server.py`'s `--llm-enabled` flag
+became `--llm-disabled` (inverted) to match — every LLM call still
+degrades to its deterministic fallback if Ollama isn't reachable, so this
+only changes what a bare `Config()`/no-flags run does, not safety.
+
+**NPC dialogue (`hearthmind/llm/dialogue.py`).** Colocated, awake agent
+pairs periodically get an LLM-authored short exchange (`line_a`/`line_b`,
+a `sentiment`, and an optional `rumor`), scheduled the same
+fire-and-forget way as cognition/chronicle/culture — never inline with a
+tick. Selection lives in `Population.due_for_dialogue`: scan colocated
+awake pairs, filter by a per-pair cooldown (`DIALOGUE_COOLDOWN_TICKS =
+300`, stored in `Population.dialogue_cooldowns`), cap at
+`MAX_DIALOGUES_PER_TICK = 3`, then pick via a namespaced RNG shuffle
+(deterministic per seed/tick, same discipline as everything else). The
+cooldown is stamped at *selection* time, not when the LLM result arrives
+— this doubles as in-flight tracking, so a slow LLM call can't cause the
+same pair to be re-selected next tick. Dialogue lines and any rumor are
+logged as ordinary `dialogue`/`rumor` events, which means they
+automatically feed back into the chronicle and culture prompts (both
+already read `recent_events`) with no extra wiring — a rumor seeded by
+two agents can end up shaping a later tradition or chronicle entry
+without either subsystem knowing about dialogue specifically. This is the
+main emergence lever this slice adds: content that started as a private
+exchange between two agents can ripple into settlement-level culture.
+
+**Relationships extended to rivalry (-1..1, was 0..1).** A `tense`
+dialogue sentiment nudges affinity negative (`DIALOGUE_SENTIMENT_DELTA`),
+which needed `Agent.relationships` to support negative values —
+previously `_update_relationships`'s decay clamped at a `0.0` floor,
+which would have silently eaten any negative value back to neutral every
+tick. Decay now pulls toward `0.0` from whichever side a value is on.
+Passive colocation gain (`RELATIONSHIP_GAIN_PER_TICK_COLOCATED`) is
+unchanged — forced proximity still nudges a relationship toward positive
+regardless of sign, which is a deliberate call ("time spent together
+matters even between rivals") rather than an oversight. Reproduction
+(`REPRODUCTION_AFFINITY_THRESHOLD = 0.6`) needed no change: a negative
+value already fails that comparison the same as a low positive one.
+`RIVALRY_THRESHOLD = -0.4` is the read used by the dialogue prompt/
+fallback to decide when two agents are framed as "at odds" rather than
+merely unacquainted.
+
+**Scoping note:** persistent per-agent memory of *specific* past
+exchanges (not just an aggregate affinity number) and rumor-driven
+behavior change (an agent avoiding a rival, not just a relationship
+number going negative) are left for a future slice — this one makes
+dialogue *exist* and *feed relationships/culture*, not agents *reasoning*
+about their social history. Tracked as A5 in `docs/ROADMAP.md`.

@@ -102,13 +102,15 @@ Useful flags on `server.py`:
 - `--width / --height` — terrain grid size (default 64x64).
 - `--initial-population INT` — inhabitants spawned when a world is first
   created (default 12; only used the first time, like `--seed`).
-- `--llm-enabled` — turn on the Ollama cognition layer (off by default;
-  see below).
+- `--llm-disabled` — turn off the Ollama cognition/dialogue/culture layer
+  (on by default as of E2; see below). Every LLM call still has a
+  deterministic fallback, so this flag is only needed for a fully
+  offline/deterministic run.
 - `--llm-host URL` (default `http://localhost:11434`), `--llm-model NAME`
   (default `qwen2.5:3b`), `--llm-timeout SECONDS` (default 20 — CPU
   inference under contention on 8GB+zram can be slower than a quiet
   benchmark, see `docs/DECISIONS.md` D5), `--llm-max-concurrent INT`
-  (default 2) — all runtime settings, safe to change between runs.
+  (default 4) — all runtime settings, safe to change between runs.
 - `--api-enabled` — turn on the read-only WebSocket API (off by default;
   see below). `--api-host` (default `0.0.0.0`), `--api-port` (default
   `8765`).
@@ -120,22 +122,28 @@ so this is easy to slow down later for a "real" long-running deployment.
 
 ## LLM cognition layer (Ollama)
 
-Off by default — the simulation is fully deterministic and testable
-without Ollama installed at all (`fallback_goal`/`fallback_summary` stand
-in for it, see `docs/DECISIONS.md` B1-B3). The default model,
-`qwen2.5:3b`, is sized specifically for comfortable operation on an
-8GB-RAM machine (even with zram swap) alongside the simulation itself —
-~2GB of weights, fast CPU inference, and reliable structured JSON output
-(see `docs/DECISIONS.md`, B4). Size up (`--llm-model qwen2.5:7b`) if you
-have more RAM to spare, or down (`qwen2.5:1.5b`) on tighter hardware. To
-turn it on:
+On by default as of E2 — agent goals, the seasonal chronicle, yearly
+culture/traditions, and NPC-to-NPC dialogue are all LLM-authored when
+Ollama is reachable. The simulation stays fully functional without
+Ollama installed (`fallback_goal`/`fallback_summary`/`fallback_tradition`/
+`fallback_dialogue` stand in for it, see `docs/DECISIONS.md` B1-B3, E1,
+E2) — nothing raises or blocks a tick if the LLM is disabled,
+unreachable, or times out. The default model, `qwen2.5:3b`, is sized
+specifically for comfortable operation on an 8GB-RAM machine (even with
+zram swap) alongside the simulation itself — ~2GB of weights, fast CPU
+inference, and reliable structured JSON output (see `docs/DECISIONS.md`,
+B4). Size up (`--llm-model qwen2.5:7b`) if you have more RAM to spare, or
+down (`qwen2.5:1.5b`) on tighter hardware.
 
 ```bash
 # 1. Install and start Ollama (see https://ollama.com), then pull a model:
 ollama pull qwen2.5:3b
 
-# 2. Run the server with the LLM enabled:
-python3 -m hearthmind.server --db world.sqlite3 --llm-enabled
+# 2. Run the server (LLM is on by default):
+python3 -m hearthmind.server --db world.sqlite3
+
+# To run fully offline/deterministic instead:
+python3 -m hearthmind.server --db world.sqlite3 --llm-disabled
 ```
 
 With it enabled, each agent's daily goal (wander/forage/socialize/rest)

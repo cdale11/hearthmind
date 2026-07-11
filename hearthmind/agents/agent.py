@@ -91,10 +91,30 @@ MATURITY_TICKS = 4_000
 
 RELATIONSHIP_GAIN_PER_TICK_COLOCATED = 0.02
 RELATIONSHIP_DECAY_PER_TICK = 0.0005
+"""Pulls a relationship value toward 0 (neither affinity nor rivalry)
+from whichever side it's on — see Population._update_relationships.
+Relationship values range -1..1 as of E2 (previously 0..1): a dialogue
+exchange (see hearthmind/llm/dialogue.py) can now push a pair into
+rivalry, not just toward friendship."""
 REPRODUCTION_AFFINITY_THRESHOLD = 0.6
 REPRODUCTION_CHANCE_PER_TICK = 0.01
 """Rolled only for mature, healthy, colocated pairs above the affinity
 threshold — see Population._maybe_reproduce."""
+RIVALRY_THRESHOLD = -0.4
+"""Relationship value at or below which a pair is considered rivals for
+prompt-context/diagnostic purposes — see hearthmind/llm/dialogue.py."""
+
+DIALOGUE_COOLDOWN_TICKS = 300
+"""Minimum ticks between two agents having another LLM-authored dialogue
+exchange — keeps a stable pair that's colocated for a long stretch from
+generating a new exchange (and LLM call) every tick. See
+docs/DECISIONS.md, E2."""
+
+DIALOGUE_SENTIMENT_DELTA = {"warm": 0.05, "tense": -0.05, "neutral": 0.0}
+"""Relationship nudge applied when a dialogue exchange resolves, on top
+of the passive per-tick colocation gain — the LLM's read on how the
+exchange went, distinct from mere proximity. See
+Population.apply_dialogue, docs/DECISIONS.md, E2."""
 
 POPULATION_CAP = 200
 """Safety valve against unbounded growth before food scarcity/economy

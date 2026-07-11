@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
+    DIALOGUE_SENTIMENT_DELTA,
     ENERGY_DRAIN_AWAKE,
     ENERGY_RECOVERY_RESTING,
     FORAGE_AMOUNT,
@@ -90,6 +91,13 @@ GATHER_SEARCH_RADIUS = 6
 """Same rationale as FORAGE_SEARCH_RADIUS — local, plausible awareness of
 nearby forest/hills, not map-wide. See D8."""
 
+MAX_DIALOGUES_PER_TICK = 3
+"""Caps how many LLM-authored dialogue exchanges are scheduled in a
+single tick regardless of how many colocated pairs qualify — keeps LLM
+load bounded as population/clustering grows, same rationale as
+`llm_max_concurrent`. See Population.due_for_dialogue, docs/DECISIONS.md,
+E2."""
+
 
 def _namespaced_rng(seed: int, tick: int, namespace: str) -> random.Random:
     digest = hashlib.sha256(f"{seed}:{namespace}:{tick}".encode()).hexdigest()
@@ -125,6 +133,10 @@ class Population:
     population crash (many deaths between two snapshots) is invisible in
     `inspect_world` unless you happened to be watching the event log at
     the time. See docs/DECISIONS.md, D5."""
+    dialogue_cooldowns: dict[tuple[int, int], int] = field(default_factory=dict)
+    """(agent_id, agent_id) sorted pair -> tick of their last dialogue
+    exchange, so a stable colocated pair doesn't re-trigger the LLM every
+    tick — see due_for_dialogue, docs/DECISIONS.md, E2."""
 
     # --- construction ------------------------------------------------------
 
@@ -464,9 +476,14 @@ class Population:
         agents_by_id = {a.id: a for group in by_position.values() for a in group}
         for agent in agents_by_id.values():
             for other_id in list(agent.relationships):
-                agent.relationships[other_id] = max(
-                    0.0, agent.relationships[other_id] - RELATIONSHIP_DECAY_PER_TICK
-                )
+                # Pulls toward 0 from whichever side it's on — relationship
+                # values range -1..1 as of E2 (rivalry as well as affinity),
+                # so decay can no longer just clamp at a 0.0 floor.
+                value = agent.relationships[other_id]
+                if value > 0.0:
+                    agent.relationships[other_id] = max(0.0, value - RELATIONSHIP_DECAY_PER_TICK)
+                elif value < 0.0:
+                    agent.relationships[other_id] = min(0.0, value + RELATIONSHIP_DECAY_PER_TICK)
         for group in by_position.values():
             if len(group) < 2:
                 continue
@@ -649,6 +666,61 @@ class Population:
                 agent.goal_reason = reason
                 return
 
+    def get(self, agent_id: int) -> Agent | None:
+        for agent in self.agents:
+            if agent.id == agent_id:
+                return agent
+        return None
+
+    # --- dialogue (Phase E2) ---------------------------------------------------
+
+    def due_for_dialogue(self, seed: int, tick: int, cooldown_ticks: int) -> list[tuple[Agent, Agent]]:
+        """Colocated, awake pairs whose cooldown has expired, capped at
+        MAX_DIALOGUES_PER_TICK and chosen deterministically (namespaced
+        RNG shuffle, not scan order) so which pairs talk first is
+        reproducible for a given seed. Marks the selected pairs' cooldown
+        immediately (not when the LLM result arrives) — the cooldown
+        itself prevents re-selecting a pair while its exchange is still
+        in flight, so no separate inflight-tracking set is needed. See
+        docs/DECISIONS.md, E2."""
+        by_position: dict[tuple[int, int], list[Agent]] = {}
+        for agent in self.agents:
+            if agent.state is AgentState.AWAKE:
+                by_position.setdefault((agent.x, agent.y), []).append(agent)
+
+        candidates: list[tuple[Agent, Agent]] = []
+        for group in by_position.values():
+            if len(group) < 2:
+                continue
+            for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
+                last = self.dialogue_cooldowns.get((a.id, b.id), -cooldown_ticks)
+                if tick - last < cooldown_ticks:
+                    continue
+                candidates.append((a, b))
+        if not candidates:
+            return []
+
+        rng = _namespaced_rng(seed, tick, "dialogue_select")
+        rng.shuffle(candidates)
+        selected = candidates[:MAX_DIALOGUES_PER_TICK]
+        for a, b in selected:
+            self.dialogue_cooldowns[(a.id, b.id)] = tick
+        return selected
+
+    def apply_dialogue(self, a_id: int, b_id: int, sentiment: str) -> tuple[Agent, Agent] | None:
+        """Apply a resolved dialogue's sentiment as a relationship nudge,
+        on top of the passive per-tick colocation gain. Returns None (a
+        no-op) if either agent has since died — dialogue results can
+        arrive on a later tick than requested, same as cognition."""
+        agent_a, agent_b = self.get(a_id), self.get(b_id)
+        if agent_a is None or agent_b is None:
+            return None
+        delta = DIALOGUE_SENTIMENT_DELTA.get(sentiment, 0.0)
+        if delta:
+            agent_a.relationships[b_id] = max(-1.0, min(1.0, agent_a.relationships.get(b_id, 0.0) + delta))
+            agent_b.relationships[a_id] = max(-1.0, min(1.0, agent_b.relationships.get(a_id, 0.0) + delta))
+        return agent_a, agent_b
+
     # --- summary -------------------------------------------------------------
 
     def summary(self) -> dict:
@@ -676,14 +748,22 @@ class Population:
             "next_id": self._next_id,
             "deaths_starvation": self.deaths_starvation,
             "deaths_old_age": self.deaths_old_age,
+            "dialogue_cooldowns": {
+                f"{a_id}:{b_id}": tick for (a_id, b_id), tick in self.dialogue_cooldowns.items()
+            },
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "Population":
         agents = [Agent.from_dict(a) for a in data["agents"]]
+        dialogue_cooldowns = {}
+        for key, tick in data.get("dialogue_cooldowns", {}).items():
+            a_id, b_id = key.split(":")
+            dialogue_cooldowns[(int(a_id), int(b_id))] = tick
         return cls(
             agents=agents,
             _next_id=data["next_id"],
             deaths_starvation=data.get("deaths_starvation", 0),
             deaths_old_age=data.get("deaths_old_age", 0),
+            dialogue_cooldowns=dialogue_cooldowns,
         )

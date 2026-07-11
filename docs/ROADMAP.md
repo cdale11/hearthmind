@@ -22,7 +22,7 @@ build" — phases below are the *how*, this table is the *what*.
 | Seasons | shipped | `world/clock.py` calendar (`year_end` etc. drive culture/chronicle cadence) |
 | Ecology & wildlife | **not started** | new Phase A4, below |
 | Humans (agents, needs, aging) | shipped | Phase A |
-| Relationships | partial | A3 (proximity affinity + birth) only; no ongoing bonds, rivalries, or memory of specific agents — see Phase A5 |
+| Relationships | partial | A3 (proximity affinity + birth) + E2 (LLM dialogue nudges affinity, rivalry now representable, -1..1); no memory of *specific* exchanges yet — see A5 |
 | Economy | shipped (settlement-scale) | Phase D (D8-D10: materials, currency); no per-agent trade — see Phase D open item |
 | Agriculture | shipped | D1, D9 (farms, tool-boosted yield) |
 | Construction | shipped | Phase C |
@@ -74,12 +74,14 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   deliberately small at first (one or two species, no predator/prey AI):
   the goal is a background ecological rhythm agents can disturb (overhunt
   a valley, watch it recover), not a second simulation.
-- **A5. Deeper relationships (not yet built).** A3 shipped birth-gating
-  affinity but no persistent relationship *state* — agents don't remember
-  who they're bonded to, no rivalries, no grief on a bond's death. Natural
-  extension once Phase E's per-agent memory work exists to hang it on;
-  tracked here rather than folded into E1 because it's substrate
-  (deterministic state), not culture (LLM-authored content).
+- **A5. Deeper relationships (partial — remainder not yet built).** A3
+  shipped birth-gating affinity; E2 added dialogue-driven rivalry (a
+  relationship value, -1..1) and ambient LLM-authored exchanges. Still
+  missing: memory of *specific* past exchanges/events between two agents
+  (not just an aggregate number), grief on a bond's death, and rumor- or
+  rivalry-driven behavior change (an agent actively avoiding a rival, not
+  just a lower affinity number). Natural extension once per-agent memory
+  exists to hang it on.
 
 ## Phase B — LLM infrastructure (the foundation, not a feature)
 
@@ -199,9 +201,20 @@ starts producing content that surprises its creator.
   appear in per-agent cognition prompts and the chronicle prompt, closing
   the B3 "chronicle isn't read back into prompts" gap. See
   `docs/DECISIONS.md`, E1.
+- **[x] E2: NPC-to-NPC dialogue, relationships extended to rivalry, LLM
+  on by default.** Colocated agents periodically exchange an
+  LLM-authored dialogue line (`hearthmind/llm/dialogue.py`); sentiment
+  nudges relationship affinity, and any seeded rumor is logged as a
+  normal event, so it's automatically visible to the chronicle/culture
+  prompts without new wiring — a private exchange between two agents can
+  ripple into settlement-level culture. `Agent.relationships` now range
+  -1..1 (was 0..1) to represent rivalry, not just friendship. LLM is now
+  on by default (`Config.llm_enabled = True`) with the user's local
+  hardware confirmed not budget-constrained. See `docs/DECISIONS.md`, E2.
 - Not yet built: per-agent generational memory (an agent recalling their
   own family's history), multiple named settlements, culture-specific
-  building types, festivals as a distinct mechanic from traditions.
+  building types, festivals as a distinct mechanic from traditions,
+  E3 (inventions/tech-tier unlocks — next up).
 
 ## Phase F — Browser interface
 

@@ -47,10 +47,13 @@ class Config:
     db_path: str = "world.sqlite3"
 
     # --- runtime: LLM (Ollama) cognition layer, off by default -----------------
-    llm_enabled: bool = False
-    """Off by default: the simulation is fully deterministic and testable
-    without Ollama installed. Turning this on requires a reachable Ollama
-    server with `llm_model` pulled; see README."""
+    llm_enabled: bool = True
+    """On by default as of E2: cognition, chronicle, culture, and
+    NPC-to-NPC dialogue are the primary emergence levers, so a bare
+    `Config()` should exercise them. Every LLM call still degrades to a
+    deterministic fallback if Ollama isn't reachable — turning this off
+    is only needed for a fully offline/deterministic run (e.g. a fast
+    local smoke test). See docs/DECISIONS.md, E2."""
 
     llm_host: str = "http://localhost:11434"
     llm_model: str = "qwen2.5:3b"
@@ -62,9 +65,13 @@ class Config:
     fallback (see hearthmind/llm/jobs.py), so this only trades a slightly
     longer worst-case wait for a lower fallback rate. See
     docs/DECISIONS.md, D5."""
-    llm_max_concurrent: int = 2
+    llm_max_concurrent: int = 4
     """How many LLM requests may be in flight at once — the lever for
-    keeping Ollama's own thread pool busy without overwhelming it."""
+    keeping Ollama's own thread pool busy without overwhelming it. Raised
+    from 2 (E2): dialogue jobs now run alongside cognition/chronicle/
+    culture jobs, and the user has confirmed local LLM throughput is not
+    budget-constrained on their hardware — this is still bounded (not
+    unlimited) to avoid overwhelming Ollama's own thread pool at once."""
 
     # --- runtime: read-only WebSocket API (Phase F), off by default ------------
     api_enabled: bool = False

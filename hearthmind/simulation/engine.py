@@ -21,8 +21,9 @@ import logging
 import sqlite3
 from typing import TYPE_CHECKING
 
+from hearthmind.agents.agent import DIALOGUE_COOLDOWN_TICKS
 from hearthmind.config import Config
-from hearthmind.llm import chronicle, culture
+from hearthmind.llm import chronicle, culture, dialogue
 from hearthmind.llm.client import OllamaClient
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
@@ -87,6 +88,7 @@ class SimulationEngine:
         self._cognition_runner = CognitionRunner(client=client, max_concurrent=config.llm_max_concurrent)
         self._pending_goal_results: dict[int, dict] = {}
         self._inflight_cognition_agent_ids: set[int] = set()
+        self._pending_dialogue_results: list[tuple[int, int, dict]] = []
         self._background_tasks: set[asyncio.Task] = set()
 
         if self._broadcaster is not None:
@@ -157,6 +159,7 @@ class SimulationEngine:
 
     def _tick_once(self) -> None:
         self._apply_pending_cognition_results()
+        self._apply_pending_dialogue_results()
 
         previous_season = self.world.clock.season
         events = self.world.tick()
@@ -182,6 +185,7 @@ class SimulationEngine:
         self._maybe_schedule_chronicle(events, previous_season)
         self._maybe_schedule_tradition(events)
         self._schedule_due_cognition()
+        self._schedule_due_dialogue()
         self._maybe_broadcast()
 
         self._ticks_since_snapshot += 1
@@ -234,6 +238,58 @@ class SimulationEngine:
             self._record_llm_call(used_fallback)
         finally:
             self._inflight_cognition_agent_ids.discard(agent_id)
+
+    # --- Phase E2: NPC-to-NPC dialogue ------------------------------------------
+
+    def _apply_pending_dialogue_results(self) -> None:
+        if not self._pending_dialogue_results:
+            return
+        for agent_a_id, agent_b_id, parsed in self._pending_dialogue_results:
+            applied = self.world.population.apply_dialogue(agent_a_id, agent_b_id, parsed["sentiment"])
+            if applied is None:
+                continue
+            agent_a, agent_b = applied
+            log_event(
+                self.conn, tick=self.world.clock.tick_count, category="dialogue",
+                description=f'{agent_a.name}: "{parsed["line_a"]}" — {agent_b.name}: "{parsed["line_b"]}"',
+            )
+            if parsed["rumor"]:
+                log_event(
+                    self.conn, tick=self.world.clock.tick_count, category="rumor",
+                    description=f"{agent_a.name} and {agent_b.name}: {parsed['rumor']}",
+                )
+        self._pending_dialogue_results.clear()
+
+    def _schedule_due_dialogue(self) -> None:
+        """Fire-and-forget an LLM-authored dialogue job for each colocated
+        pair due this tick (see Population.due_for_dialogue for selection
+        and cooldown rules). Scheduled unconditionally, same as cognition
+        — CognitionRunner resolves to the deterministic fallback when the
+        LLM is disabled/unreachable. See docs/DECISIONS.md, E2."""
+        pairs = self.world.population.due_for_dialogue(
+            self.world.config.seed, self.world.clock.tick_count, DIALOGUE_COOLDOWN_TICKS,
+        )
+        if not pairs:
+            return
+        latest_tradition = self.world.settlement.traditions[-1] if self.world.settlement.traditions else ""
+        for agent_a, agent_b in pairs:
+            affinity = agent_a.relationships.get(agent_b.id, 0.0)
+            prompt = dialogue.build_prompt(
+                agent_a, agent_b, affinity, self.world.settlement.name, latest_tradition,
+                self.world.clock.season, self.world.weather.describe(),
+            )
+            fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity)
+            task = asyncio.create_task(self._run_dialogue(agent_a.id, agent_b.id, prompt, fallback))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+    async def _run_dialogue(self, agent_a_id: int, agent_b_id: int, prompt: str, fallback: dict) -> None:
+        result, used_fallback = await self._cognition_runner.run(
+            prompt, dialogue.SYSTEM_PROMPT, fallback=lambda: fallback
+        )
+        parsed = dialogue.parse_dialogue(result, fallback)
+        self._pending_dialogue_results.append((agent_a_id, agent_b_id, parsed))
+        self._record_llm_call(used_fallback)
 
     # --- Phase B: world chronicle --------------------------------------------
 
