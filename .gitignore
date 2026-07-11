@@ -39,3 +39,4 @@ runtime/checkpoints/
 
 # Node
 node_modules/
+.aider*

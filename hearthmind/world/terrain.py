@@ -1,0 +1,154 @@
+"""Deterministic terrain generation.
+
+Uses midpoint displacement (the "diamond-square" algorithm) to produce a
+plausible, seed-reproducible elevation field with no external dependencies.
+Diamond-square wants a grid of size (2^k + 1), so we generate at the
+smallest such size that covers the requested width/height and crop the
+result. This keeps the public interface (`generate_terrain`) agnostic to
+that implementation detail, so it can be swapped for multi-octave noise
+with real hydrology later (see docs/DECISIONS.md, M1-3) without callers
+changing.
+"""
+from __future__ import annotations
+
+import random
+from dataclasses import dataclass
+from enum import Enum
+
+
+class Biome(str, Enum):
+    DEEP_WATER = "deep_water"
+    SHALLOW_WATER = "shallow_water"
+    BEACH = "beach"
+    GRASSLAND = "grassland"
+    FOREST = "forest"
+    HILLS = "hills"
+    MOUNTAIN = "mountain"
+    SNOWCAP = "snowcap"
+
+
+@dataclass(frozen=True)
+class Tile:
+    x: int
+    y: int
+    elevation: float  # normalized 0.0 (lowest) .. 1.0 (highest)
+    biome: Biome
+
+    def to_dict(self) -> dict:
+        return {"x": self.x, "y": self.y, "elevation": self.elevation, "biome": self.biome.value}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Tile":
+        return cls(x=data["x"], y=data["y"], elevation=data["elevation"], biome=Biome(data["biome"]))
+
+
+# Elevation thresholds -> biome. Ordered low to high; first match wins.
+_BIOME_THRESHOLDS: list[tuple[float, Biome]] = [
+    (0.30, Biome.DEEP_WATER),
+    (0.38, Biome.SHALLOW_WATER),
+    (0.42, Biome.BEACH),
+    (0.62, Biome.GRASSLAND),
+    (0.75, Biome.FOREST),
+    (0.87, Biome.HILLS),
+    (0.95, Biome.MOUNTAIN),
+    (1.01, Biome.SNOWCAP),  # 1.01 so elevation == 1.0 still matches
+]
+
+
+def _classify(elevation: float) -> Biome:
+    for threshold, biome in _BIOME_THRESHOLDS:
+        if elevation < threshold:
+            return biome
+    return Biome.SNOWCAP
+
+
+def _next_diamond_square_size(minimum: int) -> int:
+    """Smallest N = 2^k + 1 that is >= minimum."""
+    size = 2
+    while size + 1 < minimum:
+        size *= 2
+    return size + 1
+
+
+def _diamond_square(size: int, seed: int, roughness: float = 0.55) -> list[list[float]]:
+    """Classic diamond-square midpoint displacement.
+
+    Returns an unnormalized size x size grid of floats (indexed [y][x]).
+    """
+    rng = random.Random(seed)
+    grid = [[0.0] * size for _ in range(size)]
+
+    # Seed the four corners.
+    grid[0][0] = rng.uniform(0.0, 1.0)
+    grid[0][size - 1] = rng.uniform(0.0, 1.0)
+    grid[size - 1][0] = rng.uniform(0.0, 1.0)
+    grid[size - 1][size - 1] = rng.uniform(0.0, 1.0)
+
+    step = size - 1
+    scale = 1.0
+
+    while step > 1:
+        half = step // 2
+
+        # Diamond step: midpoint of each square = avg of 4 corners + jitter.
+        for y in range(0, size - 1, step):
+            for x in range(0, size - 1, step):
+                avg = (
+                    grid[y][x]
+                    + grid[y][x + step]
+                    + grid[y + step][x]
+                    + grid[y + step][x + step]
+                ) / 4.0
+                grid[y + half][x + half] = avg + rng.uniform(-scale, scale)
+
+        # Square step: midpoint of each diamond edge = avg of 4 neighbors + jitter.
+        for y in range(0, size, half):
+            x_start = half if (y // half) % 2 == 0 else 0
+            for x in range(x_start, size, step):
+                total = 0.0
+                count = 0
+                for dy, dx in ((-half, 0), (half, 0), (0, -half), (0, half)):
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < size and 0 <= nx < size:
+                        total += grid[ny][nx]
+                        count += 1
+                grid[y][x] = total / count + rng.uniform(-scale, scale)
+
+        step = half
+        scale *= roughness
+
+    return grid
+
+
+def _normalize(grid: list[list[float]]) -> list[list[float]]:
+    flat = [v for row in grid for v in row]
+    lo, hi = min(flat), max(flat)
+    span = (hi - lo) or 1.0
+    return [[(v - lo) / span for v in row] for row in grid]
+
+
+def generate_terrain(seed: int, width: int, height: int) -> list[list[Tile]]:
+    """Generate a deterministic width x height grid of Tiles.
+
+    Same (seed, width, height) always produces the same terrain.
+    """
+    raw_size = _next_diamond_square_size(max(width, height))
+    raw = _diamond_square(raw_size, seed=seed)
+    normalized = _normalize(raw)
+
+    tiles: list[list[Tile]] = []
+    for y in range(height):
+        row: list[Tile] = []
+        for x in range(width):
+            elevation = normalized[y][x]
+            row.append(Tile(x=x, y=y, elevation=elevation, biome=_classify(elevation)))
+        tiles.append(row)
+    return tiles
+
+
+def biome_counts(tiles: list[list[Tile]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in tiles:
+        for tile in row:
+            counts[tile.biome.value] = counts.get(tile.biome.value, 0) + 1
+    return counts
