@@ -48,10 +48,17 @@ from hearthmind.economy.farms import (
 )
 from hearthmind.settlement.buildings import (
     CONSTRUCTION_WORK_PER_TICK,
+    GRANARY_CAPACITY,
+    GRANARY_DEPOSIT_PER_TICK,
+    GRANARY_KIND_CHANCE,
+    GRANARY_HUNGER_RELIEF,
+    GRANARY_WELLFED_HUNGER_THRESHOLD,
+    GRANARY_WITHDRAW_AMOUNT,
     MAX_WORKERS,
     REPAIR_THRESHOLD,
     REPAIR_WORK_PER_TICK,
     SETTLE_CHANCE_PER_TICK,
+    BuildingKind,
     BuildingStage,
     Settlement,
 )
@@ -142,7 +149,7 @@ class Population:
             critically_hungry = agent.hunger >= CRITICAL_HUNGER_THRESHOLD
             if critically_hungry and agent.state is AgentState.RESTING:
                 agent.state = AgentState.AWAKE  # emergency wake: starving beats sleeping
-            self._maybe_forage(agent, resources, farms)  # can eat while resting, not just awake
+            self._maybe_forage(agent, resources, farms, settlement)  # can eat while resting, not just awake
             if agent.hunger >= STARVATION_HUNGER_THRESHOLD:
                 agent.starving_ticks += 1
             else:
@@ -154,7 +161,7 @@ class Population:
                 agent.state = AgentState.RESTING  # proactive rest: a chosen goal, not just necessity
             if agent.state is AgentState.AWAKE:
                 self._dispatch_movement(
-                    agent, terrain, rng, resources, farms, position_snapshot, critically_hungry
+                    agent, terrain, rng, resources, farms, settlement, position_snapshot, critically_hungry
                 )
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
@@ -162,6 +169,7 @@ class Population:
         life_events: list[tuple[str, str]] = []
         life_events.extend(self._advance_construction(by_position, settlement))
         life_events.extend(self._maybe_repair(by_position, settlement))
+        self._maybe_stock_granaries(by_position, settlement)
         life_events.extend(self._maybe_start_construction(by_position, settlement, farms, rng))
         life_events.extend(self._maybe_plant(by_position, farms, settlement, terrain, rng))
         life_events.extend(self._maybe_reproduce(by_position, rng))
@@ -181,7 +189,9 @@ class Population:
                 agent.state = AgentState.RESTING
 
     @staticmethod
-    def _maybe_forage(agent: Agent, resources: ResourceGrid, farms: FarmGrid) -> None:
+    def _maybe_forage(
+        agent: Agent, resources: ResourceGrid, farms: FarmGrid, settlement: Settlement
+    ) -> None:
         if agent.hunger < FORAGE_HUNGER_THRESHOLD:
             return
 
@@ -193,6 +203,18 @@ class Population:
             if consumed > 0:
                 agent.hunger = max(0.0, agent.hunger - HARVEST_HUNGER_RELIEF * (consumed / HARVEST_AMOUNT))
                 return
+
+        # A stocked granary is preferred over wild foraging too — a
+        # deliberate community buffer, second only to a fresh farm.
+        granary = settlement.at(agent.x, agent.y)
+        if (
+            granary is not None and granary.kind is BuildingKind.GRANARY
+            and granary.stage is BuildingStage.STANDING and granary.stored_food > 0
+        ):
+            consumed = min(granary.stored_food, GRANARY_WITHDRAW_AMOUNT)
+            granary.stored_food -= consumed
+            agent.hunger = max(0.0, agent.hunger - GRANARY_HUNGER_RELIEF * (consumed / GRANARY_WITHDRAW_AMOUNT))
+            return
 
         node = resources.get(agent.x, agent.y)
         if node is None or node.amount <= 0:
@@ -224,8 +246,8 @@ class Population:
     @classmethod
     def _dispatch_movement(
         cls, agent: Agent, terrain: list[list[Tile]], rng: random.Random,
-        resources: ResourceGrid, farms: FarmGrid, position_snapshot: list[tuple[int, int, int]],
-        critically_hungry: bool = False,
+        resources: ResourceGrid, farms: FarmGrid, settlement: Settlement,
+        position_snapshot: list[tuple[int, int, int]], critically_hungry: bool = False,
     ) -> None:
         """Goal-directed agents (FORAGE/SOCIALIZE) take a deliberate step
         toward a visible target when one exists; otherwise (including
@@ -243,7 +265,11 @@ class Population:
         effective_goal = AgentGoal.FORAGE if critically_hungry else agent.goal
         target = None
         if effective_goal is AgentGoal.FORAGE:
-            target = cls._nearest_ready_farm(agent, farms) or cls._nearest_resource(agent, resources)
+            target = (
+                cls._nearest_ready_farm(agent, farms)
+                or cls._nearest_stocked_granary(agent, settlement)
+                or cls._nearest_resource(agent, resources)
+            )
         elif effective_goal is AgentGoal.SOCIALIZE:
             target = cls._nearest_other_agent(agent, position_snapshot)
 
@@ -268,6 +294,25 @@ class Population:
             dist = abs(x - agent.x) + abs(y - agent.y)
             if best_dist is None or dist < best_dist:
                 best, best_dist = (x, y), dist
+        return best
+
+    @staticmethod
+    def _nearest_stocked_granary(agent: Agent, settlement: Settlement) -> tuple[int, int] | None:
+        """No distance cap, same rationale as `_nearest_ready_farm` — a
+        built granary is a known community landmark. See docs/DECISIONS.md,
+        D7."""
+        best: tuple[int, int] | None = None
+        best_dist: int | None = None
+        for building in settlement.buildings:
+            if (
+                building.kind is not BuildingKind.GRANARY
+                or building.stage is not BuildingStage.STANDING
+                or building.stored_food <= 0
+            ):
+                continue
+            dist = abs(building.x - agent.x) + abs(building.y - agent.y)
+            if best_dist is None or dist < best_dist:
+                best, best_dist = (building.x, building.y), dist
         return best
 
     @staticmethod
@@ -457,9 +502,33 @@ class Population:
                 continue
             if rng.random() >= SETTLE_CHANCE_PER_TICK:
                 continue
-            settlement.start_construction(x, y)
-            life_events.append(("construction_started", f"Construction began at ({x}, {y})."))
+            kind = BuildingKind.GRANARY if rng.random() < GRANARY_KIND_CHANCE else BuildingKind.HUT
+            settlement.start_construction(x, y, kind=kind)
+            life_events.append(("construction_started", f"{kind.value.capitalize()} construction began at ({x}, {y})."))
         return life_events
+
+    @staticmethod
+    def _maybe_stock_granaries(
+        by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement
+    ) -> None:
+        """Well-fed awake agents present at a standing granary passively
+        contribute surplus each tick — presence-driven like every other
+        mechanic here, not a hauling/inventory system. See
+        docs/DECISIONS.md, D7."""
+        for building in settlement.buildings:
+            if building.kind is not BuildingKind.GRANARY or building.stage is not BuildingStage.STANDING:
+                continue
+            if building.stored_food >= GRANARY_CAPACITY:
+                continue
+            contributors = sum(
+                1 for a in by_position.get((building.x, building.y), [])
+                if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
+            )
+            if contributors == 0:
+                continue
+            building.stored_food = min(
+                GRANARY_CAPACITY, building.stored_food + GRANARY_DEPOSIT_PER_TICK * contributors
+            )
 
     def _apply_deaths(self) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []

@@ -115,10 +115,12 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   starving-ticks/maturity countdown) so a population crash or a flaky
   Ollama instance is visible from a snapshot alone. See
   `docs/DECISIONS.md`, D5.
-- Not yet built: storage/granaries (would give starvation death more
-  texture — right now food is consumed immediately, not stockpiled),
-  production chains, trade between agents/settlements, and any currency
-  or barter system. Economic decisions are natural Phase B (LLM
+- **[x] D6/D7: FORAGE now targets farms; granaries added.** D6 fixed
+  FORAGE never targeting farms (root cause of a 16-death cascade). D7
+  added `BuildingKind.GRANARY` — presence-driven stock/withdraw, a
+  community food buffer. See `docs/DECISIONS.md`, D6/D7.
+- Not yet built: production chains, trade between agents/settlements, any
+  currency or barter system. Economic decisions are natural Phase B (LLM
   cognition) territory once they exist.
 
 ## Phase E — Culture & history

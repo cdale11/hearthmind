@@ -4,6 +4,16 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.10.0] — Add: Granaries (D7)
+
+### Added
+- Dedicated `BuildingKind.GRANARY` (30% of new construction, vs. HUT).
+  Well-fed agents present passively stock it (`GRANARY_CAPACITY` 15.0);
+  hungry agents withdraw from it, priority farm > granary > wild forage.
+  FORAGE/critical-hunger movement now also targets granaries (uncapped
+  search, like farms/D6). `inspect_world` shows granary count + stored
+  food.
+
 ## [0.9.0] — Fix: FORAGE never targeted farms (D6); qualitative wind
 
 ### Fixed

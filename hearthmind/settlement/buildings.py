@@ -21,6 +21,16 @@ class BuildingStage(str, Enum):
     RUINED = "ruined"
 
 
+class BuildingKind(str, Enum):
+    HUT = "hut"
+    GRANARY = "granary"
+    """Communal food storage — see docs/DECISIONS.md, D7. Once standing,
+    well-fed agents present passively stock it, and hungry agents can draw
+    from it (Population._maybe_forage/_nearest_food_target) — a buffer
+    against a bad patch of wild-forage/farm luck rather than a
+    per-agent inventory system, which doesn't exist in this project."""
+
+
 CONSTRUCTION_WORK_PER_TICK = 0.05
 """Progress added per tick, per present worker (capped at MAX_WORKERS
 counted workers) — a hut takes ~20 ticks of one agent's continuous
@@ -63,12 +73,41 @@ RUIN_REMOVAL_TICKS = 3000
 """Ticks a ruined building persists (still inspectable) before nature
 finishes reclaiming it and it's removed from the world entirely."""
 
+GRANARY_KIND_CHANCE = 0.3
+"""Fraction of newly-started buildings that are GRANARY rather than HUT —
+rolled once at founding (Population._maybe_start_construction), not a
+player/agent choice yet."""
+
+GRANARY_CAPACITY = 15.0
+"""Max food a standing granary can hold — several farm harvests' worth
+(MAX_FARM_YIELD is 3.0), enough to matter as a buffer without trivializing
+scarcity."""
+
+GRANARY_WELLFED_HUNGER_THRESHOLD = 0.3
+"""An awake agent at or below this hunger, present at a standing granary,
+contributes surplus each tick — presence-driven like every other
+mechanic here (foraging, construction), not a hauling/inventory system."""
+
+GRANARY_DEPOSIT_PER_TICK = 0.02
+"""Food added per well-fed agent present, per tick, up to GRANARY_CAPACITY."""
+
+GRANARY_WITHDRAW_AMOUNT = 0.25
+"""Food consumed from a granary per successful withdrawal (see
+Population._maybe_forage) — between a wild forage (FORAGE_AMOUNT 0.2) and
+a farm harvest (HARVEST_AMOUNT 0.3): better than scrounging, worse than a
+fresh crop."""
+
+GRANARY_HUNGER_RELIEF = 0.4
+"""Hunger relief for a full granary withdrawal — between
+FORAGE_HUNGER_RELIEF (0.3) and HARVEST_HUNGER_RELIEF (0.5)."""
+
 
 @dataclass
 class Building:
     id: int
     x: int
     y: int
+    kind: BuildingKind = BuildingKind.HUT
     stage: BuildingStage = BuildingStage.UNDER_CONSTRUCTION
     progress: float = 0.0
     """0..1, meaningful while UNDER_CONSTRUCTION."""
@@ -76,16 +115,20 @@ class Building:
     """0..1, meaningful while STANDING (and while decaying toward RUINED)."""
     ruined_ticks: int = 0
     """Ticks spent as a ruin so far — see RUIN_REMOVAL_TICKS."""
+    stored_food: float = 0.0
+    """0..GRANARY_CAPACITY, meaningful only for a STANDING GRANARY."""
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "x": self.x,
             "y": self.y,
+            "kind": self.kind.value,
             "stage": self.stage.value,
             "progress": round(self.progress, 4),
             "condition": round(self.condition, 4),
             "ruined_ticks": self.ruined_ticks,
+            "stored_food": round(self.stored_food, 4),
         }
 
     @classmethod
@@ -94,10 +137,12 @@ class Building:
             id=data["id"],
             x=data["x"],
             y=data["y"],
+            kind=BuildingKind(data.get("kind", BuildingKind.HUT.value)),
             stage=BuildingStage(data["stage"]),
             progress=data["progress"],
             condition=data["condition"],
             ruined_ticks=data.get("ruined_ticks", 0),
+            stored_food=data.get("stored_food", 0.0),
         )
 
 
@@ -120,8 +165,8 @@ class Settlement:
 
     # --- construction ------------------------------------------------------
 
-    def start_construction(self, x: int, y: int) -> Building:
-        building = Building(id=self._next_id, x=x, y=y)
+    def start_construction(self, x: int, y: int, kind: BuildingKind = BuildingKind.HUT) -> Building:
+        building = Building(id=self._next_id, x=x, y=y, kind=kind)
         self._next_id += 1
         self.buildings.append(building)
         return building
@@ -166,12 +211,15 @@ class Settlement:
         standing = [b for b in self.buildings if b.stage is BuildingStage.STANDING]
         ruined = sum(1 for b in self.buildings if b.stage is BuildingStage.RUINED)
         avg_condition = sum(b.condition for b in standing) / len(standing) if standing else 0.0
+        granaries = [b for b in standing if b.kind is BuildingKind.GRANARY]
         return {
             "total": len(self.buildings),
             "under_construction": under_construction,
             "standing": len(standing),
             "ruined": ruined,
             "avg_condition": round(avg_condition, 3),
+            "granaries": len(granaries),
+            "granary_food": round(sum(b.stored_food for b in granaries), 3),
         }
 
     # --- (de)serialization -----------------------------------------------------

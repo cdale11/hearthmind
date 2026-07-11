@@ -24,10 +24,13 @@ branch `claude/hearthmind-overview-5bekay`.
 - Audit before continuing; fix regressions before new features.
 - Preserve existing behavior unless explicitly changing it.
 - Update README/CHANGELOG/docs/DECISIONS.md as part of the work, not after.
-- Never claim "verified" without actually running it (unit tests + CLI
-  smoke test: fresh world, resume, migration — see docs/TESTING.md).
-- Real Ollama runs surface bugs fake-server tests can't — treat live
-  diagnostics from the user's machine as high-priority signal.
+- Do not run the automated test suite or add new unit tests — deemed
+  unreliable. Verification is the user's live diagnostic reports from
+  their own machine (real Ollama, real hardware). Treat those as
+  high-priority signal and the actual source of truth for "does this
+  work," not anything run in this environment.
+- Still reason through logic/edge cases carefully before shipping — just
+  don't claim "tested" or spend effort on `unittest`.
 - Determinism: all randomness via `hashlib.sha256(f"{seed}:{namespace}:{tick}")`
   namespaced RNG, never bare `random`.
 - Tick loop (`World.tick`) is fully synchronous; LLM calls are

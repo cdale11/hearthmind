@@ -315,6 +315,21 @@ config). Also: wind now reported as a qualitative label
 (calm/breezy/windy/gale) via `WeatherState.wind_label()` instead of a raw
 float, in both `describe()` and future diagnostic output.
 
+## D7: Granaries — dedicated building type, presence-driven stock/withdraw
+
+First building-kind differentiation (`BuildingKind`: HUT/GRANARY). No
+per-agent inventory system exists in this project, so deposit/withdraw
+follow the established presence-driven pattern (like foraging,
+construction) rather than a hauling goal: well-fed awake agents
+(`hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD`) present at a standing
+granary contribute surplus each tick; hungry agents there withdraw,
+between a wild forage and a fresh farm harvest in value. `_maybe_forage`
+priority: farm > granary > wild. FORAGE/critical-hunger movement targets
+farm > granary > wild resource, with granaries getting the same uncapped
+search as farms (D6) — a built structure is known to its community.
+30% of new constructions roll GRANARY vs HUT (`GRANARY_KIND_CHANCE`);
+not yet an agent/LLM choice, same caveat as C1.
+
 ## C1: Building placement is deterministic in this slice, not yet an LLM/goal decision
 
 The roadmap describes buildings as "an agent/B2 decision," but this slice
