@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Callable
 
 logger = logging.getLogger("hearthmind.api")
 
@@ -22,6 +23,7 @@ class WorldBroadcaster:
         self._clients: set = set()
         self._last_payload: dict | None = None
         self._terrain_payload: dict | None = None
+        self._diagnostics_provider: Callable[[], dict] | None = None
 
     # --- called by SimulationEngine (writer side) -----------------------------
 
@@ -33,6 +35,18 @@ class WorldBroadcaster:
             "height": height,
             "biomes": [[tile.biome.value for tile in row] for row in terrain],
         }
+
+    def set_diagnostics_provider(self, provider: Callable[[], dict]) -> None:
+        """Called once, when the engine starts — `provider` is
+        `SimulationEngine.full_diagnostics`, a synchronous, read-only
+        callable. Keeps this class framework-free and engine-agnostic
+        (it never imports SimulationEngine) while still letting
+        `GET /diagnostics` (interface/app.py) reach the heavier,
+        on-demand report. See docs/DECISIONS.md, diagnostics pass."""
+        self._diagnostics_provider = provider
+
+    def get_full_diagnostics(self) -> dict | None:
+        return self._diagnostics_provider() if self._diagnostics_provider else None
 
     async def broadcast(self, payload: dict) -> None:
         self._last_payload = payload

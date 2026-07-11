@@ -79,8 +79,9 @@ def main(argv: list[str] | None = None) -> None:
 
     res = summary["resources"]
     print(
-        f"Resources:   {res['total_nodes']} foraging grounds "
-        f"({res['depleted']} depleted)  avg fullness {res['avg_amount']:.2f}"
+        f"Resources:   {res.get('food_nodes', res['total_nodes'])} bushes, "
+        f"{res.get('ore_nodes', 0)} mines ({res['depleted']} depleted total)  "
+        f"avg fullness {res['avg_amount']:.2f} (mines {res.get('ore_avg_amount', 0.0):.2f})"
     )
 
     settle = summary["settlement"]

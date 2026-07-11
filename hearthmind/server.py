@@ -40,8 +40,9 @@ def parse_args(argv: list[str] | None = None) -> Config:
     parser.add_argument("--llm-timeout", type=float, default=20.0, help="Seconds before an LLM call falls back.")
     parser.add_argument("--llm-max-concurrent", type=int, default=4,
                          help="Max simultaneous in-flight LLM requests.")
-    parser.add_argument("--api-enabled", action="store_true",
-                         help="Enable the read-only browser API (off by default; requires 'fastapi'/'uvicorn').")
+    parser.add_argument("--api-disabled", action="store_true",
+                         help="Disable the browser interface (on by default; requires 'fastapi'/'uvicorn' — "
+                              "run without them installed and this is disabled automatically with a warning).")
     parser.add_argument("--api-host", default="0.0.0.0", help="Browser API bind host.")
     parser.add_argument("--api-port", type=int, default=8765, help="Browser API port.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug-level logging.")
@@ -66,7 +67,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         llm_model=args.llm_model,
         llm_timeout_seconds=args.llm_timeout,
         llm_max_concurrent=args.llm_max_concurrent,
-        api_enabled=args.api_enabled,
+        api_enabled=not args.api_disabled,
         api_host=args.api_host,
         api_port=args.api_port,
     )
@@ -77,11 +78,27 @@ async def _main_async(config: Config) -> None:
         fresh = is_fresh(conn)
 
         broadcaster = None
+        uvicorn_module = create_app = None
         if config.api_enabled:
-            # Deferred import: only requires fastapi/uvicorn when
-            # --api-enabled is actually passed — see docs/DECISIONS.md, F1.
-            from hearthmind.interface.api import WorldBroadcaster
-            broadcaster = WorldBroadcaster()
+            # Deferred import: only requires fastapi/uvicorn when the API
+            # is actually enabled (on by default — see Config.api_enabled).
+            # Checked upfront (before the engine is built, which needs to
+            # know whether it has a broadcaster) and downgraded to a
+            # warning rather than crashing on ImportError: the simulation
+            # itself never depends on the browser interface, so a base
+            # install (no `pip install -r requirements.txt`) should still
+            # run. See docs/DECISIONS.md, UI-default pass.
+            try:
+                import uvicorn as uvicorn_module
+                from hearthmind.interface.api import WorldBroadcaster
+                from hearthmind.interface.app import create_app
+                broadcaster = WorldBroadcaster()
+            except ImportError:
+                broadcaster = None
+                logger.warning(
+                    "Browser interface is enabled but 'fastapi'/'uvicorn' aren't installed — "
+                    "running without it. Install with: pip install -r requirements.txt"
+                )
 
         engine = SimulationEngine.load_or_create(conn, config, broadcaster=broadcaster)
         if fresh:
@@ -106,13 +123,9 @@ async def _main_async(config: Config) -> None:
                 pass  # signal handlers aren't available on some platforms (e.g. Windows)
 
         if broadcaster is not None:
-            import uvicorn
-
-            from hearthmind.interface.app import create_app
-
             app = create_app(broadcaster, conn)
-            uvicorn_config = uvicorn.Config(app, host=config.api_host, port=config.api_port, log_level="warning")
-            uvicorn_server = uvicorn.Server(uvicorn_config)
+            uvicorn_config = uvicorn_module.Config(app, host=config.api_host, port=config.api_port, log_level="warning")
+            uvicorn_server = uvicorn_module.Server(uvicorn_config)
 
             async def _stop_uvicorn_on_signal() -> None:
                 await engine.stop_event.wait()

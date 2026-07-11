@@ -4,6 +4,36 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.22.0] — Fix + add: diagnostics, browser-default, resource variety, building cost
+
+### Fixed
+- NPC dialogue fallback repeated the same 3 lines forever when the LLM
+  was unreachable — now cycles through small per-band pools.
+- "A tooled field was planted..." → readable wording.
+- `Population.dialogue_cooldowns` grew unbounded over a long run — now
+  pruned (dead agents, stale entries) each tick.
+
+### Added
+- `GET /diagnostics` + dev console "Full diagnostic report" button:
+  LLM call/latency/error breakdown, tick-duration percentiles, peak
+  memory, DB size, all-time event-category histogram — built for
+  pasting into a bug report after an unattended overnight run.
+- Resource variety: `ResourceNode.kind` (FOOD/ORE) — hills-only ore
+  veins regenerate 12x slower than food nodes, season-scaled like food.
+  GATHER-goal materials collection on hills now draws from ore
+  specifically (forest wood stays uncapped/renewable).
+- Buildings now cost real materials to found (`HUT_MATERIALS_COST`/
+  `GRANARY_MATERIALS_COST`), not just a speed bonus — a settlement with
+  an empty stockpile can no longer spontaneously build.
+
+### Changed
+- Browser interface (`api_enabled`) is now **on by default**;
+  `--api-disabled` to opt out. Missing `fastapi`/`uvicorn` degrades to a
+  warning, not a crash.
+
+See `docs/DECISIONS.md`, "Diagnostics, browser-default, resource
+variety, real building cost."
+
 ## [0.21.0] — Add: predator danger, relationship memory, festivals, scarcity
 
 ### Added

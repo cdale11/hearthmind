@@ -53,9 +53,14 @@ Two design principles drive the phase ordering below:
 
 Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
 
-- **A1. Foraging & food economy.** Discrete, depletable resource nodes
-  scattered across forageable terrain; hungry agents forage them; nodes
-  regenerate slowly. Closes the M2-2 gap where hunger only ever rose.
+- **[x] A1. Foraging & food economy.** Discrete, depletable resource
+  nodes scattered across forageable terrain; hungry agents forage them;
+  nodes regenerate slowly. Closes the M2-2 gap where hunger only ever
+  rose. **Extended (resource-variety pass):** nodes now have a `kind`
+  (FOOD/"bush" vs. ORE/"mine") — hills-only ore veins regenerate 12x
+  slower than food and feed GATHER-goal materials collection
+  specifically (forest wood stays uncapped). See `docs/DECISIONS.md`,
+  "Diagnostics, browser-default, resource variety, real building cost."
 - **A2. Aging, starvation death, old-age death.** Agents track age and a
   per-agent lifespan; sustained starvation or old age removes them from
   the population.
@@ -132,11 +137,16 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   construction/decay shape rather than being planned/pathfound. An
   established road (wear >= 0.5) gives agents a 1.4x random-walk move
   bonus. See `docs/DECISIONS.md`, C5.
-- Not yet built: resource *cost* for construction (currently free beyond
-  agent presence/time), building types beyond a single generic structure
-  plus the granary kind, and — the natural next slice — tying
-  `AgentGoal`/LLM cognition into *where* and *whether* to build, rather
-  than the current pure-chance placement.
+- **[x] Resource cost for construction.** Founding a building now costs
+  real materials (`HUT_MATERIALS_COST`/`GRANARY_MATERIALS_COST`),
+  deducted upfront — a settlement with an empty stockpile can no longer
+  spontaneously build. See `docs/DECISIONS.md`, "buildings-need-
+  resources pass."
+- Not yet built: building types beyond a single generic structure plus
+  the granary kind, and — the natural next slice — tying `AgentGoal`/LLM
+  cognition into *where* and *whether* to build, rather than the current
+  pure-chance placement. Vehicles (transport) not scoped yet — see open
+  questions in chat.
 
 ## Phase D — Agriculture & economy
 

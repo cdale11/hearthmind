@@ -78,6 +78,19 @@ GRANARY_KIND_CHANCE = 0.3
 rolled once at founding (Population._maybe_start_construction), not a
 player/agent choice yet."""
 
+HUT_MATERIALS_COST = 3.0
+GRANARY_MATERIALS_COST = 5.0
+"""Materials deducted from the settlement stockpile when construction is
+founded — buildings are now genuinely "built from resources available"
+(previously materials only sped construction up, via
+CONSTRUCTION_MATERIALS_MULTIPLIER; a colocated, mature, healthy pair
+could found a building with zero materials on hand). A settlement with
+no stockpile can no longer spontaneously start a building — presence
+alone is no longer sufficient, matching real construction needing
+material on site before ground is broken. Granary costs more than a hut
+(bigger structure, more valuable once standing). See docs/DECISIONS.md,
+buildings-need-resources pass."""
+
 GRANARY_CAPACITY = 15.0
 """Max food a standing granary can hold — several farm harvests' worth
 (MAX_FARM_YIELD is 3.0), enough to matter as a buffer without trivializing

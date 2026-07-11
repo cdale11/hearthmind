@@ -63,8 +63,10 @@ from hearthmind.settlement.buildings import (
     GRANARY_DEPOSIT_PER_TICK,
     GRANARY_KIND_CHANCE,
     GRANARY_HUNGER_RELIEF,
+    GRANARY_MATERIALS_COST,
     GRANARY_WELLFED_HUNGER_THRESHOLD,
     GRANARY_WITHDRAW_AMOUNT,
+    HUT_MATERIALS_COST,
     MATERIALS_CAPACITY,
     MATERIALS_GATHER_PER_TICK,
     MATERIALS_PER_CONSTRUCTION_TICK,
@@ -77,7 +79,7 @@ from hearthmind.settlement.buildings import (
     BuildingStage,
     Settlement,
 )
-from hearthmind.world.resources import ResourceGrid
+from hearthmind.world.resources import ORE_BIOMES, ResourceGrid, ResourceKind
 from hearthmind.world.roads import ROAD_SPEED_MULTIPLIER, RoadNetwork
 from hearthmind.world.terrain import Biome, Tile
 from hearthmind.world.weather import WeatherState
@@ -234,7 +236,7 @@ class Population:
             if critically_hungry and agent.state is AgentState.RESTING:
                 agent.state = AgentState.AWAKE  # emergency wake: starving beats sleeping
             self._maybe_forage(agent, resources, farms, settlement, wildlife)  # can eat while resting, not just awake
-            self._maybe_gather(agent, terrain, settlement)
+            self._maybe_gather(agent, terrain, settlement, resources)
             if agent.hunger >= STARVATION_HUNGER_THRESHOLD:
                 agent.starving_ticks += 1
             else:
@@ -348,7 +350,7 @@ class Population:
                 break
 
         node = resources.get(agent.x, agent.y)
-        if node is not None and node.amount > 0:
+        if node is not None and node.kind is ResourceKind.FOOD and node.amount > 0:
             consumed = min(node.amount, FORAGE_AMOUNT)
             node.amount -= consumed
             relief = FORAGE_HUNGER_RELIEF * (consumed / FORAGE_AMOUNT)
@@ -367,22 +369,44 @@ class Population:
             agent.hunger = max(0.0, agent.hunger - CURRENCY_EMERGENCY_HUNGER_RELIEF)
 
     @staticmethod
-    def _maybe_gather(agent: Agent, terrain: list[list[Tile]], settlement: Settlement) -> None:
+    def _maybe_gather(
+        agent: Agent, terrain: list[list[Tile]], settlement: Settlement, resources: ResourceGrid,
+    ) -> None:
         """GATHER-goal agents on forest/hills feed the settlement's shared
         materials stockpile — awake-only (unlike foraging, this isn't a
-        survival mechanic, so no resting-interrupt applies). See D8."""
+        survival mechanic, so no resting-interrupt applies). See D8.
+
+        Forest wood stays uncapped (a forest is abstracted as
+        renewable/abundant, unlike a specific mineral vein) — but hills
+        gathering (see docs/DECISIONS.md, resource-variety pass) now
+        draws from a discrete ORE `ResourceNode` that depletes and
+        regrows far slower than food (ORE_REGEN_PER_TICK), so a mined-out
+        hill genuinely stops producing until it recovers. A hills tile
+        with no ore node (rolled FOOD instead at generation, see
+        `ResourceGrid.generate`) yields nothing to a GATHER-goal agent —
+        it's a foraging spot, not a mine."""
+        biome = terrain[agent.y][agent.x].biome
         if agent.goal is not AgentGoal.GATHER or agent.state is not AgentState.AWAKE:
             return
-        if terrain[agent.y][agent.x].biome not in MATERIAL_BIOMES:
+        if biome not in MATERIAL_BIOMES:
             return
+
+        gathered = MATERIALS_GATHER_PER_TICK
+        if biome in ORE_BIOMES:
+            node = resources.get(agent.x, agent.y)
+            if node is None or node.kind is not ResourceKind.ORE or node.amount <= 0:
+                return
+            gathered = min(node.amount, MATERIALS_GATHER_PER_TICK)
+            node.amount -= gathered
+
         # A full stockpile doesn't waste the surplus — it sells to an
         # abstract outside economy instead (D10).
         if settlement.materials >= MATERIALS_CAPACITY:
             settlement.currency = min(
-                CURRENCY_CAPACITY, settlement.currency + MATERIALS_GATHER_PER_TICK * CURRENCY_PER_OVERFLOW_UNIT
+                CURRENCY_CAPACITY, settlement.currency + gathered * CURRENCY_PER_OVERFLOW_UNIT
             )
             return
-        settlement.materials = min(MATERIALS_CAPACITY, settlement.materials + MATERIALS_GATHER_PER_TICK)
+        settlement.materials = min(MATERIALS_CAPACITY, settlement.materials + gathered)
 
     @staticmethod
     def _maybe_plant(
@@ -403,8 +427,11 @@ class Population:
             if tooled:
                 settlement.materials -= FARM_TOOL_MATERIALS_COST
             farms.plant(x, y, tooled=tooled)
-            note = "tooled field" if tooled else "field"
-            life_events.append(("farm_planted", f"A {note} was planted at ({x}, {y})."))
+            note = (
+                f"A field was planted at ({x}, {y}), using tools for a richer harvest."
+                if tooled else f"A field was planted at ({x}, {y})."
+            )
+            life_events.append(("farm_planted", note))
         return life_events
 
     @classmethod
@@ -493,7 +520,7 @@ class Population:
         best: tuple[int, int] | None = None
         best_dist: int | None = None
         for (x, y), node in resources.nodes.items():
-            if node.amount <= 0:
+            if node.kind is not ResourceKind.FOOD or node.amount <= 0:
                 continue
             if max(abs(x - agent.x), abs(y - agent.y)) > FORAGE_SEARCH_RADIUS:
                 continue
@@ -752,8 +779,15 @@ class Population:
             if rng.random() >= SETTLE_CHANCE_PER_TICK:
                 continue
             kind = BuildingKind.GRANARY if rng.random() < GRANARY_KIND_CHANCE else BuildingKind.HUT
+            cost = GRANARY_MATERIALS_COST if kind is BuildingKind.GRANARY else HUT_MATERIALS_COST
+            if settlement.materials < cost:
+                continue  # presence alone isn't enough — building needs material on site
+            settlement.materials -= cost
             settlement.start_construction(x, y, kind=kind)
-            life_events.append(("construction_started", f"{kind.value.capitalize()} construction began at ({x}, {y})."))
+            life_events.append((
+                "construction_started",
+                f"{kind.value.capitalize()} construction began at ({x}, {y}), using {cost:.0f} materials.",
+            ))
         return life_events
 
     @staticmethod
@@ -859,7 +893,23 @@ class Population:
         immediately (not when the LLM result arrives) — the cooldown
         itself prevents re-selecting a pair while its exchange is still
         in flight, so no separate inflight-tracking set is needed. See
-        docs/DECISIONS.md, E2."""
+        docs/DECISIONS.md, E2.
+
+        Also prunes `dialogue_cooldowns`: entries for agents no longer
+        alive, and entries stale enough (well past their own cooldown
+        window) that they're no longer preventing anything — found via
+        an overnight-soak diagnostics audit that this dict grew
+        unbounded over a long run (every pair that ever talked stayed in
+        it forever). See docs/DECISIONS.md, diagnostics pass."""
+        alive_ids = {a.id for a in self.agents}
+        prune_horizon = cooldown_ticks * 8
+        stale_keys = [
+            key for key, last in self.dialogue_cooldowns.items()
+            if key[0] not in alive_ids or key[1] not in alive_ids or tick - last > prune_horizon
+        ]
+        for key in stale_keys:
+            del self.dialogue_cooldowns[key]
+
         by_position: dict[tuple[int, int], list[Agent]] = {}
         for agent in self.agents:
             if agent.state is AgentState.AWAKE:

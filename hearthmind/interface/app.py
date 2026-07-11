@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from hearthmind import __version__
 from hearthmind.interface.api import WorldBroadcaster
-from hearthmind.persistence.snapshot import recent_events
+from hearthmind.persistence.snapshot import event_category_counts, recent_events, snapshot_count, total_event_count
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
@@ -63,6 +63,24 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection) -> FastA
     @app.get("/events")
     async def events(limit: int = 50) -> JSONResponse:
         return JSONResponse(recent_events(conn, limit=limit))
+
+    @app.get("/diagnostics")
+    async def diagnostics() -> JSONResponse:
+        """Extensive, on-demand diagnostic report — built for debugging
+        an unattended overnight soak run (see the `⚙ dev` browser
+        console's "Full diagnostic report" button): live engine stats
+        (tick timing, LLM latency/error breakdown, memory, DB size) plus
+        an all-time event-category histogram. See docs/DECISIONS.md,
+        diagnostics pass."""
+        live = broadcaster.get_full_diagnostics()
+        if live is None:
+            return JSONResponse({"error": "no tick has completed yet"}, status_code=503)
+        return JSONResponse({
+            "engine": live,
+            "event_category_counts": event_category_counts(conn),
+            "total_events_logged": total_event_count(conn),
+            "snapshot_rows": snapshot_count(conn),
+        })
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:

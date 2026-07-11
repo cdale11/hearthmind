@@ -44,3 +44,21 @@ def recent_events(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
         {"tick": tick, "logged_at": logged_at, "category": category, "description": description}
         for tick, logged_at, category, description in rows
     ]
+
+
+def event_category_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    """All-time histogram of event categories — part of the extensive
+    diagnostic report (`GET /diagnostics`) built for debugging an
+    unattended overnight soak run: how many dialogues/rumors/deaths/etc.
+    happened over the whole run, not just the recent-events tail. See
+    docs/DECISIONS.md, diagnostics pass."""
+    rows = conn.execute("SELECT category, COUNT(*) FROM events GROUP BY category").fetchall()
+    return {category: count for category, count in rows}
+
+
+def total_event_count(conn: sqlite3.Connection) -> int:
+    return conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+
+
+def snapshot_count(conn: sqlite3.Connection) -> int:
+    return conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0]

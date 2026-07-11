@@ -60,6 +60,25 @@ const tooltip = document.getElementById("tooltip");
 const devConsole = document.getElementById("dev-console");
 const devToggle = document.getElementById("dev-toggle");
 const devConsoleContent = document.getElementById("dev-console-content");
+const devFullReportBtn = document.getElementById("dev-full-report");
+const devReportStatus = document.getElementById("dev-report-status");
+
+devFullReportBtn.addEventListener("click", async () => {
+  devReportStatus.textContent = "fetching…";
+  try {
+    const report = await fetchJSON("/diagnostics");
+    const text = JSON.stringify(report, null, 2);
+    devConsoleContent.textContent = text;
+    try {
+      await navigator.clipboard.writeText(text);
+      devReportStatus.textContent = "copied to clipboard";
+    } catch (e) {
+      devReportStatus.textContent = "shown below (copy failed — select manually)";
+    }
+  } catch (e) {
+    devReportStatus.textContent = `failed: ${e.message}`;
+  }
+});
 
 devToggle.addEventListener("click", () => {
   devConsole.classList.toggle("hidden");

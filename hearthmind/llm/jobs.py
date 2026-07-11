@@ -16,21 +16,60 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from collections import deque
 from typing import Callable
 
 from hearthmind.llm.client import OllamaClient, OllamaUnavailable
 
 logger = logging.getLogger("hearthmind.llm")
 
+_LATENCY_WINDOW = 200
+"""How many recent successful call latencies to retain for percentile
+stats (see `stats()`) — a rolling window, not a full history, so this
+stays bounded on a long soak run."""
+
 
 class CognitionRunner:
     def __init__(self, client: OllamaClient | None, max_concurrent: int):
         self.client = client
         self._semaphore = asyncio.Semaphore(max(1, max_concurrent))
+        self.calls_attempted = 0
+        self.calls_succeeded = 0
+        self.calls_timed_out = 0
+        self.calls_errored = 0
+        """Attempted/succeeded/timed-out/errored broken out separately
+        (not just a single fallback counter) — added for overnight-soak
+        diagnosability: "LLM is degraded" and "LLM is unreachable" and
+        "LLM is slow" each point at a different fix, and used_fallback
+        alone can't distinguish them. See docs/DECISIONS.md,
+        diagnostics pass."""
+        self._latencies_ms: deque[float] = deque(maxlen=_LATENCY_WINDOW)
 
     @property
     def enabled(self) -> bool:
         return self.client is not None
+
+    def stats(self) -> dict:
+        """Snapshot of call outcomes and latency percentiles for the
+        browser dev console / `/diagnostics` — see interface/app.py."""
+        latencies = sorted(self._latencies_ms)
+
+        def percentile(p: float) -> float:
+            if not latencies:
+                return 0.0
+            idx = min(len(latencies) - 1, int(len(latencies) * p))
+            return round(latencies[idx], 1)
+
+        return {
+            "calls_attempted": self.calls_attempted,
+            "calls_succeeded": self.calls_succeeded,
+            "calls_timed_out": self.calls_timed_out,
+            "calls_errored": self.calls_errored,
+            "latency_ms_p50": percentile(0.5),
+            "latency_ms_p95": percentile(0.95),
+            "latency_ms_max": round(latencies[-1], 1) if latencies else 0.0,
+        }
 
     async def run(
         self, prompt: str, system: str | None, fallback: Callable[[], dict]
@@ -46,6 +85,8 @@ class CognitionRunner:
             return fallback(), True
 
         async with self._semaphore:
+            self.calls_attempted += 1
+            start = time.perf_counter()
             try:
                 # `generate_json` is a blocking network call; run it off
                 # the event loop so it can't stall other ticks/tasks, and
@@ -55,10 +96,18 @@ class CognitionRunner:
                     asyncio.to_thread(self.client.generate_json, prompt, system),
                     timeout=self.client.timeout_seconds + 5.0,
                 )
+                self._latencies_ms.append((time.perf_counter() - start) * 1000)
+                self.calls_succeeded += 1
                 return result, False
-            except (OllamaUnavailable, asyncio.TimeoutError) as exc:
+            except asyncio.TimeoutError as exc:
+                self.calls_timed_out += 1
+                logger.warning("LLM call timed out, using deterministic fallback: %s", exc)
+                return fallback(), True
+            except OllamaUnavailable as exc:
+                self.calls_errored += 1
                 logger.warning("LLM call failed, using deterministic fallback: %s", exc)
                 return fallback(), True
             except Exception as exc:  # defense in depth: LLM failure must never propagate
+                self.calls_errored += 1
                 logger.warning("Unexpected LLM error, using deterministic fallback: %s", exc)
                 return fallback(), True

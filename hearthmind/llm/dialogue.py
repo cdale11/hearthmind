@@ -46,25 +46,46 @@ def build_prompt(
     )
 
 
-def fallback_dialogue(agent_a: Agent, agent_b: Agent, affinity: float) -> dict:
-    """Deterministic stand-in, varying by relationship band so a
-    fallback-only run still produces some texture instead of one repeated
-    line — mirrors cognition.fallback_goal's approach."""
+_TENSE_POOL: tuple[tuple[str, str], ...] = (
+    ("I have nothing to say to you, {b}.", "Nor I to you."),
+    ("Still avoiding me, {b}?", "Can you blame me?"),
+    ("We should talk. Eventually.", "Eventually."),
+    ("Out of my way.", "Gladly."),
+)
+_WARM_POOL: tuple[tuple[str, str], ...] = (
+    ("Good to see you, {b}.", "And you, always."),
+    ("I was hoping to run into you.", "Likewise, {a}."),
+    ("You look well today.", "Feeling well, thanks to you."),
+    ("Walk with me a while?", "Always."),
+)
+_NEUTRAL_POOL: tuple[tuple[str, str], ...] = (
+    ("Quiet day.", "Quiet enough."),
+    ("Cold one, isn't it.", "That it is."),
+    ("Anything new?", "Not much, no."),
+    ("Long day.", "Isn't it always."),
+)
+"""Small pools rather than one fixed line per band, cycled
+deterministically by (agent ids, tick) — a fallback-only run (Ollama
+disabled or unreachable) previously repeated the exact same 3 lines for
+every pair forever, which read as an obvious, boring bug. See
+docs/DECISIONS.md, "NPCs repeating dialogue" fix."""
+
+
+def fallback_dialogue(agent_a: Agent, agent_b: Agent, affinity: float, tick: int = 0) -> dict:
+    """Deterministic stand-in, varying by relationship band and cycled
+    by tick so the same pair doesn't get the identical line every time —
+    mirrors cognition.fallback_goal's approach, extended for variety."""
     if affinity <= RIVALRY_THRESHOLD:
-        return {
-            "line_a": f"I have nothing to say to you, {agent_b.name}.",
-            "line_b": "Nor I to you.",
-            "sentiment": "tense", "rumor": "",
-        }
-    if affinity >= 0.6:
-        return {
-            "line_a": f"Good to see you, {agent_b.name}.",
-            "line_b": "And you, always.",
-            "sentiment": "warm", "rumor": "",
-        }
+        pool, sentiment = _TENSE_POOL, "tense"
+    elif affinity >= 0.6:
+        pool, sentiment = _WARM_POOL, "warm"
+    else:
+        pool, sentiment = _NEUTRAL_POOL, "neutral"
+    line_a, line_b = pool[(agent_a.id + agent_b.id + tick) % len(pool)]
     return {
-        "line_a": "Quiet day.", "line_b": "Quiet enough.",
-        "sentiment": "neutral", "rumor": "",
+        "line_a": line_a.format(a=agent_a.name, b=agent_b.name),
+        "line_b": line_b.format(a=agent_a.name, b=agent_b.name),
+        "sentiment": sentiment, "rumor": "",
     }
 
 

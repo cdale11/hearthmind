@@ -73,11 +73,14 @@ class Config:
     budget-constrained on their hardware — this is still bounded (not
     unlimited) to avoid overwhelming Ollama's own thread pool at once."""
 
-    # --- runtime: read-only WebSocket API (Phase F), off by default ------------
-    api_enabled: bool = False
-    """Off by default, same rationale as llm_enabled: the simulation is
-    fully functional without it. Requires the `websockets` package — see
-    docs/DECISIONS.md, F1."""
+    # --- runtime: browser interface (Phase F), on by default -------------------
+    api_enabled: bool = True
+    """On by default as of the UI/diagnostics pass — the browser window
+    is the primary way to actually watch a run. Requires `fastapi`/
+    `uvicorn` (see requirements.txt); if they aren't installed,
+    server.py catches the ImportError, logs a warning, and continues
+    without the API rather than crashing — the simulation itself never
+    depends on this. See docs/DECISIONS.md, F1/F2, UI-default pass."""
     api_host: str = "0.0.0.0"
     api_port: int = 8765
 

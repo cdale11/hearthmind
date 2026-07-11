@@ -1169,3 +1169,80 @@ food/weather pressure more than from hitting the cap.
 Deaths stat tile includes predator count; agent hover tooltip shows the
 most recent memory; new event icons/colors for `festival` (🎉, accented)
 and `predator_attack` (🐺, red).
+
+## Diagnostics, browser-default, resource variety, real building cost
+
+Four fixes/features from direct user feedback after an overnight-soak
+request, batched together:
+
+**NPCs repeating dialogue (bug fix).** Root cause: `fallback_dialogue`
+returned exactly one fixed line pair per relationship band, so any run
+where the LLM is unreachable (or, now that `llm_enabled` defaults True,
+simply not installed/running) repeats the identical 3 lines for every
+pair forever — an obvious, boring bug the user caught immediately.
+Fixed with small per-band pools (`_TENSE_POOL`/`_WARM_POOL`/
+`_NEUTRAL_POOL`, 4 lines each) cycled deterministically by
+`(agent_a.id + agent_b.id + tick) % len(pool)`. The dev console's new
+`llm_stats` (calls_timed_out/errored) now also makes it directly visible
+*why* fallback is firing so often, for next time.
+
+**"tooled field" wording (bug fix).** `farm_planted` event text read "A
+tooled field was planted..." — jargon nobody outside the codebase would
+parse. Now: "A field was planted at (x,y), using tools for a richer
+harvest."
+
+**Extensive diagnostics for overnight soak debugging.** `CognitionRunner`
+(`llm/jobs.py`) now tracks calls_attempted/succeeded/timed_out/errored
+separately (previously just a single fallback flag) plus a rolling
+200-sample latency window with p50/p95/max. `SimulationEngine` tracks a
+500-sample tick-duration window (p95) and a snapshot-saved counter.
+`WorldBroadcaster` gained `set_diagnostics_provider`/
+`get_full_diagnostics` (a callable set once by the engine, same pattern
+as `set_terrain`) so `interface/app.py` can stay framework-agnostic
+while still exposing a new `GET /diagnostics` endpoint: engine telemetry
++ peak RSS memory + on-disk DB size + an all-time event-category
+histogram from the DB. The browser dev console gained a "Full diagnostic
+report" button that fetches it, displays it, and best-effort copies it
+to the clipboard — built specifically so a user can paste one blob into
+a bug report after an unattended run, without reproducing it live.
+
+Also found via this audit: `Population.dialogue_cooldowns` grew
+unbounded over a long run — every pair that ever talked stayed in the
+dict forever, including pairs where one agent had since died.
+`due_for_dialogue` now prunes entries for dead agents and entries older
+than `cooldown_ticks * 8` each time it runs.
+
+**Browser mode on by default.** `Config.api_enabled` flips
+`False -> True`; `server.py`'s flag inverted to `--api-disabled`. The
+fastapi/uvicorn import check moved earlier (before `SimulationEngine` is
+constructed, since the engine needs to know upfront whether it has a
+broadcaster) and is now caught: missing dependencies log a warning and
+the server runs without the browser window rather than crashing — the
+base install stays genuinely dependency-free, this is a *default*, not
+a hard requirement.
+
+**Resource variety: bush (food) vs. mine (ore).**
+`world/resources.py`'s `ResourceNode` gained a `kind: ResourceKind`
+(`FOOD` or `ORE`). Food nodes are unchanged (grassland/forest/hills,
+fast regen). Ore nodes are hills-only (mountain isn't walkable, so an
+ore vein there would be unreachable), rolled at a lower density, hold
+double the max amount, and regenerate **12x slower**
+(`ORE_REGEN_PER_TICK`) — "mines recover over longer time" is the literal
+constant this answers. `Population._maybe_gather` (GATHER-goal
+materials collection) now draws from a hills tile's ore node if one is
+present there (consuming it, yielding nothing once depleted); forest
+wood gathering is deliberately left uncapped — a forest is abstracted as
+renewable, a specific mineral vein is not. Both kinds' regen is also
+season-scaled (existing `SEASON_REGEN_MULTIPLIER`, now shared).
+
+**Buildings actually cost materials to start.** Previously,
+`materials` only sped construction *up*
+(`CONSTRUCTION_MATERIALS_MULTIPLIER`) — a colocated, mature, healthy
+pair could found a building with zero materials in the stockpile.
+`HUT_MATERIALS_COST` (3.0) / `GRANARY_MATERIALS_COST` (5.0) are now
+deducted (and required) at founding — `_maybe_start_construction` skips
+founding entirely if the stockpile can't cover the cost. Verified over a
+6000-tick soak that settlements still bootstrap fine: the first building
+started at tick 4356, which is dominated by `MATURITY_TICKS` (4000) —
+founders must already be mature — not by the new materials gate, which
+adds only ~350 ticks on top in that run.

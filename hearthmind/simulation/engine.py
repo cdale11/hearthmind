@@ -19,9 +19,16 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import sqlite3
 import time
+from collections import deque
 from typing import TYPE_CHECKING
+
+try:
+    import resource  # Unix-only; used for peak-RSS diagnostics, gracefully absent on Windows.
+except ImportError:  # pragma: no cover — this project's target hardware is Linux
+    resource = None  # type: ignore[assignment]
 
 from hearthmind.agents.agent import DIALOGUE_COOLDOWN_TICKS
 from hearthmind.config import Config
@@ -107,11 +114,15 @@ class SimulationEngine:
         self._ticks_since_snapshot = 0
         self._broadcaster = broadcaster
         self._last_tick_duration_ms = 0.0
+        self._tick_durations_ms: deque[float] = deque(maxlen=500)
+        self._snapshots_saved = 0
         """Wall-clock time the most recent `_tick_once` took, in
-        milliseconds — surfaced in the browser dev console
+        milliseconds, plus a rolling window of the last 500 for
+        percentile stats — surfaced in the browser dev console
         (`_maybe_broadcast`'s `diagnostics` key) so a slow tick (LLM
         contention, a huge population) is visible without reading server
-        logs. Purely diagnostic, never persisted."""
+        logs. Purely diagnostic, never persisted. See docs/DECISIONS.md,
+        diagnostics pass."""
 
         client = None
         if config.llm_enabled:
@@ -128,6 +139,7 @@ class SimulationEngine:
             # Terrain never changes after creation — set once, not part
             # of the per-tick payload. See docs/DECISIONS.md, F2.
             self._broadcaster.set_terrain(world.terrain, world.config.width, world.config.height)
+            self._broadcaster.set_diagnostics_provider(self.full_diagnostics)
 
     @property
     def stop_event(self) -> asyncio.Event:
@@ -189,6 +201,7 @@ class SimulationEngine:
                 await asyncio.gather(*self._background_tasks, return_exceptions=True)
             logger.info("Engine stopping — saving final snapshot at tick %s.", self.world.clock.tick_count)
             save_snapshot(self.conn, self.world)
+            self._snapshots_saved += 1
 
     def _tick_once(self) -> None:
         tick_start = time.perf_counter()
@@ -223,11 +236,13 @@ class SimulationEngine:
         self._schedule_due_cognition()
         self._schedule_due_dialogue()
         self._last_tick_duration_ms = (time.perf_counter() - tick_start) * 1000
+        self._tick_durations_ms.append(self._last_tick_duration_ms)
         self._maybe_broadcast()
 
         self._ticks_since_snapshot += 1
         if self._ticks_since_snapshot >= self.config.snapshot_every_ticks:
             save_snapshot(self.conn, self.world)
+            self._snapshots_saved += 1
             self._ticks_since_snapshot = 0
             logger.debug("Snapshot saved at tick %s.", self.world.clock.tick_count)
 
@@ -319,7 +334,7 @@ class SimulationEngine:
                 agent_a, agent_b, affinity, self.world.settlement.name, latest_tradition,
                 self.world.clock.season, self.world.weather.describe(),
             )
-            fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity)
+            fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
             task = asyncio.create_task(self._run_dialogue(agent_a.id, agent_b.id, prompt, fallback))
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
@@ -493,16 +508,55 @@ class SimulationEngine:
             "farms": [p.to_dict() for p in self.world.farms.plots.values()],
             "wildlife": [h.to_dict() for h in self.world.wildlife.herds.values()],
             "roads": self.world.roads.to_dict()["wear"],
-            "diagnostics": {
-                "tick_duration_ms": round(self._last_tick_duration_ms, 2),
-                "background_tasks": len(self._background_tasks),
-                "inflight_cognition": len(self._inflight_cognition_agent_ids),
-                "connected_clients": self._broadcaster.client_count(),
-                "llm_enabled": self._cognition_runner.enabled,
-                "llm_max_concurrent": self.config.llm_max_concurrent,
-                "llm_model": self.config.llm_model,
-            },
+            "diagnostics": self._diagnostics_snapshot(),
         }
         task = asyncio.create_task(self._broadcaster.broadcast(payload))
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
+
+    def _diagnostics_snapshot(self) -> dict:
+        """Cheap, per-tick diagnostics — safe to compute every tick (no
+        disk I/O, no DB queries). See `full_diagnostics` for the heavier,
+        on-demand report behind `GET /diagnostics`."""
+        durations = sorted(self._tick_durations_ms)
+        p95 = durations[min(len(durations) - 1, int(len(durations) * 0.95))] if durations else 0.0
+        return {
+            "tick_duration_ms": round(self._last_tick_duration_ms, 2),
+            "tick_duration_ms_p95": round(p95, 2),
+            "background_tasks": len(self._background_tasks),
+            "inflight_cognition": len(self._inflight_cognition_agent_ids),
+            "connected_clients": self._broadcaster.client_count() if self._broadcaster else 0,
+            "llm_enabled": self._cognition_runner.enabled,
+            "llm_max_concurrent": self.config.llm_max_concurrent,
+            "llm_model": self.config.llm_model,
+            "llm_stats": self._cognition_runner.stats(),
+            "dialogue_cooldown_entries": len(self.world.population.dialogue_cooldowns),
+            "snapshots_saved": self._snapshots_saved,
+        }
+
+    def full_diagnostics(self) -> dict:
+        """A heavier, on-demand diagnostic report for `GET /diagnostics`
+        — everything in `_diagnostics_snapshot` plus process memory and
+        on-disk DB size, both of which need a syscall/stat and so are
+        deliberately NOT computed every tick. Built specifically to be
+        useful for an unattended overnight soak test: paste this into a
+        bug report and it should answer "is the LLM degraded," "is
+        memory growing," and "is the DB growing," without needing to
+        reproduce the run. See docs/DECISIONS.md, diagnostics pass."""
+        peak_rss_mb = None
+        if resource is not None:
+            usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            # Linux reports ru_maxrss in KB; macOS reports bytes — this
+            # project's target hardware is Linux (see CLAUDE.md), so KB
+            # is assumed rather than sniffing the platform.
+            peak_rss_mb = round(usage / 1024, 1)
+        db_size_mb = None
+        if self.config.db_path != ":memory:" and os.path.exists(self.config.db_path):
+            db_size_mb = round(os.path.getsize(self.config.db_path) / 1_000_000, 2)
+        return {
+            **self._diagnostics_snapshot(),
+            "peak_memory_rss_mb": peak_rss_mb,
+            "db_size_mb": db_size_mb,
+            "uptime_ticks": self.world.clock.tick_count,
+            "population_total": len(self.world.population.agents),
+        }

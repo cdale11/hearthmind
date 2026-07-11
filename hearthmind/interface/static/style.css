@@ -107,6 +107,12 @@ main {
 .dev-toggle:hover, .dev-toggle.active { color: var(--accent); border-color: var(--accent); }
 
 #dev-console.hidden { display: none; }
+#dev-full-report {
+  background: none; border: 1px solid var(--border); color: var(--text);
+  border-radius: 4px; padding: 4px 8px; font-family: inherit; font-size: 11px; cursor: pointer;
+}
+#dev-full-report:hover { border-color: var(--accent); }
+#dev-report-status { margin-left: 8px; font-size: 11px; }
 #dev-console-content {
   margin: 0;
   font-size: 11.5px;

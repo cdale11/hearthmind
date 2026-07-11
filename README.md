@@ -35,9 +35,11 @@ client at all, does not pause anything.
   *service*, not a pip package — talking to it only needed `urllib`. The
   browser interface (see below, Phase F) uses FastAPI + uvicorn, tracked
   in `requirements.txt` and the `api` extra (`pip install
-  hearthmind[api]`) — only needed if you pass `--api-enabled`. External
-  libraries are allowed project-wide as of Phase F; see
-  `docs/DECISIONS.md`, F1/F2.
+  hearthmind[api]`). The browser interface is **on by default** — install
+  the extra to use it; without it, `server.py` logs a warning and runs
+  without the browser window rather than crashing (`--api-disabled` to
+  turn it off on purpose). External libraries are allowed project-wide
+  as of Phase F; see `docs/DECISIONS.md`, F1/F2.
 - **LLM failure degrades quality, never liveness.** Every LLM-backed
   decision goes through a timeout and a deterministic, rule-based
   fallback and never raises into the tick loop. Ollama being slow,
@@ -116,9 +118,8 @@ Useful flags on `server.py`:
   inference under contention on 8GB+zram can be slower than a quiet
   benchmark, see `docs/DECISIONS.md` D5), `--llm-max-concurrent INT`
   (default 4) — all runtime settings, safe to change between runs.
-- `--api-enabled` — turn on the read-only WebSocket API (off by default;
-  see below). `--api-host` (default `0.0.0.0`), `--api-port` (default
-  `8765`).
+- `--api-disabled` — turn off the browser interface (on by default; see
+  below). `--api-host` (default `0.0.0.0`), `--api-port` (default `8765`).
 
 With the defaults, 1 real second = 15 sim-minutes, so a full sim day
 (24h) passes roughly every 96 real seconds — fast enough to watch seasons
@@ -182,34 +183,43 @@ for each inhabitant's current `goal`/`goal_reason`, and watch the
 
 ## Browser interface (Phase F)
 
-Off by default. A real, live window into the world: a canvas map
+**On by default.** A real, live window into the world: a canvas map
 (terrain, agents, buildings, farms, wildlife, road wear), a stat
 dashboard covering every system (population, relationships, economy,
 tech level, wildlife, roads, LLM/dialogue diagnostics), a human-readable
-event log (icons, color-coded by category), traditions, inventions, and
-a `⚙ dev` toggle exposing raw engine telemetry (tick timing, background
-task counts, connected clients) — all updating once per tick over a
-WebSocket. No intervention endpoints yet — this is observation-only, per
-the roadmap (`docs/ROADMAP.md`, Phase F).
+event log (icons, color-coded by category), traditions, inventions,
+festivals, and a `⚙ dev` toggle exposing raw engine telemetry (tick
+timing, background task counts, connected clients, LLM latency) plus a
+"Full diagnostic report" button (`GET /diagnostics`) for debugging an
+unattended overnight run — all updating once per tick over a WebSocket.
+No intervention endpoints yet — this is observation-only, per the
+roadmap (`docs/ROADMAP.md`, Phase F).
 
 ```bash
 pip install -r requirements.txt   # or: pip install hearthmind[api]
-python3 -m hearthmind.server --db world.sqlite3 --api-enabled
+python3 -m hearthmind.server --db world.sqlite3
 ```
 
-Then open `http://localhost:8765` in a browser. Endpoints, if you want to
-script against it directly instead:
+Then open `http://localhost:8765` in a browser. If `fastapi`/`uvicorn`
+aren't installed, the server logs a warning and runs without the browser
+window instead of crashing — the simulation itself never depends on it.
+Pass `--api-disabled` to turn it off on purpose. Endpoints, if you want
+to script against it directly instead:
 
 - `GET /state` — current world summary + agents/buildings/farms (same
   shape as one WebSocket tick).
 - `GET /terrain` — the static biome grid (fetch once; it never changes).
 - `GET /events?limit=N` — recent event-log history.
+- `GET /diagnostics` — extensive on-demand report: engine telemetry, LLM
+  call/latency/error breakdown, memory/DB size, all-time event-category
+  histogram. Built for pasting into a bug report after a long soak run.
 - `WS /ws` — one JSON message per tick, same shape as `GET /state`.
 
 External libraries are allowed for this feature (project policy since
 Phase F — see `docs/DECISIONS.md`, F2) but are still an **optional
-extra**: the base simulation stays dependency-free unless you actually
-pass `--api-enabled`.
+extra**: the base simulation stays dependency-free — install
+`requirements.txt` to get the browser window, or run with
+`--api-disabled` (or without the extra installed) to skip it.
 
 ## Testing
 
@@ -268,11 +278,12 @@ every release, not just unit tests.
       cognition prompts and the chronicle prompt. See `docs/DECISIONS.md`,
       E1.
 - [x] **Phase F — Browser interface, slices 1-2.** A real, live browser
-      window: canvas map, stat dashboard, traditions, event log, all
-      updating once per tick over WebSocket (FastAPI + uvicorn backend,
-      `--api-enabled`). Intervention endpoints are deliberately not
-      built yet — last, per the roadmap. External libraries are now
-      allowed project-wide, tracked in `requirements.txt`. See
+      window, on by default: canvas map, stat dashboard, traditions,
+      festivals, event log, dev console, all updating once per tick over
+      WebSocket (FastAPI + uvicorn backend). Intervention endpoints are
+      deliberately not built yet — last, per the roadmap. External
+      libraries are now allowed project-wide, tracked in
+      `requirements.txt`. See
       `docs/DECISIONS.md`, F1/F2.
 - [ ] Phase G — Supernatural / psychological horror layer.
 
