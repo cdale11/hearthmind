@@ -4,6 +4,44 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.3.0] — Phase A: Foraging, lifecycle, relationships and birth
+
+### Added
+- `hearthmind/world/resources.py`: discrete, depletable `ResourceNode`s
+  scattered on forageable terrain (forest/grassland/hills) at world
+  creation, regenerating slowly (~500 ticks from empty to full). Closes
+  the M2-2 gap — hungry agents now forage nearby nodes instead of hunger
+  only ever rising.
+- Agents now age (`age_ticks`) and carry a per-agent lifespan
+  (`max_age_ticks`, randomized at spawn) — dying of old age when reached.
+- Starvation death: sustained (200+ consecutive ticks) high hunger with no
+  food available kills an agent; a single bad tick does not.
+- Lightweight relationships: agents build affinity with others they're
+  colocated with, decaying otherwise. Mature, healthy, sufficiently
+  affinitied pairs can reproduce (small per-tick chance), producing a new
+  agent with recorded parent lineage — gated by a hard population cap
+  (200) as a safety valve.
+- Births and deaths are logged as `birth`/`death` events, visible via
+  `inspect_world`'s recent-events list.
+- `World.summary()` / `inspect_world.py` now also report resource-node
+  counts/fullness and average population age.
+- The pre-Milestone-2 snapshot-migration mechanism (M2-3) is generalized:
+  `migrated_population: bool` became `migrated_subsystems: list[str]`, so
+  the new `resources` subsystem (and any future one) is backfilled on
+  load the same way, without a bespoke branch per field.
+- `docs/ROADMAP.md`: the long-term phased plan (Phase A through Phase G).
+- `docs/TESTING.md`: the release-testing checklist (unit tests + real CLI
+  smoke tests for fresh-world, resume, and migration paths).
+
+### Known gaps (intentional, tracked for later phases)
+- No LLM involvement yet — reproduction/relationships are a deliberately
+  cheap deterministic placeholder Phase B's cognition layer will build on
+  top of, not replace outright.
+- No settlements, buildings, or agriculture yet — foraging is still the
+  only food source (Phase C/D).
+- The population cap (200) is a blunt safety valve, not an emergent limit;
+  Phase D's economy should make it unreachable in practice.
+
 ## [0.2.0] — Milestone 2 (slice 1): Agents — population, needs, movement
 
 ### Added

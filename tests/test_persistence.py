@@ -34,8 +34,19 @@ class TestWorldSerialization(unittest.TestCase):
 
         restored = World.from_dict(data, runtime_config=config)
 
-        self.assertTrue(restored.migrated_population)
+        self.assertIn("population", restored.migrated_subsystems)
         self.assertEqual(len(restored.population.agents), config.initial_population)
+
+    def test_loading_pre_phase_a_snapshot_migrates_resources(self):
+        config = Config(seed=42, width=8, height=8)
+        world = World.create_new(config)
+        data = world.to_dict()
+        del data["resources"]  # simulate a snapshot saved before Phase A
+
+        restored = World.from_dict(data, runtime_config=config)
+
+        self.assertIn("resources", restored.migrated_subsystems)
+        self.assertNotIn("population", restored.migrated_subsystems)
 
     def test_loading_current_snapshot_does_not_migrate(self):
         config = Config(seed=42, width=8, height=8)
@@ -44,7 +55,7 @@ class TestWorldSerialization(unittest.TestCase):
 
         restored = World.from_dict(data, runtime_config=config)
 
-        self.assertFalse(restored.migrated_population)
+        self.assertEqual(restored.migrated_subsystems, [])
         self.assertEqual(
             [a.to_dict() for a in restored.population.agents],
             [a.to_dict() for a in world.population.agents],

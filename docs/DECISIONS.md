@@ -100,4 +100,77 @@ serialized) so `SimulationEngine.load_or_create` can log a
 migration only happens once per save, not on every future load. This is the
 same "detect absence, backfill, log it" shape we'll want for future save
 format changes, so it's worth establishing as the convention now rather than
-inventing a new one per field.
+inventing a new one per field. (Generalized in A4, below.)
+
+## A1: Foraging uses discrete, depletable resource nodes, not a passive per-biome rate
+
+Alternatives considered: a passive "agents on grassland/forest lose hunger
+slower" rule (no spatial resource state at all), or per-tile continuous
+food density.
+
+Chosen: sparse `ResourceNode`s scattered at world creation (12% of
+forageable tiles), each holding up to 1.0 units, consumed by foraging and
+regenerating slowly (~500 ticks to fully regrow from empty).
+
+Why: the roadmap's emergence goal needs scarcity to be a *place-based* fact,
+not an ambient property of a biome. A passive rate can never run out, so a
+crowded area can never actually be foraged bare — which forecloses the most
+interesting future dynamics (competition, migration pressure, a settlement
+outgrowing its foraging grounds). Discrete depletable nodes cost more state
+than a passive rate but are what makes "a population that grows faster than
+its foraging grounds regenerate should feel real scarcity" true rather than
+aspirational. Fish/water-adjacent foraging was considered and deferred —
+`FORAGEABLE_BIOMES` covers forest/grassland/hills only for now.
+
+## A2: Agent lifespan is tracked in ticks as an abstract "vitality" budget, not literal years
+
+Each agent gets `max_age_ticks`, randomized at spawn between
+`MIN_LIFESPAN_TICKS` (20,000) and `MAX_LIFESPAN_TICKS` (40,000). At the
+default config (15 sim-min/tick, 96 ticks/day) that's roughly 2.6–5.2
+sim-years — short for a human lifespan, but deliberately so: these are
+round numbers chosen for something to actually observably die of old age
+within a reasonably short test/dev run, not a literal claim about how long
+a Hearthmind villager should live. Revisit once the calendar/pacing is
+tuned for a "real" long-running deployment (see the README's note on
+`--tick-seconds`/`--sim-minutes-per-tick`).
+
+Starvation death uses a separate mechanism: `starving_ticks` counts
+consecutive ticks at or above `STARVATION_HUNGER_THRESHOLD` (0.95); it
+resets to zero the moment hunger drops below that (e.g. from a successful
+forage), and death only fires after `STARVATION_TICKS_TO_DEATH` (200)
+consecutive ticks — so a single bad tick doesn't kill an agent, but
+sustained inability to eat does.
+
+A hard `POPULATION_CAP` (200) exists purely as a safety valve against
+unbounded growth before food scarcity or (later) an economy can naturally
+cap population through starvation pressure. It is not meant to be the
+long-term mechanism — Phase D (agriculture/economy) should make it
+unreachable in practice well before it needs raising.
+
+## A3: Reproduction requires mutual affinity built through colocation
+
+Agents accumulate a per-pair `relationships` affinity (0.0–1.0) that rises
+while colocated (`RELATIONSHIP_GAIN_PER_TICK_COLOCATED`) and decays
+otherwise (`RELATIONSHIP_DECAY_PER_TICK`), independent of and much simpler
+than anything an LLM will eventually do with relationships (Phase B/E).
+Reproduction requires both agents mature (`age_ticks >= MATURITY_TICKS`),
+healthy (hunger ≤ 0.7, energy ≥ 0.3), colocated, and above
+`REPRODUCTION_AFFINITY_THRESHOLD` (0.6) — then rolls a small per-tick chance
+(`REPRODUCTION_CHANCE_PER_TICK`, 1%). This is intentionally the cheapest
+possible model: no genetics, no explicit pair-bonding/monogamy, no
+preference beyond raw affinity. It exists so the population has *some*
+deterministic, testable growth mechanic before Phase B's LLM gets involved
+in anything relationship-shaped — replacing or layering on top of this is
+expected, not something this decision tries to preempt.
+
+## A4: Migration flag generalized to `migrated_subsystems`
+
+M2-3 introduced a single `migrated_population: bool`. Phase A needed the
+same "detect absence, backfill, log it" behavior for a second subsystem
+(`resources`), so the boolean became `migrated_subsystems: list[str]`,
+and `SimulationEngine.load_or_create` iterates it against small
+per-subsystem description/count-lookup tables (`_MIGRATION_DESCRIPTIONS`,
+`_MIGRATION_COUNTS` in `simulation/engine.py`) instead of hand-writing a
+new `if world.migrated_x:` branch per subsystem. Future subsystems that
+need backfill-on-load should add an entry to those two tables and a branch
+in `World.from_dict`, not invent a third mechanism.

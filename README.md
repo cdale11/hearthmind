@@ -42,10 +42,11 @@ hearthmind/
   world/
     terrain.py         # deterministic terrain generation (midpoint displacement)
     weather.py          # deterministic, seasonally-aware weather system
-    state.py             # World: the aggregate root, (de)serializes to dict
+    resources.py         # depletable, regenerating forageable resource nodes
+    state.py              # World: the aggregate root, (de)serializes to dict
   agents/
-    agent.py             # Agent: position + hunger/energy needs + awake/resting state
-    population.py         # Population: spawns and ticks the collection of agents
+    agent.py             # Agent: needs, aging, relationships, lifecycle constants
+    population.py         # Population: spawns/ticks agents; foraging, birth, death
     names.py               # deterministic name generation
   persistence/
     database.py          # SQLite schema + connection helper
@@ -88,20 +89,31 @@ so this is easy to slow down later for a "real" long-running deployment.
 python3 -m unittest discover -s tests -v
 ```
 
+See `docs/TESTING.md` for the full release checklist (unit tests plus real
+CLI smoke tests for fresh-world, resume, and migration paths) — run before
+every release, not just unit tests.
+
 ## Milestone status
 
 - [x] **Milestone 1 — Core sim loop + persistence.** Deterministic terrain,
       clock, and weather; SQLite snapshots + event log; graceful
       start/stop/resume. No LLM, no network interface yet.
-- [~] **Milestone 2 — Agents (population, needs, movement), slice 1.** A
-      population of named inhabitants spawns on walkable terrain, wanders,
-      and tracks hunger/energy with an awake/resting cycle — all
-      deterministic per `(seed, tick)`, all persisted. Still missing:
-      foraging/food consumption, death, and any inter-agent interaction —
-      see `docs/DECISIONS.md` M2-2 and `CHANGELOG.md`.
-- [ ] Milestone 3 — LLM cognition layer (Ollama) for agent decisions/memory.
-- [ ] Milestone 4 — Browser interface (read-mostly observation + sparse
+- [x] **Milestone 2 — Agents (population, needs, movement, lifecycle).**
+      A population of named inhabitants spawns on walkable terrain,
+      wanders, forages depletable resource nodes, ages, can die of
+      starvation or old age, and can reproduce with agents they've built
+      affinity with — all deterministic per `(seed, tick)`, all persisted.
+      Still missing: any LLM involvement (still ahead in Phase B) and any
+      settlement-level structure (buildings, roads — Phase C).
+- [ ] Phase B — LLM cognition layer (Ollama): agent decisions, world
+      chronicle/narrator. See `docs/ROADMAP.md`.
+- [ ] Phase C — Settlements & construction.
+- [ ] Phase D — Agriculture & economy.
+- [ ] Phase E — Culture & history.
+- [ ] Phase F — Browser interface (read-mostly observation + sparse
       intervention actions).
+- [ ] Phase G — Supernatural / psychological horror layer.
 
-See `CHANGELOG.md` for a version-by-version history and `docs/DECISIONS.md`
-for the reasoning behind non-obvious choices.
+See `CHANGELOG.md` for a version-by-version history, `docs/DECISIONS.md`
+for the reasoning behind non-obvious choices, and `docs/ROADMAP.md` for
+the longer-term plan.

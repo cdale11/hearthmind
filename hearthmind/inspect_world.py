@@ -50,7 +50,14 @@ def main(argv: list[str] | None = None) -> None:
     print(
         f"\nPopulation:  {pop['total']} inhabitants "
         f"({pop['awake']} awake, {pop['resting']} resting)  "
-        f"avg hunger {pop['avg_hunger']:.2f}, avg energy {pop['avg_energy']:.2f}"
+        f"avg hunger {pop['avg_hunger']:.2f}, avg energy {pop['avg_energy']:.2f}, "
+        f"avg age {pop['avg_age_ticks']:.0f} ticks"
+    )
+
+    res = summary["resources"]
+    print(
+        f"Resources:   {res['total_nodes']} foraging grounds "
+        f"({res['depleted']} depleted)  avg fullness {res['avg_amount']:.2f}"
     )
 
     print(f"\nRecent events (latest {len(events)}):")

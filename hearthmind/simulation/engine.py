@@ -24,6 +24,16 @@ _CALENDAR_EVENT_DESCRIPTIONS = {
     "year_end": "A new year begins.",
 }
 
+_MIGRATION_DESCRIPTIONS = {
+    "population": "{count} inhabitants appeared, settling a world that predates Milestone 2.",
+    "resources": "{count} foraging grounds took root, added to a world that predates Phase A.",
+}
+
+_MIGRATION_COUNTS = {
+    "population": lambda world: len(world.population.agents),
+    "resources": lambda world: len(world.resources.nodes),
+}
+
 
 class SimulationEngine:
     def __init__(self, conn: sqlite3.Connection, config: Config, world: World):
@@ -46,18 +56,17 @@ class SimulationEngine:
                 "Resumed world at tick %s (%s, season=%s).",
                 world.clock.tick_count, world.clock.date_string(), world.clock.season,
             )
-            if world.migrated_population:
+            if world.migrated_subsystems:
                 logger.info(
-                    "Pre-Milestone-2 save detected — spawning %s inhabitants.",
-                    len(world.population.agents),
+                    "Older save detected — backfilling subsystems: %s.",
+                    ", ".join(world.migrated_subsystems),
                 )
-                log_event(
-                    conn, tick=world.clock.tick_count, category="population_migration",
-                    description=(
-                        f"{len(world.population.agents)} inhabitants appeared, "
-                        "settling a world that predates Milestone 2."
-                    ),
-                )
+                for subsystem in world.migrated_subsystems:
+                    count = _MIGRATION_COUNTS[subsystem](world)
+                    log_event(
+                        conn, tick=world.clock.tick_count, category=f"{subsystem}_migration",
+                        description=_MIGRATION_DESCRIPTIONS[subsystem].format(count=count),
+                    )
                 save_snapshot(conn, world)
         return cls(conn=conn, config=config, world=world)
 
@@ -88,6 +97,11 @@ class SimulationEngine:
                 tick=self.world.clock.tick_count,
                 category=event,
                 description=_CALENDAR_EVENT_DESCRIPTIONS.get(event, event),
+            )
+        for category, description in self.world.last_life_events:
+            log_event(
+                self.conn, tick=self.world.clock.tick_count,
+                category=category, description=description,
             )
         if events:
             logger.info(

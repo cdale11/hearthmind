@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from hearthmind.agents.population import Population
 from hearthmind.config import Config
 from hearthmind.time_system import SimClock
+from hearthmind.world.resources import ResourceGrid
 from hearthmind.world.terrain import Tile, biome_counts, generate_terrain
 from hearthmind.world.weather import WeatherState, compute_weather
 
@@ -22,12 +23,17 @@ class World:
     terrain: list[list[Tile]]
     weather: WeatherState
     population: Population
+    resources: ResourceGrid
     last_calendar_events: list[str] = field(default_factory=list)
-    migrated_population: bool = field(default=False, compare=False)
-    """True for exactly one tick after loading a pre-Milestone-2 snapshot
-    that had no population yet — lets the caller (SimulationEngine) log a
-    one-off event and persist the newly-spawned population. Never itself
-    serialized; see docs/DECISIONS.md, M2-3."""
+    last_life_events: list[tuple[str, str]] = field(default_factory=list, compare=False)
+    """(category, description) pairs from this tick's births/deaths, for the
+    caller to log. Never serialized — recomputed fresh every tick."""
+    migrated_subsystems: list[str] = field(default_factory=list, compare=False)
+    """Names of subsystems that were missing from a loaded snapshot and got
+    freshly backfilled (e.g. ["population", "resources"]) — lets the caller
+    (SimulationEngine) log a one-off migration event per subsystem and
+    persist the change. Never itself serialized; see docs/DECISIONS.md,
+    M2-3 and A4."""
 
     # --- construction ----------------------------------------------------
 
@@ -39,13 +45,18 @@ class World:
         population = Population.spawn_initial(
             seed=config.seed, count=config.initial_population, terrain=terrain,
         )
-        return cls(config=config, clock=clock, terrain=terrain, weather=weather, population=population)
+        resources = ResourceGrid.generate(seed=config.seed, terrain=terrain)
+        return cls(
+            config=config, clock=clock, terrain=terrain, weather=weather,
+            population=population, resources=resources,
+        )
 
     # --- tick --------------------------------------------------------------
 
     def tick(self) -> list[str]:
         """Advance the world by one tick. Returns calendar-boundary events
-        crossed (e.g. ["day_end"]), for the caller to log."""
+        crossed (e.g. ["day_end"]), for the caller to log. Births/deaths
+        from this tick are left on `last_life_events` for the caller."""
         events = self.clock.advance()
         self.weather = compute_weather(
             seed=self.config.seed,
@@ -53,7 +64,11 @@ class World:
             season=self.clock.season,
             previous=self.weather,
         )
-        self.population.tick(seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain)
+        self.resources.tick()
+        self.last_life_events = self.population.tick(
+            seed=self.config.seed, tick=self.clock.tick_count,
+            terrain=self.terrain, resources=self.resources,
+        )
         self.last_calendar_events = events
         return events
 
@@ -70,6 +85,7 @@ class World:
             "biome_counts": biome_counts(self.terrain),
             "world_size": f"{self.config.width}x{self.config.height}",
             "population": self.population.summary(),
+            "resources": self.resources.summary(),
         }
 
     # --- (de)serialization --------------------------------------------------
@@ -90,6 +106,7 @@ class World:
             "terrain": [[tile.to_dict() for tile in row] for row in self.terrain],
             "weather": self.weather.to_dict(),
             "population": self.population.to_dict(),
+            "resources": self.resources.to_dict(),
         }
 
     @classmethod
@@ -102,9 +119,11 @@ class World:
         from `runtime_config`, since those only control pacing/storage and
         are safe to change between runs.
 
-        Snapshots saved before Milestone 2 have no "population" key; such
-        worlds get a freshly spawned population and `migrated_population`
-        set so the caller can log/persist the change (see M2-3)."""
+        Snapshots may be missing subsystems added by later releases (e.g.
+        "population" pre-Milestone-2, "resources" pre-Phase-A). Any missing
+        subsystem is freshly backfilled and its name recorded in
+        `migrated_subsystems` so the caller can log/persist the change once
+        (see M2-3, generalized in A4)."""
         saved = data["config"]
         config = Config(
             seed=saved["seed"],
@@ -123,15 +142,24 @@ class World:
         terrain = [[Tile.from_dict(t) for t in row] for row in data["terrain"]]
         weather = WeatherState.from_dict(data["weather"])
 
-        migrated = "population" not in data
-        if migrated:
+        migrated_subsystems: list[str] = []
+
+        if "population" in data:
+            population = Population.from_dict(data["population"])
+        else:
             population = Population.spawn_initial(
                 seed=config.seed, count=config.initial_population, terrain=terrain,
             )
+            migrated_subsystems.append("population")
+
+        if "resources" in data:
+            resources = ResourceGrid.from_dict(data["resources"])
         else:
-            population = Population.from_dict(data["population"])
+            resources = ResourceGrid.generate(seed=config.seed, terrain=terrain)
+            migrated_subsystems.append("resources")
 
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
-            population=population, migrated_population=migrated,
+            population=population, resources=resources,
+            migrated_subsystems=migrated_subsystems,
         )
