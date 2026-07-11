@@ -12,6 +12,7 @@ import argparse
 import datetime
 import json
 
+from hearthmind.agents.agent import MATURITY_TICKS
 from hearthmind.config import Config
 from hearthmind.persistence.database import open_db
 from hearthmind.persistence.snapshot import load_latest_snapshot, recent_events
@@ -59,6 +60,16 @@ def main(argv: list[str] | None = None) -> None:
         f"avg hunger {pop['avg_hunger']:.2f}, avg energy {pop['avg_energy']:.2f}, "
         f"avg age {pop['avg_age_ticks']:.0f} ticks"
     )
+    print(
+        f"             cumulative deaths: {pop['deaths_starvation']} starvation, "
+        f"{pop['deaths_old_age']} old age"
+    )
+
+    llm = summary["llm"]
+    print(
+        f"LLM:         {llm['calls_total']} calls, {llm['fallback_total']} fell back to "
+        f"deterministic ({llm['fallback_rate']:.0%})"
+    )
 
     res = summary["resources"]
     print(
@@ -79,11 +90,16 @@ def main(argv: list[str] | None = None) -> None:
     if agents is not None:
         print(f"\nInhabitants ({len(agents)}):")
         for agent in sorted(agents, key=lambda a: a["name"]):
+            maturity = (
+                "mature" if agent["age_ticks"] >= MATURITY_TICKS
+                else f"matures in {MATURITY_TICKS - agent['age_ticks']}"
+            )
             print(
                 f"  {agent['name']:20s} ({agent['x']:>3},{agent['y']:>3})  "
                 f"{agent['state']:8s} goal={agent['goal']:9s} "
                 f"hunger={agent['hunger']:.2f} energy={agent['energy']:.2f} "
-                f"age={agent['age_ticks']}"
+                f"age={agent['age_ticks']} ({maturity}) "
+                f"starving_ticks={agent['starving_ticks']}"
             )
             if agent["goal_reason"]:
                 print(f"    \"{agent['goal_reason']}\"")

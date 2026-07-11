@@ -15,8 +15,9 @@ class TestCognitionRunner(unittest.TestCase):
         async def go():
             return await runner.run("prompt", "system", fallback=lambda: {"goal": "wander"})
 
-        result = asyncio.run(go())
+        result, used_fallback = asyncio.run(go())
         self.assertEqual(result, {"goal": "wander"})
+        self.assertTrue(used_fallback)
 
     def test_successful_call_returns_llm_result(self):
         with fake_ollama_server(json.dumps({"goal": "socialize"})) as host:
@@ -27,8 +28,9 @@ class TestCognitionRunner(unittest.TestCase):
             async def go():
                 return await runner.run("prompt", "system", fallback=lambda: {"goal": "wander"})
 
-            result = asyncio.run(go())
+            result, used_fallback = asyncio.run(go())
             self.assertEqual(result, {"goal": "socialize"})
+            self.assertFalse(used_fallback)
 
     def test_unreachable_client_falls_back(self):
         client = OllamaClient(host="http://127.0.0.1:1", model="test-model", timeout_seconds=0.5)
@@ -37,8 +39,9 @@ class TestCognitionRunner(unittest.TestCase):
         async def go():
             return await runner.run("prompt", "system", fallback=lambda: {"goal": "rest"})
 
-        result = asyncio.run(go())
+        result, used_fallback = asyncio.run(go())
         self.assertEqual(result, {"goal": "rest"})
+        self.assertTrue(used_fallback)
 
     def test_concurrency_is_bounded(self):
         # Three slow requests through a runner allowing only 1 concurrent

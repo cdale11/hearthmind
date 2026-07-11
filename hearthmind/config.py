@@ -54,7 +54,14 @@ class Config:
 
     llm_host: str = "http://localhost:11434"
     llm_model: str = "qwen2.5:3b"
-    llm_timeout_seconds: float = 10.0
+    llm_timeout_seconds: float = 20.0
+    """CPU inference on an 8GB+zram machine that's also running the
+    simulation itself is noticeably slower under contention than a quiet
+    benchmark — a real soak run saw an occasional timeout at the old 10s
+    default even with qwen2.5:3b. Every call still has a deterministic
+    fallback (see hearthmind/llm/jobs.py), so this only trades a slightly
+    longer worst-case wait for a lower fallback rate. See
+    docs/DECISIONS.md, D5."""
     llm_max_concurrent: int = 2
     """How many LLM requests may be in flight at once — the lever for
     keeping Ollama's own thread pool busy without overwhelming it."""

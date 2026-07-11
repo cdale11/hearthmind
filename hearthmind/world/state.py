@@ -28,6 +28,13 @@ class World:
     resources: ResourceGrid
     settlement: Settlement
     farms: FarmGrid
+    llm_calls_total: int = 0
+    llm_fallback_total: int = 0
+    """Cumulative counts of every LLM-backed decision (cognition +
+    chronicle) since world creation, and how many of those fell back to
+    deterministic behavior — visible via `inspect_world` to diagnose a
+    flaky/overloaded Ollama instance without reading server logs. See
+    docs/DECISIONS.md, D5."""
     last_calendar_events: list[str] = field(default_factory=list)
     last_life_events: list[tuple[str, str]] = field(default_factory=list, compare=False)
     """(category, description) pairs from this tick's births/deaths, for the
@@ -99,6 +106,14 @@ class World:
             "resources": self.resources.summary(),
             "settlement": self.settlement.summary(),
             "farms": self.farms.summary(),
+            "llm": {
+                "calls_total": self.llm_calls_total,
+                "fallback_total": self.llm_fallback_total,
+                "fallback_rate": (
+                    round(self.llm_fallback_total / self.llm_calls_total, 3)
+                    if self.llm_calls_total else 0.0
+                ),
+            },
         }
 
     # --- (de)serialization --------------------------------------------------
@@ -122,6 +137,8 @@ class World:
             "resources": self.resources.to_dict(),
             "settlement": self.settlement.to_dict(),
             "farms": self.farms.to_dict(),
+            "llm_calls_total": self.llm_calls_total,
+            "llm_fallback_total": self.llm_fallback_total,
         }
 
     @classmethod
@@ -189,5 +206,7 @@ class World:
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             population=population, resources=resources, settlement=settlement, farms=farms,
+            llm_calls_total=data.get("llm_calls_total", 0),
+            llm_fallback_total=data.get("llm_fallback_total", 0),
             migrated_subsystems=migrated_subsystems,
         )

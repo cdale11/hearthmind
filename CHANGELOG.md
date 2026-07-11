@@ -4,6 +4,44 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.8.0] — Fix: critical-hunger movement override (D5) + diagnostics
+
+### Fixed
+- **A critically hungry but *awake* agent could keep walking away from
+  food.** `AgentGoal` is only reevaluated once per sim-day; an agent
+  assigned SOCIALIZE or WANDER while well-fed had nothing making it
+  deliberately seek food again before its next reevaluation, by which
+  point hunger could have risen by ~0.96 (a full day at `HUNGER_RATE`).
+  D3 only fixed the equivalent problem for a *resting* agent (emergency
+  wake); this closes the same gap for movement dispatch generally.
+  `Population.tick` now passes `critically_hungry` into
+  `_dispatch_movement`, which forces FORAGE-seeking as an effective goal
+  for movement purposes only — the agent's actual assigned `goal`/
+  `goal_reason` (and hence what the UI/LLM sees) is unchanged. Found via
+  a real soak run against live Ollama on the user's own machine (12 -> 5
+  inhabitants, all dying before reaching maturity). See
+  `docs/DECISIONS.md`, D5.
+
+### Changed
+- Default `--llm-timeout` raised from 10s to 20s — CPU inference sharing
+  an 8GB+zram machine with the simulation itself is realistically slower
+  under contention than a quiet benchmark; the same run that surfaced the
+  bug above also logged one LLM timeout that correctly fell back, but
+  with no headroom to spare.
+
+### Added
+- **Persisted diagnostics, surfaced by `inspect_world`:**
+  - `World.llm_calls_total` / `llm_fallback_total` — cumulative LLM call
+    count and how many fell back to deterministic behavior, shown as a
+    fallback rate.
+  - `Population.deaths_starvation` / `deaths_old_age` — cumulative death
+    counts by cause, so a population crash between two snapshots is
+    visible as a number instead of something you infer from "there used
+    to be more agents."
+  - `inspect_world --agents` now also shows each agent's `starving_ticks`
+    and a maturity countdown, distinguishing "nothing has happened yet
+    because nobody's mature" from an actual bug.
+
 ## [0.7.0] — Fix: social dispersion (D4) — the town finally forms
 
 ### Fixed

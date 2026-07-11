@@ -96,9 +96,10 @@ Useful flags on `server.py`:
 - `--llm-enabled` — turn on the Ollama cognition layer (off by default;
   see below).
 - `--llm-host URL` (default `http://localhost:11434`), `--llm-model NAME`
-  (default `qwen2.5:3b`), `--llm-timeout SECONDS` (default 10),
-  `--llm-max-concurrent INT` (default 2) — all runtime settings, safe to
-  change between runs.
+  (default `qwen2.5:3b`), `--llm-timeout SECONDS` (default 20 — CPU
+  inference under contention on 8GB+zram can be slower than a quiet
+  benchmark, see `docs/DECISIONS.md` D5), `--llm-max-concurrent INT`
+  (default 2) — all runtime settings, safe to change between runs.
 
 With the defaults, 1 real second = 15 sim-minutes, so a full sim day
 (24h) passes roughly every 96 real seconds — fast enough to watch seasons
@@ -210,7 +211,13 @@ every release, not just unit tests.
       multi-generational population — 30+ births, a repeating building
       lifecycle (construction → completion → weathering → ruin) across 8+
       structures, and the first old-age death observed in any soak test —
-      sustained for ~3 sim-years. See `docs/DECISIONS.md`, D1-D4.
+      sustained for ~3 sim-years. A follow-up real-Ollama soak run then
+      surfaced a related gap (an awake, critically hungry agent assigned
+      SOCIALIZE/WANDER had nothing making it deliberately seek food until
+      its next once-per-day goal reevaluation) — fixed in D5, along with
+      persisted diagnostics (`inspect_world` now shows cumulative LLM
+      fallback rate and deaths-by-cause) for catching the next one faster.
+      See `docs/DECISIONS.md`, D1-D5.
 - [ ] Phase E — Culture & history.
 - [ ] Phase F — Browser interface (read-mostly observation + sparse
       intervention actions).

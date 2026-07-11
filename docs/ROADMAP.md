@@ -103,6 +103,18 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   because resting blocked all foraging, with nothing able to interrupt
   rest for a hunger emergency. Fixed with a critical-hunger emergency-wake
   mechanism. See `docs/DECISIONS.md`, D3.
+- **[x] D5: a second live-play soak run surfaced a related gap and fixed
+  it, plus added diagnostics.** A critically hungry but *awake* agent
+  whose assigned goal was SOCIALIZE/WANDER had nothing making it
+  deliberately seek food until its next once-per-day goal reevaluation —
+  D3 only fixed the resting case. Fixed with the same critical-hunger
+  override, applied to movement dispatch generally. Also: raised the
+  default LLM timeout for 8GB+zram headroom, and added persisted
+  diagnostics (`inspect_world` now shows cumulative LLM
+  calls/fallback-rate, cumulative deaths by cause, and per-agent
+  starving-ticks/maturity countdown) so a population crash or a flaky
+  Ollama instance is visible from a snapshot alone. See
+  `docs/DECISIONS.md`, D5.
 - Not yet built: storage/granaries (would give starvation death more
   texture — right now food is consumed immediately, not stockpiled),
   production chains, trade between agents/settlements, and any currency

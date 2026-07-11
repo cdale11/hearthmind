@@ -125,6 +125,8 @@ class TestSimulationEngine(unittest.TestCase):
 
             for agent in engine.world.population.agents:
                 self.assertIn(agent.goal, list(AgentGoal))
+            self.assertEqual(engine.world.llm_calls_total, engine.world.llm_fallback_total)
+            self.assertGreaterEqual(engine.world.llm_calls_total, 3)
 
     def test_cognition_uses_real_llm_response_when_enabled(self):
         with fake_ollama_server(json.dumps({"goal": "socialize", "reason": "curious"})) as host:
@@ -148,6 +150,8 @@ class TestSimulationEngine(unittest.TestCase):
                 agent = engine.world.population.agents[0]
                 self.assertEqual(agent.goal, AgentGoal.SOCIALIZE)
                 self.assertEqual(agent.goal_reason, "curious")
+                self.assertGreaterEqual(engine.world.llm_calls_total, 1)
+                self.assertEqual(engine.world.llm_fallback_total, 0)
 
     def test_chronicle_scheduled_on_season_end_and_logged(self):
         config = Config(

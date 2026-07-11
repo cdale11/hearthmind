@@ -196,10 +196,11 @@ class SimulationEngine:
 
     async def _run_cognition(self, agent_id: int, prompt: str, hunger: float, energy: float) -> None:
         try:
-            result = await self._cognition_runner.run(
+            result, used_fallback = await self._cognition_runner.run(
                 prompt, SYSTEM_PROMPT, fallback=lambda: fallback_goal(hunger, energy, agent_id),
             )
             self._pending_goal_results[agent_id] = result
+            self._record_llm_call(used_fallback)
         finally:
             self._inflight_cognition_agent_ids.discard(agent_id)
 
@@ -218,6 +219,17 @@ class SimulationEngine:
         task.add_done_callback(self._background_tasks.discard)
 
     async def _run_chronicle(self, prompt: str, fallback: dict) -> None:
-        result = await self._cognition_runner.run(prompt, chronicle.SYSTEM_PROMPT, fallback=lambda: fallback)
+        result, used_fallback = await self._cognition_runner.run(
+            prompt, chronicle.SYSTEM_PROMPT, fallback=lambda: fallback
+        )
         summary = chronicle.parse_summary(result, fallback)
         log_event(self.conn, tick=self.world.clock.tick_count, category="chronicle", description=summary)
+        self._record_llm_call(used_fallback)
+
+    def _record_llm_call(self, used_fallback: bool) -> None:
+        """Cumulative counters persisted on `World`, for diagnosing LLM
+        flakiness (timeouts, unreachable server) from a saved snapshot
+        alone — see docs/DECISIONS.md, D5."""
+        self.world.llm_calls_total += 1
+        if used_fallback:
+            self.world.llm_fallback_total += 1

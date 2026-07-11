@@ -96,6 +96,13 @@ def _walkable_tiles(terrain: list[list[Tile]]) -> list[tuple[int, int]]:
 class Population:
     agents: list[Agent] = field(default_factory=list)
     _next_id: int = 0
+    deaths_starvation: int = 0
+    deaths_old_age: int = 0
+    """Cumulative counts since world creation, for diagnosis — the
+    inhabitant listing only shows who's alive *now*, so without these a
+    population crash (many deaths between two snapshots) is invisible in
+    `inspect_world` unless you happened to be watching the event log at
+    the time. See docs/DECISIONS.md, D5."""
 
     # --- construction ------------------------------------------------------
 
@@ -146,7 +153,9 @@ class Population:
             ):
                 agent.state = AgentState.RESTING  # proactive rest: a chosen goal, not just necessity
             if agent.state is AgentState.AWAKE:
-                self._dispatch_movement(agent, terrain, rng, resources, position_snapshot)
+                self._dispatch_movement(
+                    agent, terrain, rng, resources, position_snapshot, critically_hungry
+                )
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
         self._update_relationships(by_position)
@@ -216,15 +225,26 @@ class Population:
     def _dispatch_movement(
         cls, agent: Agent, terrain: list[list[Tile]], rng: random.Random,
         resources: ResourceGrid, position_snapshot: list[tuple[int, int, int]],
+        critically_hungry: bool = False,
     ) -> None:
         """Goal-directed agents (FORAGE/SOCIALIZE) take a deliberate step
         toward a visible target when one exists; otherwise (including
         WANDER, the default/pre-Phase-B behavior) fall back to the
-        original probabilistic random walk."""
+        original probabilistic random walk.
+
+        `critically_hungry` overrides whatever goal is assigned and forces
+        FORAGE-seeking instead: goals are only reevaluated once per
+        sim-day (see `due_for_cognition`), so an agent assigned e.g.
+        SOCIALIZE while well-fed can otherwise drift toward starvation
+        with nothing making it deliberately look for food until its next
+        daily reevaluation — the D3 emergency-wake only got a resting
+        agent back onto its feet, it never redirected where an *awake*
+        agent walks. See docs/DECISIONS.md, D5."""
+        effective_goal = AgentGoal.FORAGE if critically_hungry else agent.goal
         target = None
-        if agent.goal is AgentGoal.FORAGE:
+        if effective_goal is AgentGoal.FORAGE:
             target = cls._nearest_resource(agent, resources)
-        elif agent.goal is AgentGoal.SOCIALIZE:
+        elif effective_goal is AgentGoal.SOCIALIZE:
             target = cls._nearest_other_agent(agent, position_snapshot)
 
         if target is not None and cls._step_toward(agent, target, terrain):
@@ -428,9 +448,11 @@ class Population:
         for agent in self.agents:
             if agent.starving_ticks >= STARVATION_TICKS_TO_DEATH:
                 life_events.append(("death", f"{agent.name} died of starvation."))
+                self.deaths_starvation += 1
                 continue
             if agent.age_ticks >= agent.max_age_ticks:
                 life_events.append(("death", f"{agent.name} died of old age."))
+                self.deaths_old_age += 1
                 continue
             survivors.append(agent)
         self.agents = survivors
@@ -473,6 +495,8 @@ class Population:
             "avg_hunger": round(avg_hunger, 3),
             "avg_energy": round(avg_energy, 3),
             "avg_age_ticks": round(avg_age, 1),
+            "deaths_starvation": self.deaths_starvation,
+            "deaths_old_age": self.deaths_old_age,
         }
 
     # --- (de)serialization -----------------------------------------------------
@@ -481,9 +505,16 @@ class Population:
         return {
             "agents": [a.to_dict() for a in self.agents],
             "next_id": self._next_id,
+            "deaths_starvation": self.deaths_starvation,
+            "deaths_old_age": self.deaths_old_age,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "Population":
         agents = [Agent.from_dict(a) for a in data["agents"]]
-        return cls(agents=agents, _next_id=data["next_id"])
+        return cls(
+            agents=agents,
+            _next_id=data["next_id"],
+            deaths_starvation=data.get("deaths_starvation", 0),
+            deaths_old_age=data.get("deaths_old_age", 0),
+        )

@@ -240,6 +240,66 @@ settlement, aging) has been observed working together as a genuinely
 self-sustaining "town in a box," not just individually correct in
 isolation.
 
+## D5 (bug fix, found via a real soak run against live Ollama): a critically hungry agent could keep walking the wrong way
+
+A follow-up diagnostic from the user's own machine, running with
+`--llm-enabled` against a real Ollama instance, showed a population
+collapsing early (12 -> 5 inhabitants) well before any agent reached
+`MATURITY_TICKS`, with the survivors' shared age (2760 ticks, all
+original spawns, zero births) confirming the die-off happened before
+farms or reproduction had a chance to help. The LLM itself was reasoning
+correctly — the visible agents had genuine, contextual, weather-aware
+`goal_reason` text — so this wasn't a repeat of D3 (resting blocking
+foraging; that fix already applied) but a related, previously-unnoticed
+gap in the same area.
+
+`AgentGoal` is only reevaluated once per sim-day
+(`Population.due_for_cognition`), and hunger rises at a fixed
+`HUNGER_RATE` every tick regardless of goal. If an agent is assigned
+SOCIALIZE or WANDER while well-fed, nothing about `_dispatch_movement`
+deliberately seeks food again until the *next* day's reevaluation — over
+a full day at default pacing that's up to ~0.96 hunger accumulated
+(96 ticks * `HUNGER_RATE` 0.01) between checks, i.e. an agent can arrive
+at the doorstep of `CRITICAL_HUNGER_THRESHOLD` (0.9) purely by chance of
+what goal it happened to be assigned. The D3 fix only handled a resting
+agent being unable to wake up and forage in place; it never addressed an
+*awake* agent whose assigned goal has it walking toward company, or
+nowhere in particular, while starving.
+
+Fixed the same way D3 fixed the resting case: `Population.tick` now
+passes `critically_hungry` (`hunger >= CRITICAL_HUNGER_THRESHOLD`) into
+`_dispatch_movement`, which substitutes an effective goal of FORAGE for
+movement-targeting purposes only — the agent's actual assigned `goal`
+(and `goal_reason`) is left untouched, so this reads as a temporary
+survival reflex, not a goal change the LLM didn't make. See
+`tests/test_agents.py`,
+`test_critical_hunger_overrides_socialize_goal_to_seek_food`.
+
+The same diagnostic run also showed one `LLM call failed ... timed out`
+warning. The fallback handled it correctly (that's the whole point of
+B1's design), but it was invisible from a saved snapshot — you'd only
+know it happened by reading server logs at the time. Two changes address
+this directly rather than guessing at a "fix" for a single observed
+timeout:
+
+- **`llm_timeout_seconds` default raised from 10s to 20s** — CPU
+  inference sharing an 8GB+zram machine with the simulation process
+  itself is realistically slower under contention than a quiet
+  benchmark; every call still degrades to the deterministic fallback
+  regardless, so this only trades a longer worst-case wait for fewer
+  unnecessary fallbacks.
+- **Cumulative diagnostics now persisted on `World`/`Population` and
+  surfaced by `inspect_world`:** `llm_calls_total`/`llm_fallback_total`
+  (so a flaky/overloaded Ollama instance shows up as a fallback rate in
+  a snapshot, not just in logs you may not have kept), and
+  `deaths_starvation`/`deaths_old_age` (so a population crash between
+  two snapshots — like the one that prompted this investigation — is
+  visible as a number, not something you have to infer from "there used
+  to be more agents"). `inspect_world --agents` also now shows each
+  agent's `starving_ticks` and a maturity countdown, so "why hasn't
+  anything happened yet" can be answered directly ("nobody's mature yet"
+  vs. "something is actually broken") without reading source code.
+
 ## C1: Building placement is deterministic in this slice, not yet an LLM/goal decision
 
 The roadmap describes buildings as "an agent/B2 decision," but this slice

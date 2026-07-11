@@ -265,6 +265,8 @@ class TestDeath(unittest.TestCase):
 
         self.assertEqual(len(population.agents), 0)
         self.assertTrue(any(cat == "death" and "starvation" in desc for cat, desc in events))
+        self.assertEqual(population.deaths_starvation, 1)
+        self.assertEqual(population.deaths_old_age, 0)
 
     def test_old_age_kills_agent(self):
         terrain = generate_terrain(seed=42, width=8, height=8)
@@ -280,6 +282,8 @@ class TestDeath(unittest.TestCase):
 
         self.assertEqual(len(population.agents), 0)
         self.assertTrue(any(cat == "death" and "old age" in desc for cat, desc in events))
+        self.assertEqual(population.deaths_old_age, 1)
+        self.assertEqual(population.deaths_starvation, 0)
 
     def test_healthy_agent_survives(self):
         terrain = generate_terrain(seed=42, width=8, height=8)
@@ -453,6 +457,31 @@ class TestGoalDirectedMovement(unittest.TestCase):
             population.tick(seed=1, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
 
         self.assertGreater(a.x, 0)  # stepped toward b at x=50, far beyond the old radius cap
+
+    def test_critical_hunger_overrides_socialize_goal_to_seek_food(self):
+        # Regression coverage for D5: goals only get reevaluated once per
+        # sim-day, so an agent assigned SOCIALIZE while well-fed had
+        # nothing making it deliberately seek food as hunger crept toward
+        # starvation between reevaluations -- the D3 emergency-wake only
+        # covered a RESTING agent, not an awake one walking the wrong way.
+        # A food source is placed far from the socialize target so the two
+        # behaviors point in clearly different directions.
+        terrain = open_terrain()
+        resources = ResourceGrid(nodes={(0, 5): ResourceNode(x=0, y=5, amount=1.0)})
+        settlement = Settlement()
+        farms = FarmGrid()
+        agent = Agent(
+            id=0, name="Starving", x=5, y=5, hunger=CRITICAL_HUNGER_THRESHOLD,
+            energy=0.9, goal=AgentGoal.SOCIALIZE,
+        )
+        other = Agent(id=1, name="Target", x=10, y=5, hunger=0.1, energy=0.9, goal=AgentGoal.WANDER)
+        population = Population(agents=[agent, other], _next_id=2)
+
+        for tick in range(1, 6):
+            population.tick(seed=1, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
+
+        self.assertLess(agent.x, 5)  # stepped toward the food at x=0, not the agent at x=10
+        self.assertEqual(agent.goal, AgentGoal.SOCIALIZE)  # override is movement-only, goal untouched
 
     def test_rest_goal_forces_resting_even_with_high_energy(self):
         terrain = open_terrain()

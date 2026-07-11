@@ -32,12 +32,18 @@ class CognitionRunner:
     def enabled(self) -> bool:
         return self.client is not None
 
-    async def run(self, prompt: str, system: str | None, fallback: Callable[[], dict]) -> dict:
-        """Return a parsed JSON dict from the LLM, or `fallback()` if the
-        LLM is disabled, unreachable, times out, or misbehaves. Never
-        raises — this is the boundary where LLM failures get absorbed."""
+    async def run(
+        self, prompt: str, system: str | None, fallback: Callable[[], dict]
+    ) -> tuple[dict, bool]:
+        """Return `(result, used_fallback)`: a parsed JSON dict from the
+        LLM with `used_fallback=False`, or `(fallback(), True)` if the LLM
+        is disabled, unreachable, times out, or misbehaves. Never raises —
+        this is the boundary where LLM failures get absorbed. The
+        `used_fallback` flag lets the caller track a fallback rate for
+        diagnosis (see docs/DECISIONS.md, D5) — it's otherwise invisible
+        from a saved snapshot."""
         if self.client is None:
-            return fallback()
+            return fallback(), True
 
         async with self._semaphore:
             try:
@@ -45,13 +51,14 @@ class CognitionRunner:
                 # the event loop so it can't stall other ticks/tasks, and
                 # wrap it in a hard wait_for as defense in depth beyond
                 # the client's own socket timeout.
-                return await asyncio.wait_for(
+                result = await asyncio.wait_for(
                     asyncio.to_thread(self.client.generate_json, prompt, system),
                     timeout=self.client.timeout_seconds + 5.0,
                 )
+                return result, False
             except (OllamaUnavailable, asyncio.TimeoutError) as exc:
                 logger.warning("LLM call failed, using deterministic fallback: %s", exc)
-                return fallback()
+                return fallback(), True
             except Exception as exc:  # defense in depth: LLM failure must never propagate
                 logger.warning("Unexpected LLM error, using deterministic fallback: %s", exc)
-                return fallback()
+                return fallback(), True

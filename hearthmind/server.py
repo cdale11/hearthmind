@@ -35,7 +35,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
                          help="Enable the Ollama cognition layer (off by default).")
     parser.add_argument("--llm-host", default="http://localhost:11434", help="Ollama server URL.")
     parser.add_argument("--llm-model", default="qwen2.5:3b", help="Ollama model name (must be pulled already).")
-    parser.add_argument("--llm-timeout", type=float, default=10.0, help="Seconds before an LLM call falls back.")
+    parser.add_argument("--llm-timeout", type=float, default=20.0, help="Seconds before an LLM call falls back.")
     parser.add_argument("--llm-max-concurrent", type=int, default=2,
                          help="Max simultaneous in-flight LLM requests.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug-level logging.")

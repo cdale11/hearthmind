@@ -25,6 +25,21 @@ class TestWorldSerialization(unittest.TestCase):
             [[t.to_dict() for t in row] for row in world.terrain],
         )
 
+    def test_llm_and_death_counters_survive_round_trip(self):
+        config = Config(seed=42, width=8, height=8)
+        world = World.create_new(config)
+        world.llm_calls_total = 7
+        world.llm_fallback_total = 3
+        world.population.deaths_starvation = 2
+        world.population.deaths_old_age = 1
+
+        restored = World.from_dict(world.to_dict(), runtime_config=config)
+
+        self.assertEqual(restored.llm_calls_total, 7)
+        self.assertEqual(restored.llm_fallback_total, 3)
+        self.assertEqual(restored.population.deaths_starvation, 2)
+        self.assertEqual(restored.population.deaths_old_age, 1)
+
     def test_loading_pre_m2_snapshot_migrates_population(self):
         config = Config(seed=42, width=8, height=8)
         world = World.create_new(config)
