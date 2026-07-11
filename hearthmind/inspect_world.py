@@ -46,6 +46,13 @@ def main(argv: list[str] | None = None) -> None:
     for biome, count in sorted(summary["biome_counts"].items(), key=lambda kv: -kv[1]):
         print(f"  {biome:15s} {count}")
 
+    pop = summary["population"]
+    print(
+        f"\nPopulation:  {pop['total']} inhabitants "
+        f"({pop['awake']} awake, {pop['resting']} resting)  "
+        f"avg hunger {pop['avg_hunger']:.2f}, avg energy {pop['avg_energy']:.2f}"
+    )
+
     print(f"\nRecent events (latest {len(events)}):")
     for event in events:
         when = datetime.datetime.fromtimestamp(event["logged_at"]).strftime("%Y-%m-%d %H:%M:%S")

@@ -46,6 +46,19 @@ class SimulationEngine:
                 "Resumed world at tick %s (%s, season=%s).",
                 world.clock.tick_count, world.clock.date_string(), world.clock.season,
             )
+            if world.migrated_population:
+                logger.info(
+                    "Pre-Milestone-2 save detected — spawning %s inhabitants.",
+                    len(world.population.agents),
+                )
+                log_event(
+                    conn, tick=world.clock.tick_count, category="population_migration",
+                    description=(
+                        f"{len(world.population.agents)} inhabitants appeared, "
+                        "settling a world that predates Milestone 2."
+                    ),
+                )
+                save_snapshot(conn, world)
         return cls(conn=conn, config=config, world=world)
 
     def request_stop(self) -> None:

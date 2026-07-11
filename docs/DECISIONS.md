@@ -66,3 +66,38 @@ rebuild, since re-serializing the whole world every N ticks won't scale. The
 future migration easier — it's meant to become the source of truth for
 "current events" in the interface, and could eventually support rebuilding
 state by replay instead of only reading snapshots.
+
+## M2-1: Agent needs/movement use a namespaced per-tick RNG, like weather
+
+`Population.tick` derives its randomness from `hashlib.sha256(f"{seed}:population_tick:{tick}")`,
+the same pattern `weather.py` uses (M1-2), rather than carrying a live
+`random.Random` on the population. Same reasoning: a pure function of
+`(world_seed, tick)` needs no RNG-state serialization and is safe to inspect
+or replay for any past tick. `population_init` (initial spawn placement) is
+namespaced separately from `population_tick` so the two don't collide if
+both ever need the same tick number's entropy.
+
+## M2-2: Hunger has no consumption mechanic yet — this is intentional
+
+Agents in this slice have a `hunger` need that always increases; there is no
+food source, foraging, or death. This looks unfinished but is a deliberate
+scope cut: modeling starvation meaningfully requires a food economy
+(foraging, farms, granaries) to exist first, otherwise "death from hunger"
+would just be a countdown timer with no interesting causes or texture. Needs
+tracking was added now because movement/state (awake vs. resting) already
+needed *some* signal to key off, and energy/resting was enough to justify
+the `AgentState` machinery — hunger came along for consistency and because
+the next slice (foraging) will want it already wired into serialization.
+
+## M2-3: Loading a pre-Milestone-2 snapshot spawns a population, once
+
+Old saves have no `"population"` key. Rather than fail to load, refuse to
+load, or silently leave the world population-less forever,
+`World.from_dict` detects the missing key, spawns a fresh initial population
+on that terrain, and sets a `migrated_population` flag (not itself
+serialized) so `SimulationEngine.load_or_create` can log a
+`population_migration` event and persist a snapshot immediately — so the
+migration only happens once per save, not on every future load. This is the
+same "detect absence, backfill, log it" shape we'll want for future save
+format changes, so it's worth establishing as the convention now rather than
+inventing a new one per field.

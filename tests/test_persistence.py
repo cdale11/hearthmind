@@ -25,6 +25,31 @@ class TestWorldSerialization(unittest.TestCase):
             [[t.to_dict() for t in row] for row in world.terrain],
         )
 
+    def test_loading_pre_m2_snapshot_migrates_population(self):
+        config = Config(seed=42, width=8, height=8)
+        world = World.create_new(config)
+        data = world.to_dict()
+        del data["population"]  # simulate a snapshot saved before Milestone 2
+        del data["config"]["initial_population"]
+
+        restored = World.from_dict(data, runtime_config=config)
+
+        self.assertTrue(restored.migrated_population)
+        self.assertEqual(len(restored.population.agents), config.initial_population)
+
+    def test_loading_current_snapshot_does_not_migrate(self):
+        config = Config(seed=42, width=8, height=8)
+        world = World.create_new(config)
+        data = world.to_dict()
+
+        restored = World.from_dict(data, runtime_config=config)
+
+        self.assertFalse(restored.migrated_population)
+        self.assertEqual(
+            [a.to_dict() for a in restored.population.agents],
+            [a.to_dict() for a in world.population.agents],
+        )
+
     def test_runtime_config_overrides_on_resume(self):
         original = Config(seed=42, width=8, height=8, tick_seconds=1.0)
         world = World.create_new(original)

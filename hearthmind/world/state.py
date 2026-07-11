@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from hearthmind.agents.population import Population
 from hearthmind.config import Config
 from hearthmind.time_system import SimClock
 from hearthmind.world.terrain import Tile, biome_counts, generate_terrain
@@ -20,7 +21,13 @@ class World:
     clock: SimClock
     terrain: list[list[Tile]]
     weather: WeatherState
+    population: Population
     last_calendar_events: list[str] = field(default_factory=list)
+    migrated_population: bool = field(default=False, compare=False)
+    """True for exactly one tick after loading a pre-Milestone-2 snapshot
+    that had no population yet — lets the caller (SimulationEngine) log a
+    one-off event and persist the newly-spawned population. Never itself
+    serialized; see docs/DECISIONS.md, M2-3."""
 
     # --- construction ----------------------------------------------------
 
@@ -29,7 +36,10 @@ class World:
         clock = SimClock(config=config, tick_count=0)
         terrain = generate_terrain(seed=config.seed, width=config.width, height=config.height)
         weather = compute_weather(seed=config.seed, tick=0, season=clock.season, previous=None)
-        return cls(config=config, clock=clock, terrain=terrain, weather=weather)
+        population = Population.spawn_initial(
+            seed=config.seed, count=config.initial_population, terrain=terrain,
+        )
+        return cls(config=config, clock=clock, terrain=terrain, weather=weather, population=population)
 
     # --- tick --------------------------------------------------------------
 
@@ -43,6 +53,7 @@ class World:
             season=self.clock.season,
             previous=self.weather,
         )
+        self.population.tick(seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain)
         self.last_calendar_events = events
         return events
 
@@ -58,6 +69,7 @@ class World:
             "weather": self.weather.describe(),
             "biome_counts": biome_counts(self.terrain),
             "world_size": f"{self.config.width}x{self.config.height}",
+            "population": self.population.summary(),
         }
 
     # --- (de)serialization --------------------------------------------------
@@ -72,10 +84,12 @@ class World:
                 "minutes_per_day": self.config.minutes_per_day,
                 "days_per_season": self.config.days_per_season,
                 "seasons_per_year": list(self.config.seasons_per_year),
+                "initial_population": self.config.initial_population,
             },
             "clock": self.clock.to_dict(),
             "terrain": [[tile.to_dict() for tile in row] for row in self.terrain],
             "weather": self.weather.to_dict(),
+            "population": self.population.to_dict(),
         }
 
     @classmethod
@@ -86,7 +100,11 @@ class World:
         were fixed when the world was created and affect calendar math.
         Runtime fields (tick_seconds, snapshot_every_ticks, db_path) come
         from `runtime_config`, since those only control pacing/storage and
-        are safe to change between runs."""
+        are safe to change between runs.
+
+        Snapshots saved before Milestone 2 have no "population" key; such
+        worlds get a freshly spawned population and `migrated_population`
+        set so the caller can log/persist the change (see M2-3)."""
         saved = data["config"]
         config = Config(
             seed=saved["seed"],
@@ -96,6 +114,7 @@ class World:
             minutes_per_day=saved["minutes_per_day"],
             days_per_season=saved["days_per_season"],
             seasons_per_year=tuple(saved["seasons_per_year"]),
+            initial_population=saved.get("initial_population", Config.initial_population),
             tick_seconds=runtime_config.tick_seconds,
             snapshot_every_ticks=runtime_config.snapshot_every_ticks,
             db_path=runtime_config.db_path,
@@ -103,4 +122,16 @@ class World:
         clock = SimClock.from_dict(config, data["clock"])
         terrain = [[Tile.from_dict(t) for t in row] for row in data["terrain"]]
         weather = WeatherState.from_dict(data["weather"])
-        return cls(config=config, clock=clock, terrain=terrain, weather=weather)
+
+        migrated = "population" not in data
+        if migrated:
+            population = Population.spawn_initial(
+                seed=config.seed, count=config.initial_population, terrain=terrain,
+            )
+        else:
+            population = Population.from_dict(data["population"])
+
+        return cls(
+            config=config, clock=clock, terrain=terrain, weather=weather,
+            population=population, migrated_population=migrated,
+        )

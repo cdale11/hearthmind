@@ -43,6 +43,10 @@ hearthmind/
     terrain.py         # deterministic terrain generation (midpoint displacement)
     weather.py          # deterministic, seasonally-aware weather system
     state.py             # World: the aggregate root, (de)serializes to dict
+  agents/
+    agent.py             # Agent: position + hunger/energy needs + awake/resting state
+    population.py         # Population: spawns and ticks the collection of agents
+    names.py               # deterministic name generation
   persistence/
     database.py          # SQLite schema + connection helper
     snapshot.py           # save_snapshot / load_latest_snapshot / event log
@@ -70,6 +74,8 @@ Useful flags on `server.py`:
 - `--sim-minutes-per-tick INT` — sim-minutes advanced per tick (default 15).
 - `--snapshot-every INT` — ticks between snapshots (default 60).
 - `--width / --height` — terrain grid size (default 64x64).
+- `--initial-population INT` — inhabitants spawned when a world is first
+  created (default 12; only used the first time, like `--seed`).
 
 With the defaults, 1 real second = 15 sim-minutes, so a full sim day
 (24h) passes roughly every 96 real seconds — fast enough to watch seasons
@@ -87,8 +93,15 @@ python3 -m unittest discover -s tests -v
 - [x] **Milestone 1 — Core sim loop + persistence.** Deterministic terrain,
       clock, and weather; SQLite snapshots + event log; graceful
       start/stop/resume. No LLM, no network interface yet.
-- [ ] Milestone 2 — Agents (population, needs, movement) on top of this
-      substrate.
+- [~] **Milestone 2 — Agents (population, needs, movement), slice 1.** A
+      population of named inhabitants spawns on walkable terrain, wanders,
+      and tracks hunger/energy with an awake/resting cycle — all
+      deterministic per `(seed, tick)`, all persisted. Still missing:
+      foraging/food consumption, death, and any inter-agent interaction —
+      see `docs/DECISIONS.md` M2-2 and `CHANGELOG.md`.
 - [ ] Milestone 3 — LLM cognition layer (Ollama) for agent decisions/memory.
 - [ ] Milestone 4 — Browser interface (read-mostly observation + sparse
       intervention actions).
+
+See `CHANGELOG.md` for a version-by-version history and `docs/DECISIONS.md`
+for the reasoning behind non-obvious choices.

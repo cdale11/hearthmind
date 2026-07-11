@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import tempfile
 import unittest
@@ -7,6 +8,7 @@ from hearthmind.config import Config
 from hearthmind.persistence.database import open_db
 from hearthmind.persistence.snapshot import load_latest_snapshot, recent_events
 from hearthmind.simulation.engine import SimulationEngine
+from hearthmind.world.state import World
 
 
 class TestSimulationEngine(unittest.TestCase):
@@ -58,6 +60,30 @@ class TestSimulationEngine(unittest.TestCase):
             # 5 ticks later, cadence of 5 should have triggered exactly one more snapshot.
             loaded = load_latest_snapshot(conn, runtime_config=config)
             self.assertEqual(loaded.clock.tick_count, 5)
+
+    def test_load_or_create_migrates_pre_m2_snapshot(self):
+        config = Config(seed=1, width=8, height=8, db_path=self.db_path)
+        with open_db(self.db_path) as conn:
+            world = World.create_new(config)
+            data = world.to_dict()
+            del data["population"]
+            del data["config"]["initial_population"]
+            conn.execute(
+                "INSERT INTO snapshots (tick, saved_at, world_json) VALUES (0, 0, ?)",
+                (json.dumps(data),),
+            )
+            conn.commit()
+
+            engine = SimulationEngine.load_or_create(conn, config)
+            self.assertEqual(len(engine.world.population.agents), config.initial_population)
+            events = recent_events(conn, limit=5)
+            self.assertTrue(any(e["category"] == "population_migration" for e in events))
+
+            reloaded = load_latest_snapshot(conn, runtime_config=config)
+            self.assertIn("population", json.loads(
+                conn.execute("SELECT world_json FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()[0]
+            ))
+            self.assertEqual(len(reloaded.population.agents), config.initial_population)
 
     def test_run_forever_stops_gracefully_and_saves(self):
         config = Config(

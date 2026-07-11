@@ -17,7 +17,7 @@ from hearthmind.simulation.engine import SimulationEngine
 
 logger = logging.getLogger("hearthmind.server")
 
-_CREATION_ONLY_FIELDS = ("seed", "width", "height", "sim_minutes_per_tick")
+_CREATION_ONLY_FIELDS = ("seed", "width", "height", "sim_minutes_per_tick", "initial_population")
 
 
 def parse_args(argv: list[str] | None = None) -> Config:
@@ -29,6 +29,8 @@ def parse_args(argv: list[str] | None = None) -> Config:
     parser.add_argument("--tick-seconds", type=float, default=1.0, help="Real seconds between ticks.")
     parser.add_argument("--sim-minutes-per-tick", type=int, default=15, help="Sim-minutes advanced per tick.")
     parser.add_argument("--snapshot-every", type=int, default=60, help="Ticks between snapshots.")
+    parser.add_argument("--initial-population", type=int, default=12,
+                         help="Used only when creating a new world.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug-level logging.")
     args = parser.parse_args(argv)
 
@@ -44,6 +46,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         tick_seconds=args.tick_seconds,
         sim_minutes_per_tick=args.sim_minutes_per_tick,
         snapshot_every_ticks=args.snapshot_every,
+        initial_population=args.initial_population,
         db_path=args.db,
     )
 

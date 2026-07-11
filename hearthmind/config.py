@@ -31,6 +31,12 @@ class Config:
     days_per_season: int = 20
     seasons_per_year: tuple[str, ...] = ("spring", "summer", "autumn", "winter")
 
+    # --- creation-only: how many inhabitants a brand-new world starts with.
+    # Only consulted the first time a world is created at a given --db path;
+    # changing it on an existing world has no effect (agents don't spawn or
+    # despawn on config change, only through in-world events).
+    initial_population: int = 12
+
     # --- runtime: safe to change between runs, doesn't affect calendar math ---
     tick_seconds: float = 1.0
     """Real seconds of wall-clock time between ticks (controls pacing only)."""
