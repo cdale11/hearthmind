@@ -4,6 +4,21 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.23.0] — Add: weather particle overlay; policy: determinism dropped
+
+### Added
+- Rain/snow particle effects on the browser map (`weather-canvas`,
+  independent animation loop) — driven by a new `weather_detail` field
+  in `World.summary()` (raw precipitation/wind/is_snowing/temperature).
+
+### Changed
+- **CLAUDE.md**: determinism/reproducibility is no longer a project
+  requirement (explicit user instruction) — existing namespaced-RNG uses
+  stay, but new work isn't constrained by seed-replay reproducibility.
+
+See `docs/DECISIONS.md`, "Determinism dropped as a project requirement;
+weather particle overlay."
+
 ## [0.22.0] — Fix + add: diagnostics, browser-default, resource variety, building cost
 
 ### Fixed

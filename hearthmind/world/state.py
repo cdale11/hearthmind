@@ -129,6 +129,7 @@ class World:
             "season": self.clock.season,
             "year": self.clock.year,
             "weather": self.weather.describe(),
+            "weather_detail": self.weather.to_dict(),
             "biome_counts": biome_counts(self.terrain),
             "world_size": f"{self.config.width}x{self.config.height}",
             "population": self.population.summary(),

@@ -56,6 +56,8 @@ let staticCanvas = null; // offscreen: biome grid, drawn once
 
 const canvas = document.getElementById("map-canvas");
 const ctx = canvas.getContext("2d");
+const weatherCanvas = document.getElementById("weather-canvas");
+const weatherCtx = weatherCanvas.getContext("2d");
 const tooltip = document.getElementById("tooltip");
 const devConsole = document.getElementById("dev-console");
 const devToggle = document.getElementById("dev-toggle");
@@ -105,6 +107,8 @@ function drawStaticTerrain() {
   }
   canvas.width = staticCanvas.width;
   canvas.height = staticCanvas.height;
+  weatherCanvas.width = staticCanvas.width;
+  weatherCanvas.height = staticCanvas.height;
 }
 
 function drawFrame() {
@@ -164,6 +168,70 @@ function drawFrame() {
     }
   }
 }
+
+// --- weather particle overlay --------------------------------------------
+// Runs its own requestAnimationFrame loop, independent of tick cadence, so
+// rain/snow reads as continuous motion rather than snapping once/tick. Reads
+// current conditions from `latest.summary.weather_detail` (precipitation
+// 0..1, wind 0..1, is_snowing) each frame; a separate canvas layered over
+// the map so this never has to redraw terrain/agents/buildings.
+
+let weatherParticles = [];
+
+function currentWeatherDetail() {
+  return (latest && latest.summary && latest.summary.weather_detail) || null;
+}
+
+function spawnWeatherParticles(w) {
+  if (!w || weatherCanvas.width === 0) return;
+  const target = w.is_snowing
+    ? Math.round(w.precipitation * 120)
+    : Math.round(w.precipitation * 90);
+  while (weatherParticles.length < target) {
+    weatherParticles.push({
+      x: Math.random() * weatherCanvas.width,
+      y: Math.random() * weatherCanvas.height,
+      snow: w.is_snowing,
+      speed: w.is_snowing ? 0.4 + Math.random() * 0.6 : 4 + Math.random() * 4,
+      drift: (w.wind - 0.5) * (w.is_snowing ? 1.2 : 2.5),
+      size: w.is_snowing ? 1 + Math.random() * 1.5 : 1,
+    });
+  }
+  if (weatherParticles.length > target) weatherParticles.length = target;
+}
+
+function stepWeatherParticles() {
+  const w = currentWeatherDetail();
+  weatherCtx.clearRect(0, 0, weatherCanvas.width, weatherCanvas.height);
+  if (!w || (w.precipitation < 0.05 && !w.is_snowing)) {
+    weatherParticles.length = 0;
+    requestAnimationFrame(stepWeatherParticles);
+    return;
+  }
+  spawnWeatherParticles(w);
+  weatherCtx.strokeStyle = "rgba(190, 210, 235, 0.55)";
+  weatherCtx.fillStyle = "rgba(255, 255, 255, 0.85)";
+  for (const p of weatherParticles) {
+    p.x += p.drift;
+    p.y += p.speed;
+    if (p.y > weatherCanvas.height) { p.y = -4; p.x = Math.random() * weatherCanvas.width; }
+    if (p.x < 0) p.x = weatherCanvas.width;
+    if (p.x > weatherCanvas.width) p.x = 0;
+    if (p.snow) {
+      weatherCtx.beginPath();
+      weatherCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      weatherCtx.fill();
+    } else {
+      weatherCtx.beginPath();
+      weatherCtx.moveTo(p.x, p.y);
+      weatherCtx.lineTo(p.x - p.drift * 0.6, p.y - p.speed * 1.8);
+      weatherCtx.stroke();
+    }
+  }
+  requestAnimationFrame(stepWeatherParticles);
+}
+
+requestAnimationFrame(stepWeatherParticles);
 
 function findAgentAt(px, py) {
   if (!latest) return null;

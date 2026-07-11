@@ -51,6 +51,13 @@ main {
   image-rendering: pixelated;
 }
 
+#weather-canvas {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  pointer-events: none;
+}
+
 #sidebar {
   flex: 1 1 320px;
   min-width: 280px;

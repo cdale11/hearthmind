@@ -1246,3 +1246,33 @@ founding entirely if the stockpile can't cover the cost. Verified over a
 started at tick 4356, which is dominated by `MATURITY_TICKS` (4000) —
 founders must already be mature — not by the new materials gate, which
 adds only ~350 ticks on top in that run.
+
+## Determinism dropped as a project requirement; weather particle overlay
+
+**CLAUDE.md updated per explicit user instruction**: determinism/
+reproducibility is no longer a project requirement. The namespaced-RNG
+pattern isn't being ripped out (existing uses are harmless and some are
+still the natural tool for picking among candidates), but new work is no
+longer constrained by "must replay identically for the same seed" — this
+opens the door to leaning on the LLM for more genuine decisions and to
+simpler randomness where convenient. No code changed for this — it's a
+policy change recorded in CLAUDE.md, effective for future work.
+
+**Weather particle overlay.** `World.summary()` gained a
+`weather_detail` key (`WeatherState.to_dict()` — temperature/
+precipitation/wind/is_snowing) alongside the existing human-readable
+`weather` string, so the browser client can react to actual conditions
+rather than parsing prose. A new `<canvas id="weather-canvas">` layered
+absolutely over the map canvas runs its own `requestAnimationFrame`
+loop (`interface/static/app.js`), independent of tick cadence, so
+rain/snow reads as continuous motion rather than snapping once per
+tick. Particle count scales with `precipitation`; drift scales with
+`wind`; `is_snowing` switches from rain streaks to falling snow dots.
+Kept as a separate canvas (not drawn into the main map canvas) so the
+weather effect never requires redrawing terrain/agents/buildings at
+60fps — only the lightweight particle layer redraws every frame.
+
+Vehicles (hauling carts + faster personal travel), terrain evolution
+(both local activity-driven change and longer-term climate/biome
+drift), and further visual richness are scoped but not yet built — see
+CLAUDE.md's "Known architectural gaps" for the current list.
