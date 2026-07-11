@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Conda
+.env
+.venv
+.envrc
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python build
+dist/
+build/
+*.egg-info/
+
+# SQLite runtime
+*.db
+*.sqlite
+
+# Logs
+logs/
+
+# Temporary saves
+tmp/
+
+# Checkpoints
+runtime/checkpoints/
+
+# Ollama caches
+*.gguf
+
+# Node
+node_modules/
