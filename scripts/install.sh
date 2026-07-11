@@ -1,8 +1,7 @@
 #!/bin/bash
 set -e
 if ! command -v conda >/dev/null; then
-  echo "Conda not found."; exit 1
-fi
+ echo "Conda not found."; exit 1; fi
 eval "$(conda shell.bash hook)"
 conda create -y -n hearthmind python=3.12
 conda activate hearthmind

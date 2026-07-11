@@ -22,3 +22,7 @@ A persistent AI-driven artificial world where civilization, ecology, weather, cu
 Tagline:
 
 **A world that never waits for you.**
+
+
+## Tagline
+A world that never waits for you.
