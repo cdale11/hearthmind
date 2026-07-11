@@ -27,13 +27,16 @@ client at all, does not pause anything.
   compute bounded and avoids a "catch-up burst" of simulation; it can be
   revisited once we have costlier per-tick systems (agents, economy) where
   "what happened while I was gone" becomes an interesting question in itself.
-- **No external Python dependencies.** Everything here is Python standard
-  library (`sqlite3`, `asyncio`, `dataclasses`, `random`, `hashlib`, `json`,
-  `urllib`). This keeps the project trivially runnable on modest hardware
-  and easy for new contributors to pick up. Ollama (see "LLM cognition
-  layer" below) is the project's first real *external* dependency, but
-  it's an optional local *service*, not a new pip package — talking to it
-  only needed `urllib`, already in the standard library.
+- **Base install is dependency-free; two optional features aren't.**
+  Everything the simulation itself needs is Python standard library
+  (`sqlite3`, `asyncio`, `dataclasses`, `random`, `hashlib`, `json`,
+  `urllib`) — trivially runnable on modest hardware, easy to pick up.
+  Ollama (see "LLM cognition layer" below) is an optional local
+  *service*, not a pip package — talking to it only needed `urllib`. The
+  read-only WebSocket API (see below, Phase F) is the one genuine pip
+  dependency (`websockets`), and it's an optional extra: `pip install
+  hearthmind[api]`, only needed if you pass `--api-enabled`. See
+  `docs/DECISIONS.md`, F1.
 - **LLM failure degrades quality, never liveness.** Every LLM-backed
   decision goes through a timeout and a deterministic, rule-based
   fallback and never raises into the tick loop. Ollama being slow,
@@ -100,6 +103,9 @@ Useful flags on `server.py`:
   inference under contention on 8GB+zram can be slower than a quiet
   benchmark, see `docs/DECISIONS.md` D5), `--llm-max-concurrent INT`
   (default 2) — all runtime settings, safe to change between runs.
+- `--api-enabled` — turn on the read-only WebSocket API (off by default;
+  see below). `--api-host` (default `0.0.0.0`), `--api-port` (default
+  `8765`).
 
 With the defaults, 1 real second = 15 sim-minutes, so a full sim day
 (24h) passes roughly every 96 real seconds — fast enough to watch seasons
@@ -155,6 +161,27 @@ python3 -m hearthmind.inspect_world --db world.sqlite3 --agents
 for each inhabitant's current `goal`/`goal_reason`, and watch the
 `Recent events` list for `chronicle` entries — see `docs/TESTING.md`.
 
+## Read-only WebSocket API (Phase F)
+
+Off by default. Broadcasts the world summary plus that tick's life
+events (births, deaths, construction, farming, traditions...) to every
+connected client once per tick. No intervention endpoints yet — this is
+observation-only, per the roadmap (`docs/ROADMAP.md`, Phase F).
+
+This is the one place the project takes on a real dependency: Python's
+standard library has no WebSocket support. `websockets` is an **optional
+extra**, not part of the base install — `pip install hearthmind[api]` (or
+just `pip install websockets`) only if you actually pass `--api-enabled`.
+See `docs/DECISIONS.md`, F1 for why.
+
+```bash
+python3 -m hearthmind.server --db world.sqlite3 --api-enabled
+```
+
+Then connect any WebSocket client to `ws://localhost:8765` and you'll get
+one JSON message per tick: `{"summary": {...same shape as inspect_world},
+"life_events": [{"category": ..., "description": ...}, ...]}`.
+
 ## Testing
 
 ```bash
@@ -198,29 +225,24 @@ every release, not just unit tests.
       starvation before reaching the maturity needed to found a
       settlement — later resolved by Phase D; see below and
       `docs/DECISIONS.md`, C5/D4.
-- [~] **Phase D — Agriculture, slice 1 + social-dispersion fix.** Any
-      awake agent can plant a farm plot on grassland; it grows
-      automatically and yields far more food than wild foraging once
-      ready. Farming alone fixed starvation-before-maturity (verified),
-      but revealed agents surviving indefinitely alone with no pressure
-      to cluster — traced to two concrete bugs (SOCIALIZE's search radius
-      too small for the map size, and the deterministic fallback never
-      choosing SOCIALIZE at all) and fixed. **Verified with the exact
-      30-agent/48x48 run that previously showed zero clustering:** with
-      both fixes, the same config produced a self-sustaining,
-      multi-generational population — 30+ births, a repeating building
-      lifecycle (construction → completion → weathering → ruin) across 8+
-      structures, and the first old-age death observed in any soak test —
-      sustained for ~3 sim-years. A follow-up real-Ollama soak run then
-      surfaced a related gap (an awake, critically hungry agent assigned
-      SOCIALIZE/WANDER had nothing making it deliberately seek food until
-      its next once-per-day goal reevaluation) — fixed in D5, along with
-      persisted diagnostics (`inspect_world` now shows cumulative LLM
-      fallback rate and deaths-by-cause) for catching the next one faster.
-      See `docs/DECISIONS.md`, D1-D5.
-- [ ] Phase E — Culture & history.
-- [ ] Phase F — Browser interface (read-mostly observation + sparse
-      intervention actions).
+- [x] **Phase D — Agriculture & economy. Feature-complete per the
+      original roadmap scope.** Farming, granaries, production chains
+      (materials → construction speed + farm yield), and settlement
+      currency (surplus → traded for emergency rations). Two real
+      starvation bugs found via live-play diagnostics and fixed (D3, D5,
+      D6 — resting blocking food, goal not overriding for critical
+      hunger, FORAGE never targeting farms). See `docs/DECISIONS.md`,
+      D1-D10.
+- [x] **Phase E — Culture & history, slice 1.** Settlements are named
+      once a building stands; named settlements invent one tradition per
+      year; settlement name + latest tradition now appear in per-agent
+      cognition prompts and the chronicle prompt. See `docs/DECISIONS.md`,
+      E1.
+- [x] **Phase F — Browser interface, slice 1.** Read-only WebSocket API
+      (`--api-enabled`) broadcasts world state after every tick — no map
+      view or client yet, and intervention endpoints are deliberately
+      last. First real pip dependency (`websockets`), kept as an optional
+      extra. See `docs/DECISIONS.md`, F1.
 - [ ] Phase G — Supernatural / psychological horror layer.
 
 See `CHANGELOG.md` for a version-by-version history, `docs/DECISIONS.md`

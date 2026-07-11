@@ -161,6 +161,18 @@ history, and — last — sparse intervention tools (the "nudge" mechanic).
 The engine-owns-time invariant makes this safe to build without risk to
 the simulation.
 
+- **[x] F1: read-only WebSocket API, slice 1.** `--api-enabled` broadcasts
+  the world summary + life events after every tick, fire-and-forget, same
+  liveness guarantee as the LLM layer. Required bending the "no
+  dependencies" rule (Python stdlib has no WebSockets) — done as an
+  explicit, user-confirmed exception, `websockets` as an *optional*
+  extra (`pip install hearthmind[api]`), not a hard dependency. See
+  `docs/DECISIONS.md`, F1.
+- Not yet built: map view, an actual browser page/client (F1 is the
+  transport only — nothing renders it yet), HTTP fallback for
+  non-WebSocket clients, and — last, per the ordering above — any
+  intervention/"nudge" endpoints.
+
 ## Phase G — Supernatural / psychological horror layer
 
 Explicitly last, explicitly subtle. Once the chronicle (B3) and culture

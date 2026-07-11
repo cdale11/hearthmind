@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sqlite3
+from typing import TYPE_CHECKING
 
 from hearthmind.config import Config
 from hearthmind.llm import chronicle, culture
@@ -27,6 +28,12 @@ from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal,
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import load_latest_snapshot, log_event, recent_events, save_snapshot
 from hearthmind.world.state import World
+
+if TYPE_CHECKING:
+    # Only imported for type hints — importing hearthmind.simulation.engine
+    # must not require the `websockets` package unless the API is actually
+    # enabled (see interface/api.py, server.py). See docs/DECISIONS.md, F1.
+    from hearthmind.interface.api import WorldBroadcaster
 
 logger = logging.getLogger("hearthmind.engine")
 
@@ -61,12 +68,16 @@ _MIGRATIONS = {
 
 
 class SimulationEngine:
-    def __init__(self, conn: sqlite3.Connection, config: Config, world: World):
+    def __init__(
+        self, conn: sqlite3.Connection, config: Config, world: World,
+        broadcaster: "WorldBroadcaster | None" = None,
+    ):
         self.conn = conn
         self.config = config
         self.world = world
         self._stop_event = asyncio.Event()
         self._ticks_since_snapshot = 0
+        self._broadcaster = broadcaster
 
         client = None
         if config.llm_enabled:
@@ -78,8 +89,17 @@ class SimulationEngine:
         self._inflight_cognition_agent_ids: set[int] = set()
         self._background_tasks: set[asyncio.Task] = set()
 
+    @property
+    def stop_event(self) -> asyncio.Event:
+        """Exposed so a co-running loop (e.g. the WebSocket API server,
+        see interface/api.py) can shut down in lockstep on Ctrl+C/SIGTERM
+        rather than each needing its own signal wiring."""
+        return self._stop_event
+
     @classmethod
-    def load_or_create(cls, conn: sqlite3.Connection, config: Config) -> "SimulationEngine":
+    def load_or_create(
+        cls, conn: sqlite3.Connection, config: Config, broadcaster: "WorldBroadcaster | None" = None,
+    ) -> "SimulationEngine":
         world = load_latest_snapshot(conn, runtime_config=config)
         if world is None:
             logger.info("No existing snapshot found — creating a new world (seed=%s).", config.seed)
@@ -103,7 +123,7 @@ class SimulationEngine:
                         description=description_template.format(count=count_of(world)),
                     )
                 save_snapshot(conn, world)
-        return cls(conn=conn, config=config, world=world)
+        return cls(conn=conn, config=config, world=world, broadcaster=broadcaster)
 
     def request_stop(self) -> None:
         self._stop_event.set()
@@ -157,6 +177,7 @@ class SimulationEngine:
         self._maybe_schedule_chronicle(events, previous_season)
         self._maybe_schedule_tradition(events)
         self._schedule_due_cognition()
+        self._maybe_broadcast()
 
         self._ticks_since_snapshot += 1
         if self._ticks_since_snapshot >= self.config.snapshot_every_ticks:
@@ -271,3 +292,23 @@ class SimulationEngine:
         self.world.llm_calls_total += 1
         if used_fallback:
             self.world.llm_fallback_total += 1
+
+    # --- Phase F: read-only WebSocket broadcast --------------------------------
+
+    def _maybe_broadcast(self) -> None:
+        """Fire-and-forget, same pattern as LLM background jobs — a slow
+        or absent client must never be able to delay a tick. No-op when
+        the API isn't enabled (`self._broadcaster is None`). See
+        docs/DECISIONS.md, F1."""
+        if self._broadcaster is None:
+            return
+        payload = {
+            "summary": self.world.summary(),
+            "life_events": [
+                {"category": category, "description": description}
+                for category, description in self.world.last_life_events
+            ],
+        }
+        task = asyncio.create_task(self._broadcaster.broadcast(payload))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)

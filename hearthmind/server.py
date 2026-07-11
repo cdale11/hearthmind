@@ -38,6 +38,10 @@ def parse_args(argv: list[str] | None = None) -> Config:
     parser.add_argument("--llm-timeout", type=float, default=20.0, help="Seconds before an LLM call falls back.")
     parser.add_argument("--llm-max-concurrent", type=int, default=2,
                          help="Max simultaneous in-flight LLM requests.")
+    parser.add_argument("--api-enabled", action="store_true",
+                         help="Enable the read-only WebSocket API (off by default; requires 'websockets').")
+    parser.add_argument("--api-host", default="0.0.0.0", help="WebSocket API bind host.")
+    parser.add_argument("--api-port", type=int, default=8765, help="WebSocket API port.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug-level logging.")
     args = parser.parse_args(argv)
 
@@ -60,13 +64,24 @@ def parse_args(argv: list[str] | None = None) -> Config:
         llm_model=args.llm_model,
         llm_timeout_seconds=args.llm_timeout,
         llm_max_concurrent=args.llm_max_concurrent,
+        api_enabled=args.api_enabled,
+        api_host=args.api_host,
+        api_port=args.api_port,
     )
 
 
 async def _main_async(config: Config) -> None:
     with open_db(config.db_path) as conn:
         fresh = is_fresh(conn)
-        engine = SimulationEngine.load_or_create(conn, config)
+
+        broadcaster = None
+        if config.api_enabled:
+            # Deferred import: only requires the `websockets` package when
+            # --api-enabled is actually passed — see docs/DECISIONS.md, F1.
+            from hearthmind.interface.api import WorldBroadcaster
+            broadcaster = WorldBroadcaster()
+
+        engine = SimulationEngine.load_or_create(conn, config, broadcaster=broadcaster)
         if fresh:
             write_world_meta(conn, seed=engine.world.config.seed,
                               width=engine.world.config.width, height=engine.world.config.height)
@@ -88,7 +103,14 @@ async def _main_async(config: Config) -> None:
             except NotImplementedError:
                 pass  # signal handlers aren't available on some platforms (e.g. Windows)
 
-        await engine.run_forever()
+        if broadcaster is not None:
+            from hearthmind.interface.api import serve_forever
+            await asyncio.gather(
+                engine.run_forever(),
+                serve_forever(broadcaster, config.api_host, config.api_port, engine.stop_event),
+            )
+        else:
+            await engine.run_forever()
 
 
 def main(argv: list[str] | None = None) -> None:

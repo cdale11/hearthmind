@@ -4,6 +4,19 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.14.0] — Add: Phase F slice 1 — read-only WebSocket API (F1)
+
+### Added
+- `--api-enabled` (off by default), `--api-host`, `--api-port`:
+  broadcast-only WebSocket channel pushing the world summary + this
+  tick's life events after every tick. No intervention endpoints yet
+  (deliberately last, per the roadmap).
+- `websockets` added as an **optional** dependency (`pip install
+  hearthmind[api]`) — the base install is still zero-dependency unless
+  `--api-enabled` is actually used. See `docs/DECISIONS.md`, F1 for the
+  reasoning (asked the user directly before bending the no-dependency
+  rule).
+
 ## [0.13.0] — Add: Phase E slice 1 — settlement naming, traditions, culture-aware prompts (E1)
 
 ### Added

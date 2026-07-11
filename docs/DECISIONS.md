@@ -432,6 +432,40 @@ history), multiple settlements, and any building type specifically for
 "culture" (currently piggybacks on the settlement being named at all,
 not on a particular structure).
 
+## F1: Phase F slice 1 — read-only WebSocket API, one dependency exception
+
+First Phase F slice: a broadcast-only WebSocket channel
+(`hearthmind/interface/api.py`), `--api-enabled` (off by default, same
+pattern as `--llm-enabled`). No intervention endpoints — the roadmap
+explicitly puts those last, once there's something worth looking at.
+
+**Dependency exception, made deliberately, not by default:** Python's
+stdlib has no WebSocket support, and Phase F's own roadmap entry calls
+for one. Asked the user directly rather than silently picking a library
+or hand-rolling the protocol; chose to add `websockets` as an **optional
+extra** (`pip install hearthmind[api]`), not a hard dependency — the
+base install (`dependencies = []` in `pyproject.toml`) stays exactly as
+zero-dependency as before for anyone who never passes `--api-enabled`.
+`hearthmind.simulation.engine` only imports `WorldBroadcaster` under
+`TYPE_CHECKING`, and `server.py` only imports the `interface.api` module
+at all when `config.api_enabled` is true, so `websockets` being
+uninstalled is a non-issue unless the feature is actually requested.
+
+**Never blocks a tick**, the same liveness invariant as the LLM layer
+(B1): `WorldBroadcaster.broadcast()` is fired as a background task from
+`_tick_once`, never awaited inline; a slow or dead client can't stall
+the simulation, and disconnects are cleaned up opportunistically.
+
+Payload is the same `World.summary()` dict `inspect_world`/the CLI
+already produce, plus that tick's `last_life_events` — no new data model,
+just a new transport for state that already existed.
+
+Verified for real, not just unit-level: ran `hearthmind.server
+--api-enabled`, connected a genuine `websockets` client, received a live
+tick broadcast with the correct payload shape, and confirmed both the
+engine and the API server shut down together on stop (they share
+`engine.stop_event`).
+
 ## C1: Building placement is deterministic in this slice, not yet an LLM/goal decision
 
 The roadmap describes buildings as "an agent/B2 decision," but this slice

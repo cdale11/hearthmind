@@ -66,5 +66,13 @@ class Config:
     """How many LLM requests may be in flight at once — the lever for
     keeping Ollama's own thread pool busy without overwhelming it."""
 
+    # --- runtime: read-only WebSocket API (Phase F), off by default ------------
+    api_enabled: bool = False
+    """Off by default, same rationale as llm_enabled: the simulation is
+    fully functional without it. Requires the `websockets` package — see
+    docs/DECISIONS.md, F1."""
+    api_host: str = "0.0.0.0"
+    api_port: int = 8765
+
     def days_per_year(self) -> int:
         return self.days_per_season * len(self.seasons_per_year)
