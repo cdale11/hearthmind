@@ -47,9 +47,12 @@ DECAY_WEATHER_MULTIPLIER = 3.0
 """Multiplier applied to decay during precipitation or high wind — storms
 wear structures down faster than fair weather."""
 
-SETTLE_CHANCE_PER_TICK = 0.003
+SETTLE_CHANCE_PER_TICK = 0.01
 """Rolled only for mature, healthy, colocated (2+) agents standing on a
-tile with no existing building — see Population._maybe_start_construction."""
+tile with no existing building — see Population._maybe_start_construction.
+Raised from 0.003 (D6): with D4/D5/D6's survival fixes, qualifying pairs
+are no longer rare, so the original rate left construction lagging behind
+demand. Matches PLANT_CHANCE_PER_TICK's cadence."""
 
 MATURE_WORKER_ONLY = False
 """Whether construction/repair work requires workers to be "mature"
