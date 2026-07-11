@@ -2,6 +2,7 @@ import random
 import unittest
 
 from hearthmind.agents.agent import (
+    CRITICAL_HUNGER_THRESHOLD,
     MATURITY_TICKS,
     POPULATION_CAP,
     REPRODUCTION_AFFINITY_THRESHOLD,
@@ -157,6 +158,95 @@ class TestForaging(unittest.TestCase):
         population.tick(seed=42, tick=1, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
 
         self.assertEqual(resources.nodes[(0, 0)].amount, 1.0)
+
+
+class TestStarvationTrapFix(unittest.TestCase):
+    """Regression coverage for a real bug found via live play: a resting
+    agent with a correctly-assigned FORAGE goal could starve to death
+    because foraging was gated on AgentState.AWAKE and nothing interrupted
+    rest for a hunger emergency. See docs/DECISIONS.md, D3."""
+
+    def test_resting_agent_can_forage_in_place(self):
+        terrain = generate_terrain(seed=42, width=8, height=8)
+        resources = ResourceGrid(nodes={(0, 0): ResourceNode(x=0, y=0, amount=1.0)})
+        settlement = Settlement()
+        farms = FarmGrid()
+        agent = Agent(id=0, name="Sleepy", x=0, y=0, hunger=0.9, energy=0.5, state=AgentState.RESTING)
+        population = Population(agents=[agent], _next_id=1)
+
+        population.tick(seed=42, tick=1, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
+
+        self.assertLess(agent.hunger, 0.9)
+        self.assertLess(resources.get(0, 0).amount, 1.0)
+
+    def test_critically_hungry_resting_agent_wakes_up(self):
+        terrain = generate_terrain(seed=42, width=8, height=8)
+        resources = ResourceGrid(nodes={})
+        settlement = Settlement()
+        farms = FarmGrid()
+        agent = Agent(
+            id=0, name="Starving", x=0, y=0, hunger=CRITICAL_HUNGER_THRESHOLD,
+            energy=0.3, state=AgentState.RESTING,
+        )
+        population = Population(agents=[agent], _next_id=1)
+
+        population.tick(seed=42, tick=1, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
+
+        self.assertEqual(agent.state, AgentState.AWAKE)
+
+    def test_moderately_hungry_resting_agent_stays_resting(self):
+        # Below the critical threshold, ordinary rest is unaffected --
+        # only an emergency should interrupt it.
+        terrain = generate_terrain(seed=42, width=8, height=8)
+        resources = ResourceGrid(nodes={})
+        settlement = Settlement()
+        farms = FarmGrid()
+        agent = Agent(
+            id=0, name="Peckish", x=0, y=0, hunger=CRITICAL_HUNGER_THRESHOLD - 0.1,
+            energy=0.3, state=AgentState.RESTING,
+        )
+        population = Population(agents=[agent], _next_id=1)
+
+        population.tick(seed=42, tick=1, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
+
+        self.assertEqual(agent.state, AgentState.RESTING)
+
+    def test_rest_goal_does_not_resleep_a_critically_hungry_agent(self):
+        terrain = generate_terrain(seed=42, width=8, height=8)
+        resources = ResourceGrid(nodes={})
+        settlement = Settlement()
+        farms = FarmGrid()
+        agent = Agent(
+            id=0, name="Desperate", x=0, y=0, hunger=CRITICAL_HUNGER_THRESHOLD,
+            energy=0.5, state=AgentState.AWAKE, goal=AgentGoal.REST,
+        )
+        population = Population(agents=[agent], _next_id=1)
+
+        population.tick(seed=42, tick=1, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
+
+        self.assertEqual(agent.state, AgentState.AWAKE)
+
+    def test_agent_survives_a_scenario_that_previously_starved_them(self):
+        # End-to-end regression: a resting, critically hungry agent
+        # standing right on a resource node. Before the fix, this agent
+        # would never forage (blocked by AWAKE gate) and would starve;
+        # now they should wake, eat, and survive.
+        terrain = generate_terrain(seed=42, width=8, height=8)
+        resources = ResourceGrid(nodes={(0, 0): ResourceNode(x=0, y=0, amount=1.0)})
+        settlement = Settlement()
+        farms = FarmGrid()
+        agent = Agent(
+            id=0, name="Survivor", x=0, y=0, hunger=STARVATION_HUNGER_THRESHOLD,
+            energy=0.4, state=AgentState.RESTING, goal=AgentGoal.FORAGE,
+        )
+        population = Population(agents=[agent], _next_id=1)
+
+        for tick in range(1, STARVATION_TICKS_TO_DEATH + 50):
+            population.tick(seed=42, tick=tick, terrain=terrain, resources=resources, settlement=settlement, farms=farms)
+            if not population.agents:
+                break
+
+        self.assertEqual(len(population.agents), 1, "agent starved despite food being reachable")
 
 
 class TestDeath(unittest.TestCase):

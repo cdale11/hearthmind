@@ -4,6 +4,40 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.6.1] — Fix: starvation trap found via live Ollama verification
+
+### Fixed
+- **Real bug, found on real hardware.** A maintainer's first live run
+  against an actual Ollama instance (not the fake test server) showed
+  population collapsing while `--agents` output revealed the LLM was
+  correctly diagnosing hunger emergencies (`goal=forage`, reasons like
+  "Need to find food before hunger reaches critical level") — but
+  starving agents never acted on it, because `Population._maybe_forage`
+  only ran while `AgentState.AWAKE`, and nothing could interrupt rest for
+  a hunger emergency. An agent could wake, fail to reach food before
+  energy drained back down, and re-sleep indefinitely while hunger
+  climbed regardless of sleep state.
+- Fixed with two coordinated changes gated on a new
+  `CRITICAL_HUNGER_THRESHOLD` (0.9): agents can now forage/harvest food
+  at their current tile while resting (not just awake), and a resting
+  agent whose hunger crosses the critical threshold wakes immediately,
+  with `goal=REST` no longer able to re-sleep them while still
+  critically hungry.
+- See `docs/DECISIONS.md`, D3, for the full incident writeup — this is
+  the first bug this project found through actual multi-thousand-tick
+  play with a real LLM rather than through unit tests, and a concrete
+  example of why "tested against a fake server" and "verified" are
+  different claims.
+
+### Verified
+- LLM integration is now confirmed genuinely working against real Ollama
+  (previously only tested against a fake server standing in for it) —
+  `goal_reason` text observed was contextual and weather-aware, not
+  fallback boilerplate.
+- 5 new regression tests (`tests/test_agents.py`,
+  `TestStarvationTrapFix`) replicate the exact trap shape. Full suite:
+  164 tests, all passing.
+
 ## [0.6.0] — Phase D (slice 1): Agriculture
 
 ### Added

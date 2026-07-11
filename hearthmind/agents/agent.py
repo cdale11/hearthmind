@@ -57,7 +57,15 @@ MOVE_CHANCE = 0.5
 # --- Phase A: foraging, lifecycle, relationships ---------------------------
 
 FORAGE_HUNGER_THRESHOLD = 0.4
-"""Hunger at or above which an awake agent will forage if food is available."""
+"""Hunger at or above which an agent will forage if food is available —
+regardless of awake/resting state, see docs/DECISIONS.md, D3."""
+
+CRITICAL_HUNGER_THRESHOLD = 0.9
+"""Hunger at or above which a resting agent wakes immediately, and a goal
+of REST is overridden for the tick, so a starving agent isn't trapped
+asleep while unable to reach food. Deliberately below
+STARVATION_HUNGER_THRESHOLD (0.95) so the emergency wake fires before the
+starvation-death countdown even begins. See docs/DECISIONS.md, D3."""
 
 FORAGE_AMOUNT = 0.2
 """Units consumed from a resource node per successful forage attempt."""

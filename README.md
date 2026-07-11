@@ -132,13 +132,20 @@ everything else about the simulation is unaffected. Any LLM failure
 back to the same deterministic behavior used when it's disabled — see
 `hearthmind/llm/jobs.py`.
 
-**Honesty note:** the LLM integration code is tested against a fake local
-HTTP server standing in for Ollama's API shape (`tests/_llm_fake_server.py`,
-`tests/test_llm_client.py`), which exercises the real client/timeout/
-fallback code paths. It has **not** been verified against an actual
-running Ollama instance in this project's development environment.
-Before relying on this for anything real, run it against a genuine
-`ollama serve` yourself and check:
+**Verified against a real Ollama instance:** confirmed working on real
+hardware — `--agents` output showed genuine, contextual, weather-aware
+LLM-authored reasoning (e.g. *"To gather food before hunger increases in
+rainy weather"*), not the canned fallback text. That same real run also
+surfaced a severe bug (`CRITICAL_HUNGER_THRESHOLD`/D3 below) that no unit
+test had caught: the LLM correctly recognized starving agents and set
+`goal=forage`, but the deterministic execution layer ignored it because
+resting blocked foraging entirely, with nothing able to interrupt rest
+for a hunger emergency — the LLM's judgment was right and irrelevant.
+Fixed in D3; see `docs/DECISIONS.md` for the full story. This is a good
+demonstration of why "verified" means actually running it, not just
+passing tests against a fake server.
+
+To check it yourself:
 
 ```bash
 python3 -m hearthmind.inspect_world --db world.sqlite3 --agents
@@ -174,9 +181,10 @@ every release, not just unit tests.
       (wander/forage/socialize/rest) that biases their behavior, and a
       seasonal chronicle entry is written to the event log. Deterministic
       fallbacks make both features work even without Ollama installed.
-      LLM-facing code is tested against a fake local server, but **not
-      yet verified against a real running Ollama instance** — see
-      "LLM cognition layer" above.
+      **Verified against a real running Ollama instance** — see "LLM
+      cognition layer" above; that same verification run also surfaced
+      and led to fixing a real starvation-trap bug (D3) that no unit test
+      had caught.
 - [~] **Phase C — Settlements & construction, slice 1.** Colocated,
       mature, healthy agents may found a building; any awake agent
       present advances its construction (or repairs a damaged standing

@@ -14,6 +14,7 @@ import random
 from dataclasses import dataclass, field
 
 from hearthmind.agents.agent import (
+    CRITICAL_HUNGER_THRESHOLD,
     ENERGY_DRAIN_AWAKE,
     ENERGY_RECOVERY_RESTING,
     FORAGE_AMOUNT,
@@ -130,13 +131,18 @@ class Population:
         for agent in self.agents:
             agent.age_ticks += 1
             self._update_needs(agent)
-            if agent.state is AgentState.AWAKE:
-                self._maybe_forage(agent, resources, farms)
+            critically_hungry = agent.hunger >= CRITICAL_HUNGER_THRESHOLD
+            if critically_hungry and agent.state is AgentState.RESTING:
+                agent.state = AgentState.AWAKE  # emergency wake: starving beats sleeping
+            self._maybe_forage(agent, resources, farms)  # can eat while resting, not just awake
             if agent.hunger >= STARVATION_HUNGER_THRESHOLD:
                 agent.starving_ticks += 1
             else:
                 agent.starving_ticks = 0
-            if agent.state is AgentState.AWAKE and agent.goal is AgentGoal.REST and agent.energy < 0.95:
+            if (
+                agent.state is AgentState.AWAKE and agent.goal is AgentGoal.REST
+                and agent.energy < 0.95 and not critically_hungry
+            ):
                 agent.state = AgentState.RESTING  # proactive rest: a chosen goal, not just necessity
             if agent.state is AgentState.AWAKE:
                 self._dispatch_movement(agent, terrain, rng, resources, position_snapshot)

@@ -160,10 +160,15 @@ text (not the fallback's terse "hungry"/"tired"/"content"), no
 crossed a season boundary — a `chronicle` event with actual prose, not
 the fallback's templated count sentence.
 
-This step has not yet been run against a real Ollama install as part of
-this project's own development (no Ollama in the sandbox that built
-Phase B) — the maintainer running this checklist for the first time after
-Phase B should treat 6b as unverified until they've done it themselves.
+This has been run for real: a maintainer's local run against a live
+Ollama instance produced genuine contextual `goal_reason` text and, more
+importantly, surfaced a real bug (see `docs/DECISIONS.md`, D3) that no
+unit test or fake-server test had caught — a resting agent's correctly
+LLM-assigned FORAGE goal was never executed because foraging was gated
+on being awake, and nothing interrupted rest for a hunger emergency. Keep
+running 6b for real after `hearthmind/llm/`-adjacent changes; the
+fake-server tests only prove the plumbing works, not that the resulting
+behavior is sound.
 
 ## 7. Clean up
 

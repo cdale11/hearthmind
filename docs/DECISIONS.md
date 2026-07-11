@@ -151,6 +151,45 @@ agent happens to be, or make `PLANT_CHANCE_PER_TICK` fire less often for
 solitary agents than colocated ones — either would make "settling near
 others" a more natural outcome of farming instead of purely coincidental.
 
+## D3 (bug fix, found via live play with real Ollama): resting blocked foraging, creating a starvation trap
+
+The first real-world run against a live Ollama instance (not the fake
+test server) surfaced a severe bug within ~1250 ticks: population fell
+from 12 to 4 agents, all four survivors simultaneously resting with
+average hunger 0.64 and climbing, while 10 of 11 farm plots sat ready
+and unharvested. `--agents` output showed the LLM had correctly
+diagnosed the emergency — `goal=forage` with reasons like *"Need to find
+food before hunger reaches critical level"* for agents at hunger=1.00 —
+but it made no difference, because `Population._maybe_forage` only ran
+`if agent.state is AgentState.AWAKE`, and nothing could interrupt rest
+for a hunger emergency. An agent could wake (via `WAKE_THRESHOLD`), fail
+to reach food before energy drained back down to `REST_THRESHOLD`, and
+re-sleep — repeating indefinitely while hunger climbed every tick
+regardless of sleep state. This is what killed the other eight agents in
+that run; the LLM's cognition was correct and irrelevant, because the
+deterministic execution layer never gave it a chance to act.
+
+Fixed with two coordinated changes, both gated on a new
+`CRITICAL_HUNGER_THRESHOLD` (0.9, deliberately below
+`STARVATION_HUNGER_THRESHOLD`'s 0.95 so the fix engages before the death
+countdown even starts):
+1. `_maybe_forage` no longer requires `AgentState.AWAKE` — an agent can
+   eat food at their current tile while resting, without needing to
+   fully wake first.
+2. A resting agent whose hunger crosses `CRITICAL_HUNGER_THRESHOLD` wakes
+   immediately (interrupting rest early, before `WAKE_THRESHOLD`), and a
+   `goal=REST` no longer re-sleeps an agent that's still critically
+   hungry — both closing the "wake briefly, can't reach food in time,
+   sleep again" loop.
+
+This is the kind of bug that's structurally invisible to unit tests
+written against the same assumptions the code was written under — it
+took a real multi-thousand-tick run with real population dynamics (and a
+real LLM correctly identifying the emergency, which is what made the
+"correct goal, ignored" pattern legible at all) to surface. Regression
+tests were added afterward (`tests/test_agents.py`,
+`TestStarvationTrapFix`) replicating the exact trap shape.
+
 ## C1: Building placement is deterministic in this slice, not yet an LLM/goal decision
 
 The roadmap describes buildings as "an agent/B2 decision," but this slice
