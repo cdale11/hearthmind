@@ -1089,3 +1089,83 @@ bump changes the URL, which busts any cached copy without disabling
 caching within a version (repeat requests for the same version still
 cache normally). This closes off an entire class of "I changed the UI
 but nothing happened" reports going forward, not just this one instance.
+
+## Batch: predator danger, relationship memory, festivals, seasonal/weather scarcity
+
+Four systems built together per explicit user direction (build all
+three named options plus tighten collapse-risk; batch into one commit
+rather than one per system).
+
+**Agent-vs-predator danger.** Predators previously only threatened
+grazer herds (A4). `Population._maybe_predator_attack` rolls per awake
+agent colocated with a live predator pack: `PREDATOR_ATTACK_CHANCE`
+(0.015/tick) triggers an attack, `PREDATOR_KILL_CHANCE_ON_ATTACK` (0.12
+of attacks) is lethal — true per-tick death odds ≈0.18%, low enough that
+camping on a predator's tile is what makes it dangerous, not one
+unlucky tick. Non-lethal attacks cost energy/hunger
+(`PREDATOR_ATTACK_ENERGY_DRAIN`/`_HUNGER_INCREASE`) — injury, not a
+clean miss. `WildlifeGrid.predator_tiles()` feeds movement avoidance:
+`_step_toward`/`_maybe_move` now prefer any non-predator candidate tile,
+falling back to a predator tile only when it's the sole walkable option
+(an agent won't suicide-avoid itself into a corner, but does try not to
+walk into danger). Predator-killed agents' death events are appended
+where the attack happens (so the description can reference the specific
+attack) rather than in `_apply_deaths`, which now just counts them via a
+`killed_by_predator: set[int]` passed through from the main tick loop.
+
+**Relationship memory.** `Agent.memories: list[str]` (capped at
+`MAX_AGENT_MEMORIES=8`, oldest drops first) — populated only by
+explicit dialogue-driven moments (`Population.apply_dialogue`: crossing
+into a close bond or a rivalry, hearing a rumor) and by grief
+(`_apply_deaths`: a survivor bonded to the dying agent remembers them
+and pays `GRIEF_ENERGY_PENALTY`). Deliberately *not* triggered by the
+passive per-tick colocation gain/decay — that would flood every agent's
+memory with "still standing near someone" noise. The latest memory
+feeds back into `cognition.build_prompt` ("You remember: ..."), so an
+agent's own history — not just settlement culture — can shape its next
+goal, closing the "agent recalling their own history" gap flagged in
+ROADMAP's A5.
+
+**Festivals.** `hearthmind/llm/festival.py`, structurally like
+`culture.py` but a deliberately different gate/cadence: wellbeing-gated
+(`FESTIVAL_HUNGER_GATE=0.5`, average hunger, not prosperity — contrast
+inventions' currency/materials gate) and seasonal
+(`FESTIVAL_CHANCE_PER_SEASON=0.35`, not yearly). Has a real mechanical
+effect, not just narrative: `Population.hold_festival()` applies
+`FESTIVAL_RELATIONSHIP_BOOST` (0.1) to every currently-colocated pair of
+awake agents — "the village gathers, bonds strengthen" is something
+that happens to agent state. `Settlement.festivals: list[str]` persists
+history, mirroring `traditions`/`inventions`.
+
+**Seasonal/weather scarcity** (the "make collapse more possible" ask).
+Two levers, both direct implementations of "weather affects people" /
+"seasons affect farming" from the original brief:
+- `economy.farms.SEASON_GROWTH_MULTIPLIER` /
+  `world.resources.SEASON_REGEN_MULTIPLIER`: winter cuts farm growth to
+  35% and wild regen to 30% of baseline (autumn/spring get milder
+  penalties/bonuses); `FarmGrid.tick(season)`/`ResourceGrid.tick(season)`
+  now take the current season name, threaded from `World.tick` via
+  `self.clock.season`. A season name absent from the table (custom
+  `seasons_per_year`) defaults to 1.0 — no behavior change for
+  non-default calendars.
+- `Population._update_needs` now takes `weather_harsh: bool`
+  (precipitation > 0.4, wind > 0.5, or snowing — the same definition
+  `settlement/buildings.py` already uses for decay): an *awake* agent in
+  harsh weather burns hunger 1.3x and energy 1.4x faster. Resting agents
+  are unaffected (sheltering/sleeping, abstracted as weather-proof).
+  Required threading a new `weather: WeatherState` parameter through
+  `Population.tick`, computed once from `World.tick`'s own
+  `self.weather`.
+
+Together these mean a settlement can now genuinely decline during a bad
+winter or a run of harsh weather (slower food production + faster need
+drain, compounding), rather than the economy being effectively
+season/weather-agnostic once farms/granaries existed. Population's hard
+cap (200) is unchanged — it remains a safety valve, not the intended
+plateau mechanism; actual population ceiling should now emerge from
+food/weather pressure more than from hitting the cap.
+
+**UI**: new Festivals sidebar panel (mirrors Traditions/Inventions);
+Deaths stat tile includes predator count; agent hover tooltip shows the
+most recent memory; new event icons/colors for `festival` (🎉, accented)
+and `predator_attack` (🐺, red).

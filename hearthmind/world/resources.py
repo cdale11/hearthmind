@@ -23,6 +23,12 @@ MAX_NODE_AMOUNT = 1.0
 REGEN_PER_TICK = 0.002
 """~500 ticks (about 5 sim-days at default pacing) to fully regrow from empty."""
 
+SEASON_REGEN_MULTIPLIER = {"winter": 0.3, "autumn": 0.75, "spring": 1.1, "summer": 1.0}
+"""Wild-resource regeneration multiplier by season name — winter
+genuinely slows regrowth. Same rationale/pattern as
+economy.farms.SEASON_GROWTH_MULTIPLIER; a season absent from this table
+defaults to 1.0. See docs/DECISIONS.md, scarcity pass."""
+
 
 def _resource_rng(seed: int) -> random.Random:
     digest = hashlib.sha256(f"{seed}:resources_init".encode()).hexdigest()
@@ -66,10 +72,11 @@ class ResourceGrid:
 
     # --- tick ------------------------------------------------------------------
 
-    def tick(self) -> None:
+    def tick(self, season: str = "summer") -> None:
+        regen = REGEN_PER_TICK * SEASON_REGEN_MULTIPLIER.get(season, 1.0)
         for node in self.nodes.values():
             if node.amount < MAX_NODE_AMOUNT:
-                node.amount = min(MAX_NODE_AMOUNT, node.amount + REGEN_PER_TICK)
+                node.amount = min(MAX_NODE_AMOUNT, node.amount + regen)
 
     # --- summary -----------------------------------------------------------------
 

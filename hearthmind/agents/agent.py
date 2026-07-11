@@ -116,6 +116,16 @@ of the passive per-tick colocation gain — the LLM's read on how the
 exchange went, distinct from mere proximity. See
 Population.apply_dialogue, docs/DECISIONS.md, E2."""
 
+MAX_AGENT_MEMORIES = 8
+"""Cap on Agent.memories — a short-term personal log (bond formed, rumor
+heard, a bonded partner's death), not a full diary. Oldest entries drop
+first. See docs/DECISIONS.md, relationship-memory pass."""
+
+GRIEF_ENERGY_PENALTY = 0.2
+"""Energy lost when a close bond (affinity >= REPRODUCTION_AFFINITY_THRESHOLD)
+dies — grief has a real cost, not just a memory entry. See
+Population._apply_deaths."""
+
 POPULATION_CAP = 200
 """Safety valve against unbounded growth before food scarcity/economy
 naturally cap population; see docs/DECISIONS.md, A2."""
@@ -137,6 +147,12 @@ class Agent:
     parents: tuple[int, int] | None = None
     goal: AgentGoal = AgentGoal.WANDER
     goal_reason: str = ""
+    memories: list[str] = field(default_factory=list)
+    """Short personal log, capped at MAX_AGENT_MEMORIES — bonds formed,
+    rivalries, rumors heard, a bonded partner's death. Fed back into this
+    agent's own cognition prompt (see hearthmind/llm/cognition.py), so an
+    agent's own history can shape its next goal. See docs/DECISIONS.md,
+    relationship-memory pass."""
 
     def to_dict(self) -> dict:
         return {
@@ -154,6 +170,7 @@ class Agent:
             "parents": list(self.parents) if self.parents is not None else None,
             "goal": self.goal.value,
             "goal_reason": self.goal_reason,
+            "memories": list(self.memories),
         }
 
     @classmethod
@@ -174,4 +191,5 @@ class Agent:
             parents=tuple(parents) if parents is not None else None,
             goal=AgentGoal(data.get("goal", AgentGoal.WANDER.value)),
             goal_reason=data.get("goal_reason", ""),
+            memories=list(data.get("memories", [])),
         )

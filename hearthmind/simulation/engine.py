@@ -25,12 +25,14 @@ from typing import TYPE_CHECKING
 
 from hearthmind.agents.agent import DIALOGUE_COOLDOWN_TICKS
 from hearthmind.config import Config
-from hearthmind.llm import chronicle, culture, dialogue, invention
+from hearthmind.llm import chronicle, culture, dialogue, festival, invention
 from hearthmind.llm.client import OllamaClient
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import load_latest_snapshot, log_event, recent_events, save_snapshot
 from hearthmind.settlement.buildings import (
+    FESTIVAL_CHANCE_PER_SEASON,
+    FESTIVAL_HUNGER_GATE,
     INVENTION_CHANCE_PER_YEAR,
     INVENTION_CURRENCY_THRESHOLD,
     INVENTION_MATERIALS_FRACTION,
@@ -217,6 +219,7 @@ class SimulationEngine:
         self._maybe_schedule_chronicle(events, previous_season)
         self._maybe_schedule_tradition(events)
         self._maybe_schedule_invention(events)
+        self._maybe_schedule_festival(events)
         self._schedule_due_cognition()
         self._schedule_due_dialogue()
         self._last_tick_duration_ms = (time.perf_counter() - tick_start) * 1000
@@ -279,7 +282,9 @@ class SimulationEngine:
         if not self._pending_dialogue_results:
             return
         for agent_a_id, agent_b_id, parsed in self._pending_dialogue_results:
-            applied = self.world.population.apply_dialogue(agent_a_id, agent_b_id, parsed["sentiment"])
+            applied = self.world.population.apply_dialogue(
+                agent_a_id, agent_b_id, parsed["sentiment"], parsed["rumor"],
+            )
             if applied is None:
                 continue
             agent_a, agent_b = applied
@@ -420,6 +425,42 @@ class SimulationEngine:
         log_event(
             self.conn, tick=self.world.clock.tick_count, category="invention",
             description=f"The village invented {entry}",
+        )
+        self._record_llm_call(used_fallback)
+
+    # --- collective behaviour: festivals ----------------------------------------
+
+    def _maybe_schedule_festival(self, events: list[str]) -> None:
+        """A named, well-fed settlement may hold a festival once per
+        season — a wellbeing gate (not prosperity, contrast
+        _maybe_schedule_invention) and a seasonal cadence (not yearly),
+        deliberately distinct from both traditions and inventions. See
+        docs/DECISIONS.md, collective-behaviour pass."""
+        if "season_end" not in events or not self.world.settlement.name:
+            return
+        if self.world.population.avg_hunger() > FESTIVAL_HUNGER_GATE:
+            return
+        if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "festival_roll") >= FESTIVAL_CHANCE_PER_SEASON:
+            return
+        recent = recent_events(self.conn, limit=50)
+        festivals = self.world.settlement.festivals
+        prompt = festival.build_prompt(self.world.settlement.name, recent, self.world.clock.season)
+        fallback = festival.fallback_festival(self.world.settlement.name, len(festivals))
+        task = asyncio.create_task(self._run_festival(prompt, fallback))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _run_festival(self, prompt: str, fallback: dict) -> None:
+        result, used_fallback = await self._cognition_runner.run(
+            prompt, festival.SYSTEM_PROMPT, fallback=lambda: fallback
+        )
+        name, description = festival.parse_festival(result, fallback)
+        entry = f"{name}: {description}"
+        self.world.settlement.festivals.append(entry)
+        affected = self.world.population.hold_festival()
+        log_event(
+            self.conn, tick=self.world.clock.tick_count, category="festival",
+            description=f"The village held {entry} ({affected} bonds strengthened)",
         )
         self._record_llm_call(used_fallback)
 

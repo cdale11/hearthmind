@@ -56,6 +56,14 @@ FARM_TOOL_YIELD_MULTIPLIER = 1.5
 spending materials on farming instead of construction, closing the D8
 production chain's other end. See D9."""
 
+SEASON_GROWTH_MULTIPLIER = {"winter": 0.35, "autumn": 0.8, "spring": 1.15, "summer": 1.0}
+"""Farm growth multiplier by season name — winter genuinely slows
+cultivation, not just a cosmetic weather label ("seasons affect
+farming"). A season name absent from this table (a custom Config's
+`seasons_per_year` need not use these four names) defaults to 1.0 via
+`.get(season, 1.0)` in `FarmGrid.tick`. See docs/DECISIONS.md, scarcity
+pass."""
+
 
 class FarmStage(str, Enum):
     GROWING = "growing"
@@ -145,10 +153,11 @@ class FarmGrid:
 
     # --- tick ------------------------------------------------------------------
 
-    def tick(self) -> None:
+    def tick(self, season: str = "summer") -> None:
+        growth_rate = GROWTH_PER_TICK * SEASON_GROWTH_MULTIPLIER.get(season, 1.0)
         for plot in self.plots.values():
             if plot.stage is FarmStage.GROWING:
-                plot.growth = min(1.0, plot.growth + GROWTH_PER_TICK)
+                plot.growth = min(1.0, plot.growth + growth_rate)
                 if plot.growth >= 1.0:
                     plot.stage = FarmStage.READY
                     plot.amount = plot.max_yield

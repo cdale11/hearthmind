@@ -70,6 +70,23 @@ WILDLIFE_SEARCH_RADIUS = 6
 FORAGE_SEARCH_RADIUS's rationale — wild animals are locally visible, not
 map-wide knowledge like a farm or granary."""
 
+PREDATOR_ATTACK_CHANCE = 0.015
+"""Rolled once per tick for each awake agent colocated with a live
+predator pack — a real but not overwhelming risk: sustained exposure
+(camping on a predator's tile) is what makes it dangerous, not a single
+tick of bad luck. See Population._maybe_predator_attack, docs/DECISIONS.md,
+danger pass."""
+
+PREDATOR_ATTACK_ENERGY_DRAIN = 0.25
+PREDATOR_ATTACK_HUNGER_INCREASE = 0.15
+"""An attack that doesn't kill still costs the agent — injury, not a
+clean miss. See PREDATOR_KILL_CHANCE_ON_ATTACK for the rarer lethal case."""
+
+PREDATOR_KILL_CHANCE_ON_ATTACK = 0.12
+"""Fraction of attacks (not per-tick — per attack, so PREDATOR_ATTACK_CHANCE
+* this is the true per-tick death odds, ~0.18%) that are lethal rather
+than just an injury."""
+
 
 def _wildlife_init_rng(seed: int) -> random.Random:
     digest = hashlib.sha256(f"{seed}:wildlife_init".encode()).hexdigest()
@@ -146,6 +163,11 @@ class WildlifeGrid:
 
     def at(self, x: int, y: int) -> list[AnimalHerd]:
         return [h for h in self.herds.values() if h.x == x and h.y == y]
+
+    def predator_tiles(self) -> set[tuple[int, int]]:
+        """Tiles currently occupied by a live predator pack — used for
+        agent movement avoidance (Population._maybe_move/_step_toward)."""
+        return {(h.x, h.y) for h in self.herds.values() if h.species is Species.PREDATOR and h.count > 0}
 
     def nearest_grazer_herd(self, x: int, y: int, radius: int) -> AnimalHerd | None:
         best: AnimalHerd | None = None

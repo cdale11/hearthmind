@@ -76,6 +76,7 @@ hearthmind/
     culture.py                  # yearly tradition invention (Phase E)
     invention.py                # rare, prosperity-gated tech unlocks (E3)
     dialogue.py                 # NPC-to-NPC ambient dialogue (E2)
+    festival.py                 # wellbeing-gated, seasonal collective events
   interface/
     api.py                        # WorldBroadcaster: framework-free bridge from engine to web layer
     app.py                         # FastAPI app: /, /state, /terrain, /events, WS /ws

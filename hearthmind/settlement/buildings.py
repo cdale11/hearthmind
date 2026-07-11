@@ -161,6 +161,24 @@ INVENTION_CHANCE_PER_YEAR = 0.5
 rare (half the eligible years produce nothing) so an invention stays a
 notable event, not a yearly formality."""
 
+# --- collective behaviour: festivals ----------------------------------------
+
+FESTIVAL_HUNGER_GATE = 0.5
+"""A settlement whose average hunger is above this can't hold a festival
+— gated on wellbeing, not wealth (contrast INVENTION_CURRENCY_THRESHOLD),
+so a starving village never celebrates while people are suffering."""
+
+FESTIVAL_CHANCE_PER_SEASON = 0.35
+"""Rolled once per season (more frequent than yearly traditions/
+inventions, matching the seasonal cadence of the chronicle) for a named,
+well-fed settlement."""
+
+FESTIVAL_RELATIONSHIP_BOOST = 0.1
+"""One-time relationship nudge applied to every currently-colocated pair
+of awake agents when a festival is held — the mechanical payoff of
+"the village gathers" (see Population.hold_festival), distinct from the
+much smaller per-tick passive colocation gain."""
+
 
 @dataclass
 class Building:
@@ -242,6 +260,12 @@ class Settlement:
     """LLM-authored (or deterministic-fallback) tech-tier unlocks, "Name:
     description" strings, in the order established — a rarer, prosperity-
     gated sibling of `traditions`. See docs/DECISIONS.md, E3."""
+    festivals: list[str] = field(default_factory=list)
+    """LLM-authored (or deterministic-fallback) festivals held, "Name:
+    description" strings, in the order held — a wellbeing-gated,
+    seasonal-cadence sibling of `traditions`/`inventions`, with a direct
+    mechanical effect (see FESTIVAL_RELATIONSHIP_BOOST,
+    Population.hold_festival) rather than being purely narrative."""
 
     # --- queries -------------------------------------------------------------
 
@@ -317,6 +341,7 @@ class Settlement:
             "traditions": list(self.traditions),
             "tech_level": self.tech_level,
             "inventions": list(self.inventions),
+            "festivals": list(self.festivals),
         }
 
     # --- (de)serialization -----------------------------------------------------
@@ -331,6 +356,7 @@ class Settlement:
             "traditions": list(self.traditions),
             "tech_level": self.tech_level,
             "inventions": list(self.inventions),
+            "festivals": list(self.festivals),
         }
 
     @classmethod
@@ -341,4 +367,5 @@ class Settlement:
             materials=data.get("materials", 0.0), currency=data.get("currency", 0.0),
             name=data.get("name", ""), traditions=list(data.get("traditions", [])),
             tech_level=data.get("tech_level", 0), inventions=list(data.get("inventions", [])),
+            festivals=list(data.get("festivals", [])),
         )

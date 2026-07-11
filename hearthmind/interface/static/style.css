@@ -120,8 +120,10 @@ main {
 .event-category-rumor .event-text { color: var(--text); }
 .event-category-rumor { color: var(--accent); }
 .event-category-invention { color: var(--accent); font-weight: bold; }
+.event-category-festival { color: var(--accent); font-weight: bold; }
 .event-category-birth { color: #7fae4a; }
 .event-category-death { color: #e0473c; }
+.event-category-predator_attack { color: #e0473c; }
 .event-category-day_end,
 .event-category-season_end,
 .event-category-year_end,
@@ -141,3 +143,4 @@ main {
   z-index: 10;
 }
 .tooltip.hidden { display: none; }
+.tooltip-memory { color: var(--muted); font-style: italic; }

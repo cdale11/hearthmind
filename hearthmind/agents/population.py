@@ -21,8 +21,10 @@ from hearthmind.agents.agent import (
     FORAGE_AMOUNT,
     FORAGE_HUNGER_RELIEF,
     FORAGE_HUNGER_THRESHOLD,
+    GRIEF_ENERGY_PENALTY,
     HUNGER_RATE,
     MATURITY_TICKS,
+    MAX_AGENT_MEMORIES,
     MAX_LIFESPAN_TICKS,
     MIN_LIFESPAN_TICKS,
     MOVE_CHANCE,
@@ -56,6 +58,7 @@ from hearthmind.settlement.buildings import (
     CURRENCY_EMERGENCY_HUNGER_RELIEF,
     CURRENCY_EMERGENCY_RATION_COST,
     CURRENCY_PER_OVERFLOW_UNIT,
+    FESTIVAL_RELATIONSHIP_BOOST,
     GRANARY_CAPACITY,
     GRANARY_DEPOSIT_PER_TICK,
     GRANARY_KIND_CHANCE,
@@ -77,7 +80,17 @@ from hearthmind.settlement.buildings import (
 from hearthmind.world.resources import ResourceGrid
 from hearthmind.world.roads import ROAD_SPEED_MULTIPLIER, RoadNetwork
 from hearthmind.world.terrain import Biome, Tile
-from hearthmind.world.wildlife import HUNT_YIELD_PER_ANIMAL, WILDLIFE_SEARCH_RADIUS, Species, WildlifeGrid
+from hearthmind.world.weather import WeatherState
+from hearthmind.world.wildlife import (
+    HUNT_YIELD_PER_ANIMAL,
+    PREDATOR_ATTACK_CHANCE,
+    PREDATOR_ATTACK_ENERGY_DRAIN,
+    PREDATOR_ATTACK_HUNGER_INCREASE,
+    PREDATOR_KILL_CHANCE_ON_ATTACK,
+    WILDLIFE_SEARCH_RADIUS,
+    Species,
+    WildlifeGrid,
+)
 
 WALKABLE_BIOMES = frozenset({Biome.GRASSLAND, Biome.FOREST, Biome.HILLS, Biome.BEACH})
 MATERIAL_BIOMES = frozenset({Biome.FOREST, Biome.HILLS})
@@ -94,6 +107,21 @@ nearby. SOCIALIZE has no equivalent cap — see docs/DECISIONS.md, D4."""
 GATHER_SEARCH_RADIUS = 6
 """Same rationale as FORAGE_SEARCH_RADIUS — local, plausible awareness of
 nearby forest/hills, not map-wide. See D8."""
+
+WEATHER_HARSH_PRECIPITATION = 0.4
+WEATHER_HARSH_WIND = 0.5
+"""Same "harsh weather" definition as settlement/buildings.py's
+DECAY_WEATHER_MULTIPLIER trigger — kept as separate constants here
+(rather than importing from buildings.py) since agent need-drain and
+building decay are conceptually independent effects that happen to share
+a threshold, not the same mechanic."""
+
+WEATHER_HARSH_HUNGER_MULTIPLIER = 1.3
+WEATHER_HARSH_ENERGY_DRAIN_MULTIPLIER = 1.4
+"""Awake agents in harsh weather (heavy rain/snow/high wind) burn energy
+and get hungry faster — "weather affects people," not just buildings.
+Applied only to AWAKE agents: resting is treated as sheltering/sleeping,
+abstracted as weather-proof. See docs/DECISIONS.md, scarcity pass."""
 
 MAX_DIALOGUES_PER_TICK = 3
 """Caps how many LLM-authored dialogue exchanges are scheduled in a
@@ -112,6 +140,15 @@ def _tech_factor(settlement: Settlement) -> float:
     """Multiplicative bonus from established inventions — see
     TECH_BONUS_PER_LEVEL, docs/DECISIONS.md, E3."""
     return 1.0 + TECH_BONUS_PER_LEVEL * settlement.tech_level
+
+
+def _remember(agent: Agent, text: str) -> None:
+    """Append to an agent's short personal log, capped at
+    MAX_AGENT_MEMORIES (oldest drops first). See docs/DECISIONS.md,
+    relationship-memory pass."""
+    agent.memories.append(text)
+    if len(agent.memories) > MAX_AGENT_MEMORIES:
+        agent.memories.pop(0)
 
 
 def _is_walkable(terrain: list[list[Tile]], x: int, y: int) -> bool:
@@ -138,11 +175,13 @@ class Population:
     _next_id: int = 0
     deaths_starvation: int = 0
     deaths_old_age: int = 0
+    deaths_predator: int = 0
     """Cumulative counts since world creation, for diagnosis — the
     inhabitant listing only shows who's alive *now*, so without these a
     population crash (many deaths between two snapshots) is invisible in
     `inspect_world` unless you happened to be watching the event log at
-    the time. See docs/DECISIONS.md, D5."""
+    the time. See docs/DECISIONS.md, D5 (deaths_predator added in the
+    danger pass)."""
     dialogue_cooldowns: dict[tuple[int, int], int] = field(default_factory=dict)
     """(agent_id, agent_id) sorted pair -> tick of their last dialogue
     exchange, so a stable colocated pair doesn't re-trigger the LLM every
@@ -168,7 +207,7 @@ class Population:
     def tick(
         self, seed: int, tick: int, terrain: list[list[Tile]],
         resources: ResourceGrid, settlement: Settlement, farms: FarmGrid, wildlife: WildlifeGrid,
-        roads: RoadNetwork,
+        roads: RoadNetwork, weather: WeatherState,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -179,11 +218,18 @@ class Population:
         # search (SOCIALIZE) sees a consistent picture rather than a mix of
         # this-tick-already-moved and not-yet-moved agents.
         position_snapshot = [(a.id, a.x, a.y) for a in self.agents]
+        predator_tiles = wildlife.predator_tiles()
+        weather_harsh = (
+            weather.precipitation > WEATHER_HARSH_PRECIPITATION
+            or weather.wind > WEATHER_HARSH_WIND or weather.is_snowing
+        )
 
+        life_events: list[tuple[str, str]] = []
+        killed_by_predator: set[int] = set()
         by_position: dict[tuple[int, int], list[Agent]] = {}
         for agent in self.agents:
             agent.age_ticks += 1
-            self._update_needs(agent)
+            self._update_needs(agent, weather_harsh)
             critically_hungry = agent.hunger >= CRITICAL_HUNGER_THRESHOLD
             if critically_hungry and agent.state is AgentState.RESTING:
                 agent.state = AgentState.AWAKE  # emergency wake: starving beats sleeping
@@ -199,35 +245,66 @@ class Population:
             ):
                 agent.state = AgentState.RESTING  # proactive rest: a chosen goal, not just necessity
             if agent.state is AgentState.AWAKE:
+                attack_event = self._maybe_predator_attack(agent, wildlife, rng)
+                if attack_event is not None:
+                    life_events.append(attack_event[0])
+                    if attack_event[1]:
+                        killed_by_predator.add(agent.id)
                 self._dispatch_movement(
                     agent, terrain, rng, resources, farms, settlement, wildlife, roads,
-                    position_snapshot, critically_hungry,
+                    predator_tiles, position_snapshot, critically_hungry,
                 )
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
         self._update_roads(by_position, settlement, farms, roads)
         self._update_relationships(by_position)
-        life_events: list[tuple[str, str]] = []
         life_events.extend(self._advance_construction(by_position, settlement))
         life_events.extend(self._maybe_repair(by_position, settlement))
         self._maybe_stock_granaries(by_position, settlement)
         life_events.extend(self._maybe_start_construction(by_position, settlement, farms, rng))
         life_events.extend(self._maybe_plant(by_position, farms, settlement, terrain, rng))
         life_events.extend(self._maybe_reproduce(by_position, rng))
-        life_events.extend(self._apply_deaths())
+        life_events.extend(self._apply_deaths(killed_by_predator))
         return life_events
 
     @staticmethod
-    def _update_needs(agent: Agent) -> None:
-        agent.hunger = min(1.0, agent.hunger + HUNGER_RATE)
+    def _update_needs(agent: Agent, weather_harsh: bool = False) -> None:
+        hunger_rate = HUNGER_RATE
+        energy_drain = ENERGY_DRAIN_AWAKE
+        if weather_harsh and agent.state is AgentState.AWAKE:
+            # "Weather affects people": harsh weather (heavy rain/snow/high
+            # wind) costs an awake agent more — resting is treated as
+            # sheltering, so it's unaffected. See docs/DECISIONS.md,
+            # scarcity pass.
+            hunger_rate *= WEATHER_HARSH_HUNGER_MULTIPLIER
+            energy_drain *= WEATHER_HARSH_ENERGY_DRAIN_MULTIPLIER
+        agent.hunger = min(1.0, agent.hunger + hunger_rate)
         if agent.state is AgentState.RESTING:
             agent.energy = min(1.0, agent.energy + ENERGY_RECOVERY_RESTING)
             if agent.energy >= WAKE_THRESHOLD:
                 agent.state = AgentState.AWAKE
         else:
-            agent.energy = max(0.0, agent.energy - ENERGY_DRAIN_AWAKE)
+            agent.energy = max(0.0, agent.energy - energy_drain)
             if agent.energy <= REST_THRESHOLD:
                 agent.state = AgentState.RESTING
+
+    @staticmethod
+    def _maybe_predator_attack(
+        agent: Agent, wildlife: WildlifeGrid, rng: random.Random,
+    ) -> tuple[tuple[str, str], bool] | None:
+        """Rolled for an awake agent colocated with a live predator pack.
+        Returns ((category, description), killed) or None if no attack
+        happened this tick. See docs/DECISIONS.md, danger pass."""
+        predators = [h for h in wildlife.at(agent.x, agent.y) if h.species is Species.PREDATOR and h.count > 0]
+        if not predators:
+            return None
+        if rng.random() >= PREDATOR_ATTACK_CHANCE:
+            return None
+        if rng.random() < PREDATOR_KILL_CHANCE_ON_ATTACK:
+            return (("death", f"{agent.name} was killed by predators."), True)
+        agent.energy = max(0.0, agent.energy - PREDATOR_ATTACK_ENERGY_DRAIN)
+        agent.hunger = min(1.0, agent.hunger + PREDATOR_ATTACK_HUNGER_INCREASE)
+        return (("predator_attack", f"{agent.name} was attacked by predators and barely escaped."), False)
 
     @staticmethod
     def _maybe_forage(
@@ -334,7 +411,8 @@ class Population:
     def _dispatch_movement(
         cls, agent: Agent, terrain: list[list[Tile]], rng: random.Random,
         resources: ResourceGrid, farms: FarmGrid, settlement: Settlement, wildlife: WildlifeGrid,
-        roads: RoadNetwork, position_snapshot: list[tuple[int, int, int]], critically_hungry: bool = False,
+        roads: RoadNetwork, predator_tiles: set[tuple[int, int]],
+        position_snapshot: list[tuple[int, int, int]], critically_hungry: bool = False,
     ) -> None:
         """Goal-directed agents (FORAGE/SOCIALIZE) take a deliberate step
         toward a visible target when one exists; otherwise (including
@@ -363,9 +441,9 @@ class Population:
         elif effective_goal is AgentGoal.GATHER:
             target = cls._nearest_material_tile(agent, terrain)
 
-        if target is not None and cls._step_toward(agent, target, terrain):
+        if target is not None and cls._step_toward(agent, target, terrain, predator_tiles):
             return
-        cls._maybe_move(agent, terrain, rng, roads)
+        cls._maybe_move(agent, terrain, rng, roads, predator_tiles)
 
     @staticmethod
     def _nearest_ready_farm(agent: Agent, farms: FarmGrid) -> tuple[int, int] | None:
@@ -466,10 +544,18 @@ class Population:
         return best
 
     @staticmethod
-    def _step_toward(agent: Agent, target: tuple[int, int], terrain: list[list[Tile]]) -> bool:
+    def _step_toward(
+        agent: Agent, target: tuple[int, int], terrain: list[list[Tile]],
+        predator_tiles: set[tuple[int, int]] = frozenset(),
+    ) -> bool:
         """Take one greedy step toward `target`. Returns False (and leaves
         `agent` unmoved) if already there or if both preferred directions
-        are blocked, so the caller can fall back to wandering."""
+        are blocked, so the caller can fall back to wandering.
+
+        Avoids stepping onto a live predator's tile when an alternative
+        exists — an agent still walks into danger if that's the only way
+        forward (e.g. the target itself is past a predator), it just
+        doesn't prefer to. See docs/DECISIONS.md, danger pass."""
         tx, ty = target
         if (tx, ty) == (agent.x, agent.y):
             return False
@@ -482,15 +568,26 @@ class Population:
 
         height = len(terrain)
         width = len(terrain[0]) if height else 0
+        fallback: tuple[int, int] | None = None
         for cdx, cdy in steps:
             nx, ny = agent.x + cdx, agent.y + cdy
-            if 0 <= nx < width and 0 <= ny < height and _is_walkable(terrain, nx, ny):
-                agent.x, agent.y = nx, ny
-                return True
+            if not (0 <= nx < width and 0 <= ny < height and _is_walkable(terrain, nx, ny)):
+                continue
+            if (nx, ny) in predator_tiles:
+                fallback = fallback or (nx, ny)
+                continue
+            agent.x, agent.y = nx, ny
+            return True
+        if fallback is not None:
+            agent.x, agent.y = fallback
+            return True
         return False
 
     @staticmethod
-    def _maybe_move(agent: Agent, terrain: list[list[Tile]], rng: random.Random, roads: RoadNetwork) -> None:
+    def _maybe_move(
+        agent: Agent, terrain: list[list[Tile]], rng: random.Random, roads: RoadNetwork,
+        predator_tiles: set[tuple[int, int]] = frozenset(),
+    ) -> None:
         move_chance = MOVE_CHANCE
         if roads.is_road(agent.x, agent.y):
             move_chance = min(1.0, move_chance * ROAD_SPEED_MULTIPLIER)
@@ -503,6 +600,12 @@ class Population:
             nx, ny = agent.x + dx, agent.y + dy
             if 0 <= nx < width and 0 <= ny < height and _is_walkable(terrain, nx, ny):
                 candidates.append((nx, ny))
+        # Prefer avoiding a predator's tile, but don't strand an agent
+        # surrounded by them — fall back to the unfiltered set if that's
+        # all that's walkable.
+        safe_candidates = [c for c in candidates if c not in predator_tiles]
+        if safe_candidates:
+            candidates = safe_candidates
         if candidates:
             agent.x, agent.y = rng.choice(candidates)
 
@@ -679,19 +782,42 @@ class Population:
                 continue
             building.stored_food = min(GRANARY_CAPACITY, building.stored_food + deposit)
 
-    def _apply_deaths(self) -> list[tuple[str, str]]:
+    def _apply_deaths(self, killed_by_predator: set[int] = frozenset()) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
+        dying_ids: set[int] = set()
+        for agent in self.agents:
+            if (
+                agent.id in killed_by_predator
+                or agent.starving_ticks >= STARVATION_TICKS_TO_DEATH
+                or agent.age_ticks >= agent.max_age_ticks
+            ):
+                dying_ids.add(agent.id)
+
         survivors: list[Agent] = []
         for agent in self.agents:
-            if agent.starving_ticks >= STARVATION_TICKS_TO_DEATH:
+            if agent.id not in dying_ids:
+                survivors.append(agent)
+                continue
+            if agent.id in killed_by_predator:
+                # Already logged by _maybe_predator_attack (the "death"
+                # event was appended there so the description could
+                # reference the specific attack) — just count it here.
+                self.deaths_predator += 1
+            elif agent.starving_ticks >= STARVATION_TICKS_TO_DEATH:
                 life_events.append(("death", f"{agent.name} died of starvation."))
                 self.deaths_starvation += 1
-                continue
-            if agent.age_ticks >= agent.max_age_ticks:
+            else:
                 life_events.append(("death", f"{agent.name} died of old age."))
                 self.deaths_old_age += 1
-                continue
-            survivors.append(agent)
+            # Grief: a survivor bonded to the dying agent remembers them
+            # and pays a real cost, not just a log line. See
+            # docs/DECISIONS.md, relationship-memory pass.
+            for other in self.agents:
+                if other.id == agent.id or other.id in dying_ids:
+                    continue
+                if other.relationships.get(agent.id, 0.0) >= REPRODUCTION_AFFINITY_THRESHOLD:
+                    _remember(other, f"{agent.name} died. I miss them.")
+                    other.energy = max(0.0, other.energy - GRIEF_ENERGY_PENALTY)
         self.agents = survivors
         return life_events
 
@@ -758,19 +884,67 @@ class Population:
             self.dialogue_cooldowns[(a.id, b.id)] = tick
         return selected
 
-    def apply_dialogue(self, a_id: int, b_id: int, sentiment: str) -> tuple[Agent, Agent] | None:
+    def apply_dialogue(self, a_id: int, b_id: int, sentiment: str, rumor: str = "") -> tuple[Agent, Agent] | None:
         """Apply a resolved dialogue's sentiment as a relationship nudge,
         on top of the passive per-tick colocation gain. Returns None (a
         no-op) if either agent has since died — dialogue results can
-        arrive on a later tick than requested, same as cognition."""
+        arrive on a later tick than requested, same as cognition.
+
+        Also the entry point for relationship *memory* (not just a
+        number): crossing into a close bond or a rivalry, and hearing a
+        rumor, each leave a short entry in both agents'
+        `Agent.memories` — see docs/DECISIONS.md, relationship-memory
+        pass. Deliberately not triggered by the passive per-tick
+        colocation gain/decay — only these explicit dialogue-driven
+        moments are memorable enough to log, or every agent's memory
+        would fill with "still standing near someone" noise."""
         agent_a, agent_b = self.get(a_id), self.get(b_id)
         if agent_a is None or agent_b is None:
             return None
         delta = DIALOGUE_SENTIMENT_DELTA.get(sentiment, 0.0)
         if delta:
-            agent_a.relationships[b_id] = max(-1.0, min(1.0, agent_a.relationships.get(b_id, 0.0) + delta))
+            before = agent_a.relationships.get(b_id, 0.0)
+            new_value = max(-1.0, min(1.0, before + delta))
+            agent_a.relationships[b_id] = new_value
             agent_b.relationships[a_id] = max(-1.0, min(1.0, agent_b.relationships.get(a_id, 0.0) + delta))
+            if before < REPRODUCTION_AFFINITY_THRESHOLD <= new_value:
+                _remember(agent_a, f"Grew close with {agent_b.name}.")
+                _remember(agent_b, f"Grew close with {agent_a.name}.")
+            elif before > RIVALRY_THRESHOLD >= new_value:
+                _remember(agent_a, f"Fell out with {agent_b.name}.")
+                _remember(agent_b, f"Fell out with {agent_a.name}.")
+        if rumor:
+            _remember(agent_a, f"Heard a rumor: {rumor}")
+            _remember(agent_b, f"Heard a rumor: {rumor}")
         return agent_a, agent_b
+
+    # --- festivals (collective behaviour) ---------------------------------------
+
+    def avg_hunger(self) -> float:
+        if not self.agents:
+            return 0.0
+        return sum(a.hunger for a in self.agents) / len(self.agents)
+
+    def hold_festival(self) -> int:
+        """Apply a one-time relationship boost to every currently-
+        colocated pair of awake agents — the mechanical effect of a
+        festival (hearthmind/llm/festival.py): the village gathers,
+        bonds strengthen. Returns how many pairs were affected. See
+        docs/DECISIONS.md, collective-behaviour pass."""
+        by_position: dict[tuple[int, int], list[Agent]] = {}
+        for agent in self.agents:
+            if agent.state is AgentState.AWAKE:
+                by_position.setdefault((agent.x, agent.y), []).append(agent)
+
+        affected = 0
+        for group in by_position.values():
+            if len(group) < 2:
+                continue
+            for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
+                a.relationships[b.id] = max(-1.0, min(1.0, a.relationships.get(b.id, 0.0) + FESTIVAL_RELATIONSHIP_BOOST))
+                b.relationships[a.id] = max(-1.0, min(1.0, b.relationships.get(a.id, 0.0) + FESTIVAL_RELATIONSHIP_BOOST))
+                affected += 1
+        return affected
 
     # --- summary -------------------------------------------------------------
 
@@ -796,6 +970,7 @@ class Population:
             "avg_age_ticks": round(avg_age, 1),
             "deaths_starvation": self.deaths_starvation,
             "deaths_old_age": self.deaths_old_age,
+            "deaths_predator": self.deaths_predator,
             "avg_affinity": round(avg_affinity, 3),
             "close_bonds": bonds,
             "rivalries": rivalries,
@@ -809,6 +984,7 @@ class Population:
             "next_id": self._next_id,
             "deaths_starvation": self.deaths_starvation,
             "deaths_old_age": self.deaths_old_age,
+            "deaths_predator": self.deaths_predator,
             "dialogue_cooldowns": {
                 f"{a_id}:{b_id}": tick for (a_id, b_id), tick in self.dialogue_cooldowns.items()
             },
@@ -826,5 +1002,6 @@ class Population:
             _next_id=data["next_id"],
             deaths_starvation=data.get("deaths_starvation", 0),
             deaths_old_age=data.get("deaths_old_age", 0),
+            deaths_predator=data.get("deaths_predator", 0),
             dialogue_cooldowns=dialogue_cooldowns,
         )

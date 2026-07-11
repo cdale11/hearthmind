@@ -64,7 +64,11 @@ def main(argv: list[str] | None = None) -> None:
     )
     print(
         f"             cumulative deaths: {pop['deaths_starvation']} starvation, "
-        f"{pop['deaths_old_age']} old age"
+        f"{pop['deaths_old_age']} old age, {pop.get('deaths_predator', 0)} predator"
+    )
+    print(
+        f"             relationships: {pop.get('close_bonds', 0)} close bonds, "
+        f"{pop.get('rivalries', 0)} rivalries (avg affinity {pop.get('avg_affinity', 0.0):.2f})"
     )
 
     llm = summary["llm"]
@@ -89,11 +93,26 @@ def main(argv: list[str] | None = None) -> None:
         f"             {settle['granaries']} granaries, {settle['granary_food']:.1f} food stored, "
         f"{settle['materials']:.1f} materials, {settle['currency']:.1f} currency"
     )
+    print(f"             tech level {settle.get('tech_level', 0)}")
     if settle["traditions"]:
         print(f"             traditions: {'; '.join(settle['traditions'])}")
+    if settle.get("inventions"):
+        print(f"             inventions: {'; '.join(settle['inventions'])}")
+    if settle.get("festivals"):
+        print(f"             festivals: {'; '.join(settle['festivals'])}")
 
     farms = summary["farms"]
     print(f"Farms:       {farms['total']} fields ({farms['growing']} growing, {farms['ready']} ready to harvest)")
+
+    if "wildlife" in summary:
+        w = summary["wildlife"]
+        print(
+            f"Wildlife:    {w['grazer_total']} grazers ({w['grazer_herds']} herds), "
+            f"{w['predator_total']} predators ({w['predator_packs']} packs)"
+        )
+    if "roads" in summary:
+        rd = summary["roads"]
+        print(f"Roads:       {rd['established_roads']} established ({rd['worn_tiles']} worn tiles)")
 
     if agents is not None:
         print(f"\nInhabitants ({len(agents)}):")
@@ -111,6 +130,8 @@ def main(argv: list[str] | None = None) -> None:
             )
             if agent["goal_reason"]:
                 print(f"    \"{agent['goal_reason']}\"")
+            if agent.get("memories"):
+                print(f"    memory: {agent['memories'][-1]}")
 
     print(f"\nRecent events (latest {len(events)}):")
     for event in events:

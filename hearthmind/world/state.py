@@ -99,8 +99,8 @@ class World:
             season=self.clock.season,
             previous=self.weather,
         )
-        self.resources.tick()
-        self.farms.tick()
+        self.resources.tick(season=self.clock.season)
+        self.farms.tick(season=self.clock.season)
         self.wildlife.tick(seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain)
         settlement_events = self.settlement.tick(weather=self.weather)
         if not self.settlement.name and any(
@@ -113,6 +113,7 @@ class World:
             seed=self.config.seed, tick=self.clock.tick_count,
             terrain=self.terrain, resources=self.resources,
             settlement=self.settlement, farms=self.farms, wildlife=self.wildlife, roads=self.roads,
+            weather=self.weather,
         )
         self.last_life_events = settlement_events + population_events
         self.last_calendar_events = events

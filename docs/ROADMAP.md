@@ -22,8 +22,8 @@ build" — phases below are the *how*, this table is the *what*.
 | Seasons | shipped | `world/clock.py` calendar (`year_end` etc. drive culture/chronicle cadence) |
 | Ecology & wildlife | shipped | A4 (`hearthmind/world/wildlife.py`) — grazer herds, predator packs, huntable |
 | Humans (agents, needs, aging) | shipped | Phase A |
-| Relationships | partial | A3 (proximity affinity + birth) + E2 (LLM dialogue nudges affinity, rivalry now representable, -1..1); no memory of *specific* exchanges yet — see A5 |
-| Economy | shipped (settlement-scale) | Phase D (D8-D10: materials, currency); no per-agent trade — see Phase D open item |
+| Relationships | shipped | A3 (proximity affinity + birth) + E2 (rivalry, -1..1) + A5 (memory of specific bond/rivalry/rumor/grief moments, fed into cognition) |
+| Economy | shipped (settlement-scale) | Phase D (D8-D10: materials, currency), now with real seasonal/weather scarcity pressure (winter farm/regen penalty, harsh-weather agent need-drain) so decline is genuinely possible, not just a plateau; no per-agent trade — see Phase D open item |
 | Agriculture | shipped | D1, D9 (farms, tool-boosted yield) |
 | Construction | shipped | Phase C |
 | Infrastructure | shipped | C5 (`hearthmind/world/roads.py`) — foot-traffic-driven path wear/decay, established roads speed movement |
@@ -72,19 +72,21 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   hunt a colocated grazer herd for richer relief than wild foraging,
   slotted into the existing forage priority chain. See
   `docs/DECISIONS.md`, A4.
-- Not yet built: agent-vs-predator danger (predators currently only
-  threaten grazers, never agents), a hunting-specific `AgentGoal`
-  (currently opportunistic — only when a FORAGE-goal agent happens to be
-  colocated with a herd), vegetation depletion tied to grazing (herds
-  don't currently compete with agents for `ResourceGrid` nodes).
-- **A5. Deeper relationships (partial — remainder not yet built).** A3
-  shipped birth-gating affinity; E2 added dialogue-driven rivalry (a
-  relationship value, -1..1) and ambient LLM-authored exchanges. Still
-  missing: memory of *specific* past exchanges/events between two agents
-  (not just an aggregate number), grief on a bond's death, and rumor- or
-  rivalry-driven behavior change (an agent actively avoiding a rival, not
-  just a lower affinity number). Natural extension once per-agent memory
-  exists to hang it on.
+- **[x] Agent-vs-predator danger.** Colocated agents can be attacked
+  (injury, rarely lethal) by live predator packs; movement now prefers
+  avoiding predator-occupied tiles. See `docs/DECISIONS.md`, "Batch:
+  predator danger...".
+- Not yet built: a hunting-specific `AgentGoal` (currently opportunistic
+  — only when a FORAGE-goal agent happens to be colocated with a herd),
+  vegetation depletion tied to grazing (herds don't currently compete
+  with agents for `ResourceGrid` nodes).
+- **[x] A5. Deeper relationships.** A3 shipped birth-gating affinity; E2
+  added dialogue-driven rivalry (-1..1); this batch added
+  `Agent.memories` (bond/rivalry formation, rumors, grief with a real
+  energy cost on a bonded partner's death) fed back into the agent's own
+  cognition prompt. Still missing: rivalry-driven behavior change (an
+  agent actively avoiding a rival, not just a lower affinity number).
+  See `docs/DECISIONS.md`, "Batch: predator danger...".
 
 ## Phase B — LLM infrastructure (the foundation, not a feature)
 
@@ -220,9 +222,16 @@ starts producing content that surprises its creator.
   boosting construction/repair speed and cultivated-food yield
   (farm/granary) by 15% per level — wild foraging untouched. See
   `docs/DECISIONS.md`, E3.
+- **[x] Festivals.** A wellbeing-gated (not prosperity-gated), seasonal-
+  cadence collective event (`hearthmind/llm/festival.py`) with a direct
+  mechanical effect: every currently-colocated pair of awake agents gets
+  a relationship boost when one is held. Distinct from traditions
+  (yearly, prosperity-agnostic, narrative-only). See
+  `docs/DECISIONS.md`, "Batch: predator danger...".
 - Not yet built: per-agent generational memory (an agent recalling their
-  own family's history), multiple named settlements, culture-specific
-  building types, festivals as a distinct mechanic from traditions.
+  own *family's* history specifically, beyond the general memory log
+  shipped this batch), multiple named settlements, culture-specific
+  building types.
 
 ## Phase F — Browser interface
 

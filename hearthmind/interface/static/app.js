@@ -42,6 +42,8 @@ const CATEGORY_META = {
   rumor: { icon: "📣" },
   tradition: { icon: "🎭" },
   invention: { icon: "💡" },
+  festival: { icon: "🎉" },
+  predator_attack: { icon: "🐺" },
   chronicle: { icon: "📜" },
 };
 function categoryMeta(category) {
@@ -163,10 +165,12 @@ canvas.addEventListener("mousemove", (ev) => {
   tooltip.classList.remove("hidden");
   tooltip.style.left = `${ev.clientX - rect.left + 12}px`;
   tooltip.style.top = `${ev.clientY - rect.top + 12}px`;
+  const lastMemory = a.memories && a.memories.length ? a.memories[a.memories.length - 1] : null;
   tooltip.innerHTML =
     `<b>${a.name}</b> (${a.state}, goal=${a.goal})<br>` +
     `hunger ${a.hunger.toFixed(2)} · energy ${a.energy.toFixed(2)} · age ${a.age_ticks}` +
-    (a.goal_reason ? `<br><i>"${a.goal_reason}"</i>` : "");
+    (a.goal_reason ? `<br><i>"${a.goal_reason}"</i>` : "") +
+    (lastMemory ? `<br><span class="tooltip-memory">${lastMemory}</span>` : "");
 });
 canvas.addEventListener("mouseleave", () => tooltip.classList.add("hidden"));
 
@@ -181,7 +185,10 @@ function renderStats(summary) {
     ["Weather", summary.weather, null],
     ["Population", `${p.total} (${p.awake} awake, ${p.resting} resting)`, null],
     ["Avg hunger / energy", `${p.avg_hunger.toFixed(2)} / ${p.avg_energy.toFixed(2)}`, null],
-    ["Deaths", `${p.deaths_starvation} starvation, ${p.deaths_old_age} old age`, null],
+    [
+      "Deaths", `${p.deaths_starvation} starvation, ${p.deaths_old_age} old age, ${p.deaths_predator || 0} predator`,
+      null,
+    ],
     [
       "Relationships", `${p.close_bonds} close, ${p.rivalries} rivalries (avg ${p.avg_affinity.toFixed(2)})`,
       "Close: affinity ≥ 0.6 (reproduction-eligible). Rivalries: affinity ≤ -0.4. " +
@@ -235,6 +242,13 @@ function renderStats(summary) {
   if (inventionsEl) {
     inventionsEl.innerHTML = s.inventions.length
       ? s.inventions.map((t) => `<li>${t}</li>`).join("")
+      : "<li>none yet</li>";
+  }
+
+  const festivalsEl = document.getElementById("festivals-list");
+  if (festivalsEl && s.festivals) {
+    festivalsEl.innerHTML = s.festivals.length
+      ? s.festivals.map((t) => `<li>${t}</li>`).join("")
       : "<li>none yet</li>";
   }
 }

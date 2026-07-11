@@ -4,6 +4,36 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.21.0] — Add: predator danger, relationship memory, festivals, scarcity
+
+### Added
+- Agent-vs-predator danger: colocated agents can be attacked (injury,
+  rarely lethal) by live predator packs; agents now prefer avoiding
+  predator-occupied tiles when moving, falling back only if it's the
+  only path.
+- Relationship memory: `Agent.memories` (capped short log) populated by
+  bond/rivalry formation, rumors, and grief on a bonded partner's death
+  (with a real energy cost); fed back into the agent's own cognition
+  prompt.
+- Festivals: a new, wellbeing-gated (not prosperity-gated), seasonal-
+  cadence collective event (`hearthmind/llm/festival.py`) with a direct
+  mechanical effect — every currently-colocated pair of awake agents
+  gets a relationship boost when one is held.
+- Seasonal/weather scarcity: winter cuts farm growth and wild-resource
+  regeneration; harsh weather (heavy rain/snow/high wind) increases an
+  awake agent's hunger/energy drain. Makes genuine settlement decline
+  possible during a bad season/weather streak, not just a plateau at the
+  population cap.
+
+### Changed
+- `Population.tick`/`_update_needs` now take `weather`;
+  `FarmGrid.tick`/`ResourceGrid.tick` now take `season`.
+- `inspect_world` prints predator deaths, relationship stats, tech
+  level, inventions, festivals, wildlife, and roads.
+
+See `docs/DECISIONS.md`, "Batch: predator danger, relationship memory,
+festivals, seasonal/weather scarcity."
+
 ## [0.20.1] — Fix: dev console not opening (stale browser cache)
 
 ### Fixed
