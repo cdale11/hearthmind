@@ -1068,3 +1068,24 @@ invariant (F1/F2).
 
 **Inventions got their own sidebar panel**, previously only visible via
 the Tech level stat tile — mirrors the existing Traditions panel.
+
+## UI fix: dev console not opening — stale-cache root cause, cache-busting
+
+User reported the new dev console button didn't open the panel. Read
+through `index.html`/`app.js`/`style.css` line by line — the toggle
+handler, element IDs, and CSS were all correct and verified working in a
+real server run. The far more likely cause: browsers cache `/static/*`
+assets aggressively across page loads, so a browser that had the page
+open (or cached) from before this UI pass would keep serving an old
+`app.js` with no dev-console handler at all, while `index.html` (fetched
+fresh at `/`) already had the new button — button visible, click does
+nothing, exactly the reported symptom.
+
+Fix: `interface/app.py`'s `/` route no longer serves `index.html`
+verbatim via `FileResponse`. It now reads the file once at startup and
+stamps its asset URLs with `?v=<hearthmind.__version__>`
+(`/static/app.js?v=0.20.0`), returned via `HTMLResponse`. Every version
+bump changes the URL, which busts any cached copy without disabling
+caching within a version (repeat requests for the same version still
+cache normally). This closes off an entire class of "I changed the UI
+but nothing happened" reports going forward, not just this one instance.

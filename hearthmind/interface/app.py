@@ -11,9 +11,10 @@ import sqlite3
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from hearthmind import __version__
 from hearthmind.interface.api import WorldBroadcaster
 from hearthmind.persistence.snapshot import recent_events
 
@@ -28,9 +29,22 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection) -> FastA
     ever read from, never written to, from this module."""
     app = FastAPI(title="Hearthmind", docs_url=None, redoc_url=None)
 
+    # `/static/*` assets (app.js, style.css) are fetched by their bare
+    # path, and browsers cache static assets aggressively across page
+    # loads by default — a stale cached app.js can silently keep serving
+    # an old build (missing new features/fixes) even after the server
+    # ships a new one, with no visible symptom besides "it doesn't work."
+    # Stamping index.html's asset URLs with `?v=<package version>` busts
+    # the cache on every release without disabling caching entirely (the
+    # same version still caches fine within a session). See
+    # docs/DECISIONS.md, UI pass.
+    _index_html = (_STATIC_DIR / "index.html").read_text()
+    _index_html = _index_html.replace('href="/static/style.css"', f'href="/static/style.css?v={__version__}"')
+    _index_html = _index_html.replace('src="/static/app.js"', f'src="/static/app.js?v={__version__}"')
+
     @app.get("/")
-    async def index() -> FileResponse:
-        return FileResponse(_STATIC_DIR / "index.html")
+    async def index() -> HTMLResponse:
+        return HTMLResponse(_index_html)
 
     @app.get("/state")
     async def state() -> JSONResponse:

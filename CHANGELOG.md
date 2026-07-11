@@ -4,6 +4,14 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.20.1] — Fix: dev console not opening (stale browser cache)
+
+### Fixed
+- `/` now stamps `app.js`/`style.css` URLs with `?v=<version>` so a
+  browser cache from before a UI change can't silently keep serving a
+  stale build. Root cause of the reported "dev console doesn't open" —
+  likely an old cached `app.js` with no dev-console handler.
+
 ## [0.20.0] — Improve: browser UI — readable events, clearer economy, dev console
 
 ### Added
