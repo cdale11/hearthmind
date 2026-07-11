@@ -89,6 +89,11 @@ class SimulationEngine:
         self._inflight_cognition_agent_ids: set[int] = set()
         self._background_tasks: set[asyncio.Task] = set()
 
+        if self._broadcaster is not None:
+            # Terrain never changes after creation — set once, not part
+            # of the per-tick payload. See docs/DECISIONS.md, F2.
+            self._broadcaster.set_terrain(world.terrain, world.config.width, world.config.height)
+
     @property
     def stop_event(self) -> asyncio.Event:
         """Exposed so a co-running loop (e.g. the WebSocket API server,
@@ -298,8 +303,9 @@ class SimulationEngine:
     def _maybe_broadcast(self) -> None:
         """Fire-and-forget, same pattern as LLM background jobs — a slow
         or absent client must never be able to delay a tick. No-op when
-        the API isn't enabled (`self._broadcaster is None`). See
-        docs/DECISIONS.md, F1."""
+        the API isn't enabled (`self._broadcaster is None`). Terrain is
+        NOT included here — it never changes, see `set_terrain` in
+        __init__. See docs/DECISIONS.md, F1/F2."""
         if self._broadcaster is None:
             return
         payload = {
@@ -308,6 +314,9 @@ class SimulationEngine:
                 {"category": category, "description": description}
                 for category, description in self.world.last_life_events
             ],
+            "agents": [a.to_dict() for a in self.world.population.agents],
+            "buildings": [b.to_dict() for b in self.world.settlement.buildings],
+            "farms": [p.to_dict() for p in self.world.farms.plots.values()],
         }
         task = asyncio.create_task(self._broadcaster.broadcast(payload))
         self._background_tasks.add(task)

@@ -163,14 +163,15 @@ the simulation.
 
 - **[x] F1: read-only WebSocket API, slice 1.** `--api-enabled` broadcasts
   the world summary + life events after every tick, fire-and-forget, same
-  liveness guarantee as the LLM layer. Required bending the "no
-  dependencies" rule (Python stdlib has no WebSockets) — done as an
-  explicit, user-confirmed exception, `websockets` as an *optional*
-  extra (`pip install hearthmind[api]`), not a hard dependency. See
-  `docs/DECISIONS.md`, F1.
-- Not yet built: map view, an actual browser page/client (F1 is the
-  transport only — nothing renders it yet), HTTP fallback for
-  non-WebSocket clients, and — last, per the ordering above — any
+  liveness guarantee as the LLM layer. See `docs/DECISIONS.md`, F1.
+- **[x] F2: FastAPI backend + actual browser client, slice 2.** External
+  libraries are now allowed project-wide (user-confirmed), tracked in
+  `requirements.txt`. Backend switched to FastAPI + uvicorn (`GET /`,
+  `/state`, `/terrain`, `/events`, `WS /ws`). A real static browser page
+  (plain HTML/CSS/JS, no build step) renders a live canvas map, stat
+  dashboard, traditions, and event log. See `docs/DECISIONS.md`, F2.
+- Not yet built: per-agent click-to-inspect beyond hover tooltips, a
+  historical/replay view, and — last, per the ordering above — any
   intervention/"nudge" endpoints.
 
 ## Phase G — Supernatural / psychological horror layer

@@ -27,16 +27,17 @@ client at all, does not pause anything.
   compute bounded and avoids a "catch-up burst" of simulation; it can be
   revisited once we have costlier per-tick systems (agents, economy) where
   "what happened while I was gone" becomes an interesting question in itself.
-- **Base install is dependency-free; two optional features aren't.**
+- **Base install is dependency-free; the browser interface isn't.**
   Everything the simulation itself needs is Python standard library
   (`sqlite3`, `asyncio`, `dataclasses`, `random`, `hashlib`, `json`,
   `urllib`) — trivially runnable on modest hardware, easy to pick up.
   Ollama (see "LLM cognition layer" below) is an optional local
   *service*, not a pip package — talking to it only needed `urllib`. The
-  read-only WebSocket API (see below, Phase F) is the one genuine pip
-  dependency (`websockets`), and it's an optional extra: `pip install
-  hearthmind[api]`, only needed if you pass `--api-enabled`. See
-  `docs/DECISIONS.md`, F1.
+  browser interface (see below, Phase F) uses FastAPI + uvicorn, tracked
+  in `requirements.txt` and the `api` extra (`pip install
+  hearthmind[api]`) — only needed if you pass `--api-enabled`. External
+  libraries are allowed project-wide as of Phase F; see
+  `docs/DECISIONS.md`, F1/F2.
 - **LLM failure degrades quality, never liveness.** Every LLM-backed
   decision goes through a timeout and a deterministic, rule-based
   fallback and never raises into the tick loop. Ollama being slow,
@@ -70,9 +71,14 @@ hearthmind/
     jobs.py                  # CognitionRunner: bounded-concurrency async LLM calls with fallback
     cognition.py              # per-agent goal prompt/parse/fallback
     chronicle.py               # seasonal world-history summarization
+    culture.py                  # yearly tradition invention (Phase E)
+  interface/
+    api.py                        # WorldBroadcaster: framework-free bridge from engine to web layer
+    app.py                         # FastAPI app: /, /state, /terrain, /events, WS /ws
+    static/                         # plain HTML/CSS/JS browser client, no build step
   simulation/
-    engine.py                   # SimulationEngine: the tick loop + lifecycle + LLM scheduling
-  server.py                      # CLI entrypoint that runs the engine forever
+    engine.py                   # SimulationEngine: the tick loop + lifecycle + LLM/API scheduling
+  server.py                      # CLI entrypoint that runs the engine (+ optional browser API) forever
   inspect_world.py                # CLI to print a summary of the saved world state
 tests/                             # unittest-based tests (stdlib only)
 ```
@@ -161,26 +167,32 @@ python3 -m hearthmind.inspect_world --db world.sqlite3 --agents
 for each inhabitant's current `goal`/`goal_reason`, and watch the
 `Recent events` list for `chronicle` entries — see `docs/TESTING.md`.
 
-## Read-only WebSocket API (Phase F)
+## Browser interface (Phase F)
 
-Off by default. Broadcasts the world summary plus that tick's life
-events (births, deaths, construction, farming, traditions...) to every
-connected client once per tick. No intervention endpoints yet — this is
-observation-only, per the roadmap (`docs/ROADMAP.md`, Phase F).
-
-This is the one place the project takes on a real dependency: Python's
-standard library has no WebSocket support. `websockets` is an **optional
-extra**, not part of the base install — `pip install hearthmind[api]` (or
-just `pip install websockets`) only if you actually pass `--api-enabled`.
-See `docs/DECISIONS.md`, F1 for why.
+Off by default. A real, live window into the world: a canvas map
+(terrain, agents, buildings, farms), a stat dashboard, traditions, and a
+scrolling event log — all updating once per tick over a WebSocket. No
+intervention endpoints yet — this is observation-only, per the roadmap
+(`docs/ROADMAP.md`, Phase F).
 
 ```bash
+pip install -r requirements.txt   # or: pip install hearthmind[api]
 python3 -m hearthmind.server --db world.sqlite3 --api-enabled
 ```
 
-Then connect any WebSocket client to `ws://localhost:8765` and you'll get
-one JSON message per tick: `{"summary": {...same shape as inspect_world},
-"life_events": [{"category": ..., "description": ...}, ...]}`.
+Then open `http://localhost:8765` in a browser. Endpoints, if you want to
+script against it directly instead:
+
+- `GET /state` — current world summary + agents/buildings/farms (same
+  shape as one WebSocket tick).
+- `GET /terrain` — the static biome grid (fetch once; it never changes).
+- `GET /events?limit=N` — recent event-log history.
+- `WS /ws` — one JSON message per tick, same shape as `GET /state`.
+
+External libraries are allowed for this feature (project policy since
+Phase F — see `docs/DECISIONS.md`, F2) but are still an **optional
+extra**: the base simulation stays dependency-free unless you actually
+pass `--api-enabled`.
 
 ## Testing
 
@@ -238,11 +250,13 @@ every release, not just unit tests.
       year; settlement name + latest tradition now appear in per-agent
       cognition prompts and the chronicle prompt. See `docs/DECISIONS.md`,
       E1.
-- [x] **Phase F — Browser interface, slice 1.** Read-only WebSocket API
-      (`--api-enabled`) broadcasts world state after every tick — no map
-      view or client yet, and intervention endpoints are deliberately
-      last. First real pip dependency (`websockets`), kept as an optional
-      extra. See `docs/DECISIONS.md`, F1.
+- [x] **Phase F — Browser interface, slices 1-2.** A real, live browser
+      window: canvas map, stat dashboard, traditions, event log, all
+      updating once per tick over WebSocket (FastAPI + uvicorn backend,
+      `--api-enabled`). Intervention endpoints are deliberately not
+      built yet — last, per the roadmap. External libraries are now
+      allowed project-wide, tracked in `requirements.txt`. See
+      `docs/DECISIONS.md`, F1/F2.
 - [ ] Phase G — Supernatural / psychological horror layer.
 
 See `CHANGELOG.md` for a version-by-version history, `docs/DECISIONS.md`

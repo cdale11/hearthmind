@@ -1,0 +1,6 @@
+# Base simulation has zero dependencies (Python stdlib only).
+# These are only needed for the optional browser interface (--api-enabled).
+# Install with: pip install -r requirements.txt
+# or:           pip install hearthmind[api]
+fastapi>=0.110
+uvicorn[standard]>=0.29

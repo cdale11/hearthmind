@@ -39,9 +39,9 @@ def parse_args(argv: list[str] | None = None) -> Config:
     parser.add_argument("--llm-max-concurrent", type=int, default=2,
                          help="Max simultaneous in-flight LLM requests.")
     parser.add_argument("--api-enabled", action="store_true",
-                         help="Enable the read-only WebSocket API (off by default; requires 'websockets').")
-    parser.add_argument("--api-host", default="0.0.0.0", help="WebSocket API bind host.")
-    parser.add_argument("--api-port", type=int, default=8765, help="WebSocket API port.")
+                         help="Enable the read-only browser API (off by default; requires 'fastapi'/'uvicorn').")
+    parser.add_argument("--api-host", default="0.0.0.0", help="Browser API bind host.")
+    parser.add_argument("--api-port", type=int, default=8765, help="Browser API port.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug-level logging.")
     args = parser.parse_args(argv)
 
@@ -76,7 +76,7 @@ async def _main_async(config: Config) -> None:
 
         broadcaster = None
         if config.api_enabled:
-            # Deferred import: only requires the `websockets` package when
+            # Deferred import: only requires fastapi/uvicorn when
             # --api-enabled is actually passed — see docs/DECISIONS.md, F1.
             from hearthmind.interface.api import WorldBroadcaster
             broadcaster = WorldBroadcaster()
@@ -104,10 +104,22 @@ async def _main_async(config: Config) -> None:
                 pass  # signal handlers aren't available on some platforms (e.g. Windows)
 
         if broadcaster is not None:
-            from hearthmind.interface.api import serve_forever
+            import uvicorn
+
+            from hearthmind.interface.app import create_app
+
+            app = create_app(broadcaster, conn)
+            uvicorn_config = uvicorn.Config(app, host=config.api_host, port=config.api_port, log_level="warning")
+            uvicorn_server = uvicorn.Server(uvicorn_config)
+
+            async def _stop_uvicorn_on_signal() -> None:
+                await engine.stop_event.wait()
+                uvicorn_server.should_exit = True
+
             await asyncio.gather(
                 engine.run_forever(),
-                serve_forever(broadcaster, config.api_host, config.api_port, engine.stop_event),
+                uvicorn_server.serve(),
+                _stop_uvicorn_on_signal(),
             )
         else:
             await engine.run_forever()

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Hearthmind</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1 id="settlement-name">Hearthmind</h1>
+    <div id="clock-line" class="muted">connecting…</div>
+  </header>
+
+  <main>
+    <section id="map-panel">
+      <canvas id="map-canvas"></canvas>
+      <div id="tooltip" class="tooltip hidden"></div>
+    </section>
+
+    <aside id="sidebar">
+      <div class="stat-grid" id="stat-grid"></div>
+
+      <div class="panel">
+        <h2>Traditions</h2>
+        <ul id="traditions-list" class="muted">
+          <li>none yet</li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>Recent events</h2>
+        <ul id="event-log"></ul>
+      </div>
+    </aside>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

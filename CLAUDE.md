@@ -31,6 +31,11 @@ branch `claude/hearthmind-overview-5bekay`.
   work," not anything run in this environment.
 - Still reason through logic/edge cases carefully before shipping — just
   don't claim "tested" or spend effort on `unittest`.
+- External libraries are allowed (no longer stdlib-only-by-default).
+  Track every one in `requirements.txt` and `pyproject.toml`
+  dependencies. Still prefer stdlib when it's a close call — only reach
+  outside it when it buys something real (see F1's `websockets`
+  precedent in docs/DECISIONS.md).
 - Determinism: all randomness via `hashlib.sha256(f"{seed}:{namespace}:{tick}")`
   namespaced RNG, never bare `random`.
 - Tick loop (`World.tick`) is fully synchronous; LLM calls are

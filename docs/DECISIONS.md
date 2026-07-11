@@ -466,6 +466,53 @@ tick broadcast with the correct payload shape, and confirmed both the
 engine and the API server shut down together on stop (they share
 `engine.stop_event`).
 
+## F2: Phase F slice 2 — FastAPI backend, static browser client, external libraries allowed
+
+Follow-up to F1, after the user explicitly allowed external libraries
+project-wide (tracked in `requirements.txt`, no longer just a scoped
+websockets-only exception). Four design questions were asked and
+answered before building (see chat, not repeated here):
+
+1. **Frontend**: plain HTML/CSS/JS, no build step
+   (`hearthmind/interface/static/`) — a single page, vanilla JS, canvas
+   map. No npm/node toolchain to run alongside the Python server.
+2. **Backend**: switched from raw `websockets` (F1) to **FastAPI +
+   uvicorn** — one framework serving static files, a REST snapshot
+   endpoint, and the WebSocket stream, replacing hand-rolled glue.
+   `requirements.txt` added (previously only `pyproject.toml`'s
+   `[project.optional-dependencies]` tracked this); both are kept in
+   sync in the `api` extra.
+3. **First view**: live map + dashboard together, not staged — canvas
+   terrain (drawn once, static) with agents/buildings/farms as a dynamic
+   overlay redrawn every tick, plus a stat-tile sidebar and event log.
+4. **REST alongside WebSocket**: yes, `GET /state` (current snapshot),
+   `GET /terrain` (static grid, fetched once), `GET /events` (history) —
+   the page paints immediately from these before the first WebSocket
+   tick arrives, rather than showing a blank page.
+
+**Architecture**: `interface/api.py` (`WorldBroadcaster`, framework-free)
+stays the one bridge between the engine and the web layer — it now also
+holds `_last_payload` (for `GET /state`) and a one-time `_terrain_payload`
+(set once in `SimulationEngine.__init__`, since terrain never changes —
+NOT part of the per-tick broadcast, keeping tick payloads small).
+`interface/app.py` isolates all FastAPI/Starlette imports to one module.
+`server.py` runs `uvicorn.Server.serve()` alongside `engine.run_forever()`
+in the same `asyncio.gather`, wired to `engine.stop_event` for a shared
+clean shutdown. The engine still never awaits anything web-related
+inline — `_maybe_broadcast` remains fire-and-forget, unchanged in
+principle from F1.
+
+**Per-tick payload** now includes `agents`, `buildings`, `farms` (not
+just the summary) — needed for the map's dynamic overlay. At current
+soak scales (dozens of agents) this is small; flagged as a place to
+revisit (e.g. delta-only updates) if population/building counts grow
+much larger, per the M1-4 snapshot-scaling note.
+
+Verified for real end-to-end: ran the server with `--api-enabled`,
+fetched `/terrain`, `/state`, `/events` over plain HTTP, connected a
+genuine WebSocket client and received a correctly-shaped live tick, and
+loaded `/` + `/static/app.js` to confirm the page and script serve.
+
 ## C1: Building placement is deterministic in this slice, not yet an LLM/goal decision
 
 The roadmap describes buildings as "an agent/B2 decision," but this slice

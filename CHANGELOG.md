@@ -4,6 +4,22 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.15.0] — Add: Phase F slice 2 — FastAPI backend + browser client (F2)
+
+### Added
+- Actual browser window into the simulation:
+  `hearthmind/interface/static/` (plain HTML/CSS/JS, no build step) — a
+  live canvas map (terrain + agents + buildings + farms), a stat-tile
+  dashboard, traditions, and a scrolling event log.
+- Backend switched from raw `websockets` to **FastAPI + uvicorn**:
+  `GET /` (the page), `GET /state`, `GET /terrain`, `GET /events`, and
+  `WS /ws` (live per-tick push).
+- `requirements.txt` added, tracking the `api` extra
+  (`fastapi`, `uvicorn[standard]`) alongside `pyproject.toml`.
+- External libraries are now allowed project-wide (previously a scoped
+  exception for `websockets` only) — tracked in `requirements.txt` going
+  forward.
+
 ## [0.14.0] — Add: Phase F slice 1 — read-only WebSocket API (F1)
 
 ### Added
