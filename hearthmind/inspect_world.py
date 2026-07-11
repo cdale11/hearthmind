@@ -44,7 +44,9 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps(payload, indent=2))
         return
 
-    print(f"=== Hearthmind world: {args.db} ===")
+    settlement_name = summary["settlement"]["name"]
+    header = f"=== Hearthmind world: {args.db} ===" if not settlement_name else f"=== {settlement_name} ({args.db}) ==="
+    print(header)
     print(f"Tick:        {summary['tick']}")
     print(f"Date:        {summary['date']}  ({summary['clock']})")
     print(f"Weather:     {summary['weather']}")
@@ -87,6 +89,8 @@ def main(argv: list[str] | None = None) -> None:
         f"             {settle['granaries']} granaries, {settle['granary_food']:.1f} food stored, "
         f"{settle['materials']:.1f} materials, {settle['currency']:.1f} currency"
     )
+    if settle["traditions"]:
+        print(f"             traditions: {'; '.join(settle['traditions'])}")
 
     farms = summary["farms"]
     print(f"Farms:       {farms['total']} fields ({farms['growing']} growing, {farms['ready']} ready to harvest)")

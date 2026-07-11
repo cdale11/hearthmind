@@ -21,7 +21,7 @@ import logging
 import sqlite3
 
 from hearthmind.config import Config
-from hearthmind.llm import chronicle
+from hearthmind.llm import chronicle, culture
 from hearthmind.llm.client import OllamaClient
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
@@ -155,6 +155,7 @@ class SimulationEngine:
             )
 
         self._maybe_schedule_chronicle(events, previous_season)
+        self._maybe_schedule_tradition(events)
         self._schedule_due_cognition()
 
         self._ticks_since_snapshot += 1
@@ -188,7 +189,11 @@ class SimulationEngine:
             if agent.id in self._inflight_cognition_agent_ids:
                 continue
             self._inflight_cognition_agent_ids.add(agent.id)
-            prompt = build_prompt(agent, self.world.clock.season, self.world.weather.describe())
+            latest_tradition = self.world.settlement.traditions[-1] if self.world.settlement.traditions else ""
+            prompt = build_prompt(
+                agent, self.world.clock.season, self.world.weather.describe(),
+                settlement_name=self.world.settlement.name, latest_tradition=latest_tradition,
+            )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             task = asyncio.create_task(self._run_cognition(agent.id, prompt, hunger_snapshot, energy_snapshot))
             self._background_tasks.add(task)
@@ -212,7 +217,10 @@ class SimulationEngine:
         recent = recent_events(self.conn, limit=50)
         population_summary = self.world.population.summary()
         year = self.world.clock.year
-        prompt = chronicle.build_prompt(recent, population_summary, previous_season, year)
+        prompt = chronicle.build_prompt(
+            recent, population_summary, previous_season, year,
+            settlement_name=self.world.settlement.name, traditions=self.world.settlement.traditions,
+        )
         fallback = chronicle.fallback_summary(recent, population_summary, previous_season, year)
         task = asyncio.create_task(self._run_chronicle(prompt, fallback))
         self._background_tasks.add(task)
@@ -224,6 +232,36 @@ class SimulationEngine:
         )
         summary = chronicle.parse_summary(result, fallback)
         log_event(self.conn, tick=self.world.clock.tick_count, category="chronicle", description=summary)
+        self._record_llm_call(used_fallback)
+
+    # --- Phase E: village culture (traditions) --------------------------------
+
+    def _maybe_schedule_tradition(self, events: list[str]) -> None:
+        """A named settlement invents a new tradition once per year — a
+        slower, generational cadence than the chronicle's seasonal one.
+        Unnamed settlements (no standing building yet) have no culture to
+        speak of, so nothing is scheduled. See docs/DECISIONS.md, E1."""
+        if "year_end" not in events or not self.world.settlement.name:
+            return
+        recent = recent_events(self.conn, limit=50)
+        traditions = self.world.settlement.traditions
+        prompt = culture.build_prompt(self.world.settlement.name, recent, traditions, self.world.clock.year)
+        fallback = culture.fallback_tradition(self.world.settlement.name, self.world.clock.year, len(traditions))
+        task = asyncio.create_task(self._run_tradition(prompt, fallback))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _run_tradition(self, prompt: str, fallback: dict) -> None:
+        result, used_fallback = await self._cognition_runner.run(
+            prompt, culture.SYSTEM_PROMPT, fallback=lambda: fallback
+        )
+        name, description = culture.parse_tradition(result, fallback)
+        entry = f"{name}: {description}"
+        self.world.settlement.traditions.append(entry)
+        log_event(
+            self.conn, tick=self.world.clock.tick_count, category="tradition",
+            description=f"The village established a new tradition — {entry}",
+        )
         self._record_llm_call(used_fallback)
 
     def _record_llm_call(self, used_fallback: bool) -> None:

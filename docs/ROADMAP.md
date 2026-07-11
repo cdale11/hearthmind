@@ -140,6 +140,16 @@ lore — mostly an extension of B3 (chronicle) plus new LLM prompt
 templates that read the chronicle back as context. Where the world
 starts producing content that surprises its creator.
 
+- **[x] E1: culture, slice 1.** Settlements are named once a building
+  stands; named settlements invent one tradition per year
+  (`hearthmind/llm/culture.py`); settlement name + latest tradition now
+  appear in per-agent cognition prompts and the chronicle prompt, closing
+  the B3 "chronicle isn't read back into prompts" gap. See
+  `docs/DECISIONS.md`, E1.
+- Not yet built: per-agent generational memory (an agent recalling their
+  own family's history), multiple named settlements, culture-specific
+  building types, festivals as a distinct mechanic from traditions.
+
 ## Phase F — Browser interface
 
 Deliberately late. Everything through Phase E is server-only and

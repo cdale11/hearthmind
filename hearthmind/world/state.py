@@ -6,16 +6,24 @@ which is what makes snapshotting trivial (see persistence/snapshot.py).
 """
 from __future__ import annotations
 
+import hashlib
+import random
 from dataclasses import dataclass, field
 
 from hearthmind.agents.population import Population
 from hearthmind.config import Config
 from hearthmind.economy.farms import FarmGrid
-from hearthmind.settlement.buildings import Settlement
+from hearthmind.settlement.buildings import BuildingStage, Settlement
+from hearthmind.settlement.naming import generate_settlement_name
 from hearthmind.time_system import SimClock
 from hearthmind.world.resources import ResourceGrid
 from hearthmind.world.terrain import Tile, biome_counts, generate_terrain
 from hearthmind.world.weather import WeatherState, compute_weather
+
+
+def _namespaced_rng(seed: int, tick: int, namespace: str) -> random.Random:
+    digest = hashlib.sha256(f"{seed}:{namespace}:{tick}".encode()).hexdigest()
+    return random.Random(int(digest[:16], 16))
 
 
 @dataclass
@@ -81,6 +89,12 @@ class World:
         self.resources.tick()
         self.farms.tick()
         settlement_events = self.settlement.tick(weather=self.weather)
+        if not self.settlement.name and any(
+            b.stage is BuildingStage.STANDING for b in self.settlement.buildings
+        ):
+            rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "settlement_naming")
+            self.settlement.name = generate_settlement_name(rng)
+            settlement_events.append(("settlement_named", f"The village was named {self.settlement.name}."))
         population_events = self.population.tick(
             seed=self.config.seed, tick=self.clock.tick_count,
             terrain=self.terrain, resources=self.resources,

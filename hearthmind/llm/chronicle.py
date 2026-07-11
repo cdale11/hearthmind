@@ -17,11 +17,19 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_prompt(recent_events: list[dict], population_summary: dict, season: str, year: int) -> str:
+def build_prompt(
+    recent_events: list[dict], population_summary: dict, season: str, year: int,
+    settlement_name: str = "", traditions: list[str] | None = None,
+) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened."
+    culture = ""
+    if settlement_name:
+        culture = f"This is the village of {settlement_name}. "
+        if traditions:
+            culture += f"Its traditions: {'; '.join(traditions)}. "
     return (
-        f"The season just ended: {season}, year {year}. "
+        f"{culture}The season just ended: {season}, year {year}. "
         f"Current population: {population_summary['total']} inhabitants "
         f"({population_summary['awake']} awake, {population_summary['resting']} resting). "
         f"Recent events:\n{events_text}\n"

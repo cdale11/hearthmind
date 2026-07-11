@@ -393,6 +393,45 @@ True per-agent trade (an agent with personal surplus selling directly to
 a hungry neighbor) remains unbuilt and would need an inventory system
 first — flagged for a future roadmap discussion, not assumed here.
 
+## E1: Culture, slice 1 — settlement naming, traditions, chronicle feeds back into cognition
+
+Phase E's first slice, staying tightly scoped to what the roadmap
+actually describes (settlement names, generational memory, chronicle
+read back into later prompts) rather than inventing new subsystems:
+
+- **Naming**: the first tick any building becomes STANDING, `World.tick`
+  deterministically names the settlement (`settlement/naming.py`,
+  prefix+suffix compound, namespaced RNG like every other generator in
+  this project) and logs a `settlement_named` event. Unnamed = "not yet
+  a real settlement," used as the gate for everything below.
+- **Traditions**: once named, a new `year_end`-cadence job
+  (`hearthmind/llm/culture.py`) invents one named tradition per year —
+  slower than B3's seasonal chronicle, matching "generational." Stored
+  as `Settlement.traditions: list[str]`, persisted, unbounded (no cap
+  needed at the timescales this project runs). Deterministic fallback
+  cycles a fixed 5-entry pool by count-established, so a fallback-only
+  run still accumulates distinct culture across years rather than
+  repeating one entry forever.
+- **Feeds back into prompts** (closing the gap flagged since B3): both
+  `cognition.build_prompt` (per-agent goals) and `chronicle.build_prompt`
+  (seasonal summary) now take optional `settlement_name`/traditions
+  context, appended only once a settlement exists — early-game prompts
+  are unaffected (verified: an unnamed-settlement prompt is byte-identical
+  to the pre-E1 prompt shape).
+
+Verified end-to-end through `SimulationEngine` (not a standalone
+`World.tick()` loop, so cognition/chronicle/tradition scheduling all
+actually ran): seed=7/48x48/30-pop, ~2 sim-years — settlement named
+"Oakreach," two distinct traditions established via the fallback pool
+("The First Harvest," "Hearthlight"), confirmed via direct prompt
+inspection that a named settlement's context string renders correctly.
+
+Not built (left for a future round, not assumed): named individual
+lore/generational memory *per agent* (e.g. an agent recalling their own
+history), multiple settlements, and any building type specifically for
+"culture" (currently piggybacks on the settlement being named at all,
+not on a particular structure).
+
 ## C1: Building placement is deterministic in this slice, not yet an LLM/goal decision
 
 The roadmap describes buildings as "an agent/B2 decision," but this slice

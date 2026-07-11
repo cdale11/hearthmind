@@ -22,11 +22,23 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_prompt(agent: Agent, season: str, weather: str) -> str:
+def build_prompt(
+    agent: Agent, season: str, weather: str,
+    settlement_name: str = "", latest_tradition: str = "",
+) -> str:
+    """`settlement_name`/`latest_tradition` are optional culture context
+    (Phase E) — empty until the settlement is named/has a tradition, so
+    early-game prompts are unaffected. Closes the "chronicle isn't read
+    back into prompts" gap flagged since B3 — see docs/DECISIONS.md, E1."""
+    culture = ""
+    if settlement_name:
+        culture = f" You live in {settlement_name}."
+        if latest_tradition:
+            culture += f" The village keeps this tradition: {latest_tradition}."
     return (
         f"You are {agent.name}. Hunger: {agent.hunger:.2f} (0=full, 1=starving). "
         f"Energy: {agent.energy:.2f} (0=exhausted, 1=fully rested). "
-        f"Currently {agent.state.value}. It is {season}, weather: {weather}. "
+        f"Currently {agent.state.value}. It is {season}, weather: {weather}.{culture} "
         "What should you focus on right now?"
     )
 

@@ -4,6 +4,19 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.13.0] — Add: Phase E slice 1 — settlement naming, traditions, culture-aware prompts (E1)
+
+### Added
+- Settlements are named (`settlement/naming.py`) the first tick a
+  building stands, deterministically.
+- Named settlements invent one new tradition per year
+  (`hearthmind/llm/culture.py`), LLM-authored or deterministic fallback,
+  persisted on `Settlement.traditions`.
+- Settlement name + latest tradition now appear in per-agent cognition
+  prompts and the seasonal chronicle prompt, closing the "chronicle isn't
+  read back into prompts" gap noted since B3. `inspect_world` shows the
+  settlement name in its header and lists established traditions.
+
 ## [0.12.0] — Add: farm-yield materials boost (D9); settlement currency (D10)
 
 ### Added

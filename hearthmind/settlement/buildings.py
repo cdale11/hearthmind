@@ -202,6 +202,15 @@ class Settlement:
     capacity; spent on emergency food when a granary's own stock runs
     out. Settlement-wide for the same reason as `materials`: no
     per-agent wallet/inventory system exists."""
+    name: str = ""
+    """Set once, deterministically, the first tick a building of any kind
+    is STANDING (see World.tick) — empty until then, meaning "not yet a
+    real settlement." See docs/DECISIONS.md, E1."""
+    traditions: list[str] = field(default_factory=list)
+    """LLM-authored (or deterministic-fallback) customs invented once per
+    year once the settlement is named — "Name: description" strings, in
+    the order established. Generational memory, and fed back into both
+    future chronicle entries and per-agent cognition prompts. See E1."""
 
     # --- queries -------------------------------------------------------------
 
@@ -270,6 +279,8 @@ class Settlement:
             "granary_food": round(sum(b.stored_food for b in granaries), 3),
             "materials": round(self.materials, 3),
             "currency": round(self.currency, 3),
+            "name": self.name,
+            "traditions": list(self.traditions),
         }
 
     # --- (de)serialization -----------------------------------------------------
@@ -280,6 +291,8 @@ class Settlement:
             "next_id": self._next_id,
             "materials": round(self.materials, 4),
             "currency": round(self.currency, 4),
+            "name": self.name,
+            "traditions": list(self.traditions),
         }
 
     @classmethod
@@ -288,4 +301,5 @@ class Settlement:
         return cls(
             buildings=buildings, _next_id=data["next_id"],
             materials=data.get("materials", 0.0), currency=data.get("currency", 0.0),
+            name=data.get("name", ""), traditions=list(data.get("traditions", [])),
         )
