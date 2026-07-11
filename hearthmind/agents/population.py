@@ -74,6 +74,7 @@ from hearthmind.settlement.buildings import (
     Settlement,
 )
 from hearthmind.world.resources import ResourceGrid
+from hearthmind.world.roads import ROAD_SPEED_MULTIPLIER, RoadNetwork
 from hearthmind.world.terrain import Biome, Tile
 from hearthmind.world.wildlife import HUNT_YIELD_PER_ANIMAL, WILDLIFE_SEARCH_RADIUS, Species, WildlifeGrid
 
@@ -166,6 +167,7 @@ class Population:
     def tick(
         self, seed: int, tick: int, terrain: list[list[Tile]],
         resources: ResourceGrid, settlement: Settlement, farms: FarmGrid, wildlife: WildlifeGrid,
+        roads: RoadNetwork,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -197,10 +199,12 @@ class Population:
                 agent.state = AgentState.RESTING  # proactive rest: a chosen goal, not just necessity
             if agent.state is AgentState.AWAKE:
                 self._dispatch_movement(
-                    agent, terrain, rng, resources, farms, settlement, wildlife, position_snapshot, critically_hungry
+                    agent, terrain, rng, resources, farms, settlement, wildlife, roads,
+                    position_snapshot, critically_hungry,
                 )
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
+        self._update_roads(by_position, settlement, farms, roads)
         self._update_relationships(by_position)
         life_events: list[tuple[str, str]] = []
         life_events.extend(self._advance_construction(by_position, settlement))
@@ -329,7 +333,7 @@ class Population:
     def _dispatch_movement(
         cls, agent: Agent, terrain: list[list[Tile]], rng: random.Random,
         resources: ResourceGrid, farms: FarmGrid, settlement: Settlement, wildlife: WildlifeGrid,
-        position_snapshot: list[tuple[int, int, int]], critically_hungry: bool = False,
+        roads: RoadNetwork, position_snapshot: list[tuple[int, int, int]], critically_hungry: bool = False,
     ) -> None:
         """Goal-directed agents (FORAGE/SOCIALIZE) take a deliberate step
         toward a visible target when one exists; otherwise (including
@@ -360,7 +364,7 @@ class Population:
 
         if target is not None and cls._step_toward(agent, target, terrain):
             return
-        cls._maybe_move(agent, terrain, rng)
+        cls._maybe_move(agent, terrain, rng, roads)
 
     @staticmethod
     def _nearest_ready_farm(agent: Agent, farms: FarmGrid) -> tuple[int, int] | None:
@@ -485,8 +489,11 @@ class Population:
         return False
 
     @staticmethod
-    def _maybe_move(agent: Agent, terrain: list[list[Tile]], rng: random.Random) -> None:
-        if rng.random() >= MOVE_CHANCE:
+    def _maybe_move(agent: Agent, terrain: list[list[Tile]], rng: random.Random, roads: RoadNetwork) -> None:
+        move_chance = MOVE_CHANCE
+        if roads.is_road(agent.x, agent.y):
+            move_chance = min(1.0, move_chance * ROAD_SPEED_MULTIPLIER)
+        if rng.random() >= move_chance:
             return
         height = len(terrain)
         width = len(terrain[0]) if height else 0
@@ -497,6 +504,21 @@ class Population:
                 candidates.append((nx, ny))
         if candidates:
             agent.x, agent.y = rng.choice(candidates)
+
+    @staticmethod
+    def _update_roads(
+        by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement,
+        farms: FarmGrid, roads: RoadNetwork,
+    ) -> None:
+        """Tiles with at least one awake agent present, excluding
+        building/farm tiles (paths form between things, not on top of
+        them) — see docs/DECISIONS.md, C5."""
+        occupied = {
+            (x, y) for (x, y), group in by_position.items()
+            if any(a.state is AgentState.AWAKE for a in group)
+            and settlement.at(x, y) is None and farms.get(x, y) is None
+        }
+        roads.tick(occupied)
 
     @staticmethod
     def _update_relationships(by_position: dict[tuple[int, int], list[Agent]]) -> None:

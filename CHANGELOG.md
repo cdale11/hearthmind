@@ -4,6 +4,23 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.19.0] — Add: Phase C slice 5 — infrastructure, foot-traffic roads (C5)
+
+### Added
+- `hearthmind/world/roads.py`: `RoadNetwork` tracks per-tile wear from
+  sustained agent foot traffic (building/farm tiles excluded); an
+  established road (wear >= 0.5) gives agents a 1.4x random-walk move
+  bonus. Unused paths decay back to untouched terrain.
+- `World.roads`, migration-backfilled for pre-C5 saves; included in the
+  browser broadcast payload (not yet rendered by the static client).
+
+This completes every system in the original feature list (terrain,
+weather, seasons, ecology/wildlife, humans, relationships, economy,
+agriculture, construction, infrastructure, building decay, culture,
+history) — see `docs/ROADMAP.md`'s feature checklist.
+
+See `docs/DECISIONS.md`, C5.
+
 ## [0.18.0] — Add: Phase A slice 4 — wildlife & ecology (A4)
 
 ### Added

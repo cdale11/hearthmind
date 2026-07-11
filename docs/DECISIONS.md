@@ -971,3 +971,43 @@ predator-vs-agent interaction (predators only prey on grazers, never
 threaten agents) — kept out deliberately to avoid a second combat/danger
 system this slice didn't ask for. Revisit if the user wants wildlife to
 be a threat, not just a food source.
+
+## C5: Infrastructure — foot-traffic-driven roads
+
+The last item from `docs/ROADMAP.md`'s original feature checklist.
+`hearthmind/world/roads.py`'s `RoadNetwork` tracks a `wear: dict[(x,y),
+float]`, mirroring `settlement/buildings.py`'s construction/decay shape
+rather than being planned/pathfound: a walkable tile with no building and
+no farm on it gains `ROAD_WEAR_PER_TICK` (0.01) whenever at least one
+awake agent stands on it that tick, and loses `ROAD_DECAY_PER_TICK`
+(0.0008 — deliberately ~12x slower than the gain rate) otherwise. At
+`ROAD_ESTABLISHED_WEAR` (0.5) a tile counts as an established road,
+which gives agents standing on it a `ROAD_SPEED_MULTIPLIER` (1.4x)
+random-walk move-chance bonus in `Population._maybe_move` — the concrete
+payoff for a well-trodden path, applied only to the undirected wander
+case (goal-directed `_step_toward` already moves deterministically every
+call, so a speed bonus there would be a no-op).
+
+Occupancy is computed in a new `Population._update_roads`, called once
+per tick right after `by_position` is finalized (post-movement, so a
+tile only wears from where agents actually ended up, not where they
+started). Excludes building/farm tiles deliberately — the intent is
+paths *between* things, not wear registering on top of a granary or a
+field, which already have their own condition/stage tracking.
+
+Threaded through `Population.tick`/`_dispatch_movement`/`_maybe_move` as
+a required `roads: RoadNetwork` parameter, same pattern as `wildlife` in
+A4. `World.roads` persists and migration-backfills to an empty
+`RoadNetwork()` for pre-C5 saves (no retroactive guessing at where paths
+"should" have been, matching the `settlement`/`farms` migration
+precedent). Also included in the browser broadcast payload
+(`_maybe_broadcast`'s `"roads"` key) though the static client doesn't
+render it yet — left as a follow-up for whoever next touches
+`interface/static/app.js`.
+
+This closes every system named in the user's original full feature list
+(terrain, weather, seasons, ecology/wildlife, humans, relationships,
+economy, agriculture, construction, infrastructure, building decay,
+culture, history, supernatural-reserved-for-Phase-G) — see
+`docs/ROADMAP.md`'s feature checklist table for the complete map from
+request to implementation.

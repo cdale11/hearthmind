@@ -55,6 +55,7 @@ hearthmind/
     weather.py          # deterministic, seasonally-aware weather system
     resources.py         # depletable, regenerating forageable resource nodes
     wildlife.py          # grazer herds + predator packs, huntable (A4)
+    roads.py             # foot-traffic-driven path wear/decay (C5)
     state.py              # World: the aggregate root, (de)serializes to dict
   agents/
     agent.py             # Agent: needs, aging, relationships, lifecycle constants

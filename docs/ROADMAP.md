@@ -26,7 +26,7 @@ build" — phases below are the *how*, this table is the *what*.
 | Economy | shipped (settlement-scale) | Phase D (D8-D10: materials, currency); no per-agent trade — see Phase D open item |
 | Agriculture | shipped | D1, D9 (farms, tool-boosted yield) |
 | Construction | shipped | Phase C |
-| Infrastructure | **not started** | new Phase C5, below (roads) |
+| Infrastructure | shipped | C5 (`hearthmind/world/roads.py`) — foot-traffic-driven path wear/decay, established roads speed movement |
 | Building decay | shipped | C1-C4 (weathering, ruin, reclamation) |
 | Culture | partial | E1 (naming, traditions) + E3 (prosperity-gated inventions/tech unlocks); festivals/generational memory not built |
 | History | partial | B3 (chronicle) + E1 (traditions feed prompts); no replay/browsable history view (Phase F) |
@@ -124,13 +124,12 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   ruins; long-abandoned ruins are eventually reclaimed and removed. This
   is where "prosper, stagnate, or disappear" becomes visible at the
   settlement level, not just per-agent.
-- **C5. Infrastructure (not yet built).** Roads connecting buildings —
-  the concrete piece of "infrastructure" from the original feature list.
-  Likely a deterministic, presence-driven mechanic mirroring C1-C4
-  (agents passing between two standing buildings repeatedly wear a path;
-  paths persist and eventually decay like buildings do), rather than
-  planned/pathfound. Gives future systems (trade, wildlife-avoidance,
-  culture) something spatial to react to besides raw tile biome.
+- **[x] C5. Infrastructure.** `hearthmind/world/roads.py`'s
+  `RoadNetwork`: walkable, building/farm-free tiles wear from sustained
+  agent presence and decay when abandoned, mirroring C1-C4's
+  construction/decay shape rather than being planned/pathfound. An
+  established road (wear >= 0.5) gives agents a 1.4x random-walk move
+  bonus. See `docs/DECISIONS.md`, C5.
 - Not yet built: resource *cost* for construction (currently free beyond
   agent presence/time), building types beyond a single generic structure
   plus the granary kind, and — the natural next slice — tying

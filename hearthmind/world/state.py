@@ -17,6 +17,7 @@ from hearthmind.settlement.buildings import BuildingStage, Settlement
 from hearthmind.settlement.naming import generate_settlement_name
 from hearthmind.time_system import SimClock
 from hearthmind.world.resources import ResourceGrid
+from hearthmind.world.roads import RoadNetwork
 from hearthmind.world.terrain import Tile, biome_counts, generate_terrain
 from hearthmind.world.weather import WeatherState, compute_weather
 from hearthmind.world.wildlife import WildlifeGrid
@@ -38,6 +39,7 @@ class World:
     settlement: Settlement
     farms: FarmGrid
     wildlife: WildlifeGrid
+    roads: RoadNetwork
     llm_calls_total: int = 0
     llm_fallback_total: int = 0
     """Cumulative counts of every LLM-backed decision (cognition +
@@ -70,10 +72,11 @@ class World:
         settlement = Settlement()  # settlements emerge from population behavior, not pre-placed
         farms = FarmGrid()  # likewise: no farms exist until agents plant them
         wildlife = WildlifeGrid.generate(seed=config.seed, terrain=terrain)
+        roads = RoadNetwork()  # paths emerge from foot traffic, not pre-placed
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             population=population, resources=resources, settlement=settlement, farms=farms,
-            wildlife=wildlife,
+            wildlife=wildlife, roads=roads,
         )
 
     # --- tick --------------------------------------------------------------
@@ -103,7 +106,7 @@ class World:
         population_events = self.population.tick(
             seed=self.config.seed, tick=self.clock.tick_count,
             terrain=self.terrain, resources=self.resources,
-            settlement=self.settlement, farms=self.farms, wildlife=self.wildlife,
+            settlement=self.settlement, farms=self.farms, wildlife=self.wildlife, roads=self.roads,
         )
         self.last_life_events = settlement_events + population_events
         self.last_calendar_events = events
@@ -126,6 +129,7 @@ class World:
             "settlement": self.settlement.summary(),
             "farms": self.farms.summary(),
             "wildlife": self.wildlife.summary(),
+            "roads": self.roads.summary(),
             "llm": {
                 "calls_total": self.llm_calls_total,
                 "fallback_total": self.llm_fallback_total,
@@ -158,6 +162,7 @@ class World:
             "settlement": self.settlement.to_dict(),
             "farms": self.farms.to_dict(),
             "wildlife": self.wildlife.to_dict(),
+            "roads": self.roads.to_dict(),
             "llm_calls_total": self.llm_calls_total,
             "llm_fallback_total": self.llm_fallback_total,
         }
@@ -230,10 +235,16 @@ class World:
             wildlife = WildlifeGrid.generate(seed=config.seed, terrain=terrain)
             migrated_subsystems.append("wildlife")
 
+        if "roads" in data:
+            roads = RoadNetwork.from_dict(data["roads"])
+        else:
+            roads = RoadNetwork()  # no retroactive guessing at pre-existing paths
+            migrated_subsystems.append("roads")
+
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             population=population, resources=resources, settlement=settlement, farms=farms,
-            wildlife=wildlife,
+            wildlife=wildlife, roads=roads,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),
             migrated_subsystems=migrated_subsystems,
