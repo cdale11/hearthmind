@@ -30,6 +30,9 @@ class AgentGoal(str, Enum):
     FORAGE = "forage"
     SOCIALIZE = "socialize"
     REST = "rest"
+    GATHER = "gather"
+    """Added D8: collect building materials from forest/hills into the
+    settlement's shared stockpile — see Population._maybe_gather."""
 
 
 # Needs tuning. Kept as module constants rather than Config fields for now —

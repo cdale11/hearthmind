@@ -4,6 +4,16 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.11.0] — Add: production chains (D8)
+
+### Added
+- New `AgentGoal.GATHER`: collects wood/stone from forest/hills into a
+  settlement-wide `materials` stockpile (`MATERIALS_CAPACITY` 30.0).
+  Construction now consumes materials for a 2x speed boost
+  (`CONSTRUCTION_MATERIALS_MULTIPLIER`) when available. LLM prompt and
+  deterministic fallback both updated so GATHER is reachable with or
+  without a live LLM. `inspect_world` shows the materials stockpile.
+
 ## [0.10.0] — Add: Granaries (D7)
 
 ### Added

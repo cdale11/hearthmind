@@ -101,6 +101,23 @@ GRANARY_HUNGER_RELIEF = 0.4
 """Hunger relief for a full granary withdrawal — between
 FORAGE_HUNGER_RELIEF (0.3) and HARVEST_HUNGER_RELIEF (0.5)."""
 
+MATERIALS_CAPACITY = 30.0
+"""Max wood/stone a settlement's shared stockpile can hold — see D8."""
+
+MATERIALS_GATHER_PER_TICK = 0.03
+"""Materials added per GATHER-goal agent present on forest/hills, per
+tick, up to MATERIALS_CAPACITY — see Population._maybe_gather."""
+
+MATERIALS_PER_CONSTRUCTION_TICK = 0.1
+"""Materials consumed per tick a construction site draws on the
+stockpile, in exchange for CONSTRUCTION_MATERIALS_MULTIPLIER — see
+Population._advance_construction."""
+
+CONSTRUCTION_MATERIALS_MULTIPLIER = 2.0
+"""Construction progress multiplier while materials are available and
+being consumed — the actual payoff of the D8 production chain (gather ->
+stockpile -> faster building) over presence alone."""
+
 
 @dataclass
 class Building:
@@ -154,6 +171,12 @@ class Settlement:
 
     buildings: list[Building] = field(default_factory=list)
     _next_id: int = 0
+    materials: float = 0.0
+    """Shared wood/stone stockpile, 0..MATERIALS_CAPACITY — see D8. Global
+    to the settlement rather than per-building/per-tile: unlike food
+    (which must be consumed near where it's stored), materials are
+    fungible and this project has no hauling/transport system to move
+    them tile-by-tile."""
 
     # --- queries -------------------------------------------------------------
 
@@ -220,6 +243,7 @@ class Settlement:
             "avg_condition": round(avg_condition, 3),
             "granaries": len(granaries),
             "granary_food": round(sum(b.stored_food for b in granaries), 3),
+            "materials": round(self.materials, 3),
         }
 
     # --- (de)serialization -----------------------------------------------------
@@ -228,9 +252,10 @@ class Settlement:
         return {
             "buildings": [b.to_dict() for b in self.buildings],
             "next_id": self._next_id,
+            "materials": round(self.materials, 4),
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "Settlement":
         buildings = [Building.from_dict(b) for b in data["buildings"]]
-        return cls(buildings=buildings, _next_id=data["next_id"])
+        return cls(buildings=buildings, _next_id=data["next_id"], materials=data.get("materials", 0.0))

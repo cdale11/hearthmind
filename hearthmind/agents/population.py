@@ -47,6 +47,7 @@ from hearthmind.economy.farms import (
     FarmStage,
 )
 from hearthmind.settlement.buildings import (
+    CONSTRUCTION_MATERIALS_MULTIPLIER,
     CONSTRUCTION_WORK_PER_TICK,
     GRANARY_CAPACITY,
     GRANARY_DEPOSIT_PER_TICK,
@@ -54,6 +55,9 @@ from hearthmind.settlement.buildings import (
     GRANARY_HUNGER_RELIEF,
     GRANARY_WELLFED_HUNGER_THRESHOLD,
     GRANARY_WITHDRAW_AMOUNT,
+    MATERIALS_CAPACITY,
+    MATERIALS_GATHER_PER_TICK,
+    MATERIALS_PER_CONSTRUCTION_TICK,
     MAX_WORKERS,
     REPAIR_THRESHOLD,
     REPAIR_WORK_PER_TICK,
@@ -66,6 +70,8 @@ from hearthmind.world.resources import ResourceGrid
 from hearthmind.world.terrain import Biome, Tile
 
 WALKABLE_BIOMES = frozenset({Biome.GRASSLAND, Biome.FOREST, Biome.HILLS, Biome.BEACH})
+MATERIAL_BIOMES = frozenset({Biome.FOREST, Biome.HILLS})
+"""Where GATHER-goal agents can collect wood/stone — see D8."""
 
 _NEIGHBOR_OFFSETS = ((0, -1), (0, 1), (-1, 0), (1, 0))
 
@@ -74,6 +80,10 @@ FORAGE_SEARCH_RADIUS = 6
 in Chebyshev distance — beyond this, they fall back to the default wander
 behavior. Deliberately local: wild food awareness is plausible only
 nearby. SOCIALIZE has no equivalent cap — see docs/DECISIONS.md, D4."""
+
+GATHER_SEARCH_RADIUS = 6
+"""Same rationale as FORAGE_SEARCH_RADIUS — local, plausible awareness of
+nearby forest/hills, not map-wide. See D8."""
 
 
 def _namespaced_rng(seed: int, tick: int, namespace: str) -> random.Random:
@@ -150,6 +160,7 @@ class Population:
             if critically_hungry and agent.state is AgentState.RESTING:
                 agent.state = AgentState.AWAKE  # emergency wake: starving beats sleeping
             self._maybe_forage(agent, resources, farms, settlement)  # can eat while resting, not just awake
+            self._maybe_gather(agent, terrain, settlement)
             if agent.hunger >= STARVATION_HUNGER_THRESHOLD:
                 agent.starving_ticks += 1
             else:
@@ -225,6 +236,19 @@ class Population:
         agent.hunger = max(0.0, agent.hunger - relief)
 
     @staticmethod
+    def _maybe_gather(agent: Agent, terrain: list[list[Tile]], settlement: Settlement) -> None:
+        """GATHER-goal agents on forest/hills feed the settlement's shared
+        materials stockpile — awake-only (unlike foraging, this isn't a
+        survival mechanic, so no resting-interrupt applies). See D8."""
+        if agent.goal is not AgentGoal.GATHER or agent.state is not AgentState.AWAKE:
+            return
+        if settlement.materials >= MATERIALS_CAPACITY:
+            return
+        if terrain[agent.y][agent.x].biome not in MATERIAL_BIOMES:
+            return
+        settlement.materials = min(MATERIALS_CAPACITY, settlement.materials + MATERIALS_GATHER_PER_TICK)
+
+    @staticmethod
     def _maybe_plant(
         by_position: dict[tuple[int, int], list[Agent]], farms: FarmGrid, settlement: Settlement,
         terrain: list[list[Tile]], rng: random.Random,
@@ -272,6 +296,8 @@ class Population:
             )
         elif effective_goal is AgentGoal.SOCIALIZE:
             target = cls._nearest_other_agent(agent, position_snapshot)
+        elif effective_goal is AgentGoal.GATHER:
+            target = cls._nearest_material_tile(agent, terrain)
 
         if target is not None and cls._step_toward(agent, target, terrain):
             return
@@ -327,6 +353,29 @@ class Population:
             dist = abs(x - agent.x) + abs(y - agent.y)
             if best_dist is None or dist < best_dist:
                 best, best_dist = (x, y), dist
+        return best
+
+    @staticmethod
+    def _nearest_material_tile(agent: Agent, terrain: list[list[Tile]]) -> tuple[int, int] | None:
+        """Scans a bounded box (no discrete registry like resources/farms
+        exist for terrain biomes) within GATHER_SEARCH_RADIUS. See D8."""
+        height = len(terrain)
+        width = len(terrain[0]) if height else 0
+        best: tuple[int, int] | None = None
+        best_dist: int | None = None
+        for dy in range(-GATHER_SEARCH_RADIUS, GATHER_SEARCH_RADIUS + 1):
+            y = agent.y + dy
+            if not (0 <= y < height):
+                continue
+            for dx in range(-GATHER_SEARCH_RADIUS, GATHER_SEARCH_RADIUS + 1):
+                x = agent.x + dx
+                if not (0 <= x < width):
+                    continue
+                if terrain[y][x].biome not in MATERIAL_BIOMES:
+                    continue
+                dist = abs(dx) + abs(dy)
+                if best_dist is None or dist < best_dist:
+                    best, best_dist = (x, y), dist
         return best
 
     @staticmethod
@@ -466,7 +515,11 @@ class Population:
             )
             if workers == 0:
                 continue
-            building.progress = min(1.0, building.progress + CONSTRUCTION_WORK_PER_TICK * min(workers, MAX_WORKERS))
+            work = CONSTRUCTION_WORK_PER_TICK * min(workers, MAX_WORKERS)
+            if settlement.materials >= MATERIALS_PER_CONSTRUCTION_TICK:
+                settlement.materials -= MATERIALS_PER_CONSTRUCTION_TICK
+                work *= CONSTRUCTION_MATERIALS_MULTIPLIER
+            building.progress = min(1.0, building.progress + work)
             if building.progress >= 1.0:
                 building.stage = BuildingStage.STANDING
                 building.condition = 1.0

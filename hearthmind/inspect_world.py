@@ -83,7 +83,10 @@ def main(argv: list[str] | None = None) -> None:
         f"({settle['under_construction']} under construction, {settle['standing']} standing, "
         f"{settle['ruined']} ruined)  avg condition {settle['avg_condition']:.2f}"
     )
-    print(f"             {settle['granaries']} granaries, {settle['granary_food']:.1f} food stored")
+    print(
+        f"             {settle['granaries']} granaries, {settle['granary_food']:.1f} food stored, "
+        f"{settle['materials']:.1f} materials stockpiled"
+    )
 
     farms = summary["farms"]
     print(f"Farms:       {farms['total']} fields ({farms['growing']} growing, {farms['ready']} ready to harvest)")

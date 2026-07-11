@@ -14,8 +14,11 @@ from hearthmind.agents.agent import Agent, AgentGoal
 SYSTEM_PROMPT = (
     "You are the inner voice of a villager in a small simulated world. "
     "Given their current state, choose what they should focus on right now. "
+    "'gather' means collecting wood and stone for the village's shared "
+    "building supply. "
     'Respond with strict JSON only, no other text: '
-    '{"goal": "forage" | "rest" | "socialize" | "wander", "reason": "a short first-person reason, under 15 words"}.'
+    '{"goal": "forage" | "rest" | "socialize" | "wander" | "gather", '
+    '"reason": "a short first-person reason, under 15 words"}.'
 )
 
 
@@ -34,17 +37,19 @@ def fallback_goal(hunger: float, energy: float, agent_id: int = 0) -> dict:
     reasoning the prompt asks for, just without an actual model behind it.
 
     Content agents (not hungry, not tired) split deterministically by
-    `agent_id` parity between SOCIALIZE and WANDER, rather than always
-    wandering — without this, the fallback path could never produce
-    clustering at all (SOCIALIZE was previously unreachable without a live
-    LLM choosing it), which was a real contributor to the social-dispersion
-    finding in docs/DECISIONS.md, D2/D4."""
+    `agent_id % 3` between SOCIALIZE, WANDER, and GATHER, rather than
+    always wandering — without this, a fallback-only run (no live LLM)
+    could never produce clustering (D2/D4) or a materials stockpile (D8),
+    since only a live LLM could ever choose those goals otherwise."""
     if hunger > 0.6:
         return {"goal": AgentGoal.FORAGE.value, "reason": "hungry"}
     if energy < 0.3:
         return {"goal": AgentGoal.REST.value, "reason": "tired"}
-    if agent_id % 2 == 0:
+    branch = agent_id % 3
+    if branch == 0:
         return {"goal": AgentGoal.SOCIALIZE.value, "reason": "content, seeking company"}
+    if branch == 1:
+        return {"goal": AgentGoal.GATHER.value, "reason": "content, gathering materials"}
     return {"goal": AgentGoal.WANDER.value, "reason": "content"}
 
 

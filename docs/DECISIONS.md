@@ -330,6 +330,29 @@ search as farms (D6) — a built structure is known to its community.
 30% of new constructions roll GRANARY vs HUT (`GRANARY_KIND_CHANCE`);
 not yet an agent/LLM choice, same caveat as C1.
 
+## D8: Production chains — GATHER goal, materials stockpile, construction speed boost
+
+First production-chain slice: new `AgentGoal.GATHER` (forest/hills ->
+settlement-wide `materials` stockpile, presence-driven like every other
+mechanic, no per-agent inventory). Consumed by `_advance_construction`:
+while materials are available, `MATERIALS_PER_CONSTRUCTION_TICK` (0.1) is
+drawn per tick in exchange for `CONSTRUCTION_MATERIALS_MULTIPLIER` (2x)
+progress — verified directly (0.05 -> 0.1 progress/tick, 5.0 -> 4.9
+materials, matching the constants exactly).
+
+SYSTEM_PROMPT updated so a live LLM can actually choose GATHER; fallback
+split changed from 2-way (SOCIALIZE/WANDER) to 3-way
+(SOCIALIZE/GATHER/WANDER) by `agent_id % 3`, same reachability rationale
+as D4 — a goal only a live LLM can ever pick has no fallback-only
+coverage.
+
+Design call made without a user round-trip (per "continue"): materials
+are a single settlement-wide scalar, not per-tile/per-building — no
+hauling/transport system exists, and food-storage (granaries, D7)
+already established that model. Farm-yield boost from materials was
+scoped out of this slice to keep it to one clear effect (construction
+speed); flagged as the natural next slice if wanted.
+
 ## C1: Building placement is deterministic in this slice, not yet an LLM/goal decision
 
 The roadmap describes buildings as "an agent/B2 decision," but this slice

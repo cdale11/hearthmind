@@ -119,9 +119,12 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   FORAGE never targeting farms (root cause of a 16-death cascade). D7
   added `BuildingKind.GRANARY` — presence-driven stock/withdraw, a
   community food buffer. See `docs/DECISIONS.md`, D6/D7.
-- Not yet built: production chains, trade between agents/settlements, any
-  currency or barter system. Economic decisions are natural Phase B (LLM
-  cognition) territory once they exist.
+- **[x] D8: production chains, slice 1.** New `AgentGoal.GATHER` feeds a
+  settlement-wide materials stockpile; construction consumes it for a 2x
+  speed boost. See `docs/DECISIONS.md`, D8.
+- Not yet built: farm-yield boost from materials, trade between
+  agents/settlements, any currency or barter system. Economic decisions
+  are natural Phase B (LLM cognition) territory once they exist.
 
 ## Phase E — Culture & history
 
