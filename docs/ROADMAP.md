@@ -64,12 +64,20 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
 
 ## Phase C — Settlements & construction
 
-Buildings (an agent/B2 decision), roads connecting them, construction as
-a multi-tick process with resource cost, weathering/decay tied to weather
-exposure (already simulated) and disuse, repair as another agent
-decision, and abandonment leading to nature reclaiming untended tiles.
-Where "prosper, stagnate, or disappear" becomes visible at the
-settlement level, not just per-agent.
+- **[x] C1-C4. Buildings, construction, weathering, repair, reclamation
+  (slice 1 shipped).** Colocated, mature, healthy agents may found a
+  building (deterministic in this slice, mirroring A3's reproduction
+  mechanic — not yet an LLM/goal decision, see `docs/DECISIONS.md` C1);
+  any awake agent present advances construction or repairs a damaged
+  standing building; weather-driven decay turns neglected buildings into
+  ruins; long-abandoned ruins are eventually reclaimed and removed. This
+  is where "prosper, stagnate, or disappear" becomes visible at the
+  settlement level, not just per-agent.
+- Not yet built: roads connecting buildings, resource *cost* for
+  construction (currently free beyond agent presence/time), building
+  types beyond a single generic structure, and — the natural next
+  slice — tying `AgentGoal`/LLM cognition into *where* and *whether* to
+  build, rather than the current pure-chance placement.
 
 ## Phase D — Agriculture & economy
 

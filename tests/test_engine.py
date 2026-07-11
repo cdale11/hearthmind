@@ -168,6 +168,23 @@ class TestSimulationEngine(unittest.TestCase):
             events = recent_events(conn, limit=20)
             self.assertTrue(any(e["category"] == "chronicle" for e in events))
 
+    def test_load_or_create_migrates_pre_phase_c_snapshot(self):
+        config = Config(seed=1, width=8, height=8, db_path=self.db_path)
+        with open_db(self.db_path) as conn:
+            world = World.create_new(config)
+            data = world.to_dict()
+            del data["settlement"]
+            conn.execute(
+                "INSERT INTO snapshots (tick, saved_at, world_json) VALUES (0, 0, ?)",
+                (json.dumps(data),),
+            )
+            conn.commit()
+
+            engine = SimulationEngine.load_or_create(conn, config)
+            self.assertEqual(len(engine.world.settlement.buildings), 0)
+            events = recent_events(conn, limit=5)
+            self.assertTrue(any(e["category"] == "settlement_migration" for e in events))
+
     def test_run_forever_stops_gracefully_and_saves(self):
         config = Config(
             seed=1, width=8, height=8, db_path=self.db_path,

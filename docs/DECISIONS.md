@@ -102,6 +102,92 @@ same "detect absence, backfill, log it" shape we'll want for future save
 format changes, so it's worth establishing as the convention now rather than
 inventing a new one per field. (Generalized in A4, below.)
 
+## C1: Building placement is deterministic in this slice, not yet an LLM/goal decision
+
+The roadmap describes buildings as "an agent/B2 decision," but this slice
+places them the same way A3 places births: colocated, mature, healthy
+agents roll a small per-tick chance (`SETTLE_CHANCE_PER_TICK`) to found a
+building at their shared tile, with no existing structure there. This
+mirrors `_maybe_reproduce`'s shape deliberately — it's cheap, testable
+scaffolding that gives Phase B's goal system (and later, Phase E's
+culture layer) something concrete to influence once "where/whether to
+settle" becomes a real decision worth spending an LLM call on. Wiring
+`AgentGoal` into building placement is the natural next slice, not
+something this one tries to preempt.
+
+## C2: Construction/repair progress requires physical presence, not an explicit intent
+
+An agent doesn't need a "build" goal to contribute to a building under
+construction (or a damaged one below `REPAIR_THRESHOLD`) — any awake
+agent standing on that tile counts as a worker each tick, up to
+`MAX_WORKERS` (3; more agents than that don't speed things up further,
+a crude stand-in for "only so much useful room to work"). This keeps
+construction consistent with how foraging already works (automatic
+based on state, not an explicit chosen action) rather than introducing
+a second, inconsistent mechanism. The cost: an agent with
+`goal=SOCIALIZE` who happens to end up on an under-construction tile
+while seeking another agent will incidentally contribute labor. That's
+treated as a feature, not a bug, for now — "showing up" mattering is
+exactly the kind of emergent texture the project wants — but it may need
+revisiting once agents have work assignments that should be exclusive.
+
+## C3: Weathering is a flat per-tick decay, amplified (not gated) by harsh weather
+
+`Settlement.tick` reduces a standing building's condition by
+`DECAY_PER_TICK_BASE` every tick, tripled (`DECAY_WEATHER_MULTIPLIER`)
+when precipitation/wind/snow cross a threshold. Decay is never zero even
+in perfect weather — buildings should erode gradually just from time and
+use, not only during storms, so "abandoned in a mild climate" is still a
+real trajectory toward ruin, just a slower one. Ruined buildings persist
+(inspectable, part of `Settlement.buildings`) for `RUIN_REMOVAL_TICKS`
+(3000, ~31 sim-days at default pacing) before being removed entirely —
+long enough that a visiting deity (the user) can actually witness the
+ruin, not just its sudden disappearance.
+
+## C4: Settlements start empty; nothing is pre-placed at world creation
+
+`World.create_new` gives every world a `Settlement()` with zero
+buildings — construction only ever happens through the population's own
+behavior (C1), never seeded. This is a thematic choice as much as a
+technical one: Milestone 1 hands the deity a wild, ungoverned world, and
+whether it becomes settled at all is something that emerges (or doesn't)
+from the population that inhabits it, not something the world generator
+decides in advance.
+
+## C5: Populations tend to collapse from starvation before reaching settlement — an honest finding, not (yet) a fix
+
+While verifying Phase C's release checklist, I ran two long CLI sessions
+(6 agents on a 32x32 map for ~8,600 ticks; 30 agents on a 48x48 map for
+~17,000 ticks) specifically trying to observe organic construction. In
+both, every agent eventually died of starvation — none reached
+`MATURITY_TICKS` (4000). Construction/repair/weathering/reclamation are
+all directly unit-tested (`tests/test_settlement.py`, 21 tests calling
+the mechanism functions with controlled inputs, the same approach used
+for A3's reproduction) and the integration/persistence/migration path is
+verified through the real CLI (see `docs/TESTING.md`), so the mechanism
+itself is trustworthy — but I have **not** personally witnessed a
+building complete through unassisted play, and said so plainly rather
+than write a CHANGELOG entry implying I had.
+
+This is being recorded as a finding, not silently patched: system-wide
+food *production* (nodes × regen rate) comfortably exceeds population
+*demand* at these population sizes by the numbers, which points at
+*access* (agents finding/reaching enough of the available nodes,
+especially via pure WANDER before their first daily cognition
+evaluation) rather than raw scarcity as the likely bottleneck — but this
+hasn't been root-caused with certainty, only observed. Deliberately not
+rebalancing Phase A's forage constants speculatively here: the project
+explicitly wants "prosper, stagnate, or disappear" to be real outcomes,
+population collapse under current tuning is a legitimate (if maybe too
+easy to trigger) instance of "disappear," and Phase D (agriculture) is
+specifically the mechanism meant to relieve foraging-only scarcity — so
+this finding is a natural argument for prioritizing Phase D's design
+carefully, not a bug to quietly paper over in Phase C. A future session
+should either tune Phase A's forage/movement balance directly (increase
+`GOAL_SEARCH_RADIUS`, `NODE_DENSITY`, or the FORAGE goal's trigger
+threshold) or treat it as expected and let Phase D's agriculture be the
+actual fix.
+
 ## A1: Foraging uses discrete, depletable resource nodes, not a passive per-biome rate
 
 Alternatives considered: a passive "agents on grassland/forest lose hunger
@@ -247,6 +333,39 @@ Falls back to a deterministic templated summary (birth/death counts) when
 the LLM is unavailable — less evocative than prose, but still a real,
 useful record, and consistent with every other Phase B fallback in this
 project: degrade quality, not existence.
+
+## B4: Default model is `qwen2.5:3b`, sized for an 8GB-RAM machine running zram
+
+The project brief targets modest desktop hardware — specifically, running
+comfortably on 8GB of RAM with zram swap, alongside the simulation process
+itself and whatever else the machine is doing. That budget rules out
+7B-class models: even Q4-quantized, a 7B model's weights (~4-5GB) plus KV
+cache for a live context, plus Ollama's own overhead, plus the Python
+process, leaves uncomfortably little headroom — and zram swap absorbing
+the overflow means *slower*, not just tighter, which matters for a model
+that needs to answer dozens of short prompts per sim-day without falling
+behind.
+
+`qwen2.5:3b` at Ollama's default quantization is roughly 2GB of weights —
+comfortable on 8GB with real headroom for the OS, Ollama, the simulation,
+and `llm_max_concurrent` (2) simultaneous requests. Qwen2.5's instruction-
+tuned models are specifically known for reliable structured/JSON output
+compliance relative to their size, which matters more here than raw
+reasoning depth: every prompt in this project (`cognition.py`,
+`chronicle.py`) demands strict JSON back, and a model that occasionally
+wanders into prose or malformed JSON just means more fallback triggers,
+degrading the feature rather than breaking anything — but a model that's
+*reliably* good at the format gets more real LLM-authored content through
+rather than deterministic fallback text.
+
+This is a starting point, not a mandate — `--llm-model` is a runtime flag
+precisely so a deployer with more RAM (or wanting to trade latency for
+quality) can size up (e.g. `qwen2.5:7b`) or size down (e.g. `qwen2.5:1.5b`
+on a tighter machine) without touching code. If real-world use on 8GB
+hardware (once verified against an actual Ollama install — see B1)
+reveals `qwen2.5:3b` is too slow for the daily-cognition cadence at
+default pacing, the fix is tuning `--tick-seconds`/cognition frequency
+before it's changing the default model.
 
 ## A4: Migration flag generalized to `migrated_subsystems`
 

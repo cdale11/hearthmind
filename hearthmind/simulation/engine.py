@@ -39,11 +39,13 @@ _CALENDAR_EVENT_DESCRIPTIONS = {
 _MIGRATION_DESCRIPTIONS = {
     "population": "{count} inhabitants appeared, settling a world that predates Milestone 2.",
     "resources": "{count} foraging grounds took root, added to a world that predates Phase A.",
+    "settlement": "Settlement tracking was added to a world that predates Phase C ({count} pre-existing structures assumed).",
 }
 
 _MIGRATION_COUNTS = {
     "population": lambda world: len(world.population.agents),
     "resources": lambda world: len(world.resources.nodes),
+    "settlement": lambda world: len(world.settlement.buildings),
 }
 
 

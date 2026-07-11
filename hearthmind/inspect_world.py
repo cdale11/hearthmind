@@ -66,6 +66,13 @@ def main(argv: list[str] | None = None) -> None:
         f"({res['depleted']} depleted)  avg fullness {res['avg_amount']:.2f}"
     )
 
+    settle = summary["settlement"]
+    print(
+        f"Settlement:  {settle['total']} structures "
+        f"({settle['under_construction']} under construction, {settle['standing']} standing, "
+        f"{settle['ruined']} ruined)  avg condition {settle['avg_condition']:.2f}"
+    )
+
     if agents is not None:
         print(f"\nInhabitants ({len(agents)}):")
         for agent in sorted(agents, key=lambda a: a["name"]):

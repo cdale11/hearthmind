@@ -53,8 +53,10 @@ hearthmind/
     state.py              # World: the aggregate root, (de)serializes to dict
   agents/
     agent.py             # Agent: needs, aging, relationships, lifecycle constants
-    population.py         # Population: spawns/ticks agents; foraging, birth, death
+    population.py         # Population: spawns/ticks agents; foraging, birth, death, construction
     names.py               # deterministic name generation
+  settlement/
+    buildings.py            # Building/Settlement: construction, weathering, repair, reclamation
   persistence/
     database.py          # SQLite schema + connection helper
     snapshot.py           # save_snapshot / load_latest_snapshot / event log
@@ -105,7 +107,13 @@ so this is easy to slow down later for a "real" long-running deployment.
 
 Off by default — the simulation is fully deterministic and testable
 without Ollama installed at all (`fallback_goal`/`fallback_summary` stand
-in for it, see `docs/DECISIONS.md` B1-B3). To turn it on:
+in for it, see `docs/DECISIONS.md` B1-B3). The default model,
+`qwen2.5:3b`, is sized specifically for comfortable operation on an
+8GB-RAM machine (even with zram swap) alongside the simulation itself —
+~2GB of weights, fast CPU inference, and reliable structured JSON output
+(see `docs/DECISIONS.md`, B4). Size up (`--llm-model qwen2.5:7b`) if you
+have more RAM to spare, or down (`qwen2.5:1.5b`) on tighter hardware. To
+turn it on:
 
 ```bash
 # 1. Install and start Ollama (see https://ollama.com), then pull a model:
@@ -167,7 +175,18 @@ every release, not just unit tests.
       LLM-facing code is tested against a fake local server, but **not
       yet verified against a real running Ollama instance** — see
       "LLM cognition layer" above.
-- [ ] Phase C — Settlements & construction.
+- [~] **Phase C — Settlements & construction, slice 1.** Colocated,
+      mature, healthy agents may found a building; any awake agent
+      present advances its construction (or repairs a damaged standing
+      one); weather decays standing buildings into ruins over time;
+      long-abandoned ruins are eventually reclaimed and removed. Building
+      placement is deterministic in this slice, not yet an
+      LLM/goal-driven decision — see `docs/DECISIONS.md`, C1. **Not
+      personally witnessed through organic play:** two long soak tests
+      (~8,600 and ~17,000 ticks) saw populations collapse from starvation
+      before reaching the maturity needed to found a settlement — the
+      mechanism is unit- and CLI-verified, but not yet observed emerging
+      unassisted. See `docs/DECISIONS.md`, C5.
 - [ ] Phase D — Agriculture & economy.
 - [ ] Phase E — Culture & history.
 - [ ] Phase F — Browser interface (read-mostly observation + sparse

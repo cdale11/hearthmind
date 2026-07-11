@@ -4,6 +4,65 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.5.0] — Phase C (slice 1): Settlements & construction
+
+### Added
+- `hearthmind/settlement/buildings.py`: `Building` (under_construction /
+  standing / ruined lifecycle) and `Settlement` (the collection of
+  buildings in the world, parallel to `Population`/`ResourceGrid`).
+- Colocated, mature, healthy agent pairs may found a building at their
+  shared tile (deterministic per-tick chance, mirroring A3's reproduction
+  mechanic — not yet an LLM/goal decision, see `docs/DECISIONS.md` C1).
+- Any awake agent physically present at a building's tile contributes
+  work each tick: advancing construction toward completion, or repairing
+  a standing building below `REPAIR_THRESHOLD` — automatic based on
+  presence, the same way foraging already works, not a separate explicit
+  action (see C2).
+- Standing buildings decay every tick (faster during harsh weather —
+  precipitation, wind, snow) into ruins; ruins persist, inspectable, for
+  a long while before nature finishes reclaiming them and they're removed
+  from the world (see C3).
+- Worlds start with an empty settlement — nothing is pre-placed; whether
+  a world becomes settled at all emerges entirely from population
+  behavior (see C4).
+- Construction/repair/ruin/reclamation are logged as events
+  (`construction_started`, `building_completed`, `building_ruined`,
+  `building_reclaimed`).
+- `World.summary()` / `inspect_world.py` now report settlement counts
+  (under construction / standing / ruined) and average condition.
+- Generalized migration mechanism extended to the new `settlement`
+  subsystem — a pre-Phase-C save backfills an empty `Settlement()` the
+  same way `population`/`resources` were backfilled before it.
+
+### Tested
+- 23 new tests (21 in `tests/test_settlement.py` plus 2 migration tests
+  in `test_persistence.py`/`test_engine.py`) covering construction
+  eligibility, presence-driven work, weathering (including a harsh-vs-
+  clear-weather comparison), ruin/reclamation timing, and serialization
+  round-trips. Full suite: 134 tests, all passing.
+- Full CLI release checklist per `docs/TESTING.md`: fresh-world smoke
+  test, resume test, and a migration test (settlement backfill on a
+  pre-Phase-C save), all passing.
+- **Honesty note:** two long soak attempts (~8,600 and ~17,000 ticks,
+  6 and 30 initial agents respectively) specifically trying to observe
+  organic construction through unassisted play did not succeed — every
+  agent died of starvation before reaching `MATURITY_TICKS` in both
+  runs. The construction/repair/weathering/reclamation mechanism itself
+  is directly unit-tested and the integration/persistence path is CLI-
+  verified, but a completed building has not personally been witnessed
+  through organic play in this session. See `docs/DECISIONS.md`, C5, for
+  the full finding and what it implies for Phase D.
+
+### Known gaps (intentional, tracked for later phases)
+- Building placement is pure chance (gated by eligibility), not yet
+  influenced by `AgentGoal` or LLM cognition — the natural next slice.
+- No roads, no building types/variety, no resource cost for construction
+  beyond agent time — that's Phase D (agriculture/economy) territory.
+- Populations tend toward starvation before reaching the maturity
+  threshold needed to found a settlement under current tuning (see C5) —
+  not fixed in this release; flagged as a real balance question for
+  Phase D or a dedicated tuning pass.
+
 ## [0.4.0] — Phase B (slice 1): LLM cognition layer (Ollama)
 
 ### Added

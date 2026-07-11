@@ -109,6 +109,14 @@ at exactly 1.0 for the whole population with no deaths ever triggering,
 resource nodes all permanently at zero) — the kind of bug that a
 20-tick unit test won't surface but a 3000-tick run will.
 
+Known dynamic as of Phase C (see `docs/DECISIONS.md`, C5): populations
+have tended toward starvation-driven extinction before reaching
+`MATURITY_TICKS` (4000) in every long soak run tried so far, meaning
+settlement construction is hard to observe organically under current
+tuning. Total population wipeout in a soak test isn't necessarily a
+regression by itself — check whether it's *new* (worse than previous
+releases' soaks) rather than assuming any extinction is a bug.
+
 ## 6. LLM path (Phase B onward)
 
 The LLM-facing code (`hearthmind/llm/`) is covered by unit tests against a

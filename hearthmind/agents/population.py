@@ -38,6 +38,15 @@ from hearthmind.agents.agent import (
     AgentState,
 )
 from hearthmind.agents.names import generate_names
+from hearthmind.settlement.buildings import (
+    CONSTRUCTION_WORK_PER_TICK,
+    MAX_WORKERS,
+    REPAIR_THRESHOLD,
+    REPAIR_WORK_PER_TICK,
+    SETTLE_CHANCE_PER_TICK,
+    BuildingStage,
+    Settlement,
+)
 from hearthmind.world.resources import ResourceGrid
 from hearthmind.world.terrain import Biome, Tile
 
@@ -96,10 +105,13 @@ class Population:
 
     # --- tick ----------------------------------------------------------------
 
-    def tick(self, seed: int, tick: int, terrain: list[list[Tile]], resources: ResourceGrid) -> list[tuple[str, str]]:
+    def tick(
+        self, seed: int, tick: int, terrain: list[list[Tile]],
+        resources: ResourceGrid, settlement: Settlement,
+    ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
-        relationships, birth, and death. Returns life events as
-        (category, description) pairs for the caller to log."""
+        relationships, construction/repair, birth, and death. Returns life
+        events as (category, description) pairs for the caller to log."""
         rng = _namespaced_rng(seed, tick=tick, namespace="population_tick")
         # Snapshot positions before anyone moves this tick, so goal-directed
         # search (SOCIALIZE) sees a consistent picture rather than a mix of
@@ -124,6 +136,9 @@ class Population:
 
         self._update_relationships(by_position)
         life_events: list[tuple[str, str]] = []
+        life_events.extend(self._advance_construction(by_position, settlement))
+        life_events.extend(self._maybe_repair(by_position, settlement))
+        life_events.extend(self._maybe_start_construction(by_position, settlement, rng))
         life_events.extend(self._maybe_reproduce(by_position, rng))
         life_events.extend(self._apply_deaths())
         return life_events
@@ -274,7 +289,7 @@ class Population:
                     break
                 if not (self._is_mature(a) and self._is_mature(b)):
                     continue
-                if a.hunger > 0.7 or b.hunger > 0.7 or a.energy < 0.3 or b.energy < 0.3:
+                if not (self._is_healthy(a) and self._is_healthy(b)):
                     continue
                 if a.relationships.get(b.id, 0.0) < REPRODUCTION_AFFINITY_THRESHOLD:
                     continue
@@ -300,6 +315,64 @@ class Population:
     @staticmethod
     def _is_mature(agent: Agent) -> bool:
         return agent.age_ticks >= MATURITY_TICKS
+
+    @staticmethod
+    def _is_healthy(agent: Agent) -> bool:
+        return agent.hunger <= 0.7 and agent.energy >= 0.3
+
+    # --- settlement: construction & repair (Phase C) --------------------------
+
+    @staticmethod
+    def _advance_construction(
+        by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement
+    ) -> list[tuple[str, str]]:
+        life_events: list[tuple[str, str]] = []
+        for building in settlement.buildings:
+            if building.stage is not BuildingStage.UNDER_CONSTRUCTION:
+                continue
+            workers = sum(
+                1 for a in by_position.get((building.x, building.y), []) if a.state is AgentState.AWAKE
+            )
+            if workers == 0:
+                continue
+            building.progress = min(1.0, building.progress + CONSTRUCTION_WORK_PER_TICK * min(workers, MAX_WORKERS))
+            if building.progress >= 1.0:
+                building.stage = BuildingStage.STANDING
+                building.condition = 1.0
+                life_events.append(("building_completed", f"A structure was completed at ({building.x}, {building.y})."))
+        return life_events
+
+    @staticmethod
+    def _maybe_repair(
+        by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement
+    ) -> list[tuple[str, str]]:
+        for building in settlement.buildings:
+            if building.stage is not BuildingStage.STANDING or building.condition >= REPAIR_THRESHOLD:
+                continue
+            workers = sum(
+                1 for a in by_position.get((building.x, building.y), []) if a.state is AgentState.AWAKE
+            )
+            if workers == 0:
+                continue
+            building.condition = min(1.0, building.condition + REPAIR_WORK_PER_TICK * min(workers, MAX_WORKERS))
+        return []  # repair progress isn't eventful enough on its own to log per-tick
+
+    @classmethod
+    def _maybe_start_construction(
+        cls, by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement, rng: random.Random
+    ) -> list[tuple[str, str]]:
+        life_events: list[tuple[str, str]] = []
+        for (x, y), group in by_position.items():
+            if len(group) < 2 or settlement.at(x, y) is not None:
+                continue
+            eligible = [a for a in group if cls._is_mature(a) and cls._is_healthy(a)]
+            if len(eligible) < 2:
+                continue
+            if rng.random() >= SETTLE_CHANCE_PER_TICK:
+                continue
+            settlement.start_construction(x, y)
+            life_events.append(("construction_started", f"Construction began at ({x}, {y})."))
+        return life_events
 
     def _apply_deaths(self) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
