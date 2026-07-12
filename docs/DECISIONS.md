@@ -2609,3 +2609,47 @@ capping and to_dict/from_dict round-trip confirmed directly; an
 the new `priority_history` field. All touched Python files pass
 `python3 -m py_compile`; `app.js` and `index.html`'s structure pass
 `node --check`/manual review.
+
+## Sidebar restructure: map-as-primary-interface, the last backlog item
+
+The one item 0.36.0 explicitly flagged as not attempted — restructuring
+the sidebar itself, not just adding overlays to the map — closed out
+per the user's plain "continue" (read as: proceed to the flagged next
+milestone rather than re-ask).
+
+Design: rather than inventing a new UI pattern, reused the exact
+show/hide toggle mechanism already established for history/
+relationships/dev-console (`.hidden` class + a header button toggling
+it + an `active` state on the button) for a new `#details-panel`
+wrapping the stat grid and the four culture-list panels (beliefs/
+traditions/inventions/festivals) plus infrastructure. Only genuinely
+new CSS needed: `#details-panel` had to be `display: flex; flex-
+direction: column; gap: 12px` (matching `#sidebar`'s own flex layout)
+since wrapping several `.panel` divs and the `.stat-grid` in one plain
+container div would otherwise collapse `#sidebar`'s `gap` between them
+into default block-level margins.
+
+Kept exactly two panels always visible — Town Brain and Recent Events —
+because CLAUDE.md's own "Observatory UI direction" section names these
+specifically for the normal UI ("a curated history... an expanded Town
+Brain panel"), distinguishing them from the raw-stat panels the same
+section explicitly wants demoted behind hover/dev-observatory access.
+Not a judgment call on which panels "feel important" — read directly
+off the existing design brief's own two-audience split.
+
+Verified live in a real browser via Playwright (chromium at /opt/pw-
+browsers, per this environment's pre-installed setup) against a running
+server (LLM disabled, `--tick-seconds 0.2` for a fast-moving test run):
+screenshotted the default view (confirmed only Town Brain + Recent
+Events + map + consequences overlay visible — the "Wolves have
+returned" overlay line was actually live-triggered during the test
+run), the details panel opened via toggle (confirmed stat tiles and
+culture panels render correctly), the relationship graph opened via its
+own toggle (confirmed unaffected by the restructure), clicked an agent
+on the map canvas by scanning for a colocated pixel until the NPC
+inspector opened (confirmed the mind-first modal renders correctly:
+goal/reason, beliefs, relationships, memories, vitals), and exercised
+the sim-speed pause/speed-up controls (confirmed the pause button
+toggled to "▶ resume" and the speed label updated to "2x" after one
+speed-up click) — every feature from the last two releases confirmed
+working together in a live session, not just individually compiled.

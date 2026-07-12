@@ -79,6 +79,13 @@ main {
   gap: 8px;
 }
 
+#details-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#details-panel.hidden { display: none; }
+
 .stat-tile {
   background: var(--panel);
   border: 1px solid var(--border);

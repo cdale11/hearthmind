@@ -207,7 +207,7 @@ Two audiences, two surfaces, kept explicitly separate:
   resource-flow internals, etc.; deepen it rather than leaking that
   detail into the normal UI.
 
-**Backlog status: every item started; one is still partial.**
+**Backlog status: every item complete.**
 - **Relationship graph: done.** A "🕸 relationships" header toggle opens
   a force-directed graph (client-side physics, no library — see
   `interface/static/app.js`'s `relBuildEdges`/`relStep`/`relDraw`) built
@@ -237,11 +237,14 @@ Two audiences, two surfaces, kept explicitly separate:
   chronicle's monthly one) narrates a look-back over the year's curated
   milestones (`history_events`, not the raw feed). Logged as
   `documentary`, shown in the main feed and History tab.
-- **Map-as-primary-interface: partial.** Hover/click inspection and a
-  new consequences overlay (see below) now live directly on the map —
-  a real step, not cosmetic — but the sidebar still carries its full
-  panel set rather than being restructured/thinned. That reshuffle is a
-  genuinely separate, larger redesign, not attempted yet.
+- **Map-as-primary-interface: done.** Hover/click inspection and the
+  consequences overlay (see below) live directly on the map. The
+  sidebar itself was also restructured: only Town Brain and Recent
+  Events (the two panels the brief names for "normal UI, understanding
+  the world") are visible by default; raw stat tiles, culture lists
+  (beliefs/traditions/inventions/festivals), and infrastructure detail
+  now live behind a "📊 details" toggle, the same reachable-but-not-
+  first-shown pattern history/relationships/dev-console already use.
 
 Existing world-evolution mechanics already satisfy most of the "map
 should visibly evolve" ask (terrain evolution, road wear/decay — roads

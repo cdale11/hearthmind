@@ -180,6 +180,16 @@ historyToggle.addEventListener("click", () => {
   if (!historyPanel.classList.contains("hidden")) loadHistory();
 });
 
+// Map-as-primary-interface: raw stats/culture-lists/infrastructure detail
+// are reachable but not shown by default — same toggle-panel pattern as
+// history/relationships/dev console, not a fourth kind of UI surface.
+const detailsPanel = document.getElementById("details-panel");
+const detailsToggle = document.getElementById("details-toggle");
+detailsToggle.addEventListener("click", () => {
+  detailsPanel.classList.toggle("hidden");
+  detailsToggle.classList.toggle("active");
+});
+
 // --- relationship graph ------------------------------------------------------
 // Force-directed layout computed client-side (no backend change needed —
 // each agent already carries its own `relationships` map in the per-tick

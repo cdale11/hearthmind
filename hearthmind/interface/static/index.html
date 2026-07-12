@@ -19,6 +19,7 @@
     </div>
     <button id="history-toggle" class="dev-toggle" title="Summarized town history">📜 history</button>
     <button id="relationship-toggle" class="dev-toggle" title="Interactive relationship graph">🕸 relationships</button>
+    <button id="details-toggle" class="dev-toggle" title="Raw stats, culture, and infrastructure detail">📊 details</button>
     <button id="dev-toggle" class="dev-toggle" title="Developer console: raw diagnostics/telemetry">⚙ dev</button>
   </header>
 
@@ -31,8 +32,10 @@
     </section>
 
     <aside id="sidebar">
-      <div class="stat-grid" id="stat-grid"></div>
-
+      <!-- Primary, always-on: the two panels the Observatory UI direction names
+           explicitly for "understanding the world" — everything else (raw
+           stats, culture lists, infrastructure detail) lives behind the
+           "📊 details" toggle below, reachable but not the first thing shown. -->
       <div class="panel">
         <h2>Town brain</h2>
         <div id="town-brain-priority" class="muted">no decision yet</div>
@@ -43,6 +46,11 @@
         </form>
         <span id="whisper-status" class="muted"></span>
         <div id="pending-whispers" class="muted hidden"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Recent events</h2>
+        <ul id="event-log"></ul>
       </div>
 
       <div class="panel hidden" id="history-panel">
@@ -61,44 +69,43 @@
         </div>
       </div>
 
-      <div class="panel">
-        <h2>The village's own theories</h2>
-        <ul id="beliefs-list" class="muted">
-          <li>none yet — forms and revises over time</li>
-        </ul>
-      </div>
+      <div id="details-panel" class="hidden">
+        <div class="stat-grid" id="stat-grid"></div>
 
-      <div class="panel">
-        <h2>Traditions</h2>
-        <ul id="traditions-list" class="muted">
-          <li>none yet</li>
-        </ul>
-      </div>
+        <div class="panel">
+          <h2>The village's own theories</h2>
+          <ul id="beliefs-list" class="muted">
+            <li>none yet — forms and revises over time</li>
+          </ul>
+        </div>
 
-      <div class="panel">
-        <h2>Inventions</h2>
-        <ul id="inventions-list" class="muted">
-          <li>none yet</li>
-        </ul>
-      </div>
+        <div class="panel">
+          <h2>Traditions</h2>
+          <ul id="traditions-list" class="muted">
+            <li>none yet</li>
+          </ul>
+        </div>
 
-      <div class="panel">
-        <h2>Festivals</h2>
-        <ul id="festivals-list" class="muted">
-          <li>none yet</li>
-        </ul>
-      </div>
+        <div class="panel">
+          <h2>Inventions</h2>
+          <ul id="inventions-list" class="muted">
+            <li>none yet</li>
+          </ul>
+        </div>
 
-      <div class="panel">
-        <h2>Infrastructure</h2>
-        <ul id="infrastructure-list" class="muted">
-          <li>nothing built yet</li>
-        </ul>
-      </div>
+        <div class="panel">
+          <h2>Festivals</h2>
+          <ul id="festivals-list" class="muted">
+            <li>none yet</li>
+          </ul>
+        </div>
 
-      <div class="panel">
-        <h2>Recent events</h2>
-        <ul id="event-log"></ul>
+        <div class="panel">
+          <h2>Infrastructure</h2>
+          <ul id="infrastructure-list" class="muted">
+            <li>nothing built yet</li>
+          </ul>
+        </div>
       </div>
 
       <div class="panel hidden" id="dev-console">

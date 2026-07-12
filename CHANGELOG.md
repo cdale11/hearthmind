@@ -4,6 +4,28 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.36.1] — Sidebar restructure: map-as-primary-interface, the last backlog item
+
+Closes the one item 0.36.0 explicitly left as "partial": the sidebar
+itself carried its full panel set regardless of relevance. Restructured
+so only the two panels the Observatory UI direction names for "normal
+UI, understanding the world" — Town Brain and Recent Events — are
+visible by default. Everything else (raw stat tiles, beliefs/
+traditions/inventions/festivals lists, infrastructure detail) now lives
+behind a new "📊 details" header toggle, using the exact same show/hide
+pattern already established for history/relationships/dev-console —
+reachable, not gone, just not the first thing shown, per the brief's
+own wording. Verified live in a browser (Playwright): default view is
+now just the map + two panels + the consequences overlay; the details
+toggle correctly reveals/hides the grouped stat tiles and culture
+panels; hover, the NPC inspector, and sim-speed controls all still work
+unaffected by the restructure.
+
+With this, every item CLAUDE.md's Observatory UI direction section
+listed is now either done or explicitly, narrowly scoped (documentary
+mode's cadence/source, the consequences overlay's specific phrasings,
+etc.) — no remaining "not started, deliberately" entries.
+
 ## [0.36.0] — Observatory UI backlog complete: hover, NPC inspector, consequences overlay, surfaced conversations, Town Brain monologue, documentary mode
 
 Closes out the rest of the Observatory UI backlog CLAUDE.md scoped last
