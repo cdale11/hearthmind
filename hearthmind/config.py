@@ -56,15 +56,23 @@ class Config:
     local smoke test). See docs/DECISIONS.md, E2."""
 
     llm_host: str = "http://localhost:11434"
-    llm_model: str = "qwen2.5:3b"
-    llm_timeout_seconds: float = 20.0
+    llm_model: str = "qwen2.5:7b-instruct"
+    """Upgraded from `qwen2.5:3b` (~2GB) for meaningfully better NPC
+    dialogue/town-brain quality — ~4.5GB Q4 weights, still intended to
+    fit an 8GB+zram machine (zram exists precisely to absorb this kind
+    of headroom cost) but not soak-tested on real hardware yet by this
+    change itself. If a live run shows it's too heavy/slow, pass
+    `--llm-model qwen2.5:3b` and report back rather than silently
+    reverting the default. See docs/DECISIONS.md, "LLM-as-brain batch.\""""
+    llm_timeout_seconds: float = 30.0
     """CPU inference on an 8GB+zram machine that's also running the
     simulation itself is noticeably slower under contention than a quiet
     benchmark — a real soak run saw an occasional timeout at the old 10s
-    default even with qwen2.5:3b. Every call still has a deterministic
-    fallback (see hearthmind/llm/jobs.py), so this only trades a slightly
-    longer worst-case wait for a lower fallback rate. See
-    docs/DECISIONS.md, D5."""
+    default even with qwen2.5:3b. Bumped again (20 -> 30) alongside the
+    qwen2.5:7b-instruct default above, which is slower per-token on CPU.
+    Every call still has a deterministic fallback (see
+    hearthmind/llm/jobs.py), so this only trades a slightly longer
+    worst-case wait for a lower fallback rate. See docs/DECISIONS.md, D5."""
     llm_max_concurrent: int = 4
     """How many LLM requests may be in flight at once — the lever for
     keeping Ollama's own thread pool busy without overwhelming it. Raised

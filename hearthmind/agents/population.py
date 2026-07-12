@@ -58,26 +58,33 @@ from hearthmind.settlement.buildings import (
     CURRENCY_EMERGENCY_HUNGER_RELIEF,
     CURRENCY_EMERGENCY_RATION_COST,
     CURRENCY_PER_OVERFLOW_UNIT,
+    EDUCATION_CAPACITY,
     FESTIVAL_RELATIONSHIP_BOOST,
     GRANARY_CAPACITY,
     GRANARY_DEPOSIT_PER_TICK,
-    GRANARY_KIND_CHANCE,
     GRANARY_HUNGER_RELIEF,
-    GRANARY_MATERIALS_COST,
     GRANARY_WELLFED_HUNGER_THRESHOLD,
     GRANARY_WITHDRAW_AMOUNT,
-    HUT_MATERIALS_COST,
+    HOSPITAL_KILL_CHANCE_REDUCTION,
+    HOSPITAL_REST_RECOVERY_MULTIPLIER,
     MATERIALS_CAPACITY,
+    MATERIALS_COST_BY_KIND,
     MATERIALS_GATHER_PER_TICK,
     MATERIALS_PER_CONSTRUCTION_TICK,
     MAX_WORKERS,
     REPAIR_THRESHOLD,
     REPAIR_WORK_PER_TICK,
+    SCHOOL_EDUCATION_PER_TICK,
     SETTLE_CHANCE_PER_TICK,
     TECH_BONUS_PER_LEVEL,
+    UNIVERSITY_EDUCATION_MULTIPLIER,
+    UNIVERSITY_MATERIALS_COST,
+    UNIVERSITY_TECH_REQUIREMENT,
+    WORKSHOP_INCOME_PER_TICK,
     BuildingKind,
     BuildingStage,
     Settlement,
+    choose_building_kind,
 )
 from hearthmind.settlement.vehicles import (
     CART_BONUS_CAP,
@@ -97,7 +104,7 @@ from hearthmind.settlement.vehicles import (
     VehicleStage,
 )
 from hearthmind.world.resources import ORE_BIOMES, ResourceGrid, ResourceKind
-from hearthmind.world.roads import ROAD_SPEED_MULTIPLIER, RoadNetwork
+from hearthmind.world.roads import ROAD_SPEED_MULTIPLIER, RoadNetwork, road_condition_multiplier
 from hearthmind.world.terrain import Biome, Tile
 from hearthmind.world.weather import WeatherState
 from hearthmind.world.wildlife import (
@@ -265,9 +272,12 @@ class Population:
         killed_by_predator: set[int] = set()
         by_position: dict[tuple[int, int], list[Agent]] = {}
         any_gather_occurred = False
+        has_hospital = any(
+            b.kind is BuildingKind.HOSPITAL and b.stage is BuildingStage.STANDING for b in settlement.buildings
+        )
         for agent in self.agents:
             agent.age_ticks += 1
-            self._update_needs(agent, weather_harsh)
+            self._update_needs(agent, weather_harsh, settlement)
             critically_hungry = agent.hunger >= CRITICAL_HUNGER_THRESHOLD
             if critically_hungry and agent.state is AgentState.RESTING:
                 agent.state = AgentState.AWAKE  # emergency wake: starving beats sleeping
@@ -284,14 +294,14 @@ class Population:
             ):
                 agent.state = AgentState.RESTING  # proactive rest: a chosen goal, not just necessity
             if agent.state is AgentState.AWAKE:
-                attack_event = self._maybe_predator_attack(agent, wildlife, rng)
+                attack_event = self._maybe_predator_attack(agent, wildlife, rng, has_hospital)
                 if attack_event is not None:
                     life_events.append(attack_event[0])
                     if attack_event[1]:
                         killed_by_predator.add(agent.id)
                 self._dispatch_movement(
                     agent, terrain, rng, resources, farms, settlement, wildlife, roads,
-                    predator_tiles, position_snapshot, critically_hungry,
+                    predator_tiles, position_snapshot, critically_hungry, weather,
                 )
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
@@ -300,6 +310,9 @@ class Population:
         life_events.extend(self._advance_construction(by_position, settlement))
         life_events.extend(self._maybe_repair(by_position, settlement))
         self._maybe_stock_granaries(by_position, settlement)
+        self._maybe_run_workshops(by_position, settlement)
+        self._maybe_run_schools(by_position, settlement)
+        life_events.extend(self._maybe_upgrade_university(by_position, settlement, rng))
         life_events.extend(self._maybe_start_construction(by_position, settlement, farms, rng))
         life_events.extend(self._maybe_plant(by_position, farms, settlement, terrain, rng))
         life_events.extend(self._advance_vehicle_construction(by_position, settlement))
@@ -313,7 +326,7 @@ class Population:
         return life_events
 
     @staticmethod
-    def _update_needs(agent: Agent, weather_harsh: bool = False) -> None:
+    def _update_needs(agent: Agent, weather_harsh: bool = False, settlement: Settlement | None = None) -> None:
         hunger_rate = HUNGER_RATE
         energy_drain = ENERGY_DRAIN_AWAKE
         if weather_harsh and agent.state is AgentState.AWAKE:
@@ -325,7 +338,18 @@ class Population:
             energy_drain *= WEATHER_HARSH_ENERGY_DRAIN_MULTIPLIER
         agent.hunger = min(1.0, agent.hunger + hunger_rate)
         if agent.state is AgentState.RESTING:
-            agent.energy = min(1.0, agent.energy + ENERGY_RECOVERY_RESTING)
+            recovery = ENERGY_RECOVERY_RESTING
+            if settlement is not None:
+                building = settlement.at(agent.x, agent.y)
+                if (
+                    building is not None and building.kind is BuildingKind.HOSPITAL
+                    and building.stage is BuildingStage.STANDING
+                ):
+                    # Care exists: resting at a standing hospital recovers
+                    # energy faster. See HOSPITAL_REST_RECOVERY_MULTIPLIER,
+                    # docs/DECISIONS.md, "LLM-as-brain batch."
+                    recovery *= HOSPITAL_REST_RECOVERY_MULTIPLIER
+            agent.energy = min(1.0, agent.energy + recovery)
             if agent.energy >= WAKE_THRESHOLD:
                 agent.state = AgentState.AWAKE
         else:
@@ -335,17 +359,23 @@ class Population:
 
     @staticmethod
     def _maybe_predator_attack(
-        agent: Agent, wildlife: WildlifeGrid, rng: random.Random,
+        agent: Agent, wildlife: WildlifeGrid, rng: random.Random, has_hospital: bool = False,
     ) -> tuple[tuple[str, str], bool] | None:
         """Rolled for an awake agent colocated with a live predator pack.
         Returns ((category, description), killed) or None if no attack
-        happened this tick. See docs/DECISIONS.md, danger pass."""
+        happened this tick. `has_hospital` (any standing hospital,
+        settlement-wide — medical readiness, not proximity) reduces the
+        lethal-outcome odds. See docs/DECISIONS.md, danger pass and
+        "LLM-as-brain batch.\""""
         predators = [h for h in wildlife.at(agent.x, agent.y) if h.species is Species.PREDATOR and h.count > 0]
         if not predators:
             return None
         if rng.random() >= PREDATOR_ATTACK_CHANCE:
             return None
-        if rng.random() < PREDATOR_KILL_CHANCE_ON_ATTACK:
+        kill_chance = PREDATOR_KILL_CHANCE_ON_ATTACK
+        if has_hospital:
+            kill_chance *= (1.0 - HOSPITAL_KILL_CHANCE_REDUCTION)
+        if rng.random() < kill_chance:
             return (("death", f"{agent.name} was killed by predators."), True)
         agent.energy = max(0.0, agent.energy - PREDATOR_ATTACK_ENERGY_DRAIN)
         agent.hunger = min(1.0, agent.hunger + PREDATOR_ATTACK_HUNGER_INCREASE)
@@ -488,6 +518,7 @@ class Population:
         resources: ResourceGrid, farms: FarmGrid, settlement: Settlement, wildlife: WildlifeGrid,
         roads: RoadNetwork, predator_tiles: set[tuple[int, int]],
         position_snapshot: list[tuple[int, int, int]], critically_hungry: bool = False,
+        weather: WeatherState | None = None,
     ) -> None:
         """Goal-directed agents (FORAGE/SOCIALIZE) take a deliberate step
         toward a visible target when one exists; otherwise (including
@@ -524,7 +555,7 @@ class Population:
                 # MOUNT_SPEED_MULTIPLIER's boost to the random walk below.
                 mount.condition = max(0.0, mount.condition - MOUNT_USE_DECAY)
             return
-        cls._maybe_move(agent, terrain, rng, roads, predator_tiles, mounted=mount is not None)
+        cls._maybe_move(agent, terrain, rng, roads, predator_tiles, mounted=mount is not None, weather=weather)
         if mount is not None:
             mount.condition = max(0.0, mount.condition - MOUNT_USE_DECAY)
 
@@ -670,10 +701,17 @@ class Population:
     def _maybe_move(
         agent: Agent, terrain: list[list[Tile]], rng: random.Random, roads: RoadNetwork,
         predator_tiles: set[tuple[int, int]] = frozenset(), mounted: bool = False,
+        weather: WeatherState | None = None,
     ) -> None:
         move_chance = MOVE_CHANCE
         if roads.is_road(agent.x, agent.y):
-            move_chance = min(1.0, move_chance * ROAD_SPEED_MULTIPLIER)
+            # Weather affects infrastructure, not just people: an
+            # established road's bonus shrinks (mud) or can even go
+            # negative (snow/ice) depending on current conditions. See
+            # world/roads.py's road_condition_multiplier, docs/DECISIONS.md,
+            # "LLM-as-brain batch."
+            road_multiplier = road_condition_multiplier(weather) if weather is not None else ROAD_SPEED_MULTIPLIER
+            move_chance = min(1.0, move_chance * road_multiplier)
         if mounted:
             move_chance = min(1.0, move_chance * MOUNT_SPEED_MULTIPLIER)
         if rng.random() >= move_chance:
@@ -845,8 +883,13 @@ class Population:
                 continue
             if rng.random() >= SETTLE_CHANCE_PER_TICK:
                 continue
-            kind = BuildingKind.GRANARY if rng.random() < GRANARY_KIND_CHANCE else BuildingKind.HUT
-            cost = GRANARY_MATERIALS_COST if kind is BuildingKind.GRANARY else HUT_MATERIALS_COST
+            # Which kind gets built is weighted by the settlement's
+            # current civic priority (the seasonal "town brain" LLM
+            # decision) — a real steer, not just a coin flip. See
+            # buildings.choose_building_kind, docs/DECISIONS.md,
+            # "LLM-as-brain batch."
+            kind = choose_building_kind(rng, settlement.current_priority)
+            cost = MATERIALS_COST_BY_KIND[kind]
             if settlement.materials < cost:
                 continue  # presence alone isn't enough — building needs material on site
             settlement.materials -= cost
@@ -882,6 +925,72 @@ class Population:
                 )
                 continue
             building.stored_food = min(GRANARY_CAPACITY, building.stored_food + deposit)
+
+    @staticmethod
+    def _maybe_run_workshops(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:
+        """Staffed presence at a standing workshop generates currency
+        directly — a business, distinct from D10's overflow-selling. See
+        WORKSHOP_INCOME_PER_TICK, docs/DECISIONS.md, "LLM-as-brain batch.\""""
+        for building in settlement.buildings:
+            if building.kind is not BuildingKind.WORKSHOP or building.stage is not BuildingStage.STANDING:
+                continue
+            staff = sum(
+                1 for a in by_position.get((building.x, building.y), [])
+                if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
+            )
+            if staff == 0:
+                continue
+            income = WORKSHOP_INCOME_PER_TICK * staff * _tech_factor(settlement)
+            settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
+
+    @staticmethod
+    def _maybe_run_schools(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:
+        """Staffed presence at a standing school (or its university
+        upgrade) slowly raises settlement-wide education, which boosts
+        invention chance — see SCHOOL_EDUCATION_PER_TICK,
+        buildings.education_invention_bonus."""
+        if settlement.education_level >= EDUCATION_CAPACITY:
+            return
+        for building in settlement.buildings:
+            if building.kind not in (BuildingKind.SCHOOL, BuildingKind.UNIVERSITY):
+                continue
+            if building.stage is not BuildingStage.STANDING:
+                continue
+            staff = sum(1 for a in by_position.get((building.x, building.y), []) if a.state is AgentState.AWAKE)
+            if staff == 0:
+                continue
+            multiplier = UNIVERSITY_EDUCATION_MULTIPLIER if building.kind is BuildingKind.UNIVERSITY else 1.0
+            gain = SCHOOL_EDUCATION_PER_TICK * staff * multiplier
+            settlement.education_level = min(EDUCATION_CAPACITY, settlement.education_level + gain)
+
+    @classmethod
+    def _maybe_upgrade_university(
+        cls, by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement, rng: random.Random,
+    ) -> list[tuple[str, str]]:
+        """A standing school becomes a university once the settlement is
+        advanced enough (UNIVERSITY_TECH_REQUIREMENT inventions) and a
+        colocated, mature, healthy pair is present to do the work — an
+        upgrade of an existing structure, not founded fresh from the
+        weighted pool. See docs/DECISIONS.md, "LLM-as-brain batch.\""""
+        life_events: list[tuple[str, str]] = []
+        if settlement.tech_level < UNIVERSITY_TECH_REQUIREMENT or settlement.materials < UNIVERSITY_MATERIALS_COST:
+            return life_events
+        schools = [b for b in settlement.buildings if b.kind is BuildingKind.SCHOOL and b.stage is BuildingStage.STANDING]
+        if not schools:
+            return life_events
+        for school in schools:
+            group = by_position.get((school.x, school.y), [])
+            eligible = [a for a in group if cls._is_mature(a) and cls._is_healthy(a)]
+            if len(eligible) < 2:
+                continue
+            settlement.materials -= UNIVERSITY_MATERIALS_COST
+            school.kind = BuildingKind.UNIVERSITY
+            life_events.append((
+                "building_completed",
+                f"The school at ({school.x}, {school.y}) was upgraded into a university.",
+            ))
+            break  # one upgrade per tick is plenty — a rare, deliberate event
+        return life_events
 
     # --- vehicles: hauling carts & personal mounts -------------------------
 

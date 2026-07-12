@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover — this project's target hardware is Li
 
 from hearthmind.agents.agent import DIALOGUE_COOLDOWN_TICKS, AgentGoal
 from hearthmind.config import Config
-from hearthmind.llm import chronicle, culture, dialogue, festival, invention
+from hearthmind.llm import chronicle, culture, dialogue, festival, invention, town_brain
 from hearthmind.llm.client import OllamaClient
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
@@ -45,6 +45,7 @@ from hearthmind.settlement.buildings import (
     INVENTION_CURRENCY_THRESHOLD,
     INVENTION_MATERIALS_FRACTION,
     MATERIALS_CAPACITY,
+    education_invention_bonus,
 )
 from hearthmind.world.state import World
 
@@ -128,6 +129,19 @@ class SimulationEngine:
         contention, a huge population) is visible without reading server
         logs. Purely diagnostic, never persisted. See docs/DECISIONS.md,
         diagnostics pass."""
+        self._pending_broadcast_events: list[dict] = []
+        """Events logged via `self._log` since the last broadcast —
+        dialogue/rumor/chronicle/tradition/invention/festival/
+        intervention/town-brain all resolve outside `World.tick()`
+        (either at the top of the tick, before `world.tick()` runs, or
+        on a completely different tick when their background LLM task
+        happens to finish), so `World.last_life_events` never saw them
+        and the live WebSocket feed silently dropped them — they only
+        ever showed up via the one-shot `/events` fetch on page load.
+        `_log` fixes that by also buffering here; `_maybe_broadcast`
+        drains this into the payload's `life_events` and clears it. See
+        docs/DECISIONS.md, "LLM-as-brain batch,\" fix: live event
+        stream gap."""
 
         client = None
         if config.llm_enabled:
@@ -239,6 +253,7 @@ class SimulationEngine:
         self._maybe_schedule_tradition(events)
         self._maybe_schedule_invention(events)
         self._maybe_schedule_festival(events)
+        self._maybe_schedule_town_brain(events)
         self._schedule_due_cognition()
         self._schedule_due_dialogue()
         self._last_tick_duration_ms = (time.perf_counter() - tick_start) * 1000
@@ -309,16 +324,12 @@ class SimulationEngine:
             if applied is None:
                 continue
             agent_a, agent_b = applied
-            log_event(
-                self.conn, tick=self.world.clock.tick_count, category="dialogue",
-                description=f'{agent_a.name}: "{parsed["line_a"]}" — {agent_b.name}: "{parsed["line_b"]}"',
+            self._log(
+                "dialogue", f'{agent_a.name}: "{parsed["line_a"]}" — {agent_b.name}: "{parsed["line_b"]}"',
             )
             self.world.dialogue_total += 1
             if parsed["rumor"]:
-                log_event(
-                    self.conn, tick=self.world.clock.tick_count, category="rumor",
-                    description=f"{agent_a.name} and {agent_b.name}: {parsed['rumor']}",
-                )
+                self._log("rumor", f"{agent_a.name} and {agent_b.name}: {parsed['rumor']}")
                 self.world.rumor_total += 1
         self._pending_dialogue_results.clear()
 
@@ -349,22 +360,17 @@ class SimulationEngine:
             goal = AgentGoal(item["goal"])
             reason = item.get("reason") or "a nudge from outside the simulation"
             self.world.population.apply_goal(agent.id, goal, reason)
-            log_event(
-                self.conn, tick=self.world.clock.tick_count, category="intervention",
-                description=f"{agent.name} was nudged toward {goal.value} — {reason}",
-            )
+            self._log("intervention", f"{agent.name} was nudged toward {goal.value} — {reason}")
         elif kind == "settlement_resources":
             settlement = self.world.settlement
             materials_delta = float(item.get("materials", 0.0))
             currency_delta = float(item.get("currency", 0.0))
             settlement.materials = max(0.0, min(MATERIALS_CAPACITY, settlement.materials + materials_delta))
             settlement.currency = max(0.0, min(CURRENCY_CAPACITY, settlement.currency + currency_delta))
-            log_event(
-                self.conn, tick=self.world.clock.tick_count, category="intervention",
-                description=(
-                    f"An outside hand adjusted the settlement's stores "
-                    f"(materials {materials_delta:+.1f}, currency {currency_delta:+.1f})."
-                ),
+            self._log(
+                "intervention",
+                f"An outside hand adjusted the settlement's stores "
+                f"(materials {materials_delta:+.1f}, currency {currency_delta:+.1f}).",
             )
         elif kind == "weather":
             weather = self.world.weather
@@ -376,10 +382,15 @@ class SimulationEngine:
                 weather.wind = max(0.0, min(1.0, float(item["wind"])))
             if "is_snowing" in item:
                 weather.is_snowing = bool(item["is_snowing"])
-            log_event(
-                self.conn, tick=self.world.clock.tick_count, category="intervention",
-                description=f"The weather shifted unnaturally — an outside hand nudged it to {weather.describe()}.",
+            self._log(
+                "intervention", f"The weather shifted unnaturally — an outside hand nudged it to {weather.describe()}.",
             )
+        elif kind == "town_influence":
+            text = str(item.get("text", "")).strip()[:200]
+            if text:
+                self.world.settlement.player_influence.append(text)
+                self.world.settlement.player_influence = self.world.settlement.player_influence[-3:]
+                self._log("intervention", f"A whisper reached the village's ear: \"{text}\"")
 
     def _schedule_due_dialogue(self) -> None:
         """Fire-and-forget an LLM-authored dialogue job for each colocated
@@ -434,7 +445,7 @@ class SimulationEngine:
             prompt, chronicle.SYSTEM_PROMPT, fallback=lambda: fallback
         )
         summary = chronicle.parse_summary(result, fallback)
-        log_event(self.conn, tick=self.world.clock.tick_count, category="chronicle", description=summary)
+        self._log("chronicle", summary)
         self._record_llm_call(used_fallback)
 
     # --- Phase E: village culture (traditions) --------------------------------
@@ -461,10 +472,7 @@ class SimulationEngine:
         name, description = culture.parse_tradition(result, fallback)
         entry = f"{name}: {description}"
         self.world.settlement.traditions.append(entry)
-        log_event(
-            self.conn, tick=self.world.clock.tick_count, category="tradition",
-            description=f"The village established a new tradition — {entry}",
-        )
+        self._log("tradition", f"The village established a new tradition — {entry}")
         self._record_llm_call(used_fallback)
 
     # --- Phase E3: inventions (tech-tier unlocks) -----------------------------
@@ -484,7 +492,12 @@ class SimulationEngine:
         )
         if not prosperous:
             return
-        if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "invention_roll") >= INVENTION_CHANCE_PER_YEAR:
+        # An educated town invents more — a real school/university, not
+        # just prosperity, measurably raises the odds. See
+        # buildings.education_invention_bonus, docs/DECISIONS.md,
+        # "LLM-as-brain batch."
+        chance = min(1.0, INVENTION_CHANCE_PER_YEAR * education_invention_bonus(settlement.education_level))
+        if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "invention_roll") >= chance:
             return
         recent = recent_events(self.conn, limit=50)
         inventions = settlement.inventions
@@ -502,10 +515,7 @@ class SimulationEngine:
         entry = f"{name}: {description}"
         self.world.settlement.inventions.append(entry)
         self.world.settlement.tech_level += 1
-        log_event(
-            self.conn, tick=self.world.clock.tick_count, category="invention",
-            description=f"The village invented {entry}",
-        )
+        self._log("invention", f"The village invented {entry}")
         self._record_llm_call(used_fallback)
 
     # --- collective behaviour: festivals ----------------------------------------
@@ -538,11 +548,57 @@ class SimulationEngine:
         entry = f"{name}: {description}"
         self.world.settlement.festivals.append(entry)
         affected = self.world.population.hold_festival()
-        log_event(
-            self.conn, tick=self.world.clock.tick_count, category="festival",
-            description=f"The village held {entry} ({affected} bonds strengthened)",
-        )
+        self._log("festival", f"The village held {entry} ({affected} bonds strengthened)")
         self._record_llm_call(used_fallback)
+
+    # --- the "town brain": seasonal civic-priority LLM decision -----------------
+
+    def _maybe_schedule_town_brain(self, events: list[str]) -> None:
+        """Once per season, for a named settlement, the LLM (or its
+        deterministic fallback — see llm/town_brain.fallback_priority)
+        decides the settlement's current civic priority — the concrete
+        "LLM as the town's brain" mechanic (CLAUDE.md): the result
+        measurably steers `buildings.choose_building_kind`, not just
+        narration. Any queued player whispers (`settlement.player_influence`,
+        via POST /intervene/town-brain) are folded in as one input among
+        the real stats, then consumed. See docs/DECISIONS.md,
+        "LLM-as-brain batch.\""""
+        if "season_end" not in events or not self.world.settlement.name:
+            return
+        settlement = self.world.settlement
+        recent = recent_events(self.conn, limit=50)
+        population_summary = self.world.population.summary()
+        settlement_summary = settlement.summary()
+        prompt = town_brain.build_prompt(
+            settlement.name, recent, population_summary, settlement_summary, list(settlement.player_influence),
+        )
+        fallback = town_brain.fallback_priority(population_summary, settlement_summary)
+        task = asyncio.create_task(self._run_town_brain(prompt, fallback))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        settlement.player_influence = []  # consumed by this prompt regardless of how the LLM call resolves
+
+    async def _run_town_brain(self, prompt: str, fallback: dict) -> None:
+        result, used_fallback = await self._cognition_runner.run(
+            prompt, town_brain.SYSTEM_PROMPT, fallback=lambda: fallback
+        )
+        priority, rationale = town_brain.parse_priority(result, fallback)
+        self.world.settlement.current_priority = priority
+        self.world.settlement.priority_rationale = rationale
+        self._log("town_brain", f"The village's priority is now {priority} — {rationale}")
+        self._record_llm_call(used_fallback)
+
+    def _log(self, category: str, description: str) -> None:
+        """Persist an event AND buffer it for the next broadcast —
+        use this (not a bare `log_event` call) for anything logged
+        outside `World.tick()` itself, i.e. dialogue/rumor/chronicle/
+        tradition/invention/festival/intervention/town-brain, so it
+        actually reaches the live WebSocket feed instead of only
+        showing up via the one-shot `/events` fetch on page load. See
+        `_pending_broadcast_events`, docs/DECISIONS.md, "LLM-as-brain
+        batch,\" fix: live event stream gap."""
+        log_event(self.conn, tick=self.world.clock.tick_count, category=category, description=description)
+        self._pending_broadcast_events.append({"category": category, "description": description})
 
     def _record_llm_call(self, used_fallback: bool) -> None:
         """Cumulative counters persisted on `World`, for diagnosing LLM
@@ -566,15 +622,19 @@ class SimulationEngine:
         don't go stale. See docs/DECISIONS.md, terrain-evolution pass,
         and F1/F2 for the original one-shot rationale."""
         if self._broadcaster is None:
+            self._pending_broadcast_events = []  # nobody will ever read this buffer — don't let it grow unbounded
             return
         if any(category in _TERRAIN_CHANGING_CATEGORIES for category, _ in self.world.last_life_events):
             self._broadcaster.set_terrain(self.world.terrain, self.world.config.width, self.world.config.height)
+        life_events = [
+            {"category": category, "description": description}
+            for category, description in self.world.last_life_events
+        ]
+        life_events.extend(self._pending_broadcast_events)
+        self._pending_broadcast_events = []
         payload = {
             "summary": self.world.summary(),
-            "life_events": [
-                {"category": category, "description": description}
-                for category, description in self.world.last_life_events
-            ],
+            "life_events": life_events,
             "agents": [a.to_dict() for a in self.world.population.agents],
             "buildings": [b.to_dict() for b in self.world.settlement.buildings],
             "vehicles": [v.to_dict() for v in self.world.settlement.vehicles],
@@ -582,6 +642,7 @@ class SimulationEngine:
             "wildlife": [h.to_dict() for h in self.world.wildlife.herds.values()],
             "roads": self.world.roads.to_dict()["wear"],
             "diagnostics": self._diagnostics_snapshot(),
+            "infrastructure": self.world.settlement.infrastructure_report(),
         }
         task = asyncio.create_task(self._broadcaster.broadcast(payload))
         self._background_tasks.add(task)

@@ -20,13 +20,13 @@ build" — phases below are the *how*, this table is the *what*.
 | Terrain | shipped | `world/terrain.py` (generation, Milestone 1) + `world/terrain_evolution.py` (local activity-driven change and climate/biome drift) |
 | Weather | shipped | `world/weather.py`; qualitative labels since D6 |
 | Seasons | shipped | `world/clock.py` calendar (`year_end` etc. drive culture/chronicle cadence) |
-| Ecology & wildlife | shipped | A4 (`hearthmind/world/wildlife.py`) — grazer herds, predator packs, huntable |
+| Ecology & wildlife | shipped | A4 (`hearthmind/world/wildlife.py`) — grazer herds flee predators, predator packs hunt (now a logged event), huntable |
 | Humans (agents, needs, aging) | shipped | Phase A |
 | Relationships | shipped | A3 (proximity affinity + birth) + E2 (rivalry, -1..1) + A5 (memory of specific bond/rivalry/rumor/grief moments, fed into cognition) |
-| Economy | shipped (settlement-scale) | Phase D (D8-D10: materials, currency), now with real seasonal/weather scarcity pressure (winter farm/regen penalty, harsh-weather agent need-drain) so decline is genuinely possible, not just a plateau; no per-agent trade — see Phase D open item |
+| Economy | shipped (settlement-scale) | Phase D (D8-D10: materials, currency) + workshops/schools/hospitals/universities (currency income, education->invention chance, health) + a seasonal LLM "town brain" civic-priority decision that steers what gets built; real seasonal/weather scarcity pressure so decline is genuinely possible; no per-agent trade — see Phase D open item |
 | Agriculture | shipped | D1, D9 (farms, tool-boosted yield) |
-| Construction | shipped | Phase C |
-| Infrastructure | shipped | C5 (`hearthmind/world/roads.py`) — foot-traffic-driven path wear/decay, established roads speed movement |
+| Construction | shipped | Phase C + economy buildings (workshop/school/hospital/university) |
+| Infrastructure | shipped | C5 (`hearthmind/world/roads.py`) — foot-traffic-driven path wear/decay, established roads speed movement, now weather-dependent (mud/snow/ice); human-readable condition telemetry (`Settlement.infrastructure_report`) |
 | Building decay | shipped | C1-C4 (weathering, ruin, reclamation) |
 | Culture | shipped (single-settlement) | E1 (naming, traditions) + E3 (prosperity-gated inventions/tech unlocks) + festivals + generational/family memory; multiple named settlements not built |
 | History | partial | B3 (chronicle) + E1 (traditions feed prompts); no replay/browsable history view (Phase F) |
@@ -286,11 +286,25 @@ the simulation.
   `docs/DECISIONS.md`, "Interventions, family memory, and smooth/lit
   rendering."
 - **[x] Intervention ("nudge") endpoints.** `POST /intervene/agent-goal`,
-  `/intervene/settlement`, `/intervene/weather` — queued via
+  `/intervene/settlement`, `/intervene/weather`, and (LLM-as-brain
+  batch) `/intervene/town-brain` — queued via
   `WorldBroadcaster.enqueue_intervention` and applied synchronously by
   the engine at the top of its next tick, the same seam as pending
   cognition/dialogue results, so `World` is still only ever mutated
-  from the tick loop. See `docs/DECISIONS.md`, same entry.
+  from the tick loop. `/intervene/town-brain` is deliberately subtle: a
+  text whisper folded into the LLM brain's next civic-priority prompt,
+  not a command. See `docs/DECISIONS.md`, same entry and "LLM-as-brain
+  batch."
+- **[x] Fix: live event stream gap.** Dialogue/chronicle/tradition/
+  invention/festival/intervention/town-brain events resolve outside
+  `World.tick()` and were only ever written to the DB directly, never
+  reaching the live WebSocket feed (only the one-shot `/events` fetch
+  on page load saw them). Fixed with `SimulationEngine._log`. See
+  `docs/DECISIONS.md`, "LLM-as-brain batch."
+- **[x] Infrastructure telemetry panel.** Every building/vehicle's
+  condition in plain language, worst-first — `Settlement.infrastructure_report()`,
+  a new sidebar panel, and an `inspect_world` section. See
+  `docs/DECISIONS.md`, "LLM-as-brain batch."
 - Not yet built: per-agent click-to-inspect beyond hover tooltips, a
   historical/replay view.
 

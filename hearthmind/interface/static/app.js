@@ -18,7 +18,10 @@ const BIOME_COLORS = {
   snowcap: "#e8ecf2",
 };
 
-const BUILDING_COLORS = { hut: "#c98a3c", granary: "#d9a441" };
+const BUILDING_COLORS = {
+  hut: "#c98a3c", granary: "#d9a441", workshop: "#8a7fd6", school: "#4fa3c9",
+  hospital: "#e0473c", university: "#2f7fc9",
+};
 const FARM_COLORS = { growing: "#7fae4a", ready: "#e0c34a" };
 
 // Per-event-category presentation: icon, human label prefix, and whether
@@ -51,6 +54,10 @@ const CATEGORY_META = {
   terrain_thinned: { icon: "🪓" },
   terrain_reclaimed: { icon: "🌲" },
   climate_drift: { icon: "🌡️" },
+  wildlife_hunt: { icon: "🐾" },
+  wildlife_extinct: { icon: "🦴" },
+  town_brain: { icon: "🧠" },
+  intervention: { icon: "✨" },
 };
 
 // Terrain evolves now (deforestation, reclamation, climate drift), so the
@@ -426,6 +433,19 @@ function renderStats(summary) {
     ],
     ["Buildings", `${s.total} (${s.standing} standing, ${s.under_construction} building, ${s.ruined} ruined)`, null],
     [
+      "Civic buildings",
+      `${s.workshops} workshop${s.workshops === 1 ? "" : "s"}, ${s.schools} school${s.schools === 1 ? "" : "s"}, ` +
+      `${s.hospitals} hospital${s.hospitals === 1 ? "" : "s"}, ${s.universities} universit${s.universities === 1 ? "y" : "ies"}`,
+      "Workshops generate currency from staffed presence. Schools/universities raise education (shown below), which " +
+      "boosts invention chance. Hospitals speed rest recovery on-site and settlement-wide reduce the odds a predator " +
+      "attack proves lethal.",
+    ],
+    [
+      "Education", `${s.education_level.toFixed(2)} / ${s.education_capacity.toFixed(2)}`,
+      "Raised by staffed schools/universities (universities contribute 2x). Directly multiplies invention chance: " +
+      "1.0 + education_level.",
+    ],
+    [
       "Vehicles",
       `${s.vehicles.carts_ready} cart${s.vehicles.carts_ready === 1 ? "" : "s"}, ` +
       `${s.vehicles.mounts_ready} mount${s.vehicles.mounts_ready === 1 ? "" : "s"} ` +
@@ -490,6 +510,33 @@ function renderStats(summary) {
       ? s.festivals.map((t) => `<li>${t}</li>`).join("")
       : "<li>none yet</li>";
   }
+
+  const brainEl = document.getElementById("town-brain-priority");
+  if (brainEl) {
+    brainEl.innerHTML = s.current_priority
+      ? `Current priority: <b>${s.current_priority}</b><br><span class="muted">${s.priority_rationale}</span>`
+      : "No decision yet — the town brain decides once a season, once the village is named.";
+  }
+}
+
+function renderInfrastructure(rows) {
+  const el = document.getElementById("infrastructure-list");
+  if (!el) return;
+  if (!rows || rows.length === 0) {
+    el.innerHTML = "<li>nothing built yet</li>";
+    return;
+  }
+  el.innerHTML = rows
+    .slice(0, 40)
+    .map((r) => {
+      const label = r.kind.charAt(0).toUpperCase() + r.kind.slice(1);
+      const pct = Math.round(r.condition * 100);
+      const statusClass = `infra-condition-${r.status.replace(/\s+/g, "-")}`;
+      return (
+        `<li><span class="${statusClass}">${label} (${r.x}, ${r.y}): ${r.status} (${pct}%)</span></li>`
+      );
+    })
+    .join("");
 }
 
 function renderDevConsole(payload) {
@@ -529,12 +576,40 @@ async function refreshTerrainIfChanged(events) {
 function applyPayload(payload) {
   latest = payload;
   renderStats(payload.summary);
+  renderInfrastructure(payload.infrastructure);
   updateAgentAnimTargets(payload.agents || []);
   if (payload.diagnostics) renderDevConsole(payload);
   if (payload.life_events && payload.life_events.length) {
     prependEvents(payload.life_events.map((e) => ({ ...e, tick: payload.summary.tick })));
     refreshTerrainIfChanged(payload.life_events);
   }
+}
+
+// --- town brain: player whisper form ---------------------------------------
+
+const whisperForm = document.getElementById("whisper-form");
+const whisperInput = document.getElementById("whisper-input");
+const whisperStatus = document.getElementById("whisper-status");
+
+if (whisperForm) {
+  whisperForm.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const text = whisperInput.value.trim();
+    if (!text) return;
+    whisperStatus.textContent = "whispering…";
+    try {
+      const res = await fetch("/intervene/town-brain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      whisperInput.value = "";
+      whisperStatus.textContent = "heard — folded into the village's next seasonal decision";
+    } catch (e) {
+      whisperStatus.textContent = `failed: ${e.message}`;
+    }
+  });
 }
 
 function connectWebSocket() {

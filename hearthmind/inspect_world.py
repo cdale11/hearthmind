@@ -97,7 +97,17 @@ def main(argv: list[str] | None = None) -> None:
         f"             {settle['granaries']} granaries, {settle['granary_food']:.1f} food stored, "
         f"{settle['materials']:.1f} materials, {settle['currency']:.1f} currency"
     )
-    print(f"             tech level {settle.get('tech_level', 0)}")
+    print(
+        f"             tech level {settle.get('tech_level', 0)}, "
+        f"education {settle.get('education_level', 0.0):.2f}/{settle.get('education_capacity', 1.0):.2f}"
+    )
+    print(
+        f"             civic buildings: {settle.get('workshops', 0)} workshops, "
+        f"{settle.get('schools', 0)} schools, {settle.get('hospitals', 0)} hospitals, "
+        f"{settle.get('universities', 0)} universities"
+    )
+    if settle.get("current_priority"):
+        print(f"             town brain priority: {settle['current_priority']} — {settle.get('priority_rationale', '')}")
     if settle["traditions"]:
         print(f"             traditions: {'; '.join(settle['traditions'])}")
     if settle.get("inventions"):
@@ -123,7 +133,15 @@ def main(argv: list[str] | None = None) -> None:
         )
     if "roads" in summary:
         rd = summary["roads"]
-        print(f"Roads:       {rd['established_roads']} established ({rd['worn_tiles']} worn tiles)")
+        condition = f", currently {rd['condition']} ({rd['speed_multiplier']}x)" if "condition" in rd else ""
+        print(f"Roads:       {rd['established_roads']} established ({rd['worn_tiles']} worn tiles){condition}")
+
+    infra = world.settlement.infrastructure_report()
+    needing_attention = [r for r in infra if r["status"] not in ("excellent", "good")]
+    if needing_attention:
+        print(f"\nInfrastructure needing attention ({len(needing_attention)} of {len(infra)}):")
+        for r in needing_attention[:8]:
+            print(f"  {r['kind']:12s} ({r['x']:>3},{r['y']:>3})  {r['status']:20s} {round(r['condition'] * 100)}%")
 
     if agents is not None:
         print(f"\nInhabitants ({len(agents)}):")

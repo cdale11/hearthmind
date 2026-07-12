@@ -16,15 +16,43 @@ branch `claude/hearthmind-overview-5bekay`.
 
 ## Hardware target
 
-8GB RAM + zram swap, CPU-only inference. Default model `qwen2.5:3b`
-(~2GB weights). `llm_timeout_seconds=20`, `llm_max_concurrent=4`. LLM is
-on by default (`Config.llm_enabled=True`) and treated as not
-budget-constrained on the user's hardware — prefer giving the LLM more
-genuine decision points over deterministic/RNG-driven ones where it
-plausibly improves emergence, subject to the liveness rule below.
+8GB RAM + zram swap, CPU-only inference. Default model
+`qwen2.5:7b-instruct` (~4.5GB Q4 weights) — upgraded from `qwen2.5:3b`
+(~2GB) for meaningfully better NPC dialogue quality; zram exists
+precisely to absorb the extra headroom this costs. If a live soak run
+shows this is too heavy/slow on the user's actual box, revert to
+`qwen2.5:3b` via `--llm-model` and report back — don't silently
+downgrade the default without that signal. `llm_timeout_seconds=30`
+(bumped from 20 for the larger model's slower per-token CPU inference),
+`llm_max_concurrent=4`. LLM is on by default (`Config.llm_enabled=True`)
+and treated as not budget-constrained on the user's hardware — prefer
+giving the LLM more genuine decision points over deterministic/
+RNG-driven ones where it plausibly improves emergence, subject to the
+liveness rule below.
+
+## LLM as the town's brain
+
+The LLM isn't just a flavor-text generator bolted onto deterministic
+mechanics — prefer routing genuinely significant town-level decisions
+through it (what kind of building the settlement needs next, the
+town's current civic priority, notable NPC moments) rather than pure
+RNG/weighted-rule tables, wherever a deterministic fallback can still
+keep the tick loop live on timeout/error. `settlement.current_priority`
+(set by the seasonal "town brain" LLM job, `llm/town_brain.py`) is the
+concrete expression of this — it measurably steers building-kind
+selection, not just narration. Player intervention is deliberately
+subtle: `/intervene/town-brain` queues a short text "whisper" that's
+folded into the *next* town-brain prompt as one input among the real
+settlement stats/history, not a command the LLM (or the deterministic
+fallback) is forced to obey.
 
 ## Workflow rules
 
+- Batch commits: implement multiple systems per session/commit rather
+  than shipping one small feature at a time, unless the user asks for a
+  narrow fix. Still no half-finished pieces within a batch — every
+  system landed must be mechanically real (see "Building resource
+  costs" precedent), not a stub.
 - Audit before continuing; fix regressions before new features.
 - Preserve existing behavior unless explicitly changing it.
 - Update README/CHANGELOG/docs/DECISIONS.md as part of the work, not after.
@@ -56,15 +84,19 @@ plausibly improves emergence, subject to the liveness rule below.
   determinism) — the fallback no longer needs to be reproducible, just
   non-blocking.
 
-## Current state (v0.26.0+)
+## Current state (v0.27.0+)
 
 Phases A-G roadmap items are in flight; Phases A-F have substantial
-content shipped (deterministic substrate now optional-determinism,
-LLM cognition/dialogue/culture, settlements with real material costs,
-farming, wildlife/ecology, roads, vehicles, terrain evolution (local
-activity + climate/biome drift), generational/family agent memory,
-intervention ("nudge") endpoints, a weather particle overlay + day/
-night lighting + smooth agent movement, a live browser UI with a dev
+content shipped (deterministic substrate now optional-determinism, LLM
+cognition/dialogue/culture, settlements with real material costs and a
+"town brain" civic-priority LLM decision, workshops/schools/hospitals/
+universities, farming, wildlife/ecology (including flee behavior and
+logged hunts), roads (now weather-affected), vehicles, terrain
+evolution (local activity + climate/biome drift), generational/family
+agent memory, intervention ("nudge") endpoints including a subtle
+player-influence channel on the town brain, human-readable
+infrastructure telemetry, a weather particle overlay + day/night
+lighting + smooth agent movement, a live browser UI with a dev
 diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.

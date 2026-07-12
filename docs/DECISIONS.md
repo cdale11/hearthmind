@@ -1502,3 +1502,125 @@ memory fired. `node --check` and a live FastAPI route listing confirm
 all three new POST routes register. Client-side interpolation/lighting
 changes are syntax-checked only (`node --check`) — no headless-browser
 run in this environment; visually verify in a real browser next.
+
+## LLM-as-brain batch: economy buildings, town brain, animal/road weather, infrastructure telemetry
+
+A large batch per explicit user instruction to batch commits and
+implement many systems at once, plus a directive that the LLM should be
+"the brain of the town" — CLAUDE.md gained a dedicated section on this
+philosophy and the batch-commit workflow rule.
+
+**Economy buildings** (`settlement/buildings.py`): four new
+`BuildingKind`s — WORKSHOP (staffed presence generates currency
+directly, `WORKSHOP_INCOME_PER_TICK`, a real business distinct from
+D10's overflow-selling), SCHOOL (staffed presence raises
+`Settlement.education_level`, capped at `EDUCATION_CAPACITY`, which
+multiplies invention chance via `education_invention_bonus` — wired
+into `SimulationEngine._maybe_schedule_invention`), HOSPITAL (RESTING
+agents on its tile recover energy `HOSPITAL_REST_RECOVERY_MULTIPLIER`
+faster; settlement-wide, any standing hospital reduces
+`PREDATOR_KILL_CHANCE_ON_ATTACK` by `HOSPITAL_KILL_CHANCE_REDUCTION`),
+and UNIVERSITY (not founded fresh — an existing standing SCHOOL
+upgrades in place once `tech_level >= UNIVERSITY_TECH_REQUIREMENT` and
+a colocated mature/healthy pair is present, doubling the education
+contribution). Real material costs per kind (`MATERIALS_COST_BY_KIND`),
+same "no stockpile, no start" rule as every other buildable asset.
+
+**The town brain** (`llm/town_brain.py`): once per season, for a named
+settlement, an LLM decision (with a legible deterministic fallback
+reading the same stats an LLM would) sets `Settlement.current_priority`
+— one of growth/food/commerce/education/health/defense — and a
+one-line rationale. This is the concrete "LLM as brain" mechanic: it
+measurably steers `buildings.choose_building_kind`'s weighted pick at
+every future construction founding (`PRIORITY_KIND_BOOST` = 2.5x the
+matching kind's base weight) rather than being pure narration. Building
+kind selection at founding moved from a flat granary/hut coin flip to
+this full weighted pool (`BUILDING_KIND_BASE_WEIGHTS`).
+
+**Player intervention on the brain**: `POST /intervene/town-brain`
+queues a short text "whisper" (`type: "town_influence"`), applied via
+the existing intervention-queue seam into `Settlement.player_influence`
+(capped at the last 3), folded into the *next* town-brain prompt as one
+input among the real settlement stats/history, then cleared regardless
+of how that LLM call resolves — deliberately subtle, per the user's
+explicit "not too much but able to subtly influence" framing, not a
+command the brain (or its fallback) must obey.
+
+**Fix: live event stream gap** (root cause of "NPC dialogues should
+appear in events"). Dialogue/rumor/chronicle/tradition/invention/
+festival/intervention/town-brain all resolve outside `World.tick()`
+— either synchronously at the top of `_tick_once` (dialogue,
+interventions) or on a completely different tick whenever their
+background LLM task happens to complete (chronicle, tradition,
+invention, festival) — and all of them called `log_event()` directly,
+writing to the DB but never touching `World.last_life_events`, which is
+the only thing `_maybe_broadcast` ever read. Result: none of these
+categories ever appeared in the live WebSocket feed — only via the
+one-shot `/events` fetch on page load, so a running browser tab never
+saw a single dialogue line stream in. Fixed with a new
+`SimulationEngine._log(category, description)` helper (replacing every
+non-tick `log_event` call site) that both persists AND appends to
+`self._pending_broadcast_events`, drained into the payload's
+`life_events` by `_maybe_broadcast` and cleared afterward — including a
+guard to clear-without-broadcasting when the API is disabled, so the
+buffer can't grow unbounded on a headless run.
+
+**Animals interact with each other, more visibly.** Predators already
+hunted grazers (A4); now (a) a grazer herd's movement prefers a
+candidate tile that isn't adjacent to a live predator pack
+(`GRAZER_FLEE_RADIUS`) — real avoidance, not a passive victim of
+whatever tile a predator happens to wander onto, same "don't strand it"
+fallback shape as agent predator-avoidance — and (b) `WildlifeGrid.tick`
+now returns `wildlife_hunt`/`wildlife_extinct` events instead of
+silently mutating counts, wired into `World.last_life_events`.
+
+**Weather affects infrastructure.** `world/roads.py` gained
+`road_condition_multiplier(weather)`: an established road's move-speed
+bonus is `ROAD_SPEED_MULTIPLIER` (1.4x) only in dry weather — heavy
+rain drops it to `ROAD_MUDDY_MULTIPLIER` (1.1x), snow to
+`ROAD_SNOWY_MULTIPLIER` (0.9x, actually a penalty vs. open ground), and
+snow at or below `ROAD_ICE_TEMPERATURE_C` to `ROAD_ICY_MULTIPLIER`
+(0.75x, the most hazardous). Threaded `weather` through
+`Population._dispatch_movement`/`_maybe_move` to reach it.
+`RoadNetwork.summary(weather)` also reports the current human-readable
+condition label (dry/muddy/snowy/icy) for the UI/`inspect_world`.
+
+**Infrastructure telemetry, human-readable.** `Settlement.infrastructure_report()`
+returns every building and vehicle with a plain-language condition
+label (excellent/good/worn/critical, or under construction/broken
+down/ruined), worst-first. Included in every broadcast payload
+(`infrastructure` key) and rendered as a new sidebar panel; also
+printed by `inspect_world` (only the items needing attention, to avoid
+noise on a healthy settlement).
+
+**Model change**: default `llm_model` bumped from `qwen2.5:3b` (~2GB)
+to `qwen2.5:7b-instruct` (~4.5GB Q4) for meaningfully better NPC
+dialogue and town-brain decision quality, per explicit user request to
+choose a better-fitting model. `llm_timeout_seconds` bumped 20 -> 30 to
+match the larger model's slower CPU inference. This is a judgment call,
+not something soak-tested on the user's actual hardware by this change
+— CLAUDE.md documents the revert path (`--llm-model qwen2.5:3b`) and
+asks for a live diagnostic report rather than a silent downgrade if
+it's too heavy.
+
+Verified (LLM disabled in this environment, deterministic fallbacks
+exercised throughout): an 8200-tick unforced run grew population
+14->32->27, founded a workshop and a hospital, set `current_priority`
+to "food" via the fallback reading real hunger/granary stats, and
+`education_level` stayed 0 (no school built in that run — plausible,
+not systematic). A separate live-broadcast-payload check over 8200
+ticks confirmed `dialogue`, `chronicle`, `tradition`, `festival`, and
+`town_brain` all now appear in `life_events` pulled from
+`WorldBroadcaster.get_state()` (the exact bug that was fixed). A
+university upgrade was forced and confirmed (tech_level>=3, standing
+school, colocated pair -> kind flips to UNIVERSITY same tick). A
+wildlife predator-hunt/extinction event was confirmed over a 3000-tick
+run. A player whisper was queued, consumed by the next town-brain
+prompt, and cleared. `World.to_dict`/`from_dict` round-trips all new
+fields (`education_level`, `current_priority`, `priority_rationale`,
+`player_influence`). All new FastAPI routes (including
+`/intervene/town-brain`) confirmed registered. An adversarial forced-
+GATHER-forever test artificially starved the population to 2 — this is
+a property of that unrealistic test script overriding goals every tick
+regardless of hunger, not a regression (confirmed by the healthy
+unforced run above using the same seed/config).

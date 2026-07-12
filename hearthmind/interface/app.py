@@ -115,6 +115,19 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection) -> FastA
         broadcaster.enqueue_intervention({"type": "weather", **payload})
         return JSONResponse({"queued": True})
 
+    @app.post("/intervene/town-brain")
+    async def intervene_town_brain(payload: dict) -> JSONResponse:
+        """The deliberately subtle player-influence channel: a short
+        text "whisper" folded into the LLM brain's next seasonal
+        civic-priority decision as one input among the real settlement
+        stats/history — not a command it's forced to obey. See
+        docs/DECISIONS.md, "LLM-as-brain batch.\""""
+        text = str(payload.get("text", "")).strip()
+        if not text:
+            return JSONResponse({"error": "text is required"}, status_code=400)
+        broadcaster.enqueue_intervention({"type": "town_influence", "text": text})
+        return JSONResponse({"queued": True})
+
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:
         await websocket.accept()

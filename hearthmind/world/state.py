@@ -115,7 +115,7 @@ class World:
         )
         self.resources.tick(season=self.clock.season)
         self.farms.tick(season=self.clock.season)
-        self.wildlife.tick(seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain)
+        wildlife_events = self.wildlife.tick(seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain)
         settlement_events = self.settlement.tick(weather=self.weather)
         if not self.settlement.name and any(
             b.stage is BuildingStage.STANDING for b in self.settlement.buildings
@@ -130,7 +130,7 @@ class World:
             weather=self.weather,
         )
         terrain_events = self._tick_terrain(events)
-        self.last_life_events = settlement_events + population_events + terrain_events
+        self.last_life_events = wildlife_events + settlement_events + population_events + terrain_events
         self.last_calendar_events = events
         return events
 
@@ -181,7 +181,7 @@ class World:
             "settlement": self.settlement.summary(),
             "farms": self.farms.summary(),
             "wildlife": self.wildlife.summary(),
-            "roads": self.roads.summary(),
+            "roads": self.roads.summary(self.weather),
             "llm": {
                 "calls_total": self.llm_calls_total,
                 "fallback_total": self.llm_fallback_total,

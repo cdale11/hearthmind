@@ -87,6 +87,13 @@ PREDATOR_KILL_CHANCE_ON_ATTACK = 0.12
 * this is the true per-tick death odds, ~0.18%) that are lethal rather
 than just an injury."""
 
+GRAZER_FLEE_RADIUS = 1
+"""A grazer herd prefers a move candidate that isn't adjacent to a live
+predator pack, within this Chebyshev radius — animal-vs-animal
+awareness, not just a passive victim of whatever tile a predator
+wanders onto. Mirrors Population._maybe_move's agent-vs-predator
+avoidance. See docs/DECISIONS.md, "LLM-as-brain batch.\""""
+
 
 def _wildlife_init_rng(seed: int) -> random.Random:
     digest = hashlib.sha256(f"{seed}:wildlife_init".encode()).hexdigest()
@@ -194,10 +201,17 @@ class WildlifeGrid:
 
     # --- tick ------------------------------------------------------------------
 
-    def tick(self, seed: int, tick: int, terrain: list[list[Tile]]) -> None:
+    def tick(self, seed: int, tick: int, terrain: list[list[Tile]]) -> list[tuple[str, str]]:
+        """Advance every herd/pack by one tick. Returns (category,
+        description) events for a successful hunt or a pack/herd going
+        fully extinct — animal-vs-animal interaction visible in the
+        event log, not just silent numbers. See docs/DECISIONS.md,
+        "LLM-as-brain batch.\""""
         rng = _wildlife_tick_rng(seed, tick)
         height = len(terrain)
         width = len(terrain[0]) if height else 0
+        events: list[tuple[str, str]] = []
+        predator_tiles = self.predator_tiles()
 
         for herd in self.herds.values():
             if herd.count <= 0:
@@ -209,6 +223,21 @@ class WildlifeGrid:
                     nx, ny = herd.x + dx, herd.y + dy
                     if 0 <= nx < width and 0 <= ny < height and terrain[ny][nx].biome in biomes:
                         candidates.append((nx, ny))
+                if herd.species is Species.GRAZER and candidates:
+                    # Prefer a candidate that isn't adjacent to a live
+                    # predator — flee rather than wander blindly into
+                    # danger. Falls back to the unfiltered set if every
+                    # candidate is threatened, same "don't strand it"
+                    # shape as agent predator-avoidance.
+                    safe = [
+                        c for c in candidates
+                        if not any(
+                            max(abs(c[0] - px), abs(c[1] - py)) <= GRAZER_FLEE_RADIUS
+                            for px, py in predator_tiles
+                        )
+                    ]
+                    if safe:
+                        candidates = safe
                 if candidates:
                     herd.x, herd.y = rng.choice(candidates)
 
@@ -228,10 +257,26 @@ class WildlifeGrid:
                 herd.ticks_since_meal = 0
                 if herd.count < MAX_PREDATOR_PACK and rng.random() < GRAZER_REPRODUCE_CHANCE:
                     herd.count += 1
+                if prey.count <= 0:
+                    events.append((
+                        "wildlife_extinct",
+                        f"A grazer herd near ({prey.x}, {prey.y}) was hunted to nothing by predators.",
+                    ))
+                else:
+                    events.append((
+                        "wildlife_hunt",
+                        f"A predator pack culled a grazer herd near ({herd.x}, {herd.y}).",
+                    ))
             elif herd.ticks_since_meal > PREDATOR_STARVE_GRACE_TICKS and rng.random() < PREDATOR_STARVE_CHANCE:
                 herd.count -= 1
+                if herd.count <= 0:
+                    events.append((
+                        "wildlife_extinct",
+                        f"A predator pack near ({herd.x}, {herd.y}) starved and scattered.",
+                    ))
 
         self.herds = {herd_id: h for herd_id, h in self.herds.items() if h.count > 0}
+        return events
 
     # --- summary -------------------------------------------------------------
 

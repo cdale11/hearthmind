@@ -114,8 +114,8 @@ Useful flags on `server.py`:
   deterministic fallback, so this flag is only needed for a fully
   offline/deterministic run.
 - `--llm-host URL` (default `http://localhost:11434`), `--llm-model NAME`
-  (default `qwen2.5:3b`), `--llm-timeout SECONDS` (default 20 — CPU
-  inference under contention on 8GB+zram can be slower than a quiet
+  (default `qwen2.5:7b-instruct`), `--llm-timeout SECONDS` (default 30 —
+  CPU inference under contention on 8GB+zram can be slower than a quiet
   benchmark, see `docs/DECISIONS.md` D5), `--llm-max-concurrent INT`
   (default 4) — all runtime settings, safe to change between runs.
 - `--api-disabled` — turn off the browser interface (on by default; see
@@ -134,16 +134,18 @@ Ollama is reachable. The simulation stays fully functional without
 Ollama installed (`fallback_goal`/`fallback_summary`/`fallback_tradition`/
 `fallback_dialogue` stand in for it, see `docs/DECISIONS.md` B1-B3, E1,
 E2) — nothing raises or blocks a tick if the LLM is disabled,
-unreachable, or times out. The default model, `qwen2.5:3b`, is sized
-specifically for comfortable operation on an 8GB-RAM machine (even with
-zram swap) alongside the simulation itself — ~2GB of weights, fast CPU
-inference, and reliable structured JSON output (see `docs/DECISIONS.md`,
-B4). Size up (`--llm-model qwen2.5:7b`) if you have more RAM to spare, or
-down (`qwen2.5:1.5b`) on tighter hardware.
+unreachable, or times out. The default model, `qwen2.5:7b-instruct`
+(~4.5GB Q4 weights), was chosen for meaningfully better NPC dialogue and
+"town brain" civic-decision quality than the smaller `qwen2.5:3b`
+(~2GB) it replaced — intended to still fit an 8GB-RAM machine with zram
+swap, but if a live run shows it's too heavy/slow on your hardware, drop
+back with `--llm-model qwen2.5:3b` (or size down further to
+`qwen2.5:1.5b` on tighter hardware) and let the maintainers know. See
+`docs/DECISIONS.md`, "LLM-as-brain batch" and B4.
 
 ```bash
 # 1. Install and start Ollama (see https://ollama.com), then pull a model:
-ollama pull qwen2.5:3b
+ollama pull qwen2.5:7b-instruct
 
 # 2. Run the server (LLM is on by default):
 python3 -m hearthmind.server --db world.sqlite3

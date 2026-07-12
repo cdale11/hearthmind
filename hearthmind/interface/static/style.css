@@ -91,14 +91,45 @@ main {
   overflow-y: auto;
 }
 
-#event-log, #traditions-list { list-style: none; margin: 0; padding: 0; }
-#event-log li, #traditions-list li {
+#event-log, #traditions-list, #infrastructure-list { list-style: none; margin: 0; padding: 0; }
+#event-log li, #traditions-list li, #infrastructure-list li {
   padding: 4px 0;
   border-bottom: 1px solid var(--border);
   font-size: 12.5px;
 }
-#event-log li:last-child, #traditions-list li:last-child { border-bottom: none; }
+#event-log li:last-child, #traditions-list li:last-child, #infrastructure-list li:last-child { border-bottom: none; }
 .event-tick { color: var(--muted); margin-right: 6px; }
+
+#town-brain-priority { font-size: 13px; margin-bottom: 8px; }
+#town-brain-priority b { color: var(--accent); text-transform: capitalize; }
+#whisper-form { display: flex; gap: 6px; }
+#whisper-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-family: inherit;
+  font-size: 12px;
+}
+#whisper-form button {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+#whisper-form button:hover { border-color: var(--accent); color: var(--accent); }
+#whisper-status { display: block; margin-top: 4px; font-size: 11px; }
+
+.infra-condition-excellent { color: #7fae4a; }
+.infra-condition-good, .infra-condition-under-construction { color: var(--text); }
+.infra-condition-worn { color: var(--accent); }
+.infra-condition-critical, .infra-condition-broken-down, .infra-condition-ruined { color: #e0473c; }
 
 .dev-toggle {
   margin-left: auto;

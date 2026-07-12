@@ -12,6 +12,10 @@ biome. See docs/DECISIONS.md, C5.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from hearthmind.world.weather import WeatherState
 
 ROAD_WEAR_PER_TICK = 0.01
 """Wear gained by a qualifying tile each tick at least one awake agent
@@ -30,9 +34,39 @@ ROAD_ESTABLISHED_WEAR = 0.5
 ROAD_SPEED_MULTIPLIER."""
 
 ROAD_SPEED_MULTIPLIER = 1.4
-"""Random-walk move-chance multiplier for an agent currently standing on
-an established road tile — worn paths are faster to cross than open
-terrain. Applied in Population._maybe_move."""
+"""Random-walk move-chance multiplier for an agent on an established
+road tile in clear/dry weather — worn paths are faster to cross than
+open terrain. See `road_condition_multiplier` for how weather changes
+this. Applied in Population._maybe_move."""
+
+ROAD_MUDDY_MULTIPLIER = 1.1
+"""Heavy rain turns an established road to mud — still better than open
+ground, much less of a bonus than dry-weather ROAD_SPEED_MULTIPLIER."""
+
+ROAD_SNOWY_MULTIPLIER = 0.9
+"""Snow cover on a road actually costs a little speed versus open
+terrain (drifts, poor footing) — below 1.0, unlike mud."""
+
+ROAD_ICY_MULTIPLIER = 0.75
+"""Freezing weather (snowing at or below this module's ice threshold)
+makes an established road the most hazardous surface to be moving on —
+the lowest multiplier of the four conditions."""
+
+ROAD_ICE_TEMPERATURE_C = -3.0
+"""Snowing at or below this temperature counts as icy rather than just
+snowy — see `road_condition_multiplier`."""
+
+
+def road_condition_multiplier(weather: "WeatherState") -> float:
+    """Weather affects infrastructure, not just people/crops: an
+    established road's speed bonus depends on current conditions rather
+    than being a flat constant. See docs/DECISIONS.md, "LLM-as-brain
+    batch.\""""
+    if weather.is_snowing:
+        return ROAD_ICY_MULTIPLIER if weather.temperature_c <= ROAD_ICE_TEMPERATURE_C else ROAD_SNOWY_MULTIPLIER
+    if weather.precipitation > 0.4:
+        return ROAD_MUDDY_MULTIPLIER
+    return ROAD_SPEED_MULTIPLIER
 
 
 @dataclass
@@ -66,9 +100,22 @@ class RoadNetwork:
 
     # --- summary -------------------------------------------------------------
 
-    def summary(self) -> dict:
+    def summary(self, weather: "WeatherState | None" = None) -> dict:
         established = sum(1 for w in self.wear.values() if w >= ROAD_ESTABLISHED_WEAR)
-        return {"worn_tiles": len(self.wear), "established_roads": established}
+        result = {"worn_tiles": len(self.wear), "established_roads": established}
+        if weather is not None:
+            multiplier = road_condition_multiplier(weather)
+            if multiplier >= ROAD_SPEED_MULTIPLIER:
+                condition = "dry"
+            elif multiplier >= ROAD_MUDDY_MULTIPLIER:
+                condition = "muddy"
+            elif multiplier >= ROAD_SNOWY_MULTIPLIER:
+                condition = "snowy"
+            else:
+                condition = "icy"
+            result["condition"] = condition
+            result["speed_multiplier"] = round(multiplier, 2)
+        return result
 
     # --- (de)serialization -----------------------------------------------------
 

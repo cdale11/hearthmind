@@ -4,6 +4,38 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.27.0] — Add: economy buildings, town brain, animal/road weather, infrastructure telemetry
+
+### Added
+- Workshop/school/hospital/university buildings with real mechanical
+  effects (currency income, education -> invention chance, faster
+  hospital rest recovery + reduced predator lethality, school-to-
+  university upgrade path).
+- `llm/town_brain.py`: a seasonal LLM decision sets the settlement's
+  current civic priority, which measurably steers which building kind
+  gets founded next — the concrete "LLM as the town's brain" mechanic.
+- `POST /intervene/town-brain`: a subtle player-influence channel — a
+  short text whisper folded into the next town-brain prompt.
+- Grazer herds now flee adjacent predators instead of wandering
+  blindly; predator hunts/pack extinctions are now logged events.
+- Roads get genuinely muddy/snowy/icy depending on weather, changing
+  their move-speed bonus (icy can even be a penalty).
+- `Settlement.infrastructure_report()` + a new sidebar panel: every
+  building/vehicle's condition in plain language (excellent/good/worn/
+  critical/broken/ruined), worst-first.
+- Default LLM model bumped to `qwen2.5:7b-instruct` for better NPC
+  dialogue/town-brain quality (timeout bumped 20s -> 30s to match).
+
+### Fixed
+- Dialogue, chronicle, tradition, invention, festival, intervention,
+  and town-brain events never appeared in the live browser event feed
+  (only on page load, via the one-shot `/events` fetch) — they resolve
+  outside `World.tick()` and were never folded into the broadcast
+  payload. Fixed with a new `SimulationEngine._log` helper.
+
+See `docs/DECISIONS.md`, "LLM-as-brain batch: economy buildings, town
+brain, animal/road weather, infrastructure telemetry."
+
 ## [0.26.0] — Add: interventions, family memory, smooth/lit rendering
 
 ### Added

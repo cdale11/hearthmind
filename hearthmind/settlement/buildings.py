@@ -36,6 +36,27 @@ class BuildingKind(str, Enum):
     from it (Population._maybe_forage/_nearest_food_target) — a buffer
     against a bad patch of wild-forage/farm luck rather than a
     per-agent inventory system, which doesn't exist in this project."""
+    WORKSHOP = "workshop"
+    """A business: staffed presence (awake, healthy agents) converts
+    directly into settlement currency each tick — the town's economy
+    beyond selling overflow food/materials. See WORKSHOP_INCOME_PER_TICK,
+    docs/DECISIONS.md, "LLM-as-brain batch.\""""
+    SCHOOL = "school"
+    """Staffed presence slowly raises `Settlement.education_level`
+    (capped), which boosts invention chance — an educated town invents
+    more. See SCHOOL_EDUCATION_PER_TICK."""
+    HOSPITAL = "hospital"
+    """A standing hospital speeds hunger/energy recovery for RESTING
+    agents present on its tile, and settlement-wide slightly reduces the
+    chance a predator attack proves lethal — care exists, and it
+    measurably helps. See HOSPITAL_REST_RECOVERY_MULTIPLIER,
+    HOSPITAL_KILL_CHANCE_REDUCTION."""
+    UNIVERSITY = "university"
+    """A school's upgrade, not foundable directly — requires an existing
+    standing SCHOOL and UNIVERSITY_TECH_REQUIREMENT inventions already
+    established. Doubles a school's education contribution. See
+    Population._maybe_start_construction/_maybe_start_vehicle-style
+    founding gate, docs/DECISIONS.md, "LLM-as-brain batch.\""""
 
 
 CONSTRUCTION_WORK_PER_TICK = 0.05
@@ -54,6 +75,19 @@ further — a crude stand-in for "there's only so much useful room to work.\""""
 REPAIR_THRESHOLD = 0.5
 """Standing buildings below this condition attract repair work from any
 awake agents present, in addition to whatever else those agents are doing."""
+
+
+def _condition_label(condition: float) -> str:
+    """Human-readable band for a 0..1 condition value — used by
+    `Settlement.infrastructure_report` for the UI telemetry panel and
+    `inspect_world`. See docs/DECISIONS.md, "LLM-as-brain batch.\""""
+    if condition >= 0.85:
+        return "excellent"
+    if condition >= REPAIR_THRESHOLD:
+        return "good"
+    if condition >= 0.2:
+        return "worn"
+    return "critical"
 
 DECAY_PER_TICK_BASE = 0.0004
 """Baseline condition lost per tick for a standing building — roughly a
@@ -80,13 +114,12 @@ RUIN_REMOVAL_TICKS = 3000
 """Ticks a ruined building persists (still inspectable) before nature
 finishes reclaiming it and it's removed from the world entirely."""
 
-GRANARY_KIND_CHANCE = 0.3
-"""Fraction of newly-started buildings that are GRANARY rather than HUT —
-rolled once at founding (Population._maybe_start_construction), not a
-player/agent choice yet."""
-
 HUT_MATERIALS_COST = 3.0
 GRANARY_MATERIALS_COST = 5.0
+WORKSHOP_MATERIALS_COST = 4.0
+SCHOOL_MATERIALS_COST = 6.0
+HOSPITAL_MATERIALS_COST = 8.0
+UNIVERSITY_MATERIALS_COST = 10.0
 """Materials deducted from the settlement stockpile when construction is
 founded — buildings are now genuinely "built from resources available"
 (previously materials only sped construction up, via
@@ -94,9 +127,66 @@ CONSTRUCTION_MATERIALS_MULTIPLIER; a colocated, mature, healthy pair
 could found a building with zero materials on hand). A settlement with
 no stockpile can no longer spontaneously start a building — presence
 alone is no longer sufficient, matching real construction needing
-material on site before ground is broken. Granary costs more than a hut
-(bigger structure, more valuable once standing). See docs/DECISIONS.md,
-buildings-need-resources pass."""
+material on site before ground is broken. Costs scale roughly with
+civic weight: a hut is cheapest, a hospital (the biggest health
+investment) is the most expensive foundable kind, and a university
+(upgrading an existing school, not founded fresh) costs the most of
+all. See docs/DECISIONS.md, buildings-need-resources pass and
+"LLM-as-brain batch.\""""
+
+MATERIALS_COST_BY_KIND: dict[BuildingKind, float] = {
+    BuildingKind.HUT: HUT_MATERIALS_COST,
+    BuildingKind.GRANARY: GRANARY_MATERIALS_COST,
+    BuildingKind.WORKSHOP: WORKSHOP_MATERIALS_COST,
+    BuildingKind.SCHOOL: SCHOOL_MATERIALS_COST,
+    BuildingKind.HOSPITAL: HOSPITAL_MATERIALS_COST,
+    BuildingKind.UNIVERSITY: UNIVERSITY_MATERIALS_COST,
+}
+
+BUILDING_KIND_BASE_WEIGHTS: dict[str, float] = {
+    "hut": 0.42, "granary": 0.23, "workshop": 0.15, "school": 0.12, "hospital": 0.08,
+}
+"""Baseline odds a new civic building is each kind, before
+`Settlement.current_priority` (the seasonal "town brain" LLM
+decision — see llm/town_brain.py) reweights them. UNIVERSITY is
+deliberately excluded: it's an upgrade of an existing SCHOOL, not
+founded from this pool. See `choose_building_kind`."""
+
+PRIORITY_KIND_BOOST = 2.5
+"""Multiplier applied to one kind's weight when it matches the
+settlement's current civic priority — a real, measurable steer, not
+just flavor text, but not so dominant that other kinds stop appearing
+entirely (see docs/DECISIONS.md, "LLM-as-brain batch")."""
+
+_PRIORITY_TO_KIND = {
+    "growth": "hut", "food": "granary", "commerce": "workshop",
+    "education": "school", "health": "hospital", "defense": "hut",
+}
+"""Maps a `Settlement.current_priority` value to the `BuildingKind`
+value it boosts. "defense" has no dedicated building yet, so it boosts
+huts (more shelter, more hands) rather than doing nothing."""
+
+
+def choose_building_kind(rng, current_priority: str) -> "BuildingKind":
+    """Weighted pick among the foundable civic kinds (not UNIVERSITY,
+    which upgrades an existing school instead) — base odds nudged
+    toward whatever the settlement's current priority calls for. Falls
+    back to the unweighted base odds for an unrecognized/empty
+    priority (e.g. before the first town-brain decision has ever run).
+    See docs/DECISIONS.md, "LLM-as-brain batch.\""""
+    weights = dict(BUILDING_KIND_BASE_WEIGHTS)
+    boosted = _PRIORITY_TO_KIND.get(current_priority)
+    if boosted in weights:
+        weights[boosted] *= PRIORITY_KIND_BOOST
+    total = sum(weights.values())
+    roll = rng.random() * total
+    upto = 0.0
+    for kind_value, weight in weights.items():
+        upto += weight
+        if roll <= upto:
+            return BuildingKind(kind_value)
+    return BuildingKind.HUT  # unreachable in practice; keeps the function total
+
 
 GRANARY_CAPACITY = 15.0
 """Max food a standing granary can hold — several farm harvests' worth
@@ -156,6 +246,50 @@ CURRENCY_EMERGENCY_HUNGER_RELIEF = 0.4
 """Hunger relief per emergency-ration purchase — matches
 GRANARY_HUNGER_RELIEF: bought food is as good as stored food, just costs
 currency instead of being free."""
+
+# --- economy buildings: workshops, schools, hospitals -----------------------
+
+WORKSHOP_INCOME_PER_TICK = 0.03
+"""Currency generated per awake, healthy agent present at a standing
+workshop, per tick, up to CURRENCY_CAPACITY — a business, not just
+overflow-selling: this is currency income from nothing being wasted,
+same order of magnitude as MATERIALS_GATHER_PER_TICK."""
+
+EDUCATION_CAPACITY = 1.0
+"""Max `Settlement.education_level` — see SCHOOL_EDUCATION_PER_TICK and
+`education_invention_bonus`."""
+
+SCHOOL_EDUCATION_PER_TICK = 0.01
+UNIVERSITY_EDUCATION_MULTIPLIER = 2.0
+"""Education added per awake, healthy agent present at a standing
+school, per tick, up to EDUCATION_CAPACITY — a university (an upgraded
+school) contributes at this multiple instead."""
+
+UNIVERSITY_TECH_REQUIREMENT = 3
+"""A school can only be upgraded to a university once the settlement
+has this many established inventions — a university presupposes an
+already fairly advanced town, not something foundable from scratch."""
+
+
+def education_invention_bonus(education_level: float) -> float:
+    """Multiplicative bonus on invention chance from accumulated
+    education — an educated town invents more. Mirrors
+    `_tech_factor`'s shape (1.0 + something), used by
+    SimulationEngine._maybe_schedule_invention. See docs/DECISIONS.md,
+    "LLM-as-brain batch.\""""
+    return 1.0 + education_level
+
+
+HOSPITAL_REST_RECOVERY_MULTIPLIER = 1.5
+"""A RESTING agent physically present on a standing hospital's tile
+recovers energy this much faster than resting elsewhere — see
+Population._update_needs."""
+
+HOSPITAL_KILL_CHANCE_REDUCTION = 0.3
+"""Fractional reduction to PREDATOR_KILL_CHANCE_ON_ATTACK, settlement-
+wide, once at least one hospital is standing — care exists and
+measurably improves survival odds, not just narrative flavor. See
+Population._maybe_predator_attack."""
 
 # --- Phase E3: inventions (tech-tier unlocks) -------------------------------
 
@@ -290,6 +424,23 @@ class Settlement:
     _next_vehicle_id: int = 0
     """Carts and mounts — see settlement/vehicles.py. A separate id space
     from `buildings` since they're a distinct kind of asset."""
+    education_level: float = 0.0
+    """0..EDUCATION_CAPACITY, raised by staffed schools/universities —
+    see education_invention_bonus."""
+    current_priority: str = ""
+    """One of "growth"/"food"/"commerce"/"education"/"health"/"defense",
+    set by the seasonal "town brain" LLM decision (llm/town_brain.py) —
+    empty until the first decision runs. Measurably steers
+    `choose_building_kind`, not just narration. See docs/DECISIONS.md,
+    "LLM-as-brain batch.\""""
+    priority_rationale: str = ""
+    """One-line LLM-authored (or deterministic-fallback) reason for
+    `current_priority` — shown in the UI alongside the priority itself."""
+    player_influence: list[str] = field(default_factory=list)
+    """Short text "whispers" queued via POST /intervene/town-brain,
+    consumed (and cleared) by the next town-brain prompt — the
+    deliberately subtle channel for player influence on the LLM brain.
+    See docs/DECISIONS.md, "LLM-as-brain batch.\""""
 
     # --- queries -------------------------------------------------------------
 
@@ -372,6 +523,10 @@ class Settlement:
         ruined = sum(1 for b in self.buildings if b.stage is BuildingStage.RUINED)
         avg_condition = sum(b.condition for b in standing) / len(standing) if standing else 0.0
         granaries = [b for b in standing if b.kind is BuildingKind.GRANARY]
+        kind_counts = {
+            kind.value: sum(1 for b in standing if b.kind is kind)
+            for kind in (BuildingKind.WORKSHOP, BuildingKind.SCHOOL, BuildingKind.HOSPITAL, BuildingKind.UNIVERSITY)
+        }
         return {
             "total": len(self.buildings),
             "under_construction": under_construction,
@@ -391,7 +546,48 @@ class Settlement:
             "inventions": list(self.inventions),
             "festivals": list(self.festivals),
             "vehicles": self._vehicle_summary(),
+            "workshops": kind_counts["workshop"],
+            "schools": kind_counts["school"],
+            "hospitals": kind_counts["hospital"],
+            "universities": kind_counts["university"],
+            "education_level": round(self.education_level, 3),
+            "education_capacity": EDUCATION_CAPACITY,
+            "current_priority": self.current_priority,
+            "priority_rationale": self.priority_rationale,
         }
+
+    def infrastructure_report(self) -> list[dict]:
+        """Human-readable per-structure condition breakdown — buildings
+        and vehicles together, sorted worst-condition-first so the UI's
+        telemetry panel surfaces what needs attention. See
+        docs/DECISIONS.md, "LLM-as-brain batch.\""""
+        rows: list[dict] = []
+        for b in self.buildings:
+            if b.stage is BuildingStage.UNDER_CONSTRUCTION:
+                status, condition = "under construction", round(b.progress, 3)
+            elif b.stage is BuildingStage.RUINED:
+                status, condition = "ruined", 0.0
+            else:
+                condition = round(b.condition, 3)
+                status = _condition_label(condition)
+            rows.append({
+                "kind": b.kind.value, "x": b.x, "y": b.y, "condition": condition, "status": status,
+                "asset_type": "building",
+            })
+        for v in self.vehicles:
+            if v.stage is VehicleStage.BUILDING:
+                status, condition = "under construction", round(v.progress, 3)
+            elif v.stage is VehicleStage.BROKEN:
+                status, condition = "broken down", 0.0
+            else:
+                condition = round(v.condition, 3)
+                status = _condition_label(condition)
+            rows.append({
+                "kind": v.kind.value, "x": v.x, "y": v.y, "condition": condition, "status": status,
+                "asset_type": "vehicle",
+            })
+        rows.sort(key=lambda r: r["condition"])
+        return rows
 
     def _vehicle_summary(self) -> dict:
         carts = [v for v in self.vehicles if v.kind is VehicleKind.CART]
@@ -425,6 +621,10 @@ class Settlement:
             "festivals": list(self.festivals),
             "vehicles": [v.to_dict() for v in self.vehicles],
             "next_vehicle_id": self._next_vehicle_id,
+            "education_level": round(self.education_level, 4),
+            "current_priority": self.current_priority,
+            "priority_rationale": self.priority_rationale,
+            "player_influence": list(self.player_influence),
         }
 
     @classmethod
@@ -438,4 +638,8 @@ class Settlement:
             tech_level=data.get("tech_level", 0), inventions=list(data.get("inventions", [])),
             festivals=list(data.get("festivals", [])),
             vehicles=vehicles, _next_vehicle_id=data.get("next_vehicle_id", 0),
+            education_level=data.get("education_level", 0.0),
+            current_priority=data.get("current_priority", ""),
+            priority_rationale=data.get("priority_rationale", ""),
+            player_influence=list(data.get("player_influence", [])),
         )
