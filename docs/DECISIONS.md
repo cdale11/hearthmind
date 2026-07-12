@@ -1335,3 +1335,23 @@ and both showed real condition wear from weather + use — plus a
 serialization round-trip (`to_dict`/`from_dict`) of a populated vehicle
 list. Terrain evolution (both local activity-driven and climate/biome
 drift) remains the other confirmed-scope, not-yet-built item.
+
+## dev-console-copy-fallback
+
+**Root cause**: user reported the dev console's "Full diagnostic
+report" copy-to-clipboard failing. `navigator.clipboard.writeText`
+requires a secure context (https, or `localhost`) — accessed over plain
+`http://<lan-ip>:8000` (the expected way to reach this server from
+another device on the target hardware), the API doesn't exist at all,
+not merely denied permission, so the existing try/catch always fell
+through to "select manually." The report itself was always shown
+correctly in the panel below the button — only the one-click copy
+failed silently for anyone not on `localhost`/https.
+
+**Fix**: added a `legacyCopy()` fallback using a hidden `<textarea>` +
+`document.execCommand("copy")` — deprecated but still functional in
+every browser lacking the modern Clipboard API — tried automatically
+when `navigator.clipboard` throws. Status text now distinguishes
+"copied to clipboard" / "copied to clipboard (legacy fallback)" / a
+real failure message that explains the https-or-localhost requirement,
+instead of always saying the same generic thing.

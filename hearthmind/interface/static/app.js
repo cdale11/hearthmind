@@ -68,6 +68,30 @@ const devConsoleContent = document.getElementById("dev-console-content");
 const devFullReportBtn = document.getElementById("dev-full-report");
 const devReportStatus = document.getElementById("dev-report-status");
 
+function legacyCopy(text) {
+  // navigator.clipboard requires a secure context (https, or localhost) —
+  // accessing the server over plain http on a LAN IP (the common case for
+  // this project's target hardware) silently lacks the API entirely, not
+  // just permission. document.execCommand is deprecated but still works
+  // as a fallback in every browser that lacks the modern API. See
+  // docs/DECISIONS.md, dev-console-copy-fallback.
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch (e) {
+    ok = false;
+  }
+  document.body.removeChild(textarea);
+  return ok;
+}
+
 devFullReportBtn.addEventListener("click", async () => {
   devReportStatus.textContent = "fetching…";
   try {
@@ -78,7 +102,9 @@ devFullReportBtn.addEventListener("click", async () => {
       await navigator.clipboard.writeText(text);
       devReportStatus.textContent = "copied to clipboard";
     } catch (e) {
-      devReportStatus.textContent = "shown below (copy failed — select manually)";
+      devReportStatus.textContent = legacyCopy(text)
+        ? "copied to clipboard (legacy fallback)"
+        : "shown below (copy failed — select manually; the page must be served over https or localhost for one-click copy)";
     }
   } catch (e) {
     devReportStatus.textContent = `failed: ${e.message}`;

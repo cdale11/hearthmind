@@ -4,6 +4,18 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.24.1] — Fix: dev console diagnostics copy-to-clipboard
+
+### Fixed
+- "Full diagnostic report" copy failed silently on any non-https,
+  non-localhost origin (`navigator.clipboard` requires a secure
+  context — the API is simply absent over plain `http://<lan-ip>`, not
+  just denied). Added a `document.execCommand("copy")` legacy fallback
+  and a status message that explains the requirement instead of always
+  saying the same generic thing.
+
+See `docs/DECISIONS.md`, "dev-console-copy-fallback."
+
 ## [0.24.0] — Add: vehicles (hauling carts + personal mounts)
 
 ### Added
