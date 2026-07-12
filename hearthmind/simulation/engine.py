@@ -30,7 +30,7 @@ try:
 except ImportError:  # pragma: no cover — this project's target hardware is Linux
     resource = None  # type: ignore[assignment]
 
-from hearthmind.agents.agent import DIALOGUE_COOLDOWN_TICKS
+from hearthmind.agents.agent import DIALOGUE_COOLDOWN_TICKS, AgentGoal
 from hearthmind.config import Config
 from hearthmind.llm import chronicle, culture, dialogue, festival, invention
 from hearthmind.llm.client import OllamaClient
@@ -38,6 +38,7 @@ from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal,
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import load_latest_snapshot, log_event, recent_events, save_snapshot
 from hearthmind.settlement.buildings import (
+    CURRENCY_CAPACITY,
     FESTIVAL_CHANCE_PER_SEASON,
     FESTIVAL_HUNGER_GATE,
     INVENTION_CHANCE_PER_YEAR,
@@ -211,6 +212,7 @@ class SimulationEngine:
         tick_start = time.perf_counter()
         self._apply_pending_cognition_results()
         self._apply_pending_dialogue_results()
+        self._apply_pending_interventions()
 
         previous_season = self.world.clock.season
         events = self.world.tick()
@@ -319,6 +321,65 @@ class SimulationEngine:
                 )
                 self.world.rumor_total += 1
         self._pending_dialogue_results.clear()
+
+    # --- interventions ("nudges" from outside the simulation) ------------------
+
+    def _apply_pending_interventions(self) -> None:
+        """Drains anything queued via the browser API's `/intervene/*`
+        endpoints (see `WorldBroadcaster.enqueue_intervention`) and
+        applies each one synchronously, same seam as
+        `_apply_pending_cognition_results` — the tick loop stays the
+        only thing that mutates `World`; the API layer only ever
+        enqueues a request for the *next* tick to apply. No-op when the
+        API isn't enabled. See docs/DECISIONS.md, interventions pass."""
+        if self._broadcaster is None:
+            return
+        for item in self._broadcaster.drain_interventions():
+            try:
+                self._apply_intervention(item)
+            except Exception:
+                logger.exception("Failed to apply intervention: %r", item)
+
+    def _apply_intervention(self, item: dict) -> None:
+        kind = item.get("type")
+        if kind == "agent_goal":
+            agent = self.world.population.get(item["agent_id"])
+            if agent is None:
+                return
+            goal = AgentGoal(item["goal"])
+            reason = item.get("reason") or "a nudge from outside the simulation"
+            self.world.population.apply_goal(agent.id, goal, reason)
+            log_event(
+                self.conn, tick=self.world.clock.tick_count, category="intervention",
+                description=f"{agent.name} was nudged toward {goal.value} — {reason}",
+            )
+        elif kind == "settlement_resources":
+            settlement = self.world.settlement
+            materials_delta = float(item.get("materials", 0.0))
+            currency_delta = float(item.get("currency", 0.0))
+            settlement.materials = max(0.0, min(MATERIALS_CAPACITY, settlement.materials + materials_delta))
+            settlement.currency = max(0.0, min(CURRENCY_CAPACITY, settlement.currency + currency_delta))
+            log_event(
+                self.conn, tick=self.world.clock.tick_count, category="intervention",
+                description=(
+                    f"An outside hand adjusted the settlement's stores "
+                    f"(materials {materials_delta:+.1f}, currency {currency_delta:+.1f})."
+                ),
+            )
+        elif kind == "weather":
+            weather = self.world.weather
+            if "temperature_c" in item:
+                weather.temperature_c = float(item["temperature_c"])
+            if "precipitation" in item:
+                weather.precipitation = max(0.0, min(1.0, float(item["precipitation"])))
+            if "wind" in item:
+                weather.wind = max(0.0, min(1.0, float(item["wind"])))
+            if "is_snowing" in item:
+                weather.is_snowing = bool(item["is_snowing"])
+            log_event(
+                self.conn, tick=self.world.clock.tick_count, category="intervention",
+                description=f"The weather shifted unnaturally — an outside hand nudged it to {weather.describe()}.",
+            )
 
     def _schedule_due_dialogue(self) -> None:
         """Fire-and-forget an LLM-authored dialogue job for each colocated

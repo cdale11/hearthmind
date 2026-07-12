@@ -768,6 +768,15 @@ class Population:
                 self._next_id += 1
                 newborns.append(child)
                 life_events.append(("birth", f"{child.name} was born to {a.name} and {b.name}."))
+                # Generational memory: a newborn "knows" its parents from
+                # birth (looked up by id later — parent names can change
+                # by nothing here, but this fixes the names at the
+                # moment they mattered), and the parents remember the
+                # birth too. See docs/DECISIONS.md, interventions/
+                # family-memory pass.
+                _remember(child, f"I was born to {a.name} and {b.name}.")
+                _remember(a, f"{child.name} was born to us.")
+                _remember(b, f"{child.name} was born to us.")
 
         self.agents.extend(newborns)
         return life_events
@@ -1019,7 +1028,19 @@ class Population:
             for other in self.agents:
                 if other.id == agent.id or other.id in dying_ids:
                     continue
-                if other.relationships.get(agent.id, 0.0) >= REPRODUCTION_AFFINITY_THRESHOLD:
+                is_child = other.parents is not None and agent.id in other.parents
+                is_parent = agent.parents is not None and other.id in agent.parents
+                if is_child or is_parent:
+                    # Family grief lands regardless of the numeric
+                    # relationship value — a newborn's affinity with its
+                    # own parent may not have accrued much yet, but
+                    # losing a parent (or a child) is memorable
+                    # regardless. See docs/DECISIONS.md, family-memory
+                    # pass.
+                    label = "parent" if is_child else "child"
+                    _remember(other, f"My {label}, {agent.name}, died.")
+                    other.energy = max(0.0, other.energy - GRIEF_ENERGY_PENALTY)
+                elif other.relationships.get(agent.id, 0.0) >= REPRODUCTION_AFFINITY_THRESHOLD:
                     _remember(other, f"{agent.name} died. I miss them.")
                     other.energy = max(0.0, other.energy - GRIEF_ENERGY_PENALTY)
         self.agents = survivors

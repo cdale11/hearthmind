@@ -27,7 +27,18 @@ def build_prompt(
     agent_a: Agent, agent_b: Agent, affinity: float, settlement_name: str,
     latest_tradition: str, season: str, weather: str,
 ) -> str:
-    if affinity >= 0.6:
+    is_parent_child = (
+        (agent_a.parents is not None and agent_b.id in agent_a.parents)
+        or (agent_b.parents is not None and agent_a.id in agent_b.parents)
+    )
+    if is_parent_child:
+        # Family ties override the affinity-band read — a parent and
+        # child talk like family even on a tick their numeric affinity
+        # happens to read distant, and a fresh LLM prompt should know
+        # this is not two strangers. See docs/DECISIONS.md,
+        # family-memory pass.
+        tie = "parent and child"
+    elif affinity >= 0.6:
         tie = "close friends"
     elif affinity <= RIVALRY_THRESHOLD:
         tie = "at odds with each other"

@@ -4,6 +4,22 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.26.0] — Add: interventions, family memory, smooth/lit rendering
+
+### Added
+- `/intervene/agent-goal`, `/intervene/settlement`, `/intervene/weather`
+  POST endpoints — queued and applied by the engine at the top of its
+  next tick, logged as `intervention` events.
+- Family memory: a newborn remembers both parents from birth, parents
+  remember the birth; losing a parent/child logs a memory and pays
+  grief regardless of numeric relationship value. NPC dialogue prompts
+  now recognize a parent/child pair as family, not just by affinity.
+- Smooth inter-tick agent movement interpolation, and a day/night +
+  weather lighting tint on the browser map.
+
+See `docs/DECISIONS.md`, "Interventions, family memory, and smooth/lit
+rendering."
+
 ## [0.25.0] — Add: terrain evolution (local activity + climate drift)
 
 ### Added

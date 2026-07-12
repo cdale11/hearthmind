@@ -56,24 +56,25 @@ plausibly improves emergence, subject to the liveness rule below.
   determinism) — the fallback no longer needs to be reproducible, just
   non-blocking.
 
-## Current state (v0.25.0+)
+## Current state (v0.26.0+)
 
 Phases A-G roadmap items are in flight; Phases A-F have substantial
 content shipped (deterministic substrate now optional-determinism,
 LLM cognition/dialogue/culture, settlements with real material costs,
 farming, wildlife/ecology, roads, vehicles, terrain evolution (local
-activity + climate/biome drift), a weather particle overlay, a live
-browser UI with a dev diagnostics console). See `docs/DECISIONS.md` for
-the full decision log, `docs/ROADMAP.md` for phase-by-phase plan and
-the original feature checklist, `CHANGELOG.md` for version history.
+activity + climate/biome drift), generational/family agent memory,
+intervention ("nudge") endpoints, a weather particle overlay + day/
+night lighting + smooth agent movement, a live browser UI with a dev
+diagnostics console). See `docs/DECISIONS.md` for the full decision
+log, `docs/ROADMAP.md` for phase-by-phase plan and the original
+feature checklist, `CHANGELOG.md` for version history.
 
 ## Known architectural gaps (not yet built)
 
-- Further browser visual richness beyond the weather particle overlay
-  and vehicle/building/wildlife map markers already shipped (e.g.
-  smooth inter-tick agent movement interpolation, lighting/gradients).
-- Per-agent inventory/trade, multiple named settlements, generational/
-  family-specific agent memory, intervention ("nudge") endpoints.
+- Per-agent inventory/trade and multiple named settlements — both
+  genuinely large, architecturally separate efforts (the latter means
+  `Settlement` stops being a world-wide singleton), intentionally not
+  bundled into smaller batches.
 - Phase G (subtle supernatural layer) — not started, deliberately last.
 
 ## Conventions

@@ -6,8 +6,15 @@ fresh payload into it once per tick (fire-and-forget, never awaited
 inline — see `_maybe_broadcast` in simulation/engine.py), and it holds
 the *last* payload for `GET /state` plus a set of live WebSocket
 connections to push to. It never reaches back into the engine or the
-`World` itself — one-way data flow, read-only, same as every other
-observation surface (`inspect_world`). See docs/DECISIONS.md, F1/F2.
+`World` itself directly. The data flow is mostly one-way/read-only,
+same as every other observation surface (`inspect_world`) — with one
+deliberate exception: `enqueue_intervention`/`drain_interventions` is a
+small queued channel the FastAPI app's `/intervene/*` endpoints use to
+request a change (nudge an agent's goal, adjust settlement stores,
+nudge the weather); `SimulationEngine` is still the only thing that
+actually mutates `World`, applying each queued item synchronously at
+the top of its next tick — see `_apply_pending_interventions`. See
+docs/DECISIONS.md, F1/F2 and the interventions pass.
 """
 from __future__ import annotations
 
@@ -24,6 +31,7 @@ class WorldBroadcaster:
         self._last_payload: dict | None = None
         self._terrain_payload: dict | None = None
         self._diagnostics_provider: Callable[[], dict] | None = None
+        self._interventions: list[dict] = []
 
     # --- called by SimulationEngine (writer side) -----------------------------
 
@@ -51,6 +59,24 @@ class WorldBroadcaster:
 
     def get_full_diagnostics(self) -> dict | None:
         return self._diagnostics_provider() if self._diagnostics_provider else None
+
+    # --- called by the FastAPI app (writer side — interventions only) ---------
+
+    def enqueue_intervention(self, intervention: dict) -> None:
+        """Called by a `/intervene/*` POST handler. Queued, not applied —
+        `SimulationEngine._apply_pending_interventions` drains and
+        applies this at the top of its next tick, so `World` is still
+        only ever mutated from the tick loop. See docs/DECISIONS.md,
+        interventions pass."""
+        self._interventions.append(intervention)
+
+    # --- called by SimulationEngine (writer side) -----------------------------
+
+    def drain_interventions(self) -> list[dict]:
+        """Returns and clears everything queued since the last drain —
+        called once per tick."""
+        drained, self._interventions = self._interventions, []
+        return drained
 
     async def broadcast(self, payload: dict) -> None:
         self._last_payload = payload

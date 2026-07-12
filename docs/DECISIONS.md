@@ -1427,3 +1427,78 @@ nonzero climate bias; `World.to_dict`/`from_dict` round-trips both
 `climate` and a populated `terrain_activity` dict correctly; a combined
 6000-tick run with vehicles simultaneously active showed no
 interference between the two systems.
+
+## Interventions, family memory, and smooth/lit rendering
+
+Three previously-deferred gaps closed together (per "continue building
+everything, do batch"): intervention ("nudge") endpoints, generational/
+family-specific agent memory, and further browser visual richness
+(smooth movement, day/night lighting) — the remaining items after
+vehicles and terrain evolution, short of the two genuinely large,
+architecturally separate items (multiple named settlements, per-agent
+inventory/trade) intentionally left for their own future pass, plus
+Phase G (deliberately last).
+
+**Interventions.** `interface/api.py`'s `WorldBroadcaster` gains
+`enqueue_intervention`/`drain_interventions` — the one deliberate
+exception to its otherwise read-only, one-way data flow (its module
+docstring is updated to say so explicitly rather than silently going
+stale). Three new POST endpoints (`interface/app.py`) enqueue a request;
+`SimulationEngine._apply_pending_interventions` drains and applies it
+synchronously at the very top of `_tick_once`, in the same seam as
+`_apply_pending_cognition_results`/`_apply_pending_dialogue_results` —
+`World` is still only ever mutated by the tick loop itself, never
+directly from a request handler. Three kinds: `agent_goal` (nudges one
+agent's `AgentGoal`, applied via the existing `Population.apply_goal`
+used by cognition), `settlement_resources` (delta materials/currency,
+clamped to capacity/zero), `weather` (directly sets any subset of
+temperature/precipitation/wind/is_snowing on `World.weather` — since
+`World.tick()` immediately runs `compute_weather(..., previous=self.weather)`
+afterward, a nudge becomes the new "previous" baseline and then keeps
+evolving naturally rather than being pinned). Every applied intervention
+is logged as an `intervention` category event, visible in the normal
+event log/chronicle feed like anything else that happens in the world.
+
+**Family memory.** `Agent.parents` already existed (set at birth,
+`_maybe_reproduce`) but nothing read it back into memory. Now: a
+newborn gets an immediate memory naming both parents, and both parents
+get a memory of the birth. `_apply_deaths`' grief pass gained a
+family-specific branch: losing a parent or a child logs a memory and
+pays the usual `GRIEF_ENERGY_PENALTY` *regardless* of the numeric
+relationship value — a newborn's accrued affinity toward its own parent
+may still be low (relationships build from colocation over time), but
+losing a parent is memorable independent of that number. `llm/dialogue.py`'s
+`build_prompt` also checks `parents` and overrides the affinity-band
+read with "parent and child" when it applies, so an LLM-authored
+exchange between family reads as family even on a tick where their
+numeric affinity happens to read distant.
+
+**Smooth movement + lighting** (`interface/static/app.js`). Two related
+rendering changes:
+- Agent dots previously snapped straight to their new tile once per
+  tick (visible as jitter at low tick rates). `updateAgentAnimTargets`
+  tracks each agent's last two known grid positions and interpolates
+  between them over `AGENT_ANIM_DURATION_MS` (350ms), independent of
+  actual tick cadence. This requires the main map to redraw every
+  animation frame rather than once per tick, so `drawFrame()` is now
+  driven by its own `renderLoop` (`requestAnimationFrame`), same
+  pattern the weather particle overlay already used — `applyPayload`
+  no longer calls `drawFrame()` directly, just updates the interpolation
+  targets and the rest of the payload state.
+- A day/night + weather lighting tint (`drawLighting`) is drawn into the
+  existing weather canvas, underneath the rain/snow particles: darkest
+  around midnight (`nightFactor`, parsed from the clock string), fading
+  to none at noon, plus a smaller bump for heavy precipitation. Reuses
+  the weather canvas rather than adding a third layer.
+
+Verified: intervention round-trip exercised directly against a live
+`SimulationEngine` (agent goal nudge, settlement resource delta,
+weather nudge) — all three applied, logged, and (for weather) correctly
+continued evolving from the nudged baseline rather than staying pinned.
+Family-memory birth/death flow exercised with two agents forced into
+reproduction range — verified the newborn's and both parents' memories,
+then forced the parent's death and verified the family-specific grief
+memory fired. `node --check` and a live FastAPI route listing confirm
+all three new POST routes register. Client-side interpolation/lighting
+changes are syntax-checked only (`node --check`) — no headless-browser
+run in this environment; visually verify in a real browser next.

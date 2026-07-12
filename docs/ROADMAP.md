@@ -28,7 +28,7 @@ build" — phases below are the *how*, this table is the *what*.
 | Construction | shipped | Phase C |
 | Infrastructure | shipped | C5 (`hearthmind/world/roads.py`) — foot-traffic-driven path wear/decay, established roads speed movement |
 | Building decay | shipped | C1-C4 (weathering, ruin, reclamation) |
-| Culture | partial | E1 (naming, traditions) + E3 (prosperity-gated inventions/tech unlocks); festivals/generational memory not built |
+| Culture | shipped (single-settlement) | E1 (naming, traditions) + E3 (prosperity-gated inventions/tech unlocks) + festivals + generational/family memory; multiple named settlements not built |
 | History | partial | B3 (chronicle) + E1 (traditions feed prompts); no replay/browsable history view (Phase F) |
 | Optional subtle supernatural elements | **not started** | Phase G, deliberately last |
 
@@ -242,10 +242,15 @@ starts producing content that surprises its creator.
   a relationship boost when one is held. Distinct from traditions
   (yearly, prosperity-agnostic, narrative-only). See
   `docs/DECISIONS.md`, "Batch: predator danger...".
-- Not yet built: per-agent generational memory (an agent recalling their
-  own *family's* history specifically, beyond the general memory log
-  shipped this batch), multiple named settlements, culture-specific
-  building types.
+- **[x] Generational/family memory.** A newborn remembers both parents
+  from birth, parents remember the birth; losing a parent/child logs a
+  family-specific memory and pays grief regardless of numeric
+  relationship value (a newborn's affinity toward its own parent may
+  not have accrued much yet). NPC dialogue prompts recognize a parent/
+  child pair as family. See `docs/DECISIONS.md`, "Interventions, family
+  memory, and smooth/lit rendering."
+- Not yet built: multiple named settlements, culture-specific building
+  types.
 
 ## Phase F — Browser interface
 
@@ -274,9 +279,20 @@ the simulation.
   wildlife, roads, dialogue); wildlife and road wear are now drawn on
   the map; a `⚙ dev` toggle exposes raw engine telemetry (tick timing,
   task counts, connected clients). See `docs/DECISIONS.md`, "UI pass."
+- **[x] Smooth movement + day/night lighting.** Agent dots interpolate
+  between grid positions over `AGENT_ANIM_DURATION_MS` instead of
+  snapping once per tick; a day/night + weather lighting tint darkens
+  the map at night and under heavy precipitation. See
+  `docs/DECISIONS.md`, "Interventions, family memory, and smooth/lit
+  rendering."
+- **[x] Intervention ("nudge") endpoints.** `POST /intervene/agent-goal`,
+  `/intervene/settlement`, `/intervene/weather` — queued via
+  `WorldBroadcaster.enqueue_intervention` and applied synchronously by
+  the engine at the top of its next tick, the same seam as pending
+  cognition/dialogue results, so `World` is still only ever mutated
+  from the tick loop. See `docs/DECISIONS.md`, same entry.
 - Not yet built: per-agent click-to-inspect beyond hover tooltips, a
-  historical/replay view, and — last, per the ordering above — any
-  intervention/"nudge" endpoints.
+  historical/replay view.
 
 ## Phase G — Supernatural / psychological horror layer
 

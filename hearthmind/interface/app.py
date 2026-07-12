@@ -82,6 +82,39 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection) -> FastA
             "snapshot_rows": snapshot_count(conn),
         })
 
+    @app.post("/intervene/agent-goal")
+    async def intervene_agent_goal(payload: dict) -> JSONResponse:
+        """Nudge one agent's goal — queued for the engine's next tick,
+        applied the same way LLM cognition applies a goal decision. See
+        docs/DECISIONS.md, interventions pass."""
+        agent_id, goal = payload.get("agent_id"), payload.get("goal")
+        if agent_id is None or goal is None:
+            return JSONResponse({"error": "agent_id and goal are required"}, status_code=400)
+        broadcaster.enqueue_intervention({
+            "type": "agent_goal", "agent_id": agent_id, "goal": goal, "reason": payload.get("reason", ""),
+        })
+        return JSONResponse({"queued": True})
+
+    @app.post("/intervene/settlement")
+    async def intervene_settlement(payload: dict) -> JSONResponse:
+        """Nudge the settlement's shared stockpiles by a delta (positive
+        or negative), clamped to capacity/zero by the engine."""
+        broadcaster.enqueue_intervention({
+            "type": "settlement_resources",
+            "materials": payload.get("materials", 0.0),
+            "currency": payload.get("currency", 0.0),
+        })
+        return JSONResponse({"queued": True})
+
+    @app.post("/intervene/weather")
+    async def intervene_weather(payload: dict) -> JSONResponse:
+        """Nudge current weather directly — any subset of
+        temperature_c/precipitation/wind/is_snowing. Weather keeps
+        evolving naturally from the nudged values afterward (see
+        world/weather.py's smoothing), it isn't pinned."""
+        broadcaster.enqueue_intervention({"type": "weather", **payload})
+        return JSONResponse({"queued": True})
+
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:
         await websocket.accept()

@@ -217,9 +217,10 @@ function drawFrame() {
   }
 
   for (const a of latest.agents) {
+    const { px, py } = agentRenderPos(a);
     ctx.beginPath();
     ctx.fillStyle = a.state === "resting" ? "#8894c9" : "#f2f2f2";
-    ctx.arc(a.x * CELL + CELL / 2, a.y * CELL + CELL / 2, CELL / 3, 0, Math.PI * 2);
+    ctx.arc(px, py, CELL / 3, 0, Math.PI * 2);
     ctx.fill();
     if (a.starving_ticks > 0) {
       ctx.strokeStyle = "#e0473c";
@@ -228,6 +229,52 @@ function drawFrame() {
     }
   }
 }
+
+// --- smooth inter-tick agent movement --------------------------------------
+// Server ticks (and thus new agent positions) arrive at most a few times a
+// second; snapping each dot straight to its new tile on every tick reads as
+// jittery teleportation. Instead each agent's last-known and newest grid
+// positions are tracked here and linearly interpolated over
+// AGENT_ANIM_DURATION_MS, driven by `renderLoop`'s own requestAnimationFrame
+// loop (independent of tick cadence, same pattern as the weather overlay).
+
+const AGENT_ANIM_DURATION_MS = 350;
+const agentAnim = new Map(); // id -> {fx, fy, tx, ty, t0, dur} (grid coords)
+
+function updateAgentAnimTargets(agents) {
+  const now = performance.now();
+  const seen = new Set();
+  for (const a of agents) {
+    seen.add(a.id);
+    const prev = agentAnim.get(a.id);
+    if (!prev) {
+      agentAnim.set(a.id, { fx: a.x, fy: a.y, tx: a.x, ty: a.y, t0: now, dur: 1 });
+      continue;
+    }
+    const t = Math.min(1, (now - prev.t0) / prev.dur);
+    const curX = prev.fx + (prev.tx - prev.fx) * t;
+    const curY = prev.fy + (prev.ty - prev.fy) * t;
+    agentAnim.set(a.id, { fx: curX, fy: curY, tx: a.x, ty: a.y, t0: now, dur: AGENT_ANIM_DURATION_MS });
+  }
+  for (const id of agentAnim.keys()) {
+    if (!seen.has(id)) agentAnim.delete(id); // agent died/despawned
+  }
+}
+
+function agentRenderPos(a) {
+  const anim = agentAnim.get(a.id);
+  if (!anim) return { px: a.x * CELL + CELL / 2, py: a.y * CELL + CELL / 2 };
+  const t = Math.min(1, (performance.now() - anim.t0) / anim.dur);
+  const gx = anim.fx + (anim.tx - anim.fx) * t;
+  const gy = anim.fy + (anim.ty - anim.fy) * t;
+  return { px: gx * CELL + CELL / 2, py: gy * CELL + CELL / 2 };
+}
+
+function renderLoop() {
+  drawFrame();
+  requestAnimationFrame(renderLoop);
+}
+requestAnimationFrame(renderLoop);
 
 // --- weather particle overlay --------------------------------------------
 // Runs its own requestAnimationFrame loop, independent of tick cadence, so
@@ -260,9 +307,37 @@ function spawnWeatherParticles(w) {
   if (weatherParticles.length > target) weatherParticles.length = target;
 }
 
+// --- day/night + weather lighting -------------------------------------
+// A flat dark tint over the map whose strength depends on time of day
+// (darkest around midnight, none at noon) plus a smaller bump for heavy
+// precipitation/snow (overcast reads darker than clear skies) — drawn
+// into the same weather canvas, underneath the rain/snow particles, so
+// this needs no extra layer. See docs/DECISIONS.md, visual-richness pass.
+
+const NIGHT_MAX_ALPHA = 0.55;
+const WEATHER_DARKEN_MAX_ALPHA = 0.15;
+
+function nightFactor(clockStr) {
+  if (!clockStr) return 0;
+  const hour = Number(clockStr.split(":")[0]);
+  if (Number.isNaN(hour)) return 0;
+  const distFromNoon = Math.min(Math.abs(hour - 12), 24 - Math.abs(hour - 12));
+  return Math.max(0, Math.min(1, distFromNoon / 12));
+}
+
+function drawLighting(w) {
+  const night = nightFactor(latest && latest.summary && latest.summary.clock);
+  const weatherDark = w ? Math.min(1, w.precipitation) * WEATHER_DARKEN_MAX_ALPHA : 0;
+  const alpha = Math.min(0.75, night * NIGHT_MAX_ALPHA + weatherDark);
+  if (alpha <= 0.01) return;
+  weatherCtx.fillStyle = `rgba(4, 6, 16, ${alpha})`;
+  weatherCtx.fillRect(0, 0, weatherCanvas.width, weatherCanvas.height);
+}
+
 function stepWeatherParticles() {
   const w = currentWeatherDetail();
   weatherCtx.clearRect(0, 0, weatherCanvas.width, weatherCanvas.height);
+  drawLighting(w);
   if (!w || (w.precipitation < 0.05 && !w.is_snowing)) {
     weatherParticles.length = 0;
     requestAnimationFrame(stepWeatherParticles);
@@ -454,7 +529,7 @@ async function refreshTerrainIfChanged(events) {
 function applyPayload(payload) {
   latest = payload;
   renderStats(payload.summary);
-  drawFrame();
+  updateAgentAnimTargets(payload.agents || []);
   if (payload.diagnostics) renderDevConsole(payload);
   if (payload.life_events && payload.life_events.length) {
     prependEvents(payload.life_events.map((e) => ({ ...e, tick: payload.summary.tick })));
