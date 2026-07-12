@@ -29,12 +29,19 @@ _FALLBACK_POOL: tuple[tuple[str, str], ...] = (
 )
 
 
-def build_prompt(settlement_name: str, recent_events: list[dict], season: str) -> str:
+def build_prompt(
+    settlement_name: str, recent_events: list[dict], season: str, beliefs: list[dict] | None = None,
+) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
+    beliefs_text = (
+        "\nThe village's own theories about itself: "
+        + "; ".join(f"{b['subject']} ({b['belief']})" for b in beliefs) + "."
+        if beliefs else ""
+    )
     return (
         f"The village of {settlement_name} is well-fed and gathering as {season} arrives. "
-        f"Recent history:\n{events_text}\n"
+        f"Recent history:\n{events_text}{beliefs_text}\n"
         "Invent one festival the village holds right now."
     )
 

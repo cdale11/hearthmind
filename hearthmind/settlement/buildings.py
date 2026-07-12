@@ -106,6 +106,15 @@ DECAY_WEATHER_MULTIPLIER = 3.0
 """Multiplier applied to decay during precipitation or high wind — storms
 wear structures down faster than fair weather."""
 
+SEASON_DECAY_MULTIPLIER = {"winter": 1.4, "autumn": 1.15, "spring": 1.0, "summer": 0.85}
+"""Applied on top of DECAY_WEATHER_MULTIPLIER, not instead of it — real
+building wear isn't just "is it raining right now," it's also the
+season: winter's freeze-thaw cycles (water expanding in cracks) and
+persistent damp are genuinely harder on masonry/timber than a dry
+summer, independent of any single tick's weather. A season absent from
+this table (shouldn't happen — all four exist) defaults to 1.0. See
+docs/DECISIONS.md, "map/UI/ecology follow-up.\""""
+
 SETTLE_CHANCE_PER_TICK = 0.01
 """Rolled only for mature, healthy, colocated (2+) agents standing on a
 tile with no existing building — see Population._maybe_start_construction.
@@ -616,17 +625,21 @@ class Settlement:
 
     # --- tick: weathering, ruin, reclamation ----------------------------------
 
-    def tick(self, weather: WeatherState) -> list[tuple[str, str]]:
-        """Weather-driven decay of standing buildings into ruins, and
-        eventual removal of long-abandoned ruins. Returns life-cycle
-        events as (category, description) pairs. Construction/repair
-        progress (which needs agent presence) is handled separately by
-        Population.tick, since Settlement has no agent awareness."""
+    def tick(self, weather: WeatherState, season: str = "summer") -> list[tuple[str, str]]:
+        """Weather- and season-driven decay of standing buildings into
+        ruins, and eventual removal of long-abandoned ruins. Returns
+        life-cycle events as (category, description) pairs.
+        Construction/repair progress (which needs agent presence) is
+        handled separately by Population.tick, since Settlement has no
+        agent awareness."""
         events: list[tuple[str, str]] = []
         survivors: list[Building] = []
 
         weather_harsh = weather.precipitation > 0.4 or weather.wind > 0.5 or weather.is_snowing
-        decay = DECAY_PER_TICK_BASE * (DECAY_WEATHER_MULTIPLIER if weather_harsh else 1.0)
+        decay = (
+            DECAY_PER_TICK_BASE * (DECAY_WEATHER_MULTIPLIER if weather_harsh else 1.0)
+            * SEASON_DECAY_MULTIPLIER.get(season, 1.0)
+        )
 
         for building in self.buildings:
             if building.stage is BuildingStage.STANDING:
@@ -646,7 +659,10 @@ class Settlement:
 
         self.buildings = survivors
 
-        vehicle_decay = VEHICLE_DECAY_PER_TICK_BASE * (VEHICLE_DECAY_WEATHER_MULTIPLIER if weather_harsh else 1.0)
+        vehicle_decay = (
+            VEHICLE_DECAY_PER_TICK_BASE * (VEHICLE_DECAY_WEATHER_MULTIPLIER if weather_harsh else 1.0)
+            * SEASON_DECAY_MULTIPLIER.get(season, 1.0)
+        )
         for vehicle in self.vehicles:
             if vehicle.stage is not VehicleStage.READY:
                 continue
@@ -702,6 +718,7 @@ class Settlement:
             "education_capacity": EDUCATION_CAPACITY,
             "current_priority": self.current_priority,
             "priority_rationale": self.priority_rationale,
+            "pending_player_whispers": list(self.player_influence),
             "era": self.era,
             "era_description": ERA_DESCRIPTIONS.get(self.era, ""),
             "founding_scenario": self.founding_scenario,

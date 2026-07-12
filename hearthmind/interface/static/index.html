@@ -10,6 +10,7 @@
     <h1 id="settlement-name">Hearthmind</h1>
     <div id="clock-line" class="muted">connecting…</div>
     <div id="founding-scenario" class="muted hidden"></div>
+    <button id="history-toggle" class="dev-toggle" title="Summarized town history">📜 history</button>
     <button id="dev-toggle" class="dev-toggle" title="Developer console: raw diagnostics/telemetry">⚙ dev</button>
   </header>
 
@@ -31,6 +32,12 @@
           <button type="submit">Whisper</button>
         </form>
         <span id="whisper-status" class="muted"></span>
+        <div id="pending-whispers" class="muted hidden"></div>
+      </div>
+
+      <div class="panel hidden" id="history-panel">
+        <h2>Town history</h2>
+        <ul id="history-list" class="muted"><li>loading…</li></ul>
       </div>
 
       <div class="panel">

@@ -16,7 +16,13 @@ from fastapi.staticfiles import StaticFiles
 
 from hearthmind import __version__
 from hearthmind.interface.api import WorldBroadcaster
-from hearthmind.persistence.snapshot import event_category_counts, recent_events, snapshot_count, total_event_count
+from hearthmind.persistence.snapshot import (
+    event_category_counts,
+    history_events,
+    recent_events,
+    snapshot_count,
+    total_event_count,
+)
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
@@ -63,6 +69,14 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection) -> FastA
     @app.get("/events")
     async def events(limit: int = 50) -> JSONResponse:
         return JSONResponse(recent_events(conn, limit=limit))
+
+    @app.get("/history")
+    async def history(limit: int = 200) -> JSONResponse:
+        """A summarized town history — founding, naming, era advances,
+        chronicle/tradition/invention/festival entries, beliefs formed/
+        revised, and omens — filtered out of the everything-included
+        live event feed. Backs the UI's History tab."""
+        return JSONResponse(history_events(conn, limit=limit))
 
     @app.get("/diagnostics")
     async def diagnostics() -> JSONResponse:

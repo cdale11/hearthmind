@@ -4,6 +4,60 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.32.0] — Map/UI/ecology follow-up: bug fixes + history tab + UK daylight + diagnostics
+
+### Fixed
+- **Wildlife could go permanently extinct.** `WildlifeGrid` had no
+  repopulation mechanic after world creation — a species that ever hit
+  0 herds/packs (predators starving out, especially likely now that
+  grazers flee) was gone forever. Added `_maybe_recolonize`: a rare,
+  per-tick roll that can spawn a new grazer herd or (only if grazers
+  already exist to sustain it) a predator pack, migrating in from
+  beyond the map's edge. Directly root-caused from a live report
+  showing "0 predators (0 packs)."
+- **Roads were nearly invisible.** The old `wear * 0.6` alpha scaling
+  made anything below "established" (wear >= 0.5) read as ~6% opacity
+  — practically invisible. Roads now get a visible tint from the first
+  bit of wear.
+- **Wild resource nodes (bushes/mines) weren't sent to the client at
+  all** — only an aggregate count reached the UI, never actual
+  positions. Now broadcast every tick and rendered as small map
+  markers, dimming as they deplete.
+- Buildings render larger (bleeding 1px past their tile) with a
+  brighter stroke for legibility against terrain.
+
+### Added
+- `GET /history` + a History tab: a curated, summarized town history
+  (founding, naming, era advances, chronicle/tradition/invention/
+  festival entries, beliefs formed/revised, omens, wildlife
+  recolonization) filtered out of the everything-included live event
+  feed.
+- Real UK daylight hours: the map's day/night lighting now varies by
+  month (~8h daylight in December, ~16.5h in June) instead of a fixed
+  6am-6pm ramp, via an approximate London-latitude sunrise/sunset
+  table. A new "Daylight" stat tile shows the current month's sunrise/
+  sunset.
+- Season-based building/vehicle wear: `SEASON_DECAY_MULTIPLIER`
+  (winter 1.4x, autumn 1.15x, spring 1.0x, summer 0.85x) applied on top
+  of the existing weather-harshness multiplier — freeze-thaw and damp
+  genuinely wear structures faster than a dry summer, independent of
+  any single tick's weather.
+- Beliefs now feed festival and invention prompts too (previously only
+  town_brain, chronicle, and matched-agent dialogue) — broadening how
+  the village's own accumulated theories shape what the LLM does, per
+  "beliefs should affect the whole village."
+- Extensive new diagnostics: `full_diagnostics()` now includes
+  `last_llm_calls` (the most recent prompt + result + fallback flag for
+  every named LLM job — town_brain, beliefs, omen, naming, chronicle,
+  tradition, invention, festival, dialogue), `pending_player_whispers`,
+  and `temperament`. The whisper form also shows queued-but-not-yet-
+  heard whispers directly in the UI, not just in diagnostics.
+
+See `docs/DECISIONS.md`, "map/UI/ecology follow-up," for the full
+per-item root-cause writeup, including two items deliberately scoped
+out of this batch (rivers as a distinct terrain feature; daylight
+hours driving anything beyond the visual lighting tint).
+
 ## [0.31.0] — Live-diagnostics follow-up: vehicle eras, dialogue quality, LLM-authored naming
 
 Driven directly by a real user diagnostic report running `qwen3.5:2b`

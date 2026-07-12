@@ -94,6 +94,21 @@ awareness, not just a passive victim of whatever tile a predator
 wanders onto. Mirrors Population._maybe_move's agent-vs-predator
 avoidance. See docs/DECISIONS.md, "LLM-as-brain batch.\""""
 
+WILDLIFE_RECOLONIZE_CHECK_CHANCE = 0.002
+"""Rolled once per tick; on success, checks whether a new grazer herd
+or predator pack should spawn (migration in from beyond the map's
+edge). Without this, a species that hits exactly 0 (e.g. every predator
+pack starving out, especially now that GRAZER_FLEE_RADIUS makes
+hunting harder) was gone from the world forever — `WildlifeGrid.generate`
+only ever runs once, at world creation. A real, user-reported bug (a
+live run showed "0 predators (0 packs)"), not a hypothetical. See
+docs/DECISIONS.md, "map/UI/ecology follow-up.\""""
+
+GRAZER_RECOLONIZE_TARGET_HERDS_FRACTION = 0.5
+"""A new grazer herd is more likely to spawn the further the current
+herd count is below (this fraction of what world-creation density would
+have produced for the map's size) — see `_maybe_recolonize`."""
+
 
 def _wildlife_init_rng(seed: int) -> random.Random:
     digest = hashlib.sha256(f"{seed}:wildlife_init".encode()).hexdigest()
@@ -276,6 +291,46 @@ class WildlifeGrid:
                     ))
 
         self.herds = {herd_id: h for herd_id, h in self.herds.items() if h.count > 0}
+
+        if rng.random() < WILDLIFE_RECOLONIZE_CHECK_CHANCE:
+            events += self._maybe_recolonize(rng, terrain)
+
+        return events
+
+    def _maybe_recolonize(self, rng: random.Random, terrain: list[list[Tile]]) -> list[tuple[str, str]]:
+        """A locally-extinct (or thin) species can be recolonized from
+        beyond the map's edge — without this, a species that ever hits
+        exactly 0 herds/packs stays extinct forever, since
+        `WildlifeGrid.generate` only runs once at world creation. See
+        WILDLIFE_RECOLONIZE_CHECK_CHANCE."""
+        events: list[tuple[str, str]] = []
+        grazer_herds = [h for h in self.herds.values() if h.species is Species.GRAZER]
+        predator_packs = [h for h in self.herds.values() if h.species is Species.PREDATOR]
+
+        grazer_spots = [(t.x, t.y) for row in terrain for t in row if t.biome in GRAZER_BIOMES]
+        target_herds = max(1, int(len(grazer_spots) * HERD_DENSITY * GRAZER_RECOLONIZE_TARGET_HERDS_FRACTION))
+        if len(grazer_herds) < target_herds and grazer_spots:
+            x, y = rng.choice(grazer_spots)
+            self.herds[self._next_id] = AnimalHerd(
+                id=self._next_id, species=Species.GRAZER, x=x, y=y, count=INITIAL_HERD_SIZE,
+            )
+            self._next_id += 1
+            events.append(("wildlife_recolonized", f"A new grazer herd was seen near ({x}, {y})."))
+
+        if not predator_packs and grazer_herds:
+            # Only recolonize predators if there's already prey to
+            # sustain them — a predator pack with nothing to hunt would
+            # just starve out again immediately.
+            predator_spots = [(t.x, t.y) for row in terrain for t in row if t.biome in PREDATOR_BIOMES]
+            if predator_spots:
+                x, y = rng.choice(predator_spots)
+                self.herds[self._next_id] = AnimalHerd(
+                    id=self._next_id, species=Species.PREDATOR, x=x, y=y,
+                    count=rng.randint(MIN_PREDATOR_PACK, MAX_PREDATOR_PACK),
+                )
+                self._next_id += 1
+                events.append(("wildlife_recolonized", f"A predator pack has moved into the area near ({x}, {y})."))
+
         return events
 
     # --- summary -------------------------------------------------------------

@@ -169,6 +169,17 @@ class SimulationEngine:
         self._inflight_cognition_agent_ids: set[int] = set()
         self._pending_dialogue_results: list[tuple[int, int, dict]] = []
         self._background_tasks: set[asyncio.Task] = set()
+        self._last_llm_calls: dict[str, dict] = {}
+        """Most recent prompt/result/fallback-flag for each named LLM
+        job (town_brain, beliefs, omen, naming, chronicle, tradition,
+        invention, festival, dialogue, cognition), keyed by job name —
+        the concrete answer to "what prompt was given and what [the
+        LLM] acted on it": exposed via `full_diagnostics()` so a live
+        run's actual prompts/decisions are inspectable, not just their
+        narrated side effects in the event log. Only the latest call
+        per job is kept (bounded, not a growing history) — see
+        `_record_llm_debug`. See docs/DECISIONS.md, "map/UI/ecology
+        follow-up.\""""
         self._naming_scheduled = False
         """Guards `_maybe_schedule_naming` from firing more than once —
         naming is a one-time-per-world event, and the deterministic
@@ -276,6 +287,7 @@ class SimulationEngine:
         if new_name and new_name != old_name:
             self.world.settlement.name = new_name
             self._log("settlement_named", f"The village came to be known as {new_name}.")
+        self._record_llm_debug("naming", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)
 
     async def run_forever(self) -> None:
@@ -508,6 +520,7 @@ class SimulationEngine:
         )
         parsed = dialogue.parse_dialogue(result, fallback)
         self._pending_dialogue_results.append((agent_a_id, agent_b_id, parsed))
+        self._record_llm_debug("dialogue", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)
 
     # --- Phase B: world chronicle --------------------------------------------
@@ -534,6 +547,7 @@ class SimulationEngine:
         )
         summary = chronicle.parse_summary(result, fallback)
         self._log("chronicle", summary)
+        self._record_llm_debug("chronicle", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)
 
     # --- Phase E: village culture (traditions) --------------------------------
@@ -561,6 +575,7 @@ class SimulationEngine:
         entry = f"{name}: {description}"
         self.world.settlement.traditions.append(entry)
         self._log("tradition", f"The village established a new tradition — {entry}")
+        self._record_llm_debug("tradition", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)
 
     # --- Phase E3: inventions (tech-tier unlocks) -----------------------------
@@ -590,7 +605,9 @@ class SimulationEngine:
             return
         recent = recent_events(self.conn, limit=50)
         inventions = settlement.inventions
-        prompt = invention.build_prompt(settlement.name, recent, inventions, settlement.tech_level)
+        prompt = invention.build_prompt(
+            settlement.name, recent, inventions, settlement.tech_level, beliefs=list(settlement.beliefs),
+        )
         fallback = invention.fallback_invention(settlement.name, settlement.tech_level, len(inventions))
         task = asyncio.create_task(self._run_invention(prompt, fallback))
         self._background_tasks.add(task)
@@ -606,6 +623,7 @@ class SimulationEngine:
         self.world.settlement.tech_level += 1
         self._log("invention", f"The village invented {entry}")
         self._maybe_advance_era()
+        self._record_llm_debug("invention", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)
 
     def _maybe_advance_era(self) -> None:
@@ -641,7 +659,10 @@ class SimulationEngine:
             return
         recent = recent_events(self.conn, limit=50)
         festivals = self.world.settlement.festivals
-        prompt = festival.build_prompt(self.world.settlement.name, recent, self.world.clock.season)
+        prompt = festival.build_prompt(
+            self.world.settlement.name, recent, self.world.clock.season,
+            beliefs=list(self.world.settlement.beliefs),
+        )
         fallback = festival.fallback_festival(self.world.settlement.name, len(festivals))
         task = asyncio.create_task(self._run_festival(prompt, fallback))
         self._background_tasks.add(task)
@@ -656,6 +677,7 @@ class SimulationEngine:
         self.world.settlement.festivals.append(entry)
         affected = self.world.population.hold_festival()
         self._log("festival", f"The village held {entry} ({affected} bonds strengthened)")
+        self._record_llm_debug("festival", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)
 
     # --- the "town brain": seasonal civic-priority LLM decision -----------------
@@ -694,6 +716,7 @@ class SimulationEngine:
         self.world.settlement.current_priority = priority
         self.world.settlement.priority_rationale = rationale
         self._log("town_brain", f"The village's priority is now {priority} — {rationale}")
+        self._record_llm_debug("town_brain", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)
 
     # --- the town's own evolving theory of itself (continuous cognition) -------
@@ -753,6 +776,7 @@ class SimulationEngine:
                 weakest = min(settlement.beliefs, key=lambda b: b["confidence"])
                 settlement.beliefs.remove(weakest)
             self._log("belief_formed", f"The village came to believe something about {entry['subject']}: {entry['belief']}")
+        self._record_llm_debug("beliefs", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)
 
     # --- Phase G v1: temperament and omens (deliberately subtle) ---------------
@@ -795,6 +819,7 @@ class SimulationEngine:
         )
         omen = omens.parse_omen(result, fallback)
         self._log("omen", omen)
+        self._record_llm_debug("omen", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)
 
     def _log(self, category: str, description: str) -> None:
@@ -816,6 +841,14 @@ class SimulationEngine:
         self.world.llm_calls_total += 1
         if used_fallback:
             self.world.llm_fallback_total += 1
+
+    def _record_llm_debug(self, name: str, prompt: str, result: dict, used_fallback: bool) -> None:
+        """Records the most recent prompt/result for one named LLM job
+        — see `self._last_llm_calls`'s docstring."""
+        self._last_llm_calls[name] = {
+            "tick": self.world.clock.tick_count, "prompt": prompt,
+            "result": result, "used_fallback": used_fallback,
+        }
 
     # --- Phase F: read-only WebSocket broadcast --------------------------------
 
@@ -848,6 +881,7 @@ class SimulationEngine:
             "buildings": [b.to_dict() for b in self.world.settlement.buildings],
             "vehicles": [v.to_dict() for v in self.world.settlement.vehicles],
             "farms": [p.to_dict() for p in self.world.farms.plots.values()],
+            "resources": [n.to_dict() for n in self.world.resources.nodes.values()],
             "wildlife": [h.to_dict() for h in self.world.wildlife.herds.values()],
             "roads": self.world.roads.to_dict()["wear"],
             "diagnostics": self._diagnostics_snapshot(),
@@ -902,4 +936,7 @@ class SimulationEngine:
             "db_size_mb": db_size_mb,
             "uptime_ticks": self.world.clock.tick_count,
             "population_total": len(self.world.population.agents),
+            "last_llm_calls": self._last_llm_calls,
+            "pending_player_whispers": list(self.world.settlement.player_influence),
+            "temperament": round(self.world.settlement.temperament, 3),
         }

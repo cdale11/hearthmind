@@ -60,6 +60,7 @@ const CATEGORY_META = {
   climate_drift: { icon: "🌡️" },
   wildlife_hunt: { icon: "🐾" },
   wildlife_extinct: { icon: "🦴" },
+  wildlife_recolonized: { icon: "🐇" },
   town_brain: { icon: "🧠" },
   intervention: { icon: "✨" },
   belief_formed: { icon: "💭" },
@@ -140,6 +141,31 @@ devToggle.addEventListener("click", () => {
   if (!devConsole.classList.contains("hidden") && latest) renderDevConsole(latest);
 });
 
+const historyPanel = document.getElementById("history-panel");
+const historyToggle = document.getElementById("history-toggle");
+const historyList = document.getElementById("history-list");
+
+async function loadHistory() {
+  historyList.innerHTML = "<li>loading…</li>";
+  try {
+    const rows = await fetchJSON("/history?limit=200");
+    historyList.innerHTML = rows.length
+      ? rows.map((r) => {
+          const meta = categoryMeta(r.category);
+          return `<li>${meta.icon || "•"} <span class="muted">tick ${r.tick}</span> ${r.description}</li>`;
+        }).join("")
+      : "<li>nothing notable yet</li>";
+  } catch (e) {
+    historyList.innerHTML = `<li>failed to load: ${e.message}</li>`;
+  }
+}
+
+historyToggle.addEventListener("click", () => {
+  historyPanel.classList.toggle("hidden");
+  historyToggle.classList.toggle("active");
+  if (!historyPanel.classList.contains("hidden")) loadHistory();
+});
+
 async function fetchJSON(path) {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`${path}: ${res.status}`);
@@ -167,11 +193,31 @@ function drawFrame() {
   if (!staticCanvas || !latest) return;
   ctx.drawImage(staticCanvas, 0, 0);
 
-  // Roads: worn tiles get a faint dirt-path tint, darker as they approach
-  // "established" — drawn first so farms/buildings/agents sit on top.
+  // Roads: worn tiles get a visible dirt-path tint from the very first
+  // bit of wear (a 0.35 floor alpha, not scaled from 0), darkening
+  // further as they approach "established" — drawn first so farms/
+  // buildings/agents sit on top. The old pure `wear * 0.6` scaling made
+  // anything below "established" (wear >= 0.5) nearly invisible
+  // (alpha ~0.06 at wear 0.1), which read as "roads aren't showing up."
   for (const [x, y, wear] of latest.roads || []) {
-    ctx.fillStyle = `rgba(217, 164, 65, ${Math.min(0.55, wear * 0.6)})`;
+    const alpha = wear >= 0.5 ? 0.75 : Math.max(0.35, wear * 1.2);
+    ctx.fillStyle = `rgba(196, 148, 58, ${alpha})`;
     ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+  }
+
+  // Wild resource nodes (bushes/mines): small, unobtrusive markers so
+  // the map shows what agents are actually foraging/gathering from, not
+  // just an aggregate count in a stat tile. Dimmed toward the terrain
+  // color as a node depletes, brightening again as it regrows.
+  for (const n of latest.resources || []) {
+    const cx = n.x * CELL + CELL / 2, cy = n.y * CELL + CELL / 2;
+    const fullness = Math.max(0.15, n.amount / (n.kind === "ore" ? 2.0 : 1.0));
+    ctx.globalAlpha = 0.4 + fullness * 0.6;
+    ctx.beginPath();
+    ctx.fillStyle = n.kind === "ore" ? "#9aa0ab" : "#7fbf5a";
+    ctx.arc(cx, cy, n.kind === "ore" ? 2.2 : 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1.0;
   }
 
   for (const farm of latest.farms) {
@@ -181,11 +227,12 @@ function drawFrame() {
 
   for (const b of latest.buildings) {
     ctx.fillStyle = BUILDING_COLORS[b.kind] || "#aaa";
-    ctx.globalAlpha = b.stage === "under_construction" ? 0.4 : b.stage === "ruined" ? 0.3 : 1.0;
-    ctx.fillRect(b.x * CELL, b.y * CELL, CELL, CELL);
+    ctx.globalAlpha = b.stage === "under_construction" ? 0.45 : b.stage === "ruined" ? 0.35 : 1.0;
+    ctx.fillRect(b.x * CELL - 1, b.y * CELL - 1, CELL + 2, CELL + 2);
     ctx.globalAlpha = 1.0;
-    ctx.strokeStyle = "#000";
-    ctx.strokeRect(b.x * CELL + 0.5, b.y * CELL + 0.5, CELL - 1, CELL - 1);
+    ctx.strokeStyle = "#f5f5f5";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(b.x * CELL - 0.5, b.y * CELL - 0.5, CELL + 1, CELL + 1);
   }
 
   // Vehicles: a small icon-like mark at their build/home tile — carts as
@@ -336,16 +383,42 @@ function spawnWeatherParticles(w) {
 const NIGHT_MAX_ALPHA = 0.55;
 const WEATHER_DARKEN_MAX_ALPHA = 0.15;
 
-function nightFactor(clockStr) {
+// Approximate real UK (London-latitude) sunrise/sunset local clock
+// times by month, decimal hours, including the seasonal daylight-hours
+// swing (~8h in December vs ~16.5h in June) — replaces the old fixed
+// "always 6am-6pm" day/night ramp, which never varied by season despite
+// the sim having a real UK-climate calendar. See docs/DECISIONS.md,
+// "map/UI/ecology follow-up."
+const UK_DAYLIGHT_HOURS = {
+  January: [8.08, 16.00], February: [7.67, 17.00], March: [6.50, 18.17],
+  April: [6.50, 20.00], May: [5.33, 20.83], June: [4.75, 21.33],
+  July: [5.00, 21.25], August: [5.75, 20.50], September: [6.58, 19.33],
+  October: [7.42, 18.17], November: [7.25, 16.25], December: [8.00, 15.92],
+};
+const DAWN_DUSK_TRANSITION_HOURS = 1.0;
+
+function currentSunTimes() {
+  const month = latest && latest.summary && latest.summary.month;
+  return UK_DAYLIGHT_HOURS[month] || [6, 18];
+}
+
+function nightFactor(clockStr, monthName) {
   if (!clockStr) return 0;
-  const hour = Number(clockStr.split(":")[0]);
+  const parts = clockStr.split(":");
+  const hour = Number(parts[0]) + Number(parts[1] || 0) / 60;
   if (Number.isNaN(hour)) return 0;
-  const distFromNoon = Math.min(Math.abs(hour - 12), 24 - Math.abs(hour - 12));
-  return Math.max(0, Math.min(1, distFromNoon / 12));
+  const [sunrise, sunset] = UK_DAYLIGHT_HOURS[monthName] || [6, 18];
+  if (hour <= sunrise - DAWN_DUSK_TRANSITION_HOURS || hour >= sunset + DAWN_DUSK_TRANSITION_HOURS) return 1;
+  if (hour >= sunrise && hour <= sunset) return 0;
+  if (hour < sunrise) return (sunrise - hour) / DAWN_DUSK_TRANSITION_HOURS;
+  return (hour - sunset) / DAWN_DUSK_TRANSITION_HOURS;
 }
 
 function drawLighting(w) {
-  const night = nightFactor(latest && latest.summary && latest.summary.clock);
+  const night = nightFactor(
+    latest && latest.summary && latest.summary.clock,
+    latest && latest.summary && latest.summary.month,
+  );
   const weatherDark = w ? Math.min(1, w.precipitation) * WEATHER_DARKEN_MAX_ALPHA : 0;
   const alpha = Math.min(0.75, night * NIGHT_MAX_ALPHA + weatherDark);
   if (alpha <= 0.01) return;
@@ -425,6 +498,15 @@ function renderStats(summary) {
     ["Tick", summary.tick, null],
     ["Date", `${summary.date} (${summary.clock})`, null],
     ["Weather", summary.weather, null],
+    [
+      "Daylight",
+      (() => {
+        const [sunrise, sunset] = UK_DAYLIGHT_HOURS[summary.month] || [6, 18];
+        const fmt = (h) => `${String(Math.floor(h)).padStart(2, "0")}:${String(Math.round((h % 1) * 60)).padStart(2, "0")}`;
+        return `${fmt(sunrise)} - ${fmt(sunset)} (${(sunset - sunrise).toFixed(1)}h)`;
+      })(),
+      "Approximate real UK sunrise/sunset for the current month, driving the day/night lighting tint on the map.",
+    ],
     [
       "Climate trend",
       c ? `warming ${c.warming >= 0 ? "+" : ""}${c.warming.toFixed(2)}, drying ${c.drying >= 0 ? "+" : ""}${c.drying.toFixed(2)}` : "n/a",
@@ -551,6 +633,15 @@ function renderStats(summary) {
     brainEl.innerHTML = s.current_priority
       ? `Current priority: <b>${s.current_priority}</b><br><span class="muted">${s.priority_rationale}</span>`
       : "No decision yet — the town brain decides once a season, once the village is named.";
+  }
+
+  const pendingWhispersEl = document.getElementById("pending-whispers");
+  if (pendingWhispersEl) {
+    const whispers = s.pending_player_whispers || [];
+    pendingWhispersEl.textContent = whispers.length
+      ? `Queued, not yet heard: ${whispers.map((w) => `"${w}"`).join("; ")}`
+      : "";
+    pendingWhispersEl.classList.toggle("hidden", whispers.length === 0);
   }
 
   const foundingEl = document.getElementById("founding-scenario");

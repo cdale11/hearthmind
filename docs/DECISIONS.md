@@ -2033,3 +2033,161 @@ appeared, confirming the era gate). A direct `to_dict`/`from_dict`
 round-trip with a manually-forced `VehicleKind.AUTOMOBILE` at `era=
 "modern"` confirmed serialization round-trips correctly. All touched
 files pass `python3 -m py_compile`; `app.js` passes `node --check`.
+
+## Map/UI/ecology follow-up
+
+User sent a large, dense list of requests/bug reports in one message.
+Triaged into: confirmed real bugs (wildlife extinction, road/resource
+visibility), legibility improvements (buildings, daylight), concrete
+new features (history tab, diagnostics exposure, broader belief
+influence), and two items deliberately scoped down/out (rivers, full
+astronomical daylight-driven agent behavior) — flagged explicitly
+below rather than silently doing a partial job and calling it done.
+
+**Wildlife extinction (real bug, confirmed via live diagnostics showing
+"0 predators (0 packs)").** `WildlifeGrid.generate` only ever runs once,
+at world creation; `tick()`'s own herd-pruning line
+(`self.herds = {... if h.count > 0}`) permanently deletes any herd/pack
+that hits exactly 0, with nothing to ever create a new one. Predators
+are especially exposed to this: `PREDATOR_STARVE_CHANCE` shrinks a pack
+that can't find prey, and the prior batch's `GRAZER_FLEE_RADIUS`
+(grazers preferring move-candidates away from predators) made hunting
+harder, plausibly tipping an already-fragile mechanic into visible
+permanent extinction. Fixed with `_maybe_recolonize` (rolled at
+`WILDLIFE_RECOLONIZE_CHECK_CHANCE=0.002` per tick): spawns a new grazer
+herd if the current herd count is under a target density
+(`GRAZER_RECOLONIZE_TARGET_HERDS_FRACTION` of what world-generation
+would have produced), and spawns a predator pack only if none currently
+exist AND grazers already do (no point recolonizing a predator with
+nothing to hunt) — framed as migration from beyond the map's edge, a
+new `wildlife_recolonized` event. Verified: forced every predator pack
+to 0 in a fresh world, ran the tick loop, confirmed recolonization fired
+within a few hundred ticks and predator count recovered; a full
+8000-tick engine run on an unrelated seed independently produced a
+`wildlife_recolonized` event in its natural history, confirming this
+isn't just a contrived test-case fix.
+
+**Roads/resources not visible on the live map (confirmed by reading the
+actual render code, not assumed).** Roads: the code path existed and
+executed, but `wear * 0.6` alpha scaling meant a road below
+"established" (wear >= 0.5, only 2 of 134 in the user's reported run)
+rendered at ~6% opacity — a real, fixable legibility bug, not a missing
+feature. Now floors at 0.35 alpha and darkens further once established.
+Resources (bushes/mines): confirmed via `grep` that individual node
+positions were never included in the broadcast payload at all — only
+`summary.resources`'s aggregate counts reached the client, so "mines
+should be visible" was accurate as stated; there was nothing to render
+because the data never arrived. Added `"resources"` to
+`SimulationEngine._maybe_broadcast`'s payload (`ResourceNode.to_dict()`
+already had the right shape) and a small dot-marker renderer in app.js,
+dimming toward the terrain color as a node depletes. Buildings:
+investigated and found no code-level bug (the render path was already
+correct) — the more likely explanation is a settlement of only 1-2
+buildings being genuinely hard to notice as an 8x8px square on a
+512px-wide canvas. Bumped their render size (bleeds 1px past the tile)
+and stroke brightness for legibility regardless. Lakes/mountains: these
+already render correctly as terrain biomes (deep_water/shallow_water/
+mountain/snowcap) and were visible in the user's own screenshot — no
+fix needed there, just noted so it's clear this wasn't overlooked.
+
+**Rivers: explicitly scoped out.** A linear, winding river distinct
+from the lake/pond biomes the diamond-square terrain generator already
+produces would be a substantial new terrain-generation feature (a
+path-carving pass through `world/terrain.py`, evolution rules for how
+it should behave under `terrain_evolution.py`, new movement/farming
+interactions) — genuinely large enough to warrant its own scoped batch
+rather than a rushed addition inside an already-large one. Recorded
+here as a known gap, not silently dropped.
+
+**Town brain / beliefs "not working," user prompt not visible.**
+Investigated the actual scheduling logic (`_maybe_schedule_town_brain`/
+`_maybe_schedule_beliefs`) and found no bug — both correctly gate on
+`settlement.name` being set AND the relevant calendar boundary
+(season_end / month_end respectively). The user's own supplied
+diagnostics (`event_category_counts`: `season_end: 1`, `month_end: 3`)
+show only one season boundary and the settlement being named partway
+through the run — town_brain genuinely hadn't had a second chance to
+fire yet, and belief-formation's monthly cadence hadn't run since
+naming either. This is a legibility/observability problem, not a
+correctness one: there was no way for the user to see *why* nothing had
+happened, or what any given LLM call had actually been asked/told.
+Fixed by adding `SimulationEngine._last_llm_calls: dict[str, dict]` — a
+`_record_llm_debug(name, prompt, result, used_fallback)` call added to
+every named LLM job's `_run_*` method (naming, dialogue, chronicle,
+tradition, invention, festival, town_brain, beliefs, omen), storing only
+the most recent call per job (bounded, not a growing history), exposed
+via `full_diagnostics()`'s new `last_llm_calls` key. Since the
+town-brain prompt already includes the player's whispers as one input
+(`town_brain.build_prompt`'s `player_whispers` param, prior batch), this
+single addition satisfies "what prompt was given and what town brain
+acted on it" directly — the whisper text is visible inside the recorded
+prompt. Also added `pending_player_whispers` (queued-but-not-yet-
+consumed) to both `full_diagnostics()` and `Settlement.summary()` (the
+latter was a real, separate gap — `player_influence` was in `to_dict()`
+for persistence but never in `summary()`, so the live broadcast payload
+never carried it) and a small UI element under the whisper form showing
+them directly, not just in the dev console.
+
+**History tab.** New `persistence.snapshot.history_events` (and
+`HISTORY_CATEGORIES`, the curated narrative subset — founding, naming,
+era advances, chronicle/tradition/invention/festival, beliefs, omens,
+wildlife recolonization) + `GET /history` + a toggleable UI panel,
+mirroring the existing dev-console toggle pattern. Deliberately reuses
+the existing `events` table (same as `recent_events`) rather than a
+parallel storage mechanism — a curated `WHERE category IN (...)` query,
+not a new write path.
+
+**Beliefs should affect the whole village.** Previously beliefs fed
+`town_brain` and `chronicle` prompts (settlement-wide) plus matched
+individuals' `dialogue` prompts (per-person, via `subject_agent_id`) —
+already broader than "just a UI list," but the user's ask reads as
+"more systems should feel it." Added an optional `beliefs` parameter to
+`invention.build_prompt` and `festival.build_prompt` (mirroring the
+existing chronicle/town_brain shape exactly), wired from their engine
+call sites. A structural, systemic mechanical effect (e.g. beliefs
+nudging `Settlement.temperament` or some other numeric lever) was
+considered and deliberately deferred — broadening LLM narrative
+consistency across every settlement-level decision is the smallest
+coherent next step; a second belief-to-mechanics pathway on top of the
+one temperament already has (Phase G v1) would be scope creep for this
+batch specifically.
+
+**Real UK daylight hours.** The old `nightFactor` was a fixed sinusoid
+centered on a hardcoded 6am/6pm, invariant across the entire year
+despite the sim having had a real UK-climate calendar since the
+real-calendar/genesis-seed batch — a genuine inconsistency (UK weather
+varied by month, UK daylight didn't). Added `UK_DAYLIGHT_HOURS` (app.js):
+approximate London-latitude sunrise/sunset local-clock times per month,
+including the practical effect of BST (~8h daylight in December,
+~16.5h in June) — precise-enough for game flavor without an
+astronomical calculation library. `nightFactor(clockStr, monthName)`
+now blends to full daylight between sunrise/sunset, full night outside
+a 1-hour dawn/dusk transition window either side. A new "Daylight" stat
+tile surfaces the current month's sunrise/sunset directly. Deliberately
+scoped to the visual lighting tint only — agent REST/sleep behavior
+stays energy-threshold-driven, unrelated to daylight, since rewiring
+agent schedules around sunrise/sunset would be a much larger behavioral
+change than "how the map looks" asked for; noted as a possible future
+extension, not attempted here.
+
+**Season-based building/vehicle wear.** `DECAY_WEATHER_MULTIPLIER`
+already made storms wear structures faster than fair weather; there was
+no separate season effect. Added `SEASON_DECAY_MULTIPLIER` (winter 1.4,
+autumn 1.15, spring 1.0, summer 0.85), applied multiplicatively on top
+of (not instead of) the existing weather-harshness multiplier — real
+freeze-thaw cycles and persistent winter damp wear masonry/timber
+faster independent of any single tick's instantaneous weather. Applied
+to both `Settlement.tick`'s building decay and its vehicle decay for
+consistency. `Settlement.tick`/`World.tick` both gained a `season`
+parameter (defaulted for any other caller) threaded from
+`self.clock.season`.
+
+Verified (LLM disabled in this environment, deterministic fallbacks
+exercised throughout): forced-extinction wildlife recolonization test
+(see above); an 8000-tick full async engine run independently produced
+a real `wildlife_recolonized` event and populated `last_llm_calls` for
+dialogue/chronicle/festival/town_brain/beliefs; confirmed `ResourceNode
+.to_dict()` produces the shape the new renderer expects;
+`history_events` returned real rows including the recolonization event
+from the same run. All touched Python files pass `python3 -m
+py_compile`; `app.js` passes `node --check`.

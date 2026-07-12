@@ -46,6 +46,31 @@ def recent_events(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
     ]
 
 
+HISTORY_CATEGORIES = (
+    "founding", "genesis", "settlement_named", "era_advance", "chronicle",
+    "tradition", "invention", "festival", "belief_formed", "belief_revised",
+    "omen", "wildlife_recolonized", "wildlife_extinct",
+)
+"""The curated, narrative subset of event categories — settlement-level
+history, not per-tick noise (day_end, dialogue, farm_planted, etc.).
+Backs `GET /history` / the UI's History tab: a summarized town history
+distinct from the main event log's live, everything-included feed. See
+docs/DECISIONS.md, "map/UI/ecology follow-up.\""""
+
+
+def history_events(conn: sqlite3.Connection, limit: int = 200) -> list[dict]:
+    placeholders = ",".join("?" for _ in HISTORY_CATEGORIES)
+    rows = conn.execute(
+        f"SELECT tick, logged_at, category, description FROM events "
+        f"WHERE category IN ({placeholders}) ORDER BY id DESC LIMIT ?",
+        (*HISTORY_CATEGORIES, limit),
+    ).fetchall()
+    return [
+        {"tick": tick, "logged_at": logged_at, "category": category, "description": description}
+        for tick, logged_at, category, description in rows
+    ]
+
+
 def event_category_counts(conn: sqlite3.Connection) -> dict[str, int]:
     """All-time histogram of event categories — part of the extensive
     diagnostic report (`GET /diagnostics`) built for debugging an
