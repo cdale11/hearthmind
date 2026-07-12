@@ -444,6 +444,33 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## Architecture review: implemented in v0.40.0
+
+The review below was performed at v0.39.0; v0.40.0 then *implemented*
+its prioritized recommendations (see CHANGELOG `[0.40.0]` and
+docs/DECISIONS.md "Architecture-review implementation pass" for the
+full accounting). Now shipped: carrying-capacity rework (goal-gated
+planting + crop rot + surplus-gated reproduction; POPULATION_CAP 400 as
+pure safety valve), gossip opinion contagion, LLM scheduling
+backpressure + result-staleness guards, grounded cognition prompts
+(colocated names, nearest-food distance, 3 memories), stat-free beliefs
+prompt + subject-match revision, conversation memories, whisper
+retention on fallback, town-brain fallback un-locked, prompt
+token-bounding for culture lists, O(N^2) rival-scan fix +
+`Settlement.at` index + water-tile cache (~2-2.5x faster ticks),
+snapshot pruning + one-commit-per-tick + events category index,
+unique living names, and a per-sim-day `metrics` table (`GET /metrics`).
+Still open from the review (in priority order): `Settlement` in-place
+split (the multi-settlement enabler — its own dedicated session),
+culture with mechanical teeth (tradition/invention riders), building
+upkeep/currency sinks + hut shelter function, spatial buckets for
+nearest-X scans, UI sparklines off `/metrics`, age-graded frailty.
+Post-rework equilibrium note: growth is now visibly food-coupled
+(higher steady-state hunger, farms_ready bounded ~150-250 vs ~1,000),
+but abundant maps can still reach the 400 valve by ~tick 30k — if live
+runs show that, tighten `REPRODUCTION_WELLFED_HUNGER` or scale birth
+chance by hunger rather than re-lowering the cap.
+
 ## Architecture review findings (v0.39.0, July 2026 — full report in docs/REVIEW-2026-07.md)
 
 An independent full-repo review pass, with measurements taken in this

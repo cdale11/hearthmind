@@ -46,6 +46,18 @@ def _namespaced_rng(seed: int, tick: int, namespace: str) -> random.Random:
     return random.Random(int(digest[:16], 16))
 
 
+TERRAIN_CHANGING_CATEGORIES = frozenset({
+    "terrain_thinned", "terrain_reclaimed", "climate_drift",
+    "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
+})
+"""Life-event categories that mean at least one tile's biome changed
+this tick. Canonical home for this set (it used to live only in
+simulation/engine.py for broadcast invalidation) — now also used by
+`World._tick_disasters`' water-tile cache, so the two consumers can't
+drift apart. Part of the July 2026 review's stringly-typed-events
+cleanup."""
+
+
 @dataclass
 class World:
     config: Config
@@ -96,6 +108,11 @@ class World:
     (SimulationEngine) log a one-off migration event per subsystem and
     persist the change. Never itself serialized; see docs/DECISIONS.md,
     M2-3 and A4."""
+    _water_tiles: set = field(default=None, compare=False, repr=False)  # type: ignore[assignment]
+    """Cached set of water-biome tile coords for `_tick_disasters` —
+    previously rebuilt with a full terrain scan every tick even though
+    water only changes on the rare TERRAIN_CHANGING_CATEGORIES events.
+    Never serialized; None means "recompute". July 2026 review, §6.3."""
 
     # --- construction ----------------------------------------------------
 
@@ -172,10 +189,18 @@ class World:
         by construction); wildfire ignition only rolls on a week boundary,
         though an already-burning fire still spreads/dies down every
         tick."""
-        water_tiles = {
-            (t.x, t.y) for row in self.terrain for t in row
-            if t.biome in (Biome.DEEP_WATER, Biome.SHALLOW_WATER, Biome.RIVER)
-        }
+        if self._water_tiles is None or any(
+            category in TERRAIN_CHANGING_CATEGORIES for category, _ in self.last_life_events
+        ):
+            # `last_life_events` still holds the *previous* tick's events
+            # here (this runs before population/terrain ticks refresh it),
+            # which is exactly the signal needed: recompute only after a
+            # tick that actually changed some tile's biome.
+            self._water_tiles = {
+                (t.x, t.y) for row in self.terrain for t in row
+                if t.biome in (Biome.DEEP_WATER, Biome.SHALLOW_WATER, Biome.RIVER)
+            }
+        water_tiles = self._water_tiles
         flood_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_flood")
         events = tick_flood(
             self.disasters, self.terrain, self.weather, self.settlement, self.farms, water_tiles, flood_rng,

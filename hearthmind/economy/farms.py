@@ -56,6 +56,17 @@ FARM_TOOL_YIELD_MULTIPLIER = 1.5
 spending materials on farming instead of construction, closing the D8
 production chain's other end. See D9."""
 
+FARM_ROT_TICKS = 1500
+"""Ticks a READY plot stands unharvested before the crop rots and the
+plot reverts to unclaimed farmland (~15.6 sim-days at default pacing —
+a real harvest window, not a pantry). Added by the July 2026
+architecture review's carrying-capacity rework: previously a READY
+plot persisted until eaten, so the map accumulated ~1,000
+simultaneously-ready plots for 200 people and food became permanently
+post-scarce. Rot makes standing food a flow (must be harvested while
+good) rather than an ever-growing stock — the constraint that used to
+disappear after year one now persists for the life of the world."""
+
 SEASON_GROWTH_MULTIPLIER = {"winter": 0.35, "autumn": 0.8, "spring": 1.15, "summer": 1.0}
 """Farm growth multiplier by season name — winter genuinely slows
 cultivation, not just a cosmetic weather label ("seasons affect
@@ -93,6 +104,9 @@ class FarmPlot:
     """Set at planting time (see FarmGrid.plant) — MAX_FARM_YIELD for a
     plain plot, or MAX_FARM_YIELD * FARM_TOOL_YIELD_MULTIPLIER for a
     tooled one (D9)."""
+    ready_ticks: int = 0
+    """Ticks spent READY so far — the crop rots (plot removed) at
+    FARM_ROT_TICKS. Defaults to 0 for plots from older snapshots."""
 
     def to_dict(self) -> dict:
         return {
@@ -102,6 +116,7 @@ class FarmPlot:
             "growth": round(self.growth, 4),
             "amount": round(self.amount, 4),
             "max_yield": round(self.max_yield, 4),
+            "ready_ticks": self.ready_ticks,
         }
 
     @classmethod
@@ -113,6 +128,7 @@ class FarmPlot:
             growth=data["growth"],
             amount=data["amount"],
             max_yield=data.get("max_yield", MAX_FARM_YIELD),
+            ready_ticks=data.get("ready_ticks", 0),
         )
 
 
@@ -155,12 +171,19 @@ class FarmGrid:
 
     def tick(self, season: str = "summer") -> None:
         growth_rate = GROWTH_PER_TICK * SEASON_GROWTH_MULTIPLIER.get(season, 1.0)
-        for plot in self.plots.values():
+        rotted: list[tuple[int, int]] = []
+        for (x, y), plot in self.plots.items():
             if plot.stage is FarmStage.GROWING:
                 plot.growth = min(1.0, plot.growth + growth_rate)
                 if plot.growth >= 1.0:
                     plot.stage = FarmStage.READY
                     plot.amount = plot.max_yield
+            elif plot.stage is FarmStage.READY:
+                plot.ready_ticks += 1
+                if plot.ready_ticks >= FARM_ROT_TICKS:
+                    rotted.append((x, y))  # crop spoiled unharvested — see FARM_ROT_TICKS
+        for pos in rotted:
+            del self.plots[pos]
 
     # --- summary -------------------------------------------------------------
 

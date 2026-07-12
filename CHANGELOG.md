@@ -4,6 +4,117 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.40.0] — Architecture review implemented: carrying capacity, LLM backpressure, gossip, metrics
+
+Performs the July 2026 architecture review's recommendations
+(`docs/REVIEW-2026-07.md`) — the emergence, LLM-architecture,
+performance, and persistence changes it prioritized. Verified against
+its own measured baselines (see docs/DECISIONS.md).
+
+### Changed — emergence (carrying capacity replaces the hard cap as the real limit)
+
+- **Planting is now a deliberate act**: a farm is only planted when a
+  colocated awake agent is food-focused (FORAGE goal, or genuinely
+  hungry) — a well-fed village stops planting. This also gives the
+  cognition layer's goal choice real mechanical teeth for the first
+  time (the review measured that goals previously didn't affect
+  survival outcomes at all).
+- **Standing crops rot**: a READY farm plot unharvested for
+  `FARM_ROT_TICKS` (~15 sim-days) spoils and reverts to open land —
+  food is a flow to be harvested in its window, not an ever-growing
+  stock. (Baseline measurement: ~800-1,000 simultaneously-ready plots
+  for <=200 people; post-change: peaks around 150-250.)
+- **Reproduction follows surplus**: a pair now also needs saved
+  personal food or both parents clearly well-fed
+  (`REPRODUCTION_WELLFED_HUNGER`) — a hard winter shows up in the
+  birth rate, not just the death rate.
+- `POPULATION_CAP` raised 200 -> 400 and demoted to a pure safety
+  valve — the food economy is meant to be the binding constraint now.
+- **Gossip moves opinion**: a rumor naming a living third villager
+  relaxes each trusting listener's opinion of them toward the
+  speaker's (`GOSSIP_OPINION_CONTAGION`, capped per rumor, skipped by
+  skeptical listeners) — opinions now propagate through conversations,
+  not only through direct contact.
+
+### Changed — LLM architecture
+
+- **Backpressure**: no new routine cognition/dialogue jobs are
+  scheduled while the runner's backlog exceeds
+  `llm_max_concurrent x BACKPRESSURE_BACKLOG_PER_SLOT` (triggered
+  emergencies get 2x headroom; dialogue is shed first). Fixes the
+  unbounded task backlog + sim-days-stale results the review found in
+  live runs at pop >~50. Drops are counted
+  (`calls_dropped_backpressure`) and visible in the dev console.
+- **Staleness guards**: cognition results older than
+  `STALE_GOAL_RESULT_TICKS` (and dialogue older than
+  `STALE_DIALOGUE_RESULT_TICKS`) are dropped at apply time instead of
+  steering agents on days-old snapshots.
+- **Cognition prompt grounding**: the goal prompt now includes who is
+  colocated, distance to the nearest known food, the agent's current
+  goal, and the last 3 memories (was: only the single newest memory,
+  no local facts).
+- **Beliefs can now be wrong**: the beliefs prompt no longer receives
+  the ground-truth stat block — only event narrations and its own
+  prior theories — so the village's self-model can genuinely drift and
+  get corrected, per the design goal.
+- **Belief revision by subject**: a new-belief answer whose subject the
+  village already theorizes about revises that entry instead of piling
+  up duplicates (`find_belief_index_by_subject`) — subject identity is
+  more reliable than a 2B model's integer indexing.
+- **Conversations are remembered**: surfaced exchanges leave a
+  "Talked with X — ..." memory in both agents, so future prompts can
+  reference the last conversation.
+- **Whispers survive fallback**: `player_influence` is now only
+  consumed when the town-brain LLM call actually succeeded; on
+  timeout/fallback the whisper stays queued for next month (was:
+  silently discarded).
+- **Town-brain fallback un-locked**: the "food" arm's granary test now
+  also requires people to actually be somewhat hungry — the review
+  measured the fallback stuck on "food" for entire 30k-tick runs
+  because its denominator grew with every granary built.
+- **Prompt token bounding**: only the newest `PROMPT_CULTURE_LIST_MAX`
+  traditions/inventions reach any single prompt (the stored lists are
+  untouched).
+
+### Changed — performance (measured: ~2-2.5x faster ticks at every population)
+
+- The per-agent rival-tile scan in movement was O(N^2) per tick (~40%
+  of population-tick time at 200 agents); rival positions are now
+  precomputed once per tick from each agent's own relationships.
+  12/200/500 agents: 1.3/7.9/45.9 ms -> 0.5/3.2/22.2 ms per tick.
+- `Settlement.at` is now a lazily-rebuilt `(x, y) -> Building` index
+  instead of a linear scan (it's called several times per agent per
+  tick).
+- The flood system's water-tile set is cached and only recomputed
+  after a tick that actually changed some tile's biome
+  (`TERRAIN_CHANGING_CATEGORIES`, now canonical in `world/state.py`).
+
+### Changed — persistence (the "runs forever" fixes)
+
+- **Snapshots are pruned**: `save_snapshot` keeps the newest
+  `SNAPSHOT_KEEP_RECENT` rows plus one keyframe per
+  `SNAPSHOT_KEYFRAME_INTERVAL_TICKS` — the table was append-only
+  full-world JSON forever, the review's biggest disk-growth finding.
+- **One commit per tick**: events (and metrics) written during a tick
+  batch into a single end-of-tick commit instead of one fsync per
+  event.
+- New index `idx_events_category` — `/history` and the category
+  histogram stop scanning as the log grows.
+
+### Added
+
+- **Daily metrics time-series**: a new `metrics` table gets one
+  compact row per sim-day (population, hunger, deaths by cause, bonds/
+  rivalries, farm/granary/materials/currency, wildlife, tech,
+  priority, temperament, rumor/fallback counters), exposed at
+  `GET /metrics` — the instrumentation layer for studying the sim as
+  an artificial society (ablations, rumor spread, belief drift).
+- **Unique agent names**: births/migrants now draw a name no living
+  inhabitant bears (`Population._unique_name`) — duplicate names were
+  near-certain at ~200 living agents and silently broke per-person
+  belief resolution (`resolve_subject_agent_id` refuses ambiguous
+  names).
+
 ## [0.39.0] — Per-agent inventory/trade, culture-specific buildings, per-family beliefs, Phase G v4
 
 Picks up two of the remaining large-and-explicitly-flagged gaps (scoped,

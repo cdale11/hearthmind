@@ -33,7 +33,22 @@ stays bounded on a long soak run."""
 class CognitionRunner:
     def __init__(self, client: OllamaClient | None, max_concurrent: int):
         self.client = client
-        self._semaphore = asyncio.Semaphore(max(1, max_concurrent))
+        self.max_concurrent = max(1, max_concurrent)
+        self._semaphore = asyncio.Semaphore(self.max_concurrent)
+        self.backlog = 0
+        """Jobs currently inside `run()` — in flight *or* waiting on the
+        semaphore. The engine reads this to apply backpressure: on the
+        target hardware one call takes ~17-20s while the engine can
+        schedule several jobs per 1s tick, so without a gate the queue
+        of waiting tasks grows without bound and results arrive
+        sim-days stale (July 2026 architecture review, §3.6). Always
+        ~0 when the LLM is disabled (fallbacks resolve instantly), so
+        deterministic runs are unaffected."""
+        self.calls_dropped_backpressure = 0
+        """How many would-be jobs the engine chose not to schedule
+        because `backlog` was over its limit — surfaced in `stats()` so
+        a saturated live run is diagnosable as 'rationing' rather than
+        silently degraded."""
         self.calls_attempted = 0
         self.calls_succeeded = 0
         self.calls_timed_out = 0
@@ -66,6 +81,8 @@ class CognitionRunner:
             "calls_succeeded": self.calls_succeeded,
             "calls_timed_out": self.calls_timed_out,
             "calls_errored": self.calls_errored,
+            "backlog": self.backlog,
+            "calls_dropped_backpressure": self.calls_dropped_backpressure,
             "latency_ms_p50": percentile(0.5),
             "latency_ms_p95": percentile(0.95),
             "latency_ms_max": round(latencies[-1], 1) if latencies else 0.0,
@@ -84,6 +101,15 @@ class CognitionRunner:
         if self.client is None:
             return fallback(), True
 
+        self.backlog += 1
+        try:
+            return await self._run_gated(prompt, system, fallback)
+        finally:
+            self.backlog -= 1
+
+    async def _run_gated(
+        self, prompt: str, system: str | None, fallback: Callable[[], dict]
+    ) -> tuple[dict, bool]:
         async with self._semaphore:
             self.calls_attempted += 1
             start = time.perf_counter()

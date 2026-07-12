@@ -734,13 +734,21 @@ class Settlement:
     `temperament`. See docs/DECISIONS.md, "town's opinion of the
     player" pass."""
 
+    _position_index: dict | None = field(default=None, compare=False, repr=False)
+    """(x, y) -> Building cache behind `at()` — never serialized,
+    rebuilt lazily whenever `buildings`' length changes (buildings are
+    only ever appended or dropped, never moved, so a length check is a
+    sufficient invalidation signal). `at()` is called several times per
+    agent per tick (granary/hospital/shrine/construction checks), so
+    the previous linear scan was O(agents x buildings) per tick — one
+    of the July 2026 architecture review's measured scaling costs."""
+
     # --- queries -------------------------------------------------------------
 
     def at(self, x: int, y: int) -> Building | None:
-        for building in self.buildings:
-            if building.x == x and building.y == y:
-                return building
-        return None
+        if self._position_index is None or len(self._position_index) != len(self.buildings):
+            self._position_index = {(b.x, b.y): b for b in self.buildings}
+        return self._position_index.get((x, y))
 
     def vehicle_at(self, x: int, y: int) -> Vehicle | None:
         for vehicle in self.vehicles:
@@ -754,6 +762,7 @@ class Settlement:
         building = Building(id=self._next_id, x=x, y=y, kind=kind)
         self._next_id += 1
         self.buildings.append(building)
+        self._position_index = None  # explicit invalidation, belt-and-braces beyond at()'s length check
         return building
 
     def start_vehicle(self, x: int, y: int, kind: VehicleKind = VehicleKind.CART) -> Vehicle:
@@ -796,6 +805,8 @@ class Settlement:
 
             survivors.append(building)
 
+        if len(survivors) != len(self.buildings):
+            self._position_index = None  # a ruin was reclaimed — see at()'s cache
         self.buildings = survivors
 
         vehicle_decay = (

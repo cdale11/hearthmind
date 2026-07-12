@@ -240,6 +240,9 @@ to script against it directly instead:
   shape as one WebSocket tick).
 - `GET /terrain` — the static biome grid (fetch once; it never changes).
 - `GET /events?limit=N` — recent event-log history.
+- `GET /metrics?limit=N` — the per-sim-day time-series (population,
+  food, bonds, temperament, ...), oldest-first and chart-ready — the
+  research counterpart to `/events`' narrative feed.
 - `GET /diagnostics` — extensive on-demand report: engine telemetry, LLM
   call/latency/error breakdown, memory/DB size, all-time event-category
   histogram. Built for pasting into a bug report after a long soak run.

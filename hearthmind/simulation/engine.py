@@ -40,7 +40,7 @@ from hearthmind.llm.client import OllamaClient
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import (
-    history_events, load_latest_snapshot, log_event, recent_events, save_snapshot,
+    history_events, load_latest_snapshot, log_event, log_metrics, recent_events, save_snapshot,
 )
 from hearthmind.settlement.buildings import (
     CURRENCY_CAPACITY,
@@ -60,7 +60,7 @@ from hearthmind.settlement.buildings import (
     tick_player_standing,
     tick_temperament,
 )
-from hearthmind.world.state import World
+from hearthmind.world.state import TERRAIN_CHANGING_CATEGORIES, World
 from hearthmind.world.terrain import biome_counts
 
 
@@ -96,12 +96,37 @@ _CALENDAR_EVENT_DESCRIPTIONS = {
     "year_end": "A new year begins.",
 }
 
-_TERRAIN_CHANGING_CATEGORIES = frozenset({
-    "terrain_thinned", "terrain_reclaimed", "climate_drift",
-    "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
-})
-"""Life-event categories that mean at least one tile's biome changed
-this tick — see `_maybe_broadcast`."""
+STALE_GOAL_RESULT_TICKS = 300
+"""A cognition result older than this (scheduled ~3 sim-days ago at
+default pacing) is dropped instead of applied — the hunger/energy
+snapshot it reasoned from no longer describes the agent, and applying
+it would steer them on days-old information. Only matters when the LLM
+queue is saturated (see the backpressure gate below); a healthy run
+resolves in well under one day. July 2026 architecture review, §3.6."""
+
+STALE_DIALOGUE_RESULT_TICKS = 900
+"""Same idea for dialogue results, with a looser bound — an exchange is
+narrative more than steering, but applying a 'they just met' line nine
+sim-days after the meeting still reads wrong."""
+
+PROMPT_CULTURE_LIST_MAX = 5
+"""How many of the newest traditions/inventions reach any single LLM
+prompt. The lists themselves persist in full (they're the settlement's
+history); this only bounds the *token* cost per call, which otherwise
+grew forever on a multi-year world (July 2026 architecture review,
+§3.7). Fallback numbering still uses the full list's length, so
+"Tradition the 14th"-style names stay correct."""
+
+BACKPRESSURE_BACKLOG_PER_SLOT = 3
+"""Scheduling gate: no new routine LLM jobs while the runner's backlog
+(in-flight + queued) exceeds `llm_max_concurrent * this`. On the target
+hardware one call takes ~17-20s and the engine can schedule several
+jobs per 1s tick, so without this gate the task queue grows without
+bound (unbounded memory) and every result arrives sim-days stale.
+Event-*triggered* cognition (hunger emergency, fresh grief) is allowed
+up to twice this bound — when rationing, the urgent reasoning goes
+first. Deterministic runs are unaffected (fallbacks resolve instantly,
+so the backlog stays ~0). July 2026 architecture review, §3.6."""
 
 PAUSED_POLL_SECONDS = 0.25
 """How often `run_forever`'s loop wakes up to re-check pause/stop state
@@ -187,9 +212,15 @@ class SimulationEngine:
                 host=config.llm_host, model=config.llm_model, timeout_seconds=config.llm_timeout_seconds,
             )
         self._cognition_runner = CognitionRunner(client=client, max_concurrent=config.llm_max_concurrent)
-        self._pending_goal_results: dict[int, dict] = {}
+        self._backpressure_limit = config.llm_max_concurrent * BACKPRESSURE_BACKLOG_PER_SLOT
+        self._pending_goal_results: dict[int, tuple[int, dict]] = {}
+        """agent_id -> (tick the job was scheduled on, result) — the tick
+        lets `_apply_pending_cognition_results` drop results that went
+        stale in a saturated queue (STALE_GOAL_RESULT_TICKS)."""
         self._inflight_cognition_agent_ids: set[int] = set()
-        self._pending_dialogue_results: list[tuple[int, int, dict]] = []
+        self._pending_dialogue_results: list[tuple[int, int, int, dict]] = []
+        """(scheduled_tick, agent_a_id, agent_b_id, parsed) — same
+        staleness convention as `_pending_goal_results`."""
         self._background_tasks: set[asyncio.Task] = set()
         self._last_llm_calls: dict[str, dict] = {}
         """Most recent prompt/result/fallback-flag for each named LLM
@@ -356,12 +387,16 @@ class SimulationEngine:
                 tick=self.world.clock.tick_count,
                 category=event,
                 description=_CALENDAR_EVENT_DESCRIPTIONS.get(event, event),
+                commit=False,  # one commit per tick, at the end of _tick_once
             )
         for category, description in self.world.last_life_events:
             log_event(
                 self.conn, tick=self.world.clock.tick_count,
                 category=category, description=description,
+                commit=False,
             )
+        if "day_end" in events:
+            self._log_daily_metrics()
         if events:
             logger.info(
                 "Tick %s: %s | %s | %s",
@@ -381,6 +416,7 @@ class SimulationEngine:
         self._maybe_schedule_omen(events)
         self._schedule_due_cognition()
         self._schedule_due_dialogue()
+        self.conn.commit()  # one commit for everything this tick logged (see log_event's commit param)
         self._last_tick_duration_ms = (time.perf_counter() - tick_start) * 1000
         self._tick_durations_ms.append(self._last_tick_duration_ms)
         self._maybe_broadcast()
@@ -400,7 +436,10 @@ class SimulationEngine:
         inline with the LLM call itself."""
         if not self._pending_goal_results:
             return
-        for agent_id, result in self._pending_goal_results.items():
+        now = self.world.clock.tick_count
+        for agent_id, (scheduled_tick, result) in self._pending_goal_results.items():
+            if now - scheduled_tick > STALE_GOAL_RESULT_TICKS:
+                continue  # reasoned from a days-old snapshot — see STALE_GOAL_RESULT_TICKS
             goal, reason = parse_goal(result)
             self.world.population.apply_goal(agent_id, goal, reason)
         self._pending_goal_results.clear()
@@ -420,17 +459,38 @@ class SimulationEngine:
         triggered = self.world.population.due_for_triggered_cognition(
             self.world.clock.tick_count, TRIGGERED_COGNITION_COOLDOWN_TICKS,
         )
+        triggered_ids = {agent.id for agent in triggered}
         if triggered:
             due_ids = {agent.id for agent in due}
             due = due + [agent for agent in triggered if agent.id not in due_ids]
+        backlog = self._cognition_runner.backlog
+        population = self.world.population
         for agent in due:
             if agent.id in self._inflight_cognition_agent_ids:
                 continue
+            # Backpressure (see BACKPRESSURE_BACKLOG_PER_SLOT): routine
+            # daily reevaluations are skipped while the queue is
+            # saturated — the agent keeps its current goal and gets the
+            # next staggered slot; triggered emergencies get twice the
+            # headroom before they too are rationed.
+            limit = self._backpressure_limit * (2 if agent.id in triggered_ids else 1)
+            if backlog >= limit:
+                self._cognition_runner.calls_dropped_backpressure += 1
+                continue
+            backlog += 1  # count this tick's own scheduling against the gate
             self._inflight_cognition_agent_ids.add(agent.id)
             latest_tradition = self.world.settlement.traditions[-1] if self.world.settlement.traditions else ""
+            colocated_names = [
+                other.name for other in population.agents
+                if other.id != agent.id and (other.x, other.y) == (agent.x, agent.y)
+            ][:4]
+            food_steps = population.nearest_food_steps(
+                agent, self.world.farms, self.world.settlement, self.world.resources, self.world.wildlife,
+            )
             prompt = build_prompt(
                 agent, self.world.clock.season, self.world.weather.describe(),
                 settlement_name=self.world.settlement.name, latest_tradition=latest_tradition,
+                colocated_names=colocated_names, nearest_food_steps=food_steps,
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             task = asyncio.create_task(self._run_cognition(agent.id, prompt, hunger_snapshot, energy_snapshot))
@@ -438,11 +498,12 @@ class SimulationEngine:
             task.add_done_callback(self._background_tasks.discard)
 
     async def _run_cognition(self, agent_id: int, prompt: str, hunger: float, energy: float) -> None:
+        scheduled_tick = self.world.clock.tick_count
         try:
             result, used_fallback = await self._cognition_runner.run(
                 prompt, SYSTEM_PROMPT, fallback=lambda: fallback_goal(hunger, energy, agent_id),
             )
-            self._pending_goal_results[agent_id] = result
+            self._pending_goal_results[agent_id] = (scheduled_tick, result)
             self._record_llm_call(used_fallback)
         finally:
             self._inflight_cognition_agent_ids.discard(agent_id)
@@ -452,9 +513,13 @@ class SimulationEngine:
     def _apply_pending_dialogue_results(self) -> None:
         if not self._pending_dialogue_results:
             return
-        for agent_a_id, agent_b_id, parsed in self._pending_dialogue_results:
+        now = self.world.clock.tick_count
+        for scheduled_tick, agent_a_id, agent_b_id, parsed in self._pending_dialogue_results:
+            if now - scheduled_tick > STALE_DIALOGUE_RESULT_TICKS:
+                continue  # see STALE_DIALOGUE_RESULT_TICKS
             applied = self.world.population.apply_dialogue(
                 agent_a_id, agent_b_id, parsed["sentiment"], parsed["rumor"],
+                line_a=parsed["line_a"], line_b=parsed["line_b"],
             )
             if applied is None:
                 continue
@@ -543,6 +608,12 @@ class SimulationEngine:
         and cooldown rules). Scheduled unconditionally, same as cognition
         — CognitionRunner resolves to the deterministic fallback when the
         LLM is disabled/unreachable. See docs/DECISIONS.md, E2."""
+        # Dialogue is the most expendable LLM job — under backpressure it
+        # is skipped before anything else (the pair simply stays eligible
+        # for a later tick once its cooldown allows).
+        if self._cognition_runner.backlog >= self._backpressure_limit:
+            self._cognition_runner.calls_dropped_backpressure += 1
+            return
         pairs = self.world.population.due_for_dialogue(
             self.world.config.seed, self.world.clock.tick_count, DIALOGUE_COOLDOWN_TICKS,
         )
@@ -567,11 +638,12 @@ class SimulationEngine:
             task.add_done_callback(self._background_tasks.discard)
 
     async def _run_dialogue(self, agent_a_id: int, agent_b_id: int, prompt: str, fallback: dict) -> None:
+        scheduled_tick = self.world.clock.tick_count
         result, used_fallback = await self._cognition_runner.run(
             prompt, dialogue.SYSTEM_PROMPT, fallback=lambda: fallback
         )
         parsed = dialogue.parse_dialogue(result, fallback)
-        self._pending_dialogue_results.append((agent_a_id, agent_b_id, parsed))
+        self._pending_dialogue_results.append((scheduled_tick, agent_a_id, agent_b_id, parsed))
         self._record_llm_debug("dialogue", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)
 
@@ -592,7 +664,12 @@ class SimulationEngine:
         year = self.world.clock.year
         prompt = chronicle.build_prompt(
             recent, population_summary, previous_season, year,
-            settlement_name=self.world.settlement.name, traditions=self.world.settlement.traditions,
+            settlement_name=self.world.settlement.name,
+            # Only the newest few traditions reach the prompt — the full
+            # list grows unbounded over a multi-year world, and feeding
+            # it whole would swell every monthly call's tokens forever
+            # (July 2026 review, §3.7). The list itself still persists.
+            traditions=self.world.settlement.traditions[-PROMPT_CULTURE_LIST_MAX:],
             beliefs=list(self.world.settlement.beliefs),
         )
         fallback = chronicle.fallback_summary(recent, population_summary, previous_season, year)
@@ -661,7 +738,9 @@ class SimulationEngine:
             return
         recent = recent_events(self.conn, limit=50)
         traditions = self.world.settlement.traditions
-        prompt = culture.build_prompt(self.world.settlement.name, recent, traditions, self.world.clock.year)
+        prompt = culture.build_prompt(
+            self.world.settlement.name, recent, traditions[-PROMPT_CULTURE_LIST_MAX:], self.world.clock.year,
+        )
         fallback = culture.fallback_tradition(self.world.settlement.name, self.world.clock.year, len(traditions))
         task = asyncio.create_task(self._run_tradition(prompt, fallback))
         self._background_tasks.add(task)
@@ -709,7 +788,8 @@ class SimulationEngine:
         recent = recent_events(self.conn, limit=50)
         inventions = settlement.inventions
         prompt = invention.build_prompt(
-            settlement.name, recent, inventions, settlement.tech_level, beliefs=list(settlement.beliefs),
+            settlement.name, recent, inventions[-PROMPT_CULTURE_LIST_MAX:], settlement.tech_level,
+            beliefs=list(settlement.beliefs),
         )
         fallback = invention.fallback_invention(settlement.name, settlement.tech_level, len(inventions))
         task = asyncio.create_task(self._run_invention(prompt, fallback))
@@ -809,20 +889,29 @@ class SimulationEngine:
         recent = recent_events(self.conn, limit=50)
         population_summary = self.world.population.summary()
         settlement_summary = settlement.summary()
+        whispers_sent = list(settlement.player_influence)
         prompt = town_brain.build_prompt(
-            settlement.name, recent, population_summary, settlement_summary, list(settlement.player_influence),
+            settlement.name, recent, population_summary, settlement_summary, whispers_sent,
             beliefs=list(settlement.beliefs),
         )
         fallback = town_brain.fallback_priority(population_summary, settlement_summary)
-        task = asyncio.create_task(self._run_town_brain(prompt, fallback))
+        task = asyncio.create_task(self._run_town_brain(prompt, fallback, whispers_sent))
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
-        settlement.player_influence = []  # consumed by this prompt regardless of how the LLM call resolves
 
-    async def _run_town_brain(self, prompt: str, fallback: dict) -> None:
+    async def _run_town_brain(self, prompt: str, fallback: dict, whispers_sent: list[str] | None = None) -> None:
         result, used_fallback = await self._cognition_runner.run(
             prompt, town_brain.SYSTEM_PROMPT, fallback=lambda: fallback
         )
+        if whispers_sent and not used_fallback:
+            # A whisper only counts as heard when the LLM actually read
+            # the prompt containing it. On timeout/fallback it stays
+            # queued for next month's decision instead of vanishing
+            # silently — previously the queue was cleared at schedule
+            # time, so a whisper submitted during a flaky LLM stretch was
+            # consumed by nobody (July 2026 architecture review, §0.2).
+            remaining = [w for w in self.world.settlement.player_influence if w not in whispers_sent]
+            self.world.settlement.player_influence = remaining[-3:]
         priority, rationale = town_brain.parse_priority(result, fallback)
         self.world.settlement.current_priority = priority
         self.world.settlement.priority_rationale = rationale
@@ -869,6 +958,13 @@ class SimulationEngine:
         subject_agent_id = beliefs.resolve_subject_agent_id(parsed["subject"], self.world.population.agents)
         subject_family_agent_ids = beliefs.resolve_family_agent_ids(subject_agent_id, self.world.population.agents)
         revises = parsed["revises"]
+        if revises is None:
+            # Subject identity beats a small model's integer indexing: if
+            # the village already holds a theory about this exact subject,
+            # treat the answer as a revision of it rather than piling up
+            # duplicate theories about the same person/thing. See
+            # beliefs.find_belief_index_by_subject.
+            revises = beliefs.find_belief_index_by_subject(parsed["subject"], settlement.beliefs)
         if revises is not None:
             entry = settlement.beliefs[revises]
             entry["belief"] = parsed["belief"]
@@ -991,8 +1087,54 @@ class SimulationEngine:
         showing up via the one-shot `/events` fetch on page load. See
         `_pending_broadcast_events`, docs/DECISIONS.md, "LLM-as-brain
         batch,\" fix: live event stream gap."""
-        log_event(self.conn, tick=self.world.clock.tick_count, category=category, description=description)
+        # commit=False: the next tick's end-of-tick commit (or the final
+        # shutdown snapshot's) lands this — one fsync per tick, not per
+        # event. A result arriving between ticks waits at most one tick.
+        log_event(self.conn, tick=self.world.clock.tick_count, category=category, description=description, commit=False)
         self._pending_broadcast_events.append({"category": category, "description": description})
+
+    def _log_daily_metrics(self) -> None:
+        """One compact time-series row per sim-day (see database.py's
+        `metrics` table, `GET /metrics`) — the instrumentation layer the
+        July 2026 architecture review called the platform's biggest
+        missing scientific tool: population/food/social curves over
+        years, ablation comparisons (LLM vs fallback), and rumor/belief
+        studies all need a fixed-cadence series, not just the narrative
+        event log. Committed by _tick_once's end-of-tick commit."""
+        population = self.world.population
+        settlement = self.world.settlement
+        pop_summary = population.summary()
+        farm_summary = self.world.farms.summary()
+        wildlife_summary = self.world.wildlife.summary()
+        metrics = {
+            "population": pop_summary["total"],
+            "avg_hunger": pop_summary["avg_hunger"],
+            "avg_energy": pop_summary["avg_energy"],
+            "deaths_starvation": population.deaths_starvation,
+            "deaths_old_age": population.deaths_old_age,
+            "deaths_predator": population.deaths_predator,
+            "close_bonds": pop_summary["close_bonds"],
+            "rivalries": pop_summary["rivalries"],
+            "avg_personal_food": pop_summary["avg_personal_food"],
+            "farms_total": farm_summary["total"],
+            "farms_ready": farm_summary["ready"],
+            "granary_food": round(sum(
+                b.stored_food for b in settlement.buildings
+                if b.kind is BuildingKind.GRANARY and b.stage is BuildingStage.STANDING
+            ), 3),
+            "materials": round(settlement.materials, 3),
+            "currency": round(settlement.currency, 3),
+            "buildings_standing": sum(1 for b in settlement.buildings if b.stage is BuildingStage.STANDING),
+            "grazers": wildlife_summary.get("grazer_total", 0),
+            "predators": wildlife_summary.get("predator_total", 0),
+            "tech_level": settlement.tech_level,
+            "priority": settlement.current_priority,
+            "temperament": round(settlement.temperament, 3),
+            "beliefs": len(settlement.beliefs),
+            "rumors_total": self.world.rumor_total,
+            "llm_fallback_total": self.world.llm_fallback_total,
+        }
+        log_metrics(self.conn, tick=self.world.clock.tick_count, metrics=metrics, commit=False)
 
     def _record_llm_call(self, used_fallback: bool) -> None:
         """Cumulative counters persisted on `World`, for diagnosing LLM
@@ -1026,7 +1168,7 @@ class SimulationEngine:
         if self._broadcaster is None:
             self._pending_broadcast_events = []  # nobody will ever read this buffer — don't let it grow unbounded
             return
-        if any(category in _TERRAIN_CHANGING_CATEGORIES for category, _ in self.world.last_life_events):
+        if any(category in TERRAIN_CHANGING_CATEGORIES for category, _ in self.world.last_life_events):
             self._broadcaster.set_terrain(self.world.terrain, self.world.config.width, self.world.config.height)
         life_events = [
             {"category": category, "description": description}

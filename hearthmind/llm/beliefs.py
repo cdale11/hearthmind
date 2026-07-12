@@ -52,12 +52,17 @@ def build_prompt(
         )
     else:
         beliefs_text = "  (none yet — this would be the village's first theory about itself)"
+    # Deliberately NO ground-truth stat block here (population counts,
+    # structure counts) — unlike town_brain, whose job is to steer well.
+    # A theory formed only from what the village *narrated to itself*
+    # (event descriptions + its own prior theories) can drift, overshoot,
+    # or stay wrong until new events correct it — which is the design
+    # goal ("beliefs are allowed to be wrong," CLAUDE.md). Feeding this
+    # prompt accurate stats meant beliefs could never meaningfully
+    # diverge from reality (July 2026 architecture review, §3.4).
     return (
-        f"The village of {settlement_name}: population {population_summary.get('total', 0)}, "
-        f"{settlement_summary.get('standing', 0)} standing structures, "
-        f"era {settlement_summary.get('era', 'industrial')}, "
-        f"current civic priority {settlement_summary.get('current_priority') or 'undecided'}.\n"
-        f"Recent history:\n{events_text}\n"
+        f"The village of {settlement_name}, in its {settlement_summary.get('era', 'industrial')} days.\n"
+        f"What people have been saying and seeing lately:\n{events_text}\n"
         f"Theories the village already holds about itself:\n{beliefs_text}\n"
         "Form or revise one theory."
     )
@@ -124,6 +129,23 @@ def resolve_family_agent_ids(subject_agent_id: int | None, agents) -> list[int]:
         if agent.parents and subject_agent_id in agent.parents:
             family.add(agent.id)  # child of subject
     return sorted(family)
+
+
+def find_belief_index_by_subject(subject: str, existing_beliefs: list[dict]) -> int | None:
+    """Index of the existing belief whose subject matches (exact,
+    case-insensitive), or None. Used by the engine when the LLM returns
+    a new-belief answer (`revises: null`) whose subject the village
+    already holds a theory about — a 2B model frequently re-forms
+    instead of revising (or points `revises` at the wrong index), and
+    subject identity is a far more reliable signal than a small model's
+    integer indexing into the prompt's enumeration (July 2026
+    architecture review, §3.3). Ambiguity is impossible: subjects are
+    unique under this same merge rule."""
+    subject_lower = subject.strip().lower()
+    for i, belief in enumerate(existing_beliefs):
+        if belief.get("subject", "").strip().lower() == subject_lower:
+            return i
+    return None
 
 
 def parse_belief(result: dict, fallback: dict, existing_count: int) -> dict:

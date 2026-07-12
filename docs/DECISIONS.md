@@ -3022,3 +3022,89 @@ share 23% -> 43% under "food"); tick-time scaling 12/50/200/500 agents
 rival-tile scan; and code-reading verification of the whisper-loss,
 fallback-priority-lock, name-collision, and unbounded-snapshot
 findings.
+
+## Architecture-review implementation pass (v0.40.0): the review's recommendations, performed
+
+The July 2026 review (`docs/REVIEW-2026-07.md`) was docs-only by brief;
+this pass performs its prioritized recommendations. Root causes are in
+the review; this entry records the design calls made while implementing
+and the verification data.
+
+**Carrying capacity (the review's "single change that would most
+increase long-term emergence").** Three coupled changes, deliberately
+shipped together because each alone is either ineffective or dangerous:
+goal-gated planting (a well-fed village stops planting — the negative
+feedback), crop rot (`FARM_ROT_TICKS` — standing food becomes a flow,
+not a stock), and surplus-gated reproduction
+(`REPRODUCTION_WELLFED_HUNGER` OR saved personal food — chosen as an OR
+specifically so a brand-new world, where nobody has personal food yet,
+can still grow off a good foraging stretch rather than dead-ending).
+`POPULATION_CAP` was raised to 400 and demoted to a safety valve rather
+than removed — a tuning mistake in the new food loop shouldn't be able
+to take the process down. The planting gate accepts either FORAGE goal
+or real hunger so fallback-only runs (whose fallback assigns FORAGE
+above 0.6 hunger) still plant.
+
+**Gossip contagion.** Rumors already existed but had no mechanical
+effect beyond a memory string. Rather than a new isolated mechanic, the
+implementation reuses three existing systems: rumor subject resolution
+mirrors belief-subject matching (ambiguous names resolve to nobody),
+the trust lever's skepticism threshold gates whether a listener's
+opinion moves at all, and the movement is a bounded relaxation toward
+the *speaker's* existing relationship value — no new state anywhere.
+
+**LLM backpressure + staleness.** The gate lives at scheduling time
+(engine) with the counter in `CognitionRunner` — jobs the engine never
+creates cost nothing, versus cancelling queued tasks which would still
+churn. Rationing order encodes a judgement: dialogue shed first
+(narrative), routine daily cognition second, event-triggered cognition
+last (2x headroom). Staleness is enforced at apply time with the
+schedule tick carried alongside each pending result.
+
+**Whisper retention.** Consumed only on a non-fallback town-brain
+resolution; on fallback the whispers stay queued (still capped at 3 by
+the enqueue path, so an LLM-disabled run can't accumulate them
+unboundedly).
+
+**Beliefs.** Two changes with one goal (the village's self-model should
+be able to be *wrong*): the prompt lost its ground-truth stat block,
+and revision now matches on subject identity when the model returns
+`revises: null` for a subject it already theorizes about — a 2B model
+re-forms instead of revising far more often than it mis-indexes, and
+duplicate subjects were crowding the capped list.
+
+**Performance.** Rival-tile precomputation (one pass over each agent's
+own relationships instead of a per-agent scan of every position),
+`Settlement.at` position index (lazy rebuild keyed on list length, with
+explicit invalidation at the two mutation sites as belt-and-braces),
+water-tile cache invalidated by `TERRAIN_CHANGING_CATEGORIES` (moved to
+`world/state.py` as the canonical copy — first step of the review's
+stringly-typed-events cleanup). Native code was evaluated and declined
+per the review: the hot paths are dict-and-branch logic with 10x+
+algorithmic headroom remaining, and the binding constraint on the
+target hardware is LLM latency.
+
+**Persistence.** Snapshot pruning keeps `SNAPSHOT_KEEP_RECENT` recent
+rows plus sparse keyframes (`SNAPSHOT_KEYFRAME_INTERVAL_TICKS`) so the
+roadmap's scrub-through-time idea keeps its anchors; per-event commits
+became one commit per tick (`log_event(commit=False)` + end-of-tick
+commit — crash exposure is at most one tick of events).
+
+**Metrics.** One JSON row per sim-day in a new `metrics` table
+(`GET /metrics`), written on `day_end`. JSON column rather than a wide
+schema: the row set will evolve, and research use reads whole rows.
+
+Verified (LLM disabled, this environment): 30k-tick engine runs, seeds
+42/7 — no extinction (min pop 7 on seed 42's winter funnel, recovering
+as before); farms_ready peaked ~150-250 vs the ~800-1,000 baseline;
+population growth visibly food-coupled (pop 232 at tick 25k vs pinned
+at 200 from tick 22k in baseline); zero duplicate living names at end
+of both runs (baseline: dozens); snapshot rows bounded at
+~SNAPSHOT_KEEP_RECENT (+keyframes) after 120 saves; metrics rows == sim
+days elapsed; town-brain fallback chose non-food priorities when
+well-fed. Unit-style ad-hoc checks: gossip nudge (+0.05 cap, skeptic
+unmoved), farm rot removal, belief subject-match, unique-name fallback
+to checked "II" suffixes with the whole pool alive. Tick timing
+12/200/500 agents: 1.3/7.9/45.9 ms -> 0.5/3.2/22.2 ms. All touched
+files pass `python3 -m py_compile`; sample cognition prompt inspected
+by eye.

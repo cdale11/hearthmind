@@ -20,6 +20,7 @@ from hearthmind.persistence.snapshot import (
     event_category_counts,
     history_events,
     recent_events,
+    recent_metrics,
     snapshot_count,
     total_event_count,
 )
@@ -77,6 +78,15 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection) -> FastA
         revised, and omens — filtered out of the everything-included
         live event feed. Backs the UI's History tab."""
         return JSONResponse(history_events(conn, limit=limit))
+
+    @app.get("/metrics")
+    async def metrics(limit: int = 365) -> JSONResponse:
+        """The per-sim-day time-series (population, food, social,
+        temperament — see SimulationEngine._log_daily_metrics), oldest-
+        first and chart-ready. The research/observatory counterpart to
+        `/events`' narrative feed: `/events` says what happened, this
+        says how the curves moved. Default window is one sim-year."""
+        return JSONResponse(recent_metrics(conn, limit=limit))
 
     @app.get("/diagnostics")
     async def diagnostics() -> JSONResponse:

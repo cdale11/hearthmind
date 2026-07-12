@@ -22,6 +22,8 @@ from hearthmind.agents.agent import (
     FORAGE_HUNGER_RELIEF,
     FORAGE_HUNGER_THRESHOLD,
     FORAGE_INVENTORY_SKIM,
+    GOSSIP_OPINION_CONTAGION,
+    GOSSIP_OPINION_MAX_STEP,
     GRIEF_ENERGY_PENALTY,
     HUNGER_RATE,
     MATURITY_TICKS,
@@ -35,6 +37,7 @@ from hearthmind.agents.agent import (
     REPRODUCTION_CHANCE_PER_TICK,
     RELATIONSHIP_DECAY_PER_TICK,
     RELATIONSHIP_GAIN_PER_TICK_COLOCATED,
+    REPRODUCTION_WELLFED_HUNGER,
     REST_THRESHOLD,
     RIVALRY_THRESHOLD,
     STARVATION_HUNGER_THRESHOLD,
@@ -50,7 +53,7 @@ from hearthmind.agents.agent import (
     AgentGoal,
     AgentState,
 )
-from hearthmind.agents.names import generate_names
+from hearthmind.agents.names import _roman, generate_names
 from hearthmind.economy.farms import (
     FARM_TOOL_MATERIALS_COST,
     HARVEST_AMOUNT,
@@ -343,6 +346,26 @@ class Population:
         # search (SOCIALIZE) sees a consistent picture rather than a mix of
         # this-tick-already-moved and not-yet-moved agents.
         position_snapshot = [(a.id, a.x, a.y) for a in self.agents]
+        # Rival positions, computed once for the whole tick: one pass over
+        # each agent's (usually short) relationships dict, instead of the
+        # previous per-agent scan of the full position snapshot inside
+        # _dispatch_movement — that scan was O(N^2) per tick and measured
+        # at ~40% of population-tick time at 200 agents (July 2026
+        # architecture review, §6.1). Most agents have no rivals at all
+        # (rivalry needs repeated tense dialogue), so this is near-free
+        # in the common case.
+        position_by_id = {a.id: (a.x, a.y) for a in self.agents}
+        rival_tiles_by_agent: dict[int, set[tuple[int, int]]] = {}
+        for a in self.agents:
+            if not a.relationships:
+                continue
+            tiles = {
+                position_by_id[other_id]
+                for other_id, value in a.relationships.items()
+                if value <= RIVALRY_THRESHOLD and other_id in position_by_id
+            }
+            if tiles:
+                rival_tiles_by_agent[a.id] = tiles
         predator_tiles = wildlife.predator_tiles()
         weather_harsh = (
             weather.precipitation > WEATHER_HARSH_PRECIPITATION
@@ -390,6 +413,7 @@ class Population:
                 self._dispatch_movement(
                     agent, terrain, rng, resources, farms, settlement, wildlife, roads,
                     predator_tiles, position_snapshot, critically_hungry, weather,
+                    rival_tiles=rival_tiles_by_agent.get(agent.id),
                 )
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
@@ -620,7 +644,21 @@ class Population:
                 continue
             if not FarmGrid.is_farmable(terrain, x, y):
                 continue
-            if not any(a.state is AgentState.AWAKE for a in group):
+            # Planting is now a *deliberate* act, not ambient: it needs a
+            # colocated awake agent who is actually food-focused — FORAGE
+            # goal (LLM- or fallback-chosen) or genuinely hungry. This is
+            # the negative-feedback half of the carrying-capacity rework
+            # (July 2026 review): a well-fed village stops planting, its
+            # standing crops rot away (FARM_ROT_TICKS), and food tightens
+            # again — instead of the map monotonically carpeting itself
+            # in fields. It also gives the cognition layer's goal choice
+            # real mechanical teeth: FORAGE now *produces* food supply,
+            # not just consumption.
+            if not any(
+                a.state is AgentState.AWAKE
+                and (a.goal is AgentGoal.FORAGE or a.hunger >= FORAGE_HUNGER_THRESHOLD)
+                for a in group
+            ):
                 continue
             if rng.random() >= PLANT_CHANCE_PER_TICK:
                 continue
@@ -642,6 +680,7 @@ class Population:
         roads: RoadNetwork, predator_tiles: set[tuple[int, int]],
         position_snapshot: list[tuple[int, int, int]], critically_hungry: bool = False,
         weather: WeatherState | None = None,
+        rival_tiles: set[tuple[int, int]] | None = None,
     ) -> None:
         """Goal-directed agents (FORAGE/SOCIALIZE) take a deliberate step
         toward a visible target when one exists; otherwise (including
@@ -658,18 +697,13 @@ class Population:
         agent walks. See docs/DECISIONS.md, D5."""
         # Rivalry-driven avoidance (A5 follow-up): a rival's tile is
         # avoided the same way a predator's is — preferred against, not
-        # forbidden, so an agent doesn't strand itself. Folded into the
-        # same `predator_tiles`-shaped set _step_toward/_maybe_move
-        # already know how to prefer-avoid, rather than threading a
-        # second avoidance concept through both. See docs/DECISIONS.md,
-        # "rivalry avoidance" pass.
-        if agent.relationships:
-            rival_tiles = {
-                (x, y) for (other_id, x, y) in position_snapshot
-                if other_id != agent.id and agent.relationships.get(other_id, 0.0) <= RIVALRY_THRESHOLD
-            }
-            if rival_tiles:
-                predator_tiles = predator_tiles | rival_tiles
+        # forbidden, so an agent doesn't strand itself. `rival_tiles` is
+        # precomputed once per tick by `tick()` (see the O(N^2) note
+        # there) and folded into the same `predator_tiles`-shaped set
+        # _step_toward/_maybe_move already know how to prefer-avoid.
+        # See docs/DECISIONS.md, "rivalry avoidance" pass.
+        if rival_tiles:
+            predator_tiles = predator_tiles | rival_tiles
 
         effective_goal = AgentGoal.FORAGE if critically_hungry else agent.goal
         target = None
@@ -923,6 +957,7 @@ class Population:
             return life_events
 
         newborns: list[Agent] = []
+        newborn_names: set[str] = set()
         for group in by_position.values():
             if len(group) < 2:
                 continue
@@ -935,10 +970,24 @@ class Population:
                     continue
                 if a.relationships.get(b.id, 0.0) < REPRODUCTION_AFFINITY_THRESHOLD:
                     continue
+                # Surplus gate (carrying-capacity rework, July 2026
+                # review): children follow surplus — either parent has
+                # personal food set aside, or both are clearly well-fed
+                # (far stricter than _is_healthy's not-starving bar).
+                # This is what couples demography to the food economy:
+                # a hard winter or a rotted harvest now shows up in the
+                # birth rate, not just the death rate.
+                has_surplus = (
+                    a.inventory.get("food", 0.0) > 0.0 or b.inventory.get("food", 0.0) > 0.0
+                    or (a.hunger <= REPRODUCTION_WELLFED_HUNGER and b.hunger <= REPRODUCTION_WELLFED_HUNGER)
+                )
+                if not has_surplus:
+                    continue
                 if rng.random() >= REPRODUCTION_CHANCE_PER_TICK:
                     continue
 
-                child_name = generate_names(1, rng)[0]
+                child_name = self._unique_name(rng, extra_taken=newborn_names)
+                newborn_names.add(child_name)
                 child = Agent(
                     id=self._next_id,
                     name=child_name,
@@ -987,7 +1036,7 @@ class Population:
         else:
             anchor = self.agents[rng.randrange(count)]
             x, y = anchor.x, anchor.y
-        name = generate_names(1, rng)[0]
+        name = self._unique_name(rng)
         migrant = Agent(
             id=self._next_id, name=name, x=x, y=y, age_ticks=MATURITY_TICKS,
             max_age_ticks=rng.randint(MIN_LIFESPAN_TICKS, MAX_LIFESPAN_TICKS),
@@ -997,6 +1046,32 @@ class Population:
         destination = settlement.name or "the dwindling settlement"
         _remember(migrant, f"I came to {destination} looking for a new start.")
         return [("migrant_arrived", f"{name} arrived at {destination}, drawn by word of its need.")]
+
+    def _unique_name(self, rng: random.Random, extra_taken: set[str] = frozenset()) -> str:
+        """A name no *living* inhabitant currently bears. `generate_names`
+        draws from a 50-name pool with replacement across calls, so at a
+        couple hundred living agents duplicate names were near-certain —
+        and `beliefs.resolve_subject_agent_id` deliberately refuses to
+        resolve an ambiguous name, so per-person beliefs (and the omen
+        subjects/dialogue context built on them) quietly stopped working
+        exactly when the village got interesting (July 2026 architecture
+        review, §8). Retries the pool a few times, then falls back to
+        generational suffixes ("Wren II") that are themselves checked.
+        `extra_taken` covers names claimed earlier in the same tick but
+        not yet in `self.agents` — two newborns from the same tick's
+        batch must not match either (the exact duplicate observed once
+        in a 30k-tick verification run before this parameter existed)."""
+        living = {a.name for a in self.agents} | set(extra_taken)
+        candidate = ""
+        for _ in range(8):
+            candidate = generate_names(1, rng)[0]
+            if candidate not in living:
+                return candidate
+        base = candidate
+        suffix = 2
+        while f"{base} {_roman(suffix)}" in living:
+            suffix += 1
+        return f"{base} {_roman(suffix)}"
 
     @staticmethod
     def _is_mature(agent: Agent) -> bool:
@@ -1440,6 +1515,29 @@ class Population:
             return []
         return [agent for agent in self.agents if (tick + agent.id) % ticks_per_day == 0]
 
+    @classmethod
+    def nearest_food_steps(
+        cls, agent: Agent, farms: FarmGrid, settlement: Settlement,
+        resources: ResourceGrid, wildlife: WildlifeGrid,
+    ) -> int | None:
+        """Manhattan distance to the nearest food source the agent's
+        movement layer would actually target (same candidate set as
+        _dispatch_movement's FORAGE branch), or None if nothing is known.
+        Built for the cognition prompt: the LLM chooses between
+        forage/socialize/etc. far better when told whether food is even
+        reachable (July 2026 review, LLM-cognition pass). Called only for
+        the few agents due for cognition on a given tick — not per-agent
+        per-tick."""
+        target = (
+            cls._nearest_ready_farm(agent, farms)
+            or cls._nearest_stocked_granary(agent, settlement)
+            or cls._nearest_grazer_herd(agent, wildlife)
+            or cls._nearest_resource(agent, resources)
+        )
+        if target is None:
+            return None
+        return abs(target[0] - agent.x) + abs(target[1] - agent.y)
+
     def apply_goal(self, agent_id: int, goal: AgentGoal, reason: str) -> None:
         """Apply a resolved goal to an agent by id. A no-op if the agent
         has since died — cognition results can arrive on a later tick than
@@ -1541,7 +1639,7 @@ class Population:
         return selected
 
     def apply_dialogue(
-        self, a_id: int, b_id: int, sentiment: str, rumor: str = "",
+        self, a_id: int, b_id: int, sentiment: str, rumor: str = "", line_a: str = "", line_b: str = "",
     ) -> tuple[Agent, Agent, bool] | None:
         """Apply a resolved dialogue's sentiment as a relationship nudge,
         on top of the passive per-tick colocation gain. Returns None (a
@@ -1607,8 +1705,48 @@ class Population:
                 _remember(agent_b, f"{agent_a.name} claims: {rumor} — I'm not sure I believe them.")
             else:
                 _remember(agent_b, f"Heard a rumor: {rumor}")
+            self._apply_gossip_contagion(agent_a, agent_b, rumor, trust_a_in_b, trust_b_in_a)
             surfaced = True
+        if surfaced and line_a:
+            # A conversation memorable enough to surface is memorable
+            # enough to *remember having had* — previously two agents
+            # could never reference their last exchange, because only
+            # the rumor/bond-crossing side effects left memories, not
+            # the conversation itself (July 2026 review, §3.5).
+            _remember(agent_a, f'Talked with {agent_b.name} — they said "{line_b}"')
+            _remember(agent_b, f'Talked with {agent_a.name} — they said "{line_a}"')
         return agent_a, agent_b, surfaced
+
+    def _apply_gossip_contagion(
+        self, agent_a: Agent, agent_b: Agent, rumor: str, trust_a_in_b: float, trust_b_in_a: float,
+    ) -> None:
+        """If the rumor names a specific living third villager, each
+        listener's opinion of that person relaxes toward the speaker's —
+        gossip as a real social force, not just a memory string. Uses
+        word-boundary name matching; skips ambiguous matches (multiple
+        named villagers) the same way belief resolution does, and skips
+        listeners who don't trust the speaker (the existing skepticism
+        threshold). See GOSSIP_OPINION_CONTAGION in agents/agent.py."""
+        tokens = {token.strip(".,!?;:'\"") for token in rumor.lower().split()}
+        subjects = [
+            agent for agent in self.agents
+            if agent.id not in (agent_a.id, agent_b.id)
+            and agent.name.split()[0].lower() in tokens
+        ]
+        if len(subjects) != 1:
+            return  # nobody named, or ambiguous — a rumor about "the harvest" moves no opinions
+        subject = subjects[0]
+        for listener, speaker, trust in (
+            (agent_a, agent_b, trust_a_in_b), (agent_b, agent_a, trust_b_in_a),
+        ):
+            if trust < TRUST_SKEPTICISM_THRESHOLD:
+                continue  # skeptical listeners don't let hearsay move their opinion
+            speaker_view = speaker.relationships.get(subject.id, 0.0)
+            listener_view = listener.relationships.get(subject.id, 0.0)
+            step = GOSSIP_OPINION_CONTAGION * (speaker_view - listener_view)
+            step = max(-GOSSIP_OPINION_MAX_STEP, min(GOSSIP_OPINION_MAX_STEP, step))
+            if step:
+                listener.relationships[subject.id] = max(-1.0, min(1.0, listener_view + step))
 
     # --- festivals (collective behaviour) ---------------------------------------
 

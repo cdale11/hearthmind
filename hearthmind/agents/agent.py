@@ -100,6 +100,17 @@ REPRODUCTION_AFFINITY_THRESHOLD = 0.6
 REPRODUCTION_CHANCE_PER_TICK = 0.01
 """Rolled only for mature, healthy, colocated pairs above the affinity
 threshold — see Population._maybe_reproduce."""
+
+REPRODUCTION_WELLFED_HUNGER = 0.35
+"""The surplus gate's fallback arm: a pair with no personal food saved
+can still have a child if both are clearly well-fed (hunger at or
+below this — much stricter than _is_healthy's 0.7 ceiling). See
+Population._maybe_reproduce and the July 2026 architecture review's
+carrying-capacity rework: children follow surplus, so demography is
+coupled to the food economy instead of only to a hard population cap.
+Kept as an OR with the personal-food arm so a brand-new world (nobody
+has saved food yet — the inventory skim needs farms/granaries to
+exist first) can still grow off a good foraging stretch."""
 RIVALRY_THRESHOLD = -0.4
 """Relationship value at or below which a pair is considered rivals for
 prompt-context/diagnostic purposes — see hearthmind/llm/dialogue.py."""
@@ -183,9 +194,30 @@ GRIEF_ENERGY_PENALTY = 0.2
 dies — grief has a real cost, not just a memory entry. See
 Population._apply_deaths."""
 
-POPULATION_CAP = 200
-"""Safety valve against unbounded growth before food scarcity/economy
-naturally cap population; see docs/DECISIONS.md, A2."""
+POPULATION_CAP = 400
+"""A pure safety valve now, no longer the binding constraint it had
+quietly become: the July 2026 architecture review measured every run
+pinning at the old 200 indefinitely (food was post-scarce, so nothing
+else ever pushed back). With the carrying-capacity rework — goal-gated
+planting, crop rot (FARM_ROT_TICKS), and surplus-gated reproduction
+(REPRODUCTION_WELLFED_HUNGER) — population is meant to be limited by
+the food economy; this cap only guards against a pathological runaway.
+Raised rather than removed so a tuning mistake in the new food loop
+can't take the process down. See docs/DECISIONS.md, A2 and the
+architecture-review implementation pass."""
+
+GOSSIP_OPINION_CONTAGION = 0.15
+GOSSIP_OPINION_MAX_STEP = 0.05
+"""When a rumor names a specific third villager, each listener's
+opinion of that person relaxes toward the *speaker's* opinion by this
+fraction (capped at MAX_STEP per rumor, and skipped entirely when the
+listener doesn't trust the speaker — see TRUST_SKEPTICISM_THRESHOLD).
+This is the mechanism that makes gossip a real social force: opinions
+now propagate through the conversation graph instead of only through
+direct contact, so a well-connected critic can sour a village on
+someone they've barely met — and a skeptical village can't be swayed.
+See Population.apply_dialogue, docs/DECISIONS.md, architecture-review
+implementation pass (gossip contagion)."""
 
 
 @dataclass

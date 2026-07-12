@@ -22,29 +22,57 @@ SYSTEM_PROMPT = (
 )
 
 
+RECENT_MEMORIES_IN_PROMPT = 3
+"""How many of the agent's most recent memories reach the cognition
+prompt. Was 1 (only `memories[-1]`) — the July 2026 architecture
+review's finding was that an agent's whole inner life at decision time
+was a single sentence; three keeps the prompt small for a 2B model
+while letting e.g. a grief memory survive one newer rumor."""
+
+
 def build_prompt(
     agent: Agent, season: str, weather: str,
     settlement_name: str = "", latest_tradition: str = "",
+    colocated_names: list[str] | None = None, nearest_food_steps: int | None = None,
 ) -> str:
     """`settlement_name`/`latest_tradition` are optional culture context
     (Phase E) — empty until the settlement is named/has a tradition, so
     early-game prompts are unaffected. Closes the "chronicle isn't read
     back into prompts" gap flagged since B3 — see docs/DECISIONS.md, E1.
 
-    `agent.memories` (if any) contributes its most recent entry as
-    personal context — a bond formed, a rumor heard, a partner's death —
-    so an agent's own history can shape its next goal, not just the
+    `colocated_names`/`nearest_food_steps` ground the choice in what the
+    agent can actually act on this decision cycle — previously the LLM
+    chose between forage/socialize/etc. without being told whether food
+    was reachable or anyone was nearby, so its choice couldn't be better
+    than a coin flip on exactly the facts that matter (July 2026
+    architecture review, LLM-cognition pass).
+
+    `agent.memories` contributes its most recent few entries as personal
+    context — bonds formed, rumors heard, a partner's death — so an
+    agent's own history can shape its next goal, not just the
     settlement's. See docs/DECISIONS.md, relationship-memory pass."""
     culture = ""
     if settlement_name:
         culture = f" You live in {settlement_name}."
         if latest_tradition:
             culture += f" The village keeps this tradition: {latest_tradition}."
-    memory = f" You remember: {agent.memories[-1]}" if agent.memories else ""
+    recent = agent.memories[-RECENT_MEMORIES_IN_PROMPT:]
+    memory = f" You remember: {' | '.join(recent)}" if recent else ""
+    company = (
+        f" With you right now: {', '.join(colocated_names)}."
+        if colocated_names else " Nobody else is here right now."
+    )
+    if nearest_food_steps is None:
+        food = " You know of no food source nearby."
+    elif nearest_food_steps == 0:
+        food = " There is food where you stand."
+    else:
+        food = f" The nearest food you know of is about {nearest_food_steps} steps away."
     return (
         f"You are {agent.name}. Hunger: {agent.hunger:.2f} (0=full, 1=starving). "
         f"Energy: {agent.energy:.2f} (0=exhausted, 1=fully rested). "
-        f"Currently {agent.state.value}. It is {season}, weather: {weather}.{culture}{memory} "
+        f"Currently {agent.state.value}, focused on '{agent.goal.value}'."
+        f"{company}{food} It is {season}, weather: {weather}.{culture}{memory} "
         "What should you focus on right now?"
     )
 

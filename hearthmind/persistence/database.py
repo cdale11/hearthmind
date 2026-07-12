@@ -11,6 +11,13 @@ Three tables:
 - `world_meta`: a single row of facts fixed at world creation (seed, size,
   created_at), so we can sanity-check that `server.py` isn't being pointed
   at the wrong config for an existing world.
+- `metrics`: one small JSON row per sim-day (see
+  `snapshot.log_metrics`) — the fixed-cadence time-series that makes a
+  long run *analyzable* (population/food/social curves over years)
+  rather than only inspectable at "now". Deliberately a separate table
+  from `events` (which is narrative, irregular, and unbounded-ish) so
+  research queries never scan the event log. See docs/DECISIONS.md,
+  architecture-review implementation pass.
 """
 from __future__ import annotations
 
@@ -44,6 +51,15 @@ CREATE TABLE IF NOT EXISTS events (
     description TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_events_tick ON events (tick);
+CREATE INDEX IF NOT EXISTS idx_events_category ON events (category, id);
+
+CREATE TABLE IF NOT EXISTS metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tick INTEGER NOT NULL,
+    logged_at REAL NOT NULL,
+    metrics_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_metrics_tick ON metrics (tick);
 """
 
 

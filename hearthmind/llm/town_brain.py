@@ -85,7 +85,17 @@ def fallback_priority(population_summary: dict, settlement_summary: dict) -> dic
     granary_food = settlement_summary.get("granary_food", 0.0)
     granary_capacity = settlement_summary.get("granary_capacity", 0.0) or 1.0
 
-    if avg_hunger > 0.5 or (granary_capacity and granary_food / granary_capacity < 0.2):
+    # The empty-granary arm additionally requires people to actually be
+    # somewhat hungry: the old bare fill-ratio test locked the fallback
+    # onto "food" for entire 30k-tick runs, because the ratio's
+    # denominator (total granary capacity) grows with every granary the
+    # "food" priority itself causes to be built — a self-reinforcing
+    # loop the July 2026 architecture review measured directly. A town
+    # with lightly-stocked granaries but well-fed people has no food
+    # problem; let the other arms speak.
+    if avg_hunger > 0.5 or (
+        granary_capacity and granary_food / granary_capacity < 0.2 and avg_hunger > 0.3
+    ):
         return {"priority": "food", "rationale": "Too many go hungry — the village needs food security."}
     if deaths_predator > 0 and hospitals == 0:
         return {"priority": "health", "rationale": "No hospital yet, and the village has already lost people to danger."}
