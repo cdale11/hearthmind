@@ -152,6 +152,80 @@ belief store on top of `Agent.memories` — extend this list's mechanics
 (more consumers reading `subject_agent_id`, family-level resolution)
 before reaching for new state.
 
+**Objective reality vs. subjective belief, and NPC disagreement**
+(explicit user directive, restating/sharpening the standing design
+priorities above — emergence stays priority #1). `World`/`Settlement`/
+`Agent` state (position, hunger, condition, actual event history) is
+ground truth; `Settlement.beliefs` and `Agent.memories` are each
+holder's *interpretation* of it, and are allowed to be wrong, one-sided,
+or contradict each other — nothing currently forces two NPCs' beliefs
+about the same subject to reconcile, and that's correct, not a gap to
+close. What's a real, not-yet-built gap: there's no explicit **trust**
+lever (who an agent believes more readily, or discounts) — `beliefs_about`
+and per-agent `memories` already vary content per-holder, which is most
+of "NPCs reason from imperfect knowledge," but nothing yet models one
+agent weighing a rumor differently depending on its source's
+credibility. A future, deliberately small step (same "capped list,
+monthly-ish cadence" scoping discipline as `beliefs.py`), not a
+prerequisite for anything else in this file.
+
+**The town's opinion of the player specifically.** `town_brain`/
+`beliefs` already fold player whispers in as one input among the real
+stats — "subtle, never forced" — but there's no discrete tracked lever
+for "the town's opinion of the player" the way `temperament` is a
+discrete lever for its general mood. Noted as a plausible next step for
+the Phase G / continuous-cognition line, not started.
+
+## Observatory UI direction (explicit user directive)
+
+The browser UI's target shape, superseding any assumption that "add a
+panel" is the default way to surface a new system: **the map is the
+primary interface**, read at a glance like an observatory instrument,
+not a dashboard of numbers. Prefer overlays, hover-inspection, and
+subtle animation on the map itself over adding more sidebar panels.
+Prefer showing *consequences* in plain language ("the village is
+aging," "granaries are nearly full," "wolves have returned") over
+surfacing only the raw stat behind them — the raw stat should still be
+reachable (hover, or the developer observatory below), just not the
+first thing shown.
+
+Two audiences, two surfaces, kept explicitly separate:
+- **Normal UI** optimizes for *understanding the world* — curated
+  history (already: `GET /history`, the History tab — curated, not raw),
+  a relationship graph, hover-inspection on people/buildings/terrain,
+  an NPC inspector that leads with *mind* (current goal, beliefs,
+  memories, relationships, theories, long-term intentions, why they
+  chose their current action) before any raw stat, surfaced
+  conversations (ones that changed a belief/relationship/future event —
+  not the full transcript by default), and an expanded Town Brain
+  panel that occasionally surfaces a fragment of its internal
+  monologue rather than only the current civic priority.
+- **Developer observatory** optimizes for *understanding the
+  simulation* — everything currently in the dev console
+  (`/diagnostics`, `last_llm_calls`, tick timing, LLM stats) is the
+  right home for prompt inspection, per-subsystem timing, event-queue/
+  resource-flow internals, etc.; deepen it rather than leaking that
+  detail into the normal UI.
+
+**Not started, deliberately** (this is a large, multi-batch UI
+initiative — CLAUDE.md's own "smallest coherent milestone" and "no
+half-finished pieces" rules both argue against attempting all of it in
+one pass): the map-as-primary-interface rework, hover inspection
+system, relationship graph, mind-first NPC inspector modal, internal-
+conversation logging + "surfaced" filtering, Town Brain monologue
+reveal, and documentary/narrated-history mode. Existing world-evolution
+mechanics already satisfy most of the "map should visibly evolve"
+ask (terrain evolution, road wear/decay — roads already fade out from
+disuse via `roads.py`'s presence-driven decay — building decay/ruin/
+reclamation, and this session's disasters/hydrology additions);
+"settlements expand or collapse" is now also mechanically real — a
+population crash recovers via a rare migrant arrival while any people
+remain (`Population._maybe_welcome_migrant`, mirroring wildlife's
+`_maybe_recolonize`), but true extinction (0 population) is left as a
+legitimate, permanent, readable-from-the-landscape ending, not
+auto-revived — rather than a UI-only concept. Ask the user which piece
+of the UI backlog to start with rather than guessing scope.
+
 ## Calendar, climate, and eras
 
 The world clock is a real 365-day, 12-month calendar (`time_system.py`,

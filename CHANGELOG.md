@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.34.0] — Population recovery, LLM-cadence fix (whispers), Observatory UI direction
+
+### Fixed
+- **Population could stagnate/crash toward extinction with no recovery
+  path.** Root-caused: reproduction itself works correctly (verified
+  via a proper engine-driven run reaching 198 of the 200 population
+  cap from 12 starting agents), but a population crashed down to 1-3
+  survivors (predation, starvation, disasters, or just old age
+  outpacing sparse early births) had no way back — reproduction needs
+  a colocated, mature, healthy, mutually-affinity-0.6+ pair, and with
+  only a couple of survivors left there may be nobody eligible.
+  `Population._maybe_welcome_migrant` mirrors wildlife's
+  `_maybe_recolonize`: a rare newcomer, already mature, arrives at the
+  settlement when population is critically low (1-3) but not zero.
+  Deliberately does *not* revive a fully extinct (0-population)
+  settlement — per this session's explicit "settlements expand or
+  collapse" design direction, total extinction is a legitimate,
+  permanent, readable-from-the-landscape ending, not a bug.
+- **Player whispers (`POST /intervene/town-brain`) felt broken.**
+  Root cause: `town_brain` (which consumes queued whispers) only fired
+  on `season_end` — with the real 365-day calendar a season is ~91
+  days, ~8700 ticks, ~2.4 hours of real wall-clock time at default
+  pacing before a whisper was ever read. The same "real calendar makes
+  season/year cadences much rarer than intended" problem CLAUDE.md
+  already documents for terrain evolution, unaddressed here until now.
+  Moved town_brain/chronicle/festival to `month_end` and tradition/
+  invention to `season_end` (one tier faster each, preserving their
+  relative rarity ordering); `INVENTION_CHANCE_PER_YEAR` ->
+  `INVENTION_CHANCE_PER_SEASON` (0.5 -> 0.15, so four seasonal rolls
+  reproduce the original annual rate) and `FESTIVAL_CHANCE_PER_SEASON`
+  -> `FESTIVAL_CHANCE_PER_MONTH` (0.35 -> 0.13, same reasoning).
+  Verified: a queued whisper is now consumed within ~1600 ticks
+  (~27 real minutes) of the next settlement, down from ~2.4 hours.
+
+### Added
+- `docs`/`CLAUDE.md`: a new "Observatory UI direction" design-memory
+  section capturing this session's UI/UX brief (map as primary
+  interface, hover inspection, consequences over raw stats, curated
+  history vs. developer diagnostics kept separate, NPC inspection
+  leading with mind over stats, relationship graph, Town Brain
+  internal-monologue reveal, documentary mode) — none of the UI work
+  itself was attempted this batch (explicitly scoped out: too large
+  for one coherent milestone), flagged back to the user to pick a
+  starting point rather than guessing.
+- `migrant_arrived` life-event category, added to `HISTORY_CATEGORIES`
+  and the client's category-icon table.
+
 ## [0.33.0] — Natural disasters, rivers & lakes, daylight-driven behavior
 
 ### Investigated (no code bug found)

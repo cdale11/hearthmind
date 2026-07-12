@@ -196,7 +196,7 @@ ERA_TECH_THRESHOLDS: dict[str, int] = {"industrial": 0, "electrical": 3, "modern
 """A settlement's era is purely a function of accumulated `tech_level`
 (established inventions, see llm/invention.py) — no separate era-only
 mechanic to keep in sync. Thresholds are deliberately steep:
-inventions are already rare (INVENTION_CHANCE_PER_YEAR), so reaching
+inventions are already rare (INVENTION_CHANCE_PER_SEASON), so reaching
 `digital` is a long-run milestone, not a fast unlock."""
 ERA_DESCRIPTIONS: dict[str, str] = {
     "industrial": "smokestacks and hand tools",
@@ -419,7 +419,7 @@ TECH_BONUS_PER_LEVEL = 0.15
 work and to cultivated-food yield (farm harvest, granary stock/withdraw)
 — NOT wild foraging, which is deliberately untouched by "technique." A
 settlement with 3 inventions works/harvests/stores at 1.45x baseline.
-Uncapped: inventions are meant to be rare (see INVENTION_CHANCE_PER_YEAR),
+Uncapped: inventions are meant to be rare (see INVENTION_CHANCE_PER_SEASON),
 so runaway compounding is self-limiting in practice. See
 docs/DECISIONS.md, E3."""
 
@@ -427,14 +427,18 @@ INVENTION_CURRENCY_THRESHOLD = 10.0
 INVENTION_MATERIALS_FRACTION = 0.5
 """A settlement is "prosperous" enough to invent something when its
 currency or materials stockpile clears one of these bars — inventions
-are a product of surplus, not survival. Checked at the same `year_end`
+are a product of surplus, not survival. Checked at the same `season_end`
 cadence as traditions (Population.tick -> SimulationEngine), one
 independent roll each. See docs/DECISIONS.md, E3."""
 
-INVENTION_CHANCE_PER_YEAR = 0.5
-"""Rolled once per year for a prosperous, named settlement — deliberately
-rare (half the eligible years produce nothing) so an invention stays a
-notable event, not a yearly formality."""
+INVENTION_CHANCE_PER_SEASON = 0.15
+"""Rolled once per season (was once per year at 0.5 — moved for the
+same real-365-day-calendar reason as every other season/year-gated LLM
+job, see docs/DECISIONS.md "cadence decoupling" pass) for a prosperous,
+named settlement. 0.15 was chosen so four independent seasonal rolls
+reproduce roughly the original annual rate (1-(1-0.15)^4 ~= 0.48 ~= the
+old 0.5), deliberately rare so an invention stays a notable event, not
+a formality."""
 
 # --- collective behaviour: festivals ----------------------------------------
 
@@ -443,10 +447,12 @@ FESTIVAL_HUNGER_GATE = 0.5
 — gated on wellbeing, not wealth (contrast INVENTION_CURRENCY_THRESHOLD),
 so a starving village never celebrates while people are suffering."""
 
-FESTIVAL_CHANCE_PER_SEASON = 0.35
-"""Rolled once per season (more frequent than yearly traditions/
-inventions, matching the seasonal cadence of the chronicle) for a named,
-well-fed settlement."""
+FESTIVAL_CHANCE_PER_MONTH = 0.13
+"""Rolled once per month (was once per season at 0.35 — moved for the
+same real-calendar reason as every other season/year-gated LLM job) for
+a named, well-fed settlement. 0.13 was chosen so three independent
+monthly rolls reproduce roughly the original seasonal rate
+(1-(1-0.13)^3 ~= 0.34 ~= the old 0.35)."""
 
 FESTIVAL_RELATIONSHIP_BOOST = 0.1
 """One-time relationship nudge applied to every currently-colocated pair

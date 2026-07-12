@@ -72,6 +72,7 @@ const CATEGORY_META = {
   disaster_storm: { icon: "🌩️" },
   lake_rose: { icon: "💧" },
   lake_receded: { icon: "🏖️" },
+  migrant_arrived: { icon: "🚶" },
 };
 
 // Terrain evolves now (deforestation, reclamation, climate drift), so the

@@ -173,6 +173,24 @@ NIGHT_REST_RECOVERY_BONUS = 0.15
 (1 + this) — sleeping through the dark hours is more restful than a
 daytime nap."""
 
+POPULATION_CRITICAL_THRESHOLD = 4
+"""Below this many living inhabitants (but above 0 — total extinction is
+a legitimate, permanent settlement-collapse outcome, see
+_maybe_welcome_migrant, not a bug to route around), a population is one
+incompatible or unlucky pair away from a demographic dead end even
+though people remain: reproduction needs two colocated, mature, healthy
+agents whose mutual affinity has crossed REPRODUCTION_AFFINITY_THRESHOLD
+— with only 1-3 survivors left, there may be nobody eligible to pair
+with at all."""
+
+MIGRANT_CHECK_CHANCE_PER_TICK = 0.003
+"""Same rare-per-tick-roll shape as wildlife's
+WILDLIFE_RECOLONIZE_CHECK_CHANCE — a lone newcomer, drawn to a
+dwindling settlement, occasionally arrives already mature (so they're
+immediately reproduction-eligible rather than waiting out
+MATURITY_TICKS) when the population is critically low. See
+docs/DECISIONS.md, "population recovery" pass."""
+
 MAX_DIALOGUES_PER_TICK = 3
 """Caps how many LLM-authored dialogue exchanges are scheduled in a
 single tick regardless of how many colocated pairs qualify — keeps LLM
@@ -351,6 +369,7 @@ class Population:
         life_events.extend(self._maybe_start_vehicle(by_position, settlement, farms, rng))
         life_events.extend(self._maybe_reproduce(by_position, rng))
         life_events.extend(self._apply_deaths(killed_by_predator, settlement))
+        life_events.extend(self._maybe_welcome_migrant(rng, settlement))
         return life_events
 
     @staticmethod
@@ -866,6 +885,40 @@ class Population:
 
         self.agents.extend(newborns)
         return life_events
+
+    def _maybe_welcome_migrant(self, rng: random.Random, settlement: Settlement) -> list[tuple[str, str]]:
+        """The population equivalent of wildlife's `_maybe_recolonize` —
+        a settlement crashed down to a handful of survivors (predation,
+        starvation, disaster, or simply old age outpacing sparse births)
+        can otherwise sit at 1-3 people forever with no path back, since
+        reproduction needs a compatible, colocated, mature, healthy pair.
+        A rare newcomer arriving at the settlement (or, if unnamed, near
+        an existing survivor) breaks that dead end. Deliberately does
+        NOT fire at 0 population — a fully extinct settlement is a
+        legitimate, permanent, readable-from-the-landscape ending (see
+        CLAUDE.md's "settlements expand or collapse"), not something to
+        auto-revive."""
+        count = len(self.agents)
+        if count == 0 or count >= POPULATION_CRITICAL_THRESHOLD:
+            return []
+        if rng.random() >= MIGRANT_CHECK_CHANCE_PER_TICK:
+            return []
+        if settlement.buildings:
+            building = settlement.buildings[rng.randrange(len(settlement.buildings))]
+            x, y = building.x, building.y
+        else:
+            anchor = self.agents[rng.randrange(count)]
+            x, y = anchor.x, anchor.y
+        name = generate_names(1, rng)[0]
+        migrant = Agent(
+            id=self._next_id, name=name, x=x, y=y, age_ticks=MATURITY_TICKS,
+            max_age_ticks=rng.randint(MIN_LIFESPAN_TICKS, MAX_LIFESPAN_TICKS),
+        )
+        self._next_id += 1
+        self.agents.append(migrant)
+        destination = settlement.name or "the dwindling settlement"
+        _remember(migrant, f"I came to {destination} looking for a new start.")
+        return [("migrant_arrived", f"{name} arrived at {destination}, drawn by word of its need.")]
 
     @staticmethod
     def _is_mature(agent: Agent) -> bool:

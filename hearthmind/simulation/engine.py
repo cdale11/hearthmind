@@ -41,9 +41,9 @@ from hearthmind.persistence.snapshot import load_latest_snapshot, log_event, rec
 from hearthmind.settlement.buildings import (
     CURRENCY_CAPACITY,
     ERA_DESCRIPTIONS,
-    FESTIVAL_CHANCE_PER_SEASON,
+    FESTIVAL_CHANCE_PER_MONTH,
     FESTIVAL_HUNGER_GATE,
-    INVENTION_CHANCE_PER_YEAR,
+    INVENTION_CHANCE_PER_SEASON,
     INVENTION_CURRENCY_THRESHOLD,
     INVENTION_MATERIALS_FRACTION,
     MATERIALS_CAPACITY,
@@ -533,7 +533,14 @@ class SimulationEngine:
     # --- Phase B: world chronicle --------------------------------------------
 
     def _maybe_schedule_chronicle(self, events: list[str], previous_season: str) -> None:
-        if "season_end" not in events:
+        # Was gated on "season_end". With the real 365-day calendar a
+        # season is ~91 days — the same "made X4.5x rarer by the real
+        # calendar" problem CLAUDE.md already documents for terrain
+        # evolution, unaddressed here until now. Moved to month_end for
+        # the same reason: a real season is too long a wait in
+        # wall-clock terms for a narrative cadence meant to feel alive.
+        # See docs/DECISIONS.md, "cadence decoupling" pass.
+        if "month_end" not in events:
             return
         recent = recent_events(self.conn, limit=50)
         population_summary = self.world.population.summary()
@@ -560,11 +567,15 @@ class SimulationEngine:
     # --- Phase E: village culture (traditions) --------------------------------
 
     def _maybe_schedule_tradition(self, events: list[str]) -> None:
-        """A named settlement invents a new tradition once per year — a
-        slower, generational cadence than the chronicle's seasonal one.
-        Unnamed settlements (no standing building yet) have no culture to
-        speak of, so nothing is scheduled. See docs/DECISIONS.md, E1."""
-        if "year_end" not in events or not self.world.settlement.name:
+        """A named settlement invents a new tradition once per season — a
+        slower, generational cadence than the chronicle's monthly one.
+        Was year_end; moved to season_end for the same real-calendar
+        reason as chronicle/festival/town_brain (a real year is 365
+        days now — see docs/DECISIONS.md, "cadence decoupling" pass)
+        while staying rarer/more deliberate than their monthly cadence.
+        Unnamed settlements (no standing building yet) have no culture
+        to speak of, so nothing is scheduled. See docs/DECISIONS.md, E1."""
+        if "season_end" not in events or not self.world.settlement.name:
             return
         recent = recent_events(self.conn, limit=50)
         traditions = self.world.settlement.traditions
@@ -589,11 +600,14 @@ class SimulationEngine:
 
     def _maybe_schedule_invention(self, events: list[str]) -> None:
         """A prosperous, named settlement may invent something once per
-        year — same cadence as tradition, but gated by surplus and rolled
-        independently (deliberately rare, see INVENTION_CHANCE_PER_YEAR),
-        so it stays a notable event rather than a yearly formality. See
-        docs/DECISIONS.md, E3."""
-        if "year_end" not in events or not self.world.settlement.name:
+        season — same cadence as tradition (was year_end; see
+        docs/DECISIONS.md, "cadence decoupling" pass), but gated by
+        surplus and rolled independently (deliberately rare, see
+        INVENTION_CHANCE_PER_SEASON, tuned so four seasonal rolls
+        reproduce roughly the original yearly rate), so it stays a
+        notable event rather than a formality. See docs/DECISIONS.md,
+        E3."""
+        if "season_end" not in events or not self.world.settlement.name:
             return
         settlement = self.world.settlement
         prosperous = (
@@ -606,7 +620,7 @@ class SimulationEngine:
         # just prosperity, measurably raises the odds. See
         # buildings.education_invention_bonus, docs/DECISIONS.md,
         # "LLM-as-brain batch."
-        chance = min(1.0, INVENTION_CHANCE_PER_YEAR * education_invention_bonus(settlement.education_level))
+        chance = min(1.0, INVENTION_CHANCE_PER_SEASON * education_invention_bonus(settlement.education_level))
         chance = max(0.0, chance * (1.0 + settlement.temperament * TEMPERAMENT_INVENTION_INFLUENCE))
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "invention_roll") >= chance:
             return
@@ -654,15 +668,17 @@ class SimulationEngine:
 
     def _maybe_schedule_festival(self, events: list[str]) -> None:
         """A named, well-fed settlement may hold a festival once per
-        season — a wellbeing gate (not prosperity, contrast
-        _maybe_schedule_invention) and a seasonal cadence (not yearly),
-        deliberately distinct from both traditions and inventions. See
+        month (was once per season — moved for the same real-calendar
+        reason as chronicle/town_brain, see docs/DECISIONS.md, "cadence
+        decoupling" pass) — a wellbeing gate (not prosperity, contrast
+        _maybe_schedule_invention), deliberately distinct from both
+        traditions and inventions' now-seasonal cadence. See
         docs/DECISIONS.md, collective-behaviour pass."""
-        if "season_end" not in events or not self.world.settlement.name:
+        if "month_end" not in events or not self.world.settlement.name:
             return
         if self.world.population.avg_hunger() > FESTIVAL_HUNGER_GATE:
             return
-        if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "festival_roll") >= FESTIVAL_CHANCE_PER_SEASON:
+        if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "festival_roll") >= FESTIVAL_CHANCE_PER_MONTH:
             return
         recent = recent_events(self.conn, limit=50)
         festivals = self.world.settlement.festivals
@@ -687,19 +703,25 @@ class SimulationEngine:
         self._record_llm_debug("festival", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)
 
-    # --- the "town brain": seasonal civic-priority LLM decision -----------------
+    # --- the "town brain": monthly civic-priority LLM decision -----------------
 
     def _maybe_schedule_town_brain(self, events: list[str]) -> None:
-        """Once per season, for a named settlement, the LLM (or its
-        deterministic fallback — see llm/town_brain.fallback_priority)
-        decides the settlement's current civic priority — the concrete
-        "LLM as the town's brain" mechanic (CLAUDE.md): the result
-        measurably steers `buildings.choose_building_kind`, not just
-        narration. Any queued player whispers (`settlement.player_influence`,
-        via POST /intervene/town-brain) are folded in as one input among
+        """Once per month (was once per season — a real season is ~91
+        days, and a whisper submitted via POST /intervene/town-brain
+        could sit queued for hours of real wall-clock time before this
+        ever consumed it; same root cause and same fix shape as the
+        terrain-evolution cadence decoupling already documented — see
+        docs/DECISIONS.md, "cadence decoupling" pass), for a named
+        settlement, the LLM (or its deterministic fallback — see
+        llm/town_brain.fallback_priority) decides the settlement's
+        current civic priority — the concrete "LLM as the town's brain"
+        mechanic (CLAUDE.md): the result measurably steers
+        `buildings.choose_building_kind`, not just narration. Any
+        queued player whispers (`settlement.player_influence`, via
+        POST /intervene/town-brain) are folded in as one input among
         the real stats, then consumed. See docs/DECISIONS.md,
         "LLM-as-brain batch.\""""
-        if "season_end" not in events or not self.world.settlement.name:
+        if "month_end" not in events or not self.world.settlement.name:
             return
         settlement = self.world.settlement
         recent = recent_events(self.conn, limit=50)

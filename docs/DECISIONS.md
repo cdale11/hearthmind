@@ -2288,3 +2288,103 @@ drops by exactly `STORM_DAMAGE`), and `tick_lakes` (confirmed both
 growth and shrink paths convert a boundary tile and emit the right
 event) all passed. All touched Python files pass `python3 -m
 py_compile`; `app.js` passes `node --check`.
+
+## Population recovery, LLM-cadence fix (whispers), Observatory UI direction
+
+**Population stagnation investigation.** The user reported 2 NPCs
+after 50000 ticks. First reproduction attempt was tested by calling
+`World.tick()` directly in a loop, bypassing `SimulationEngine`
+entirely — this skips `_schedule_due_cognition` (an async, fire-and-
+forget task), so every agent stays at its `Agent.goal` default
+(`WANDER`) forever, never `SOCIALIZE`s, and only colocates by pure
+random-walk chance. That test showed 0 births in 50000 ticks and total
+extinction — a real result, but of a broken test methodology, not the
+actual system (`SimulationEngine._tick_once`, the real code path,
+schedules goal cognition every tick as documented). Re-ran through the
+actual engine: population grew from 12 to 198 (of a 200 cap) over
+20000 ticks with reproduction firing normally. So reproduction itself
+isn't the bug. What's real: once a population crashes down to a
+handful of survivors (via predation/starvation/disasters/attrition
+outpacing early sparse births — plausible over a real 50000-tick run
+with things like this session's new disasters added), there was no
+recovery mechanism — the exact class of bug wildlife had before
+v0.32.0's `_maybe_recolonize` fix. Added the population equivalent,
+`Population._maybe_welcome_migrant`: same rare per-tick roll shape,
+gated on `0 < population < POPULATION_CRITICAL_THRESHOLD (4)`, a
+newcomer already at `MATURITY_TICKS` age (so immediately reproduction-
+eligible, no multi-thousand-tick wait) arrives at an existing building
+(or near a survivor if unnamed). Deliberately excludes the `== 0` case:
+this session's explicit design direction says "settlements expand or
+collapse" and wants "history readable from the landscape" — a fully
+extinct settlement is a legitimate, permanent ending (ruins persist via
+existing building decay/reclamation), not a state to silently undo.
+
+**Whisper/town-brain cadence investigation.** Traced
+`POST /intervene/town-brain` end-to-end: `WorldBroadcaster.
+enqueue_intervention` -> `_apply_pending_interventions` (drains at the
+top of the next tick, appends to `Settlement.player_influence`, capped
+to last 3) -> `_maybe_schedule_town_brain` (folds `player_influence`
+into the prompt, then clears it) — all correct, no bug in the queueing
+path itself. The actual problem: `_maybe_schedule_town_brain` (like
+chronicle and festival) only fired on `"season_end"`. With the real
+365-day/12-month calendar (not the old fixed 20-day one), a season is
+~91 real days, ~8736 ticks at `sim_minutes_per_tick=15`, ~2.4 hours of
+real wall-clock time at the default `tick_seconds=1.0` pacing before a
+queued whisper was ever read — CLAUDE.md already documents this exact
+"real calendar makes season/year-gated cadences much rarer than
+originally intended" problem for terrain evolution (fixed by moving to
+week/month boundaries), but the fix was never applied to the LLM-job
+schedulers added around the same time. Applied the same shape here:
+chronicle/festival/town_brain moved from `season_end` to `month_end`;
+tradition/invention moved from `year_end` to `season_end` — each one
+tier faster, preserving the original relative rarity ordering
+(beliefs/omens stay monthly, town_brain/chronicle/festival join them,
+tradition/invention become the rarer, "more deliberate" seasonal tier).
+Rather than let the *effective* annual rate silently multiply by
+inflating each job's real frequency ~3-4x for no reason, the two
+probability-gated jobs had their per-roll chance rescaled to
+approximately reproduce the original annual/seasonal rate at the new,
+faster cadence: `INVENTION_CHANCE_PER_YEAR` (0.5, once/year) ->
+`INVENTION_CHANCE_PER_SEASON` (0.15, once/season — four independent
+0.15 rolls give ~48% chance of at least one per year, close to the old
+50%); `FESTIVAL_CHANCE_PER_SEASON` (0.35, once/season) ->
+`FESTIVAL_CHANCE_PER_MONTH` (0.13, once/month — three independent 0.13
+rolls give ~34% per season, close to the old 35%). Chronicle/town_brain
+have no independent probability gate (they fire unconditionally on
+their cadence event, same as beliefs), so no rescaling was needed for
+those — only the cadence trigger changed.
+
+**Observatory UI direction.** The user's message was a large, explicit
+product-direction brief (map-as-primary-interface, hover inspection
+over panels, consequences-over-stats narration, curated history vs.
+developer diagnostics kept strictly separate, NPC inspection leading
+with mind over stats, an interactive relationship graph, a Town Brain
+internal-monologue reveal, a future documentary/narrated-history mode).
+Captured as a new "Observatory UI direction" section in CLAUDE.md
+(persistent design memory) rather than attempted as code this batch —
+each piece (hover system, relationship graph, mind-first NPC inspector,
+conversation-surfacing logic, monologue reveal, documentary mode) is
+independently large enough to be its own coherent milestone, and
+CLAUDE.md's own workflow rules (smallest coherent milestone at a time,
+no half-finished pieces within a batch) argue against attempting all of
+it speculatively in one pass without the user picking a starting point.
+Cross-checked the brief's "world evolution" asks against what already
+exists: terrain evolution, road wear *and* decay-from-disuse (roads
+already "appear and disappear"), building decay/ruin/reclamation, and
+this session's disasters/hydrology/population-recovery work already
+satisfy "map visibly evolves" and "settlements expand or collapse"
+mechanically — the remaining gap is presentation (UI), not simulation
+substance, which is exactly what the new CLAUDE.md section scopes for
+next.
+
+Verified (LLM disabled in this environment, deterministic fallbacks
+exercised throughout): `_maybe_welcome_migrant` produces a real
+`migrant_arrived` event for a lone survivor within a bounded number of
+ticks, correctly never fires at 0 population, and correctly never fires
+at/above the critical threshold. A full engine run confirmed a queued
+whisper is consumed (priority/rationale set, `player_influence`
+cleared) within ~1600 ticks of the settlement being named — down from
+the old ~8700-tick (~2.4 real hour) wait. A 10000-tick full engine run
+plus snapshot save/reload round-trip completed with no errors. All
+touched Python files pass `python3 -m py_compile`; `app.js` passes
+`node --check`.
