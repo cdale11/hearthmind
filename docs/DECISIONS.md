@@ -2992,3 +2992,33 @@ False`/`True` confirmed SHRINE never appears without a tradition and
 does appear with one; a snapshot round-trip (`to_dict`/`from_dict`)
 preserved population count and the new `inventory` field exactly. All
 touched Python files pass `python3 -m py_compile`.
+
+## Architecture review pass (v0.39.0, July 2026): findings recorded, no behavior changed
+
+A commissioned independent-review-board pass over the entire
+repository — architecture, emergence, LLM cognition, deterministic
+simulation, UI/UX, performance, scientific value, and failure
+analysis, plus two specific commissioned questions (why populations
+collapse; whether town-brain decisions actually influence the world).
+The full report is `docs/REVIEW-2026-07.md`; the load-bearing findings
+are also summarized in CLAUDE.md ("Architecture review findings")
+since they should steer every future session. Deliberately a
+docs-only change: the brief was "do not implement features," so every
+recommendation (Settlement split, LLM backpressure, snapshot pruning,
+carrying capacity, name uniquification, O(N^2) movement fix) is
+recorded with severity and priority rather than applied.
+
+Verified (measurements backing the report, all run in this
+environment with the LLM disabled): two 30,000-tick full-engine runs
+(seeds 42/7) and long-horizon World-level runs (40,000+ ticks — past the point every
+founder has died of old age) charting population trajectory and death
+causes (early-winter starvation funnel confirmed; no long-run
+collapse — growth pins at POPULATION_CAP with ~800-1,000
+ready farm plots); a 16,000-tick adversarial-goal run (goal policy
+never chooses FORAGE below the critical override — still grew to cap);
+4,000-draw `choose_building_kind` distributions per priority (granary
+share 23% -> 43% under "food"); tick-time scaling 12/50/200/500 agents
+(1.3/1.8/7.9/45.9 ms) with cProfile attribution of the O(N^2)
+rival-tile scan; and code-reading verification of the whisper-loss,
+fallback-priority-lock, name-collision, and unbounded-snapshot
+findings.

@@ -444,6 +444,80 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## Architecture review findings (v0.39.0, July 2026 — full report in docs/REVIEW-2026-07.md)
+
+An independent full-repo review pass, with measurements taken in this
+environment (real engine, LLM disabled, in-memory DB). The complete
+8-perspective report lives in `docs/REVIEW-2026-07.md`; the findings
+that should steer future sessions:
+
+- **Population collapse (commissioned question): it's an early-game
+  winter funnel, not a long-run failure.** Worlds start Jan 1 (deep
+  winter: regen x0.3, farm growth x0.35) with 12 agents scattered and
+  no infrastructure — nearly all starvation deaths cluster before
+  ~tick 6,000 (seed 7 fell 12 -> 7 by tick 2,000). Outcomes are
+  bimodal: dip below `POPULATION_CRITICAL_THRESHOLD` and the world can
+  demographically dead-end; survive and it grows monotonically to
+  POPULATION_CAP and *stays there* — long-horizon runs show no old-age
+  collapse wave (every founder dead by tick 40,000, population still
+  pinned at the cap; births backfill continuously). The long-run pathology is
+  the opposite of collapse: post-scarcity stagnation (~800-1,000
+  simultaneously-ready farm plots for <=200 people; even an adversarial
+  never-forage goal policy still grew to cap — agent decisions
+  currently cannot fail at survival).
+- **Town brain (commissioned question): influence is real, measured,
+  and narrow.** Priority "food" moves granary share of new buildings
+  23% -> 43% (4,000-draw measurement), plus the x1.6/x0.7 settle-chance
+  steer — but the lever only touches construction. Two verified bugs:
+  the fallback priority locks onto "food" indefinitely (its
+  granary-fill test divides by a capacity that grows with every granary
+  built), and player whispers are cleared at schedule time, so a
+  whisper is silently lost whenever the town-brain call falls back.
+- **Top three architectural risks:** (1) `Settlement` is the real God
+  object (~25 fields across four domains) and every release makes the
+  planned multi-settlement refactor harder — split it in place into
+  composed sub-objects (Infrastructure/Economy/Culture/Disposition)
+  *before* attempting multiple settlements; (2) no LLM scheduling
+  backpressure — scheduling up to 3 dialogue + N cognition jobs/tick vs
+  measured ~1 completion/17-20s means live runs at pop >~50 grow an
+  unbounded asyncio task backlog and apply sim-days-stale results (cap
+  the backlog, skip scheduling when full, drop stale results at apply
+  time); (3) unbounded persistence — the `snapshots` table appends a
+  full world JSON every 60 ticks forever and nothing ever reads old
+  rows (prune/keyframe), `log_event` commits per event (batch per
+  tick), and traditions/inventions/festivals lists grow unbounded and
+  are fed whole into prompts (cap what's *sent*).
+- **Measured performance:** 1.3 ms/tick at pop 12 -> 45.9 ms at pop
+  500, superlinear because the per-agent rival-tile set comprehension
+  in `_dispatch_movement` is O(N^2) (~40% of population tick at 200).
+  Fixes are algorithmic (shared position map, spatial buckets for
+  nearest-X scans, cached water-tile set, `(x,y)->Building` dict);
+  C/C++ is not warranted — the bottleneck that matters is LLM latency.
+  Keep `qwen3.5:2b`; do not raise `llm_max_concurrent` on CPU
+  (consider lowering to 2).
+- **Known correctness time-bombs:** per-birth `generate_names(1, rng)`
+  draws with replacement across calls, so at pop ~200 from a 50-name
+  pool duplicate living names are near-certain and
+  `resolve_subject_agent_id` returns None on collision — per-person
+  beliefs quietly stop resolving as the world grows (uniquify against
+  living names at birth). Belief revision by integer index is fragile
+  with a 2B model (match on subject string instead). Event categories
+  are stringly-typed across 4+ independent registries.
+- **Emergence gap:** culture is an open loop — traditions/rumors/
+  festivals/chronicles change no behavior, and per-agent LLM goals
+  measurably don't steer survival outcomes (every mechanic fires from
+  colocation regardless of goal). The single highest-leverage change:
+  replace the hard POPULATION_CAP + free self-planting farms with a
+  food-driven carrying capacity (deliberate planting, untended decay,
+  surplus-gated reproduction) — couples weather/disasters/wildlife/
+  granaries/town-brain through one real constraint. Second: give
+  traditions/rumors small bounded mechanical riders; resolve rumor
+  subjects and nudge listeners' opinion of them (gossip as a force).
+- **Preserve absolutely:** single-writer tick loop + queued
+  interventions, fallback-on-every-LLM-call liveness, objective/
+  subjective state split, Phase G ambiguity discipline, constants-with-
+  rationale + decision log, the two-surface UI split.
+
 ## Known architectural gaps (not yet built)
 
 - **Multiple named settlements** — the one remaining genuinely large,
