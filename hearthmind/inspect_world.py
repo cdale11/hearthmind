@@ -54,6 +54,9 @@ def main(argv: list[str] | None = None) -> None:
     print("Biome counts:")
     for biome, count in sorted(summary["biome_counts"].items(), key=lambda kv: -kv[1]):
         print(f"  {biome:15s} {count}")
+    if "climate" in summary:
+        c = summary["climate"]
+        print(f"Climate:     warming {c['warming']:+.2f}, drying {c['drying']:+.2f} (slow yearly drift, -1..1 each)")
 
     pop = summary["population"]
     print(

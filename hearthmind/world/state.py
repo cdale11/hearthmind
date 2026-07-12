@@ -10,6 +10,7 @@ import hashlib
 import random
 from dataclasses import dataclass, field
 
+from hearthmind.agents.agent import AgentGoal, AgentState
 from hearthmind.agents.population import Population
 from hearthmind.config import Config
 from hearthmind.economy.farms import FarmGrid
@@ -18,7 +19,14 @@ from hearthmind.settlement.naming import generate_settlement_name
 from hearthmind.time_system import SimClock
 from hearthmind.world.resources import ResourceGrid
 from hearthmind.world.roads import RoadNetwork
-from hearthmind.world.terrain import Tile, biome_counts, generate_terrain
+from hearthmind.world.terrain import Biome, Tile, biome_counts, generate_terrain
+from hearthmind.world.terrain_evolution import (
+    ClimateState,
+    apply_climate_drift,
+    apply_local_activity,
+    maybe_reclaim,
+    tick_climate,
+)
 from hearthmind.world.weather import WeatherState, compute_weather
 from hearthmind.world.wildlife import WildlifeGrid
 
@@ -40,6 +48,12 @@ class World:
     farms: FarmGrid
     wildlife: WildlifeGrid
     roads: RoadNetwork
+    climate: ClimateState = field(default_factory=ClimateState)
+    terrain_activity: dict[tuple[int, int], float] = field(default_factory=dict)
+    """Per-tile deforestation pressure (forest tiles only) — see
+    world/terrain_evolution.py. Small and self-pruning (entries are
+    deleted once heat decays to 0 or the tile changes biome), so it's
+    fine to keep in memory/snapshot alongside everything else."""
     llm_calls_total: int = 0
     llm_fallback_total: int = 0
     """Cumulative counts of every LLM-backed decision (cognition +
@@ -115,8 +129,37 @@ class World:
             settlement=self.settlement, farms=self.farms, wildlife=self.wildlife, roads=self.roads,
             weather=self.weather,
         )
-        self.last_life_events = settlement_events + population_events
+        terrain_events = self._tick_terrain(events)
+        self.last_life_events = settlement_events + population_events + terrain_events
         self.last_calendar_events = events
+        return events
+
+    def _tick_terrain(self, calendar_events: list[str]) -> list[tuple[str, str]]:
+        """Local activity-driven terrain change (every tick), plus the
+        rarer reclaim (season boundary) and climate drift (year
+        boundary) passes — see world/terrain_evolution.py."""
+        occupied_tiles = {(a.x, a.y) for a in self.population.agents}
+        active_forest_tiles = {
+            (a.x, a.y) for a in self.population.agents
+            if a.state is AgentState.AWAKE and a.goal is AgentGoal.GATHER
+            and self.terrain[a.y][a.x].biome is Biome.FOREST
+        }
+        rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "terrain_activity")
+        events = apply_local_activity(self.terrain, active_forest_tiles, self.terrain_activity, rng)
+
+        if "season_end" in calendar_events:
+            reclaim_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "terrain_reclaim")
+            events += maybe_reclaim(
+                self.terrain, self.terrain_activity, self.settlement, self.farms, occupied_tiles, reclaim_rng,
+            )
+
+        if "year_end" in calendar_events:
+            climate_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "climate_drift")
+            tick_climate(self.climate, climate_rng)
+            events += apply_climate_drift(
+                self.terrain, self.climate, self.settlement, self.farms, occupied_tiles, climate_rng,
+            )
+
         return events
 
     # --- summary for humans / the future interface ------------------------
@@ -131,6 +174,7 @@ class World:
             "weather": self.weather.describe(),
             "weather_detail": self.weather.to_dict(),
             "biome_counts": biome_counts(self.terrain),
+            "climate": self.climate.to_dict(),
             "world_size": f"{self.config.width}x{self.config.height}",
             "population": self.population.summary(),
             "resources": self.resources.summary(),
@@ -173,6 +217,8 @@ class World:
             "farms": self.farms.to_dict(),
             "wildlife": self.wildlife.to_dict(),
             "roads": self.roads.to_dict(),
+            "climate": self.climate.to_dict(),
+            "terrain_activity": {f"{x}:{y}": v for (x, y), v in self.terrain_activity.items()},
             "llm_calls_total": self.llm_calls_total,
             "llm_fallback_total": self.llm_fallback_total,
             "dialogue_total": self.dialogue_total,
@@ -253,10 +299,16 @@ class World:
             roads = RoadNetwork()  # no retroactive guessing at pre-existing paths
             migrated_subsystems.append("roads")
 
+        climate = ClimateState.from_dict(data["climate"]) if "climate" in data else ClimateState()
+        terrain_activity: dict[tuple[int, int], float] = {}
+        for key, value in data.get("terrain_activity", {}).items():
+            x_str, y_str = key.split(":")
+            terrain_activity[(int(x_str), int(y_str))] = value
+
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             population=population, resources=resources, settlement=settlement, farms=farms,
-            wildlife=wildlife, roads=roads,
+            wildlife=wildlife, roads=roads, climate=climate, terrain_activity=terrain_activity,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),
             dialogue_total=data.get("dialogue_total", 0),

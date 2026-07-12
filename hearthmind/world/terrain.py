@@ -42,24 +42,51 @@ class Tile:
         return cls(x=data["x"], y=data["y"], elevation=data["elevation"], biome=Biome(data["biome"]))
 
 
-# Elevation thresholds -> biome. Ordered low to high; first match wins.
-_BIOME_THRESHOLDS: list[tuple[float, Biome]] = [
-    (0.30, Biome.DEEP_WATER),
-    (0.38, Biome.SHALLOW_WATER),
-    (0.42, Biome.BEACH),
-    (0.62, Biome.GRASSLAND),
-    (0.75, Biome.FOREST),
-    (0.87, Biome.HILLS),
-    (0.95, Biome.MOUNTAIN),
-    (1.01, Biome.SNOWCAP),  # 1.01 so elevation == 1.0 still matches
-]
+BIOME_ORDER: tuple[Biome, ...] = (
+    Biome.DEEP_WATER, Biome.SHALLOW_WATER, Biome.BEACH, Biome.GRASSLAND,
+    Biome.FOREST, Biome.HILLS, Biome.MOUNTAIN, Biome.SNOWCAP,
+)
+"""Low-elevation to high-elevation biome ordering — used by
+world/terrain_evolution.py to nudge a tile one biome-step at a time
+under climate drift, rather than jumping straight to a possibly
+distant target biome."""
+
+_CLIMATE_WATER_SHIFT = 0.05
+_CLIMATE_LAND_SHIFT = 0.05
+_CLIMATE_COLD_SHIFT = 0.05
+"""Max elevation-threshold displacement at climate bias = +-1 — modest
+relative to the 0..1 elevation range split across 8 biome bands, so
+even a fully-drifted climate reshapes boundaries rather than erasing
+whole biomes. See docs/DECISIONS.md, terrain-evolution pass."""
 
 
-def _classify(elevation: float) -> Biome:
-    for threshold, biome in _BIOME_THRESHOLDS:
+def classify_with_bias(elevation: float, warming: float = 0.0, drying: float = 0.0) -> Biome:
+    """Elevation -> biome, with the boundary thresholds nudged by a
+    climate bias. `warming` (-1..1) raises the mountain/snowcap
+    thresholds (those cold biomes need more elevation, so they shrink
+    under a warming trend). `drying` (-1..1) lowers the water
+    thresholds (water recedes) and raises grassland/forest's lower
+    edge (forest needs more elevation, so grassland expands at its
+    expense). Both default to 0.0, reproducing the original static
+    thresholds exactly — see `generate_terrain`."""
+    thresholds: list[tuple[float, Biome]] = [
+        (0.30 - drying * _CLIMATE_WATER_SHIFT, Biome.DEEP_WATER),
+        (0.38 - drying * _CLIMATE_WATER_SHIFT, Biome.SHALLOW_WATER),
+        (0.42 - drying * _CLIMATE_WATER_SHIFT, Biome.BEACH),
+        (0.62 + drying * _CLIMATE_LAND_SHIFT, Biome.GRASSLAND),
+        (0.75 + drying * _CLIMATE_LAND_SHIFT, Biome.FOREST),
+        (0.87 + warming * _CLIMATE_COLD_SHIFT, Biome.HILLS),
+        (0.95 + warming * _CLIMATE_COLD_SHIFT, Biome.MOUNTAIN),
+        (1.01 + warming * _CLIMATE_COLD_SHIFT, Biome.SNOWCAP),  # 1.01 so elevation == 1.0 still matches
+    ]
+    for threshold, biome in thresholds:
         if elevation < threshold:
             return biome
     return Biome.SNOWCAP
+
+
+def _classify(elevation: float) -> Biome:
+    return classify_with_bias(elevation)
 
 
 def _next_diamond_square_size(minimum: int) -> int:

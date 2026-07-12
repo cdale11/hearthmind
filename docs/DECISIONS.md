@@ -1355,3 +1355,75 @@ when `navigator.clipboard` throws. Status text now distinguishes
 "copied to clipboard" / "copied to clipboard (legacy fallback)" / a
 real failure message that explains the https-or-localhost requirement,
 instead of always saying the same generic thing.
+
+## Terrain evolution: local activity + climate/biome drift
+
+Both requested modes ("both 1 and 2" — local activity-driven change AND
+longer-term climate/biome drift) built together in a new
+`world/terrain_evolution.py`, since they share the same underlying
+mechanism (mutating a tile's `Biome` in the live `terrain` grid — `Tile`
+stays a frozen dataclass, but `World.terrain[y][x]` is reassigned to a
+new `Tile` with the same `x`/`y`/`elevation` and a different `biome`)
+and the same "don't change biome under agents/buildings/farms/vehicles"
+guard (`_is_developed`, excluding both developed tiles and any tile an
+agent currently occupies).
+
+**Local activity** (`apply_local_activity`, every tick): a per-tile
+"deforestation heat" dict tracks sustained GATHER presence on forest
+tiles — gains heat while an awake GATHER-goal agent is standing there,
+decays otherwise. Once heat clears `DEFOREST_HEAT_THRESHOLD` (~100
+ticks of continuous single-agent presence), a small per-tick chance
+thins the tile FOREST -> GRASSLAND. `World._tick_terrain` derives the
+active-tile set directly from `self.population.agents`' end-of-tick
+positions/goals rather than threading a new return value through
+`Population.tick` — keeps the change local to `world/state.py`.
+
+**Reclamation** (`maybe_reclaim`, once per season — cheap to defer that
+far since it's meant to be rare): an abandoned grassland tile (no
+farm/building/vehicle, no agent standing there, no recent deforestation
+heat) touching 2+ forest neighbors has a small chance to revert to
+forest — "nature reclaims abandoned areas," the mirror image of
+deforestation, and consistent with the buildings/roads decay-when-
+unused pattern already shipped.
+
+**Climate drift** (`ClimateState`, `tick_climate`/`apply_climate_drift`,
+once per year): `warming`/`drying` are each a slow, bounded random walk
+(`CLIMATE_STEP_MAX` per year, `CLIMATE_MEAN_REVERSION` pulling toward 0
+so the trend doesn't run away over a long soak). `terrain.classify_with_bias`
+is the same elevation->biome mapping `generate_terrain` always used,
+parameterized by this bias — `warming` raises the mountain/snowcap
+thresholds (those cold biomes shrink), `drying` lowers the water
+thresholds and raises grassland/forest's boundary (water recedes,
+grassland expands). Each year, a small random sample (2% of tiles) is
+re-evaluated against the current bias and nudged **one** biome-step
+(via a new `BIOME_ORDER` tuple) toward its target, never jumped straight
+there — keeps the drift reading as gradual over many years rather than
+a sudden reflow, and stays interruptible by the mean-reversion above.
+
+**Known simplification**: a `ResourceNode`'s kind (FOOD vs ORE) is fixed
+at world genesis and tied to `(x, y)`, not derived from the tile's
+current biome — if a hills tile with an ore node drifts to grassland
+under climate change, that node goes inert (no longer reachable via
+`Population._maybe_gather`, which checks live biome first) rather than
+retroactively converting. Rare in practice (climate drift samples 2%/
+year and skips developed/occupied tiles) and doesn't cause incorrect
+behavior, just an orphaned node — not worth a resource-regeneration
+pass for how rarely it'll matter.
+
+**Client staleness fix**: the browser's static terrain canvas and
+`GET /terrain` were built on the (now false) assumption that terrain
+never changes after boot (see F1/F2). `WorldBroadcaster.set_terrain` is
+now also re-called from `SimulationEngine._maybe_broadcast` on any tick
+whose life events include `terrain_thinned`/`terrain_reclaimed`/
+`climate_drift`, and `app.js` re-fetches `/terrain` and redraws the
+static canvas on the same trigger — event-driven, not polled, since the
+underlying changes are rare by design.
+
+Verified: a 2000-tick run with agents pinned to specific forest tiles
+under sustained GATHER produced real `terrain_thinned` events and (at
+the season boundary) `terrain_reclaimed` events; an 8200-tick run
+crossed a year boundary and produced one `climate_drift` event with a
+nonzero climate bias; `World.to_dict`/`from_dict` round-trips both
+`climate` and a populated `terrain_activity` dict correctly; a combined
+6000-tick run with vehicles simultaneously active showed no
+interference between the two systems.

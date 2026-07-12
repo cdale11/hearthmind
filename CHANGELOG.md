@@ -4,6 +4,26 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.25.0] — Add: terrain evolution (local activity + climate drift)
+
+### Added
+- `world/terrain_evolution.py`: sustained GATHER pressure thins forest
+  to grassland (deforestation); an abandoned grassland tile bordered by
+  forest can revert to forest once a season (reclamation); a slow,
+  bounded yearly `warming`/`drying` random walk gradually shifts a
+  small sample of tiles' biomes map-wide (climate drift).
+- `terrain.classify_with_bias`, `BIOME_ORDER`: the same elevation-based
+  biome classifier, now bias-parameterizable and steppable one biome at
+  a time.
+- Browser map and `GET /terrain` now refresh on an actual terrain
+  change instead of assuming terrain is static after boot.
+- New "Climate trend" stat tile; event icons for
+  `terrain_thinned`/`terrain_reclaimed`/`climate_drift`.
+- `inspect_world` prints the current climate bias.
+
+See `docs/DECISIONS.md`, "Terrain evolution: local activity + climate/
+biome drift."
+
 ## [0.24.1] — Fix: dev console diagnostics copy-to-clipboard
 
 ### Fixed

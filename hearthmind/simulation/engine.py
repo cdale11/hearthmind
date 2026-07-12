@@ -70,6 +70,10 @@ _CALENDAR_EVENT_DESCRIPTIONS = {
     "year_end": "A new year begins.",
 }
 
+_TERRAIN_CHANGING_CATEGORIES = frozenset({"terrain_thinned", "terrain_reclaimed", "climate_drift"})
+"""Life-event categories that mean at least one tile's biome changed
+this tick — see `_maybe_broadcast`."""
+
 _MIGRATIONS = {
     # subsystem name -> (description template, count-of-what-was-backfilled).
     # One entry per subsystem `World.from_dict` can backfill (see its
@@ -492,11 +496,18 @@ class SimulationEngine:
     def _maybe_broadcast(self) -> None:
         """Fire-and-forget, same pattern as LLM background jobs — a slow
         or absent client must never be able to delay a tick. No-op when
-        the API isn't enabled (`self._broadcaster is None`). Terrain is
-        NOT included here — it never changes, see `set_terrain` in
-        __init__. See docs/DECISIONS.md, F1/F2."""
+        the API isn't enabled (`self._broadcaster is None`). Terrain
+        itself is NOT part of the per-tick payload (it's data-light but
+        the client only needs it on an actual change) — instead, on a
+        tick where terrain evolution changed a tile's biome, this
+        re-pushes the terrain snapshot the same way `__init__` seeds it
+        the first time, so `GET /terrain`/the client's static canvas
+        don't go stale. See docs/DECISIONS.md, terrain-evolution pass,
+        and F1/F2 for the original one-shot rationale."""
         if self._broadcaster is None:
             return
+        if any(category in _TERRAIN_CHANGING_CATEGORIES for category, _ in self.world.last_life_events):
+            self._broadcaster.set_terrain(self.world.terrain, self.world.config.width, self.world.config.height)
         payload = {
             "summary": self.world.summary(),
             "life_events": [

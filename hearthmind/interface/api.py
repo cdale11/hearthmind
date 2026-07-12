@@ -28,8 +28,12 @@ class WorldBroadcaster:
     # --- called by SimulationEngine (writer side) -----------------------------
 
     def set_terrain(self, terrain, width: int, height: int) -> None:
-        """Called once, when the engine starts — terrain never changes
-        after world creation, so it's not part of the per-tick payload."""
+        """Called when the engine starts, and again on any tick where
+        terrain evolution changed a tile's biome (see
+        `SimulationEngine._maybe_broadcast`) — terrain changes rarely
+        enough that it's not worth including in the per-tick payload,
+        but it isn't truly static anymore. See docs/DECISIONS.md,
+        terrain-evolution pass."""
         self._terrain_payload = {
             "width": width,
             "height": height,

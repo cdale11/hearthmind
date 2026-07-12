@@ -56,24 +56,19 @@ plausibly improves emergence, subject to the liveness rule below.
   determinism) — the fallback no longer needs to be reproducible, just
   non-blocking.
 
-## Current state (v0.24.0+)
+## Current state (v0.25.0+)
 
 Phases A-G roadmap items are in flight; Phases A-F have substantial
 content shipped (deterministic substrate now optional-determinism,
 LLM cognition/dialogue/culture, settlements with real material costs,
-farming, wildlife/ecology, roads, vehicles, a weather particle overlay,
-a live browser UI with a dev diagnostics console). See
-`docs/DECISIONS.md` for the full decision log, `docs/ROADMAP.md` for
-phase-by-phase plan and the original feature checklist, `CHANGELOG.md`
-for version history.
+farming, wildlife/ecology, roads, vehicles, terrain evolution (local
+activity + climate/biome drift), a weather particle overlay, a live
+browser UI with a dev diagnostics console). See `docs/DECISIONS.md` for
+the full decision log, `docs/ROADMAP.md` for phase-by-phase plan and
+the original feature checklist, `CHANGELOG.md` for version history.
 
 ## Known architectural gaps (not yet built)
 
-- Terrain evolution — both local activity-driven change (overharvested
-  forest thins to grassland, abandoned farmland reverts) and longer-term
-  climate/biome drift (temperature/precipitation trends shifting biome
-  boundaries map-wide) — requested, not yet built; see chat for scoping
-  notes until a DECISIONS entry exists.
 - Further browser visual richness beyond the weather particle overlay
   and vehicle/building/wildlife map markers already shipped (e.g.
   smooth inter-tick agent movement interpolation, lighting/gradients).

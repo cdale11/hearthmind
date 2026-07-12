@@ -17,7 +17,7 @@ build" — phases below are the *how*, this table is the *what*.
 
 | Feature | Status | Where |
 |---|---|---|
-| Terrain | shipped | `world/terrain.py`, Milestone 1 |
+| Terrain | shipped | `world/terrain.py` (generation, Milestone 1) + `world/terrain_evolution.py` (local activity-driven change and climate/biome drift) |
 | Weather | shipped | `world/weather.py`; qualitative labels since D6 |
 | Seasons | shipped | `world/clock.py` calendar (`year_end` etc. drive culture/chronicle cadence) |
 | Ecology & wildlife | shipped | A4 (`hearthmind/world/wildlife.py`) — grazer herds, predator packs, huntable |

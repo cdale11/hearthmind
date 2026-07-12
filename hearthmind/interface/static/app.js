@@ -48,7 +48,16 @@ const CATEGORY_META = {
   vehicle_started: { icon: "🛠️" },
   vehicle_completed: { icon: "🐎" },
   vehicle_broken: { icon: "⚠️" },
+  terrain_thinned: { icon: "🪓" },
+  terrain_reclaimed: { icon: "🌲" },
+  climate_drift: { icon: "🌡️" },
 };
+
+// Terrain evolves now (deforestation, reclamation, climate drift), so the
+// once-per-boot static canvas can go stale — re-fetch /terrain and redraw
+// only on ticks that actually reported a terrain-changing life event,
+// rather than polling every tick for a change that's rare by design.
+const TERRAIN_CHANGING_CATEGORIES = new Set(["terrain_thinned", "terrain_reclaimed", "climate_drift"]);
 function categoryMeta(category) {
   return CATEGORY_META[category] || (category.endsWith("_migration") ? { icon: "🔧" } : { icon: "•" });
 }
@@ -317,10 +326,18 @@ function fmtPct(x) { return `${Math.round(x * 100)}%`; }
 function renderStats(summary) {
   const p = summary.population, s = summary.settlement, r = summary.resources;
   const f = summary.farms, llm = summary.llm, w = summary.wildlife, rd = summary.roads;
+  const c = summary.climate;
   const tiles = [
     ["Tick", summary.tick, null],
     ["Date", `${summary.date} (${summary.clock})`, null],
     ["Weather", summary.weather, null],
+    [
+      "Climate trend",
+      c ? `warming ${c.warming >= 0 ? "+" : ""}${c.warming.toFixed(2)}, drying ${c.drying >= 0 ? "+" : ""}${c.drying.toFixed(2)}` : "n/a",
+      "A slow, bounded random walk nudged once a year (-1..1 each). Positive warming shrinks mountain/snowcap; " +
+      "positive drying shrinks water and expands grassland's reach into forest. Drives gradual, map-wide biome drift " +
+      "— distinct from the tick-by-tick local deforestation/reclamation you'll see in the event log.",
+    ],
     ["Population", `${p.total} (${p.awake} awake, ${p.resting} resting)`, null],
     ["Avg hunger / energy", `${p.avg_hunger.toFixed(2)} / ${p.avg_energy.toFixed(2)}`, null],
     [
@@ -424,6 +441,16 @@ function prependEvents(events) {
   while (log.children.length > 150) log.removeChild(log.lastChild);
 }
 
+async function refreshTerrainIfChanged(events) {
+  if (!events || !events.some((e) => TERRAIN_CHANGING_CATEGORIES.has(e.category))) return;
+  try {
+    terrain = await fetchJSON("/terrain");
+    drawStaticTerrain();
+  } catch (e) {
+    // non-fatal — the map just stays one step behind until the next change
+  }
+}
+
 function applyPayload(payload) {
   latest = payload;
   renderStats(payload.summary);
@@ -431,6 +458,7 @@ function applyPayload(payload) {
   if (payload.diagnostics) renderDevConsole(payload);
   if (payload.life_events && payload.life_events.length) {
     prependEvents(payload.life_events.map((e) => ({ ...e, tick: payload.summary.tick })));
+    refreshTerrainIfChanged(payload.life_events);
   }
 }
 
