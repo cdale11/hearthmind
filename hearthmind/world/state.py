@@ -27,6 +27,9 @@ from hearthmind.world.terrain_evolution import (
     maybe_reclaim,
     tick_climate,
 )
+from hearthmind.world.daylight import night_factor as compute_night_factor
+from hearthmind.world.disasters import DisasterState, tick_flood, tick_storm, tick_wildfire
+from hearthmind.world.hydrology import LakeState, generate_rivers, identify_lakes, tick_lakes
 from hearthmind.world.weather import WeatherState, compute_weather
 from hearthmind.world.wildlife import WildlifeGrid
 
@@ -49,6 +52,15 @@ class World:
     wildlife: WildlifeGrid
     roads: RoadNetwork
     climate: ClimateState = field(default_factory=ClimateState)
+    lakes: list[LakeState] = field(default_factory=list)
+    """Inland water bodies identified at world creation (world/hydrology.py)
+    — distinct from the map-edge ocean, each with its own slowly-changing
+    water level. Rivers don't need an equivalent list: they're carved once
+    into `terrain` as Biome.RIVER tiles and persist through terrain's own
+    (de)serialization with no extra state to track."""
+    disasters: DisasterState = field(default_factory=DisasterState)
+    """Flood pressure/active-flood tiles and any in-progress wildfire —
+    see world/disasters.py."""
     terrain_activity: dict[tuple[int, int], float] = field(default_factory=dict)
     """Per-tile deforestation pressure (forest tiles only) — see
     world/terrain_evolution.py. Small and self-pruning (entries are
@@ -84,6 +96,8 @@ class World:
     def create_new(cls, config: Config, founding_scenario: str = "") -> "World":
         clock = SimClock(config=config, tick_count=0)
         terrain = generate_terrain(seed=config.seed, width=config.width, height=config.height)
+        generate_rivers(seed=config.seed, terrain=terrain)
+        lakes = identify_lakes(terrain)
         weather = compute_weather(seed=config.seed, tick=0, month=clock.month_name.lower(), previous=None)
         population = Population.spawn_initial(
             seed=config.seed, count=config.initial_population, terrain=terrain,
@@ -96,7 +110,7 @@ class World:
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             population=population, resources=resources, settlement=settlement, farms=farms,
-            wildlife=wildlife, roads=roads,
+            wildlife=wildlife, roads=roads, lakes=lakes,
         )
 
     # --- tick --------------------------------------------------------------
@@ -123,15 +137,47 @@ class World:
             rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "settlement_naming")
             self.settlement.name = generate_settlement_name(rng)
             settlement_events.append(("settlement_named", f"The village was named {self.settlement.name}."))
+        night = compute_night_factor(
+            hour_of_day=self.clock.minute_of_day / 60.0, month_name=self.clock.month_name,
+        )
         population_events = self.population.tick(
             seed=self.config.seed, tick=self.clock.tick_count,
             terrain=self.terrain, resources=self.resources,
             settlement=self.settlement, farms=self.farms, wildlife=self.wildlife, roads=self.roads,
-            weather=self.weather,
+            weather=self.weather, night_factor=night,
         )
         terrain_events = self._tick_terrain(events)
-        self.last_life_events = wildlife_events + settlement_events + population_events + terrain_events
+        disaster_events = self._tick_disasters(events)
+        self.last_life_events = (
+            wildlife_events + settlement_events + population_events + terrain_events + disaster_events
+        )
         self.last_calendar_events = events
+        return events
+
+    def _tick_disasters(self, calendar_events: list[str]) -> list[tuple[str, str]]:
+        """Flood/wildfire/storm — see world/disasters.py. Flood and storm
+        roll every tick (they're rare-per-tick by construction); wildfire
+        ignition only rolls on a week boundary, though an already-burning
+        fire still spreads/dies down every tick."""
+        water_tiles = {
+            (t.x, t.y) for row in self.terrain for t in row
+            if t.biome in (Biome.DEEP_WATER, Biome.SHALLOW_WATER, Biome.RIVER)
+        }
+        flood_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_flood")
+        events = tick_flood(
+            self.disasters, self.terrain, self.weather, self.settlement, self.farms, water_tiles, flood_rng,
+        )
+        fire_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_wildfire")
+        events += tick_wildfire(
+            self.disasters, self.terrain, self.weather, self.clock.season, self.settlement.temperament,
+            self.settlement, "week_end" in calendar_events, fire_rng,
+        )
+        storm_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_storm")
+        events += tick_storm(self.weather, self.settlement, storm_rng)
+        if "month_end" in calendar_events and self.lakes:
+            occupied_tiles = {(a.x, a.y) for a in self.population.agents}
+            lake_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "lakes")
+            events += tick_lakes(self.lakes, self.terrain, self.climate.drying, lake_rng, occupied_tiles)
         return events
 
     def _tick_terrain(self, calendar_events: list[str]) -> list[tuple[str, str]]:
@@ -182,6 +228,15 @@ class World:
             "weather_detail": self.weather.to_dict(),
             "biome_counts": biome_counts(self.terrain),
             "climate": self.climate.to_dict(),
+            "night_factor": round(compute_night_factor(
+                hour_of_day=self.clock.minute_of_day / 60.0, month_name=self.clock.month_name,
+            ), 3),
+            "lakes": [{"id": lake.id, "tiles": len(lake.tiles), "level": round(lake.level, 3)} for lake in self.lakes],
+            "disasters": {
+                "flood_pressure": round(self.disasters.flood_pressure, 3),
+                "active_flood_tiles": len(self.disasters.flooded_tiles),
+                "active_wildfire_tiles": len(self.disasters.active_wildfire_tiles),
+            },
             "world_size": f"{self.config.width}x{self.config.height}",
             "population": self.population.summary(),
             "resources": self.resources.summary(),
@@ -227,6 +282,8 @@ class World:
             "wildlife": self.wildlife.to_dict(),
             "roads": self.roads.to_dict(),
             "climate": self.climate.to_dict(),
+            "lakes": [lake.to_dict() for lake in self.lakes],
+            "disasters": self.disasters.to_dict(),
             "terrain_activity": {f"{x}:{y}": v for (x, y), v in self.terrain_activity.items()},
             "llm_calls_total": self.llm_calls_total,
             "llm_fallback_total": self.llm_fallback_total,
@@ -311,6 +368,20 @@ class World:
             migrated_subsystems.append("roads")
 
         climate = ClimateState.from_dict(data["climate"]) if "climate" in data else ClimateState()
+
+        if "lakes" in data:
+            lakes = [LakeState.from_dict(entry) for entry in data["lakes"]]
+        else:
+            # Pre-hydrology-pass snapshot: carve rivers into the existing
+            # terrain and identify lakes now, same one-time-backfill shape
+            # as every other subsystem here — real geography added to a
+            # world already in progress, not guessed at retroactively.
+            generate_rivers(seed=config.seed, terrain=terrain)
+            lakes = identify_lakes(terrain)
+            migrated_subsystems.append("lakes")
+
+        disasters = DisasterState.from_dict(data["disasters"]) if "disasters" in data else DisasterState()
+
         terrain_activity: dict[tuple[int, int], float] = {}
         for key, value in data.get("terrain_activity", {}).items():
             x_str, y_str = key.split(":")
@@ -319,7 +390,8 @@ class World:
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             population=population, resources=resources, settlement=settlement, farms=farms,
-            wildlife=wildlife, roads=roads, climate=climate, terrain_activity=terrain_activity,
+            wildlife=wildlife, roads=roads, climate=climate, lakes=lakes, disasters=disasters,
+            terrain_activity=terrain_activity,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),
             dialogue_total=data.get("dialogue_total", 0),

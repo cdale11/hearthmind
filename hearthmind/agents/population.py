@@ -154,6 +154,25 @@ and get hungry faster — "weather affects people," not just buildings.
 Applied only to AWAKE agents: resting is treated as sheltering/sleeping,
 abstracted as weather-proof. See docs/DECISIONS.md, scarcity pass."""
 
+NIGHT_ENERGY_DRAIN_EXTRA = 0.3
+"""At full night (night_factor=1.0), an AWAKE agent's energy drain is
+multiplied by (1 + this) — same order of magnitude as the weather-harsh
+multiplier above, so staying up all night costs about as much as working
+through a storm. Scales linearly with night_factor, so dawn/dusk cost
+less than deep night. See docs/DECISIONS.md, "daylight affects agent
+behavior.\""""
+
+NIGHT_REST_THRESHOLD_BOOST = 0.15
+"""At full night, the energy level that triggers involuntary RESTING
+(REST_THRESHOLD in agent.py) is raised by this much — agents settle in
+for the night sooner rather than only collapsing from exhaustion, same
+as a real day/night routine."""
+
+NIGHT_REST_RECOVERY_BONUS = 0.15
+"""At full night, RESTING energy recovery is multiplied by
+(1 + this) — sleeping through the dark hours is more restful than a
+daytime nap."""
+
 MAX_DIALOGUES_PER_TICK = 3
 """Caps how many LLM-authored dialogue exchanges are scheduled in a
 single tick regardless of how many colocated pairs qualify — keeps LLM
@@ -259,7 +278,7 @@ class Population:
     def tick(
         self, seed: int, tick: int, terrain: list[list[Tile]],
         resources: ResourceGrid, settlement: Settlement, farms: FarmGrid, wildlife: WildlifeGrid,
-        roads: RoadNetwork, weather: WeatherState,
+        roads: RoadNetwork, weather: WeatherState, night_factor: float = 0.0,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -285,7 +304,7 @@ class Population:
         )
         for agent in self.agents:
             agent.age_ticks += 1
-            self._update_needs(agent, weather_harsh, settlement)
+            self._update_needs(agent, weather_harsh, settlement, night_factor)
             critically_hungry = agent.hunger >= CRITICAL_HUNGER_THRESHOLD
             if critically_hungry and agent.state is AgentState.RESTING:
                 agent.state = AgentState.AWAKE  # emergency wake: starving beats sleeping
@@ -335,7 +354,10 @@ class Population:
         return life_events
 
     @staticmethod
-    def _update_needs(agent: Agent, weather_harsh: bool = False, settlement: Settlement | None = None) -> None:
+    def _update_needs(
+        agent: Agent, weather_harsh: bool = False, settlement: Settlement | None = None,
+        night_factor: float = 0.0,
+    ) -> None:
         hunger_rate = HUNGER_RATE
         energy_drain = ENERGY_DRAIN_AWAKE
         if weather_harsh and agent.state is AgentState.AWAKE:
@@ -345,9 +367,15 @@ class Population:
             # scarcity pass.
             hunger_rate *= WEATHER_HARSH_HUNGER_MULTIPLIER
             energy_drain *= WEATHER_HARSH_ENERGY_DRAIN_MULTIPLIER
+        if agent.state is AgentState.AWAKE:
+            # Real UK daylight hours, not just a visual tint: staying up
+            # through the dark costs more energy, scaling with how deep
+            # into the night it is. See NIGHT_ENERGY_DRAIN_EXTRA.
+            energy_drain *= 1.0 + night_factor * NIGHT_ENERGY_DRAIN_EXTRA
         agent.hunger = min(1.0, agent.hunger + hunger_rate)
+        rest_threshold = REST_THRESHOLD + night_factor * NIGHT_REST_THRESHOLD_BOOST
         if agent.state is AgentState.RESTING:
-            recovery = ENERGY_RECOVERY_RESTING
+            recovery = ENERGY_RECOVERY_RESTING * (1.0 + night_factor * NIGHT_REST_RECOVERY_BONUS)
             if settlement is not None:
                 building = settlement.at(agent.x, agent.y)
                 if (
@@ -363,7 +391,7 @@ class Population:
                 agent.state = AgentState.AWAKE
         else:
             agent.energy = max(0.0, agent.energy - energy_drain)
-            if agent.energy <= REST_THRESHOLD:
+            if agent.energy <= rest_threshold:
                 agent.state = AgentState.RESTING
 
     @staticmethod

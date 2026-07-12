@@ -16,6 +16,7 @@ const BIOME_COLORS = {
   hills: "#7a6a4f",
   mountain: "#6b6b73",
   snowcap: "#e8ecf2",
+  river: "#3a7fbf",
 };
 
 const BUILDING_COLORS = {
@@ -66,13 +67,21 @@ const CATEGORY_META = {
   belief_formed: { icon: "💭" },
   belief_revised: { icon: "🔄" },
   omen: { icon: "🌫️" },
+  disaster_flood: { icon: "🌊" },
+  disaster_wildfire: { icon: "🔥" },
+  disaster_storm: { icon: "🌩️" },
+  lake_rose: { icon: "💧" },
+  lake_receded: { icon: "🏖️" },
 };
 
 // Terrain evolves now (deforestation, reclamation, climate drift), so the
 // once-per-boot static canvas can go stale — re-fetch /terrain and redraw
 // only on ticks that actually reported a terrain-changing life event,
 // rather than polling every tick for a change that's rare by design.
-const TERRAIN_CHANGING_CATEGORIES = new Set(["terrain_thinned", "terrain_reclaimed", "climate_drift"]);
+const TERRAIN_CHANGING_CATEGORIES = new Set([
+  "terrain_thinned", "terrain_reclaimed", "climate_drift",
+  "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
+]);
 function categoryMeta(category) {
   return CATEGORY_META[category] || (category.endsWith("_migration") ? { icon: "🔧" } : { icon: "•" });
 }
@@ -585,6 +594,26 @@ function renderStats(summary) {
     ],
     ["LLM calls", `${llm.calls_total} (${fmtPct(llm.fallback_rate)} fallback)`, null],
     ["NPC dialogue", `${llm.dialogue_total} exchanges, ${llm.rumor_total} rumors`, null],
+    [
+      "Geography",
+      `${(summary.biome_counts || {}).river || 0} river tile${(summary.biome_counts || {}).river === 1 ? "" : "s"}, ` +
+      `${(summary.lakes || []).length} lake${(summary.lakes || []).length === 1 ? "" : "s"}`,
+      "Rivers are carved once at world creation. Lakes each have their own slowly-changing water level " +
+      "(nudged monthly, biased by the climate trend above) that grows or shrinks the shoreline by a tile at a time.",
+    ],
+    [
+      "Disasters",
+      (() => {
+        const d = summary.disasters || {};
+        const bits = [];
+        if (d.active_flood_tiles) bits.push(`${d.active_flood_tiles} flooded tile${d.active_flood_tiles === 1 ? "" : "s"}`);
+        if (d.active_wildfire_tiles) bits.push(`${d.active_wildfire_tiles} wildfire tile${d.active_wildfire_tiles === 1 ? "" : "s"}`);
+        if (!bits.length) bits.push("none active");
+        return `${bits.join(", ")} (flood pressure ${(d.flood_pressure || 0).toFixed(2)})`;
+      })(),
+      "Flood pressure builds during sustained heavy rain; past threshold, low ground near water can flood and damage " +
+      "nearby buildings/crops. Dry summer forest can catch fire and spread. Extreme wind can batter structures directly.",
+    ],
   ];
   document.getElementById("stat-grid").innerHTML = tiles
     .map(([label, value, title]) =>

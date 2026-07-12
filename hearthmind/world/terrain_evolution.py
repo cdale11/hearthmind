@@ -112,6 +112,13 @@ def _is_developed(x: int, y: int, settlement, farms, excluded: set[tuple[int, in
     return False
 
 
+def _skip_climate_drift(tile: Tile) -> bool:
+    """Biome.RIVER is carved post-generation, not elevation-classified,
+    so it has no entry in BIOME_ORDER — climate drift must never sample
+    it (BIOME_ORDER.index() would raise). See world/hydrology.py."""
+    return tile.biome is Biome.RIVER
+
+
 def apply_local_activity(
     terrain: list[list[Tile]], active_forest_tiles: set[tuple[int, int]],
     heat: dict[tuple[int, int], float], rng: random.Random,
@@ -202,6 +209,8 @@ def apply_climate_drift(
         if _is_developed(x, y, settlement, farms, excluded):
             continue
         tile = terrain[y][x]
+        if _skip_climate_drift(tile):
+            continue
         target = classify_with_bias(tile.elevation, climate.warming, climate.drying)
         if target is tile.biome:
             continue

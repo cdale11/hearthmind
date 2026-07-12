@@ -2191,3 +2191,100 @@ dialogue/chronicle/festival/town_brain/beliefs; confirmed `ResourceNode
 `history_events` returned real rows including the recolonization event
 from the same run. All touched Python files pass `python3 -m
 py_compile`; `app.js` passes `node --check`.
+py_compile`; `app.js` passes `node --check`.
+
+## Natural disasters, rivers & lakes, daylight-driven agent behavior
+
+**History tab investigation.** Read/exercised the full path end-to-end
+(SQL query against a real events table, an in-process ASGI call to
+`GET /history`, `app.js`'s wiring, `index.html`'s element IDs) and
+found no defect — `HISTORY_CATEGORIES` matches every category string
+actually logged, byte-for-byte, no typos. Concluded the most likely
+explanation is operational (server process not restarted after pulling
+v0.32.0; uvicorn doesn't hot-reload) rather than a code bug. No code
+changed for this item; flagged back to the user rather than "fixing"
+something that already works.
+
+**Natural disasters** (`world/disasters.py`). Three kinds, deliberately
+kept to physical events only — no LLM call added; the existing
+chronicle/omens jobs already see life_events and can narrate a disaster
+if they choose to, same as any other event. Flood: sustained heavy rain
+(precipitation past the existing "harsh weather" threshold) accumulates
+a `flood_pressure` value that decays otherwise; once past threshold, a
+small per-tick roll submerges a random tile bordering existing water
+(river/lake/ocean) for ~40 ticks, doing real damage (building/vehicle
+`condition -= 0.35`, farm plot destroyed) before receding to its
+original biome. Wildfire: gated to summer + dry weather, a rare weekly
+ignition roll (chance nudged upward by ill-fortune
+`Settlement.temperament`, reusing the exact lever Phase G already
+established for invention/predator rolls rather than inventing a
+parallel bias mechanism) starts a fire that spreads tile-to-tile for a
+few ticks, turning forest to grassland (ash) and damaging any building
+caught, then burns out. Storm: extreme wind (well past the routine
+"harsh weather" 0.5 threshold) has a small per-tick chance of directly
+knocking `condition -= 0.25` off every standing building/vehicle
+map-wide — a sharp, rare hit distinct from the existing gradual
+weather-decay multiplier in `Settlement.tick`. All three log real life
+events, added to `HISTORY_CATEGORIES` and the client's terrain-refresh
+set.
+
+**Rivers and lakes** (`world/hydrology.py`). Rivers: carved once at
+world creation by steepest-descent random walk from high-elevation
+sources (mountain/hills/snowcap) to existing water or the map edge — a
+new `Biome.RIVER`, deliberately left out of `BIOME_ORDER` (which
+climate drift steps elevation-classified biomes along) since a river
+tile isn't elevation-classified; `terrain_evolution.apply_climate_drift`
+now skips any `Biome.RIVER` tile it samples rather than crashing on a
+missing `BIOME_ORDER.index()`. Rivers persist automatically through
+terrain's existing (de)serialization — no separate river state needed.
+The "should evolve over time" ask for rivers specifically is answered
+by the flood mechanic above (sustained rain temporarily pushes water
+onto riverbank land) rather than a second, river-specific tick — one
+mechanism serving two of the user's asks. Lakes: identified once at
+creation by flood-filling connected water components that never touch
+the map border (a heuristic distinguishing inland lakes from the ocean,
+which does touch the border on this generator's typical output); each
+lake gets its own `level` — a bounded random walk nudged monthly,
+biased toward the map-wide `ClimateState.drying` trend (same shape as
+`ClimateState` itself, but per-lake) — and crossing a threshold
+grows/shrinks the shoreline by one ring tile
+(`lake_rose`/`lake_receded`), so a lake visibly changes size across
+years. `lake_rose`/`lake_receded` deliberately excluded from
+`HISTORY_CATEGORIES` (too frequent/minor — same call already made for
+`terrain_thinned`/`terrain_reclaimed`); the three disaster categories
+are curated in. A pre-hydrology-pass snapshot gets rivers carved and
+lakes identified once on load, recorded via the existing
+`migrated_subsystems` backfill pattern (added a `"lakes"` entry to
+`_MIGRATIONS`).
+
+**Daylight now affects agent behavior, not just lighting.**
+`world/daylight.py` is a server-side port of app.js's
+`UK_DAYLIGHT_HOURS` table and `nightFactor` ramp (kept in sync by hand
+— no shared runtime between Python and JS here), computed from
+`SimClock.minute_of_day`/`month_name` each tick and threaded into
+`Population.tick` as `night_factor` (0..1). Three effects, all scaled
+by how deep into the night it is rather than a hard day/night switch:
+an AWAKE agent's energy drain scales up to 1.3x at full night (same
+order of magnitude as the existing harsh-weather 1.4x multiplier —
+"staying up all night costs about as much as working a storm" was the
+target feel); the involuntary-rest energy threshold
+(`REST_THRESHOLD`) rises by up to 0.15 at night, so agents settle in
+for the night progressively sooner rather than only collapsing exactly
+at the same threshold regardless of hour; RESTING energy recovery gets
+up to a 15% night bonus. This was previously called out as a
+deliberately-deferred scope boundary (v0.32.0's DECISIONS.md entry) —
+explicitly revisited now per the user's follow-up ask, not a reversal
+of that earlier call.
+
+Verified (LLM disabled in this environment, deterministic fallbacks
+exercised throughout): a fresh 60x60 world produced real river tiles
+and 3 lakes at creation; full round-trip serialization confirmed rivers
+(via terrain) and lakes preserved; a 6000-tick full-engine run produced
+a real `disaster_flood` event with nonzero flood pressure and no
+crashes from terrain sampling `Biome.RIVER`; direct function-level
+tests of `tick_wildfire` (ignition + spread + burnout, confirmed forest
+tiles turn to grassland), `tick_storm` (confirmed building `condition`
+drops by exactly `STORM_DAMAGE`), and `tick_lakes` (confirmed both
+growth and shrink paths convert a boundary tile and emit the right
+event) all passed. All touched Python files pass `python3 -m
+py_compile`; `app.js` passes `node --check`.

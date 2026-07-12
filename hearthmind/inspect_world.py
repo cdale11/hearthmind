@@ -57,6 +57,17 @@ def main(argv: list[str] | None = None) -> None:
     if "climate" in summary:
         c = summary["climate"]
         print(f"Climate:     warming {c['warming']:+.2f}, drying {c['drying']:+.2f} (slow monthly drift, -1..1 each)")
+    if "night_factor" in summary:
+        print(f"Daylight:    night_factor {summary['night_factor']:.2f} (0=full day, 1=full night)")
+    if summary.get("lakes"):
+        lake_bits = ", ".join(f"#{lk['id']} {lk['tiles']} tiles, level {lk['level']:+.2f}" for lk in summary["lakes"])
+        print(f"Lakes:       {lake_bits}")
+    if "disasters" in summary:
+        d = summary["disasters"]
+        print(
+            f"Disasters:   flood pressure {d['flood_pressure']:.2f}, "
+            f"{d['active_flood_tiles']} flooded tile(s), {d['active_wildfire_tiles']} wildfire tile(s)"
+        )
 
     pop = summary["population"]
     print(

@@ -25,6 +25,13 @@ class Biome(str, Enum):
     HILLS = "hills"
     MOUNTAIN = "mountain"
     SNOWCAP = "snowcap"
+    RIVER = "river"
+    """Carved post-generation by world/hydrology.py, not elevation-
+    classified like the rest — deliberately absent from BIOME_ORDER
+    below (which climate drift steps elevation-classified biomes along),
+    so a river tile is skipped by climate drift rather than crashing on
+    a missing BIOME_ORDER.index() lookup. See _is_developed in
+    terrain_evolution.py."""
 
 
 @dataclass(frozen=True)

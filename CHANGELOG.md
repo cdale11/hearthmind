@@ -4,6 +4,72 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.33.0] — Natural disasters, rivers & lakes, daylight-driven behavior
+
+### Investigated (no code bug found)
+- **"History tab not working"** — read/executed the full path (SQL
+  query, `GET /history`, `app.js` wiring, `index.html` IDs) end-to-end;
+  it's correct. `HISTORY_CATEGORIES` matches every category string
+  actually logged, byte-for-byte. Most likely explanation: the server
+  process wasn't restarted after pulling v0.32.0 (uvicorn doesn't
+  hot-reload) and/or the browser served a cached pre-upgrade `app.js`
+  despite the existing `?v=<version>` cache-bust. If it's still broken
+  after a hard restart + hard-reload, that's new information worth a
+  fresh diagnostic report.
+
+### Added — natural disasters (`world/disasters.py`)
+- **Flood**: sustained heavy rain (precipitation past the existing
+  "harsh weather" threshold) builds flood pressure; once past
+  threshold, a small per-tick chance submerges a random water-adjacent
+  low tile for ~40 ticks, damaging any building/vehicle caught there
+  and destroying any farm plot, then recedes back to its original
+  biome.
+- **Wildfire**: dry summer forest can ignite (rare weekly roll, chance
+  nudged upward by ill-fortune `Settlement.temperament` — same lever
+  Phase G already uses for invention/predator rolls), then spreads
+  tile-to-tile for a few ticks, turning forest to ash (grassland) and
+  damaging any building in its path, before burning out.
+- **Storm**: extreme wind (well past the routine "harsh weather"
+  threshold) has a small per-tick chance of directly damaging every
+  standing building and vehicle map-wide — a sharper, rarer hit
+  layered on top of routine weather-decay.
+- All three log real life-events (`disaster_flood`, `disaster_wildfire`,
+  `disaster_storm`), added to `HISTORY_CATEGORIES` and the client's
+  terrain-refresh/category-icon tables, and physically alter buildings/
+  vehicles/farms/terrain — not narration bolted onto nothing.
+
+### Added — rivers and lakes (`world/hydrology.py`)
+- **Rivers**: carved once at world creation by steepest-descent from
+  high-elevation sources (mountain/hills/snowcap) down to existing
+  water or the map edge — a new `Biome.RIVER`, visible on the map and
+  in `biome_counts`. Persist automatically through terrain's existing
+  (de)serialization; no extra state needed. Rivers "evolve" via the
+  flood mechanic above (sustained rain temporarily expands water onto
+  riverbank land) rather than a separate river-specific tick.
+- **Lakes**: inland water bodies (flood-filled components that never
+  touch the map border, as opposed to the ocean, which does) each get
+  their own slowly-changing `level` — a bounded random walk nudged
+  monthly, biased toward the map-wide climate-drying trend. Crossing a
+  threshold grows or shrinks the shoreline by one tile
+  (`lake_rose`/`lake_receded`), so a lake visibly changes size over
+  years, same "evolves over time" contract as the existing climate
+  drift. A pre-hydrology-pass snapshot gets rivers carved and lakes
+  identified once on load (same backfill pattern as every other
+  subsystem migration).
+- New "Geography"/"Disasters" stat tiles in the UI.
+
+### Added — daylight now affects agent behavior, not just lighting
+- `world/daylight.py` mirrors the client's `UK_DAYLIGHT_HOURS` table
+  and `nightFactor` ramp server-side. An AWAKE agent now burns energy
+  up to 30% faster the deeper into the night it is (same order of
+  magnitude as the existing harsh-weather multiplier — staying up all
+  night costs about as much as working through a storm), the
+  involuntary-rest energy threshold rises at night (agents settle in
+  for the night sooner rather than only collapsing from exhaustion),
+  and RESTING energy recovery gets a small night bonus (sleep is more
+  restful than a daytime nap). Previously `night_factor`/daylight hours
+  only drove the map's visual darkening tint.
+
 ## [0.32.0] — Map/UI/ecology follow-up: bug fixes + history tab + UK daylight + diagnostics
 
 ### Fixed

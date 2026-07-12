@@ -88,7 +88,10 @@ _CALENDAR_EVENT_DESCRIPTIONS = {
     "year_end": "A new year begins.",
 }
 
-_TERRAIN_CHANGING_CATEGORIES = frozenset({"terrain_thinned", "terrain_reclaimed", "climate_drift"})
+_TERRAIN_CHANGING_CATEGORIES = frozenset({
+    "terrain_thinned", "terrain_reclaimed", "climate_drift",
+    "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
+})
 """Life-event categories that mean at least one tile's biome changed
 this tick — see `_maybe_broadcast`."""
 
@@ -120,6 +123,10 @@ _MIGRATIONS = {
     "roads": (
         "Road tracking was added to a world that predates Phase C5 ({count} pre-existing worn tiles assumed).",
         lambda world: len(world.roads.wear),
+    ),
+    "lakes": (
+        "Rivers were carved and {count} lake(s) identified, added to a world that predates the hydrology pass.",
+        lambda world: len(world.lakes),
     ),
 }
 
