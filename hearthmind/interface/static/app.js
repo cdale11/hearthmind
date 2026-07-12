@@ -46,13 +46,15 @@ const CATEGORY_META = {
   farm_planted: { icon: "🌱" },
   birth: { icon: "👶" },
   death: { icon: "💀" },
-  dialogue: { icon: "💬" },
+  dialogue: { skip: true }, // routine background chatter — recorded internally (/events, dev console) but not the main feed; see dialogue_surfaced
+  dialogue_surfaced: { icon: "💬" }, // a conversation that actually changed a belief/relationship/rumor — see population.py's apply_dialogue `surfaced` flag
   rumor: { icon: "📣" },
   tradition: { icon: "🎭" },
   invention: { icon: "💡" },
   festival: { icon: "🎉" },
   predator_attack: { icon: "🐺" },
   chronicle: { icon: "📜" },
+  documentary: { icon: "🎬" },
   vehicle_started: { icon: "🛠️" },
   vehicle_completed: { icon: "🐎" },
   vehicle_broken: { icon: "⚠️" },
@@ -617,33 +619,213 @@ function stepWeatherParticles() {
 
 requestAnimationFrame(stepWeatherParticles);
 
-function findAgentAt(px, py) {
+function findAgentAt(gx, gy) {
   if (!latest) return null;
-  const gx = Math.floor(px / CELL), gy = Math.floor(py / CELL);
   for (const a of latest.agents) {
     if (a.x === gx && a.y === gy) return a;
   }
   return null;
 }
 
+function findBuildingAt(gx, gy) {
+  if (!latest) return null;
+  for (const b of latest.buildings || []) {
+    if (b.x === gx && b.y === gy) return b;
+  }
+  return null;
+}
+
+// Hover inspection covers everything on the map, not just agents (Observatory
+// UI direction, CLAUDE.md): agent, then building, then bare terrain — each
+// with its own tooltip content, cheapest/most-specific check first.
 canvas.addEventListener("mousemove", (ev) => {
   const rect = canvas.getBoundingClientRect();
-  const a = findAgentAt(ev.clientX - rect.left, ev.clientY - rect.top);
-  if (!a) {
-    tooltip.classList.add("hidden");
+  const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
+  const gx = Math.floor(px / CELL), gy = Math.floor(py / CELL);
+  tooltip.style.left = `${px + 12}px`;
+  tooltip.style.top = `${py + 12}px`;
+
+  const a = findAgentAt(gx, gy);
+  if (a) {
+    tooltip.classList.remove("hidden");
+    const lastMemory = a.memories && a.memories.length ? a.memories[a.memories.length - 1] : null;
+    tooltip.innerHTML =
+      `<b>${a.name}</b> (${a.state}, goal=${a.goal})<br>` +
+      `hunger ${a.hunger.toFixed(2)} · energy ${a.energy.toFixed(2)} · age ${a.age_ticks}` +
+      (a.goal_reason ? `<br><i>"${a.goal_reason}"</i>` : "") +
+      (lastMemory ? `<br><span class="tooltip-memory">${lastMemory}</span>` : "") +
+      `<br><span class="muted">click for details</span>`;
+    canvas.style.cursor = "pointer";
     return;
   }
-  tooltip.classList.remove("hidden");
-  tooltip.style.left = `${ev.clientX - rect.left + 12}px`;
-  tooltip.style.top = `${ev.clientY - rect.top + 12}px`;
-  const lastMemory = a.memories && a.memories.length ? a.memories[a.memories.length - 1] : null;
-  tooltip.innerHTML =
-    `<b>${a.name}</b> (${a.state}, goal=${a.goal})<br>` +
-    `hunger ${a.hunger.toFixed(2)} · energy ${a.energy.toFixed(2)} · age ${a.age_ticks}` +
-    (a.goal_reason ? `<br><i>"${a.goal_reason}"</i>` : "") +
-    (lastMemory ? `<br><span class="tooltip-memory">${lastMemory}</span>` : "");
+  canvas.style.cursor = "default";
+
+  const b = findBuildingAt(gx, gy);
+  if (b) {
+    tooltip.classList.remove("hidden");
+    const pct = Math.round((b.condition || 0) * 100);
+    tooltip.innerHTML =
+      `<b>${b.kind}</b> (${b.stage})<br>` +
+      `condition ${pct}%` +
+      (b.stage === "under_construction" ? ` · progress ${Math.round((b.progress || 0) * 100)}%` : "") +
+      (b.stored_food ? `<br>stored food ${b.stored_food.toFixed(1)}` : "");
+    return;
+  }
+
+  if (terrain && gx >= 0 && gy >= 0 && gx < terrain.width && gy < terrain.height) {
+    const biome = terrain.biomes[gy][gx];
+    tooltip.classList.remove("hidden");
+    tooltip.innerHTML = `<span class="muted">${biome.replace(/_/g, " ")}</span> (${gx}, ${gy})`;
+    return;
+  }
+  tooltip.classList.add("hidden");
 });
-canvas.addEventListener("mouseleave", () => tooltip.classList.add("hidden"));
+canvas.addEventListener("mouseleave", () => {
+  tooltip.classList.add("hidden");
+  canvas.style.cursor = "default";
+});
+
+canvas.addEventListener("click", (ev) => {
+  const rect = canvas.getBoundingClientRect();
+  const gx = Math.floor((ev.clientX - rect.left) / CELL), gy = Math.floor((ev.clientY - rect.top) / CELL);
+  const a = findAgentAt(gx, gy);
+  if (a) openNpcInspector(a.id);
+});
+
+// --- NPC inspector: "mind before stats" (Observatory UI direction) ---------
+// Opened by clicking an agent on the map. Leads with current goal/reason,
+// beliefs held about them, relationships (named, not raw IDs), and recent
+// memories — the raw hunger/energy numbers are last, in a single small row,
+// not the headline. Stays open across ticks (re-rendered from `latest` on
+// every payload) so it doubles as a live view of one NPC's unfolding mind.
+
+const npcBackdrop = document.getElementById("npc-inspector-backdrop");
+const npcContent = document.getElementById("npc-inspector-content");
+const npcClose = document.getElementById("npc-inspector-close");
+let inspectedAgentId = null;
+
+function openNpcInspector(agentId) {
+  inspectedAgentId = agentId;
+  npcBackdrop.classList.remove("hidden");
+  renderNpcInspector();
+}
+
+function closeNpcInspector() {
+  inspectedAgentId = null;
+  npcBackdrop.classList.add("hidden");
+}
+
+if (npcClose) {
+  npcClose.addEventListener("click", closeNpcInspector);
+  npcBackdrop.addEventListener("click", (ev) => {
+    if (ev.target === npcBackdrop) closeNpcInspector();
+  });
+}
+
+function renderNpcInspector() {
+  if (inspectedAgentId === null || !latest) return;
+  const agent = (latest.agents || []).find((a) => a.id === inspectedAgentId);
+  if (!agent) {
+    npcContent.innerHTML = `<h3>Gone</h3><div class="npc-subtitle">This person is no longer among the living.</div>`;
+    return;
+  }
+  const byId = new Map((latest.agents || []).map((a) => [a.id, a]));
+  const beliefs = ((latest.summary && latest.summary.settlement && latest.summary.settlement.beliefs) || [])
+    .filter((b) => b.subject_agent_id === agent.id);
+  const relationships = Object.entries(agent.relationships || {})
+    .map(([idStr, affinity]) => ({ name: (byId.get(Number(idStr)) || {}).name || `#${idStr}`, affinity }))
+    .sort((a, b) => Math.abs(b.affinity) - Math.abs(a.affinity))
+    .slice(0, 8);
+  const memories = (agent.memories || []).slice(-6).reverse();
+
+  const relHtml = relationships.length
+    ? `<ul>${relationships.map((r) => {
+        const tone = r.affinity >= 0.3 ? "close to" : r.affinity <= -0.3 ? "at odds with" : "knows";
+        return `<li>${tone} <b>${r.name}</b> <span class="muted">(${r.affinity >= 0 ? "+" : ""}${r.affinity.toFixed(2)})</span></li>`;
+      }).join("")}</ul>`
+    : `<div class="muted">no notable relationships yet</div>`;
+  const beliefsHtml = beliefs.length
+    ? `<ul>${beliefs.map((b) => `<li>${b.belief}</li>`).join("")}</ul>`
+    : `<div class="muted">the village hasn't formed a theory about them yet</div>`;
+  const memoriesHtml = memories.length
+    ? `<ul>${memories.map((m) => `<li>${m}</li>`).join("")}</ul>`
+    : `<div class="muted">nothing memorable yet</div>`;
+
+  npcContent.innerHTML = `
+    <h3>${agent.name}</h3>
+    <div class="npc-subtitle">${agent.state}, age ${agent.age_ticks}</div>
+    <div class="npc-section">
+      <h4>Right now</h4>
+      <div>Pursuing <b>${agent.goal}</b></div>
+      ${agent.goal_reason ? `<div class="npc-goal-reason">"${agent.goal_reason}"</div>` : ""}
+    </div>
+    <div class="npc-section">
+      <h4>What the village believes about them</h4>
+      ${beliefsHtml}
+    </div>
+    <div class="npc-section">
+      <h4>Relationships</h4>
+      ${relHtml}
+    </div>
+    <div class="npc-section">
+      <h4>Recent memories</h4>
+      ${memoriesHtml}
+    </div>
+    <div class="npc-section">
+      <h4>Vitals</h4>
+      <div class="npc-stats-row">
+        <span>hunger ${agent.hunger.toFixed(2)}</span>
+        <span>energy ${agent.energy.toFixed(2)}</span>
+        <span>position (${agent.x}, ${agent.y})</span>
+      </div>
+    </div>
+  `;
+}
+
+// --- consequences overlay ("the village is aging," not raw stats) ----------
+// Map-as-primary-interface direction (CLAUDE.md, Observatory UI): plain-
+// language readouts of what the raw numbers actually mean, layered directly
+// on the map rather than another sidebar panel. Thresholds mirror the sim's
+// own lifespan constants (agent.py's MIN_LIFESPAN_TICKS=20000) the same way
+// daylight.py's UK_DAYLIGHT_HOURS is already mirrored client-side.
+const MIN_LIFESPAN_TICKS = 20000;
+const consequencesStrip = document.getElementById("consequences-strip");
+let lastPredatorTotal = 0;
+let wolvesReturnedUntilTick = -1;
+
+function computeConsequences(summary) {
+  const out = [];
+  const p = summary.population, s = summary.settlement, w = summary.wildlife, d = summary.disasters;
+  if (p && p.total > 0 && p.avg_age_ticks / MIN_LIFESPAN_TICKS > 0.55) {
+    out.push("The village is aging.");
+  }
+  if (p && p.total > 0 && p.total <= 3) {
+    out.push("The village teeters on the edge of extinction.");
+  }
+  const granaryCap = s && s.granary_capacity;
+  if (granaryCap) {
+    const frac = s.granary_food / granaryCap;
+    if (frac > 0.85) out.push("Granaries are nearly full.");
+    else if (frac < 0.1) out.push("Food stores are running dangerously low.");
+  }
+  if (w) {
+    if (w.predator_total > 0 && lastPredatorTotal === 0) wolvesReturnedUntilTick = summary.tick + 200;
+    lastPredatorTotal = w.predator_total;
+    if (summary.tick <= wolvesReturnedUntilTick) out.push("Wolves have returned.");
+  }
+  if (d) {
+    if (d.heatwave_active) out.push("A heatwave grips the land.");
+    if (d.active_flood_tiles > 0) out.push("Floodwater has swallowed part of the village.");
+    if (d.active_wildfire_tiles > 0) out.push("Wildfire is spreading through the forest.");
+  }
+  return out.slice(0, 3);
+}
+
+function renderConsequences(summary) {
+  const items = computeConsequences(summary);
+  consequencesStrip.classList.toggle("hidden", items.length === 0);
+  consequencesStrip.innerHTML = items.map((text) => `<li>${text}</li>`).join("");
+}
 
 function fmtPct(x) { return `${Math.round(x * 100)}%`; }
 
@@ -811,6 +993,18 @@ function renderStats(summary) {
       ? `Current priority: <b>${s.current_priority}</b><br><span class="muted">${s.priority_rationale}</span>`
       : "No decision yet — the town brain decides once a season, once the village is named.";
   }
+  const monologueEl = document.getElementById("town-brain-monologue");
+  if (monologueEl) {
+    // "Occasionally reveal what the town notices, values, or is quietly
+    // influencing" (Observatory UI direction) — past rationales read
+    // together as fragments of an ongoing internal train of thought, not
+    // just a single overwritten "current state" line.
+    const history = (s.priority_history || []).slice(0, -1).reverse(); // most-recent-first, excluding the current one (already shown above)
+    monologueEl.classList.toggle("hidden", history.length === 0);
+    monologueEl.innerHTML = history
+      .map((h) => `<li><span class="muted">tick ${h.tick}, ${h.priority}:</span> ${h.rationale}</li>`)
+      .join("");
+  }
 
   const pendingWhispersEl = document.getElementById("pending-whispers");
   if (pendingWhispersEl) {
@@ -885,8 +1079,10 @@ async function refreshTerrainIfChanged(events) {
 function applyPayload(payload) {
   latest = payload;
   renderStats(payload.summary);
+  renderConsequences(payload.summary);
   renderInfrastructure(payload.infrastructure);
   if (payload.diagnostics && payload.diagnostics.sim_pacing) renderSimPacing(payload.diagnostics.sim_pacing);
+  if (inspectedAgentId !== null) renderNpcInspector();
   updateAgentAnimTargets(payload.agents || []);
   if (payload.diagnostics) renderDevConsole(payload);
   if (payload.life_events && payload.life_events.length) {

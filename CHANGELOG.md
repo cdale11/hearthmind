@@ -4,6 +4,72 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.36.0] — Observatory UI backlog complete: hover, NPC inspector, consequences overlay, surfaced conversations, Town Brain monologue, documentary mode
+
+Closes out the rest of the Observatory UI backlog CLAUDE.md scoped last
+session (0.34.0) but deliberately deferred, plus the relationship graph
+started in 0.35.0. Six pieces, one batch:
+
+### Added
+- **Hover inspection extended to the whole map**, not just agents.
+  Hovering a building shows kind/stage/condition (and construction
+  progress while under way); hovering bare terrain shows its biome and
+  coordinates. Agent hover tooltip now hints "click for details."
+- **NPC inspector modal**, mind-first per the brief: clicking an agent
+  opens a panel leading with their current goal and *why* they chose it
+  (`goal_reason`), what the village's collective beliefs say about them
+  (`Settlement.beliefs` filtered by `subject_agent_id`), their named
+  relationships (not raw IDs, sorted by strength), and recent memories
+  — vitals (hunger/energy/position) are a single small row at the
+  bottom, not the headline. Stays open and live across ticks while
+  inspecting the same agent.
+- **Consequences overlay** on the map itself: a small overlay strip
+  (bottom-left of the map panel) surfaces plain-language readouts —
+  "The village is aging," "Granaries are nearly full," "Food stores are
+  running dangerously low," "Wolves have returned," "A heatwave grips
+  the land," "Floodwater has swallowed part of the village," "Wildfire
+  is spreading through the forest," "The village teeters on the edge of
+  extinction" — computed client-side from stats already in the payload,
+  the exact examples the brief named. Threshold for "aging" mirrors
+  `agent.py`'s own `MIN_LIFESPAN_TICKS` constant.
+- **Surfaced conversations**: `Population.apply_dialogue` now returns
+  whether an exchange was significant (crossed into a close bond or
+  rivalry, or carried a rumor) alongside the two agents. Significant
+  exchanges log under a new `dialogue_surfaced` category (shown in the
+  main event feed and the curated History tab); routine background
+  chatter stays under the existing `dialogue` category, which the main
+  feed now filters out by default (still fully recorded — `/events` and
+  the dev console see everything) — "record all conversations
+  internally, surface the ones that changed something."
+- **Town Brain monologue**: `Settlement.priority_history` keeps the
+  last 6 seasonal town-brain decisions (tick/priority/rationale), not
+  just the current one. The Town Brain panel now shows past rationales
+  beneath the current priority — read together, they read as an
+  ongoing internal train of thought ("what the town notices, values, or
+  is quietly influencing"), not a single overwritten line.
+- **Documentary mode**: a new yearly LLM job (`llm/documentary.py`,
+  gated on the rare `year_end` calendar boundary — deliberately the
+  slowest narrative cadence, rarer than chronicle's monthly one) writes
+  a short narrated look-back over the year's curated milestones
+  (`persistence.snapshot.history_events` — the same subset the History
+  tab already shows, not the raw everything-included feed chronicle
+  uses). Logged under a new `documentary` category, shown in both the
+  main event feed and the History tab. Has a deterministic fallback
+  (a plain factual recap) when the LLM is disabled/unreachable, same as
+  every other narrative job.
+
+### Notes
+- The map-as-primary-interface ask is substantially, not fully,
+  addressed: hover/click inspection and the consequences overlay now
+  live directly on the map, but the sidebar still carries its full set
+  of panels rather than being restructured/thinned — a genuinely
+  separate, larger redesign this batch didn't attempt.
+- With this batch, every item CLAUDE.md's "Observatory UI direction"
+  section listed as "not started" is now started: relationship graph
+  (0.35.0), hover inspection, mind-first NPC inspector, surfaced-
+  conversation filtering, Town Brain monologue reveal, and documentary
+  mode (this release).
+
 ## [0.35.0] — Realistic snow/heatwave/frost, live sim-speed controls, relationship graph
 
 ### Fixed

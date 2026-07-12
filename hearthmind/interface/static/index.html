@@ -27,6 +27,7 @@
       <canvas id="map-canvas"></canvas>
       <canvas id="weather-canvas"></canvas>
       <div id="tooltip" class="tooltip hidden"></div>
+      <ul id="consequences-strip" class="hidden"></ul>
     </section>
 
     <aside id="sidebar">
@@ -35,6 +36,7 @@
       <div class="panel">
         <h2>Town brain</h2>
         <div id="town-brain-priority" class="muted">no decision yet</div>
+        <ul id="town-brain-monologue" class="muted hidden"></ul>
         <form id="whisper-form">
           <input id="whisper-input" type="text" maxlength="200" placeholder="Whisper a suggestion to the village…" />
           <button type="submit">Whisper</button>
@@ -107,6 +109,13 @@
       </div>
     </aside>
   </main>
+
+  <div id="npc-inspector-backdrop" class="hidden">
+    <div id="npc-inspector">
+      <button id="npc-inspector-close" title="Close">&times;</button>
+      <div id="npc-inspector-content">click an agent on the map to inspect them</div>
+    </div>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>

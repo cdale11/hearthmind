@@ -226,6 +226,13 @@ def era_for_tech_level(tech_level: int) -> str:
     return era
 
 
+PRIORITY_HISTORY_MAX = 6
+"""How many past town-brain decisions `Settlement.priority_history`
+keeps — enough for the UI's "internal monologue" reveal to feel like a
+running train of thought, not so many it grows unbounded across a
+long-running world."""
+
+
 def choose_building_kind(rng, current_priority: str, era: str = "industrial") -> "BuildingKind":
     """Weighted pick among the foundable civic kinds (not UNIVERSITY,
     which upgrades an existing school instead) — base odds nudged
@@ -563,6 +570,15 @@ class Settlement:
     priority_rationale: str = ""
     """One-line LLM-authored (or deterministic-fallback) reason for
     `current_priority` — shown in the UI alongside the priority itself."""
+    priority_history: list[dict] = field(default_factory=list)
+    """Rolling log of past `(tick, priority, rationale)` town-brain
+    decisions, capped to the last PRIORITY_HISTORY_MAX entries — the
+    "Town Brain monologue" the Observatory UI direction asked for:
+    read together in the UI, past rationales read as fragments of an
+    ongoing internal train of thought rather than a single overwritten
+    current-state field. Purely additive to `current_priority`/
+    `priority_rationale`, which stay the single source of truth for
+    what's *currently* steering `choose_building_kind`."""
     player_influence: list[str] = field(default_factory=list)
     """Short text "whispers" queued via POST /intervene/town-brain,
     consumed (and cleared) by the next town-brain prompt — the
@@ -681,6 +697,14 @@ class Settlement:
 
         return events
 
+    def record_priority(self, tick: int, priority: str, rationale: str) -> None:
+        """Called alongside setting `current_priority`/`priority_rationale`
+        (SimulationEngine._run_town_brain) to also append to the rolling
+        `priority_history` — see that field's docstring."""
+        self.priority_history.append({"tick": tick, "priority": priority, "rationale": rationale})
+        if len(self.priority_history) > PRIORITY_HISTORY_MAX:
+            self.priority_history = self.priority_history[-PRIORITY_HISTORY_MAX:]
+
     # --- summary -------------------------------------------------------------
 
     def summary(self) -> dict:
@@ -724,6 +748,7 @@ class Settlement:
             "education_capacity": EDUCATION_CAPACITY,
             "current_priority": self.current_priority,
             "priority_rationale": self.priority_rationale,
+            "priority_history": list(self.priority_history),
             "pending_player_whispers": list(self.player_influence),
             "era": self.era,
             "era_description": ERA_DESCRIPTIONS.get(self.era, ""),
@@ -807,6 +832,7 @@ class Settlement:
             "education_level": round(self.education_level, 4),
             "current_priority": self.current_priority,
             "priority_rationale": self.priority_rationale,
+            "priority_history": list(self.priority_history),
             "player_influence": list(self.player_influence),
             "era": self.era,
             "founding_scenario": self.founding_scenario,
@@ -828,6 +854,7 @@ class Settlement:
             education_level=data.get("education_level", 0.0),
             current_priority=data.get("current_priority", ""),
             priority_rationale=data.get("priority_rationale", ""),
+            priority_history=list(data.get("priority_history", [])),
             player_influence=list(data.get("player_influence", [])),
             era=data.get("era", "industrial"),
             founding_scenario=data.get("founding_scenario", ""),

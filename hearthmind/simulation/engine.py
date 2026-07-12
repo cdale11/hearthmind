@@ -33,11 +33,15 @@ except ImportError:  # pragma: no cover — this project's target hardware is Li
 
 from hearthmind.agents.agent import DIALOGUE_COOLDOWN_TICKS, AgentGoal
 from hearthmind.config import Config
-from hearthmind.llm import beliefs, chronicle, culture, dialogue, festival, invention, naming, omens, town_brain
+from hearthmind.llm import (
+    beliefs, chronicle, culture, dialogue, documentary, festival, invention, naming, omens, town_brain,
+)
 from hearthmind.llm.client import OllamaClient
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
-from hearthmind.persistence.snapshot import load_latest_snapshot, log_event, recent_events, save_snapshot
+from hearthmind.persistence.snapshot import (
+    history_events, load_latest_snapshot, log_event, recent_events, save_snapshot,
+)
 from hearthmind.settlement.buildings import (
     CURRENCY_CAPACITY,
     ERA_DESCRIPTIONS,
@@ -363,6 +367,7 @@ class SimulationEngine:
 
         self._maybe_schedule_naming()
         self._maybe_schedule_chronicle(events, previous_season)
+        self._maybe_schedule_documentary(events)
         self._maybe_schedule_tradition(events)
         self._maybe_schedule_invention(events)
         self._maybe_schedule_festival(events)
@@ -439,9 +444,19 @@ class SimulationEngine:
             )
             if applied is None:
                 continue
-            agent_a, agent_b = applied
+            agent_a, agent_b, surfaced = applied
+            # "Record all conversations internally [...] surface
+            # conversations that changed beliefs, relationships or future
+            # events" (Observatory UI direction, CLAUDE.md): every
+            # exchange is still logged (so /events and the dev console see
+            # the full transcript), but only a `surfaced` one — a rumor,
+            # or crossing into a close bond/rivalry — uses the distinct
+            # `dialogue_surfaced` category the main UI's event feed keys
+            # off of; routine background chatter stays under the quieter
+            # `dialogue` category. See docs/DECISIONS.md.
+            category = "dialogue_surfaced" if surfaced else "dialogue"
             self._log(
-                "dialogue", f'{agent_a.name}: "{parsed["line_a"]}" — {agent_b.name}: "{parsed["line_b"]}"',
+                category, f'{agent_a.name}: "{parsed["line_a"]}" — {agent_b.name}: "{parsed["line_b"]}"',
             )
             self.world.dialogue_total += 1
             if parsed["rumor"]:
@@ -576,6 +591,43 @@ class SimulationEngine:
         summary = chronicle.parse_summary(result, fallback)
         self._log("chronicle", summary)
         self._record_llm_debug("chronicle", prompt, result, used_fallback)
+        self._record_llm_call(used_fallback)
+
+    # --- documentary mode: a yearly narrated look-back --------------------------
+
+    def _maybe_schedule_documentary(self, events: list[str]) -> None:
+        """Gated on `year_end` — deliberately the rarest narrative
+        cadence (chronicle is monthly, this is yearly), matching
+        "periodically generates a narrated summary of the world's
+        evolution" from the Observatory UI direction. Built from the
+        curated history table (`persistence.snapshot.history_events`,
+        the same milestone-only subset the UI's History tab already
+        uses) rather than chronicle's everything-included recent-events
+        window — a documentary looks back at what mattered, not routine
+        noise. No documentary is scheduled before the settlement has a
+        name (nothing yet to narrate)."""
+        if "year_end" not in events or not self.world.settlement.name:
+            return
+        milestones = history_events(self.conn, limit=40)
+        population_summary = self.world.population.summary()
+        prompt = documentary.build_prompt(
+            self.world.settlement.name, self.world.settlement.era, self.world.clock.year,
+            milestones, population_summary, self.world.settlement.temperament,
+        )
+        fallback = documentary.fallback_narration(
+            self.world.settlement.name, self.world.clock.year, milestones, population_summary,
+        )
+        task = asyncio.create_task(self._run_documentary(prompt, fallback))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _run_documentary(self, prompt: str, fallback: dict) -> None:
+        result, used_fallback = await self._cognition_runner.run(
+            prompt, documentary.SYSTEM_PROMPT, fallback=lambda: fallback
+        )
+        narration = documentary.parse_narration(result, fallback)
+        self._log("documentary", narration)
+        self._record_llm_debug("documentary", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)
 
     # --- Phase E: village culture (traditions) --------------------------------
@@ -758,6 +810,7 @@ class SimulationEngine:
         priority, rationale = town_brain.parse_priority(result, fallback)
         self.world.settlement.current_priority = priority
         self.world.settlement.priority_rationale = rationale
+        self.world.settlement.record_priority(self.world.clock.tick_count, priority, rationale)
         self._log("town_brain", f"The village's priority is now {priority} — {rationale}")
         self._record_llm_debug("town_brain", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)

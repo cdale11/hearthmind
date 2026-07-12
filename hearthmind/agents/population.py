@@ -1373,7 +1373,9 @@ class Population:
             self.dialogue_cooldowns[(a.id, b.id)] = tick
         return selected
 
-    def apply_dialogue(self, a_id: int, b_id: int, sentiment: str, rumor: str = "") -> tuple[Agent, Agent] | None:
+    def apply_dialogue(
+        self, a_id: int, b_id: int, sentiment: str, rumor: str = "",
+    ) -> tuple[Agent, Agent, bool] | None:
         """Apply a resolved dialogue's sentiment as a relationship nudge,
         on top of the passive per-tick colocation gain. Returns None (a
         no-op) if either agent has since died — dialogue results can
@@ -1386,10 +1388,19 @@ class Population:
         pass. Deliberately not triggered by the passive per-tick
         colocation gain/decay — only these explicit dialogue-driven
         moments are memorable enough to log, or every agent's memory
-        would fill with "still standing near someone" noise."""
+        would fill with "still standing near someone" noise.
+
+        The third return value, `surfaced`, is True exactly when this
+        exchange crossed into a close bond/rivalry or carried a rumor —
+        i.e. exactly the moments memorable enough to also log — so the
+        caller (SimulationEngine) can distinguish a "surfaced"
+        conversation from routine background chatter in the UI's main
+        event feed without duplicating this threshold logic. See
+        docs/DECISIONS.md, Observatory UI pass."""
         agent_a, agent_b = self.get(a_id), self.get(b_id)
         if agent_a is None or agent_b is None:
             return None
+        surfaced = False
         delta = DIALOGUE_SENTIMENT_DELTA.get(sentiment, 0.0)
         if delta:
             before = agent_a.relationships.get(b_id, 0.0)
@@ -1399,13 +1410,16 @@ class Population:
             if before < REPRODUCTION_AFFINITY_THRESHOLD <= new_value:
                 _remember(agent_a, f"Grew close with {agent_b.name}.")
                 _remember(agent_b, f"Grew close with {agent_a.name}.")
+                surfaced = True
             elif before > RIVALRY_THRESHOLD >= new_value:
                 _remember(agent_a, f"Fell out with {agent_b.name}.")
                 _remember(agent_b, f"Fell out with {agent_a.name}.")
+                surfaced = True
         if rumor:
             _remember(agent_a, f"Heard a rumor: {rumor}")
             _remember(agent_b, f"Heard a rumor: {rumor}")
-        return agent_a, agent_b
+            surfaced = True
+        return agent_a, agent_b, surfaced
 
     # --- festivals (collective behaviour) ---------------------------------------
 

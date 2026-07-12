@@ -207,33 +207,63 @@ Two audiences, two surfaces, kept explicitly separate:
   resource-flow internals, etc.; deepen it rather than leaking that
   detail into the normal UI.
 
-**Relationship graph: started.** A "🕸 relationships" header toggle
-opens a force-directed graph (client-side physics, no library — see
-`interface/static/app.js`'s `relBuildEdges`/`relStep`/`relDraw`) built
-from `Agent.relationships`, already present in the per-tick payload —
-no backend change needed. Nodes drift together for fond pairs, apart
-for sour ones; edge color/thickness encodes affinity sign/magnitude;
-weak bonds (`REL_MIN_AFFINITY=0.08`) are dropped to keep it readable.
+**Backlog status: every item started; one is still partial.**
+- **Relationship graph: done.** A "🕸 relationships" header toggle opens
+  a force-directed graph (client-side physics, no library — see
+  `interface/static/app.js`'s `relBuildEdges`/`relStep`/`relDraw`) built
+  from `Agent.relationships`, already present in the per-tick payload.
+  Nodes drift together for fond pairs, apart for sour ones; edge
+  color/thickness encodes affinity sign/magnitude; weak bonds
+  (`REL_MIN_AFFINITY=0.08`) are dropped to keep it readable.
+- **Hover inspection: done.** Extended past agents to buildings
+  (kind/stage/condition) and bare terrain (biome/coordinates) — one
+  unified hover pipeline on the map canvas, agent-then-building-then-
+  terrain.
+- **Mind-first NPC inspector: done.** Click an agent to open a modal
+  led by current goal/reason, beliefs the village holds about them,
+  named relationships, and recent memories — vitals are a small row at
+  the bottom, not the headline. Stays live across ticks while open.
+- **Surfaced conversations: done.** `Population.apply_dialogue` returns
+  a `surfaced` flag (crossed into a close bond/rivalry, or carried a
+  rumor); those log under `dialogue_surfaced` (shown in the main feed),
+  routine chatter stays under `dialogue` (recorded, but filtered from
+  the main feed the same way `day_end`/etc. already are).
+- **Town Brain monologue: done.** `Settlement.priority_history` keeps
+  the last 6 seasonal decisions; the Town Brain panel shows past
+  rationales beneath the current one, read together as an ongoing train
+  of thought.
+- **Documentary mode: done.** New yearly LLM job (`llm/documentary.py`,
+  gated on `year_end` — the slowest narrative cadence, rarer than
+  chronicle's monthly one) narrates a look-back over the year's curated
+  milestones (`history_events`, not the raw feed). Logged as
+  `documentary`, shown in the main feed and History tab.
+- **Map-as-primary-interface: partial.** Hover/click inspection and a
+  new consequences overlay (see below) now live directly on the map —
+  a real step, not cosmetic — but the sidebar still carries its full
+  panel set rather than being restructured/thinned. That reshuffle is a
+  genuinely separate, larger redesign, not attempted yet.
 
-**Still not started, deliberately** (this is a large, multi-batch UI
-initiative — CLAUDE.md's own "smallest coherent milestone" and "no
-half-finished pieces" rules both argue against attempting all of it in
-one pass): the map-as-primary-interface rework, hover inspection
-system, mind-first NPC inspector modal, internal-conversation logging +
-"surfaced" filtering, Town Brain monologue reveal, and documentary/
-narrated-history mode. Existing world-evolution mechanics already
-satisfy most of the "map should visibly evolve" ask (terrain evolution,
-road wear/decay — roads already fade out from disuse via `roads.py`'s
-presence-driven decay — building decay/ruin/reclamation, and the
-disasters/hydrology additions, now joined by heatwave/frost — see
-"Realistic weather thresholds" below); "settlements expand or collapse"
-is now also mechanically real — a population crash recovers via a rare
-migrant arrival while any people remain (`Population._maybe_welcome_
-migrant`, mirroring wildlife's `_maybe_recolonize`), but true extinction
-(0 population) is left as a legitimate, permanent, readable-from-the-
-landscape ending, not auto-revived — rather than a UI-only concept. Ask
-the user which piece of the remaining UI backlog to start with rather
-than guessing scope.
+Existing world-evolution mechanics already satisfy most of the "map
+should visibly evolve" ask (terrain evolution, road wear/decay — roads
+already fade out from disuse via `roads.py`'s presence-driven decay —
+building decay/ruin/reclamation, and the disasters/hydrology additions,
+now joined by heatwave/frost — see "Realistic weather thresholds"
+below); "settlements expand or collapse" is now also mechanically real
+— a population crash recovers via a rare migrant arrival while any
+people remain (`Population._maybe_welcome_migrant`, mirroring
+wildlife's `_maybe_recolonize`), but true extinction (0 population) is
+left as a legitimate, permanent, readable-from-the-landscape ending,
+not auto-revived — rather than a UI-only concept.
+
+**Consequences overlay.** A small overlay strip on the map itself
+(bottom-left of the map panel, not a sidebar panel) surfaces the
+brief's own example phrasing computed from live stats: "the village is
+aging" (mirrors `agent.py`'s real `MIN_LIFESPAN_TICKS`), "granaries are
+nearly full"/"running dangerously low," "wolves have returned"
+(tracks a 0→active predator-count transition, not just "predators
+exist"), plus disaster-driven lines (heatwave, flood, wildfire) and a
+near-extinction warning. Client-side only, computed from data already
+in the payload.
 
 **Live sim-speed controls.** Pause/speed-up/speed-down/reset are
 changeable from the browser UI in real time via `POST /intervene/sim-

@@ -2509,3 +2509,103 @@ resumed advancement (faster, at 4x) immediately on unpause; the
 400 case) were exercised directly against `WorldBroadcaster`. All
 touched Python files pass `python3 -m py_compile`; `app.js` and
 `index.html`'s inline structure pass `node --check`/manual review.
+
+## Observatory UI backlog complete: hover, NPC inspector, consequences overlay, surfaced conversations, Town Brain monologue, documentary mode
+
+User instruction: "complete all the remaining tasks" — read as
+authorization to implement the rest of the Observatory UI backlog
+CLAUDE.md's "Observatory UI direction" section explicitly listed as
+"not started, deliberately" after 0.34.0/0.35.0, rather than re-asking
+"which piece" again after already being told to do all of them.
+
+**Hover inspection.** `findAgentAt`/the mousemove handler already
+existed for agents only; generalized into a single hover pipeline that
+checks agent, then building (`findBuildingAt`, new), then bare terrain
+(reads the already-fetched `terrain.biomes` grid), in that order —
+cheapest/most-specific first. No backend change needed; buildings and
+terrain were already in the payload/terrain fetch, just never surfaced
+on hover.
+
+**NPC inspector.** New click handler on the map canvas opens a modal
+(`#npc-inspector-backdrop`, plain CSS — no dependency added) built from
+data already in the per-tick payload plus `settlement.beliefs`
+(filtered by `subject_agent_id`, the same field `llm/dialogue.py`'s
+`beliefs_about` param already consumes for NPC-to-NPC prompts — this is
+the first *UI* consumer of it). Deliberately ordered mind-first per the
+brief's explicit list (goal/reason, beliefs, relationships, memories)
+with vitals last and small. Re-renders from `latest` on every payload
+while open, so it's a live view of one person's unfolding state, not a
+snapshot frozen at click time.
+
+**Consequences overlay.** A new `#consequences-strip` absolutely
+positioned over the map (map-panel is already `position: relative` for
+the weather canvas, so no new positioning context needed). Computed
+client-side from `payload.summary` fields already present — no backend
+change. "The village is aging" mirrors `agent.py`'s real
+`MIN_LIFESPAN_TICKS=20000` constant (avg_age_ticks / 20000 > 0.55) so
+the threshold means something, not an arbitrary round number. "Wolves
+have returned" needed a one-tick-late signal a stateless per-payload
+computation can't see on its own (a *transition* from 0 to >0
+predators, not just "predators > 0" which would show constantly once
+any pack exists) — handled with a small piece of client-side state
+(`lastPredatorTotal`, `wolvesReturnedUntilTick`) that persists across
+payloads, the same "track state across ticks" pattern the relationship
+graph's `relNodes` map already established in 0.35.0.
+
+**Surfaced conversations.** `Population.apply_dialogue`'s existing
+threshold-crossing logic (close-bond/rivalry, already there for
+relationship *memory*) was the exact definition of "conversation that
+changed something" the brief asked to distinguish — reused rather than
+re-implemented, just also returned as a third tuple element (`surfaced:
+bool`) so the caller doesn't duplicate the threshold logic. `dialogue`
+(routine) is still logged and still fully queryable via `/events`/dev
+console ("record all conversations internally") — only the main UI
+event feed's `CATEGORY_META` entry changed (`skip: true`), the same
+display-only filtering mechanism `day_end`/`week_end`/`month_end`
+already use, not a change to what's persisted.
+
+**Town Brain monologue.** `Settlement.priority_history` is purely
+additive to the existing `current_priority`/`priority_rationale` (which
+remain the single source of truth `choose_building_kind` reads) —
+capped at 6 entries (`PRIORITY_HISTORY_MAX`) via a small helper method,
+`record_priority`, called alongside the existing assignment in
+`_run_town_brain`. No design tension here: the brief asked for past
+rationales to read as an ongoing train of thought, and they already
+existed as one-off computed strings — the only gap was that nothing
+kept the old ones once overwritten.
+
+**Documentary mode.** New `llm/documentary.py`, structurally a sibling
+of `chronicle.py` (same SYSTEM_PROMPT/build_prompt/fallback/parse
+shape, same "reuse the events table with a new category" persistence
+decision) but deliberately different in two ways: (1) cadence — gated
+on `year_end`, the rarest calendar boundary, versus chronicle's
+`month_end`, matching the brief's "periodically" framing at a visibly
+slower pace than the existing monthly narration; (2) source data — buit
+from `persistence.snapshot.history_events` (the curated milestone
+subset already powering the History tab) rather than chronicle's
+everything-included `recent_events`, since a documentary looking back
+on a year should read as "what actually mattered," not routine
+day-to-day noise re-summarized at a different grain. No settlement
+before a name exists means nothing to narrate yet — same gate
+`_maybe_schedule_tradition` already uses.
+
+**Scope note, stated plainly rather than silently overclaimed:** the
+map-as-primary-interface *rework* (restructuring/thinning the sidebar
+itself, not just adding overlays to the map) was not attempted — this
+batch added hover/click/overlay capability directly on the map (a
+meaningful, real step toward "the map is the primary interface") but
+left the existing panel-heavy sidebar layout untouched. That's a
+genuinely separate, larger redesign, not a checkbox this batch's time
+budget covered.
+
+Verified (LLM disabled in this environment, deterministic fallbacks
+exercised throughout): a direct call to `_maybe_schedule_documentary`
+against a real engine + real sqlite DB logged a real `documentary` row
+with the expected fallback narration; `Settlement.priority_history`
+capping and to_dict/from_dict round-trip confirmed directly; an
+8000-tick full-engine run (14 starting agents, growing to 44) produced
+783 real dialogue exchanges with no crashes from the `apply_dialogue`
+3-tuple return-shape change, plus a clean snapshot round-trip including
+the new `priority_history` field. All touched Python files pass
+`python3 -m py_compile`; `app.js` and `index.html`'s structure pass
+`node --check`/manual review.

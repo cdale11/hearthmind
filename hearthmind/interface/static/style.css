@@ -109,6 +109,10 @@ main {
 
 #town-brain-priority { font-size: 13px; margin-bottom: 8px; }
 #town-brain-priority b { color: var(--accent); text-transform: capitalize; }
+#town-brain-monologue { list-style: none; margin: 0 0 8px; padding: 0; font-size: 11.5px; }
+#town-brain-monologue.hidden { display: none; }
+#town-brain-monologue li { padding: 2px 0; border-bottom: 1px solid var(--border); }
+#town-brain-monologue li:last-child { border-bottom: none; }
 #whisper-form { display: flex; gap: 6px; }
 #whisper-input {
   flex: 1;
@@ -150,6 +154,72 @@ main {
   cursor: pointer;
 }
 .dev-toggle:hover, .dev-toggle.active { color: var(--accent); border-color: var(--accent); }
+
+#consequences-strip {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  pointer-events: none;
+  max-width: calc(100% - 16px);
+}
+#consequences-strip.hidden { display: none; }
+#consequences-strip li {
+  background: rgba(5, 6, 10, 0.78);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  width: fit-content;
+}
+
+#npc-inspector-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+#npc-inspector-backdrop.hidden { display: none; }
+#npc-inspector {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 20px;
+  width: min(420px, 90vw);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+#npc-inspector-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+}
+#npc-inspector-close:hover { color: var(--accent); }
+#npc-inspector-content h3 { margin: 0 0 2px; color: var(--accent); font-size: 17px; }
+#npc-inspector-content .npc-subtitle { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+#npc-inspector-content .npc-section { margin-bottom: 12px; }
+#npc-inspector-content .npc-section h4 {
+  margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);
+}
+#npc-inspector-content .npc-goal-reason { font-style: italic; }
+#npc-inspector-content ul { margin: 0; padding-left: 18px; font-size: 12.5px; }
+#npc-inspector-content ul li { padding: 2px 0; }
+#npc-inspector-content .npc-stats-row { display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
 
 #relationship-graph-wrap { position: relative; }
 #relationship-canvas {
