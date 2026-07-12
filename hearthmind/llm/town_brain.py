@@ -40,6 +40,18 @@ def build_prompt(
         + "."
         if beliefs else ""
     )
+    # player_standing (Settlement.player_standing) is one more quiet
+    # input, same "folded in, never a command" treatment as whispers —
+    # only mentioned at all once it's notably warm/cold, and even then
+    # phrased as an ambient feeling, not an instruction to act on it.
+    # See docs/DECISIONS.md, "town's opinion of the player" pass.
+    standing = settlement_summary.get("player_standing", 0.0)
+    standing_text = (
+        "\nThe village has come to feel genuinely looked-after by whatever quiet hand nudges it."
+        if standing > 0.4 else
+        "\nThe village has grown a little wary of the outside hand that occasionally nudges it."
+        if standing < -0.4 else ""
+    )
     return (
         f"The village of {settlement_name}: population {population_summary.get('total', 0)} "
         f"(avg hunger {population_summary.get('avg_hunger', 0):.2f}), "
@@ -49,7 +61,7 @@ def build_prompt(
         f"{settlement_summary.get('standing', 0)} standing structures "
         f"({settlement_summary.get('hospitals', 0)} hospitals, {settlement_summary.get('schools', 0)} schools, "
         f"{settlement_summary.get('workshops', 0)} workshops).\n"
-        f"Recent history:\n{events_text}{whisper_text}{beliefs_text}\n"
+        f"Recent history:\n{events_text}{whisper_text}{beliefs_text}{standing_text}\n"
         "Choose the village's current priority."
     )
 

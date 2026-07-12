@@ -2653,3 +2653,147 @@ the sim-speed pause/speed-up controls (confirmed the pause button
 toggled to "▶ resume" and the speed label updated to "2x" after one
 speed-up click) — every feature from the last two releases confirmed
 working together in a live session, not just individually compiled.
+
+## Everything left from the original plan, including Phase G
+
+User instruction: "build everything left from initial plan including
+phase G." Read against `docs/ROADMAP.md`'s per-phase "Not yet built"
+bullets and CLAUDE.md's two explicitly-flagged-but-unstarted next
+steps (trust lever, town's opinion of the player), minus the two items
+the project's own docs already call out as genuinely large,
+architecturally separate efforts not meant for a single batch
+(per-agent inventory/trade, multiple named settlements — the latter
+means `Settlement` stops being a world-wide singleton, a much bigger
+change than anything else in this pass).
+
+**Stale-roadmap correction, caught before implementing redundant
+code.** The roadmap's A4 note said hunting was "currently opportunistic
+— only when a FORAGE-goal agent happens to be colocated with a herd."
+Reading the actual code (`Population._dispatch_movement`'s FORAGE
+target chain) showed `_nearest_grazer_herd` already sits in the same
+target-search chain as farms/granaries/wild nodes — a FORAGE-goal agent
+already deliberately walks toward a known herd, exactly like it walks
+toward a known farm. Adding a separate `AgentGoal.HUNT` would have
+duplicated that targeting/consumption logic for no new capability — a
+premature abstraction CLAUDE.md's own workflow rules argue against.
+Fixed the actual gap instead (herds not competing with agents for
+`ResourceGrid` nodes) and corrected the stale roadmap line rather than
+building the redundant goal the stale note implied was still needed.
+
+**Vegetation depletion design.** A grazer herd consumes
+`GRAZE_CONSUMPTION_PER_TICK` from a colocated FOOD `ResourceNode` each
+tick (mirrors an agent's own forage draw rate) and skips its
+reproduction roll outright below `GRAZE_REPRODUCE_MIN_FOOD` — real,
+not cosmetic: an overgrazed tile measurably slows herd growth, and a
+tile agents forage heavily now also thins out the local wildlife that
+would otherwise have grown there. Deliberately scoped to only the
+tiles where the two systems actually overlap (a herd on open grassland
+with no rolled FOOD node is unaffected) rather than inventing a new
+shared "vegetation" resource layer — reuses `ResourceGrid` as-is.
+
+**Rivalry avoidance, reusing rather than duplicating the predator-
+avoidance seam.** `_step_toward`/`_maybe_move` already accept a
+`predator_tiles`-shaped "prefer to avoid these" set. Rather than
+threading a second avoidance concept through both functions, rival
+tiles are computed once per agent (from `position_snapshot` +
+`agent.relationships`) and unioned into the same set before either
+function is called — a rival's tile becomes indistinguishable from a
+predator's tile as far as movement preference goes, with zero new
+parameters on the movement primitives themselves.
+
+**Event-triggered cognition: why a separate cooldown dict, not just
+"add to the daily due list."** `_inflight_cognition_agent_ids` already
+prevents *concurrent* duplicate scheduling for one agent, but that
+guard clears the moment a call resolves (often within the same tick
+against a fast/disabled LLM) — naively re-checking "is this agent still
+critically hungry" every tick would re-trigger every tick for as long
+as the emergency persists, hammering the LLM. Added
+`Population.cognition_trigger_cooldowns` (agent_id -> last-triggered
+tick), same shape and same pruning discipline as the existing
+`dialogue_cooldowns` (an overnight-soak diagnostics audit previously
+found that dict growing unbounded — the new one prunes the same way
+from day one). `TRIGGERED_COGNITION_COOLDOWN_TICKS=200`, shorter than
+`DIALOGUE_COOLDOWN_TICKS=300` since these are individually rarer events
+per agent, not a routine per-pair interaction.
+
+**Whether-to-build steering: extending an existing lever rather than
+building a new targeting system.** `choose_building_kind` already reads
+`settlement.current_priority` to weight *which* kind gets founded — the
+"whether" half of the same roadmap-flagged gap was a much smaller
+addition than it first appeared: multiply the existing
+`SETTLE_CHANCE_PER_TICK` roll by a priority-dependent factor
+(`SETTLE_CHANCE_GROWTH_PRIORITY_MULTIPLIER=1.6` when priority is
+"growth", `_OFF_PRIORITY_MULTIPLIER=0.7` otherwise, once a first
+decision has run). Deliberately did NOT attempt "where to build" (an
+agent choosing and pathing toward a specific site) — that's a genuinely
+different, larger mechanic (deliberate targeting + a "good spot"
+heuristic) than nudging an existing roll, and CLAUDE.md's "smallest
+coherent milestone" rule argues against bundling it into the same pass.
+
+**Phase G v2: intensity knob and person-specific omens.**
+`Config.phase_g_intensity` (default 1.0) is threaded as a plain
+multiplier into both `tick_temperament` (scales the random-walk step,
+noise and fortune-bias alike) and `_maybe_schedule_omen` (scales the
+per-month chance, with an explicit `<= 0.0` early return so it's a
+real off switch, not just a very small number). Person-specific omens
+reuse the existing per-person-beliefs machinery (`subject_agent_id`)
+rather than inventing new subject-tracking: about half the time an
+omen fires, if any belief already resolves to a still-living agent,
+that agent's name is threaded into `omens.build_prompt`/`fallback_omen`
+as an optional `subject_name` — new `{name}`-templated fallback pools
+for the LLM-disabled case, same "worded so it always has a mundane
+explanation" constraint as before, unchanged when no such belief
+exists (still settlement-wide flavor sometimes, preserving variety).
+
+**Trust lever design.** Deliberately a second dict (`Agent.trust`) next
+to `Agent.relationships`, not a derived/computed view of it — the
+CLAUDE.md gap being closed specifically named "someone can be well-
+liked but known to embellish," which requires the two to be able to
+diverge, not just scale together. Nudged via a new `TRUST_DELTA`
+alongside the existing `DIALOGUE_SENTIMENT_DELTA` on every dialogue
+resolution, deliberately asymmetric (`{"warm": 0.03, "tense": -0.04}`)
+— credibility lost to a bad exchange costs more than credibility
+earned by a good one, the same real-world asymmetry as reputation.
+Read at the moment a rumor arrives, *before* that same exchange's own
+trust nudge is applied — the receiving agent's pre-existing opinion of
+the source decides how the rumor gets phrased in memory, not one
+freshly inflated by the warm chat that happened to carry it. This
+closes the loop into cognition for free: `llm/cognition.py`'s
+`build_prompt` already reads an agent's latest memory as personal
+context, so a skeptically-phrased rumor memory changes what the LLM
+sees on that agent's next goal decision without any new prompt-building
+code.
+
+**Town's opinion of the player: deliberately reuses temperament's
+shape, not its cause.** `tick_player_standing` is structurally a
+sibling of `tick_temperament` (bounded random walk, mean reversion,
+small per-tick noise) but driven by a different signal — count of
+`intervention`-category events logged this month (any `/intervene/*`
+call the engine actually applied), capped at
+`PLAYER_STANDING_MAX_EVENTS_COUNTED=5` so a single burst of nudges
+can't swing it to an extreme in one step (steady occasional attention
+should read as more "looked after" than a flood of one-time nudges).
+Faster mean reversion than temperament (0.95 vs 0.97) since this is
+about an external presence's felt absence, not the village's own
+ongoing internal affairs. Folded into `town_brain.build_prompt` by
+reading `settlement_summary["player_standing"]` — no new prompt
+parameter needed, since `settlement_summary` (from `Settlement.
+summary()`, which now includes the field) was already threaded through
+— only mentioned in the prompt text at all once notably warm/cold
+(`|standing| > 0.4`), keeping it a rare, subtle input like whispers,
+not a constant refrain.
+
+Verified (LLM disabled in this environment, deterministic fallbacks
+exercised throughout): a 12000-tick full engine run (14 -> 78
+population) produced real grazing depletion (min FOOD node amount
+0.022, well below the undisturbed default), 49 agents with at least
+one trust entry, 44 cognition-trigger-cooldown entries (confirming the
+event-trigger path actually fired and was rate-limited, not just
+wired), evolving `temperament`/`player_standing` values, and a growing
+`priority_history`. A snapshot save/reload round-trip covering every
+new field (`Agent.trust`, `Population.cognition_trigger_cooldowns`,
+`Settlement.player_standing`) matched pre-save values up to the
+existing round(x, 4) precision every other float field in this project
+already accepts (relationships/temperament included) — not a
+regression, the same established serialization precision. All touched
+Python files pass `python3 -m py_compile`.

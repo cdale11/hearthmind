@@ -4,6 +4,84 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.37.0] — Everything left from the original plan, including Phase G
+
+Closes out essentially every remaining "not yet built" item across
+`docs/ROADMAP.md` and CLAUDE.md's flagged next steps — excluding the
+two items the project's own docs call out as genuinely large,
+architecturally separate efforts (per-agent inventory/trade, multiple
+named settlements), which stay explicitly out of scope for a single
+batch.
+
+### Added — Phase A (ecology & relationships)
+- **Deliberate hunting, corrected from a stale roadmap note.** FORAGE's
+  target-seeking already walks a hungry agent toward a known grazer
+  herd (`_nearest_grazer_herd`), not just opportunistic consumption
+  when colocated by chance — a dedicated `AgentGoal.HUNT` would have
+  duplicated that. `docs/ROADMAP.md` corrected.
+- **Vegetation depletion tied to grazing.** A grazer herd colocated
+  with a wild FOOD `ResourceNode` now consumes a small amount of it
+  each tick and skips reproduction on an overgrazed tile — real
+  competition between wildlife and agent foraging for the first time
+  (`world/wildlife.py`'s `GRAZE_CONSUMPTION_PER_TICK`/`GRAZE_
+  REPRODUCE_MIN_FOOD`).
+- **Rivalry-driven avoidance.** A rival's tile (relationship at or
+  below `RIVALRY_THRESHOLD`) is now folded into the same prefer-avoid
+  set predator tiles already use in movement dispatch — an agent
+  actively steers around a rival, not just carries a lower affinity
+  number.
+
+### Added — Phase B (cognition)
+- **Event-triggered cognition, beyond the daily cadence.** A hunger
+  emergency or fresh grief now schedules an immediate goal
+  re-evaluation (`Population.due_for_triggered_cognition`, with its
+  own per-agent cooldown so a sustained crisis doesn't hammer the LLM
+  every tick) instead of waiting for the agent's next staggered daily
+  slot — a real, timely reaction using current state, not stale
+  up-to-a-day-old context.
+
+### Added — Phase C (construction)
+- **Civic priority now steers *whether* to build, not just *what
+  kind*.** The town brain's current priority already weighted which
+  building kind gets founded; it now also scales the settle-chance
+  roll itself (`SETTLE_CHANCE_GROWTH_PRIORITY_MULTIPLIER`/`_OFF_
+  PRIORITY_MULTIPLIER`) — a settlement prioritizing growth is
+  measurably likelier to found something at all. *Where* to build
+  remains pure-chance colocation, a separate and larger change not
+  attempted.
+
+### Added — Phase G (subtle supernatural layer) + adjacent gaps
+- **Intensity knob.** `Config.phase_g_intensity` (default 1.0) scales
+  temperament's monthly step and omens' per-month chance together;
+  0.0 is a genuine off switch (temperament holds flat, omens skip
+  outright) without deleting the mechanism.
+- **Person-specific omens.** About half the time an omen fires, if a
+  belief already resolves to a still-living agent, the omen now
+  centers on that person specifically (`llm/omens.py`'s `subject_name`,
+  both the LLM prompt and new subject-templated fallback pools) rather
+  than the settlement in the abstract — still never confirming
+  anything, just less anonymous.
+- **Trust lever.** New `Agent.trust` (-1..1 per source agent), distinct
+  from `relationships` (fondness) — how much credibility an agent gives
+  another's word. Nudged asymmetrically on dialogue (easier to lose
+  than earn); a rumor from a source below `TRUST_SKEPTICISM_THRESHOLD`
+  is now remembered with visible skepticism instead of at face value,
+  which reaches that agent's own future cognition prompts.
+- **The town's opinion of the player.** New `Settlement.player_standing`
+  (-1..1), a real deterministic bounded random walk (`tick_player_
+  standing`, same shape as `temperament`) nudged monthly by recent
+  `/intervene/*` volume, mean-reverting without reinforcement. Folded
+  into the town-brain prompt as one more quiet input once notably
+  warm/cold — never narrated or labeled in the UI.
+
+### Notes
+- Deliberately not attempted: per-agent inventory/trade, multiple named
+  settlements (both flagged large/architecturally-separate in the
+  project's own docs), culture-specific building types, structured
+  per-family belief resolution, a true scrub-through-time replay view,
+  and *where* to build. See `docs/ROADMAP.md` for the full per-item
+  accounting and `CLAUDE.md`'s "Known architectural gaps" section.
+
 ## [0.36.1] — Sidebar restructure: map-as-primary-interface, the last backlog item
 
 Closes the one item 0.36.0 explicitly left as "partial": the sidebar

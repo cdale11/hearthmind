@@ -136,7 +136,9 @@ class World:
         )
         self.resources.tick(season=self.clock.season)
         self.farms.tick(season=self.clock.season)
-        wildlife_events = self.wildlife.tick(seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain)
+        wildlife_events = self.wildlife.tick(
+            seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain, resources=self.resources,
+        )
         settlement_events = self.settlement.tick(weather=self.weather, season=self.clock.season)
         if not self.settlement.name and any(
             b.stage is BuildingStage.STANDING for b in self.settlement.buildings

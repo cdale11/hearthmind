@@ -35,13 +35,21 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_prompt(settlement_name: str, temperament: float, recent_events: list[dict]) -> str:
+def build_prompt(
+    settlement_name: str, temperament: float, recent_events: list[dict], subject_name: str = "",
+) -> str:
     lean = "unusually fortunate" if temperament > 0.15 else "unusually unlucky" if temperament < -0.15 else "unremarkable"
     lines = [f"- {event['description']}" for event in recent_events[:10]]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
+    subject_line = (
+        f"\nCenter the noticed thing on {subject_name} specifically — something people have started saying "
+        f"about {subject_name}, or that {subject_name} has noticed themselves — while keeping it just as "
+        "mundane-explicable as ever, never confirming anything unusual about them."
+        if subject_name else ""
+    )
     return (
         f"The village of {settlement_name} has had a run of {lean} fortune lately.\n"
-        f"Recent history:\n{events_text}\n"
+        f"Recent history:\n{events_text}{subject_line}\n"
         "Note one small, unexplained thing someone in the village noticed."
     )
 
@@ -63,10 +71,31 @@ _NEUTRAL_OMENS = (
     "A traveler passing through paused at the village edge a moment longer than seemed necessary.",
 )
 
+_WARM_SUBJECT_OMENS = (
+    "{name} has had an odd run of good luck lately, small enough that no one's quite said it aloud.",
+    "Something about {name} has people smiling a little more than the occasion calls for.",
+    "{name}'s shadow seemed to fall a beat later than it should have this evening — or so someone claimed.",
+)
+_COLD_SUBJECT_OMENS = (
+    "The dogs go quiet whenever {name} walks past, though no one can say why.",
+    "{name} mentioned a dream three nights running, and stopped mentioning it after the third.",
+    "Someone noticed {name}'s reflection lag half a step behind them at the well — probably just the light.",
+)
+"""Subject-referencing fallback pools, {name}-templated — the same
+mundane-explicable ambiguity as the settlement-wide pools above, just
+narrowed to a specific person rather than the village in the abstract.
+Used only when `subject_name` is given; no neutral-temperament subject
+pool since a person-centered omen already reads as more pointed than
+the settlement-wide neutral filler."""
 
-def fallback_omen(temperament: float, seed_hint: int) -> dict:
+
+def fallback_omen(temperament: float, seed_hint: int, subject_name: str = "") -> dict:
     import random
     rng = random.Random(seed_hint)
+    if subject_name and temperament > 0.15:
+        return {"omen": rng.choice(_WARM_SUBJECT_OMENS).format(name=subject_name)}
+    if subject_name and temperament < -0.15:
+        return {"omen": rng.choice(_COLD_SUBJECT_OMENS).format(name=subject_name)}
     if temperament > 0.15:
         pool = _WARM_OMENS
     elif temperament < -0.15:

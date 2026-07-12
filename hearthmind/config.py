@@ -114,6 +114,18 @@ class Config:
     budget-constrained on their hardware — this is still bounded (not
     unlimited) to avoid overwhelming Ollama's own thread pool at once."""
 
+    # --- runtime: Phase G (subtle supernatural layer), on by default -----------
+    phase_g_intensity: float = 1.0
+    """Scales `Settlement.temperament`'s monthly random-walk step/fortune-
+    bias and `llm/omens.py`'s per-month chance — the "config knob to dial
+    intensity" the roadmap flagged as not yet built. 1.0 is the original,
+    tuned-by-feel default; 0.0 makes temperament hold flat at 0 and skips
+    omens entirely (a fully deterministic run with the layer effectively
+    off, without deleting the mechanism); values above 1.0 make the
+    village's moods/omens more pronounced/frequent. Deliberately still a
+    single global multiplier, not per-mechanism knobs — see
+    docs/DECISIONS.md, "Phase G intensity + omen subjects" pass."""
+
     # --- runtime: browser interface (Phase F), on by default -------------------
     api_enabled: bool = True
     """On by default as of the UI/diagnostics pass — the browser window

@@ -37,6 +37,8 @@ from hearthmind.agents.agent import (
     RIVALRY_THRESHOLD,
     STARVATION_HUNGER_THRESHOLD,
     STARVATION_TICKS_TO_DEATH,
+    TRUST_DELTA,
+    TRUST_SKEPTICISM_THRESHOLD,
     WAKE_THRESHOLD,
     Agent,
     AgentGoal,
@@ -77,6 +79,8 @@ from hearthmind.settlement.buildings import (
     REPAIR_THRESHOLD,
     REPAIR_WORK_PER_TICK,
     SCHOOL_EDUCATION_PER_TICK,
+    SETTLE_CHANCE_GROWTH_PRIORITY_MULTIPLIER,
+    SETTLE_CHANCE_OFF_PRIORITY_MULTIPLIER,
     SETTLE_CHANCE_PER_TICK,
     TECH_BONUS_PER_LEVEL,
     TEMPERAMENT_KILL_CHANCE_INFLUENCE,
@@ -275,6 +279,21 @@ class Population:
     """(agent_id, agent_id) sorted pair -> tick of their last dialogue
     exchange, so a stable colocated pair doesn't re-trigger the LLM every
     tick — see due_for_dialogue, docs/DECISIONS.md, E2."""
+    cognition_trigger_cooldowns: dict[int, int] = field(default_factory=dict)
+    """agent_id -> tick of their last event-triggered (not staggered-
+    daily) cognition call — see due_for_triggered_cognition. Same
+    per-pair-cooldown shape as dialogue_cooldowns, just keyed by a
+    single agent instead of a pair."""
+    last_triggered_agent_ids: set[int] = field(default_factory=set, compare=False)
+    """Agent ids whose circumstances changed sharply enough *this tick*
+    to warrant an immediate goal reevaluation rather than waiting for
+    their next staggered daily slot — a hunger emergency, or grief at a
+    bonded partner's death. Recomputed fresh every tick inside `tick()`
+    (see `_apply_deaths`'s grief loop and the critical-hunger check),
+    consumed by `SimulationEngine._schedule_due_cognition` the same tick
+    it's set, same "computed fresh, never serialized" shape as
+    `World.last_life_events`. See docs/DECISIONS.md, "cognition
+    triggers beyond daily cadence" pass."""
 
     # --- construction ------------------------------------------------------
 
@@ -321,10 +340,17 @@ class Population:
         has_hospital = any(
             b.kind is BuildingKind.HOSPITAL and b.stage is BuildingStage.STANDING for b in settlement.buildings
         )
+        self.last_triggered_agent_ids = set()
         for agent in self.agents:
             agent.age_ticks += 1
             self._update_needs(agent, weather_harsh, settlement, night_factor)
             critically_hungry = agent.hunger >= CRITICAL_HUNGER_THRESHOLD
+            if critically_hungry:
+                # A hunger emergency deserves the LLM's actual reasoning
+                # (a real goal + rationale), not just the movement-layer
+                # override _dispatch_movement already forces regardless
+                # of assigned goal — see due_for_triggered_cognition.
+                self.last_triggered_agent_ids.add(agent.id)
             if critically_hungry and agent.state is AgentState.RESTING:
                 agent.state = AgentState.AWAKE  # emergency wake: starving beats sleeping
             self._maybe_forage(agent, resources, farms, settlement, wildlife)  # can eat while resting, not just awake
@@ -595,6 +621,21 @@ class Population:
         daily reevaluation — the D3 emergency-wake only got a resting
         agent back onto its feet, it never redirected where an *awake*
         agent walks. See docs/DECISIONS.md, D5."""
+        # Rivalry-driven avoidance (A5 follow-up): a rival's tile is
+        # avoided the same way a predator's is — preferred against, not
+        # forbidden, so an agent doesn't strand itself. Folded into the
+        # same `predator_tiles`-shaped set _step_toward/_maybe_move
+        # already know how to prefer-avoid, rather than threading a
+        # second avoidance concept through both. See docs/DECISIONS.md,
+        # "rivalry avoidance" pass.
+        if agent.relationships:
+            rival_tiles = {
+                (x, y) for (other_id, x, y) in position_snapshot
+                if other_id != agent.id and agent.relationships.get(other_id, 0.0) <= RIVALRY_THRESHOLD
+            }
+            if rival_tiles:
+                predator_tiles = predator_tiles | rival_tiles
+
         effective_goal = AgentGoal.FORAGE if critically_hungry else agent.goal
         target = None
         if effective_goal is AgentGoal.FORAGE:
@@ -983,7 +1024,12 @@ class Population:
             eligible = [a for a in group if cls._is_mature(a) and cls._is_healthy(a)]
             if len(eligible) < 2:
                 continue
-            if rng.random() >= SETTLE_CHANCE_PER_TICK:
+            settle_chance = SETTLE_CHANCE_PER_TICK
+            if settlement.current_priority == "growth":
+                settle_chance *= SETTLE_CHANCE_GROWTH_PRIORITY_MULTIPLIER
+            elif settlement.current_priority:
+                settle_chance *= SETTLE_CHANCE_OFF_PRIORITY_MULTIPLIER
+            if rng.random() >= settle_chance:
                 continue
             # Which kind gets built is weighted by the settlement's
             # current civic priority (the seasonal "town brain" LLM
@@ -1282,9 +1328,11 @@ class Population:
                     label = "parent" if is_child else "child"
                     _remember(other, f"My {label}, {agent.name}, died.")
                     other.energy = max(0.0, other.energy - GRIEF_ENERGY_PENALTY)
+                    self.last_triggered_agent_ids.add(other.id)
                 elif other.relationships.get(agent.id, 0.0) >= REPRODUCTION_AFFINITY_THRESHOLD:
                     _remember(other, f"{agent.name} died. I miss them.")
                     other.energy = max(0.0, other.energy - GRIEF_ENERGY_PENALTY)
+                    self.last_triggered_agent_ids.add(other.id)
         self.agents = survivors
         if settlement is not None and dying_ids:
             # A dead rider's mount goes back to the unclaimed pool rather
@@ -1321,6 +1369,39 @@ class Population:
             if agent.id == agent_id:
                 return agent
         return None
+
+    def due_for_triggered_cognition(self, tick: int, cooldown_ticks: int) -> list[Agent]:
+        """Agents in `last_triggered_agent_ids` (set fresh this tick by
+        `tick()`/`_apply_deaths` — a hunger emergency or fresh grief)
+        whose event-trigger cooldown has expired, so an agent stuck
+        critically hungry for a long stretch gets re-reasoned-about
+        periodically rather than hammering the LLM every single tick.
+        Same cooldown-dict-plus-pruning shape as due_for_dialogue, keyed
+        by a single agent id instead of a pair. Marks the returned
+        agents' cooldown immediately, same rationale as due_for_dialogue.
+        See docs/DECISIONS.md, "cognition triggers beyond daily
+        cadence" pass."""
+        if not self.last_triggered_agent_ids:
+            return []
+        alive_ids = {a.id for a in self.agents}
+        prune_horizon = cooldown_ticks * 8
+        stale_keys = [
+            agent_id for agent_id, last in self.cognition_trigger_cooldowns.items()
+            if agent_id not in alive_ids or tick - last > prune_horizon
+        ]
+        for key in stale_keys:
+            del self.cognition_trigger_cooldowns[key]
+
+        due: list[Agent] = []
+        for agent in self.agents:
+            if agent.id not in self.last_triggered_agent_ids:
+                continue
+            last = self.cognition_trigger_cooldowns.get(agent.id, -cooldown_ticks)
+            if tick - last < cooldown_ticks:
+                continue
+            due.append(agent)
+            self.cognition_trigger_cooldowns[agent.id] = tick
+        return due
 
     # --- dialogue (Phase E2) ---------------------------------------------------
 
@@ -1402,6 +1483,12 @@ class Population:
             return None
         surfaced = False
         delta = DIALOGUE_SENTIMENT_DELTA.get(sentiment, 0.0)
+        # Trust in the speaker of a rumor (below) is read *before* this
+        # exchange's own nudge — the receiving agent's existing opinion
+        # of the source's credibility, not one freshly inflated by the
+        # warm chat that happened to also carry the rumor.
+        trust_a_in_b = agent_a.trust.get(b_id, 0.0)
+        trust_b_in_a = agent_b.trust.get(a_id, 0.0)
         if delta:
             before = agent_a.relationships.get(b_id, 0.0)
             new_value = max(-1.0, min(1.0, before + delta))
@@ -1415,9 +1502,25 @@ class Population:
                 _remember(agent_a, f"Fell out with {agent_b.name}.")
                 _remember(agent_b, f"Fell out with {agent_a.name}.")
                 surfaced = True
+        trust_delta = TRUST_DELTA.get(sentiment, 0.0)
+        if trust_delta:
+            agent_a.trust[b_id] = max(-1.0, min(1.0, trust_a_in_b + trust_delta))
+            agent_b.trust[a_id] = max(-1.0, min(1.0, trust_b_in_a + trust_delta))
         if rumor:
-            _remember(agent_a, f"Heard a rumor: {rumor}")
-            _remember(agent_b, f"Heard a rumor: {rumor}")
+            # Trust lever: an agent who already doesn't put much stock in
+            # the speaker remembers the rumor as hearsay, not fact —
+            # that skepticism then reaches this agent's own future
+            # cognition prompts (build_prompt reads the latest memory),
+            # not just a flavor difference. See Agent.trust's docstring,
+            # docs/DECISIONS.md, "trust lever" pass.
+            if trust_a_in_b < TRUST_SKEPTICISM_THRESHOLD:
+                _remember(agent_a, f"{agent_b.name} claims: {rumor} — I'm not sure I believe them.")
+            else:
+                _remember(agent_a, f"Heard a rumor: {rumor}")
+            if trust_b_in_a < TRUST_SKEPTICISM_THRESHOLD:
+                _remember(agent_b, f"{agent_a.name} claims: {rumor} — I'm not sure I believe them.")
+            else:
+                _remember(agent_b, f"Heard a rumor: {rumor}")
             surfaced = True
         return agent_a, agent_b, surfaced
 
@@ -1491,6 +1594,7 @@ class Population:
             "dialogue_cooldowns": {
                 f"{a_id}:{b_id}": tick for (a_id, b_id), tick in self.dialogue_cooldowns.items()
             },
+            "cognition_trigger_cooldowns": dict(self.cognition_trigger_cooldowns),
         }
 
     @classmethod
@@ -1500,6 +1604,9 @@ class Population:
         for key, tick in data.get("dialogue_cooldowns", {}).items():
             a_id, b_id = key.split(":")
             dialogue_cooldowns[(int(a_id), int(b_id))] = tick
+        cognition_trigger_cooldowns = {
+            int(agent_id): tick for agent_id, tick in data.get("cognition_trigger_cooldowns", {}).items()
+        }
         return cls(
             agents=agents,
             _next_id=data["next_id"],
@@ -1507,4 +1614,5 @@ class Population:
             deaths_old_age=data.get("deaths_old_age", 0),
             deaths_predator=data.get("deaths_predator", 0),
             dialogue_cooldowns=dialogue_cooldowns,
+            cognition_trigger_cooldowns=cognition_trigger_cooldowns,
         )

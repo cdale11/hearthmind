@@ -15,6 +15,7 @@ import random
 from dataclasses import dataclass, field
 from enum import Enum
 
+from hearthmind.world.resources import ResourceGrid, ResourceKind
 from hearthmind.world.terrain import Biome, Tile
 
 _NEIGHBOR_OFFSETS = ((0, -1), (0, 1), (-1, 0), (1, 0))
@@ -48,6 +49,18 @@ keeps predators a real but not overwhelming pressure."""
 MOVE_CHANCE = 0.3
 """Per-tick probability a herd/pack takes one step — slower than agent
 wandering (MOVE_CHANCE 0.5), so migration reads as drift, not chaos."""
+
+GRAZE_CONSUMPTION_PER_TICK = 0.015
+GRAZE_REPRODUCE_MIN_FOOD = 0.1
+"""A grazer herd colocated with a wild FOOD `ResourceNode` (world/
+resources.py) eats a small amount of it each tick — real competition
+with agents for the same wild forage, not just a backdrop animal.
+Reproduction (GRAZER_REPRODUCE_CHANCE) is skipped outright on an
+overgrazed tile (node amount below GRAZE_REPRODUCE_MIN_FOOD) — a herd
+can survive on thin pasture but doesn't grow on it. A herd not
+colocated with any FOOD node (open grassland with no node rolled there)
+is unaffected — grazing pressure only exists where the two food sources
+actually overlap. See docs/DECISIONS.md, "vegetation depletion" pass."""
 
 GRAZER_REPRODUCE_CHANCE = 0.01
 PREDATOR_HUNT_CHANCE = 0.05
@@ -216,7 +229,9 @@ class WildlifeGrid:
 
     # --- tick ------------------------------------------------------------------
 
-    def tick(self, seed: int, tick: int, terrain: list[list[Tile]]) -> list[tuple[str, str]]:
+    def tick(
+        self, seed: int, tick: int, terrain: list[list[Tile]], resources: ResourceGrid | None = None,
+    ) -> list[tuple[str, str]]:
         """Advance every herd/pack by one tick. Returns (category,
         description) events for a successful hunt or a pack/herd going
         fully extinct — animal-vs-animal interaction visible in the
@@ -257,7 +272,12 @@ class WildlifeGrid:
                     herd.x, herd.y = rng.choice(candidates)
 
             if herd.species is Species.GRAZER:
-                if herd.count < MAX_HERD_SIZE and rng.random() < GRAZER_REPRODUCE_CHANCE:
+                node = resources.get(herd.x, herd.y) if resources is not None else None
+                grazing_food = node is not None and node.kind is ResourceKind.FOOD
+                if grazing_food:
+                    node.amount = max(0.0, node.amount - GRAZE_CONSUMPTION_PER_TICK)
+                overgrazed = grazing_food and node.amount < GRAZE_REPRODUCE_MIN_FOOD
+                if herd.count < MAX_HERD_SIZE and not overgrazed and rng.random() < GRAZER_REPRODUCE_CHANCE:
                     herd.count += 1
                 continue
 

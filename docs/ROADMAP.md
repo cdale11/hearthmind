@@ -30,7 +30,7 @@ build" — phases below are the *how*, this table is the *what*.
 | Building decay | shipped | C1-C4 (weathering, ruin, reclamation) |
 | Culture | shipped (single-settlement) | E1 (naming, traditions) + E3 (prosperity-gated inventions/tech unlocks) + festivals + generational/family memory; multiple named settlements not built |
 | History | partial | B3 (chronicle) + E1 (traditions feed prompts); no replay/browsable history view (Phase F) |
-| Optional subtle supernatural elements | v1 shipped | Phase G — `Settlement.temperament` (deterministic mood-like drift, subtle mechanical nudges) + `llm/omens.py` (rare, never-confirmed ambient events) |
+| Optional subtle supernatural elements | shipped | Phase G — `Settlement.temperament` (deterministic mood-like drift, subtle mechanical nudges) + `llm/omens.py` (rare, never-confirmed ambient events, optionally person-specific) + `Config.phase_g_intensity` (tunable, 0.0 = off) |
 
 Two design principles drive the phase ordering below:
 
@@ -81,17 +81,26 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   (injury, rarely lethal) by live predator packs; movement now prefers
   avoiding predator-occupied tiles. See `docs/DECISIONS.md`, "Batch:
   predator danger...".
-- Not yet built: a hunting-specific `AgentGoal` (currently opportunistic
-  — only when a FORAGE-goal agent happens to be colocated with a herd),
-  vegetation depletion tied to grazing (herds don't currently compete
-  with agents for `ResourceGrid` nodes).
+- **[x] Deliberate hunting.** Corrected from an earlier "not yet built"
+  note: FORAGE's target-seeking chain already walks a hungry agent
+  toward a known grazer herd (`Population._nearest_grazer_herd`), not
+  just opportunistic consumption when already colocated — the same
+  shape as farms/granaries, so a dedicated `AgentGoal.HUNT` would only
+  have duplicated existing targeting/consumption logic. A real gap did
+  remain: herds didn't compete with agents for `ResourceGrid` food.
+  Closed — a grazer herd colocated with a wild FOOD node now consumes a
+  small amount of it each tick and skips reproduction on an overgrazed
+  tile (`GRAZE_CONSUMPTION_PER_TICK`/`GRAZE_REPRODUCE_MIN_FOOD`, world/
+  wildlife.py). See docs/DECISIONS.md, "everything left" pass.
 - **[x] A5. Deeper relationships.** A3 shipped birth-gating affinity; E2
-  added dialogue-driven rivalry (-1..1); this batch added
+  added dialogue-driven rivalry (-1..1); a later batch added
   `Agent.memories` (bond/rivalry formation, rumors, grief with a real
   energy cost on a bonded partner's death) fed back into the agent's own
-  cognition prompt. Still missing: rivalry-driven behavior change (an
-  agent actively avoiding a rival, not just a lower affinity number).
-  See `docs/DECISIONS.md`, "Batch: predator danger...".
+  cognition prompt. Rivalry-driven behavior closed this batch: a rival's
+  tile is folded into the same prefer-avoid set predator tiles already
+  use in movement (`Population._dispatch_movement`), not just a lower
+  affinity number. See `docs/DECISIONS.md`, "Batch: predator danger..."
+  and "everything left" pass.
 
 ## Phase B — LLM infrastructure (the foundation, not a feature)
 
@@ -111,9 +120,13 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   four fixed goals (wander/forage/socialize/rest) once per sim-day,
   staggered across the day, executed deterministically by `Population`'s
   movement logic every tick until re-evaluated. Decision-first, not
-  dialogue-first, per the plan above. Not yet built: triggers beyond the
-  daily cadence (a hunger crisis, a nearby death, a stranger arriving),
-  and goals richer than the current four.
+  dialogue-first, per the plan above. **Event triggers beyond the daily
+  cadence: shipped.** A hunger emergency or fresh grief now schedules an
+  immediate re-reasoning (`Population.due_for_triggered_cognition`, a
+  per-agent cooldown so a sustained crisis doesn't hammer the LLM every
+  tick) rather than waiting for the next staggered daily slot — see
+  docs/DECISIONS.md, "everything left" pass. Stranger-arrival triggers
+  and goals richer than the current four remain open.
 - **[x] B3. World chronicle / narrator (slice 1 shipped).** Seasonal LLM
   summarization of recent events into the existing `events` table
   (category `chronicle`). This is early long-term memory content, not
@@ -142,10 +155,16 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   deducted upfront — a settlement with an empty stockpile can no longer
   spontaneously build. See `docs/DECISIONS.md`, "buildings-need-
   resources pass."
-- Not yet built: building types beyond a single generic structure plus
-  the granary kind, and — the natural next slice — tying `AgentGoal`/LLM
-  cognition into *where* and *whether* to build, rather than the current
-  pure-chance placement.
+- Building types beyond the generic hut/granary shipped separately
+  (workshop/school/hospital/university/factory, Phase D/E). **Tying
+  civic-priority cognition into *whether* to build: shipped** — the
+  town brain's current priority now also scales the settle-chance roll
+  itself (`SETTLE_CHANCE_GROWTH_PRIORITY_MULTIPLIER`/`_OFF_PRIORITY_
+  MULTIPLIER`, `Population._maybe_start_construction`), not just which
+  kind gets founded. *Where* to build remains pure-chance (wherever 2+
+  eligible agents happen to be colocated) — a genuinely separate,
+  larger change (agent-driven pathing toward a chosen site) not
+  attempted. See docs/DECISIONS.md, "everything left" pass.
 - **[x] Vehicles.** `hearthmind/settlement/vehicles.py`: hauling carts
   (settlement-wide, boost gathered-material yield) and personal-travel
   mounts (an agent claims one, moves faster), built/repaired/decayed the
@@ -327,10 +346,19 @@ the simulation.
   `subject_agent_id`; matched beliefs are folded into that person's
   dialogue prompts (`llm/dialogue.py`'s `beliefs_about`). See
   `docs/DECISIONS.md`, "Phase G / per-person beliefs follow-up."
-- Not yet built: per-agent click-to-inspect beyond hover tooltips, a
-  historical/replay view, structured per-family belief resolution
-  (family-labeled beliefs remain free text, not resolved to a lineage
-  entity).
+- **[x] Per-agent click-to-inspect.** Clicking an agent on the map opens
+  a mind-first NPC inspector (goal/reason, beliefs about them, named
+  relationships, recent memories, vitals last) — see docs/DECISIONS.md,
+  Observatory UI pass.
+- **[x] Historical/replay view, v1.** The curated History tab (`GET
+  /history`) plus a new yearly "documentary mode" LLM job
+  (`llm/documentary.py`, gated on `year_end`) narrating the year's
+  curated milestones — not a scrub-through-time replay, but a real
+  narrated look-back using actual simulation history. See
+  docs/DECISIONS.md, Observatory UI pass.
+- Not yet built: structured per-family belief resolution (family-
+  labeled beliefs remain free text, not resolved to a lineage entity),
+  a true scrub-through-time replay view.
 
 ## Phase G — Supernatural / psychological horror layer
 
@@ -345,11 +373,43 @@ event scaled by |temperament|, worded to always have a mundane
 explanation and never confirm anything. See `docs/DECISIONS.md`,
 "Phase G / per-person beliefs follow-up."
 
-Not yet built: a config knob to dial intensity (currently fixed
-constants), any player-facing acknowledgment that this system exists
-(deliberately not surfaced — see CLAUDE.md), deeper narrative payoff
-(e.g. omens referencing a specific belief/person rather than only
-settlement-wide fortune).
+**[x] Intensity knob.** `Config.phase_g_intensity` (default 1.0) scales
+both temperament's monthly step and omens' per-month chance; 0.0 holds
+temperament flat and skips omens outright — a fully off switch without
+deleting the mechanism.
+
+**[x] Deeper narrative payoff.** About half the time an omen fires, if
+a belief already resolves to a still-living agent, the omen now centers
+on that specific person (`llm/omens.py`'s `subject_name` param) instead
+of the settlement in the abstract — still never confirming anything,
+just less anonymous. See docs/DECISIONS.md, "everything left" pass.
+
+Still not built (deliberately): any player-facing acknowledgment that
+this system exists (see CLAUDE.md).
+
+### Related: trust and "the town's opinion of the player"
+
+Two adjacent, previously-flagged gaps, closed alongside Phase G:
+
+- **[x] Trust lever.** `Agent.trust` (-1..1 per source agent id) is a
+  distinct axis from `relationships` (fondness) — how much credibility
+  an agent gives another's word. Nudged on dialogue (`TRUST_DELTA`,
+  asymmetric — easier to lose than earn); consumed when a rumor
+  arrives: below `TRUST_SKEPTICISM_THRESHOLD`, the receiving agent
+  remembers it with visible skepticism instead of at face value, which
+  then reaches that agent's own future cognition prompts. The discrete
+  "who does an agent believe more readily, or discount" lever CLAUDE.md
+  flagged as a real gap.
+- **[x] The town's opinion of the player.** `Settlement.player_standing`
+  (-1..1), a real deterministic bounded random walk (`tick_player_
+  standing`, same shape as temperament) nudged monthly by the volume of
+  recent `/intervene/*` activity, mean-reverting without reinforcement.
+  Folded into the town-brain prompt as one more quiet input once it's
+  notably warm/cold — never narrated or labeled in the UI, same
+  treatment as temperament. The discrete tracked lever CLAUDE.md flagged
+  as not yet built, alongside temperament for general mood.
+
+See docs/DECISIONS.md, "everything left" pass.
 
 ## Cross-cutting, ongoing at every phase
 

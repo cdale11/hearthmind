@@ -31,7 +31,7 @@ try:
 except ImportError:  # pragma: no cover — this project's target hardware is Linux
     resource = None  # type: ignore[assignment]
 
-from hearthmind.agents.agent import DIALOGUE_COOLDOWN_TICKS, AgentGoal
+from hearthmind.agents.agent import DIALOGUE_COOLDOWN_TICKS, TRIGGERED_COGNITION_COOLDOWN_TICKS, AgentGoal
 from hearthmind.config import Config
 from hearthmind.llm import (
     beliefs, chronicle, culture, dialogue, documentary, festival, invention, naming, omens, town_brain,
@@ -54,6 +54,7 @@ from hearthmind.settlement.buildings import (
     TEMPERAMENT_INVENTION_INFLUENCE,
     education_invention_bonus,
     era_for_tech_level,
+    tick_player_standing,
     tick_temperament,
 )
 from hearthmind.world.state import World
@@ -409,6 +410,16 @@ class SimulationEngine:
         periodic goal reevaluation either way."""
         ticks_per_day = self.world.config.minutes_per_day // self.world.config.sim_minutes_per_tick
         due = self.world.population.due_for_cognition(self.world.clock.tick_count, ticks_per_day)
+        # Plus anything event-triggered this tick (hunger emergency, fresh
+        # grief) — an immediate re-reasoning rather than waiting for the
+        # next staggered daily slot. See docs/DECISIONS.md, "cognition
+        # triggers beyond daily cadence" pass.
+        triggered = self.world.population.due_for_triggered_cognition(
+            self.world.clock.tick_count, TRIGGERED_COGNITION_COOLDOWN_TICKS,
+        )
+        if triggered:
+            due_ids = {agent.id for agent in due}
+            due = due + [agent for agent in triggered if agent.id not in due_ids]
         for agent in due:
             if agent.id in self._inflight_cognition_agent_ids:
                 continue
@@ -878,33 +889,67 @@ class SimulationEngine:
     # --- Phase G v1: temperament and omens (deliberately subtle) ---------------
 
     def _maybe_tick_temperament(self, events: list[str]) -> None:
-        """Once a month, nudge `Settlement.temperament` — a real,
-        deterministic value (see `tick_temperament`), not an LLM
-        decision. The LLM's only role in this system is narrating
-        ambiguous omens on top of it (`_maybe_schedule_omen`), never
-        computing the value itself. See docs/DECISIONS.md, "World-G
-        follow-up.\""""
+        """Once a month, nudge `Settlement.temperament` and `Settlement.
+        player_standing` — both real, deterministic values (see
+        `tick_temperament`/`tick_player_standing`), not an LLM decision.
+        The LLM's only role in this system is narrating ambiguous omens
+        on top of temperament (`_maybe_schedule_omen`) and folding
+        player_standing into the town-brain prompt as one more subtle
+        input, never computing either value itself. See
+        docs/DECISIONS.md, "World-G follow-up" and "town's opinion of
+        the player" pass."""
         if "month_end" not in events:
             return
         recent = recent_events(self.conn, limit=50)
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "temperament")
-        self.world.settlement.temperament = tick_temperament(self.world.settlement.temperament, recent, rng)
+        self.world.settlement.temperament = tick_temperament(
+            self.world.settlement.temperament, recent, rng, intensity=self.world.config.phase_g_intensity,
+        )
+        standing_rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "player_standing")
+        self.world.settlement.player_standing = tick_player_standing(
+            self.world.settlement.player_standing, recent, standing_rng,
+        )
 
     def _maybe_schedule_omen(self, events: list[str]) -> None:
         """Rare, ambiguous flavor event — see llm/omens.py's module
         docstring for why this deliberately never confirms anything
         supernatural. Chance scales with |temperament|'s magnitude, so
         a run of strongly good or ill fortune is somewhat more likely
-        to produce one, without it ever becoming frequent."""
+        to produce one, without it ever becoming frequent. Also scales
+        with Config.phase_g_intensity (0.0 disables omens outright,
+        matching tick_temperament's own intensity=0.0 behavior)."""
         if "month_end" not in events or not self.world.settlement.name:
             return
+        intensity = self.world.config.phase_g_intensity
+        if intensity <= 0.0:
+            return
         temperament = self.world.settlement.temperament
-        chance = min(1.0, omens.OMEN_CHANCE_BASE + abs(temperament) * omens.OMEN_CHANCE_TEMPERAMENT_SCALE)
+        chance = min(1.0, (omens.OMEN_CHANCE_BASE + abs(temperament) * omens.OMEN_CHANCE_TEMPERAMENT_SCALE) * intensity)
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "omen_roll") >= chance:
             return
         recent = recent_events(self.conn, limit=10)
-        prompt = omens.build_prompt(self.world.settlement.name, temperament, recent)
-        fallback = omens.fallback_omen(temperament, self.world.clock.tick_count)
+        # Deepened narrative payoff (roadmap follow-up): about half the
+        # time, if a belief already resolves to a still-living agent,
+        # the omen centers on them instead of the settlement in the
+        # abstract — noticing something *about a specific person*, still
+        # never confirming anything, just less anonymous. See
+        # docs/DECISIONS.md, "Phase G intensity + omen subjects" pass.
+        subject_name = ""
+        subject_candidates = [
+            b for b in self.world.settlement.beliefs
+            if b.get("subject_agent_id") is not None
+            and self.world.population.get(b["subject_agent_id"]) is not None
+        ]
+        if subject_candidates and _namespaced_roll(
+            self.world.config.seed, self.world.clock.tick_count, "omen_subject_roll",
+        ) < 0.5:
+            pick_roll = _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "omen_subject_pick")
+            belief = subject_candidates[min(len(subject_candidates) - 1, int(pick_roll * len(subject_candidates)))]
+            agent = self.world.population.get(belief["subject_agent_id"])
+            if agent is not None:
+                subject_name = agent.name
+        prompt = omens.build_prompt(self.world.settlement.name, temperament, recent, subject_name=subject_name)
+        fallback = omens.fallback_omen(temperament, self.world.clock.tick_count, subject_name=subject_name)
         task = asyncio.create_task(self._run_omen(prompt, fallback))
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)

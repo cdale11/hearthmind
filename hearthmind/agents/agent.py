@@ -110,11 +110,31 @@ exchange — keeps a stable pair that's colocated for a long stretch from
 generating a new exchange (and LLM call) every tick. See
 docs/DECISIONS.md, E2."""
 
+TRIGGERED_COGNITION_COOLDOWN_TICKS = 200
+"""Minimum ticks between two event-triggered (not staggered-daily)
+cognition calls for the same agent — a hunger emergency or fresh grief
+gets one immediate LLM re-reasoning, not one every tick for as long as
+the condition persists. Shorter than DIALOGUE_COOLDOWN_TICKS since these
+are individually rarer events, not a routine per-pair interaction. See
+Population.due_for_triggered_cognition, docs/DECISIONS.md, "cognition
+triggers beyond daily cadence" pass."""
+
 DIALOGUE_SENTIMENT_DELTA = {"warm": 0.05, "tense": -0.05, "neutral": 0.0}
 """Relationship nudge applied when a dialogue exchange resolves, on top
 of the passive per-tick colocation gain — the LLM's read on how the
 exchange went, distinct from mere proximity. See
 Population.apply_dialogue, docs/DECISIONS.md, E2."""
+
+TRUST_DELTA = {"warm": 0.03, "tense": -0.04, "neutral": 0.0}
+"""Agent.trust nudge applied alongside DIALOGUE_SENTIMENT_DELTA — smaller
+magnitude and asymmetric (tense conversations cost more trust than warm
+ones earn) since credibility is easier to lose than build, same
+real-world asymmetry as reputation. Distinct axis from `relationships`:
+see Agent.trust's docstring."""
+
+TRUST_SKEPTICISM_THRESHOLD = -0.15
+"""Below this, a rumor from that source is remembered with visible
+skepticism instead of at face value — see Population.apply_dialogue."""
 
 MAX_AGENT_MEMORIES = 8
 """Cap on Agent.memories — a short-term personal log (bond formed, rumor
@@ -144,6 +164,18 @@ class Agent:
     max_age_ticks: int = MAX_LIFESPAN_TICKS
     starving_ticks: int = 0
     relationships: dict[int, float] = field(default_factory=dict)
+    trust: dict[int, float] = field(default_factory=dict)
+    """-1..1 per source agent id — a distinct axis from `relationships`
+    (fondness): how much *credibility* this agent gives another's word,
+    not how much they like them. Nudged alongside relationships on
+    dialogue (see Population.apply_dialogue's TRUST_DELTA), but tracked
+    separately so the two can diverge — someone can be well-liked but
+    known to embellish, or a rival whose information has still proven
+    reliable. Consumed by apply_dialogue when a rumor arrives: low trust
+    in the speaker gets remembered with visible skepticism instead of
+    at face value. The "discrete trust lever" flagged as a real, not-yet-
+    built gap in CLAUDE.md's per-person-beliefs section. See
+    docs/DECISIONS.md, "trust lever" pass."""
     parents: tuple[int, int] | None = None
     goal: AgentGoal = AgentGoal.WANDER
     goal_reason: str = ""
@@ -167,6 +199,7 @@ class Agent:
             "max_age_ticks": self.max_age_ticks,
             "starving_ticks": self.starving_ticks,
             "relationships": {str(k): round(v, 4) for k, v in self.relationships.items()},
+            "trust": {str(k): round(v, 4) for k, v in self.trust.items()},
             "parents": list(self.parents) if self.parents is not None else None,
             "goal": self.goal.value,
             "goal_reason": self.goal_reason,
@@ -188,6 +221,7 @@ class Agent:
             max_age_ticks=data.get("max_age_ticks", MAX_LIFESPAN_TICKS),
             starving_ticks=data.get("starving_ticks", 0),
             relationships={int(k): v for k, v in data.get("relationships", {}).items()},
+            trust={int(k): v for k, v in data.get("trust", {}).items()},
             parents=tuple(parents) if parents is not None else None,
             goal=AgentGoal(data.get("goal", AgentGoal.WANDER.value)),
             goal_reason=data.get("goal_reason", ""),

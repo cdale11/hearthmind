@@ -122,6 +122,18 @@ Raised from 0.003 (D6): with D4/D5/D6's survival fixes, qualifying pairs
 are no longer rare, so the original rate left construction lagging behind
 demand. Matches PLANT_CHANCE_PER_TICK's cadence."""
 
+SETTLE_CHANCE_GROWTH_PRIORITY_MULTIPLIER = 1.6
+SETTLE_CHANCE_OFF_PRIORITY_MULTIPLIER = 0.7
+"""The town brain's civic priority already steers *what kind* gets built
+(choose_building_kind's boosted weight); this closes the "whether"
+half of the same "not yet built" roadmap gap — a settlement whose
+current priority is "growth" is measurably likelier to found something
+at all this tick, and less likely when the priority points elsewhere
+(materials/attention presumably going toward whatever the priority
+actually calls for instead). Applied in
+Population._maybe_start_construction. No effect before the first
+town-brain decision (current_priority == "" matches neither branch)."""
+
 MATURE_WORKER_ONLY = False
 """Whether construction/repair work requires workers to be "mature"
 (see agents.agent.MATURITY_TICKS). False: any awake agent present helps —
@@ -408,16 +420,56 @@ Population._maybe_predator_attack. Same small-magnitude rationale as
 TEMPERAMENT_INVENTION_INFLUENCE, applied after the hospital reduction."""
 
 
-def tick_temperament(temperament: float, recent_events: list[dict], rng) -> float:
+def tick_temperament(temperament: float, recent_events: list[dict], rng, intensity: float = 1.0) -> float:
     """Nudge temperament one step (called monthly, alongside beliefs —
     see SimulationEngine._maybe_tick_temperament). `recent_events` is
     the same recent_events(conn, limit=...) shape used elsewhere
-    (dicts with a "category" key)."""
+    (dicts with a "category" key). `intensity` is Config.phase_g_
+    intensity — scales the step itself (noise and fortune-bias alike),
+    so 0.0 holds temperament flat at its mean-reverted value (drifting
+    to 0 over time, never nudged) rather than requiring a separate
+    on/off flag."""
     good = sum(1 for e in recent_events if e.get("category") in _GOOD_FORTUNE_CATEGORIES)
     ill = sum(1 for e in recent_events if e.get("category") in _ILL_FORTUNE_CATEGORIES)
     fortune = (good - ill) / (good + ill) if (good + ill) else 0.0
-    step = rng.uniform(-TEMPERAMENT_STEP_MAX, TEMPERAMENT_STEP_MAX) + fortune * TEMPERAMENT_FORTUNE_WEIGHT
+    step = (rng.uniform(-TEMPERAMENT_STEP_MAX, TEMPERAMENT_STEP_MAX) + fortune * TEMPERAMENT_FORTUNE_WEIGHT) * intensity
     return max(-1.0, min(1.0, temperament * TEMPERAMENT_MEAN_REVERSION + step))
+
+# --- player standing: a discrete "how does the village feel about being --
+# --- nudged from outside" lever, alongside temperament's general mood ---
+
+PLAYER_STANDING_MEAN_REVERSION = 0.95
+"""Faster decay toward 0 than temperament's 0.97 — the village's sense
+of the outside hand fades a little quicker than its own internal mood
+without repeated reinforcement, since it's about an external presence
+rather than the village's own affairs."""
+
+PLAYER_STANDING_STEP_PER_INTERVENTION = 0.06
+PLAYER_STANDING_MAX_EVENTS_COUNTED = 5
+"""Each `intervention`-category event this month (a whisper, a resource
+nudge, a weather/goal nudge) moves standing warmer by this much, capped
+at MAX_EVENTS_COUNTED events so a burst of nudges in one month doesn't
+swing it to the extreme in a single step — steady, occasional attention
+reads as more genuinely "looked after" than a flood of one-time nudges,
+mechanically expressed as the same diminishing-returns shape used
+throughout the project (e.g. TECH_BONUS_PER_LEVEL is additive, not
+multiplicative, for the same reason)."""
+
+
+def tick_player_standing(standing: float, recent_events: list[dict], rng, intensity: float = 1.0) -> float:
+    """Nudge player_standing one step (called monthly, alongside
+    temperament/beliefs). Every recorded `intervention` this month
+    (any `/intervene/*` call the engine applied and logged — see
+    SimulationEngine._apply_intervention) counts as one touch from
+    outside; more touches (up to the cap) read as warmer standing, with
+    small noise and mean reversion so this stays a real signal, not a
+    monotonically-increasing counter. `recent_events` is the same
+    recent_events(conn, limit=...) shape used by tick_temperament."""
+    touches = min(PLAYER_STANDING_MAX_EVENTS_COUNTED, sum(
+        1 for e in recent_events if e.get("category") == "intervention"
+    ))
+    step = (rng.uniform(-TEMPERAMENT_STEP_MAX, TEMPERAMENT_STEP_MAX) + touches * PLAYER_STANDING_STEP_PER_INTERVENTION) * intensity
+    return max(-1.0, min(1.0, standing * PLAYER_STANDING_MEAN_REVERSION + step))
 
 # --- Phase E3: inventions (tech-tier unlocks) -------------------------------
 
@@ -616,6 +668,22 @@ class Settlement:
     expression of "cognition as continuous rather than stateless."
     Capped at MAX_BELIEFS; not guaranteed correct, exactly like a
     person's own beliefs about their community."""
+    player_standing: float = 0.0
+    """-1 (the village has felt only interference) .. 1 (the village
+    has felt genuinely looked-after), a deterministic bounded random
+    walk nudged monthly by recent player intervention activity (see
+    `tick_player_standing`) — the discrete tracked lever for "the
+    town's opinion of the player specifically" CLAUDE.md flagged as a
+    real, not-yet-built gap alongside `temperament` (general mood).
+    Whispers/interventions are already folded into town-brain/beliefs
+    prompts as content; this is a separate, quieter number for how the
+    village has come to feel about receiving them at all, independent
+    of what any single whisper said. Folded into the town-brain prompt
+    as one more subtle input (see `llm/town_brain.py`), never narrated
+    or labeled in the UI — same "plumbed through summary(), visible to
+    anyone who looks at raw data, never called out" treatment as
+    `temperament`. See docs/DECISIONS.md, "town's opinion of the
+    player" pass."""
 
     # --- queries -------------------------------------------------------------
 
@@ -755,6 +823,7 @@ class Settlement:
             "founding_scenario": self.founding_scenario,
             "beliefs": list(self.beliefs),
             "temperament": round(self.temperament, 3),
+            "player_standing": round(self.player_standing, 3),
         }
 
     def infrastructure_report(self) -> list[dict]:
@@ -838,6 +907,7 @@ class Settlement:
             "founding_scenario": self.founding_scenario,
             "beliefs": list(self.beliefs),
             "temperament": round(self.temperament, 4),
+            "player_standing": round(self.player_standing, 4),
         }
 
     @classmethod
@@ -860,4 +930,5 @@ class Settlement:
             founding_scenario=data.get("founding_scenario", ""),
             beliefs=list(data.get("beliefs", [])),
             temperament=data.get("temperament", 0.0),
+            player_standing=data.get("player_standing", 0.0),
         )

@@ -138,6 +138,17 @@ triggers, subtler cross-system nudges) rather than escalating toward
 anything explicit — the brief is "keep this ambiguous," permanently,
 not just at launch.
 
+**v2, both roadmap-flagged follow-ups closed.** `Config.phase_g_
+intensity` (default 1.0) scales temperament's monthly step and omens'
+per-month chance together — 0.0 holds temperament flat and skips omens
+outright, a genuine off switch without deleting the mechanism. Omens
+also gained deeper narrative payoff: about half the time one fires, if
+a belief already resolves to a still-living agent, the omen centers on
+that specific person (`llm/omens.py`'s `subject_name` param, both the
+LLM prompt and the deterministic fallback pools) instead of the
+settlement in the abstract — still never confirming anything, just
+less anonymous. Same ambiguity rule applies unchanged.
+
 ## Per-person beliefs
 
 `Settlement.beliefs` entries can resolve to a specific living
@@ -160,21 +171,29 @@ ground truth; `Settlement.beliefs` and `Agent.memories` are each
 holder's *interpretation* of it, and are allowed to be wrong, one-sided,
 or contradict each other — nothing currently forces two NPCs' beliefs
 about the same subject to reconcile, and that's correct, not a gap to
-close. What's a real, not-yet-built gap: there's no explicit **trust**
-lever (who an agent believes more readily, or discounts) — `beliefs_about`
-and per-agent `memories` already vary content per-holder, which is most
-of "NPCs reason from imperfect knowledge," but nothing yet models one
-agent weighing a rumor differently depending on its source's
-credibility. A future, deliberately small step (same "capped list,
-monthly-ish cadence" scoping discipline as `beliefs.py`), not a
-prerequisite for anything else in this file.
+close.
 
-**The town's opinion of the player specifically.** `town_brain`/
-`beliefs` already fold player whispers in as one input among the real
-stats — "subtle, never forced" — but there's no discrete tracked lever
-for "the town's opinion of the player" the way `temperament` is a
-discrete lever for its general mood. Noted as a plausible next step for
-the Phase G / continuous-cognition line, not started.
+**Trust lever: shipped.** `Agent.trust` (-1..1 per source agent id) is
+a distinct axis from `relationships` (fondness) — how much credibility
+an agent gives another's word. Nudged on dialogue (`TRUST_DELTA`,
+asymmetric — trust is easier to lose than earn); consumed the moment a
+rumor arrives (`Population.apply_dialogue`): below
+`TRUST_SKEPTICISM_THRESHOLD`, the receiving agent remembers it with
+visible skepticism ("X claims... but I'm not sure I believe them")
+instead of at face value — and that skepticism then reaches the same
+agent's own future cognition prompts (`build_prompt` reads the latest
+memory), a real mechanical effect, not just flavor text.
+
+**The town's opinion of the player specifically: shipped.**
+`Settlement.player_standing` (-1..1) is a real, deterministic bounded
+random walk (`tick_player_standing`, same shape as `temperament`)
+nudged monthly by the volume of recent `/intervene/*` activity
+(logged `intervention` events), mean-reverting toward 0 without
+reinforcement. Folded into the town-brain prompt as one more quiet
+input, only mentioned at all once it's notably warm/cold — never
+narrated or labeled anywhere in the UI, same "plumbed through
+`summary()`, visible to anyone who looks at raw data, never called
+out" treatment `temperament` already gets.
 
 ## Observatory UI direction (explicit user directive)
 
@@ -406,7 +425,18 @@ feature checklist, `CHANGELOG.md` for version history.
   genuinely large, architecturally separate efforts (the latter means
   `Settlement` stops being a world-wide singleton), intentionally not
   bundled into smaller batches.
-- Phase G (subtle supernatural layer) — not started, deliberately last.
+- Culture-specific building types, structured per-family belief
+  resolution (family-labeled beliefs stay free text), a true scrub-
+  through-time replay view (documentary mode narrates a year, it
+  doesn't let a player step through history frame-by-frame), and
+  *where* to build (construction site choice is still pure-chance
+  colocation — only *whether*/*what kind* are cognition-steered).
+- Everything else the roadmap once listed as "not yet built" — Phase G
+  intensity/subject depth, the trust lever, the town's opinion of the
+  player, deliberate hunting/vegetation depletion, rivalry avoidance,
+  event-triggered cognition, whether-to-build steering — is now
+  shipped. See docs/DECISIONS.md, "everything left" pass, and
+  docs/ROADMAP.md for the full per-item accounting.
 
 ## Conventions
 
