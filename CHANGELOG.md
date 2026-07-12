@@ -4,6 +4,40 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.38.0] — Phase G v3: temperament's reach, omen memory
+
+Deepens Phase G further per explicit user request — still within the
+standing "keep this ambiguous, permanently" constraint (CLAUDE.md):
+nothing here confirms anything supernatural, it only extends where
+`Settlement.temperament`'s existing small-magnitude influence reaches
+and gives `llm/omens.py` a memory of itself.
+
+### Added
+- **Temperament's mechanical reach extended to two more systems**,
+  same warm-only, small-magnitude (~0.2 fractional) treatment as the
+  existing invention-chance/predator-lethality nudges:
+  - **Migrant arrivals** (`Population._maybe_welcome_migrant`): a
+    village with recent good fortune draws a newcomer somewhat more
+    readily (`MIGRANT_TEMPERAMENT_INFLUENCE`). Deliberately one-sided
+    — ill fortune doesn't suppress this, since it's already the sole
+    recovery path out of a population crash and shouldn't be actively
+    worked against by the same bad luck that likely caused the crash.
+  - **Wildlife recolonization** (`WildlifeGrid.tick`): the land itself
+    recovers a herd/pack somewhat more readily during a warm spell
+    (`WILDLIFE_TEMPERAMENT_INFLUENCE`), same one-sided rationale.
+- **Omen memory.** New `Settlement.omen_history` (capped rolling log,
+  same shape as `priority_history`) records every omen that's fired.
+  Recent omens are now optionally offered back into the next omen
+  prompt as texture — a new sighting can occasionally read as an echo
+  of something noticed before ("that crow again") rather than always
+  being a one-off, deepening the "ancient, subtle intelligence with a
+  long memory" framing. Optional, not mandatory — most omens still
+  stand alone, and nothing is ever confirmed either way.
+
+### Notes
+- Still no player-facing acknowledgment that Phase G exists anywhere in
+  the UI — deliberately, permanently, per CLAUDE.md.
+
 ## [0.37.0] — Everything left from the original plan, including Phase G
 
 Closes out essentially every remaining "not yet built" item across

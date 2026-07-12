@@ -384,6 +384,17 @@ on that specific person (`llm/omens.py`'s `subject_name` param) instead
 of the settlement in the abstract — still never confirming anything,
 just less anonymous. See docs/DECISIONS.md, "everything left" pass.
 
+**[x] v3: temperament's mechanical reach extended, omen memory.** Two
+more small, warm-only nudges — migrant-arrival chance
+(`MIGRANT_TEMPERAMENT_INFLUENCE`) and wildlife-recolonization chance
+(`WILDLIFE_TEMPERAMENT_INFLUENCE`), same ~0.2 fractional magnitude as
+the original invention/predator nudges, both deliberately one-sided
+since each is already the sole recovery path for its own near-
+extinction scenario. New `Settlement.omen_history` (capped rolling
+log) gives omens continuity — a new sighting can occasionally echo one
+noticed before, offered to the LLM as optional texture, never forced.
+See docs/DECISIONS.md, "Phase G v3" pass.
+
 Still not built (deliberately): any player-facing acknowledgment that
 this system exists (see CLAUDE.md).
 

@@ -188,6 +188,16 @@ agents whose mutual affinity has crossed REPRODUCTION_AFFINITY_THRESHOLD
 with at all."""
 
 MIGRANT_CHECK_CHANCE_PER_TICK = 0.003
+MIGRANT_TEMPERAMENT_INFLUENCE = 0.2
+"""Fractional nudge to migrant-arrival chance from `Settlement.
+temperament` — a village that's lately had a run of good fortune draws
+a newcomer somewhat more readily (a strongly warm village up to ~1.2x
+baseline), same small-magnitude treatment as TEMPERAMENT_INVENTION_
+INFLUENCE/TEMPERAMENT_KILL_CHANCE_INFLUENCE. Deliberately one-sided —
+only warm temperament helps; a cold spell doesn't actively repel
+migrants, since MIGRANT_CHECK_CHANCE_PER_TICK is already the sole
+recovery path out of a population crash and shouldn't be actively
+suppressed by the same ill fortune that likely caused the crash."""
 """Same rare-per-tick-roll shape as wildlife's
 WILDLIFE_RECOLONIZE_CHECK_CHANCE — a lone newcomer, drawn to a
 dwindling settlement, occasionally arrives already mature (so they're
@@ -943,7 +953,8 @@ class Population:
         count = len(self.agents)
         if count == 0 or count >= POPULATION_CRITICAL_THRESHOLD:
             return []
-        if rng.random() >= MIGRANT_CHECK_CHANCE_PER_TICK:
+        chance = MIGRANT_CHECK_CHANCE_PER_TICK * (1.0 + max(0.0, settlement.temperament) * MIGRANT_TEMPERAMENT_INFLUENCE)
+        if rng.random() >= chance:
             return []
         if settlement.buildings:
             building = settlement.buildings[rng.randrange(len(settlement.buildings))]

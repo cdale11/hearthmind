@@ -149,6 +149,23 @@ LLM prompt and the deterministic fallback pools) instead of the
 settlement in the abstract — still never confirming anything, just
 less anonymous. Same ambiguity rule applies unchanged.
 
+**v3: temperament's reach extended, omen memory.** Two more small,
+warm-only nudges (`MIGRANT_TEMPERAMENT_INFLUENCE`/`WILDLIFE_
+TEMPERAMENT_INFLUENCE`, both ~0.2 fractional, same magnitude as the
+original invention/predator nudges): a village with recent good
+fortune draws a migrant, and the land recolonizes lost wildlife,
+somewhat more readily. Deliberately not extended to disaster/farm/
+construction rolls — those already have real, non-ambiguous drivers,
+and nudging them too would start to feel like temperament secretly
+running the simulation. New `Settlement.omen_history` (capped rolling
+log, same shape as `priority_history`) gives omens a memory of
+themselves — a new sighting can occasionally read as an echo of one
+noticed before, offered to the LLM as optional texture ("if it fits
+naturally... without saying so directly"), never a thread every future
+omen is forced to follow. Same permanent ambiguity rule; extend this
+incrementally rather than reaching for anything explicit remains the
+standing instruction.
+
 ## Per-person beliefs
 
 `Settlement.beliefs` entries can resolve to a specific living

@@ -2797,3 +2797,74 @@ existing round(x, 4) precision every other float field in this project
 already accepts (relationships/temperament included) — not a
 regression, the same established serialization precision. All touched
 Python files pass `python3 -m py_compile`.
+
+## Phase G v3: temperament's reach, omen memory
+
+User instruction: "phase G supernatural" — a bare follow-up request to
+keep deepening Phase G after the previous batch's intensity knob and
+person-specific omens. Read as "extend this incrementally" (CLAUDE.md's
+own Phase G section already says exactly that: "more omen triggers,
+subtler cross-system nudges... not... anything explicit").
+
+**Which two systems got the temperament nudge, and why not others.**
+Looked for systems already shaped like the existing nudges (a rare
+recovery/growth roll, small in magnitude, thematically adjacent to "the
+village's fortune") rather than inventing a new category of effect.
+Migrant arrival (`Population._maybe_welcome_migrant`) and wildlife
+recolonization (`WildlifeGrid._maybe_recolonize`, gated by
+`WILDLIFE_RECOLONIZE_CHECK_CHANCE`) both fit exactly: both are already
+rare rolls, both are already the sole recovery path for their
+respective near-extinction scenario, and both plausibly read as "things
+going the village's way" without requiring any new narrative framing.
+Deliberately did NOT touch disaster trigger chances, farm growth, or
+construction rolls — those already have their own real, non-ambiguous
+drivers (weather, season, materials) and adding a temperament nudge on
+top would start to feel like temperament secretly running the
+simulation rather than a subtle texture on top of it, working against
+the "never dominant, always secondary" rule the existing nudges
+already follow.
+
+**One-sided by design, same rationale both times.** Both new nudges
+only fire on positive temperament (`max(0.0, temperament)`), mirroring
+neither `TEMPERAMENT_INVENTION_INFLUENCE` nor `TEMPERAMENT_KILL_
+CHANCE_INFLUENCE` exactly (those do scale in both directions) but
+matching the specific shape of what they're modifying: both migrant
+arrival and wildlife recolonization are already the *sole* path back
+from a crash. Letting ill fortune actively suppress the one mechanism
+that recovers from ill fortune would risk a genuine death spiral
+(a population/wildlife crash, itself likely a source of the low
+temperament, making its own recovery harder) — a mechanically real bad
+outcome, not just flavor, so the asymmetry is a deliberate safety
+property, not an arbitrary choice.
+
+**Omen memory: additive, optional, capped.** `Settlement.omen_history`
+is structurally identical to `priority_history` (same cap-and-trim
+`record_*` method shape) — reusing an already-established pattern
+rather than inventing a new one. Past omens are threaded into
+`omens.build_prompt` as a `past_omens` list, phrased in the prompt as
+"if it fits naturally... without saying so directly" — the LLM is
+explicitly told this is optional texture, not a thread every future
+omen must follow, so most omens still stand alone (verified: the
+prompt change doesn't force every future omen to reference the past,
+it just makes that occasionally available). Only the LLM path sees
+`past_omens` — the deterministic fallback pools remain hand-written
+one-off sentences, since a fallback line referencing a *specific* past
+omen would require templating against arbitrary prior text, a
+meaningfully bigger and less reliable undertaking than the LLM path
+naturally handles as free text.
+
+Verified (LLM disabled, deterministic fallback exercised for the
+temperament-nudge math; a forced-omen loop with artificially advanced
+tick counts exercised the omen-memory path end to end since LLM-
+disabled runs always take the fallback branch, which doesn't consume
+`past_omens` — the memory-recording half was verified directly, the
+prompt-consumption half is inherently only exercised with a live LLM):
+`MIGRANT_CHECK_CHANCE_PER_TICK`/`WILDLIFE_RECOLONIZE_CHECK_CHANCE` both
+compute the expected ~1.2x ceiling at `temperament=1.0`; a 50-call
+forced-omen loop (varying tick count each call so the namespaced roll
+actually varies, unlike an unvaried-tick first attempt that produced
+identical results every call and had to be corrected) produced 6 real
+omen_history entries, correctly capped at `OMEN_HISTORY_MAX=6`; a
+6000-tick full engine run plus snapshot round-trip completed cleanly
+including the new field. All touched Python files pass `python3 -m
+py_compile`.

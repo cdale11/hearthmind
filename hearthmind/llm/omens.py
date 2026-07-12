@@ -37,6 +37,7 @@ SYSTEM_PROMPT = (
 
 def build_prompt(
     settlement_name: str, temperament: float, recent_events: list[dict], subject_name: str = "",
+    past_omens: list[str] | None = None,
 ) -> str:
     lean = "unusually fortunate" if temperament > 0.15 else "unusually unlucky" if temperament < -0.15 else "unremarkable"
     lines = [f"- {event['description']}" for event in recent_events[:10]]
@@ -47,9 +48,18 @@ def build_prompt(
         "mundane-explicable as ever, never confirming anything unusual about them."
         if subject_name else ""
     )
+    # Continuity, not escalation: past omens are offered only as optional
+    # texture (the village half-remembering something similar before),
+    # never as a thread the new omen is required to follow — most omens
+    # should still stand alone. See Settlement.omen_history's docstring.
+    memory_line = (
+        "\nIf it fits naturally, this could echo something noticed before (without saying so directly): "
+        + "; ".join(past_omens[-3:])
+        if past_omens else ""
+    )
     return (
         f"The village of {settlement_name} has had a run of {lean} fortune lately.\n"
-        f"Recent history:\n{events_text}{subject_line}\n"
+        f"Recent history:\n{events_text}{subject_line}{memory_line}\n"
         "Note one small, unexplained thing someone in the village noticed."
     )
 

@@ -108,6 +108,13 @@ wanders onto. Mirrors Population._maybe_move's agent-vs-predator
 avoidance. See docs/DECISIONS.md, "LLM-as-brain batch.\""""
 
 WILDLIFE_RECOLONIZE_CHECK_CHANCE = 0.002
+WILDLIFE_TEMPERAMENT_INFLUENCE = 0.2
+"""Fractional nudge to WILDLIFE_RECOLONIZE_CHECK_CHANCE from `Settlement.
+temperament` — the same land the village's fortune is read from seems
+to recover somewhat more readily during a warm spell, same small-
+magnitude, warm-only treatment as population.py's MIGRANT_TEMPERAMENT_
+INFLUENCE (a cold spell doesn't actively suppress recolonization, since
+this is already the sole path back from local extinction)."""
 """Rolled once per tick; on success, checks whether a new grazer herd
 or predator pack should spawn (migration in from beyond the map's
 edge). Without this, a species that hits exactly 0 (e.g. every predator
@@ -231,6 +238,7 @@ class WildlifeGrid:
 
     def tick(
         self, seed: int, tick: int, terrain: list[list[Tile]], resources: ResourceGrid | None = None,
+        temperament: float = 0.0,
     ) -> list[tuple[str, str]]:
         """Advance every herd/pack by one tick. Returns (category,
         description) events for a successful hunt or a pack/herd going
@@ -312,7 +320,8 @@ class WildlifeGrid:
 
         self.herds = {herd_id: h for herd_id, h in self.herds.items() if h.count > 0}
 
-        if rng.random() < WILDLIFE_RECOLONIZE_CHECK_CHANCE:
+        recolonize_chance = WILDLIFE_RECOLONIZE_CHECK_CHANCE * (1.0 + max(0.0, temperament) * WILDLIFE_TEMPERAMENT_INFLUENCE)
+        if rng.random() < recolonize_chance:
             events += self._maybe_recolonize(rng, terrain)
 
         return events

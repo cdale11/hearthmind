@@ -239,6 +239,7 @@ def era_for_tech_level(tech_level: int) -> str:
 
 
 PRIORITY_HISTORY_MAX = 6
+OMEN_HISTORY_MAX = 6
 """How many past town-brain decisions `Settlement.priority_history`
 keeps — enough for the UI's "internal monologue" reveal to feel like a
 running train of thought, not so many it grows unbounded across a
@@ -668,6 +669,15 @@ class Settlement:
     expression of "cognition as continuous rather than stateless."
     Capped at MAX_BELIEFS; not guaranteed correct, exactly like a
     person's own beliefs about their community."""
+    omen_history: list[dict] = field(default_factory=list)
+    """Rolling log of past `llm/omens.py` events (`{tick, omen,
+    subject_name}`), capped at OMEN_HISTORY_MAX — folded back into
+    future omen prompts as optional context so a new omen can
+    occasionally read as a recurrence ("that crow again") instead of
+    always being a one-off, deepening the "ancient, subtle intelligence
+    with a long memory" framing without ever confirming anything. Same
+    "capped rolling log, purely additive" shape as `priority_history`.
+    See docs/DECISIONS.md, "Phase G v3" pass."""
     player_standing: float = 0.0
     """-1 (the village has felt only interference) .. 1 (the village
     has felt genuinely looked-after), a deterministic bounded random
@@ -773,6 +783,14 @@ class Settlement:
         if len(self.priority_history) > PRIORITY_HISTORY_MAX:
             self.priority_history = self.priority_history[-PRIORITY_HISTORY_MAX:]
 
+    def record_omen(self, tick: int, omen: str, subject_name: str = "") -> None:
+        """Called alongside logging an omen event (SimulationEngine.
+        _run_omen) to also append to the rolling `omen_history` — see
+        that field's docstring."""
+        self.omen_history.append({"tick": tick, "omen": omen, "subject_name": subject_name})
+        if len(self.omen_history) > OMEN_HISTORY_MAX:
+            self.omen_history = self.omen_history[-OMEN_HISTORY_MAX:]
+
     # --- summary -------------------------------------------------------------
 
     def summary(self) -> dict:
@@ -823,6 +841,7 @@ class Settlement:
             "founding_scenario": self.founding_scenario,
             "beliefs": list(self.beliefs),
             "temperament": round(self.temperament, 3),
+            "omen_history": list(self.omen_history),
             "player_standing": round(self.player_standing, 3),
         }
 
@@ -907,6 +926,7 @@ class Settlement:
             "founding_scenario": self.founding_scenario,
             "beliefs": list(self.beliefs),
             "temperament": round(self.temperament, 4),
+            "omen_history": list(self.omen_history),
             "player_standing": round(self.player_standing, 4),
         }
 
@@ -930,5 +950,6 @@ class Settlement:
             founding_scenario=data.get("founding_scenario", ""),
             beliefs=list(data.get("beliefs", [])),
             temperament=data.get("temperament", 0.0),
+            omen_history=list(data.get("omen_history", [])),
             player_standing=data.get("player_standing", 0.0),
         )

@@ -138,6 +138,7 @@ class World:
         self.farms.tick(season=self.clock.season)
         wildlife_events = self.wildlife.tick(
             seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain, resources=self.resources,
+            temperament=self.settlement.temperament,
         )
         settlement_events = self.settlement.tick(weather=self.weather, season=self.clock.season)
         if not self.settlement.name and any(

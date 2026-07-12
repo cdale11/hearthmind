@@ -948,18 +948,22 @@ class SimulationEngine:
             agent = self.world.population.get(belief["subject_agent_id"])
             if agent is not None:
                 subject_name = agent.name
-        prompt = omens.build_prompt(self.world.settlement.name, temperament, recent, subject_name=subject_name)
+        past_omens = [entry["omen"] for entry in self.world.settlement.omen_history]
+        prompt = omens.build_prompt(
+            self.world.settlement.name, temperament, recent, subject_name=subject_name, past_omens=past_omens,
+        )
         fallback = omens.fallback_omen(temperament, self.world.clock.tick_count, subject_name=subject_name)
-        task = asyncio.create_task(self._run_omen(prompt, fallback))
+        task = asyncio.create_task(self._run_omen(prompt, fallback, subject_name))
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
-    async def _run_omen(self, prompt: str, fallback: dict) -> None:
+    async def _run_omen(self, prompt: str, fallback: dict, subject_name: str = "") -> None:
         result, used_fallback = await self._cognition_runner.run(
             prompt, omens.SYSTEM_PROMPT, fallback=lambda: fallback
         )
         omen = omens.parse_omen(result, fallback)
         self._log("omen", omen)
+        self.world.settlement.record_omen(self.world.clock.tick_count, omen, subject_name)
         self._record_llm_debug("omen", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)
 
