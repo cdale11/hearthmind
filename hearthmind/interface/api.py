@@ -25,6 +25,16 @@ from typing import Callable
 logger = logging.getLogger("hearthmind.api")
 
 
+DEFAULT_SPEED_MULTIPLIER = 1.0
+MIN_SPEED_MULTIPLIER = 0.25
+MAX_SPEED_MULTIPLIER = 8.0
+"""Bounds for the live sim-speed control (see `/intervene/sim-speed` in
+interface/app.py). 0.25x is slow enough to watch individual agent
+movement; 8x is fast enough to skip through quiet stretches without the
+tick loop's LLM concurrency cap (config.llm_max_concurrent) getting
+overwhelmed by ticks arriving faster than jobs resolve."""
+
+
 class WorldBroadcaster:
     def __init__(self) -> None:
         self._clients: set = set()
@@ -32,6 +42,17 @@ class WorldBroadcaster:
         self._terrain_payload: dict | None = None
         self._diagnostics_provider: Callable[[], dict] | None = None
         self._interventions: list[dict] = []
+        self._paused = False
+        self._speed_multiplier = DEFAULT_SPEED_MULTIPLIER
+        """Read every loop iteration by `SimulationEngine.run_forever` —
+        deliberately NOT routed through the `_interventions` queue like
+        every other `/intervene/*` request, because that queue is only
+        drained at the top of `_tick_once`: if the sim is paused,
+        `_tick_once` never runs, so a queued "unpause" would never be
+        applied and the sim would be stuck paused forever. Plain
+        read/write attributes instead, same shape as `_last_payload` —
+        safe because both the FastAPI handler and the engine's tick loop
+        run on the same asyncio event loop, never concurrently."""
 
     # --- called by SimulationEngine (writer side) -----------------------------
 
@@ -77,6 +98,28 @@ class WorldBroadcaster:
         called once per tick."""
         drained, self._interventions = self._interventions, []
         return drained
+
+    # --- sim pacing: read/written by both the FastAPI handler and the engine --
+
+    def set_paused(self, paused: bool) -> None:
+        self._paused = paused
+
+    def is_paused(self) -> bool:
+        return self._paused
+
+    def set_speed_multiplier(self, multiplier: float) -> float:
+        self._speed_multiplier = max(MIN_SPEED_MULTIPLIER, min(MAX_SPEED_MULTIPLIER, multiplier))
+        return self._speed_multiplier
+
+    def get_speed_multiplier(self) -> float:
+        return self._speed_multiplier
+
+    def reset_speed(self) -> None:
+        self._paused = False
+        self._speed_multiplier = DEFAULT_SPEED_MULTIPLIER
+
+    def sim_pacing(self) -> dict:
+        return {"paused": self._paused, "speed_multiplier": self._speed_multiplier}
 
     async def broadcast(self, payload: dict) -> None:
         self._last_payload = payload

@@ -151,6 +151,30 @@ main {
 }
 .dev-toggle:hover, .dev-toggle.active { color: var(--accent); border-color: var(--accent); }
 
+#relationship-graph-wrap { position: relative; }
+#relationship-canvas {
+  display: block;
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: default;
+}
+
+.sim-speed-controls { display: flex; align-items: center; gap: 4px; }
+.sim-speed-controls button {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.sim-speed-controls button:hover, .sim-speed-controls button.active { color: var(--accent); border-color: var(--accent); }
+#sim-speed-label { font-size: 11px; min-width: 2.5em; text-align: center; }
+
 #dev-console.hidden { display: none; }
 #dev-full-report {
   background: none; border: 1px solid var(--border); color: var(--text);

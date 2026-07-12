@@ -70,6 +70,8 @@ const CATEGORY_META = {
   disaster_flood: { icon: "🌊" },
   disaster_wildfire: { icon: "🔥" },
   disaster_storm: { icon: "🌩️" },
+  disaster_heatwave: { icon: "🌡️" },
+  disaster_frost: { icon: "❄️" },
   lake_rose: { icon: "💧" },
   lake_receded: { icon: "🏖️" },
   migrant_arrived: { icon: "🚶" },
@@ -175,6 +177,151 @@ historyToggle.addEventListener("click", () => {
   historyToggle.classList.toggle("active");
   if (!historyPanel.classList.contains("hidden")) loadHistory();
 });
+
+// --- relationship graph ------------------------------------------------------
+// Force-directed layout computed client-side (no backend change needed —
+// each agent already carries its own `relationships` map in the per-tick
+// payload). Node positions persist in relNodes across frames/ticks so the
+// graph settles into a stable layout instead of jittering on every update.
+
+const relationshipPanel = document.getElementById("relationship-panel");
+const relationshipToggle = document.getElementById("relationship-toggle");
+const relCanvas = document.getElementById("relationship-canvas");
+const relTooltip = document.getElementById("relationship-tooltip");
+// Below this magnitude a relationship is dropped from the graph entirely
+// — every agent pair has *some* affinity by the time they've interacted
+// once, and drawing all of them would turn the graph into an unreadable
+// mesh; only bonds strong enough to matter are worth a line.
+const REL_MIN_AFFINITY = 0.08;
+let relVisible = false;
+let relAnimHandle = null;
+const relNodes = new Map(); // agent id -> {x, y, vx, vy, name}
+
+function relBuildEdges(agents) {
+  const byId = new Map(agents.map((a) => [a.id, a]));
+  const seen = new Set();
+  const edges = [];
+  for (const a of agents) {
+    for (const [otherIdStr, affinity] of Object.entries(a.relationships || {})) {
+      const otherId = Number(otherIdStr);
+      if (!byId.has(otherId) || Math.abs(affinity) < REL_MIN_AFFINITY) continue;
+      const key = a.id < otherId ? `${a.id}:${otherId}` : `${otherId}:${a.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      edges.push({ a: a.id, b: otherId, affinity });
+    }
+  }
+  return edges;
+}
+
+function relStep(agents, edges) {
+  const w = relCanvas.width, h = relCanvas.height;
+  const liveIds = new Set(agents.map((a) => a.id));
+  for (const id of Array.from(relNodes.keys())) {
+    if (!liveIds.has(id)) relNodes.delete(id);
+  }
+  for (const a of agents) {
+    if (!relNodes.has(a.id)) {
+      relNodes.set(a.id, {
+        x: w / 2 + (Math.random() - 0.5) * w * 0.7,
+        y: h / 2 + (Math.random() - 0.5) * h * 0.7,
+        vx: 0, vy: 0,
+      });
+    }
+    relNodes.get(a.id).name = a.name;
+  }
+  const entries = Array.from(relNodes.values());
+  for (let i = 0; i < entries.length; i++) {
+    for (let j = i + 1; j < entries.length; j++) {
+      const n1 = entries[i], n2 = entries[j];
+      const dx = n1.x - n2.x, dy = n1.y - n2.y;
+      const dist2 = Math.max(dx * dx + dy * dy, 4);
+      const force = 700 / dist2;
+      const dist = Math.sqrt(dist2);
+      const fx = (dx / dist) * force, fy = (dy / dist) * force;
+      n1.vx += fx; n1.vy += fy;
+      n2.vx -= fx; n2.vy -= fy;
+    }
+  }
+  for (const e of edges) {
+    const n1 = relNodes.get(e.a), n2 = relNodes.get(e.b);
+    if (!n1 || !n2) continue;
+    const dx = n2.x - n1.x, dy = n2.y - n1.y;
+    const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+    const targetDist = e.affinity >= 0 ? 55 : 150; // fond pairs cluster close; sour ones drift apart
+    const strength = 0.012 * Math.min(1, Math.abs(e.affinity) * 3);
+    const force = (dist - targetDist) * strength;
+    const fx = (dx / dist) * force, fy = (dy / dist) * force;
+    n1.vx += fx; n1.vy += fy;
+    n2.vx -= fx; n2.vy -= fy;
+  }
+  for (const n of relNodes.values()) {
+    n.vx += (w / 2 - n.x) * 0.001;
+    n.vy += (h / 2 - n.y) * 0.001;
+    n.vx *= 0.82; n.vy *= 0.82;
+    n.x = Math.max(8, Math.min(w - 8, n.x + n.vx));
+    n.y = Math.max(8, Math.min(h - 8, n.y + n.vy));
+  }
+}
+
+function relDraw(edges) {
+  const ctx = relCanvas.getContext("2d");
+  ctx.clearRect(0, 0, relCanvas.width, relCanvas.height);
+  for (const e of edges) {
+    const n1 = relNodes.get(e.a), n2 = relNodes.get(e.b);
+    if (!n1 || !n2) continue;
+    const alpha = Math.min(1, Math.abs(e.affinity) * 1.5);
+    ctx.strokeStyle = e.affinity >= 0 ? `rgba(127, 174, 74, ${alpha})` : `rgba(224, 71, 60, ${alpha})`;
+    ctx.lineWidth = Math.max(0.6, Math.abs(e.affinity) * 3);
+    ctx.beginPath();
+    ctx.moveTo(n1.x, n1.y);
+    ctx.lineTo(n2.x, n2.y);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#d8c9a3";
+  for (const n of relNodes.values()) {
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function relFrame() {
+  if (!relVisible) return;
+  const agents = (latest && latest.agents) || [];
+  const edges = relBuildEdges(agents);
+  relStep(agents, edges);
+  relDraw(edges);
+  relAnimHandle = requestAnimationFrame(relFrame);
+}
+
+if (relationshipToggle) {
+  relationshipToggle.addEventListener("click", () => {
+    relVisible = relationshipPanel.classList.contains("hidden");
+    relationshipPanel.classList.toggle("hidden", !relVisible);
+    relationshipToggle.classList.toggle("active", relVisible);
+    if (relVisible) relFrame();
+    else if (relAnimHandle) cancelAnimationFrame(relAnimHandle);
+  });
+  relCanvas.addEventListener("mousemove", (ev) => {
+    const rect = relCanvas.getBoundingClientRect();
+    const scale = relCanvas.width / rect.width;
+    const mx = (ev.clientX - rect.left) * scale, my = (ev.clientY - rect.top) * scale;
+    let hitName = null;
+    for (const n of relNodes.values()) {
+      if (Math.hypot(n.x - mx, n.y - my) < 8) { hitName = n.name; break; }
+    }
+    if (hitName) {
+      relTooltip.textContent = hitName;
+      relTooltip.style.left = `${ev.clientX - rect.left + 10}px`;
+      relTooltip.style.top = `${ev.clientY - rect.top + 10}px`;
+      relTooltip.classList.remove("hidden");
+    } else {
+      relTooltip.classList.add("hidden");
+    }
+  });
+  relCanvas.addEventListener("mouseleave", () => relTooltip.classList.add("hidden"));
+}
 
 async function fetchJSON(path) {
   const res = await fetch(path);
@@ -739,12 +886,51 @@ function applyPayload(payload) {
   latest = payload;
   renderStats(payload.summary);
   renderInfrastructure(payload.infrastructure);
+  if (payload.diagnostics && payload.diagnostics.sim_pacing) renderSimPacing(payload.diagnostics.sim_pacing);
   updateAgentAnimTargets(payload.agents || []);
   if (payload.diagnostics) renderDevConsole(payload);
   if (payload.life_events && payload.life_events.length) {
     prependEvents(payload.life_events.map((e) => ({ ...e, tick: payload.summary.tick })));
     refreshTerrainIfChanged(payload.life_events);
   }
+}
+
+// --- sim speed controls -----------------------------------------------------
+
+const pauseToggleBtn = document.getElementById("sim-pause-toggle");
+const speedDownBtn = document.getElementById("sim-speed-down");
+const speedUpBtn = document.getElementById("sim-speed-up");
+const speedResetBtn = document.getElementById("sim-speed-reset");
+const speedLabel = document.getElementById("sim-speed-label");
+let simPaused = false;
+
+function renderSimPacing(pacing) {
+  simPaused = !!pacing.paused;
+  pauseToggleBtn.textContent = simPaused ? "▶ resume" : "⏸ pause";
+  pauseToggleBtn.classList.toggle("active", simPaused);
+  const mult = pacing.speed_multiplier || 1;
+  speedLabel.textContent = `${mult % 1 === 0 ? mult : mult.toFixed(2)}x`;
+}
+
+async function postSimSpeed(body) {
+  try {
+    const res = await fetch("/intervene/sim-speed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+    renderSimPacing(await res.json());
+  } catch (e) {
+    // non-fatal — the next tick's broadcast (once resumed) will resync the display
+  }
+}
+
+if (pauseToggleBtn) {
+  pauseToggleBtn.addEventListener("click", () => postSimSpeed({ action: simPaused ? "resume" : "pause" }));
+  speedDownBtn.addEventListener("click", () => postSimSpeed({ action: "speed_down" }));
+  speedUpBtn.addEventListener("click", () => postSimSpeed({ action: "speed_up" }));
+  speedResetBtn.addEventListener("click", () => postSimSpeed({ action: "reset" }));
 }
 
 // --- town brain: player whisper form ---------------------------------------

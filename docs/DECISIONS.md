@@ -2388,3 +2388,124 @@ the old ~8700-tick (~2.4 real hour) wait. A 10000-tick full engine run
 plus snapshot save/reload round-trip completed with no errors. All
 touched Python files pass `python3 -m py_compile`; `app.js` passes
 `node --check`.
+
+## Realistic snow/heatwave/frost, live sim-speed controls, relationship graph
+
+Three asks in one batch: (1) verify/fix UK-realistic snow, (2) add more
+UK-historical natural disasters (heatwave named explicitly), (3) add
+live pause/speed-up/speed-down/reset sim-speed controls to the browser
+UI, changeable in real time without a restart — plus "start with" the
+relationship graph from the Observatory UI backlog CLAUDE.md captured
+last session but deliberately didn't implement.
+
+**Snow root cause.** `is_snowing` gated on `temperature_c <= 0.0`, which
+sounds right for UK winters on paper, but a direct measurement
+(sampling `compute_weather` across a simulated December/January/
+February at the default seed, tens of thousands of ticks) found the
+realized temperature *never once* reached 0C — minimum observed 0.35C
+across a multi-year sample. The culprit is `compute_weather`'s
+smoothing: `temperature_c = previous * 0.7 + target * 0.3` is an EMA
+that damps the raw `target_temp = base + uniform(-6, 6)` jitter into a
+much narrower steady-state range than the single-draw formula suggests
+(variance shrinks by roughly the EMA's characteristic factor). The
+`<= 0.0` threshold was live code that could never fire — not a rare
+event, an unreachable one. Fixed by raising the threshold to 2.0C
+(`SNOW_TEMPERATURE_THRESHOLD_C`), which both (a) sits inside the range
+winter baselines actually reach and (b) is more correct UK meteorology
+anyway — most lowland UK snow falls in the 0-2C band, since
+precipitation phase depends on the whole air column's temperature
+profile, not just screen-height reading. Verified after the fix: ~0.6
+snow-tick-days per winter month at the default seed (Dec/Jan/Feb all
+showed the same ~1.9% of ticks snowing), roughly matching how
+infrequent actual lowland UK snow is.
+
+**Heatwave/frost, same bug class, caught before shipping.** First cut
+of heatwave required temperature above a threshold *and* precipitation
+below a threshold on the same tick to build pressure (mirroring how the
+brief described it — "hot, dry stretches"). Direct measurement showed
+this fired zero times across a simulated year: the two conditions
+individually were each achievable, but requiring them simultaneously
+each tick, given they're only loosely correlated, made the combined
+condition rare enough that `PRESSURE_GAIN` per qualifying tick never
+outpaced `PRESSURE_DECAY` on the many non-qualifying ticks — pressure
+decayed back to zero net over time on average (a losing random walk).
+Same root cause as the snow bug: a threshold that looks reasonable on
+paper but is unreachable against the actual simulated distribution.
+Fixed by decoupling the two: pressure builds from sustained heat alone
+(`HEATWAVE_BUILD_TEMP=18.5`, tuned against the measured ~21C ceiling of
+smoothed summer temperature, not the raw baseline+jitter range), and
+dryness (`HEATWAVE_DRY_PRECIPITATION=0.22`) only multiplies the trigger
+chance once pressure clears threshold (`HEATWAVE_DRY_CHANCE_
+MULTIPLIER=2.5`) — same shape as wildfire's temperament nudge. Frost
+got the identical fix: an initial `FROST_TEMP_THRESHOLD=-3.0` was never
+reached (min observed winter temp 0.35C, same as the snow finding), and
+an initial `FROST_DURATION_MIN_TICKS=20` exceeded the longest
+sub-threshold streak ever observed (max 8-11 ticks depending on
+threshold, given the smoothing's autocorrelation). Retuned to
+`FROST_TEMP_THRESHOLD=2.0` (matching the snow band) and
+`FROST_DURATION_MIN_TICKS=6`; verified triggering (non-zero) across a
+30-seed sample, at a realistic multi-year-rare cadence once scaled from
+the all-January synthetic test window back down to a real ~90-day
+winter — matching the brief's own example (2018 "Beast from the East"
+happened once in roughly a decade). Both wired into `World._tick_
+disasters`, which was moved to run *before* `population.tick` in
+`World.tick()` (previously after) specifically so a heatwave/frost
+triggered this tick is already visible to `Population.tick`'s new
+`heatwave_active` param (folded into the existing `weather_harsh`
+agent-need check) the same tick, not one tick late.
+
+**Why sim-speed bypasses the existing `/intervene/*` queue.** Every
+other intervention (`agent_goal`, `settlement_resources`, `weather`,
+`town_influence`) is queued via `WorldBroadcaster.enqueue_intervention`
+and drained once per tick at the top of `SimulationEngine._tick_once` —
+deliberately, so `World` is only ever mutated from the tick loop. Pause/
+speed can't use that seam: if the sim is paused, `_tick_once` never
+runs, so a queued "resume" request would sit in the queue forever and
+the sim would be permanently stuck. Also, pause/speed don't touch
+`World` at all — they only change the engine's own tick-pacing loop, so
+there was no reason to route them through World-mutation machinery in
+the first place. Instead `WorldBroadcaster` gained plain read/write
+pause/speed fields, safe because the FastAPI request handler and the
+engine's `run_forever` loop share one asyncio event loop and are never
+concurrent (no lock needed). `run_forever` now checks `is_paused()`/
+`get_speed_multiplier()` every loop iteration (not just once at
+startup), and polls at a short fixed interval while paused
+(`PAUSED_POLL_SECONDS=0.25`) rather than sleeping for a full — possibly
+very long, at a low speed multiplier — tick interval, so a resume
+request is picked up promptly. Verified live: a 0.1s-tick-interval
+engine run showed zero tick advancement while paused, and immediate
+resumption (plus faster advancement at 4x) once unpaused.
+
+**Relationship graph.** The first piece of the Observatory UI backlog
+(CLAUDE.md's "Observatory UI direction" section, 0.34.0) the user asked
+to start with. No backend change was needed — `Agent.to_dict()` already
+serializes `relationships` (a `{other_agent_id: affinity}` map) into
+the existing per-tick broadcast payload's `agents` list — so this is a
+pure frontend addition: a force-directed layout computed client-side
+(no graph library; simple pairwise repulsion + spring attraction along
+edges + centering, run each animation frame while the panel is open).
+Node positions persist in a module-level `Map` across ticks/frames
+rather than being recomputed from scratch each update, so the layout
+settles into a stable shape instead of jittering. Relationships below
+`REL_MIN_AFFINITY=0.08` are dropped entirely — every agent pair that's
+ever interacted has *some* nonzero affinity, so drawing all of them
+would produce an unreadable mesh; only bonds strong enough to matter
+are worth a line. Edge color (green/red) and thickness/opacity encode
+affinity sign/magnitude; hovering a node shows the agent's name via the
+same `.tooltip` pattern already used on the map. Deliberately scoped to
+just the graph (not click-to-open-NPC-inspector, not a legend, not
+family-tree edges) — the rest of the Observatory UI backlog (map-as-
+primary-interface rework, hover inspection, mind-first NPC inspector,
+Town Brain monologue reveal, documentary mode) remains not started.
+
+Verified (LLM disabled in this environment, deterministic fallbacks
+exercised throughout): a 3000-tick engine-driven run plus snapshot
+save/reload round-trip completed with no errors, including all five
+`DisasterState` fields; a dedicated pause/resume/speed-up test against
+a live `run_forever` loop confirmed zero ticks advance while paused and
+resumed advancement (faster, at 4x) immediately on unpause; the
+`/intervene/sim-speed` route registration and all five `action` values
+(pause/resume/speed_up/speed_down/set/reset, plus the invalid-action
+400 case) were exercised directly against `WorldBroadcaster`. All
+touched Python files pass `python3 -m py_compile`; `app.js` and
+`index.html`'s inline structure pass `node --check`/manual review.

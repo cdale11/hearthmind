@@ -10,7 +10,15 @@
     <h1 id="settlement-name">Hearthmind</h1>
     <div id="clock-line" class="muted">connecting…</div>
     <div id="founding-scenario" class="muted hidden"></div>
+    <div id="sim-speed-controls" class="sim-speed-controls">
+      <button id="sim-pause-toggle" title="Pause/resume the simulation">⏸ pause</button>
+      <button id="sim-speed-down" title="Halve simulation speed">−</button>
+      <span id="sim-speed-label" class="muted">1x</span>
+      <button id="sim-speed-up" title="Double simulation speed">+</button>
+      <button id="sim-speed-reset" title="Reset to default speed">reset</button>
+    </div>
     <button id="history-toggle" class="dev-toggle" title="Summarized town history">📜 history</button>
+    <button id="relationship-toggle" class="dev-toggle" title="Interactive relationship graph">🕸 relationships</button>
     <button id="dev-toggle" class="dev-toggle" title="Developer console: raw diagnostics/telemetry">⚙ dev</button>
   </header>
 
@@ -38,6 +46,17 @@
       <div class="panel hidden" id="history-panel">
         <h2>Town history</h2>
         <ul id="history-list" class="muted"><li>loading…</li></ul>
+      </div>
+
+      <div class="panel hidden" id="relationship-panel">
+        <h2>Relationships</h2>
+        <div class="muted" style="font-size:11px; margin-bottom:6px;">
+          Nodes drift together when fond of each other, apart when not — line color/thickness tracks the bond's strength. Hover a name.
+        </div>
+        <div id="relationship-graph-wrap">
+          <canvas id="relationship-canvas" width="360" height="300"></canvas>
+          <div id="relationship-tooltip" class="tooltip hidden"></div>
+        </div>
       </div>
 
       <div class="panel">

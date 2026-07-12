@@ -4,6 +4,88 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.35.0] — Realistic snow/heatwave/frost, live sim-speed controls, relationship graph
+
+### Fixed
+- **Snow never actually fell.** `is_snowing` required `temperature_c <=
+  0.0`, but `compute_weather`'s smoothing (an EMA-like blend toward the
+  previous tick, `smoothing=0.7`) damps the raw per-tick jitter into a
+  much narrower realized range than the underlying `uniform(-6, 6)`
+  draw suggests — verified a simulated December at the default seed
+  never once reached 0C (min observed 0.35C across a multi-year
+  sample). `is_snowing` was live code that could never fire. Fixed by
+  raising the threshold to `SNOW_TEMPERATURE_THRESHOLD_C = 2.0`
+  (`world/weather.py`) — within the range winter baselines actually
+  reach, and still correct UK meteorology (most UK snow falls in the
+  0-2C band, not exactly at freezing). Verified: ~0.6 snow-tick-days
+  per winter month at the default seed, roughly matching real lowland
+  UK snow frequency.
+
+### Added
+- **Two new natural disasters, UK-historical**: heatwave and frost/cold
+  snap, joining the existing flood/wildfire/storm (`world/disasters.py`).
+  Both use the same pressure-buildup shape as flood, tuned against
+  `compute_weather`'s actual smoothed output range (an early cut of
+  heatwave that required simultaneous hot-and-dry conditions to even
+  build pressure fired zero times across a simulated year — the same
+  class of "threshold the model can never reach" bug as the snow fix
+  above; reworked so pressure builds from sustained heat alone, and
+  dryness only sharpens the trigger roll once pressure clears
+  threshold). Heatwave: wilts/spoils farm plots each tick it's active,
+  raises wildfire ignition odds (`HEATWAVE_WILDFIRE_CHANCE_MULTIPLIER`),
+  and now counts as harsh weather for agents (`Population.tick`'s new
+  `heatwave_active` param folds into the existing `weather_harsh` check
+  alongside rain/wind/snow) — echoing the UK's 2018 and 2022 heatwaves,
+  both of which came with drought and a spike in wildfires. Frost: a
+  sustained hard freeze (colder than the snow band, `FROST_TEMP_
+  THRESHOLD = 2.0` sustained `FROST_DURATION_MIN_TICKS`) has a small
+  chance of one sharp hit damaging every farm plot at once — a rare,
+  multi-year event by design, echoing the UK's 2018 "Beast from the
+  East". `World._tick_disasters` now runs before `population.tick` (not
+  after) so a heatwave/frost triggered this tick is already felt by
+  agents/farms the same tick, not one tick late. New history/event
+  categories `disaster_heatwave`, `disaster_frost`.
+- **Live simulation-speed controls** — pause, speed up/down, reset to
+  default — changeable from the browser UI in real time, no restart
+  needed. Deliberately NOT routed through the existing `/intervene/*`
+  queued-intervention seam (`WorldBroadcaster.enqueue_intervention`,
+  drained once per tick inside `_tick_once`): a paused sim never calls
+  `_tick_once`, so a queued "resume" would never be applied and the sim
+  would deadlock paused forever. Instead `WorldBroadcaster` gained
+  plain pause/speed-multiplier fields (`set_paused`/`get_speed_
+  multiplier`/etc., `interface/api.py`) that `SimulationEngine.
+  run_forever`'s loop reads directly every iteration — safe because the
+  FastAPI handler and the tick loop share one asyncio event loop and
+  never run concurrently. New `POST /intervene/sim-speed` endpoint
+  (`interface/app.py`) with `action` one of `pause`/`resume`/`speed_up`/
+  `speed_down`/`set`/`reset`; speed is bounded to [0.25x, 8x]
+  (`MIN_SPEED_MULTIPLIER`/`MAX_SPEED_MULTIPLIER`). Current pacing is
+  surfaced in the per-tick diagnostics payload (`sim_pacing`) and in
+  the endpoint's own response, so the UI reflects state instantly even
+  while paused (when no new tick broadcast is coming). New header
+  controls in the browser UI: ⏸/▶ pause toggle, −/+ speed buttons, a
+  live "Nx" label, and a reset button.
+- **Interactive relationship graph** — the first piece of the
+  Observatory UI backlog from 0.34.0's CLAUDE.md direction ("provide an
+  interactive relationship graph"). New "🕸 relationships" toggle opens
+  a force-directed graph built client-side from data every agent
+  already carries (`Agent.relationships`, no backend change needed):
+  nodes drift together for fond pairs, apart for sour ones; edge
+  color/thickness tracks bond strength (green/red, opacity and width by
+  magnitude); hovering a node shows the agent's name. Relationships
+  below `REL_MIN_AFFINITY = 0.08` are dropped from the graph entirely
+  to keep it readable. Node positions persist across ticks so the
+  layout settles rather than jittering on every update; the physics
+  loop only runs while the panel is open.
+
+### Notes
+- The rest of the Observatory UI backlog (map-as-primary-interface
+  rework, hover inspection, mind-first NPC inspector, Town Brain
+  monologue reveal, documentary mode) remains not started, per 0.34.0's
+  CLAUDE.md note — this batch completed the weather/disaster/speed-
+  control asks plus the relationship graph the user asked to start
+  with, not the rest of the backlog.
+
 ## [0.34.0] — Population recovery, LLM-cadence fix (whispers), Observatory UI direction
 
 ### Fixed

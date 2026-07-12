@@ -297,6 +297,7 @@ class Population:
         self, seed: int, tick: int, terrain: list[list[Tile]],
         resources: ResourceGrid, settlement: Settlement, farms: FarmGrid, wildlife: WildlifeGrid,
         roads: RoadNetwork, weather: WeatherState, night_factor: float = 0.0,
+        heatwave_active: bool = False,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -310,7 +311,7 @@ class Population:
         predator_tiles = wildlife.predator_tiles()
         weather_harsh = (
             weather.precipitation > WEATHER_HARSH_PRECIPITATION
-            or weather.wind > WEATHER_HARSH_WIND or weather.is_snowing
+            or weather.wind > WEATHER_HARSH_WIND or weather.is_snowing or heatwave_active
         )
 
         life_events: list[tuple[str, str]] = []
@@ -381,9 +382,9 @@ class Population:
         energy_drain = ENERGY_DRAIN_AWAKE
         if weather_harsh and agent.state is AgentState.AWAKE:
             # "Weather affects people": harsh weather (heavy rain/snow/high
-            # wind) costs an awake agent more — resting is treated as
-            # sheltering, so it's unaffected. See docs/DECISIONS.md,
-            # scarcity pass.
+            # wind/an active heatwave) costs an awake agent more — resting
+            # is treated as sheltering, so it's unaffected. See
+            # docs/DECISIONS.md, scarcity pass.
             hunger_rate *= WEATHER_HARSH_HUNGER_MULTIPLIER
             energy_drain *= WEATHER_HARSH_ENERGY_DRAIN_MULTIPLIER
         if agent.state is AgentState.AWAKE:

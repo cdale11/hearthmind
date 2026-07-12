@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from hearthmind import __version__
-from hearthmind.interface.api import WorldBroadcaster
+from hearthmind.interface.api import DEFAULT_SPEED_MULTIPLIER, WorldBroadcaster
 from hearthmind.persistence.snapshot import (
     event_category_counts,
     history_events,
@@ -141,6 +141,40 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection) -> FastA
             return JSONResponse({"error": "text is required"}, status_code=400)
         broadcaster.enqueue_intervention({"type": "town_influence", "text": text})
         return JSONResponse({"queued": True})
+
+    @app.post("/intervene/sim-speed")
+    async def intervene_sim_speed(payload: dict) -> JSONResponse:
+        """Live pause/speed control — deliberately applied immediately
+        (not queued through `enqueue_intervention`) since it never
+        touches `World` state, only the engine's own tick pacing; see
+        `WorldBroadcaster`'s pause/speed fields for why queuing would
+        deadlock a paused sim. `action` is one of "pause", "resume",
+        "speed_up", "speed_down", "reset", or "set" (with an explicit
+        "multiplier"). speed_up/speed_down double/halve the current
+        multiplier, clamped to [MIN_SPEED_MULTIPLIER,
+        MAX_SPEED_MULTIPLIER]."""
+        action = str(payload.get("action", "")).strip().lower()
+        if action == "pause":
+            broadcaster.set_paused(True)
+        elif action == "resume":
+            broadcaster.set_paused(False)
+        elif action == "speed_up":
+            broadcaster.set_speed_multiplier(broadcaster.get_speed_multiplier() * 2.0)
+        elif action == "speed_down":
+            broadcaster.set_speed_multiplier(broadcaster.get_speed_multiplier() / 2.0)
+        elif action == "set":
+            try:
+                broadcaster.set_speed_multiplier(float(payload.get("multiplier", DEFAULT_SPEED_MULTIPLIER)))
+            except (TypeError, ValueError):
+                return JSONResponse({"error": "multiplier must be a number"}, status_code=400)
+        elif action == "reset":
+            broadcaster.reset_speed()
+        else:
+            return JSONResponse(
+                {"error": "action must be one of: pause, resume, speed_up, speed_down, set, reset"},
+                status_code=400,
+            )
+        return JSONResponse(broadcaster.sim_pacing())
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:

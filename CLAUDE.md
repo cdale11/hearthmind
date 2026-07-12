@@ -207,24 +207,54 @@ Two audiences, two surfaces, kept explicitly separate:
   resource-flow internals, etc.; deepen it rather than leaking that
   detail into the normal UI.
 
-**Not started, deliberately** (this is a large, multi-batch UI
+**Relationship graph: started.** A "🕸 relationships" header toggle
+opens a force-directed graph (client-side physics, no library — see
+`interface/static/app.js`'s `relBuildEdges`/`relStep`/`relDraw`) built
+from `Agent.relationships`, already present in the per-tick payload —
+no backend change needed. Nodes drift together for fond pairs, apart
+for sour ones; edge color/thickness encodes affinity sign/magnitude;
+weak bonds (`REL_MIN_AFFINITY=0.08`) are dropped to keep it readable.
+
+**Still not started, deliberately** (this is a large, multi-batch UI
 initiative — CLAUDE.md's own "smallest coherent milestone" and "no
 half-finished pieces" rules both argue against attempting all of it in
 one pass): the map-as-primary-interface rework, hover inspection
-system, relationship graph, mind-first NPC inspector modal, internal-
-conversation logging + "surfaced" filtering, Town Brain monologue
-reveal, and documentary/narrated-history mode. Existing world-evolution
-mechanics already satisfy most of the "map should visibly evolve"
-ask (terrain evolution, road wear/decay — roads already fade out from
-disuse via `roads.py`'s presence-driven decay — building decay/ruin/
-reclamation, and this session's disasters/hydrology additions);
-"settlements expand or collapse" is now also mechanically real — a
-population crash recovers via a rare migrant arrival while any people
-remain (`Population._maybe_welcome_migrant`, mirroring wildlife's
-`_maybe_recolonize`), but true extinction (0 population) is left as a
-legitimate, permanent, readable-from-the-landscape ending, not
-auto-revived — rather than a UI-only concept. Ask the user which piece
-of the UI backlog to start with rather than guessing scope.
+system, mind-first NPC inspector modal, internal-conversation logging +
+"surfaced" filtering, Town Brain monologue reveal, and documentary/
+narrated-history mode. Existing world-evolution mechanics already
+satisfy most of the "map should visibly evolve" ask (terrain evolution,
+road wear/decay — roads already fade out from disuse via `roads.py`'s
+presence-driven decay — building decay/ruin/reclamation, and the
+disasters/hydrology additions, now joined by heatwave/frost — see
+"Realistic weather thresholds" below); "settlements expand or collapse"
+is now also mechanically real — a population crash recovers via a rare
+migrant arrival while any people remain (`Population._maybe_welcome_
+migrant`, mirroring wildlife's `_maybe_recolonize`), but true extinction
+(0 population) is left as a legitimate, permanent, readable-from-the-
+landscape ending, not auto-revived — rather than a UI-only concept. Ask
+the user which piece of the remaining UI backlog to start with rather
+than guessing scope.
+
+**Live sim-speed controls.** Pause/speed-up/speed-down/reset are
+changeable from the browser UI in real time via `POST /intervene/sim-
+speed` — deliberately NOT routed through the queued `/intervene/*`
+seam other interventions use (a paused sim never reaches the point in
+its tick loop that drains that queue, which would deadlock a pause
+forever); see `WorldBroadcaster`'s pause/speed fields and `docs/
+DECISIONS.md` for why. Speed is bounded to [0.25x, 8x].
+
+**Realistic weather thresholds.** `is_snowing`, and the newer heatwave/
+frost disasters, each initially used a threshold that looked correct on
+paper but was unreachable against `compute_weather`'s actual smoothed
+output (an EMA that damps single-tick jitter into a much narrower
+realized range than the raw `uniform(-6, 6)` draw suggests) — live code
+that could never fire, not merely a rare event. All three were retuned
+against directly-measured achievable ranges (see `SNOW_TEMPERATURE_
+THRESHOLD_C`'s docstring in `world/weather.py` for the full story). If
+a future weather/disaster threshold "never seems to happen" on a live
+run, checking whether it's actually reachable against the smoothed
+output — not just plausible-looking on paper — is the first thing to
+verify, not a sign the roll chance needs raising.
 
 ## Calendar, climate, and eras
 

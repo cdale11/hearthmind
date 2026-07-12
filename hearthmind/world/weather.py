@@ -35,6 +35,22 @@ _MONTH_BASELINES: dict[str, tuple[float, float, float]] = {
 }
 
 
+SNOW_PRECIPITATION_THRESHOLD = 0.2
+SNOW_TEMPERATURE_THRESHOLD_C = 2.0
+"""Real UK snow overwhelmingly falls in the 0-2C band, not exactly at or
+below freezing — precipitation phase depends on the whole air column,
+not just screen-height temperature. Previously gated at exactly <= 0.0C,
+which combined with `compute_weather`'s smoothing (see `smoothing=0.7`
+below — an EMA that damps single-tick jitter into a much narrower
+realized range than the raw uniform(-6, 6) draw) meant winter
+temperature essentially never actually reached 0 or below in practice
+(verified: 0 snow ticks across a simulated December at the default
+seed) — `is_snowing` was live code that could never fire. Raising the
+threshold to 2.0C is the fix, not a cosmetic tweak: it's within the
+smoothed range winter baselines actually reach, and still matches real
+UK meteorology."""
+
+
 @dataclass
 class WeatherState:
     temperature_c: float
@@ -107,7 +123,7 @@ def compute_weather(seed: int, tick: int, month: str, previous: "WeatherState | 
         precipitation = previous.precipitation * smoothing + target_precip * (1 - smoothing)
         wind = previous.wind * smoothing + target_wind * (1 - smoothing)
 
-    is_snowing = precipitation > 0.2 and temperature_c <= 0.0
+    is_snowing = precipitation > SNOW_PRECIPITATION_THRESHOLD and temperature_c <= SNOW_TEMPERATURE_THRESHOLD_C
 
     return WeatherState(
         temperature_c=temperature_c,

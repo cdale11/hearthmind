@@ -95,6 +95,13 @@ _TERRAIN_CHANGING_CATEGORIES = frozenset({
 """Life-event categories that mean at least one tile's biome changed
 this tick — see `_maybe_broadcast`."""
 
+PAUSED_POLL_SECONDS = 0.25
+"""How often `run_forever`'s loop wakes up to re-check pause/stop state
+while paused, instead of sleeping for a full (possibly very long, at a
+low speed multiplier) tick interval — see interface/api.py's
+WorldBroadcaster pause/speed fields and `_apply_intervention`'s note on
+why pause/speed bypass the usual queued-intervention seam."""
+
 _MIGRATIONS = {
     # subsystem name -> (description template, count-of-what-was-backfilled).
     # One entry per subsystem `World.from_dict` can backfill (see its
@@ -305,9 +312,16 @@ class SimulationEngine:
         )
         try:
             while not self._stop_event.is_set():
-                self._tick_once()
+                paused = self._broadcaster is not None and self._broadcaster.is_paused()
+                if not paused:
+                    self._tick_once()
+                speed = self._broadcaster.get_speed_multiplier() if self._broadcaster is not None else 1.0
+                # While paused, poll at a short fixed interval rather than
+                # the (possibly very long, at a low speed multiplier) tick
+                # interval, so a resume/stop request is picked up promptly.
+                interval = PAUSED_POLL_SECONDS if paused else max(0.05, self.config.tick_seconds / speed)
                 try:
-                    await asyncio.wait_for(self._stop_event.wait(), timeout=self.config.tick_seconds)
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=interval)
                 except asyncio.TimeoutError:
                     pass  # normal case: no stop requested within the tick interval
         finally:
@@ -938,6 +952,7 @@ class SimulationEngine:
             "llm_stats": self._cognition_runner.stats(),
             "dialogue_cooldown_entries": len(self.world.population.dialogue_cooldowns),
             "snapshots_saved": self._snapshots_saved,
+            "sim_pacing": self._broadcaster.sim_pacing() if self._broadcaster else {"paused": False, "speed_multiplier": 1.0},
         }
 
     def full_diagnostics(self) -> dict:

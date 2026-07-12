@@ -28,7 +28,14 @@ from hearthmind.world.terrain_evolution import (
     tick_climate,
 )
 from hearthmind.world.daylight import night_factor as compute_night_factor
-from hearthmind.world.disasters import DisasterState, tick_flood, tick_storm, tick_wildfire
+from hearthmind.world.disasters import (
+    DisasterState,
+    tick_flood,
+    tick_frost,
+    tick_heatwave,
+    tick_storm,
+    tick_wildfire,
+)
 from hearthmind.world.hydrology import LakeState, generate_rivers, identify_lakes, tick_lakes
 from hearthmind.world.weather import WeatherState, compute_weather
 from hearthmind.world.wildlife import WildlifeGrid
@@ -140,14 +147,14 @@ class World:
         night = compute_night_factor(
             hour_of_day=self.clock.minute_of_day / 60.0, month_name=self.clock.month_name,
         )
+        disaster_events = self._tick_disasters(events)
         population_events = self.population.tick(
             seed=self.config.seed, tick=self.clock.tick_count,
             terrain=self.terrain, resources=self.resources,
             settlement=self.settlement, farms=self.farms, wildlife=self.wildlife, roads=self.roads,
-            weather=self.weather, night_factor=night,
+            weather=self.weather, night_factor=night, heatwave_active=self.disasters.heatwave_active,
         )
         terrain_events = self._tick_terrain(events)
-        disaster_events = self._tick_disasters(events)
         self.last_life_events = (
             wildlife_events + settlement_events + population_events + terrain_events + disaster_events
         )
@@ -155,10 +162,13 @@ class World:
         return events
 
     def _tick_disasters(self, calendar_events: list[str]) -> list[tuple[str, str]]:
-        """Flood/wildfire/storm — see world/disasters.py. Flood and storm
-        roll every tick (they're rare-per-tick by construction); wildfire
-        ignition only rolls on a week boundary, though an already-burning
-        fire still spreads/dies down every tick."""
+        """Flood/heatwave/wildfire/storm/frost — see world/disasters.py.
+        Called before population.tick so a heatwave/frost triggered this
+        tick is already visible to agents/farms in the same tick. Flood,
+        heatwave, storm, and frost all roll every tick (each rare-per-tick
+        by construction); wildfire ignition only rolls on a week boundary,
+        though an already-burning fire still spreads/dies down every
+        tick."""
         water_tiles = {
             (t.x, t.y) for row in self.terrain for t in row
             if t.biome in (Biome.DEEP_WATER, Biome.SHALLOW_WATER, Biome.RIVER)
@@ -167,13 +177,18 @@ class World:
         events = tick_flood(
             self.disasters, self.terrain, self.weather, self.settlement, self.farms, water_tiles, flood_rng,
         )
+        heat_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_heatwave")
+        events += tick_heatwave(self.disasters, self.weather, self.farms, heat_rng)
         fire_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_wildfire")
         events += tick_wildfire(
             self.disasters, self.terrain, self.weather, self.clock.season, self.settlement.temperament,
             self.settlement, "week_end" in calendar_events, fire_rng,
+            heatwave_active=self.disasters.heatwave_active,
         )
         storm_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_storm")
         events += tick_storm(self.weather, self.settlement, storm_rng)
+        frost_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_frost")
+        events += tick_frost(self.disasters, self.weather, self.farms, frost_rng)
         if "month_end" in calendar_events and self.lakes:
             occupied_tiles = {(a.x, a.y) for a in self.population.agents}
             lake_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "lakes")
@@ -236,6 +251,9 @@ class World:
                 "flood_pressure": round(self.disasters.flood_pressure, 3),
                 "active_flood_tiles": len(self.disasters.flooded_tiles),
                 "active_wildfire_tiles": len(self.disasters.active_wildfire_tiles),
+                "heat_pressure": round(self.disasters.heat_pressure, 3),
+                "heatwave_active": self.disasters.heatwave_active,
+                "frost_ticks": self.disasters.frost_ticks,
             },
             "world_size": f"{self.config.width}x{self.config.height}",
             "population": self.population.summary(),
