@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover — this project's target hardware is Li
 
 from hearthmind.agents.agent import DIALOGUE_COOLDOWN_TICKS, AgentGoal
 from hearthmind.config import Config
-from hearthmind.llm import chronicle, culture, dialogue, festival, invention, town_brain
+from hearthmind.llm import beliefs, chronicle, culture, dialogue, festival, invention, town_brain
 from hearthmind.llm.client import OllamaClient
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
@@ -268,6 +268,7 @@ class SimulationEngine:
         self._maybe_schedule_invention(events)
         self._maybe_schedule_festival(events)
         self._maybe_schedule_town_brain(events)
+        self._maybe_schedule_beliefs(events)
         self._schedule_due_cognition()
         self._schedule_due_dialogue()
         self._last_tick_duration_ms = (time.perf_counter() - tick_start) * 1000
@@ -448,6 +449,7 @@ class SimulationEngine:
         prompt = chronicle.build_prompt(
             recent, population_summary, previous_season, year,
             settlement_name=self.world.settlement.name, traditions=self.world.settlement.traditions,
+            beliefs=list(self.world.settlement.beliefs),
         )
         fallback = chronicle.fallback_summary(recent, population_summary, previous_season, year)
         task = asyncio.create_task(self._run_chronicle(prompt, fallback))
@@ -603,6 +605,7 @@ class SimulationEngine:
         settlement_summary = settlement.summary()
         prompt = town_brain.build_prompt(
             settlement.name, recent, population_summary, settlement_summary, list(settlement.player_influence),
+            beliefs=list(settlement.beliefs),
         )
         fallback = town_brain.fallback_priority(population_summary, settlement_summary)
         task = asyncio.create_task(self._run_town_brain(prompt, fallback))
@@ -618,6 +621,62 @@ class SimulationEngine:
         self.world.settlement.current_priority = priority
         self.world.settlement.priority_rationale = rationale
         self._log("town_brain", f"The village's priority is now {priority} — {rationale}")
+        self._record_llm_call(used_fallback)
+
+    # --- the town's own evolving theory of itself (continuous cognition) -------
+
+    def _maybe_schedule_beliefs(self, events: list[str]) -> None:
+        """Once a month, for a named settlement, the LLM (or its
+        deterministic fallback — see llm/beliefs.fallback_belief) forms
+        a new theory about the village, or revises one it already
+        holds, given recent history. The concrete expression of
+        "cognition as continuous rather than stateless" (CLAUDE.md):
+        `Settlement.beliefs` persists and is fed back into future
+        town-brain/chronicle prompts as accumulated context, so the
+        LLM's own past interpretations shape its future ones. Monthly
+        (not seasonal, like town_brain) since this is meant to
+        accumulate faster and more granularly — a running theory, not a
+        rare civic decision."""
+        if "month_end" not in events or not self.world.settlement.name:
+            return
+        settlement = self.world.settlement
+        recent = recent_events(self.conn, limit=30)
+        population_summary = self.world.population.summary()
+        settlement_summary = settlement.summary()
+        prompt = beliefs.build_prompt(
+            settlement.name, recent, list(settlement.beliefs), population_summary, settlement_summary,
+        )
+        fallback = beliefs.fallback_belief(recent, list(settlement.beliefs), settlement_summary)
+        task = asyncio.create_task(self._run_beliefs(prompt, fallback, len(settlement.beliefs)))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _run_beliefs(self, prompt: str, fallback: dict, existing_count: int) -> None:
+        result, used_fallback = await self._cognition_runner.run(
+            prompt, beliefs.SYSTEM_PROMPT, fallback=lambda: fallback
+        )
+        parsed = beliefs.parse_belief(result, fallback, existing_count)
+        settlement = self.world.settlement
+        tick = self.world.clock.tick_count
+        revises = parsed["revises"]
+        if revises is not None:
+            entry = settlement.beliefs[revises]
+            entry["belief"] = parsed["belief"]
+            entry["confidence"] = parsed["confidence"]
+            entry["subject"] = parsed["subject"]
+            entry["revised_tick"] = tick
+            entry["revision_count"] = entry.get("revision_count", 0) + 1
+            self._log("belief_revised", f"The village revised its view of {entry['subject']}: {entry['belief']}")
+        else:
+            entry = {
+                "subject": parsed["subject"], "belief": parsed["belief"], "confidence": parsed["confidence"],
+                "formed_tick": tick, "revised_tick": tick, "revision_count": 0,
+            }
+            settlement.beliefs.append(entry)
+            if len(settlement.beliefs) > beliefs.MAX_BELIEFS:
+                weakest = min(settlement.beliefs, key=lambda b: b["confidence"])
+                settlement.beliefs.remove(weakest)
+            self._log("belief_formed", f"The village came to believe something about {entry['subject']}: {entry['belief']}")
         self._record_llm_call(used_fallback)
 
     def _log(self, category: str, description: str) -> None:

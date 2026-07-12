@@ -37,12 +37,10 @@ class Config:
 
     days_per_month: tuple[int, ...] = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
     """A real 12-month, 365-day calendar (no leap years — not worth the
-    complexity for a simulated town). Replaces the old fixed-20-day,
-    4-season calendar. A snapshot saved before this rework has no
-    `days_per_month` and is reconstructed with a synthetic one that
-    reproduces its original shape exactly (see `World.from_dict`) — an
-    existing world's calendar never silently changes underfoot, since
-    it's creation-only, exactly like `seed`."""
+    complexity for a simulated town). Legacy-snapshot compatibility with
+    the old fixed-20-day, 4-season calendar was deliberately dropped
+    (explicit user instruction) — every snapshot is expected to carry
+    this field."""
     month_names: tuple[str, ...] = (
         "January", "February", "March", "April", "May", "June",
         "July", "August", "September", "October", "November", "December",
@@ -82,20 +80,19 @@ class Config:
     local smoke test). See docs/DECISIONS.md, E2."""
 
     llm_host: str = "http://localhost:11434"
-    llm_model: str = "qwen3:4b"
-    """Moved from `qwen2.5:7b-instruct` (~4.5GB Q4) to Qwen3 (a newer
-    generation than 2.5, released well after it) at the 4B tier
-    (~2.6GB Q4) — smaller and lighter than the old 7B default while
-    generally matching or beating its quality on community benchmarks,
-    which leaves more of the 8GB+zram budget for the simulation process
-    itself. `qwen3:1.7b` (~1.1GB) is the lighter fallback if this is
-    still too heavy/slow on real hardware — report back rather than
-    silently reverting. Qwen3 is a hybrid "thinking" model; this project
-    disables that (see OllamaClient.generate_json's `"think": False`
-    and its defensive `<think>` stripping) since every prompt here wants
-    a single strict-JSON answer, not visible chain-of-thought eating
-    into the timeout budget. See docs/DECISIONS.md, "LLM-as-brain
-    batch\" and the real-calendar/genesis-seed follow-up."""
+    llm_model: str = "qwen3.5:2b"
+    """Set per explicit user instruction (confirmed available/pulled on
+    their machine) — smaller still than the prior `qwen3:4b` default,
+    leaving more of the 8GB+zram budget for the simulation process
+    itself. Qwen3.x is a hybrid "thinking" model; this project disables
+    that (see OllamaClient.generate_json's `"think": False` and its
+    defensive `<think>` stripping) since every prompt here wants a
+    single strict-JSON answer, not visible chain-of-thought eating into
+    the timeout budget. If a live run shows 2B is too weak for coherent
+    town-brain/dialogue output, report back rather than silently
+    reverting. See docs/DECISIONS.md, "LLM-as-brain batch,\" the
+    real-calendar/genesis-seed follow-up, and the world-model/beliefs
+    follow-up."""
     llm_timeout_seconds: float = 30.0
     """CPU inference on an 8GB+zram machine that's also running the
     simulation itself is noticeably slower under contention than a quiet

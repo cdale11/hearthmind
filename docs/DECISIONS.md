@@ -1754,3 +1754,79 @@ session, vs. the old yearly cadence needing ~7680 ticks for a first
 roll), and round-tripped `to_dict`/`from_dict` with the new
 `founding_scenario`/`era` fields intact. All touched files pass
 `python3 -m py_compile`; `app.js` passes `node --check`.
+
+## World-model/beliefs follow-up
+
+User instructions (verbatim, condensed): legacy world-save compatibility
+is not required (drop it); `qwen3.5:2b` is available and should be the
+default; and a restated/expanded philosophy asking specifically for
+"continuous cognition" — the local LLM should build and revise an
+internal model of the world through experience (memory consolidation,
+belief revision, new hypotheses about people/families/settlements/
+traditions/politics/economics/recurring patterns/player influence/the
+town itself) rather than being stateless per-call, with model weights
+never changing.
+
+**Legacy calendar compatibility dropped.** `World.from_dict` no longer
+branches on a missing `days_per_month` — the synthetic-legacy-calendar
+reconstruction added in the prior batch (real-calendar/genesis-seed
+follow-up) was removed outright per explicit instruction. A pre-0.28.0
+snapshot will now raise a `KeyError` on load rather than degrade
+gracefully; this is an accepted, deliberate tradeoff, not an oversight.
+`Config.days_per_month`'s docstring updated to say so plainly.
+
+**Model set to `qwen3.5:2b`.** This project's own prior entry stated
+"there is no Qwen3.5" — the user has since confirmed it's available and
+pulled on their machine, which supersedes that assumption; a live
+environment is better evidence than training-data recall about a
+fast-moving model catalog. Set as the new `Config.llm_model` default
+(was `qwen3:4b`), with `qwen3:4b` now documented as the size-up path if
+2B output proves too weak for coherent town-brain/dialogue/belief
+output — not yet soak-tested at 2B by this change itself.
+
+**World beliefs (continuous cognition).** New `hearthmind/llm/beliefs.py`,
+mirroring the existing `town_brain.py`/`chronicle.py` shape
+(`SYSTEM_PROMPT`, `build_prompt`, `fallback_belief`, `parse_belief`).
+`Settlement.beliefs: list[dict]` holds up to `MAX_BELIEFS` (12) entries,
+each `{subject, belief, confidence, formed_tick, revised_tick,
+revision_count}`. `SimulationEngine._maybe_schedule_beliefs` runs on
+`month_end` for a named settlement (monthly, not seasonal like
+town_brain — deliberately faster/more granular, since this is meant to
+read as an accumulating running theory rather than a rare civic
+decision) and calls `_run_beliefs`, which either revises an existing
+entry (LLM returns a `revises` index, validated against the current
+list length; `revised_tick`/`revision_count` bumped, text/confidence/
+subject overwritten) or appends a new one, evicting the lowest-
+confidence entry if the cap is exceeded.
+
+The key design choice making this "continuous" rather than just another
+independent periodic job: `town_brain.build_prompt` and
+`chronicle.build_prompt` both gained an optional `beliefs` parameter,
+and `SimulationEngine`'s existing call sites for both now pass
+`settlement.beliefs` through — the village's own accumulated
+interpretations become part of the context for its *next* civic
+decision and its *next* seasonal summary, not a dead-end sidecar list
+only the UI reads. This closes the loop CLAUDE.md now calls "cognition
+as continuous rather than stateless" without introducing a second,
+parallel per-agent belief store — agents already have a `memories` list
+(A5); this is deliberately settlement-scoped, the smallest coherent
+step toward "the town is itself a subtle character... slowly forming
+opinions," not a full per-entity belief architecture (person/family/
+politics-level belief-tracking remains future scope, noted but not
+built this batch — the settlement-wide `subject` field can already name
+a specific person/family in its text, which gets most of the way there
+for a small population, without new per-agent state).
+
+New UI panel ("The village's own theories"), `inspect_world` section,
+and `belief_formed`/`belief_revised` event categories/icons.
+
+Verified (LLM disabled in this environment, deterministic fallbacks
+exercised throughout): `fallback_belief`/`parse_belief` unit-level
+checks (new belief, revision by valid index, malformed-LLM-output ->
+fallback fields) all produced the expected dicts. A 9000-tick full
+async engine run (seed 7, population 10) produced two independently-
+formed beliefs at two different month boundaries (ticks 5664, 8640)
+with the fallback's naive "most common recent category" heuristic, and
+round-tripped through `to_dict`/`from_dict` with `settlement.beliefs`
+intact. All touched files pass `python3 -m py_compile`; `app.js` passes
+`node --check`.

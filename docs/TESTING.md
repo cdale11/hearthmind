@@ -144,7 +144,7 @@ full sim-day's worth of ticks, the cognition scheduling itself is broken
 before any release that touts LLM behavior:**
 
 ```bash
-ollama pull qwen3:4b   # or whatever --llm-model you're testing
+ollama pull qwen3.5:2b   # or whatever --llm-model you're testing
 rm -f /tmp/hm_llm.sqlite3*
 timeout 10 python3 -m hearthmind.server --db /tmp/hm_llm.sqlite3 \
     --seed 1 --width 16 --height 16 --tick-seconds 0.2 --initial-population 4 \

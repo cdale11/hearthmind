@@ -506,6 +506,17 @@ class Settlement:
     (see hearthmind.llm.world_genesis) — the same text whose hash chose
     this world's seed. Empty for worlds created before this existed, or
     when `--seed` was passed explicitly (genesis is skipped)."""
+    beliefs: list[dict] = field(default_factory=list)
+    """The village's own accumulated, LLM-formed (or deterministic-
+    fallback) theories about itself — people, families, traditions,
+    politics, economy, recurring patterns, outside influence. Each is
+    `{subject, belief, confidence, formed_tick, revised_tick,
+    revision_count}`. Formed/revised monthly (see llm/beliefs.py,
+    SimulationEngine._maybe_schedule_beliefs) and fed back into future
+    town-brain/chronicle prompts as accumulated context — the concrete
+    expression of "cognition as continuous rather than stateless."
+    Capped at MAX_BELIEFS; not guaranteed correct, exactly like a
+    person's own beliefs about their community."""
 
     # --- queries -------------------------------------------------------------
 
@@ -626,6 +637,7 @@ class Settlement:
             "era": self.era,
             "era_description": ERA_DESCRIPTIONS.get(self.era, ""),
             "founding_scenario": self.founding_scenario,
+            "beliefs": list(self.beliefs),
         }
 
     def infrastructure_report(self) -> list[dict]:
@@ -699,6 +711,7 @@ class Settlement:
             "player_influence": list(self.player_influence),
             "era": self.era,
             "founding_scenario": self.founding_scenario,
+            "beliefs": list(self.beliefs),
         }
 
     @classmethod
@@ -718,4 +731,5 @@ class Settlement:
             player_influence=list(data.get("player_influence", [])),
             era=data.get("era", "industrial"),
             founding_scenario=data.get("founding_scenario", ""),
+            beliefs=list(data.get("beliefs", [])),
         )

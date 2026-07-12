@@ -251,33 +251,16 @@ class World:
         caller can log/persist the change once (see M2-3, generalized in
         A4)."""
         saved = data["config"]
-        if "days_per_month" in saved:
-            days_per_month = tuple(saved["days_per_month"])
-            month_names = tuple(saved["month_names"])
-            month_to_season = tuple(saved["month_to_season"])
-            seasons_per_year = tuple(saved["seasons_per_year"])
-        else:
-            # Legacy snapshot predating the real-calendar rework: it had a
-            # fixed N-day-per-season, 4-season year. Reconstruct an
-            # equivalent "N months, each one season long" calendar so the
-            # unified month-based SimClock reproduces its original
-            # day/season math exactly — this world's calendar was baked in
-            # at creation and must never silently change underfoot.
-            legacy_days_per_season = saved.get("days_per_season", 20)
-            seasons_per_year = tuple(saved.get("seasons_per_year", Config.seasons_per_year))
-            days_per_month = tuple(legacy_days_per_season for _ in seasons_per_year)
-            month_names = tuple(s.capitalize() for s in seasons_per_year)
-            month_to_season = tuple(range(len(seasons_per_year)))
         config = Config(
             seed=saved["seed"],
             width=saved["width"],
             height=saved["height"],
             sim_minutes_per_tick=saved["sim_minutes_per_tick"],
             minutes_per_day=saved["minutes_per_day"],
-            days_per_month=days_per_month,
-            month_names=month_names,
-            seasons_per_year=seasons_per_year,
-            month_to_season=month_to_season,
+            days_per_month=tuple(saved["days_per_month"]),
+            month_names=tuple(saved["month_names"]),
+            seasons_per_year=tuple(saved["seasons_per_year"]),
+            month_to_season=tuple(saved["month_to_season"]),
             initial_population=saved.get("initial_population", Config.initial_population),
             tick_seconds=runtime_config.tick_seconds,
             snapshot_every_ticks=runtime_config.snapshot_every_ticks,

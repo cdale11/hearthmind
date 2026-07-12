@@ -4,6 +4,32 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.29.0] — Add: world beliefs (continuous cognition); model set to qwen3.5:2b; drop legacy calendar compat
+
+### Added
+- `llm/beliefs.py` + `Settlement.beliefs`: the village's own persistent,
+  evolving theory of itself. Once a month, for a named settlement, the
+  LLM (or its deterministic fallback) forms a new belief about a
+  person/family/tradition/pattern/outside-influence, or revises one it
+  already holds, given recent history — and those beliefs are fed back
+  into the next town-brain and chronicle prompts as accumulated
+  context, so the LLM's own past interpretations shape its future
+  ones. Capped at 12 entries (lowest-confidence evicted). New "The
+  village's own theories" UI panel, `inspect_world` section, and
+  `belief_formed`/`belief_revised` event categories.
+
+### Changed
+- Default LLM model set to `qwen3.5:2b` per explicit user instruction
+  (confirmed available on their machine, correcting this project's
+  earlier assumption that no "Qwen3.5" existed).
+- Legacy pre-real-calendar snapshot compatibility deliberately dropped
+  per explicit user instruction — `World.from_dict` no longer
+  reconstructs a synthetic calendar from an old `days_per_season`/
+  `seasons_per_year`-only config block; every snapshot is expected to
+  carry `days_per_month`/`month_names`/`month_to_season`.
+
+See `docs/DECISIONS.md`, "World-model/beliefs follow-up."
+
 ## [0.28.0] — Add: real 365-day UK calendar, eras, LLM-genesis seed, model swap
 
 ### Added

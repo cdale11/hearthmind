@@ -16,18 +16,18 @@ branch `claude/hearthmind-overview-5bekay`.
 
 ## Hardware target
 
-8GB RAM + zram swap, CPU-only inference. Default model `qwen3:4b`
-(~2.6GB Q4 weights) — moved from `qwen2.5:7b-instruct` (~4.5GB) to a
-newer generation (Qwen3, not "Qwen3.5" — that doesn't exist as of this
-writing) at a smaller size, generally matching or beating the old 7B's
-quality on community benchmarks while leaving more headroom for the
-simulation process itself. `qwen3:1.7b` (~1.1GB) is the lighter
-fallback if this is still too heavy/slow on the user's actual box —
-`--llm-model qwen3:1.7b` and report back, don't silently downgrade the
-default without that signal. Qwen3 is a hybrid "thinking" model; every
-call disables that (`OllamaClient` sends `"think": false` and
-defensively strips any `<think>` block that leaks through anyway) since
-every prompt in this project wants one strict-JSON answer, not visible
+8GB RAM + zram swap, CPU-only inference. Default model `qwen3.5:2b` —
+set by explicit user instruction (confirmed available/pulled on their
+machine, superseding this file's earlier note that "Qwen3.5" didn't
+exist — take the user's live environment as ground truth over training
+data on naming/availability of fast-moving model releases), leaving
+substantial headroom for the simulation process itself. `qwen3:4b` is
+the documented size-up path if 2B proves too weak for coherent
+town-brain/dialogue output — size up and report back, don't silently
+guess. Qwen3.x is a hybrid "thinking" model; every call disables that
+(`OllamaClient` sends `"think": false` and defensively strips any
+`<think>` block that leaks through anyway) since every prompt in this
+project wants one strict-JSON answer, not visible
 chain-of-thought eating into the timeout budget. `llm_timeout_seconds=30`,
 `llm_max_concurrent=4`. LLM is on by default (`Config.llm_enabled=True`)
 and treated as not budget-constrained on the user's hardware — prefer
@@ -77,6 +77,25 @@ automated suite is deemed unreliable and isn't run. That workflow rule
 stays in force until the user says otherwise — flag it back to them
 rather than picking a side silently.
 
+**Continuous cognition, not stateless.** The local LLM's weights never
+change; instead, its understanding of *this* world accumulates through
+`Settlement.beliefs` (`llm/beliefs.py`) — a small, persistent set of
+theories the LLM itself forms and later revises about people, families,
+traditions, politics, economy, recurring patterns, and outside (player)
+influence, fed back into future town-brain/chronicle prompts as
+accumulated context so past interpretations shape future ones. A belief
+is not guaranteed correct and can be revised or superseded, same as a
+person's own running theory of their community. This is the first
+concrete step toward "the town is itself a subtle character... slowly
+forming opinions" — deliberately scoped small (settlement-level
+theories, monthly cadence, a capped list) rather than building a
+parallel per-agent belief-store on top of the per-agent `memories` list
+that already exists; extend it incrementally rather than replacing it
+wholesale. The supernatural/ambiguous-consciousness framing stays
+implicit — nothing in `beliefs.py`'s prompts asserts the town literally
+thinks, only that it accumulates and revises theories, which is
+mechanically real regardless of how a player chooses to read it.
+
 ## LLM as the town's brain
 
 The LLM isn't just a flavor-text generator bolted onto deterministic
@@ -112,7 +131,10 @@ wall-clock terms; if the map still "doesn't seem to be evolving" on a
 live run, that's a signal to shorten those cadences further or boost the
 roll chances, not a hint to go back to season/year triggers. An existing
 saved world's calendar shape is creation-only and never changes
-underfoot (see `World.from_dict`'s legacy-snapshot reconstruction).
+underfoot. Legacy-snapshot compatibility with the old fixed-20-day
+calendar was deliberately dropped (explicit user instruction) — a
+snapshot from before this rework won't load; there is no migration
+path, and none is planned.
 
 A settlement starts in the `industrial` era and can advance
 (electrical -> modern -> digital) purely as a function of accumulated

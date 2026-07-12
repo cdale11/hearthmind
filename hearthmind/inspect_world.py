@@ -111,6 +111,10 @@ def main(argv: list[str] | None = None) -> None:
         print(f"             founding scenario: \"{settle['founding_scenario']}\"")
     if settle.get("current_priority"):
         print(f"             town brain priority: {settle['current_priority']} — {settle.get('priority_rationale', '')}")
+    if settle.get("beliefs"):
+        print("             the village's own theories about itself:")
+        for b in sorted(settle["beliefs"], key=lambda b: -b["confidence"]):
+            print(f"               - {b['subject']}: {b['belief']} (confidence {b['confidence']:.2f})")
     if settle["traditions"]:
         print(f"             traditions: {'; '.join(settle['traditions'])}")
     if settle.get("inventions"):

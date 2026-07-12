@@ -118,7 +118,7 @@ Useful flags on `server.py`:
   deterministic fallback, so this flag is only needed for a fully
   offline/deterministic run.
 - `--llm-host URL` (default `http://localhost:11434`), `--llm-model NAME`
-  (default `qwen3:4b`), `--llm-timeout SECONDS` (default 30 —
+  (default `qwen3.5:2b`), `--llm-timeout SECONDS` (default 30 —
   CPU inference under contention on 8GB+zram can be slower than a quiet
   benchmark, see `docs/DECISIONS.md` D5), `--llm-max-concurrent INT`
   (default 4) — all runtime settings, safe to change between runs.
@@ -138,21 +138,20 @@ Ollama is reachable. The simulation stays fully functional without
 Ollama installed (`fallback_goal`/`fallback_summary`/`fallback_tradition`/
 `fallback_dialogue` stand in for it, see `docs/DECISIONS.md` B1-B3, E1,
 E2) — nothing raises or blocks a tick if the LLM is disabled,
-unreachable, or times out. The default model, `qwen3:4b` (~2.6GB Q4
-weights), is Qwen3 (a newer generation than 2.5) at a size chosen to
-leave more of an 8GB+zram budget for the simulation process itself
-while generally matching or beating the older `qwen2.5:7b-instruct`
-default it replaced on quality — if a live run shows it's too heavy/slow
-on your hardware, drop back with `--llm-model qwen3:1.7b` (~1.1GB) and
-let the maintainers know. Qwen3 is a hybrid "thinking" model; this
+unreachable, or times out. The default model, `qwen3.5:2b`, was set by
+explicit user instruction (confirmed pulled/available on their
+machine), leaving substantial 8GB+zram headroom for the simulation
+process itself — if a live run shows 2B is too weak for coherent
+town-brain/dialogue output, size up (e.g. `--llm-model qwen3:4b`) and
+let the maintainers know. Qwen3.x is a hybrid "thinking" model; this
 project always disables that (`"think": false`, plus a defensive
 `<think>`-block strip) since every prompt here wants one strict-JSON
 answer. See `docs/DECISIONS.md`, "LLM-as-brain batch," B4, and the
-real-calendar/genesis-seed follow-up.
+real-calendar/genesis-seed and world-model/beliefs follow-ups.
 
 ```bash
 # 1. Install and start Ollama (see https://ollama.com), then pull a model:
-ollama pull qwen3:4b
+ollama pull qwen3.5:2b
 
 # 2. Run the server (LLM is on by default):
 python3 -m hearthmind.server --db world.sqlite3

@@ -318,8 +318,13 @@ the simulation.
   one-time LLM call picks a founding-scenario sentence whose hash
   becomes a brand-new world's seed when `--seed` is omitted. See same
   entry.
+- **[x] World beliefs (continuous cognition).** `llm/beliefs.py` +
+  `Settlement.beliefs` — the village's own persistent, LLM-formed-and-
+  revised theories about itself, fed back into town-brain/chronicle
+  prompts. See `docs/DECISIONS.md`, "World-model/beliefs follow-up."
 - Not yet built: per-agent click-to-inspect beyond hover tooltips, a
-  historical/replay view.
+  historical/replay view, per-person/per-family belief tracking beyond
+  the settlement-wide `beliefs` list.
 
 ## Phase G — Supernatural / psychological horror layer
 

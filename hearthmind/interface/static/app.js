@@ -62,6 +62,8 @@ const CATEGORY_META = {
   wildlife_extinct: { icon: "🦴" },
   town_brain: { icon: "🧠" },
   intervention: { icon: "✨" },
+  belief_formed: { icon: "💭" },
+  belief_revised: { icon: "🔄" },
 };
 
 // Terrain evolves now (deforestation, reclamation, climate drift), so the
@@ -500,6 +502,20 @@ function renderStats(summary) {
 
   document.getElementById("settlement-name").textContent = s.name || "Hearthmind (unnamed settlement)";
   document.getElementById("clock-line").textContent = `${summary.date} · ${summary.clock} · ${summary.weather}`;
+
+  const beliefsEl = document.getElementById("beliefs-list");
+  if (beliefsEl) {
+    beliefsEl.innerHTML = s.beliefs && s.beliefs.length
+      ? s.beliefs
+          .slice()
+          .sort((a, b) => b.confidence - a.confidence)
+          .map((b) => {
+            const revised = b.revision_count > 0 ? ` (revised ${b.revision_count}x)` : "";
+            return `<li><b>${b.subject}</b>: ${b.belief} <span class="muted">(confidence ${Math.round(b.confidence * 100)}%${revised})</span></li>`;
+          })
+          .join("")
+      : "<li>none yet — forms and revises over time</li>";
+  }
 
   const traditionsEl = document.getElementById("traditions-list");
   traditionsEl.innerHTML = s.traditions.length
