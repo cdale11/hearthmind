@@ -166,6 +166,14 @@ omen is forced to follow. Same permanent ambiguity rule; extend this
 incrementally rather than reaching for anything explicit remains the
 standing instruction.
 
+**v4: a player-visible building nudges Phase G.** `SHRINE_OMEN_
+CHANCE_MULTIPLIER` (1.3x) on the monthly omen-firing chance while a
+SHRINE stands — the first Phase G lever driven by something the player
+can see and choose to build, rather than only pure event-count fortune
+or noise. Same small, non-dominant magnitude as every other nudge in
+this system; the shrine itself is never narrated as supernatural
+anywhere, same as everything else here.
+
 ## Per-person beliefs
 
 `Settlement.beliefs` entries can resolve to a specific living
@@ -438,15 +446,33 @@ feature checklist, `CHANGELOG.md` for version history.
 
 ## Known architectural gaps (not yet built)
 
-- Per-agent inventory/trade and multiple named settlements — both
-  genuinely large, architecturally separate efforts (the latter means
-  `Settlement` stops being a world-wide singleton), intentionally not
-  bundled into smaller batches.
-- Culture-specific building types, structured per-family belief
-  resolution (family-labeled beliefs stay free text), a true scrub-
-  through-time replay view (documentary mode narrates a year, it
-  doesn't let a player step through history frame-by-frame), and
-  *where* to build (construction site choice is still pure-chance
+- **Multiple named settlements** — the one remaining genuinely large,
+  architecturally separate effort (`Settlement` stops being a
+  world-wide singleton, touching population/engine/every LLM prompt/
+  the interface layer/snapshot schema in the same pass). Explicitly
+  scoped out of the batch that shipped per-agent inventory/trade,
+  culture-specific buildings, and structured per-family beliefs
+  together — see docs/DECISIONS.md, "Multiple named settlements:
+  explicitly not attempted this batch" for the full rationale. Remains
+  the correct next candidate for its own dedicated session.
+- **Per-agent inventory/trade: shipped, v1.** `Agent.inventory` — a
+  single good (personal food), stashed from farm/granary foraging,
+  drawn on by the agent first, then shared with a colocated non-rival
+  neighbor (`Population._maybe_trade_food`). Deliberately scoped down
+  from the maximal "full peer-to-peer economy" reading — no hauling, no
+  market, no multi-good inventory, no price discovery. Those remain
+  open for a future round if wanted.
+- **Culture-specific building types: shipped, v1.** `BuildingKind.
+  SHRINE`, foundable only once a tradition exists, deepens festivals on
+  its tile and slightly raises the omen chance (the first direct
+  culture-buildings/Phase-G interaction).
+- **Structured per-family belief resolution: shipped.**
+  `beliefs.resolve_family_agent_ids` widens a belief's resolved subject
+  to their living parents/children/full siblings (via `Agent.parents`
+  — no surname system exists), consumed by dialogue's `beliefs_about`.
+- A true scrub-through-time replay view (documentary mode narrates a
+  year, it doesn't let a player step through history frame-by-frame),
+  and *where* to build (construction site choice is still pure-chance
   colocation — only *whether*/*what kind* are cognition-steered).
 - Everything else the roadmap once listed as "not yet built" — Phase G
   intensity/subject depth, the trust lever, the town's opinion of the

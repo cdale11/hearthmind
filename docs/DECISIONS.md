@@ -2868,3 +2868,127 @@ omen_history entries, correctly capped at `OMEN_HISTORY_MAX=6`; a
 6000-tick full engine run plus snapshot round-trip completed cleanly
 including the new field. All touched Python files pass `python3 -m
 py_compile`.
+
+## Per-agent inventory/trade, culture-specific buildings, per-family beliefs, Phase G v4
+
+Explicit user request to tackle both of the roadmap's two "genuinely
+large, architecturally separate" gaps (per-agent inventory/trade,
+multiple named settlements) plus the two smaller named gaps (culture-
+specific building types, structured per-family belief resolution)
+"and phase G" together, in one go. Read literally that's five separate
+large efforts in one pass; the batching rule ("implement multiple
+systems per session... no half-finished pieces within a batch — every
+system landed must be mechanically real") and the "audit before
+continuing" rule both argue against attempting all five with equal
+scope. Split the difference: implemented four of the five as real,
+complete, deliberately-scoped slices, and explicitly declined the
+fifth (multiple named settlements) rather than half-attempt it — see
+below.
+
+**Per-agent inventory/trade** was always going to be the harder of the
+two "large" gaps to scope down honestly, since the maximal version
+(multi-good inventory, hauling, markets, price discovery) really is a
+large effort. Landed the smallest version that's still mechanically
+real rather than a stub: `Agent.inventory` holds one good (`"food"`),
+stashed as a small skim (`FORAGE_INVENTORY_SKIM=0.05`, capped at
+`PERSONAL_FOOD_CAPACITY=0.6`) alongside a successful farm-harvest or
+granary-withdrawal forage — deliberately not wild foraging or an
+emergency currency purchase, both scarcity-driven with nothing spare
+to save. An agent draws on their own stash before scrounging further
+(`Population._maybe_forage`'s new branch, ordered after the granary
+check and before wildlife hunting — "eat what you saved before hunting
+or scrounging"). `Population._maybe_trade_food` (new, called from
+`tick()` right after `_maybe_stock_granaries`, using the same
+already-computed `by_position` colocation map every other presence-
+driven mechanic in this project uses) lets a hungry, personally-empty
+agent receive from a colocated agent with food to spare, gated on
+`relationship > TRADE_MIN_RELATIONSHIP=-0.2` (rivals don't share first,
+though ordinary strangers at 0 do) — a real, if small
+(`TRADE_FOOD_AMOUNT=0.2`, matching `FORAGE_AMOUNT`'s scale) transfer
+with a `TRADE_RELATIONSHIP_BOOST=0.03` nudge on both sides and a
+`_remember` memory entry for the recipient. This is the one place in
+the whole project food moves directly between two named individuals
+rather than through the settlement's communal granary/currency — a
+genuinely new axis, not a re-skin of an existing mechanic.
+
+**Culture-specific building types**: `BuildingKind.SHRINE`, gated in
+`choose_building_kind` behind a new `has_tradition: bool` parameter
+(mirrors the existing `era` gate FACTORY already uses) — only enters
+the foundable weighted pool once `Settlement.traditions` is non-empty.
+Chose one clear, proportionate mechanical payoff rather than several
+small ones: `SHRINE_FESTIVAL_BOOST_MULTIPLIER=1.5` deepens
+`FESTIVAL_RELATIONSHIP_BOOST` for any pair colocated on a standing
+shrine's tile when a festival is held (`Population.hold_festival`
+gained an optional `settlement` param to check this). Also gave it a
+second, smaller effect specifically to satisfy "prefer systems
+interacting with existing systems over isolated mechanics"
+(CLAUDE.md): `SHRINE_OMEN_CHANCE_MULTIPLIER=1.3` on
+`SimulationEngine._maybe_schedule_omen`'s firing chance when a shrine
+stands — a physical expression of the village's own culture is
+somewhat likelier to be where something ambiguous gets noticed. This
+is also this batch's Phase G increment (the user's "and phase G"):
+deliberately not a new isolated Phase G lever, but the first case of a
+*player-visible building* nudging an existing Phase G roll, alongside
+the pre-existing pure-fortune/pure-noise drivers.
+
+**Structured per-family belief resolution**: `Agent` names turned out
+to have no surname/family-name concept at all (verified via targeted
+codebase search before designing this — `hearthmind/agents/names.py`
+draws single-token first names, falling back to "Name II"/"Name III"
+once the pool exhausts rather than adding a family name), so
+family-level resolution can't be string-matching on a surname the way
+`resolve_subject_agent_id` matches a full name. Instead
+`beliefs.resolve_family_agent_ids(subject_agent_id, agents)` computes
+family membership structurally from `Agent.parents` — the subject
+themself, their living parents, their living children, and their
+living full siblings (agents sharing the identical `parents` tuple) —
+recomputed fresh at belief formation/revision time rather than stored
+as a persistent family-id, since a family's *living* membership
+changes as people are born and die and a stale id list would drift
+wrong. Stored on the belief entry as `subject_family_agent_ids`
+(additive key; old entries without it default to `[]` via `.get(...,
+())`  at every consumption site, no migration needed).
+`SimulationEngine._schedule_due_dialogue`'s `beliefs_about` filter now
+matches on `subject_agent_id` OR membership in
+`subject_family_agent_ids`, so a belief about one Hallow reaches every
+living Hallow's dialogue prompts, not just the one the LLM happened to
+name.
+
+**Multiple named settlements: explicitly not attempted this batch.**
+This is the one item where "implement a scoped slice" isn't really
+available — the ask is structural: `Settlement` stops being a
+world-wide singleton, which means `World.settlement`,
+`Population.tick`'s settlement-taking signature, every LLM job that
+currently takes one `settlement_summary`/`settlement.name`
+(town_brain, chronicle, beliefs, festival, invention, documentary,
+naming, omens — eight modules), the interface/API payload shape, the
+browser UI's assumption of one settlement, and the snapshot schema all
+change in the same pass, with no way to land a "partial" version that
+isn't either broken or a settlement-count-of-1 special case
+indistinguishable from doing nothing. CLAUDE.md's own "Known
+architectural gaps" section already calls this out by name as
+"genuinely large, architecturally separate," specifically *because*
+`Settlement` stopping being a singleton is not decomposable into
+independent smaller PRs the way inventory/trade's scope-down was.
+Attempting it in the same pass as four other substantial changes,
+without the project's own test suite (deemed unreliable, per
+CLAUDE.md's workflow rules — verification here is manual/ad-hoc plus
+the user's live diagnostics), risked leaving the live simulation in a
+half-migrated state that's hard to audit and easy to regress silently
+— directly against "audit before continuing; fix regressions before
+new features" and "preserve existing behavior unless explicitly
+changing it." Declining outright and flagging it back, rather than
+either skipping it silently or rushing a fragile version, is the
+documented call; it remains the clear next candidate for its own
+dedicated session.
+
+Verified (LLM disabled, deterministic fallback exercised throughout):
+a 25,000-tick and a separate 40,000-tick full `World.create_new` ->
+repeated `.tick()` run both completed without error; personal food
+accumulation confirmed directly (`avg_personal_food` > 0, specific
+agents observed holding 0.05-0.1 food after farm/granary harvests);
+`choose_building_kind` sampled 500 times each with `has_tradition=
+False`/`True` confirmed SHRINE never appears without a tradition and
+does appear with one; a snapshot round-trip (`to_dict`/`from_dict`)
+preserved population count and the new `inventory` field exactly. All
+touched Python files pass `python3 -m py_compile`.

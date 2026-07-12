@@ -51,7 +51,10 @@ from hearthmind.settlement.buildings import (
     INVENTION_CURRENCY_THRESHOLD,
     INVENTION_MATERIALS_FRACTION,
     MATERIALS_CAPACITY,
+    SHRINE_OMEN_CHANCE_MULTIPLIER,
     TEMPERAMENT_INVENTION_INFLUENCE,
+    BuildingKind,
+    BuildingStage,
     education_invention_bonus,
     era_for_tech_level,
     tick_player_standing,
@@ -551,6 +554,8 @@ class SimulationEngine:
             beliefs_about = [
                 f"{b['subject']} ({b['belief']})" for b in self.world.settlement.beliefs
                 if b.get("subject_agent_id") in (agent_a.id, agent_b.id)
+                or agent_a.id in b.get("subject_family_agent_ids", ())
+                or agent_b.id in b.get("subject_family_agent_ids", ())
             ]
             prompt = dialogue.build_prompt(
                 agent_a, agent_b, affinity, self.world.settlement.name, latest_tradition,
@@ -775,7 +780,7 @@ class SimulationEngine:
         name, description = festival.parse_festival(result, fallback)
         entry = f"{name}: {description}"
         self.world.settlement.festivals.append(entry)
-        affected = self.world.population.hold_festival()
+        affected = self.world.population.hold_festival(self.world.settlement)
         self._log("festival", f"The village held {entry} ({affected} bonds strengthened)")
         self._record_llm_debug("festival", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)
@@ -862,6 +867,7 @@ class SimulationEngine:
         settlement = self.world.settlement
         tick = self.world.clock.tick_count
         subject_agent_id = beliefs.resolve_subject_agent_id(parsed["subject"], self.world.population.agents)
+        subject_family_agent_ids = beliefs.resolve_family_agent_ids(subject_agent_id, self.world.population.agents)
         revises = parsed["revises"]
         if revises is not None:
             entry = settlement.beliefs[revises]
@@ -869,6 +875,7 @@ class SimulationEngine:
             entry["confidence"] = parsed["confidence"]
             entry["subject"] = parsed["subject"]
             entry["subject_agent_id"] = subject_agent_id
+            entry["subject_family_agent_ids"] = subject_family_agent_ids
             entry["revised_tick"] = tick
             entry["revision_count"] = entry.get("revision_count", 0) + 1
             self._log("belief_revised", f"The village revised its view of {entry['subject']}: {entry['belief']}")
@@ -876,6 +883,7 @@ class SimulationEngine:
             entry = {
                 "subject": parsed["subject"], "belief": parsed["belief"], "confidence": parsed["confidence"],
                 "subject_agent_id": subject_agent_id,
+                "subject_family_agent_ids": subject_family_agent_ids,
                 "formed_tick": tick, "revised_tick": tick, "revision_count": 0,
             }
             settlement.beliefs.append(entry)
@@ -924,7 +932,14 @@ class SimulationEngine:
         if intensity <= 0.0:
             return
         temperament = self.world.settlement.temperament
-        chance = min(1.0, (omens.OMEN_CHANCE_BASE + abs(temperament) * omens.OMEN_CHANCE_TEMPERAMENT_SCALE) * intensity)
+        chance = (omens.OMEN_CHANCE_BASE + abs(temperament) * omens.OMEN_CHANCE_TEMPERAMENT_SCALE) * intensity
+        has_shrine = any(
+            b.kind is BuildingKind.SHRINE and b.stage is BuildingStage.STANDING
+            for b in self.world.settlement.buildings
+        )
+        if has_shrine:
+            chance *= SHRINE_OMEN_CHANCE_MULTIPLIER
+        chance = min(1.0, chance)
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "omen_roll") >= chance:
             return
         recent = recent_events(self.conn, limit=10)

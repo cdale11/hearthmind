@@ -4,6 +4,56 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.39.0] — Per-agent inventory/trade, culture-specific buildings, per-family beliefs, Phase G v4
+
+Picks up two of the remaining large-and-explicitly-flagged gaps (scoped,
+not the maximal version of either) plus two smaller named gaps and one
+more Phase G increment, per explicit user request.
+
+### Added
+
+- **Per-agent inventory/trade** (`Agent.inventory`) — a deliberately
+  scoped first slice of the "genuinely large, architecturally separate"
+  per-agent economy gap: a single good (personal food), stashed as a
+  skim off successful farm/granary foraging (`FORAGE_INVENTORY_SKIM`),
+  drawn on by the agent themselves before scrounging elsewhere, and
+  directly shared with a colocated, non-rival, food-lacking neighbor
+  (`Population._maybe_trade_food`) at a small relationship cost/gain to
+  both sides. Not a market, not hauling, not multi-good — a real,
+  mechanically complete first step, not a stub.
+- **Culture-specific building type**: `BuildingKind.SHRINE`, foundable
+  only once the settlement has established at least one tradition
+  (`choose_building_kind`'s new `has_tradition` gate). A standing
+  shrine deepens festivals held on its tile
+  (`SHRINE_FESTIVAL_BOOST_MULTIPLIER`) and slightly raises the monthly
+  omen-firing chance (`SHRINE_OMEN_CHANCE_MULTIPLIER`) — the first
+  direct interaction between the new culture-buildings gap and Phase G.
+- **Structured per-family belief resolution**:
+  `beliefs.resolve_family_agent_ids` widens a belief's resolved
+  `subject_agent_id` to that person's living parents/children/full
+  siblings (computed fresh from `Agent.parents` each formation/
+  revision, not a separate family-id store), stored as
+  `subject_family_agent_ids`. Dialogue's `beliefs_about` now also
+  matches on family membership, so "the village believes the Hallow
+  family is reckless" reaches every living Hallow's conversations, not
+  only whichever name the LLM happened to write.
+- **Phase G v4**: `SHRINE_OMEN_CHANCE_MULTIPLIER` (see above) — the
+  first Phase G nudge driven by a player-visible building rather than
+  pure event-count fortune, still small and non-dominant.
+
+### Deliberately not attempted this batch
+
+- **Multiple named settlements** (`Settlement` stops being a
+  world-wide singleton) remains out of scope — a genuinely
+  architecture-breaking refactor touching population/engine/every LLM
+  prompt/the interface layer/snapshot schema, correctly flagged in
+  CLAUDE.md as too large to bundle safely alongside other work.
+  Attempting it in the same pass as the above risked leaving the
+  simulation in a half-migrated, unverifiable state, which the
+  project's own "no half-finished pieces," "audit before continuing,"
+  and "preserve existing behavior" rules all argue against. See
+  docs/DECISIONS.md for the explicit scoping rationale.
+
 ## [0.38.0] — Phase G v3: temperament's reach, omen memory
 
 Deepens Phase G further per explicit user request — still within the

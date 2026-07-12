@@ -21,6 +21,7 @@ from hearthmind.agents.agent import (
     FORAGE_AMOUNT,
     FORAGE_HUNGER_RELIEF,
     FORAGE_HUNGER_THRESHOLD,
+    FORAGE_INVENTORY_SKIM,
     GRIEF_ENERGY_PENALTY,
     HUNGER_RATE,
     MATURITY_TICKS,
@@ -28,6 +29,7 @@ from hearthmind.agents.agent import (
     MAX_LIFESPAN_TICKS,
     MIN_LIFESPAN_TICKS,
     MOVE_CHANCE,
+    PERSONAL_FOOD_CAPACITY,
     POPULATION_CAP,
     REPRODUCTION_AFFINITY_THRESHOLD,
     REPRODUCTION_CHANCE_PER_TICK,
@@ -37,6 +39,10 @@ from hearthmind.agents.agent import (
     RIVALRY_THRESHOLD,
     STARVATION_HUNGER_THRESHOLD,
     STARVATION_TICKS_TO_DEATH,
+    TRADE_FOOD_AMOUNT,
+    TRADE_HUNGER_RELIEF,
+    TRADE_MIN_RELATIONSHIP,
+    TRADE_RELATIONSHIP_BOOST,
     TRUST_DELTA,
     TRUST_SKEPTICISM_THRESHOLD,
     WAKE_THRESHOLD,
@@ -392,6 +398,7 @@ class Population:
         life_events.extend(self._advance_construction(by_position, settlement))
         life_events.extend(self._maybe_repair(by_position, settlement))
         self._maybe_stock_granaries(by_position, settlement)
+        self._maybe_trade_food(by_position, rng)
         self._maybe_run_workshops(by_position, settlement)
         self._maybe_run_factories(by_position, settlement)
         self._maybe_run_schools(by_position, settlement)
@@ -494,6 +501,9 @@ class Population:
             if consumed > 0:
                 relief = HARVEST_HUNGER_RELIEF * (consumed / HARVEST_AMOUNT) * _tech_factor(settlement)
                 agent.hunger = max(0.0, agent.hunger - relief)
+                agent.inventory["food"] = min(
+                    PERSONAL_FOOD_CAPACITY, agent.inventory.get("food", 0.0) + FORAGE_INVENTORY_SKIM
+                )
                 return
 
         # A stocked granary is preferred over wild foraging too — a
@@ -506,6 +516,21 @@ class Population:
             consumed = min(granary.stored_food, GRANARY_WITHDRAW_AMOUNT)
             granary.stored_food -= consumed
             relief = GRANARY_HUNGER_RELIEF * (consumed / GRANARY_WITHDRAW_AMOUNT) * _tech_factor(settlement)
+            agent.hunger = max(0.0, agent.hunger - relief)
+            agent.inventory["food"] = min(
+                PERSONAL_FOOD_CAPACITY, agent.inventory.get("food", 0.0) + FORAGE_INVENTORY_SKIM
+            )
+            return
+
+        # An agent's own saved reserve is drawn on before scrounging for
+        # something fresh — eating what you already set aside, same as a
+        # person would, before a trade with a neighbor even becomes
+        # relevant (see Population._maybe_trade_food for the sharing side).
+        personal_food = agent.inventory.get("food", 0.0)
+        if personal_food > 0.0:
+            consumed = min(personal_food, TRADE_FOOD_AMOUNT)
+            agent.inventory["food"] = personal_food - consumed
+            relief = TRADE_HUNGER_RELIEF * (consumed / TRADE_FOOD_AMOUNT)
             agent.hunger = max(0.0, agent.hunger - relief)
             return
 
@@ -1047,7 +1072,9 @@ class Population:
             # decision) — a real steer, not just a coin flip. See
             # buildings.choose_building_kind, docs/DECISIONS.md,
             # "LLM-as-brain batch."
-            kind = choose_building_kind(rng, settlement.current_priority, settlement.era)
+            kind = choose_building_kind(
+                rng, settlement.current_priority, settlement.era, has_tradition=bool(settlement.traditions),
+            )
             cost = MATERIALS_COST_BY_KIND[kind]
             if settlement.materials < cost:
                 continue  # presence alone isn't enough — building needs material on site
@@ -1058,6 +1085,54 @@ class Population:
                 f"{kind.value.capitalize()} construction began at ({x}, {y}), using {cost:.0f} materials.",
             ))
         return life_events
+
+    @staticmethod
+    def _maybe_trade_food(by_position: dict[tuple[int, int], list[Agent]], rng: random.Random) -> int:
+        """Direct agent-to-agent barter: a hungry agent colocated with a
+        non-rival neighbor who's carrying personal food (see
+        `Agent.inventory`, stashed by `_maybe_forage`'s skim) receives a
+        share, at a small relationship cost to the giver's own reserve
+        and a small relationship gain for both — the one place in this
+        project food moves between two named individuals directly,
+        rather than through the settlement's communal granary/currency.
+        Deliberately scoped to a single good and one-hop, presence-only
+        exchange (no hauling, no market, no price discovery) — the
+        first slice of the "per-agent inventory/trade" gap, not the
+        full economy CLAUDE.md leaves as a still-larger future effort.
+        Returns how many trades occurred. See docs/DECISIONS.md,
+        "per-agent inventory and trade" pass."""
+        trades = 0
+        for group in by_position.values():
+            if len(group) < 2:
+                continue
+            hungry = [a for a in group if a.hunger >= FORAGE_HUNGER_THRESHOLD and a.inventory.get("food", 0.0) <= 0.0]
+            if not hungry:
+                continue
+            givers = [a for a in group if a.inventory.get("food", 0.0) > 0.0]
+            for recipient in hungry:
+                giver = next(
+                    (
+                        g for g in givers
+                        if g.id != recipient.id
+                        and g.relationships.get(recipient.id, 0.0) > TRADE_MIN_RELATIONSHIP
+                    ),
+                    None,
+                )
+                if giver is None:
+                    continue
+                amount = min(giver.inventory.get("food", 0.0), TRADE_FOOD_AMOUNT)
+                if amount <= 0.0:
+                    continue
+                giver.inventory["food"] = giver.inventory.get("food", 0.0) - amount
+                relief = TRADE_HUNGER_RELIEF * (amount / TRADE_FOOD_AMOUNT)
+                recipient.hunger = max(0.0, recipient.hunger - relief)
+                for a, b in ((giver, recipient), (recipient, giver)):
+                    a.relationships[b.id] = max(-1.0, min(1.0, a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST))
+                _remember(recipient, f"{giver.name} shared food with me.")
+                if giver.inventory.get("food", 0.0) <= 0.0:
+                    givers.remove(giver)
+                trades += 1
+        return trades
 
     @staticmethod
     def _maybe_stock_granaries(
@@ -1542,24 +1617,36 @@ class Population:
             return 0.0
         return sum(a.hunger for a in self.agents) / len(self.agents)
 
-    def hold_festival(self) -> int:
+    def hold_festival(self, settlement: Settlement | None = None) -> int:
         """Apply a one-time relationship boost to every currently-
         colocated pair of awake agents — the mechanical effect of a
         festival (hearthmind/llm/festival.py): the village gathers,
-        bonds strengthen. Returns how many pairs were affected. See
-        docs/DECISIONS.md, collective-behaviour pass."""
+        bonds strengthen. A pair colocated on a standing SHRINE's tile
+        gets SHRINE_FESTIVAL_BOOST_MULTIPLIER applied on top — the
+        settlement's own invented culture deepening its own festival.
+        Returns how many pairs were affected. See docs/DECISIONS.md,
+        collective-behaviour pass and "culture-specific building
+        types" pass."""
         by_position: dict[tuple[int, int], list[Agent]] = {}
         for agent in self.agents:
             if agent.state is AgentState.AWAKE:
                 by_position.setdefault((agent.x, agent.y), []).append(agent)
 
         affected = 0
-        for group in by_position.values():
+        for (x, y), group in by_position.items():
             if len(group) < 2:
                 continue
+            boost = FESTIVAL_RELATIONSHIP_BOOST
+            if settlement is not None:
+                shrine = settlement.at(x, y)
+                if (
+                    shrine is not None and shrine.kind is BuildingKind.SHRINE
+                    and shrine.stage is BuildingStage.STANDING
+                ):
+                    boost *= SHRINE_FESTIVAL_BOOST_MULTIPLIER
             for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
-                a.relationships[b.id] = max(-1.0, min(1.0, a.relationships.get(b.id, 0.0) + FESTIVAL_RELATIONSHIP_BOOST))
-                b.relationships[a.id] = max(-1.0, min(1.0, b.relationships.get(a.id, 0.0) + FESTIVAL_RELATIONSHIP_BOOST))
+                a.relationships[b.id] = max(-1.0, min(1.0, a.relationships.get(b.id, 0.0) + boost))
+                b.relationships[a.id] = max(-1.0, min(1.0, b.relationships.get(a.id, 0.0) + boost))
                 affected += 1
         return affected
 
@@ -1577,6 +1664,9 @@ class Population:
         # Each relationship is stored on both sides, so count pairs once.
         bonds = sum(1 for a in self.agents for v in a.relationships.values() if v >= REPRODUCTION_AFFINITY_THRESHOLD) // 2
         rivalries = sum(1 for a in self.agents for v in a.relationships.values() if v <= RIVALRY_THRESHOLD) // 2
+        avg_personal_food = (
+            sum(a.inventory.get("food", 0.0) for a in self.agents) / total if total else 0.0
+        )
 
         return {
             "total": total,
@@ -1591,6 +1681,7 @@ class Population:
             "avg_affinity": round(avg_affinity, 3),
             "close_bonds": bonds,
             "rivalries": rivalries,
+            "avg_personal_food": round(avg_personal_food, 3),
         }
 
     # --- (de)serialization -----------------------------------------------------

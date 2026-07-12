@@ -97,6 +97,35 @@ def resolve_subject_agent_id(subject: str, agents) -> int | None:
     return None
 
 
+def resolve_family_agent_ids(subject_agent_id: int | None, agents) -> list[int]:
+    """Given a belief's resolved `subject_agent_id`, widen it to that
+    person's immediate living family — parents, children, and full
+    siblings, computed fresh from `Agent.parents` each call rather than
+    stored as a separate family-id concept, since membership only makes
+    sense among agents currently alive. Returns `[]` if the subject
+    itself didn't resolve. This is what makes "the village believes the
+    Hallow family is reckless"-shaped free text (still just a string in
+    `subject`) mechanically reach every living member of that lineage,
+    not only the one name the LLM happened to write — see
+    docs/DECISIONS.md, "structured per-family belief resolution" pass.
+    `agents` is any iterable of objects with `.id`/`.parents`."""
+    if subject_agent_id is None:
+        return []
+    by_id = {a.id: a for a in agents}
+    subject = by_id.get(subject_agent_id)
+    if subject is None:
+        return []
+    family = {subject_agent_id}
+    if subject.parents:
+        family.update(p for p in subject.parents if p in by_id)
+    for agent in agents:
+        if agent.parents and subject.parents and agent.parents == subject.parents:
+            family.add(agent.id)  # full sibling
+        if agent.parents and subject_agent_id in agent.parents:
+            family.add(agent.id)  # child of subject
+    return sorted(family)
+
+
 def parse_belief(result: dict, fallback: dict, existing_count: int) -> dict:
     subject = result.get("subject")
     belief = result.get("belief")

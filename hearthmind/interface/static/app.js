@@ -21,7 +21,7 @@ const BIOME_COLORS = {
 
 const BUILDING_COLORS = {
   hut: "#c98a3c", granary: "#d9a441", workshop: "#8a7fd6", school: "#4fa3c9",
-  hospital: "#e0473c", university: "#2f7fc9", factory: "#5c5c66",
+  hospital: "#e0473c", university: "#2f7fc9", factory: "#5c5c66", shrine: "#c9a3e0",
 };
 const FARM_COLORS = { growing: "#7fae4a", ready: "#e0c34a" };
 

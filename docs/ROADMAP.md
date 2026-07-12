@@ -28,7 +28,7 @@ build" — phases below are the *how*, this table is the *what*.
 | Construction | shipped | Phase C + economy buildings (workshop/school/hospital/university/factory) + a starting-`industrial`, tech-level-driven era progression (industrial -> electrical -> modern -> digital) |
 | Infrastructure | shipped | C5 (`hearthmind/world/roads.py`) — foot-traffic-driven path wear/decay, established roads speed movement, now weather-dependent (mud/snow/ice); human-readable condition telemetry (`Settlement.infrastructure_report`) |
 | Building decay | shipped | C1-C4 (weathering, ruin, reclamation) |
-| Culture | shipped (single-settlement) | E1 (naming, traditions) + E3 (prosperity-gated inventions/tech unlocks) + festivals + generational/family memory; multiple named settlements not built |
+| Culture | shipped (single-settlement) | E1 (naming, traditions) + E3 (prosperity-gated inventions/tech unlocks) + festivals + generational/family memory + a culture-specific building type (SHRINE); multiple named settlements not built |
 | History | partial | B3 (chronicle) + E1 (traditions feed prompts); no replay/browsable history view (Phase F) |
 | Optional subtle supernatural elements | shipped | Phase G — `Settlement.temperament` (deterministic mood-like drift, subtle mechanical nudges) + `llm/omens.py` (rare, never-confirmed ambient events, optionally person-specific) + `Config.phase_g_intensity` (tunable, 0.0 = off) |
 
@@ -221,9 +221,14 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   settlement-wide, not per-agent — no inventory system exists to support
   literal barter; see `docs/DECISIONS.md`, D10 for the scoping rationale.
   **Phase D is now feature-complete per the original roadmap scope.**
-- Open for a future round: per-agent inventory/trade (would let D10's
-  currency become genuine peer-to-peer barter), tying `AgentGoal`/LLM
-  cognition into economic decisions now that an economy exists.
+- **[x] Per-agent inventory/trade, v1.** `Agent.inventory` (currently
+  one good, `"food"`) — a deliberately scoped slice, not the full
+  peer-to-peer barter economy this note originally envisioned: stashed
+  from farm/granary foraging, drawn on by the agent themself first,
+  then shared directly with a colocated, non-rival neighbor
+  (`Population._maybe_trade_food`). See docs/DECISIONS.md, "per-agent
+  inventory/trade... Phase G v4" pass. Tying `AgentGoal`/LLM cognition
+  into economic decisions remains open for a future round.
 
 ## Phase E — Culture & history
 
@@ -268,8 +273,16 @@ starts producing content that surprises its creator.
   not have accrued much yet). NPC dialogue prompts recognize a parent/
   child pair as family. See `docs/DECISIONS.md`, "Interventions, family
   memory, and smooth/lit rendering."
-- Not yet built: multiple named settlements, culture-specific building
-  types.
+- **[x] Culture-specific building type, v1.** `BuildingKind.SHRINE` —
+  foundable only once the settlement has established a tradition,
+  deepens festivals held on its tile and slightly raises the omen
+  chance (the first direct culture-buildings/Phase-G interaction). See
+  docs/DECISIONS.md.
+- Not yet built: multiple named settlements — explicitly scoped out of
+  the same batch that shipped the item above (see docs/DECISIONS.md,
+  "Multiple named settlements: explicitly not attempted this batch"
+  for the full rationale); remains the correct next candidate for its
+  own dedicated session.
 
 ## Phase F — Browser interface
 
@@ -356,9 +369,13 @@ the simulation.
   curated milestones — not a scrub-through-time replay, but a real
   narrated look-back using actual simulation history. See
   docs/DECISIONS.md, Observatory UI pass.
-- Not yet built: structured per-family belief resolution (family-
-  labeled beliefs remain free text, not resolved to a lineage entity),
-  a true scrub-through-time replay view.
+- **[x] Structured per-family belief resolution.**
+  `beliefs.resolve_family_agent_ids` widens a belief's resolved subject
+  to their living parents/children/full siblings (computed from
+  `Agent.parents`, no surname system exists), stored as
+  `subject_family_agent_ids` and consumed by dialogue's `beliefs_about`
+  alongside the existing single-agent match. See docs/DECISIONS.md.
+- Not yet built: a true scrub-through-time replay view.
 
 ## Phase G — Supernatural / psychological horror layer
 

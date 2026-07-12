@@ -136,6 +136,43 @@ TRUST_SKEPTICISM_THRESHOLD = -0.15
 """Below this, a rumor from that source is remembered with visible
 skepticism instead of at face value — see Population.apply_dialogue."""
 
+PERSONAL_FOOD_CAPACITY = 0.6
+"""Max `Agent.inventory["food"]` — a small personal reserve, deliberately
+far below granary/farm scale (GRANARY_CAPACITY 15.0), since this is one
+person's pocket, not a storehouse. First slice of the "per-agent
+inventory" gap CLAUDE.md flags as a real, genuinely large not-yet-built
+item — scoped here to a single good (food) and direct agent-to-agent
+transfer, not a full multi-good economy/market. See
+docs/DECISIONS.md, "per-agent inventory and trade" pass."""
+
+FORAGE_INVENTORY_SKIM = 0.05
+"""Food stashed into `Agent.inventory["food"]` (capped at
+PERSONAL_FOOD_CAPACITY) alongside a successful farm-harvest or
+granary-withdrawal forage — deliberately not from wild foraging or an
+emergency currency purchase, both of which are scarcity-driven with
+nothing spare to set aside. See Population._maybe_forage."""
+
+TRADE_FOOD_AMOUNT = 0.2
+"""Personal food transferred in one barter exchange — matches
+FORAGE_AMOUNT's scale. See Population._maybe_trade_food."""
+
+TRADE_HUNGER_RELIEF = 0.25
+"""Hunger relief for the receiving agent in a full trade — between a
+wild forage (FORAGE_HUNGER_RELIEF 0.3) and a granary withdrawal
+(GRANARY_HUNGER_RELIEF 0.4), since this is one neighbor's spare food,
+not a communal store."""
+
+TRADE_RELATIONSHIP_BOOST = 0.03
+"""Relationship nudge for both parties when a trade completes — smaller
+than DIALOGUE_SENTIMENT_DELTA's warm nudge (0.05): a material kindness,
+not a conversation, but still a real bond-building act."""
+
+TRADE_MIN_RELATIONSHIP = -0.2
+"""An agent won't share personal food with someone at or below this
+relationship value — rivals don't get fed first, though this is well
+above RIVALRY_THRESHOLD (-0.4) so mere strangers (relationship 0) still
+trade freely."""
+
 MAX_AGENT_MEMORIES = 8
 """Cap on Agent.memories — a short-term personal log (bond formed, rumor
 heard, a bonded partner's death), not a full diary. Oldest entries drop
@@ -176,6 +213,16 @@ class Agent:
     at face value. The "discrete trust lever" flagged as a real, not-yet-
     built gap in CLAUDE.md's per-person-beliefs section. See
     docs/DECISIONS.md, "trust lever" pass."""
+    inventory: dict[str, float] = field(default_factory=dict)
+    """Personal possessions, currently just `{"food": 0.0..PERSONAL_FOOD_
+    CAPACITY}` — stashed on a successful farm/granary forage (see
+    FORAGE_INVENTORY_SKIM) and spent either on the agent's own future
+    hunger or given to a colocated, non-rival neighbor in
+    Population._maybe_trade_food. Distinct from `Settlement.materials`/
+    `currency` (communal) and from granary `stored_food` (also
+    communal) — this is the one thing that's unambiguously *this
+    agent's own*. See docs/DECISIONS.md, "per-agent inventory and
+    trade" pass."""
     parents: tuple[int, int] | None = None
     goal: AgentGoal = AgentGoal.WANDER
     goal_reason: str = ""
@@ -200,6 +247,7 @@ class Agent:
             "starving_ticks": self.starving_ticks,
             "relationships": {str(k): round(v, 4) for k, v in self.relationships.items()},
             "trust": {str(k): round(v, 4) for k, v in self.trust.items()},
+            "inventory": {k: round(v, 4) for k, v in self.inventory.items()},
             "parents": list(self.parents) if self.parents is not None else None,
             "goal": self.goal.value,
             "goal_reason": self.goal_reason,
@@ -222,6 +270,7 @@ class Agent:
             starving_ticks=data.get("starving_ticks", 0),
             relationships={int(k): v for k, v in data.get("relationships", {}).items()},
             trust={int(k): v for k, v in data.get("trust", {}).items()},
+            inventory=dict(data.get("inventory", {})),
             parents=tuple(parents) if parents is not None else None,
             goal=AgentGoal(data.get("goal", AgentGoal.WANDER.value)),
             goal_reason=data.get("goal_reason", ""),

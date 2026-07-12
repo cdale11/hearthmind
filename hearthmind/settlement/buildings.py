@@ -65,6 +65,17 @@ class BuildingKind(str, Enum):
     `era_for_tech_level`), and produces currency per staffed worker at
     twice a workshop's rate. See FACTORY_INCOME_PER_TICK,
     docs/DECISIONS.md, real-calendar/genesis-seed follow-up."""
+    SHRINE = "shrine"
+    """The settlement's first genuinely culture-specific building kind
+    — only enters the foundable pool once at least one tradition has
+    been established (see `choose_building_kind`'s `has_tradition`
+    gate), because a shrine is a physical expression of a custom the
+    village has actually invented, not a generic civic structure
+    available from day one. A standing shrine measurably deepens
+    festivals held there (see SHRINE_FESTIVAL_BOOST_MULTIPLIER,
+    Population.hold_festival) — culture begetting more culture, not
+    just a differently-named hut. See docs/DECISIONS.md,
+    "culture-specific building types" pass."""
 
 
 CONSTRUCTION_WORK_PER_TICK = 0.05
@@ -150,6 +161,7 @@ SCHOOL_MATERIALS_COST = 6.0
 HOSPITAL_MATERIALS_COST = 8.0
 UNIVERSITY_MATERIALS_COST = 10.0
 FACTORY_MATERIALS_COST = 14.0
+SHRINE_MATERIALS_COST = 5.0
 """Materials deducted from the settlement stockpile when construction is
 founded — buildings are now genuinely "built from resources available"
 (previously materials only sped construction up, via
@@ -172,11 +184,12 @@ MATERIALS_COST_BY_KIND: dict[BuildingKind, float] = {
     BuildingKind.HOSPITAL: HOSPITAL_MATERIALS_COST,
     BuildingKind.UNIVERSITY: UNIVERSITY_MATERIALS_COST,
     BuildingKind.FACTORY: FACTORY_MATERIALS_COST,
+    BuildingKind.SHRINE: SHRINE_MATERIALS_COST,
 }
 
 BUILDING_KIND_BASE_WEIGHTS: dict[str, float] = {
     "hut": 0.42, "granary": 0.23, "workshop": 0.15, "school": 0.12, "hospital": 0.08,
-    "factory": 0.10,
+    "factory": 0.10, "shrine": 0.07,
 }
 """Baseline odds a new civic building is each kind, before
 `Settlement.current_priority` (the seasonal "town brain" LLM
@@ -185,7 +198,10 @@ deliberately excluded: it's an upgrade of an existing SCHOOL, not
 founded from this pool. FACTORY is present here but filtered out by
 `choose_building_kind` until the settlement's era allows it (see
 `era_for_tech_level`) — it's an industrial-era-or-later kind, not
-foundable from a settlement's earliest days."""
+foundable from a settlement's earliest days. SHRINE is likewise
+filtered out until the settlement has established at least one
+tradition (see the `has_tradition` gate) — a settlement's culture has
+to actually exist before it gets a building expressing it."""
 
 PRIORITY_KIND_BOOST = 2.5
 """Multiplier applied to one kind's weight when it matches the
@@ -246,18 +262,24 @@ running train of thought, not so many it grows unbounded across a
 long-running world."""
 
 
-def choose_building_kind(rng, current_priority: str, era: str = "industrial") -> "BuildingKind":
+def choose_building_kind(
+    rng, current_priority: str, era: str = "industrial", has_tradition: bool = False,
+) -> "BuildingKind":
     """Weighted pick among the foundable civic kinds (not UNIVERSITY,
     which upgrades an existing school instead) — base odds nudged
-    toward whatever the settlement's current priority calls for, and
+    toward whatever the settlement's current priority calls for,
     FACTORY excluded entirely until `era` has advanced past
-    `industrial`. Falls back to the unweighted base odds for an
-    unrecognized/empty priority (e.g. before the first town-brain
-    decision has ever run). See docs/DECISIONS.md, "LLM-as-brain
-    batch\" and the real-calendar/genesis-seed follow-up."""
+    `industrial`, and SHRINE excluded until the settlement has
+    established at least one tradition (`has_tradition`). Falls back to
+    the unweighted base odds for an unrecognized/empty priority (e.g.
+    before the first town-brain decision has ever run). See
+    docs/DECISIONS.md, "LLM-as-brain batch\", the real-calendar/
+    genesis-seed follow-up, and "culture-specific building types.\""""
     weights = dict(BUILDING_KIND_BASE_WEIGHTS)
     if era not in _ERA_UNLOCKS_FACTORY:
         weights.pop("factory", None)
+    if not has_tradition:
+        weights.pop("shrine", None)
     boosted = _PRIORITY_TO_KIND.get(current_priority)
     if boosted in weights:
         weights[boosted] *= PRIORITY_KIND_BOOST
@@ -415,6 +437,15 @@ strongly warm town invents at most ~1.2x baseline, a strongly cold one
 ~0.8x — noticeable across a long run, never a dominant factor next to
 prosperity gates/education."""
 
+SHRINE_OMEN_CHANCE_MULTIPLIER = 1.3
+"""Applied to `llm/omens.py`'s per-month firing chance when a SHRINE is
+standing — a place the village built for its own invented culture is
+somewhat likelier to be where something ambiguous gets noticed, the
+first place a new system (culture-specific buildings) and Phase G
+(omens) deliberately interact rather than staying isolated. Same small,
+non-dominant magnitude as every other Phase G nudge. See
+docs/DECISIONS.md, "Phase G v4: shrine/omen interaction" pass."""
+
 TEMPERAMENT_KILL_CHANCE_INFLUENCE = 0.2
 """Fractional nudge to predator-attack lethality from temperament — see
 Population._maybe_predator_attack. Same small-magnitude rationale as
@@ -519,6 +550,14 @@ FESTIVAL_RELATIONSHIP_BOOST = 0.1
 of awake agents when a festival is held — the mechanical payoff of
 "the village gathers" (see Population.hold_festival), distinct from the
 much smaller per-tick passive colocation gain."""
+
+SHRINE_FESTIVAL_BOOST_MULTIPLIER = 1.5
+"""A festival's FESTIVAL_RELATIONSHIP_BOOST is multiplied by this for
+any pair colocated on a standing SHRINE's tile when the festival is
+held — a shrine gives the village's own invented culture somewhere to
+gather that measurably deepens the bond, not just flavor text. See
+Population.hold_festival, docs/DECISIONS.md, "culture-specific building
+types" pass."""
 
 
 @dataclass
@@ -803,7 +842,7 @@ class Settlement:
             kind.value: sum(1 for b in standing if b.kind is kind)
             for kind in (
                 BuildingKind.WORKSHOP, BuildingKind.SCHOOL, BuildingKind.HOSPITAL,
-                BuildingKind.UNIVERSITY, BuildingKind.FACTORY,
+                BuildingKind.UNIVERSITY, BuildingKind.FACTORY, BuildingKind.SHRINE,
             )
         }
         return {
@@ -830,6 +869,7 @@ class Settlement:
             "hospitals": kind_counts["hospital"],
             "universities": kind_counts["university"],
             "factories": kind_counts["factory"],
+            "shrines": kind_counts["shrine"],
             "education_level": round(self.education_level, 3),
             "education_capacity": EDUCATION_CAPACITY,
             "current_priority": self.current_priority,
