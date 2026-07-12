@@ -20,7 +20,7 @@ const BIOME_COLORS = {
 
 const BUILDING_COLORS = {
   hut: "#c98a3c", granary: "#d9a441", workshop: "#8a7fd6", school: "#4fa3c9",
-  hospital: "#e0473c", university: "#2f7fc9",
+  hospital: "#e0473c", university: "#2f7fc9", factory: "#5c5c66",
 };
 const FARM_COLORS = { growing: "#7fae4a", ready: "#e0c34a" };
 
@@ -30,9 +30,13 @@ const FARM_COLORS = { growing: "#7fae4a", ready: "#e0c34a" };
 // the "make recent events human-readable" UI pass.
 const CATEGORY_META = {
   genesis: { icon: "🌍" },
+  founding: { icon: "🗺️" },
   day_end: { skip: true }, // redundant with the header's date/clock — one line per day would drown real events
+  week_end: { skip: true }, // same rationale as day_end — 52/year is too frequent for the log
+  month_end: { skip: true }, // ~12/year, still redundant with the header's date — season_end/year_end are the notable calendar beats
   season_end: { icon: "🍂" },
   year_end: { icon: "🎆" },
+  era_advance: { icon: "🏭" },
   settlement_named: { icon: "🏘️" },
   construction_started: { icon: "🔨" },
   building_completed: { icon: "🏠" },
@@ -435,10 +439,15 @@ function renderStats(summary) {
     [
       "Civic buildings",
       `${s.workshops} workshop${s.workshops === 1 ? "" : "s"}, ${s.schools} school${s.schools === 1 ? "" : "s"}, ` +
-      `${s.hospitals} hospital${s.hospitals === 1 ? "" : "s"}, ${s.universities} universit${s.universities === 1 ? "y" : "ies"}`,
+      `${s.hospitals} hospital${s.hospitals === 1 ? "" : "s"}, ${s.universities} universit${s.universities === 1 ? "y" : "ies"}` +
+      (s.factories ? `, ${s.factories} factor${s.factories === 1 ? "y" : "ies"}` : ""),
       "Workshops generate currency from staffed presence. Schools/universities raise education (shown below), which " +
       "boosts invention chance. Hospitals speed rest recovery on-site and settlement-wide reduce the odds a predator " +
-      "attack proves lethal.",
+      "attack proves lethal. Factories (era: electrical+) generate currency at double a workshop's rate.",
+    ],
+    [
+      "Era", `${s.era} — ${s.era_description}`,
+      "Advances with tech level (inventions): industrial -> electrical -> modern -> digital. Unlocks the FACTORY building kind past 'industrial'.",
     ],
     [
       "Education", `${s.education_level.toFixed(2)} / ${s.education_capacity.toFixed(2)}`,
@@ -516,6 +525,12 @@ function renderStats(summary) {
     brainEl.innerHTML = s.current_priority
       ? `Current priority: <b>${s.current_priority}</b><br><span class="muted">${s.priority_rationale}</span>`
       : "No decision yet — the town brain decides once a season, once the village is named.";
+  }
+
+  const foundingEl = document.getElementById("founding-scenario");
+  if (foundingEl) {
+    foundingEl.textContent = s.founding_scenario ? `"${s.founding_scenario}"` : "";
+    foundingEl.classList.toggle("hidden", !s.founding_scenario);
   }
 }
 

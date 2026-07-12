@@ -1624,3 +1624,133 @@ GATHER-forever test artificially starved the population to 2 — this is
 a property of that unrealistic test script overriding goals every tick
 regardless of hunger, not a regression (confirmed by the healthy
 unforced run above using the same seed/config).
+
+## Real-calendar/genesis-seed follow-up
+
+User-reported/requested (verbatim, condensed): the map doesn't seem to
+be evolving; climate should follow UK climate; 365 days/year mimicking
+real calendar months; town starts in industrial era and evolves;
+initial terrain/weather chosen by a seed produced by the LLM; use a
+newer/smaller local model than the current `qwen2.5:7b-instruct`.
+
+**Map-not-evolving investigation.** Traced the broadcast/redraw chain
+(`_TERRAIN_CHANGING_CATEGORIES` in engine.py, `WorldBroadcaster.set_terrain`,
+app.js's `refreshTerrainIfChanged`) and found no wiring bug — it was
+already correct from the prior batch. The actual cause was cadence:
+reclaim rolled once per season (20 days) and climate drift once per
+year (80 days) under the *old* calendar, both individually already slow
+enough to be easy to miss in a sitting. Moving to a real 365-day year
+(below) would have made this ~4.5x worse if left tied to season/year
+boundaries the same way, so both were deliberately decoupled onto fixed
+week/month cadences instead (see below) — the fix that actually
+addresses the complaint is the recadencing, not a code-correctness fix.
+
+**Real calendar.** `time_system.py`'s `SimClock` rewritten around
+`Config.days_per_month` (a real 12-entry, 365-day-summing tuple) instead
+of a fixed `days_per_season * 4`. `month_index`/`day_of_month`/
+`month_name` are new derived properties; `season_index` is now looked up
+via `Config.month_to_season` (UK meteorological seasons: Dec-Feb winter,
+Mar-May spring, Jun-Aug summer, Sep-Nov autumn) rather than computed
+from a fixed day-count-per-season, so `season`/`season_index` stayed a
+4-value concept and every existing consumer (weather baselines, farm
+growth multiplier, chronicle/tradition/invention/festival/town-brain
+cadence, all of which key off `clock.season` and calendar-boundary
+events) kept working with zero changes to their own logic. `advance()`
+gained `week_end`/`month_end` boundary events alongside the existing
+`day_end`/`season_end`/`year_end`. Backward compatibility: a snapshot's
+config block is creation-only and must never silently change, so
+`World.from_dict` reconstructs an equivalent "N months, each one season
+long" calendar from a legacy snapshot's `days_per_season`/
+`seasons_per_year` fields when `days_per_month` is absent — verified by
+round-tripping a synthetic legacy config block and confirming
+`days_per_year() == 80` and `season == "spring"` on day 6, matching the
+old math exactly.
+
+**UK climate.** `world/weather.py`'s `_SEASON_BASELINES` (4 entries)
+replaced with `_MONTH_BASELINES` (12 entries, lowercase month name
+keyed) — rough Met Office-style averages: 5°C/wetter in Dec-Feb,
+17°C/driest in Jul-Aug, rain spread fairly evenly (0.30-0.48 chance)
+rather than concentrated in one "wet season," windier in winter.
+`compute_weather(seed, tick, month, previous)` (param renamed from
+`season`); `World.create_new`/`World.tick` pass `clock.month_name.lower()`.
+
+**Eras.** `Settlement.era: str = "industrial"` plus
+`buildings.era_for_tech_level(tech_level)` (thresholds: industrial 0,
+electrical 3, modern 7, digital 12) — a settlement starts in the
+industrial era per the request and advances purely as a function of
+`tech_level` (already-existing invention counter), no separate era
+mechanic to keep in sync. Made mechanically real, not just a label: the
+new `BuildingKind.FACTORY` (double a workshop's `WORKSHOP_INCOME_PER_TICK`,
+`FACTORY_MATERIALS_COST = 14.0`) only enters `choose_building_kind`'s
+foundable pool once era has advanced past `industrial`.
+`SimulationEngine._maybe_advance_era` (called right after `tech_level`
+is incremented in `_run_invention`) logs an `era_advance` event on
+transition. Verified: `era_for_tech_level` returns the right tier at
+each threshold boundary (0/2->industrial, 3/6->electrical, 7/11->modern,
+12/20->digital); `choose_building_kind(rng, "", "industrial")` never
+produces FACTORY across 20k draws, `choose_building_kind(rng, "",
+"electrical")` does.
+
+**World genesis (LLM-chosen seed).** New `hearthmind/llm/world_genesis.py`
+mirrors the existing `town_brain.py` shape (`SYSTEM_PROMPT`,
+`build_prompt`, `fallback_scenario`, `parse_scenario`) plus a
+`seed_from_scenario(text) -> int` hash helper. Resolved in `server.py`
+(`_resolve_genesis_seed`, called from `_main_async`) rather than inside
+`World.create_new`/`SimulationEngine`, since it's a one-time,
+startup-only, CLI-level concern — `World.create_new` itself stays a
+pure function of an already-resolved `Config`. Only runs when `--seed`
+is omitted (CLI default changed from `1337` to `None` as the "let
+genesis decide" sentinel; `Config.seed` widened to `int | None` to carry
+that sentinel through) *and* the world doesn't already exist (`fresh`).
+An LLM-authored scenario's seed is `seed_from_scenario(scenario)`
+directly; a disabled/unreachable-LLM fallback XORs that hash with fresh
+`random.SystemRandom()` entropy so an offline run isn't limited to the
+handful of canned fallback scenario strings forever. Blocking is
+acceptable here (unlike every per-tick LLM call elsewhere in this
+project) because it happens exactly once, before the tick loop starts —
+not a liveness risk. The scenario text is stored on
+`Settlement.founding_scenario` (threaded through
+`SimulationEngine.load_or_create` -> `World.create_new`) and also logged
+as a one-time `founding` event via the new
+`SimulationEngine.log_founding_scenario`. The `_CREATION_ONLY_FIELDS`
+resume-mismatch warning loop in `server.py` skips the `seed` field
+whenever `--seed` wasn't explicitly passed, so resuming a world doesn't
+spam a spurious "seed mismatch" warning every single run (a genesis/
+placeholder seed is never a real user request to compare against).
+
+**Model change, again.** `llm_model` moved from `qwen2.5:7b-instruct`
+(~4.5GB Q4) to `qwen3:4b` (~2.6GB Q4) — Qwen3 is a newer model
+generation than Qwen2.5 (there is no "Qwen3.5"), and the 4B tier
+generally matches or beats the old 7B default's quality on community
+benchmarks at roughly half the memory footprint, per explicit user
+request for a newer/smaller model. `qwen3:1.7b` (~1.1GB) documented as
+the lighter fallback tier. Qwen3 is a hybrid "thinking" model that can
+wrap chain-of-thought in `<think>...</think>` even under `"format":
+"json"`; `OllamaClient.generate_json` now sends `"think": false` in the
+request payload and additionally strips any `<think>...</think>` block
+from the raw response defensively (model-agnostic, a no-op for any
+model that never emits them) before `json.loads` — belt-and-suspenders
+against a stray reasoning block silently breaking every strict-JSON
+prompt in this project. Verified with a synthetic `<think>...</think>{...}`
+payload through the stripping regex directly.
+
+**Bug found and fixed in passing**: `server.py`'s `--llm-model`/
+`--llm-timeout` argparse defaults were hardcoded independently of
+`Config`'s own defaults and had drifted stale (`qwen2.5:3b`/`20.0`)
+since the prior batch bumped `Config`'s defaults — running the CLI
+without explicitly passing either flag silently used the old values.
+Both now read `Config.llm_model`/`Config.llm_timeout_seconds` directly
+so they can't drift apart again.
+
+Verified (LLM disabled in this environment, deterministic fallbacks
+exercised throughout): a 400-day tick-advance-only test confirmed
+`day_end`/`week_end`/`month_end`/`season_end`/`year_end` all fire at the
+right points and `days_per_year() == 365`; a 6000-tick full-engine run
+(async event loop, `_tick_once` in a loop) completed without error,
+reached `month == "March"`, `season == "spring"`, showed nonzero
+`climate.warming`/`climate.drying` drift by tick 6000 (confirming the
+new monthly cadence is visibly active well within a normal viewing
+session, vs. the old yearly cadence needing ~7680 ticks for a first
+roll), and round-tripped `to_dict`/`from_dict` with the new
+`founding_scenario`/`era` fields intact. All touched files pass
+`python3 -m py_compile`; `app.js` passes `node --check`.

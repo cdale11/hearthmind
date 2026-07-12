@@ -103,6 +103,10 @@ python3 -m hearthmind.inspect_world --db world.sqlite3
 Useful flags on `server.py`:
 
 - `--seed INT` — only used the first time a world is created at that DB path.
+  Omit it and a brand-new world runs a one-time "genesis" LLM call to pick
+  an evocative founding scenario whose text becomes the seed (falls back to
+  a wall-clock-derived seed if the LLM is disabled/unreachable) — see
+  "World genesis" below.
 - `--tick-seconds FLOAT` — real seconds per tick (default 1.0).
 - `--sim-minutes-per-tick INT` — sim-minutes advanced per tick (default 15).
 - `--snapshot-every INT` — ticks between snapshots (default 60).
@@ -114,7 +118,7 @@ Useful flags on `server.py`:
   deterministic fallback, so this flag is only needed for a fully
   offline/deterministic run.
 - `--llm-host URL` (default `http://localhost:11434`), `--llm-model NAME`
-  (default `qwen2.5:7b-instruct`), `--llm-timeout SECONDS` (default 30 —
+  (default `qwen3:4b`), `--llm-timeout SECONDS` (default 30 —
   CPU inference under contention on 8GB+zram can be slower than a quiet
   benchmark, see `docs/DECISIONS.md` D5), `--llm-max-concurrent INT`
   (default 4) — all runtime settings, safe to change between runs.
@@ -134,18 +138,21 @@ Ollama is reachable. The simulation stays fully functional without
 Ollama installed (`fallback_goal`/`fallback_summary`/`fallback_tradition`/
 `fallback_dialogue` stand in for it, see `docs/DECISIONS.md` B1-B3, E1,
 E2) — nothing raises or blocks a tick if the LLM is disabled,
-unreachable, or times out. The default model, `qwen2.5:7b-instruct`
-(~4.5GB Q4 weights), was chosen for meaningfully better NPC dialogue and
-"town brain" civic-decision quality than the smaller `qwen2.5:3b`
-(~2GB) it replaced — intended to still fit an 8GB-RAM machine with zram
-swap, but if a live run shows it's too heavy/slow on your hardware, drop
-back with `--llm-model qwen2.5:3b` (or size down further to
-`qwen2.5:1.5b` on tighter hardware) and let the maintainers know. See
-`docs/DECISIONS.md`, "LLM-as-brain batch" and B4.
+unreachable, or times out. The default model, `qwen3:4b` (~2.6GB Q4
+weights), is Qwen3 (a newer generation than 2.5) at a size chosen to
+leave more of an 8GB+zram budget for the simulation process itself
+while generally matching or beating the older `qwen2.5:7b-instruct`
+default it replaced on quality — if a live run shows it's too heavy/slow
+on your hardware, drop back with `--llm-model qwen3:1.7b` (~1.1GB) and
+let the maintainers know. Qwen3 is a hybrid "thinking" model; this
+project always disables that (`"think": false`, plus a defensive
+`<think>`-block strip) since every prompt here wants one strict-JSON
+answer. See `docs/DECISIONS.md`, "LLM-as-brain batch," B4, and the
+real-calendar/genesis-seed follow-up.
 
 ```bash
 # 1. Install and start Ollama (see https://ollama.com), then pull a model:
-ollama pull qwen2.5:7b-instruct
+ollama pull qwen3:4b
 
 # 2. Run the server (LLM is on by default):
 python3 -m hearthmind.server --db world.sqlite3
@@ -182,6 +189,28 @@ python3 -m hearthmind.inspect_world --db world.sqlite3 --agents
 
 for each inhabitant's current `goal`/`goal_reason`, and watch the
 `Recent events` list for `chronicle` entries — see `docs/TESTING.md`.
+
+## World genesis (LLM-chosen seed) and calendar
+
+Omit `--seed` and a brand-new world runs a one-time "genesis" LLM call
+before generating terrain/weather: the LLM writes a short founding-
+scenario sentence ("Rolling grassland meets old forest along a slow
+river, unclaimed and quiet."), and the hash of that sentence becomes the
+world's seed — the same deterministic terrain/weather generation then
+runs exactly as it would with an explicit `--seed`. If the LLM is
+disabled or unreachable, a rotating pool of fallback scenarios stands in
+(mixed with wall-clock entropy so it isn't the same handful of worlds
+every time). Passing `--seed` explicitly always skips genesis. The
+scenario text is shown once in the event log and in the settlement
+summary (`founding_scenario`).
+
+The world clock runs a real 365-day, 12-month calendar with UK-style
+maritime weather baselines by month (mild wet winters, cool damp
+summers, rain fairly even year-round) — `season` (spring/summer/autumn/
+winter) is still derived from the month for anything that already used
+it. A settlement starts in the `industrial` era and can advance
+(electrical -> modern -> digital) as it accumulates inventions,
+unlocking the FACTORY building kind past `industrial`.
 
 ## Browser interface (Phase F)
 

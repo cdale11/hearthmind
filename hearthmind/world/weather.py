@@ -1,10 +1,16 @@
-"""Weather derived deterministically from (world seed, tick, season).
+"""Weather derived deterministically from (world seed, tick, month).
 
 Rather than storing a running RNG stream, each tick's weather is a pure
 function of `(seed, tick)`, smoothed by blending with the previous tick's
 values so weather drifts rather than jumping randomly (see docs/DECISIONS.md,
 M1-2). This means weather never needs its own persistence beyond the tick
 count already stored on `SimClock` — it's always recomputable.
+
+Baselines model a temperate UK-style maritime climate (roughly Met Office
+30-year averages: mild, wet winters, cool damp summers, rain spread fairly
+evenly across the year with a wetter autumn/winter and windier winter) at
+monthly granularity rather than 4 broad seasonal buckets, since the real
+365-day calendar (see time_system.py) makes that resolution meaningful.
 """
 from __future__ import annotations
 
@@ -12,12 +18,20 @@ import hashlib
 import random
 from dataclasses import dataclass
 
-# Rough seasonal baselines: (temperature_c, precipitation_chance, wind_avg)
-_SEASON_BASELINES: dict[str, tuple[float, float, float]] = {
-    "spring": (12.0, 0.40, 0.35),
-    "summer": (24.0, 0.20, 0.20),
-    "autumn": (10.0, 0.35, 0.40),
-    "winter": (-2.0, 0.30, 0.50),
+# UK-climate-style monthly baselines: (temperature_c, precipitation_chance, wind_avg).
+_MONTH_BASELINES: dict[str, tuple[float, float, float]] = {
+    "january": (5.0, 0.48, 0.48),
+    "february": (5.0, 0.42, 0.46),
+    "march": (7.0, 0.38, 0.42),
+    "april": (9.0, 0.35, 0.38),
+    "may": (12.0, 0.32, 0.32),
+    "june": (15.0, 0.30, 0.28),
+    "july": (17.0, 0.30, 0.25),
+    "august": (17.0, 0.32, 0.27),
+    "september": (14.0, 0.35, 0.32),
+    "october": (11.0, 0.42, 0.40),
+    "november": (7.0, 0.46, 0.45),
+    "december": (5.0, 0.48, 0.48),
 }
 
 
@@ -73,12 +87,13 @@ def _tick_rng(seed: int, tick: int) -> random.Random:
     return random.Random(int(digest[:16], 16))
 
 
-def compute_weather(seed: int, tick: int, season: str, previous: "WeatherState | None") -> WeatherState:
-    """Compute this tick's weather. Blends toward the seasonal baseline with
-    tick-local jitter, and toward the previous tick's values for smoothness,
-    so weather drifts instead of teleporting between extremes."""
+def compute_weather(seed: int, tick: int, month: str, previous: "WeatherState | None") -> WeatherState:
+    """Compute this tick's weather. Blends toward the current month's UK-
+    climate baseline with tick-local jitter, and toward the previous tick's
+    values for smoothness, so weather drifts instead of teleporting between
+    extremes. `month` is a lowercase month name (see SimClock.month_name)."""
     rng = _tick_rng(seed, tick)
-    base_temp, base_precip, base_wind = _SEASON_BASELINES[season]
+    base_temp, base_precip, base_wind = _MONTH_BASELINES[month]
 
     target_temp = base_temp + rng.uniform(-6.0, 6.0)
     target_precip = max(0.0, min(1.0, base_precip + rng.uniform(-0.25, 0.25)))

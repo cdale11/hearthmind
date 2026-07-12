@@ -59,6 +59,7 @@ from hearthmind.settlement.buildings import (
     CURRENCY_EMERGENCY_RATION_COST,
     CURRENCY_PER_OVERFLOW_UNIT,
     EDUCATION_CAPACITY,
+    FACTORY_INCOME_PER_TICK,
     FESTIVAL_RELATIONSHIP_BOOST,
     GRANARY_CAPACITY,
     GRANARY_DEPOSIT_PER_TICK,
@@ -311,6 +312,7 @@ class Population:
         life_events.extend(self._maybe_repair(by_position, settlement))
         self._maybe_stock_granaries(by_position, settlement)
         self._maybe_run_workshops(by_position, settlement)
+        self._maybe_run_factories(by_position, settlement)
         self._maybe_run_schools(by_position, settlement)
         life_events.extend(self._maybe_upgrade_university(by_position, settlement, rng))
         life_events.extend(self._maybe_start_construction(by_position, settlement, farms, rng))
@@ -888,7 +890,7 @@ class Population:
             # decision) — a real steer, not just a coin flip. See
             # buildings.choose_building_kind, docs/DECISIONS.md,
             # "LLM-as-brain batch."
-            kind = choose_building_kind(rng, settlement.current_priority)
+            kind = choose_building_kind(rng, settlement.current_priority, settlement.era)
             cost = MATERIALS_COST_BY_KIND[kind]
             if settlement.materials < cost:
                 continue  # presence alone isn't enough — building needs material on site
@@ -941,6 +943,24 @@ class Population:
             if staff == 0:
                 continue
             income = WORKSHOP_INCOME_PER_TICK * staff * _tech_factor(settlement)
+            settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
+
+    @staticmethod
+    def _maybe_run_factories(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:
+        """Same shape as `_maybe_run_workshops`, at FACTORY_INCOME_PER_TICK
+        (double the rate) — the settlement's industrial-era-or-later
+        economic upgrade. See docs/DECISIONS.md, real-calendar/
+        genesis-seed follow-up."""
+        for building in settlement.buildings:
+            if building.kind is not BuildingKind.FACTORY or building.stage is not BuildingStage.STANDING:
+                continue
+            staff = sum(
+                1 for a in by_position.get((building.x, building.y), [])
+                if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
+            )
+            if staff == 0:
+                continue
+            income = FACTORY_INCOME_PER_TICK * staff * _tech_factor(settlement)
             settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
 
     @staticmethod

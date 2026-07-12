@@ -8,10 +8,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import logging
+import random
 import signal
 
 from hearthmind.config import Config
+from hearthmind.llm import world_genesis
+from hearthmind.llm.client import OllamaClient
 from hearthmind.persistence.database import is_fresh, open_db, write_world_meta
 from hearthmind.simulation.engine import SimulationEngine
 
@@ -23,7 +27,12 @@ _CREATION_ONLY_FIELDS = ("seed", "width", "height", "sim_minutes_per_tick", "ini
 def parse_args(argv: list[str] | None = None) -> Config:
     parser = argparse.ArgumentParser(description="Run a Hearthmind world.")
     parser.add_argument("--db", default="world.sqlite3", help="Path to the SQLite world database.")
-    parser.add_argument("--seed", type=int, default=1337, help="Used only when creating a new world.")
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="World seed, used only when creating a new world. Omit it and a brand-new world runs a "
+             "one-time 'genesis' LLM call to pick an evocative founding scenario whose text becomes the "
+             "seed (falls back to a wall-clock-derived seed if the LLM is disabled/unreachable).",
+    )
     parser.add_argument("--width", type=int, default=64, help="Used only when creating a new world.")
     parser.add_argument("--height", type=int, default=64, help="Used only when creating a new world.")
     parser.add_argument("--tick-seconds", type=float, default=1.0, help="Real seconds between ticks.")
@@ -36,8 +45,9 @@ def parse_args(argv: list[str] | None = None) -> Config:
                               "E2; every LLM call still falls back to deterministic behavior if Ollama "
                               "isn't reachable, so this is only needed for a fully offline run).")
     parser.add_argument("--llm-host", default="http://localhost:11434", help="Ollama server URL.")
-    parser.add_argument("--llm-model", default="qwen2.5:3b", help="Ollama model name (must be pulled already).")
-    parser.add_argument("--llm-timeout", type=float, default=20.0, help="Seconds before an LLM call falls back.")
+    parser.add_argument("--llm-model", default=Config.llm_model, help="Ollama model name (must be pulled already).")
+    parser.add_argument("--llm-timeout", type=float, default=Config.llm_timeout_seconds,
+                         help="Seconds before an LLM call falls back.")
     parser.add_argument("--llm-max-concurrent", type=int, default=4,
                          help="Max simultaneous in-flight LLM requests.")
     parser.add_argument("--api-disabled", action="store_true",
@@ -73,9 +83,44 @@ def parse_args(argv: list[str] | None = None) -> Config:
     )
 
 
+async def _resolve_genesis_seed(config: Config) -> tuple[int, str]:
+    """Turn "no --seed given" into a concrete seed for a brand-new world:
+    an LLM-authored founding scenario, hashed into a seed (see
+    hearthmind.llm.world_genesis), or a wall-clock-derived fallback if
+    the LLM is disabled/unreachable. Blocking-but-once: this only ever
+    runs a single time, before the tick loop starts, so a multi-second
+    LLM call here is an acceptable one-time startup cost, not a
+    liveness risk like a per-tick call would be."""
+    fallback_hint = random.SystemRandom().randrange(1, 2**31 - 1)
+    if config.llm_enabled:
+        try:
+            client = OllamaClient(
+                host=config.llm_host, model=config.llm_model, timeout_seconds=config.llm_timeout_seconds,
+            )
+            result = await asyncio.wait_for(
+                asyncio.to_thread(client.generate_json, world_genesis.build_prompt(), world_genesis.SYSTEM_PROMPT),
+                timeout=config.llm_timeout_seconds + 5.0,
+            )
+            scenario = world_genesis.parse_scenario(result, world_genesis.fallback_scenario(fallback_hint))
+            return world_genesis.seed_from_scenario(scenario), scenario
+        except Exception as exc:  # LLM failure must never block world creation
+            logger.warning("World-genesis LLM call failed, using a deterministic fallback scenario: %s", exc)
+    scenario = world_genesis.fallback_scenario(fallback_hint)["scenario"]
+    return world_genesis.seed_from_scenario(scenario) ^ fallback_hint, scenario
+
+
 async def _main_async(config: Config) -> None:
     with open_db(config.db_path) as conn:
         fresh = is_fresh(conn)
+
+        seed_explicitly_requested = config.seed is not None
+        founding_scenario = ""
+        if config.seed is None:
+            if fresh:
+                seed, founding_scenario = await _resolve_genesis_seed(config)
+            else:
+                seed = 1337  # irrelevant on resume — the loaded snapshot's own seed is authoritative
+            config = dataclasses.replace(config, seed=seed)
 
         broadcaster = None
         uvicorn_module = create_app = None
@@ -100,12 +145,18 @@ async def _main_async(config: Config) -> None:
                     "running without it. Install with: pip install -r requirements.txt"
                 )
 
-        engine = SimulationEngine.load_or_create(conn, config, broadcaster=broadcaster)
+        engine = SimulationEngine.load_or_create(
+            conn, config, broadcaster=broadcaster, founding_scenario=founding_scenario,
+        )
         if fresh:
             write_world_meta(conn, seed=engine.world.config.seed,
                               width=engine.world.config.width, height=engine.world.config.height)
+            if founding_scenario:
+                engine.log_founding_scenario(founding_scenario)
         else:
             for field_name in _CREATION_ONLY_FIELDS:
+                if field_name == "seed" and not seed_explicitly_requested:
+                    continue  # no --seed given — nothing to warn about a genesis seed being ignored
                 requested = getattr(config, field_name)
                 actual = getattr(engine.world.config, field_name)
                 if requested != actual:

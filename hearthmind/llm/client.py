@@ -8,9 +8,16 @@ pip package. See docs/DECISIONS.md, B1.
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+"""Hybrid "thinking" models (e.g. Qwen3) can wrap chain-of-thought in
+these tags even when a strict JSON response is requested — stripped
+defensively so a stray reasoning block never breaks `json.loads`. Cheap
+and a no-op for models that never emit them."""
 
 
 class OllamaUnavailable(Exception):
@@ -36,6 +43,7 @@ class OllamaClient:
             "prompt": prompt,
             "format": "json",
             "stream": False,
+            "think": False,
         }
         if system:
             payload["system"] = system
@@ -52,7 +60,7 @@ class OllamaClient:
         except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
             raise OllamaUnavailable(f"Ollama request failed: {exc}") from exc
 
-        raw_response = body.get("response", "")
+        raw_response = _THINK_BLOCK_RE.sub("", body.get("response", "")).strip()
         try:
             return json.loads(raw_response)
         except json.JSONDecodeError as exc:

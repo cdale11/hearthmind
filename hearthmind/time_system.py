@@ -1,8 +1,10 @@
 """The world's internal clock.
 
 `SimClock` knows nothing about wall-clock time — it only counts ticks and
-converts that count into calendar terms (minute of day, day of season,
-season, year) according to a `Config`'s calendar shape. This separation
+converts that count into calendar terms (minute of day, day of month, month,
+season, year) according to a `Config`'s calendar shape — a real 365-day,
+12-month year by default, with `season` derived from the month via
+`Config.month_to_season` (UK meteorological seasons). This separation
 matters: the *rate* at which ticks happen (real seconds per tick) is a
 runtime concern owned by the engine, while the *meaning* of a tick count is
 a pure function of the config's calendar shape, owned here.
@@ -21,9 +23,11 @@ class SimClock:
 
     def advance(self) -> "list[str]":
         """Advance by one tick. Returns a list of calendar-boundary event
-        names crossed by this tick (e.g. ["day_end", "season_end"]), so the
+        names crossed by this tick (e.g. ["day_end", "week_end"]), so the
         caller can log/react to them without recomputing calendar math."""
         prev_day = self.day_index
+        prev_week_index = self.week_index
+        prev_month_index_abs = self._month_index_absolute
         prev_season_index = self.season_index
         prev_year = self.year
 
@@ -32,6 +36,10 @@ class SimClock:
         events: list[str] = []
         if self.day_index != prev_day:
             events.append("day_end")
+        if self.week_index != prev_week_index:
+            events.append("week_end")
+        if self._month_index_absolute != prev_month_index_abs:
+            events.append("month_end")
         if self.season_index != prev_season_index:
             events.append("season_end")
         if self.year != prev_year:
@@ -58,14 +66,51 @@ class SimClock:
         return self.total_sim_minutes // self.config.minutes_per_day
 
     @property
-    def day_of_season(self) -> int:
-        return self.day_index % self.config.days_per_season
+    def week_index(self) -> int:
+        """Absolute week number since world creation — used for cadences
+        that want to be more frequent than a season (e.g. nature
+        reclaiming abandoned land), independent of calendar-month
+        lengths."""
+        return self.day_index // 7
+
+    @property
+    def day_of_year(self) -> int:
+        return self.day_index % self.config.days_per_year()
+
+    @property
+    def _month_index_absolute(self) -> int:
+        """Absolute month count since world creation (month 0, 1, 2, ...)
+        — used only to detect month-boundary crossings; `month_index` is
+        the within-year value derived from it below."""
+        return self.year * len(self.config.days_per_month) + self.month_index
+
+    @property
+    def month_index(self) -> int:
+        """0-based month within the current year."""
+        remaining = self.day_of_year
+        for i, days in enumerate(self.config.days_per_month):
+            if remaining < days:
+                return i
+            remaining -= days
+        return len(self.config.days_per_month) - 1  # unreachable: days sum to days_per_year()
+
+    @property
+    def day_of_month(self) -> int:
+        """0-based day within the current month."""
+        remaining = self.day_of_year
+        for days in self.config.days_per_month:
+            if remaining < days:
+                return remaining
+            remaining -= days
+        return 0  # unreachable
+
+    @property
+    def month_name(self) -> str:
+        return self.config.month_names[self.month_index]
 
     @property
     def season_index(self) -> int:
-        days_per_year = self.config.days_per_year()
-        day_in_year = self.day_index % days_per_year
-        return day_in_year // self.config.days_per_season
+        return self.config.month_to_season[self.month_index]
 
     @property
     def season(self) -> str:
@@ -79,10 +124,7 @@ class SimClock:
         return f"{self.hour_of_day:02d}:{self.minute_of_day % 60:02d}"
 
     def date_string(self) -> str:
-        return (
-            f"Year {self.year}, {self.season.capitalize()} "
-            f"day {self.day_of_season + 1}/{self.config.days_per_season}"
-        )
+        return f"{self.month_name} {self.day_of_month + 1}, Year {self.year + 1}"
 
     # --- (de)serialization ------------------------------------------------
 

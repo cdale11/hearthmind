@@ -13,7 +13,13 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class Config:
     # --- creation-only: baked into the world the first time it's created ---
-    seed: int = 1337
+    seed: int | None = 1337
+    """`None` is only meaningful coming from the CLI (`--seed` omitted):
+    it tells `server.py` to run a one-time "genesis" LLM call and derive
+    the seed from its answer instead of using a fixed default — see
+    `hearthmind.llm.world_genesis`. Anything constructing a `Config`
+    directly (tests, ad-hoc scripts, the dataclass default itself) gets
+    a concrete int and never has to think about this."""
     width: int = 64
     height: int = 64
 
@@ -28,8 +34,28 @@ class Config:
     """Sim-minutes the world clock advances per tick. Fixed at creation."""
 
     minutes_per_day: int = 24 * 60
-    days_per_season: int = 20
+
+    days_per_month: tuple[int, ...] = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+    """A real 12-month, 365-day calendar (no leap years — not worth the
+    complexity for a simulated town). Replaces the old fixed-20-day,
+    4-season calendar. A snapshot saved before this rework has no
+    `days_per_month` and is reconstructed with a synthetic one that
+    reproduces its original shape exactly (see `World.from_dict`) — an
+    existing world's calendar never silently changes underfoot, since
+    it's creation-only, exactly like `seed`."""
+    month_names: tuple[str, ...] = (
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December",
+    )
     seasons_per_year: tuple[str, ...] = ("spring", "summer", "autumn", "winter")
+    month_to_season: tuple[int, ...] = (3, 3, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3)
+    """Index into `seasons_per_year` for each month (UK meteorological
+    seasons: Dec-Feb winter, Mar-May spring, Jun-Aug summer, Sep-Nov
+    autumn) — `season`/`season_index` stay a 4-value concept for every
+    consumer that already keys off them (weather baselines, farm growth
+    multipliers, festival/chronicle/tradition/invention/town-brain
+    cadence), while the calendar underneath is now a real 12-month
+    year."""
 
     # --- creation-only: how many inhabitants a brand-new world starts with.
     # Only consulted the first time a world is created at a given --db path;
@@ -56,14 +82,20 @@ class Config:
     local smoke test). See docs/DECISIONS.md, E2."""
 
     llm_host: str = "http://localhost:11434"
-    llm_model: str = "qwen2.5:7b-instruct"
-    """Upgraded from `qwen2.5:3b` (~2GB) for meaningfully better NPC
-    dialogue/town-brain quality — ~4.5GB Q4 weights, still intended to
-    fit an 8GB+zram machine (zram exists precisely to absorb this kind
-    of headroom cost) but not soak-tested on real hardware yet by this
-    change itself. If a live run shows it's too heavy/slow, pass
-    `--llm-model qwen2.5:3b` and report back rather than silently
-    reverting the default. See docs/DECISIONS.md, "LLM-as-brain batch.\""""
+    llm_model: str = "qwen3:4b"
+    """Moved from `qwen2.5:7b-instruct` (~4.5GB Q4) to Qwen3 (a newer
+    generation than 2.5, released well after it) at the 4B tier
+    (~2.6GB Q4) — smaller and lighter than the old 7B default while
+    generally matching or beating its quality on community benchmarks,
+    which leaves more of the 8GB+zram budget for the simulation process
+    itself. `qwen3:1.7b` (~1.1GB) is the lighter fallback if this is
+    still too heavy/slow on real hardware — report back rather than
+    silently reverting. Qwen3 is a hybrid "thinking" model; this project
+    disables that (see OllamaClient.generate_json's `"think": False`
+    and its defensive `<think>` stripping) since every prompt here wants
+    a single strict-JSON answer, not visible chain-of-thought eating
+    into the timeout budget. See docs/DECISIONS.md, "LLM-as-brain
+    batch\" and the real-calendar/genesis-seed follow-up."""
     llm_timeout_seconds: float = 30.0
     """CPU inference on an 8GB+zram machine that's also running the
     simulation itself is noticeably slower under contention than a quiet
@@ -93,4 +125,4 @@ class Config:
     api_port: int = 8765
 
     def days_per_year(self) -> int:
-        return self.days_per_season * len(self.seasons_per_year)
+        return sum(self.days_per_month)

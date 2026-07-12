@@ -4,6 +4,60 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.28.0] — Add: real 365-day UK calendar, eras, LLM-genesis seed, model swap
+
+### Added
+- Real 365-day, 12-month calendar (`time_system.py`) replacing the old
+  fixed 20-day, 4-season year — `season` is now derived from the month
+  via UK meteorological convention, so everything already keyed off it
+  (weather baselines, farm growth, chronicle/tradition/invention/
+  festival/town-brain cadence) kept working unchanged. Existing worlds
+  keep their original calendar shape (creation-only, reconstructed
+  losslessly from legacy snapshots — see `World.from_dict`).
+- `world/weather.py` baselines rewritten to a UK-style temperate
+  maritime climate at monthly granularity (mild wet winters, cool damp
+  summers, rain fairly even year-round).
+- Terrain-evolution cadence (nature reclaiming abandoned land, climate/
+  biome drift) decoupled from season/year boundaries onto fixed weekly/
+  monthly ticks instead, plus a slightly higher climate-drift sample
+  rate — the real calendar being ~4.5x longer than the old one would
+  otherwise have made map evolution proportionally rarer in wall-clock
+  terms, which is what "the map doesn't seem to be evolving" was
+  actually pointing at (the broadcast/redraw wiring itself was already
+  correct).
+- Eras: a settlement starts `industrial` and advances (electrical ->
+  modern -> digital) purely as a function of accumulated `tech_level`
+  (`buildings.era_for_tech_level`) — each era is a mechanically real
+  unlock, not a label: the new FACTORY building kind (double a
+  workshop's currency income) only enters the foundable pool past
+  `industrial`.
+- `llm/world_genesis.py`: a one-time "genesis" LLM call, made before a
+  brand-new world's terrain/weather are generated when `--seed` is
+  omitted — the LLM writes a short founding-scenario sentence, and its
+  hash becomes the world's seed, so "initial terrain and weather chosen
+  by an LLM" is literal. Falls back to a wall-clock-mixed seed from a
+  rotating scenario pool if the LLM is disabled/unreachable. An
+  explicit `--seed` always skips genesis; a resumed world never re-runs
+  it. The scenario text is shown once in the event log and persisted on
+  `Settlement.founding_scenario`.
+- Default LLM model moved to `qwen3:4b` (Qwen3, not "Qwen3.5" — that
+  doesn't exist — at the 4B tier, ~2.6GB Q4) from `qwen2.5:7b-instruct`
+  (~4.5GB): a newer generation, smaller, generally matching or beating
+  the old default's quality on community benchmarks. `qwen3:1.7b`
+  (~1.1GB) is the documented lighter fallback. `OllamaClient` now sends
+  `"think": false` and defensively strips any `<think>` block, since
+  Qwen3's hybrid thinking mode would otherwise risk breaking the
+  strict-JSON parsing every call here relies on.
+
+### Fixed
+- `server.py`'s `--llm-model`/`--llm-timeout` CLI flag defaults had
+  drifted out of sync with `Config`'s own defaults (still hardcoded to
+  the pre-0.27.0 `qwen2.5:3b`/20s) — running the CLI without explicitly
+  passing those flags silently used stale values. Both flags now read
+  their defaults from `Config` directly so they can't drift again.
+
+See `docs/DECISIONS.md`, "Real-calendar/genesis-seed follow-up."
+
 ## [0.27.0] — Add: economy buildings, town brain, animal/road weather, infrastructure telemetry
 
 ### Added

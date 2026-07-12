@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"  {biome:15s} {count}")
     if "climate" in summary:
         c = summary["climate"]
-        print(f"Climate:     warming {c['warming']:+.2f}, drying {c['drying']:+.2f} (slow yearly drift, -1..1 each)")
+        print(f"Climate:     warming {c['warming']:+.2f}, drying {c['drying']:+.2f} (slow monthly drift, -1..1 each)")
 
     pop = summary["population"]
     print(
@@ -104,8 +104,11 @@ def main(argv: list[str] | None = None) -> None:
     print(
         f"             civic buildings: {settle.get('workshops', 0)} workshops, "
         f"{settle.get('schools', 0)} schools, {settle.get('hospitals', 0)} hospitals, "
-        f"{settle.get('universities', 0)} universities"
+        f"{settle.get('universities', 0)} universities, {settle.get('factories', 0)} factories"
     )
+    print(f"             era: {settle.get('era', 'industrial')} — {settle.get('era_description', '')}")
+    if settle.get("founding_scenario"):
+        print(f"             founding scenario: \"{settle['founding_scenario']}\"")
     if settle.get("current_priority"):
         print(f"             town brain priority: {settle['current_priority']} — {settle.get('priority_rationale', '')}")
     if settle["traditions"]:

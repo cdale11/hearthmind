@@ -57,6 +57,14 @@ class BuildingKind(str, Enum):
     established. Doubles a school's education contribution. See
     Population._maybe_start_construction/_maybe_start_vehicle-style
     founding gate, docs/DECISIONS.md, "LLM-as-brain batch.\""""
+    FACTORY = "factory"
+    """A workshop's industrial-era upgrade in kind (not a literal
+    workshop->factory conversion; a separately foundable building) —
+    only enters the foundable pool once the settlement has advanced
+    past the `industrial` baseline era (see `Settlement.era`,
+    `era_for_tech_level`), and produces currency per staffed worker at
+    twice a workshop's rate. See FACTORY_INCOME_PER_TICK,
+    docs/DECISIONS.md, real-calendar/genesis-seed follow-up."""
 
 
 CONSTRUCTION_WORK_PER_TICK = 0.05
@@ -120,6 +128,7 @@ WORKSHOP_MATERIALS_COST = 4.0
 SCHOOL_MATERIALS_COST = 6.0
 HOSPITAL_MATERIALS_COST = 8.0
 UNIVERSITY_MATERIALS_COST = 10.0
+FACTORY_MATERIALS_COST = 14.0
 """Materials deducted from the settlement stockpile when construction is
 founded — buildings are now genuinely "built from resources available"
 (previously materials only sped construction up, via
@@ -141,16 +150,21 @@ MATERIALS_COST_BY_KIND: dict[BuildingKind, float] = {
     BuildingKind.SCHOOL: SCHOOL_MATERIALS_COST,
     BuildingKind.HOSPITAL: HOSPITAL_MATERIALS_COST,
     BuildingKind.UNIVERSITY: UNIVERSITY_MATERIALS_COST,
+    BuildingKind.FACTORY: FACTORY_MATERIALS_COST,
 }
 
 BUILDING_KIND_BASE_WEIGHTS: dict[str, float] = {
     "hut": 0.42, "granary": 0.23, "workshop": 0.15, "school": 0.12, "hospital": 0.08,
+    "factory": 0.10,
 }
 """Baseline odds a new civic building is each kind, before
 `Settlement.current_priority` (the seasonal "town brain" LLM
 decision — see llm/town_brain.py) reweights them. UNIVERSITY is
 deliberately excluded: it's an upgrade of an existing SCHOOL, not
-founded from this pool. See `choose_building_kind`."""
+founded from this pool. FACTORY is present here but filtered out by
+`choose_building_kind` until the settlement's era allows it (see
+`era_for_tech_level`) — it's an industrial-era-or-later kind, not
+foundable from a settlement's earliest days."""
 
 PRIORITY_KIND_BOOST = 2.5
 """Multiplier applied to one kind's weight when it matches the
@@ -166,15 +180,48 @@ _PRIORITY_TO_KIND = {
 value it boosts. "defense" has no dedicated building yet, so it boosts
 huts (more shelter, more hands) rather than doing nothing."""
 
+# --- eras: the town starts industrial and advances as it invents -----------
 
-def choose_building_kind(rng, current_priority: str) -> "BuildingKind":
+ERA_ORDER = ("industrial", "electrical", "modern", "digital")
+ERA_TECH_THRESHOLDS: dict[str, int] = {"industrial": 0, "electrical": 3, "modern": 7, "digital": 12}
+"""A settlement's era is purely a function of accumulated `tech_level`
+(established inventions, see llm/invention.py) — no separate era-only
+mechanic to keep in sync. Thresholds are deliberately steep:
+inventions are already rare (INVENTION_CHANCE_PER_YEAR), so reaching
+`digital` is a long-run milestone, not a fast unlock."""
+ERA_DESCRIPTIONS: dict[str, str] = {
+    "industrial": "smokestacks and hand tools",
+    "electrical": "the first wired lights and machinery",
+    "modern": "motorised tools and mass production",
+    "digital": "computing woven into daily civic life",
+}
+
+_ERA_UNLOCKS_FACTORY = frozenset({"electrical", "modern", "digital"})
+"""FACTORY is foundable from `electrical` onward, not `industrial` —
+the settlement starts industrial with only the earlier building kinds
+available; a factory represents genuine progress past that baseline."""
+
+
+def era_for_tech_level(tech_level: int) -> str:
+    era = ERA_ORDER[0]
+    for name in ERA_ORDER:
+        if tech_level >= ERA_TECH_THRESHOLDS[name]:
+            era = name
+    return era
+
+
+def choose_building_kind(rng, current_priority: str, era: str = "industrial") -> "BuildingKind":
     """Weighted pick among the foundable civic kinds (not UNIVERSITY,
     which upgrades an existing school instead) — base odds nudged
-    toward whatever the settlement's current priority calls for. Falls
-    back to the unweighted base odds for an unrecognized/empty
-    priority (e.g. before the first town-brain decision has ever run).
-    See docs/DECISIONS.md, "LLM-as-brain batch.\""""
+    toward whatever the settlement's current priority calls for, and
+    FACTORY excluded entirely until `era` has advanced past
+    `industrial`. Falls back to the unweighted base odds for an
+    unrecognized/empty priority (e.g. before the first town-brain
+    decision has ever run). See docs/DECISIONS.md, "LLM-as-brain
+    batch\" and the real-calendar/genesis-seed follow-up."""
     weights = dict(BUILDING_KIND_BASE_WEIGHTS)
+    if era not in _ERA_UNLOCKS_FACTORY:
+        weights.pop("factory", None)
     boosted = _PRIORITY_TO_KIND.get(current_priority)
     if boosted in weights:
         weights[boosted] *= PRIORITY_KIND_BOOST
@@ -254,6 +301,12 @@ WORKSHOP_INCOME_PER_TICK = 0.03
 workshop, per tick, up to CURRENCY_CAPACITY — a business, not just
 overflow-selling: this is currency income from nothing being wasted,
 same order of magnitude as MATERIALS_GATHER_PER_TICK."""
+
+FACTORY_INCOME_PER_TICK = 0.06
+"""Same shape as WORKSHOP_INCOME_PER_TICK, at twice the rate — a
+factory is the settlement's industrial-era-or-later economic upgrade,
+foundable only once `Settlement.era` has advanced past `industrial`
+(see `_ERA_UNLOCKS_FACTORY`)."""
 
 EDUCATION_CAPACITY = 1.0
 """Max `Settlement.education_level` — see SCHOOL_EDUCATION_PER_TICK and
@@ -441,6 +494,18 @@ class Settlement:
     consumed (and cleared) by the next town-brain prompt — the
     deliberately subtle channel for player influence on the LLM brain.
     See docs/DECISIONS.md, "LLM-as-brain batch.\""""
+    era: str = "industrial"
+    """One of ERA_ORDER — a settlement starts industrial and advances
+    as `tech_level` grows (see `era_for_tech_level`,
+    SimulationEngine._maybe_advance_era). Gates the FACTORY building
+    kind; also shown in the UI and folded into narrative prompts as
+    period flavor. See docs/DECISIONS.md, real-calendar/genesis-seed
+    follow-up."""
+    founding_scenario: str = ""
+    """The one-time "genesis" LLM call's founding-scenario sentence
+    (see hearthmind.llm.world_genesis) — the same text whose hash chose
+    this world's seed. Empty for worlds created before this existed, or
+    when `--seed` was passed explicitly (genesis is skipped)."""
 
     # --- queries -------------------------------------------------------------
 
@@ -525,7 +590,10 @@ class Settlement:
         granaries = [b for b in standing if b.kind is BuildingKind.GRANARY]
         kind_counts = {
             kind.value: sum(1 for b in standing if b.kind is kind)
-            for kind in (BuildingKind.WORKSHOP, BuildingKind.SCHOOL, BuildingKind.HOSPITAL, BuildingKind.UNIVERSITY)
+            for kind in (
+                BuildingKind.WORKSHOP, BuildingKind.SCHOOL, BuildingKind.HOSPITAL,
+                BuildingKind.UNIVERSITY, BuildingKind.FACTORY,
+            )
         }
         return {
             "total": len(self.buildings),
@@ -550,10 +618,14 @@ class Settlement:
             "schools": kind_counts["school"],
             "hospitals": kind_counts["hospital"],
             "universities": kind_counts["university"],
+            "factories": kind_counts["factory"],
             "education_level": round(self.education_level, 3),
             "education_capacity": EDUCATION_CAPACITY,
             "current_priority": self.current_priority,
             "priority_rationale": self.priority_rationale,
+            "era": self.era,
+            "era_description": ERA_DESCRIPTIONS.get(self.era, ""),
+            "founding_scenario": self.founding_scenario,
         }
 
     def infrastructure_report(self) -> list[dict]:
@@ -625,6 +697,8 @@ class Settlement:
             "current_priority": self.current_priority,
             "priority_rationale": self.priority_rationale,
             "player_influence": list(self.player_influence),
+            "era": self.era,
+            "founding_scenario": self.founding_scenario,
         }
 
     @classmethod
@@ -642,4 +716,6 @@ class Settlement:
             current_priority=data.get("current_priority", ""),
             priority_rationale=data.get("priority_rationale", ""),
             player_influence=list(data.get("player_influence", [])),
+            era=data.get("era", "industrial"),
+            founding_scenario=data.get("founding_scenario", ""),
         )

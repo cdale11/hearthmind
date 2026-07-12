@@ -81,15 +81,15 @@ class World:
     # --- construction ----------------------------------------------------
 
     @classmethod
-    def create_new(cls, config: Config) -> "World":
+    def create_new(cls, config: Config, founding_scenario: str = "") -> "World":
         clock = SimClock(config=config, tick_count=0)
         terrain = generate_terrain(seed=config.seed, width=config.width, height=config.height)
-        weather = compute_weather(seed=config.seed, tick=0, season=clock.season, previous=None)
+        weather = compute_weather(seed=config.seed, tick=0, month=clock.month_name.lower(), previous=None)
         population = Population.spawn_initial(
             seed=config.seed, count=config.initial_population, terrain=terrain,
         )
         resources = ResourceGrid.generate(seed=config.seed, terrain=terrain)
-        settlement = Settlement()  # settlements emerge from population behavior, not pre-placed
+        settlement = Settlement(founding_scenario=founding_scenario)  # settlements emerge from population behavior, not pre-placed
         farms = FarmGrid()  # likewise: no farms exist until agents plant them
         wildlife = WildlifeGrid.generate(seed=config.seed, terrain=terrain)
         roads = RoadNetwork()  # paths emerge from foot traffic, not pre-placed
@@ -110,7 +110,7 @@ class World:
         self.weather = compute_weather(
             seed=self.config.seed,
             tick=self.clock.tick_count,
-            season=self.clock.season,
+            month=self.clock.month_name.lower(),
             previous=self.weather,
         )
         self.resources.tick(season=self.clock.season)
@@ -136,8 +136,14 @@ class World:
 
     def _tick_terrain(self, calendar_events: list[str]) -> list[tuple[str, str]]:
         """Local activity-driven terrain change (every tick), plus the
-        rarer reclaim (season boundary) and climate drift (year
-        boundary) passes — see world/terrain_evolution.py."""
+        rarer reclaim (weekly) and climate drift (monthly) passes — see
+        world/terrain_evolution.py. Decoupled from season/year boundaries
+        (previously: reclaim per season, drift per year) so the real
+        365-day calendar doesn't stretch out how often the map visibly
+        changes — a full year is now 365 days instead of 80, so tying
+        these to season/year boundaries the old way would have made
+        terrain evolution ~4.5x rarer in wall-clock terms, not just
+        differently-timed."""
         occupied_tiles = {(a.x, a.y) for a in self.population.agents}
         active_forest_tiles = {
             (a.x, a.y) for a in self.population.agents
@@ -147,13 +153,13 @@ class World:
         rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "terrain_activity")
         events = apply_local_activity(self.terrain, active_forest_tiles, self.terrain_activity, rng)
 
-        if "season_end" in calendar_events:
+        if "week_end" in calendar_events:
             reclaim_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "terrain_reclaim")
             events += maybe_reclaim(
                 self.terrain, self.terrain_activity, self.settlement, self.farms, occupied_tiles, reclaim_rng,
             )
 
-        if "year_end" in calendar_events:
+        if "month_end" in calendar_events:
             climate_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "climate_drift")
             tick_climate(self.climate, climate_rng)
             events += apply_climate_drift(
@@ -169,6 +175,7 @@ class World:
             "tick": self.clock.tick_count,
             "date": self.clock.date_string(),
             "clock": self.clock.clock_string(),
+            "month": self.clock.month_name,
             "season": self.clock.season,
             "year": self.clock.year,
             "weather": self.weather.describe(),
@@ -204,8 +211,10 @@ class World:
                 "height": self.config.height,
                 "sim_minutes_per_tick": self.config.sim_minutes_per_tick,
                 "minutes_per_day": self.config.minutes_per_day,
-                "days_per_season": self.config.days_per_season,
+                "days_per_month": list(self.config.days_per_month),
+                "month_names": list(self.config.month_names),
                 "seasons_per_year": list(self.config.seasons_per_year),
+                "month_to_season": list(self.config.month_to_season),
                 "initial_population": self.config.initial_population,
             },
             "clock": self.clock.to_dict(),
@@ -242,14 +251,33 @@ class World:
         caller can log/persist the change once (see M2-3, generalized in
         A4)."""
         saved = data["config"]
+        if "days_per_month" in saved:
+            days_per_month = tuple(saved["days_per_month"])
+            month_names = tuple(saved["month_names"])
+            month_to_season = tuple(saved["month_to_season"])
+            seasons_per_year = tuple(saved["seasons_per_year"])
+        else:
+            # Legacy snapshot predating the real-calendar rework: it had a
+            # fixed N-day-per-season, 4-season year. Reconstruct an
+            # equivalent "N months, each one season long" calendar so the
+            # unified month-based SimClock reproduces its original
+            # day/season math exactly — this world's calendar was baked in
+            # at creation and must never silently change underfoot.
+            legacy_days_per_season = saved.get("days_per_season", 20)
+            seasons_per_year = tuple(saved.get("seasons_per_year", Config.seasons_per_year))
+            days_per_month = tuple(legacy_days_per_season for _ in seasons_per_year)
+            month_names = tuple(s.capitalize() for s in seasons_per_year)
+            month_to_season = tuple(range(len(seasons_per_year)))
         config = Config(
             seed=saved["seed"],
             width=saved["width"],
             height=saved["height"],
             sim_minutes_per_tick=saved["sim_minutes_per_tick"],
             minutes_per_day=saved["minutes_per_day"],
-            days_per_season=saved["days_per_season"],
-            seasons_per_year=tuple(saved["seasons_per_year"]),
+            days_per_month=days_per_month,
+            month_names=month_names,
+            seasons_per_year=seasons_per_year,
+            month_to_season=month_to_season,
             initial_population=saved.get("initial_population", Config.initial_population),
             tick_seconds=runtime_config.tick_seconds,
             snapshot_every_ticks=runtime_config.snapshot_every_ticks,

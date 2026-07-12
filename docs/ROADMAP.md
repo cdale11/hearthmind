@@ -18,14 +18,14 @@ build" — phases below are the *how*, this table is the *what*.
 | Feature | Status | Where |
 |---|---|---|
 | Terrain | shipped | `world/terrain.py` (generation, Milestone 1) + `world/terrain_evolution.py` (local activity-driven change and climate/biome drift) |
-| Weather | shipped | `world/weather.py`; qualitative labels since D6 |
-| Seasons | shipped | `world/clock.py` calendar (`year_end` etc. drive culture/chronicle cadence) |
+| Weather | shipped | `world/weather.py`; UK-climate monthly baselines, qualitative labels since D6 |
+| Seasons | shipped | `time_system.py`: real 365-day/12-month calendar, `season` derived per-month (UK meteorological); `year_end`/`season_end`/`month_end`/`week_end` drive culture/chronicle/terrain-evolution cadence |
 | Ecology & wildlife | shipped | A4 (`hearthmind/world/wildlife.py`) — grazer herds flee predators, predator packs hunt (now a logged event), huntable |
 | Humans (agents, needs, aging) | shipped | Phase A |
 | Relationships | shipped | A3 (proximity affinity + birth) + E2 (rivalry, -1..1) + A5 (memory of specific bond/rivalry/rumor/grief moments, fed into cognition) |
 | Economy | shipped (settlement-scale) | Phase D (D8-D10: materials, currency) + workshops/schools/hospitals/universities (currency income, education->invention chance, health) + a seasonal LLM "town brain" civic-priority decision that steers what gets built; real seasonal/weather scarcity pressure so decline is genuinely possible; no per-agent trade — see Phase D open item |
 | Agriculture | shipped | D1, D9 (farms, tool-boosted yield) |
-| Construction | shipped | Phase C + economy buildings (workshop/school/hospital/university) |
+| Construction | shipped | Phase C + economy buildings (workshop/school/hospital/university/factory) + a starting-`industrial`, tech-level-driven era progression (industrial -> electrical -> modern -> digital) |
 | Infrastructure | shipped | C5 (`hearthmind/world/roads.py`) — foot-traffic-driven path wear/decay, established roads speed movement, now weather-dependent (mud/snow/ice); human-readable condition telemetry (`Settlement.infrastructure_report`) |
 | Building decay | shipped | C1-C4 (weathering, ruin, reclamation) |
 | Culture | shipped (single-settlement) | E1 (naming, traditions) + E3 (prosperity-gated inventions/tech unlocks) + festivals + generational/family memory; multiple named settlements not built |
@@ -305,6 +305,19 @@ the simulation.
   condition in plain language, worst-first — `Settlement.infrastructure_report()`,
   a new sidebar panel, and an `inspect_world` section. See
   `docs/DECISIONS.md`, "LLM-as-brain batch."
+- **[x] Real 365-day/12-month calendar + UK climate.** Replaces the old
+  fixed 20-day/4-season year; weather baselines are monthly and
+  UK-maritime-flavored; terrain evolution recadenced onto fixed weekly/
+  monthly ticks (was season/year-boundary-triggered) so the longer
+  calendar doesn't make map evolution rarer to observe. See
+  `docs/DECISIONS.md`, "Real-calendar/genesis-seed follow-up."
+- **[x] Eras.** A settlement starts `industrial` and advances
+  (electrical -> modern -> digital) with `tech_level`, unlocking the
+  FACTORY building kind past `industrial`. See same entry.
+- **[x] LLM-chosen world-genesis seed.** `llm/world_genesis.py` — a
+  one-time LLM call picks a founding-scenario sentence whose hash
+  becomes a brand-new world's seed when `--seed` is omitted. See same
+  entry.
 - Not yet built: per-agent click-to-inspect beyond hover tooltips, a
   historical/replay view.
 

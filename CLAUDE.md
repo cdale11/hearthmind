@@ -16,19 +16,66 @@ branch `claude/hearthmind-overview-5bekay`.
 
 ## Hardware target
 
-8GB RAM + zram swap, CPU-only inference. Default model
-`qwen2.5:7b-instruct` (~4.5GB Q4 weights) — upgraded from `qwen2.5:3b`
-(~2GB) for meaningfully better NPC dialogue quality; zram exists
-precisely to absorb the extra headroom this costs. If a live soak run
-shows this is too heavy/slow on the user's actual box, revert to
-`qwen2.5:3b` via `--llm-model` and report back — don't silently
-downgrade the default without that signal. `llm_timeout_seconds=30`
-(bumped from 20 for the larger model's slower per-token CPU inference),
+8GB RAM + zram swap, CPU-only inference. Default model `qwen3:4b`
+(~2.6GB Q4 weights) — moved from `qwen2.5:7b-instruct` (~4.5GB) to a
+newer generation (Qwen3, not "Qwen3.5" — that doesn't exist as of this
+writing) at a smaller size, generally matching or beating the old 7B's
+quality on community benchmarks while leaving more headroom for the
+simulation process itself. `qwen3:1.7b` (~1.1GB) is the lighter
+fallback if this is still too heavy/slow on the user's actual box —
+`--llm-model qwen3:1.7b` and report back, don't silently downgrade the
+default without that signal. Qwen3 is a hybrid "thinking" model; every
+call disables that (`OllamaClient` sends `"think": false` and
+defensively strips any `<think>` block that leaks through anyway) since
+every prompt in this project wants one strict-JSON answer, not visible
+chain-of-thought eating into the timeout budget. `llm_timeout_seconds=30`,
 `llm_max_concurrent=4`. LLM is on by default (`Config.llm_enabled=True`)
 and treated as not budget-constrained on the user's hardware — prefer
 giving the LLM more genuine decision points over deterministic/
 RNG-driven ones where it plausibly improves emergence, subject to the
 liveness rule below.
+
+## Design priorities (Hearthmind is an autonomous, persistent artificial society)
+
+Priority order: 1. emergence, 2. believable causality, 3. persistent
+identity, 4. psychological realism, 5. long-term evolution, 6. player
+discovery. The simulation should surprise even its developers. When
+there's more than one believable future, prefer LLM reasoning over
+deterministic rules.
+
+The deterministic engine should only model objective physical reality:
+time, weather, seasons, physics, movement, pathfinding, resources,
+ecology, construction, decay. Everything involving judgement,
+interpretation, creativity, uncertainty, psychology, or social behavior
+should default to the local LLM unless there's a compelling engineering
+reason not to — planning, decision-making, interpretation, beliefs,
+memory, personality, emotions, relationships, rumors, traditions,
+inventions, culture, politics, leadership, human-judgment economics,
+conflict resolution, investigations, and (eventually, deliberately last
+— see Phase G below) supernatural influence. Don't replace LLM reasoning
+with a large deterministic rule system just because it's easier to
+implement. The deterministic engine provides reality; the LLM provides
+meaning. NPCs are imperfect: they misunderstand, forget, reinterpret
+memories, procrastinate, become biased, gossip, forgive, hold grudges,
+invent explanations, and change over time. Objective reality and
+subjective belief are separate — important entities (including,
+eventually, the town itself) maintain beliefs that evolve through
+experience, not ground truth readouts. History should become physically
+visible; NPC activity should reshape the world over the long run. Prefer
+systems interacting with existing systems over isolated mechanics.
+Implement the smallest coherent milestone at a time (this is the same
+spirit as the batching rule below, at a finer grain). Before calling
+something done, ask: does this increase the chance Hearthmind creates
+believable stories nobody explicitly programmed?
+
+This priority list *is* the existing "LLM as the town's brain" section
+below, generalized past just town-brain/dialogue — read them together.
+**Conflict flagged, not silently resolved:** this framing was given with
+"run the full test suite, don't claim completion until tests pass,"
+which contradicts the explicit workflow rule further down that the
+automated suite is deemed unreliable and isn't run. That workflow rule
+stays in force until the user says otherwise — flag it back to them
+rather than picking a side silently.
 
 ## LLM as the town's brain
 
@@ -45,6 +92,41 @@ subtle: `/intervene/town-brain` queues a short text "whisper" that's
 folded into the *next* town-brain prompt as one input among the real
 settlement stats/history, not a command the LLM (or the deterministic
 fallback) is forced to obey.
+
+## Calendar, climate, and eras
+
+The world clock is a real 365-day, 12-month calendar (`time_system.py`,
+`Config.days_per_month`/`month_names`) — not the old fixed 20-day,
+4-season year. `season` still exists as a 4-value concept (spring/
+summer/autumn/winter) derived from the month via UK meteorological
+convention (`Config.month_to_season`: Dec-Feb winter, Mar-May spring,
+Jun-Aug summer, Sep-Nov autumn), so everything that already keyed off
+`clock.season` (weather baselines, farm growth multipliers, chronicle/
+tradition/invention/festival/town-brain cadence) kept working unchanged.
+Weather baselines (`world/weather.py`) model a temperate UK maritime
+climate at monthly granularity. Terrain evolution (deforestation
+reversal / climate drift) is deliberately decoupled from season/year
+boundaries — it runs on fixed week/month cadences instead — specifically
+so the real, longer calendar doesn't make map evolution rarer in
+wall-clock terms; if the map still "doesn't seem to be evolving" on a
+live run, that's a signal to shorten those cadences further or boost the
+roll chances, not a hint to go back to season/year triggers. An existing
+saved world's calendar shape is creation-only and never changes
+underfoot (see `World.from_dict`'s legacy-snapshot reconstruction).
+
+A settlement starts in the `industrial` era and can advance
+(electrical -> modern -> digital) purely as a function of accumulated
+`tech_level` (`buildings.era_for_tech_level`) — each era is a
+mechanically real unlock (the FACTORY building kind past `industrial`),
+not just a label change.
+
+A brand-new world's seed is chosen by a one-time "genesis" LLM call
+(`llm/world_genesis.py`, wired in `server.py`) when `--seed` is omitted:
+the LLM writes a short founding-scenario sentence, and its hash becomes
+the seed that drives the ordinary deterministic terrain/weather
+generation — "initial terrain and weather chosen by an LLM" is literal,
+not cosmetic. An explicit `--seed` always wins and skips genesis
+entirely; a resumed world never re-runs it.
 
 ## Workflow rules
 
@@ -84,19 +166,21 @@ fallback) is forced to obey.
   determinism) — the fallback no longer needs to be reproducible, just
   non-blocking.
 
-## Current state (v0.27.0+)
+## Current state (v0.28.0+)
 
 Phases A-G roadmap items are in flight; Phases A-F have substantial
 content shipped (deterministic substrate now optional-determinism, LLM
 cognition/dialogue/culture, settlements with real material costs and a
 "town brain" civic-priority LLM decision, workshops/schools/hospitals/
-universities, farming, wildlife/ecology (including flee behavior and
-logged hunts), roads (now weather-affected), vehicles, terrain
-evolution (local activity + climate/biome drift), generational/family
-agent memory, intervention ("nudge") endpoints including a subtle
-player-influence channel on the town brain, human-readable
-infrastructure telemetry, a weather particle overlay + day/night
-lighting + smooth agent movement, a live browser UI with a dev
+universities/factories with a starting-industrial era progression,
+farming, wildlife/ecology (including flee behavior and logged hunts),
+roads (weather-affected), vehicles, terrain evolution (local activity +
+climate/biome drift, now on visible week/month cadences), a real
+365-day/12-month UK-climate calendar, an LLM-chosen world-genesis seed,
+generational/family agent memory, intervention ("nudge") endpoints
+including a subtle player-influence channel on the town brain,
+human-readable infrastructure telemetry, a weather particle overlay +
+day/night lighting + smooth agent movement, a live browser UI with a dev
 diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.

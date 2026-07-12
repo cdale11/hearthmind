@@ -10,6 +10,13 @@
 
 * { box-sizing: border-box; }
 
+.hidden { display: none; }
+
+#founding-scenario {
+  font-style: italic;
+  max-width: 60ch;
+}
+
 body {
   margin: 0;
   background: var(--bg);

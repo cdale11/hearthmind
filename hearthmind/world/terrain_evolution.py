@@ -8,11 +8,15 @@ local activity-driven change AND longer-term climate/biome drift):
    heavy GATHER presence on a forest tile thins it to grassland
    (deforestation); an abandoned grassland tile next to existing forest
    can slowly revert to forest (nature reclaiming), checked once per
-   season since it's rare and cheap to defer that far.
+   week (`World._tick_terrain`) since it's rare and cheap to defer that
+   far without making it invisible over a normal viewing session.
 2. **Climate/biome drift** — a slow, bounded random walk in a
-   `warming`/`drying` bias, nudged once per year, gradually shifting a
+   `warming`/`drying` bias, nudged once per month, gradually shifting a
    small sample of tiles' biomes map-wide (e.g. snowcap/mountain shrink
    under a warming trend, water recedes under a drying one).
+
+Cadence is tied to fixed week/month boundaries rather than season/year
+ones deliberately — see `World._tick_terrain`'s docstring for why.
 
 Both skip tiles with a building/farm/vehicle on them, or an agent
 currently standing there — developed or occupied land doesn't
@@ -45,10 +49,10 @@ DEFOREST_CHANCE_PER_TICK = 0.02
 isn't instant even under sustained pressure."""
 
 REFOREST_MIN_FOREST_NEIGHBORS = 2
-REFOREST_CHANCE_PER_SEASON = 0.05
+REFOREST_CHANCE_PER_WEEK = 0.05
 """An abandoned grassland tile (no farm/building/vehicle/agent, no
 recent activity heat) touching at least this many forest neighbors has
-this chance, rolled once per season, to revert to forest — "nature
+this chance, rolled once per week, to revert to forest — "nature
 reclaims abandoned areas.\""""
 
 CLIMATE_STEP_MAX = 0.05
@@ -57,9 +61,12 @@ CLIMATE_MEAN_REVERSION = 0.95
 slightly toward 0 — a slow bounded random walk, not a runaway trend, so
 a long-running world doesn't reliably freeze or flood solid."""
 
-CLIMATE_DRIFT_SAMPLE_FRACTION = 0.02
+CLIMATE_DRIFT_SAMPLE_FRACTION = 0.03
 """Fraction of all tiles re-evaluated against the current climate bias
-each year — gradual, map-wide drift rather than an instant reflow."""
+each month — gradual, map-wide drift rather than an instant reflow.
+Slightly higher than the original per-year rate (0.02) since this now
+rolls monthly rather than yearly and should still read as a visible,
+if slow, change over a normal viewing session."""
 
 CLIMATE_TREND_REPORT_THRESHOLD = 0.05
 """|warming| below this reports as "shifting" rather than a directional
@@ -84,7 +91,7 @@ class ClimateState:
 
 
 def tick_climate(climate: ClimateState, rng: random.Random) -> None:
-    """Nudge the climate bias one year's worth. Mutates in place."""
+    """Nudge the climate bias one month's worth. Mutates in place."""
     climate.warming = max(-1.0, min(1.0, (
         climate.warming * CLIMATE_MEAN_REVERSION + rng.uniform(-CLIMATE_STEP_MAX, CLIMATE_STEP_MAX)
     )))
@@ -145,7 +152,7 @@ def maybe_reclaim(
     terrain: list[list[Tile]], heat: dict[tuple[int, int], float],
     settlement, farms, excluded: set[tuple[int, int]], rng: random.Random,
 ) -> list[tuple[str, str]]:
-    """Called once per season. An abandoned grassland tile bordered by
+    """Called once per week. An abandoned grassland tile bordered by
     enough forest can revert to forest — nature reclaiming unused land,
     the inverse of `apply_local_activity`'s deforestation."""
     events: list[tuple[str, str]] = []
@@ -165,7 +172,7 @@ def maybe_reclaim(
                     forest_neighbors += 1
             if forest_neighbors < REFOREST_MIN_FOREST_NEIGHBORS:
                 continue
-            if rng.random() >= REFOREST_CHANCE_PER_SEASON:
+            if rng.random() >= REFOREST_CHANCE_PER_WEEK:
                 continue
             terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.FOREST)
             events.append((
@@ -179,7 +186,7 @@ def apply_climate_drift(
     terrain: list[list[Tile]], climate: ClimateState,
     settlement, farms, excluded: set[tuple[int, int]], rng: random.Random,
 ) -> list[tuple[str, str]]:
-    """Called once per year. Re-evaluates a small random sample of tiles
+    """Called once per month. Re-evaluates a small random sample of tiles
     against the current climate bias and nudges each one biome-step
     (not a full jump) toward whatever biome its elevation now maps to,
     so the map-wide drift reads as gradual over many years."""

@@ -39,6 +39,7 @@ from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import load_latest_snapshot, log_event, recent_events, save_snapshot
 from hearthmind.settlement.buildings import (
     CURRENCY_CAPACITY,
+    ERA_DESCRIPTIONS,
     FESTIVAL_CHANCE_PER_SEASON,
     FESTIVAL_HUNGER_GATE,
     INVENTION_CHANCE_PER_YEAR,
@@ -46,6 +47,7 @@ from hearthmind.settlement.buildings import (
     INVENTION_MATERIALS_FRACTION,
     MATERIALS_CAPACITY,
     education_invention_bonus,
+    era_for_tech_level,
 )
 from hearthmind.world.state import World
 
@@ -68,6 +70,8 @@ logger = logging.getLogger("hearthmind.engine")
 
 _CALENDAR_EVENT_DESCRIPTIONS = {
     "day_end": "A new day begins.",
+    "week_end": "A new week begins.",
+    "month_end": "A new month begins.",
     "season_end": "The season turns.",
     "year_end": "A new year begins.",
 }
@@ -170,11 +174,12 @@ class SimulationEngine:
     @classmethod
     def load_or_create(
         cls, conn: sqlite3.Connection, config: Config, broadcaster: "WorldBroadcaster | None" = None,
+        founding_scenario: str = "",
     ) -> "SimulationEngine":
         world = load_latest_snapshot(conn, runtime_config=config)
         if world is None:
             logger.info("No existing snapshot found — creating a new world (seed=%s).", config.seed)
-            world = World.create_new(config)
+            world = World.create_new(config, founding_scenario=founding_scenario)
             save_snapshot(conn, world)
             log_event(conn, tick=0, category="genesis", description="The world was created.")
         else:
@@ -198,6 +203,15 @@ class SimulationEngine:
 
     def request_stop(self) -> None:
         self._stop_event.set()
+
+    def log_founding_scenario(self, scenario: str) -> None:
+        """Called once, right after a brand-new world is created, with
+        the one-time "genesis" LLM call's scenario text (see
+        hearthmind.llm.world_genesis, server.py) — the same text whose
+        hash chose this world's seed, so the description and the actual
+        generated terrain/weather are at least thematically the same
+        thing, not two unrelated random draws."""
+        self._log("founding", f"Before the first stone was laid: {scenario}")
 
     async def run_forever(self) -> None:
         logger.info(
@@ -516,7 +530,25 @@ class SimulationEngine:
         self.world.settlement.inventions.append(entry)
         self.world.settlement.tech_level += 1
         self._log("invention", f"The village invented {entry}")
+        self._maybe_advance_era()
         self._record_llm_call(used_fallback)
+
+    def _maybe_advance_era(self) -> None:
+        """A settlement starts in the industrial era (see
+        `Settlement.era`) and moves forward as inventions accumulate —
+        each new era is a mechanically real unlock (see
+        `buildings.era_for_tech_level`, the FACTORY building kind), not
+        just a label. See docs/DECISIONS.md, real-calendar/genesis-seed
+        follow-up."""
+        settlement = self.world.settlement
+        new_era = era_for_tech_level(settlement.tech_level)
+        if new_era == settlement.era:
+            return
+        settlement.era = new_era
+        self._log(
+            "era_advance",
+            f"The village has entered the {new_era} era — {ERA_DESCRIPTIONS[new_era]}.",
+        )
 
     # --- collective behaviour: festivals ----------------------------------------
 
