@@ -4,6 +4,44 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.31.0] — Live-diagnostics follow-up: vehicle eras, dialogue quality, LLM-authored naming
+
+Driven directly by a real user diagnostic report running `qwen3.5:2b`
+(confirmed working, <4GB RAM) — see docs/DECISIONS.md, "live-diagnostics
+follow-up (vehicles/dialogue/naming)."
+
+### Added
+- `VehicleKind.AUTOMOBILE`: an era-gated (`modern`+) upgrade over
+  MOUNT, faster (2.2x vs 1.6x) and costlier. Answers "why carts in an
+  industrial era": carts/mounts stay realistic at `industrial`/
+  `electrical` (horse-drawn transport genuinely coexisted with early
+  industry), and transport now genuinely modernizes alongside
+  buildings once the era does, the same way FACTORY already did for
+  buildings.
+- `llm/naming.py`: settlement naming is now LLM-authored, informed by
+  the founding scenario and terrain, rather than a bare random
+  prefix+suffix draw. The existing deterministic name generator still
+  provides an instant placeholder the tick a settlement is born (every
+  other system gates on `settlement.name` being set) — the LLM's name
+  replaces it in the background once the one-time job resolves.
+
+### Fixed
+- `llm/dialogue.py`: the system prompt now includes few-shot examples
+  (small/weak models benefit disproportionately from this) and
+  explicitly forbids meta-commentary/instruction leakage. `parse_dialogue`
+  gained a sanity filter (`_is_sane_line`) rejecting lines that leak
+  instructions, run wildly over length, exactly duplicate the other
+  speaker's line, or contain stray JSON braces — degrading to the
+  deterministic fallback pool instead of surfacing garbled small-model
+  output. Root-caused from the user's direct report that dialogue "makes
+  no sense."
+- `Config.llm_timeout_seconds` bumped 30 -> 45: the user's live
+  diagnostics showed p50 17.4s / p95 19.7s / max 29.7s against a 30s
+  timeout on `qwen3.5:2b` — a razor-thin margin despite the model
+  itself working correctly (0% observed fallback rate). Not a sign the
+  model is failing; a smaller model isn't necessarily faster in
+  wall-clock terms on constrained CPU hardware.
+
 ## [0.30.0] — Add: Phase G v1 (temperament + omens), per-person beliefs
 
 ### Added

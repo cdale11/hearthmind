@@ -33,7 +33,7 @@ except ImportError:  # pragma: no cover — this project's target hardware is Li
 
 from hearthmind.agents.agent import DIALOGUE_COOLDOWN_TICKS, AgentGoal
 from hearthmind.config import Config
-from hearthmind.llm import beliefs, chronicle, culture, dialogue, festival, invention, omens, town_brain
+from hearthmind.llm import beliefs, chronicle, culture, dialogue, festival, invention, naming, omens, town_brain
 from hearthmind.llm.client import OllamaClient
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
@@ -53,6 +53,7 @@ from hearthmind.settlement.buildings import (
     tick_temperament,
 )
 from hearthmind.world.state import World
+from hearthmind.world.terrain import biome_counts
 
 
 def _namespaced_roll(seed: int, tick: int, namespace: str) -> float:
@@ -168,6 +169,15 @@ class SimulationEngine:
         self._inflight_cognition_agent_ids: set[int] = set()
         self._pending_dialogue_results: list[tuple[int, int, dict]] = []
         self._background_tasks: set[asyncio.Task] = set()
+        self._naming_scheduled = False
+        """Guards `_maybe_schedule_naming` from firing more than once —
+        naming is a one-time-per-world event, and the deterministic
+        placeholder name (set inside World.tick the instant a building
+        first stands) already satisfies every other system's
+        `if not settlement.name: return` gate, so there's no retry
+        logic here — either the LLM job runs once and (maybe) renames
+        the settlement, or it doesn't and the placeholder stands
+        forever, same as any other LLM-fallback outcome."""
 
         if self._broadcaster is not None:
             # Terrain never changes after creation — set once, not part
@@ -224,6 +234,50 @@ class SimulationEngine:
         thing, not two unrelated random draws."""
         self._log("founding", f"Before the first stone was laid: {scenario}")
 
+    # --- settlement naming: deterministic placeholder, LLM-authored real name --
+
+    def _maybe_schedule_naming(self) -> None:
+        """`World.tick()` already gives a brand-new settlement an
+        instant deterministic placeholder name the moment its first
+        building stands (every other system gates on `settlement.name`
+        being set, so naming can't wait on an LLM round trip without
+        stalling them). This schedules a one-time background job that
+        proposes a better, context-aware name — informed by the
+        founding scenario and terrain, not a bare random draw — which
+        replaces the placeholder when it resolves. See
+        docs/DECISIONS.md, "naming mechanism follow-up.\""""
+        if self._naming_scheduled:
+            return
+        if not any(cat == "settlement_named" for cat, _ in self.world.last_life_events):
+            return
+        self._naming_scheduled = True
+        if not self._cognition_runner.enabled:
+            # The deterministic placeholder already *is* the fallback
+            # outcome here — unlike other jobs, running a second,
+            # differently-seeded fallback draw would just rename the
+            # settlement to another random name for no reason when
+            # there's no real LLM contribution happening.
+            return
+        settlement = self.world.settlement
+        counts = biome_counts(self.world.terrain)
+        top_biome = max(counts, key=lambda b: counts[b]).replace("_", " ") if counts else ""
+        prompt = naming.build_prompt(settlement.founding_scenario, top_biome, settlement.era)
+        fallback = naming.fallback_name(self.world.config.seed)
+        task = asyncio.create_task(self._run_naming(prompt, fallback))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _run_naming(self, prompt: str, fallback: dict) -> None:
+        result, used_fallback = await self._cognition_runner.run(
+            prompt, naming.SYSTEM_PROMPT, fallback=lambda: fallback
+        )
+        new_name = naming.parse_name(result, fallback)
+        old_name = self.world.settlement.name
+        if new_name and new_name != old_name:
+            self.world.settlement.name = new_name
+            self._log("settlement_named", f"The village came to be known as {new_name}.")
+        self._record_llm_call(used_fallback)
+
     async def run_forever(self) -> None:
         logger.info(
             "Engine starting: %.2fs/tick, %s sim-minutes/tick, snapshot every %s ticks, LLM %s.",
@@ -274,6 +328,7 @@ class SimulationEngine:
                 self.world.clock.clock_string(), self.world.weather.describe(),
             )
 
+        self._maybe_schedule_naming()
         self._maybe_schedule_chronicle(events, previous_season)
         self._maybe_schedule_tradition(events)
         self._maybe_schedule_invention(events)

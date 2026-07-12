@@ -1923,3 +1923,113 @@ bounded `temperament` value and round-tripped through
 `to_dict`/`from_dict` correctly (within the field's own rounding — same
 tolerance every other rounded settlement stat already has). All touched
 files pass `python3 -m py_compile`; `app.js` passes `node --check`.
+
+## Live-diagnostics follow-up (vehicles/dialogue/naming)
+
+User supplied a real diagnostic report (screenshot + `/diagnostics`
+JSON) from `qwen3.5:2b` actually running on their hardware, plus four
+concrete questions/requests: confirm the model works (RAM <4GB —
+confirmed, no code change needed); why carts appear in an "industrial"
+era; NPC dialogue "makes no sense," improve it; and "figure out" the
+village-naming mechanism. Per CLAUDE.md, a user's own live diagnostics
+are the project's actual source of truth — this batch is a direct,
+traceable response to the JSON/screenshot supplied, not a general pass.
+
+**Vehicle era progression.** Historically, carts/mounts alongside an
+"industrial" era isn't actually anachronistic — horse-drawn transport
+coexisted with early industry for decades — but the complaint is fair
+on its own terms: buildings already got an era-gated upgrade (FACTORY,
+prior batch) and vehicles hadn't, so "industrial era, forever carts"
+reads as an oversight even where it isn't strictly wrong. Added
+`VehicleKind.AUTOMOBILE` (`settlement/vehicles.py`), foundable only once
+`Settlement.era` is `modern` or `digital`
+(`buildings.ERA_UNLOCKS_AUTOMOBILE`), costing `AUTOMOBILE_MATERIALS_COST
+=12.0` and moving at `AUTOMOBILE_SPEED_MULTIPLIER=2.2` (vs mount's 1.6).
+Required generalizing several MOUNT-specific code paths in
+`agents/population.py` to a shared `PERSONAL_VEHICLE_KINDS` concept
+(claiming logic, `_agent_mount`, decay wear) since AUTOMOBILE behaves
+identically to MOUNT mechanically, just faster/costlier — `_maybe_move`'s
+`mounted: bool` parameter became `speed_multiplier: float` to carry
+either vehicle's actual multiplier rather than a fixed constant.
+`_maybe_start_vehicle`'s kind roll became 3-way (cart/mount/automobile)
+once the era allows it, still 2-way (cart/mount) below `modern`. Map
+rendering gives automobile a distinct steel-blue diamond, separate from
+mount's violet, so era-driven transport progress is visible on the map
+itself, not just in stat tiles.
+
+**Dialogue quality.** Root cause is almost certainly the model tier
+itself: `qwen3.5:2b`'s own diagnostics show p50 latency 17.4s (not
+fast, despite being small — CPU inference on constrained hardware
+doesn't scale down proportionally with parameter count the way one
+might expect), and small/weak instruction-following models are known
+to leak meta-commentary or ramble past length instructions more often
+than larger ones. Two independent fixes, since the actual failure mode
+can't be directly observed from this environment (no live Ollama here):
+(1) `llm/dialogue.py`'s SYSTEM_PROMPT gained three few-shot examples in
+the exact expected JSON shape — few-shot exemplars are a well-known,
+disproportionately effective mitigation for weak models' instruction-
+following, and an explicit instruction never to mention being an AI/
+simulation; (2) `parse_dialogue` gained `_is_sane_line`, a sanity filter
+rejecting a line if it leaks instruction/meta text (`_LEAKAGE_MARKERS`:
+"json", "you are writing", "as an ai", etc.), runs more than
+`_MAX_LINE_WORDS=22` (over double the requested 10), exactly duplicates
+the other speaker's line, or contains a stray `{`/`}` — any of which
+degrades that line back to the deterministic fallback pool rather than
+surfacing visibly broken small-model output. This can't be verified
+against the user's actual model from this environment; it's a defense-
+in-depth, degrade-gracefully fix, not a guarantee the underlying model
+quality issue is fully resolved — worth another live diagnostic report
+after this ships.
+
+**`llm_timeout_seconds` bumped 30 -> 45.** Read directly off the
+supplied `llm_stats`: `latency_ms_p50: 17441`, `p95: 19699.8`, `max:
+29721.4` against a 30000ms timeout — the single slowest observed call
+was 279ms from timing out. `calls_timed_out: 0`/`calls_errored: 1` out
+of 258 shows the model is in fact working (this is not a "model too
+weak, replace it" situation), but the margin was uncomfortably thin for
+any run slower than this snapshot. This does not mean 2B is slow in
+absolute terms — it means this project's assumption that a smaller
+model would clearly be faster in wall-clock terms wasn't safe to make
+without the user's own hardware data, which is exactly why CLAUDE.md
+treats live diagnostics as higher-priority signal than a priori
+reasoning about model size.
+
+**Settlement naming mechanism.** Investigated and explained, then
+upgraded rather than left as pure RNG: previously
+`settlement.naming.generate_settlement_name` was called synchronously
+inside `World.tick()` the instant a settlement's first building went
+STANDING — a prefix+suffix compound (e.g. "Elmford") from a fixed pool,
+chosen via the same namespaced-RNG discipline as everything else
+deterministic in this project. Per this project's own design priority
+("prefer LLM reasoning" for creative/interpretive decisions), naming a
+place is exactly the kind of decision that should default to the LLM,
+not a coin flip — but naming can't simply *become* an LLM call, since
+`settlement.name` being truthy is a synchronous gate every other system
+already depends on the same tick a settlement is born (town_brain,
+chronicle, festivals, beliefs, vehicles all no-op on an empty name).
+Resolution: keep `World.tick()`'s instant deterministic placeholder
+exactly as before (nothing else had to change), and add
+`llm/naming.py` + `SimulationEngine._maybe_schedule_naming`/
+`_run_naming` — a one-time background job, guarded by
+`self._naming_scheduled` so it only ever fires once per world, informed
+by `Settlement.founding_scenario` and the terrain's dominant biome
+(`world.terrain.biome_counts`), which silently replaces the placeholder
+with a better name once it resolves (typically within the same latency
+window as any other LLM call). Deliberately skipped entirely when the
+LLM is disabled (`self._cognition_runner.enabled` check) — re-running a
+second, differently-seeded deterministic name draw would just rename
+the settlement to another random name for no real reason, since the
+existing placeholder already *is* the correct fallback outcome here
+(unlike every other job, where the fallback is a distinct, intentional
+degraded-but-useful output).
+
+Verified (LLM disabled in this environment, deterministic fallbacks
+exercised throughout): a 20000-tick full async engine run (population
+16, seed 4242) produced a named settlement ("Elmford", the unchanged
+deterministic placeholder, confirming the disabled-LLM skip works
+correctly), 14 carts and 12 mounts (era stayed `industrial` — no
+inventions rolled in this particular run, so AUTOMOBILE correctly never
+appeared, confirming the era gate). A direct `to_dict`/`from_dict`
+round-trip with a manually-forced `VehicleKind.AUTOMOBILE` at `era=
+"modern"` confirmed serialization round-trips correctly. All touched
+files pass `python3 -m py_compile`; `app.js` passes `node --check`.

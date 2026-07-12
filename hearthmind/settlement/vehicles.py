@@ -22,6 +22,16 @@ class VehicleKind(str, Enum):
     """Personal: an awake agent colocated with a ready, unclaimed mount
     claims it and moves faster (like a personal road) for as long as
     they keep it in good repair."""
+    AUTOMOBILE = "automobile"
+    """Personal, same claiming/speed mechanic as MOUNT but faster and
+    only enters the foundable pool once the settlement's era has
+    advanced past `industrial` (see `_ERA_UNLOCKS_AUTOMOBILE` in
+    buildings.py) — the concrete answer to "why carts in an industrial
+    era": carts/mounts stay realistic (horse-drawn transport coexisted
+    with early industry for decades), and the settlement's transport
+    genuinely modernizes as its era does, the same way FACTORY answers
+    it for buildings. See docs/DECISIONS.md, "vehicle era-progression
+    follow-up.\""""
 
 
 class VehicleStage(str, Enum):
@@ -74,6 +84,31 @@ will and shouldn't compound without limit."""
 MOUNT_SPEED_MULTIPLIER = 1.6
 """Slightly better than ROAD_SPEED_MULTIPLIER (1.4, world/roads.py) and
 stacks with it — a mounted agent on a road is faster still."""
+
+AUTOMOBILE_MATERIALS_COST = 12.0
+"""Costlier than a mount (6.0) — a genuinely bigger investment,
+matching its bigger speed payoff and era gate."""
+
+AUTOMOBILE_USE_DECAY = 0.0025
+"""Slightly more wear per use than a mount (0.002) — more moving parts,
+matching a real automobile's higher maintenance burden versus a horse."""
+
+AUTOMOBILE_SPEED_MULTIPLIER = 2.2
+"""Noticeably faster than a mount (1.6) — the mechanically real payoff
+for era-appropriate transport, not just a reskin."""
+
+PERSONAL_VEHICLE_KINDS = (VehicleKind.MOUNT, VehicleKind.AUTOMOBILE)
+"""Both are "claim it, ride it, it speeds your own movement" vehicles,
+as opposed to CART's settlement-wide passive haul bonus."""
+
+PERSONAL_VEHICLE_SPEED_MULTIPLIER: dict[VehicleKind, float] = {
+    VehicleKind.MOUNT: MOUNT_SPEED_MULTIPLIER,
+    VehicleKind.AUTOMOBILE: AUTOMOBILE_SPEED_MULTIPLIER,
+}
+PERSONAL_VEHICLE_USE_DECAY: dict[VehicleKind, float] = {
+    VehicleKind.MOUNT: MOUNT_USE_DECAY,
+    VehicleKind.AUTOMOBILE: AUTOMOBILE_USE_DECAY,
+}
 
 
 @dataclass

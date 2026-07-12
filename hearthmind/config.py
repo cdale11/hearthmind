@@ -93,15 +93,19 @@ class Config:
     reverting. See docs/DECISIONS.md, "LLM-as-brain batch,\" the
     real-calendar/genesis-seed follow-up, and the world-model/beliefs
     follow-up."""
-    llm_timeout_seconds: float = 30.0
-    """CPU inference on an 8GB+zram machine that's also running the
-    simulation itself is noticeably slower under contention than a quiet
-    benchmark — a real soak run saw an occasional timeout at the old 10s
-    default even with qwen2.5:3b. Bumped again (20 -> 30) alongside the
-    qwen2.5:7b-instruct default above, which is slower per-token on CPU.
-    Every call still has a deterministic fallback (see
-    hearthmind/llm/jobs.py), so this only trades a slightly longer
-    worst-case wait for a lower fallback rate. See docs/DECISIONS.md, D5."""
+    llm_timeout_seconds: float = 45.0
+    """A live diagnostic report on the user's own hardware running
+    `qwen3.5:2b` showed p50 latency 17.4s, p95 19.7s, max 29.7s against
+    the previous 30s default — a wafer-thin margin (a single call at
+    29.7s is one slow token away from a spurious fallback) despite the
+    model itself working correctly (0% fallback rate observed). Bumped
+    30 -> 45 for real headroom, not because the model is failing.
+    Counterintuitively, a smaller model isn't necessarily faster in
+    wall-clock terms on constrained CPU hardware — every call still has
+    a deterministic fallback (hearthmind/llm/jobs.py), so this only
+    trades a longer worst-case wait for a lower fallback rate. See
+    docs/DECISIONS.md, "dialogue quality follow-up" (qwen3.5:2b
+    diagnostics), and D5 for the original version of this rationale."""
     llm_max_concurrent: int = 4
     """How many LLM requests may be in flight at once — the lever for
     keeping Ollama's own thread pool busy without overwhelming it. Raised

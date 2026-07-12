@@ -59,6 +59,7 @@ from hearthmind.settlement.buildings import (
     CURRENCY_EMERGENCY_RATION_COST,
     CURRENCY_PER_OVERFLOW_UNIT,
     EDUCATION_CAPACITY,
+    ERA_UNLOCKS_AUTOMOBILE,
     FACTORY_INCOME_PER_TICK,
     FESTIVAL_RELATIONSHIP_BOOST,
     GRANARY_CAPACITY,
@@ -89,13 +90,15 @@ from hearthmind.settlement.buildings import (
     choose_building_kind,
 )
 from hearthmind.settlement.vehicles import (
+    AUTOMOBILE_MATERIALS_COST,
     CART_BONUS_CAP,
     CART_HAUL_BONUS_PER_CART,
     CART_MATERIALS_COST,
     CART_USE_DECAY,
     MOUNT_MATERIALS_COST,
-    MOUNT_SPEED_MULTIPLIER,
-    MOUNT_USE_DECAY,
+    PERSONAL_VEHICLE_KINDS,
+    PERSONAL_VEHICLE_SPEED_MULTIPLIER,
+    PERSONAL_VEHICLE_USE_DECAY,
     VEHICLE_CHANCE_PER_TICK,
     VEHICLE_CONSTRUCTION_WORK_PER_TICK,
     VEHICLE_MAX_WORKERS,
@@ -179,9 +182,12 @@ def _haul_factor(settlement: Settlement) -> float:
 
 
 def _agent_mount(settlement: Settlement, agent_id: int) -> Vehicle | None:
+    """Either personal-vehicle kind (MOUNT or the era-gated AUTOMOBILE
+    upgrade) an agent currently has claimed and ready — see
+    PERSONAL_VEHICLE_KINDS."""
     for vehicle in settlement.vehicles:
         if (
-            vehicle.kind is VehicleKind.MOUNT and vehicle.stage is VehicleStage.READY
+            vehicle.kind in PERSONAL_VEHICLE_KINDS and vehicle.stage is VehicleStage.READY
             and vehicle.assigned_agent_id == agent_id
         ):
             return vehicle
@@ -558,14 +564,20 @@ class Population:
         mount = _agent_mount(settlement, agent.id)
         if target is not None and cls._step_toward(agent, target, terrain, predator_tiles):
             if mount is not None and cls._step_toward(agent, target, terrain, predator_tiles):
-                # A ready mount covers ground twice as fast toward a
-                # deliberate target — the goal-directed equivalent of
-                # MOUNT_SPEED_MULTIPLIER's boost to the random walk below.
-                mount.condition = max(0.0, mount.condition - MOUNT_USE_DECAY)
+                # A ready personal vehicle (mount or the era-gated
+                # automobile upgrade) covers ground twice as fast toward
+                # a deliberate target — the goal-directed equivalent of
+                # PERSONAL_VEHICLE_SPEED_MULTIPLIER's boost to the
+                # random walk below.
+                mount.condition = max(0.0, mount.condition - PERSONAL_VEHICLE_USE_DECAY[mount.kind])
             return
-        cls._maybe_move(agent, terrain, rng, roads, predator_tiles, mounted=mount is not None, weather=weather)
+        cls._maybe_move(
+            agent, terrain, rng, roads, predator_tiles,
+            speed_multiplier=PERSONAL_VEHICLE_SPEED_MULTIPLIER[mount.kind] if mount is not None else 1.0,
+            weather=weather,
+        )
         if mount is not None:
-            mount.condition = max(0.0, mount.condition - MOUNT_USE_DECAY)
+            mount.condition = max(0.0, mount.condition - PERSONAL_VEHICLE_USE_DECAY[mount.kind])
 
     @staticmethod
     def _nearest_ready_farm(agent: Agent, farms: FarmGrid) -> tuple[int, int] | None:
@@ -708,7 +720,7 @@ class Population:
     @staticmethod
     def _maybe_move(
         agent: Agent, terrain: list[list[Tile]], rng: random.Random, roads: RoadNetwork,
-        predator_tiles: set[tuple[int, int]] = frozenset(), mounted: bool = False,
+        predator_tiles: set[tuple[int, int]] = frozenset(), speed_multiplier: float = 1.0,
         weather: WeatherState | None = None,
     ) -> None:
         move_chance = MOVE_CHANCE
@@ -720,8 +732,8 @@ class Population:
             # "LLM-as-brain batch."
             road_multiplier = road_condition_multiplier(weather) if weather is not None else ROAD_SPEED_MULTIPLIER
             move_chance = min(1.0, move_chance * road_multiplier)
-        if mounted:
-            move_chance = min(1.0, move_chance * MOUNT_SPEED_MULTIPLIER)
+        if speed_multiplier != 1.0:
+            move_chance = min(1.0, move_chance * speed_multiplier)
         if rng.random() >= move_chance:
             return
         height = len(terrain)
@@ -1038,8 +1050,7 @@ class Population:
             if vehicle.progress >= 1.0:
                 vehicle.stage = VehicleStage.READY
                 vehicle.condition = 1.0
-                noun = "cart" if vehicle.kind is VehicleKind.CART else "mount"
-                life_events.append(("vehicle_completed", f"A {noun} was finished at ({vehicle.x}, {vehicle.y})."))
+                life_events.append(("vehicle_completed", f"A {vehicle.kind.value} was finished at ({vehicle.x}, {vehicle.y})."))
         return life_events
 
     @staticmethod
@@ -1065,16 +1076,17 @@ class Population:
     def _maybe_assign_mounts(
         cls, by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement
     ) -> None:
-        """An awake agent colocated with a ready, unclaimed mount and not
+        """An awake agent colocated with a ready, unclaimed personal
+        vehicle (mount or the era-gated automobile upgrade) and not
         already riding one claims it — first-come, presence-driven like
         everything else here, not a deliberate goal/cognition decision."""
         mounted_ids = {
             v.assigned_agent_id for v in settlement.vehicles
-            if v.kind is VehicleKind.MOUNT and v.assigned_agent_id is not None
+            if v.kind in PERSONAL_VEHICLE_KINDS and v.assigned_agent_id is not None
         }
         for vehicle in settlement.vehicles:
             if (
-                vehicle.kind is not VehicleKind.MOUNT or vehicle.stage is not VehicleStage.READY
+                vehicle.kind not in PERSONAL_VEHICLE_KINDS or vehicle.stage is not VehicleStage.READY
                 or vehicle.assigned_agent_id is not None
             ):
                 continue
@@ -1115,16 +1127,29 @@ class Population:
                 continue
             if rng.random() >= VEHICLE_CHANCE_PER_TICK:
                 continue
-            kind = VehicleKind.MOUNT if rng.random() < 0.5 else VehicleKind.CART
-            cost = MOUNT_MATERIALS_COST if kind is VehicleKind.MOUNT else CART_MATERIALS_COST
+            # Carts/mounts stay foundable at every era (horse-drawn
+            # transport genuinely coexisted with early industry); the
+            # automobile only enters the pool once the era has advanced
+            # past `industrial` — the settlement's transport modernizes
+            # alongside its buildings, not just carts forever. See
+            # buildings.ERA_UNLOCKS_AUTOMOBILE, docs/DECISIONS.md,
+            # "vehicle era-progression follow-up."
+            roll = rng.random()
+            if settlement.era in ERA_UNLOCKS_AUTOMOBILE:
+                kind = VehicleKind.CART if roll < 0.4 else VehicleKind.MOUNT if roll < 0.7 else VehicleKind.AUTOMOBILE
+            else:
+                kind = VehicleKind.MOUNT if roll < 0.5 else VehicleKind.CART
+            cost = {
+                VehicleKind.MOUNT: MOUNT_MATERIALS_COST, VehicleKind.CART: CART_MATERIALS_COST,
+                VehicleKind.AUTOMOBILE: AUTOMOBILE_MATERIALS_COST,
+            }[kind]
             if settlement.materials < cost:
                 continue
             settlement.materials -= cost
             settlement.start_vehicle(x, y, kind=kind)
-            noun = "cart" if kind is VehicleKind.CART else "mount"
             life_events.append((
                 "vehicle_started",
-                f"{noun.capitalize()} construction began at ({x}, {y}), using {cost:.0f} materials.",
+                f"{kind.value.capitalize()} construction began at ({x}, {y}), using {cost:.0f} materials.",
             ))
         return life_events
 

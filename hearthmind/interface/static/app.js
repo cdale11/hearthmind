@@ -189,8 +189,10 @@ function drawFrame() {
   }
 
   // Vehicles: a small icon-like mark at their build/home tile — carts as
-  // an amber square (settlement-wide haul bonus), mounts as a violet
-  // diamond (personal, claimed/unclaimed shown via outline).
+  // an amber square (settlement-wide haul bonus), mounts/automobiles as
+  // a diamond (personal, claimed/unclaimed shown via color; automobile
+  // gets a distinct steel-blue hue from mount's violet, so era-driven
+  // transport progress is visible on the map, not just in stat tiles).
   for (const v of latest.vehicles || []) {
     const cx = v.x * CELL + CELL / 2, cy = v.y * CELL + CELL / 2;
     ctx.globalAlpha = v.stage === "building" ? 0.4 : v.stage === "broken" ? 0.3 : 1.0;
@@ -198,8 +200,11 @@ function drawFrame() {
       ctx.fillStyle = "#c9863c";
       ctx.fillRect(cx - CELL / 4, cy - CELL / 4, CELL / 2, CELL / 2);
     } else {
+      const isAutomobile = v.kind === "automobile";
+      const claimedColor = isAutomobile ? "#5b9bd6" : "#a679d6";
+      const unclaimedColor = isAutomobile ? "#33546e" : "#6b5580";
       ctx.beginPath();
-      ctx.fillStyle = v.assigned_agent_id != null ? "#a679d6" : "#6b5580";
+      ctx.fillStyle = v.assigned_agent_id != null ? claimedColor : unclaimedColor;
       ctx.moveTo(cx, cy - CELL / 2.2);
       ctx.lineTo(cx + CELL / 2.2, cy);
       ctx.lineTo(cx, cy + CELL / 2.2);
@@ -461,10 +466,14 @@ function renderStats(summary) {
       "Vehicles",
       `${s.vehicles.carts_ready} cart${s.vehicles.carts_ready === 1 ? "" : "s"}, ` +
       `${s.vehicles.mounts_ready} mount${s.vehicles.mounts_ready === 1 ? "" : "s"} ` +
-      `(${s.vehicles.mounts_claimed} claimed)`,
+      `(${s.vehicles.mounts_claimed} claimed)` +
+      (s.vehicles.automobiles_total
+        ? `, ${s.vehicles.automobiles_ready} automobile${s.vehicles.automobiles_ready === 1 ? "" : "s"} (${s.vehicles.automobiles_claimed} claimed)`
+        : ""),
       "Carts: each ready cart adds 25% to gathered-material haul yield (up to 3 stacked). " +
       "Mounts: an awake agent standing with an unclaimed ready mount claims it and moves ~1.6x faster " +
-      "for as long as it stays repaired. Both wear with use and weather, and break down if neglected.",
+      "for as long as it stays repaired. Automobiles (era: modern+) work the same way, faster still (~2.2x). " +
+      "All wear with use and weather, and break down if neglected.",
     ],
     [
       "Granaries", `${s.granaries} (${s.granary_food.toFixed(1)} / ${s.granary_capacity.toFixed(1)} food)`,

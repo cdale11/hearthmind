@@ -12,14 +12,25 @@ from hearthmind.agents.agent import RIVALRY_THRESHOLD, Agent
 
 SYSTEM_PROMPT = (
     "You are writing a brief, natural exchange between two villagers who "
-    "just crossed paths in a simulated world. Keep it grounded in their "
-    "current state and relationship, not generic small talk. Optionally "
+    "just crossed paths in a simulated world. Ground it in the specific "
+    "facts you're given (their hunger/energy, the weather, their "
+    "relationship) — never invent unrelated topics, and never mention "
+    "that this is a game, a simulation, or that you are an AI. Optionally "
     "the exchange plants a short rumor that might spread through the "
-    "village — leave it blank most of the time. "
-    'Respond with strict JSON only, no other text: {"line_a": "under 10 '
-    'words, said by the first villager", "line_b": "under 10 words, said '
-    'by the second", "sentiment": "warm" | "tense" | "neutral", "rumor": '
-    '"" or a short rumor under 15 words}.'
+    "village — leave it blank most of the time. Output ONLY the JSON "
+    "object below, nothing before or after it, no explanation.\n"
+    "Examples of the exact shape expected:\n"
+    '{"line_a": "You look worn out, friend.", "line_b": "Long day in the '
+    'fields.", "sentiment": "warm", "rumor": ""}\n'
+    '{"line_a": "Still nothing to say to me?", "line_b": "Not today.", '
+    '"sentiment": "tense", "rumor": ""}\n'
+    '{"line_a": "Cold one, isn\'t it.", "line_b": "Heard the miller\'s '
+    'roof is leaking.", "sentiment": "neutral", "rumor": "The miller\'s '
+    'roof is leaking."}\n'
+    'Now respond with strict JSON only, in that exact shape: {"line_a": '
+    '"under 10 words, said by the first villager", "line_b": "under 10 '
+    'words, said by the second", "sentiment": "warm" | "tense" | '
+    '"neutral", "rumor": "" or a short rumor under 15 words}.'
 )
 
 
@@ -106,11 +117,46 @@ def fallback_dialogue(agent_a: Agent, agent_b: Agent, affinity: float, tick: int
 
 _VALID_SENTIMENTS = {"warm", "tense", "neutral"}
 
+_MAX_LINE_WORDS = 22
+"""A line requested as "under 10 words" that comes back several times
+longer is a sign a small/weak model rambled past the instruction rather
+than writing a real line — see `_is_sane_line`."""
+
+_LEAKAGE_MARKERS = (
+    "json", "system prompt", "you are writing", "villager who",
+    "respond with", "as an ai", "language model", "i cannot", "i'm an ai",
+)
+"""Substrings that show up when a weak model leaks its instructions or
+meta-commentary into the output instead of writing an actual line —
+degrading to the fallback in that case reads as an ordinary canned
+line instead of visibly broken text. See docs/DECISIONS.md, "dialogue
+quality follow-up" (qwen3.5:2b diagnostics)."""
+
+
+def _is_sane_line(line: str, other_line: str) -> bool:
+    """Reject a line that's almost certainly a small-model failure mode
+    rather than a real line of dialogue: instruction/meta leakage, wildly
+    over length, or an exact duplicate of the other speaker's line
+    (a "make no sense" symptom actually observed in live 2B-model
+    diagnostics)."""
+    lowered = line.lower()
+    if any(marker in lowered for marker in _LEAKAGE_MARKERS):
+        return False
+    if len(line.split()) > _MAX_LINE_WORDS:
+        return False
+    if line.strip().lower() == other_line.strip().lower():
+        return False
+    if "{" in line or "}" in line:
+        return False
+    return True
+
 
 def parse_dialogue(result: dict, fallback: dict) -> dict:
     """Validate an LLM (or fallback) response into a safe dict. Any
-    malformed content degrades to the fallback field-by-field rather than
-    raising — a bad LLM response should never crash a tick."""
+    malformed OR merely-suspicious content (see `_is_sane_line`)
+    degrades to the fallback field-by-field rather than raising or
+    surfacing garbled text — a bad LLM response should never crash a
+    tick or read as obviously broken."""
     sentiment = result.get("sentiment")
     if sentiment not in _VALID_SENTIMENTS:
         sentiment = fallback["sentiment"]
@@ -120,6 +166,8 @@ def parse_dialogue(result: dict, fallback: dict) -> dict:
         line_a = fallback["line_a"]
     if not isinstance(line_b, str) or not line_b.strip():
         line_b = fallback["line_b"]
+    if not _is_sane_line(line_a, line_b) or not _is_sane_line(line_b, line_a):
+        line_a, line_b = fallback["line_a"], fallback["line_b"]
     rumor = result.get("rumor")
     if not isinstance(rumor, str):
         rumor = ""

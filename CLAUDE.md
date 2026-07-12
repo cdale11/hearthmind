@@ -28,8 +28,12 @@ guess. Qwen3.x is a hybrid "thinking" model; every call disables that
 (`OllamaClient` sends `"think": false` and defensively strips any
 `<think>` block that leaks through anyway) since every prompt in this
 project wants one strict-JSON answer, not visible
-chain-of-thought eating into the timeout budget. `llm_timeout_seconds=30`,
-`llm_max_concurrent=4`. LLM is on by default (`Config.llm_enabled=True`)
+chain-of-thought eating into the timeout budget. `llm_timeout_seconds=45`
+(bumped from 30 after a live diagnostic report on qwen3.5:2b showed
+p95/max latency uncomfortably close to the old 30s cutoff — not a sign
+the model is failing, CPU inference on constrained hardware just isn't
+necessarily faster for a smaller model), `llm_max_concurrent=4`. LLM is
+on by default (`Config.llm_enabled=True`)
 and treated as not budget-constrained on the user's hardware — prefer
 giving the LLM more genuine decision points over deterministic/
 RNG-driven ones where it plausibly improves emergence, subject to the
@@ -175,8 +179,13 @@ path, and none is planned.
 A settlement starts in the `industrial` era and can advance
 (electrical -> modern -> digital) purely as a function of accumulated
 `tech_level` (`buildings.era_for_tech_level`) — each era is a
-mechanically real unlock (the FACTORY building kind past `industrial`),
-not just a label change.
+mechanically real unlock (the FACTORY building kind past `industrial`,
+the AUTOMOBILE vehicle kind past `modern`), not just a label change.
+Carts/mounts stay foundable at every era rather than being replaced
+outright — horse-drawn transport genuinely coexisted with early
+industry for decades, so their presence at `industrial` isn't actually
+wrong, just previously un-answered by any forward progression the way
+buildings already had.
 
 A brand-new world's seed is chosen by a one-time "genesis" LLM call
 (`llm/world_genesis.py`, wired in `server.py`) when `--seed` is omitted:
@@ -185,6 +194,17 @@ the seed that drives the ordinary deterministic terrain/weather
 generation — "initial terrain and weather chosen by an LLM" is literal,
 not cosmetic. An explicit `--seed` always wins and skips genesis
 entirely; a resumed world never re-runs it.
+
+**Settlement naming** follows the same "instant deterministic
+placeholder, LLM improves it in the background" shape:
+`settlement.naming.generate_settlement_name` still fires synchronously
+inside `World.tick()` the instant a settlement's first building stands
+(every other system gates on `settlement.name` being set the same
+tick), and `llm/naming.py` + `SimulationEngine._maybe_schedule_naming`
+propose a better, founding-scenario/terrain-aware name in the
+background that silently replaces the placeholder once it resolves —
+skipped entirely when the LLM is disabled, since the placeholder
+already *is* the correct fallback outcome there.
 
 ## Workflow rules
 

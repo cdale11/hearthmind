@@ -201,6 +201,13 @@ _ERA_UNLOCKS_FACTORY = frozenset({"electrical", "modern", "digital"})
 the settlement starts industrial with only the earlier building kinds
 available; a factory represents genuine progress past that baseline."""
 
+ERA_UNLOCKS_AUTOMOBILE = frozenset({"modern", "digital"})
+"""The AUTOMOBILE vehicle kind (settlement/vehicles.py) is foundable
+from `modern` onward — carts and mounts stay realistic transport at
+`industrial`/`electrical` (horse-drawn transport genuinely coexisted
+with early industry for decades); an automobile represents the
+settlement's transport actually modernizing, not just its buildings."""
+
 
 def era_for_tech_level(tech_level: int) -> str:
     era = ERA_ORDER[0]
@@ -647,7 +654,7 @@ class Settlement:
             if vehicle.condition <= 0.0:
                 vehicle.stage = VehicleStage.BROKEN
                 vehicle.assigned_agent_id = None
-                noun = "cart" if vehicle.kind is VehicleKind.CART else "mount"
+                noun = vehicle.kind.value
                 events.append(("vehicle_broken", f"A {noun} at ({vehicle.x}, {vehicle.y}) broke down."))
 
         return events
@@ -738,8 +745,10 @@ class Settlement:
     def _vehicle_summary(self) -> dict:
         carts = [v for v in self.vehicles if v.kind is VehicleKind.CART]
         mounts = [v for v in self.vehicles if v.kind is VehicleKind.MOUNT]
+        automobiles = [v for v in self.vehicles if v.kind is VehicleKind.AUTOMOBILE]
         ready_carts = [v for v in carts if v.stage is VehicleStage.READY]
         ready_mounts = [v for v in mounts if v.stage is VehicleStage.READY]
+        ready_automobiles = [v for v in automobiles if v.stage is VehicleStage.READY]
         return {
             "carts_total": len(carts),
             "carts_ready": len(ready_carts),
@@ -750,6 +759,11 @@ class Settlement:
             "mounts_building": sum(1 for v in mounts if v.stage is VehicleStage.BUILDING),
             "mounts_broken": sum(1 for v in mounts if v.stage is VehicleStage.BROKEN),
             "mounts_claimed": sum(1 for v in ready_mounts if v.assigned_agent_id is not None),
+            "automobiles_total": len(automobiles),
+            "automobiles_ready": len(ready_automobiles),
+            "automobiles_building": sum(1 for v in automobiles if v.stage is VehicleStage.BUILDING),
+            "automobiles_broken": sum(1 for v in automobiles if v.stage is VehicleStage.BROKEN),
+            "automobiles_claimed": sum(1 for v in ready_automobiles if v.assigned_agent_id is not None),
         }
 
     # --- (de)serialization -----------------------------------------------------
