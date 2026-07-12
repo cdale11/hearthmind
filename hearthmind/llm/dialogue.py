@@ -25,7 +25,7 @@ SYSTEM_PROMPT = (
 
 def build_prompt(
     agent_a: Agent, agent_b: Agent, affinity: float, settlement_name: str,
-    latest_tradition: str, season: str, weather: str,
+    latest_tradition: str, season: str, weather: str, beliefs_about: list[str] | None = None,
 ) -> str:
     is_parent_child = (
         (agent_a.parents is not None and agent_b.id in agent_a.parents)
@@ -49,10 +49,14 @@ def build_prompt(
     culture = f" They live in {settlement_name}." if settlement_name else ""
     if settlement_name and latest_tradition:
         culture += f" The village keeps this tradition: {latest_tradition}."
+    beliefs_text = (
+        f" What the village has come to believe about them: {'; '.join(beliefs_about)}."
+        if beliefs_about else ""
+    )
     return (
         f"{agent_a.name} (hunger {agent_a.hunger:.2f}, energy {agent_a.energy:.2f}) "
         f"meets {agent_b.name} (hunger {agent_b.hunger:.2f}, energy {agent_b.energy:.2f}). "
-        f"They are {tie}. It is {season}, weather: {weather}.{culture} "
+        f"They are {tie}. It is {season}, weather: {weather}.{culture}{beliefs_text} "
         "Write their brief exchange."
     )
 

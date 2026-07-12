@@ -81,6 +81,22 @@ def fallback_belief(recent_events: list[dict], existing_beliefs: list[dict], set
     return {"subject": subject, "belief": belief, "confidence": 0.4, "revises": None}
 
 
+def resolve_subject_agent_id(subject: str, agents) -> int | None:
+    """If `subject` names a currently-living inhabitant (exact,
+    case-insensitive match against `Agent.name`), return their id —
+    lets a settlement-wide belief about "Mira" become attributable to
+    a specific person without a second, parallel per-agent belief
+    store. `agents` is any iterable of objects with `.id`/`.name`.
+    Ambiguous on a name collision (two agents share a name): returns
+    None rather than guessing, since a wrong attribution is worse than
+    none."""
+    subject_lower = subject.strip().lower()
+    matches = [a for a in agents if a.name.lower() == subject_lower]
+    if len(matches) == 1:
+        return matches[0].id
+    return None
+
+
 def parse_belief(result: dict, fallback: dict, existing_count: int) -> dict:
     subject = result.get("subject")
     belief = result.get("belief")

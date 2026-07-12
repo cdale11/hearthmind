@@ -64,6 +64,7 @@ const CATEGORY_META = {
   intervention: { icon: "✨" },
   belief_formed: { icon: "💭" },
   belief_revised: { icon: "🔄" },
+  omen: { icon: "🌫️" },
 };
 
 // Terrain evolves now (deforestation, reclamation, climate drift), so the

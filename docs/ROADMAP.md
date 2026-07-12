@@ -30,7 +30,7 @@ build" — phases below are the *how*, this table is the *what*.
 | Building decay | shipped | C1-C4 (weathering, ruin, reclamation) |
 | Culture | shipped (single-settlement) | E1 (naming, traditions) + E3 (prosperity-gated inventions/tech unlocks) + festivals + generational/family memory; multiple named settlements not built |
 | History | partial | B3 (chronicle) + E1 (traditions feed prompts); no replay/browsable history view (Phase F) |
-| Optional subtle supernatural elements | **not started** | Phase G, deliberately last |
+| Optional subtle supernatural elements | v1 shipped | Phase G — `Settlement.temperament` (deterministic mood-like drift, subtle mechanical nudges) + `llm/omens.py` (rare, never-confirmed ambient events) |
 
 Two design principles drive the phase ordering below:
 
@@ -322,17 +322,34 @@ the simulation.
   `Settlement.beliefs` — the village's own persistent, LLM-formed-and-
   revised theories about itself, fed back into town-brain/chronicle
   prompts. See `docs/DECISIONS.md`, "World-model/beliefs follow-up."
+- **[x] Per-person beliefs.** `beliefs.resolve_subject_agent_id` matches
+  a belief's free-text subject against current agent names and tags
+  `subject_agent_id`; matched beliefs are folded into that person's
+  dialogue prompts (`llm/dialogue.py`'s `beliefs_about`). See
+  `docs/DECISIONS.md`, "Phase G / per-person beliefs follow-up."
 - Not yet built: per-agent click-to-inspect beyond hover tooltips, a
-  historical/replay view, per-person/per-family belief tracking beyond
-  the settlement-wide `beliefs` list.
+  historical/replay view, structured per-family belief resolution
+  (family-labeled beliefs remain free text, not resolved to a lineage
+  entity).
 
 ## Phase G — Supernatural / psychological horror layer
 
-Explicitly last, explicitly subtle. Once the chronicle (B3) and culture
-(Phase E) exist, this is mostly new LLM prompt templates with a
-different tone, rare-event triggers, and careful pacing/budget so it's a
-seasoning, not a takeover — likely with a config knob to dial intensity,
-since this part needs tuning by feel rather than spec.
+Was "explicitly last," started early per explicit user instruction
+(running in parallel with other work rather than after it) — still
+explicitly subtle. **v1 shipped:** `Settlement.temperament`
+(`settlement/buildings.py`) is a real, deterministic bounded random walk
+nudged monthly by the recent balance of good/ill fortune, applying
+small nudges to invention chance and predator-attack lethality; `llm/
+omens.py` is a rare, LLM-authored (or fallback-pool) ambiguous flavor
+event scaled by |temperament|, worded to always have a mundane
+explanation and never confirm anything. See `docs/DECISIONS.md`,
+"Phase G / per-person beliefs follow-up."
+
+Not yet built: a config knob to dial intensity (currently fixed
+constants), any player-facing acknowledgment that this system exists
+(deliberately not surfaced — see CLAUDE.md), deeper narrative payoff
+(e.g. omens referencing a specific belief/person rather than only
+settlement-wide fortune).
 
 ## Cross-cutting, ongoing at every phase
 

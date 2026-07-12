@@ -1830,3 +1830,96 @@ with the fallback's naive "most common recent category" heuristic, and
 round-tripped through `to_dict`/`from_dict` with `settlement.beliefs`
 intact. All touched files pass `python3 -m py_compile`; `app.js` passes
 `node --check`.
+
+## Phase G / per-person beliefs follow-up
+
+User instruction (verbatim): "start with that and also parallely start
+building [P]hase G" — "that" being the natural next extension of the
+just-shipped world-beliefs system (per-person/per-family tracking), and
+Phase G being the "subtle supernatural layer" CLAUDE.md had marked
+"deliberately last." Both are addressed in this batch, run in parallel
+as asked rather than sequenced.
+
+**Per-person beliefs.** `beliefs.resolve_subject_agent_id(subject,
+agents)` does an exact, case-insensitive match of a belief's free-text
+`subject` against currently-living `Agent.name` values; returns `None`
+on no match or a name collision (two agents sharing a name) rather than
+guessing — a wrong attribution is worse than none. Called from
+`SimulationEngine._run_beliefs` right after parsing, for both new and
+revised entries, storing the result as `subject_agent_id` on the
+belief dict. `llm/dialogue.py`'s `build_prompt` gained an optional
+`beliefs_about` parameter; `SimulationEngine._schedule_due_dialogue`
+filters `settlement.beliefs` for entries whose `subject_agent_id`
+matches either conversing agent and passes the matched text through —
+closing the loop so a belief about a specific villager isn't just
+narration sitting in a UI list, it measurably shapes what that person
+(and whoever they're talking to) says next. Deliberately did not build
+a second, parallel per-agent belief store on top of the existing
+`Agent.memories` list (A5) — reusing the settlement-wide list keeps
+this a small, additive change. Family-level resolution (a belief whose
+subject names a family/lineage rather than one person) is explicitly
+out of scope for this pass — the `subject` field can already contain
+free text like "the Emberly family" and read coherently in prompts, but
+there's no structured family entity to resolve it against.
+
+**Phase G v1: temperament and omens.** Read literally: "the town is
+itself a subtle character... keep this ambiguous, never explicitly
+explain the supernatural" (CLAUDE.md, carried over from the philosophy
+message earlier this session). The implementation is deliberately
+split two ways, matching the project's existing "deterministic engine
+provides reality, LLM provides meaning" split:
+
+- `Settlement.temperament: float = 0.0` (-1..1) is 100% deterministic —
+  `buildings.tick_temperament(temperament, recent_events, rng)` is a
+  bounded random walk (`TEMPERAMENT_STEP_MAX=0.04`,
+  `TEMPERAMENT_MEAN_REVERSION=0.97`, same shape as `terrain_evolution
+  .ClimateState`'s warming/drying), with its step biased by
+  `TEMPERAMENT_FORTUNE_WEIGHT=0.15` toward the recent balance of
+  `_GOOD_FORTUNE_CATEGORIES` (birth/festival/invention/
+  building_completed/tradition/settlement_named) vs.
+  `_ILL_FORTUNE_CATEGORIES` (death/building_ruined/wildlife_extinct/
+  vehicle_broken) event counts. Ticked monthly by
+  `SimulationEngine._maybe_tick_temperament` (new `_namespaced_rng`
+  helper added alongside the existing `_namespaced_roll`, since this
+  needs a full `random.Random` for `rng.uniform`, not just one float).
+  No LLM involvement in computing this value at all — it is exactly as
+  "real" as `ClimateState.warming`.
+- Mechanical effects are deliberately small and secondary:
+  `TEMPERAMENT_INVENTION_INFLUENCE=0.2` nudges invention chance
+  (`_maybe_schedule_invention`, applied after the existing education
+  bonus) by at most ±20%; `TEMPERAMENT_KILL_CHANCE_INFLUENCE=0.2`
+  nudges predator-attack lethality (`Population._maybe_predator_attack`,
+  applied after the existing hospital reduction) by the same bound.
+  Neither can flip an outcome on its own; both are additive nudges on
+  top of mechanics that already exist for other, plainly-stated reasons.
+- `llm/omens.py` is the *only* place any "more than physics" reading
+  can appear, and only in flavor text: `SimulationEngine
+  ._maybe_schedule_omen` rolls monthly at `OMEN_CHANCE_BASE=0.05` +
+  `|temperament| * OMEN_CHANCE_TEMPERAMENT_SCALE=0.25` (so roughly
+  5-30% depending on how extreme the current drift is — still rare by
+  design). The system/fallback prompts explicitly require the result to
+  "always have a mundane explanation available" and never confirm
+  anything — verified by reading every fallback-pool line in
+  `_WARM_OMENS`/`_COLD_OMENS`/`_NEUTRAL_OMENS` for compliance with that
+  constraint (a cat sleeping somewhere, dogs unsettled, a well tasting
+  different — never a stated cause).
+- Nothing in `app.js`/`index.html` labels temperament as "mood" or
+  "supernatural" — it's exposed through `settlement.summary()` (and
+  thus `/state`) exactly like every other internal stat, and
+  `inspect_world` prints it as a plain debug line explicitly annotated
+  "internal only — deliberately never surfaced to players as
+  'supernatural.'" The only player-visible surface is the rare omen
+  event itself, logged under a fog emoji (🌫️) alongside every other
+  event category, with no special framing.
+
+Verified (LLM disabled in this environment, deterministic fallbacks
+exercised throughout): `resolve_subject_agent_id` correctly matches,
+returns `None` on no-match and on a same-name collision;
+`tick_temperament` run 20x from `0.0` under an all-good-fortune event
+mix saturates at `+1.0` and under an all-ill-fortune mix at `-1.0`,
+confirming both the bound and the fortune-weighting direction; a
+12000-tick full async engine run (population 12) produced a stable,
+bounded `temperament` value and round-tripped through
+`to_dict`/`from_dict` correctly (within the field's own rounding — same
+tolerance every other rounded settlement stat already has). All touched
+files pass `python3 -m py_compile`; `app.js` passes `node --check`.

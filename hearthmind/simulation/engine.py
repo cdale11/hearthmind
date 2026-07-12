@@ -20,6 +20,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import random
 import sqlite3
 import time
 from collections import deque
@@ -32,7 +33,7 @@ except ImportError:  # pragma: no cover — this project's target hardware is Li
 
 from hearthmind.agents.agent import DIALOGUE_COOLDOWN_TICKS, AgentGoal
 from hearthmind.config import Config
-from hearthmind.llm import beliefs, chronicle, culture, dialogue, festival, invention, town_brain
+from hearthmind.llm import beliefs, chronicle, culture, dialogue, festival, invention, omens, town_brain
 from hearthmind.llm.client import OllamaClient
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
@@ -46,8 +47,10 @@ from hearthmind.settlement.buildings import (
     INVENTION_CURRENCY_THRESHOLD,
     INVENTION_MATERIALS_FRACTION,
     MATERIALS_CAPACITY,
+    TEMPERAMENT_INVENTION_INFLUENCE,
     education_invention_bonus,
     era_for_tech_level,
+    tick_temperament,
 )
 from hearthmind.world.state import World
 
@@ -59,6 +62,14 @@ def _namespaced_roll(seed: int, tick: int, namespace: str) -> float:
     random.Random instance."""
     digest = hashlib.sha256(f"{seed}:{namespace}:{tick}".encode()).hexdigest()
     return int(digest[:8], 16) / 0xFFFFFFFF
+
+
+def _namespaced_rng(seed: int, tick: int, namespace: str) -> random.Random:
+    """Same discipline as `_namespaced_roll`, for the rare engine-level
+    calls (e.g. temperament) that do need a full `random.Random`
+    instance rather than a single float."""
+    digest = hashlib.sha256(f"{seed}:{namespace}:{tick}".encode()).hexdigest()
+    return random.Random(int(digest[:16], 16))
 
 if TYPE_CHECKING:
     # Only imported for type hints — importing hearthmind.simulation.engine
@@ -269,6 +280,8 @@ class SimulationEngine:
         self._maybe_schedule_festival(events)
         self._maybe_schedule_town_brain(events)
         self._maybe_schedule_beliefs(events)
+        self._maybe_tick_temperament(events)
+        self._maybe_schedule_omen(events)
         self._schedule_due_cognition()
         self._schedule_due_dialogue()
         self._last_tick_duration_ms = (time.perf_counter() - tick_start) * 1000
@@ -421,9 +434,13 @@ class SimulationEngine:
         latest_tradition = self.world.settlement.traditions[-1] if self.world.settlement.traditions else ""
         for agent_a, agent_b in pairs:
             affinity = agent_a.relationships.get(agent_b.id, 0.0)
+            beliefs_about = [
+                f"{b['subject']} ({b['belief']})" for b in self.world.settlement.beliefs
+                if b.get("subject_agent_id") in (agent_a.id, agent_b.id)
+            ]
             prompt = dialogue.build_prompt(
                 agent_a, agent_b, affinity, self.world.settlement.name, latest_tradition,
-                self.world.clock.season, self.world.weather.describe(),
+                self.world.clock.season, self.world.weather.describe(), beliefs_about=beliefs_about,
             )
             fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
             task = asyncio.create_task(self._run_dialogue(agent_a.id, agent_b.id, prompt, fallback))
@@ -513,6 +530,7 @@ class SimulationEngine:
         # buildings.education_invention_bonus, docs/DECISIONS.md,
         # "LLM-as-brain batch."
         chance = min(1.0, INVENTION_CHANCE_PER_YEAR * education_invention_bonus(settlement.education_level))
+        chance = max(0.0, chance * (1.0 + settlement.temperament * TEMPERAMENT_INVENTION_INFLUENCE))
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "invention_roll") >= chance:
             return
         recent = recent_events(self.conn, limit=50)
@@ -658,18 +676,21 @@ class SimulationEngine:
         parsed = beliefs.parse_belief(result, fallback, existing_count)
         settlement = self.world.settlement
         tick = self.world.clock.tick_count
+        subject_agent_id = beliefs.resolve_subject_agent_id(parsed["subject"], self.world.population.agents)
         revises = parsed["revises"]
         if revises is not None:
             entry = settlement.beliefs[revises]
             entry["belief"] = parsed["belief"]
             entry["confidence"] = parsed["confidence"]
             entry["subject"] = parsed["subject"]
+            entry["subject_agent_id"] = subject_agent_id
             entry["revised_tick"] = tick
             entry["revision_count"] = entry.get("revision_count", 0) + 1
             self._log("belief_revised", f"The village revised its view of {entry['subject']}: {entry['belief']}")
         else:
             entry = {
                 "subject": parsed["subject"], "belief": parsed["belief"], "confidence": parsed["confidence"],
+                "subject_agent_id": subject_agent_id,
                 "formed_tick": tick, "revised_tick": tick, "revision_count": 0,
             }
             settlement.beliefs.append(entry)
@@ -677,6 +698,48 @@ class SimulationEngine:
                 weakest = min(settlement.beliefs, key=lambda b: b["confidence"])
                 settlement.beliefs.remove(weakest)
             self._log("belief_formed", f"The village came to believe something about {entry['subject']}: {entry['belief']}")
+        self._record_llm_call(used_fallback)
+
+    # --- Phase G v1: temperament and omens (deliberately subtle) ---------------
+
+    def _maybe_tick_temperament(self, events: list[str]) -> None:
+        """Once a month, nudge `Settlement.temperament` — a real,
+        deterministic value (see `tick_temperament`), not an LLM
+        decision. The LLM's only role in this system is narrating
+        ambiguous omens on top of it (`_maybe_schedule_omen`), never
+        computing the value itself. See docs/DECISIONS.md, "World-G
+        follow-up.\""""
+        if "month_end" not in events:
+            return
+        recent = recent_events(self.conn, limit=50)
+        rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "temperament")
+        self.world.settlement.temperament = tick_temperament(self.world.settlement.temperament, recent, rng)
+
+    def _maybe_schedule_omen(self, events: list[str]) -> None:
+        """Rare, ambiguous flavor event — see llm/omens.py's module
+        docstring for why this deliberately never confirms anything
+        supernatural. Chance scales with |temperament|'s magnitude, so
+        a run of strongly good or ill fortune is somewhat more likely
+        to produce one, without it ever becoming frequent."""
+        if "month_end" not in events or not self.world.settlement.name:
+            return
+        temperament = self.world.settlement.temperament
+        chance = min(1.0, omens.OMEN_CHANCE_BASE + abs(temperament) * omens.OMEN_CHANCE_TEMPERAMENT_SCALE)
+        if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "omen_roll") >= chance:
+            return
+        recent = recent_events(self.conn, limit=10)
+        prompt = omens.build_prompt(self.world.settlement.name, temperament, recent)
+        fallback = omens.fallback_omen(temperament, self.world.clock.tick_count)
+        task = asyncio.create_task(self._run_omen(prompt, fallback))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _run_omen(self, prompt: str, fallback: dict) -> None:
+        result, used_fallback = await self._cognition_runner.run(
+            prompt, omens.SYSTEM_PROMPT, fallback=lambda: fallback
+        )
+        omen = omens.parse_omen(result, fallback)
+        self._log("omen", omen)
         self._record_llm_call(used_fallback)
 
     def _log(self, category: str, description: str) -> None:

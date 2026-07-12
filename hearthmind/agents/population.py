@@ -78,6 +78,7 @@ from hearthmind.settlement.buildings import (
     SCHOOL_EDUCATION_PER_TICK,
     SETTLE_CHANCE_PER_TICK,
     TECH_BONUS_PER_LEVEL,
+    TEMPERAMENT_KILL_CHANCE_INFLUENCE,
     UNIVERSITY_EDUCATION_MULTIPLIER,
     UNIVERSITY_MATERIALS_COST,
     UNIVERSITY_TECH_REQUIREMENT,
@@ -295,7 +296,7 @@ class Population:
             ):
                 agent.state = AgentState.RESTING  # proactive rest: a chosen goal, not just necessity
             if agent.state is AgentState.AWAKE:
-                attack_event = self._maybe_predator_attack(agent, wildlife, rng, has_hospital)
+                attack_event = self._maybe_predator_attack(agent, wildlife, rng, has_hospital, settlement.temperament)
                 if attack_event is not None:
                     life_events.append(attack_event[0])
                     if attack_event[1]:
@@ -362,12 +363,16 @@ class Population:
     @staticmethod
     def _maybe_predator_attack(
         agent: Agent, wildlife: WildlifeGrid, rng: random.Random, has_hospital: bool = False,
+        temperament: float = 0.0,
     ) -> tuple[tuple[str, str], bool] | None:
         """Rolled for an awake agent colocated with a live predator pack.
         Returns ((category, description), killed) or None if no attack
         happened this tick. `has_hospital` (any standing hospital,
         settlement-wide — medical readiness, not proximity) reduces the
-        lethal-outcome odds. See docs/DECISIONS.md, danger pass and
+        lethal-outcome odds. `temperament` (Settlement.temperament,
+        -1..1) applies a small, deliberately subtle further nudge — see
+        TEMPERAMENT_KILL_CHANCE_INFLUENCE, docs/DECISIONS.md, "World-G
+        follow-up.\" See also docs/DECISIONS.md, danger pass and
         "LLM-as-brain batch.\""""
         predators = [h for h in wildlife.at(agent.x, agent.y) if h.species is Species.PREDATOR and h.count > 0]
         if not predators:
@@ -377,6 +382,7 @@ class Population:
         kill_chance = PREDATOR_KILL_CHANCE_ON_ATTACK
         if has_hospital:
             kill_chance *= (1.0 - HOSPITAL_KILL_CHANCE_REDUCTION)
+        kill_chance = max(0.0, kill_chance * (1.0 - temperament * TEMPERAMENT_KILL_CHANCE_INFLUENCE))
         if rng.random() < kill_chance:
             return (("death", f"{agent.name} was killed by predators."), True)
         agent.energy = max(0.0, agent.energy - PREDATOR_ATTACK_ENERGY_DRAIN)

@@ -344,6 +344,58 @@ wide, once at least one hospital is standing — care exists and
 measurably improves survival odds, not just narrative flavor. See
 Population._maybe_predator_attack."""
 
+# --- temperament: a deterministic, ambiguous "does this place have moods?" --
+
+TEMPERAMENT_STEP_MAX = 0.04
+TEMPERAMENT_MEAN_REVERSION = 0.97
+"""Same bounded-random-walk shape as world/terrain_evolution.py's
+ClimateState (small step, slight decay toward 0 each tick) — not a
+runaway trend. `Settlement.temperament` (-1..1) is entirely
+deterministic: a real value computed from real recent-event counts plus
+bounded noise, same as everything else in the deterministic engine.
+Nothing here asserts the town is "conscious" — that reading is left to
+the player and to whatever an LLM chooses to write about it (see
+llm/omens.py). See docs/DECISIONS.md, "World-G follow-up.\""""
+
+TEMPERAMENT_FORTUNE_WEIGHT = 0.15
+"""How strongly the recent balance of good/ill fortune (see
+`_GOOD_FORTUNE_CATEGORIES`/`_ILL_FORTUNE_CATEGORIES`) biases
+temperament's random-walk step, alongside pure noise — a town that's
+recently seen more births/festivals/inventions than deaths/ruin drifts
+warmer, and vice versa, but slowly and never deterministically from a
+single event."""
+
+_GOOD_FORTUNE_CATEGORIES = frozenset({
+    "birth", "festival", "invention", "building_completed", "tradition", "settlement_named",
+})
+_ILL_FORTUNE_CATEGORIES = frozenset({
+    "death", "building_ruined", "wildlife_extinct", "vehicle_broken",
+})
+
+TEMPERAMENT_INVENTION_INFLUENCE = 0.2
+"""Fractional nudge to invention chance from temperament — see
+SimulationEngine._maybe_schedule_invention. Deliberately small: a
+strongly warm town invents at most ~1.2x baseline, a strongly cold one
+~0.8x — noticeable across a long run, never a dominant factor next to
+prosperity gates/education."""
+
+TEMPERAMENT_KILL_CHANCE_INFLUENCE = 0.2
+"""Fractional nudge to predator-attack lethality from temperament — see
+Population._maybe_predator_attack. Same small-magnitude rationale as
+TEMPERAMENT_INVENTION_INFLUENCE, applied after the hospital reduction."""
+
+
+def tick_temperament(temperament: float, recent_events: list[dict], rng) -> float:
+    """Nudge temperament one step (called monthly, alongside beliefs —
+    see SimulationEngine._maybe_tick_temperament). `recent_events` is
+    the same recent_events(conn, limit=...) shape used elsewhere
+    (dicts with a "category" key)."""
+    good = sum(1 for e in recent_events if e.get("category") in _GOOD_FORTUNE_CATEGORIES)
+    ill = sum(1 for e in recent_events if e.get("category") in _ILL_FORTUNE_CATEGORIES)
+    fortune = (good - ill) / (good + ill) if (good + ill) else 0.0
+    step = rng.uniform(-TEMPERAMENT_STEP_MAX, TEMPERAMENT_STEP_MAX) + fortune * TEMPERAMENT_FORTUNE_WEIGHT
+    return max(-1.0, min(1.0, temperament * TEMPERAMENT_MEAN_REVERSION + step))
+
 # --- Phase E3: inventions (tech-tier unlocks) -------------------------------
 
 TECH_BONUS_PER_LEVEL = 0.15
@@ -506,6 +558,15 @@ class Settlement:
     (see hearthmind.llm.world_genesis) — the same text whose hash chose
     this world's seed. Empty for worlds created before this existed, or
     when `--seed` was passed explicitly (genesis is skipped)."""
+    temperament: float = 0.0
+    """-1 (a run of ill fortune) .. 1 (a run of good fortune), a
+    deterministic bounded random walk nudged monthly by the recent
+    balance of good/ill events (see `tick_temperament`). Applies small,
+    deliberately subtle nudges to a few existing rolls (invention
+    chance, predator-attack lethality) and is the substrate `llm/
+    omens.py` narrates ambiguous, never-explained flavor events from.
+    Never labeled "supernatural" in any UI text — see docs/DECISIONS.md,
+    "World-G follow-up.\""""
     beliefs: list[dict] = field(default_factory=list)
     """The village's own accumulated, LLM-formed (or deterministic-
     fallback) theories about itself — people, families, traditions,
@@ -638,6 +699,7 @@ class Settlement:
             "era_description": ERA_DESCRIPTIONS.get(self.era, ""),
             "founding_scenario": self.founding_scenario,
             "beliefs": list(self.beliefs),
+            "temperament": round(self.temperament, 3),
         }
 
     def infrastructure_report(self) -> list[dict]:
@@ -712,6 +774,7 @@ class Settlement:
             "era": self.era,
             "founding_scenario": self.founding_scenario,
             "beliefs": list(self.beliefs),
+            "temperament": round(self.temperament, 4),
         }
 
     @classmethod
@@ -732,4 +795,5 @@ class Settlement:
             era=data.get("era", "industrial"),
             founding_scenario=data.get("founding_scenario", ""),
             beliefs=list(data.get("beliefs", [])),
+            temperament=data.get("temperament", 0.0),
         )

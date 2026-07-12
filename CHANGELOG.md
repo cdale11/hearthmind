@@ -4,6 +4,28 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.30.0] — Add: Phase G v1 (temperament + omens), per-person beliefs
+
+### Added
+- **Phase G v1** (started early, in parallel, per explicit user
+  instruction): `Settlement.temperament` (-1..1), a real deterministic
+  bounded random walk nudged monthly by the recent balance of good/ill
+  fortune (`buildings.tick_temperament`), applying small, deliberately
+  subtle nudges to invention chance and predator-attack lethality.
+  `llm/omens.py`: a rare, LLM-authored (or fallback-pool) ambiguous
+  flavor event, chance scaled by |temperament|, worded to always have a
+  mundane explanation and never confirm anything supernatural. Nothing
+  in the UI labels this as "mood" or "supernatural" — it's plumbed
+  through like any other internal stat.
+- **Per-person beliefs**: `beliefs.resolve_subject_agent_id` matches a
+  belief's free-text subject against current agent names and tags
+  `subject_agent_id` on the entry; matched beliefs are now folded into
+  that person's own dialogue prompts (`llm/dialogue.py`'s new
+  `beliefs_about` param), so a belief about a specific villager
+  actually shapes what they and their conversation partner say.
+
+See `docs/DECISIONS.md`, "Phase G / per-person beliefs follow-up."
+
 ## [0.29.0] — Add: world beliefs (continuous cognition); model set to qwen3.5:2b; drop legacy calendar compat
 
 ### Added

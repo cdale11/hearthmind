@@ -112,6 +112,42 @@ folded into the *next* town-brain prompt as one input among the real
 settlement stats/history, not a command the LLM (or the deterministic
 fallback) is forced to obey.
 
+## Phase G v1: temperament and omens (subtle, never explained)
+
+Started (was "deliberately last," now explicitly requested to run in
+parallel with everything else). `Settlement.temperament` (-1..1) is a
+real, deterministic value — a bounded random walk nudged monthly,
+biased by the recent balance of good/ill fortune (births/festivals/
+inventions vs. deaths/ruin) plus noise (`buildings.tick_temperament`).
+It applies small, deliberately subtle nudges to a couple of existing
+rolls (invention chance, predator-attack lethality) — never dominant,
+always secondary to the mechanics that already drive those outcomes.
+`llm/omens.py` is the only place any "the town might be more than
+physics" reading enters: a rare, LLM-authored (or fallback-pool)
+sentence describing something ambiguous someone noticed, worded so it
+always has a mundane explanation available and never confirms anything.
+Nothing in the UI labels temperament as "mood," "supernatural," or
+similar — it's plumbed through `settlement.summary()`/`/state` like any
+other internal number, visible to anyone who goes looking at raw data,
+but never narrated as such. Extend this incrementally (more omen
+triggers, subtler cross-system nudges) rather than escalating toward
+anything explicit — the brief is "keep this ambiguous," permanently,
+not just at launch.
+
+## Per-person beliefs
+
+`Settlement.beliefs` entries can resolve to a specific living
+inhabitant (`subject_agent_id`, via `beliefs.resolve_subject_agent_id`
+matching the LLM's free-text `subject` against current agent names) and
+get folded into that person's dialogue prompts (`llm/dialogue.py`'s
+`beliefs_about` param) — so "the village believes Mira is reckless"
+actually shapes what Mira and whoever she's talking to say to each
+other, not just narration. Deliberately reuses the existing settlement-
+wide `beliefs` list rather than building a second, parallel per-agent
+belief store on top of `Agent.memories` — extend this list's mechanics
+(more consumers reading `subject_agent_id`, family-level resolution)
+before reaching for new state.
+
 ## Calendar, climate, and eras
 
 The world clock is a real 365-day, 12-month calendar (`time_system.py`,
