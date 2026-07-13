@@ -272,6 +272,13 @@ def tick_flood(
             x, y = candidates[rng.randrange(len(candidates))]
             original = terrain[y][x].biome.value
             state.flooded_tiles[(x, y)] = (original, FLOOD_DURATION_TICKS)
+            # The submerge itself (audit fix): the original biome was
+            # always recorded and restored on recede, but the tile was
+            # never actually converted to water at onset — the restore
+            # was a no-op and "low ground submerges" only ever existed
+            # as damage + a log line, invisible on the map and to every
+            # water-biome consumer.
+            terrain[y][x] = Tile(x=x, y=y, elevation=terrain[y][x].elevation, biome=Biome.SHALLOW_WATER)
             _damage_at(settlement, farms, x, y, FLOOD_DAMAGE)
             events.append(("disaster_flood", _pick_template(rng, _FLOOD_ONSET_TEMPLATES).format(x=x, y=y)))
             state.flood_pressure *= 0.5  # one flood relieves some of the built-up pressure
@@ -293,7 +300,7 @@ def tick_flood(
 def tick_wildfire(
     state: DisasterState, terrain: list[list[Tile]], weather: WeatherState, season: str,
     temperament: float, settlement: Settlement, is_week_end: bool, rng: random.Random,
-    heatwave_active: bool = False,
+    heatwave_active: bool = False, farms: FarmGrid | None = None,
 ) -> list[tuple[str, str]]:
     """Called every tick — ignition is only rolled on week boundaries
     (rare by design), but an already-burning fire spreads/dies down every
@@ -317,7 +324,11 @@ def tick_wildfire(
             tile = terrain[y][x]
             if tile.biome is Biome.FOREST:
                 terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.GRASSLAND)
-                _damage_at(settlement, FarmGrid(), x, y, WILDFIRE_BUILDING_DAMAGE)
+                # Audit fix: this used to pass a fresh empty FarmGrid(),
+                # so crops caught in a spreading fire never burned —
+                # `_damage_at`'s farm-destruction branch was dead code
+                # on the one disaster where it matters most.
+                _damage_at(settlement, farms if farms is not None else FarmGrid(), x, y, WILDFIRE_BUILDING_DAMAGE)
             if len(state.active_wildfire_tiles) >= WILDFIRE_MAX_TILES:
                 continue
             for dx, dy in _ADJACENT:

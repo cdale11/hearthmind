@@ -6,6 +6,7 @@ which is what makes snapshotting trivial (see persistence/snapshot.py).
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import random
 from dataclasses import dataclass, field
@@ -113,6 +114,14 @@ class World:
     previously rebuilt with a full terrain scan every tick even though
     water only changes on the rare TERRAIN_CHANGING_CATEGORIES events.
     Never serialized; None means "recompute". July 2026 review, §6.3."""
+    _biome_counts_cache: dict = field(default=None, compare=False, repr=False)  # type: ignore[assignment]
+    """Same caching pattern as `_water_tiles`, for `summary()`'s
+    biome_counts (audit perf pass): `summary()` runs every tick for the
+    broadcast payload, and a bare `biome_counts()` call scans every tile
+    — 16,384 of them on a 128x128 world — for numbers that only change
+    on the same rare TERRAIN_CHANGING_CATEGORIES events the water cache
+    already keys off. Invalidated at the end of `tick()` whenever one of
+    those events fired; never serialized."""
 
     # --- construction ----------------------------------------------------
 
@@ -182,6 +191,10 @@ class World:
             wildlife_events + settlement_events + population_events + terrain_events + disaster_events
         )
         self.last_calendar_events = events
+        if self._biome_counts_cache is not None and any(
+            category in TERRAIN_CHANGING_CATEGORIES for category, _ in self.last_life_events
+        ):
+            self._biome_counts_cache = None  # a tile's biome changed this tick — see the field's docstring
         return events
 
     def _tick_disasters(self, calendar_events: list[str]) -> list[tuple[str, str]]:
@@ -214,7 +227,7 @@ class World:
         events += tick_wildfire(
             self.disasters, self.terrain, self.weather, self.clock.season, self.settlement.temperament,
             self.settlement, "week_end" in calendar_events, fire_rng,
-            heatwave_active=self.disasters.heatwave_active,
+            heatwave_active=self.disasters.heatwave_active, farms=self.farms,
         )
         storm_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_storm")
         events += tick_storm(self.weather, self.settlement, storm_rng)
@@ -263,6 +276,8 @@ class World:
     # --- summary for humans / the future interface ------------------------
 
     def summary(self) -> dict:
+        if self._biome_counts_cache is None:
+            self._biome_counts_cache = biome_counts(self.terrain)
         return {
             "tick": self.clock.tick_count,
             "date": self.clock.date_string(),
@@ -272,7 +287,7 @@ class World:
             "year": self.clock.year,
             "weather": self.weather.describe(),
             "weather_detail": self.weather.to_dict(),
-            "biome_counts": biome_counts(self.terrain),
+            "biome_counts": dict(self._biome_counts_cache),
             "climate": self.climate.to_dict(),
             "night_factor": round(compute_night_factor(
                 hour_of_day=self.clock.minute_of_day / 60.0, month_name=self.clock.month_name,
@@ -358,7 +373,18 @@ class World:
         caller can log/persist the change once (see M2-3, generalized in
         A4)."""
         saved = data["config"]
-        config = Config(
+        # Start from `runtime_config` and overlay only the creation-only
+        # fields from the snapshot — previously this was built the other
+        # way around (a fresh Config with a hand-picked list of runtime
+        # fields copied over), which silently reset every runtime field
+        # NOT on that list to its dataclass default on resume. The one
+        # that actually bit: `phase_g_intensity` is read via
+        # `world.config` by the engine's temperament/omen/belief jobs, so
+        # the documented Phase G off-switch (0.0) only ever worked on a
+        # brand-new world, never a resumed one. Replacing wholesale also
+        # means a future runtime field can't reintroduce the same bug.
+        config = dataclasses.replace(
+            runtime_config,
             seed=saved["seed"],
             width=saved["width"],
             height=saved["height"],
@@ -373,9 +399,6 @@ class World:
             # calendar history doesn't shift underfoot on load.
             start_day_of_year=saved.get("start_day_of_year", 0),
             initial_population=saved.get("initial_population", Config.initial_population),
-            tick_seconds=runtime_config.tick_seconds,
-            snapshot_every_ticks=runtime_config.snapshot_every_ticks,
-            db_path=runtime_config.db_path,
         )
         clock = SimClock.from_dict(config, data["clock"])
         terrain = [[Tile.from_dict(t) for t in row] for row in data["terrain"]]

@@ -697,7 +697,10 @@ class Population:
             ):
                 agent.state = AgentState.RESTING  # proactive rest: a chosen goal, not just necessity
             if agent.state is AgentState.AWAKE:
-                attack_event = self._maybe_predator_attack(agent, wildlife, rng, has_hospital, settlement.temperament)
+                attack_event = self._maybe_predator_attack(
+                    agent, wildlife, rng, has_hospital, settlement.temperament,
+                    predator_tiles=predator_tiles,
+                )
                 if attack_event is not None:
                     life_events.append(attack_event[0])
                     if attack_event[1]:
@@ -826,7 +829,7 @@ class Population:
     @staticmethod
     def _maybe_predator_attack(
         agent: Agent, wildlife: WildlifeGrid, rng: random.Random, has_hospital: bool = False,
-        temperament: float = 0.0,
+        temperament: float = 0.0, predator_tiles: set[tuple[int, int]] | None = None,
     ) -> tuple[tuple[str, str], bool] | None:
         """Rolled for an awake agent colocated with a live predator pack.
         Returns ((category, description), killed) or None if no attack
@@ -837,6 +840,13 @@ class Population:
         TEMPERAMENT_KILL_CHANCE_INFLUENCE, docs/DECISIONS.md, "World-G
         follow-up.\" See also docs/DECISIONS.md, danger pass and
         "LLM-as-brain batch.\""""
+        # Cheap early-out against the tick's precomputed predator-tile set
+        # (audit perf pass): `wildlife.at()` scans every herd, and this
+        # runs for every awake agent every tick — almost all of whom are
+        # nowhere near a predator. The set membership test answers the
+        # common case without the scan.
+        if predator_tiles is not None and (agent.x, agent.y) not in predator_tiles:
+            return None
         predators = [h for h in wildlife.at(agent.x, agent.y) if h.species is Species.PREDATOR and h.count > 0]
         if not predators:
             return None
@@ -1498,14 +1508,29 @@ class Population:
         apprenticeship teaches faster, the same mechanical-rider shape
         festivals/harvests/grief already use)."""
         knowledge_multiplier = culture_effect_multiplier(settlement.culture_effects, "knowledge")
+        # Membership index built once per tick (audit perf pass): the
+        # previous per-pair `any()` over the full institutions list was
+        # O(colocated pairs x stored institutions) — with the stored
+        # FAMILY list allowed to reach INSTITUTION_LIST_MAX_STORED (300)
+        # and crowding routinely producing 20+-agent tiles (hundreds of
+        # pairs), that scan alone reached six figures of iterations per
+        # tick. Same results, one pass over institutions instead.
+        bonded_memberships: dict[int, set[int]] = {}  # agent id -> FAMILY/COUNCIL institution ids
+        guild_members: dict[str, set[int]] = {}  # skill name -> that guild's member agent ids
+        for inst in settlement.institutions:
+            if inst.kind in (InstitutionKind.FAMILY, InstitutionKind.COUNCIL):
+                for member_id in inst.member_agent_ids:
+                    bonded_memberships.setdefault(member_id, set()).add(inst.id)
+            elif inst.kind is InstitutionKind.GUILD and inst.name:
+                guild_members.setdefault(inst.name, set()).update(inst.member_agent_ids)
+        no_memberships: set[int] = set()
         for group in by_position.values():
             if len(group) < 2:
                 continue
             for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
-                shared_institution = any(
-                    a.id in inst.member_agent_ids and b.id in inst.member_agent_ids
-                    for inst in settlement.institutions
-                    if inst.kind in (InstitutionKind.FAMILY, InstitutionKind.COUNCIL)
+                shared_institution = bool(
+                    bonded_memberships.get(a.id, no_memberships)
+                    & bonded_memberships.get(b.id, no_memberships)
                 )
                 sociability = (a.traits.get(TRAIT_SOCIABILITY, 0.0) + b.traits.get(TRAIT_SOCIABILITY, 0.0)) / 2.0
                 chance = SKILL_TEACHING_CHANCE_PER_TICK * (
@@ -1523,12 +1548,8 @@ class Population:
                     # is a stronger teaching bonus than the trade-
                     # agnostic FAMILY/COUNCIL one above — expertise-
                     # sharing, not just bonding. Stacks multiplicatively.
-                    shared_guild = any(
-                        inst.kind is InstitutionKind.GUILD and inst.name == skill
-                        and a.id in inst.member_agent_ids and b.id in inst.member_agent_ids
-                        for inst in settlement.institutions
-                    )
-                    if shared_guild:
+                    members = guild_members.get(skill)
+                    if members is not None and a.id in members and b.id in members:
                         skill_chance *= GUILD_TEACHING_BONUS_MULTIPLIER
                     if rng.random() >= skill_chance:
                         continue
@@ -2548,7 +2569,7 @@ class Population:
         elif homes_inherited > 1:
             inherited.append(f"{homes_inherited} homes")
 
-        good_caps = {"food": PERSONAL_FOOD_CAPACITY, "tools": TOOLS_CAPACITY}
+        good_caps = {"food": PERSONAL_FOOD_CAPACITY, "tools": TOOLS_CAPACITY, "medicine": MEDICINE_CAPACITY}
         for good, amount in agent.inventory.items():
             if amount <= 0.0:
                 continue
@@ -2610,7 +2631,14 @@ class Population:
             elif agent.id in died_of_disease:
                 life_events.append(("death", f"{agent.name} died of illness."))
                 self.deaths_disease += 1
-            elif agent.starving_ticks >= STARVATION_TICKS_TO_DEATH:
+            # Same resilience-adjusted threshold the dying_ids check above
+            # used — audit fix: this arm previously compared against the
+            # raw STARVATION_TICKS_TO_DEATH, so a fragile (negative-
+            # resilience) agent whose personal threshold sits below the
+            # base died of starvation but fell through to the "old age"
+            # arm, miscounting the death and logging a young agent as
+            # dying of old age.
+            elif agent.starving_ticks >= _starvation_threshold(agent):
                 life_events.append(("death", f"{agent.name} died of starvation."))
                 self.deaths_starvation += 1
             else:

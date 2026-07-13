@@ -33,28 +33,36 @@ def parse_args(argv: list[str] | None = None) -> Config:
              "one-time 'genesis' LLM call to pick an evocative founding scenario whose text becomes the "
              "seed (falls back to a wall-clock-derived seed if the LLM is disabled/unreachable).",
     )
-    parser.add_argument("--width", type=int, default=64, help="Used only when creating a new world.")
-    parser.add_argument("--height", type=int, default=64, help="Used only when creating a new world.")
-    parser.add_argument("--tick-seconds", type=float, default=1.0, help="Real seconds between ticks.")
-    parser.add_argument("--sim-minutes-per-tick", type=int, default=15, help="Sim-minutes advanced per tick.")
-    parser.add_argument("--snapshot-every", type=int, default=60, help="Ticks between snapshots.")
-    parser.add_argument("--initial-population", type=int, default=12,
+    # Every default below references the Config class attribute directly —
+    # a hardcoded copy here silently drifts when Config's tuned value
+    # changes (audit finding: --llm-max-concurrent sat at a hardcoded 4
+    # for several releases after Config was deliberately tuned down to 2
+    # for 8GB-memory headroom, so every plain `hearthmind-server` launch
+    # ran twice the intended Ollama concurrency).
+    parser.add_argument("--width", type=int, default=Config.width, help="Used only when creating a new world.")
+    parser.add_argument("--height", type=int, default=Config.height, help="Used only when creating a new world.")
+    parser.add_argument("--tick-seconds", type=float, default=Config.tick_seconds, help="Real seconds between ticks.")
+    parser.add_argument("--sim-minutes-per-tick", type=int, default=Config.sim_minutes_per_tick,
+                         help="Sim-minutes advanced per tick.")
+    parser.add_argument("--snapshot-every", type=int, default=Config.snapshot_every_ticks,
+                         help="Ticks between snapshots.")
+    parser.add_argument("--initial-population", type=int, default=Config.initial_population,
                          help="Used only when creating a new world.")
     parser.add_argument("--llm-disabled", action="store_true",
                          help="Disable the Ollama cognition/dialogue/culture layer (on by default as of "
                               "E2; every LLM call still falls back to deterministic behavior if Ollama "
                               "isn't reachable, so this is only needed for a fully offline run).")
-    parser.add_argument("--llm-host", default="http://localhost:11434", help="Ollama server URL.")
+    parser.add_argument("--llm-host", default=Config.llm_host, help="Ollama server URL.")
     parser.add_argument("--llm-model", default=Config.llm_model, help="Ollama model name (must be pulled already).")
     parser.add_argument("--llm-timeout", type=float, default=Config.llm_timeout_seconds,
                          help="Seconds before an LLM call falls back.")
-    parser.add_argument("--llm-max-concurrent", type=int, default=4,
+    parser.add_argument("--llm-max-concurrent", type=int, default=Config.llm_max_concurrent,
                          help="Max simultaneous in-flight LLM requests.")
     parser.add_argument("--api-disabled", action="store_true",
                          help="Disable the browser interface (on by default; requires 'fastapi'/'uvicorn' — "
                               "run without them installed and this is disabled automatically with a warning).")
-    parser.add_argument("--api-host", default="0.0.0.0", help="Browser API bind host.")
-    parser.add_argument("--api-port", type=int, default=8765, help="Browser API port.")
+    parser.add_argument("--api-host", default=Config.api_host, help="Browser API bind host.")
+    parser.add_argument("--api-port", type=int, default=Config.api_port, help="Browser API port.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug-level logging.")
     args = parser.parse_args(argv)
 

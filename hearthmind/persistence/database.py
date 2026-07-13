@@ -67,6 +67,14 @@ def connect(db_path: str) -> sqlite3.Connection:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True) if Path(db_path).parent != Path("") else None
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA journal_mode = WAL")
+    # NORMAL is the documented pairing for WAL: the WAL file is still
+    # synced at checkpoint, so a crash can lose at most the final
+    # not-yet-checkpointed commits, never corrupt the database — and it
+    # removes a per-commit fsync from every tick, which matters on the
+    # target hardware's slow storage far more than the durability of the
+    # last in-flight tick does (a lost tick is one sim-minute of drift;
+    # the periodic snapshot is the real recovery point regardless).
+    conn.execute("PRAGMA synchronous = NORMAL")
     conn.executescript(SCHEMA)
     conn.commit()
     return conn

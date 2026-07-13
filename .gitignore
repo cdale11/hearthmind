@@ -21,9 +21,16 @@ dist/
 build/
 *.egg-info/
 
-# SQLite runtime
+# SQLite runtime (server default is world.sqlite3 — cover the -wal/-shm
+# sidecars too)
 *.db
 *.sqlite
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Test/tool caches
+.pytest_cache/
 
 # Logs
 logs/

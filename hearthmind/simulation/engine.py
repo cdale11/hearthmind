@@ -139,6 +139,25 @@ up to twice this bound — when rationing, the urgent reasoning goes
 first. Deterministic runs are unaffected (fallbacks resolve instantly,
 so the backlog stays ~0). July 2026 architecture review, §3.6."""
 
+IDLE_BROADCAST_EVERY_TICKS = 10
+"""With zero WebSocket clients connected, the full broadcast payload
+(a to_dict() of every agent/building/farm/resource/wildlife entity plus
+three summary passes) was still built every single tick, purely so
+`GET /state` stayed fresh — on an always-running server that's
+unobserved most of the time, that's the largest recurring per-tick
+Python cost spent on nobody (audit perf pass). With no clients the
+payload is instead rebuilt every this-many ticks, so a bare `/state`
+poll is at most ~10s stale at default pacing; the moment a client
+connects, per-tick broadcasting resumes on the next tick
+automatically. Life events from skipped ticks are buffered (bounded by
+PENDING_BROADCAST_EVENTS_MAX) so none are lost from the next payload."""
+
+PENDING_BROADCAST_EVENTS_MAX = 300
+"""Bound on the between-payload event buffer above — everything is
+already persisted to the events table regardless (a reconnecting
+client reloads history via GET /events), so trimming the oldest
+buffered entries loses nothing durable."""
+
 PAUSED_POLL_SECONDS = 0.25
 """How often `run_forever`'s loop wakes up to re-check pause/stop state
 while paused, instead of sleeping for a full (possibly very long, at a
@@ -1395,11 +1414,24 @@ class SimulationEngine:
             return
         if any(category in TERRAIN_CHANGING_CATEGORIES for category, _ in self.world.last_life_events):
             self._broadcaster.set_terrain(self.world.terrain, self.world.config.width, self.world.config.height)
-        life_events = [
+        tick_events = [
             {"category": category, "description": description}
             for category, description in self.world.last_life_events
         ]
-        life_events.extend(self._pending_broadcast_events)
+        if (
+            self._broadcaster.client_count() == 0
+            and self.world.clock.tick_count % IDLE_BROADCAST_EVERY_TICKS != 0
+        ):
+            # Nobody is watching live — skip the payload build this tick
+            # (see IDLE_BROADCAST_EVERY_TICKS), but keep this tick's
+            # events so the next built payload still carries them.
+            self._pending_broadcast_events.extend(tick_events)
+            if len(self._pending_broadcast_events) > PENDING_BROADCAST_EVENTS_MAX:
+                self._pending_broadcast_events = self._pending_broadcast_events[-PENDING_BROADCAST_EVENTS_MAX:]
+            return
+        # Buffered (older) events first, then this tick's own — oldest-
+        # first is the order the frontend's prepend loop expects.
+        life_events = self._pending_broadcast_events + tick_events
         self._pending_broadcast_events = []
         payload = {
             "summary": self.world.summary(),

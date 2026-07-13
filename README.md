@@ -2,21 +2,24 @@
 
 Hearthmind is a persistent, always-running artificial world — "a town in a box."
 
-The simulation runs continuously as a standalone server process. A browser (added
-in a later milestone) will only ever *observe* and *nudge* the world; it is never
-required for the simulation to keep going. Closing every client, or having no
-client at all, does not pause anything.
+The simulation runs continuously as a standalone server process. The browser
+interface only ever *observes* and *nudges* the world; it is never required
+for the simulation to keep going. Closing every client, or having no client
+at all, does not pause anything.
 
 ## Design philosophy
 
 - **The server owns time.** The simulation advances on its own fixed tick loop.
   Nothing about ticking depends on a client being connected.
-- **Deterministic core, emergent surface.** Milestone 1 has no LLM yet. Every
-  system (terrain, clock, weather) is seeded and deterministic, so the same
-  seed always produces the same world and the same sequence of weather. This
-  matters because later, an LLM "cognition" layer will sit *on top of* this
-  deterministic substrate rather than replacing it — agents will reason about
-  a world whose physics they can't talk their way around.
+- **Physical core, interpretive surface.** The deterministic engine models
+  objective reality (time, weather, physics, resources, ecology,
+  construction, decay); everything involving judgement, psychology, or
+  social behavior routes through a local LLM with a deterministic fallback
+  — agents reason about a world whose physics they can't talk their way
+  around. Reproducibility-for-a-given-seed is *not* a project requirement
+  (dropped deliberately — emergence wins over replayability), though most
+  physical systems still happen to use seeded RNG where it's the natural
+  tool.
 - **Persistence is not an afterthought.** The world is checkpointed to SQLite
   on an interval and on graceful shutdown. Restarting the server resumes the
   same world at the same tick — it does not regenerate anything.
@@ -50,44 +53,55 @@ client at all, does not pause anything.
 
 ```
 hearthmind/
-  config.py          # tunable simulation parameters
-  time_system.py      # SimClock: ticks -> minutes/day/season/year
+  config.py            # tunable simulation parameters (CLI defaults mirror these)
+  time_system.py       # SimClock: ticks -> real 365-day/12-month calendar
   world/
-    terrain.py         # deterministic terrain generation (midpoint displacement)
-    weather.py          # deterministic, seasonally-aware weather system
-    resources.py         # depletable, regenerating forageable resource nodes
-    wildlife.py          # grazer herds + predator packs, huntable (A4)
-    roads.py             # foot-traffic-driven path wear/decay (C5)
-    state.py              # World: the aggregate root, (de)serializes to dict
+    terrain.py           # deterministic terrain generation (midpoint displacement)
+    terrain_evolution.py # deforestation, reclamation, climate/biome drift
+    weather.py           # deterministic UK-maritime monthly weather
+    daylight.py          # real UK sunrise/sunset -> night factor
+    hydrology.py         # rivers (carved at creation) + lakes with living levels
+    disasters.py         # floods, wildfires, storms, heatwaves, frost
+    resources.py         # depletable, regenerating forage/ore/fishing nodes
+    wildlife.py          # grazer herds + predator packs, huntable ecology
+    roads.py             # foot-traffic-driven path wear/decay
+    state.py             # World: the aggregate root, (de)serializes to dict
   agents/
-    agent.py             # Agent: needs, aging, relationships, lifecycle constants
-    population.py         # Population: spawns/ticks agents; foraging, birth, death, construction
-    names.py               # deterministic name generation
+    agent.py             # Agent: needs, traits, skills, memories, lifecycle constants
+    population.py        # Population: the whole per-tick agent loop (forage, build,
+                         #   trade, teach, disease, institutions, birth, death)
+    names.py             # deterministic name generation
   settlement/
-    buildings.py            # Building/Settlement: construction, weathering, repair, reclamation
+    buildings.py         # Building/Settlement (4 composed domains), eras, upkeep
+    institutions.py      # FAMILY / COUNCIL / GUILD entities that outlive members
+    vehicles.py          # carts, mounts, era-gated automobiles
+    naming.py            # deterministic placeholder settlement names
   economy/
-    farms.py                 # FarmGrid/FarmPlot: planting, growth, harvest
+    farms.py             # FarmGrid/FarmPlot: planting, growth, rot, irrigation
   persistence/
-    database.py          # SQLite schema + connection helper
-    snapshot.py           # save_snapshot / load_latest_snapshot / event log
+    database.py          # SQLite schema + connection helper (WAL)
+    snapshot.py          # snapshots (pruned + keyframes), event log, metrics
   llm/
-    client.py              # minimal stdlib-only Ollama HTTP client
-    jobs.py                  # CognitionRunner: bounded-concurrency async LLM calls with fallback
-    cognition.py              # per-agent goal prompt/parse/fallback
-    chronicle.py               # seasonal world-history summarization
-    culture.py                  # yearly tradition invention (Phase E)
-    invention.py                # rare, prosperity-gated tech unlocks (E3)
-    dialogue.py                 # NPC-to-NPC ambient dialogue (E2)
-    festival.py                 # wellbeing-gated, seasonal collective events
+    client.py            # minimal stdlib Ollama HTTP client
+    jobs.py              # CognitionRunner: bounded concurrency + fallback guarantee
+    cognition.py         # per-agent goals      chronicle.py    # monthly narration
+    dialogue.py          # NPC-to-NPC dialogue  documentary.py  # yearly look-back
+    culture.py           # traditions           invention.py    # tech unlocks
+    festival.py          # festivals            caravan.py      # outside trade contact
+    town_brain.py        # civic priority       beliefs.py      # evolving town theories
+    omens.py             # Phase G ambiguity    naming.py       # LLM settlement naming
+    world_genesis.py     # one-time LLM-chosen world seed
   interface/
-    api.py                        # WorldBroadcaster: framework-free bridge from engine to web layer
-    app.py                         # FastAPI app: /, /state, /terrain, /events, WS /ws
-    static/                         # plain HTML/CSS/JS browser client, no build step
+    api.py               # WorldBroadcaster: framework-free bridge engine <-> web
+    app.py               # FastAPI app: /state /terrain /events /history /metrics
+                         #   /diagnostics /snapshots /intervene/* + WS /ws
+    static/              # plain HTML/CSS/JS browser client, no build step
   simulation/
-    engine.py                   # SimulationEngine: the tick loop + lifecycle + LLM/API scheduling
-  server.py                      # CLI entrypoint that runs the engine (+ optional browser API) forever
-  inspect_world.py                # CLI to print a summary of the saved world state
-tests/                             # unittest-based tests (stdlib only)
+    engine.py            # SimulationEngine: the tick loop + LLM/API scheduling
+  server.py              # CLI entrypoint that runs the engine forever
+  inspect_world.py       # CLI to print a summary of the saved world state
+  experiment.py          # headless seed-batch runs -> per-sim-day metrics CSVs
+tests/                   # retained as reference only — not run (see docs/TESTING.md)
 ```
 
 ## Running it
@@ -128,10 +142,12 @@ Useful flags on `server.py`:
   deterministic fallback, so this flag is only needed for a fully
   offline/deterministic run.
 - `--llm-host URL` (default `http://localhost:11434`), `--llm-model NAME`
-  (default `qwen3.5:2b`), `--llm-timeout SECONDS` (default 30 —
+  (default `qwen3.5:2b`), `--llm-timeout SECONDS` (default 60 —
   CPU inference under contention on 8GB+zram can be slower than a quiet
   benchmark, see `docs/DECISIONS.md` D5), `--llm-max-concurrent INT`
-  (default 4) — all runtime settings, safe to change between runs.
+  (default 2 — deliberately low for 8GB-memory headroom; every CLI
+  default mirrors its `Config` attribute, see the v0.63.0 audit) — all
+  runtime settings, safe to change between runs.
 - `--api-disabled` — turn off the browser interface (on by default; see
   below). `--api-host` (default `0.0.0.0`), `--api-port` (default `8765`).
 
@@ -285,12 +301,18 @@ unlocking the FACTORY building kind past `industrial`.
 dashboard covering every system (population, relationships, economy,
 tech level, wildlife, roads, LLM/dialogue diagnostics), a human-readable
 event log (icons, color-coded by category), traditions, inventions,
-festivals, and a `⚙ dev` toggle exposing raw engine telemetry (tick
-timing, background task counts, connected clients, LLM latency) plus a
+festivals, a relationship graph, an NPC "mind-first" inspector, a
+history tab, a scrub-through-time timeline, live pause/speed controls,
+and a `⚙ dev` toggle exposing raw engine telemetry (tick timing,
+background task counts, connected clients, LLM latency) plus a
 "Full diagnostic report" button (`GET /diagnostics`) for debugging an
-unattended overnight run — all updating once per tick over a WebSocket.
-No intervention endpoints yet — this is observation-only, per the
-roadmap (`docs/ROADMAP.md`, Phase F).
+unattended overnight run — all updating once per tick over a WebSocket
+while a client is connected (with none connected, the payload is
+rebuilt every ~10 ticks just to keep `GET /state` serviceable — the
+sim itself never slows down or speeds up either way). Intervention
+("nudge") endpoints exist under `/intervene/*` — agent goals,
+settlement stores, weather, a whispered suggestion to the town brain,
+and sim pause/speed.
 
 ```bash
 pip install -r requirements.txt   # or: pip install hearthmind[api]
@@ -321,72 +343,28 @@ extra**: the base simulation stays dependency-free — install
 `requirements.txt` to get the browser window, or run with
 `--api-disabled` (or without the extra installed) to skip it.
 
-## Testing
+## Verification
 
-```bash
-python3 -m unittest discover -s tests -v
-```
+This project does **not** run its automated unit test suite (a standing
+workflow decision — it was deemed unreliable). Changes are verified via
+ad-hoc scripts against the real engine, multi-thousand-tick smoke runs,
+and — as the actual source of truth — live diagnostic reports from real
+hardware with a real Ollama server. See `docs/TESTING.md` for the
+workflow and the CLI smoke tests that are still worth running.
 
-See `docs/TESTING.md` for the full release checklist (unit tests plus real
-CLI smoke tests for fresh-world, resume, and migration paths) — run before
-every release, not just unit tests.
+## Status
 
-## Milestone status
+All original phases (A–F), the ambient Phase G layer, and the full
+Phase H program (dynamic carrying capacity, institutions —
+families/councils/guilds, evolving beliefs/world-models at settlement,
+family, and personal scale, skills and teaching, supply chains and
+personal property, inheritance, psychology traits) have shipped at
+least a v1, plus an integration milestone wiring the systems into each
+other. The one remaining genuinely large architectural effort is
+**multiple named settlements** — see `CLAUDE.md`, "Known architectural
+gaps."
 
-- [x] **Milestone 1 — Core sim loop + persistence.** Deterministic terrain,
-      clock, and weather; SQLite snapshots + event log; graceful
-      start/stop/resume. No LLM, no network interface yet.
-- [x] **Milestone 2 — Agents (population, needs, movement, lifecycle).**
-      A population of named inhabitants spawns on walkable terrain,
-      wanders, forages depletable resource nodes, ages, can die of
-      starvation or old age, and can reproduce with agents they've built
-      affinity with — all deterministic per `(seed, tick)`, all persisted.
-      Still missing: any LLM involvement (still ahead in Phase B) and any
-      settlement-level structure (buildings, roads — Phase C).
-- [~] **Phase B — LLM cognition layer (Ollama), slice 1.** Off by
-      default. When enabled: agents get a daily LLM-chosen goal
-      (wander/forage/socialize/rest) that biases their behavior, and a
-      seasonal chronicle entry is written to the event log. Deterministic
-      fallbacks make both features work even without Ollama installed.
-      **Verified against a real running Ollama instance** — see "LLM
-      cognition layer" above; that same verification run also surfaced
-      and led to fixing a real starvation-trap bug (D3) that no unit test
-      had caught.
-- [~] **Phase C — Settlements & construction, slice 1.** Colocated,
-      mature, healthy agents may found a building; any awake agent
-      present advances its construction (or repairs a damaged standing
-      one); weather decays standing buildings into ruins over time;
-      long-abandoned ruins are eventually reclaimed and removed. Building
-      placement is deterministic in this slice, not yet an
-      LLM/goal-driven decision — see `docs/DECISIONS.md`, C1. **Not
-      personally witnessed through organic play at first:** two early
-      soak tests (~8,600 and ~17,000 ticks) saw populations collapse from
-      starvation before reaching the maturity needed to found a
-      settlement — later resolved by Phase D; see below and
-      `docs/DECISIONS.md`, C5/D4.
-- [x] **Phase D — Agriculture & economy. Feature-complete per the
-      original roadmap scope.** Farming, granaries, production chains
-      (materials → construction speed + farm yield), and settlement
-      currency (surplus → traded for emergency rations). Two real
-      starvation bugs found via live-play diagnostics and fixed (D3, D5,
-      D6 — resting blocking food, goal not overriding for critical
-      hunger, FORAGE never targeting farms). See `docs/DECISIONS.md`,
-      D1-D10.
-- [x] **Phase E — Culture & history, slice 1.** Settlements are named
-      once a building stands; named settlements invent one tradition per
-      year; settlement name + latest tradition now appear in per-agent
-      cognition prompts and the chronicle prompt. See `docs/DECISIONS.md`,
-      E1.
-- [x] **Phase F — Browser interface, slices 1-2.** A real, live browser
-      window, on by default: canvas map, stat dashboard, traditions,
-      festivals, event log, dev console, all updating once per tick over
-      WebSocket (FastAPI + uvicorn backend). Intervention endpoints are
-      deliberately not built yet — last, per the roadmap. External
-      libraries are now allowed project-wide, tracked in
-      `requirements.txt`. See
-      `docs/DECISIONS.md`, F1/F2.
-- [ ] Phase G — Supernatural / psychological horror layer.
-
-See `CHANGELOG.md` for a version-by-version history, `docs/DECISIONS.md`
-for the reasoning behind non-obvious choices, and `docs/ROADMAP.md` for
-the longer-term plan.
+See `CHANGELOG.md` for the version-by-version history,
+`docs/DECISIONS.md` for the reasoning behind non-obvious choices (the
+project's primary archive), and `docs/ROADMAP.md` for the phase plan
+and its per-item accounting.

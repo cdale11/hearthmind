@@ -4,6 +4,90 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.63.0] — Full audit: six bug fixes, idle-CPU/memory optimizations, docs cleanup
+
+An extensive whole-codebase audit (bugs, memory, performance, long-term
+stability), with every confirmed finding fixed in the same batch. Full
+accounting in docs/DECISIONS.md, "full audit pass."
+
+### Fixed
+
+- **`hearthmind-server` ran double the tuned LLM concurrency by
+  default**: the CLI's `--llm-max-concurrent` default was a hardcoded
+  `4`, never updated when `Config.llm_max_concurrent` was deliberately
+  tuned down to `2` for 8GB-memory headroom (v0.43.0/v0.44.0) — so any
+  plain launch without that flag ran twice the intended simultaneous
+  Ollama calls, a direct contributor to live swap pressure. Every CLI
+  default now references its `Config` attribute so the two can never
+  drift again.
+- **`phase_g_intensity` (and every other runtime config field) was
+  silently reset to its default on world resume**: `World.from_dict`
+  rebuilt `world.config` from a hand-picked field list that omitted the
+  runtime section, and the engine reads `world.config.phase_g_intensity`
+  — so the documented Phase G off-switch only ever worked on a
+  brand-new world. `from_dict` now starts from the runtime config and
+  overlays only the snapshot's creation-only fields.
+- **Floods never actually submerged the tile**: `tick_flood` recorded
+  the "original biome" at onset and restored it on recede, but the
+  submerge itself (converting the tile to shallow water) was missing —
+  the restore was a no-op and a flood was invisible on the map and to
+  every water-biome consumer. Onset now converts the tile to
+  `SHALLOW_WATER`; recede restores the recorded original, as always
+  intended.
+- **Wildfires burned an empty decoy `FarmGrid()`**: `tick_wildfire`'s
+  spread path passed a fresh empty grid to the damage helper instead of
+  the world's farms, so crops could never burn. The real `FarmGrid` is
+  now threaded through.
+- **Starvation deaths of fragile agents were logged as old age**: death
+  *eligibility* used the resilience-adjusted starvation threshold but
+  death *classification* compared against the raw base constant, so a
+  negative-resilience agent dying early of starvation fell through to
+  the old-age arm (miscounted, and narrated as a young agent dying of
+  old age). Classification now uses the same adjusted threshold.
+- **Inherited medicine ignored `MEDICINE_CAPACITY`**: H7's inheritance
+  capped food/tools but not medicine, letting an heir exceed the
+  personal cap.
+
+### Changed (performance / memory)
+
+- **Idle broadcast skipping**: with zero browser clients connected, the
+  full per-tick payload (`to_dict()` of every agent/building/farm/
+  resource/wildlife entity plus three summary passes) was still built
+  every tick purely to keep `GET /state` fresh — the largest recurring
+  per-tick cost on an always-running, mostly-unobserved server. It is
+  now rebuilt every 10th tick while no clients are connected (events
+  from skipped ticks are buffered, bounded, and flushed into the next
+  payload); per-tick broadcasting resumes automatically the moment a
+  client connects.
+- **`biome_counts` cached**: `World.summary()` scanned every tile
+  (16,384 on a 128x128 world) every tick for counts that only change on
+  the rare terrain-changing events — now cached with the same
+  invalidation signal the water-tile cache already uses.
+- **Teaching scan de-quadratic'd**: `_maybe_teach_skills` ran an
+  `any()` over the full stored institutions list (capped at 300) for
+  every colocated pair every tick; a one-pass membership index now
+  answers the same shared-family/council/guild questions.
+- **Predator-attack early-out**: `_maybe_predator_attack` called the
+  O(herds) `wildlife.at()` for every awake agent every tick; it now
+  early-outs against the tick's precomputed predator-tile set.
+- **SQLite `synchronous=NORMAL`** (the documented WAL pairing): removes
+  one fsync per tick-commit; a crash can lose at most the final
+  not-yet-checkpointed commits, never corrupt the database.
+
+### Removed / cleaned
+
+- Stale local caches (`.pytest_cache/`, `__pycache__/`) deleted;
+  `.gitignore` now covers `.pytest_cache/` and `*.sqlite3` sidecars.
+- `README.md` refreshed (stale milestone list, stale flag defaults,
+  stale "no intervention endpoints yet" claims, unittest-first testing
+  section replaced with the project's actual verification workflow).
+- `docs/TESTING.md` rewritten to match the standing workflow rule
+  (automated suite not run; verification = ad-hoc scripts + CLI smoke
+  tests + the user's live diagnostics).
+- `CLAUDE.md` consolidated: superseded per-version narratives compressed
+  into a diagnostic-history index pointing at docs/DECISIONS.md; all
+  standing rules/directives kept; new audit-backlog section added.
+
 ## [0.62.0] — Continue expanding, round three: SKILL_MEDICINE, guild belief mirroring, chronicle variety, disease UI
 
 Third follow-up batch, scoped after an Explore-agent audit of skills,

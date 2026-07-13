@@ -5263,3 +5263,185 @@ Ollama/browser available in this environment — the visual appearance
 of the new map rings and inspector Health line is unverified beyond
 payload/syntax checks, same standing caveat as every other frontend
 change in this project's history.
+
+## Full audit pass: bugs, memory, performance, stability (v0.63.0)
+
+Explicit user directive: "extensively audit the code for bugs, memory
+optimizations and leaks, performance optimizations (like moving heavy
+parts of code to C/C++), long term stability and finally, suggested
+improvements" — implement what can be implemented immediately, record
+the rest in CLAUDE.md, and clean up stale files/docs. Every core module
+was read end-to-end in this environment (population, engine, buildings,
+world/*, llm/*, persistence, interface incl. app.js, server, config).
+
+### Confirmed bugs, all fixed this batch
+
+1. **CLI default drift: `--llm-max-concurrent 4` vs Config's tuned 2.**
+   `server.py`'s argparse default was a hardcoded `4` — the original E2
+   value — and was never touched through the entire concurrency tuning
+   saga (4 -> 2 -> 1 -> 2, v0.43.0/v0.43.1/v0.44.0) because every one
+   of those changes edited `Config.llm_max_concurrent` only. Any launch
+   of `hearthmind-server` without an explicit flag therefore ran FOUR
+   simultaneous Ollama calls on the user's 8GB machine — twice the
+   deliberately-chosen memory floor, and a very plausible standing
+   contributor to the recurring live swap-pressure reports (each
+   in-flight call holds its own KV-cache allocation server-side; see
+   the v0.43.0 entry). Fix: every argparse default now references the
+   `Config` class attribute directly (`default=Config.llm_max_
+   concurrent` etc.) so the CLI can never silently disagree with the
+   tuned config again. **Worth checking on the next live report:
+   whether the user's launch command passed this flag explicitly — if
+   not, this fix alone should reduce Ollama-side peak memory.**
+
+2. **Runtime config fields dropped on resume (`World.from_dict`).**
+   The reconstructed `world.config` was built as a fresh `Config` with
+   a hand-picked copy list (tick_seconds/snapshot_every_ticks/db_path)
+   — every runtime field NOT on that list (phase_g_intensity, llm_*,
+   api_*) silently reverted to its dataclass default on every resume.
+   The one with a real behavioral consumer: the engine reads
+   `self.world.config.phase_g_intensity` for temperament, omens, and
+   belief-confidence bias, so the documented Phase G intensity knob
+   (including its 0.0 off-switch, a headline feature of Phase G v2)
+   only ever worked on a freshly-created world. Fix:
+   `dataclasses.replace(runtime_config, <creation-only fields from
+   snapshot>)` — start from the live runtime config and overlay only
+   what's genuinely creation-only, so future runtime fields can't
+   reintroduce the bug.
+
+3. **Floods never submerged anything.** `tick_flood`'s onset stored the
+   tile's original biome (specifically so recede could restore it) and
+   applied one-time damage — but the actual biome conversion to water
+   was missing, so the "restore" wrote back the biome the tile had all
+   along. Everything downstream already assumed the conversion existed:
+   `disaster_flood` sits in TERRAIN_CHANGING_CATEGORIES (water-tile
+   cache invalidation + terrain re-broadcast), and the recede branch is
+   pure dead weight without it. Fix: onset now sets the tile to
+   SHALLOW_WATER. Deliberate consequence: a flooded tile genuinely
+   becomes water for its duration (unwalkable to agents, a valid flood
+   source for adjacent spread next pressure spike, visible on the map),
+   then recedes as designed.
+
+4. **Wildfire farm damage was dead code.** The spread path called
+   `_damage_at(settlement, FarmGrid(), ...)` — a fresh empty grid — so
+   the farm-destruction branch could never fire. Note honestly: under
+   current rules this was *latent* rather than live (fire only burns
+   FOREST tiles, farms only plant on GRASSLAND, so the two currently
+   never overlap) — but the call was wrong on its face, silently
+   guaranteed to do nothing, and one biome-rule tweak away from
+   mattering. Fix: `farms` is now threaded through `tick_wildfire`.
+
+5. **Starvation deaths misclassified as old age.** `_apply_deaths`
+   decided *whether* an agent dies using the resilience-adjusted
+   `_starvation_threshold(agent)` (integration milestone), but decided
+   *what to log/count* using the raw `STARVATION_TICKS_TO_DEATH` — so a
+   fragile agent (negative resilience, personal threshold below base)
+   who starved fell through to the `else` arm: counted as
+   `deaths_old_age` and narrated as dying "of old age" at any age.
+   Verified directly: a resilience -1.0 agent at starving_ticks 161
+   now counts as starvation. Corrupted death-cause telemetry is
+   diagnosis-poisoning in a project that relies on those counters
+   (town-brain fallback arms, metrics, live reports).
+
+6. **Inherited medicine ignored its cap.** `_apply_inheritance`'s
+   `good_caps` covered food/tools but medicine was added later (H4
+   extension) without updating it, so an heir could exceed
+   MEDICINE_CAPACITY. Small, bounded (≤2x cap), now capped like the
+   other goods.
+
+### Performance/memory work (measured or structurally clear)
+
+- **Idle broadcast skipping** (`IDLE_BROADCAST_EVERY_TICKS = 10`): the
+  per-tick payload build — a `to_dict()` of every agent, building,
+  farm plot, resource node, wildlife herd, plus `world.summary()`
+  (which itself walks population/settlement/farms/wildlife/roads) —
+  ran every tick even with zero WebSocket clients, purely to keep
+  `GET /state` fresh. On the target deployment (an always-running
+  server, browser open occasionally) that's the single largest
+  recurring Python-side cost spent on nobody. Now: no clients ->
+  payload rebuilt every 10th tick (a `/state` poll is at most ~10s
+  stale at default pacing), events from skipped ticks buffered
+  (bounded at 300 — they're all in the events table regardless) and
+  flushed into the next built payload; ≥1 client -> per-tick behavior
+  unchanged. Verified with a fake broadcaster: 4/40 ticks built idle,
+  20/20 built connected, buffer drains on flush.
+- **`biome_counts` cache on `World`**: full-terrain scan (16,384 tiles
+  at 128x128) per `summary()` call, for counts that change only on
+  TERRAIN_CHANGING_CATEGORIES events — cached with exactly the water-
+  tile cache's invalidation signal, verified equal to a fresh scan
+  after a 5,000-tick run.
+- **`_maybe_teach_skills` membership index**: per-pair `any()` over the
+  stored institutions list (up to 300 under INSTITUTION_LIST_MAX_
+  STORED) — at an observed 29-agent crowd tile (406 pairs) that's
+  ~120k scans/tick from one mechanic. One pass over institutions now
+  builds agent->FAMILY/COUNCIL-ids and skill->guild-members maps; the
+  four boost/no-boost behavior cases verified equivalent via forced-RNG
+  checks bracketing the exact chance thresholds (0.02/0.028/0.0448).
+- **`_maybe_predator_attack` early-out**: O(herds) `wildlife.at()` per
+  awake agent per tick, answered in the overwhelmingly common case by
+  a membership test against the tick's existing `predator_tiles` set.
+- **SQLite `PRAGMA synchronous=NORMAL`**: the documented WAL pairing —
+  one fewer fsync per tick commit on slow storage; worst case on power
+  loss is losing the final un-checkpointed commits (≤1 tick of events
+  past the last snapshot), never corruption.
+
+### C/C++ (or Rust/Cython) migration: evaluated, recommended against
+
+The user's audit brief explicitly asked about "moving heavy parts of
+code to C/C++." Measured reality: the full engine runs at ~0.9ms/tick
+at the tested scale (and 45.9ms at population 500 in the July 2026
+review, dominated by since-fixed O(N^2) scans), while the wall-clock
+budget is 1000ms/tick and the true bottleneck is 17-20s Ollama calls.
+A native port of the tick loop would buy back under 0.1% of the tick
+budget at the cost of a build toolchain, FFI serialization at the
+boundary, and losing the plain-Python hackability this project's whole
+workflow (LLM-authored features, ad-hoc verification scripts) depends
+on. If per-tick cost ever genuinely matters (10x+ population, much
+bigger maps), the right escalation path is: (1) spatial buckets for
+the remaining nearest-X scans, (2) numpy for the terrain/weather grid
+passes, (3) PyPy — all before any C/C++ is justified. Recorded in
+CLAUDE.md so the question doesn't get re-litigated from scratch.
+
+### Audited and found sound (no change needed)
+
+- Every dict keyed by agent id (the standing leak pattern) re-checked:
+  relationships/trust (pruned v0.42.0), dialogue/cognition cooldowns
+  (pruned), agentAnim/relNodes client-side (pruned on death),
+  institutions (capped v0.54.0), culture lists (capped v0.44.1),
+  beliefs (capped), omen/priority history (capped), memories (capped),
+  `_pending_goal_results`/`_pending_dialogue_results` (cleared per
+  tick), `_background_tasks` (done-callback discard), `_last_llm_calls`
+  (per-job latest only), latency window (deque maxlen). No unbounded
+  growth found anywhere this pass.
+- `CognitionRunner`/`OllamaClient`: timeout layering, fallback
+  guarantees, and counter accounting all correct.
+- Snapshot pruning/keyframes, event batching, metrics cadence: sound.
+- `Settlement.at()` cache invalidation: sound (length check + explicit
+  invalidation on both mutation paths).
+- Backpressure gates: all ten settlement jobs + cognition/dialogue
+  correctly gated (v0.58.0 work intact).
+
+### Deliberately NOT implemented (recorded in CLAUDE.md's audit backlog)
+
+Deleting `tests/` (user decision — suite is unused per workflow rule
+but deletion is destructive); spatial buckets (not needed at current
+scale, July 2026 review's own threshold stands); numpy/orjson
+dependencies (stdlib is still fast enough — see the C/C++ evaluation);
+per-agent frame-by-frame replay; multiple settlements (own dedicated
+session, standing decision); UI suggestions list (user to pick).
+
+### Verification
+
+32-check ad-hoc script (scratchpad `audit_verify.py`): CLI-default
+mirror checks; from_dict runtime/creation-only field routing; flood
+onset-submerge/recede-restore/farm-destruction; wildfire farm burn;
+fragile-agent starvation classification; medicine inheritance cap;
+teach-skills boost thresholds (four bracketing cases); predator
+early-out both branches; idle-vs-connected broadcast cadence (4/40 vs
+20/20) and buffer flush; then a 5,000-tick real-`SimulationEngine` run
+at 0.879ms/tick (no regression; prior batches measured 0.5-0.9ms/tick
+on this hardware) with the biome-count cache verified equal to a fresh
+full scan and a full serialization round-trip (population, flooded
+tiles, runtime config fields all preserved). No real Ollama/browser in
+this environment — the standing caveat applies: the swap-pressure
+reduction from the concurrency-default fix can only be confirmed by
+the user's own live diagnostics.
