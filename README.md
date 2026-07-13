@@ -98,7 +98,17 @@ python3 -m hearthmind.server --db world.sqlite3
 
 # In another terminal, peek at the world without stopping the server:
 python3 -m hearthmind.inspect_world --db world.sqlite3
+
+# Headless research runs: N seeds under a chosen config, each run's
+# per-sim-day metrics exported to CSV (see "GET /metrics") — the A/B
+# harness for questions like "does the LLM measurably change outcomes?"
+python3 -m hearthmind.experiment --seeds 1,2,3 --ticks 30000 --no-llm --label baseline
+python3 -m hearthmind.experiment --seeds 1,2,3 --ticks 30000 --label with-llm
 ```
+
+New worlds begin on March 1 (spring) — a founding party's first season —
+with everyone spawning as a group near the map's best wild-food spot;
+resumed older worlds keep the calendar they were created with.
 
 Useful flags on `server.py`:
 

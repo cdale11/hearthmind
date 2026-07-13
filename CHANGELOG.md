@@ -4,6 +4,90 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.41.0] — Founding funnel fixed; Settlement split; culture riders; shelter/upkeep; job framework; sparklines; experiment runner
+
+The remaining July 2026 architecture-review recommendations, performed
+(docs/REVIEW-2026-07.md; see docs/DECISIONS.md "review implementation,
+second pass" for design calls and verification data).
+
+### Fixed — the early-population collapse funnel
+
+- **Worlds now begin March 1** (`Config.start_day_of_year`, creation-
+  only): the measured funnel was twelve strangers scattered across a
+  deep-winter map (regen x0.3, farm growth x0.35) with no
+  infrastructure. Older snapshots keep their original January-start
+  calendar (offset defaults to 0 on load).
+- **Founders spawn as a group near food**: the walkable tile with the
+  most wild food nodes within `FOUNDING_SITE_RADIUS` becomes the
+  founding site, and everyone starts within `FOUNDING_CLUSTER_RADIUS`
+  of it — the spot a real expedition would have chosen, and the group
+  can actually meet (bonds, construction pairs) in days instead of
+  weeks.
+
+### Added — architecture (the multi-settlement enabler)
+
+- **`Settlement` split in place** into four composed domain objects —
+  `SettlementInfrastructure` (buildings/vehicles/id spaces),
+  `SettlementEconomy` (materials/currency/education),
+  `SettlementCulture` (name/era/tech/traditions/inventions/festivals/
+  beliefs), `SettlementDisposition` (temperament/omens/player standing/
+  whispers/civic priority) — with property passthroughs for every
+  legacy flat attribute and byte-identical serialization. Call sites
+  and snapshots are unchanged; the future multiple-named-settlements
+  pass now instantiates four small objects per settlement instead of
+  untangling a ~25-field God object.
+- **LLM job framework**: the nine settlement-level jobs (naming,
+  chronicle, documentary, tradition, invention, festival, town brain,
+  beliefs, omen) now share one `_schedule_llm_job` path (bounded run +
+  apply-closure + contained apply errors + debug/fallback bookkeeping)
+  instead of nine hand-rolled `_run_X` coroutine copies.
+
+### Added — emergence
+
+- **Culture with mechanical teeth**: a new tradition also classifies
+  which lever of village life it strengthens (`influence`: festivity /
+  harvest / resilience / none — fixed menu, safe for a 2B model), and
+  each accumulates a bounded stack (`Settlement.culture_effects`,
+  `culture_effect_multiplier`, at most ~1.24x): festivity deepens every
+  festival's bond boost, harvest stretches farm-harvest relief,
+  resilience softens grief's energy cost. Two villages with different
+  histories now mechanically *work differently*.
+- **Buildings shelter people**: an awake agent on a standing building's
+  tile is exempt from harsh-weather need multipliers
+  (`SHELTER_NEGATES_WEATHER`) — working indoors.
+- **Housing pressure**: population beyond `huts x HUT_CAPACITY +
+  CAMP_TOLERANCE` applies a mild awake energy-drain multiplier — the
+  town brain's "growth" priority (more huts) finally relieves a real
+  pressure.
+- **Civic upkeep**: standing non-hut buildings draw currency per tick;
+  the unpaid fraction accelerates their decay — the economy's first
+  recurring sink, closing currency -> upkeep -> decay -> repair labor.
+- **Age-graded frailty**: past 80% of their own lifespan, agents
+  recover energy at x0.7 while resting — elders visibly slow down
+  before the end instead of dying off a cliff.
+
+### Added — observability & research
+
+- **Sparklines**: the details panel opens with "A year in curves" —
+  population, hunger, and granary-food sparklines drawn client-side
+  from `GET /metrics` (one point per sim-day, refreshed on a slow
+  timer).
+- **`hearthmind-experiment`**: a headless batch runner
+  (`hearthmind/experiment.py`) — N seeds x M ticks under a chosen
+  config (`--no-llm`, `--phase-g-intensity`, `--label`), each run's
+  per-sim-day metrics exported to CSV. The A/B harness that finally
+  lets "did the LLM measurably change macro outcomes?" be answered
+  with paired runs.
+
+### Changed — performance
+
+- Ready-farm and worth-the-walk-granary position lists are computed
+  once per tick and shared by every food-seeking agent (previously
+  each agent re-walked the plots dict/building list).
+- `TERRAIN_CHANGING_CATEGORIES` is now canonical in `world/state.py`;
+  the engine's broadcast invalidation imports it instead of keeping
+  its own copy.
+
 ## [0.40.0] — Architecture review implemented: carrying capacity, LLM backpressure, gossip, metrics
 
 Performs the July 2026 architecture review's recommendations

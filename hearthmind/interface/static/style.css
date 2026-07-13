@@ -296,3 +296,26 @@ main {
 }
 .tooltip.hidden { display: none; }
 .tooltip-memory { color: var(--muted); font-style: italic; }
+
+/* --- sparklines (details panel): a sim-year of curves ------------------- */
+.sparkline-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+.sparkline-label {
+  width: 90px;
+  font-size: 11px;
+  color: #9aa7b0;
+  text-align: right;
+}
+.sparkline {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 3px;
+}
+.sparkline-value {
+  font-size: 11px;
+  color: #c8d4dc;
+  min-width: 40px;
+}

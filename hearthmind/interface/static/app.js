@@ -1177,9 +1177,61 @@ function connectWebSocket() {
   ws.onerror = () => ws.close();
 }
 
+// --- sparklines: a sim-year of curves from GET /metrics ---------------------
+// The observatory's missing sense of time (July 2026 review, UI pass):
+// the map and stat tiles only ever show "now"; these three small curves
+// show where the village has been. Client-side render of the per-sim-day
+// metrics table, refetched on a slow timer — one row per sim-day means
+// the series only gains a point every ~96 ticks, so polling faster
+// would be waste.
+const SPARKLINE_REFRESH_MS = 60000;
+const SPARK_SERIES = [
+  { id: "spark-population", key: "population", fmt: (v) => `${v}` },
+  { id: "spark-hunger", key: "avg_hunger", fmt: (v) => v.toFixed(2) },
+  { id: "spark-granary", key: "granary_food", fmt: (v) => v.toFixed(1) },
+];
+
+function drawSparkline(canvas, values) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  if (values.length < 2) return;
+  const min = Math.min(...values), max = Math.max(...values);
+  const span = max - min || 1;
+  ctx.strokeStyle = "#8fb8d8";
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  values.forEach((v, i) => {
+    const x = (i / (values.length - 1)) * (w - 2) + 1;
+    const y = h - 2 - ((v - min) / span) * (h - 4);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
+
+async function refreshSparklines() {
+  let rows;
+  try {
+    rows = await fetchJSON("/metrics?limit=365");
+  } catch (e) {
+    return; // metrics table empty or endpoint unavailable — panel just stays blank
+  }
+  if (!Array.isArray(rows) || rows.length === 0) return;
+  for (const series of SPARK_SERIES) {
+    const canvas = document.getElementById(series.id);
+    const valueEl = document.getElementById(`${series.id}-value`);
+    if (!canvas) continue;
+    const values = rows.map((r) => r[series.key]).filter((v) => typeof v === "number");
+    drawSparkline(canvas, values);
+    if (valueEl && values.length) valueEl.textContent = series.fmt(values[values.length - 1]);
+  }
+}
+
 async function boot() {
   terrain = await fetchJSON("/terrain");
   drawStaticTerrain();
+  refreshSparklines();
+  setInterval(refreshSparklines, SPARKLINE_REFRESH_MS);
   try {
     const initial = await fetchJSON("/state");
     applyPayload(initial);

@@ -8,22 +8,37 @@ into prompts" gap flagged since B3. See docs/DECISIONS.md, E1.
 """
 from __future__ import annotations
 
+TRADITION_INFLUENCES = ("festivity", "harvest", "resilience")
+"""The fixed menu of mechanical riders a new tradition can carry —
+culture with teeth (July 2026 architecture review's second-highest
+emergence lever): the LLM freely authors *what* the tradition is, and
+additionally classifies *which lever of village life it strengthens*.
+Each accumulates a small bounded settlement-wide effect (see
+buildings.culture_effect_multiplier and its three consumers: festival
+bond strength, farm-harvest relief, grief energy cost). A fixed menu —
+not free-form effects — keeps a 2B model's answer safe to apply
+directly, the same enum-not-prose discipline as cognition's goals."""
+
 SYSTEM_PROMPT = (
     "You are the culture-keeper of a small simulated village. Given its "
     "name, recent history, and any traditions already established, "
     "invent ONE new named tradition, festival, or custom the village now "
     "observes. Keep it grounded in what has actually happened, not "
-    "generic fantasy flavor. "
+    "generic fantasy flavor. Also classify which part of village life it "
+    "strengthens: 'festivity' (gatherings and bonds), 'harvest' (food and "
+    "fieldwork), 'resilience' (mourning, endurance, hard seasons), or "
+    "'none'. "
     'Respond with strict JSON only, no other text: {"tradition": '
-    '"a short name, under 8 words", "description": "one sentence, under 25 words"}.'
+    '"a short name, under 8 words", "description": "one sentence, under '
+    '25 words", "influence": "festivity" | "harvest" | "resilience" | "none"}.'
 )
 
-_FALLBACK_POOL: tuple[tuple[str, str], ...] = (
-    ("The First Harvest", "Every year the village shares its first ripened crop together."),
-    ("Hearthlight", "Villagers keep a fire burning through the longest night of winter."),
-    ("The Gathering Walk", "Once a year, the village walks its boundary together."),
-    ("Founders' Rest", "A day of rest is kept in memory of those who built the first structure."),
-    ("The Quiet Meal", "Once a year the village eats together in silence, remembering the dead."),
+_FALLBACK_POOL: tuple[tuple[str, str, str], ...] = (
+    ("The First Harvest", "Every year the village shares its first ripened crop together.", "harvest"),
+    ("Hearthlight", "Villagers keep a fire burning through the longest night of winter.", "resilience"),
+    ("The Gathering Walk", "Once a year, the village walks its boundary together.", "festivity"),
+    ("Founders' Rest", "A day of rest is kept in memory of those who built the first structure.", "resilience"),
+    ("The Quiet Meal", "Once a year the village eats together in silence, remembering the dead.", "none"),
 )
 
 
@@ -44,16 +59,24 @@ def build_prompt(
 def fallback_tradition(settlement_name: str, year: int, established_count: int) -> dict:
     """Deterministic stand-in — cycles through a small fixed pool by how
     many traditions already exist, so a fallback-only run still
-    accumulates distinct culture over years rather than repeating one."""
-    name, description = _FALLBACK_POOL[established_count % len(_FALLBACK_POOL)]
-    return {"tradition": name, "description": description}
+    accumulates distinct culture (and distinct influences) over years
+    rather than repeating one."""
+    name, description, influence = _FALLBACK_POOL[established_count % len(_FALLBACK_POOL)]
+    return {"tradition": name, "description": description, "influence": influence}
 
 
-def parse_tradition(result: dict, fallback: dict) -> tuple[str, str]:
+def parse_tradition(result: dict, fallback: dict) -> tuple[str, str, str]:
     name = result.get("tradition")
     description = result.get("description")
+    influence = result.get("influence")
     if not isinstance(name, str) or not name.strip():
         name = fallback["tradition"]
     if not isinstance(description, str) or not description.strip():
         description = fallback["description"]
-    return name.strip()[:80], description.strip()[:200]
+    if not isinstance(influence, str) or influence.strip().lower() not in TRADITION_INFLUENCES:
+        # "none", anything unrecognized, or a missing field all mean "no
+        # mechanical rider" — a purely narrative tradition stays valid.
+        influence = ""
+    else:
+        influence = influence.strip().lower()
+    return name.strip()[:80], description.strip()[:200], influence

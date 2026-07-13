@@ -55,6 +55,20 @@ class Config:
     cadence), while the calendar underneath is now a real 12-month
     year."""
 
+    start_day_of_year: int = 59
+    """Which day of the calendar year tick 0 falls on — day 59 is
+    March 1, the start of meteorological spring. Worlds previously began
+    on January 1, i.e. in deep winter (resource regen x0.3, farm growth
+    x0.35, harsh-weather need multipliers) with twelve strangers
+    scattered across the map and no infrastructure — the July 2026
+    architecture review measured nearly every early starvation death in
+    that window, and the outcome was bimodal: survive the funnel or
+    demographically dead-end. A spring start gives a founding
+    population the same first season a real settlement expedition would
+    choose. Creation-only, like the rest of the calendar shape: loaded
+    worlds keep the offset they were created with (0 for older
+    snapshots, so their history doesn't shift underfoot)."""
+
     # --- creation-only: how many inhabitants a brand-new world starts with.
     # Only consulted the first time a world is created at a given --db path;
     # changing it on an existing world has no effect (agents don't spawn or

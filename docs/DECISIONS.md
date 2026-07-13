@@ -3108,3 +3108,69 @@ to checked "II" suffixes with the whole pool alive. Tick timing
 12/200/500 agents: 1.3/7.9/45.9 ms -> 0.5/3.2/22.2 ms. All touched
 files pass `python3 -m py_compile`; sample cognition prompt inspected
 by eye.
+
+## Review implementation, second pass (v0.41.0): founding funnel, Settlement split, culture riders, shelter/upkeep, job framework, sparklines, experiment runner
+
+Performs the July 2026 review's remaining recommendations plus the
+explicitly-requested founding-funnel fix. Design calls:
+
+**Founding funnel.** Two causes, two fixes, both believable-causality
+rather than stat buffs: worlds now begin March 1
+(`Config.start_day_of_year`, creation-only; old snapshots load with
+offset 0 so their history doesn't shift), and founders spawn as a
+group around the walkable tile richest in wild food within
+`FOUNDING_SITE_RADIUS` — the site a real expedition would pick, and a
+group that can actually meet. Verified: seed 7 (the measured funnel
+seed: 12 -> 7 by tick 2,000 pre-fix, stuck ~8k ticks) now shows only
+2 starvation deaths by tick 10,000 with population already at 38.
+
+**Settlement in-place split.** Four composed domain dataclasses
+(`SettlementInfrastructure`/`Economy`/`Culture`/`Disposition`) behind
+a `Settlement` facade whose legacy flat attributes are property
+passthroughs and whose `to_dict`/`from_dict` are byte-identical
+(asserted in verification). Deliberately mechanical: the value is the
+four named domains existing at all — the future multi-settlement pass
+instantiates them per settlement — not forcing 30+ call sites to churn
+in the same commit. Multiple named settlements itself remains its own
+dedicated session (standing decision), now with its prerequisite
+landed.
+
+**Culture riders.** The tradition prompt gains one enum field
+(`influence`), not free-form effects — the same enum-not-prose
+discipline as cognition's goals, so a 2B model's answer is safe to
+apply directly. Effects aggregate as bounded stacks
+(`culture_effect_multiplier`, <=1.24x) consumed by festivals (bond
+boost), farm harvests (relief), and grief (energy cost). Fallback pool
+entries carry influences too, so fallback-only runs accumulate them.
+
+**Shelter/housing/upkeep + frailty.** Shelter reuses the existing
+`Settlement.at` lookup in `_update_needs`; housing capacity is
+`huts x HUT_CAPACITY + CAMP_TOLERANCE` (tolerance sized to the default
+founding party so day-one isn't penalized); upkeep is drawn in
+`Settlement.tick` with the *unpaid fraction* scaling decay — verified
+live: currency drains from its previously-pinned cap to 0 at pop 400
+as civic buildings multiply. Frailty scales elder rest recovery
+(x0.7 past 80% of max_age) rather than draining — slower, not doomed.
+
+**LLM job framework.** One `_schedule_llm_job(name, prompt, system,
+fallback, apply)` path replaces nine hand-rolled `_run_X` coroutines;
+apply-closures carry each job's context (whisper retention, belief
+subject-matching, culture-effect increments) and an exception in one
+apply is contained rather than killing the task set. Cognition and
+dialogue keep dedicated paths (pending-result queues + staleness).
+
+**Sparklines + experiment runner.** Client-side polylines off
+`GET /metrics` (60s refresh — the series gains one point per sim-day,
+faster polling is waste); `hearthmind-experiment` runs N seeds
+headless under a chosen config and exports each run's metrics to CSV
+(union-of-keys header so schema additions never drop columns).
+
+Verified (LLM disabled, this environment): 30k-tick engine runs seeds
+42/7 — funnel numbers above; carrying capacity still binding (farms_
+ready bounded, hunger rises toward the 400 valve, 0 duplicate names,
+snapshots pruned, metrics rows == sim days, culture_effects
+accumulating across all three categories); settlement `to_dict` ==
+pre-split shape asserted through a mid-flight round-trip; spring
+start + legacy-offset load both verified; experiment runner smoke-run
+produced a 31-row CSV with correct columns; `node --check` on app.js;
+`py_compile` across all touched files.

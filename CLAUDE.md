@@ -460,16 +460,36 @@ token-bounding for culture lists, O(N^2) rival-scan fix +
 `Settlement.at` index + water-tile cache (~2-2.5x faster ticks),
 snapshot pruning + one-commit-per-tick + events category index,
 unique living names, and a per-sim-day `metrics` table (`GET /metrics`).
-Still open from the review (in priority order): `Settlement` in-place
-split (the multi-settlement enabler — its own dedicated session),
-culture with mechanical teeth (tradition/invention riders), building
-upkeep/currency sinks + hut shelter function, spatial buckets for
-nearest-X scans, UI sparklines off `/metrics`, age-graded frailty.
-Post-rework equilibrium note: growth is now visibly food-coupled
-(higher steady-state hunger, farms_ready bounded ~150-250 vs ~1,000),
-but abundant maps can still reach the 400 valve by ~tick 30k — if live
-runs show that, tighten `REPRODUCTION_WELLFED_HUNGER` or scale birth
-chance by hunger rather than re-lowering the cap.
+v0.41.0 then closed the rest: the early-population collapse funnel is
+fixed at the root (worlds start March 1 via `Config.start_day_of_year`
+— old snapshots keep their January calendar — and founders spawn
+clustered around the food-richest walkable site; the funnel seed's
+12->7-by-tick-2,000 crash became 2 starvation deaths by tick 10,000);
+`Settlement` was split in place into four composed domain objects
+(Infrastructure/Economy/Culture/Disposition) behind a passthrough
+facade with byte-identical serialization — the multi-settlement
+prerequisite is landed, the multi-settlement pass itself is STILL its
+own dedicated future session; traditions carry mechanical riders
+(festivity/harvest/resilience stacks via `culture_effect_multiplier`,
+<=1.24x, consumed by festivals/harvest relief/grief cost); buildings
+shelter awake workers from harsh weather, huts define housing capacity
+(crowding drains energy), civic buildings draw currency upkeep with
+unpaid-fraction-accelerated decay (currency now genuinely drains —
+verified 50 -> 0 at pop 400); elders past 80% lifespan recover at
+x0.7; the nine settlement-level LLM jobs share one `_schedule_llm_job`
+path; the details panel opens with population/hunger/granary
+sparklines off `GET /metrics`; and `hearthmind-experiment` (new CLI)
+runs headless seed batches and exports per-sim-day metrics CSVs for
+A/B ablations. Still open (in priority order): multiple named
+settlements (own session), spatial buckets for nearest-X scans (only
+needed past ~10x population), rumor-epidemiology instrumentation, a
+scrub-through-time replay view (keyframes already preserved by
+snapshot pruning).
+Post-rework equilibrium note: growth is food-coupled but abundant maps
+still reach the 400 valve by ~tick 30k with hunger ~0.4 and real
+starvation pressure at the top — a legitimate Malthusian equilibrium,
+but if live runs feel too grim, tighten `REPRODUCTION_WELLFED_HUNGER`
+or scale birth chance by hunger rather than re-lowering the cap.
 
 ## Architecture review findings (v0.39.0, July 2026 — full report in docs/REVIEW-2026-07.md)
 

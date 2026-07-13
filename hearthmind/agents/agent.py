@@ -184,6 +184,17 @@ relationship value — rivals don't get fed first, though this is well
 above RIVALRY_THRESHOLD (-0.4) so mere strangers (relationship 0) still
 trade freely."""
 
+ELDER_AGE_FRACTION = 0.8
+ELDER_RECOVERY_MULTIPLIER = 0.7
+"""Past ELDER_AGE_FRACTION of their own max_age_ticks, an agent's
+resting energy recovery is multiplied by ELDER_RECOVERY_MULTIPLIER —
+age-graded frailty, so an elder rests longer and does visibly less in
+their final season instead of being indistinguishable from an adult
+until the tick they die (death was a pure cliff at max_age_ticks; the
+July 2026 architecture review flagged the missing decline). Recovery
+rather than drain so a sheltered, cared-for elder still gets by —
+they're slower, not doomed. See Population._update_needs."""
+
 MAX_AGENT_MEMORIES = 8
 """Cap on Agent.memories — a short-term personal log (bond formed, rumor
 heard, a bonded partner's death), not a full diary. Oldest entries drop

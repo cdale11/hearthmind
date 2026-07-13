@@ -298,6 +298,37 @@ class SimulationEngine:
         thing, not two unrelated random draws."""
         self._log("founding", f"Before the first stone was laid: {scenario}")
 
+    # --- the one scheduling path for settlement-level LLM jobs -----------------
+
+    def _schedule_llm_job(self, name: str, prompt: str, system: str, fallback: dict, apply) -> None:
+        """Fire-and-forget one settlement-level LLM job (chronicle,
+        tradition, town_brain, beliefs, omen, ...): run through the
+        CognitionRunner (bounded concurrency + deterministic fallback),
+        call `apply(result, used_fallback)` when it resolves, and record
+        debug/fallback bookkeeping — previously each job hand-rolled its
+        own identical `_run_X` coroutine, ten near-copies that each had
+        to remember the bookkeeping (July 2026 architecture review,
+        §1.2). `apply` runs when the task completes (between ticks, same
+        as the old `_run_X` bodies); an exception in it is contained
+        here so one bad apply can never kill the background task set.
+        Per-agent cognition and dialogue keep their own paths — they
+        carry pending-result queues and staleness state this shape
+        doesn't need."""
+        async def _runner() -> None:
+            result, used_fallback = await self._cognition_runner.run(
+                prompt, system, fallback=lambda: fallback
+            )
+            try:
+                apply(result, used_fallback)
+            except Exception:
+                logger.exception("Failed to apply %s LLM job result", name)
+            self._record_llm_debug(name, prompt, result, used_fallback)
+            self._record_llm_call(used_fallback)
+
+        task = asyncio.create_task(_runner())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
     # --- settlement naming: deterministic placeholder, LLM-authored real name --
 
     def _maybe_schedule_naming(self) -> None:
@@ -327,21 +358,14 @@ class SimulationEngine:
         top_biome = max(counts, key=lambda b: counts[b]).replace("_", " ") if counts else ""
         prompt = naming.build_prompt(settlement.founding_scenario, top_biome, settlement.era)
         fallback = naming.fallback_name(self.world.config.seed)
-        task = asyncio.create_task(self._run_naming(prompt, fallback))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
 
-    async def _run_naming(self, prompt: str, fallback: dict) -> None:
-        result, used_fallback = await self._cognition_runner.run(
-            prompt, naming.SYSTEM_PROMPT, fallback=lambda: fallback
-        )
-        new_name = naming.parse_name(result, fallback)
-        old_name = self.world.settlement.name
-        if new_name and new_name != old_name:
-            self.world.settlement.name = new_name
-            self._log("settlement_named", f"The village came to be known as {new_name}.")
-        self._record_llm_debug("naming", prompt, result, used_fallback)
-        self._record_llm_call(used_fallback)
+        def apply(result: dict, used_fallback: bool) -> None:
+            new_name = naming.parse_name(result, fallback)
+            if new_name and new_name != self.world.settlement.name:
+                self.world.settlement.name = new_name
+                self._log("settlement_named", f"The village came to be known as {new_name}.")
+
+        self._schedule_llm_job("naming", prompt, naming.SYSTEM_PROMPT, fallback, apply)
 
     async def run_forever(self) -> None:
         logger.info(
@@ -673,18 +697,11 @@ class SimulationEngine:
             beliefs=list(self.world.settlement.beliefs),
         )
         fallback = chronicle.fallback_summary(recent, population_summary, previous_season, year)
-        task = asyncio.create_task(self._run_chronicle(prompt, fallback))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
 
-    async def _run_chronicle(self, prompt: str, fallback: dict) -> None:
-        result, used_fallback = await self._cognition_runner.run(
-            prompt, chronicle.SYSTEM_PROMPT, fallback=lambda: fallback
-        )
-        summary = chronicle.parse_summary(result, fallback)
-        self._log("chronicle", summary)
-        self._record_llm_debug("chronicle", prompt, result, used_fallback)
-        self._record_llm_call(used_fallback)
+        def apply(result: dict, used_fallback: bool) -> None:
+            self._log("chronicle", chronicle.parse_summary(result, fallback))
+
+        self._schedule_llm_job("chronicle", prompt, chronicle.SYSTEM_PROMPT, fallback, apply)
 
     # --- documentary mode: a yearly narrated look-back --------------------------
 
@@ -710,18 +727,11 @@ class SimulationEngine:
         fallback = documentary.fallback_narration(
             self.world.settlement.name, self.world.clock.year, milestones, population_summary,
         )
-        task = asyncio.create_task(self._run_documentary(prompt, fallback))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
 
-    async def _run_documentary(self, prompt: str, fallback: dict) -> None:
-        result, used_fallback = await self._cognition_runner.run(
-            prompt, documentary.SYSTEM_PROMPT, fallback=lambda: fallback
-        )
-        narration = documentary.parse_narration(result, fallback)
-        self._log("documentary", narration)
-        self._record_llm_debug("documentary", prompt, result, used_fallback)
-        self._record_llm_call(used_fallback)
+        def apply(result: dict, used_fallback: bool) -> None:
+            self._log("documentary", documentary.parse_narration(result, fallback))
+
+        self._schedule_llm_job("documentary", prompt, documentary.SYSTEM_PROMPT, fallback, apply)
 
     # --- Phase E: village culture (traditions) --------------------------------
 
@@ -742,20 +752,21 @@ class SimulationEngine:
             self.world.settlement.name, recent, traditions[-PROMPT_CULTURE_LIST_MAX:], self.world.clock.year,
         )
         fallback = culture.fallback_tradition(self.world.settlement.name, self.world.clock.year, len(traditions))
-        task = asyncio.create_task(self._run_tradition(prompt, fallback))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
 
-    async def _run_tradition(self, prompt: str, fallback: dict) -> None:
-        result, used_fallback = await self._cognition_runner.run(
-            prompt, culture.SYSTEM_PROMPT, fallback=lambda: fallback
-        )
-        name, description = culture.parse_tradition(result, fallback)
-        entry = f"{name}: {description}"
-        self.world.settlement.traditions.append(entry)
-        self._log("tradition", f"The village established a new tradition — {entry}")
-        self._record_llm_debug("tradition", prompt, result, used_fallback)
-        self._record_llm_call(used_fallback)
+        def apply(result: dict, used_fallback: bool) -> None:
+            name, description, influence = culture.parse_tradition(result, fallback)
+            entry = f"{name}: {description}"
+            settlement = self.world.settlement
+            settlement.traditions.append(entry)
+            if influence:
+                # Culture with mechanical teeth: this tradition adds one
+                # bounded stack to its influence category — see
+                # buildings.culture_effect_multiplier and its consumers
+                # (festival bonds, harvest relief, grief cost).
+                settlement.culture_effects[influence] = settlement.culture_effects.get(influence, 0) + 1
+            self._log("tradition", f"The village established a new tradition — {entry}")
+
+        self._schedule_llm_job("tradition", prompt, culture.SYSTEM_PROMPT, fallback, apply)
 
     # --- Phase E3: inventions (tech-tier unlocks) -----------------------------
 
@@ -792,22 +803,16 @@ class SimulationEngine:
             beliefs=list(settlement.beliefs),
         )
         fallback = invention.fallback_invention(settlement.name, settlement.tech_level, len(inventions))
-        task = asyncio.create_task(self._run_invention(prompt, fallback))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
 
-    async def _run_invention(self, prompt: str, fallback: dict) -> None:
-        result, used_fallback = await self._cognition_runner.run(
-            prompt, invention.SYSTEM_PROMPT, fallback=lambda: fallback
-        )
-        name, description = invention.parse_invention(result, fallback)
-        entry = f"{name}: {description}"
-        self.world.settlement.inventions.append(entry)
-        self.world.settlement.tech_level += 1
-        self._log("invention", f"The village invented {entry}")
-        self._maybe_advance_era()
-        self._record_llm_debug("invention", prompt, result, used_fallback)
-        self._record_llm_call(used_fallback)
+        def apply(result: dict, used_fallback: bool) -> None:
+            name, description = invention.parse_invention(result, fallback)
+            entry = f"{name}: {description}"
+            self.world.settlement.inventions.append(entry)
+            self.world.settlement.tech_level += 1
+            self._log("invention", f"The village invented {entry}")
+            self._maybe_advance_era()
+
+        self._schedule_llm_job("invention", prompt, invention.SYSTEM_PROMPT, fallback, apply)
 
     def _maybe_advance_era(self) -> None:
         """A settlement starts in the industrial era (see
@@ -849,21 +854,15 @@ class SimulationEngine:
             beliefs=list(self.world.settlement.beliefs),
         )
         fallback = festival.fallback_festival(self.world.settlement.name, len(festivals))
-        task = asyncio.create_task(self._run_festival(prompt, fallback))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
 
-    async def _run_festival(self, prompt: str, fallback: dict) -> None:
-        result, used_fallback = await self._cognition_runner.run(
-            prompt, festival.SYSTEM_PROMPT, fallback=lambda: fallback
-        )
-        name, description = festival.parse_festival(result, fallback)
-        entry = f"{name}: {description}"
-        self.world.settlement.festivals.append(entry)
-        affected = self.world.population.hold_festival(self.world.settlement)
-        self._log("festival", f"The village held {entry} ({affected} bonds strengthened)")
-        self._record_llm_debug("festival", prompt, result, used_fallback)
-        self._record_llm_call(used_fallback)
+        def apply(result: dict, used_fallback: bool) -> None:
+            name, description = festival.parse_festival(result, fallback)
+            entry = f"{name}: {description}"
+            self.world.settlement.festivals.append(entry)
+            affected = self.world.population.hold_festival(self.world.settlement)
+            self._log("festival", f"The village held {entry} ({affected} bonds strengthened)")
+
+        self._schedule_llm_job("festival", prompt, festival.SYSTEM_PROMPT, fallback, apply)
 
     # --- the "town brain": monthly civic-priority LLM decision -----------------
 
@@ -895,30 +894,25 @@ class SimulationEngine:
             beliefs=list(settlement.beliefs),
         )
         fallback = town_brain.fallback_priority(population_summary, settlement_summary)
-        task = asyncio.create_task(self._run_town_brain(prompt, fallback, whispers_sent))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
 
-    async def _run_town_brain(self, prompt: str, fallback: dict, whispers_sent: list[str] | None = None) -> None:
-        result, used_fallback = await self._cognition_runner.run(
-            prompt, town_brain.SYSTEM_PROMPT, fallback=lambda: fallback
-        )
-        if whispers_sent and not used_fallback:
-            # A whisper only counts as heard when the LLM actually read
-            # the prompt containing it. On timeout/fallback it stays
-            # queued for next month's decision instead of vanishing
-            # silently — previously the queue was cleared at schedule
-            # time, so a whisper submitted during a flaky LLM stretch was
-            # consumed by nobody (July 2026 architecture review, §0.2).
-            remaining = [w for w in self.world.settlement.player_influence if w not in whispers_sent]
-            self.world.settlement.player_influence = remaining[-3:]
-        priority, rationale = town_brain.parse_priority(result, fallback)
-        self.world.settlement.current_priority = priority
-        self.world.settlement.priority_rationale = rationale
-        self.world.settlement.record_priority(self.world.clock.tick_count, priority, rationale)
-        self._log("town_brain", f"The village's priority is now {priority} — {rationale}")
-        self._record_llm_debug("town_brain", prompt, result, used_fallback)
-        self._record_llm_call(used_fallback)
+        def apply(result: dict, used_fallback: bool) -> None:
+            if whispers_sent and not used_fallback:
+                # A whisper only counts as heard when the LLM actually
+                # read the prompt containing it. On timeout/fallback it
+                # stays queued for next month's decision instead of
+                # vanishing silently — previously the queue was cleared
+                # at schedule time, so a whisper submitted during a
+                # flaky LLM stretch was consumed by nobody (July 2026
+                # architecture review, §0.2).
+                remaining = [w for w in self.world.settlement.player_influence if w not in whispers_sent]
+                self.world.settlement.player_influence = remaining[-3:]
+            priority, rationale = town_brain.parse_priority(result, fallback)
+            self.world.settlement.current_priority = priority
+            self.world.settlement.priority_rationale = rationale
+            self.world.settlement.record_priority(self.world.clock.tick_count, priority, rationale)
+            self._log("town_brain", f"The village's priority is now {priority} — {rationale}")
+
+        self._schedule_llm_job("town_brain", prompt, town_brain.SYSTEM_PROMPT, fallback, apply)
 
     # --- the town's own evolving theory of itself (continuous cognition) -------
 
@@ -944,51 +938,46 @@ class SimulationEngine:
             settlement.name, recent, list(settlement.beliefs), population_summary, settlement_summary,
         )
         fallback = beliefs.fallback_belief(recent, list(settlement.beliefs), settlement_summary)
-        task = asyncio.create_task(self._run_beliefs(prompt, fallback, len(settlement.beliefs)))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        existing_count = len(settlement.beliefs)
 
-    async def _run_beliefs(self, prompt: str, fallback: dict, existing_count: int) -> None:
-        result, used_fallback = await self._cognition_runner.run(
-            prompt, beliefs.SYSTEM_PROMPT, fallback=lambda: fallback
-        )
-        parsed = beliefs.parse_belief(result, fallback, existing_count)
-        settlement = self.world.settlement
-        tick = self.world.clock.tick_count
-        subject_agent_id = beliefs.resolve_subject_agent_id(parsed["subject"], self.world.population.agents)
-        subject_family_agent_ids = beliefs.resolve_family_agent_ids(subject_agent_id, self.world.population.agents)
-        revises = parsed["revises"]
-        if revises is None:
-            # Subject identity beats a small model's integer indexing: if
-            # the village already holds a theory about this exact subject,
-            # treat the answer as a revision of it rather than piling up
-            # duplicate theories about the same person/thing. See
-            # beliefs.find_belief_index_by_subject.
-            revises = beliefs.find_belief_index_by_subject(parsed["subject"], settlement.beliefs)
-        if revises is not None:
-            entry = settlement.beliefs[revises]
-            entry["belief"] = parsed["belief"]
-            entry["confidence"] = parsed["confidence"]
-            entry["subject"] = parsed["subject"]
-            entry["subject_agent_id"] = subject_agent_id
-            entry["subject_family_agent_ids"] = subject_family_agent_ids
-            entry["revised_tick"] = tick
-            entry["revision_count"] = entry.get("revision_count", 0) + 1
-            self._log("belief_revised", f"The village revised its view of {entry['subject']}: {entry['belief']}")
-        else:
-            entry = {
-                "subject": parsed["subject"], "belief": parsed["belief"], "confidence": parsed["confidence"],
-                "subject_agent_id": subject_agent_id,
-                "subject_family_agent_ids": subject_family_agent_ids,
-                "formed_tick": tick, "revised_tick": tick, "revision_count": 0,
-            }
-            settlement.beliefs.append(entry)
-            if len(settlement.beliefs) > beliefs.MAX_BELIEFS:
-                weakest = min(settlement.beliefs, key=lambda b: b["confidence"])
-                settlement.beliefs.remove(weakest)
-            self._log("belief_formed", f"The village came to believe something about {entry['subject']}: {entry['belief']}")
-        self._record_llm_debug("beliefs", prompt, result, used_fallback)
-        self._record_llm_call(used_fallback)
+        def apply(result: dict, used_fallback: bool) -> None:
+            parsed = beliefs.parse_belief(result, fallback, existing_count)
+            settlement = self.world.settlement
+            tick = self.world.clock.tick_count
+            subject_agent_id = beliefs.resolve_subject_agent_id(parsed["subject"], self.world.population.agents)
+            subject_family_agent_ids = beliefs.resolve_family_agent_ids(subject_agent_id, self.world.population.agents)
+            revises = parsed["revises"]
+            if revises is None:
+                # Subject identity beats a small model's integer indexing:
+                # if the village already holds a theory about this exact
+                # subject, treat the answer as a revision of it rather
+                # than piling up duplicate theories. See
+                # beliefs.find_belief_index_by_subject.
+                revises = beliefs.find_belief_index_by_subject(parsed["subject"], settlement.beliefs)
+            if revises is not None and revises < len(settlement.beliefs):
+                entry = settlement.beliefs[revises]
+                entry["belief"] = parsed["belief"]
+                entry["confidence"] = parsed["confidence"]
+                entry["subject"] = parsed["subject"]
+                entry["subject_agent_id"] = subject_agent_id
+                entry["subject_family_agent_ids"] = subject_family_agent_ids
+                entry["revised_tick"] = tick
+                entry["revision_count"] = entry.get("revision_count", 0) + 1
+                self._log("belief_revised", f"The village revised its view of {entry['subject']}: {entry['belief']}")
+            else:
+                entry = {
+                    "subject": parsed["subject"], "belief": parsed["belief"], "confidence": parsed["confidence"],
+                    "subject_agent_id": subject_agent_id,
+                    "subject_family_agent_ids": subject_family_agent_ids,
+                    "formed_tick": tick, "revised_tick": tick, "revision_count": 0,
+                }
+                settlement.beliefs.append(entry)
+                if len(settlement.beliefs) > beliefs.MAX_BELIEFS:
+                    weakest = min(settlement.beliefs, key=lambda b: b["confidence"])
+                    settlement.beliefs.remove(weakest)
+                self._log("belief_formed", f"The village came to believe something about {entry['subject']}: {entry['belief']}")
+
+        self._schedule_llm_job("beliefs", prompt, beliefs.SYSTEM_PROMPT, fallback, apply)
 
     # --- Phase G v1: temperament and omens (deliberately subtle) ---------------
 
@@ -1064,19 +1053,13 @@ class SimulationEngine:
             self.world.settlement.name, temperament, recent, subject_name=subject_name, past_omens=past_omens,
         )
         fallback = omens.fallback_omen(temperament, self.world.clock.tick_count, subject_name=subject_name)
-        task = asyncio.create_task(self._run_omen(prompt, fallback, subject_name))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
 
-    async def _run_omen(self, prompt: str, fallback: dict, subject_name: str = "") -> None:
-        result, used_fallback = await self._cognition_runner.run(
-            prompt, omens.SYSTEM_PROMPT, fallback=lambda: fallback
-        )
-        omen = omens.parse_omen(result, fallback)
-        self._log("omen", omen)
-        self.world.settlement.record_omen(self.world.clock.tick_count, omen, subject_name)
-        self._record_llm_debug("omen", prompt, result, used_fallback)
-        self._record_llm_call(used_fallback)
+        def apply(result: dict, used_fallback: bool) -> None:
+            omen = omens.parse_omen(result, fallback)
+            self._log("omen", omen)
+            self.world.settlement.record_omen(self.world.clock.tick_count, omen, subject_name)
+
+        self._schedule_llm_job("omen", prompt, omens.SYSTEM_PROMPT, fallback, apply)
 
     def _log(self, category: str, description: str) -> None:
         """Persist an event AND buffer it for the next broadcast —

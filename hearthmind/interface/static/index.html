@@ -70,6 +70,13 @@
       </div>
 
       <div id="details-panel" class="hidden">
+        <div class="panel" id="sparkline-panel">
+          <h2>A year in curves</h2>
+          <div class="sparkline-row"><span class="sparkline-label">population</span><canvas class="sparkline" id="spark-population" width="180" height="28"></canvas><span class="sparkline-value" id="spark-population-value"></span></div>
+          <div class="sparkline-row"><span class="sparkline-label">hunger</span><canvas class="sparkline" id="spark-hunger" width="180" height="28"></canvas><span class="sparkline-value" id="spark-hunger-value"></span></div>
+          <div class="sparkline-row"><span class="sparkline-label">granary food</span><canvas class="sparkline" id="spark-granary" width="180" height="28"></canvas><span class="sparkline-value" id="spark-granary-value"></span></div>
+        </div>
+
         <div class="stat-grid" id="stat-grid"></div>
 
         <div class="panel">

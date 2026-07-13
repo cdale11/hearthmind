@@ -402,6 +402,49 @@ wide, once at least one hospital is standing — care exists and
 measurably improves survival odds, not just narrative flavor. See
 Population._maybe_predator_attack."""
 
+# --- shelter, housing, and upkeep: buildings that actually do something ----
+
+HUT_CAPACITY = 5
+"""Comfortable residents per standing HUT — the hut's first real
+mechanical function (previously it was a pure materials sink with no
+effect; the July 2026 review's "huts do nothing" finding). Total
+housing = standing huts x this, plus CAMP_TOLERANCE below."""
+
+CAMP_TOLERANCE = 12
+"""People a settlement absorbs comfortably with no housing at all — a
+founding party camps fine (sized to the default initial_population), so
+crowding pressure only begins once the population has genuinely
+outgrown tents. See Population.tick's crowding computation."""
+
+CROWDING_ENERGY_MULTIPLIER = 1.12
+"""Awake energy-drain multiplier while the population exceeds total
+housing (huts x HUT_CAPACITY + CAMP_TOLERANCE) — rough nights without a
+roof wear people down. Deliberately mild (same order as the night
+multiplier), but it finally gives the town brain's "growth" priority a
+real consequence: building huts relieves a measurable pressure."""
+
+SHELTER_NEGATES_WEATHER = True
+"""An AWAKE agent standing on any STANDING building's tile is treated
+as working indoors: the harsh-weather hunger/energy multipliers don't
+apply (resting agents were already abstracted as sheltered). Buildings
+now interact with the weather system from the human side, not just by
+decaying. See Population._update_needs."""
+
+UPKEEP_PER_CIVIC_BUILDING_PER_TICK = 0.002
+"""Currency drawn per tick per standing non-HUT building (workshops,
+granaries, schools, hospitals, universities, factories, shrines) — the
+economy's first recurring *sink* (the review measured currency pinned
+at its cap with only the rare emergency-ration purchase spending it).
+Sized well below one staffed workshop's income (0.03/tick), so a
+working town runs a surplus; a town whose businesses stop being staffed
+starts visibly deferring maintenance instead."""
+
+UPKEEP_UNPAID_DECAY_MULTIPLIER = 1.5
+"""Standing-building decay multiplier applied in proportion to the
+unpaid fraction of this tick's upkeep — a town that can't afford
+maintenance watches its civic buildings wear out faster, closing the
+loop currency -> upkeep -> decay -> repair labor. See Settlement.tick."""
+
 # --- temperament: a deterministic, ambiguous "does this place have moods?" --
 
 TEMPERAMENT_STEP_MAX = 0.04
@@ -551,6 +594,25 @@ of awake agents when a festival is held — the mechanical payoff of
 "the village gathers" (see Population.hold_festival), distinct from the
 much smaller per-tick passive colocation gain."""
 
+CULTURE_EFFECT_STEP = 0.06
+CULTURE_EFFECT_MAX_STACKS = 4
+"""Each tradition carrying a mechanical influence (see
+llm/culture.TRADITION_INFLUENCES) adds one stack to its category in
+`Settlement.culture_effects`; `culture_effect_multiplier` turns stacks
+into 1.0 + STEP x min(stacks, MAX_STACKS) — at most a 1.24x lever, so
+accumulated culture is a real, visible tilt on how this particular
+village works (its festivals bond deeper, or its harvests stretch
+further, or its griefs cut less) without ever dominating the underlying
+mechanics. Bounded stacking is the same diminishing-returns discipline
+as PLAYER_STANDING_MAX_EVENTS_COUNTED."""
+
+
+def culture_effect_multiplier(culture_effects: dict, influence: str) -> float:
+    """1.0 when the village has no traditions of that influence."""
+    stacks = min(int(culture_effects.get(influence, 0)), CULTURE_EFFECT_MAX_STACKS)
+    return 1.0 + CULTURE_EFFECT_STEP * stacks
+
+
 SHRINE_FESTIVAL_BOOST_MULTIPLIER = 1.5
 """A festival's FESTIVAL_RELATIONSHIP_BOOST is multiplied by this for
 any pair colocated on a standing SHRINE's tile when the festival is
@@ -605,143 +667,360 @@ class Building:
 
 
 @dataclass
-class Settlement:
-    """All buildings in the world. Named distinctly from any per-agent
-    concept to leave room for a future named-settlement/culture layer
-    (Phase E) grouping buildings without a confusing rename here."""
+class SettlementInfrastructure:
+    """The physical plant: structures and vehicles, with their id
+    spaces. One of the four composed domains `Settlement` now delegates
+    to — the in-place split the July 2026 architecture review called
+    the prerequisite for ever having multiple settlements (each future
+    settlement instantiates its own four sub-objects instead of
+    untangling ~25 flat fields under pressure)."""
 
     buildings: list[Building] = field(default_factory=list)
-    _next_id: int = 0
-    materials: float = 0.0
-    """Shared wood/stone stockpile, 0..MATERIALS_CAPACITY — see D8. Global
-    to the settlement rather than per-building/per-tile: unlike food
-    (which must be consumed near where it's stored), materials are
-    fungible and this project has no hauling/transport system to move
-    them tile-by-tile."""
-    currency: float = 0.0
-    """Settlement-wide wealth, 0..CURRENCY_CAPACITY — see D10. Generated
-    from food/materials surplus that would otherwise be wasted at
-    capacity; spent on emergency food when a granary's own stock runs
-    out. Settlement-wide for the same reason as `materials`: no
-    per-agent wallet/inventory system exists."""
-    name: str = ""
-    """Set once, deterministically, the first tick a building of any kind
-    is STANDING (see World.tick) — empty until then, meaning "not yet a
-    real settlement." See docs/DECISIONS.md, E1."""
-    traditions: list[str] = field(default_factory=list)
-    """LLM-authored (or deterministic-fallback) customs invented once per
-    year once the settlement is named — "Name: description" strings, in
-    the order established. Generational memory, and fed back into both
-    future chronicle entries and per-agent cognition prompts. See E1."""
-    tech_level: int = 0
-    """Count of inventions established — see `inventions` and
-    TECH_BONUS_PER_LEVEL. See docs/DECISIONS.md, E3."""
-    inventions: list[str] = field(default_factory=list)
-    """LLM-authored (or deterministic-fallback) tech-tier unlocks, "Name:
-    description" strings, in the order established — a rarer, prosperity-
-    gated sibling of `traditions`. See docs/DECISIONS.md, E3."""
-    festivals: list[str] = field(default_factory=list)
-    """LLM-authored (or deterministic-fallback) festivals held, "Name:
-    description" strings, in the order held — a wellbeing-gated,
-    seasonal-cadence sibling of `traditions`/`inventions`, with a direct
-    mechanical effect (see FESTIVAL_RELATIONSHIP_BOOST,
-    Population.hold_festival) rather than being purely narrative."""
+    next_id: int = 0
     vehicles: list[Vehicle] = field(default_factory=list)
-    _next_vehicle_id: int = 0
-    """Carts and mounts — see settlement/vehicles.py. A separate id space
-    from `buildings` since they're a distinct kind of asset."""
+    """Carts and mounts — see settlement/vehicles.py. A separate id
+    space from `buildings` since they're a distinct kind of asset."""
+    next_vehicle_id: int = 0
+
+
+@dataclass
+class SettlementEconomy:
+    """Communal stores and human capital."""
+
+    materials: float = 0.0
+    """Shared wood/stone stockpile, 0..MATERIALS_CAPACITY — see D8.
+    Global to the settlement rather than per-building/per-tile: unlike
+    food (which must be consumed near where it's stored), materials are
+    fungible and this project has no hauling/transport system."""
+    currency: float = 0.0
+    """Settlement-wide wealth, 0..CURRENCY_CAPACITY — see D10. Earned
+    from surplus and staffed businesses; spent on emergency rations and
+    (as of the review-implementation pass) recurring civic upkeep."""
     education_level: float = 0.0
     """0..EDUCATION_CAPACITY, raised by staffed schools/universities —
     see education_invention_bonus."""
-    current_priority: str = ""
-    """One of "growth"/"food"/"commerce"/"education"/"health"/"defense",
-    set by the seasonal "town brain" LLM decision (llm/town_brain.py) —
-    empty until the first decision runs. Measurably steers
-    `choose_building_kind`, not just narration. See docs/DECISIONS.md,
-    "LLM-as-brain batch.\""""
-    priority_rationale: str = ""
-    """One-line LLM-authored (or deterministic-fallback) reason for
-    `current_priority` — shown in the UI alongside the priority itself."""
-    priority_history: list[dict] = field(default_factory=list)
-    """Rolling log of past `(tick, priority, rationale)` town-brain
-    decisions, capped to the last PRIORITY_HISTORY_MAX entries — the
-    "Town Brain monologue" the Observatory UI direction asked for:
-    read together in the UI, past rationales read as fragments of an
-    ongoing internal train of thought rather than a single overwritten
-    current-state field. Purely additive to `current_priority`/
-    `priority_rationale`, which stay the single source of truth for
-    what's *currently* steering `choose_building_kind`."""
-    player_influence: list[str] = field(default_factory=list)
-    """Short text "whispers" queued via POST /intervene/town-brain,
-    consumed (and cleared) by the next town-brain prompt — the
-    deliberately subtle channel for player influence on the LLM brain.
-    See docs/DECISIONS.md, "LLM-as-brain batch.\""""
-    era: str = "industrial"
-    """One of ERA_ORDER — a settlement starts industrial and advances
-    as `tech_level` grows (see `era_for_tech_level`,
-    SimulationEngine._maybe_advance_era). Gates the FACTORY building
-    kind; also shown in the UI and folded into narrative prompts as
-    period flavor. See docs/DECISIONS.md, real-calendar/genesis-seed
-    follow-up."""
+
+
+@dataclass
+class SettlementCulture:
+    """Identity and accumulated invention: everything the village has
+    *become* rather than what it physically owns."""
+
+    name: str = ""
+    """Set once, deterministically, the first tick a building of any
+    kind is STANDING (see World.tick) — empty until then, meaning "not
+    yet a real settlement." See docs/DECISIONS.md, E1."""
     founding_scenario: str = ""
     """The one-time "genesis" LLM call's founding-scenario sentence
-    (see hearthmind.llm.world_genesis) — the same text whose hash chose
-    this world's seed. Empty for worlds created before this existed, or
-    when `--seed` was passed explicitly (genesis is skipped)."""
-    temperament: float = 0.0
-    """-1 (a run of ill fortune) .. 1 (a run of good fortune), a
-    deterministic bounded random walk nudged monthly by the recent
-    balance of good/ill events (see `tick_temperament`). Applies small,
-    deliberately subtle nudges to a few existing rolls (invention
-    chance, predator-attack lethality) and is the substrate `llm/
-    omens.py` narrates ambiguous, never-explained flavor events from.
-    Never labeled "supernatural" in any UI text — see docs/DECISIONS.md,
-    "World-G follow-up.\""""
+    (hearthmind.llm.world_genesis) — the same text whose hash chose the
+    world's seed. Empty when `--seed` was passed (genesis skipped)."""
+    era: str = "industrial"
+    """One of ERA_ORDER — advances purely as `tech_level` grows (see
+    `era_for_tech_level`); gates FACTORY and (via vehicles) AUTOMOBILE."""
+    tech_level: int = 0
+    """Count of inventions established — see TECH_BONUS_PER_LEVEL, E3."""
+    traditions: list[str] = field(default_factory=list)
+    """LLM-authored (or fallback) customs, "Name: description" strings
+    in the order established — fed back into chronicle and cognition
+    prompts. See E1."""
+    culture_effects: dict = field(default_factory=dict)
+    """influence category -> stack count, accumulated as traditions
+    with a mechanical rider are established (llm/culture.TRADITION_
+    INFLUENCES, culture_effect_multiplier) — the aggregate the
+    mechanics read, so consumers never re-parse the traditions list."""
+    inventions: list[str] = field(default_factory=list)
+    """Prosperity-gated tech-tier unlocks, same shape as traditions —
+    see docs/DECISIONS.md, E3."""
+    festivals: list[str] = field(default_factory=list)
+    """Festivals held, same shape — wellbeing-gated, with a direct
+    mechanical effect (FESTIVAL_RELATIONSHIP_BOOST)."""
     beliefs: list[dict] = field(default_factory=list)
-    """The village's own accumulated, LLM-formed (or deterministic-
-    fallback) theories about itself — people, families, traditions,
-    politics, economy, recurring patterns, outside influence. Each is
-    `{subject, belief, confidence, formed_tick, revised_tick,
-    revision_count}`. Formed/revised monthly (see llm/beliefs.py,
-    SimulationEngine._maybe_schedule_beliefs) and fed back into future
-    town-brain/chronicle prompts as accumulated context — the concrete
-    expression of "cognition as continuous rather than stateless."
-    Capped at MAX_BELIEFS; not guaranteed correct, exactly like a
-    person's own beliefs about their community."""
-    omen_history: list[dict] = field(default_factory=list)
-    """Rolling log of past `llm/omens.py` events (`{tick, omen,
-    subject_name}`), capped at OMEN_HISTORY_MAX — folded back into
-    future omen prompts as optional context so a new omen can
-    occasionally read as a recurrence ("that crow again") instead of
-    always being a one-off, deepening the "ancient, subtle intelligence
-    with a long memory" framing without ever confirming anything. Same
-    "capped rolling log, purely additive" shape as `priority_history`.
-    See docs/DECISIONS.md, "Phase G v3" pass."""
-    player_standing: float = 0.0
-    """-1 (the village has felt only interference) .. 1 (the village
-    has felt genuinely looked-after), a deterministic bounded random
-    walk nudged monthly by recent player intervention activity (see
-    `tick_player_standing`) — the discrete tracked lever for "the
-    town's opinion of the player specifically" CLAUDE.md flagged as a
-    real, not-yet-built gap alongside `temperament` (general mood).
-    Whispers/interventions are already folded into town-brain/beliefs
-    prompts as content; this is a separate, quieter number for how the
-    village has come to feel about receiving them at all, independent
-    of what any single whisper said. Folded into the town-brain prompt
-    as one more subtle input (see `llm/town_brain.py`), never narrated
-    or labeled in the UI — same "plumbed through summary(), visible to
-    anyone who looks at raw data, never called out" treatment as
-    `temperament`. See docs/DECISIONS.md, "town's opinion of the
-    player" pass."""
+    """The village's own accumulated, revisable theories about itself
+    (`{subject, belief, confidence, subject_agent_id, ...}`), capped at
+    llm/beliefs.MAX_BELIEFS — the concrete expression of "cognition as
+    continuous rather than stateless". Not guaranteed correct, exactly
+    like a person's own beliefs about their community."""
 
-    _position_index: dict | None = field(default=None, compare=False, repr=False)
-    """(x, y) -> Building cache behind `at()` — never serialized,
-    rebuilt lazily whenever `buildings`' length changes (buildings are
-    only ever appended or dropped, never moved, so a length check is a
-    sufficient invalidation signal). `at()` is called several times per
-    agent per tick (granary/hospital/shrine/construction checks), so
-    the previous linear scan was O(agents x buildings) per tick — one
-    of the July 2026 architecture review's measured scaling costs."""
+
+@dataclass
+class SettlementDisposition:
+    """The village's mood, its governance instinct, and its relationship
+    with the outside hand — the Phase G / town-brain domain."""
+
+    temperament: float = 0.0
+    """-1..1, a deterministic bounded random walk nudged monthly by the
+    balance of good/ill fortune (`tick_temperament`) — small subtle
+    nudges to a few rolls, never labeled "supernatural" anywhere. See
+    docs/DECISIONS.md, "World-G follow-up.\""""
+    omen_history: list[dict] = field(default_factory=list)
+    """Rolling log of past omens (`{tick, omen, subject_name}`), capped
+    at OMEN_HISTORY_MAX — future omens may read as recurrences."""
+    player_standing: float = 0.0
+    """-1..1, how the village has come to feel about being nudged from
+    outside at all (`tick_player_standing`) — plumbed through summary(),
+    never narrated. See docs/DECISIONS.md, "town's opinion of the
+    player" pass."""
+    player_influence: list[str] = field(default_factory=list)
+    """Queued player "whispers" (POST /intervene/town-brain), consumed
+    by the next *successful* town-brain call (retained on fallback)."""
+    current_priority: str = ""
+    """The town brain's current civic priority — measurably steers
+    `choose_building_kind` and settle chance. Empty until the first
+    decision. See docs/DECISIONS.md, "LLM-as-brain batch.\""""
+    priority_rationale: str = ""
+    priority_history: list[dict] = field(default_factory=list)
+    """Rolling log of past town-brain decisions, capped at
+    PRIORITY_HISTORY_MAX — the UI's Town Brain monologue."""
+
+
+class Settlement:
+    """The world's one settlement, now a facade over four composed
+    domain objects (`infrastructure`, `economy`, `culture`,
+    `disposition`) with property passthroughs for every legacy flat
+    attribute — the in-place split recommended by the July 2026
+    architecture review so the eventual multiple-named-settlements
+    refactor becomes "instantiate N of these" instead of untangling a
+    ~25-field God object. Serialization (`to_dict`/`from_dict`) and
+    every call site's `settlement.materials`-style access are
+    deliberately unchanged; new code (and the future multi-settlement
+    pass) should prefer the domain objects directly."""
+
+    def __init__(
+        self,
+        buildings: list[Building] | None = None, _next_id: int = 0,
+        materials: float = 0.0, currency: float = 0.0, name: str = "",
+        traditions: list[str] | None = None, culture_effects: dict | None = None,
+        tech_level: int = 0, inventions: list[str] | None = None,
+        festivals: list[str] | None = None, vehicles: list[Vehicle] | None = None,
+        _next_vehicle_id: int = 0, education_level: float = 0.0,
+        current_priority: str = "", priority_rationale: str = "",
+        priority_history: list[dict] | None = None, player_influence: list[str] | None = None,
+        era: str = "industrial", founding_scenario: str = "", temperament: float = 0.0,
+        beliefs: list[dict] | None = None, omen_history: list[dict] | None = None,
+        player_standing: float = 0.0,
+    ):
+        # Legacy flat-kwarg constructor, kept so from_dict/tests/callers
+        # predating the split keep working unchanged.
+        self.infrastructure = SettlementInfrastructure(
+            buildings=buildings if buildings is not None else [],
+            next_id=_next_id,
+            vehicles=vehicles if vehicles is not None else [],
+            next_vehicle_id=_next_vehicle_id,
+        )
+        self.economy = SettlementEconomy(
+            materials=materials, currency=currency, education_level=education_level,
+        )
+        self.culture = SettlementCulture(
+            name=name, founding_scenario=founding_scenario, era=era, tech_level=tech_level,
+            traditions=traditions if traditions is not None else [],
+            culture_effects=culture_effects if culture_effects is not None else {},
+            inventions=inventions if inventions is not None else [],
+            festivals=festivals if festivals is not None else [],
+            beliefs=beliefs if beliefs is not None else [],
+        )
+        self.disposition = SettlementDisposition(
+            temperament=temperament,
+            omen_history=omen_history if omen_history is not None else [],
+            player_standing=player_standing,
+            player_influence=player_influence if player_influence is not None else [],
+            current_priority=current_priority, priority_rationale=priority_rationale,
+            priority_history=priority_history if priority_history is not None else [],
+        )
+        self._position_index: dict | None = None
+        """(x, y) -> Building cache behind `at()` — never serialized,
+        rebuilt lazily whenever `buildings`' length changes (buildings
+        are only ever appended or dropped, never moved). See the July
+        2026 review's measured scaling costs."""
+
+    # --- legacy flat-attribute passthroughs ---------------------------------
+    # One property pair per pre-split field. Deliberately mechanical: the
+    # split's value is the four named domain objects existing at all (and
+    # being what a future multi-settlement pass instantiates), not in
+    # forcing 30+ call sites to churn in the same commit.
+
+    @property
+    def buildings(self) -> list[Building]:
+        return self.infrastructure.buildings
+
+    @buildings.setter
+    def buildings(self, value: list[Building]) -> None:
+        self.infrastructure.buildings = value
+
+    @property
+    def _next_id(self) -> int:
+        return self.infrastructure.next_id
+
+    @_next_id.setter
+    def _next_id(self, value: int) -> None:
+        self.infrastructure.next_id = value
+
+    @property
+    def vehicles(self) -> list[Vehicle]:
+        return self.infrastructure.vehicles
+
+    @vehicles.setter
+    def vehicles(self, value: list[Vehicle]) -> None:
+        self.infrastructure.vehicles = value
+
+    @property
+    def _next_vehicle_id(self) -> int:
+        return self.infrastructure.next_vehicle_id
+
+    @_next_vehicle_id.setter
+    def _next_vehicle_id(self, value: int) -> None:
+        self.infrastructure.next_vehicle_id = value
+
+    @property
+    def materials(self) -> float:
+        return self.economy.materials
+
+    @materials.setter
+    def materials(self, value: float) -> None:
+        self.economy.materials = value
+
+    @property
+    def currency(self) -> float:
+        return self.economy.currency
+
+    @currency.setter
+    def currency(self, value: float) -> None:
+        self.economy.currency = value
+
+    @property
+    def education_level(self) -> float:
+        return self.economy.education_level
+
+    @education_level.setter
+    def education_level(self, value: float) -> None:
+        self.economy.education_level = value
+
+    @property
+    def name(self) -> str:
+        return self.culture.name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self.culture.name = value
+
+    @property
+    def founding_scenario(self) -> str:
+        return self.culture.founding_scenario
+
+    @founding_scenario.setter
+    def founding_scenario(self, value: str) -> None:
+        self.culture.founding_scenario = value
+
+    @property
+    def era(self) -> str:
+        return self.culture.era
+
+    @era.setter
+    def era(self, value: str) -> None:
+        self.culture.era = value
+
+    @property
+    def tech_level(self) -> int:
+        return self.culture.tech_level
+
+    @tech_level.setter
+    def tech_level(self, value: int) -> None:
+        self.culture.tech_level = value
+
+    @property
+    def traditions(self) -> list[str]:
+        return self.culture.traditions
+
+    @traditions.setter
+    def traditions(self, value: list[str]) -> None:
+        self.culture.traditions = value
+
+    @property
+    def culture_effects(self) -> dict:
+        return self.culture.culture_effects
+
+    @culture_effects.setter
+    def culture_effects(self, value: dict) -> None:
+        self.culture.culture_effects = value
+
+    @property
+    def inventions(self) -> list[str]:
+        return self.culture.inventions
+
+    @inventions.setter
+    def inventions(self, value: list[str]) -> None:
+        self.culture.inventions = value
+
+    @property
+    def festivals(self) -> list[str]:
+        return self.culture.festivals
+
+    @festivals.setter
+    def festivals(self, value: list[str]) -> None:
+        self.culture.festivals = value
+
+    @property
+    def beliefs(self) -> list[dict]:
+        return self.culture.beliefs
+
+    @beliefs.setter
+    def beliefs(self, value: list[dict]) -> None:
+        self.culture.beliefs = value
+
+    @property
+    def temperament(self) -> float:
+        return self.disposition.temperament
+
+    @temperament.setter
+    def temperament(self, value: float) -> None:
+        self.disposition.temperament = value
+
+    @property
+    def omen_history(self) -> list[dict]:
+        return self.disposition.omen_history
+
+    @omen_history.setter
+    def omen_history(self, value: list[dict]) -> None:
+        self.disposition.omen_history = value
+
+    @property
+    def player_standing(self) -> float:
+        return self.disposition.player_standing
+
+    @player_standing.setter
+    def player_standing(self, value: float) -> None:
+        self.disposition.player_standing = value
+
+    @property
+    def player_influence(self) -> list[str]:
+        return self.disposition.player_influence
+
+    @player_influence.setter
+    def player_influence(self, value: list[str]) -> None:
+        self.disposition.player_influence = value
+
+    @property
+    def current_priority(self) -> str:
+        return self.disposition.current_priority
+
+    @current_priority.setter
+    def current_priority(self, value: str) -> None:
+        self.disposition.current_priority = value
+
+    @property
+    def priority_rationale(self) -> str:
+        return self.disposition.priority_rationale
+
+    @priority_rationale.setter
+    def priority_rationale(self, value: str) -> None:
+        self.disposition.priority_rationale = value
+
+    @property
+    def priority_history(self) -> list[dict]:
+        return self.disposition.priority_history
+
+    @priority_history.setter
+    def priority_history(self, value: list[dict]) -> None:
+        self.disposition.priority_history = value
 
     # --- queries -------------------------------------------------------------
 
@@ -788,6 +1067,21 @@ class Settlement:
             DECAY_PER_TICK_BASE * (DECAY_WEATHER_MULTIPLIER if weather_harsh else 1.0)
             * SEASON_DECAY_MULTIPLIER.get(season, 1.0)
         )
+
+        # Upkeep: civic buildings draw currency; whatever fraction goes
+        # unpaid accelerates decay proportionally. See
+        # UPKEEP_PER_CIVIC_BUILDING_PER_TICK.
+        civic_standing = sum(
+            1 for b in self.buildings
+            if b.stage is BuildingStage.STANDING and b.kind is not BuildingKind.HUT
+        )
+        upkeep_due = civic_standing * UPKEEP_PER_CIVIC_BUILDING_PER_TICK
+        if upkeep_due > 0:
+            paid = min(self.currency, upkeep_due)
+            self.currency -= paid
+            unpaid_fraction = 1.0 - paid / upkeep_due
+            if unpaid_fraction > 0:
+                decay *= 1.0 + (UPKEEP_UNPAID_DECAY_MULTIPLIER - 1.0) * unpaid_fraction
 
         for building in self.buildings:
             if building.stage is BuildingStage.STANDING:
@@ -871,6 +1165,7 @@ class Settlement:
             "currency_capacity": CURRENCY_CAPACITY,
             "name": self.name,
             "traditions": list(self.traditions),
+            "culture_effects": dict(self.culture_effects),
             "tech_level": self.tech_level,
             "inventions": list(self.inventions),
             "festivals": list(self.festivals),
@@ -963,6 +1258,7 @@ class Settlement:
             "currency": round(self.currency, 4),
             "name": self.name,
             "traditions": list(self.traditions),
+            "culture_effects": dict(self.culture_effects),
             "tech_level": self.tech_level,
             "inventions": list(self.inventions),
             "festivals": list(self.festivals),
@@ -989,6 +1285,7 @@ class Settlement:
             buildings=buildings, _next_id=data["next_id"],
             materials=data.get("materials", 0.0), currency=data.get("currency", 0.0),
             name=data.get("name", ""), traditions=list(data.get("traditions", [])),
+            culture_effects=dict(data.get("culture_effects", {})),
             tech_level=data.get("tech_level", 0), inventions=list(data.get("inventions", [])),
             festivals=list(data.get("festivals", [])),
             vehicles=vehicles, _next_vehicle_id=data.get("next_vehicle_id", 0),

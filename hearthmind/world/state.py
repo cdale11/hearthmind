@@ -123,10 +123,12 @@ class World:
         generate_rivers(seed=config.seed, terrain=terrain)
         lakes = identify_lakes(terrain)
         weather = compute_weather(seed=config.seed, tick=0, month=clock.month_name.lower(), previous=None)
-        population = Population.spawn_initial(
-            seed=config.seed, count=config.initial_population, terrain=terrain,
-        )
         resources = ResourceGrid.generate(seed=config.seed, terrain=terrain)
+        # Resources before population: founders spawn clustered around
+        # the best local food supply (see Population.spawn_initial).
+        population = Population.spawn_initial(
+            seed=config.seed, count=config.initial_population, terrain=terrain, resources=resources,
+        )
         settlement = Settlement(founding_scenario=founding_scenario)  # settlements emerge from population behavior, not pre-placed
         farms = FarmGrid()  # likewise: no farms exist until agents plant them
         wildlife = WildlifeGrid.generate(seed=config.seed, terrain=terrain)
@@ -316,6 +318,7 @@ class World:
                 "month_names": list(self.config.month_names),
                 "seasons_per_year": list(self.config.seasons_per_year),
                 "month_to_season": list(self.config.month_to_season),
+                "start_day_of_year": self.config.start_day_of_year,
                 "initial_population": self.config.initial_population,
             },
             "clock": self.clock.to_dict(),
@@ -364,6 +367,10 @@ class World:
             month_names=tuple(saved["month_names"]),
             seasons_per_year=tuple(saved["seasons_per_year"]),
             month_to_season=tuple(saved["month_to_season"]),
+            # Older snapshots predate the spring-start change and were
+            # created with a January 1 tick 0 — default 0 so their
+            # calendar history doesn't shift underfoot on load.
+            start_day_of_year=saved.get("start_day_of_year", 0),
             initial_population=saved.get("initial_population", Config.initial_population),
             tick_seconds=runtime_config.tick_seconds,
             snapshot_every_ticks=runtime_config.snapshot_every_ticks,

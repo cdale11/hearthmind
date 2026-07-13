@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
     DIALOGUE_SENTIMENT_DELTA,
+    ELDER_AGE_FRACTION,
+    ELDER_RECOVERY_MULTIPLIER,
     ENERGY_DRAIN_AWAKE,
     ENERGY_RECOVERY_RESTING,
     FORAGE_AMOUNT,
@@ -63,8 +65,10 @@ from hearthmind.economy.farms import (
     FarmStage,
 )
 from hearthmind.settlement.buildings import (
+    CAMP_TOLERANCE,
     CONSTRUCTION_MATERIALS_MULTIPLIER,
     CONSTRUCTION_WORK_PER_TICK,
+    CROWDING_ENERGY_MULTIPLIER,
     CURRENCY_CAPACITY,
     CURRENCY_EMERGENCY_HUNGER_RELIEF,
     CURRENCY_EMERGENCY_RATION_COST,
@@ -80,6 +84,7 @@ from hearthmind.settlement.buildings import (
     GRANARY_WITHDRAW_AMOUNT,
     HOSPITAL_KILL_CHANCE_REDUCTION,
     HOSPITAL_REST_RECOVERY_MULTIPLIER,
+    HUT_CAPACITY,
     MATERIALS_CAPACITY,
     MATERIALS_COST_BY_KIND,
     MATERIALS_GATHER_PER_TICK,
@@ -91,6 +96,8 @@ from hearthmind.settlement.buildings import (
     SETTLE_CHANCE_GROWTH_PRIORITY_MULTIPLIER,
     SETTLE_CHANCE_OFF_PRIORITY_MULTIPLIER,
     SETTLE_CHANCE_PER_TICK,
+    SHELTER_NEGATES_WEATHER,
+    SHRINE_FESTIVAL_BOOST_MULTIPLIER,
     TECH_BONUS_PER_LEVEL,
     TEMPERAMENT_KILL_CHANCE_INFLUENCE,
     UNIVERSITY_EDUCATION_MULTIPLIER,
@@ -101,6 +108,7 @@ from hearthmind.settlement.buildings import (
     BuildingStage,
     Settlement,
     choose_building_kind,
+    culture_effect_multiplier,
 )
 from hearthmind.settlement.vehicles import (
     AUTOMOBILE_MATERIALS_COST,
@@ -185,6 +193,18 @@ NIGHT_REST_RECOVERY_BONUS = 0.15
 """At full night, RESTING energy recovery is multiplied by
 (1 + this) — sleeping through the dark hours is more restful than a
 daytime nap."""
+
+FOUNDING_SITE_RADIUS = 5
+FOUNDING_CLUSTER_RADIUS = 3
+"""Founding-site selection (see Population.spawn_initial): the anchor
+is the walkable tile with the most wild FOOD nodes within SITE_RADIUS
+(Chebyshev), and all founders start within CLUSTER_RADIUS of it.
+SITE_RADIUS matches FORAGE_SEARCH_RADIUS-ish local awareness;
+CLUSTER_RADIUS keeps the group close enough to meet (relationships,
+construction pairs) within days instead of weeks. Together with the
+spring calendar start (Config.start_day_of_year) this is the fix for
+the measured early starvation funnel — believable causality (founders
+chose a good spot in spring), not a stat buff."""
 
 POPULATION_CRITICAL_THRESHOLD = 4
 """Below this many living inhabitants (but above 0 — total extinction is
@@ -317,10 +337,30 @@ class Population:
     # --- construction ------------------------------------------------------
 
     @classmethod
-    def spawn_initial(cls, seed: int, count: int, terrain: list[list[Tile]]) -> "Population":
+    def spawn_initial(
+        cls, seed: int, count: int, terrain: list[list[Tile]], resources: "ResourceGrid | None" = None,
+    ) -> "Population":
+        """Founders spawn as a *group near food*, not scattered across
+        the map: when `resources` is given, the anchor is the walkable
+        tile with the most wild food nodes within FOUNDING_SITE_RADIUS,
+        and everyone starts within FOUNDING_CLUSTER_RADIUS of it — the
+        site a real founding expedition would have chosen. Scattered
+        spawn (the pre-review behavior, kept for the no-resources
+        backfill path) was half of the measured early-winter starvation
+        funnel: strangers starving alone before ever meeting. See
+        docs/DECISIONS.md, "founding funnel" pass."""
         rng = _namespaced_rng(seed, tick=0, namespace="population_init")
         spots = _walkable_tiles(terrain)
         names = generate_names(count, rng)
+
+        if resources is not None and resources.nodes:
+            anchor = cls._best_founding_site(spots, resources, rng)
+            near = [
+                (x, y) for (x, y) in spots
+                if max(abs(x - anchor[0]), abs(y - anchor[1])) <= FOUNDING_CLUSTER_RADIUS
+            ]
+            if near:
+                spots = near
 
         agents: list[Agent] = []
         for i in range(count):
@@ -328,6 +368,29 @@ class Population:
             max_age = rng.randint(MIN_LIFESPAN_TICKS, MAX_LIFESPAN_TICKS)
             agents.append(Agent(id=i, name=names[i], x=x, y=y, max_age_ticks=max_age))
         return cls(agents=agents, _next_id=count)
+
+    @staticmethod
+    def _best_founding_site(
+        spots: list[tuple[int, int]], resources: "ResourceGrid", rng: random.Random,
+    ) -> tuple[int, int]:
+        """The walkable tile with the most FOOD-node supply within
+        FOUNDING_SITE_RADIUS (ties broken by rng among the best). One-time
+        O(walkable x nodes) scan at world creation only."""
+        food_nodes = [
+            (x, y) for (x, y), node in resources.nodes.items() if node.kind is ResourceKind.FOOD
+        ]
+        best_score = -1
+        best: list[tuple[int, int]] = []
+        for sx, sy in spots:
+            score = sum(
+                1 for (nx, ny) in food_nodes
+                if max(abs(nx - sx), abs(ny - sy)) <= FOUNDING_SITE_RADIUS
+            )
+            if score > best_score:
+                best_score, best = score, [(sx, sy)]
+            elif score == best_score:
+                best.append((sx, sy))
+        return rng.choice(best)
 
     # --- tick ----------------------------------------------------------------
 
@@ -379,10 +442,16 @@ class Population:
         has_hospital = any(
             b.kind is BuildingKind.HOSPITAL and b.stage is BuildingStage.STANDING for b in settlement.buildings
         )
+        housing_capacity = CAMP_TOLERANCE + HUT_CAPACITY * sum(
+            1 for b in settlement.buildings
+            if b.kind is BuildingKind.HUT and b.stage is BuildingStage.STANDING
+        )
+        crowded = len(self.agents) > housing_capacity
+        food_positions = (self.ready_farm_positions(farms), self.stocked_granary_positions(settlement))
         self.last_triggered_agent_ids = set()
         for agent in self.agents:
             agent.age_ticks += 1
-            self._update_needs(agent, weather_harsh, settlement, night_factor)
+            self._update_needs(agent, weather_harsh, settlement, night_factor, crowded)
             critically_hungry = agent.hunger >= CRITICAL_HUNGER_THRESHOLD
             if critically_hungry:
                 # A hunger emergency deserves the LLM's actual reasoning
@@ -414,6 +483,7 @@ class Population:
                     agent, terrain, rng, resources, farms, settlement, wildlife, roads,
                     predator_tiles, position_snapshot, critically_hungry, weather,
                     rival_tiles=rival_tiles_by_agent.get(agent.id),
+                    food_positions=food_positions,
                 )
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
@@ -443,17 +513,29 @@ class Population:
     @staticmethod
     def _update_needs(
         agent: Agent, weather_harsh: bool = False, settlement: Settlement | None = None,
-        night_factor: float = 0.0,
+        night_factor: float = 0.0, crowded: bool = False,
     ) -> None:
         hunger_rate = HUNGER_RATE
         energy_drain = ENERGY_DRAIN_AWAKE
         if weather_harsh and agent.state is AgentState.AWAKE:
             # "Weather affects people": harsh weather (heavy rain/snow/high
             # wind/an active heatwave) costs an awake agent more — resting
-            # is treated as sheltering, so it's unaffected. See
-            # docs/DECISIONS.md, scarcity pass.
-            hunger_rate *= WEATHER_HARSH_HUNGER_MULTIPLIER
-            energy_drain *= WEATHER_HARSH_ENERGY_DRAIN_MULTIPLIER
+            # is treated as sheltering, so it's unaffected — and as of the
+            # shelter pass, so is standing on any STANDING building's tile
+            # (working indoors). See SHELTER_NEGATES_WEATHER,
+            # docs/DECISIONS.md, scarcity pass + review-implementation
+            # follow-up.
+            sheltered = False
+            if SHELTER_NEGATES_WEATHER and settlement is not None:
+                building = settlement.at(agent.x, agent.y)
+                sheltered = building is not None and building.stage is BuildingStage.STANDING
+            if not sheltered:
+                hunger_rate *= WEATHER_HARSH_HUNGER_MULTIPLIER
+                energy_drain *= WEATHER_HARSH_ENERGY_DRAIN_MULTIPLIER
+        if crowded and agent.state is AgentState.AWAKE:
+            # More people than roofs: rough nights wear everyone down a
+            # little — see CROWDING_ENERGY_MULTIPLIER/HUT_CAPACITY.
+            energy_drain *= CROWDING_ENERGY_MULTIPLIER
         if agent.state is AgentState.AWAKE:
             # Real UK daylight hours, not just a visual tint: staying up
             # through the dark costs more energy, scaling with how deep
@@ -463,6 +545,10 @@ class Population:
         rest_threshold = REST_THRESHOLD + night_factor * NIGHT_REST_THRESHOLD_BOOST
         if agent.state is AgentState.RESTING:
             recovery = ENERGY_RECOVERY_RESTING * (1.0 + night_factor * NIGHT_REST_RECOVERY_BONUS)
+            if agent.age_ticks >= agent.max_age_ticks * ELDER_AGE_FRACTION:
+                # Age-graded frailty: elders recover slower — see
+                # ELDER_RECOVERY_MULTIPLIER in agents/agent.py.
+                recovery *= ELDER_RECOVERY_MULTIPLIER
             if settlement is not None:
                 building = settlement.at(agent.x, agent.y)
                 if (
@@ -523,7 +609,12 @@ class Population:
         if plot is not None and plot.stage is FarmStage.READY:
             consumed = farms.harvest(agent.x, agent.y, HARVEST_AMOUNT)
             if consumed > 0:
-                relief = HARVEST_HUNGER_RELIEF * (consumed / HARVEST_AMOUNT) * _tech_factor(settlement)
+                # Harvest-minded traditions stretch what a harvest gives —
+                # culture with a real lever, see culture_effect_multiplier.
+                relief = (
+                    HARVEST_HUNGER_RELIEF * (consumed / HARVEST_AMOUNT) * _tech_factor(settlement)
+                    * culture_effect_multiplier(settlement.culture_effects, "harvest")
+                )
                 agent.hunger = max(0.0, agent.hunger - relief)
                 agent.inventory["food"] = min(
                     PERSONAL_FOOD_CAPACITY, agent.inventory.get("food", 0.0) + FORAGE_INVENTORY_SKIM
@@ -681,6 +772,7 @@ class Population:
         position_snapshot: list[tuple[int, int, int]], critically_hungry: bool = False,
         weather: WeatherState | None = None,
         rival_tiles: set[tuple[int, int]] | None = None,
+        food_positions: tuple[list[tuple[int, int]], list[tuple[int, int]]] | None = None,
     ) -> None:
         """Goal-directed agents (FORAGE/SOCIALIZE) take a deliberate step
         toward a visible target when one exists; otherwise (including
@@ -708,9 +800,20 @@ class Population:
         effective_goal = AgentGoal.FORAGE if critically_hungry else agent.goal
         target = None
         if effective_goal is AgentGoal.FORAGE:
+            # `food_positions` (ready farms, worth-the-walk granaries) is
+            # precomputed once per tick by `tick()` and shared by every
+            # food-seeking agent, instead of each agent re-walking the
+            # plots dict/building list — the next constant-factor cost
+            # after the rival-scan fix at large populations. Falls back
+            # to computing locally when not provided (nearest_food_steps'
+            # rare, engine-side use).
+            farm_positions, granary_positions = (
+                food_positions if food_positions is not None
+                else (cls.ready_farm_positions(farms), cls.stocked_granary_positions(settlement))
+            )
             target = (
-                cls._nearest_ready_farm(agent, farms)
-                or cls._nearest_stocked_granary(agent, settlement)
+                cls._nearest_position(agent, farm_positions)
+                or cls._nearest_position(agent, granary_positions)
                 or cls._nearest_grazer_herd(agent, wildlife)
                 or cls._nearest_resource(agent, resources)
             )
@@ -738,41 +841,34 @@ class Population:
             mount.condition = max(0.0, mount.condition - PERSONAL_VEHICLE_USE_DECAY[mount.kind])
 
     @staticmethod
-    def _nearest_ready_farm(agent: Agent, farms: FarmGrid) -> tuple[int, int] | None:
-        """No distance cap, unlike `_nearest_resource`: found root cause of
-        the D6 starvation cascade — FORAGE previously only ever targeted
-        wild nodes, so a hungry agent standing next to dozens of
-        harvest-ready farms (planted by the same population) would starve
-        rather than walk to one, because nothing pointed it there.
-        Cultivated land is known to its community the same way SOCIALIZE
-        treats other agents as known (D4) — see docs/DECISIONS.md, D6."""
+    def ready_farm_positions(farms: FarmGrid) -> list[tuple[int, int]]:
+        """READY-plot coordinates. No distance cap when targeted (see
+        `_nearest_position`): found root cause of the D6 starvation
+        cascade — cultivated land is known to its community the same
+        way SOCIALIZE treats other agents as known (D4). See
+        docs/DECISIONS.md, D6."""
+        return [(x, y) for (x, y), plot in farms.plots.items() if plot.stage is FarmStage.READY]
+
+    @staticmethod
+    def stocked_granary_positions(settlement: Settlement) -> list[tuple[int, int]]:
+        """Worth-the-walk granaries: stocked, or empty but the settlement
+        can afford emergency rations (D10) — a built granary is a known
+        community landmark (D7), so no distance cap when targeted."""
+        can_buy_rations = settlement.currency >= CURRENCY_EMERGENCY_RATION_COST
+        return [
+            (b.x, b.y) for b in settlement.buildings
+            if b.kind is BuildingKind.GRANARY and b.stage is BuildingStage.STANDING
+            and (b.stored_food > 0 or can_buy_rations)
+        ]
+
+    @staticmethod
+    def _nearest_position(agent: Agent, positions: list[tuple[int, int]]) -> tuple[int, int] | None:
         best: tuple[int, int] | None = None
         best_dist: int | None = None
-        for (x, y), plot in farms.plots.items():
-            if plot.stage is not FarmStage.READY:
-                continue
+        for x, y in positions:
             dist = abs(x - agent.x) + abs(y - agent.y)
             if best_dist is None or dist < best_dist:
                 best, best_dist = (x, y), dist
-        return best
-
-    @staticmethod
-    def _nearest_stocked_granary(agent: Agent, settlement: Settlement) -> tuple[int, int] | None:
-        """No distance cap, same rationale as `_nearest_ready_farm` — a
-        built granary is a known community landmark. See docs/DECISIONS.md,
-        D7. Also a target when empty of stored food but the settlement has
-        currency for emergency rations (D10) — either way, worth the walk."""
-        can_buy_rations = settlement.currency >= CURRENCY_EMERGENCY_RATION_COST
-        best: tuple[int, int] | None = None
-        best_dist: int | None = None
-        for building in settlement.buildings:
-            if building.kind is not BuildingKind.GRANARY or building.stage is not BuildingStage.STANDING:
-                continue
-            if building.stored_food <= 0 and not can_buy_rations:
-                continue
-            dist = abs(building.x - agent.x) + abs(building.y - agent.y)
-            if best_dist is None or dist < best_dist:
-                best, best_dist = (building.x, building.y), dist
         return best
 
     @staticmethod
@@ -1446,6 +1542,12 @@ class Population:
         self, killed_by_predator: set[int] = frozenset(), settlement: Settlement | None = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
+        # Resilience-minded traditions soften (never erase) grief's
+        # energy cost — a village with mourning customs carries loss
+        # better. See culture_effect_multiplier.
+        grief_penalty = GRIEF_ENERGY_PENALTY
+        if settlement is not None:
+            grief_penalty /= culture_effect_multiplier(settlement.culture_effects, "resilience")
         dying_ids: set[int] = set()
         for agent in self.agents:
             if (
@@ -1488,11 +1590,11 @@ class Population:
                     # pass.
                     label = "parent" if is_child else "child"
                     _remember(other, f"My {label}, {agent.name}, died.")
-                    other.energy = max(0.0, other.energy - GRIEF_ENERGY_PENALTY)
+                    other.energy = max(0.0, other.energy - grief_penalty)
                     self.last_triggered_agent_ids.add(other.id)
                 elif other.relationships.get(agent.id, 0.0) >= REPRODUCTION_AFFINITY_THRESHOLD:
                     _remember(other, f"{agent.name} died. I miss them.")
-                    other.energy = max(0.0, other.energy - GRIEF_ENERGY_PENALTY)
+                    other.energy = max(0.0, other.energy - grief_penalty)
                     self.last_triggered_agent_ids.add(other.id)
         self.agents = survivors
         if settlement is not None and dying_ids:
@@ -1529,8 +1631,8 @@ class Population:
         the few agents due for cognition on a given tick — not per-agent
         per-tick."""
         target = (
-            cls._nearest_ready_farm(agent, farms)
-            or cls._nearest_stocked_granary(agent, settlement)
+            cls._nearest_position(agent, cls.ready_farm_positions(farms))
+            or cls._nearest_position(agent, cls.stocked_granary_positions(settlement))
             or cls._nearest_grazer_herd(agent, wildlife)
             or cls._nearest_resource(agent, resources)
         )
@@ -1776,6 +1878,10 @@ class Population:
                 continue
             boost = FESTIVAL_RELATIONSHIP_BOOST
             if settlement is not None:
+                # Festivity-minded traditions deepen every festival —
+                # culture begetting warmer culture, see
+                # culture_effect_multiplier.
+                boost *= culture_effect_multiplier(settlement.culture_effects, "festivity")
                 shrine = settlement.at(x, y)
                 if (
                     shrine is not None and shrine.kind is BuildingKind.SHRINE

@@ -1,6 +1,6 @@
 [project]
 name = "hearthmind"
-version = "0.40.0"
+version = "0.41.0"
 description = "A persistent, always-running artificial world — a town in a box."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,6 +14,7 @@ api = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 [project.scripts]
 hearthmind-server = "hearthmind.server:main"
 hearthmind-inspect = "hearthmind.inspect_world:main"
+hearthmind-experiment = "hearthmind.experiment:main"
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -62,8 +62,12 @@ class SimClock:
 
     @property
     def day_index(self) -> int:
-        """Absolute day number since world creation (day 0, 1, 2, ...)."""
-        return self.total_sim_minutes // self.config.minutes_per_day
+        """Absolute day number on the calendar — days elapsed since
+        world creation plus `Config.start_day_of_year` (worlds begin in
+        spring, not on January 1 — see that field's docstring), so every
+        derived property (month, season, year) shifts consistently. Day
+        0 of a default new world is therefore March 1, Year 1."""
+        return self.total_sim_minutes // self.config.minutes_per_day + self.config.start_day_of_year
 
     @property
     def week_index(self) -> int:
