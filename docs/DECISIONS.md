@@ -3820,3 +3820,67 @@ preserve the institution list byte-identically. A pre-v0.46.0 snapshot
 backfills to an empty `institutions` list with no migration step
 needed (same `.get(key, [])` pattern every prior additive field in this
 codebase has used).
+
+## Wind/storm thresholds fixed; fishing added
+
+Live user reports: "why is there always wind?" and "storms are not
+shown," plus a request to add fishing alongside foraging.
+
+Wind and storm were both instances of a bug class this project has now
+fixed three times (precipitation/temperature previously, wind here):
+a threshold chosen against the raw per-tick `uniform()` jitter range
+looks plausible on paper but `compute_weather`'s `smoothing=0.7` EMA
+damps that into a much narrower realized band, so a threshold near
+either extreme of the raw range is effectively unreachable — see
+weather.py's `SNOW_TEMPERATURE_THRESHOLD_C`/`CLEAR_PRECIPITATION_
+THRESHOLD` docstrings for the same diagnosis applied earlier. A direct
+17,520-tick measurement (all twelve months, `compute_weather` called
+directly, no engine needed) found realized wind confined to
+~0.08-0.66 with p10/p50/p90 at 0.24/0.38/0.51 — `wind_label()`'s old
+cutoffs (calm <0.15, breezy <0.35, windy <0.6) put "calm" in the
+bottom <1% of realized ticks and "gale" essentially never, so the
+label read as permanently windy regardless of actual conditions.
+Retuned `CALM_WIND_THRESHOLD`/`BREEZY_WIND_THRESHOLD`/
+`WINDY_WIND_THRESHOLD` to the measured percentiles.
+
+`disasters.py`'s `STORM_WIND_THRESHOLD=0.75` was a harder version of
+the same bug: entirely above the measured true maximum (~0.66), meaning
+`tick_storm` was live code that could never fire under any
+`compute_weather` output, not merely rare — directly matching the
+"storms are not shown" report. Retuned to 0.55 (~p90 of realized wind,
+still above `WEATHER_HARSH_WIND` and the new `WINDY_WIND_THRESHOLD`, so
+a "storm" still means something worse than routine windy weather).
+
+Standing lesson reaffirmed a third time (see CLAUDE.md's existing
+"Realistic weather thresholds" section): any weather/disaster threshold
+that "never seems to happen" on a live run should be checked against
+`compute_weather`'s actual measured output first, not assumed to be
+correct-but-rare. This is now the *default first check* for a future
+report of this shape, not a fresh diagnosis each time.
+
+**Fishing.** Added as a third `ResourceKind` (`world/resources.py`)
+rather than a new subsystem, deliberately reusing every mechanism
+`ResourceGrid` already has (generation density roll, per-tick
+regeneration, depletion, serialization) instead of building a parallel
+water-economy system — the smallest change that satisfies "add fishing
+with foraging." Placement is water-adjacency-based
+(`WATER_ADJACENT_BIOMES` + a 4-neighbor check), not tied to the BEACH
+biome specifically, since a grassland/forest tile hugging a river is
+just as fishable as a coastal beach. Fish nodes are deliberately denser,
+richer, and faster-regenerating than wild food nodes (real-world
+shoreline food reliability), consumed by the exact same
+`Population._maybe_forage`/`_nearest_resource` code paths FOOD already
+uses (a two-line change: check `node.kind in (FOOD, FISH)` instead of
+`is FOOD`) — no new `AgentGoal`, no new cognition wiring, matching the
+"with foraging" framing of the request rather than a separate fishing
+goal/profession.
+
+Verified: `ResourceGrid.generate()` against a real 48x48 terrain
+confirmed fish nodes land only on water-adjacent tiles and coexist
+correctly with food/ore counts (34 fish nodes of 231 total on seed 42);
+a direct 2,000-trial `tick_storm` check at wind=0.9 (above the new
+threshold) fired 18 times, matching `STORM_CHANCE_PER_TICK=0.01`
+almost exactly — confirming the storm mechanism is now genuinely
+reachable, not just less obviously broken; a 6,000-tick full engine run
+(LLM disabled, seed 42) completed with no exceptions and fish nodes
+present in the live `resources` summary.

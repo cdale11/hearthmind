@@ -393,12 +393,14 @@ function drawFrame() {
   // the map shows what agents are actually foraging/gathering from, not
   // just an aggregate count in a stat tile. Dimmed toward the terrain
   // color as a node depletes, brightening again as it regrows.
+  const RESOURCE_NODE_MAX_AMOUNT = { ore: 2.0, fish: 1.5, food: 1.0 };
+  const RESOURCE_NODE_COLOR = { ore: "#9aa0ab", fish: "#4fa8d8", food: "#7fbf5a" };
   for (const n of latest.resources || []) {
     const cx = n.x * CELL + CELL / 2, cy = n.y * CELL + CELL / 2;
-    const fullness = Math.max(0.15, n.amount / (n.kind === "ore" ? 2.0 : 1.0));
+    const fullness = Math.max(0.15, n.amount / (RESOURCE_NODE_MAX_AMOUNT[n.kind] || 1.0));
     ctx.globalAlpha = 0.4 + fullness * 0.6;
     ctx.beginPath();
-    ctx.fillStyle = n.kind === "ore" ? "#9aa0ab" : "#7fbf5a";
+    ctx.fillStyle = RESOURCE_NODE_COLOR[n.kind] || "#7fbf5a";
     ctx.arc(cx, cy, n.kind === "ore" ? 2.2 : 1.6, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1.0;
@@ -954,7 +956,10 @@ function renderStats(summary) {
       "Each invention permanently boosts construction/repair speed and cultivated-food yield (farm harvest, granary stock/withdraw) by 15% — wild foraging is unaffected. Rare: gated by settlement prosperity, rolled once a year.",
     ],
     ["Farms", `${f.total} (${f.growing} growing, ${f.ready} ready)`, null],
-    ["Wild resources", `${r.total_nodes} nodes (${r.depleted} depleted)`, "Wild forageable nodes (berries, etc.) — the last-resort food source, behind farms, granaries, and hunting."],
+    [
+      "Wild resources", `${r.total_nodes} nodes (${r.depleted} depleted, ${r.fish_nodes || 0} fishing spots)`,
+      "Wild forageable nodes (berries, fishing spots along water, ore veins) — the last-resort food source, behind farms, granaries, and hunting. Fishing spots yield a richer catch and replenish faster than a bush.",
+    ],
     [
       "Wildlife", `${w.grazer_total} grazers (${w.grazer_herds} herds), ${w.predator_total} predators (${w.predator_packs} packs)`,
       "Grazer herds roam grassland/forest and can be hunted for food; predator packs roam forest/hills and hunt grazers, starving without a kill.",

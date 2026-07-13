@@ -144,7 +144,7 @@ from hearthmind.settlement.vehicles import (
     VehicleKind,
     VehicleStage,
 )
-from hearthmind.world.resources import ORE_BIOMES, ResourceGrid, ResourceKind
+from hearthmind.world.resources import FISH_HUNGER_RELIEF_MULTIPLIER, ORE_BIOMES, ResourceGrid, ResourceKind
 from hearthmind.world.roads import ROAD_SPEED_MULTIPLIER, RoadNetwork, road_condition_multiplier
 from hearthmind.world.terrain import Biome, Tile
 from hearthmind.world.weather import WeatherState
@@ -772,10 +772,12 @@ class Population:
                 break
 
         node = resources.get(agent.x, agent.y)
-        if node is not None and node.kind is ResourceKind.FOOD and node.amount > 0:
+        if node is not None and node.kind in (ResourceKind.FOOD, ResourceKind.FISH) and node.amount > 0:
             consumed = min(node.amount, FORAGE_AMOUNT)
             node.amount -= consumed
             relief = FORAGE_HUNGER_RELIEF * (consumed / FORAGE_AMOUNT)
+            if node.kind is ResourceKind.FISH:
+                relief *= FISH_HUNGER_RELIEF_MULTIPLIER
             agent.hunger = max(0.0, agent.hunger - relief)
             return
 
@@ -1019,7 +1021,7 @@ class Population:
         best: tuple[int, int] | None = None
         best_dist: int | None = None
         for (x, y), node in resources.nodes.items():
-            if node.kind is not ResourceKind.FOOD or node.amount <= 0:
+            if node.kind not in (ResourceKind.FOOD, ResourceKind.FISH) or node.amount <= 0:
                 continue
             if max(abs(x - agent.x), abs(y - agent.y)) > FORAGE_SEARCH_RADIUS:
                 continue

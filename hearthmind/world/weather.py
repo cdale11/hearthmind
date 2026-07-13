@@ -53,6 +53,19 @@ saw rain almost every tick regardless of season (a user-reported
 variance"). Retuned to the actual measured percentiles so each band
 gets a real, roughly-even share of ticks instead of one dominating."""
 
+CALM_WIND_THRESHOLD = 0.24
+BREEZY_WIND_THRESHOLD = 0.38
+WINDY_WIND_THRESHOLD = 0.51
+"""`wind_label()`'s bands, retuned against measured realized output —
+the same "threshold the model can actually reach" bug already fixed for
+precipitation/temperature above, this time for wind. The old cutoffs
+(calm <0.15, breezy <0.35, windy <0.6) were plausible-looking against
+the raw uniform(-0.25, 0.25) jitter, but a 17,520-tick measurement
+across all twelve months found realized wind essentially confined to
+0.08-0.66 with p10/p50/p90 of 0.24/0.38/0.51 — "calm" fired on <1% of
+ticks and the label read as "always windy" (live user report). Retuned
+to the measured percentiles so each band gets a roughly even share."""
+
 SNOW_PRECIPITATION_THRESHOLD = 0.2
 SNOW_TEMPERATURE_THRESHOLD_C = 2.0
 """Real UK snow overwhelmingly falls in the 0-2C band, not exactly at or
@@ -107,11 +120,11 @@ class WeatherState:
         return f"{sky}, {self.temperature_c:.1f}\u00b0C, {self.wind_label()} wind"
 
     def wind_label(self) -> str:
-        if self.wind < 0.15:
+        if self.wind < CALM_WIND_THRESHOLD:
             return "calm"
-        if self.wind < 0.35:
+        if self.wind < BREEZY_WIND_THRESHOLD:
             return "breezy"
-        if self.wind < 0.6:
+        if self.wind < WINDY_WIND_THRESHOLD:
             return "windy"
         return "gale"
 

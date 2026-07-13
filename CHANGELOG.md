@@ -4,6 +4,55 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.47.0] — Wind/storm thresholds fixed; fishing added
+
+### Fixed
+
+- **Wind label ("always windy") and storms ("never shown") were both the
+  same class of bug already fixed twice before for precipitation/
+  temperature: a threshold tuned against raw per-tick jitter, not
+  `compute_weather`'s actual EMA-smoothed realized range.** A 17,520-
+  tick measurement across all twelve months found realized wind confined
+  to ~0.08-0.66 with p10/p50/p90 of 0.24/0.38/0.51 — `wind_label()`'s old
+  cutoffs (calm <0.15, breezy <0.35, windy <0.6) meant "calm" fired on
+  under 1% of ticks and "gale" never, so the label read as permanently
+  windy. New `CALM_WIND_THRESHOLD`/`BREEZY_WIND_THRESHOLD`/
+  `WINDY_WIND_THRESHOLD` (weather.py) retuned to the measured
+  percentiles — calm/breezy/windy/gale now each get a real, roughly-even
+  share of ticks (measured 10.6%/39.8%/39.9%/9.7%). Separately,
+  `disasters.py`'s `STORM_WIND_THRESHOLD` (0.75) was *entirely
+  unreachable* against that same measured max of ~0.66 — storms were
+  dead code that could never fire, not a rare event, matching the live
+  "storms are not shown" report exactly. Retuned to 0.55 (~p90 of
+  realized wind, still above `WEATHER_HARSH_WIND`/the new
+  `WINDY_WIND_THRESHOLD`) — a direct 2,000-trial check at wind=0.9 fired
+  18 times, matching `STORM_CHANCE_PER_TICK=0.01` almost exactly.
+
+### Added
+
+- **Fishing.** New `ResourceKind.FISH` (`world/resources.py`) — a third
+  wild-resource kind placed on any walkable tile bordering water
+  (river/lake/sea, not tied to the BEACH biome specifically), denser
+  than wild food nodes (`FISH_NODE_DENSITY=0.35`), richer per catch
+  (`MAX_FISH_AMOUNT=1.5`, `FISH_HUNGER_RELIEF_MULTIPLIER=1.2`× wild
+  forage's relief), and faster-regenerating than a bush
+  (`FISH_REGEN_PER_TICK`, 1.5× `REGEN_PER_TICK` — a fish stock
+  replenishes by migration/spawning, not static local regrowth).
+  `Population._maybe_forage`'s wild-node branch and `_nearest_resource`
+  (the FORAGE goal's target-seeking chain) both now treat FOOD and FISH
+  as the same tier of last-resort wild food, so a hungry agent near
+  water fishes exactly the way one near a berry bush forages — no new
+  `AgentGoal`, no cognition changes, same shape as the existing
+  food/ore split. Map rendering and the "Wild resources" stat tile
+  tooltip (`interface/static/app.js`) both distinguish fish nodes
+  (blue marker, richer color) from food/ore.
+
+Verified: a direct `ResourceGrid.generate()` check on a real 48x48
+terrain confirmed fish nodes generate only adjacent to water and
+coexist with the food/ore node counts (34 fish nodes among 231 total on
+one seed); a 6,000-tick full engine run (LLM disabled) confirmed no
+exceptions with fish nodes present in `resources` summary output.
+
 ## [0.46.0] — H3: institutions as first-class entities (families, v1)
 
 ### Added

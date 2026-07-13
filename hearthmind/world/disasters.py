@@ -69,13 +69,21 @@ nudges predator lethality — see settlement/buildings.py), then spreads to
 neighboring forest tiles for a few ticks before burning out, turning
 FOREST to GRASSLAND (ash) and damaging any building caught in its path."""
 
-STORM_WIND_THRESHOLD = 0.75
+STORM_WIND_THRESHOLD = 0.55
 STORM_CHANCE_PER_TICK = 0.01
 STORM_DAMAGE = 0.25
-"""Extreme wind (well above population.py's WEATHER_HARSH_WIND=0.5) has
-a small per-tick chance of a storm event directly damaging standing
-buildings/ready vehicles map-wide, independent of routine weather
-decay."""
+"""Extreme wind (above population.py's WEATHER_HARSH_WIND=0.5, and above
+weather.py's own WINDY_WIND_THRESHOLD=0.51 — genuinely gale-adjacent, not
+just "windy") has a small per-tick chance of a storm event directly
+damaging standing buildings/ready vehicles map-wide, independent of
+routine weather decay. Originally 0.75 — the same unreachable-threshold
+bug already fixed for precipitation/temperature/wind-label: a 17,520-
+tick measurement of `compute_weather`'s realized wind output topped out
+at ~0.66 (see weather.py's CALM/BREEZY/WINDY_WIND_THRESHOLD docstring),
+so storms were dead code that could never fire (live user report:
+"storms are not shown"). Retuned to ~p90 of realized wind — reachable
+in a genuine wind peak, still rare enough (combined with the 1%/tick
+roll) to read as a real weather event, not routine."""
 
 HEATWAVE_BUILD_TEMP = 18.5
 HEATWAVE_DRY_PRECIPITATION = 0.22
