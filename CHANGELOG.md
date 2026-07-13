@@ -4,11 +4,21 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
-## [0.43.2] — Fixed: unpaid civic upkeep was collapsing HUT housing near the population cap
+## [0.43.2] — Fixed: unpaid civic upkeep + lockstep building decay were collapsing HUT housing near the population cap
 
 Root-cause investigation into a live report of population "still
-declining and dying of starvation." Found a real bug, not just the
-already-documented Malthusian equilibrium.
+declining and dying of starvation." Found two compounding real bugs,
+not just the already-documented Malthusian equilibrium — the first fix
+alone measurably delayed but did not prevent the collapse, so a second
+fix followed in the same investigation. Verified with a matched
+three-way A/B (baseline / fix 1 only / both fixes, seed 42, default
+config, LLM disabled): cumulative starvation deaths at tick 20,000 were
+12 (baseline), 12 (fix 1 only, unaffected — the bug it fixes hadn't
+been hit yet at that tick), and 3 with both fixes; by tick 26,000-
+28,000, both baseline and fix-1-only had collapsed into deep housing
+deficits (huts_standing 78->16 and 98->47 respectively, cumulative
+deaths 147 and 216), while both fixes together showed zero housing
+deficit and huts_standing climbing smoothly with population throughout.
 
 ### Fixed
 
@@ -39,6 +49,29 @@ already-documented Malthusian equilibrium.
   standing buildings — HUTs now always decay at the plain weather/
   season rate regardless of the settlement's currency situation,
   matching the mechanic's own stated design.
+- **Building decay has zero per-building variance, so HUTs built in the
+  same growth spurt approach ruin in lockstep — and idle agents had no
+  way to notice.** A matched follow-up run (same seed, only the fix
+  above applied) showed the collapse still happened, just delayed and
+  arguably worse in absolute terms (huts_standing 98 -> 47, cumulative
+  deaths 28 -> 216 in one 2,000-tick window) — `Settlement.tick()`
+  applies the exact same `decay` value to every standing building of a
+  kind every tick (weather/season are settlement-wide), so a batch
+  built together has near-identical condition trajectories and crosses
+  `REPAIR_THRESHOLD` together. `_maybe_repair` only fires from
+  *incidental* colocation, and `AgentGoal.WANDER` (a common idle
+  fallback goal) had zero attraction toward a decaying building — so a
+  synchronized batch of HUTs could collectively run out of repair
+  attention with nobody nearby to catch it. Fixed by adding
+  `Population.damaged_building_positions` (mirrors `ready_farm_
+  positions`/`stocked_granary_positions`) and a new WANDER-goal branch
+  in `_dispatch_movement` that biases movement toward the nearest
+  below-threshold building — the same pattern FORAGE already uses for
+  food, no new `AgentGoal` or cognition-prompt changes. With both fixes
+  together, `huts_standing` tracked population smoothly through the
+  entire tested range with zero housing deficit, and cumulative
+  starvation deaths stayed at 2-3 through tick 22,000 versus 12-17 for
+  both the unfixed baseline and the first fix alone at the same ticks.
 
 ## [0.43.1] — More aggressive Ollama memory optimization: concurrency floor, keep_alive
 

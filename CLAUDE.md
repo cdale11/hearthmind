@@ -461,11 +461,33 @@ unpaid upkeep -> huts ruin -> housing capacity drops -> more crowding
 -> `CROWDING_ENERGY_MULTIPLIER` forces more RESTING -> fewer idle
 agents left to repair anything -> decay keeps winning. Fixed by
 splitting `decay` into a HUT-exempt base rate and a `civic_decay` rate
-(upkeep penalty) applied only to non-HUT buildings. This was very
-likely the real mechanism behind a live "population still declining
-and dying of starvation" report — worth checking first if a similar
-report recurs: is `huts_standing` actually tracking population growth,
-or collapsing at a specific trigger point.
+(upkeep penalty) applied only to non-HUT buildings.
+
+**This fix alone was not sufficient** — a matched follow-up run showed
+the collapse still happened, just delayed and, in absolute terms,
+worse (huts_standing 98->47, deaths 28->216 in one 2,000-tick window,
+because population/housing had grown further before hitting the same
+wall). Second root cause, same investigation: decay has zero per-
+building variance (weather/season are settlement-wide scalars applied
+identically to every standing building of a kind), so a batch of HUTs
+built together in a growth spurt approach `REPAIR_THRESHOLD` in
+lockstep — and `AgentGoal.WANDER` (a common idle fallback goal) had no
+attraction toward a decaying building, so `_maybe_repair` depended
+entirely on incidental colocation. Fixed by adding `Population.
+damaged_building_positions` and a WANDER-goal movement bias toward the
+nearest below-threshold building (`_dispatch_movement`), mirroring how
+FORAGE already biases toward food — no new `AgentGoal`, no cognition
+changes. With both fixes, `huts_standing` tracked population smoothly
+with zero housing deficit through the full tested range, and
+cumulative starvation deaths stayed at 2-3 through tick 22,000 versus
+12-17 for the unfixed baseline *and* the first fix alone at the same
+ticks. This was the real mechanism behind the live "population still
+declining and dying of starvation" report. Worth checking first if a
+similar report recurs: is `huts_standing` tracking population growth,
+or collapsing at a specific trigger point — and if a first fix only
+delays a collapse rather than eliminating it, treat that as a signal
+a second, deeper cause is still active, not as a partial success to
+stop at.
 
 ## Ollama memory, second pass (v0.43.1)
 

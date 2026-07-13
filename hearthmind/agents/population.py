@@ -448,6 +448,7 @@ class Population:
         )
         crowded = len(self.agents) > housing_capacity
         food_positions = (self.ready_farm_positions(farms), self.stocked_granary_positions(settlement))
+        repair_positions = self.damaged_building_positions(settlement)
         self.last_triggered_agent_ids = set()
         for agent in self.agents:
             agent.age_ticks += 1
@@ -484,6 +485,7 @@ class Population:
                     predator_tiles, position_snapshot, critically_hungry, weather,
                     rival_tiles=rival_tiles_by_agent.get(agent.id),
                     food_positions=food_positions,
+                    repair_positions=repair_positions,
                 )
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
@@ -773,6 +775,7 @@ class Population:
         weather: WeatherState | None = None,
         rival_tiles: set[tuple[int, int]] | None = None,
         food_positions: tuple[list[tuple[int, int]], list[tuple[int, int]]] | None = None,
+        repair_positions: list[tuple[int, int]] | None = None,
     ) -> None:
         """Goal-directed agents (FORAGE/SOCIALIZE) take a deliberate step
         toward a visible target when one exists; otherwise (including
@@ -821,6 +824,20 @@ class Population:
             target = cls._nearest_other_agent(agent, position_snapshot)
         elif effective_goal is AgentGoal.GATHER:
             target = cls._nearest_material_tile(agent, terrain)
+        elif effective_goal is AgentGoal.WANDER and repair_positions:
+            # Root-cause fix (v0.43.2 follow-up): a WANDERing agent
+            # previously had zero attraction toward a decaying building —
+            # `_maybe_repair` only ever fires from *incidental* colocation,
+            # so a batch of huts built in the same growth spurt (identical
+            # decay trajectory, no per-building variance) could all cross
+            # REPAIR_THRESHOLD together with nobody nearby to catch it,
+            # collapsing housing capacity in one window. WANDER is the
+            # common idle/no-pressing-need fallback goal (see
+            # llm/cognition.py's fallback_goal), so biasing it toward the
+            # settlement's most-damaged building gives every otherwise-
+            # idle agent a chance to become repair labor, the same way
+            # FORAGE already biases toward food. See docs/DECISIONS.md.
+            target = cls._nearest_position(agent, repair_positions)
 
         mount = _agent_mount(settlement, agent.id)
         if target is not None and cls._step_toward(agent, target, terrain, predator_tiles):
@@ -859,6 +876,18 @@ class Population:
             (b.x, b.y) for b in settlement.buildings
             if b.kind is BuildingKind.GRANARY and b.stage is BuildingStage.STANDING
             and (b.stored_food > 0 or can_buy_rations)
+        ]
+
+    @staticmethod
+    def damaged_building_positions(settlement: Settlement) -> list[tuple[int, int]]:
+        """Standing buildings at or below REPAIR_THRESHOLD — the WANDER-
+        goal repair attractor (v0.43.2 follow-up, see _dispatch_movement).
+        No distance cap when targeted, same rationale as farm/granary
+        positions: a settlement's own buildings are known landmarks to
+        its residents, not something they have to stumble across."""
+        return [
+            (b.x, b.y) for b in settlement.buildings
+            if b.stage is BuildingStage.STANDING and b.condition < REPAIR_THRESHOLD
         ]
 
     @staticmethod

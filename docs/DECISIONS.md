@@ -3420,12 +3420,67 @@ top of it, not the equilibrium itself. If a live run still shows
 excessive starvation after this fix, that reproduction-side lever is
 the next one to reach for, not another housing-side change.
 
-Verification in progress at commit time: a matched second 44,000-tick
-run (same seed, same config, only the `settlement/buildings.py` change
-applied) is running to confirm `huts_standing` stays proportional to
-population through the same tick range instead of collapsing — see the
-next DECISIONS.md/CHANGELOG entry (or this section's amendment) for the
-completed A/B numbers once that run finishes. `python3 -m py_compile`
-on the touched module passed; the fix's logic was also verified by
-inspection against the exact conditions the baseline run hit (unpaid
-upkeep fraction approaching 1.0 near the population cap).
+**Amendment: the HUT-upkeep fix alone was not sufficient.** A matched
+follow-up run (same seed 42, same config, only the `settlement/
+buildings.py` change applied) delayed the collapse but did not prevent
+it: `huts_standing` still crashed 98 -> 47 at tick 26,000 -> 28,000,
+population actually *dropped* 354 -> 256 in that window, and
+cumulative starvation deaths jumped 28 -> 216 — a larger single-window
+death count than the original baseline's 21 -> 147 at the same ticks,
+because the fixed run's housing/population had grown further before
+hitting the same underlying wall. This pointed at a second, deeper
+mechanism: `Settlement.tick()`'s decay has *zero* per-building
+variance — every standing building of a given kind loses the exact
+same condition every tick (weather/season are settlement-wide
+scalars). A batch of HUTs built together during a growth spurt
+(confirmed in the diagnostic: `huts_building` spiked 8 -> 10 -> 14 in
+the three checkpoints before the collapse, i.e. many started
+construction in the same narrow window) therefore have near-identical
+condition trajectories and approach `REPAIR_THRESHOLD` (0.5) together.
+`_maybe_repair` only fires from *incidental* colocation (any AWAKE
+agent physically standing on the building's tile) — and RESTING agents
+freeze in place rather than seeking shelter, while AWAKE agents on
+`AgentGoal.WANDER` (a common fallback goal, see `llm/cognition.py`'s
+`fallback_goal`) had zero attraction toward a decaying building. With
+`DECAY_PER_TICK_BASE=0.0004` and up to a combined ~5x weather/season/
+unpaid-upkeep multiplier, an unrepaired HUT can fully ruin in roughly
+1,300-2,500 ticks — squarely inside the observed 2,000-tick collapse
+window for a batch built together.
+
+Second fix, same investigation: added a `damaged_building_positions`
+helper (`Population`, mirrors `ready_farm_positions`/
+`stocked_granary_positions`'s exact shape) returning standing buildings
+below `REPAIR_THRESHOLD`, precomputed once per tick and passed into
+`_dispatch_movement`. A new branch, `elif effective_goal is AgentGoal.
+WANDER and repair_positions:`, biases a WANDERing agent's step toward
+the nearest one — no new `AgentGoal` enum value, no cognition/prompt
+changes, falls through to the unchanged random walk whenever nothing
+is damaged (the common case). This gives every otherwise-idle agent a
+real chance to become repair labor before a batch of buildings crosses
+into ruin together, the same way FORAGE already biases movement toward
+food.
+
+**Verified, matched three-way A/B** (seed 42, default `Config`,
+`llm_enabled=False`, checkpoints every 2,000 ticks):
+
+| tick | baseline pop / deaths | fix1-only pop / deaths | fix1+fix2 pop / deaths |
+|------|------------------------|--------------------------|---------------------------|
+| 12,000 | 45 / 7 | 45 / 7 | 58 / 2 |
+| 16,000 | 98 / 7 | 98 / 7 | 116 / 3 |
+| 20,000 | 161 / 12 | 161 / 12 | 266 / 3 |
+| 22,000 | 221 / 17 | 221 / 17 | 341 / 3 |
+| 26,000 | 318 / 37 | 354 / 28 | (huts_standing 98, zero deficit, still climbing) |
+| 28,000 | 313 / 147, huts_standing 16, deficit 221 | 256 / 216, huts_standing 47, deficit 9 | — |
+
+fix1-only actually looked *worse* than baseline at tick 28,000 by raw
+death count (216 vs 147) because it let population and the housing
+stock grow further before hitting the same still-unfixed lockstep-
+decay wall — consistent with the diagnosis, not a contradiction of it.
+fix1+fix2 together never entered a housing deficit through tick 22,000
+(`crowded` stayed `False` throughout, `huts_standing` tracking
+population smoothly: 6/8/11/19/30/39/56/80 across the same checkpoints
+baseline/fix1-only were both already deep in their respective
+collapses) and cumulative starvation deaths stayed at 2-3 for the
+entire run so far, against baseline/fix1-only's 12-17 at the same
+ticks — an order-of-magnitude improvement, not a marginal one.
+`python3 -m py_compile` on both touched modules passed throughout.
