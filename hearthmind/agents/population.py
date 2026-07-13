@@ -124,6 +124,7 @@ from hearthmind.settlement.buildings import (
     choose_building_kind,
     culture_effect_multiplier,
 )
+from hearthmind.settlement.institutions import Institution, InstitutionKind
 from hearthmind.settlement.vehicles import (
     AUTOMOBILE_MATERIALS_COST,
     CART_BONUS_CAP,
@@ -539,7 +540,9 @@ class Population:
         self.last_carrying_capacity = self.carrying_capacity(
             settlement, housing_capacity, weather_harsh, bool(predator_tiles),
         )
-        life_events.extend(self._maybe_reproduce(by_position, rng, self.last_carrying_capacity))
+        life_events.extend(
+            self._maybe_reproduce(by_position, rng, self.last_carrying_capacity, settlement, tick)
+        )
         life_events.extend(self._apply_deaths(killed_by_predator, settlement, died_of_disease))
         life_events.extend(self._maybe_welcome_migrant(rng, settlement))
         return life_events
@@ -1238,6 +1241,7 @@ class Population:
 
     def _maybe_reproduce(
         self, by_position: dict[tuple[int, int], list[Agent]], rng: random.Random, capacity: float,
+        settlement: Settlement, tick: int,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         if len(self.agents) >= capacity:
@@ -1295,9 +1299,39 @@ class Population:
                 _remember(child, f"I was born to {a.name} and {b.name}.")
                 _remember(a, f"{child.name} was born to us.")
                 _remember(b, f"{child.name} was born to us.")
+                self._extend_family(settlement, tick, a.id, b.id, child.id)
 
         self.agents.extend(newborns)
         return life_events
+
+    @staticmethod
+    def _extend_family(settlement: Settlement, tick: int, parent_a_id: int, parent_b_id: int, child_id: int) -> None:
+        """H3 (docs/ROADMAP.md Phase H): a birth is the cheapest, most
+        unambiguous moment to form or extend a FAMILY institution — no
+        LLM/goal decision involved, mirroring how A3's reproduction
+        itself is deterministic scaffolding. Reuses an existing family
+        if one already contains both parents (a second child born to the
+        same couple joins the same family rather than starting a new
+        one); otherwise creates one."""
+        existing = next(
+            (
+                inst for inst in settlement.institutions
+                if inst.kind is InstitutionKind.FAMILY
+                and parent_a_id in inst.member_agent_ids and parent_b_id in inst.member_agent_ids
+            ),
+            None,
+        )
+        if existing is not None:
+            existing.member_agent_ids.add(child_id)
+            return
+        family = Institution(
+            id=settlement.next_institution_id,
+            kind=InstitutionKind.FAMILY,
+            founding_tick=tick,
+            member_agent_ids={parent_a_id, parent_b_id, child_id},
+        )
+        settlement.next_institution_id += 1
+        settlement.institutions.append(family)
 
     def _maybe_welcome_migrant(self, rng: random.Random, settlement: Settlement) -> list[tuple[str, str]]:
         """The population equivalent of wildlife's `_maybe_recolonize` —

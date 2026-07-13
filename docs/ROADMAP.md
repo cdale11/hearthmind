@@ -528,7 +528,7 @@ Evolution point, staged rather than a single rewrite:
    selection itself (an agent avoiding a place its beliefs mark dangerous)
    is the concrete next mechanical payoff, not just more belief text.
 
-### H3. Institutions as first-class entities
+### [x] H3. Institutions as first-class entities (v1: families)
 
 Current state: none. Families exist only implicitly via `Agent.parents`;
 there is no persistent object representing a council, guild, market, or
@@ -548,6 +548,20 @@ because H6 (inheritance) needs an addressable family entity to inherit
 domain objects (most naturally a fifth domain, or folded into `Culture`)
 rather than a bolt-on registry, to keep the single-writer/tick-loop
 invariant intact.
+
+**Shipped, v0.46.0 (v1: families only).** `hearthmind.settlement.
+institutions.Institution` (generic id/kind/founding_tick/member_agent_
+ids/beliefs/name shape, `InstitutionKind.FAMILY` the only populated
+kind so far) lives on `Settlement.institutions` (folded into `Culture`,
+not a new fifth domain, per the option above). `Population.
+_extend_family` forms or extends a family automatically on every birth
+— no LLM/goal decision, matching how reproduction itself is
+deterministic. `Settlement.family_for(agent_id)` is the one consumer-
+facing lookup so far; institutions aren't yet read by dialogue/beliefs/
+cognition prompts, nor by anything on the death path (H7's future
+anchor). Councils/guilds/markets/religions, deliberate founding, and
+institution-scoped beliefs remain open follow-ups on the same
+`Institution` shape. See docs/DECISIONS.md, "H3: institutions v1."
 
 ### H4. Resource-driven economy: ownership, specialization, supply chains, trade
 

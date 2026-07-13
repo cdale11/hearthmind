@@ -3771,3 +3771,52 @@ settlement never builds housing/granaries in the observed window — the
 new mechanism only engages once there's real infrastructure to reason
 about, so it doesn't retroactively change already-understood early-game
 dynamics.
+
+## H3: institutions v1 — families as first-class entities
+
+Second implementation pass on Phase H, per explicit user instruction to
+follow H1 with H3. New module `hearthmind/settlement/institutions.py`:
+`Institution` (id, kind, founding_tick, member_agent_ids, a beliefs-
+shaped list, a name) and `InstitutionKind` (only `FAMILY` populated).
+One generic dataclass rather than a bespoke class per institution kind
+— the same "split into a small composable shape" instinct that drove
+the July 2026 Settlement-facade review, applied up front this time
+instead of after the fact. `Settlement.institutions`/`next_institution_
+id` were folded into the existing `SettlementCulture` domain object
+(passthrough properties on `Settlement`, same pattern as `beliefs`)
+rather than added as a new fifth facade domain — an institution is
+"part of what the village has become," the same category traditions
+and beliefs already occupy, and this avoids another round of facade-
+wide plumbing for one new list.
+
+`Population._extend_family` (called from `_maybe_reproduce` on every
+birth) either creates a new `FAMILY` institution from the two parents
+plus the child, or — if an existing family already contains both
+parent ids — adds the child to it, so a second child born to the same
+couple joins one family rather than starting a redundant one. This is
+deliberately the *only* formation path in v1: no deliberate founding
+(an agent goal/LLM decision to start a guild), no other institution
+kinds, and nothing yet reads `institutions` besides serialization and
+`summary()`'s `{total, families}` counts plus the new `Settlement.
+family_for(agent_id)` lookup. `member_agent_ids` is never pruned when a
+member dies — outliving its members is the entire point of an
+institution, and the future H7 inheritance pass is expected to hook
+this exact set (move something from a dying member to the family's
+other living members) rather than requiring new state.
+
+Verified: a direct unit-level script (`Population._extend_family`
+called three times — two children to the same parent pair correctly
+land in one family with all four members `{parent_a, parent_b, child1,
+child2}`; a different parent pair correctly starts a second, separate
+family; `Settlement.family_for()` resolves both correctly and returns
+`None` for a non-member) plus a live-engine integration check: with
+`REPRODUCTION_CHANCE_PER_TICK` monkeypatched to 1.0 purely to make a
+birth observable within a short run (no other engine logic bypassed —
+still real colocation, maturity, health, and surplus gating), a real
+birth inside `World.tick()`'s ordinary loop produced exactly one family
+institution with the correct 3-member set. Both `Settlement.to_dict()/
+from_dict()` and a full `World.to_dict()/from_dict()` round-trip
+preserve the institution list byte-identically. A pre-v0.46.0 snapshot
+backfills to an empty `institutions` list with no migration step
+needed (same `.get(key, [])` pattern every prior additive field in this
+codebase has used).

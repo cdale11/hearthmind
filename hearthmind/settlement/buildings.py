@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from hearthmind.settlement.institutions import Institution, InstitutionKind
 from hearthmind.settlement.vehicles import (
     VEHICLE_DECAY_PER_TICK_BASE,
     VEHICLE_DECAY_WEATHER_MULTIPLIER,
@@ -827,6 +828,14 @@ class SettlementCulture:
     llm/beliefs.MAX_BELIEFS — the concrete expression of "cognition as
     continuous rather than stateless". Not guaranteed correct, exactly
     like a person's own beliefs about their community."""
+    institutions: list["Institution"] = field(default_factory=list)
+    """Persistent entities the population organizes into — v1 only
+    forms FAMILY institutions, automatically, on a child's birth (H3,
+    docs/ROADMAP.md "Phase H"). Lives on Culture rather than a new
+    fifth domain: an institution is "part of what the village has
+    become," the same category traditions/beliefs already occupy, and
+    this avoids a facade-wide passthrough churn for one new list."""
+    next_institution_id: int = 0
 
 
 @dataclass
@@ -885,6 +894,7 @@ class Settlement:
         era: str = "industrial", founding_scenario: str = "", temperament: float = 0.0,
         beliefs: list[dict] | None = None, omen_history: list[dict] | None = None,
         player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
+        institutions: list[Institution] | None = None, next_institution_id: int = 0,
     ):
         # Legacy flat-kwarg constructor, kept so from_dict/tests/callers
         # predating the split keep working unchanged.
@@ -906,6 +916,8 @@ class Settlement:
             festivals=festivals if festivals is not None else [],
             festivals_held=festivals_held,
             beliefs=beliefs if beliefs is not None else [],
+            institutions=institutions if institutions is not None else [],
+            next_institution_id=next_institution_id,
         )
         self.disposition = SettlementDisposition(
             temperament=temperament,
@@ -1070,6 +1082,36 @@ class Settlement:
     @beliefs.setter
     def beliefs(self, value: list[dict]) -> None:
         self.culture.beliefs = value
+
+    @property
+    def institutions(self) -> list[Institution]:
+        return self.culture.institutions
+
+    @institutions.setter
+    def institutions(self, value: list[Institution]) -> None:
+        self.culture.institutions = value
+
+    @property
+    def next_institution_id(self) -> int:
+        return self.culture.next_institution_id
+
+    @next_institution_id.setter
+    def next_institution_id(self, value: int) -> None:
+        self.culture.next_institution_id = value
+
+    def family_for(self, agent_id: int) -> Institution | None:
+        """The most recently formed FAMILY institution `agent_id` belongs
+        to, or None. An agent can accumulate membership in more than one
+        family across a lifetime (the one they were born into, then one
+        they start with a partner) — "most recent" is the practical
+        default for any future consumer (dialogue, inheritance) that
+        wants a single answer to "this person's family" rather than the
+        full list."""
+        matches = [
+            inst for inst in self.institutions
+            if inst.kind is InstitutionKind.FAMILY and agent_id in inst.member_agent_ids
+        ]
+        return max(matches, key=lambda inst: inst.founding_tick) if matches else None
 
     @property
     def temperament(self) -> float:
@@ -1307,6 +1349,10 @@ class Settlement:
             "temperament": round(self.temperament, 3),
             "omen_history": list(self.omen_history),
             "player_standing": round(self.player_standing, 3),
+            "institutions": {
+                "total": len(self.institutions),
+                "families": sum(1 for i in self.institutions if i.kind is InstitutionKind.FAMILY),
+            },
         }
 
     def infrastructure_report(self) -> list[dict]:
@@ -1395,6 +1441,8 @@ class Settlement:
             "temperament": round(self.temperament, 4),
             "omen_history": list(self.omen_history),
             "player_standing": round(self.player_standing, 4),
+            "institutions": [i.to_dict() for i in self.institutions],
+            "next_institution_id": self.next_institution_id,
         }
 
     @classmethod
@@ -1426,4 +1474,6 @@ class Settlement:
             temperament=data.get("temperament", 0.0),
             omen_history=list(data.get("omen_history", [])),
             player_standing=data.get("player_standing", 0.0),
+            institutions=[Institution.from_dict(i) for i in data.get("institutions", [])],
+            next_institution_id=data.get("next_institution_id", 0),
         )

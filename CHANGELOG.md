@@ -4,6 +4,62 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.46.0] — H3: institutions as first-class entities (families, v1)
+
+### Added
+
+- **`hearthmind.settlement.institutions`** (new module): `Institution`
+  — a persistent entity (`id`, `kind`, `founding_tick`,
+  `member_agent_ids`, a `beliefs`-shaped list of its own, a `name`) that
+  outlives the individuals who belong to it, and `InstitutionKind`
+  (only `FAMILY` populated in v1; `Institution`'s shape is deliberately
+  generic so future kinds — council, guild, market, religion — reuse it
+  rather than each getting a bespoke class). `Settlement.institutions`
+  (folded into the existing `SettlementCulture` domain rather than a
+  new fifth facade domain — an institution is "part of what the village
+  has become," the same category traditions/beliefs already occupy) and
+  `Settlement.next_institution_id` are new passthrough-property fields,
+  fully wired through `to_dict`/`from_dict`/`summary()` (an empty
+  `"institutions"` list backfills cleanly for every pre-v0.46.0
+  snapshot). `Settlement.family_for(agent_id)` returns the most
+  recently formed family an agent belongs to, or `None`.
+- **`Population._extend_family`**: a birth (`_maybe_reproduce`) now
+  forms or extends a `FAMILY` institution automatically — a second
+  child born to the same parent pair joins the existing family rather
+  than starting a new one (matched by both parent ids already being
+  members). Deliberately deterministic and unconditional, mirroring how
+  reproduction itself is deterministic scaffolding (A3) rather than an
+  LLM/goal decision — no consumer beyond serialization/`summary()`
+  reads institutions yet in this v1; that's the natural next slice
+  (dialogue/beliefs referencing "the Hearth family," H7 inheritance
+  moving things through a family on death) once this base exists.
+
+### Notes
+
+Scope is deliberately v1-narrow, per docs/ROADMAP.md's H3 sequencing
+call (families first, cheapest and a prerequisite for later items):
+only automatic family formation on birth, no deliberate founding (an
+agent choosing to start a guild/council/market), no consumption of
+`institutions` by cognition/dialogue/beliefs prompts yet, and
+`member_agent_ids` is never pruned on death (an institution outliving
+its members is the entire point — also the intended anchor point for a
+future H7 inheritance pass). `Institution.beliefs` exists but is
+unpopulated by anything in this pass — reserved for a future H2/H3
+crossover (institution-scoped world models, the same shape
+`Settlement.beliefs` already uses).
+
+Verified with a direct unit-level script (three `_extend_family` calls
+— two children to the same couple correctly join one family with all
+four members; a different couple correctly starts a second family;
+`family_for()` resolves both correctly and returns `None` for a
+non-member) plus a live-engine integration check: a real birth inside
+`World.tick()`'s ordinary tick loop (reproduction odds forced to 1.0
+via a monkeypatched constant purely to make a birth observable inside a
+short run — no engine logic was bypassed, only the RNG threshold) was
+confirmed to produce exactly one family institution with the correct
+membership, and both `Settlement.to_dict()`/`from_dict()` and a full
+`World.to_dict()`/`from_dict()` round-trip preserve it byte-identically.
+
 ## [0.45.0] — H1: dynamic carrying capacity replaces the flat population cap
 
 ### Added
