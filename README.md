@@ -199,6 +199,63 @@ python3 -m hearthmind.inspect_world --db world.sqlite3 --agents
 for each inhabitant's current `goal`/`goal_reason`, and watch the
 `Recent events` list for `chronicle` entries — see `docs/TESTING.md`.
 
+### Memory tuning for 8GB RAM / integrated-GPU hardware
+
+An iGPU shares system RAM rather than having its own dedicated VRAM —
+every megabyte Ollama uses for model weights and KV cache comes
+directly out of the same 8GB pool the OS and the simulation process
+also need, so there's no separate GPU memory budget to lean on.
+`qwen3.5:2b` (the default) at its standard Q4 quantization is the right
+size class for this: roughly 1.3-1.7GB of resident weights, small
+enough that the process-level tuning below leaves comfortable headroom.
+Rough budget on a live 8GB machine: OS baseline ~1-1.5GB, Hearthmind's
+own process well under 200MB even at population 400 (see
+`docs/DECISIONS.md`, memory-leak fixes), Ollama server overhead
+~300-500MB, model weights ~1.3-1.7GB, plus `llm_max_concurrent` (2) x a
+small per-call KV cache bounded by `llm_num_ctx` (2048) — comfortably
+under 4-5GB total, leaving multiple GB of headroom rather than sitting
+at the edge.
+
+Levers already applied on the Hearthmind side (`Config`, see
+`docs/DECISIONS.md` for the full history): `llm_num_ctx=2048`/
+`llm_num_predict=512` bound per-call memory and worst-case generation
+length; `llm_keep_alive="3m"` releases the model from memory during a
+real lull instead of holding it resident indefinitely;
+`llm_max_concurrent=2` is a hard floor — LLM richness is treated as
+non-negotiable, so this project will not trade it away for further
+memory headroom (see `docs/DECISIONS.md`, "LLM concurrency floor
+restored").
+
+If a live run still shows swap pressure, the remaining levers are all
+on the Ollama *server* side, outside this repo, worth setting as
+environment variables before starting `ollama serve`:
+
+```bash
+# Never load more than one model at a time (relevant if you ever
+# experiment with a second model alongside qwen3.5:2b).
+export OLLAMA_MAX_LOADED_MODELS=1
+
+# Match Ollama's own server-side concurrency cap to Config.llm_max_
+# concurrent, so it never provisions more simultaneous request slots
+# (and their KV-cache buffers) than Hearthmind will actually send it.
+export OLLAMA_NUM_PARALLEL=2
+
+# A server-wide default matching Config.llm_keep_alive, in case
+# anything else on the machine talks to the same Ollama instance.
+export OLLAMA_KEEP_ALIVE=3m
+```
+
+If memory pressure persists even with all of the above, the next step
+is a smaller/more aggressively quantized model (e.g. a Q4_0 or Q3
+quantization of the same 2B model, trading some output quality for a
+smaller resident footprint) rather than lowering `llm_max_concurrent`
+further — concurrency is a non-negotiable lever per the instruction
+above. Conversely, if `qwen3.5:2b`'s output quality is ever
+insufficient, `qwen3:4b` is the documented size-up path (`--llm-model
+qwen3:4b`) — larger (~2.5-3.5GB Q4 weights) but still fits the same
+budget with somewhat less headroom; size up and report back rather than
+silently reverting, per the standing project policy.
+
 ## World genesis (LLM-chosen seed) and calendar
 
 Omit `--seed` and a brand-new world runs a one-time "genesis" LLM call
