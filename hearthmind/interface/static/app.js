@@ -292,19 +292,51 @@ let relVisible = false;
 let relAnimHandle = null;
 const relNodes = new Map(); // agent id -> {x, y, vx, vy, name}
 
-function relBuildEdges(agents) {
+// Family-tree edges (docs/DECISIONS.md, "continue expanding"): a
+// living FAMILY institution's member_agent_ids gives real kinship
+// pairs, distinct from the affinity-driven fondness edges above — a
+// parent/child pair is family regardless of how they currently feel
+// about each other, so these are drawn even below REL_MIN_AFFINITY.
+function relFamilyPairs(institutions) {
+  const pairs = new Set();
+  for (const inst of institutions || []) {
+    if (inst.kind !== "family") continue;
+    const ids = inst.member_agent_ids || [];
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const key = ids[i] < ids[j] ? `${ids[i]}:${ids[j]}` : `${ids[j]}:${ids[i]}`;
+        pairs.add(key);
+      }
+    }
+  }
+  return pairs;
+}
+
+function relBuildEdges(agents, institutions) {
   const byId = new Map(agents.map((a) => [a.id, a]));
+  const familyPairs = relFamilyPairs(institutions);
   const seen = new Set();
   const edges = [];
   for (const a of agents) {
     for (const [otherIdStr, affinity] of Object.entries(a.relationships || {})) {
       const otherId = Number(otherIdStr);
-      if (!byId.has(otherId) || Math.abs(affinity) < REL_MIN_AFFINITY) continue;
       const key = a.id < otherId ? `${a.id}:${otherId}` : `${otherId}:${a.id}`;
-      if (seen.has(key)) continue;
+      if (!byId.has(otherId) || seen.has(key)) continue;
+      const isFamily = familyPairs.has(key);
+      if (!isFamily && Math.abs(affinity) < REL_MIN_AFFINITY) continue;
       seen.add(key);
-      edges.push({ a: a.id, b: otherId, affinity });
+      edges.push({ a: a.id, b: otherId, affinity, family: isFamily });
     }
+  }
+  // A family pair with no relationships entry at all (e.g. hasn't
+  // interacted enough yet to register affinity) still gets a line —
+  // kinship doesn't require prior contact the way a fondness bond does.
+  for (const key of familyPairs) {
+    if (seen.has(key)) continue;
+    const [aId, bId] = key.split(":").map(Number);
+    if (!byId.has(aId) || !byId.has(bId)) continue;
+    seen.add(key);
+    edges.push({ a: aId, b: bId, affinity: 0, family: true });
   }
   return edges;
 }
@@ -365,14 +397,25 @@ function relDraw(edges) {
   for (const e of edges) {
     const n1 = relNodes.get(e.a), n2 = relNodes.get(e.b);
     if (!n1 || !n2) continue;
-    const alpha = Math.min(1, Math.abs(e.affinity) * 1.5);
-    ctx.strokeStyle = e.affinity >= 0 ? `rgba(127, 174, 74, ${alpha})` : `rgba(224, 71, 60, ${alpha})`;
-    ctx.lineWidth = Math.max(0.6, Math.abs(e.affinity) * 3);
     ctx.beginPath();
+    if (e.family) {
+      // Kinship, not current fondness — a distinct warm gold dashed
+      // line, drawn independent of affinity color so a family pair
+      // who happen to be at odds still visibly reads as family.
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = "rgba(216, 178, 84, 0.85)";
+      ctx.lineWidth = 1.3;
+    } else {
+      ctx.setLineDash([]);
+      const alpha = Math.min(1, Math.abs(e.affinity) * 1.5);
+      ctx.strokeStyle = e.affinity >= 0 ? `rgba(127, 174, 74, ${alpha})` : `rgba(224, 71, 60, ${alpha})`;
+      ctx.lineWidth = Math.max(0.6, Math.abs(e.affinity) * 3);
+    }
     ctx.moveTo(n1.x, n1.y);
     ctx.lineTo(n2.x, n2.y);
     ctx.stroke();
   }
+  ctx.setLineDash([]);
   ctx.fillStyle = "#d8c9a3";
   for (const n of relNodes.values()) {
     ctx.beginPath();
@@ -384,7 +427,8 @@ function relDraw(edges) {
 function relFrame() {
   if (!relVisible) return;
   const agents = (latest && latest.agents) || [];
-  const edges = relBuildEdges(agents);
+  const institutions = (latest && latest.institutions) || [];
+  const edges = relBuildEdges(agents, institutions);
   relStep(agents, edges);
   relDraw(edges);
   relAnimHandle = requestAnimationFrame(relFrame);
@@ -868,12 +912,30 @@ function renderNpcInspector() {
     <span>resilience ${(traits.resilience || 0).toFixed(2)} <span class="muted">(${traitLabel(traits.resilience)})</span></span>
     <span>sociability ${(traits.sociability || 0).toFixed(2)} <span class="muted">(${traitLabel(traits.sociability)})</span></span>
     <span>ambition ${(traits.ambition || 0).toFixed(2)} <span class="muted">(${traitLabel(traits.ambition)})</span></span>
+    <span>openness ${(traits.openness || 0).toFixed(2)} <span class="muted">(${traitLabel(traits.openness)})</span></span>
   </div>`;
   const skills = agent.skills || {};
   const skillEntries = Object.entries(skills).filter(([, v]) => v > 0.01);
   const skillsHtml = skillEntries.length
     ? `<div class="npc-stats-row">${skillEntries.map(([name, v]) => `<span>${name} ${v.toFixed(2)}</span>`).join("")}</div>`
     : `<div class="muted">no notable skill yet</div>`;
+
+  const myInstitutions = ((latest.institutions) || []).filter(
+    (i) => (i.member_agent_ids || []).includes(agent.id)
+  );
+  const institutionLabel = (inst) => {
+    if (inst.kind === "family") {
+      const others = (inst.member_agent_ids || []).filter((id) => id !== agent.id)
+        .map((id) => (byId.get(id) || {}).name).filter(Boolean);
+      return others.length ? `Family, with ${others.join(", ")}` : "Family";
+    }
+    if (inst.kind === "council") return "Sits on the council of elders";
+    if (inst.kind === "guild") return `Member of the ${inst.name} guild`;
+    return inst.kind;
+  };
+  const institutionsHtml = myInstitutions.length
+    ? `<ul>${myInstitutions.map((i) => `<li>${institutionLabel(i)}</li>`).join("")}</ul>`
+    : `<div class="muted">no institution ties yet</div>`;
 
   npcContent.innerHTML = `
     <h3>${agent.name}</h3>
@@ -902,6 +964,10 @@ function renderNpcInspector() {
     <div class="npc-section">
       <h4>Skills</h4>
       ${skillsHtml}
+    </div>
+    <div class="npc-section">
+      <h4>Institutions</h4>
+      ${institutionsHtml}
     </div>
     <div class="npc-section">
       <h4>Vitals</h4>
@@ -1024,10 +1090,11 @@ function renderStats(summary) {
     [
       "Personality (avg)",
       `resilience ${(p.avg_resilience || 0).toFixed(2)}, sociability ${(p.avg_sociability || 0).toFixed(2)}, ` +
-      `ambition ${(p.avg_ambition || 0).toFixed(2)}`,
+      `ambition ${(p.avg_ambition || 0).toFixed(2)}, openness ${(p.avg_openness || 0).toFixed(2)}`,
       "Population-wide average of each personal trait axis (-1..1, 0 = neutral). Resilience is worn down by grief/" +
       "violence/hunger and recovers slowly; sociability rises with positive trade contact; ambition rises when an " +
-      "agent founds a building or first masters a skill. All three drift back toward neutral over time.",
+      "agent founds a building or first masters a skill; openness rises on direct contact with outside news (a " +
+      "caravan's rumor). All four drift back toward neutral over time.",
     ],
     ["Buildings", `${s.total} (${s.standing} standing, ${s.under_construction} building, ${s.ruined} ruined)`, null],
     [

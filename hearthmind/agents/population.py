@@ -81,6 +81,9 @@ from hearthmind.agents.agent import (
     TRAIT_GRIEF_NUDGE,
     TRAIT_MEAN_REVERSION,
     TRAIT_NOTABLE_THRESHOLD,
+    TRAIT_OPENNESS,
+    TRAIT_OPENNESS_CARAVAN_NUDGE,
+    TRAIT_OPENNESS_MIGRANT_WELCOME_INFLUENCE,
     TRAIT_RESILIENCE,
     TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE,
     TRAIT_RESILIENCE_STARVATION_TOLERANCE_INFLUENCE,
@@ -1542,7 +1545,7 @@ class Population:
         and cost real per-tick CPU for no observable benefit between
         month boundaries."""
         for agent in self.agents:
-            for trait in (TRAIT_RESILIENCE, TRAIT_SOCIABILITY, TRAIT_AMBITION):
+            for trait in (TRAIT_RESILIENCE, TRAIT_SOCIABILITY, TRAIT_AMBITION, TRAIT_OPENNESS):
                 current = agent.traits.get(trait, 0.0)
                 step = rng.uniform(-TRAIT_STEP_MAX, TRAIT_STEP_MAX)
                 agent.traits[trait] = max(-1.0, min(1.0, current * TRAIT_MEAN_REVERSION + step))
@@ -1874,6 +1877,12 @@ class Population:
         if count == 0 or count >= POPULATION_CRITICAL_THRESHOLD:
             return []
         chance = MIGRANT_CHECK_CHANCE_PER_TICK * (1.0 + max(0.0, settlement.temperament) * MIGRANT_TEMPERAMENT_INFLUENCE)
+        # H6 v4: the surviving remnant's own average openness nudges how
+        # readily it welcomes a stranger — see TRAIT_OPENNESS_MIGRANT_
+        # WELCOME_INFLUENCE.
+        avg_openness = sum(a.traits.get(TRAIT_OPENNESS, 0.0) for a in self.agents) / count
+        chance *= 1.0 + avg_openness * TRAIT_OPENNESS_MIGRANT_WELCOME_INFLUENCE
+        chance = max(0.0, chance)
         if rng.random() >= chance:
             return []
         if settlement.buildings:
@@ -2947,6 +2956,7 @@ class Population:
         listeners = rng.sample(self.agents, k=min(count, len(self.agents)))
         for agent in listeners:
             _remember(agent, text)
+            _nudge_trait(agent, TRAIT_OPENNESS, TRAIT_OPENNESS_CARAVAN_NUDGE)
         if listeners:
             self.rumors_seeded_total += 1
             self.rumor_listener_exposures_total += len(listeners)
@@ -3029,6 +3039,9 @@ class Population:
             ) if total else 0.0,
             "avg_ambition": round(
                 sum(a.traits.get(TRAIT_AMBITION, 0.0) for a in self.agents) / total, 3
+            ) if total else 0.0,
+            "avg_openness": round(
+                sum(a.traits.get(TRAIT_OPENNESS, 0.0) for a in self.agents) / total, 3
             ) if total else 0.0,
             "rumors_seeded_total": self.rumors_seeded_total,
             "rumor_listener_exposures_total": self.rumor_listener_exposures_total,

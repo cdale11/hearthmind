@@ -1407,6 +1407,14 @@ class SimulationEngine:
             "roads": self.world.roads.to_dict()["wear"],
             "diagnostics": self._diagnostics_snapshot(),
             "infrastructure": self.world.settlement.infrastructure_report(),
+            # Full institution membership (not just settlement.summary()'s
+            # counts-only view) — added for the relationship graph's
+            # family-tree edges and the NPC inspector's institution
+            # membership display (docs/DECISIONS.md, "continue expanding").
+            # A separate top-level key rather than nested in `summary`,
+            # matching how buildings/vehicles/farms are already broadcast
+            # alongside it rather than folded in.
+            "institutions": [i.to_dict() for i in self.world.settlement.institutions],
         }
         task = asyncio.create_task(self._broadcaster.broadcast(payload))
         self._background_tasks.add(task)

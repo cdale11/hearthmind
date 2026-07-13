@@ -5073,3 +5073,106 @@ browser available in this environment); not visually verified.
 
 Full 5,000-tick smoke run post-batch: 0.91ms/tick, consistent with the
 pre-batch baseline — no regression.
+
+## "Continue expanding," round two (v0.61.0)
+
+Second explicit "Continue expanding" follow-up. Same discipline as the
+first round: an Explore-agent audit first (trait axis count, H4 supply
+chain, relationship-graph history, disaster narration architecture),
+then one substantial fully-verified item per category, so the choices
+are grounded in what's actually still open rather than assumption or
+re-covering v0.60.0's ground.
+
+**Deepen: `TRAIT_OPENNESS` (H6 v4).** The audit found the answer
+already half-written into the codebase: `docs/ROADMAP.md`'s H6 section
+has said "identity/values remain open" after every prior trait
+extension (resilience/sociability shipped as v1, ambition as v3), and
+`Agent.traits`'s own docstring still read "two axes... v1" despite
+ambition already existing — stale documentation pointing at exactly
+the gap to close. Fourth axis: -1 (rooted) to +1 (drawn to the
+unfamiliar). Unlike the other three — resilience worn by hardship,
+sociability raised by routine positive contact, ambition earned
+through achievement — openness is shaped by *exposure*, the one thing
+genuinely scarce in a small, mostly self-contained village. Nudge:
+every listener a caravan's outside rumor reaches
+(`Population.spread_rumor`, already the project's one deliberate
+"contact with the wider world" channel — see the caravan system,
+integration milestone) gets `TRAIT_OPENNESS_CARAVAN_NUDGE` (0.05,
+larger than sociability's routine 0.015 contact nudge, matching
+ambition's "rarer event -> bigger per-occurrence nudge" precedent).
+Consumption: `_maybe_welcome_migrant`'s roll chance is scaled by the
+surviving remnant's average openness (`TRAIT_OPENNESS_MIGRANT_
+WELCOME_INFLUENCE`, 0.3, same magnitude class as sociability's contact
+-chance influence) — a village whose few survivors lean toward the
+unfamiliar welcomes a stranger somewhat more readily, closing
+openness's own write-only loop in the same commit that introduces it,
+matching how every other trait axis in this project has been
+introduced-and-consumed together since the integration milestone
+established that discipline. Included in the monthly bounded-random-
+walk (`_tick_traits`), `describe_traits`' prompt text, `Population.
+summary()`'s `avg_openness`, and both the browser stats legend and the
+NPC inspector's personality row.
+
+Verified: a direct check that every listener `spread_rumor` reaches
+gets nudged by exactly `TRAIT_OPENNESS_CARAVAN_NUDGE`; a comparison
+(3,000 independent single-shot trials per condition, fresh population
+each trial to avoid the "population no longer critical" gate closing
+after the first success) measuring more migrant arrivals for a
+population with `TRAIT_OPENNESS=+0.9` than one with `-0.9` (12 vs. 9 —
+correctly directional; the trial count is small relative to the
+already-rare per-tick base chance, so the ratio is noisy, but the
+mechanism itself is a direct, simple multiplier read from code, not in
+question).
+
+**Close a gap: family-tree edges in the relationship graph.**
+`docs/DECISIONS.md`'s own relationship-graph entry has listed
+"family-tree edges" among deliberately-deferred items since that
+panel first shipped — flagged, never revisited. Root cause found by
+the audit: the per-tick broadcast payload (`SimulationEngine._maybe_
+broadcast`) never sent `Settlement.institutions` at all — only the
+counts-only view nested in `settlement.summary()` (total/families/
+councils/guilds), with no `member_agent_ids` the frontend could
+actually use. Added a new top-level `"institutions"` key to the
+broadcast payload (full `Institution.to_dict()` list, alongside
+buildings/vehicles/farms — not nested in `summary`, matching how those
+are already broadcast separately). Frontend: `relFamilyPairs`
+extracts kinship pairs from every living FAMILY institution's
+membership; `relBuildEdges` includes them even below the graph's
+normal `REL_MIN_AFFINITY` cutoff (kinship is structurally real
+regardless of current fondness, unlike an ordinary bond which needs to
+have actually formed); `relDraw` renders them as a distinct dashed
+gold line, independent of the existing green/red affinity coloring, so
+a family pair currently at odds still visibly reads as family.
+
+**UI depth: NPC inspector shows institution membership.** Same new
+broadcast data, second consumer: the inspector modal gained an
+"Institutions" section — named family members, "sits on the council of
+elders," or "member of the {trade} guild" — closing the loop from
+v0.60.0's GUILD addition, which had no per-agent visibility anywhere
+in the UI beyond the settlement-wide `guilds` name list.
+
+**Content variety: disaster narration.** The audit confirmed
+`disasters.py`'s own module docstring explicitly decided "no new LLM
+call is added here" — narration is chronicle/omens' job, not this
+module's. Respecting that architectural boundary rather than
+reopening it: each of the five disaster onset/damage log lines (flood
+submerging ground, wildfire igniting, storm damage, heatwave settling
+in, frost damage) gained two more purely-deterministic template
+variants, picked by the tick's own already-in-scope `rng` — the exact
+same "cycle a small fixed pool" shape the LLM fallback pools already
+use throughout this project, just with zero LLM involvement, so a
+long-running world's disaster log stops repeating the identical
+sentence verbatim every single time a given disaster kind fires.
+
+Verified: a 20,000-tick real-engine run (deterministic fallback)
+confirming family institutions actually form under real play and that
+their serialized shape (`kind: "family"`, `member_agent_ids: [...]`)
+matches exactly what the new frontend code reads; a direct
+`WorldBroadcaster.get_state()` check confirming `"institutions"`
+reaches the live payload; a sampling check confirming all disaster
+template variants are reachable; `node -c` on app.js (no real browser
+available in this environment — visual rendering of the dashed-gold
+edges and the new inspector section is unverified); a 5,000-tick
+full-engine smoke run (0.80ms/tick, consistent with the pre-batch
+baseline, no regression from the added broadcast payload key or any
+other change in this batch).

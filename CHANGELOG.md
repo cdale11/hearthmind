@@ -4,6 +4,56 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.61.0] — Continue expanding: TRAIT_OPENNESS, family-tree edges, disaster variety, NPC institutions
+
+Second follow-up batch, scoped after an Explore-agent audit of trait
+axes, the H4 supply chain, the relationship graph, and disaster
+narration to find genuine unimplemented next steps rather than
+re-covering ground already shipped.
+
+### Added
+
+- **`TRAIT_OPENNESS` (H6 v4)**: a fourth personality axis, closing the
+  "identity/values remain open" note the roadmap has carried since
+  ambition (the third axis) shipped. -1 = rooted in the village's own
+  ways, +1 = drawn to the unfamiliar. Nudged up on direct outside
+  contact — every listener a caravan's rumor reaches
+  (`Population.spread_rumor`) — and consumed by `_maybe_welcome_
+  migrant`'s roll chance (a village whose survivors lean open welcomes
+  a stranger more readily). Included in the monthly trait random walk,
+  `Population.summary()`'s `avg_openness`, `describe_traits`'
+  cognition/dialogue prompt text, and the browser stats legend/NPC
+  inspector.
+- **Family-tree edges in the relationship graph**: the browser's
+  per-tick payload now broadcasts full `Settlement.institutions`
+  (previously only counts-only via `summary()`). The relationship
+  graph draws a distinct dashed-gold line for any pair sharing a
+  living FAMILY institution — kinship, shown regardless of current
+  affinity (even below the graph's normal `REL_MIN_AFFINITY` cutoff) —
+  distinct from the existing green/red fondness-based edges. Closes an
+  item flagged (never built) since the original relationship-graph
+  work.
+- **NPC inspector shows institution membership**: a new "Institutions"
+  section (family members by name, council seat, guild trade) using
+  the same broadcast data as the family-tree edges above.
+- **Disaster narration variety**: flood/wildfire onset, storm damage,
+  heatwave onset, and frost damage each gained 2 more deterministic
+  template variants, cycled by the tick's own RNG — no new LLM call
+  (the module's standing "no new LLM call is added here" decision is
+  unchanged; this is pure template variety, the same "cycle a small
+  fixed pool" shape the LLM fallback pools use, just without ever
+  touching an LLM).
+
+Verified: direct checks that `spread_rumor` nudges every listener's
+openness and that `_maybe_welcome_migrant`'s success rate measurably
+rises with average population openness; a 20,000-tick real-engine run
+confirming family institutions form and their broadcast-payload shape
+(`kind`, `member_agent_ids`) matches what the frontend code expects; a
+live `WorldBroadcaster` check confirming `institutions` reaches the
+per-tick payload; a sampling check confirming all disaster template
+variants get used; `node -c` on app.js; a 5,000-tick full-engine smoke
+run (0.80ms/tick, no regression).
+
 ## [0.60.0] — Continue expanding: GUILD institutions, rumor instrumentation, content variety, NPC personality
 
 Explicit user follow-up ("continue expanding") to v0.59.0's four-front

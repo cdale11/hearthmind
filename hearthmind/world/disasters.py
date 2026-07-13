@@ -186,6 +186,44 @@ class DisasterState:
         )
 
 
+_FLOOD_ONSET_TEMPLATES = (
+    "Floodwater swallowed the ground near ({x}, {y}).",
+    "The river burst its banks near ({x}, {y}), water rising fast.",
+    "Runoff pooled into a sudden flood near ({x}, {y}).",
+)
+_WILDFIRE_ONSET_TEMPLATES = (
+    "A wildfire broke out in the forest near ({x}, {y}).",
+    "Dry timber near ({x}, {y}) caught and flared into a wildfire.",
+    "Smoke rose from the treeline near ({x}, {y}) as fire took hold.",
+)
+_STORM_TEMPLATES = (
+    "A violent storm tore through, damaging {hit} structure{s}.",
+    "Howling wind battered the settlement, damaging {hit} structure{s}.",
+    "A sudden squall lashed the village, damaging {hit} structure{s}.",
+)
+_HEATWAVE_ONSET_TEMPLATES = (
+    "A heatwave settled over the land, the air thick and dry.",
+    "The heat turned oppressive, the sky pale and unrelenting.",
+    "A dry, punishing heat rolled in and stayed.",
+)
+_FROST_TEMPLATES = (
+    "A hard frost struck, damaging {hit} farm plot{s}.",
+    "A killing frost settled overnight, damaging {hit} farm plot{s}.",
+    "Ice crept over the fields by morning, damaging {hit} farm plot{s}.",
+)
+"""Content-variety pass (docs/DECISIONS.md "continue expanding"): the
+module docstring's "no new LLM call is added here" decision stands —
+these are small, purely deterministic template pools (same "cycle
+through a fixed pool" shape the LLM fallback pools use, just without
+ever touching an LLM), picked by the tick's own `rng` so the same
+disaster kind doesn't log the identical sentence every single time it
+fires across a long-running world."""
+
+
+def _pick_template(rng: random.Random, templates: tuple[str, ...]) -> str:
+    return templates[rng.randrange(len(templates))]
+
+
 def _damage_at(settlement: Settlement, farms: FarmGrid, x: int, y: int, amount: float) -> None:
     building = settlement.at(x, y)
     if building is not None and building.stage is BuildingStage.STANDING:
@@ -235,7 +273,7 @@ def tick_flood(
             original = terrain[y][x].biome.value
             state.flooded_tiles[(x, y)] = (original, FLOOD_DURATION_TICKS)
             _damage_at(settlement, farms, x, y, FLOOD_DAMAGE)
-            events.append(("disaster_flood", f"Floodwater swallowed the ground near ({x}, {y})."))
+            events.append(("disaster_flood", _pick_template(rng, _FLOOD_ONSET_TEMPLATES).format(x=x, y=y)))
             state.flood_pressure *= 0.5  # one flood relieves some of the built-up pressure
 
     for pos in list(state.flooded_tiles.keys()):
@@ -307,7 +345,7 @@ def tick_wildfire(
     terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.GRASSLAND)
     state.active_wildfire_tiles = {(x, y)}
     state.wildfire_ticks_remaining = 6
-    events.append(("disaster_wildfire", f"A wildfire broke out in the forest near ({x}, {y})."))
+    events.append(("disaster_wildfire", _pick_template(rng, _WILDFIRE_ONSET_TEMPLATES).format(x=x, y=y)))
     return events
 
 
@@ -330,7 +368,10 @@ def tick_storm(
         hit += 1
     if hit == 0:
         return []
-    return [("disaster_storm", f"A violent storm tore through, damaging {hit} structure{'s' if hit != 1 else ''}.")]
+    return [(
+        "disaster_storm",
+        _pick_template(rng, _STORM_TEMPLATES).format(hit=hit, s="s" if hit != 1 else ""),
+    )]
 
 
 def _wilt_farms(farms: FarmGrid, loss_fraction: float, chance: float, rng: random.Random) -> int:
@@ -388,7 +429,7 @@ def tick_heatwave(
     if rng.random() < chance:
         state.heatwave_active = True
         state.heatwave_ticks_remaining = HEATWAVE_DURATION_TICKS
-        events.append(("disaster_heatwave", "A heatwave settled over the land, the air thick and dry."))
+        events.append(("disaster_heatwave", _pick_template(rng, _HEATWAVE_ONSET_TEMPLATES)))
     return events
 
 
@@ -410,4 +451,7 @@ def tick_frost(
     hit = _wilt_farms(farms, FROST_FARM_LOSS_FRACTION, 1.0, rng)
     if hit == 0:
         return []
-    return [("disaster_frost", f"A hard frost struck, damaging {hit} farm plot{'s' if hit != 1 else ''}.")]
+    return [(
+        "disaster_frost",
+        _pick_template(rng, _FROST_TEMPLATES).format(hit=hit, s="s" if hit != 1 else ""),
+    )]

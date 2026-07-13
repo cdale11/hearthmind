@@ -444,6 +444,45 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## "Continue expanding," round two (v0.61.0)
+
+Second follow-up, same discipline: an Explore-agent audit first (trait
+axes, H4 supply chain, relationship-graph history, disaster
+narration), then one substantial fully-verified item per category.
+
+**Deepen: `TRAIT_OPENNESS` (H6 v4).** Fourth trait axis, closing
+"identity/values remain open" — a note the roadmap carried since
+ambition shipped. Nudged up by direct outside contact (every listener
+a caravan's rumor reaches, `Population.spread_rumor`); consumed by
+`_maybe_welcome_migrant`'s roll chance (an open-minded remnant welcomes
+a stranger more readily) — introduced and consumed in the same commit,
+matching the discipline every other trait axis has followed since the
+integration milestone.
+
+**Close a gap: family-tree edges.** Flagged, never built, since the
+relationship graph first shipped. Root cause: the per-tick broadcast
+payload never sent full `Settlement.institutions` (only counts-only
+via `summary()`). Added a top-level `"institutions"` broadcast key;
+the graph now draws a distinct dashed-gold line for any pair sharing a
+living FAMILY institution, independent of current affinity.
+
+**UI depth: NPC inspector shows institution membership.** Same new
+data — family members, council seat, guild trade — closing the loop
+from v0.60.0's GUILD addition (which had no per-agent UI visibility).
+
+**Content variety: disaster narration.** Respects disasters.py's
+standing "no new LLM call is added here" decision — each of the five
+disaster log lines gained two more purely-deterministic template
+variants, cycled by the tick's own RNG, same "small fixed pool" shape
+the LLM fallback pools use elsewhere.
+
+Verified: openness nudge/consumption checks, a 20,000-tick real-engine
+run confirming family institutions form and their broadcast shape
+matches what the frontend reads, a live broadcaster payload check, a
+disaster-template sampling check, `node -c`, and a 5,000-tick smoke
+run (0.80ms/tick, no regression). Full accounting in
+docs/DECISIONS.md, "continue expanding, round two."
+
 ## "Continue expanding" batch (v0.60.0)
 
 Explicit user follow-up to v0.59.0, same category structure, one more

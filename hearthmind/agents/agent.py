@@ -450,6 +450,18 @@ skill — see TRAIT_AMBITION_FOUNDING_NUDGE/TRAIT_AMBITION_MASTERY_NUDGE)
 rather than by hardship/social contact like resilience/sociability —
 ambition is earned, not suffered or given."""
 
+TRAIT_OPENNESS = "openness"
+"""H6 v4 (docs/DECISIONS.md "continue expanding" pass): a fourth axis,
+closing the "identity/values remain open" note the roadmap has carried
+since ambition (the third axis) shipped. -1 = rooted/set in the
+village's own ways, +1 = drawn to the unfamiliar. Same -1..1/0.0-
+neutral convention as the other three. Nudged up by direct outside
+contact (hearing a caravan's news from beyond the village — see
+TRAIT_OPENNESS_CARAVAN_NUDGE); unlike ambition (earned through
+achievement) or resilience (worn by hardship), openness is shaped by
+exposure — the one thing a small, mostly-isolated village rarely
+gets."""
+
 TRAIT_STEP_MAX = 0.02
 TRAIT_MEAN_REVERSION = 0.99
 """Monthly bounded-random-walk parameters — same shape as `Settlement.
@@ -546,6 +558,25 @@ of the same trait `TRAIT_AMBITION_FOUNDING_NUDGE` already writes to on
 the event itself, closing that loop the same way resilience/
 sociability close theirs."""
 
+TRAIT_OPENNESS_CARAVAN_NUDGE = 0.05
+"""Openness nudge applied to each listener a caravan's outside rumor
+reaches (`Population.spread_rumor`) — larger than the routine
+sociability contact nudge (0.015) since direct contact with news from
+beyond the village is rare (see CARAVAN_CHANCE_PER_MONTH) and should
+register accordingly per occurrence, same "rarer, more deliberate ->
+bigger per-event nudge" discipline TRAIT_AMBITION's event nudges
+already use."""
+
+TRAIT_OPENNESS_MIGRANT_WELCOME_INFLUENCE = 0.3
+"""Fractional nudge on `_maybe_welcome_migrant`'s roll chance from the
+surviving population's average `TRAIT_OPENNESS` — a village whose
+handful of survivors lean toward the unfamiliar welcomes a stranger
+somewhat more readily than one that leans rooted. Same magnitude class
+as TRAIT_SOCIABILITY_CONTACT_CHANCE_INFLUENCE (a routine, non-life-
+critical roll, so a bigger swing is still never dominant) — closes
+openness's own write-only loop the same way the integration milestone
+closed resilience/sociability/ambition's."""
+
 
 def describe_traits(traits: dict) -> str:
     """Shared by llm/cognition.py and llm/dialogue.py: a short natural-
@@ -568,6 +599,11 @@ def describe_traits(traits: dict) -> str:
         bits.append("driven to build and achieve")
     elif ambition <= -TRAIT_NOTABLE_THRESHOLD:
         bits.append("content with routine")
+    openness = traits.get(TRAIT_OPENNESS, 0.0)
+    if openness >= TRAIT_NOTABLE_THRESHOLD:
+        bits.append("drawn to the unfamiliar")
+    elif openness <= -TRAIT_NOTABLE_THRESHOLD:
+        bits.append("set in the village's own ways")
     return ", ".join(bits)
 
 
@@ -642,16 +678,18 @@ class Agent:
     teaching — see Population._maybe_forage/_maybe_teach_skills."""
     traits: dict[str, float] = field(default_factory=dict)
     """H6 (docs/ROADMAP.md "Phase H"): a compact, bounded (-1..1)
-    personality vector — `TRAIT_RESILIENCE` and `TRAIT_SOCIABILITY` in
-    v1, deliberately two axes, not a big-five system. Absent keys read
-    as 0.0 (neutral), same convention as `relationships`/`trust`.
-    Nudged slowly by lived experience (grief, violence witnessed,
-    sustained hunger, positive social contact — see Population.
-    _nudge_trait/_tick_traits) using the same bounded-random-walk-plus-
-    event-nudge shape `Settlement.temperament`/`player_standing`
-    already establish at the settlement level, reused here at agent
-    scale rather than inventing a new one. Read into cognition/dialogue
-    prompts as context once a trait is notable (see llm/cognition.py,
+    personality vector, deliberately a handful of named axes rather
+    than a big-five system — `TRAIT_RESILIENCE`/`TRAIT_SOCIABILITY`
+    (v1), `TRAIT_AMBITION` (v3), `TRAIT_OPENNESS` (v4, H6 "identity/
+    values" note). Absent keys read as 0.0 (neutral), same convention
+    as `relationships`/`trust`. Nudged slowly by lived experience
+    (grief, violence witnessed, sustained hunger, positive social
+    contact, direct outside contact — see Population._nudge_trait/
+    _tick_traits) using the same bounded-random-walk-plus-event-nudge
+    shape `Settlement.temperament`/`player_standing` already establish
+    at the settlement level, reused here at agent scale rather than
+    inventing a new one. Read into cognition/dialogue prompts as
+    context once a trait is notable (see llm/cognition.py,
     llm/dialogue.py), the same "only mentioned once notably warm/cold"
     treatment temperament gets."""
     beliefs: list[dict] = field(default_factory=list)
