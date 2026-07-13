@@ -44,6 +44,13 @@ class OllamaClient:
     """How long Ollama keeps this model loaded after the call (v0.43.1,
     see Config.llm_keep_alive) — sent as the request's top-level
     `keep_alive` field. `None` omits it (server default)."""
+    use_mmap: bool | None = None
+    """Explicit `use_mmap` request option (v0.55.0, see Config.llm_use_
+    mmap) — a live diagnostic found the Ollama server launching its
+    model runner with `--no-mmap`, forcing model weights into private
+    anonymous memory the kernel can only relieve via swap rather than
+    the cheaper drop-and-re-read-from-disk path mmap'd (file-backed)
+    pages allow. `None` omits it (server default/heuristic)."""
 
     def generate_json(self, prompt: str, system: str | None = None) -> dict:
         """Blocking call — issue one generate request and parse the
@@ -55,6 +62,8 @@ class OllamaClient:
             options["num_ctx"] = self.num_ctx
         if self.num_predict is not None:
             options["num_predict"] = self.num_predict
+        if self.use_mmap is not None:
+            options["use_mmap"] = self.use_mmap
         payload = {
             "model": self.model,
             "prompt": prompt,

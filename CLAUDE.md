@@ -444,6 +444,32 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## Ollama `--no-mmap` forced off via `use_mmap: true` (v0.55.0)
+
+User followed the `ollama ps`/`ps aux` suggestion from the v0.54.0
+follow-up and pasted real output: `ollama serve` itself was negligible
+(50MB), but the per-model `llama-server` runner was resident at
+**5.1GB — 74% of an 8GB machine** — against a model `ollama ps` reports
+as only 2.4GB loaded, with `--no-mmap` on its command line. `--no-mmap`
+forces model weights into private anonymous memory the kernel can only
+relieve via swap; mmap'd weights are file-backed and the kernel can
+instead drop-and-reread from disk under pressure, no swap involved.
+Whatever set `--no-mmap` (env var or Ollama's own low-RAM heuristic)
+was never being contradicted by this project's own requests. Fixed the
+same way `num_ctx`/`num_predict`/`keep_alive` were: `Config.llm_use_
+mmap = True` sent as `use_mmap` in every call's `options`, threaded
+through both `OllamaClient` construction sites (`SimulationEngine` and
+`server.py`'s genesis-seed call). Can only be verified end-to-end on
+the user's real machine — this environment has no genuine Ollama
+server; confirmed here only that the option is actually built into the
+request payload. Separately flagged, explicitly not attempted: the same
+diagnostic showed `--mmproj` pointing at the same blob hash as
+`--model`, suggesting a possibly-unused multimodal projector bundled in
+the pulled `qwen3.5:2b` tag — that's baked into the model artifact on
+the user's machine already, no request-level API option can strip it,
+and this environment has no access to their `ollama` installation to
+even inspect it, let alone fix it.
+
 ## Unbounded `Settlement.institutions` growth fixed (v0.54.0)
 
 Live user report of continuing swap pressure. Diagnosed by direct

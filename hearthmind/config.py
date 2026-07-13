@@ -174,6 +174,22 @@ class Config:
     cognition/dialogue) keeps the model loaded through normal activity
     without constantly paying reload latency. Sent as Ollama's top-level
     `keep_alive` field alongside `options` on every call."""
+    llm_use_mmap: bool = True
+    """Explicit `use_mmap: true` sent in every call's `options` (v0.55.0).
+    A live diagnostic (`ollama ps` + `ps aux`) on the user's own 8GB
+    machine found the actual `llama-server` runner process resident at
+    5.1GB RSS — over 2x the 2.4GB `ollama ps` reports as "loaded" — with
+    `--no-mmap` on its command line. Without mmap, model weights are
+    pulled into private anonymous memory the kernel can only reclaim by
+    writing to swap under pressure; with mmap, weight pages are
+    file-backed and the kernel can just drop and re-read them from disk
+    instead, which is a categorically cheaper way to relieve memory
+    pressure than swapping. Previously never sent, so whatever caused
+    the server to launch with `--no-mmap` (an `OLLAMA_NOMMAP` env var, or
+    Ollama's own low-RAM heuristic) went unchallenged by this project's
+    own requests. `True` unconditionally — this project has no scenario
+    where forcing anonymous-memory residency is preferable to letting
+    the kernel manage weight pages as reclaimable file-backed memory."""
 
     # --- runtime: Phase G (subtle supernatural layer), on by default -----------
     phase_g_intensity: float = 1.0

@@ -4,6 +4,37 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.55.0] — Force `use_mmap: true` on every Ollama call (swap-pressure follow-up #2)
+
+### Fixed
+
+- **The Ollama server was loading model weights with `--no-mmap`.** A
+  live diagnostic on the user's own 8GB machine (`ollama ps` + `ps aux`)
+  found the actual `llama-server` runner process resident at 5.1GB RSS
+  (74% of system memory) against a model `ollama ps` itself reports as
+  only 2.4GB loaded — a ~2.7GB gap, with `--no-mmap` on the runner's
+  command line. Without mmap, model weights sit in private anonymous
+  memory the kernel can only relieve by writing to swap under pressure;
+  with mmap, weight pages are file-backed and the kernel can instead
+  just drop and re-read them from disk — categorically cheaper than
+  swapping. New `Config.llm_use_mmap = True`, sent as `use_mmap` in
+  every request's `options` (same pattern as `llm_num_ctx`/
+  `llm_num_predict`), threaded through `OllamaClient.generate_json` and
+  both call sites (`SimulationEngine`, `server.py`'s genesis-seed
+  call). This project takes an explicit position on every option that
+  meaningfully affects memory rather than trusting whatever the server
+  happens to default to (or whatever heuristic/env var pushed it toward
+  `--no-mmap` here) — same rationale as `num_ctx`/`num_predict`/
+  `keep_alive` before it.
+- **Not fixed here, and can't be from this repo:** the same diagnostic
+  showed `--mmproj` pointing at the same blob hash as `--model` — i.e.
+  the loaded model may be carrying a multimodal (vision) projector this
+  project never uses (every call here is text-only). That's baked into
+  the pulled model artifact/Modelfile on the user's own machine, not
+  something any Ollama API request option can strip — would need the
+  user to inspect `ollama show qwen3.5:2b --modelfile` or pull a
+  text-only tag if one exists.
+
 ## [0.54.0] — Fix unbounded `Settlement.institutions` growth (swap-pressure follow-up)
 
 ### Fixed

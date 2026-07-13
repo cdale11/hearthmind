@@ -97,7 +97,7 @@ async def _resolve_genesis_seed(config: Config) -> tuple[int, str]:
             client = OllamaClient(
                 host=config.llm_host, model=config.llm_model, timeout_seconds=config.llm_timeout_seconds,
                 num_ctx=config.llm_num_ctx, num_predict=config.llm_num_predict,
-                keep_alive=config.llm_keep_alive,
+                keep_alive=config.llm_keep_alive, use_mmap=config.llm_use_mmap,
             )
             result = await asyncio.wait_for(
                 asyncio.to_thread(client.generate_json, world_genesis.build_prompt(), world_genesis.SYSTEM_PROMPT),

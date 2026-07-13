@@ -4351,3 +4351,58 @@ most likely remaining cause is Ollama's own server-side memory (a
 separate process this environment cannot exercise with a real model) —
 that would need a fresh live diagnostic from the user's own machine to
 pin down further, same as the v0.43.0/v0.43.1 Ollama-memory passes.
+
+## Ollama `--no-mmap` forced off (v0.55.0)
+
+Follow-up to the above: the user ran `ollama ps` and `ps aux | grep -i
+ollama` on their own machine as suggested and pasted the output back.
+It was immediately actionable: `ollama serve` itself was a negligible
+50MB RSS, but the actual per-model `llama-server` runner process was
+resident at **5.1GB — 74% of an 8GB system** — for a model `ollama ps`
+itself reports as only 2.4GB loaded. That ~2.7GB gap, combined with
+`--no-mmap` sitting on the runner's command line, is close to a smoking
+gun: `--no-mmap` forces the model's weight pages into private anonymous
+memory. Anonymous pages are "dirty" from the kernel's perspective — the
+only way to reclaim them under pressure is to write them to swap. Normal
+mmap'd weight pages are file-backed and clean, so the kernel can instead
+just drop them and re-read from disk on next use, which is strictly
+cheaper than a swap round-trip and doesn't touch swap at all. Whatever
+caused `--no-mmap` to be set here — an `OLLAMA_NOMMAP` env var, or
+Ollama's own low-system-RAM heuristic silently choosing it — this
+project's own requests to Ollama were never expressing an opinion on the
+option either way, so it went unchallenged.
+
+Fixed the same way `llm_num_ctx`/`llm_num_predict`/`llm_keep_alive` were
+each fixed before it: stop trusting the server's default/heuristic and
+send an explicit value on every call. New `Config.llm_use_mmap = True`
+(unconditional — there's no scenario in this project where forcing
+anonymous residency over file-backed pages is preferable), sent as
+`use_mmap` in the `options` object `OllamaClient.generate_json` already
+builds for `num_ctx`/`num_predict`. Threaded through both places an
+`OllamaClient` gets constructed — `SimulationEngine.__init__` (the
+per-tick cognition/dialogue/town-brain/etc. path) and `server.py`'s
+one-shot world-genesis seed call, which was easy to miss since it's a
+separate, rarely-touched call site from the main engine loop.
+
+This can only be verified on the user's real machine (this sandboxed
+environment has no genuine Ollama server to launch), so verification
+here was necessarily narrower than the usual live-measurement standard:
+confirmed the `options` dict actually includes `"use_mmap": true` when
+`Config.llm_use_mmap` is set (direct construction + inspection, no
+network call), and that both call sites pass it through. The user's own
+next live session (a fresh `ollama ps` / `ps aux` comparison, watching
+whether `--no-mmap` disappears from the runner's command line and
+whether RSS drops toward the ~2.4GB `ollama ps` figure) is the real
+verification and hasn't happened yet as of this entry.
+
+Explicitly *not* attempted: the same diagnostic surfaced `--mmproj`
+pointing at the identical blob hash as `--model`, suggesting the pulled
+`qwen3.5:2b` tag may bundle a multimodal (vision) projector this project
+never exercises (every prompt here is text-only, `format: "json"`,
+`think: false`). This is baked into the model artifact/Modelfile
+already pulled onto the user's machine — no Ollama API request option
+can strip a projector from an already-loaded model, so this needed
+either a Modelfile inspection or pulling a different tag, both of which
+require access to the user's actual `ollama` installation this
+environment doesn't have. Flagged rather than silently skipped or
+guessed at.
