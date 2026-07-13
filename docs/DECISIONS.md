@@ -3306,3 +3306,41 @@ stopped); rescaled particle intensity against the same measured
 0.27/0.65 floor/ceiling so a clear tick now shows zero particles.
 `python3 -m py_compile` on all touched Python modules, `node --check`
 on `app.js`.
+
+## Ollama memory, second pass (v0.43.1)
+
+Explicit user follow-up: "be more aggressive" — v0.43.0's
+`llm_max_concurrent=2` was a real reduction from 4 but still wasn't
+enough to prevent the reported swap on the user's 8GB machine. Dropped
+to 1, `CognitionRunner`'s floor (`max(1, max_concurrent)`, see
+`llm/jobs.py`) — fully serialized, exactly one Ollama `generate` call
+in flight at any time system-wide, regardless of how many job types
+(cognition, dialogue, and the nine settlement-level jobs sharing
+`_schedule_llm_job`) want to run. Confirmed this doesn't create any new
+liveness risk: `BACKPRESSURE_BACKLOG_PER_SLOT` scales with
+`max_concurrent` (`_backpressure_limit = max_concurrent * 3`), so at 1
+the routine-job gate is still 3 (unchanged shape, just a smaller
+number) — cognition/dialogue jobs get skipped (not queued) once 3 are
+already in-flight-or-waiting, same mechanism as before, just triggering
+sooner. `llm_timeout_seconds` bumped 45 -> 60 as margin — confirmed by
+reading `CognitionRunner._run_gated` that the per-call timer only
+starts once a job acquires the semaphore (not while queued behind
+other jobs), so this isn't fixing a queueing-induced timeout, just
+adding headroom for the fully-serialized worst case.
+
+New `Config.llm_keep_alive` (default `"3m"`), threaded through
+`OllamaClient` as a `keep_alive` field and sent as Ollama's top-level
+`keep_alive` request field. Previously never sent at all — the Ollama
+server's own default governed how long a model stays resident after
+its last call, which varies by server version/config and can be
+indefinite. This is the lever for *idle* memory specifically (as
+opposed to `llm_num_ctx`/`llm_num_predict`, which bound *per-call*
+memory): a settlement with sparse LLM-eligible activity should
+actually release the loaded model's memory during a real lull rather
+than holding it forever.
+
+Verified: `python3 -m py_compile` on all touched modules; confirmed via
+code reading (not a live Ollama call, since none is available in this
+environment) that `max_concurrent=1` still produces a valid
+`asyncio.Semaphore(1)` and that `_backpressure_limit` computes
+correctly at the new value.

@@ -40,6 +40,10 @@ class OllamaClient:
     whatever default the Ollama server happens to ship with. `None`
     leaves the corresponding option out of the request entirely (server
     default), kept for callers/tests that don't care to pin it."""
+    keep_alive: str | None = None
+    """How long Ollama keeps this model loaded after the call (v0.43.1,
+    see Config.llm_keep_alive) — sent as the request's top-level
+    `keep_alive` field. `None` omits it (server default)."""
 
     def generate_json(self, prompt: str, system: str | None = None) -> dict:
         """Blocking call — issue one generate request and parse the
@@ -62,6 +66,8 @@ class OllamaClient:
             payload["options"] = options
         if system:
             payload["system"] = system
+        if self.keep_alive is not None:
+            payload["keep_alive"] = self.keep_alive
 
         request = urllib.request.Request(
             f"{self.host.rstrip('/')}/api/generate",

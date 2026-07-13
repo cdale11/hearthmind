@@ -4,6 +4,32 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.43.1] — More aggressive Ollama memory optimization: concurrency floor, keep_alive
+
+v0.43.0's `llm_max_concurrent=2` still wasn't enough to prevent the
+reported swap/unresponsiveness at 100 population on real hardware — a
+user request for "more aggressive" optimization.
+
+### Changed
+
+- **`llm_max_concurrent` lowered 2 -> 1** (its floor — fully serialized,
+  never more than one Ollama `generate` call in flight system-wide).
+  This trades LLM-driven decision *richness* (more agents/settlement
+  jobs resolve via deterministic fallback under a saturated single
+  lane) for memory headroom, not correctness or liveness — every LLM
+  call already has an instant fallback.
+- **`llm_timeout_seconds` bumped 45 -> 60.** Not strictly required (the
+  per-call timer starts once a job acquires the semaphore, not while
+  queued), but buys real margin against the now fully-serialized worst
+  case at negligible cost.
+- **New `Config.llm_keep_alive` (`"3m"`), sent as Ollama's top-level
+  `keep_alive` field on every call.** Previously never sent, so the
+  Ollama server's own default governed how long the model stays loaded
+  after the last call — on some servers that's indefinite. 3 minutes is
+  short enough to actually release memory during a real lull in
+  activity, long enough to avoid constant reload churn during normal
+  sim cadence. `OllamaClient` gained a `keep_alive` field to carry this.
+
 ## [0.43.0] — Fixed: Ollama-side memory pressure; weather variety ("only rain")
 
 The same live symptom as v0.42.0 (heavy swap, unresponsive 8GB system,

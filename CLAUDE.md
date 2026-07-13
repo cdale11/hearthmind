@@ -444,6 +444,22 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## Ollama memory, second pass (v0.43.1)
+
+v0.43.0's `llm_max_concurrent=2` wasn't aggressive enough per explicit
+user follow-up ("be more aggressive"). Dropped to `1` — its floor,
+fully serialized — with `llm_timeout_seconds` bumped 45->60 as margin
+(not strictly required, since the per-call timer starts on semaphore
+acquisition, not while queued, but cheap insurance against the
+serialized worst case) and a new `Config.llm_keep_alive="3m"` sent on
+every call so the model actually unloads from Ollama during a real
+lull rather than staying resident indefinitely on servers whose own
+default is "never unload." Framed explicitly as trading LLM decision
+*richness* for memory headroom on 8GB hardware, not correctness —
+every LLM call still resolves through its deterministic fallback
+either way, so a saturated single lane means more agents reason via
+fallback more often, never a stall or a wrong-but-silent result.
+
 ## Ollama-side memory pressure + weather variety (fixed v0.43.0)
 
 The same "heavy swap, unresponsive system, ~100 population" symptom

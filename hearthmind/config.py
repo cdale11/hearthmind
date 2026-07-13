@@ -107,7 +107,7 @@ class Config:
     reverting. See docs/DECISIONS.md, "LLM-as-brain batch,\" the
     real-calendar/genesis-seed follow-up, and the world-model/beliefs
     follow-up."""
-    llm_timeout_seconds: float = 45.0
+    llm_timeout_seconds: float = 60.0
     """A live diagnostic report on the user's own hardware running
     `qwen3.5:2b` showed p50 latency 17.4s, p95 19.7s, max 29.7s against
     the previous 30s default — a wafer-thin margin (a single call at
@@ -117,26 +117,43 @@ class Config:
     Counterintuitively, a smaller model isn't necessarily faster in
     wall-clock terms on constrained CPU hardware — every call still has
     a deterministic fallback (hearthmind/llm/jobs.py), so this only
-    trades a longer worst-case wait for a lower fallback rate. See
+    trades a longer worst-case wait for a lower fallback rate. Bumped
+    again 45 -> 60 (v0.43.1) alongside dropping `llm_max_concurrent` to 1:
+    a single-lane queue means a job now waits for a slot behind whatever
+    is already running (the 45s measurements above were single-call
+    latency with no queueing) — that per-call clock still only starts
+    once the job actually begins running (see `CognitionRunner._run_
+    gated`, timer starts inside the semaphore), so this isn't strictly
+    required for correctness, but it buys real margin against the
+    now-serialized worst case at negligible liveness cost (every call
+    still has an instant deterministic fallback either way). See
     docs/DECISIONS.md, "dialogue quality follow-up" (qwen3.5:2b
     diagnostics), and D5 for the original version of this rationale."""
-    llm_max_concurrent: int = 2
-    """How many LLM requests may be in flight at once. Lowered back from 4
-    to 2 (v0.43.0) per the v0.39.0 architecture review's explicit
-    recommendation, finally acted on after a live report of heavy swap and
-    an unresponsive 8GB system within an hour at only 100 population, LLM
-    enabled. Each in-flight Ollama generate call holds its own KV-cache
-    allocation in the *separate* Ollama server process — invisible to this
-    process's own RSS (the v0.42.0 relationship-leak probe measured only
-    this process and stayed under 100MB), but real system memory pressure
-    all the same. "Not budget-constrained on the user's hardware" (the
-    reasoning that raised this to 4 in E2) was true for wall-clock
-    throughput but not for concurrent memory footprint — those are
-    different constraints, and this project has enough genuine LLM
-    decision points now (cognition/dialogue/chronicle/culture/town-brain/
-    beliefs/omens) that 4 truly-simultaneous calls is a real burst, not a
-    hypothetical one. See also `llm_num_ctx`/`llm_num_predict` below,
-    which bound the *per-call* memory this lever multiplies."""
+    llm_max_concurrent: int = 1
+    """How many LLM requests may be in flight at once. Lowered 4 -> 2 in
+    v0.43.0 (the v0.39.0 architecture review's own recommendation,
+    finally acted on) after a live report of heavy swap and an
+    unresponsive 8GB system within an hour at only 100 population, LLM
+    enabled; the symptom recurred even at 2, so dropped again to the
+    floor, 1, in v0.43.1 (fully serialized — never more than one Ollama
+    generate call in flight system-wide). Each in-flight call holds its
+    own KV-cache allocation in the *separate* Ollama server process —
+    invisible to this process's own RSS (the v0.42.0 relationship-leak
+    probe measured only this process and stayed under 100MB), but real
+    system memory pressure all the same. "Not budget-constrained on the
+    user's hardware" (the reasoning that raised this to 4 in E2) was true
+    for wall-clock throughput but not for concurrent memory footprint —
+    those are different constraints. Trade-off, stated plainly: on an 8GB
+    machine, staying responsive is worth more than LLM throughput: every
+    LLM-driven decision already has a deterministic fallback (the
+    liveness contract this project has held since B1), so a saturated
+    single lane degrades *richness* (more agents reason via fallback,
+    more often) rather than correctness or uptime. If a live run still
+    swaps at max_concurrent=1, the next lever is a smaller/more quantized
+    model or a shorter `llm_keep_alive`, not concurrency (already at its
+    floor). See also `llm_num_ctx`/`llm_num_predict`/`llm_keep_alive`
+    below, which bound the *per-call* and *idle* memory this lever no
+    longer needs to multiply."""
     llm_num_ctx: int = 2048
     """Explicit Ollama context-window cap sent with every request
     (v0.43.0). Previously unset, so Ollama silently used its own default —
@@ -154,6 +171,20 @@ class Config:
     the model rambles instead of terminating cleanly, which otherwise
     burns both memory and the `llm_timeout_seconds` budget for no benefit
     (the JSON parse would reject an overlong response anyway)."""
+    llm_keep_alive: str = "3m"
+    """How long Ollama keeps the model resident in memory after the last
+    call before unloading it (v0.43.1) — previously never sent, so the
+    server's own default governed this, which on some Ollama versions is
+    5 minutes and on others is "keep loaded forever" (`-1`). On an idle
+    settlement (few LLM-eligible events, sparse cognition triggers) an
+    indefinite keep-alive means the model's resident weights + whatever
+    KV-cache Ollama retains sit in memory the entire session even during
+    long quiet stretches. 3 minutes is short enough to actually release
+    memory during a real lull, long enough that the sim's own cadence
+    (multiple settlement-level jobs per in-game day, routine per-agent
+    cognition/dialogue) keeps the model loaded through normal activity
+    without constantly paying reload latency. Sent as Ollama's top-level
+    `keep_alive` field alongside `options` on every call."""
 
     # --- runtime: Phase G (subtle supernatural layer), on by default -----------
     phase_g_intensity: float = 1.0
