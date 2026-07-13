@@ -43,6 +43,7 @@ from hearthmind.persistence.snapshot import (
     history_events, load_latest_snapshot, log_event, log_metrics, recent_events, save_snapshot,
 )
 from hearthmind.settlement.buildings import (
+    CULTURE_LIST_MAX_STORED,
     CURRENCY_CAPACITY,
     ERA_DESCRIPTIONS,
     FESTIVAL_CHANCE_PER_MONTH,
@@ -753,13 +754,22 @@ class SimulationEngine:
         prompt = culture.build_prompt(
             self.world.settlement.name, recent, traditions[-PROMPT_CULTURE_LIST_MAX:], self.world.clock.year,
         )
-        fallback = culture.fallback_tradition(self.world.settlement.name, self.world.clock.year, len(traditions))
+        # `traditions_established` (a persistent, never-decremented
+        # counter) rather than len(traditions) — the stored list is
+        # capped at CULTURE_LIST_MAX_STORED, so list length alone would
+        # eventually corrupt "Tradition the Nth"-style fallback naming.
+        fallback = culture.fallback_tradition(
+            self.world.settlement.name, self.world.clock.year, self.world.settlement.traditions_established,
+        )
 
         def apply(result: dict, used_fallback: bool) -> None:
             name, description, influence = culture.parse_tradition(result, fallback)
             entry = f"{name}: {description}"
             settlement = self.world.settlement
             settlement.traditions.append(entry)
+            settlement.traditions_established += 1
+            if len(settlement.traditions) > CULTURE_LIST_MAX_STORED:
+                settlement.traditions = settlement.traditions[-CULTURE_LIST_MAX_STORED:]
             if influence:
                 # Culture with mechanical teeth: this tradition adds one
                 # bounded stack to its influence category — see
@@ -804,13 +814,20 @@ class SimulationEngine:
             settlement.name, recent, inventions[-PROMPT_CULTURE_LIST_MAX:], settlement.tech_level,
             beliefs=list(settlement.beliefs),
         )
-        fallback = invention.fallback_invention(settlement.name, settlement.tech_level, len(inventions))
+        # tech_level already is a persistent, never-decremented count of
+        # inventions established (one per invention) — reused directly
+        # as the fallback ordinal source instead of len(inventions),
+        # since that list is now capped at CULTURE_LIST_MAX_STORED.
+        fallback = invention.fallback_invention(settlement.name, settlement.tech_level, settlement.tech_level)
 
         def apply(result: dict, used_fallback: bool) -> None:
             name, description = invention.parse_invention(result, fallback)
             entry = f"{name}: {description}"
-            self.world.settlement.inventions.append(entry)
-            self.world.settlement.tech_level += 1
+            settlement = self.world.settlement
+            settlement.inventions.append(entry)
+            if len(settlement.inventions) > CULTURE_LIST_MAX_STORED:
+                settlement.inventions = settlement.inventions[-CULTURE_LIST_MAX_STORED:]
+            settlement.tech_level += 1
             self._log("invention", f"The village invented {entry}")
             self._maybe_advance_era()
 
@@ -855,13 +872,20 @@ class SimulationEngine:
             self.world.settlement.name, recent, self.world.clock.season,
             beliefs=list(self.world.settlement.beliefs),
         )
-        fallback = festival.fallback_festival(self.world.settlement.name, len(festivals))
+        # festivals_held (persistent, never-decremented) rather than
+        # len(festivals) — same CULTURE_LIST_MAX_STORED-cap rationale as
+        # tradition/invention naming above.
+        fallback = festival.fallback_festival(self.world.settlement.name, self.world.settlement.festivals_held)
 
         def apply(result: dict, used_fallback: bool) -> None:
             name, description = festival.parse_festival(result, fallback)
             entry = f"{name}: {description}"
-            self.world.settlement.festivals.append(entry)
-            affected = self.world.population.hold_festival(self.world.settlement)
+            settlement = self.world.settlement
+            settlement.festivals.append(entry)
+            settlement.festivals_held += 1
+            if len(settlement.festivals) > CULTURE_LIST_MAX_STORED:
+                settlement.festivals = settlement.festivals[-CULTURE_LIST_MAX_STORED:]
+            affected = self.world.population.hold_festival(settlement)
             self._log("festival", f"The village held {entry} ({affected} bonds strengthened)")
 
         self._schedule_llm_job("festival", prompt, festival.SYSTEM_PROMPT, fallback, apply)

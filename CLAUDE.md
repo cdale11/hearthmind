@@ -444,6 +444,22 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## Ruin removal speed + last unbounded culture lists capped (v0.44.1)
+
+`RUIN_REMOVAL_TICKS` lowered 3000 -> 1200 (~31 -> ~12.5 sim-days) —
+removal was always correct, just slow enough to read as broken in a
+normal session; also frees the tile back to construction sooner.
+`Settlement.traditions`/`inventions`/`festivals` were the last
+genuinely unbounded structures in the codebase (v0.40.0's `PROMPT_
+CULTURE_LIST_MAX` only ever capped what's sent to an LLM prompt, not
+the stored list) — now capped at `CULTURE_LIST_MAX_STORED = 300` with
+persistent `traditions_established`/`festivals_held` counters (mirrors
+`tech_level`, already the right counter for inventions) so fallback
+ordinal naming survives the cap. Audited SQLite too: default `cache_
+size`/no `mmap_size` already keep the unbounded `events`/`metrics`
+tables a disk concern, not RAM — confirmed safe as-is, no pragma
+changes made.
+
 ## Disease as a population-control valve; LLM concurrency floor restored; UI flicker; era progression tuned (v0.44.0)
 
 Four explicit user follow-ups, one batch.

@@ -150,9 +150,39 @@ MATURE_WORKER_ONLY = False
 (see agents.agent.MATURITY_TICKS). False: any awake agent present helps —
 only *founding* a new building requires maturity (see C1)."""
 
-RUIN_REMOVAL_TICKS = 3000
+CULTURE_LIST_MAX_STORED = 300
+"""Cap on the *stored* length of Settlement.traditions/inventions/
+festivals (v0.44.1) — previously unbounded: `PROMPT_CULTURE_LIST_MAX`
+(see simulation/engine.py) only ever capped what's *sent* to an LLM
+prompt, not the underlying list itself, so a sufficiently long-running
+world would grow these three lists forever. Each entry is a short
+string, so this was never a fast leak, but "aggressive memory
+optimization for extremely long runs" means no structure should be
+truly unbounded, however slow-growing. 300 is generous relative to how
+these actually accumulate (traditions ~1/season at a low roll chance,
+festivals ~1/month at a low roll chance, inventions ~1/season at
+INVENTION_CHANCE_PER_SEASON) — a settlement would need centuries of
+sim-time to hit this cap under normal play, so it's a true safety
+ceiling, not a working limit. Fallback ordinal naming ("Tradition the
+14th") no longer reads list length directly (which the cap would
+otherwise corrupt) — see `SettlementCulture.traditions_established`/
+`festivals_held` below and `Settlement.tech_level` (inventions already
+had its own persistent counter, reused here rather than duplicated)."""
+
+RUIN_REMOVAL_TICKS = 1200
 """Ticks a ruined building persists (still inspectable) before nature
-finishes reclaiming it and it's removed from the world entirely."""
+finishes reclaiming it and it's removed from the world entirely.
+Lowered from 3000 (v0.44.1) — at 3000 ticks (~31 sim-days) a ruin
+outlived most normal live-observation sessions, reading as "ruined
+buildings are never removed" even though the removal mechanism was
+always correct (verified: `Settlement.tick()` reliably transitions
+RUINED -> removed once `ruined_ticks >= RUIN_REMOVAL_TICKS`). ~12.5
+sim-days is long enough to read as a real ruin, not an instant clean-up,
+short enough to actually observe clearing within a normal session.
+Secondary benefit: a ruin occupies its tile and blocks new construction
+there (`Settlement.at(x, y) is not None` in `_maybe_start_construction`)
+— clearing it sooner frees that tile back to the settlement faster,
+compounding with the v0.43.2 housing fixes rather than fighting them."""
 
 HUT_MATERIALS_COST = 3.0
 GRANARY_MATERIALS_COST = 5.0
@@ -742,7 +772,14 @@ class SettlementCulture:
     traditions: list[str] = field(default_factory=list)
     """LLM-authored (or fallback) customs, "Name: description" strings
     in the order established — fed back into chronicle and cognition
-    prompts. See E1."""
+    prompts. Capped in storage at CULTURE_LIST_MAX_STORED (oldest
+    dropped first); See E1."""
+    traditions_established: int = 0
+    """Total traditions ever established, never decremented — decoupled
+    from `len(traditions)` specifically so capping the stored list
+    (CULTURE_LIST_MAX_STORED) can't corrupt fallback ordinal naming
+    ("Tradition the 14th"). See docs/DECISIONS.md, "aggressive memory
+    optimization" pass."""
     culture_effects: dict = field(default_factory=dict)
     """influence category -> stack count, accumulated as traditions
     with a mechanical rider are established (llm/culture.TRADITION_
@@ -750,10 +787,17 @@ class SettlementCulture:
     mechanics read, so consumers never re-parse the traditions list."""
     inventions: list[str] = field(default_factory=list)
     """Prosperity-gated tech-tier unlocks, same shape as traditions —
-    see docs/DECISIONS.md, E3."""
+    see docs/DECISIONS.md, E3. `tech_level` above already is a
+    persistent established-count (one per invention, never
+    decremented), reused as the ordinal-naming source now that this
+    list is capped in storage — no separate counter needed."""
     festivals: list[str] = field(default_factory=list)
     """Festivals held, same shape — wellbeing-gated, with a direct
-    mechanical effect (FESTIVAL_RELATIONSHIP_BOOST)."""
+    mechanical effect (FESTIVAL_RELATIONSHIP_BOOST). Capped in storage
+    at CULTURE_LIST_MAX_STORED, same as traditions."""
+    festivals_held: int = 0
+    """Total festivals ever held, never decremented — same decoupling
+    rationale as `traditions_established`."""
     beliefs: list[dict] = field(default_factory=list)
     """The village's own accumulated, revisable theories about itself
     (`{subject, belief, confidence, subject_agent_id, ...}`), capped at
@@ -817,7 +861,7 @@ class Settlement:
         priority_history: list[dict] | None = None, player_influence: list[str] | None = None,
         era: str = "industrial", founding_scenario: str = "", temperament: float = 0.0,
         beliefs: list[dict] | None = None, omen_history: list[dict] | None = None,
-        player_standing: float = 0.0,
+        player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
     ):
         # Legacy flat-kwarg constructor, kept so from_dict/tests/callers
         # predating the split keep working unchanged.
@@ -833,9 +877,11 @@ class Settlement:
         self.culture = SettlementCulture(
             name=name, founding_scenario=founding_scenario, era=era, tech_level=tech_level,
             traditions=traditions if traditions is not None else [],
+            traditions_established=traditions_established,
             culture_effects=culture_effects if culture_effects is not None else {},
             inventions=inventions if inventions is not None else [],
             festivals=festivals if festivals is not None else [],
+            festivals_held=festivals_held,
             beliefs=beliefs if beliefs is not None else [],
         )
         self.disposition = SettlementDisposition(
@@ -955,6 +1001,14 @@ class Settlement:
         self.culture.traditions = value
 
     @property
+    def traditions_established(self) -> int:
+        return self.culture.traditions_established
+
+    @traditions_established.setter
+    def traditions_established(self, value: int) -> None:
+        self.culture.traditions_established = value
+
+    @property
     def culture_effects(self) -> dict:
         return self.culture.culture_effects
 
@@ -977,6 +1031,14 @@ class Settlement:
     @festivals.setter
     def festivals(self, value: list[str]) -> None:
         self.culture.festivals = value
+
+    @property
+    def festivals_held(self) -> int:
+        return self.culture.festivals_held
+
+    @festivals_held.setter
+    def festivals_held(self, value: int) -> None:
+        self.culture.festivals_held = value
 
     @property
     def beliefs(self) -> list[dict]:
@@ -1291,10 +1353,12 @@ class Settlement:
             "currency": round(self.currency, 4),
             "name": self.name,
             "traditions": list(self.traditions),
+            "traditions_established": self.traditions_established,
             "culture_effects": dict(self.culture_effects),
             "tech_level": self.tech_level,
             "inventions": list(self.inventions),
             "festivals": list(self.festivals),
+            "festivals_held": self.festivals_held,
             "vehicles": [v.to_dict() for v in self.vehicles],
             "next_vehicle_id": self._next_vehicle_id,
             "education_level": round(self.education_level, 4),
@@ -1318,9 +1382,15 @@ class Settlement:
             buildings=buildings, _next_id=data["next_id"],
             materials=data.get("materials", 0.0), currency=data.get("currency", 0.0),
             name=data.get("name", ""), traditions=list(data.get("traditions", [])),
+            # `traditions_established`/`festivals_held` are new (v0.44.1,
+            # see CULTURE_LIST_MAX_STORED) — an old snapshot predating
+            # them has no truncated history yet, so its list length *is*
+            # the correct established-count backfill.
+            traditions_established=data.get("traditions_established", len(data.get("traditions", []))),
             culture_effects=dict(data.get("culture_effects", {})),
             tech_level=data.get("tech_level", 0), inventions=list(data.get("inventions", [])),
             festivals=list(data.get("festivals", [])),
+            festivals_held=data.get("festivals_held", len(data.get("festivals", []))),
             vehicles=vehicles, _next_vehicle_id=data.get("next_vehicle_id", 0),
             education_level=data.get("education_level", 0.0),
             current_priority=data.get("current_priority", ""),

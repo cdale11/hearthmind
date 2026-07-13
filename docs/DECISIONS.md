@@ -3619,3 +3619,75 @@ an actual era transition was judged not worth the wall-clock cost
 given the change is a single, well-understood constant); the
 before/after expected-time arithmetic above is straightforward given
 the confirmed mechanism.
+
+## Ruin removal speed + last unbounded culture lists (v0.44.1)
+
+User: "ruined buildings should be removed." Verified directly (a small
+script forcing a building to RUINED and advancing `ruined_ticks` to
+the threshold) that `Settlement.tick()`'s removal path was already
+correct — no bug. The actual issue was `RUIN_REMOVAL_TICKS = 3000`
+(~31 sim-days), long enough that most live-observation sessions never
+saw a ruin actually disappear, reading as "never removed." Lowered to
+1200 (~12.5 days) — long enough a ruin still reads as a real landmark
+for a few days, short enough to actually observe clearing within a
+normal session. Secondary, mechanically real benefit: a RUINED
+building still occupies its tile and blocks `_maybe_start_construction`
+from using it (`settlement.at(x, y) is not None` check) — clearing
+ruins faster returns that tile to the settlement sooner, which
+compounds with the v0.43.2 housing-supply fixes instead of undermining
+them.
+
+Separately, continuing the "aggressive memory optimization, never
+touch swap on extremely long runs" audit: `Settlement.traditions`/
+`inventions`/`festivals` were the last confirmed-unbounded in-memory
+structures. `PROMPT_CULTURE_LIST_MAX` (v0.40.0) only ever sliced what
+gets sent into an LLM prompt (`traditions[-PROMPT_CULTURE_LIST_MAX:]`)
+— the underlying stored list was never capped, so a sufficiently
+long-running world (the explicit scenario this pass is optimizing for)
+would grow all three forever. Each entry is a short string, so this was
+never a *fast* leak, but "no structure should be truly unbounded" is
+the standing of this pass, however slow.
+
+Design constraint that shaped the fix: `fallback_tradition`/
+`fallback_invention`/`fallback_festival` all take an `established_
+count` parameter used for ordinal naming ("Tradition the 14th"), and
+every call site was passing `len(list)` directly. Capping the list
+in place would have silently corrupted that numbering the moment the
+cap was first hit (count would stop climbing, or even appear to
+shrink). Fixed by adding `SettlementCulture.traditions_established`/
+`festivals_held` — persistent, incremented once per establishment,
+never decremented or read from list length — and reusing `tech_level`
+(already exactly this shape) for inventions rather than adding a
+third redundant counter. New `CULTURE_LIST_MAX_STORED = 300` caps each
+list's stored length (oldest entries dropped first) in the three
+`apply()` closures in `simulation/engine.py`, right after the append
+that used to be unbounded. Old snapshots predating the counters
+backfill via `len(list)` (correct, since a pre-v0.44.1 snapshot's list
+was never truncated, so its length still equals its true established
+count at that point).
+
+Verified: a direct script appended `CULTURE_LIST_MAX_STORED + 50`
+entries to `Settlement.traditions` with the same append+increment+cap
+logic the engine uses — final stored length 300 (capped correctly),
+`traditions_established` correctly at 350 (not corrupted by the cap),
+oldest surviving entry correctly `"Tradition 50"` (the 300 most recent
+survived, oldest 50 correctly dropped). Snapshot round-trip preserves
+both the capped list and the counter. Old-snapshot backfill (manually
+stripping the new keys from a `to_dict()` output before `from_dict`)
+correctly recovers `traditions_established == len(traditions)`. A
+6,000-tick full-engine run (LLM disabled) confirms no exceptions and a
+clean snapshot round-trip with the new fields present.
+
+Also audited (per the same "never touch swap" instruction) the SQLite
+persistence layer (`persistence/database.py`'s `connect()`): no
+explicit `PRAGMA cache_size`/`mmap_size` is set, meaning SQLite's own
+conservative defaults apply — a small, fixed page cache (not scaling
+with database size) and no memory-mapped I/O. The `events` and
+`metrics` tables both grow without bound over an extremely long run
+(nothing prunes them, unlike `snapshots` which v0.40.0 already bounds),
+but confirmed this is purely a *disk* growth concern under these
+defaults, not a RAM/swap one — no pragma changes were needed or made.
+`_last_llm_calls` (engine.py) was also checked and confirmed bounded:
+it's keyed by a fixed set of ~9 job names (naming/chronicle/
+documentary/tradition/invention/festival/town_brain/beliefs/omen),
+never per-agent, so it cannot grow with population or run length.

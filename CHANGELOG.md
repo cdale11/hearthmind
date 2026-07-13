@@ -4,6 +4,37 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.44.1] — Ruined buildings clear faster; last unbounded lists capped
+
+### Changed
+
+- **`RUIN_REMOVAL_TICKS` lowered 3000 -> 1200** (~31 sim-days -> ~12.5).
+  The removal mechanism was always correct (verified directly — a ruin
+  reliably transitions to removed once `ruined_ticks` crosses the
+  threshold), but at 3000 ticks it outlived most normal live-observation
+  sessions, reading as "ruined buildings are never removed." Also frees
+  a ruin's tile back to new construction sooner, which compounds with
+  the v0.43.2 housing fixes rather than fighting them (a ruin blocks
+  `_maybe_start_construction` from using that tile until it's gone).
+
+### Fixed
+
+- **`Settlement.traditions`/`inventions`/`festivals` grew without
+  bound.** v0.40.0 only ever capped what's *sent* to an LLM prompt
+  (`PROMPT_CULTURE_LIST_MAX`), not the underlying stored lists — a
+  genuinely long-running world would grow these forever. New
+  `CULTURE_LIST_MAX_STORED = 300` caps stored length (oldest dropped
+  first); new `traditions_established`/`festivals_held` persistent
+  counters (inventions already had one: `tech_level`) decouple fallback
+  ordinal naming ("Tradition the 14th") from list length, so capping
+  the list can't corrupt the numbering. `Settlement.beliefs` was
+  already capped (`llm/beliefs.MAX_BELIEFS`) — no change needed there.
+  Audited the SQLite layer too: no explicit `cache_size`/`mmap_size`
+  pragma is set, so SQLite's own conservative defaults (small fixed
+  page cache, no memory-mapping) already keep the ever-growing
+  `events`/`metrics` tables a disk concern, not a RAM one — confirmed
+  safe, no change needed.
+
 ## [0.44.0] — Disease as a population-control valve; LLM concurrency restored to 2; UI flicker fixed; era progression tuned
 
 Five explicit user requests in one batch: never trade LLM richness for
