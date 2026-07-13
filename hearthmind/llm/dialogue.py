@@ -8,7 +8,7 @@ docs/DECISIONS.md, E2.
 """
 from __future__ import annotations
 
-from hearthmind.agents.agent import RIVALRY_THRESHOLD, Agent
+from hearthmind.agents.agent import RIVALRY_THRESHOLD, Agent, describe_traits
 
 SYSTEM_PROMPT = (
     "You are writing a brief, natural exchange between two villagers who "
@@ -64,10 +64,16 @@ def build_prompt(
         f" What the village has come to believe about them: {'; '.join(beliefs_about)}."
         if beliefs_about else ""
     )
+    personality_bits = []
+    for agent, label in ((agent_a, agent_a.name), (agent_b, agent_b.name)):
+        personality = describe_traits(agent.traits)
+        if personality:
+            personality_bits.append(f"{label} is {personality}")
+    personality_text = f" {'; '.join(personality_bits)}." if personality_bits else ""
     return (
         f"{agent_a.name} (hunger {agent_a.hunger:.2f}, energy {agent_a.energy:.2f}) "
         f"meets {agent_b.name} (hunger {agent_b.hunger:.2f}, energy {agent_b.energy:.2f}). "
-        f"They are {tie}. It is {season}, weather: {weather}.{culture}{beliefs_text} "
+        f"They are {tie}. It is {season}, weather: {weather}.{culture}{beliefs_text}{personality_text} "
         "Write their brief exchange."
     )
 

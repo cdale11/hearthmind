@@ -9,7 +9,7 @@ the project roadmap. See docs/DECISIONS.md, B2.
 """
 from __future__ import annotations
 
-from hearthmind.agents.agent import Agent, AgentGoal
+from hearthmind.agents.agent import Agent, AgentGoal, describe_traits
 
 SYSTEM_PROMPT = (
     "You are the inner voice of a villager in a small simulated world. "
@@ -58,6 +58,8 @@ def build_prompt(
             culture += f" The village keeps this tradition: {latest_tradition}."
     recent = agent.memories[-RECENT_MEMORIES_IN_PROMPT:]
     memory = f" You remember: {' | '.join(recent)}" if recent else ""
+    personality = describe_traits(agent.traits)
+    personality_text = f" You are {personality}." if personality else ""
     company = (
         f" With you right now: {', '.join(colocated_names)}."
         if colocated_names else " Nobody else is here right now."
@@ -72,7 +74,7 @@ def build_prompt(
         f"You are {agent.name}. Hunger: {agent.hunger:.2f} (0=full, 1=starving). "
         f"Energy: {agent.energy:.2f} (0=exhausted, 1=fully rested). "
         f"Currently {agent.state.value}, focused on '{agent.goal.value}'."
-        f"{company}{food} It is {season}, weather: {weather}.{culture}{memory} "
+        f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{personality_text} "
         "What should you focus on right now?"
     )
 

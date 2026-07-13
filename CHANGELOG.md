@@ -4,6 +4,59 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.51.0] — H6: psychology; H8: temperament/belief crossover; H9: observatory
+
+### Added
+
+- **H6: a compact, bounded personality vector.** New `Agent.traits`
+  (`TRAIT_RESILIENCE`, `TRAIT_SOCIABILITY`, -1..1, deliberately two
+  axes, not a big-five system). Nudged by lived experience — grief
+  (existing grief loop in `_apply_deaths`), surviving a predator attack,
+  the onset of a hunger crisis (`starving_ticks == 1`, not every tick
+  spent hungry), and positive social contact (a completed food/tools
+  trade) — plus a monthly bounded random walk (`Population._tick_
+  traits`, called on the real calendar's `month_end`), the same shape
+  `Settlement.temperament`/`player_standing` already use, reused at
+  agent scale. Read into both `llm/cognition.py` and `llm/dialogue.py`
+  prompts via a new shared `Agent.describe_traits` helper once a trait
+  clears `TRAIT_NOTABLE_THRESHOLD` — same "only mentioned once notably
+  warm/cold" treatment `player_standing` gets. `summary()` gained
+  `avg_resilience`/`avg_sociability`.
+- **H8: temperament colors belief confidence.** New `llm.beliefs.
+  temperament_confidence_bias`, wired into the existing beliefs job
+  `apply()` — the settlement's current `temperament` magnitude (either
+  direction) pushes a freshly formed/revised belief's confidence
+  further from ambivalent (0.5), so an agitated village holds its
+  current theories more starkly, whatever they already lean toward.
+  Deliberately not sign-correlated with "optimistic vs. pessimistic"
+  (that would read as a confirmed mood-to-belief rule, breaking Phase
+  G's permanent ambiguity discipline) — only magnitude matters.
+  Respects `Config.phase_g_intensity` like every other Phase G
+  consumer.
+- **H9: family formation logged; new stats surfaced in the observatory.**
+  `Population._extend_family` now returns a `family_formed` life event
+  the first time a family institution is actually created (not on a
+  routine additional child) — closes an observability gap where
+  families formed silently. New dev-console/details-panel stat tiles
+  ("Carrying capacity", "Institutions", "Skills & tools") surface H1's
+  `carrying_capacity`, H3's institution counts, and H5/H4's
+  `avg_farming_skill`/`avg_tools` — all of which already existed in
+  `summary()` but were never actually shown anywhere in the UI.
+
+Verified: direct scripts confirmed the grief/social-contact trait
+nudges, the monthly random walk's bounded mean-reversion, and
+`describe_traits`'s threshold behavior; prompt-injection checks
+confirmed both `cognition.build_prompt` and `dialogue.build_prompt`
+correctly describe a notably-shaken or notably-resilient agent;
+`temperament_confidence_bias` was checked directly against both signs
+of temperament and confirmed to respect `phase_g_intensity=0.0`; a
+direct `_extend_family` check confirmed the event fires only on actual
+family formation, not on a second child joining an existing one. A
+6,000-tick full engine run (LLM disabled, seed 7, reproduction odds
+forced high) produced genuine `family_formed` events end-to-end and
+non-zero `avg_resilience`/`avg_sociability`, with a full `World.
+to_dict()`/`from_dict()` round-trip preserving both byte-identically.
+
 ## [0.50.0] — H7: inheritance (land, goods, skill, bias) on death
 
 ### Added

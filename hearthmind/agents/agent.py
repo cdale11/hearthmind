@@ -354,6 +354,70 @@ bonus (15%), deliberately a bit higher since this is a per-person
 ceiling requiring real practice/apprenticeship time, not a one-off
 settlement-wide unlock."""
 
+# --- H6: psychology — a compact, bounded personality vector ----------------
+
+TRAIT_RESILIENCE = "resilience"
+TRAIT_SOCIABILITY = "sociability"
+"""The two axes `Agent.traits` holds in v1 — deliberately not a big-five
+system. Resilience: how well an agent copes with hardship/loss (low =
+more fragile/shaken by trauma, high = hardy). Sociability: draw toward
+social contact vs. solitude. Both -1..1, 0.0 = neutral/unformed."""
+
+TRAIT_STEP_MAX = 0.02
+TRAIT_MEAN_REVERSION = 0.99
+"""Monthly bounded-random-walk parameters — same shape as `Settlement.
+temperament`'s `TEMPERAMENT_STEP_MAX`/`TEMPERAMENT_MEAN_REVERSION`,
+reused at agent scale. Slower mean reversion than temperament's 0.97
+(a person's underlying disposition should drift less readily than a
+whole settlement's mood) and a smaller step, since 400 agents each
+walking is a lot more individual variance to keep bounded and legible
+than one settlement-wide number. See Population._tick_traits."""
+
+TRAIT_GRIEF_NUDGE = -0.03
+TRAIT_VIOLENCE_NUDGE = -0.05
+TRAIT_SUSTAINED_HUNGER_NUDGE = -0.01
+"""Event-driven resilience nudges — "nudged slowly by lived experience
+(grief, violence witnessed, sustained hunger)," per docs/ROADMAP.md's
+H6 evolution point verbatim. Violence (surviving/witnessing a predator
+attack) hits harder than grief; sustained hunger is the mildest and
+only applied while an agent is already critically hungry, mirroring
+how starvation itself escalates gradually rather than snapping the
+first tick. All three only ever push resilience down — recovery comes
+from the monthly mean-reverting walk, the same way temperament recovers
+from a bad season without a matching "good event" for every bad one."""
+
+TRAIT_SOCIAL_CONTACT_NUDGE = 0.015
+"""Sociability nudge on a positive social exchange (a completed trade —
+food or tools) — small and positive, the mirror of the resilience
+nudges above but the only trait axis with a routine upward pull, since
+ordinary friendly contact is common and grief/violence are not."""
+
+TRAIT_NOTABLE_THRESHOLD = 0.3
+"""A trait is only mentioned in cognition/dialogue prompts once its
+magnitude clears this bar — same "only mentioned once notably warm/
+cold" treatment `player_standing` already gets, so a freshly-neutral
+agent's prompt isn't cluttered with "not particularly resilient or
+fragile" noise."""
+
+
+def describe_traits(traits: dict) -> str:
+    """Shared by llm/cognition.py and llm/dialogue.py: a short natural-
+    language fragment for whichever traits currently clear
+    TRAIT_NOTABLE_THRESHOLD, or "" if none do. One function so both
+    prompts describe personality the same way rather than drifting."""
+    bits = []
+    resilience = traits.get(TRAIT_RESILIENCE, 0.0)
+    if resilience >= TRAIT_NOTABLE_THRESHOLD:
+        bits.append("resilient, taking hardship in stride")
+    elif resilience <= -TRAIT_NOTABLE_THRESHOLD:
+        bits.append("shaken easily by hardship")
+    sociability = traits.get(TRAIT_SOCIABILITY, 0.0)
+    if sociability >= TRAIT_NOTABLE_THRESHOLD:
+        bits.append("drawn to company")
+    elif sociability <= -TRAIT_NOTABLE_THRESHOLD:
+        bits.append("keeps to themself")
+    return ", ".join(bits)
+
 
 @dataclass
 class Agent:
@@ -417,6 +481,20 @@ class Agent:
     (SKILL_FARMING), gained slowly through an agent's own practice
     (harvesting) and spread faster between colocated agents through
     teaching — see Population._maybe_forage/_maybe_teach_skills."""
+    traits: dict[str, float] = field(default_factory=dict)
+    """H6 (docs/ROADMAP.md "Phase H"): a compact, bounded (-1..1)
+    personality vector — `TRAIT_RESILIENCE` and `TRAIT_SOCIABILITY` in
+    v1, deliberately two axes, not a big-five system. Absent keys read
+    as 0.0 (neutral), same convention as `relationships`/`trust`.
+    Nudged slowly by lived experience (grief, violence witnessed,
+    sustained hunger, positive social contact — see Population.
+    _nudge_trait/_tick_traits) using the same bounded-random-walk-plus-
+    event-nudge shape `Settlement.temperament`/`player_standing`
+    already establish at the settlement level, reused here at agent
+    scale rather than inventing a new one. Read into cognition/dialogue
+    prompts as context once a trait is notable (see llm/cognition.py,
+    llm/dialogue.py), the same "only mentioned once notably warm/cold"
+    treatment temperament gets."""
 
     def to_dict(self) -> dict:
         return {
@@ -439,6 +517,7 @@ class Agent:
             "goal_reason": self.goal_reason,
             "memories": list(self.memories),
             "skills": {k: round(v, 4) for k, v in self.skills.items()},
+            "traits": {k: round(v, 4) for k, v in self.traits.items()},
         }
 
     @classmethod
@@ -464,4 +543,5 @@ class Agent:
             goal_reason=data.get("goal_reason", ""),
             memories=list(data.get("memories", [])),
             skills=dict(data.get("skills", {})),
+            traits=dict(data.get("traits", {})),
         )

@@ -4080,3 +4080,79 @@ produced genuine `inheritance` events end-to-end through the real tick
 loop, with buildings correctly reassigned across generations —
 confirmed by inspecting final `Building.owner_agent_id` values after
 the run, not just by reading the logged event text.
+
+## H6 v1 (psychology), H8 v1 (temperament/belief crossover), H9 v1 (observatory)
+
+Seventh, eighth, and ninth implementation passes on Phase H, per
+explicit user instruction to build "H6 and H8 and H9 together." All
+three items the roadmap's own evolution points had already predicted
+would be small/cheap once H1-H5/H7 landed — this batch confirms that
+prediction rather than discovering new scope.
+
+**H6.** `Agent.traits` (`TRAIT_RESILIENCE`/`TRAIT_SOCIABILITY`) is
+implemented exactly per the roadmap's own prescription: a monthly
+bounded random walk reusing `tick_temperament`'s shape at agent scale
+(`Population._tick_traits`, gated on the real calendar's `month_end`
+rather than every tick — 400 agents stepping every tick would drift
+far faster than intended and cost real per-tick CPU for no benefit
+between month boundaries), plus event-driven nudges hooking existing
+event sites rather than inventing new ones: the pre-existing grief loop
+in `_apply_deaths`, `_maybe_predator_attack`'s survive-an-attack
+branch, the onset of `starving_ticks` (gated to `== 1`, not applied
+every tick spent hungry — a crisis *beginning*, matching how
+starvation itself already escalates gradually rather than snapping),
+and a completed food/tools trade (the one axis with a routine, not
+just crisis-driven, nudge). A new shared `Agent.describe_traits`
+function (not duplicated per LLM module) feeds both `llm/cognition.py`
+and `llm/dialogue.py` prompts once a trait clears
+`TRAIT_NOTABLE_THRESHOLD`. Deliberately two axes, not the full
+identity/values/ambition set the roadmap names — v1 covers exactly the
+two with the clearest existing event hooks (trauma via grief/violence,
+sociability via trade); the rest remain open for a future round.
+
+**H8.** `llm.beliefs.temperament_confidence_bias` is the concrete
+"Town's belief list as proving ground for H2's schema" the roadmap
+predicted — except no further schema work was needed (H2 already
+upgraded `Settlement.beliefs`, which *is* the Town's own belief list).
+The actual new increment is a genuine systems-interacting nudge:
+temperament's magnitude (either direction) pushes a belief's confidence
+further from ambivalent. Deliberately magnitude-only — nudging toward
+higher confidence when temperament is positive and lower when negative
+was considered and rejected, since that would make "good mood ->
+optimistic, confident beliefs" a *confirmed* mechanical rule, directly
+violating Phase G's standing "never confirmed" instruction. Magnitude-
+only preserves total ambiguity: a viewer can never infer temperament's
+sign from a belief's confidence trend, only that *something* is
+stirring the village's convictions.
+
+**H9.** An audit (not a redesign) of every H1-H8 addition against the
+"log through the existing pipeline" rule, per this section's own
+evolution point. Found exactly one real gap: H3 family formation fired
+with zero event — a family could form and no `events` row, chronicle
+mention, or documentary reference would ever know. Fixed by having
+`Population._extend_family` return a `family_formed` event on actual
+creation (not on every subsequent child, which would be routine noise,
+not a new institution). This is the evolution point's core claim
+validated in practice: no chronicle/documentary/history code needed to
+change at all — they already consume the general event pipeline, so
+the new category was visible to all of them the moment it started
+being logged. Separately found and fixed a UI-only gap (not a logging
+one): `carrying_capacity`/institution counts/`avg_farming_skill`/
+`avg_tools` all already existed in `Population.summary()`/`Settlement.
+summary()` from earlier H-series work but were never rendered anywhere
+— three new stat tiles in the observatory's details panel close this.
+
+Verified: direct scripts for every trait nudge (grief, trade/social
+contact, the bounded monthly walk's mean-reversion behavior) and
+`describe_traits`'s notability threshold; prompt-injection checks
+confirmed both `cognition.build_prompt` and `dialogue.build_prompt`
+correctly describe a strongly-shaken or strongly-resilient agent by
+name; `temperament_confidence_bias` checked directly against both
+temperament signs (0.6 confidence pushed to 0.735 at temperament=0.9;
+0.4 pushed to 0.265) and confirmed inert at `phase_g_intensity=0.0`; a
+direct `_extend_family` check confirmed the event fires only on actual
+family creation. A 6,000-tick full engine run (LLM disabled, seed 7,
+reproduction odds forced high) produced two genuine `family_formed`
+events and non-zero `avg_resilience`/`avg_sociability` end-to-end
+through the real tick loop, with a full `World.to_dict()`/`from_dict()`
+round-trip preserving both byte-identically.

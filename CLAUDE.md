@@ -777,16 +777,17 @@ that should steer future sessions:
 
 Explicit user directive (2026-07-13; user then explicitly requested "H1
 then H3" as implementation order, followed by "H2 and H5 in parallel",
-then "H4 and H7" — H1 shipped v0.45.0, H3 v1 (families) shipped
-v0.46.0, H2 v1 (belief lineage + family-scoped mirroring) and H5 v1
-(one skill, `SKILL_FARMING`) both shipped together v0.48.0, H4 v1
-(HUT ownership + a materials->tools supply chain) shipped v0.49.0, H7
-v1 (inheritance of land/goods/skill/bias on death, hooked into
-`_apply_deaths`) shipped v0.50.0 — every roadmap item the user has
-explicitly named so far is now shipped; H6 (psychology) and H8/H9
-follow-ups remain open, unprompted. See docs/ROADMAP.md "Phase H" for
-the full per-item breakdown and docs/DECISIONS.md for the log entries):
-treat memory/belief/knowledge
+then "H4 and H7", then "H6 and H8 and H9 together" — H1 shipped
+v0.45.0, H3 v1 (families) shipped v0.46.0, H2 v1 (belief lineage +
+family-scoped mirroring) and H5 v1 (one skill, `SKILL_FARMING`) both
+shipped together v0.48.0, H4 v1 (HUT ownership + a materials->tools
+supply chain) shipped v0.49.0, H7 v1 (inheritance of land/goods/skill/
+bias on death) shipped v0.50.0, H6 v1 (two-axis `Agent.traits`), H8 v1
+(temperament -> belief-confidence crossover), and H9 v1 (family_formed
+event + observatory stat surfacing) all shipped together v0.51.0 —
+every roadmap item from H1 through H9 is now shipped at least a v1.
+See docs/ROADMAP.md "Phase H" for the full per-item breakdown and
+docs/DECISIONS.md for the log entries): treat memory/belief/knowledge
 as an
 evolving ecosystem — spreading, competing, mutating, merging, and
 disappearing across generations, not static per-agent/per-settlement

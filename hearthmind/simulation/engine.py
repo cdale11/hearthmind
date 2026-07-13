@@ -970,6 +970,11 @@ class SimulationEngine:
             parsed = beliefs.parse_belief(result, fallback, existing_count)
             settlement = self.world.settlement
             tick = self.world.clock.tick_count
+            # H8: the village's own current mood colors how starkly it
+            # holds this theory — see temperament_confidence_bias.
+            parsed["confidence"] = beliefs.temperament_confidence_bias(
+                parsed["confidence"], settlement.temperament, intensity=self.world.config.phase_g_intensity,
+            )
             subject_agent_id = beliefs.resolve_subject_agent_id(parsed["subject"], self.world.population.agents)
             subject_family_agent_ids = beliefs.resolve_family_agent_ids(subject_agent_id, self.world.population.agents)
             revises = parsed["revises"]

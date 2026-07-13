@@ -644,7 +644,7 @@ future direction) — reserved for a later pass once a second skill
 exists to make "aggregate signal" a meaningful design, not a rewrite
 of a single-skill system.
 
-### H6. Psychology: habits, identity, values, trauma, ambition
+### [x] H6. Psychology: habits, identity, values, trauma, ambition (v1)
 
 Current state: `Agent` has needs (hunger/energy), relationships, trust,
 memories, and a fixed small goal set. No persistent personality trait beyond
@@ -659,6 +659,17 @@ hunger) using the same bounded-random-walk-plus-event-nudge shape
 reuse that pattern at agent scale rather than inventing a new one. Trauma
 specifically should hook the *existing* memory-of-grief/violence events
 already logged, not require new event types.
+
+**Shipped, v0.51.0 (v1: two axes, resilience + sociability).**
+`Agent.traits` implements the plan above: a monthly bounded random walk
+(`Population._tick_traits`, reusing temperament's shape) plus event
+nudges hooking the existing grief loop, `_maybe_predator_attack`'s
+survive-an-attack branch, sustained hunger (onset only, not every
+hungry tick), and trade (positive social contact). Read into cognition/
+dialogue prompts via `Agent.describe_traits` once notable.
+Identity/values/ambition axes remain open — v1 deliberately covers only
+the two axes with the clearest existing event hooks, per this section's
+own "2-4 axes to start" framing.
 
 ### [x] H7. Cross-generational inheritance (v1)
 
@@ -690,7 +701,7 @@ state" note above) — a future pass could still make family-specific
 beliefs (H2's `Institution.beliefs`) inheritance-aware in a more
 targeted way.
 
-### H8. The Town as an ancient, ambiguous intelligence
+### [x] H8. The Town as an ancient, ambiguous intelligence (v1)
 
 Current state (Phase G, already shipped): `Settlement.temperament` +
 `llm/omens.py` + `Settlement.beliefs`. The permanent instruction — subtlety,
@@ -704,7 +715,17 @@ upgrades to land first (it's already the most-established belief-holder in
 the codebase) — a proving ground for H2's schema before extending it to
 per-agent/per-institution holders, not a separate effort.
 
-### H9. Documentary mode, replay, timelines, developer observatory
+**Shipped, v0.51.0.** `llm.beliefs.temperament_confidence_bias`: the
+settlement's own current `temperament` magnitude pushes a freshly
+formed/revised belief's confidence further from ambivalent, in
+whichever direction that belief already leaned — an agitated Town
+holds its current theories more starkly. Deliberately magnitude-only,
+never sign-correlated with "optimistic vs. pessimistic," so it never
+reads as a confirmed mood-to-belief rule — same permanent ambiguity
+discipline every other Phase G lever follows. Respects `Config.
+phase_g_intensity`, a full off switch like every sibling lever.
+
+### [x] H9. Documentary mode, replay, timelines, developer observatory (v1)
 
 Current state: yearly documentary narration (`llm/documentary.py`), curated
 `GET /history`, capped `priority_history`/`omen_history` logs, and the
@@ -719,6 +740,22 @@ happen" tooling has stayed cheap to extend so far. A scrub-through-time view
 remains its own dedicated session (needs a keyframe+delta replay model, not
 just more curated narration) and gets more valuable, not less, the more of
 H1-H8 actually ships — more worth explaining accumulates over time.
+
+**Shipped, v0.51.0 (audit + two concrete gaps closed).** Audited every
+H1-H8 addition against the "logs through the existing pipeline" rule
+above — one real gap found and closed: family formation (H3) fired
+silently, with no event at all. `Population._extend_family` now
+returns a `family_formed` event the first time a family is actually
+created (not on a routine additional child), so documentary/chronicle/
+history all pick it up automatically, no new wiring needed on their
+end — confirming the evolution point's core claim that logging through
+the shared pipeline once keeps paying off. Separately, several H1-H5/H7
+stats (`carrying_capacity`, institution counts, `avg_farming_skill`,
+`avg_tools`) existed in `summary()` but were never actually surfaced in
+the observatory UI — new dev-console/details-panel stat tiles close
+that gap. The scrub-through-time replay view itself remains explicitly
+out of scope, per this section's own framing (its own dedicated
+session, not a fold-in).
 
 ### Suggested sequencing
 

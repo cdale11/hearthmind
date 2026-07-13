@@ -39,6 +39,32 @@ INSTITUTION_BELIEF_CAP = 5
 MAX_BELIEFS' eviction shape at a smaller scale, since a family is a
 much narrower unit than the whole settlement."""
 
+TEMPERAMENT_BELIEF_CONFIDENCE_INFLUENCE = 0.15
+"""H8 (docs/ROADMAP.md "Phase H"): the settlement's own `temperament`
+(Phase G) subtly colors how starkly it holds a freshly formed/revised
+belief — an agitated village (temperament far from 0, either
+direction) pushes its current read further from ambivalent (0.5)
+rather than toward any particular confidence value, so this never
+reads as "good mood = optimistic beliefs," only as "strong mood =
+stronger conviction, whatever the theory already leans toward." Same
+small-magnitude, permanently-ambiguous, never-labeled treatment every
+other Phase G nudge gets (TEMPERAMENT_KILL_CHANCE_INFLUENCE et al.).
+See `temperament_confidence_bias`."""
+
+
+def temperament_confidence_bias(confidence: float, temperament: float, intensity: float = 1.0) -> float:
+    """Nudges `confidence` away from 0.5 by a fraction of the
+    settlement's current |temperament| — called once per formed/revised
+    belief (`SimulationEngine._maybe_schedule_beliefs`). `intensity` is
+    `Config.phase_g_intensity`, same as every other Phase G consumer;
+    0.0 leaves confidence untouched."""
+    magnitude = abs(temperament) * TEMPERAMENT_BELIEF_CONFIDENCE_INFLUENCE * intensity
+    if confidence >= 0.5:
+        confidence += magnitude
+    else:
+        confidence -= magnitude
+    return round(max(0.0, min(1.0, confidence)), 3)
+
 SYSTEM_PROMPT = (
     "You are the quiet, slowly-forming understanding a small simulated village "
     "has of itself — not an outside narrator, but the village's own accumulating "

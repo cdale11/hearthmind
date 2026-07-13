@@ -175,6 +175,7 @@ class World:
             terrain=self.terrain, resources=self.resources,
             settlement=self.settlement, farms=self.farms, wildlife=self.wildlife, roads=self.roads,
             weather=self.weather, night_factor=night, heatwave_active=self.disasters.heatwave_active,
+            month_end="month_end" in events,
         )
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (

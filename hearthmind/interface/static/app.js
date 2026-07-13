@@ -91,6 +91,7 @@ const CATEGORY_META = {
   lake_receded: { icon: "🏖️" },
   migrant_arrived: { icon: "🚶" },
   inheritance: { icon: "🪦" },
+  family_formed: { icon: "🏡" },
   illness: { icon: "🤒" },
   recovery: { icon: "💊" },
 };
@@ -907,6 +908,24 @@ function renderStats(summary) {
       "Relationships", `${p.close_bonds} close, ${p.rivalries} rivalries (avg ${p.avg_affinity.toFixed(2)})`,
       "Close: affinity ≥ 0.6 (reproduction-eligible). Rivalries: affinity ≤ -0.4. " +
       "Affinity moves via colocation and NPC dialogue sentiment; ranges -1 (rivalry) to 1 (bonded).",
+    ],
+    [
+      "Carrying capacity", `${p.total} / ${p.carrying_capacity != null ? p.carrying_capacity.toFixed(0) : "?"}`,
+      "A dynamic ceiling on population, not a flat cap: composed from housing (huts), granary fill, sickness/predator " +
+      "pressure, the fraction of mature/healthy agents, and current weather. Recomputed every tick; growth slows as " +
+      "population approaches it.",
+    ],
+    [
+      "Institutions", `${s.institutions ? s.institutions.total : 0} (${s.institutions ? s.institutions.families : 0} families)`,
+      "Persistent entities the population organizes into, starting with families — formed automatically at a birth " +
+      "and outliving their individual members. A family's own beliefs and, on a member's death, land/goods/skill/bias " +
+      "inheritance flow through it.",
+    ],
+    [
+      "Skills & tools", `avg farming skill ${(p.avg_farming_skill || 0).toFixed(2)}, avg tools ${(p.avg_tools || 0).toFixed(2)}`,
+      "Farming skill is gained by practice (harvesting) and colocated teaching, and boosts a skilled harvester's own " +
+      "yield up to 25%. Tools are crafted by staffed workshops from shared materials and boost that worker's own " +
+      "gathering yield up to 40%.",
     ],
     ["Buildings", `${s.total} (${s.standing} standing, ${s.under_construction} building, ${s.ruined} ruined)`, null],
     [

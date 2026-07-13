@@ -67,6 +67,15 @@ from hearthmind.agents.agent import (
     TRADE_MIN_RELATIONSHIP,
     TRADE_RELATIONSHIP_BOOST,
     TRADE_TOOLS_AMOUNT,
+    TRAIT_GRIEF_NUDGE,
+    TRAIT_MEAN_REVERSION,
+    TRAIT_NOTABLE_THRESHOLD,
+    TRAIT_RESILIENCE,
+    TRAIT_SOCIABILITY,
+    TRAIT_SOCIAL_CONTACT_NUDGE,
+    TRAIT_STEP_MAX,
+    TRAIT_SUSTAINED_HUNGER_NUDGE,
+    TRAIT_VIOLENCE_NUDGE,
     TRUST_DELTA,
     TRUST_SKEPTICISM_THRESHOLD,
     WAKE_THRESHOLD,
@@ -312,6 +321,12 @@ def _remember(agent: Agent, text: str) -> None:
         agent.memories.pop(0)
 
 
+def _nudge_trait(agent: Agent, trait: str, delta: float) -> None:
+    """H6: apply one event-driven nudge to a trait axis, clamped -1..1.
+    See TRAIT_RESILIENCE/TRAIT_SOCIABILITY."""
+    agent.traits[trait] = max(-1.0, min(1.0, agent.traits.get(trait, 0.0) + delta))
+
+
 def _is_walkable(terrain: list[list[Tile]], x: int, y: int) -> bool:
     return terrain[y][x].biome in WALKABLE_BIOMES
 
@@ -437,7 +452,7 @@ class Population:
         self, seed: int, tick: int, terrain: list[list[Tile]],
         resources: ResourceGrid, settlement: Settlement, farms: FarmGrid, wildlife: WildlifeGrid,
         roads: RoadNetwork, weather: WeatherState, night_factor: float = 0.0,
-        heatwave_active: bool = False,
+        heatwave_active: bool = False, month_end: bool = False,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -506,6 +521,10 @@ class Population:
                 any_gather_occurred = True
             if agent.hunger >= STARVATION_HUNGER_THRESHOLD:
                 agent.starving_ticks += 1
+                if agent.starving_ticks == 1:
+                    # H6: the onset of a hunger crisis, not every tick
+                    # spent in one — see TRAIT_SUSTAINED_HUNGER_NUDGE.
+                    _nudge_trait(agent, TRAIT_RESILIENCE, TRAIT_SUSTAINED_HUNGER_NUDGE)
             else:
                 agent.starving_ticks = 0
             if (
@@ -519,6 +538,8 @@ class Population:
                     life_events.append(attack_event[0])
                     if attack_event[1]:
                         killed_by_predator.add(agent.id)
+                    else:
+                        _nudge_trait(agent, TRAIT_RESILIENCE, TRAIT_VIOLENCE_NUDGE)
                 self._dispatch_movement(
                     agent, terrain, rng, resources, farms, settlement, wildlife, roads,
                     predator_tiles, position_snapshot, critically_hungry, weather,
@@ -531,6 +552,8 @@ class Population:
         self._update_roads(by_position, settlement, farms, roads)
         self._update_relationships(by_position)
         self._maybe_teach_skills(by_position, rng)
+        if month_end:
+            self._tick_traits(rng)
         disease_events, died_of_disease = self._tick_disease(
             self.agents, by_position, has_hospital, settlement.temperament, rng,
         )
@@ -1255,6 +1278,23 @@ class Population:
                         teacher.skills[skill], learner.skills.get(skill, 0.0) + SKILL_TEACHING_GAIN
                     )
 
+    def _tick_traits(self, rng: random.Random) -> None:
+        """H6: a monthly bounded random walk on every living agent's
+        trait vector — the same TRAIT_MEAN_REVERSION-toward-0/step-noise
+        shape `tick_temperament`/`tick_player_standing` already use at
+        the settlement level, reused here per-agent so a trait recovers
+        toward neutral over time without repeated reinforcement, same as
+        temperament does. Called once per real month boundary (see
+        `tick`'s `month_end` param), not every tick — 400 agents each
+        taking a step every tick would drift far faster than intended
+        and cost real per-tick CPU for no observable benefit between
+        month boundaries."""
+        for agent in self.agents:
+            for trait in (TRAIT_RESILIENCE, TRAIT_SOCIABILITY):
+                current = agent.traits.get(trait, 0.0)
+                step = rng.uniform(-TRAIT_STEP_MAX, TRAIT_STEP_MAX)
+                agent.traits[trait] = max(-1.0, min(1.0, current * TRAIT_MEAN_REVERSION + step))
+
     def carrying_capacity(
         self, settlement: Settlement, housing_capacity: int, weather_harsh: bool, predator_pressure: bool,
     ) -> float:
@@ -1355,20 +1395,28 @@ class Population:
                 _remember(child, f"I was born to {a.name} and {b.name}.")
                 _remember(a, f"{child.name} was born to us.")
                 _remember(b, f"{child.name} was born to us.")
-                self._extend_family(settlement, tick, a.id, b.id, child.id)
+                family_event = self._extend_family(settlement, tick, a.id, b.id, child.id, a.name, b.name)
+                if family_event is not None:
+                    life_events.append(family_event)
 
         self.agents.extend(newborns)
         return life_events
 
     @staticmethod
-    def _extend_family(settlement: Settlement, tick: int, parent_a_id: int, parent_b_id: int, child_id: int) -> None:
+    def _extend_family(
+        settlement: Settlement, tick: int, parent_a_id: int, parent_b_id: int, child_id: int,
+        parent_a_name: str = "", parent_b_name: str = "",
+    ) -> tuple[str, str] | None:
         """H3 (docs/ROADMAP.md Phase H): a birth is the cheapest, most
         unambiguous moment to form or extend a FAMILY institution — no
         LLM/goal decision involved, mirroring how A3's reproduction
         itself is deterministic scaffolding. Reuses an existing family
         if one already contains both parents (a second child born to the
         same couple joins the same family rather than starting a new
-        one); otherwise creates one."""
+        one); otherwise creates one. Returns a `family_formed` life
+        event only the first time (H9, docs/DECISIONS.md) — an
+        institution actually forming is a real observatory-worthy
+        moment; a routine addition to an existing family isn't."""
         existing = next(
             (
                 inst for inst in settlement.institutions
@@ -1379,7 +1427,7 @@ class Population:
         )
         if existing is not None:
             existing.member_agent_ids.add(child_id)
-            return
+            return None
         family = Institution(
             id=settlement.next_institution_id,
             kind=InstitutionKind.FAMILY,
@@ -1388,6 +1436,9 @@ class Population:
         )
         settlement.next_institution_id += 1
         settlement.institutions.append(family)
+        names = parent_a_name and parent_b_name
+        who = f"{parent_a_name} and {parent_b_name}" if names else "a new couple"
+        return ("family_formed", f"A new family began with {who}.")
 
     def _maybe_welcome_migrant(self, rng: random.Random, settlement: Settlement) -> list[tuple[str, str]]:
         """The population equivalent of wildlife's `_maybe_recolonize` —
@@ -1586,6 +1637,7 @@ class Population:
                 recipient.hunger = max(0.0, recipient.hunger - relief)
                 for a, b in ((giver, recipient), (recipient, giver)):
                     a.relationships[b.id] = max(-1.0, min(1.0, a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST))
+                    _nudge_trait(a, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
                 _remember(recipient, f"{giver.name} shared food with me.")
                 if giver.inventory.get("food", 0.0) <= 0.0:
                     givers.remove(giver)
@@ -1699,6 +1751,7 @@ class Population:
                 recipient.inventory["tools"] = min(TOOLS_CAPACITY, recipient.inventory.get("tools", 0.0) + amount)
                 for a, b in ((giver, recipient), (recipient, giver)):
                     a.relationships[b.id] = max(-1.0, min(1.0, a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST))
+                    _nudge_trait(a, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
                 _remember(recipient, f"{giver.name} shared tools with me.")
                 if giver.inventory.get("tools", 0.0) <= 0.0:
                     givers.remove(giver)
@@ -2021,10 +2074,12 @@ class Population:
                     _remember(other, f"My {label}, {agent.name}, died.")
                     other.energy = max(0.0, other.energy - grief_penalty)
                     self.last_triggered_agent_ids.add(other.id)
+                    _nudge_trait(other, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
                 elif other.relationships.get(agent.id, 0.0) >= REPRODUCTION_AFFINITY_THRESHOLD:
                     _remember(other, f"{agent.name} died. I miss them.")
                     other.energy = max(0.0, other.energy - grief_penalty)
                     self.last_triggered_agent_ids.add(other.id)
+                    _nudge_trait(other, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
             if settlement is not None:
                 life_events.extend(self._apply_inheritance(agent, settlement, dying_ids))
         self.agents = survivors
@@ -2381,6 +2436,12 @@ class Population:
             ) if total else 0.0,
             "avg_tools": round(
                 sum(a.inventory.get("tools", 0.0) for a in self.agents) / total, 3
+            ) if total else 0.0,
+            "avg_resilience": round(
+                sum(a.traits.get(TRAIT_RESILIENCE, 0.0) for a in self.agents) / total, 3
+            ) if total else 0.0,
+            "avg_sociability": round(
+                sum(a.traits.get(TRAIT_SOCIABILITY, 0.0) for a in self.agents) / total, 3
             ) if total else 0.0,
         }
 
