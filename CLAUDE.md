@@ -444,6 +444,44 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## Backpressure gate for settlement-level LLM jobs (v0.58.0)
+
+Explicit user follow-up: "audit for sparse but sudden high swap
+usage" — distinct from every leak fixed so far (institutions,
+relationships/trust, culture lists), all of which are steady-state
+monotonic-growth bugs. Found: the ten settlement-level LLM jobs
+(chronicle, documentary, tradition, invention, festival, caravan,
+town_brain, beliefs, personal_belief, omen) all funnel through the
+single shared `_schedule_llm_job` path, which — unlike per-agent
+cognition/dialogue scheduling — never checked `CognitionRunner.
+backlog` against `_backpressure_limit` before scheduling. Because
+`chronicle`/`town_brain`/`beliefs`/`personal_belief` all fire on every
+`month_end` and `tradition`/`invention` on every `season_end` (which
+is always also a month boundary), a real-engine trace confirmed a
+guaranteed 4-5-job cluster every month, growing further when
+festival/caravan/omen's own independent rolls also hit — with
+`llm_max_concurrent` at its permanent floor of 2 and ~17-20s/call real
+latency, this forces Ollama through a rapid-fire burst once a month
+instead of its normal sparse trickle, a plausible "sparse but sudden"
+swap contributor no steady-state audit would catch. Fixed with
+`SimulationEngine._settlement_job_backpressured()` — the identical
+`backlog >= _backpressure_limit` check already used by cognition/
+dialogue — added to all ten schedulers, after each job's own cheap
+gate/RNG checks. Two deliberate exceptions: caravan's currency/
+materials exchange stays unconditional (objective reality, same
+status as a disaster's material cost — only its narration is gated);
+naming stays fully exempt (one-time-per-world, no periodic retry path,
+not part of the recurring cluster this targets). Same graceful-
+degradation contract as the existing precedent: a dropped job just
+waits for its own next natural cadence. Verified via a real-engine
+trace proving the pre-fix cluster, a direct unit check calling all ten
+schedulers with backlog both empty and saturated (all ten correctly
+gate, naming correctly doesn't), and a 5,000-tick smoke run showing no
+tick-throughput regression. No real Ollama server is available in this
+environment, so the actual swap-pressure reduction can't be measured
+here — same standing caveat as every other memory fix in this
+project's history; a live diagnostic report is the way to confirm it.
+
 ## Water/power/irrigation + iGPU offload investigation (v0.57.0)
 
 Explicit user follow-up to the integration milestone: implement the two

@@ -4,6 +4,63 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.58.0] — Backpressure gate for settlement-level LLM jobs (sparse-but-sudden swap audit)
+
+### Fixed
+
+- **Unthrottled monthly/seasonal LLM job clusters.** Explicit user
+  follow-up: audit for swap spikes that are sparse but sudden, distinct
+  from the steady-state leaks already fixed (institutions,
+  relationships/trust, culture lists). Traced by instrumenting
+  `_schedule_llm_job` (the shared path for chronicle, documentary,
+  tradition, invention, festival, caravan, town_brain, beliefs,
+  personal_belief, omen — 10 settlement-level jobs) and running the
+  real engine through several month/season boundaries: up to 5 of these
+  jobs schedule on the *exact same tick* whenever `month_end` and
+  `season_end` coincide (which they always do — a season boundary is
+  also a month boundary), more when an independently-rolled job
+  (festival/caravan/omen) also happens to fire that month. Unlike
+  per-agent cognition (`_schedule_due_cognition`) and dialogue
+  (`_schedule_due_dialogue`), which both already check
+  `CognitionRunner.backlog` against `_backpressure_limit` before
+  scheduling, none of the 10 settlement-level jobs ever did — each was
+  added independently across many sessions and none looked like a
+  backlog risk in isolation, but the cluster is the risk: with
+  `llm_max_concurrent` at its permanent floor of 2 and real hardware
+  latency ~17-20s/call (per `jobs.py`'s own docstring), an unthrottled
+  5-job cluster forces Ollama through a rapid-fire back-to-back burst
+  once a month instead of its normal much sparser trickle — a
+  plausible source of "sparse but sudden" swap pressure that the
+  existing leak audits (which look for monotonic growth) can't surface,
+  since nothing here leaks; it's a burst-concurrency gap, not an
+  accumulation.
+- Fixed with `SimulationEngine._settlement_job_backpressured()`, the
+  same `backlog >= _backpressure_limit` check already used by
+  cognition/dialogue, called at the top of all 10 schedulers (after
+  each job's own cheap gate/RNG-roll checks, so a job that wouldn't
+  have fired anyway still short-circuits before the check). Same
+  graceful-degradation contract as the existing precedent: a dropped
+  job just waits for its next natural cadence (next month/season/year),
+  nothing is lost. Caravan's economic exchange (currency/materials) is
+  deliberately exempt — it's objective reality, same as a disaster's
+  material cost, and stays unconditional; only its LLM/fallback
+  *narration* is gated. Town brain's whisper-consumption behavior is
+  unaffected: a whisper dropped by this gate stays queued for the next
+  month's decision, matching its existing timeout/fallback handling.
+  Naming (`_maybe_schedule_naming`) is deliberately NOT gated — it's a
+  one-time-per-world event with no periodic retry path, and isn't part
+  of the recurring monthly cluster this exists to smooth.
+- Verified via a real-engine trace (deterministic fallback, 9,000 ticks,
+  seed 7) confirming the pre-fix cluster (5 jobs on one tick), then a
+  direct unit check calling all 10 schedulers both with an empty
+  backlog (each schedules normally, modulo its own independent
+  RNG/gate roll) and with `backlog` forced to `_backpressure_limit`
+  (all 10 correctly skip, `calls_dropped_backpressure` increments,
+  no exception) — plus naming confirmed still schedules under the same
+  saturated condition, proving the exemption is intentional and live.
+  A 5,000-tick full-engine smoke run post-fix completed cleanly
+  (0.92ms/tick, serialization round-trip OK).
+
 ## [0.57.0] — Water/power/irrigation; iGPU offload investigation
 
 ### Added

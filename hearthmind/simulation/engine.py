@@ -308,6 +308,37 @@ class SimulationEngine:
         thing, not two unrelated random draws."""
         self._log("founding", f"Before the first stone was laid: {scenario}")
 
+    def _settlement_job_backpressured(self) -> bool:
+        """Backpressure check for the settlement-level jobs (chronicle,
+        town_brain, beliefs, tradition, invention, festival, caravan,
+        documentary, personal_belief, omen) — every one of them shares
+        the same `month_end`/`season_end`/`year_end` gate, so a single
+        boundary tick schedules several of them at once (observed: up
+        to 5 in one tick on a routine month/season boundary, more when
+        an RNG-gated job like festival/caravan/omen also happens to
+        roll true the same month). Per-agent cognition
+        (`_schedule_due_cognition`) and dialogue (`_schedule_due_
+        dialogue`) already apply `_backpressure_limit` before
+        scheduling; these jobs never did, since each was added
+        independently and none is individually frequent enough to look
+        like a backlog risk in isolation. The cluster is the risk: with
+        `llm_max_concurrent` typically 1-2 and each real call ~17-20s,
+        an unthrottled 5-job cluster forces Ollama through a rapid-fire
+        back-to-back burst it wouldn't otherwise see, instead of its
+        normal much sparser trickle — a plausible source of "sparse but
+        sudden" swap spikes that steady-state/leak audits (which look
+        for monotonic growth) wouldn't surface. Same graceful-
+        degradation contract as the existing per-agent gate: a skipped
+        job just waits for its next natural cadence (next month/
+        season/year), nothing is lost or retried out of order. Naming
+        (one-time-per-world) is deliberately NOT gated by this — it has
+        no periodic retry path, and it isn't part of the recurring
+        monthly cluster this exists to smooth out."""
+        if self._cognition_runner.backlog >= self._backpressure_limit:
+            self._cognition_runner.calls_dropped_backpressure += 1
+            return True
+        return False
+
     # --- the one scheduling path for settlement-level LLM jobs -----------------
 
     def _schedule_llm_job(self, name: str, prompt: str, system: str, fallback: dict, apply) -> None:
@@ -695,6 +726,8 @@ class SimulationEngine:
         # See docs/DECISIONS.md, "cadence decoupling" pass.
         if "month_end" not in events:
             return
+        if self._settlement_job_backpressured():
+            return
         recent = recent_events(self.conn, limit=50)
         population_summary = self.world.population.summary()
         year = self.world.clock.year
@@ -730,6 +763,8 @@ class SimulationEngine:
         name (nothing yet to narrate)."""
         if "year_end" not in events or not self.world.settlement.name:
             return
+        if self._settlement_job_backpressured():
+            return
         milestones = history_events(self.conn, limit=40)
         population_summary = self.world.population.summary()
         prompt = documentary.build_prompt(
@@ -757,6 +792,8 @@ class SimulationEngine:
         Unnamed settlements (no standing building yet) have no culture
         to speak of, so nothing is scheduled. See docs/DECISIONS.md, E1."""
         if "season_end" not in events or not self.world.settlement.name:
+            return
+        if self._settlement_job_backpressured():
             return
         recent = recent_events(self.conn, limit=50)
         traditions = self.world.settlement.traditions
@@ -808,6 +845,8 @@ class SimulationEngine:
             or settlement.materials >= MATERIALS_CAPACITY * INVENTION_MATERIALS_FRACTION
         )
         if not prosperous:
+            return
+        if self._settlement_job_backpressured():
             return
         # An educated town invents more — a real school/university, not
         # just prosperity, measurably raises the odds. See
@@ -884,6 +923,8 @@ class SimulationEngine:
             return
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "festival_roll") >= FESTIVAL_CHANCE_PER_MONTH:
             return
+        if self._settlement_job_backpressured():
+            return
         recent = recent_events(self.conn, limit=50)
         festivals = self.world.settlement.festivals
         prompt = festival.build_prompt(
@@ -941,6 +982,12 @@ class SimulationEngine:
         settlement.currency = max(0.0, min(CURRENCY_CAPACITY, settlement.currency + currency_delta))
         settlement.materials = max(0.0, min(MATERIALS_CAPACITY, settlement.materials + materials_delta))
 
+        # The trade itself (above) is objective reality and always
+        # applies; only the LLM/fallback narration is subject to
+        # backpressure — a dropped narration still leaves the currency/
+        # materials exchange in effect, just undescribed this month.
+        if self._settlement_job_backpressured():
+            return
         recent = recent_events(self.conn, limit=20)
         prompt = caravan.build_prompt(settlement.name, recent)
         fallback = caravan.fallback_caravan(self.world.clock.tick_count)
@@ -975,6 +1022,8 @@ class SimulationEngine:
         the real stats, then consumed. See docs/DECISIONS.md,
         "LLM-as-brain batch.\""""
         if "month_end" not in events or not self.world.settlement.name:
+            return
+        if self._settlement_job_backpressured():
             return
         settlement = self.world.settlement
         recent = recent_events(self.conn, limit=50)
@@ -1024,6 +1073,8 @@ class SimulationEngine:
         accumulate faster and more granularly — a running theory, not a
         rare civic decision."""
         if "month_end" not in events or not self.world.settlement.name:
+            return
+        if self._settlement_job_backpressured():
             return
         settlement = self.world.settlement
         recent = recent_events(self.conn, limit=30)
@@ -1100,6 +1151,8 @@ class SimulationEngine:
             return
         candidates = [a for a in self.world.population.agents if a.memories]
         if not candidates:
+            return
+        if self._settlement_job_backpressured():
             return
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "personal_belief")
         agent = rng.choice(candidates)
@@ -1186,6 +1239,8 @@ class SimulationEngine:
             chance *= SHRINE_OMEN_CHANCE_MULTIPLIER
         chance = min(1.0, chance)
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "omen_roll") >= chance:
+            return
+        if self._settlement_job_backpressured():
             return
         recent = recent_events(self.conn, limit=10)
         # Deepened narrative payoff (roadmap follow-up): about half the

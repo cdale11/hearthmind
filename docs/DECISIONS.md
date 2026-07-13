@@ -4715,3 +4715,115 @@ own auto-detected split ever needs overriding) once path (1) or (2)
 above is confirmed working — not a fix in itself, since the blocker is
 server-side GPU recognition, not anything this project's requests were
 withholding.
+
+## Backpressure gate for settlement-level LLM jobs (sparse-but-sudden swap audit, v0.58.0)
+
+Explicit user follow-up to the water/power/irrigation batch: "also
+audit for sparse but sudden high swap usage" — deliberately distinct
+from every leak this project has already found and fixed
+(institutions, relationships/trust, culture lists), all of which are
+*steady-state* problems: a value that monotonically grows tick after
+tick until it's capped. "Sparse but sudden" is a different shape —
+nothing accumulates, but something occasionally spikes — so the right
+place to look isn't another unbounded-collection scan, it's anywhere
+several expensive operations can cluster onto the same tick.
+
+Method: instrumented `SimulationEngine._schedule_llm_job` — the one
+shared scheduling path for all ten settlement-level LLM jobs
+(naming, chronicle, documentary, tradition, invention, festival,
+caravan, town_brain, beliefs, personal_belief, omen) — to record
+`(tick, job_name)` for every call, then ran the real engine
+(deterministic fallback, seed 7) through several thousand ticks and
+grouped by tick. Finding: at tick 8832, five jobs scheduled in the
+same tick — `['chronicle', 'tradition', 'town_brain', 'beliefs',
+'personal_belief']` — and a 4-job cluster at tick 5856. This isn't a
+coincidence of this seed: `chronicle`/`town_brain`/`beliefs`/
+`personal_belief` all fire on *every* `month_end`, and `tradition`/
+`invention` fire on every `season_end` — and a season boundary is
+*always* also a month boundary (`Config.month_to_season`), so the
+4-job monthly cluster is guaranteed every month, growing further
+whenever an independently-rolled job (festival/caravan/omen) also
+happens to fire that same month.
+
+Root cause: reading `_schedule_due_cognition` and `_schedule_due_
+dialogue` (the per-agent/per-pair scheduling paths) showed both
+already check `self._cognition_runner.backlog >= self._backpressure_
+limit` before scheduling — the backpressure mechanism the July 2026
+architecture review introduced specifically so the LLM task queue
+can't grow unbounded when the engine schedules jobs faster than
+Ollama can drain them (§3.6, `BACKPRESSURE_BACKLOG_PER_SLOT`). But
+`_schedule_llm_job` itself — the shared path all ten settlement-level
+jobs funnel through — never checked it. Each of these ten jobs was
+added independently across many separate sessions in this project's
+history (B3, E1, E2, E3, "collective behaviour," the integration
+milestone's caravan, H2/H8 belief work, Phase G's omens...) and none
+individually looked like a backlog risk in isolation — the risk only
+exists as a cluster, which no single session's diff would have
+surfaced. `CognitionRunner.run()` increments `backlog` the instant a
+job enters (before it even reaches the semaphore), and holds it until
+the call resolves — with `llm_max_concurrent` at its permanent floor
+of 2 (v0.44.0's "never traded off against memory" instruction) and
+real measured hardware latency of ~17-20s/call (`jobs.py`'s own
+docstring), an unthrottled 5-job cluster forces Ollama through a
+rapid-fire near-back-to-back burst of requests once a month, instead
+of the much sparser trickle a whole-run average would suggest — each
+still allocating its own KV-cache server-side. This is exactly the
+"sparse" (only on month/season/year boundary ticks — a small fraction
+of all ticks) "but sudden" (an unbounded cluster of concurrent-ish
+Ollama load with zero backpressure) shape the user asked about, and
+it wouldn't show up in any of the memory-growth audits already done,
+since nothing here leaks — it's a scheduling gap, not an
+accumulation.
+
+Fixed with `SimulationEngine._settlement_job_backpressured()`, calling
+the identical `backlog >= _backpressure_limit` check already proven
+out for cognition/dialogue, added to all ten schedulers. Placement:
+after each job's own cheap gate/RNG-roll checks (so a job that
+wouldn't have fired anyway still short-circuits first, without paying
+for the check), before any `recent_events` DB query or prompt string
+gets built. Two deliberate exceptions to a uniform application:
+- **Caravan**: the currency/materials exchange (`settlement.currency
+  += currency_delta`, etc.) stays unconditional — it's the
+  deterministic engine's objective reality, same status as a
+  disaster's material cost (see llm/caravan.py's own module
+  docstring); the backpressure check sits *after* the exchange,
+  gating only the LLM/fallback narration and rumor-seeding that
+  follow it.
+- **Naming**: deliberately left ungated. It's a one-time-per-world
+  event (`_naming_scheduled`), not a recurring monthly job, and isn't
+  part of the cluster this fix targets — gating it would need new
+  retry plumbing (the current code sets `_naming_scheduled = True`
+  unconditionally the moment the founding event is seen, with no
+  later re-check), for a job that only ever competes for a slot once
+  in a world's entire lifetime.
+Every other job's degradation contract matches the existing cognition/
+dialogue precedent exactly: a dropped job just waits for its own next
+natural cadence (next month/season/year) — nothing is lost, nothing
+retries out of order. Town brain's whisper-consumption logic already
+handled this correctly for the timeout/fallback case ("stays queued
+for next month's decision instead of vanishing") and needed no change
+for the newly-possible drop-before-scheduling case, since from the
+whisper queue's perspective the two are indistinguishable — the
+prompt simply never happened this month either way.
+
+Verified: (1) the real-engine trace above, showing the cluster exists
+pre-fix; (2) a direct unit check
+(`/tmp/.../backpressure_unit.py`) calling all ten `_maybe_schedule_*`
+methods against a real `SimulationEngine` twice — once with
+`backlog=0` (each schedules normally, modulo its own independent RNG/
+prosperity/hunger gate — confirmed those still work unmodified) and
+once with `backlog` forced to exactly `_backpressure_limit` (all ten
+correctly return without calling `_schedule_llm_job`,
+`calls_dropped_backpressure` increments on the ones whose own gate
+would otherwise have let them through, no exception) — plus a third
+case confirming naming still schedules under the identical saturated
+condition, proving the exemption is live and intentional rather than
+an oversight; (3) a 5,000-tick full-engine smoke run post-fix
+(0.92ms/tick, unchanged from pre-fix baseline, serialization
+round-trip OK) confirming no regression to ordinary tick throughput.
+No real Ollama server is available in this environment, so the actual
+swap-pressure reduction on the user's hardware can't be measured here
+— this closes the code-level gap the audit found; a live diagnostic
+report (same `ollama ps`/`ps aux` pattern used for the mmap fix) is
+the way to confirm the fix's real-world effect, same standing caveat
+as every other memory fix in this project's history.
