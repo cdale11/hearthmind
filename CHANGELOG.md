@@ -4,6 +4,55 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.53.0] — Full-H extension: council institutions, ambition, medicine
+
+### Added
+
+- **H3 extension: a second institution kind, `COUNCIL`.** Forms
+  automatically the first tick a named settlement's population reaches
+  `COUNCIL_FORMATION_POPULATION_THRESHOLD=20` — membership is the
+  `COUNCIL_SIZE=5` oldest living agents at that moment (by fraction of
+  their own lifespan lived), fixed at formation and never refreshed,
+  same shape `FAMILY` institutions already use. New `council_formed`
+  event. `Settlement.summary()`'s `institutions` dict gained `councils`.
+- **H6 extension: a third trait axis, `TRAIT_AMBITION`.** Nudged up by
+  tangible achievement — founding a building
+  (`Population._maybe_start_construction`) or a skill first crossing
+  `MASTERY_THRESHOLD=0.95` through practice (both `_maybe_forage`'s
+  farming-practice line and `_advance_construction`'s, each gated to
+  fire exactly once per skill per agent, on the crossing tick only) —
+  rather than by hardship/social contact like the other two axes.
+  Included in the monthly bounded random walk and `describe_traits`.
+  `summary()` gained `avg_ambition`.
+- **H4 extension: a second crafted good, `"medicine"`.** Mirrors the
+  materials-to-tools chain exactly: a standing, staffed hospital
+  converts shared materials into personal medicine for its workers
+  (`Population._maybe_craft_medicine`). Consumed by `_tick_disease`: a
+  sick agent personally holding medicine gets their own death-chance
+  roll multiplied by `(1 - MEDICINE_DEATH_CHANCE_REDUCTION)` — a second,
+  individually-earned protection layer on top of the settlement-wide
+  hospital reduction everyone already gets — and draws the stock down
+  each tick it's helping. `Population._maybe_trade_medicine` mirrors
+  the existing tools-trade shape. `summary()` gained `avg_medicine`.
+  Observatory stat tiles ("Institutions," "Skills & tools," "Personality
+  (avg)") updated to surface all of the above alongside the existing
+  H1-H5/H7 stats.
+
+Verified: a direct council-formation script confirmed threshold
+gating, correct elder selection (eldest-by-lifespan-fraction), and
+no duplicate council on repeat calls; a mastery-crossing script
+confirmed the ambition nudge fires exactly once (not on every practice
+tick past mastery) and a founding-nudge script confirmed both founders
+gain ambition; a direct medicine-crafting script confirmed production
+and materials draw-down; a 3,000-tick paired death-rate comparison
+(500 permanently-medicated agents vs. 500 without, same seed) measured
+58 deaths with medicine vs. 128 without — medicine measurably,
+substantially reduces the death rate, not just in isolated single-tick
+math. A 6,000-tick full engine run (LLM disabled, seed 42) completed
+with no exceptions across all three new mechanics together, with a
+full `World.to_dict()`/`from_dict()` round-trip preserving every new
+stat byte-identically.
+
 ## [0.52.0] — H2 extension: personal beliefs; H5 extension: second skill
 
 ### Added

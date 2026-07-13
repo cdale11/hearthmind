@@ -590,6 +590,14 @@ anchor). Councils/guilds/markets/religions, deliberate founding, and
 institution-scoped beliefs remain open follow-ups on the same
 `Institution` shape. See docs/DECISIONS.md, "H3: institutions v1."
 
+**Extended, v0.53.0: a second kind, `COUNCIL`.** Forms automatically
+the first tick a named settlement's population reaches
+`COUNCIL_FORMATION_POPULATION_THRESHOLD=20` — membership is the
+`COUNCIL_SIZE` oldest living agents at that moment, fixed at formation
+(same "outlives the founding moment, never refreshed" shape as
+`FAMILY`). Still no deliberate founding (no agent goal/LLM decision) —
+guilds/markets/religions and deliberate founding remain open.
+
 ### [x] H4. Resource-driven economy: ownership, specialization, supply chains, trade (v1)
 
 Current state: settlement-scale only (materials/currency pools,
@@ -623,6 +631,16 @@ the new good, same shape as existing food trade. Deliberately v1-scoped:
 no other building kind is owned, no second crafted good, no
 market/price-discovery — those remain open for a larger future session,
 per this section's own scoping note above.
+
+**Extended, v0.53.0: a second crafted good, medicine.** Mirrors the
+tools chain exactly — a staffed hospital converts shared materials into
+personal medicine (`Population._maybe_craft_medicine`), consumed by
+`_tick_disease` to roughly halve the holder's own disease death-chance
+roll (a second, individually-earned protection layer on top of the
+settlement-wide hospital reduction everyone already gets), with
+`_maybe_trade_medicine` extending barter to the new good. Still no
+second owned building kind, no market/price-discovery — those remain
+the larger open item.
 
 ### [x] H5. Knowledge as a system distinct from beliefs (v1: one skill)
 
@@ -702,6 +720,13 @@ dialogue prompts via `Agent.describe_traits` once notable.
 Identity/values/ambition axes remain open — v1 deliberately covers only
 the two axes with the clearest existing event hooks, per this section's
 own "2-4 axes to start" framing.
+
+**Extended, v0.53.0: a third axis, `TRAIT_AMBITION`.** Nudged up by
+tangible achievement (founding a building, first reaching mastery in a
+skill) rather than lived hardship/social contact like the other two —
+"earned, not suffered or given." Included in the same monthly walk and
+`describe_traits`. Identity/values remain open, now at 3 of the
+section's own "2-4 axes to start" range.
 
 ### [x] H7. Cross-generational inheritance (v1)
 

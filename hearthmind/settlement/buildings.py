@@ -419,6 +419,35 @@ already does, which is the point — materials are now a genuinely
 contested resource across three consumers (building, crafting,
 overflow-selling), not just two. See Population._maybe_craft_tools."""
 
+MEDICINE_CAPACITY = 3.0
+"""H4 extension (docs/ROADMAP.md "Phase H"): max personal `"medicine"`
+an agent's inventory can hold — same shape as TOOLS_CAPACITY, a second
+good with its own cap since medicine/tools/food are all separately
+scarce."""
+
+HOSPITAL_CRAFT_MATERIALS_COST_PER_TICK = 0.05
+HOSPITAL_CRAFT_MEDICINE_PER_TICK = 0.02
+"""H4 extension: the second crafted-good supply chain, same shape as
+WORKSHOP_CRAFT_MATERIALS_COST_PER_TICK/WORKSHOP_CRAFT_TOOLS_PER_TICK —
+a staffed, standing hospital converts shared materials into personal
+medicine for its present awake workers. See Population._maybe_craft_
+medicine."""
+
+MEDICINE_DEATH_CHANCE_REDUCTION = 0.5
+"""A sick agent personally holding medicine has their own disease
+death-chance roll multiplied by (1 - this), on top of (not instead of)
+the settlement-wide SICKNESS_HOSPITAL_KILL_CHANCE_REDUCTION a standing
+hospital already gives everyone — personal medicine is a second,
+individually-earned layer of protection, same "specialization has a
+real, individual payoff" shape TOOLS/SKILL_FARMING_YIELD_BONUS
+established. See Population._tick_disease."""
+
+MEDICINE_CONSUMPTION_PER_TICK = 0.02
+"""Medicine drawn down each tick a stocked agent is sick — roughly
+matches HOSPITAL_CRAFT_MEDICINE_PER_TICK's craft rate, so sustained
+treatment through a full bout (SICKNESS_DURATION_TICKS) requires
+ongoing production, not a one-time stockpile."""
+
 EDUCATION_CAPACITY = 1.0
 """Max `Settlement.education_level` — see SCHOOL_EDUCATION_PER_TICK and
 `education_invention_bonus`."""
@@ -1389,6 +1418,7 @@ class Settlement:
             "institutions": {
                 "total": len(self.institutions),
                 "families": sum(1 for i in self.institutions if i.kind is InstitutionKind.FAMILY),
+                "councils": sum(1 for i in self.institutions if i.kind is InstitutionKind.COUNCIL),
             },
         }
 

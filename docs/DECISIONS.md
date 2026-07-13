@@ -4225,3 +4225,68 @@ later revise (with history) through the real monthly-scheduled job
 end-to-end (not just the unit-level helpers); a second, unmodified
 6,000-tick run confirmed no regressions with the new stats live. Both
 confirmed clean serialization round-trips.
+
+## Full-H extension: COUNCIL institutions, ambition, medicine
+
+Twelfth implementation pass, closing out the explicit "full H
+extension" half of the combined "perform H2/H5 extensions and full H
+extension" instruction. Three small, closely-patterned additions, each
+following an established shape from earlier in Phase H rather than
+introducing a new one.
+
+**H3: `COUNCIL`.** The second institution kind, deliberately still
+fully automatic (no agent goal or LLM founds one) — a named
+settlement's population crossing `COUNCIL_FORMATION_POPULATION_
+THRESHOLD=20` is the "cheapest, most unambiguous moment" trigger, same
+philosophy as birth triggering family formation. Membership is fixed
+at formation (the `COUNCIL_SIZE` eldest living agents by lifespan
+fraction) and never refreshed — matches how `FAMILY.member_agent_ids`
+already only ever grows, never gets reassigned, rather than inventing
+a different, dynamic-membership shape for the second kind. No
+consumption beyond serialization/summary/the new event in this pass,
+same staged-rollout precedent `FAMILY` itself followed (beliefs-
+mirroring came in a later H2/H3 crossover pass, not v1).
+
+**H6: `TRAIT_AMBITION`.** The mastery-nudge needed a genuine one-time-
+crossing check (`before < MASTERY_THRESHOLD <= after`) rather than a
+simple `if skill >= threshold` gate, since the latter would re-fire the
+nudge every single tick a mastered agent kept practicing — verified
+directly (the unit script explicitly re-practiced past mastery and
+confirmed ambition stayed flat on the second call). Founding nudges
+both eligible founders, not just the HUT's eventual owner (H4's
+lowest-id tie-break) — founding a building is a shared achievement
+between whoever was present, ownership is a separate, narrower concept
+that already has its own tie-break rule.
+
+**H4: medicine.** Deliberately the *same* supply-chain shape as tools
+(craft from shared materials at a staffed building, consume personally,
+trade via the same barter pattern) rather than a novel mechanic, so the
+H4 v1 review/audit trail generalizes cleanly to "goods work this way in
+this project" rather than every good needing its own bespoke design
+read. The death-chance interaction is the one genuinely new piece:
+personal medicine multiplies (not replaces) the settlement-wide
+hospital reduction `_tick_disease` already applies, so the two layers
+stack — a settlement with both a hospital and citizens who personally
+stock medicine protects better than either alone, a believable
+"institutional care plus personal preparedness" reading. Verified with
+a paired 3,000-tick death-rate comparison (500 permanently-medicated
+agents vs. 500 without, same seed) rather than only checking the
+single-roll math, since a small per-tick probability difference needs
+volume to show up meaningfully — 58 deaths vs. 128, confirming the
+effect is real at population scale, not just correct in isolation.
+
+Also updated: the observatory's existing "Institutions"/"Skills &
+tools" stat tiles (added in the H9 pass) to include the new council
+count and construction/medicine averages, plus a new "Personality
+(avg)" tile for all three trait axes — none of these existed as UI
+surfaces before this pass despite being in `summary()` already,
+continuing the same "stats existed, were never actually shown" pattern
+H9's audit first found.
+
+Verified overall: council-formation threshold/elder-selection/no-
+duplicate-formation script; ambition mastery-nudge-fires-once and
+founding-nudges-both-founders scripts; medicine crafting/trading
+scripts and the paired death-rate comparison above. A 6,000-tick full
+engine run (LLM disabled, seed 42) completed with no exceptions across
+all three mechanics together, with a full `World.to_dict()`/
+`from_dict()` round-trip preserving every new stat byte-identically.

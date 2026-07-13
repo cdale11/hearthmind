@@ -66,9 +66,14 @@ from hearthmind.agents.agent import (
     INHERITANCE_SKILL_TRANSFER_FRACTION,
     TRADE_FOOD_AMOUNT,
     TRADE_HUNGER_RELIEF,
+    TRADE_MEDICINE_AMOUNT,
     TRADE_MIN_RELATIONSHIP,
     TRADE_RELATIONSHIP_BOOST,
     TRADE_TOOLS_AMOUNT,
+    MASTERY_THRESHOLD,
+    TRAIT_AMBITION,
+    TRAIT_AMBITION_FOUNDING_NUDGE,
+    TRAIT_AMBITION_MASTERY_NUDGE,
     TRAIT_GRIEF_NUDGE,
     TRAIT_MEAN_REVERSION,
     TRAIT_NOTABLE_THRESHOLD,
@@ -118,9 +123,14 @@ from hearthmind.settlement.buildings import (
     GRANARY_HUNGER_RELIEF,
     GRANARY_WELLFED_HUNGER_THRESHOLD,
     GRANARY_WITHDRAW_AMOUNT,
+    HOSPITAL_CRAFT_MATERIALS_COST_PER_TICK,
+    HOSPITAL_CRAFT_MEDICINE_PER_TICK,
     HOSPITAL_KILL_CHANCE_REDUCTION,
     HOSPITAL_REST_RECOVERY_MULTIPLIER,
     HUT_CAPACITY,
+    MEDICINE_CAPACITY,
+    MEDICINE_CONSUMPTION_PER_TICK,
+    MEDICINE_DEATH_CHANCE_REDUCTION,
     MATERIALS_CAPACITY,
     MATERIALS_COST_BY_KIND,
     MATERIALS_GATHER_PER_TICK,
@@ -245,6 +255,25 @@ construction pairs) within days instead of weeks. Together with the
 spring calendar start (Config.start_day_of_year) this is the fix for
 the measured early starvation funnel — believable causality (founders
 chose a good spot in spring), not a stat buff."""
+
+COUNCIL_FORMATION_POPULATION_THRESHOLD = 20
+"""H3 extension (docs/ROADMAP.md "Phase H"): a named settlement forms
+its first COUNCIL institution the first tick its living population
+reaches this size — a second, larger-scale institution kind alongside
+FAMILY, still fully automatic (no agent goal/LLM decision to found
+one), same "cheapest, most unambiguous moment" discipline family
+formation already uses. Chosen well above `POPULATION_CRITICAL_
+THRESHOLD` and comfortably reachable by a healthy settlement, so
+council formation reads as "the village has grown large enough to need
+one," not an arbitrary tripwire."""
+
+COUNCIL_SIZE = 5
+"""Council membership is fixed at formation — the this-many oldest
+living agents at that moment (age_ticks fraction of their own
+max_age_ticks, eldest first), never refreshed afterward. Matches how
+FAMILY institutions already work (member_agent_ids only ever grows,
+never gets swapped out) rather than introducing a different, dynamic-
+membership shape for the second kind."""
 
 POPULATION_CRITICAL_THRESHOLD = 4
 """Below this many living inhabitants (but above 0 — total extinction is
@@ -568,6 +597,8 @@ class Population:
         self._maybe_run_workshops(by_position, settlement)
         self._maybe_craft_tools(by_position, settlement)
         self._maybe_trade_tools(by_position, rng)
+        self._maybe_craft_medicine(by_position, settlement)
+        self._maybe_trade_medicine(by_position, rng)
         self._maybe_run_factories(by_position, settlement)
         self._maybe_run_schools(by_position, settlement)
         life_events.extend(self._maybe_upgrade_university(by_position, settlement, rng))
@@ -587,6 +618,7 @@ class Population:
         )
         life_events.extend(self._apply_deaths(killed_by_predator, settlement, died_of_disease))
         life_events.extend(self._maybe_welcome_migrant(rng, settlement))
+        life_events.extend(self._maybe_form_council(settlement, tick))
         return life_events
 
     @staticmethod
@@ -727,7 +759,17 @@ class Population:
             if agent.sick_ticks <= 0:
                 continue
             agent.sick_ticks += 1
-            if rng.random() < death_chance:
+            agent_death_chance = death_chance
+            # H4 extension: personal medicine is a second, individually-
+            # earned layer of protection on top of the settlement-wide
+            # hospital reduction above — see MEDICINE_DEATH_CHANCE_
+            # REDUCTION. Drawn down each tick it's helping, so sustained
+            # treatment through a full bout needs ongoing production.
+            medicine = agent.inventory.get("medicine", 0.0)
+            if medicine > 0.0:
+                agent_death_chance *= (1.0 - MEDICINE_DEATH_CHANCE_REDUCTION)
+                agent.inventory["medicine"] = max(0.0, medicine - MEDICINE_CONSUMPTION_PER_TICK)
+            if rng.random() < agent_death_chance:
                 died_of_disease.add(agent.id)
                 continue
             if agent.sick_ticks >= SICKNESS_DURATION_TICKS:
@@ -777,7 +819,12 @@ class Population:
                 agent.inventory["food"] = min(
                     PERSONAL_FOOD_CAPACITY, agent.inventory.get("food", 0.0) + FORAGE_INVENTORY_SKIM
                 )
-                agent.skills[SKILL_FARMING] = min(1.0, farming_skill + SKILL_PRACTICE_GAIN)
+                new_farming_skill = min(1.0, farming_skill + SKILL_PRACTICE_GAIN)
+                agent.skills[SKILL_FARMING] = new_farming_skill
+                if farming_skill < MASTERY_THRESHOLD <= new_farming_skill:
+                    # H6 extension: first time this skill reaches mastery —
+                    # a tangible achievement, not routine practice.
+                    _nudge_trait(agent, TRAIT_AMBITION, TRAIT_AMBITION_MASTERY_NUDGE)
                 return
 
         # A stocked granary is preferred over wild foraging too — a
@@ -1292,7 +1339,7 @@ class Population:
         and cost real per-tick CPU for no observable benefit between
         month boundaries."""
         for agent in self.agents:
-            for trait in (TRAIT_RESILIENCE, TRAIT_SOCIABILITY):
+            for trait in (TRAIT_RESILIENCE, TRAIT_SOCIABILITY, TRAIT_AMBITION):
                 current = agent.traits.get(trait, 0.0)
                 step = rng.uniform(-TRAIT_STEP_MAX, TRAIT_STEP_MAX)
                 agent.traits[trait] = max(-1.0, min(1.0, current * TRAIT_MEAN_REVERSION + step))
@@ -1442,6 +1489,37 @@ class Population:
         who = f"{parent_a_name} and {parent_b_name}" if names else "a new couple"
         return ("family_formed", f"A new family began with {who}.")
 
+    def _maybe_form_council(self, settlement: Settlement, tick: int) -> list[tuple[str, str]]:
+        """H3 extension (docs/ROADMAP.md "Phase H"): a second
+        institution kind, formed the first tick a named settlement's
+        population reaches COUNCIL_FORMATION_POPULATION_THRESHOLD —
+        membership is the COUNCIL_SIZE oldest living agents at that
+        moment (elders, by fraction of their own lifespan lived), fixed
+        at formation and never refreshed, same "outlives its founding
+        moment" shape FAMILY institutions already use. Still fully
+        deterministic/automatic — no agent goal or LLM decision founds
+        one, matching how buildings/families are founded in this
+        project. A no-op every tick after the one where it fires."""
+        if not settlement.name or len(self.agents) < COUNCIL_FORMATION_POPULATION_THRESHOLD:
+            return []
+        if any(inst.kind is InstitutionKind.COUNCIL for inst in settlement.institutions):
+            return []
+        elders = sorted(
+            self.agents,
+            key=lambda a: (a.age_ticks / a.max_age_ticks) if a.max_age_ticks else 0.0,
+            reverse=True,
+        )[:COUNCIL_SIZE]
+        council = Institution(
+            id=settlement.next_institution_id,
+            kind=InstitutionKind.COUNCIL,
+            founding_tick=tick,
+            member_agent_ids={a.id for a in elders},
+        )
+        settlement.next_institution_id += 1
+        settlement.institutions.append(council)
+        names = ", ".join(a.name for a in elders)
+        return [("council_formed", f"A council of elders formed: {names}.")]
+
     def _maybe_welcome_migrant(self, rng: random.Random, settlement: Settlement) -> list[tuple[str, str]]:
         """The population equivalent of wildlife's `_maybe_recolonize` —
         a settlement crashed down to a handful of survivors (predation,
@@ -1540,7 +1618,11 @@ class Population:
                 work *= CONSTRUCTION_MATERIALS_MULTIPLIER
             building.progress = min(1.0, building.progress + work)
             for a in workers:
-                a.skills[SKILL_CONSTRUCTION] = min(1.0, a.skills.get(SKILL_CONSTRUCTION, 0.0) + SKILL_PRACTICE_GAIN)
+                before = a.skills.get(SKILL_CONSTRUCTION, 0.0)
+                after = min(1.0, before + SKILL_PRACTICE_GAIN)
+                a.skills[SKILL_CONSTRUCTION] = after
+                if before < MASTERY_THRESHOLD <= after:
+                    _nudge_trait(a, TRAIT_AMBITION, TRAIT_AMBITION_MASTERY_NUDGE)
             if building.progress >= 1.0:
                 building.stage = BuildingStage.STANDING
                 building.condition = 1.0
@@ -1601,6 +1683,10 @@ class Population:
             # Building.owner_agent_id.
             owner_agent_id = min(a.id for a in eligible) if kind is BuildingKind.HUT else None
             settlement.start_construction(x, y, kind=kind, owner_agent_id=owner_agent_id)
+            # H6 extension: founding a building is a tangible
+            # achievement for its founders — see TRAIT_AMBITION_FOUNDING_NUDGE.
+            for a in eligible:
+                _nudge_trait(a, TRAIT_AMBITION, TRAIT_AMBITION_FOUNDING_NUDGE)
             life_events.append((
                 "construction_started",
                 f"{kind.value.capitalize()} construction began at ({x}, {y}), using {cost:.0f} materials.",
@@ -1766,6 +1852,72 @@ class Population:
                     _nudge_trait(a, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
                 _remember(recipient, f"{giver.name} shared tools with me.")
                 if giver.inventory.get("tools", 0.0) <= 0.0:
+                    givers.remove(giver)
+                trades += 1
+        return trades
+
+    @staticmethod
+    def _maybe_craft_medicine(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:
+        """H4 extension (docs/ROADMAP.md "Phase H"): the second crafted-
+        good supply chain, same shape as `_maybe_craft_tools` — a
+        standing hospital's awake, well-fed staff convert shared
+        materials into personal medicine for themselves. See
+        HOSPITAL_CRAFT_MATERIALS_COST_PER_TICK/HOSPITAL_CRAFT_MEDICINE_
+        PER_TICK, `_tick_disease` for the consumption side."""
+        for building in settlement.buildings:
+            if building.kind is not BuildingKind.HOSPITAL or building.stage is not BuildingStage.STANDING:
+                continue
+            workers = [
+                a for a in by_position.get((building.x, building.y), [])
+                if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
+            ]
+            for worker in workers:
+                if settlement.materials < HOSPITAL_CRAFT_MATERIALS_COST_PER_TICK:
+                    break
+                if worker.inventory.get("medicine", 0.0) >= MEDICINE_CAPACITY:
+                    continue
+                settlement.materials -= HOSPITAL_CRAFT_MATERIALS_COST_PER_TICK
+                worker.inventory["medicine"] = min(
+                    MEDICINE_CAPACITY, worker.inventory.get("medicine", 0.0) + HOSPITAL_CRAFT_MEDICINE_PER_TICK
+                )
+
+    @staticmethod
+    def _maybe_trade_medicine(by_position: dict[tuple[int, int], list[Agent]], rng: random.Random) -> int:
+        """Same shape as `_maybe_trade_tools`, for the H4 extension's
+        medicine good — a sick agent with none, colocated with a non-
+        rival neighbor who has spare, receives a share. Returns how
+        many trades occurred."""
+        trades = 0
+        for group in by_position.values():
+            if len(group) < 2:
+                continue
+            wanting = [a for a in group if a.sick_ticks > 0 and a.inventory.get("medicine", 0.0) <= 0.0]
+            if not wanting:
+                continue
+            givers = [a for a in group if a.inventory.get("medicine", 0.0) > 0.0]
+            for recipient in wanting:
+                giver = next(
+                    (
+                        g for g in givers
+                        if g.id != recipient.id
+                        and g.relationships.get(recipient.id, 0.0) > TRADE_MIN_RELATIONSHIP
+                    ),
+                    None,
+                )
+                if giver is None:
+                    continue
+                amount = min(giver.inventory.get("medicine", 0.0), TRADE_MEDICINE_AMOUNT)
+                if amount <= 0.0:
+                    continue
+                giver.inventory["medicine"] = giver.inventory.get("medicine", 0.0) - amount
+                recipient.inventory["medicine"] = min(
+                    MEDICINE_CAPACITY, recipient.inventory.get("medicine", 0.0) + amount
+                )
+                for a, b in ((giver, recipient), (recipient, giver)):
+                    a.relationships[b.id] = max(-1.0, min(1.0, a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST))
+                    _nudge_trait(a, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
+                _remember(recipient, f"{giver.name} shared medicine with me.")
+                if giver.inventory.get("medicine", 0.0) <= 0.0:
                     givers.remove(giver)
                 trades += 1
         return trades
@@ -2452,11 +2604,17 @@ class Population:
             "avg_tools": round(
                 sum(a.inventory.get("tools", 0.0) for a in self.agents) / total, 3
             ) if total else 0.0,
+            "avg_medicine": round(
+                sum(a.inventory.get("medicine", 0.0) for a in self.agents) / total, 3
+            ) if total else 0.0,
             "avg_resilience": round(
                 sum(a.traits.get(TRAIT_RESILIENCE, 0.0) for a in self.agents) / total, 3
             ) if total else 0.0,
             "avg_sociability": round(
                 sum(a.traits.get(TRAIT_SOCIABILITY, 0.0) for a in self.agents) / total, 3
+            ) if total else 0.0,
+            "avg_ambition": round(
+                sum(a.traits.get(TRAIT_AMBITION, 0.0) for a in self.agents) / total, 3
             ) if total else 0.0,
         }
 

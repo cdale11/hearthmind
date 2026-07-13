@@ -92,6 +92,7 @@ const CATEGORY_META = {
   migrant_arrived: { icon: "🚶" },
   inheritance: { icon: "🪦" },
   family_formed: { icon: "🏡" },
+  council_formed: { icon: "⚖️" },
   illness: { icon: "🤒" },
   recovery: { icon: "💊" },
 };
@@ -916,16 +917,28 @@ function renderStats(summary) {
       "population approaches it.",
     ],
     [
-      "Institutions", `${s.institutions ? s.institutions.total : 0} (${s.institutions ? s.institutions.families : 0} families)`,
-      "Persistent entities the population organizes into, starting with families — formed automatically at a birth " +
-      "and outliving their individual members. A family's own beliefs and, on a member's death, land/goods/skill/bias " +
-      "inheritance flow through it.",
+      "Institutions",
+      `${s.institutions ? s.institutions.total : 0} (${s.institutions ? s.institutions.families : 0} families, ` +
+      `${s.institutions ? s.institutions.councils || 0 : 0} councils)`,
+      "Persistent entities the population organizes into. Families form automatically at a birth and outlive their " +
+      "individual members — beliefs and, on a member's death, land/goods/skill/bias inheritance flow through them. " +
+      "A council of elders forms once a named settlement's population is large enough, membership fixed at formation.",
     ],
     [
-      "Skills & tools", `avg farming skill ${(p.avg_farming_skill || 0).toFixed(2)}, avg tools ${(p.avg_tools || 0).toFixed(2)}`,
-      "Farming skill is gained by practice (harvesting) and colocated teaching, and boosts a skilled harvester's own " +
-      "yield up to 25%. Tools are crafted by staffed workshops from shared materials and boost that worker's own " +
-      "gathering yield up to 40%.",
+      "Skills & tools",
+      `farming ${(p.avg_farming_skill || 0).toFixed(2)}, construction ${(p.avg_construction_skill || 0).toFixed(2)}, ` +
+      `tools ${(p.avg_tools || 0).toFixed(2)}, medicine ${(p.avg_medicine || 0).toFixed(2)}`,
+      "Skills are gained by practice and colocated teaching: farming boosts a harvester's own yield up to 25%, " +
+      "construction speeds that worker's own build/repair contribution up to 25%. Tools (crafted by workshops) boost " +
+      "gathering yield up to 40%; medicine (crafted by hospitals) roughly halves a sick holder's own death chance.",
+    ],
+    [
+      "Personality (avg)",
+      `resilience ${(p.avg_resilience || 0).toFixed(2)}, sociability ${(p.avg_sociability || 0).toFixed(2)}, ` +
+      `ambition ${(p.avg_ambition || 0).toFixed(2)}`,
+      "Population-wide average of each personal trait axis (-1..1, 0 = neutral). Resilience is worn down by grief/" +
+      "violence/hunger and recovers slowly; sociability rises with positive trade contact; ambition rises when an " +
+      "agent founds a building or first masters a skill. All three drift back toward neutral over time.",
     ],
     ["Buildings", `${s.total} (${s.standing} standing, ${s.under_construction} building, ${s.ruined} ruined)`, null],
     [

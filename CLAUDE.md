@@ -788,9 +788,15 @@ event + observatory stat surfacing) all shipped together v0.51.0, then
 "perform H2/H5 extensions and full H extension" — H2/H5 extensions
 (cognition beliefs_about, monthly personal per-agent beliefs, a second
 skill `SKILL_CONSTRUCTION`, an additive population-skill invention-
-chance nudge) shipped v0.52.0. Every roadmap item from H1 through H9 is
-shipped at least a v1, with H2/H5 now past v1. See docs/ROADMAP.md
-"Phase H" for the full per-item breakdown and
+chance nudge) shipped v0.52.0, and the "full H extension" half shipped
+v0.53.0: H3's second institution kind (`COUNCIL`, elder membership
+fixed at formation), H6's third trait axis (`TRAIT_AMBITION`, earned
+via founding/mastery), and H4's second crafted good (`"medicine"`,
+crafted by hospitals, halves a personal holder's own disease death
+chance on top of the settlement-wide hospital reduction). Every roadmap
+item from H1 through H9 is shipped at least a v1, with H2/H3/H4/H5/H6
+now past v1. See docs/ROADMAP.md "Phase H" for the full per-item
+breakdown and
 docs/DECISIONS.md for the log entries): treat memory/belief/knowledge
 as an
 evolving ecosystem — spreading, competing, mutating, merging, and

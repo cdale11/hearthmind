@@ -9,12 +9,14 @@ split: a single shape now, specialized by `InstitutionKind` and reused
 as the base for every future kind (councils, guilds, markets,
 religions) instead of forcing a redesign each time a new kind is added.
 
-v1 scope is deliberately narrow: only `FAMILY` institutions are formed,
-and only automatically (a child's birth creates or extends one). Other
-kinds, deliberate founding (an agent goal/LLM decision to start a
-guild), and consumption beyond serialization/summary (dialogue/beliefs
-referencing "the Hearth family", inheritance moving things through a
-family on death) are explicitly future work — see docs/ROADMAP.md H3/H7.
+v1 scope was deliberately narrow: only `FAMILY` institutions, formed
+automatically (a child's birth creates or extends one). H3 extension
+(docs/ROADMAP.md "Phase H") adds a second kind, `COUNCIL` — formed once
+a named settlement's population crosses a threshold, membership the
+settlement's elders at that moment, still fully automatic (no agent
+goal/LLM decision to found one). Deliberate founding (an agent choosing
+to start a guild) and consumption beyond serialization/summary/
+beliefs-mirroring remain future work — see docs/ROADMAP.md H3.
 """
 from __future__ import annotations
 
@@ -24,10 +26,11 @@ from enum import Enum
 
 class InstitutionKind(str, Enum):
     FAMILY = "family"
-    # Future kinds (H3 follow-ups): COUNCIL, GUILD, MARKET, RELIGION.
-    # Adding one is a matter of a new enum value plus a formation path
-    # (mirroring _maybe_form_family) — the Institution shape below
-    # already supports any of them.
+    COUNCIL = "council"
+    # Future kinds: GUILD, MARKET, RELIGION. Adding one is a matter of
+    # a new enum value plus a formation path (mirroring
+    # Population._extend_family/_maybe_form_council) — the Institution
+    # shape below already supports any of them.
 
 
 @dataclass

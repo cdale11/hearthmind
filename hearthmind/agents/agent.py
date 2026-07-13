@@ -189,6 +189,13 @@ TRADE_TOOLS_AMOUNT = 1.0
 Population._maybe_trade_tools. Chunkier than TRADE_FOOD_AMOUNT since
 tools are a durable, lower-frequency good, not consumed on use."""
 
+TRADE_MEDICINE_AMOUNT = 0.5
+"""H4 extension: personal medicine transferred in one barter exchange —
+see Population._maybe_trade_medicine. Between TRADE_FOOD_AMOUNT and
+TRADE_TOOLS_AMOUNT in scale: medicine is consumed over a bout of
+illness (not durable like tools), but a single dose is still a
+meaningful share of MEDICINE_CAPACITY."""
+
 GATHER_TOOLS_YIELD_BONUS = 0.4
 """H4: a GATHER-goal agent's own tools stretch what they bring back —
 up to +40% materials per gather at a full personal tools stash
@@ -388,10 +395,20 @@ inventiveness than accumulated formal education."""
 
 TRAIT_RESILIENCE = "resilience"
 TRAIT_SOCIABILITY = "sociability"
-"""The two axes `Agent.traits` holds in v1 — deliberately not a big-five
+"""The two v1 axes `Agent.traits` holds — deliberately not a big-five
 system. Resilience: how well an agent copes with hardship/loss (low =
 more fragile/shaken by trauma, high = hardy). Sociability: draw toward
 social contact vs. solitude. Both -1..1, 0.0 = neutral/unformed."""
+
+TRAIT_AMBITION = "ambition"
+"""H6 extension (docs/ROADMAP.md "Phase H"): a third axis, drawn from
+the roadmap's own "identity, values, ambition" list — how much an agent
+is driven to build/achieve/master something vs. content with routine.
+Same -1..1/0.0-neutral convention as the other two. Nudged up by
+tangible achievement (founding a building, first reaching mastery in a
+skill — see TRAIT_AMBITION_FOUNDING_NUDGE/TRAIT_AMBITION_MASTERY_NUDGE)
+rather than by hardship/social contact like resilience/sociability —
+ambition is earned, not suffered or given."""
 
 TRAIT_STEP_MAX = 0.02
 TRAIT_MEAN_REVERSION = 0.99
@@ -422,6 +439,22 @@ food or tools) — small and positive, the mirror of the resilience
 nudges above but the only trait axis with a routine upward pull, since
 ordinary friendly contact is common and grief/violence are not."""
 
+MASTERY_THRESHOLD = 0.95
+"""A skill counts as "mastered" at or above this proficiency — the
+trigger for TRAIT_AMBITION_MASTERY_NUDGE (see Population._maybe_forage/
+_advance_construction, both of which check the practice-gain crossed
+this threshold rather than firing every tick a mastered agent happens
+to practice again)."""
+
+TRAIT_AMBITION_FOUNDING_NUDGE = 0.04
+TRAIT_AMBITION_MASTERY_NUDGE = 0.06
+"""Ambition nudges on tangible achievement — founding a building
+(`Population._maybe_start_construction`) or a skill first crossing
+MASTERY_THRESHOLD through practice. Both larger than the resilience/
+sociability event nudges: these are rarer, more deliberate
+accomplishments, not routine lived experience, so they should register
+more per occurrence even though they fire less often."""
+
 TRAIT_NOTABLE_THRESHOLD = 0.3
 """A trait is only mentioned in cognition/dialogue prompts once its
 magnitude clears this bar — same "only mentioned once notably warm/
@@ -446,6 +479,11 @@ def describe_traits(traits: dict) -> str:
         bits.append("drawn to company")
     elif sociability <= -TRAIT_NOTABLE_THRESHOLD:
         bits.append("keeps to themself")
+    ambition = traits.get(TRAIT_AMBITION, 0.0)
+    if ambition >= TRAIT_NOTABLE_THRESHOLD:
+        bits.append("driven to build and achieve")
+    elif ambition <= -TRAIT_NOTABLE_THRESHOLD:
+        bits.append("content with routine")
     return ", ".join(bits)
 
 
