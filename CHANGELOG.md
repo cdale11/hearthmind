@@ -4,6 +4,58 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.43.0] — Fixed: Ollama-side memory pressure; weather variety ("only rain")
+
+The same live symptom as v0.42.0 (heavy swap, unresponsive 8GB system,
+~100 population) recurred within an hour even after that fix landed —
+the v0.42.0 writeup's claim that the symptom was "not LLM/Ollama memory
+pressure" was too narrow: it correctly ruled out a leak *inside this
+process* (confirmed by the matched probe, which stayed under 100MB
+RSS) but never checked the separate Ollama server process, which is
+real system memory the OS can swap regardless of which process holds
+it.
+
+### Fixed
+
+- **`llm_max_concurrent` lowered 4 -> 2.** The v0.39.0 architecture
+  review already recommended this ("do not raise `llm_max_concurrent`
+  on CPU; consider lowering to 2" — recorded verbatim in this file's
+  CLAUDE.md) but it was never acted on. Each in-flight Ollama `generate`
+  call holds its own KV-cache allocation in the Ollama server process;
+  4 simultaneous calls (now routine, since cognition/dialogue/chronicle/
+  culture/town-brain/beliefs/omens all share the same scheduling path)
+  multiply that footprint 4x. "Not budget-constrained on the user's
+  hardware" (the reasoning that raised this 2->4 in E2) was true for
+  wall-clock throughput but is a different axis from concurrent memory
+  footprint.
+- **`Config.llm_num_ctx` (2048) / `Config.llm_num_predict` (512), new,
+  sent on every Ollama call.** Previously unset, so Ollama used its own
+  server-side default context window and had no cap on generated
+  tokens — a hidden, unbounded-in-the-worst-case memory/latency
+  multiplier on top of `llm_max_concurrent`. Every prompt in this
+  project is capped short and comfortably fits well under 2048 tokens;
+  this is a safety ceiling, not a working limit anything here should
+  hit. `OllamaClient` now accepts `num_ctx`/`num_predict` and sends
+  them as Ollama's `options` object when set.
+- **Weather showed rain almost every tick regardless of season — a
+  live-reported "I only see rain" symptom, confirmed by measurement.**
+  `WeatherState.describe()`'s sky-band cutoffs (clear <=0.08, overcast
+  <=0.25, heavy >0.6) were tuned against the raw per-tick jitter, but
+  `compute_weather`'s smoothing (the same EMA already documented for
+  the snow-threshold fix) damps that into a much narrower realized
+  range. A 200k-tick measurement across all twelve months found
+  realized precipitation essentially never below ~0.11 or above ~0.67
+  — "clear" was literally unreachable (0th percentile) and the world
+  sat in "light rain" (0.25-0.6) roughly 90%+ of the time. Retuned the
+  three cutoffs to the measured p10/p50/p90 (0.27/0.38/0.50), giving
+  clear/overcast/light-rain/heavy-rain each a real, roughly-even share
+  (measured post-fix: 11%/40%/39%/10% + 0.4% snow). The frontend rain-
+  particle overlay (`interface/static/app.js`) had the identical bug
+  independently — it spawned particles off raw `precipitation` with a
+  clear-threshold of 0.05 (also unreachable), so rain visually never
+  stopped; rescaled against the same measured floor/ceiling so a clear
+  sky now shows no particles at all and intensity actually varies.
+
 ## [0.42.0] — Fixed: unbounded relationship/trust memory growth
 
 A user-reported live symptom (heavy swap usage and an unresponsive

@@ -120,13 +120,40 @@ class Config:
     trades a longer worst-case wait for a lower fallback rate. See
     docs/DECISIONS.md, "dialogue quality follow-up" (qwen3.5:2b
     diagnostics), and D5 for the original version of this rationale."""
-    llm_max_concurrent: int = 4
-    """How many LLM requests may be in flight at once — the lever for
-    keeping Ollama's own thread pool busy without overwhelming it. Raised
-    from 2 (E2): dialogue jobs now run alongside cognition/chronicle/
-    culture jobs, and the user has confirmed local LLM throughput is not
-    budget-constrained on their hardware — this is still bounded (not
-    unlimited) to avoid overwhelming Ollama's own thread pool at once."""
+    llm_max_concurrent: int = 2
+    """How many LLM requests may be in flight at once. Lowered back from 4
+    to 2 (v0.43.0) per the v0.39.0 architecture review's explicit
+    recommendation, finally acted on after a live report of heavy swap and
+    an unresponsive 8GB system within an hour at only 100 population, LLM
+    enabled. Each in-flight Ollama generate call holds its own KV-cache
+    allocation in the *separate* Ollama server process — invisible to this
+    process's own RSS (the v0.42.0 relationship-leak probe measured only
+    this process and stayed under 100MB), but real system memory pressure
+    all the same. "Not budget-constrained on the user's hardware" (the
+    reasoning that raised this to 4 in E2) was true for wall-clock
+    throughput but not for concurrent memory footprint — those are
+    different constraints, and this project has enough genuine LLM
+    decision points now (cognition/dialogue/chronicle/culture/town-brain/
+    beliefs/omens) that 4 truly-simultaneous calls is a real burst, not a
+    hypothetical one. See also `llm_num_ctx`/`llm_num_predict` below,
+    which bound the *per-call* memory this lever multiplies."""
+    llm_num_ctx: int = 2048
+    """Explicit Ollama context-window cap sent with every request
+    (v0.43.0). Previously unset, so Ollama silently used its own default —
+    fine when it happens to be small, a hidden memory multiplier
+    (`llm_max_concurrent` x this) when it isn't. Every prompt in this
+    project is capped short (`PROMPT_CULTURE_LIST_MAX`, `RECENT_MEMORIES_
+    IN_PROMPT`, grounded single-scene cognition/dialogue prompts) and
+    comfortably fits well under 2048 tokens — this is a safety ceiling on
+    Ollama's per-call KV-cache allocation, not a working limit any real
+    prompt here is expected to hit."""
+    llm_num_predict: int = 512
+    """Explicit cap on generated tokens per call (v0.43.0). Every response
+    here is meant to be a short, strict-JSON answer (a goal, a line of
+    dialogue, a settlement decision) — this bounds the worst case where
+    the model rambles instead of terminating cleanly, which otherwise
+    burns both memory and the `llm_timeout_seconds` budget for no benefit
+    (the JSON parse would reject an overlong response anyway)."""
 
     # --- runtime: Phase G (subtle supernatural layer), on by default -----------
     phase_g_intensity: float = 1.0

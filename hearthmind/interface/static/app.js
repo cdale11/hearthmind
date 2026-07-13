@@ -520,15 +520,28 @@ requestAnimationFrame(renderLoop);
 
 let weatherParticles = [];
 
+// Precipitation is an EMA-smoothed value that (per hearthmind/world/
+// weather.py's CLEAR_PRECIPITATION_THRESHOLD docstring) realistically
+// never drops much below ~0.11 or climbs much past ~0.67 — using the raw
+// 0..1 value directly meant rain particles never actually stopped
+// spawning (min ~10 particles even on a "clear" tick). Rescaled against
+// the same measured floor the backend's sky-band cutoffs use so clear
+// ticks show no rain at all and intensity actually varies with weather.
+const RAIN_FLOOR = 0.27;
+const RAIN_CEILING = 0.65;
+
 function currentWeatherDetail() {
   return (latest && latest.summary && latest.summary.weather_detail) || null;
 }
 
 function spawnWeatherParticles(w) {
   if (!w || weatherCanvas.width === 0) return;
+  const intensity = w.is_snowing
+    ? w.precipitation
+    : Math.max(0, (w.precipitation - RAIN_FLOOR) / (RAIN_CEILING - RAIN_FLOOR));
   const target = w.is_snowing
-    ? Math.round(w.precipitation * 120)
-    : Math.round(w.precipitation * 90);
+    ? Math.round(intensity * 120)
+    : Math.round(intensity * 90);
   while (weatherParticles.length < target) {
     weatherParticles.push({
       x: Math.random() * weatherCanvas.width,
@@ -599,7 +612,7 @@ function stepWeatherParticles() {
   const w = currentWeatherDetail();
   weatherCtx.clearRect(0, 0, weatherCanvas.width, weatherCanvas.height);
   drawLighting(w);
-  if (!w || (w.precipitation < 0.05 && !w.is_snowing)) {
+  if (!w || (w.precipitation <= RAIN_FLOOR && !w.is_snowing)) {
     weatherParticles.length = 0;
     requestAnimationFrame(stepWeatherParticles);
     return;

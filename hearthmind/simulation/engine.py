@@ -210,6 +210,7 @@ class SimulationEngine:
         if config.llm_enabled:
             client = OllamaClient(
                 host=config.llm_host, model=config.llm_model, timeout_seconds=config.llm_timeout_seconds,
+                num_ctx=config.llm_num_ctx, num_predict=config.llm_num_predict,
             )
         self._cognition_runner = CognitionRunner(client=client, max_concurrent=config.llm_max_concurrent)
         self._backpressure_limit = config.llm_max_concurrent * BACKPRESSURE_BACKLOG_PER_SLOT

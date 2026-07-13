@@ -32,12 +32,25 @@ class OllamaClient:
     host: str
     model: str
     timeout_seconds: float
+    num_ctx: int | None = None
+    num_predict: int | None = None
+    """Explicit per-call bounds on Ollama's context window and generated
+    token count (v0.43.0, see Config.llm_num_ctx/llm_num_predict) — sent
+    as `options` so a live run's memory footprint doesn't depend on
+    whatever default the Ollama server happens to ship with. `None`
+    leaves the corresponding option out of the request entirely (server
+    default), kept for callers/tests that don't care to pin it."""
 
     def generate_json(self, prompt: str, system: str | None = None) -> dict:
         """Blocking call — issue one generate request and parse the
         response as JSON. Callers running inside the event loop must wrap
         this in `asyncio.to_thread` (see hearthmind/llm/jobs.py); this
         method itself does no async work."""
+        options = {}
+        if self.num_ctx is not None:
+            options["num_ctx"] = self.num_ctx
+        if self.num_predict is not None:
+            options["num_predict"] = self.num_predict
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -45,6 +58,8 @@ class OllamaClient:
             "stream": False,
             "think": False,
         }
+        if options:
+            payload["options"] = options
         if system:
             payload["system"] = system
 

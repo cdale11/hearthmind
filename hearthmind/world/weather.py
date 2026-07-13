@@ -35,6 +35,24 @@ _MONTH_BASELINES: dict[str, tuple[float, float, float]] = {
 }
 
 
+CLEAR_PRECIPITATION_THRESHOLD = 0.27
+OVERCAST_PRECIPITATION_THRESHOLD = 0.38
+HEAVY_RAIN_PRECIPITATION_THRESHOLD = 0.50
+"""`describe()`'s sky-band cutoffs, retuned against measured realized
+output (v0.43.0) — the same class of bug already diagnosed for
+`SNOW_TEMPERATURE_THRESHOLD_C` below: the old cutoffs (clear <=0.08,
+overcast <=0.25, heavy >0.6) were chosen against the raw per-tick
+`uniform(-0.25, 0.25)` jitter, but `compute_weather`'s smoothing=0.7 EMA
+damps that into a much narrower realized band. A 200k-tick measurement
+across all twelve months found realized precipitation essentially never
+below ~0.11 or above ~0.67, with a p10/p50/p90 of 0.27/0.38/0.50 — so
+"clear" was live code that could never fire (0th percentile), and "heavy
+rain" only reachable in the tail of winter months, meaning a live run
+saw rain almost every tick regardless of season (a user-reported
+"I only see rain" symptom, confirmed by measurement, not "just weather
+variance"). Retuned to the actual measured percentiles so each band
+gets a real, roughly-even share of ticks instead of one dominating."""
+
 SNOW_PRECIPITATION_THRESHOLD = 0.2
 SNOW_TEMPERATURE_THRESHOLD_C = 2.0
 """Real UK snow overwhelmingly falls in the 0-2C band, not exactly at or
@@ -78,11 +96,11 @@ class WeatherState:
     def describe(self) -> str:
         if self.is_snowing:
             sky = "snowing"
-        elif self.precipitation > 0.6:
+        elif self.precipitation > HEAVY_RAIN_PRECIPITATION_THRESHOLD:
             sky = "heavy rain"
-        elif self.precipitation > 0.25:
+        elif self.precipitation > OVERCAST_PRECIPITATION_THRESHOLD:
             sky = "light rain"
-        elif self.precipitation > 0.08:
+        elif self.precipitation > CLEAR_PRECIPITATION_THRESHOLD:
             sky = "overcast"
         else:
             sky = "clear"

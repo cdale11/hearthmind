@@ -3238,3 +3238,71 @@ scattering + waiting past the full decay window (value/DECAY_PER_TICK
 ticks) prunes both sides' entries to `{}`; a forced old-age death
 correctly empties the survivor's relationship and trust entries for
 the deceased. `python3 -m py_compile` on the touched module.
+
+## Ollama server memory pressure + weather-band retuning (v0.43.0)
+
+Root cause investigation, second pass. The v0.42.0 fix (above) was
+real and verified, but the identical live symptom — heavy swap, an
+unresponsive 8GB system, ~100 population — recurred within about an
+hour of a fresh run with the fix in place. The v0.42.0 writeup's line
+"traced to a real leak, not LLM/Ollama memory pressure" was too
+confident: the matched probe that produced that conclusion ran with
+`llm_enabled=False`, so it could only ever rule out a leak inside this
+process. It never exercised the actual Ollama server process, which
+holds real, OS-swappable memory independent of this project's own
+heap.
+
+Design call: rather than add speculative caps, apply the two changes
+the architecture review had *already* identified and quantified as the
+biggest concurrent-memory-footprint levers, but never implemented —
+`llm_max_concurrent` 4 -> 2 (the review's own words: "do not raise...
+consider lowering to 2", recorded in CLAUDE.md since v0.40.0 and never
+acted on), plus two new explicit per-call bounds, `Config.llm_num_ctx`
+(2048) and `Config.llm_num_predict` (512), threaded through
+`OllamaClient.generate_json` as Ollama's `options` object. Previously
+neither was set at all, meaning Ollama's own defaults silently
+governed both the KV-cache size per call and the worst-case token count
+of a single generation — an unbounded-in-the-worst-case multiplier
+sitting underneath `llm_max_concurrent`. Every prompt in this project
+(grounded, capped cognition/dialogue prompts; `PROMPT_CULTURE_LIST_MAX`
+-bounded settlement prompts) comfortably fits well under 2048 tokens,
+so this is a safety ceiling that no real prompt here should ever hit,
+not a new working constraint.
+
+Verified: `OllamaClient.generate_json` sends `{"options": {"num_ctx":
+2048, "num_predict": 512}}` correctly (checked against a captured
+mock request); `llm_max_concurrent` flows through to
+`CognitionRunner(max_concurrent=...)` unchanged in both call sites
+(`SimulationEngine.__init__`, `server.py`'s genesis call). A 3,000-tick
+engine run (LLM disabled, 20 initial population) round-trips a
+snapshot and produces sane `relationship_graph` diagnostics with no
+exceptions.
+
+Separately, in the same investigation: a live report of "I only ever
+saw rain" was checked empirically rather than assumed to be normal
+weather variance, and confirmed as a real bug — the same *class* of
+bug already diagnosed and fixed for `SNOW_TEMPERATURE_THRESHOLD_C`
+(see the weather-realism decision above/`world/weather.py`'s
+docstring), just never applied to the rain bands. `compute_weather`'s
+smoothing=0.7 EMA damps the raw per-tick `uniform(-0.25, 0.25)`
+precipitation jitter into a much narrower realized range than
+`describe()`'s cutoffs (clear <=0.08, overcast <=0.25, heavy >0.6)
+assumed. Measured across a 200,000-tick run cycling all twelve months:
+realized precipitation's 1st/99th percentiles were 0.20/0.58 and its
+true min/max were 0.11/0.67 — "clear" (<=0.08) was literally
+unreachable, 0th percentile, and the world spent an overwhelming
+majority of ticks in the "light rain" 0.25-0.6 band regardless of
+season, which is exactly the reported symptom. Retuned the three
+cutoffs to the measured p10/p50/p90 (0.27/0.38/0.50 — new
+`CLEAR_PRECIPITATION_THRESHOLD`/`OVERCAST_PRECIPITATION_THRESHOLD`/
+`HEAVY_RAIN_PRECIPITATION_THRESHOLD`); re-measuring against the new
+cutoffs over the same 120k-tick, twelve-month cycle gives clear 11.0%,
+overcast 39.6%, light rain 38.7%, heavy rain 10.3%, snowing 0.4% — each
+band now gets a real, roughly-even share instead of one dominating.
+The frontend's rain-particle overlay (`interface/static/app.js`) had
+an independent copy of the same bug (spawn threshold `precipitation <
+0.05`, also below the realized floor, so particles never fully
+stopped); rescaled particle intensity against the same measured
+0.27/0.65 floor/ceiling so a clear tick now shows zero particles.
+`python3 -m py_compile` on all touched Python modules, `node --check`
+on `app.js`.

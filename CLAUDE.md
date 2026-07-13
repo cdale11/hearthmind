@@ -444,6 +444,43 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## Ollama-side memory pressure + weather variety (fixed v0.43.0)
+
+The same "heavy swap, unresponsive system, ~100 population" symptom
+that v0.42.0 fixed recurred within an hour afterward — v0.42.0's own
+writeup ruled out "LLM/Ollama memory pressure" too early: it correctly
+confirmed no leak *inside this process* (a matched probe stayed under
+100MB RSS through a full population boom/crash) but never checked the
+separate Ollama server process, whose memory is real and swappable
+regardless of which process holds it. `Config.llm_max_concurrent`
+lowered 4 -> 2 — the v0.39.0 architecture review already recommended
+this explicitly and it was simply never acted on; each in-flight
+Ollama call holds its own KV-cache allocation, and this project now
+routinely has 4+ simultaneous LLM jobs in flight (cognition/dialogue/
+chronicle/culture/town-brain/beliefs/omens all sharing the scheduling
+path). New `Config.llm_num_ctx` (2048)/`llm_num_predict` (512), sent as
+Ollama's `options` on every call via `OllamaClient` — previously unset,
+so the server's own defaults silently governed both memory and
+worst-case generation length; every prompt here comfortably fits under
+2048 tokens, so this is a safety ceiling, not a working constraint.
+Separately, a live report of "I only ever see rain" was confirmed by
+measurement, not dismissed as normal variance: `WeatherState.describe
+()`'s sky-band cutoffs were the same class of bug already diagnosed and
+fixed for `SNOW_TEMPERATURE_THRESHOLD_C` — tuned against raw per-tick
+jitter rather than `compute_weather`'s smoothed realized range, so
+"clear" (<=0.08) was literally unreachable and the world sat in "light
+rain" 90%+ of the time regardless of season. Retuned against a 200k-
+tick measured distribution (new `CLEAR_PRECIPITATION_THRESHOLD`/
+`OVERCAST_PRECIPITATION_THRESHOLD`/`HEAVY_RAIN_PRECIPITATION_THRESHOLD`
+in `world/weather.py`); the frontend's independent rain-particle
+overlay had the identical bug (clear-threshold 0.05, also unreachable)
+and was rescaled the same way in `interface/static/app.js`. Standing
+lesson for future diagnosis: a live symptom traced to one fixed cause
+is not necessarily fully explained by it — re-verify after a fix lands
+rather than assuming the first plausible root cause was the only one,
+and check *every* process a live report's symptom could implicate
+(here: two separate processes, two separate bugs, one shared symptom).
+
 ## Memory leak: unpruned relationships/trust (fixed v0.42.0)
 
 A user-reported live symptom (heavy swap, unresponsive system at only
