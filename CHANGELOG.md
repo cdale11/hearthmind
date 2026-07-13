@@ -4,6 +4,75 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.56.0] — Integration milestone: cross-system audit and vertical integration
+
+Explicit user directive: audit every major subsystem for isolation, then
+increase real bidirectional interaction between existing systems, prioritizing
+dynamic carrying capacity, infrastructure networks, external settlements/trade,
+institutional agency, knowledge diffusion, urban growth, and supernatural
+propagation. Audit findings and full rationale in docs/DECISIONS.md.
+
+### Added
+
+- **Institutional agency (COUNCIL was the most isolated system in the
+  codebase).** `Population._maybe_refresh_council` tops COUNCIL's *living*
+  membership back up to `COUNCIL_SIZE` as members die — it previously silently
+  decayed into a roster of the dead with no fix. New `llm/beliefs.
+  sync_council_beliefs` gives COUNCIL its own accumulated civic theories
+  (mirrors `sync_family_beliefs`, triggered by settlement beliefs that don't
+  resolve to a person/family). New `Population.council_disposition` feeds
+  living members' average traits into `town_brain.build_prompt`'s new
+  `council_beliefs` line and `fallback_priority`'s new tie-break (an ambitious
+  council leans "growth," a resilience-minded one "defense" — only at the
+  bottom of the chain, never overriding an urgent signal), and into
+  `carrying_capacity`'s new coordination term.
+- **Traits (resilience/sociability/ambition) were write-only.** Now
+  consumed: resilience reduces personal disease/predator death chance
+  (`TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE`) and stretches/shrinks personal
+  starvation tolerance; sociability shifts a giver's own trade-relationship
+  threshold (`_trade_relationship_threshold`) and boosts personal
+  teaching-roll chance; ambition RNG-weights which eligible founder actually
+  claims a new HUT's ownership (`TRAIT_AMBITION_FOUNDER_SELECTION_WEIGHT`).
+- **Roads: infrastructure, not decoration.** Road-adjacent tiles are now
+  measurably likelier to be settled (`URBAN_GROWTH_ROAD_ADJACENCY_MULTIPLIER`
+  — closes the roadmap's "where to build is pure chance" gap); established
+  road density feeds `carrying_capacity`'s new infrastructure term; and the
+  fraction of the population standing on a road tile nudges disease-outbreak
+  chance upward (`OUTBREAK_ROAD_CONTACT_MULTIPLIER`) — the same connectivity
+  that helps trade/teaching also spreads a cold, the double-edged framing
+  roads already get elsewhere.
+- **`Population.carrying_capacity` gained three new terms**: coordination
+  (COUNCIL presence/disposition), knowledge (aggregate population skill —
+  the same signal `_maybe_schedule_invention` already reads), and
+  infrastructure (established roads per capita, saturating). All three are
+  the smallest of the composition's weights — real, but never dominant next
+  to housing/economy/security/labor.
+- **Knowledge diffusion is now institution- and culture-aware.**
+  `_maybe_teach_skills`'s roll chance is scaled by both agents' average
+  sociability, boosted `INSTITUTION_TEACHING_BONUS_MULTIPLIER`x when teacher
+  and learner share a living FAMILY/COUNCIL, and boosted further by a new
+  `"knowledge"` tradition influence (`TRADITION_INFLUENCES` — a fourth
+  mechanical rider alongside festivity/harvest/resilience, same
+  `culture_effect_multiplier` shape).
+- **External world contact: caravans** (new `llm/caravan.py`) — a scoped,
+  deliberately non-invasive first step toward "external settlements and
+  trade." Explicitly *not* the full multi-settlement rearchitecture (still
+  flagged in docs/DECISIONS.md as its own dedicated session — touches
+  population/engine/every LLM prompt/interface/snapshot schema). A rare
+  monthly abstract event (no new map entity, no pathfinding): a real
+  currency/materials exchange applied deterministically (objective reality),
+  with an LLM-or-fallback description and an optional rumor from outside the
+  village folded into a few agents' own memories via new
+  `Population.spread_rumor` — propagates through the *existing* gossip/trust
+  contagion machinery rather than a bespoke broadcast.
+- **Omens can now center on COUNCIL**, alongside the existing per-agent
+  subject depth — "the council of elders" as a candidate subject once it
+  holds its own beliefs, same permanent ambiguity rule, extended from
+  person-depth to institution-depth.
+- Stale docstrings in `settlement/institutions.py` (claiming `Institution.
+  beliefs` was "deliberately unpopulated" — no longer true since H2 ext's
+  `sync_family_beliefs`) corrected to describe actual current behavior.
+
 ## [0.55.0] — Force `use_mmap: true` on every Ollama call (swap-pressure follow-up #2)
 
 ### Fixed

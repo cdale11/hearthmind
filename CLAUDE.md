@@ -444,6 +444,60 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## Integration milestone: cross-system audit and vertical integration (v0.56.0)
+
+Explicit user directive: audit every major subsystem for isolation,
+then increase real bidirectional interaction between existing systems
+— prioritizing dynamic carrying capacity, infrastructure networks,
+external settlements/trade, institutional agency, knowledge diffusion,
+urban growth, and supernatural propagation, with every touched system
+required to both influence and be influenced by multiple others. Full
+audit findings, per-system rationale, and verification in
+docs/DECISIONS.md.
+
+Audit found COUNCIL (H3) as the single most isolated system in the
+codebase — membership never refreshed on death (silently decayed to a
+ghost roster) and zero mechanical output anywhere despite FAMILY
+already having a working belief-mirroring pattern to extend. Traits
+(H6) were write-only — nudged by real events, consumed by nothing
+deterministic. Roads (C5) were decorative — a real, tuned mechanic
+with almost no downstream consumer. `carrying_capacity` (H1) read only
+housing/economy/security/labor/weather, leaving institutions/skills/
+infrastructure with no path to expand what a settlement could support.
+
+Shipped: `Population._maybe_refresh_council` (living-membership
+top-up, fixes the ghost-roster bug), `llm/beliefs.sync_council_beliefs`
+(COUNCIL gets real accumulated civic theories, closing `Institution.
+beliefs`'s previously-dead field), `Population.council_disposition`
+feeding `town_brain` (prompt + fallback tie-break) and
+`carrying_capacity`'s new coordination term; resilience/sociability/
+ambition all now read by real deterministic mechanics (death chance,
+starvation tolerance, trade threshold, teaching chance, HUT-ownership
+weighting); roads now nudge construction site selection (closes the
+standing "where to build is pure chance" roadmap gap), disease-
+outbreak contact rate, and carrying capacity's new infrastructure
+term; `_maybe_teach_skills` is now institution- and culture-aware (a
+new `"knowledge"` tradition influence, a fourth `TRADITION_INFLUENCES`
+entry); a new `llm/caravan.py` gives "external settlements and trade"
+its scoped first step — a rare monthly abstract event (no new map
+entity, no second `Settlement`) with a real currency/materials
+exchange and an optional rumor seeded into the *existing* gossip
+system via new `Population.spread_rumor`, explicitly not the full
+multi-settlement rearchitecture (still its own dedicated session, see
+"Known architectural gaps" below); omens can now center on "the
+council of elders," extending Phase G's subject-depth work from
+person to institution.
+
+Deliberately not attempted: full multi-settlement/external trade
+(unchanged standing decision); water/power/irrigation as a distinct
+infrastructure network (no concrete mechanical hook yet — water
+already exists as terrain/fishing, power doesn't fit the tech tree
+until further era progression); ambition wired into COUNCIL seating
+(kept as a clean, single-purpose age-based rule). Verified via direct
+unit checks per new link plus a 50,000-tick full-engine integration
+run exercising every mechanic together, with a full serialization
+round-trip (no snapshot schema changes were needed).
+
 ## Ollama `--no-mmap` forced off via `use_mmap: true` (v0.55.0)
 
 User followed the `ollama ps`/`ps aux` suggestion from the v0.54.0

@@ -14,9 +14,16 @@ automatically (a child's birth creates or extends one). H3 extension
 (docs/ROADMAP.md "Phase H") adds a second kind, `COUNCIL` — formed once
 a named settlement's population crosses a threshold, membership the
 settlement's elders at that moment, still fully automatic (no agent
-goal/LLM decision to found one). Deliberate founding (an agent choosing
-to start a guild) and consumption beyond serialization/summary/
-beliefs-mirroring remain future work — see docs/ROADMAP.md H3.
+goal/LLM decision to found one). The integration milestone (docs/
+DECISIONS.md) gave COUNCIL real mechanical agency where it previously
+had none: `Population._maybe_refresh_council` keeps its *living*
+membership topped up as members die (it used to silently decay into a
+roster of the dead), `llm/beliefs.sync_council_beliefs` gives it its own
+accumulated civic theories, and `Population.council_disposition` feeds
+its members' average traits into both `town_brain`'s prompt/fallback
+tie-break and `Population.carrying_capacity`'s coordination term.
+Deliberate founding (an agent choosing to start a guild) remains future
+work — see docs/ROADMAP.md H3.
 """
 from __future__ import annotations
 
@@ -54,10 +61,15 @@ class Institution:
     a future pass could derive one, e.g. from a founding pair's names,
     once naming matters to a consumer)."""
     beliefs: list[dict] = field(default_factory=list)
-    """Same shape as `Settlement.beliefs` entries — reserved for a
-    future pass where an institution accumulates its own theories
-    (H2's "world models" extended to institution-scoped holders),
-    deliberately unpopulated by anything in this v1."""
+    """Same shape as `Settlement.beliefs` entries — an institution's own
+    curated slice of the settlement's evolving theories (capped at
+    INSTITUTION_BELIEF_CAP, see llm/beliefs.py). Populated by
+    `sync_family_beliefs` for FAMILY (settlement beliefs that resolve to
+    a member's household) and `sync_council_beliefs` for COUNCIL
+    (settlement beliefs that don't resolve to any person/family — a
+    council's business is civic theories, not household gossip).
+    Consumed by dialogue (family) and town_brain (council) — see
+    `llm/town_brain.build_prompt`'s `council_beliefs` param."""
 
     def to_dict(self) -> dict:
         return {

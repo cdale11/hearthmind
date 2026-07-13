@@ -27,6 +27,7 @@ SYSTEM_PROMPT = (
 def build_prompt(
     settlement_name: str, recent_events: list[dict], population_summary: dict,
     settlement_summary: dict, player_whispers: list[str], beliefs: list[dict] | None = None,
+    council_beliefs: list[dict] | None = None,
 ) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
@@ -39,6 +40,19 @@ def build_prompt(
         + "; ".join(f"{b['subject']} ({b['belief']})" for b in beliefs)
         + "."
         if beliefs else ""
+    )
+    # Integration milestone: a sitting council of elders is a second,
+    # narrower voice alongside the village's own general theories —
+    # its own accumulated civic positions (llm/beliefs.sync_council_
+    # beliefs), not a repeat of the settlement-wide belief list. Only
+    # present once the council has actually formed an opinion; a
+    # freshly-seated council with no beliefs yet says nothing here
+    # rather than an empty aside.
+    council_text = (
+        "\nThe council of elders holds its own views: "
+        + "; ".join(f"{b['subject']} ({b['belief']})" for b in council_beliefs)
+        + "."
+        if council_beliefs else ""
     )
     # player_standing (Settlement.player_standing) is one more quiet
     # input, same "folded in, never a command" treatment as whispers —
@@ -65,12 +79,24 @@ def build_prompt(
         f"{settlement_summary.get('standing', 0)} standing structures "
         f"({settlement_summary.get('hospitals', 0)} hospitals, {settlement_summary.get('schools', 0)} schools, "
         f"{settlement_summary.get('workshops', 0)} workshops).\n"
-        f"Recent history:\n{events_text}{whisper_text}{beliefs_text}{standing_text}\n"
+        f"Recent history:\n{events_text}{whisper_text}{beliefs_text}{council_text}{standing_text}\n"
         "Choose the village's current priority."
     )
 
 
-def fallback_priority(population_summary: dict, settlement_summary: dict) -> dict:
+COUNCIL_DISPOSITION_TIEBREAK_THRESHOLD = 0.15
+"""Integration milestone: how far a sitting council's average trait
+must lean before it tips `fallback_priority`'s otherwise-arbitrary
+final "growth vs. defense" catchall — deliberately small and applied
+only at the bottom of the chain (nothing urgent like hunger/illness/
+coffers is ever overridden by council mood), same "real but never
+dominant" magnitude every other cross-system nudge in this project
+uses (temperament's *_INFLUENCE constants, trait step sizes)."""
+
+
+def fallback_priority(
+    population_summary: dict, settlement_summary: dict, council_disposition: dict | None = None,
+) -> dict:
     """Deterministic stand-in: a simple, legible read of the same stats
     an LLM would see, not a random pick — so a fallback run still steers
     sensibly rather than just narrating."""
@@ -119,6 +145,20 @@ def fallback_priority(population_summary: dict, settlement_summary: dict) -> dic
         return {"priority": "education", "rationale": "There's material to spare and no school yet."}
     if materials_frac < 0.15:
         return {"priority": "growth", "rationale": "Little on hand yet — the basics still need building."}
+    # Nothing urgent is pulling the decision either way — this is the
+    # one point in the chain where a sitting council's own disposition
+    # gets a say (see COUNCIL_DISPOSITION_TIEBREAK_THRESHOLD): an
+    # ambitious council leans the village toward growth, a resilience-
+    # minded one toward looking after what it already has. Neither
+    # reading is "correct" — same real-but-secondary treatment every
+    # other trait/temperament nudge in this project gets.
+    if council_disposition:
+        avg_ambition = council_disposition.get("avg_ambition", 0.0)
+        avg_resilience = council_disposition.get("avg_resilience", 0.0)
+        if avg_ambition - avg_resilience > COUNCIL_DISPOSITION_TIEBREAK_THRESHOLD:
+            return {"priority": "growth", "rationale": "The council of elders is eager to see the village grow."}
+        if avg_resilience - avg_ambition > COUNCIL_DISPOSITION_TIEBREAK_THRESHOLD:
+            return {"priority": "defense", "rationale": "The council of elders would rather see the village secure than grow further."}
     return {"priority": "defense", "rationale": "The essentials are covered; time to look after the village's safety."}
 
 

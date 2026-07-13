@@ -146,6 +146,17 @@ actually calls for instead). Applied in
 Population._maybe_start_construction. No effect before the first
 town-brain decision (current_priority == "" matches neither branch)."""
 
+URBAN_GROWTH_ROAD_ADJACENCY_MULTIPLIER = 1.5
+"""Integration milestone: `SETTLE_CHANCE_PER_TICK`'s multiplier for a
+candidate tile adjacent to an established road — the standing roadmap
+gap ("where to build is still pure chance") closed the same way
+current_priority already closes the "whether/what kind" half: a real,
+legible bias, never a hard rule (still colocation-driven, still a
+chance roll). Roads accrete near existing activity (`roads.py`'s
+presence-driven wear), so this creates a real, emergent "settlements
+grow outward along their own roads" pattern rather than scattering
+new buildings uniformly at random."""
+
 MATURE_WORKER_ONLY = False
 """Whether construction/repair work requires workers to be "mature"
 (see agents.agent.MATURITY_TICKS). False: any awake agent present helps —
@@ -539,6 +550,32 @@ of mature/healthy agents (labor), and current weather harshness
 `POPULATION_CAP` itself remains untouched as a hard ceiling far above any
 realistic computed value, a safety valve against a tuning mistake here,
 not the intended limiting mechanism."""
+
+CARRYING_CAPACITY_COORDINATION_WEIGHT = 0.1
+CARRYING_CAPACITY_KNOWLEDGE_WEIGHT = 0.1
+CARRYING_CAPACITY_INFRASTRUCTURE_WEIGHT = 0.1
+"""Integration-milestone extension to the weights above — carrying
+capacity previously read only housing/economy/security/labor/weather,
+leaving institutions, skills, and infrastructure with no way to expand
+(or shrink) what the settlement can actually support, despite all three
+being real, effortful things a village can build up. Deliberately the
+smallest three weights in the composition (a sitting council, a skilled
+population, and a road network all matter, but none should ever
+outweigh whether people are literally fed or housed) — see
+`Population.carrying_capacity` for how each term is actually computed.
+COORDINATION scores 0 with no COUNCIL (nothing to coordinate yet) up to
+this weight at a fully organized, high-disposition council; KNOWLEDGE
+scores off the same population-average skill level `_maybe_schedule_
+invention` already reads (SKILL_FARMING/SKILL_CONSTRUCTION); INFRASTRUCTURE
+scores off established road tiles per capita, capped so a sprawling road
+network past what the population could ever need stops paying off."""
+
+CARRYING_CAPACITY_ROADS_PER_CAPITA_SATURATION = 0.15
+"""Established road tiles per living agent at which INFRASTRUCTURE's
+term maxes out (see CARRYING_CAPACITY_INFRASTRUCTURE_WEIGHT) — roughly
+one worn road tile per ~7 people comfortably saturates the term; more
+roads past that point are still useful (site selection, contact rate)
+but stop adding further capacity headroom on their own."""
 
 CARRYING_CAPACITY_MIN_MULTIPLIER = 0.5
 CARRYING_CAPACITY_MAX_MULTIPLIER = 1.5
@@ -1195,6 +1232,14 @@ class Settlement:
             if inst.kind is InstitutionKind.FAMILY and agent_id in inst.member_agent_ids
         ]
         return max(matches, key=lambda inst: inst.founding_tick) if matches else None
+
+    def council(self) -> Institution | None:
+        """The settlement's one COUNCIL institution, or None before it
+        forms (see COUNCIL_FORMATION_POPULATION_THRESHOLD). Integration-
+        milestone helper — town_brain and carrying_capacity both need a
+        single answer to "is there an active council, and who's on it"
+        rather than each re-filtering `institutions` themselves."""
+        return next((inst for inst in self.institutions if inst.kind is InstitutionKind.COUNCIL), None)
 
     @property
     def temperament(self) -> float:

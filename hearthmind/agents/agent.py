@@ -184,6 +184,18 @@ relationship value — rivals don't get fed first, though this is well
 above RIVALRY_THRESHOLD (-0.4) so mere strangers (relationship 0) still
 trade freely."""
 
+TRAIT_SOCIABILITY_TRADE_THRESHOLD_SHIFT = 0.15
+"""Integration milestone: a giver's own sociability shifts the
+TRADE_MIN_RELATIONSHIP bar they personally apply, in
+`Population._trade_relationship_threshold` (consumed by all three
+barter functions — food/tools/medicine). A sociable giver shares with
+even a mildly-disliked neighbor; an unsociable one holds out for a
+closer bond than the settlement-wide default. Closes TRAIT_SOCIABILITY's
+write-only loop the same way TRAIT_SOCIABILITY_CONTACT_CHANCE_INFLUENCE
+does for teaching, just as a threshold shift rather than a chance
+multiplier since trade here is deterministic-on-colocation, not a
+per-tick roll."""
+
 TRADE_TOOLS_AMOUNT = 1.0
 """H4: personal tools transferred in one barter exchange — see
 Population._maybe_trade_tools. Chunkier than TRADE_FOOD_AMOUNT since
@@ -279,6 +291,17 @@ crowd diseases originate and spread more readily in dense, under-housed
 populations. Deliberately reuses the existing housing-pressure signal
 rather than a second, disconnected density metric."""
 
+OUTBREAK_ROAD_CONTACT_MULTIPLIER = 1.5
+"""Integration milestone: scales OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK
+by `1.0 + (fraction of the population on an established road tile) *
+this` — infrastructure that connects people for trade/teaching also
+connects them for contagion. Deliberately smaller-magnitude than
+OUTBREAK_CROWDING_MULTIPLIER (crowding is the dominant, well-tuned
+driver; roads are a real but secondary contact-rate signal on top of
+it, same "never dominant" discipline every cross-system nudge in this
+project follows) — a settlement with 100% of its people on roads
+this tick sees at most a 2.5x multiplier, versus crowding's flat 6x."""
+
 SICKNESS_TRANSMISSION_CHANCE_PER_TICK = 0.01
 """Chance a sick agent infects a colocated healthy agent, per tick they
 share a tile. Compounds with how often agents actually end up colocated
@@ -352,6 +375,15 @@ consequence, colocation-driven" shape as relationship gain and gossip
 contagion above. Faster than solo practice (SKILL_PRACTICE_GAIN),
 consistent with teaching being a genuinely faster way to learn than
 trial and error alone."""
+
+INSTITUTION_TEACHING_BONUS_MULTIPLIER = 1.4
+"""Integration milestone: `Population._maybe_teach_skills`'s roll
+chance is multiplied by this when teacher and learner share a living
+FAMILY or COUNCIL institution — learning from your own household or
+elders is more effective than a passing lesson from a stranger.
+Deliberately smaller than the trait/culture multipliers can combine to
+(a modest, legible bonus, not a dominant one), and stacks with both
+rather than replacing either."""
 
 SKILL_FARMING_YIELD_BONUS = 0.25
 """At full mastery (proficiency 1.0), a farming-skilled harvester gets
@@ -461,6 +493,50 @@ magnitude clears this bar — same "only mentioned once notably warm/
 cold" treatment `player_standing` already gets, so a freshly-neutral
 agent's prompt isn't cluttered with "not particularly resilient or
 fragile" noise."""
+
+# --- integration milestone: traits become mechanically consumed, not write-only ---
+
+TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE = 0.25
+"""How far personal `TRAIT_RESILIENCE` (-1..1) can push an agent's own
+disease/predator death-chance roll away from the settlement-wide
+baseline (`Population._tick_disease`/`_maybe_predator_attack`) — a
+fully resilient agent's chance is scaled toward `1 - this`, a fully
+fragile one toward `1 + this`. Previously traits were nudged by these
+exact events (grief, violence, sustained hunger) but never read back by
+any deterministic mechanic — this closes that loop: living through a
+brush with danger measurably makes the next one a little more
+survivable, or not, depending on how it went. Same small, symmetric,
+never-dominant magnitude as TEMPERAMENT_KILL_CHANCE_INFLUENCE."""
+
+TRAIT_RESILIENCE_STARVATION_TOLERANCE_INFLUENCE = 0.2
+"""Fractional stretch/shrink on `STARVATION_TICKS_TO_DEATH` from
+personal resilience (`Population._apply_deaths`) — a resilient agent
+holds on somewhat longer into a hunger crisis, a fragile one somewhat
+less. Same magnitude class as the death-chance influence above."""
+
+TRAIT_SOCIABILITY_CONTACT_CHANCE_INFLUENCE = 0.3
+"""Fractional nudge on personal trade-initiation and skill-teaching
+roll chances from `TRAIT_SOCIABILITY` (-1..1) — a sociable agent reaches
+out more readily, an unsociable one less. Consumed in
+`Population._maybe_trade_food/_maybe_trade_tools/_maybe_trade_medicine`
+and `_maybe_teach_skills`. Larger than the death-chance influence above
+since these are routine, low-stakes rolls rather than life-or-death
+ones — a bigger swing here is still never dominant (contact still
+requires colocation + the base roll to begin with)."""
+
+TRAIT_AMBITION_FOUNDER_SELECTION_WEIGHT = 0.4
+"""How strongly `TRAIT_AMBITION` (-1..1) weights which eligible,
+colocated agent personally owns a newly-founded HUT
+(`Population._maybe_start_construction`), when more than one candidate
+qualifies — an ambitious agent is more likely to be the one who steps
+up and claims it, not guaranteed to be (still an RNG-weighted pick, not
+a hard rule). Deliberately scoped to HUT ownership only, not council
+seating — COUNCIL stays a clean, single-purpose "elders by age" rule
+(`_maybe_form_council`/`_maybe_refresh_council`); mixing ambition into
+that selection would blur what "a council of elders" means. Read side
+of the same trait `TRAIT_AMBITION_FOUNDING_NUDGE` already writes to on
+the event itself, closing that loop the same way resilience/
+sociability close theirs."""
 
 
 def describe_traits(traits: dict) -> str:

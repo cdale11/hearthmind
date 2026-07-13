@@ -161,10 +161,16 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   town brain's current priority now also scales the settle-chance roll
   itself (`SETTLE_CHANCE_GROWTH_PRIORITY_MULTIPLIER`/`_OFF_PRIORITY_
   MULTIPLIER`, `Population._maybe_start_construction`), not just which
-  kind gets founded. *Where* to build remains pure-chance (wherever 2+
+  kind gets founded. *Where* to build was pure-chance (wherever 2+
   eligible agents happen to be colocated) — a genuinely separate,
-  larger change (agent-driven pathing toward a chosen site) not
-  attempted. See docs/DECISIONS.md, "everything left" pass.
+  larger change (agent-driven pathing toward a chosen site) still not
+  attempted, but **partially closed, v0.56.0 (integration milestone,
+  "urban growth"):** a road-adjacent tile is now measurably likelier to
+  be settled (`URBAN_GROWTH_ROAD_ADJACENCY_MULTIPLIER` on `SETTLE_
+  CHANCE_PER_TICK`) — still colocation-driven, not agent-pathed, but no
+  longer purely uniform-random across every eligible tile. See
+  docs/DECISIONS.md, "everything left" pass and "Integration
+  milestone."
 - **[x] Vehicles.** `hearthmind/settlement/vehicles.py`: hauling carts
   (settlement-wide, boost gathered-material yield) and personal-travel
   mounts (an agent claims one, moves faster), built/repaired/decayed the
@@ -283,6 +289,14 @@ starts producing content that surprises its creator.
   "Multiple named settlements: explicitly not attempted this batch"
   for the full rationale); remains the correct next candidate for its
   own dedicated session.
+- **[x] Caravans, v1 (v0.56.0, integration milestone) — a scoped first
+  step toward external contact, not the full multi-settlement item
+  above.** New `llm/caravan.py`: a rare monthly abstract event (no new
+  map entity, no second `Settlement`) with a real currency/materials
+  exchange and an optional rumor seeded into a few agents' own memories
+  (`Population.spread_rumor`), propagating through the existing gossip/
+  trust contagion system. See docs/DECISIONS.md, "Integration
+  milestone."
 
 ## Phase F — Browser interface
 
@@ -496,6 +510,14 @@ bounded 0.5x-1.5x multiplier on the housing base, clamped to
 directly, and is exposed via `summary()["carrying_capacity"]`. See
 docs/DECISIONS.md, "H1: dynamic carrying capacity."
 
+**Extended, v0.56.0 (integration milestone).** Three more terms:
+coordination (a sitting COUNCIL's disposition), knowledge (aggregate
+population skill), and infrastructure (established roads per capita,
+saturating) — closing the audit finding that institutions/skills/roads
+had no path to affect what a settlement could actually support. All
+three are the smallest weights in the composition. See
+docs/DECISIONS.md, "Integration milestone."
+
 ### [x] H2. Beliefs -> world models (v1: history + family-scoped mirroring)
 
 Current state: `Settlement.beliefs` (`llm/beliefs.py`) is a small, capped,
@@ -598,6 +620,21 @@ the first tick a named settlement's population reaches
 `FAMILY`). Still no deliberate founding (no agent goal/LLM decision) —
 guilds/markets/religions and deliberate founding remain open.
 
+**Extended, v0.56.0 (integration milestone): COUNCIL gains real
+agency.** The audit found this was the most isolated system in the
+codebase — "fixed at formation" had silently become "never refreshed
+even as members die," and it had zero mechanical output anywhere.
+`Population._maybe_refresh_council` tops living membership back up to
+`COUNCIL_SIZE` from the next-eldest non-member whenever a seat opens
+(fixes the ghost-roster bug). `llm/beliefs.sync_council_beliefs`
+mirrors settlement beliefs that don't resolve to a person/family onto
+COUNCIL, closing `Institution.beliefs`'s previously-dead field for this
+kind. `Population.council_disposition` (average living-member traits)
+now feeds `town_brain`'s prompt and fallback tie-break, and
+`carrying_capacity`'s new coordination term. Guilds/markets/religions
+and deliberate founding remain open. See docs/DECISIONS.md,
+"Integration milestone."
+
 ### [x] H4. Resource-driven economy: ownership, specialization, supply chains, trade (v1)
 
 Current state: settlement-scale only (materials/currency pools,
@@ -694,6 +731,15 @@ risked destabilizing an already-balance-tuned era-progression system
 for a benefit this additive version already captures at much lower
 risk.
 
+**Extended, v0.56.0 (integration milestone): teaching becomes
+institution- and culture-aware.** `_maybe_teach_skills`'s roll chance
+was a flat constant with no connection to sociability, institutions, or
+culture — now scaled by both agents' average sociability, boosted when
+teacher and learner share a living FAMILY/COUNCIL, and boosted further
+by a new `"knowledge"` tradition influence (a fourth
+`TRADITION_INFLUENCES` entry alongside festivity/harvest/resilience).
+See docs/DECISIONS.md, "Integration milestone."
+
 ### [x] H6. Psychology: habits, identity, values, trauma, ambition (v1)
 
 Current state: `Agent` has needs (hunger/energy), relationships, trust,
@@ -727,6 +773,18 @@ skill) rather than lived hardship/social contact like the other two —
 "earned, not suffered or given." Included in the same monthly walk and
 `describe_traits`. Identity/values remain open, now at 3 of the
 section's own "2-4 axes to start" range.
+
+**Extended, v0.56.0 (integration milestone): traits become mechanically
+consumed, not write-only.** The audit found all three axes were nudged
+by real events but read by nothing deterministic — only `describe_
+traits`'s LLM prompt flavor and stat-tile averages. Now: resilience
+reduces personal disease/predator death chance and stretches/shrinks
+personal starvation tolerance; sociability shifts a giver's own trade-
+relationship threshold and boosts personal teaching-roll chance;
+ambition RNG-weights (never guarantees) which eligible founder claims a
+new HUT's ownership. Each closes the loop with the exact event that
+already nudges that trait. Identity/values remain open. See
+docs/DECISIONS.md, "Integration milestone."
 
 ### [x] H7. Cross-generational inheritance (v1)
 

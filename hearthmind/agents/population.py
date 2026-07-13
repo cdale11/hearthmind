@@ -29,6 +29,7 @@ from hearthmind.agents.agent import (
     GOSSIP_OPINION_MAX_STEP,
     GRIEF_ENERGY_PENALTY,
     HUNGER_RATE,
+    INSTITUTION_TEACHING_BONUS_MULTIPLIER,
     MATURITY_TICKS,
     MAX_AGENT_MEMORIES,
     MAX_LIFESPAN_TICKS,
@@ -36,6 +37,7 @@ from hearthmind.agents.agent import (
     MOVE_CHANCE,
     OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK,
     OUTBREAK_CROWDING_MULTIPLIER,
+    OUTBREAK_ROAD_CONTACT_MULTIPLIER,
     PERSONAL_FOOD_CAPACITY,
     POPULATION_CAP,
     REPRODUCTION_AFFINITY_THRESHOLD,
@@ -72,13 +74,18 @@ from hearthmind.agents.agent import (
     TRADE_TOOLS_AMOUNT,
     MASTERY_THRESHOLD,
     TRAIT_AMBITION,
+    TRAIT_AMBITION_FOUNDER_SELECTION_WEIGHT,
     TRAIT_AMBITION_FOUNDING_NUDGE,
     TRAIT_AMBITION_MASTERY_NUDGE,
     TRAIT_GRIEF_NUDGE,
     TRAIT_MEAN_REVERSION,
     TRAIT_NOTABLE_THRESHOLD,
     TRAIT_RESILIENCE,
+    TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE,
+    TRAIT_RESILIENCE_STARVATION_TOLERANCE_INFLUENCE,
     TRAIT_SOCIABILITY,
+    TRAIT_SOCIABILITY_CONTACT_CHANCE_INFLUENCE,
+    TRAIT_SOCIABILITY_TRADE_THRESHOLD_SHIFT,
     TRAIT_SOCIAL_CONTACT_NUDGE,
     TRAIT_STEP_MAX,
     TRAIT_SUSTAINED_HUNGER_NUDGE,
@@ -101,11 +108,15 @@ from hearthmind.economy.farms import (
 )
 from hearthmind.settlement.buildings import (
     CAMP_TOLERANCE,
+    CARRYING_CAPACITY_COORDINATION_WEIGHT,
     CARRYING_CAPACITY_ECONOMY_WEIGHT,
     CARRYING_CAPACITY_ENVIRONMENT_WEIGHT,
+    CARRYING_CAPACITY_INFRASTRUCTURE_WEIGHT,
+    CARRYING_CAPACITY_KNOWLEDGE_WEIGHT,
     CARRYING_CAPACITY_LABOR_WEIGHT,
     CARRYING_CAPACITY_MAX_MULTIPLIER,
     CARRYING_CAPACITY_MIN_MULTIPLIER,
+    CARRYING_CAPACITY_ROADS_PER_CAPITA_SATURATION,
     CARRYING_CAPACITY_SECURITY_WEIGHT,
     CONSTRUCTION_MATERIALS_MULTIPLIER,
     CONSTRUCTION_WORK_PER_TICK,
@@ -153,6 +164,7 @@ from hearthmind.settlement.buildings import (
     UNIVERSITY_EDUCATION_MULTIPLIER,
     UNIVERSITY_MATERIALS_COST,
     UNIVERSITY_TECH_REQUIREMENT,
+    URBAN_GROWTH_ROAD_ADJACENCY_MULTIPLIER,
     WORKSHOP_INCOME_PER_TICK,
     BuildingKind,
     BuildingStage,
@@ -351,6 +363,24 @@ def _remember(agent: Agent, text: str) -> None:
     agent.memories.append(text)
     if len(agent.memories) > MAX_AGENT_MEMORIES:
         agent.memories.pop(0)
+
+
+def _trade_relationship_threshold(giver: Agent) -> float:
+    """Integration milestone: the relationship bar a giver personally
+    applies before sharing food/tools/medicine — see
+    TRAIT_SOCIABILITY_TRADE_THRESHOLD_SHIFT."""
+    sociability = giver.traits.get(TRAIT_SOCIABILITY, 0.0)
+    return TRADE_MIN_RELATIONSHIP - sociability * TRAIT_SOCIABILITY_TRADE_THRESHOLD_SHIFT
+
+
+def _starvation_threshold(agent: Agent) -> float:
+    """Integration milestone: personal resilience stretches or shrinks
+    how long an agent holds on into a starvation crisis before it's
+    fatal — see TRAIT_RESILIENCE_STARVATION_TOLERANCE_INFLUENCE. Reads
+    the same trait `starving_ticks == 1`'s onset already nudges
+    (TRAIT_SUSTAINED_HUNGER_NUDGE), closing that write-only loop."""
+    resilience = agent.traits.get(TRAIT_RESILIENCE, 0.0)
+    return STARVATION_TICKS_TO_DEATH * (1.0 + resilience * TRAIT_RESILIENCE_STARVATION_TOLERANCE_INFLUENCE)
 
 
 def _nudge_trait(agent: Agent, trait: str, delta: float) -> None:
@@ -606,14 +636,14 @@ class Population:
 
         self._update_roads(by_position, settlement, farms, roads)
         self._update_relationships(by_position)
-        self._maybe_teach_skills(by_position, rng)
+        self._maybe_teach_skills(by_position, rng, settlement)
         if month_end:
             self._tick_traits(rng)
         disease_events, died_of_disease = self._tick_disease(
             self.agents, by_position, has_hospital, settlement.temperament, rng,
         )
         life_events.extend(disease_events)
-        life_events.extend(self._maybe_outbreak(rng, crowded))
+        life_events.extend(self._maybe_outbreak(rng, crowded, roads))
         life_events.extend(self._advance_construction(by_position, settlement))
         life_events.extend(self._maybe_repair(by_position, settlement))
         self._maybe_stock_granaries(by_position, settlement)
@@ -626,7 +656,7 @@ class Population:
         self._maybe_run_factories(by_position, settlement)
         self._maybe_run_schools(by_position, settlement)
         life_events.extend(self._maybe_upgrade_university(by_position, settlement, rng))
-        life_events.extend(self._maybe_start_construction(by_position, settlement, farms, rng))
+        life_events.extend(self._maybe_start_construction(by_position, settlement, farms, rng, roads))
         life_events.extend(self._maybe_plant(by_position, farms, settlement, terrain, rng))
         life_events.extend(self._advance_vehicle_construction(by_position, settlement))
         self._maybe_repair_vehicles(by_position, settlement)
@@ -636,6 +666,7 @@ class Population:
         life_events.extend(self._maybe_start_vehicle(by_position, settlement, farms, rng))
         self.last_carrying_capacity = self.carrying_capacity(
             settlement, housing_capacity, weather_harsh, bool(predator_tiles),
+            established_roads=roads.summary()["established_roads"],
         )
         life_events.extend(
             self._maybe_reproduce(by_position, rng, self.last_carrying_capacity, settlement, tick)
@@ -643,6 +674,7 @@ class Population:
         life_events.extend(self._apply_deaths(killed_by_predator, settlement, died_of_disease))
         life_events.extend(self._maybe_welcome_migrant(rng, settlement))
         life_events.extend(self._maybe_form_council(settlement, tick))
+        life_events.extend(self._maybe_refresh_council(settlement))
         return life_events
 
     @staticmethod
@@ -731,13 +763,20 @@ class Population:
         if has_hospital:
             kill_chance *= (1.0 - HOSPITAL_KILL_CHANCE_REDUCTION)
         kill_chance = max(0.0, kill_chance * (1.0 - temperament * TEMPERAMENT_KILL_CHANCE_INFLUENCE))
+        # Integration milestone: the agent's own resilience gets a say
+        # too, alongside the settlement-wide temperament nudge — see
+        # TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE.
+        resilience = agent.traits.get(TRAIT_RESILIENCE, 0.0)
+        kill_chance = max(0.0, kill_chance * (1.0 - resilience * TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE))
         if rng.random() < kill_chance:
             return (("death", f"{agent.name} was killed by predators."), True)
         agent.energy = max(0.0, agent.energy - PREDATOR_ATTACK_ENERGY_DRAIN)
         agent.hunger = min(1.0, agent.hunger + PREDATOR_ATTACK_HUNGER_INCREASE)
         return (("predator_attack", f"{agent.name} was attacked by predators and barely escaped."), False)
 
-    def _maybe_outbreak(self, rng: random.Random, crowded: bool) -> list[tuple[str, str]]:
+    def _maybe_outbreak(
+        self, rng: random.Random, crowded: bool, roads: RoadNetwork | None = None,
+    ) -> list[tuple[str, str]]:
         """Rolled once per tick, settlement-wide: a small chance a new,
         spontaneous case of illness appears among the currently-healthy
         population — the *origin* of a bout. Scaled by population size
@@ -747,13 +786,23 @@ class Population:
         housing capacity draws real disease risk, not just tighter
         quarters. Person-to-person spread from this index case is
         handled separately by `_tick_disease`. See docs/DECISIONS.md,
-        "population control: disease" pass."""
+        "population control: disease" pass.
+
+        Integration milestone: also boosted by the fraction of the
+        population currently standing on an established road tile —
+        infrastructure that connects people is, realistically, also
+        infrastructure that spreads a cold. Same double-edged framing
+        roads already get in `carrying_capacity` (infrastructure helps
+        overall, but this is the one place it has a real cost)."""
         healthy = [a for a in self.agents if a.sick_ticks == 0]
         if not healthy:
             return []
         chance = OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK * len(self.agents)
         if crowded:
             chance *= OUTBREAK_CROWDING_MULTIPLIER
+        if roads is not None and self.agents:
+            on_road_fraction = sum(1 for a in self.agents if roads.is_road(a.x, a.y)) / len(self.agents)
+            chance *= 1.0 + on_road_fraction * OUTBREAK_ROAD_CONTACT_MULTIPLIER
         if rng.random() >= chance:
             return []
         index_case = rng.choice(healthy)
@@ -793,6 +842,13 @@ class Population:
             if medicine > 0.0:
                 agent_death_chance *= (1.0 - MEDICINE_DEATH_CHANCE_REDUCTION)
                 agent.inventory["medicine"] = max(0.0, medicine - MEDICINE_CONSUMPTION_PER_TICK)
+            # Integration milestone: personal resilience stacks with
+            # medicine/hospital, same shape as the predator-attack side
+            # of TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE.
+            resilience = agent.traits.get(TRAIT_RESILIENCE, 0.0)
+            agent_death_chance = max(
+                0.0, agent_death_chance * (1.0 - resilience * TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE)
+            )
             if rng.random() < agent_death_chance:
                 died_of_disease.add(agent.id)
                 continue
@@ -1325,7 +1381,9 @@ class Population:
                 )
 
     @staticmethod
-    def _maybe_teach_skills(by_position: dict[tuple[int, int], list[Agent]], rng: random.Random) -> None:
+    def _maybe_teach_skills(
+        by_position: dict[tuple[int, int], list[Agent]], rng: random.Random, settlement: Settlement,
+    ) -> None:
         """H5 (docs/ROADMAP.md "Phase H"): knowledge spreads through
         teaching, not only solo practice (see the farming-skill gain in
         `_maybe_forage`). A colocated pair with a wide enough skill gap
@@ -1334,17 +1392,40 @@ class Population:
         `_update_relationships`'s gain loop and dialogue's gossip
         contagion. Skill-name-agnostic — H5 extension added
         SKILL_CONSTRUCTION as a second skill with no changes needed
-        here beyond listing it below."""
+        here beyond listing it below.
+
+        Integration milestone: the base chance is no longer a flat
+        constant — it's scaled by both agents' average sociability
+        (TRAIT_SOCIABILITY_CONTACT_CHANCE_INFLUENCE, closing that
+        trait's write-only loop), boosted when teacher and learner
+        share a living FAMILY or COUNCIL institution (learning from
+        your own family or elders is more effective than a stranger's
+        passing lesson), and boosted further by a 'knowledge' tradition
+        (culture_effect_multiplier — a village that has come to value
+        apprenticeship teaches faster, the same mechanical-rider shape
+        festivals/harvests/grief already use)."""
+        knowledge_multiplier = culture_effect_multiplier(settlement.culture_effects, "knowledge")
         for group in by_position.values():
             if len(group) < 2:
                 continue
             for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
+                shared_institution = any(
+                    a.id in inst.member_agent_ids and b.id in inst.member_agent_ids
+                    for inst in settlement.institutions
+                    if inst.kind in (InstitutionKind.FAMILY, InstitutionKind.COUNCIL)
+                )
+                sociability = (a.traits.get(TRAIT_SOCIABILITY, 0.0) + b.traits.get(TRAIT_SOCIABILITY, 0.0)) / 2.0
+                chance = SKILL_TEACHING_CHANCE_PER_TICK * (
+                    1.0 + sociability * TRAIT_SOCIABILITY_CONTACT_CHANCE_INFLUENCE
+                ) * knowledge_multiplier
+                if shared_institution:
+                    chance *= INSTITUTION_TEACHING_BONUS_MULTIPLIER
                 for skill in (SKILL_FARMING, SKILL_CONSTRUCTION):
                     a_level, b_level = a.skills.get(skill, 0.0), b.skills.get(skill, 0.0)
                     gap = a_level - b_level
                     if abs(gap) < SKILL_TEACHING_MIN_GAP:
                         continue
-                    if rng.random() >= SKILL_TEACHING_CHANCE_PER_TICK:
+                    if rng.random() >= chance:
                         continue
                     teacher, learner = (a, b) if gap > 0 else (b, a)
                     learner.skills[skill] = min(
@@ -1370,6 +1451,7 @@ class Population:
 
     def carrying_capacity(
         self, settlement: Settlement, housing_capacity: int, weather_harsh: bool, predator_pressure: bool,
+        established_roads: int = 0,
     ) -> float:
         """Dynamic carrying capacity (H1, docs/ROADMAP.md Phase H):
         composes housing (the base), economy, security, and labor/
@@ -1378,7 +1460,13 @@ class Population:
         reproduction via the surplus check below — rather than the flat
         `POPULATION_CAP` scalar being the only real constraint. Called
         once per tick from `tick()`; the result also drives
-        `_maybe_reproduce`'s gate and is exposed via `summary()`."""
+        `_maybe_reproduce`'s gate and is exposed via `summary()`.
+        Integration milestone: also reads institutional coordination
+        (a sitting council), aggregate population skill (knowledge), and
+        road infrastructure — previously this function only ever read
+        housing/economy/security/labor/weather, leaving three real,
+        effortful systems with no way to expand what a settlement can
+        actually support."""
         total = len(self.agents)
         granaries = [
             b for b in settlement.buildings
@@ -1404,7 +1492,36 @@ class Population:
 
         environment_term = (-0.5 if weather_harsh else 0.2) * CARRYING_CAPACITY_ENVIRONMENT_WEIGHT
 
-        multiplier = 1.0 + economy_term + security_term + labor_term + environment_term
+        council = settlement.council()
+        if council is not None:
+            disposition = self.council_disposition(council)
+            # A council with nobody left alive on it coordinates nothing —
+            # see _maybe_refresh_council for why that shouldn't happen in
+            # practice, but this stays correct even in the gap tick
+            # before a refresh fills an opened seat.
+            governance_quality = (disposition["avg_ambition"] + disposition["avg_resilience"]) / 2.0 + 0.5
+            coordination_term = (
+                governance_quality * CARRYING_CAPACITY_COORDINATION_WEIGHT if disposition["size"] else 0.0
+            )
+        else:
+            coordination_term = 0.0
+
+        avg_skill = (
+            sum(a.skills.get(SKILL_FARMING, 0.0) + a.skills.get(SKILL_CONSTRUCTION, 0.0) for a in self.agents)
+            / (2 * total) if total else 0.0
+        )
+        knowledge_term = avg_skill * CARRYING_CAPACITY_KNOWLEDGE_WEIGHT
+
+        roads_per_capita = (established_roads / total) if total else 0.0
+        infrastructure_term = (
+            min(1.0, roads_per_capita / CARRYING_CAPACITY_ROADS_PER_CAPITA_SATURATION)
+            * CARRYING_CAPACITY_INFRASTRUCTURE_WEIGHT
+        )
+
+        multiplier = (
+            1.0 + economy_term + security_term + labor_term + environment_term
+            + coordination_term + knowledge_term + infrastructure_term
+        )
         multiplier = max(CARRYING_CAPACITY_MIN_MULTIPLIER, min(CARRYING_CAPACITY_MAX_MULTIPLIER, multiplier))
         return min(float(POPULATION_CAP), housing_capacity * multiplier)
 
@@ -1545,6 +1662,42 @@ class Population:
         names = ", ".join(a.name for a in elders)
         return [("council_formed", f"A council of elders formed: {names}.")]
 
+    def _maybe_refresh_council(self, settlement: Settlement) -> list[tuple[str, str]]:
+        """Integration-milestone fix: `_maybe_form_council` set
+        `member_agent_ids` once at formation and nothing ever added to
+        it afterward — every council member who died just stayed a
+        permanent dead entry, so a long-running settlement's COUNCIL
+        would silently decay into an all-dead ghost roster with zero
+        living voice, the single most isolated institution in the
+        codebase (no agency anywhere, and now not even a live
+        membership). Institutions still never *remove* a member on
+        death (see `Institution.member_agent_ids`'s docstring — an
+        institution outlives its members by design), but a council
+        specifically needs a *living* quorum to have any governance
+        meaning, so this tops the living membership back up to
+        COUNCIL_SIZE from the next-eldest non-member agent whenever a
+        seat opens, same elder-selection rule `_maybe_form_council`
+        already uses. A no-op most ticks (only fires the tick after a
+        sitting member's death, and only while enough living population
+        remains to fill the seat)."""
+        council = next((i for i in settlement.institutions if i.kind is InstitutionKind.COUNCIL), None)
+        if council is None:
+            return []
+        living_members = [a for a in self.agents if a.id in council.member_agent_ids]
+        seats_open = COUNCIL_SIZE - len(living_members)
+        if seats_open <= 0:
+            return []
+        candidates = sorted(
+            (a for a in self.agents if a.id not in council.member_agent_ids),
+            key=lambda a: (a.age_ticks / a.max_age_ticks) if a.max_age_ticks else 0.0,
+            reverse=True,
+        )[:seats_open]
+        if not candidates:
+            return []
+        council.member_agent_ids.update(a.id for a in candidates)
+        names = ", ".join(a.name for a in candidates)
+        return [("council_seat_filled", f"{names} joined the council of elders, filling an empty seat.")]
+
     def _maybe_welcome_migrant(self, rng: random.Random, settlement: Settlement) -> list[tuple[str, str]]:
         """The population equivalent of wildlife's `_maybe_recolonize` —
         a settlement crashed down to a handful of survivors (predation,
@@ -1673,7 +1826,7 @@ class Population:
     @classmethod
     def _maybe_start_construction(
         cls, by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement,
-        farms: FarmGrid, rng: random.Random,
+        farms: FarmGrid, rng: random.Random, roads: RoadNetwork | None = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         for (x, y), group in by_position.items():
@@ -1687,6 +1840,16 @@ class Population:
                 settle_chance *= SETTLE_CHANCE_GROWTH_PRIORITY_MULTIPLIER
             elif settlement.current_priority:
                 settle_chance *= SETTLE_CHANCE_OFF_PRIORITY_MULTIPLIER
+            # Integration milestone (urban growth): the standing roadmap
+            # gap "where to build is still pure chance" — a tile next to
+            # an established road is measurably more likely to be
+            # settled, the same "infrastructure shapes growth" pattern
+            # real towns show, without picking the tile outright (still
+            # colocation-driven, still a chance roll).
+            if roads is not None and any(
+                roads.is_road(x + dx, y + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+            ):
+                settle_chance *= URBAN_GROWTH_ROAD_ADJACENCY_MULTIPLIER
             if rng.random() >= settle_chance:
                 continue
             # Which kind gets built is weighted by the settlement's
@@ -1701,12 +1864,20 @@ class Population:
             if settlement.materials < cost:
                 continue  # presence alone isn't enough — building needs material on site
             settlement.materials -= cost
-            # H4: a HUT is personally owned by whichever eligible founder
-            # has the lowest id (arbitrary but stable tie-break — no
-            # "whose idea was it" concept exists to pick more meaningfully)
-            # — every other kind stays commons (owner_agent_id=None), see
-            # Building.owner_agent_id.
-            owner_agent_id = min(a.id for a in eligible) if kind is BuildingKind.HUT else None
+            # H4, integration milestone: a HUT is personally owned by one
+            # eligible founder, picked with an ambition-weighted random
+            # draw rather than the old arbitrary lowest-id tie-break — a
+            # more ambitious agent is more likely (never guaranteed) to
+            # be the one who claims it. Every other kind stays commons
+            # (owner_agent_id=None), see Building.owner_agent_id.
+            if kind is BuildingKind.HUT:
+                weights = [
+                    max(0.05, 1.0 + a.traits.get(TRAIT_AMBITION, 0.0) * TRAIT_AMBITION_FOUNDER_SELECTION_WEIGHT)
+                    for a in eligible
+                ]
+                owner_agent_id = rng.choices(eligible, weights=weights, k=1)[0].id
+            else:
+                owner_agent_id = None
             settlement.start_construction(x, y, kind=kind, owner_agent_id=owner_agent_id)
             # H6 extension: founding a building is a tangible
             # achievement for its founders — see TRAIT_AMBITION_FOUNDING_NUDGE.
@@ -1746,7 +1917,7 @@ class Population:
                     (
                         g for g in givers
                         if g.id != recipient.id
-                        and g.relationships.get(recipient.id, 0.0) > TRADE_MIN_RELATIONSHIP
+                        and g.relationships.get(recipient.id, 0.0) > _trade_relationship_threshold(g)
                     ),
                     None,
                 )
@@ -1861,7 +2032,7 @@ class Population:
                     (
                         g for g in givers
                         if g.id != recipient.id
-                        and g.relationships.get(recipient.id, 0.0) > TRADE_MIN_RELATIONSHIP
+                        and g.relationships.get(recipient.id, 0.0) > _trade_relationship_threshold(g)
                     ),
                     None,
                 )
@@ -1925,7 +2096,7 @@ class Population:
                     (
                         g for g in givers
                         if g.id != recipient.id
-                        and g.relationships.get(recipient.id, 0.0) > TRADE_MIN_RELATIONSHIP
+                        and g.relationships.get(recipient.id, 0.0) > _trade_relationship_threshold(g)
                     ),
                     None,
                 )
@@ -2220,7 +2391,7 @@ class Population:
             if (
                 agent.id in killed_by_predator
                 or agent.id in died_of_disease
-                or agent.starving_ticks >= STARVATION_TICKS_TO_DEATH
+                or agent.starving_ticks >= _starvation_threshold(agent)
                 or agent.age_ticks >= agent.max_age_ticks
             ):
                 dying_ids.add(agent.id)
@@ -2583,6 +2754,42 @@ class Population:
                 b.relationships[a.id] = max(-1.0, min(1.0, b.relationships.get(a.id, 0.0) + boost))
                 affected += 1
         return affected
+
+    def spread_rumor(self, text: str, count: int, rng: random.Random) -> list[str]:
+        """Integration milestone: seed a piece of news (currently only
+        a caravan's outside rumor, see llm/caravan.py) into up to
+        `count` living agents' own memories — the same `_remember`
+        mechanism ordinary in-village events already use, so it can
+        propagate further through the *existing* dialogue gossip/trust
+        contagion rather than a bespoke broadcast. Returns the names of
+        who heard it firsthand, for event logging. Listeners need not
+        be colocated with each other — a caravan's news reaches whoever
+        happened to deal with it, not the whole village at once."""
+        if not self.agents:
+            return []
+        listeners = rng.sample(self.agents, k=min(count, len(self.agents)))
+        for agent in listeners:
+            _remember(agent, text)
+        return [a.name for a in listeners]
+
+    def council_disposition(self, council: "Institution") -> dict:
+        """Integration milestone: the living council's average traits —
+        the concrete "who's on the council actually matters" mechanism
+        consumed by `town_brain.fallback_priority`'s tie-break and (via
+        `build_prompt`) offered as context for the LLM path too. Reads
+        only living members (`member_agent_ids` outlives them, same as
+        `family_for`'s reasoning) — a council of the dead has no
+        disposition to speak of, and this returns all-zero (a neutral
+        tie-break) rather than raising when that happens."""
+        members = [a for a in self.agents if a.id in council.member_agent_ids]
+        if not members:
+            return {"avg_ambition": 0.0, "avg_resilience": 0.0, "avg_sociability": 0.0, "size": 0}
+        return {
+            "avg_ambition": sum(a.traits.get(TRAIT_AMBITION, 0.0) for a in members) / len(members),
+            "avg_resilience": sum(a.traits.get(TRAIT_RESILIENCE, 0.0) for a in members) / len(members),
+            "avg_sociability": sum(a.traits.get(TRAIT_SOCIABILITY, 0.0) for a in members) / len(members),
+            "size": len(members),
+        }
 
     # --- summary -------------------------------------------------------------
 

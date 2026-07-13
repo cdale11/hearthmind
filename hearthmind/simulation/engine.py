@@ -41,7 +41,7 @@ from hearthmind.agents.agent import (
 )
 from hearthmind.config import Config
 from hearthmind.llm import (
-    beliefs, chronicle, culture, dialogue, documentary, festival, invention, naming, omens, town_brain,
+    beliefs, caravan, chronicle, culture, dialogue, documentary, festival, invention, naming, omens, town_brain,
 )
 from hearthmind.llm.client import OllamaClient
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
@@ -444,6 +444,7 @@ class SimulationEngine:
         self._maybe_schedule_tradition(events)
         self._maybe_schedule_invention(events)
         self._maybe_schedule_festival(events)
+        self._maybe_schedule_caravan(events)
         self._maybe_schedule_town_brain(events)
         self._maybe_schedule_beliefs(events)
         self._maybe_schedule_personal_belief(events)
@@ -907,6 +908,54 @@ class SimulationEngine:
 
         self._schedule_llm_job("festival", prompt, festival.SYSTEM_PROMPT, fallback, apply)
 
+    # --- caravans: a first, scoped step toward "external settlements and trade" ---
+
+    def _maybe_schedule_caravan(self, events: list[str]) -> None:
+        """Integration milestone (docs/ROADMAP.md): a rare monthly
+        contact with the wider world — see llm/caravan.py's module
+        docstring for why this is a deliberately scoped-down interim
+        step rather than the full multi-settlement rearchitecture. The
+        economic exchange (currency/materials) is rolled and applied
+        here unconditionally, before scheduling the LLM/fallback
+        narration — a caravan's trade is objective reality (the
+        deterministic engine's domain), same as a disaster's material
+        cost; only *how it's described*, and whether it happens to
+        carry a rumor, goes through the LLM-or-fallback path."""
+        if "month_end" not in events or not self.world.settlement.name:
+            return
+        if _namespaced_roll(
+            self.world.config.seed, self.world.clock.tick_count, "caravan_roll",
+        ) >= caravan.CARAVAN_CHANCE_PER_MONTH:
+            return
+        rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "caravan")
+        settlement = self.world.settlement
+        currency_delta = rng.uniform(*caravan.CARAVAN_CURRENCY_DELTA_RANGE)
+        # Correlated, not independent: a caravan that pays the village in
+        # currency takes materials in return, and vice versa — a real
+        # barter rather than two unrelated windfalls. See
+        # CARAVAN_MATERIALS_DELTA_RANGE's docstring.
+        lo, hi = caravan.CARAVAN_MATERIALS_DELTA_RANGE
+        currency_lo, currency_hi = caravan.CARAVAN_CURRENCY_DELTA_RANGE
+        currency_fraction = (currency_delta - currency_lo) / (currency_hi - currency_lo)
+        materials_delta = hi - currency_fraction * (hi - lo)
+        settlement.currency = max(0.0, min(CURRENCY_CAPACITY, settlement.currency + currency_delta))
+        settlement.materials = max(0.0, min(MATERIALS_CAPACITY, settlement.materials + materials_delta))
+
+        recent = recent_events(self.conn, limit=20)
+        prompt = caravan.build_prompt(settlement.name, recent)
+        fallback = caravan.fallback_caravan(self.world.clock.tick_count)
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            description, rumor = caravan.parse_caravan(result, fallback)
+            self._log("caravan", description)
+            if rumor and _namespaced_roll(
+                self.world.config.seed, self.world.clock.tick_count, "caravan_rumor_roll",
+            ) < caravan.CARAVAN_RUMOR_CHANCE:
+                listener_rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "caravan_rumor")
+                self.world.population.spread_rumor(rumor, caravan.CARAVAN_RUMOR_LISTENER_COUNT, listener_rng)
+
+        self._schedule_llm_job("caravan", prompt, caravan.SYSTEM_PROMPT, fallback, apply)
+
     # --- the "town brain": monthly civic-priority LLM decision -----------------
 
     def _maybe_schedule_town_brain(self, events: list[str]) -> None:
@@ -932,11 +981,14 @@ class SimulationEngine:
         population_summary = self.world.population.summary()
         settlement_summary = settlement.summary()
         whispers_sent = list(settlement.player_influence)
+        council = settlement.council()
+        council_disposition = self.world.population.council_disposition(council) if council else None
         prompt = town_brain.build_prompt(
             settlement.name, recent, population_summary, settlement_summary, whispers_sent,
             beliefs=list(settlement.beliefs),
+            council_beliefs=list(council.beliefs) if council else None,
         )
-        fallback = town_brain.fallback_priority(population_summary, settlement_summary)
+        fallback = town_brain.fallback_priority(population_summary, settlement_summary, council_disposition)
 
         def apply(result: dict, used_fallback: bool) -> None:
             if whispers_sent and not used_fallback:
@@ -1026,6 +1078,7 @@ class SimulationEngine:
                     settlement.beliefs.remove(weakest)
                 self._log("belief_formed", f"The village came to believe something about {entry['subject']}: {entry['belief']}")
             beliefs.sync_family_beliefs(entry, settlement.institutions)  # H2/H3 crossover
+            beliefs.sync_council_beliefs(entry, settlement.institutions)  # integration milestone
 
         self._schedule_llm_job("beliefs", prompt, beliefs.SYSTEM_PROMPT, fallback, apply)
 
@@ -1142,19 +1195,26 @@ class SimulationEngine:
         # never confirming anything, just less anonymous. See
         # docs/DECISIONS.md, "Phase G intensity + omen subjects" pass.
         subject_name = ""
-        subject_candidates = [
-            b for b in self.world.settlement.beliefs
+        subject_candidates: list[str] = [
+            self.world.population.get(b["subject_agent_id"]).name
+            for b in self.world.settlement.beliefs
             if b.get("subject_agent_id") is not None
             and self.world.population.get(b["subject_agent_id"]) is not None
         ]
+        # Integration milestone: a council with its own accumulated
+        # civic beliefs (see llm/beliefs.sync_council_beliefs) is one
+        # more candidate subject alongside individual agents — an omen
+        # noticed about "the council of elders" rather than a settlement
+        # in the abstract, same permanent ambiguity rule, just extended
+        # from person-depth to institution-depth.
+        council = self.world.settlement.council()
+        if council is not None and council.beliefs:
+            subject_candidates.append("the council of elders")
         if subject_candidates and _namespaced_roll(
             self.world.config.seed, self.world.clock.tick_count, "omen_subject_roll",
         ) < 0.5:
             pick_roll = _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "omen_subject_pick")
-            belief = subject_candidates[min(len(subject_candidates) - 1, int(pick_roll * len(subject_candidates)))]
-            agent = self.world.population.get(belief["subject_agent_id"])
-            if agent is not None:
-                subject_name = agent.name
+            subject_name = subject_candidates[min(len(subject_candidates) - 1, int(pick_roll * len(subject_candidates)))]
         past_omens = [entry["omen"] for entry in self.world.settlement.omen_history]
         prompt = omens.build_prompt(
             self.world.settlement.name, temperament, recent, subject_name=subject_name, past_omens=past_omens,

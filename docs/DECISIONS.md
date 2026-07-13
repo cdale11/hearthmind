@@ -4406,3 +4406,197 @@ either a Modelfile inspection or pulling a different tag, both of which
 require access to the user's actual `ollama` installation this
 environment doesn't have. Flagged rather than silently skipped or
 guessed at.
+
+## Integration milestone: cross-system audit and vertical integration (v0.56.0)
+
+Explicit user directive, distinct in shape from every prior batch: not
+"build system X" but "audit every major subsystem, identify where it's
+isolated, then increase the number of meaningful interactions between
+existing systems" — prioritizing dynamic carrying capacity,
+infrastructure networks (roads/water/power/irrigation), external
+settlements and trade, institutional agency, knowledge diffusion, urban
+growth, and supernatural propagation, with the constraint that every
+touched system should both influence and be influenced by multiple
+others (vertical integration, long-term feedback loops), not just gain
+one new consumer.
+
+**Audit method and findings.** Rather than guessing, every named
+priority area was traced through the actual code (not summarized from
+memory) to find genuine one-way or dead-end links:
+- **COUNCIL was the single most isolated system in the codebase.**
+  `_maybe_form_council` set `member_agent_ids` once at formation and
+  nothing ever added to it — every member who died stayed a permanent
+  dead entry with no fix, so a long-running settlement's council would
+  silently decay into an all-dead ghost roster. It also had *zero*
+  mechanical output anywhere (not town_brain, not carrying_capacity,
+  not beliefs) despite `sync_family_beliefs` already existing for
+  FAMILY — a real, working pattern that was simply never extended to
+  the second institution kind.
+- **Traits (resilience/sociability/ambition) were write-only.** Nudged
+  by real events (grief, violence, sustained hunger, trade, founding,
+  mastery) but read by nothing except `describe_traits` (pure LLM
+  prompt flavor) and stat-tile averages — no deterministic mechanic
+  ever consumed them, unlike `temperament`, which the codebase already
+  wires into invention/predator/migrant/wildlife rolls.
+- **Roads were decorative.** They decay/persist and gate vehicle
+  speed, but influenced nothing about *where* a settlement grows, *how
+  much* it could support, or *how readily* disease/knowledge spread —
+  a real, tuned mechanic (`roads.py`'s presence-driven wear) with
+  almost no downstream consumer.
+- **`carrying_capacity` (H1) read only housing/economy/security/labor/
+  weather** — institutions, skills, and infrastructure, despite all
+  three being real, effortful things a settlement builds up, had no
+  path to expand (or shrink) what it could actually support.
+- **External settlements don't exist at all** — correctly, per the
+  standing decision (see "Multiple named settlements" below) that the
+  full multi-`Settlement` rearchitecture is its own dedicated session
+  (it touches population/engine/every LLM prompt/interface/snapshot
+  schema in the same pass). This audit did not attempt to override that
+  standing decision; it scoped a smaller, still-real step instead (see
+  Added below).
+- **Urban growth had no real concept** — construction site choice was
+  (and structurally still is) pure-chance colocation, an explicitly
+  flagged roadmap gap since the July 2026 architecture review.
+- Everything else audited (weather, farming, wildlife, disease,
+  culture, Phase G, inheritance, trade) was already meaningfully
+  bidirectional or, for the deterministic-physics layer (weather,
+  terrain), *correctly* one-way by design (CLAUDE.md's objective-
+  reality/subjective-belief split — weather should not be influenced by
+  village mood).
+
+**What shipped, and why each piece closes a loop rather than adding a
+one-way consumer:**
+
+*Institutional agency.* `Population._maybe_refresh_council` tops
+COUNCIL's living membership back up to `COUNCIL_SIZE` from the next-
+eldest non-member whenever a seat opens (same elder-selection rule
+`_maybe_form_council` already uses) — fixes the ghost-roster bug
+outright. New `llm/beliefs.sync_council_beliefs` mirrors settlement
+beliefs that *don't* resolve to a person/family onto COUNCIL (civic
+theories, not household gossip — `sync_family_beliefs` already owns
+the personal case) — this is the loop-closer: `Institution.beliefs`
+was a genuinely dead field before this (the module docstring even said
+so explicitly; corrected). New `Population.council_disposition`
+(average living-member traits) feeds `town_brain.build_prompt`'s new
+`council_beliefs` context line *and* `fallback_priority`'s new
+tie-break (ambition -> growth, resilience -> defense, only once
+nothing urgent — hunger/illness/coffers — already decided the
+priority) *and* `carrying_capacity`'s new coordination term. Three
+consumers from one new read path, not one.
+
+*Traits.* Resilience now reduces personal disease/predator death
+chance (`TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE`, stacking with
+medicine/hospital/temperament, never replacing them) and stretches/
+shrinks personal starvation tolerance (`_starvation_threshold`) —
+closing the loop with `TRAIT_SUSTAINED_HUNGER_NUDGE`/
+`TRAIT_VIOLENCE_NUDGE`/`TRAIT_GRIEF_NUDGE`, all of which already wrote
+to this exact trait. Sociability shifts a giver's own trade-
+relationship threshold (`_trade_relationship_threshold`, additive
+shift on `TRADE_MIN_RELATIONSHIP` rather than a bespoke roll, since
+trade is deterministic-on-colocation, not a per-tick chance) and
+scales personal teaching-roll chance — closing the loop with
+`TRAIT_SOCIAL_CONTACT_NUDGE`. Ambition RNG-weights (never guarantees)
+which eligible founder claims a new HUT's ownership — closing the loop
+with `TRAIT_AMBITION_FOUNDING_NUDGE`. Deliberately did *not* wire
+ambition into COUNCIL seating (age-based elder selection stays a
+clean, single-purpose rule) — not every trait needs to touch every
+system; forcing it would blur what "a council of elders" means.
+
+*Roads.* Three consumers, not one: (1) `URBAN_GROWTH_ROAD_ADJACENCY_
+MULTIPLIER` on `SETTLE_CHANCE_PER_TICK` for a road-adjacent tile —
+closes the explicitly-flagged "where to build is pure chance" gap the
+same way `current_priority` already closes the "whether/what kind"
+half; (2) established-road density feeds `carrying_capacity`'s new
+infrastructure term (saturating per capita, so a road network past
+what the population needs stops paying off further); (3) the fraction
+of the population standing on a road tile nudges disease-outbreak
+chance upward (`OUTBREAK_ROAD_CONTACT_MULTIPLIER`) — a deliberately
+double-edged framing: the same connectivity that helps trade/teaching
+also spreads a cold, real epidemiology rather than infrastructure
+being purely beneficial. All three magnitudes are the smallest in
+their respective compositions, consistent with the project's standing
+"real but never dominant" discipline for every cross-system nudge
+(temperament's *_INFLUENCE constants, trait step sizes, culture-effect
+riders).
+
+*Knowledge diffusion.* `_maybe_teach_skills`'s roll chance (previously
+a flat constant) is now scaled by both agents' average sociability,
+multiplied by `INSTITUTION_TEACHING_BONUS_MULTIPLIER` when teacher and
+learner share a living FAMILY or COUNCIL, and multiplied again by a
+new `"knowledge"` tradition influence — a fourth entry in
+`TRADITION_INFLUENCES` alongside festivity/harvest/resilience, same
+`culture_effect_multiplier` mechanism, with a matching fallback-pool
+entry ("The Apprentice's Vow"). Three independent, stacking real
+inputs into one existing roll, not three new mechanics.
+
+*External world contact (caravans).* Deliberately the smallest
+coherent step toward "external settlements and trade," NOT the full
+rearchitecture — see "Multiple named settlements" below for why that
+stays its own session. New `llm/caravan.py`: a rare
+(`CARAVAN_CHANCE_PER_MONTH = 0.15`) monthly abstract event — no new map
+entity, no pathfinding, no second `Settlement` — with a real,
+deterministic currency/materials exchange (correlated: a caravan that
+pays in currency takes materials in return, never two independent
+windfalls) applied unconditionally as objective reality, and an
+LLM-or-fallback description plus an optional outside-the-village rumor.
+The rumor is the genuine integration point: new `Population.
+spread_rumor` seeds it into a few agents' own memories via the
+*existing* `_remember` mechanism, so it can propagate through the
+already-built dialogue gossip/trust-contagion system rather than a
+bespoke broadcast — "contact with the wider world" becomes mechanically
+real (currency/materials shift, a rumor that can spread and be
+believed or doubted) without touching population/engine/prompts/
+interface/snapshot schema the way real multi-settlement would.
+
+*Supernatural propagation.* Omens (`_maybe_schedule_omen`) can now
+center on "the council of elders" as a subject, alongside the existing
+50%-of-the-time per-agent subject depth — gated on the council actually
+holding beliefs (itself a product of `sync_council_beliefs` above), so
+this only activates once institutional agency has actually produced
+something to be ambiguous about. Same permanent ambiguity rule,
+unchanged: nothing here asserts anything, same mundane-explicable
+framing extended from person-depth to institution-depth.
+
+**Deliberately not attempted, and why:**
+- **Full multi-settlement / external-settlement trade.** Still its own
+  dedicated session per the standing decision log (touches population/
+  engine/every LLM prompt/interface layer/snapshot schema in the same
+  pass) — caravans are the scoped interim step, not a silent
+  substitution for the real ask.
+- **Water/power/irrigation as a distinct infrastructure network.**
+  Water already exists as terrain (rivers/lakes, H-era fishing) and
+  farms already read adjacency for fish-node placement; "power" doesn't
+  fit the industrial-era-appropriate tech tree until FACTORY/electrical
+  unlocks meaningfully change what it would even mean. Roads were the
+  one infrastructure network with a real, already-tuned mechanic and
+  measurable gaps worth closing this pass — irrigation/power remain
+  open for a future session once there's a concrete mechanical hook for
+  them, rather than inventing one just to check a box.
+- **Ambition wired into COUNCIL seating.** Explicitly kept out — see
+  the traits section above.
+
+**Verification.** Direct unit checks for every new cross-system link in
+isolation (council living-membership refresh + disposition computation
+ignoring dead members; fallback_priority's tie-break firing correctly
+in both directions; starvation/trade threshold shifts moving the
+correct direction for positive vs. negative trait values; ambition-
+weighted HUT ownership showing a measurable but non-guaranteed skew
+over 2,000 trials; road adjacency raising settle chance and outbreak
+chance and carrying capacity, each confirmed via direct formula
+inspection since the underlying rolls are too rare to observe
+frequency directly at unit-test scale); a dedicated caravan-only run
+confirmed at least one visit fires within 20,000 ticks with a clean
+currency/materials exchange and a real logged event — then a
+50,000-tick full-`SimulationEngine` integration run (real async tick
+loop, LLM disabled, seed 99) exercising every new mechanic together,
+confirmed clean through 20,000+ ticks with zero exceptions before this
+entry was written (population 245, still climbing toward the carrying-
+capacity ceiling): COUNCIL formed by tick 8,000 and held a full living
+complement of 5 the whole way (refresh working), average ambition
+trended measurably upward as founding events accumulated, and HUT
+ownership was assigned to a real, growing count of founders. A full
+`Settlement.to_dict()`/`from_dict()` round-trip preserved every
+institution's
+`beliefs` list byte-identically (no snapshot schema changes were
+needed — every new state lives in fields that already existed and
+already serialize).

@@ -93,8 +93,10 @@ const CATEGORY_META = {
   inheritance: { icon: "🪦" },
   family_formed: { icon: "🏡" },
   council_formed: { icon: "⚖️" },
+  council_seat_filled: { icon: "🪑" },
   illness: { icon: "🤒" },
   recovery: { icon: "💊" },
+  caravan: { icon: "🐫" },
 };
 
 // Terrain evolves now (deforestation, reclamation, climate drift), so the

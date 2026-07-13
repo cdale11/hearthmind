@@ -334,3 +334,39 @@ def sync_family_beliefs(entry: dict, institutions: list[Institution]) -> None:
         if len(inst.beliefs) > INSTITUTION_BELIEF_CAP:
             weakest = min(inst.beliefs, key=lambda b: b.get("confidence", 0.0))
             inst.beliefs.remove(weakest)
+
+
+def sync_council_beliefs(entry: dict, institutions: list[Institution]) -> None:
+    """Integration-milestone counterpart to `sync_family_beliefs`: a
+    council of elders is a plausible holder of the settlement's *civic*
+    theories (the economy, recurring patterns, the outside hand) in the
+    same way a family holds personal ones about its own members —
+    mirrored here specifically when a belief did NOT resolve to a
+    person/family (`sync_family_beliefs` already owns that case), since
+    a council's business is the village's affairs in general, not one
+    household's. This is what makes town_brain's "the council believes
+    X" prompt line (see `llm/town_brain.py`) a real, evolving position
+    rather than a re-read of the settlement's own belief list under a
+    different label — the council's copy persists and gets curated
+    independently (INSTITUTION_BELIEF_CAP) even as the settlement's own
+    version keeps revising. No-op if the belief resolved to a person/
+    family (that's `sync_family_beliefs`'s case) or no COUNCIL exists
+    yet."""
+    if entry.get("subject_family_agent_ids"):
+        return
+    tick = entry.get("revised_tick", entry.get("formed_tick", 0))
+    for inst in institutions:
+        if inst.kind is not InstitutionKind.COUNCIL:
+            continue
+        copy = {
+            "subject": entry["subject"], "belief": entry["belief"],
+            "confidence": entry["confidence"], "tick": tick,
+        }
+        existing = next((b for b in inst.beliefs if b.get("subject") == entry["subject"]), None)
+        if existing is not None:
+            existing.update(copy)
+            continue
+        inst.beliefs.append(copy)
+        if len(inst.beliefs) > INSTITUTION_BELIEF_CAP:
+            weakest = min(inst.beliefs, key=lambda b: b.get("confidence", 0.0))
+            inst.beliefs.remove(weakest)

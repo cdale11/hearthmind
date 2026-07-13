@@ -8,16 +8,19 @@ into prompts" gap flagged since B3. See docs/DECISIONS.md, E1.
 """
 from __future__ import annotations
 
-TRADITION_INFLUENCES = ("festivity", "harvest", "resilience")
+TRADITION_INFLUENCES = ("festivity", "harvest", "resilience", "knowledge")
 """The fixed menu of mechanical riders a new tradition can carry —
 culture with teeth (July 2026 architecture review's second-highest
 emergence lever): the LLM freely authors *what* the tradition is, and
 additionally classifies *which lever of village life it strengthens*.
 Each accumulates a small bounded settlement-wide effect (see
-buildings.culture_effect_multiplier and its three consumers: festival
-bond strength, farm-harvest relief, grief energy cost). A fixed menu —
-not free-form effects — keeps a 2B model's answer safe to apply
-directly, the same enum-not-prose discipline as cognition's goals."""
+buildings.culture_effect_multiplier and its consumers: festival bond
+strength, farm-harvest relief, grief energy cost, and — 'knowledge',
+integration milestone — skill-teaching chance in `Population._maybe_
+teach_skills`, a guild-tradition-shaped rider ("apprenticeship is
+valued here") rather than a bespoke new mechanic. A fixed menu — not
+free-form effects — keeps a 2B model's answer safe to apply directly,
+the same enum-not-prose discipline as cognition's goals."""
 
 SYSTEM_PROMPT = (
     "You are the culture-keeper of a small simulated village. Given its "
@@ -26,11 +29,12 @@ SYSTEM_PROMPT = (
     "observes. Keep it grounded in what has actually happened, not "
     "generic fantasy flavor. Also classify which part of village life it "
     "strengthens: 'festivity' (gatherings and bonds), 'harvest' (food and "
-    "fieldwork), 'resilience' (mourning, endurance, hard seasons), or "
-    "'none'. "
+    "fieldwork), 'resilience' (mourning, endurance, hard seasons), "
+    "'knowledge' (teaching, apprenticeship, craft), or 'none'. "
     'Respond with strict JSON only, no other text: {"tradition": '
     '"a short name, under 8 words", "description": "one sentence, under '
-    '25 words", "influence": "festivity" | "harvest" | "resilience" | "none"}.'
+    '25 words", "influence": "festivity" | "harvest" | "resilience" | '
+    '"knowledge" | "none"}.'
 )
 
 _FALLBACK_POOL: tuple[tuple[str, str, str], ...] = (
@@ -38,6 +42,7 @@ _FALLBACK_POOL: tuple[tuple[str, str, str], ...] = (
     ("Hearthlight", "Villagers keep a fire burning through the longest night of winter.", "resilience"),
     ("The Gathering Walk", "Once a year, the village walks its boundary together.", "festivity"),
     ("Founders' Rest", "A day of rest is kept in memory of those who built the first structure.", "resilience"),
+    ("The Apprentice's Vow", "Elders take a turn each season teaching whoever wants to learn a craft.", "knowledge"),
     ("The Quiet Meal", "Once a year the village eats together in silence, remembering the dead.", "none"),
 )
 
