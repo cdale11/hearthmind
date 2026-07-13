@@ -168,9 +168,14 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   "urban growth"):** a road-adjacent tile is now measurably likelier to
   be settled (`URBAN_GROWTH_ROAD_ADJACENCY_MULTIPLIER` on `SETTLE_
   CHANCE_PER_TICK`) — still colocation-driven, not agent-pathed, but no
-  longer purely uniform-random across every eligible tile. See
-  docs/DECISIONS.md, "everything left" pass and "Integration
-  milestone."
+  longer purely uniform-random across every eligible tile. **Extended,
+  v0.59.0:** a second, independent factor — a candidate tile near a
+  still-productive resource node or open water also gets a real
+  multiplier (`SETTLE_CHANCE_RESOURCE_ADJACENCY_MULTIPLIER`, stacks
+  with roads). Agent-driven pathing toward a *chosen* site (rather than
+  weighting *among already-colocated* tiles) remains the larger
+  unattempted change. See docs/DECISIONS.md, "everything left" pass,
+  "Integration milestone," and "Expand all features."
 - **[x] Water/power as infrastructure networks, v1 (v0.57.0).** Roads
   were the integration milestone's infrastructure-network item;
   water/power followed as an explicit user follow-up. Water: farm plots
@@ -309,6 +314,15 @@ starts producing content that surprises its creator.
   (`Population.spread_rumor`), propagating through the existing gossip/
   trust contagion system. See docs/DECISIONS.md, "Integration
   milestone."
+- **[x] Caravans get a building-system hook, v0.59.0.** The one clearly
+  one-directional link in the integration milestone's own "every
+  system should both influence and be influenced" standard — a caravan
+  happened *to* the settlement with no way for its own infrastructure
+  to influence caravans back. New `BuildingKind.MARKET`, foundable
+  only once `Settlement.caravans_visited` (new persistent counter)
+  meets `MARKET_CARAVAN_VISIT_REQUIREMENT`; once standing, improves
+  both caravan trade magnitude and monthly visit chance. See
+  docs/DECISIONS.md, "Expand all features."
 
 ## Phase F — Browser interface
 
@@ -401,7 +415,17 @@ the simulation.
   `Agent.parents`, no surname system exists), stored as
   `subject_family_agent_ids` and consumed by dialogue's `beliefs_about`
   alongside the existing single-agent match. See docs/DECISIONS.md.
-- Not yet built: a true scrub-through-time replay view.
+- **[x] Scrub-through-time replay view, v1 (v0.59.0).** `GET
+  /snapshots` (index of ticks still on file) + `GET /snapshots/{tick}`
+  (a curated, read-only settlement/population summary reconstructed
+  from that stored snapshot — never touches the live world) plus a
+  "🕰 timeline" browser panel with a slider. Deliberately a first small
+  step, not the full feature: settlement/population summaries only
+  (no per-agent state, no map re-render of that past moment), and
+  sparse (only the ticks `SNAPSHOT_KEEP_RECENT`/`SNAPSHOT_KEYFRAME_
+  INTERVAL_TICKS` still have a row for), not every tick ever run. A
+  true frame-by-frame agent-level replay remains a larger future
+  effort if wanted. See docs/DECISIONS.md, "Expand all features."
 
 ## Phase G — Supernatural / psychological horror layer
 

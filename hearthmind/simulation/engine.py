@@ -58,6 +58,8 @@ from hearthmind.settlement.buildings import (
     INVENTION_CHANCE_PER_SEASON,
     INVENTION_CURRENCY_THRESHOLD,
     INVENTION_MATERIALS_FRACTION,
+    MARKET_CARAVAN_CHANCE_MULTIPLIER,
+    MARKET_CARAVAN_YIELD_MULTIPLIER,
     MATERIALS_CAPACITY,
     SHRINE_OMEN_CHANCE_MULTIPLIER,
     TEMPERAMENT_INVENTION_INFLUENCE,
@@ -964,12 +966,19 @@ class SimulationEngine:
         carry a rumor, goes through the LLM-or-fallback path."""
         if "month_end" not in events or not self.world.settlement.name:
             return
+        settlement = self.world.settlement
+        # MARKET (content-variety/roadmap pass): a standing market draws
+        # traders more often, closing the loop the other direction from
+        # its own MARKET_CARAVAN_VISIT_REQUIREMENT foundability gate.
+        chance = caravan.CARAVAN_CHANCE_PER_MONTH
+        if settlement.has_market():
+            chance = min(1.0, chance * MARKET_CARAVAN_CHANCE_MULTIPLIER)
         if _namespaced_roll(
             self.world.config.seed, self.world.clock.tick_count, "caravan_roll",
-        ) >= caravan.CARAVAN_CHANCE_PER_MONTH:
+        ) >= chance:
             return
+        settlement.caravans_visited += 1
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "caravan")
-        settlement = self.world.settlement
         currency_delta = rng.uniform(*caravan.CARAVAN_CURRENCY_DELTA_RANGE)
         # Correlated, not independent: a caravan that pays the village in
         # currency takes materials in return, and vice versa — a real
@@ -979,6 +988,11 @@ class SimulationEngine:
         currency_lo, currency_hi = caravan.CARAVAN_CURRENCY_DELTA_RANGE
         currency_fraction = (currency_delta - currency_lo) / (currency_hi - currency_lo)
         materials_delta = hi - currency_fraction * (hi - lo)
+        # A standing MARKET gets better terms on both sides of the trade
+        # — the direct payoff for having built one.
+        if settlement.has_market():
+            currency_delta *= MARKET_CARAVAN_YIELD_MULTIPLIER
+            materials_delta *= MARKET_CARAVAN_YIELD_MULTIPLIER
         settlement.currency = max(0.0, min(CURRENCY_CAPACITY, settlement.currency + currency_delta))
         settlement.materials = max(0.0, min(MATERIALS_CAPACITY, settlement.materials + materials_delta))
 

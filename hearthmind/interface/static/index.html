@@ -18,6 +18,7 @@
       <button id="sim-speed-reset" title="Reset to default speed">reset</button>
     </div>
     <button id="history-toggle" class="dev-toggle" title="Summarized town history">📜 history</button>
+    <button id="timeline-toggle" class="dev-toggle" title="Scrub through past snapshots">🕰 timeline</button>
     <button id="relationship-toggle" class="dev-toggle" title="Interactive relationship graph">🕸 relationships</button>
     <button id="details-toggle" class="dev-toggle" title="Raw stats, culture, and infrastructure detail">📊 details</button>
     <button id="dev-toggle" class="dev-toggle" title="Developer console: raw diagnostics/telemetry">⚙ dev</button>
@@ -56,6 +57,16 @@
       <div class="panel hidden" id="history-panel">
         <h2>Town history</h2>
         <ul id="history-list" class="muted"><li>loading…</li></ul>
+      </div>
+
+      <div class="panel hidden" id="timeline-panel">
+        <h2>Timeline</h2>
+        <div class="muted" style="font-size:11px; margin-bottom:6px;">
+          Read-only look back at a saved snapshot — doesn't rewind or change the live world.
+        </div>
+        <input type="range" id="timeline-slider" min="0" max="0" value="0" step="1" />
+        <div id="timeline-label" class="muted" style="font-size:11px; margin:4px 0;">no snapshots yet</div>
+        <ul id="timeline-summary" class="muted"><li>select a point on the slider</li></ul>
       </div>
 
       <div class="panel hidden" id="relationship-panel">

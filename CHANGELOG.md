@@ -4,6 +4,58 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.59.0] — "Expand all features": disease v2, where-to-build, MARKET, scrub-through-time
+
+Explicit user directive to expand across four fronts at once: deepen
+existing systems, close a remaining roadmap gap, add content variety,
+and push Observatory UI depth further.
+
+### Added
+
+- **Disease v2: temporary post-recovery immunity.** `Agent.immune_
+  ticks` (new field), set to `IMMUNITY_DURATION_TICKS` (400, half
+  `SICKNESS_DURATION_TICKS`) on recovery, decayed every tick regardless
+  of sick state. While immune, an agent can neither become a fresh
+  outbreak's index case (`Population._maybe_outbreak`) nor catch the
+  illness from a colocated carrier (`_tick_disease`) — real but
+  temporary resistance, not lifelong immunity. `Population.summary()`
+  gained `immune_count`. Closes v1's explicitly-flagged "no immunity/
+  reinfection modeling... extend later if wanted."
+- **Where-to-build: resource-proximity steering.** Second, independent
+  "where to build" factor alongside the existing road-adjacency
+  multiplier: a candidate construction tile within
+  `SETTLE_RESOURCE_SEARCH_RADIUS` of a still-productive resource node,
+  or adjacent to open water, gets `SETTLE_CHANCE_RESOURCE_ADJACENCY_
+  MULTIPLIER` (1.3x) applied to its settle chance
+  (`Population._maybe_start_construction`, new `_near_productive_
+  resource` helper).
+- **`BuildingKind.MARKET`**, a genuinely bidirectional addition to the
+  caravan system: only enters the foundable pool once at least
+  `MARKET_CARAVAN_VISIT_REQUIREMENT` (1) caravan has ever reached the
+  settlement (new `Settlement.caravans_visited` counter, persistent,
+  incremented in `SimulationEngine._maybe_schedule_caravan`); once
+  standing, a MARKET measurably improves future caravan trade
+  magnitude (`MARKET_CARAVAN_YIELD_MULTIPLIER`, 1.4x) and how often a
+  caravan visits at all (`MARKET_CARAVAN_CHANCE_MULTIPLIER`, 1.25x) —
+  outside contact justifies the building, and the building draws more
+  outside contact. `Settlement.summary()` gained `markets`/
+  `caravans_visited`.
+- **Content variety**: two more entries each to omens' warm/cold/
+  neutral/warm-subject/cold-subject fallback pools, and three more
+  entries to caravan's fallback narration pool — more texture when the
+  LLM is disabled/unavailable or a call falls back.
+- **Scrub-through-time viewer (Observatory UI depth)**: new `GET
+  /snapshots` (every tick a snapshot is still on file for, newest-
+  first) and `GET /snapshots/{tick}` (a curated, read-only settlement/
+  population summary reconstructed from that snapshot — never touches
+  or advances the live world) in `interface/app.py`, backed by new
+  `persistence.snapshot.list_snapshot_ticks`/`load_snapshot_at_tick`.
+  New "🕰 timeline" header toggle opens a slider over the available
+  ticks, showing that past moment's era/population/buildings/
+  currency-materials/priority. A first, deliberately small step on the
+  roadmap's flagged "a true scrub-through-time replay view" gap — not
+  a rewind/undo feature, and not a frame-by-frame agent-level replay.
+
 ## [0.58.0] — Backpressure gate for settlement-level LLM jobs (sparse-but-sudden swap audit)
 
 ### Fixed

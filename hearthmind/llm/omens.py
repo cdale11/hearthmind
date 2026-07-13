@@ -69,27 +69,34 @@ _WARM_OMENS = (
     "Someone swears the old well echoes a beat longer than it used to.",
     "Three separate households found their bread rose higher than usual this week.",
     "The oldest tree by the square has started budding out of season.",
+    "A flock of birds has taken to circling the square each dusk before scattering — no one's alarmed by it.",
+    "The bell in the square has been ringing a note truer than anyone remembers tuning it to.",
 )
 _COLD_OMENS = (
     "The dogs won't settle after dark this week, for no reason anyone can name.",
     "A crow has taken to circling the square each morning before flying off.",
     "Someone's lantern keeps going out on the same stretch of path, windless or not.",
     "The well water has tasted faintly of iron since the last frost.",
+    "The mill's wheel groans at the same hour each night, though nothing is turning it.",
+    "Footprints keep appearing on the north road at dawn that no one will claim.",
 )
 _NEUTRAL_OMENS = (
     "Nothing unusual, exactly — just a quiet the older residents say feels different lately.",
     "A traveler passing through paused at the village edge a moment longer than seemed necessary.",
+    "The weathervane has settled on the same direction for three days straight, wind or no wind.",
 )
 
 _WARM_SUBJECT_OMENS = (
     "{name} has had an odd run of good luck lately, small enough that no one's quite said it aloud.",
     "Something about {name} has people smiling a little more than the occasion calls for.",
     "{name}'s shadow seemed to fall a beat later than it should have this evening — or so someone claimed.",
+    "Every plant {name} has touched this week seems to be doing a little better than the rest.",
 )
 _COLD_SUBJECT_OMENS = (
     "The dogs go quiet whenever {name} walks past, though no one can say why.",
     "{name} mentioned a dream three nights running, and stopped mentioning it after the third.",
     "Someone noticed {name}'s reflection lag half a step behind them at the well — probably just the light.",
+    "{name}'s candle keeps guttering indoors, though the windows are shut.",
 )
 """Subject-referencing fallback pools, {name}-templated — the same
 mundane-explicable ambiguity as the settlement-wide pools above, just

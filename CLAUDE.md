@@ -444,6 +444,50 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## "Expand all features" batch (v0.59.0)
+
+Explicit user directive, narrowed via a clarifying question into four
+selected categories (deepen existing systems, close a roadmap gap,
+content variety, Observatory UI depth) — scoped to one substantial,
+fully-verified item per category rather than attempting literal
+maximal coverage in one pass (flagged explicitly, same as prior
+scoping decisions like caravans/multiple-settlements).
+
+**Deepen: disease v2.** `Agent.immune_ticks`, set to `IMMUNITY_
+DURATION_TICKS` (400) on recovery, decayed every tick — a recovered
+agent can't be a fresh outbreak's index case or catch it again from a
+carrier while immune. Closes v1's own flagged "extend later if
+wanted."
+
+**Roadmap gap: where-to-build, second factor.** `SETTLE_CHANCE_
+RESOURCE_ADJACENCY_MULTIPLIER` (1.3x) — a candidate construction tile
+near a productive resource node or open water is more likely to be
+settled, stacking with the existing road-adjacency multiplier.
+
+**Content variety.** More omen/caravan fallback-pool entries.
+
+**MARKET: caravans get a building hook.** `BuildingKind.MARKET`,
+foundable only once `Settlement.caravans_visited` (new persistent
+counter) meets `MARKET_CARAVAN_VISIT_REQUIREMENT`; once standing,
+improves both caravan trade magnitude (1.4x) and monthly visit chance
+(1.25x) — genuinely bidirectional with the caravan system, closing the
+one clearly one-directional link the integration milestone's own
+standard would flag.
+
+**Observatory UI depth: scrub-through-time, v1.** New `GET /snapshots`
++ `GET /snapshots/{tick}` (read-only, reconstructs a `World` from a
+stored snapshot row, never touches the live world) and a "🕰 timeline"
+browser panel with a slider — a first small step on the long-flagged
+"true scrub-through-time replay view" gap (settlement/population
+summaries only, sparse ticks, not per-agent frame-by-frame replay).
+
+Every piece verified via direct unit/integration checks (a real
+`SimulationEngine` run through several snapshot/caravan/disease
+cycles, FastAPI route handlers invoked directly since no HTTP test
+client is available in this environment) plus a 5,000-tick full-engine
+smoke run confirming no tick-throughput regression. Full accounting in
+docs/DECISIONS.md, "Expand all features."
+
 ## Backpressure gate for settlement-level LLM jobs (v0.58.0)
 
 Explicit user follow-up: "audit for sparse but sudden high swap
@@ -1040,10 +1084,18 @@ emergence.
   `beliefs.resolve_family_agent_ids` widens a belief's resolved subject
   to their living parents/children/full siblings (via `Agent.parents`
   — no surname system exists), consumed by dialogue's `beliefs_about`.
-- A true scrub-through-time replay view (documentary mode narrates a
-  year, it doesn't let a player step through history frame-by-frame),
-  and *where* to build (construction site choice is still pure-chance
-  colocation — only *whether*/*what kind* are cognition-steered).
+- **Scrub-through-time replay: v1 shipped (v0.59.0).** `GET
+  /snapshots`/`GET /snapshots/{tick}` + a "🕰 timeline" panel let a
+  player step to a past snapshot's settlement/population summary,
+  read-only. Still not a true frame-by-frame agent-level replay
+  (documentary mode remains the year-in-prose narration) — a larger
+  future effort if wanted.
+- *Where* to build: `URBAN_GROWTH_ROAD_ADJACENCY_MULTIPLIER` (road-
+  adjacency) and `SETTLE_CHANCE_RESOURCE_ADJACENCY_MULTIPLIER`
+  (resource/water-adjacency, v0.59.0) both now weight *which already-
+  colocated tile* gets settled — real, but still colocation-driven,
+  not agent-pathed toward a chosen site (the larger, still-unattempted
+  version of this gap).
 - Everything else the roadmap once listed as "not yet built" — Phase G
   intensity/subject depth, the trust lever, the town's opinion of the
   player, deliberate hunting/vegetation depletion, rivalry avoidance,

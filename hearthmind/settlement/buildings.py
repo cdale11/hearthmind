@@ -87,7 +87,22 @@ class BuildingKind(str, Enum):
     settlement-wide (`POWER_GRID_INDUSTRY_MULTIPLIER`) — electrified
     industry produces more — and contributes to `Population.
     carrying_capacity`'s infrastructure term alongside roads. See
-    docs/DECISIONS.md, "Integration milestone: water/power/irrigation.\""""
+    docs/DECISIONS.md, "Integration milestone: water/power/irrigation."
+    """
+    MARKET = "market"
+    """Content-variety/roadmap pass: a genuinely bidirectional building
+    with the caravan system (llm/caravan.py) — only enters the
+    foundable pool once at least MARKET_CARAVAN_VISIT_REQUIREMENT
+    caravans have ever reached the settlement (`Settlement.
+    caravans_visited`, real outside contact justifying a market, same
+    "physical expression of something the town has actually
+    experienced" shape SHRINE already established for traditions), and
+    once standing, measurably improves both future caravan trade terms
+    (`MARKET_CARAVAN_YIELD_MULTIPLIER`) and how often a caravan chooses
+    to visit at all (`MARKET_CARAVAN_CHANCE_MULTIPLIER`) — the town's
+    outside contact and its own infrastructure reinforce each other,
+    rather than caravans being a one-way, un-influenceable event.
+    """
 
 
 CONSTRUCTION_WORK_PER_TICK = 0.05
@@ -168,6 +183,24 @@ presence-driven wear), so this creates a real, emergent "settlements
 grow outward along their own roads" pattern rather than scattering
 new buildings uniformly at random."""
 
+SETTLE_CHANCE_RESOURCE_ADJACENCY_MULTIPLIER = 1.3
+"""Second, independent "where to build" factor (stacks with roads'
+above): a candidate tile within SETTLE_RESOURCE_SEARCH_RADIUS of a
+still-productive resource node or open water is measurably more
+likely to be settled — real towns cluster near the food/materials
+they depend on, not just near their own existing roads. Deliberately
+a smaller multiplier than roads' 1.5x: raw resource proximity is a
+more "obvious" factor a founding group would notice at a glance,
+while a road represents real prior communal investment, so it earns
+the stronger pull. Applied in Population._maybe_start_construction."""
+
+SETTLE_RESOURCE_SEARCH_RADIUS = 2
+"""Chebyshev radius `_maybe_start_construction` scans around a
+candidate tile for a productive resource node — small and local (a
+founding group notices what's nearby, not across the whole map),
+matching the radius order of magnitude other proximity checks in this
+project use (e.g. road-adjacency's own 1-tile neighbor check)."""
+
 MATURE_WORKER_ONLY = False
 """Whether construction/repair work requires workers to be "mature"
 (see agents.agent.MATURITY_TICKS). False: any awake agent present helps —
@@ -237,6 +270,11 @@ SHRINE_MATERIALS_COST = 5.0
 POWER_PLANT_MATERIALS_COST = 12.0
 """Comparable investment to a FACTORY — a real infrastructure
 commitment, not a cheap add-on."""
+MARKET_MATERIALS_COST = 7.0
+"""Between WORKSHOP (4.0) and HOSPITAL (8.0) — a real but modest civic
+investment, not gated by cost so much as by MARKET_CARAVAN_VISIT_
+REQUIREMENT (the town needs a reason to build one before it can afford
+to want to)."""
 """Materials deducted from the settlement stockpile when construction is
 founded — buildings are now genuinely "built from resources available"
 (previously materials only sped construction up, via
@@ -261,11 +299,12 @@ MATERIALS_COST_BY_KIND: dict[BuildingKind, float] = {
     BuildingKind.FACTORY: FACTORY_MATERIALS_COST,
     BuildingKind.SHRINE: SHRINE_MATERIALS_COST,
     BuildingKind.POWER_PLANT: POWER_PLANT_MATERIALS_COST,
+    BuildingKind.MARKET: MARKET_MATERIALS_COST,
 }
 
 BUILDING_KIND_BASE_WEIGHTS: dict[str, float] = {
     "hut": 0.42, "granary": 0.23, "workshop": 0.15, "school": 0.12, "hospital": 0.08,
-    "factory": 0.10, "shrine": 0.07, "power_plant": 0.06,
+    "factory": 0.10, "shrine": 0.07, "power_plant": 0.06, "market": 0.07,
 }
 """Baseline odds a new civic building is each kind, before
 `Settlement.current_priority` (the seasonal "town brain" LLM
@@ -342,14 +381,17 @@ long-running world."""
 
 def choose_building_kind(
     rng, current_priority: str, era: str = "industrial", has_tradition: bool = False,
+    caravans_visited: int = 0,
 ) -> "BuildingKind":
     """Weighted pick among the foundable civic kinds (not UNIVERSITY,
     which upgrades an existing school instead) — base odds nudged
     toward whatever the settlement's current priority calls for,
     FACTORY/POWER_PLANT excluded entirely until `era` has advanced past
-    `industrial`, and SHRINE excluded until the settlement has
-    established at least one tradition (`has_tradition`). Falls back to
-    the unweighted base odds for an unrecognized/empty priority (e.g.
+    `industrial`, SHRINE excluded until the settlement has established
+    at least one tradition (`has_tradition`), and MARKET excluded until
+    at least MARKET_CARAVAN_VISIT_REQUIREMENT caravans have ever
+    reached the settlement (`caravans_visited`). Falls back to the
+    unweighted base odds for an unrecognized/empty priority (e.g.
     before the first town-brain decision has ever run). See
     docs/DECISIONS.md, "LLM-as-brain batch\", the real-calendar/
     genesis-seed follow-up, "culture-specific building types,\" and
@@ -360,6 +402,8 @@ def choose_building_kind(
         weights.pop("power_plant", None)
     if not has_tradition:
         weights.pop("shrine", None)
+    if caravans_visited < MARKET_CARAVAN_VISIT_REQUIREMENT:
+        weights.pop("market", None)
     boosted = _PRIORITY_TO_KIND.get(current_priority)
     if boosted in weights:
         weights[boosted] *= PRIORITY_KIND_BOOST
@@ -460,6 +504,30 @@ CARRYING_CAPACITY_POWER_PLANT_BONUS = 0.03
 term while a POWER_PLANT stands, alongside the existing road-density
 component — small on purpose (roads remain the dominant infrastructure
 signal; a power plant is a single building, not a network)."""
+
+MARKET_CARAVAN_VISIT_REQUIREMENT = 1
+"""How many caravans must have ever reached the settlement
+(`Settlement.caravans_visited`) before MARKET enters the foundable
+pool (`choose_building_kind`) — just one, deliberately: the point is
+that a market needs *any* real outside contact to make sense at all,
+not that it needs a sustained trade history first (that's what the
+market itself, once built, then helps grow)."""
+
+MARKET_CARAVAN_YIELD_MULTIPLIER = 1.4
+"""Multiplies a caravan's currency/materials exchange magnitude while
+a standing MARKET exists (`SimulationEngine._maybe_schedule_caravan`)
+— a town with a real place to trade gets better terms from a visiting
+caravan, the direct payoff for building one. Same order of magnitude
+as POWER_GRID_INDUSTRY_MULTIPLIER (1.3x)."""
+
+MARKET_CARAVAN_CHANCE_MULTIPLIER = 1.25
+"""Multiplies CARAVAN_CHANCE_PER_MONTH while a standing MARKET exists
+— traders are more likely to detour toward a settlement known to have
+one, closing the loop the other direction: outside contact justifies
+building a market (MARKET_CARAVAN_VISIT_REQUIREMENT), and a market in
+turn draws more outside contact. Deliberately smaller than the yield
+multiplier — a market changes how good a visit is more than how often
+one happens."""
 
 TOOLS_CAPACITY = 5.0
 """H4 (docs/ROADMAP.md "Phase H"): max personal `"tools"` an agent's
@@ -927,6 +995,15 @@ class SettlementEconomy:
     education_level: float = 0.0
     """0..EDUCATION_CAPACITY, raised by staffed schools/universities —
     see education_invention_bonus."""
+    caravans_visited: int = 0
+    """Persistent, never-decremented count of caravan events that have
+    reached the settlement (llm/caravan.py, SimulationEngine._maybe_
+    schedule_caravan) — content-variety/roadmap-gap-closing pass: gates
+    MARKET's foundability (a market only makes sense once the town has
+    had real outside contact) and is the first counter in this project
+    that makes "external settlements and trade" (integration milestone)
+    feed back into the building/construction system, not just currency/
+    materials and an occasional rumor."""
 
 
 @dataclass
@@ -1049,6 +1126,7 @@ class Settlement:
         beliefs: list[dict] | None = None, omen_history: list[dict] | None = None,
         player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
         institutions: list[Institution] | None = None, next_institution_id: int = 0,
+        caravans_visited: int = 0,
     ):
         # Legacy flat-kwarg constructor, kept so from_dict/tests/callers
         # predating the split keep working unchanged.
@@ -1060,6 +1138,7 @@ class Settlement:
         )
         self.economy = SettlementEconomy(
             materials=materials, currency=currency, education_level=education_level,
+            caravans_visited=caravans_visited,
         )
         self.culture = SettlementCulture(
             name=name, founding_scenario=founding_scenario, era=era, tech_level=tech_level,
@@ -1148,6 +1227,14 @@ class Settlement:
     @education_level.setter
     def education_level(self, value: float) -> None:
         self.economy.education_level = value
+
+    @property
+    def caravans_visited(self) -> int:
+        return self.economy.caravans_visited
+
+    @caravans_visited.setter
+    def caravans_visited(self, value: int) -> None:
+        self.economy.caravans_visited = value
 
     @property
     def name(self) -> str:
@@ -1282,6 +1369,15 @@ class Settlement:
         term). Integration milestone."""
         return any(
             b.kind is BuildingKind.POWER_PLANT and b.stage is BuildingStage.STANDING
+            for b in self.buildings
+        )
+
+    def has_market(self) -> bool:
+        """Whether a MARKET is currently standing — consumed by
+        `SimulationEngine._maybe_schedule_caravan` (better trade terms
+        and a higher visit chance). See MARKET_CARAVAN_YIELD_MULTIPLIER."""
+        return any(
+            b.kind is BuildingKind.MARKET and b.stage is BuildingStage.STANDING
             for b in self.buildings
         )
 
@@ -1482,7 +1578,7 @@ class Settlement:
             for kind in (
                 BuildingKind.WORKSHOP, BuildingKind.SCHOOL, BuildingKind.HOSPITAL,
                 BuildingKind.UNIVERSITY, BuildingKind.FACTORY, BuildingKind.SHRINE,
-                BuildingKind.POWER_PLANT,
+                BuildingKind.POWER_PLANT, BuildingKind.MARKET,
             )
         }
         return {
@@ -1512,6 +1608,8 @@ class Settlement:
             "factories": kind_counts["factory"],
             "shrines": kind_counts["shrine"],
             "power_plants": kind_counts["power_plant"],
+            "markets": kind_counts["market"],
+            "caravans_visited": self.caravans_visited,
             "education_level": round(self.education_level, 3),
             "education_capacity": EDUCATION_CAPACITY,
             "current_priority": self.current_priority,
@@ -1620,6 +1718,7 @@ class Settlement:
             "player_standing": round(self.player_standing, 4),
             "institutions": [i.to_dict() for i in self.institutions],
             "next_institution_id": self.next_institution_id,
+            "caravans_visited": self.caravans_visited,
         }
 
     @classmethod
@@ -1653,4 +1752,5 @@ class Settlement:
             player_standing=data.get("player_standing", 0.0),
             institutions=[Institution.from_dict(i) for i in data.get("institutions", [])],
             next_institution_id=data.get("next_institution_id", 0),
+            caravans_visited=data.get("caravans_visited", 0),
         )

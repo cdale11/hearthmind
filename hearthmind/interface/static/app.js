@@ -35,7 +35,7 @@ const BIOME_COLORS = {
 const BUILDING_COLORS = {
   hut: "#c98a3c", granary: "#d9a441", workshop: "#8a7fd6", school: "#4fa3c9",
   hospital: "#e0473c", university: "#2f7fc9", factory: "#5c5c66", shrine: "#c9a3e0",
-  power_plant: "#e0c93c",
+  power_plant: "#e0c93c", market: "#3ccf9e",
 };
 const FARM_COLORS = { growing: "#7fae4a", ready: "#e0c34a" };
 
@@ -199,6 +199,66 @@ historyToggle.addEventListener("click", () => {
   historyPanel.classList.toggle("hidden");
   historyToggle.classList.toggle("active");
   if (!historyPanel.classList.contains("hidden")) loadHistory();
+});
+
+// Observatory UI depth pass: a read-only scrub-through-time view over
+// whatever snapshot ticks are still on file (see docs/ROADMAP.md's
+// flagged "a true scrub-through-time replay view" gap, and
+// persistence/snapshot.py's SNAPSHOT_KEEP_RECENT/SNAPSHOT_KEYFRAME_
+// INTERVAL_TICKS for why the available ticks are sparse, not every
+// tick ever run). Slider index -> tick, not tick -> index directly,
+// since available ticks are irregularly spaced.
+const timelinePanel = document.getElementById("timeline-panel");
+const timelineToggle = document.getElementById("timeline-toggle");
+const timelineSlider = document.getElementById("timeline-slider");
+const timelineLabel = document.getElementById("timeline-label");
+const timelineSummary = document.getElementById("timeline-summary");
+let timelineTicks = []; // oldest-first, so the slider reads left (past) to right (recent)
+
+async function loadTimelineIndex() {
+  try {
+    const rows = await fetchJSON("/snapshots");
+    timelineTicks = rows.map((r) => r.tick).reverse();
+    if (!timelineTicks.length) {
+      timelineLabel.textContent = "no snapshots yet";
+      return;
+    }
+    timelineSlider.max = String(timelineTicks.length - 1);
+    timelineSlider.value = String(timelineTicks.length - 1);
+    await loadTimelineTick(timelineTicks[timelineTicks.length - 1]);
+  } catch (e) {
+    timelineLabel.textContent = `failed to load: ${e.message}`;
+  }
+}
+
+async function loadTimelineTick(tick) {
+  timelineLabel.textContent = `tick ${tick} — loading…`;
+  try {
+    const snap = await fetchJSON(`/snapshots/${tick}`);
+    timelineLabel.textContent = `tick ${snap.tick} — ${snap.month} ${snap.day}, year ${snap.year} (${snap.season})`;
+    const s = snap.settlement, p = snap.population;
+    timelineSummary.innerHTML = [
+      `<li>${s.name || "(unnamed)"} — era: ${s.era}</li>`,
+      `<li>population: ${p.total} (avg hunger ${p.avg_hunger.toFixed(2)})</li>`,
+      `<li>buildings: ${s.standing} standing, ${s.under_construction} building, ${s.ruined} ruined</li>`,
+      `<li>currency ${s.currency.toFixed(1)}, materials ${s.materials.toFixed(1)}</li>`,
+      `<li>priority: ${s.current_priority || "(none yet)"}</li>`,
+    ].join("");
+  } catch (e) {
+    timelineLabel.textContent = `tick ${tick} — failed to load: ${e.message}`;
+    timelineSummary.innerHTML = "";
+  }
+}
+
+timelineSlider.addEventListener("input", () => {
+  const tick = timelineTicks[Number(timelineSlider.value)];
+  if (tick !== undefined) loadTimelineTick(tick);
+});
+
+timelineToggle.addEventListener("click", () => {
+  timelinePanel.classList.toggle("hidden");
+  timelineToggle.classList.toggle("active");
+  if (!timelinePanel.classList.contains("hidden")) loadTimelineIndex();
 });
 
 // Map-as-primary-interface: raw stats/culture-lists/infrastructure detail
@@ -949,11 +1009,14 @@ function renderStats(summary) {
       `${s.workshops} workshop${s.workshops === 1 ? "" : "s"}, ${s.schools} school${s.schools === 1 ? "" : "s"}, ` +
       `${s.hospitals} hospital${s.hospitals === 1 ? "" : "s"}, ${s.universities} universit${s.universities === 1 ? "y" : "ies"}` +
       (s.factories ? `, ${s.factories} factor${s.factories === 1 ? "y" : "ies"}` : "") +
-      (s.power_plants ? `, ${s.power_plants} power plant${s.power_plants === 1 ? "" : "s"}` : ""),
+      (s.power_plants ? `, ${s.power_plants} power plant${s.power_plants === 1 ? "" : "s"}` : "") +
+      (s.markets ? `, ${s.markets} market${s.markets === 1 ? "" : "s"}` : ""),
       "Workshops generate currency from staffed presence. Schools/universities raise education (shown below), which " +
       "boosts invention chance. Hospitals speed rest recovery on-site and settlement-wide reduce the odds a predator " +
       "attack proves lethal. Factories (era: electrical+) generate currency at double a workshop's rate. Power plants " +
-      "(era: electrical+) boost workshop/factory income settlement-wide and add a little carrying-capacity headroom.",
+      "(era: electrical+) boost workshop/factory income settlement-wide and add a little carrying-capacity headroom. " +
+      "Markets (foundable after the first caravan visit) get better terms on future caravan trades and draw traders " +
+      `more often. ${s.caravans_visited || 0} caravan${(s.caravans_visited || 0) === 1 ? " has" : "s have"} visited so far.`,
     ],
     [
       "Era", `${s.era} — ${s.era_description}`,

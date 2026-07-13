@@ -29,6 +29,7 @@ from hearthmind.agents.agent import (
     GOSSIP_OPINION_MAX_STEP,
     GRIEF_ENERGY_PENALTY,
     HUNGER_RATE,
+    IMMUNITY_DURATION_TICKS,
     INSTITUTION_TEACHING_BONUS_MULTIPLIER,
     MATURITY_TICKS,
     MAX_AGENT_MEMORIES,
@@ -156,6 +157,8 @@ from hearthmind.settlement.buildings import (
     SETTLE_CHANCE_GROWTH_PRIORITY_MULTIPLIER,
     SETTLE_CHANCE_OFF_PRIORITY_MULTIPLIER,
     SETTLE_CHANCE_PER_TICK,
+    SETTLE_CHANCE_RESOURCE_ADJACENCY_MULTIPLIER,
+    SETTLE_RESOURCE_SEARCH_RADIUS,
     SHELTER_NEGATES_WEATHER,
     SHRINE_FESTIVAL_BOOST_MULTIPLIER,
     TECH_BONUS_PER_LEVEL,
@@ -194,7 +197,13 @@ from hearthmind.settlement.vehicles import (
     VehicleKind,
     VehicleStage,
 )
-from hearthmind.world.resources import FISH_HUNGER_RELIEF_MULTIPLIER, ORE_BIOMES, ResourceGrid, ResourceKind
+from hearthmind.world.resources import (
+    FISH_HUNGER_RELIEF_MULTIPLIER,
+    ORE_BIOMES,
+    ResourceGrid,
+    ResourceKind,
+    is_adjacent_to_water,
+)
 from hearthmind.world.roads import ROAD_SPEED_MULTIPLIER, RoadNetwork, road_condition_multiplier
 from hearthmind.world.terrain import Biome, Tile
 from hearthmind.world.weather import WeatherState
@@ -383,6 +392,23 @@ def _starvation_threshold(agent: Agent) -> float:
     (TRAIT_SUSTAINED_HUNGER_NUDGE), closing that write-only loop."""
     resilience = agent.traits.get(TRAIT_RESILIENCE, 0.0)
     return STARVATION_TICKS_TO_DEATH * (1.0 + resilience * TRAIT_RESILIENCE_STARVATION_TOLERANCE_INFLUENCE)
+
+
+def _near_productive_resource(resources: ResourceGrid, x: int, y: int) -> bool:
+    """`_maybe_start_construction`'s resource-proximity "where to
+    build" check: is there a still-productive (amount > 0) foraging
+    node within SETTLE_RESOURCE_SEARCH_RADIUS of this candidate tile?
+    A small local scan (the search radius is tiny, and settlements are
+    small relative to the map), not an indexed spatial query — fine at
+    this scale, same "revisit if it ever shows up in profiling"
+    tolerance as the rest of this project's O(N) scans."""
+    r = SETTLE_RESOURCE_SEARCH_RADIUS
+    for dx in range(-r, r + 1):
+        for dy in range(-r, r + 1):
+            node = resources.get(x + dx, y + dy)
+            if node is not None and node.amount > 0.0:
+                return True
+    return False
 
 
 def _nudge_trait(agent: Agent, trait: str, delta: float) -> None:
@@ -658,7 +684,9 @@ class Population:
         self._maybe_run_factories(by_position, settlement)
         self._maybe_run_schools(by_position, settlement)
         life_events.extend(self._maybe_upgrade_university(by_position, settlement, rng))
-        life_events.extend(self._maybe_start_construction(by_position, settlement, farms, rng, roads))
+        life_events.extend(
+            self._maybe_start_construction(by_position, settlement, farms, rng, roads, resources, terrain)
+        )
         life_events.extend(self._maybe_plant(by_position, farms, settlement, terrain, rng))
         life_events.extend(self._advance_vehicle_construction(by_position, settlement))
         self._maybe_repair_vehicles(by_position, settlement)
@@ -795,8 +823,12 @@ class Population:
         infrastructure that connects people is, realistically, also
         infrastructure that spreads a cold. Same double-edged framing
         roads already get in `carrying_capacity` (infrastructure helps
-        overall, but this is the one place it has a real cost)."""
-        healthy = [a for a in self.agents if a.sick_ticks == 0]
+        overall, but this is the one place it has a real cost).
+
+        v2: a recently-recovered agent (`immune_ticks > 0`) can't become
+        a fresh index case either — same temporary-resistance window
+        `_tick_disease` already exempts from person-to-person spread."""
+        healthy = [a for a in self.agents if a.sick_ticks == 0 and a.immune_ticks == 0]
         if not healthy:
             return []
         chance = OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK * len(self.agents)
@@ -822,8 +854,10 @@ class Population:
         town brain's "health" priority a real mechanical reason to
         matter), natural recovery after SICKNESS_DURATION_TICKS, and
         person-to-person transmission to any colocated healthy agent.
-        Returns (life_events, died_of_disease) — the latter is folded
-        into `_apply_deaths` the same way `killed_by_predator` is."""
+        v2: also decays `immune_ticks` for recently-recovered agents and
+        exempts them from catching it again while immune. Returns
+        (life_events, died_of_disease) — the latter is folded into
+        `_apply_deaths` the same way `killed_by_predator` is."""
         life_events: list[tuple[str, str]] = []
         died_of_disease: set[int] = set()
         death_chance = SICKNESS_DEATH_CHANCE_PER_TICK
@@ -832,6 +866,8 @@ class Population:
         death_chance = max(0.0, death_chance * (1.0 - temperament * TEMPERAMENT_KILL_CHANCE_INFLUENCE))
         for agent in agents:
             if agent.sick_ticks <= 0:
+                if agent.immune_ticks > 0:
+                    agent.immune_ticks -= 1
                 continue
             agent.sick_ticks += 1
             agent_death_chance = death_chance
@@ -856,6 +892,7 @@ class Population:
                 continue
             if agent.sick_ticks >= SICKNESS_DURATION_TICKS:
                 agent.sick_ticks = 0
+                agent.immune_ticks = IMMUNITY_DURATION_TICKS
                 life_events.append(("recovery", f"{agent.name} has recovered from illness."))
         for group in by_position.values():
             if len(group) < 2:
@@ -864,7 +901,7 @@ class Population:
             if not sick:
                 continue
             for target in group:
-                if target.sick_ticks > 0 or target.id in died_of_disease:
+                if target.sick_ticks > 0 or target.id in died_of_disease or target.immune_ticks > 0:
                     continue
                 for carrier in sick:
                     if rng.random() < SICKNESS_TRANSMISSION_CHANCE_PER_TICK:
@@ -1834,6 +1871,7 @@ class Population:
     def _maybe_start_construction(
         cls, by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement,
         farms: FarmGrid, rng: random.Random, roads: RoadNetwork | None = None,
+        resources: ResourceGrid | None = None, terrain: list[list[Tile]] | None = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         for (x, y), group in by_position.items():
@@ -1857,6 +1895,15 @@ class Population:
                 roads.is_road(x + dx, y + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
             ):
                 settle_chance *= URBAN_GROWTH_ROAD_ADJACENCY_MULTIPLIER
+            # Second, independent "where to build" factor: a tile near a
+            # still-productive resource node or open water is also more
+            # likely to be settled — see SETTLE_CHANCE_RESOURCE_
+            # ADJACENCY_MULTIPLIER's docstring for why this stacks with,
+            # rather than replaces, the road bias above.
+            if resources is not None and _near_productive_resource(resources, x, y):
+                settle_chance *= SETTLE_CHANCE_RESOURCE_ADJACENCY_MULTIPLIER
+            elif terrain is not None and is_adjacent_to_water(terrain, x, y):
+                settle_chance *= SETTLE_CHANCE_RESOURCE_ADJACENCY_MULTIPLIER
             if rng.random() >= settle_chance:
                 continue
             # Which kind gets built is weighted by the settlement's
@@ -1866,6 +1913,7 @@ class Population:
             # "LLM-as-brain batch."
             kind = choose_building_kind(
                 rng, settlement.current_priority, settlement.era, has_tradition=bool(settlement.traditions),
+                caravans_visited=settlement.caravans_visited,
             )
             cost = MATERIALS_COST_BY_KIND[kind]
             if settlement.materials < cost:
@@ -2820,6 +2868,7 @@ class Population:
             sum(a.inventory.get("food", 0.0) for a in self.agents) / total if total else 0.0
         )
         sick_count = sum(1 for a in self.agents if a.sick_ticks > 0)
+        immune_count = sum(1 for a in self.agents if a.immune_ticks > 0)
 
         return {
             "total": total,
@@ -2837,6 +2886,7 @@ class Population:
             "rivalries": rivalries,
             "avg_personal_food": round(avg_personal_food, 3),
             "sick_count": sick_count,
+            "immune_count": immune_count,
             "carrying_capacity": round(self.last_carrying_capacity, 1),
             "avg_farming_skill": round(
                 sum(a.skills.get(SKILL_FARMING, 0.0) for a in self.agents) / total, 3

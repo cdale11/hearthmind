@@ -160,3 +160,35 @@ def total_event_count(conn: sqlite3.Connection) -> int:
 
 def snapshot_count(conn: sqlite3.Connection) -> int:
     return conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0]
+
+
+def list_snapshot_ticks(conn: sqlite3.Connection, limit: int = 200) -> list[dict]:
+    """Observatory UI depth pass (docs/ROADMAP.md's flagged "a true
+    scrub-through-time replay view" gap): every tick a snapshot is
+    still on file for, newest-first — the `SNAPSHOT_KEEP_RECENT` window
+    plus any surviving `SNAPSHOT_KEYFRAME_INTERVAL_TICKS` keyframes, so
+    a long-running world's timeline has sparse-but-real anchors across
+    its whole history, not just the last hour. Read-only, no live state
+    touched — backs `GET /snapshots`."""
+    rows = conn.execute(
+        "SELECT tick, saved_at FROM snapshots ORDER BY tick DESC LIMIT ?", (limit,)
+    ).fetchall()
+    return [{"tick": tick, "saved_at": saved_at} for tick, saved_at in rows]
+
+
+def load_snapshot_at_tick(conn: sqlite3.Connection, tick: int, runtime_config: Config) -> World | None:
+    """Load one specific past snapshot by its exact tick (must be a
+    value `list_snapshot_ticks` actually returned — snapshots are
+    pruned, so an arbitrary tick isn't guaranteed to exist) rather than
+    always the newest. Same reconstruction path as `load_latest_
+    snapshot`; the caller is responsible for only reading from the
+    result, never advancing or persisting it — this is a read-only
+    scrub-through-time view, not a rewind of the live world. See
+    `GET /snapshots/{tick}`."""
+    row = conn.execute(
+        "SELECT world_json FROM snapshots WHERE tick = ? LIMIT 1", (tick,)
+    ).fetchone()
+    if row is None:
+        return None
+    data = json.loads(row[0])
+    return World.from_dict(data, runtime_config)

@@ -338,6 +338,14 @@ energy loss and hunger accrual while unwell. Same "small nudge, real
 consequence" magnitude as CROWDING_ENERGY_MULTIPLIER. See
 Population._update_needs."""
 
+IMMUNITY_DURATION_TICKS = 400
+"""Disease v2 (docs/DECISIONS.md): ticks a just-recovered agent stays
+resistant to reinfection — deliberately half of SICKNESS_DURATION_TICKS
+(~4 sim-days), a real but temporary window rather than lifelong
+immunity, matching how most real endemic illnesses work. Set on
+Agent.immune_ticks at recovery; see Population._tick_disease for the
+decay and Population._maybe_outbreak for the index-case exclusion."""
+
 GOSSIP_OPINION_CONTAGION = 0.15
 GOSSIP_OPINION_MAX_STEP = 0.05
 """When a rumor names a specific third villager, each listener's
@@ -579,10 +587,17 @@ class Agent:
     """0 = healthy. >0 = ticks spent in the current bout of illness so
     far (governs recovery via SICKNESS_DURATION_TICKS and is reset to 0
     on recovery or death) — see Population._maybe_outbreak/_tick_disease.
-    Deliberately no separate immunity/reinfection state in v1: a
-    recovered agent is immediately susceptible again, same "smallest
-    coherent milestone" scoping as everywhere else in this project. See
-    docs/DECISIONS.md, "population control: disease" pass."""
+    See docs/DECISIONS.md, "population control: disease" pass."""
+    immune_ticks: int = 0
+    """v2 of disease (v1 deliberately shipped with no immunity/
+    reinfection modeling, flagged "extend later if wanted" —
+    docs/DECISIONS.md): set to IMMUNITY_DURATION_TICKS on recovery,
+    decremented every tick regardless of sick_ticks. While >0, this
+    agent can neither become a fresh outbreak's index case nor catch
+    the illness from a colocated carrier (Population._maybe_outbreak/
+    _tick_disease) — temporary, not permanent, resistance, same
+    "real but eventually fades" shape real post-infection immunity
+    takes, not a one-time-only vaccine."""
     relationships: dict[int, float] = field(default_factory=dict)
     trust: dict[int, float] = field(default_factory=dict)
     """-1..1 per source agent id — a distinct axis from `relationships`
@@ -665,6 +680,7 @@ class Agent:
             "max_age_ticks": self.max_age_ticks,
             "starving_ticks": self.starving_ticks,
             "sick_ticks": self.sick_ticks,
+            "immune_ticks": self.immune_ticks,
             "relationships": {str(k): round(v, 4) for k, v in self.relationships.items()},
             "trust": {str(k): round(v, 4) for k, v in self.trust.items()},
             "inventory": {k: round(v, 4) for k, v in self.inventory.items()},
@@ -692,6 +708,7 @@ class Agent:
             max_age_ticks=data.get("max_age_ticks", MAX_LIFESPAN_TICKS),
             starving_ticks=data.get("starving_ticks", 0),
             sick_ticks=data.get("sick_ticks", 0),
+            immune_ticks=data.get("immune_ticks", 0),
             relationships={int(k): v for k, v in data.get("relationships", {}).items()},
             trust={int(k): v for k, v in data.get("trust", {}).items()},
             inventory=dict(data.get("inventory", {})),

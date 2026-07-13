@@ -15,10 +15,13 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from hearthmind import __version__
+from hearthmind.config import Config
 from hearthmind.interface.api import DEFAULT_SPEED_MULTIPLIER, WorldBroadcaster
 from hearthmind.persistence.snapshot import (
     event_category_counts,
     history_events,
+    list_snapshot_ticks,
+    load_snapshot_at_tick,
     recent_events,
     recent_metrics,
     snapshot_count,
@@ -28,7 +31,7 @@ from hearthmind.persistence.snapshot import (
 _STATIC_DIR = Path(__file__).parent / "static"
 
 
-def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection) -> FastAPI:
+def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: Config) -> FastAPI:
     """`conn` is the same connection the engine already holds open for
     the life of the process — reused here rather than opening a second
     one, safe because everything (engine ticks and these async request
@@ -104,6 +107,39 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection) -> FastA
             "event_category_counts": event_category_counts(conn),
             "total_events_logged": total_event_count(conn),
             "snapshot_rows": snapshot_count(conn),
+        })
+
+    @app.get("/snapshots")
+    async def snapshots() -> JSONResponse:
+        """Observatory UI depth pass: which past ticks a snapshot still
+        exists for (newest-first) — the scrub-through-time timeline's
+        index. Backs the UI's Timeline panel; see `GET /snapshots/
+        {tick}` for a specific past state."""
+        return JSONResponse(list_snapshot_ticks(conn))
+
+    @app.get("/snapshots/{tick}")
+    async def snapshot_at(tick: int) -> JSONResponse:
+        """A curated, read-only look at the world as it was at a past
+        snapshot tick — settlement/population summaries and the sim
+        calendar, the same shape `/state` already gives for the *live*
+        world, not the full agent/terrain payload. Reconstructing a
+        `World` from a stored snapshot never touches or advances the
+        live engine (it's a separate object built from the DB row, not
+        `broadcaster`'s world) — this is genuinely read-only, a first,
+        deliberately small step on docs/ROADMAP.md's flagged "a true
+        scrub-through-time replay view" gap, not a rewind/undo
+        feature."""
+        world = load_snapshot_at_tick(conn, tick, config)
+        if world is None:
+            return JSONResponse({"error": f"no snapshot on file for tick {tick}"}, status_code=404)
+        return JSONResponse({
+            "tick": world.clock.tick_count,
+            "day": world.clock.day_of_year,
+            "month": world.clock.month_name,
+            "year": world.clock.year,
+            "season": world.clock.season,
+            "settlement": world.settlement.summary(),
+            "population": world.population.summary(),
         })
 
     @app.post("/intervene/agent-goal")

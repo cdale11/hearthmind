@@ -4827,3 +4827,146 @@ swap-pressure reduction on the user's hardware can't be measured here
 report (same `ollama ps`/`ps aux` pattern used for the mmap fix) is
 the way to confirm the fix's real-world effect, same standing caveat
 as every other memory fix in this project's history.
+
+## "Expand all features" (v0.59.0)
+
+Explicit user directive: "expand all features." Genuinely open-ended,
+so before writing any code the request was narrowed via a clarifying
+question — offered four possible readings (deepen existing systems
+v2-style, close remaining roadmap gaps, a content-variety pass,
+Observatory UI depth) and the user selected all four. Rather than
+attempt literal maximal coverage across the whole codebase in one
+pass (which risks shallow/stub work across too many fronts, against
+this project's own "every system landed must be mechanically real"
+discipline), scoped this batch to one substantial, fully-verified item
+per category — a deliberate scoping decision, flagged here the same
+way caravans/multiple-settlements scoping decisions have been in the
+past, rather than silently under-delivering against "all."
+
+**Deepen: disease v2 (temporary immunity).** v1's own docstring
+(`Agent.sick_ticks`) explicitly flagged "no separate immunity/
+reinfection state in v1... extend later if wanted" — the natural next
+increment was already named in the codebase, not invented fresh. New
+`Agent.immune_ticks`, set to `IMMUNITY_DURATION_TICKS` (400 — half of
+`SICKNESS_DURATION_TICKS`'s 800, a real but temporary window rather
+than lifelong immunity, matching how most real endemic illness works)
+on recovery inside `Population._tick_disease`, decayed every tick
+regardless of sick state (agents who are neither sick nor immune skip
+both branches, same O(1)-per-agent cost as before). Consumed in two
+places: `_tick_disease`'s colocation-transmission loop now also
+excludes `immune_ticks > 0` targets, and `_maybe_outbreak`'s `healthy`
+candidate list (for choosing a fresh index case) excludes them too —
+a just-recovered agent genuinely can't restart the same bout of
+illness for a while. `Population.summary()` gained `immune_count` for
+observability. Verified with a direct `_tick_disease` unit call
+(recovery sets `immune_ticks` to exactly `IMMUNITY_DURATION_TICKS`;
+an immune agent colocated with a carrier for 50 ticks never catches
+it) and an outbreak-selection check.
+
+**Close a roadmap gap: where-to-build, second factor.** CLAUDE.md's
+"Known architectural gaps" still listed "where to build is still pure-
+chance colocation" even though `URBAN_GROWTH_ROAD_ADJACENCY_
+MULTIPLIER` (integration milestone) had already made *where* real for
+roads specifically — that gap-list entry had gone stale, not been
+re-audited after the integration milestone landed. Rather than declare
+the gap closed on the strength of roads alone, added a second,
+independent factor with the same shape: `SETTLE_CHANCE_RESOURCE_
+ADJACENCY_MULTIPLIER` (1.3x, deliberately smaller than roads' 1.5x —
+a road represents real prior communal investment, raw resource
+proximity is a more "obvious," lower-effort signal a founding group
+would notice) applied when a candidate tile is within
+`SETTLE_RESOURCE_SEARCH_RADIUS` (2, Chebyshev) of a still-productive
+resource node, or itself adjacent to open water (reusing `world.
+resources.is_adjacent_to_water`, the same helper irrigation and
+fishing already use — no new water-network concept). New module-level
+`_near_productive_resource` helper in `population.py`, a small local
+scan (not spatially indexed — fine at this project's scale, same
+tolerance every other O(N) scan here gets). Verified directly: tiles
+within radius of a node return True, a distant tile returns False.
+
+**Content variety.** Two more entries each to `llm/omens.py`'s five
+fallback pools (warm/cold/neutral settlement-wide, warm/cold subject-
+centered) and three more to `llm/caravan.py`'s fallback narration pool
+— pure breadth, no new mechanics, reducing how quickly a long
+LLM-disabled or heavily-fallback run starts repeating itself.
+
+**MARKET: a building that's genuinely bidirectional with caravans.**
+The integration milestone's caravan system (llm/caravan.py) was
+explicitly scoped down from full multi-settlement trade and had no
+building-system hook at all — a caravan happened *to* the settlement,
+with no way for the settlement's own infrastructure to influence it
+back, the one clearly one-directional link the integration-milestone
+audit's own "every system should both influence and be influenced"
+standard would flag if re-run today. New `Settlement.caravans_visited`
+(persistent counter, `SettlementEconomy` domain object, full
+to_dict/from_dict/passthrough-property plumbing matching every other
+field in the Settlement facade) increments unconditionally whenever a
+caravan's roll succeeds (`SimulationEngine._maybe_schedule_caravan`,
+before the backpressure-gated narration branch — the visit itself is
+real regardless of whether its description gets narrated). New
+`BuildingKind.MARKET`: excluded from `choose_building_kind`'s weighted
+pool until `caravans_visited >= MARKET_CARAVAN_VISIT_REQUIREMENT` (1
+— deliberately just one: the point is *any* real outside contact
+justifying a market, not a sustained trade history first, since that's
+what the market itself then helps grow). Once standing,
+`has_market()` (mirrors `has_power_plant()`) is read by `_maybe_
+schedule_caravan` to multiply both the trade magnitude (`MARKET_
+CARAVAN_YIELD_MULTIPLIER`, 1.4x — same order of magnitude as
+`POWER_GRID_INDUSTRY_MULTIPLIER`) and the monthly visit chance
+(`MARKET_CARAVAN_CHANCE_MULTIPLIER`, 1.25x, deliberately smaller — a
+market changes how good a visit is more than how often one happens).
+`MARKET_MATERIALS_COST` (7.0) sits between WORKSHOP and HOSPITAL.
+Verified: `choose_building_kind` never selects MARKET across 500 draws
+before any caravan visit, does select it across 2000 draws once the
+requirement is met; a controlled same-tick before/after-MARKET
+comparison (forcing the caravan roll to always pass, resetting
+currency/materials between runs to stay within capacity headroom so
+clamping doesn't mask the effect) measured the yield ratio at exactly
+1.4x; a 20,000-sample statistical check of `_namespaced_roll` against
+both the boosted and unboosted chance measured a 1.273x hit-rate
+ratio against an expected 1.25x — within sampling noise.
+
+**Observatory UI depth: scrub-through-time, a first small step.**
+docs/ROADMAP.md has flagged "a true scrub-through-time replay view"
+as not-yet-built since the July 2026 architecture review (documentary
+mode narrates a year in prose; nothing let a player step through
+history frame-by-frame) — explicitly *not* attempted as part of any
+prior batch, always deferred as "its own dedicated session" the same
+way multiple-named-settlements is. This is a deliberately small first
+step, not the full feature: new `persistence.snapshot.list_snapshot_
+ticks`/`load_snapshot_at_tick` (reusing the existing `snapshots` table
+and its `SNAPSHOT_KEEP_RECENT`/`SNAPSHOT_KEYFRAME_INTERVAL_TICKS`
+pruning — no new persistence, no schema change), backing new `GET
+/snapshots` (index of available ticks) and `GET /snapshots/{tick}`
+(reconstructs a `World` from that one stored row and returns a
+curated settlement/population summary — the same `/state`-style shape
+already used elsewhere, not the full agent/terrain payload) in
+`interface/app.py`. Genuinely read-only: the reconstructed `World` is
+a fresh object built from the DB row, never the live `broadcaster`'s
+world — nothing about the live simulation is touched, paused, or
+rewound. `create_app` gained a required `config: Config` parameter
+(needed for `World.from_dict`); `server.py`'s one call site updated.
+New "🕰 timeline" header toggle + panel in the browser UI: a slider
+over the ticks `GET /snapshots` returns, each position fetching and
+rendering that past moment's era/population/buildings/currency-
+materials/civic-priority — explicitly framed in the UI copy as "read-
+only... doesn't rewind or change the live world" so it can't be
+mistaken for an undo/rewind feature. Verified end-to-end: a live
+`SimulationEngine` run to several snapshot boundaries, then the
+FastAPI route handlers invoked directly (no real HTTP layer available
+in this environment — `httpx`/`starlette.testclient` aren't
+installed) confirming `GET /snapshots` returns the expected tick list,
+`GET /snapshots/{tick}` returns a 200 with the expected settlement/
+population shape (including the new `markets`/`caravans_visited`/
+`immune_count` fields), and a nonexistent tick returns 404 — plus a
+route-registration check confirming both paths are actually mounted
+on the FastAPI app. The frontend JS was syntax-checked with `node -c`
+(no real browser available here) but not visually verified — same
+"say so explicitly rather than claiming success" standard the project
+holds for UI work it can't actually click through.
+
+Every touched system re-verified with a 5,000-tick full-engine smoke
+run post-batch (0.89ms/tick, unchanged from pre-batch baseline,
+serialization round-trip implicitly exercised by the snapshot-load
+checks) — no regression to ordinary tick throughput from any of the
+four additions.

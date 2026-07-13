@@ -77,6 +77,15 @@ _FALLBACK_POOL: tuple[tuple[str, str], ...] = (
         "They spoke of a road being cleared somewhere to the east.",
     ),
     ("Traders came through briefly, buying up whatever surplus the village could spare.", ""),
+    (
+        "A caravan of leatherworkers passed through, trading tanned hides for tools.",
+        "They warned of wolves growing bolder along the northern trade route.",
+    ),
+    ("A weary-looking trader swapped a cask of preserved fruit for a bundle of firewood.", ""),
+    (
+        "A small train of pack mules stopped to trade woven baskets for stored grain.",
+        "They spoke of a festival held in a distant town to celebrate a good harvest.",
+    ),
 )
 
 

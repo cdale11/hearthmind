@@ -176,7 +176,7 @@ async def _main_async(config: Config) -> None:
                 pass  # signal handlers aren't available on some platforms (e.g. Windows)
 
         if broadcaster is not None:
-            app = create_app(broadcaster, conn)
+            app = create_app(broadcaster, conn, config)
             uvicorn_config = uvicorn_module.Config(app, host=config.api_host, port=config.api_port, log_level="warning")
             uvicorn_server = uvicorn_module.Server(uvicorn_config)
 
