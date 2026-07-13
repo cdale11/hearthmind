@@ -34,6 +34,7 @@ def build_prompt(
     agent: Agent, season: str, weather: str,
     settlement_name: str = "", latest_tradition: str = "",
     colocated_names: list[str] | None = None, nearest_food_steps: int | None = None,
+    beliefs_about: list[str] | None = None, own_belief: str = "",
 ) -> str:
     """`settlement_name`/`latest_tradition` are optional culture context
     (Phase E) — empty until the settlement is named/has a tradition, so
@@ -50,7 +51,15 @@ def build_prompt(
     `agent.memories` contributes its most recent few entries as personal
     context — bonds formed, rumors heard, a partner's death — so an
     agent's own history can shape its next goal, not just the
-    settlement's. See docs/DECISIONS.md, relationship-memory pass."""
+    settlement's. See docs/DECISIONS.md, relationship-memory pass.
+
+    `beliefs_about` (H2 extension, docs/ROADMAP.md "Phase H"): settlement
+    theories that resolve to this agent or their family (see
+    llm.beliefs.beliefs_about_agent) — dialogue prompts already got this
+    context; cognition's own goal-setting previously didn't, despite
+    "the village believes X is reckless" being exactly the kind of thing
+    that should be able to shape X's own choices, not just what others
+    say to them."""
     culture = ""
     if settlement_name:
         culture = f" You live in {settlement_name}."
@@ -60,6 +69,11 @@ def build_prompt(
     memory = f" You remember: {' | '.join(recent)}" if recent else ""
     personality = describe_traits(agent.traits)
     personality_text = f" You are {personality}." if personality else ""
+    beliefs_text = (
+        f" What the village has come to believe about you: {'; '.join(beliefs_about)}."
+        if beliefs_about else ""
+    )
+    own_belief_text = f" Your own private theory: {own_belief}" if own_belief else ""
     company = (
         f" With you right now: {', '.join(colocated_names)}."
         if colocated_names else " Nobody else is here right now."
@@ -74,7 +88,8 @@ def build_prompt(
         f"You are {agent.name}. Hunger: {agent.hunger:.2f} (0=full, 1=starving). "
         f"Energy: {agent.energy:.2f} (0=exhausted, 1=fully rested). "
         f"Currently {agent.state.value}, focused on '{agent.goal.value}'."
-        f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{personality_text} "
+        f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{personality_text}"
+        f"{beliefs_text}{own_belief_text} "
         "What should you focus on right now?"
     )
 

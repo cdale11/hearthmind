@@ -4,6 +4,65 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.52.0] — H2 extension: personal beliefs; H5 extension: second skill
+
+### Added
+
+- **H2 extension: cognition prompts now see "what the village believes
+  about you."** New shared `llm.beliefs.beliefs_about_agent` (also
+  refactored into dialogue's existing call site, no behavior change
+  there). Wired into `SimulationEngine._schedule_due_cognition` via a
+  new `beliefs_about` param on `llm.cognition.build_prompt` — closes the
+  gap where dialogue already had this context and cognition didn't,
+  directly matching the roadmap's own "next mechanical payoff" framing.
+- **H2 extension: personal per-agent beliefs.** New `Agent.beliefs`
+  (same shape as `Settlement.beliefs` — reuses the generic, Settlement-
+  independent `parse_belief`/`push_belief_history`/`find_belief_index_
+  by_subject` functions rather than a parallel mechanism). New monthly
+  `SimulationEngine._maybe_schedule_personal_belief`: one randomly
+  chosen living agent with memories reflects on their own recent
+  experience, forming or revising a private theory
+  (`llm.beliefs.build_personal_prompt`/`fallback_personal_belief`, a
+  new `PERSONAL_SYSTEM_PROMPT`). Capped at `MAX_PERSONAL_BELIEFS=4`.
+  Fed back into that same agent's own cognition prompt as "your own
+  private theory" — the concrete "act upon a personal belief" payoff.
+  Deliberately one agent per month, not all of them: 400 agents each
+  getting a monthly LLM call would be a large scheduling load for a
+  mechanic meant to surface occasional personal theories, not a diary
+  entry for everyone.
+- **H5 extension: a second skill, `SKILL_CONSTRUCTION`.** Gained by
+  practice (`Population._advance_construction`, which now iterates
+  actual worker agents instead of just counting them) and colocated
+  teaching (`_maybe_teach_skills`, already skill-name-agnostic — one
+  line added). A skilled crew builds/repairs up to 25% faster
+  (`SKILL_CONSTRUCTION_SPEED_BONUS`), stacking with the existing
+  materials-multiplier and tech-level bonuses. `summary()` gained
+  `avg_construction_skill`.
+- **H5 extension: population skill nudges invention chance.** The
+  settlement-wide average of both skills gives a small additive
+  multiplier to invention chance
+  (`SKILL_INVENTION_BONUS_WEIGHT=0.3`, up to +30% at full average
+  mastery) in `SimulationEngine._maybe_schedule_invention`, on top of
+  the existing prosperity gate and education bonus — the roadmap's own
+  suggested "tie tech_level to actual population knowledge" direction,
+  taken as an additive nudge rather than a full replacement of the
+  existing roll (which stays exactly as tuned).
+
+Verified: direct scripts confirmed `beliefs_about_agent`'s filtering;
+`build_personal_prompt`/`fallback_personal_belief`'s output shape; a
+controlled construction-speed comparison (unskilled crew: 0.05
+progress/tick with zero materials; a fully-skilled agent: 0.0625 —
+exactly the +25% bonus) and the practice gain itself; teaching-
+generalization for the new skill; and the invention-chance nudge's
+exact math (0.2 base -> 0.26 at full-mastery average skill, exactly
++30%). Two full-engine integration runs (real `SimulationEngine` via
+`load_or_create`/`_tick_once`, LLM disabled) confirmed: (1) with a
+forced memory on every agent, personal beliefs actually form and later
+revise (with history) through the real monthly-scheduled job, and (2) a
+6,000-tick run with no forced state produces no exceptions with
+`avg_construction_skill` live in `summary()`. Both confirmed clean
+`World.to_dict()`/`from_dict()` round-trips.
+
 ## [0.51.0] — H6: psychology; H8: temperament/belief crossover; H9: observatory
 
 ### Added

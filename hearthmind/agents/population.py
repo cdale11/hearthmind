@@ -51,6 +51,8 @@ from hearthmind.agents.agent import (
     SICKNESS_HOSPITAL_KILL_CHANCE_REDUCTION,
     SICKNESS_HUNGER_RATE_MULTIPLIER,
     SICKNESS_TRANSMISSION_CHANCE_PER_TICK,
+    SKILL_CONSTRUCTION,
+    SKILL_CONSTRUCTION_SPEED_BONUS,
     SKILL_FARMING,
     SKILL_FARMING_YIELD_BONUS,
     SKILL_PRACTICE_GAIN,
@@ -1259,14 +1261,14 @@ class Population:
         has a small per-tick chance of the more skilled agent teaching
         the less skilled one — same colocation-driven contagion shape as
         `_update_relationships`'s gain loop and dialogue's gossip
-        contagion. Currently only SKILL_FARMING exists; this loop is
-        already skill-name-agnostic (iterates whatever's in `.skills`),
-        so a second skill needs no changes here."""
+        contagion. Skill-name-agnostic — H5 extension added
+        SKILL_CONSTRUCTION as a second skill with no changes needed
+        here beyond listing it below."""
         for group in by_position.values():
             if len(group) < 2:
                 continue
             for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
-                for skill in (SKILL_FARMING,):
+                for skill in (SKILL_FARMING, SKILL_CONSTRUCTION):
                     a_level, b_level = a.skills.get(skill, 0.0), b.skills.get(skill, 0.0)
                     gap = a_level - b_level
                     if abs(gap) < SKILL_TEACHING_MIN_GAP:
@@ -1519,16 +1521,26 @@ class Population:
         for building in settlement.buildings:
             if building.stage is not BuildingStage.UNDER_CONSTRUCTION:
                 continue
-            workers = sum(
-                1 for a in by_position.get((building.x, building.y), []) if a.state is AgentState.AWAKE
-            )
-            if workers == 0:
+            workers = [
+                a for a in by_position.get((building.x, building.y), []) if a.state is AgentState.AWAKE
+            ][:MAX_WORKERS]
+            if not workers:
                 continue
-            work = CONSTRUCTION_WORK_PER_TICK * min(workers, MAX_WORKERS) * _tech_factor(settlement)
+            # H5 extension: a skilled crew builds faster — the average
+            # construction proficiency among the (capped) workers present,
+            # same "practiced yield bonus" shape SKILL_FARMING already
+            # established. See SKILL_CONSTRUCTION_SPEED_BONUS.
+            avg_skill = sum(a.skills.get(SKILL_CONSTRUCTION, 0.0) for a in workers) / len(workers)
+            work = (
+                CONSTRUCTION_WORK_PER_TICK * len(workers) * _tech_factor(settlement)
+                * (1.0 + avg_skill * SKILL_CONSTRUCTION_SPEED_BONUS)
+            )
             if settlement.materials >= MATERIALS_PER_CONSTRUCTION_TICK:
                 settlement.materials -= MATERIALS_PER_CONSTRUCTION_TICK
                 work *= CONSTRUCTION_MATERIALS_MULTIPLIER
             building.progress = min(1.0, building.progress + work)
+            for a in workers:
+                a.skills[SKILL_CONSTRUCTION] = min(1.0, a.skills.get(SKILL_CONSTRUCTION, 0.0) + SKILL_PRACTICE_GAIN)
             if building.progress >= 1.0:
                 building.stage = BuildingStage.STANDING
                 building.condition = 1.0
@@ -2433,6 +2445,9 @@ class Population:
             "carrying_capacity": round(self.last_carrying_capacity, 1),
             "avg_farming_skill": round(
                 sum(a.skills.get(SKILL_FARMING, 0.0) for a in self.agents) / total, 3
+            ) if total else 0.0,
+            "avg_construction_skill": round(
+                sum(a.skills.get(SKILL_CONSTRUCTION, 0.0) for a in self.agents) / total, 3
             ) if total else 0.0,
             "avg_tools": round(
                 sum(a.inventory.get("tools", 0.0) for a in self.agents) / total, 3

@@ -52,6 +52,68 @@ other Phase G nudge gets (TEMPERAMENT_KILL_CHANCE_INFLUENCE et al.).
 See `temperament_confidence_bias`."""
 
 
+MAX_PERSONAL_BELIEFS = 4
+"""Cap on `Agent.beliefs` (H2 extension, docs/ROADMAP.md "Phase H"
+stage 2 — "an agent's memories list already carries interpretation; a
+personal belief is structurally the same list-of-theories shape as
+Settlement.beliefs, just scoped to one agent"). Smaller than
+MAX_BELIEFS: a person's own running theories about their life are a
+narrower thing than a whole village's accumulated understanding of
+itself."""
+
+PERSONAL_SYSTEM_PROMPT = (
+    "You are the private, evolving self-understanding of one villager in a small "
+    "simulated world — not an outside narrator, but their own quiet running theory "
+    "about their life, the people around them, and their place in the village. "
+    "Given what they've recently experienced and the theories they already hold, "
+    "either sharpen/revise one existing theory with new evidence, or form one new "
+    "theory if nothing existing fits. Theories are not guaranteed to be correct — "
+    "they can be wrong, one-sided, or later revised, exactly like a real person's "
+    "beliefs about their own life. "
+    'Respond with strict JSON only, no other text: {"subject": "short label, e.g. '
+    'a person\'s name, \'my place here\', \'the harvests\', \'what happened to '
+    'them\'", "belief": "one sentence, under 30 words, stated as this villager\'s '
+    'own private belief, first-person or about themself in third person, not '
+    'narration", "confidence": 0.0-1.0, "revises": integer index of an existing '
+    "theory this replaces, or null for a new one}."
+)
+
+
+def build_personal_prompt(agent_name: str, recent_memories: list[str], existing_beliefs: list[dict]) -> str:
+    """Scoped to one agent's own `memories` (already a short personal
+    log — bonds formed, rumors heard, a partner's death) rather than
+    settlement-wide recent events. Mirrors `build_prompt`'s shape
+    exactly (same enumerated-theories block, same closing instruction)
+    so the two feel like the same underlying mechanism at two scales."""
+    memories_text = " | ".join(recent_memories) if recent_memories else "Nothing notable has happened to them lately."
+    if existing_beliefs:
+        beliefs_text = "\n".join(
+            f"  [{i}] (confidence {b['confidence']:.2f}) {b['subject']}: {b['belief']}"
+            for i, b in enumerate(existing_beliefs)
+        )
+    else:
+        beliefs_text = "  (none yet — this would be their first private theory)"
+    return (
+        f"{agent_name}'s recent experiences: {memories_text}\n"
+        f"Theories {agent_name} already holds about their own life:\n{beliefs_text}\n"
+        "Form or revise one theory."
+    )
+
+
+def fallback_personal_belief(agent_name: str, recent_memories: list[str]) -> dict:
+    """Deterministic stand-in, same "real, useful record even without
+    the LLM" spirit as `fallback_belief` — reads the agent's most recent
+    memory (if any) rather than counting event categories, since a
+    personal log is already short and specific."""
+    if recent_memories:
+        subject = "what's on their mind"
+        belief = f"They keep thinking about this: {recent_memories[-1]}"
+    else:
+        subject = "the quiet"
+        belief = "Little has happened to them lately — they assume this quiet will hold."
+    return {"subject": subject, "belief": belief, "confidence": 0.4, "revises": None}
+
+
 def temperament_confidence_bias(confidence: float, temperament: float, intensity: float = 1.0) -> float:
     """Nudges `confidence` away from 0.5 by a fraction of the
     settlement's current |temperament| — called once per formed/revised
@@ -127,6 +189,19 @@ def fallback_belief(recent_events: list[dict], existing_beliefs: list[dict], set
         subject = "the quiet"
         belief = "Little has happened lately — the village assumes this quiet will hold."
     return {"subject": subject, "belief": belief, "confidence": 0.4, "revises": None}
+
+
+def beliefs_about_agent(agent_id: int, settlement_beliefs: list[dict]) -> list[str]:
+    """Settlement-wide theories that resolve to this specific agent
+    (directly, or via their family) — `"subject (belief text)"` lines
+    ready to drop into a prompt. Shared by dialogue's and cognition's
+    prompt-building so both describe "what the village believes about
+    you" identically (H2 extension, docs/ROADMAP.md "Phase H") rather
+    than each engine call site re-deriving the same filter."""
+    return [
+        f"{b['subject']} ({b['belief']})" for b in settlement_beliefs
+        if b.get("subject_agent_id") == agent_id or agent_id in b.get("subject_family_agent_ids", ())
+    ]
 
 
 def resolve_subject_agent_id(subject: str, agents) -> int | None:

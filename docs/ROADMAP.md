@@ -540,6 +540,21 @@ reusing this shape, cognition consuming beliefs for goal selection) are
 explicitly not attempted this pass — the roadmap's own staging note
 above still applies to what's left.
 
+**Extended, v0.52.0 (stages 2 and 4, both closed).** Stage 4 first:
+`llm.cognition.build_prompt` gained the `beliefs_about` param dialogue
+already had (new shared `llm.beliefs.beliefs_about_agent`), so a
+settlement belief about someone now reaches their own goal-setting
+prompt, not only what others say to them. Stage 2: `Agent.beliefs`
+(same generic shape/functions as `Settlement.beliefs`, no parallel
+mechanism) formed/revised monthly for one randomly chosen living agent
+at a time (`SimulationEngine._maybe_schedule_personal_belief`) from
+their own `memories`, fed back into that same agent's own cognition
+prompt as "your own private theory." One agent per month, not all —
+deliberately scoped against LLM scheduling load, matching the "real
+interpretive content, not a routine per-agent stat" framing this
+extension earns. Stage 3 (deeper institution-level belief *formation*,
+beyond H2/H3's existing mirroring) remains open.
+
 ### [x] H3. Institutions as first-class entities (v1: families)
 
 Current state: none. Families exist only implicitly via `Agent.parents`;
@@ -643,6 +658,23 @@ rewired to aggregate population skill (this section's own suggested
 future direction) — reserved for a later pass once a second skill
 exists to make "aggregate signal" a meaningful design, not a rewrite
 of a single-skill system.
+
+**Extended, v0.52.0 (second skill + the aggregate-signal direction,
+additive not a rewrite).** `SKILL_CONSTRUCTION` is the second skill,
+now that it exists — gained the same way (`Population._advance_
+construction`'s worker loop, colocated teaching already skill-name-
+agnostic) and mechanically real (up to +25% build/repair speed,
+`SKILL_CONSTRUCTION_SPEED_BONUS`). The aggregate-signal idea landed
+too, but deliberately as an *additive nudge* rather than "`tech_level`
+becomes the aggregate signal instead of an independently-rolled
+scalar" — the population's average skill across both axes gives
+invention chance a small extra multiplier
+(`SKILL_INVENTION_BONUS_WEIGHT`, up to +30%) on top of the existing
+roll/prosperity-gate/education-bonus, all of which stay exactly as
+tuned. A full replacement of the roll remains open if ever wanted, but
+risked destabilizing an already-balance-tuned era-progression system
+for a benefit this additive version already captures at much lower
+risk.
 
 ### [x] H6. Psychology: habits, identity, values, trauma, ambition (v1)
 

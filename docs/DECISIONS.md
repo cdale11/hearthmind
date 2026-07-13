@@ -4156,3 +4156,72 @@ reproduction odds forced high) produced two genuine `family_formed`
 events and non-zero `avg_resilience`/`avg_sociability` end-to-end
 through the real tick loop, with a full `World.to_dict()`/`from_dict()`
 round-trip preserving both byte-identically.
+
+## H2 extension (personal beliefs, cognition consumption) and H5 extension (second skill, invention nudge)
+
+Tenth/eleventh implementation passes, per explicit user instruction to
+"perform H2/H5 extensions." Both close the specific "not attempted this
+pass" gaps the roadmap itself flagged in each section's own v1 note,
+rather than reopening unrelated scope.
+
+**H2.** Two closes, not one: (stage 4) `llm.cognition.build_prompt`
+gained `beliefs_about`, the exact param dialogue's prompt already had —
+a genuine oversight, since "the village believes X is reckless" already
+shaped what others said *to* X, but never reached X's own decision-
+making. Fixed by extracting the existing inline filter (previously
+duplicated as a list comprehension inside dialogue's engine call site)
+into a shared `llm.beliefs.beliefs_about_agent`, used by both call
+sites now. (Stage 2) `Agent.beliefs` reuses the *exact* generic
+functions `Settlement.beliefs` already established
+(`parse_belief`/`push_belief_history`/`find_belief_index_by_subject`
+never referenced `Settlement` in their signatures to begin with — they
+already operated on plain `list[dict]`), so no new belief-mechanics
+code was needed, only new prompt-building
+(`build_personal_prompt`/`fallback_personal_belief`) and a new engine
+scheduling method mirroring `_maybe_schedule_beliefs`'s shape at
+one-agent-per-month instead of settlement-wide. The one deliberate
+design choice: only one randomly chosen agent reflects per month, not
+all of them — a genuine population-wide personal-belief system (400
+agents x one LLM call/month each) would be a real scheduling load
+increase for content meant to be occasional personal theories, not a
+monthly journal entry required of every villager. `find_belief_index_
+by_subject`'s existing "prefer subject-string match over the model's
+own integer indexing" behavior (originally a fix for settlement
+beliefs) applies unchanged here, for the same 2B-model-reliability
+reason.
+
+**H5.** `SKILL_CONSTRUCTION` required one real change beyond adding the
+name: `_advance_construction` previously computed `workers` as a bare
+`int` count (`sum(1 for a in ... if awake)`), which is enough to size
+`work` but not enough to know *which* agents get practice XP or
+contribute a skill average. Changed to build the actual (MAX_WORKERS-
+capped) worker list once and derive both the count and the skill
+average from it — a small refactor, not a behavior change when no one
+present has any construction skill (multiplier is `1.0 + 0 * bonus =
+1.0`, identical to the old unconditional `work` formula). `_maybe_
+teach_skills` needed only its iterated-skills tuple extended by one
+name; it was already written skill-name-agnostic in the H5 v1 pass
+specifically so this would be true. The invention-chance nudge
+deliberately does NOT implement the roadmap's literal "`tech_level`
+becomes the aggregate signal... rather than an independently-rolled
+scalar" phrasing — that would replace a currently balance-tuned
+mechanism (prosperity gate + education bonus + the roll itself,
+already tuned across several prior sessions' live-diagnostic passes)
+with something new and untested. The additive nudge captures the same
+underlying idea (population knowledge measurably affects invention)
+with materially lower risk to existing tuning; a full replacement stays
+open as a larger, riskier future option if ever wanted.
+
+Verified: direct scripts for `beliefs_about_agent` filtering,
+`build_personal_prompt`/`fallback_personal_belief` output shape, the
+exact construction-speed multiplier (0.05 -> 0.0625 progress/tick,
+precisely +25%), teaching generalized to the new skill, and the
+invention-chance math (0.2 -> 0.26 at full-mastery average skill,
+precisely +30%). Two full real-`SimulationEngine` integration runs
+(via `load_or_create`/`_tick_once`, matching `experiment.py`'s own
+pattern for driving the real engine headless): one with a forced
+memory on every agent confirmed personal beliefs actually form *and*
+later revise (with history) through the real monthly-scheduled job
+end-to-end (not just the unit-level helpers); a second, unmodified
+6,000-tick run confirmed no regressions with the new stats live. Both
+confirmed clean serialization round-trips.

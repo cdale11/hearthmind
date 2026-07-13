@@ -354,6 +354,36 @@ bonus (15%), deliberately a bit higher since this is a per-person
 ceiling requiring real practice/apprenticeship time, not a one-off
 settlement-wide unlock."""
 
+SKILL_CONSTRUCTION = "construction"
+"""H5 extension (docs/ROADMAP.md "Phase H"): the second skill, gained
+by practice (`Population._advance_construction`) and colocated teaching
+(`_maybe_teach_skills`, already skill-name-agnostic — see H5 v1's own
+docstring). Boosts that worker's own contribution to a construction/
+repair site's progress, the same "practiced yield bonus" shape
+`SKILL_FARMING` already established, just at a different mechanic."""
+
+SKILL_CONSTRUCTION_SPEED_BONUS = 0.25
+"""Same magnitude as SKILL_FARMING_YIELD_BONUS — a fully-skilled crew
+(average construction proficiency 1.0) builds/repairs up to 25% faster
+than an unskilled one, on top of (not instead of) the existing
+materials-multiplier and tech-level bonuses."""
+
+SKILL_INVENTION_BONUS_WEIGHT = 0.3
+"""H5 extension: the settlement-wide average of both skills (farming +
+construction) gives a small additive nudge to invention chance
+(`SimulationEngine._maybe_schedule_invention`), mirroring `education_
+invention_bonus`'s shape (1.0 + something). This is the roadmap's own
+suggested H5 evolution point ("tech_level becomes the settlement-
+aggregate signal... rather than an independently-rolled scalar") taken
+as an *additive nudge* rather than a full replacement of the existing
+roll — the roll, prosperity gate, and education bonus are all
+untouched; a skilled population invents somewhat more readily on top of
+them, not instead of them. Deliberately smaller than education's
+uncapped 1.0-per-education-level scale (this maxes out at +30% at full
+average mastery across the whole population, a much narrower ceiling)
+since two narrow skills are a much thinner signal of general
+inventiveness than accumulated formal education."""
+
 # --- H6: psychology — a compact, bounded personality vector ----------------
 
 TRAIT_RESILIENCE = "resilience"
@@ -495,6 +525,18 @@ class Agent:
     prompts as context once a trait is notable (see llm/cognition.py,
     llm/dialogue.py), the same "only mentioned once notably warm/cold"
     treatment temperament gets."""
+    beliefs: list[dict] = field(default_factory=list)
+    """H2 extension (docs/ROADMAP.md "Phase H" stage 2): this agent's
+    own private, evolving theories about their life — same shape as
+    `Settlement.beliefs` entries (subject/belief/confidence/formed_
+    tick/revised_tick/revision_count/history), capped at llm/beliefs.
+    MAX_PERSONAL_BELIEFS, formed/revised from this agent's own
+    `memories` by a monthly LLM job
+    (`SimulationEngine._maybe_schedule_personal_belief`) rather than
+    settlement-wide events. Deliberately reuses the exact belief-entry
+    shape and the generic (Settlement-independent) `llm.beliefs.
+    parse_belief`/`push_belief_history`/`find_belief_index_by_subject`
+    functions rather than inventing a parallel per-agent mechanism."""
 
     def to_dict(self) -> dict:
         return {
@@ -518,6 +560,7 @@ class Agent:
             "memories": list(self.memories),
             "skills": {k: round(v, 4) for k, v in self.skills.items()},
             "traits": {k: round(v, 4) for k, v in self.traits.items()},
+            "beliefs": list(self.beliefs),
         }
 
     @classmethod
@@ -544,4 +587,5 @@ class Agent:
             memories=list(data.get("memories", [])),
             skills=dict(data.get("skills", {})),
             traits=dict(data.get("traits", {})),
+            beliefs=list(data.get("beliefs", [])),
         )

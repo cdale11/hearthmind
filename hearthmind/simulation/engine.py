@@ -31,7 +31,14 @@ try:
 except ImportError:  # pragma: no cover — this project's target hardware is Linux
     resource = None  # type: ignore[assignment]
 
-from hearthmind.agents.agent import DIALOGUE_COOLDOWN_TICKS, TRIGGERED_COGNITION_COOLDOWN_TICKS, AgentGoal
+from hearthmind.agents.agent import (
+    DIALOGUE_COOLDOWN_TICKS,
+    SKILL_CONSTRUCTION,
+    SKILL_FARMING,
+    SKILL_INVENTION_BONUS_WEIGHT,
+    TRIGGERED_COGNITION_COOLDOWN_TICKS,
+    AgentGoal,
+)
 from hearthmind.config import Config
 from hearthmind.llm import (
     beliefs, chronicle, culture, dialogue, documentary, festival, invention, naming, omens, town_brain,
@@ -439,6 +446,7 @@ class SimulationEngine:
         self._maybe_schedule_festival(events)
         self._maybe_schedule_town_brain(events)
         self._maybe_schedule_beliefs(events)
+        self._maybe_schedule_personal_belief(events)
         self._maybe_tick_temperament(events)
         self._maybe_schedule_omen(events)
         self._schedule_due_cognition()
@@ -514,10 +522,13 @@ class SimulationEngine:
             food_steps = population.nearest_food_steps(
                 agent, self.world.farms, self.world.settlement, self.world.resources, self.world.wildlife,
             )
+            beliefs_about = beliefs.beliefs_about_agent(agent.id, self.world.settlement.beliefs)
+            own_belief = max(agent.beliefs, key=lambda b: b["confidence"])["belief"] if agent.beliefs else ""
             prompt = build_prompt(
                 agent, self.world.clock.season, self.world.weather.describe(),
                 settlement_name=self.world.settlement.name, latest_tradition=latest_tradition,
                 colocated_names=colocated_names, nearest_food_steps=food_steps,
+                beliefs_about=beliefs_about, own_belief=own_belief,
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             task = asyncio.create_task(self._run_cognition(agent.id, prompt, hunger_snapshot, energy_snapshot))
@@ -649,12 +660,9 @@ class SimulationEngine:
         latest_tradition = self.world.settlement.traditions[-1] if self.world.settlement.traditions else ""
         for agent_a, agent_b in pairs:
             affinity = agent_a.relationships.get(agent_b.id, 0.0)
-            beliefs_about = [
-                f"{b['subject']} ({b['belief']})" for b in self.world.settlement.beliefs
-                if b.get("subject_agent_id") in (agent_a.id, agent_b.id)
-                or agent_a.id in b.get("subject_family_agent_ids", ())
-                or agent_b.id in b.get("subject_family_agent_ids", ())
-            ]
+            beliefs_about = beliefs.beliefs_about_agent(
+                agent_a.id, self.world.settlement.beliefs
+            ) + beliefs.beliefs_about_agent(agent_b.id, self.world.settlement.beliefs)
             prompt = dialogue.build_prompt(
                 agent_a, agent_b, affinity, self.world.settlement.name, latest_tradition,
                 self.world.clock.season, self.world.weather.describe(), beliefs_about=beliefs_about,
@@ -805,6 +813,15 @@ class SimulationEngine:
         # buildings.education_invention_bonus, docs/DECISIONS.md,
         # "LLM-as-brain batch."
         chance = min(1.0, INVENTION_CHANCE_PER_SEASON * education_invention_bonus(settlement.education_level))
+        # H5 extension: a skilled population invents somewhat more
+        # readily too, on top of (not instead of) education — see
+        # SKILL_INVENTION_BONUS_WEIGHT.
+        agents = self.world.population.agents
+        if agents:
+            avg_skill = sum(
+                a.skills.get(SKILL_FARMING, 0.0) + a.skills.get(SKILL_CONSTRUCTION, 0.0) for a in agents
+            ) / (2 * len(agents))
+            chance = min(1.0, chance * (1.0 + avg_skill * SKILL_INVENTION_BONUS_WEIGHT))
         chance = max(0.0, chance * (1.0 + settlement.temperament * TEMPERAMENT_INVENTION_INFLUENCE))
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "invention_roll") >= chance:
             return
@@ -1011,6 +1028,63 @@ class SimulationEngine:
             beliefs.sync_family_beliefs(entry, settlement.institutions)  # H2/H3 crossover
 
         self._schedule_llm_job("beliefs", prompt, beliefs.SYSTEM_PROMPT, fallback, apply)
+
+    def _maybe_schedule_personal_belief(self, events: list[str]) -> None:
+        """H2 extension (docs/ROADMAP.md "Phase H" stage 2): once a
+        month, one living agent (chosen deterministically by the
+        namespaced-RNG pattern, weighted toward whoever has the most
+        recent memories to reflect on) forms or revises a private
+        belief about their own life, mirroring `_maybe_schedule_
+        beliefs` at agent scale rather than settlement scale. Same
+        monthly cadence as the settlement's own beliefs job; only one
+        agent per month (not all of them) — this is real interpretive
+        content, not a routine per-agent stat, and 400 agents each
+        getting an LLM call every month would be a genuinely large
+        scheduling load for a reflective mechanic that's meant to
+        surface occasional, notable personal theories, not a monthly
+        diary entry for everyone."""
+        if "month_end" not in events:
+            return
+        candidates = [a for a in self.world.population.agents if a.memories]
+        if not candidates:
+            return
+        rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "personal_belief")
+        agent = rng.choice(candidates)
+        agent_id = agent.id
+        recent = agent.memories[-3:]
+        existing = list(agent.beliefs)
+        prompt = beliefs.build_personal_prompt(agent.name, recent, existing)
+        fallback = beliefs.fallback_personal_belief(agent.name, recent)
+        existing_count = len(existing)
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            target = self.world.population.get(agent_id)
+            if target is None:
+                return  # agent died between scheduling and resolution
+            parsed = beliefs.parse_belief(result, fallback, existing_count)
+            tick = self.world.clock.tick_count
+            revises = parsed["revises"]
+            if revises is None:
+                revises = beliefs.find_belief_index_by_subject(parsed["subject"], target.beliefs)
+            if revises is not None and revises < len(target.beliefs):
+                entry = target.beliefs[revises]
+                beliefs.push_belief_history(entry, tick)
+                entry["belief"] = parsed["belief"]
+                entry["confidence"] = parsed["confidence"]
+                entry["subject"] = parsed["subject"]
+                entry["revised_tick"] = tick
+                entry["revision_count"] = entry.get("revision_count", 0) + 1
+            else:
+                entry = {
+                    "subject": parsed["subject"], "belief": parsed["belief"], "confidence": parsed["confidence"],
+                    "formed_tick": tick, "revised_tick": tick, "revision_count": 0,
+                }
+                target.beliefs.append(entry)
+                if len(target.beliefs) > beliefs.MAX_PERSONAL_BELIEFS:
+                    weakest = min(target.beliefs, key=lambda b: b["confidence"])
+                    target.beliefs.remove(weakest)
+
+        self._schedule_llm_job("personal_belief", prompt, beliefs.PERSONAL_SYSTEM_PROMPT, fallback, apply)
 
     # --- Phase G v1: temperament and omens (deliberately subtle) ---------------
 

@@ -784,9 +784,13 @@ shipped together v0.48.0, H4 v1 (HUT ownership + a materials->tools
 supply chain) shipped v0.49.0, H7 v1 (inheritance of land/goods/skill/
 bias on death) shipped v0.50.0, H6 v1 (two-axis `Agent.traits`), H8 v1
 (temperament -> belief-confidence crossover), and H9 v1 (family_formed
-event + observatory stat surfacing) all shipped together v0.51.0 —
-every roadmap item from H1 through H9 is now shipped at least a v1.
-See docs/ROADMAP.md "Phase H" for the full per-item breakdown and
+event + observatory stat surfacing) all shipped together v0.51.0, then
+"perform H2/H5 extensions and full H extension" — H2/H5 extensions
+(cognition beliefs_about, monthly personal per-agent beliefs, a second
+skill `SKILL_CONSTRUCTION`, an additive population-skill invention-
+chance nudge) shipped v0.52.0. Every roadmap item from H1 through H9 is
+shipped at least a v1, with H2/H5 now past v1. See docs/ROADMAP.md
+"Phase H" for the full per-item breakdown and
 docs/DECISIONS.md for the log entries): treat memory/belief/knowledge
 as an
 evolving ecosystem — spreading, competing, mutating, merging, and
