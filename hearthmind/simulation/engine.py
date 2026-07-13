@@ -982,6 +982,7 @@ class SimulationEngine:
                 revises = beliefs.find_belief_index_by_subject(parsed["subject"], settlement.beliefs)
             if revises is not None and revises < len(settlement.beliefs):
                 entry = settlement.beliefs[revises]
+                beliefs.push_belief_history(entry, tick)  # H2: keep what it used to think, not just overwrite
                 entry["belief"] = parsed["belief"]
                 entry["confidence"] = parsed["confidence"]
                 entry["subject"] = parsed["subject"]
@@ -1002,6 +1003,7 @@ class SimulationEngine:
                     weakest = min(settlement.beliefs, key=lambda b: b["confidence"])
                     settlement.beliefs.remove(weakest)
                 self._log("belief_formed", f"The village came to believe something about {entry['subject']}: {entry['belief']}")
+            beliefs.sync_family_beliefs(entry, settlement.institutions)  # H2/H3 crossover
 
         self._schedule_llm_job("beliefs", prompt, beliefs.SYSTEM_PROMPT, fallback, apply)
 

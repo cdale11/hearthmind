@@ -50,6 +50,12 @@ from hearthmind.agents.agent import (
     SICKNESS_HOSPITAL_KILL_CHANCE_REDUCTION,
     SICKNESS_HUNGER_RATE_MULTIPLIER,
     SICKNESS_TRANSMISSION_CHANCE_PER_TICK,
+    SKILL_FARMING,
+    SKILL_FARMING_YIELD_BONUS,
+    SKILL_PRACTICE_GAIN,
+    SKILL_TEACHING_CHANCE_PER_TICK,
+    SKILL_TEACHING_GAIN,
+    SKILL_TEACHING_MIN_GAP,
     STARVATION_HUNGER_THRESHOLD,
     STARVATION_TICKS_TO_DEATH,
     TRADE_FOOD_AMOUNT,
@@ -516,6 +522,7 @@ class Population:
 
         self._update_roads(by_position, settlement, farms, roads)
         self._update_relationships(by_position)
+        self._maybe_teach_skills(by_position, rng)
         disease_events, died_of_disease = self._tick_disease(
             self.agents, by_position, has_hospital, settlement.temperament, rng,
         )
@@ -722,14 +729,20 @@ class Population:
             if consumed > 0:
                 # Harvest-minded traditions stretch what a harvest gives —
                 # culture with a real lever, see culture_effect_multiplier.
+                # H5: a farming-skilled harvester also stretches their own
+                # catch further, on top of (not instead of) the settlement-
+                # wide tech/tradition bonuses — see SKILL_FARMING_YIELD_BONUS.
+                farming_skill = agent.skills.get(SKILL_FARMING, 0.0)
                 relief = (
                     HARVEST_HUNGER_RELIEF * (consumed / HARVEST_AMOUNT) * _tech_factor(settlement)
                     * culture_effect_multiplier(settlement.culture_effects, "harvest")
+                    * (1.0 + farming_skill * SKILL_FARMING_YIELD_BONUS)
                 )
                 agent.hunger = max(0.0, agent.hunger - relief)
                 agent.inventory["food"] = min(
                     PERSONAL_FOOD_CAPACITY, agent.inventory.get("food", 0.0) + FORAGE_INVENTORY_SKIM
                 )
+                agent.skills[SKILL_FARMING] = min(1.0, farming_skill + SKILL_PRACTICE_GAIN)
                 return
 
         # A stocked granary is preferred over wild foraging too — a
@@ -1200,6 +1213,33 @@ class Population:
                 b.relationships[a.id] = min(
                     1.0, b.relationships.get(a.id, 0.0) + RELATIONSHIP_GAIN_PER_TICK_COLOCATED
                 )
+
+    @staticmethod
+    def _maybe_teach_skills(by_position: dict[tuple[int, int], list[Agent]], rng: random.Random) -> None:
+        """H5 (docs/ROADMAP.md "Phase H"): knowledge spreads through
+        teaching, not only solo practice (see the farming-skill gain in
+        `_maybe_forage`). A colocated pair with a wide enough skill gap
+        has a small per-tick chance of the more skilled agent teaching
+        the less skilled one — same colocation-driven contagion shape as
+        `_update_relationships`'s gain loop and dialogue's gossip
+        contagion. Currently only SKILL_FARMING exists; this loop is
+        already skill-name-agnostic (iterates whatever's in `.skills`),
+        so a second skill needs no changes here."""
+        for group in by_position.values():
+            if len(group) < 2:
+                continue
+            for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
+                for skill in (SKILL_FARMING,):
+                    a_level, b_level = a.skills.get(skill, 0.0), b.skills.get(skill, 0.0)
+                    gap = a_level - b_level
+                    if abs(gap) < SKILL_TEACHING_MIN_GAP:
+                        continue
+                    if rng.random() >= SKILL_TEACHING_CHANCE_PER_TICK:
+                        continue
+                    teacher, learner = (a, b) if gap > 0 else (b, a)
+                    learner.skills[skill] = min(
+                        teacher.skills[skill], learner.skills.get(skill, 0.0) + SKILL_TEACHING_GAIN
+                    )
 
     def carrying_capacity(
         self, settlement: Settlement, housing_capacity: int, weather_harsh: bool, predator_pressure: bool,
@@ -2177,6 +2217,9 @@ class Population:
             "avg_personal_food": round(avg_personal_food, 3),
             "sick_count": sick_count,
             "carrying_capacity": round(self.last_carrying_capacity, 1),
+            "avg_farming_skill": round(
+                sum(a.skills.get(SKILL_FARMING, 0.0) for a in self.agents) / total, 3
+            ) if total else 0.0,
         }
 
     # --- (de)serialization -----------------------------------------------------

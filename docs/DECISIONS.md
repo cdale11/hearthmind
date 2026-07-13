@@ -3884,3 +3884,78 @@ almost exactly — confirming the storm mechanism is now genuinely
 reachable, not just less obviously broken; a 6,000-tick full engine run
 (LLM disabled, seed 42) completed with no exceptions and fish nodes
 present in the live `resources` summary.
+
+## H2 v1 (belief lineage + family mirroring) and H5 v1 (knowledge/skills)
+
+Third and fourth implementation passes on Phase H, per explicit user
+instruction to proceed with H2 and H5 "in parallel" following H1/H3.
+
+**H2.** `Settlement.beliefs` entries already carried `confidence`/
+`formed_tick`/`revised_tick`/`revision_count` from earlier work — the
+roadmap's "minimal schema upgrade" was mostly already shipped. What
+was missing: a revision (`SimulationEngine`'s beliefs job `apply()`)
+overwrote `belief`/`confidence` in place, so a theory's prior text was
+gone the moment it was superseded — the opposite of "a theory's own
+past shows through." `llm.beliefs.push_belief_history` (called just
+before the overwrite) fixes this with a small capped
+(`BELIEF_HISTORY_MAX=3`) `entry["history"]` list — additive, no
+existing consumer of belief entries needed to change. Separately,
+`llm.beliefs.sync_family_beliefs` is the concrete H2/H3 crossover the
+Phase H roadmap section flagged (H3's "institution-scoped world
+models" note): any belief resolving to a living family
+(`subject_family_agent_ids`, already computed by the pre-existing
+`resolve_family_agent_ids`) now mirrors a small copy onto every
+overlapping `FAMILY` institution's own `Institution.beliefs`
+(`INSTITUTION_BELIEF_CAP=5`) — deliberately a *copy*, not a shared
+reference, so the settlement's version keeps evolving independently
+(further revision, eviction) of what a family retains. Both are wired
+into the existing beliefs job `apply()` in `simulation/engine.py`; no
+new LLM call, no new scheduling.
+
+Deliberately not attempted this pass (staged, per the roadmap's own
+sequencing note): personal per-agent beliefs reusing this same
+list-of-dicts shape, and cognition/goal-selection actually reading
+beliefs. Both remain open.
+
+**H5.** New `Agent.skills: dict[str, float]` (proficiency 0..1 per
+named skill), holding exactly one skill in v1 (`SKILL_FARMING`) —
+deliberately not a skill tree, since a single dimension is the smallest
+slice that makes "knowledge spreads through teaching/observation/
+apprenticeship" mechanically real without redesigning every
+profession-shaped goal at once. Two acquisition paths, matching the
+directive's own wording: solo practice ("observation"/learning by
+doing — `Population._maybe_forage`'s farm-harvest branch nudges the
+harvester's own proficiency by `SKILL_PRACTICE_GAIN` per successful
+harvest) and colocated teaching (`Population._maybe_teach_skills`,
+called from `tick()` right after `_update_relationships` — a colocated
+pair with skill gap >= `SKILL_TEACHING_MIN_GAP` has a small per-tick
+chance of the more-skilled agent teaching the less-skilled one,
+structurally identical to the existing relationship-gain/gossip-
+contagion colocation loops, so no new movement/goal wiring was
+needed). A mechanically real payoff, not a stub: a farming-skilled
+harvester's hunger relief scales by `1.0 + skill *
+SKILL_FARMING_YIELD_BONUS` (up to +25% at mastery), stacking with (not
+replacing) the pre-existing tech-level/tradition harvest multipliers.
+
+Deliberate scope boundary: `Settlement.tech_level` is NOT rewired to
+aggregate population skill in this pass, even though the roadmap's own
+H5 evolution point suggests it as the eventual direction — that's a
+balance-sensitive change touching an already-tuned invention/era-
+progression system, reserved for a later pass once a second skill
+exists to make "aggregate signal across skills" a meaningful design
+rather than a one-skill special case.
+
+Verified: direct unit-level scripts for `push_belief_history` (history
+caps correctly at 3, oldest dropped) and `sync_family_beliefs`
+(upserts rather than duplicates on repeat revision, leaves unrelated
+families untouched); a 2,000-tick colocated-pair teaching simulation
+(teacher at 0.8, learner at 0.0 — learner reached 0.66 over 44 teaching
+events; a matched pair below `SKILL_TEACHING_MIN_GAP` correctly taught
+nothing over 500 ticks); a direct harvest comparison on identical ready
+farm plots (unskilled: 0.5 hunger relief, correctly gained 0.01
+proficiency from the harvest itself; mastery-level 1.0 skill: 0.625
+relief, exactly the +25% bonus). A 6,000-tick full engine run (LLM
+disabled, seed 42, reproduction odds forced to 1.0 to exercise
+births/institutions/beliefs/skills together in one pass) completed
+with no exceptions, and a full `World.to_dict()`/`from_dict()`
+round-trip preserved `avg_farming_skill` byte-identically.

@@ -776,10 +776,12 @@ that should steer future sessions:
 ## Phase H: living knowledge, institutions, dynamic carrying capacity
 
 Explicit user directive (2026-07-13; user then explicitly requested "H1
-then H3" as implementation order — H1 shipped v0.45.0, H3 v1 (families)
-shipped v0.46.0, see docs/ROADMAP.md "Phase H" for the full per-item
-breakdown and docs/DECISIONS.md for the log entries): treat memory/
-belief/knowledge as an
+then H3" as implementation order, followed by "H2 and H5 in parallel"
+— H1 shipped v0.45.0, H3 v1 (families) shipped v0.46.0, H2 v1 (belief
+lineage + family-scoped mirroring) and H5 v1 (one skill, `SKILL_
+FARMING`) both shipped together v0.48.0, see docs/ROADMAP.md "Phase H"
+for the full per-item breakdown and docs/DECISIONS.md for the log
+entries): treat memory/belief/knowledge as an
 evolving ecosystem — spreading, competing, mutating, merging, and
 disappearing across generations, not static per-agent/per-settlement
 lists — with people, families, settlements, and eventually the Town

@@ -4,6 +4,58 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.48.0] — H2: belief lineage + family-scoped beliefs; H5: knowledge/skills
+
+### Added
+
+- **H2: belief revision no longer silently overwrites.**
+  `llm.beliefs.push_belief_history` snapshots a belief's pre-revision
+  `{belief, confidence, revised_tick}` into a new `entry["history"]`
+  list (capped at `BELIEF_HISTORY_MAX=3`) before the engine's beliefs
+  `apply()` overwrites it — a theory's own past is now visible, not
+  destroyed on every revision.
+- **H2/H3 crossover: family-scoped beliefs.** `llm.beliefs.
+  sync_family_beliefs` mirrors a small copy of any belief that resolves
+  to a living family (`subject_family_agent_ids`, from the existing
+  per-family belief resolution) onto every overlapping FAMILY
+  institution's own `Institution.beliefs` (capped at
+  `INSTITUTION_BELIEF_CAP=5`) — "the village believes the Hallow family
+  is reckless" is now readable from the family's own institution record,
+  not only a settlement-wide list a future consumer would have to
+  filter themselves. Wired into `SimulationEngine`'s existing beliefs
+  job `apply()`; no new LLM call.
+- **H5: knowledge as a system distinct from beliefs.** New `Agent.
+  skills: dict[str, float]` (proficiency 0..1 per named skill) —
+  deliberately separate from `Settlement.beliefs`/`Agent.memories`
+  (interpretive, revisable) since a skill is procedural: applied
+  correctly or not. v1 ships exactly one skill, `SKILL_FARMING`, gained
+  two ways: slow solo practice (`Population._maybe_forage`'s harvest
+  branch nudges the harvester's own proficiency up by
+  `SKILL_PRACTICE_GAIN` per successful harvest — "observation"/learning
+  by doing) and faster colocated teaching (new `Population.
+  _maybe_teach_skills`, same contagion shape as relationship gain/
+  gossip contagion: a colocated pair with a wide enough skill gap has a
+  small per-tick chance of the more-skilled agent teaching the less-
+  skilled one). Mechanically real, not a stub: a farming-skilled
+  harvester gets up to +25% hunger relief per harvest
+  (`SKILL_FARMING_YIELD_BONUS`), stacking with (not replacing) the
+  existing tech-level/tradition harvest bonuses. `summary()` gained
+  `avg_farming_skill`.
+
+Verified with direct unit-level scripts: `push_belief_history`/
+`sync_family_beliefs` (history caps correctly at 3, family beliefs
+upsert rather than duplicate, unrelated families untouched); a 2,000-
+tick colocated-pair teaching simulation (skill 0.8 teacher, 0.0 learner
+— learner reached 0.66 proficiency, 44 teaching events, a below-
+threshold gap correctly taught nothing); a direct harvest comparison
+(unskilled harvester: 0.5 hunger relief and gained 0.01 proficiency
+from the harvest itself; a mastery-level (1.0) harvester on an
+identical plot: 0.625 relief — exactly the +25% bonus). A 6,000-tick
+full engine run (LLM disabled, seed 42) with reproduction odds forced
+to 1.0 confirmed no exceptions with beliefs/institutions/skills all
+live in the tick loop, and a full `World.to_dict()`/`from_dict()`
+round-trip preserved `avg_farming_skill` byte-identically.
+
 ## [0.47.0] — Wind/storm thresholds fixed; fishing added
 
 ### Fixed

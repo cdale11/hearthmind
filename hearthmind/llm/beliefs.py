@@ -17,10 +17,27 @@ not just raw stats — see `SimulationEngine._maybe_schedule_beliefs`.
 """
 from __future__ import annotations
 
+from hearthmind.settlement.institutions import Institution, InstitutionKind
+
 MAX_BELIEFS = 12
 """Cap on `Settlement.beliefs` — the lowest-confidence entry is evicted
 when a new one would exceed this, so a long-running world's accumulated
 theories stay a curated top-N, not an ever-growing list."""
+
+BELIEF_HISTORY_MAX = 3
+"""H2 (docs/ROADMAP.md "Phase H"): a revision used to overwrite a
+belief's `belief`/`confidence` in place, silently discarding what the
+village used to think. `entry["history"]` (see `push_belief_history`)
+keeps the last few superseded versions instead — "revise... imperfect
+theories" is more legible when the theory's own past shows through.
+Capped small (unlike MAX_BELIEFS itself, this is per-belief and every
+active belief already counts against that cap) — enough to see a
+theory's arc, not a full audit log."""
+
+INSTITUTION_BELIEF_CAP = 5
+"""Per-family cap on `Institution.beliefs` (H2/H3 crossover) — mirrors
+MAX_BELIEFS' eviction shape at a smaller scale, since a family is a
+much narrower unit than the whole settlement."""
 
 SYSTEM_PROMPT = (
     "You are the quiet, slowly-forming understanding a small simulated village "
@@ -170,3 +187,49 @@ def parse_belief(result: dict, fallback: dict, existing_count: int) -> dict:
         "confidence": round(confidence, 3),
         "revises": revises,
     }
+
+
+def push_belief_history(entry: dict, tick: int) -> None:
+    """H2: called on an existing entry just before a revision overwrites
+    `belief`/`confidence`, so the superseded version isn't simply lost.
+    Mutates `entry` in place (same convention as the engine's revision
+    apply() already uses)."""
+    history = entry.setdefault("history", [])
+    history.append({
+        "belief": entry["belief"], "confidence": entry["confidence"], "revised_tick": tick,
+    })
+    if len(history) > BELIEF_HISTORY_MAX:
+        del history[: len(history) - BELIEF_HISTORY_MAX]
+
+
+def sync_family_beliefs(entry: dict, institutions: list[Institution]) -> None:
+    """H2/H3 crossover: when a settlement-wide belief resolves to a
+    living family (`entry["subject_family_agent_ids"]`, from
+    `resolve_family_agent_ids`), mirror a small copy of it onto every
+    FAMILY institution that overlaps — so "the village believes the
+    Hallow family is reckless" is readable from the family's own
+    `Institution.beliefs`, not only via a settlement-wide list a future
+    consumer would have to filter themselves. Deliberately a *copy*, not
+    a shared reference: the settlement's version keeps evolving
+    (further revisions, eviction) independently of what a family
+    retains. No-op if the belief didn't resolve to any family."""
+    family_ids = entry.get("subject_family_agent_ids") or []
+    if not family_ids:
+        return
+    family_set = set(family_ids)
+    tick = entry.get("revised_tick", entry.get("formed_tick", 0))
+    for inst in institutions:
+        if inst.kind is not InstitutionKind.FAMILY or not (inst.member_agent_ids & family_set):
+            continue
+        copy = {
+            "subject": entry["subject"], "belief": entry["belief"],
+            "confidence": entry["confidence"], "tick": tick,
+        }
+        existing = next((b for b in inst.beliefs if b.get("subject") == entry["subject"]), None)
+        if existing is not None:
+            existing.update(copy)
+            continue
+        inst.beliefs.append(copy)
+        if len(inst.beliefs) > INSTITUTION_BELIEF_CAP:
+            weakest = min(inst.beliefs, key=lambda b: b.get("confidence", 0.0))
+            inst.beliefs.remove(weakest)

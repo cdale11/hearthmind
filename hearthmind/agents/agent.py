@@ -287,6 +287,39 @@ someone they've barely met — and a skeptical village can't be swayed.
 See Population.apply_dialogue, docs/DECISIONS.md, architecture-review
 implementation pass (gossip contagion)."""
 
+SKILL_FARMING = "farming"
+"""The only named skill in H5 v1 — see `Agent.skills`. A single
+dimension deliberately, not a skill tree: this is the smallest slice
+that makes "knowledge spreads through teaching/observation/
+apprenticeship" mechanically real (practiced yield bonus + colocated
+teaching) without redesigning every profession-shaped goal at once."""
+
+SKILL_PRACTICE_GAIN = 0.01
+"""Proficiency gained per successful farm harvest by the harvester
+themself — "observation"/learning-by-doing. Small: ~100 harvests to go
+from 0 to full mastery, a genuine multi-season apprenticeship, not an
+instant unlock."""
+
+SKILL_TEACHING_CHANCE_PER_TICK = 0.02
+SKILL_TEACHING_GAIN = 0.015
+SKILL_TEACHING_MIN_GAP = 0.15
+"""A colocated pair where one agent's farming proficiency is at least
+SKILL_TEACHING_MIN_GAP above the other's has a small per-tick chance of
+the more skilled one teaching — the learner's proficiency steps toward
+the teacher's by SKILL_TEACHING_GAIN, same "small nudge, real
+consequence, colocation-driven" shape as relationship gain and gossip
+contagion above. Faster than solo practice (SKILL_PRACTICE_GAIN),
+consistent with teaching being a genuinely faster way to learn than
+trial and error alone."""
+
+SKILL_FARMING_YIELD_BONUS = 0.25
+"""At full mastery (proficiency 1.0), a farming-skilled harvester gets
+up to +25% hunger relief per harvest — see Population._maybe_forage.
+Same order of magnitude as TECH_BONUS_PER_LEVEL's per-invention harvest
+bonus (15%), deliberately a bit higher since this is a per-person
+ceiling requiring real practice/apprenticeship time, not a one-off
+settlement-wide unlock."""
+
 
 @dataclass
 class Agent:
@@ -340,6 +373,16 @@ class Agent:
     agent's own cognition prompt (see hearthmind/llm/cognition.py), so an
     agent's own history can shape its next goal. See docs/DECISIONS.md,
     relationship-memory pass."""
+    skills: dict[str, float] = field(default_factory=dict)
+    """H5 (docs/ROADMAP.md "Phase H"): procedural, teachable know-how —
+    named skill -> proficiency (0..1) — deliberately separate from
+    `Settlement.beliefs`/`Agent.memories`. A belief is interpretive and
+    revisable ("the harvest failed because the town is unlucky");
+    knowledge here is procedural and either applied correctly or not
+    ("how to work a farm plot"). v1 has exactly one skill, `"farming"`
+    (SKILL_FARMING), gained slowly through an agent's own practice
+    (harvesting) and spread faster between colocated agents through
+    teaching — see Population._maybe_forage/_maybe_teach_skills."""
 
     def to_dict(self) -> dict:
         return {
@@ -361,6 +404,7 @@ class Agent:
             "goal": self.goal.value,
             "goal_reason": self.goal_reason,
             "memories": list(self.memories),
+            "skills": {k: round(v, 4) for k, v in self.skills.items()},
         }
 
     @classmethod
@@ -385,4 +429,5 @@ class Agent:
             goal=AgentGoal(data.get("goal", AgentGoal.WANDER.value)),
             goal_reason=data.get("goal_reason", ""),
             memories=list(data.get("memories", [])),
+            skills=dict(data.get("skills", {})),
         )

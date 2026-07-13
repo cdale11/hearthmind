@@ -496,7 +496,7 @@ bounded 0.5x-1.5x multiplier on the housing base, clamped to
 directly, and is exposed via `summary()["carrying_capacity"]`. See
 docs/DECISIONS.md, "H1: dynamic carrying capacity."
 
-### H2. Beliefs -> world models
+### [x] H2. Beliefs -> world models (v1: history + family-scoped mirroring)
 
 Current state: `Settlement.beliefs` (`llm/beliefs.py`) is a small, capped,
 settlement-level list of independent theory-strings, each optionally resolved
@@ -527,6 +527,18 @@ Evolution point, staged rather than a single rewrite:
    dialogue/town-brain; extending that consumption to cognition goal
    selection itself (an agent avoiding a place its beliefs mark dangerous)
    is the concrete next mechanical payoff, not just more belief text.
+
+**Shipped, v0.48.0 (v1: schema stage 1 only).** `llm.beliefs.
+push_belief_history` keeps a capped (`BELIEF_HISTORY_MAX=3`) log of a
+belief's pre-revision text/confidence instead of silently overwriting
+it — stage 1 of the staged plan above, done within the existing
+list-of-dicts shape. `llm.beliefs.sync_family_beliefs` is the H2/H3
+crossover: any belief resolving to a living family now mirrors onto
+that FAMILY institution's own `Institution.beliefs` (capped at
+`INSTITUTION_BELIEF_CAP=5`). Stages 2-4 (personal per-agent beliefs
+reusing this shape, cognition consuming beliefs for goal selection) are
+explicitly not attempted this pass — the roadmap's own staging note
+above still applies to what's left.
 
 ### [x] H3. Institutions as first-class entities (v1: families)
 
@@ -582,7 +594,7 @@ first place this project would need a genuine multi-step production graph;
 scope that as its own dedicated session per the project's "one coherent
 milestone at a time" rule, not folded into a batch with unrelated systems.
 
-### H5. Knowledge as a system distinct from beliefs
+### [x] H5. Knowledge as a system distinct from beliefs (v1: one skill)
 
 Current state: doesn't exist as a separate axis. `tech_level` (buildings.py)
 is a settlement-wide scalar unlocked by rare LLM "invention" rolls —
@@ -602,6 +614,20 @@ rather than an independently-rolled scalar — ties invention mechanics to
 actual population knowledge instead of a disconnected dice roll, a concrete
 emergence win (a settlement that loses its few skilled elders to plague
 should visibly regress, not just narratively).
+
+**Shipped, v0.48.0 (v1: `SKILL_FARMING` only).** `Agent.skills` (dict,
+proficiency 0..1 per named skill) makes the interpretive-vs-procedural
+distinction above real code. Gained by solo practice
+(`Population._maybe_forage`'s harvest branch) and spread faster by
+colocated teaching (`Population._maybe_teach_skills`, same contagion
+shape as relationship gain/gossip contagion). Mechanically real: a
+skilled harvester gets up to +25% hunger relief
+(`SKILL_FARMING_YIELD_BONUS`), stacking with the existing tech-level/
+tradition harvest bonuses. `tech_level` is deliberately NOT yet
+rewired to aggregate population skill (this section's own suggested
+future direction) — reserved for a later pass once a second skill
+exists to make "aggregate signal" a meaningful design, not a rewrite
+of a single-skill system.
 
 ### H6. Psychology: habits, identity, values, trauma, ambition
 
