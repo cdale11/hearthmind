@@ -105,6 +105,20 @@ main {
   overflow-y: auto;
 }
 
+/* Fixed-height list regions whose item count grows slowly over a run
+   (beliefs/traditions/inventions/festivals/infrastructure) — without a
+   floor, a panel's box resizes every time an item is added/removed,
+   shoving every panel stacked below it up or down each tick ("tabs
+   jumping around"). Matches max-height above so the box is a stable
+   size from the first tick, not just once it happens to fill up.
+   Deliberately NOT applied to every `.panel` — compact ones (Town
+   brain, Recent events) already hold a naturally stable height and
+   forcing them to 260px would trade the jump for constant dead
+   whitespace, a worse regression. */
+#beliefs-list, #traditions-list, #inventions-list, #festivals-list, #infrastructure-list {
+  min-height: 200px;
+}
+
 #event-log, #traditions-list, #infrastructure-list { list-style: none; margin: 0; padding: 0; }
 #event-log li, #traditions-list li, #infrastructure-list li {
   padding: 4px 0;

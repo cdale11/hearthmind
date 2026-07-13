@@ -129,31 +129,20 @@ class Config:
     still has an instant deterministic fallback either way). See
     docs/DECISIONS.md, "dialogue quality follow-up" (qwen3.5:2b
     diagnostics), and D5 for the original version of this rationale."""
-    llm_max_concurrent: int = 1
-    """How many LLM requests may be in flight at once. Lowered 4 -> 2 in
-    v0.43.0 (the v0.39.0 architecture review's own recommendation,
-    finally acted on) after a live report of heavy swap and an
-    unresponsive 8GB system within an hour at only 100 population, LLM
-    enabled; the symptom recurred even at 2, so dropped again to the
-    floor, 1, in v0.43.1 (fully serialized — never more than one Ollama
-    generate call in flight system-wide). Each in-flight call holds its
-    own KV-cache allocation in the *separate* Ollama server process —
-    invisible to this process's own RSS (the v0.42.0 relationship-leak
-    probe measured only this process and stayed under 100MB), but real
-    system memory pressure all the same. "Not budget-constrained on the
-    user's hardware" (the reasoning that raised this to 4 in E2) was true
-    for wall-clock throughput but not for concurrent memory footprint —
-    those are different constraints. Trade-off, stated plainly: on an 8GB
-    machine, staying responsive is worth more than LLM throughput: every
-    LLM-driven decision already has a deterministic fallback (the
-    liveness contract this project has held since B1), so a saturated
-    single lane degrades *richness* (more agents reason via fallback,
-    more often) rather than correctness or uptime. If a live run still
-    swaps at max_concurrent=1, the next lever is a smaller/more quantized
-    model or a shorter `llm_keep_alive`, not concurrency (already at its
-    floor). See also `llm_num_ctx`/`llm_num_predict`/`llm_keep_alive`
-    below, which bound the *per-call* and *idle* memory this lever no
-    longer needs to multiply."""
+    llm_max_concurrent: int = 2
+    """How many LLM requests may be in flight at once. Raised back 1 -> 2
+    in v0.44.0 per explicit user instruction: LLM richness is
+    non-negotiable — concurrency is not the lever for memory pressure
+    beyond this floor, `llm_num_ctx`/`llm_num_predict`/`llm_keep_alive`
+    are. History: 4 (E2) -> 2 (v0.43.0, the v0.39.0 architecture review's
+    own recommendation) -> 1 (v0.43.1, after the symptom recurred at 2)
+    -> back to 2 (v0.44.0). Each in-flight call holds its own KV-cache
+    allocation in the *separate* Ollama server process — invisible to
+    this process's own RSS, but real system memory pressure all the
+    same; 2 is the floor this project will trade for memory headroom.
+    Further memory reduction must come from elsewhere (shorter
+    `llm_keep_alive`, a smaller/more quantized model, or Python-side
+    savings) — see docs/DECISIONS.md, "LLM concurrency floor restored.\""""
     llm_num_ctx: int = 2048
     """Explicit Ollama context-window cap sent with every request
     (v0.43.0). Previously unset, so Ollama silently used its own default —

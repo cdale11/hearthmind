@@ -3484,3 +3484,138 @@ collapses) and cumulative starvation deaths stayed at 2-3 for the
 entire run so far, against baseline/fix1-only's 12-17 at the same
 ticks — an order-of-magnitude improvement, not a marginal one.
 `python3 -m py_compile` on both touched modules passed throughout.
+
+## LLM concurrency floor restored to 2 (v0.44.0)
+
+Explicit user instruction, stated plainly: never trade off LLM use
+against a deterministic fallback — concurrency is not the memory
+lever. `llm_max_concurrent` raised 1 -> 2 (its floor from v0.43.0,
+before v0.43.1 dropped it further to 1). The memory-reduction intent
+behind the earlier drop to 1 is preserved through the levers that
+don't cost LLM richness: `llm_num_ctx=2048`/`llm_num_predict=512`
+(v0.43.0, bound per-call memory) and `llm_keep_alive="3m"` (v0.43.1,
+bounds idle memory). If a live run still shows memory pressure at
+concurrency=2 with those bounds in place, the next lever is a smaller/
+more quantized Ollama model, not concurrency — concurrency stays at 2
+going forward per this instruction.
+
+## Phase G completeness audit (v0.44.0)
+
+User asked to "complete Phase G." Investigated via docs/ROADMAP.md's
+full Phase G section cross-referenced against CLAUDE.md's Phase G
+write-ups and the actual code (settlement/buildings.py's temperament/
+omen/trust/player-standing/shrine-interaction constants and methods,
+config.py's `phase_g_intensity`, engine.py's wiring). Every roadmap
+checklist item is `[x]` and every claimed-shipped mechanism is verified
+present in code — no discrepancy found. The one remaining unchecked
+item is prose, not a checkbox: "no player-facing acknowledgment that
+this system exists" — explicitly flagged in the roadmap itself as
+deliberate, permanent design intent (Phase G's whole premise is
+staying ambiguous), not an oversight. No code changes made; nothing to
+implement.
+
+## Population control: disease mechanism (v0.44.0)
+
+User: population is hitting the hard 400 cap, which (per the
+architecture review, still-open finding) causes the town brain's
+fallback priority to have nowhere useful to steer once "food" no
+longer applies — asked for an organic population-control mechanism
+like disease, consistent with the standing design priority (deterministic
+engine models objective physical reality; judgment goes to the LLM —
+disease transmission/lethality is physical fact, not interpretation,
+so this belongs in `agents/population.py`, no LLM involvement).
+
+Design: `OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK = 1e-7`, scaled by
+current population and `OUTBREAK_CROWDING_MULTIPLIER = 6.0` while
+`Population.tick`'s existing `crowded` flag (population > housing
+capacity, the same signal `CROWDING_ENERGY_MULTIPLIER` reads) is true —
+deliberately reuses that housing-pressure computation rather than a
+second, disconnected density metric, so disease risk is highest
+exactly where the population is straining its housing, mirroring real
+crowd-disease epidemiology. At ~35,040 ticks/year (96 ticks/day x 365
+days), this targets roughly 1 spontaneous case/year at population 200
+uncrowded versus ~8/year at population 400 crowded — rare at low/mid
+population, a real and increasingly-felt pressure specifically as a
+settlement approaches the cap.
+
+`SICKNESS_DEATH_CHANCE_PER_TICK = 0.0001` over `SICKNESS_DURATION_
+TICKS = 800` targets an ~8% case-fatality rate per bout (0.0001 x 800),
+halved by a standing hospital (`SICKNESS_HOSPITAL_KILL_CHANCE_
+REDUCTION = 0.3`, same magnitude/rationale as predator-attack
+lethality's `HOSPITAL_KILL_CHANCE_REDUCTION`) and nudged by settlement
+temperament (reusing `TEMPERAMENT_KILL_CHANCE_INFLUENCE`, same as
+predator attacks — Phase G's existing subtle-nudge discipline, not a
+new lever). `SICKNESS_TRANSMISSION_CHANCE_PER_TICK = 0.01` per
+colocated sick-healthy pair per tick — high enough that constant
+colocation over a full bout would make infection near-certain, but
+real agent movement means realized spread is textured rather than an
+instant sweep. Sick agents also get `SICKNESS_ENERGY_DRAIN_MULTIPLIER
+= 1.3`/`SICKNESS_HUNGER_RATE_MULTIPLIER = 1.2` (same "small nudge, real
+consequence" magnitude as `CROWDING_ENERGY_MULTIPLIER`) — illness has a
+felt mechanical cost independent of the death roll. Deliberately no
+immunity/reinfection state in v1: a recovered agent (`Agent.sick_ticks`
+reset to 0) is immediately susceptible again — smallest-coherent-
+milestone scoping, consistent with every other feature in this
+project; a future pass could add temporary immunity if repeated
+reinfection waves prove undesirable in practice.
+
+`town_brain.fallback_priority` gained a real trigger: `sick_count /
+total > 0.05 and hospitals == 0` fires "health" before falling through
+to the old, very narrow "a predator has ever killed someone and there
+are zero hospitals" arm. `town_brain.build_prompt` also now mentions
+the current sick count so the real LLM call sees it too. This is the
+direct answer to "town brain will get stuck at food" — previously
+"health" was nearly unreachable in practice; now a real epidemic
+provides a competing, legitimate civic signal.
+
+Verified via direct unit-level checks (not a full engine soak, given
+time cost near the population cap observed in the prior investigation):
+20,000 independent trials of `_maybe_outbreak` at population=400,
+crowded=True fired 4 times — 2.0x10^-4 empirical rate against a
+computed target of `1e-7 * 400 * 6 = 2.4e-4`, matching within sampling
+noise. A 3,000-tick `_tick_disease` run seeded with one sick agent
+among 20 (no hospital) produced 73 transmission events, 54 recoveries,
+and 2 cumulative deaths among the 20-agent group (reinfection waves
+compound the raw per-bout ~8% CFR since there's no immunity) — the
+full cycle (spread, recovery, death) all fire correctly. A 5,000-tick
+full-engine run confirmed `sick_count`/`deaths_disease` appear
+correctly in `Population.summary()` and survive a snapshot round-trip
+(`to_dict`/`from_dict`), and `full_diagnostics()` runs without error.
+`python3 -m py_compile` on all touched modules.
+
+## Era progression tuning (v0.44.0)
+
+User: never observed era advancement (industrial -> electrical ->
+modern -> digital) in a live run. Investigated `era_for_tech_level`/
+`ERA_TECH_THRESHOLDS` (settlement/buildings.py) and the invention
+mechanism (`llm/invention.py`, scheduling in `simulation/engine.py`):
+confirmed no hidden gating bug — the only preconditions are a named
+settlement (trivial, true after the first building stands) and a
+prosperity bar (`currency >= INVENTION_CURRENCY_THRESHOLD` OR
+`materials >= INVENTION_MATERIALS_FRACTION * MATERIALS_CAPACITY`),
+both easily reachable in early game. The actual cause is pure rarity
+compounding against steep thresholds: `INVENTION_CHANCE_PER_SEASON =
+0.15`, rolled 4x/year, gives an expected ~5 in-game years to reach
+`electrical` (tech_level 3) and ~20 years to `digital` (tech_level
+12) — plausibly longer than most live observation sessions actually
+run, which reads as "stuck," not "working but slow."
+
+Raised `INVENTION_CHANCE_PER_SEASON` to 0.2 — annual invention odds
+when prosperous go from ~48% to ~59% (`1-(1-p)^4`), bringing expected
+time to `electrical`/`digital` down to roughly ~3.75/~15 years. Still
+a genuine long-run milestone (the era thresholds themselves are
+untouched, deliberately — CLAUDE.md's era-progression section already
+states "digital... is a long-run milestone, not a fast unlock," and
+this tuning doesn't contradict that framing, just makes the milestone
+reachable within a realistic session rather than requiring an
+unrealistically long one). Also noted: the v0.43.2 HUT-decay/crowding
+fixes are an incidental second contributor here — a settlement whose
+materials stop crashing near the population cap clears the prosperity
+gate more reliably too, so this session's earlier fix and this
+session's tuning compound in the same direction. No unit-level
+verification beyond re-reading the roll/gate code path (no live Ollama
+available in this environment, and a multi-year soak run to observe
+an actual era transition was judged not worth the wall-clock cost
+given the change is a single, well-understood constant); the
+before/after expected-time arithmetic above is straightforward given
+the confirmed mechanism.

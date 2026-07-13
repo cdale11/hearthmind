@@ -4,6 +4,91 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.44.0] — Disease as a population-control valve; LLM concurrency restored to 2; UI flicker fixed; era progression tuned
+
+Five explicit user requests in one batch: never trade LLM richness for
+memory (concurrency floor raised back 1 -> 2), a Phase G completeness
+check, a UI flicker/layout-jump fix, a real population-control
+mechanism now that runs reach the 400 cap, and a look at why era
+progression (industrial -> electrical -> modern -> digital) was never
+observed live.
+
+### Changed
+
+- **`llm_max_concurrent` raised 1 -> 2.** Explicit instruction: LLM use
+  is non-negotiable, memory optimization must come from elsewhere.
+  `llm_num_ctx`/`llm_num_predict`/`llm_keep_alive` (v0.43.0/v0.43.1)
+  remain the memory levers; concurrency will not be lowered below 2
+  again. See docs/DECISIONS.md, "LLM concurrency floor restored."
+- **Phase G: audited, confirmed complete.** Every docs/ROADMAP.md Phase
+  G checklist item is already `[x]` and verified present in code
+  (temperament, omens, intensity knob, trust lever, player standing,
+  shrine/omen interaction, omen memory). The one remaining "not built"
+  note (no player-facing acknowledgment the system exists) is a
+  deliberate permanent design choice, not a gap. No code changes were
+  needed or made.
+- **`INVENTION_CHANCE_PER_SEASON` raised 0.15 -> 0.2**, after measuring
+  that reaching `electrical` took ~5 in-game years on average and
+  `digital` ~20 — plausibly longer than most live sessions run, hence
+  never being observed. Now roughly ~3.75/~15 years — still a genuine
+  long-run milestone (era thresholds themselves untouched), just
+  observable within a realistic play/observation session. The v0.43.2
+  HUT-decay/crowding fixes were an incidental beneficiary too: a
+  settlement whose materials no longer crash near the population cap
+  also clears the invention prosperity gate more reliably.
+
+### Added
+
+- **Disease: a real, deterministic population-control mechanism.**
+  `Population._maybe_outbreak` rolls a small, settlement-wide chance
+  each tick for a new spontaneous illness case, scaled by population
+  size and boosted while the settlement is crowded (reusing the same
+  housing-pressure signal that already drives `CROWDING_ENERGY_
+  MULTIPLIER`) — real epidemiology: crowd diseases originate and
+  spread more readily in dense, under-housed populations, so this
+  engages exactly where the hard 400 cap was creating an artificial,
+  invisible ceiling instead of a believable one. `Population.
+  _tick_disease` advances every sick agent (`Agent.sick_ticks`) each
+  tick: person-to-person transmission to colocated healthy agents,
+  natural recovery after `SICKNESS_DURATION_TICKS`, and a per-tick
+  death chance calibrated to roughly an 8% case-fatality rate per bout,
+  halved by a standing hospital (mirroring predator-attack lethality's
+  `HOSPITAL_KILL_CHANCE_REDUCTION`) and nudged by settlement
+  temperament. Sick agents also drain energy/hunger faster
+  (`SICKNESS_ENERGY_DRAIN_MULTIPLIER`/`SICKNESS_HUNGER_RATE_
+  MULTIPLIER`), so illness has a felt mechanical cost, not just a
+  death roll. New `deaths_disease` counter, `sick_count` in population
+  summary/diagnostics, `illness`/`recovery` event categories (🤒/💊 in
+  the UI), and a consequences-overlay line ("Sickness is spreading
+  through the village") once >5% of the population is sick.
+  Deliberately no immunity/reinfection modeling in v1 — a recovered
+  agent is immediately susceptible again, same "smallest coherent
+  milestone" scoping as everywhere else in this project.
+- **Town brain gets a real disease-driven "health" priority trigger.**
+  `town_brain.fallback_priority` now checks actual illness burden
+  (>5% of population sick, no hospital) instead of only the old, very
+  narrow "a predator has ever killed someone and there's no hospital"
+  arm — and the LLM prompt itself now mentions the current sick count.
+  Directly addresses the standing "town brain gets stuck on food"
+  complaint: a real epidemic can now surface a competing, equally
+  legitimate civic priority.
+
+### Fixed
+
+- **UI: sidebar panels "jumping around" / flickering.** Root cause
+  (confirmed by direct investigation): variable-length list panels
+  (beliefs/traditions/inventions/festivals/infrastructure) had no
+  minimum height, so every tick's list rebuild could resize the panel
+  and shove everything stacked below it up or down — plus those lists
+  were fully rebuilt via `innerHTML` on *every* tick regardless of
+  whether the content actually changed, losing any manual scroll
+  position in the process. Fixed with a CSS `min-height` matching the
+  existing `max-height` cap on the five affected list elements, and a
+  new `setInnerHTMLIfChanged` helper (`interface/static/app.js`) that
+  skips the DOM write entirely when the new markup is identical to
+  what's already rendered — cuts needless per-tick reflow and stops
+  scroll position from resetting on unchanged data.
+
 ## [0.43.2] — Fixed: unpaid civic upkeep + lockstep building decay were collapsing HUT housing near the population cap
 
 Root-cause investigation into a live report of population "still

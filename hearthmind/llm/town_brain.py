@@ -52,9 +52,13 @@ def build_prompt(
         "\nThe village has grown a little wary of the outside hand that occasionally nudges it."
         if standing < -0.4 else ""
     )
+    sick_count = population_summary.get("sick_count", 0)
+    sickness_text = (
+        f", {sick_count} currently ill" if sick_count else ""
+    )
     return (
         f"The village of {settlement_name}: population {population_summary.get('total', 0)} "
-        f"(avg hunger {population_summary.get('avg_hunger', 0):.2f}), "
+        f"(avg hunger {population_summary.get('avg_hunger', 0):.2f}{sickness_text}), "
         f"materials {settlement_summary.get('materials', 0):.1f}/{settlement_summary.get('materials_capacity', 0):.0f}, "
         f"currency {settlement_summary.get('currency', 0):.1f}/{settlement_summary.get('currency_capacity', 0):.0f}, "
         f"education {settlement_summary.get('education_level', 0):.2f}, "
@@ -80,6 +84,8 @@ def fallback_priority(population_summary: dict, settlement_summary: dict) -> dic
         if settlement_summary.get("currency_capacity") else 0.0
     )
     deaths_predator = population_summary.get("deaths_predator", 0)
+    sick_count = population_summary.get("sick_count", 0)
+    total = population_summary.get("total", 0) or 1
     hospitals = settlement_summary.get("hospitals", 0)
     schools = settlement_summary.get("schools", 0)
     granary_food = settlement_summary.get("granary_food", 0.0)
@@ -97,6 +103,14 @@ def fallback_priority(population_summary: dict, settlement_summary: dict) -> dic
         granary_capacity and granary_food / granary_capacity < 0.2 and avg_hunger > 0.3
     ):
         return {"priority": "food", "rationale": "Too many go hungry — the village needs food security."}
+    # A real, measurable illness burden (not just "no hospital yet and a
+    # predator once got someone") — sick_count is population.py's
+    # disease mechanic (see docs/DECISIONS.md, "population control:
+    # disease" pass), so this arm now fires whenever illness is actually
+    # spreading, before the food/hunger check would otherwise dominate
+    # every season a settlement happens to be lean on granaries too.
+    if sick_count / total > 0.05 and hospitals == 0:
+        return {"priority": "health", "rationale": "Illness is spreading and there is no hospital to turn to."}
     if deaths_predator > 0 and hospitals == 0:
         return {"priority": "health", "rationale": "No hospital yet, and the village has already lost people to danger."}
     if currency_frac < 0.2:

@@ -217,6 +217,63 @@ Raised rather than removed so a tuning mistake in the new food loop
 can't take the process down. See docs/DECISIONS.md, A2 and the
 architecture-review implementation pass."""
 
+OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK = 1e-7
+"""Background per-agent-tick chance of a single spontaneous illness case
+appearing (Population._maybe_outbreak rolls this once per tick, scaled by
+current population and doubled by OUTBREAK_CROWDING_MULTIPLIER while the
+settlement is crowded). At ~35,040 ticks/year (see time_system.py), this
+is roughly 1 spontaneous case/year at population 200 uncrowded, versus
+roughly 8/year at population 400 crowded — deliberately rare at low/mid
+population and a real, felt pressure specifically where growth is
+already straining housing. v0.44.0, "population control: disease" pass
+— see docs/DECISIONS.md. The deterministic engine models the physical
+fact of a pathogen taking hold; nothing here is LLM-judged, consistent
+with disease being objective reality, not interpretation."""
+
+OUTBREAK_CROWDING_MULTIPLIER = 6.0
+"""Applied to OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK while the
+settlement is crowded (same flag CROWDING_ENERGY_MULTIPLIER already
+reads — population exceeding housing capacity) — real epidemiology:
+crowd diseases originate and spread more readily in dense, under-housed
+populations. Deliberately reuses the existing housing-pressure signal
+rather than a second, disconnected density metric."""
+
+SICKNESS_TRANSMISSION_CHANCE_PER_TICK = 0.01
+"""Chance a sick agent infects a colocated healthy agent, per tick they
+share a tile. Compounds with how often agents actually end up colocated
+(constant colocation over a full SICKNESS_DURATION_TICKS bout would make
+infection near-certain; real movement makes realized spread textured
+rather than an instant sweep) — see Population._tick_disease."""
+
+SICKNESS_DURATION_TICKS = 800
+"""Ticks a bout of sickness lasts before natural recovery, absent death
+— roughly 8 sim-days at the default pacing."""
+
+SICKNESS_DEATH_CHANCE_PER_TICK = 0.0001
+"""Per-tick chance of dying while sick, without a hospital — chosen so
+the case-fatality rate over a full SICKNESS_DURATION_TICKS bout is
+roughly 8% (0.0001 x 800 ticks), reduced by SICKNESS_HOSPITAL_KILL_
+CHANCE_REDUCTION with a standing hospital and nudged by temperament
+(TEMPERAMENT_KILL_CHANCE_INFLUENCE), same shape as predator-attack
+lethality. A real, felt population check without being a devastating
+plague — see docs/DECISIONS.md."""
+
+SICKNESS_HOSPITAL_KILL_CHANCE_REDUCTION = 0.3
+"""Fractional reduction to SICKNESS_DEATH_CHANCE_PER_TICK, settlement-
+wide, once at least one hospital is standing — same magnitude and
+rationale as HOSPITAL_KILL_CHANCE_REDUCTION for predator attacks: care
+exists and measurably improves survival odds. Gives the town brain's
+"health" priority (already mapped to HOSPITAL, see settlement/
+buildings.py's _PRIORITY_TO_KIND) a mechanical reason to matter beyond
+the rare no-hospital-yet-and-someone-died-to-a-predator fallback arm."""
+
+SICKNESS_ENERGY_DRAIN_MULTIPLIER = 1.3
+SICKNESS_HUNGER_RATE_MULTIPLIER = 1.2
+"""A sick agent feels it mechanically, not just narratively — faster
+energy loss and hunger accrual while unwell. Same "small nudge, real
+consequence" magnitude as CROWDING_ENERGY_MULTIPLIER. See
+Population._update_needs."""
+
 GOSSIP_OPINION_CONTAGION = 0.15
 GOSSIP_OPINION_MAX_STEP = 0.05
 """When a rumor names a specific third villager, each listener's
@@ -243,6 +300,14 @@ class Agent:
     age_ticks: int = 0
     max_age_ticks: int = MAX_LIFESPAN_TICKS
     starving_ticks: int = 0
+    sick_ticks: int = 0
+    """0 = healthy. >0 = ticks spent in the current bout of illness so
+    far (governs recovery via SICKNESS_DURATION_TICKS and is reset to 0
+    on recovery or death) — see Population._maybe_outbreak/_tick_disease.
+    Deliberately no separate immunity/reinfection state in v1: a
+    recovered agent is immediately susceptible again, same "smallest
+    coherent milestone" scoping as everywhere else in this project. See
+    docs/DECISIONS.md, "population control: disease" pass."""
     relationships: dict[int, float] = field(default_factory=dict)
     trust: dict[int, float] = field(default_factory=dict)
     """-1..1 per source agent id — a distinct axis from `relationships`
@@ -288,6 +353,7 @@ class Agent:
             "age_ticks": self.age_ticks,
             "max_age_ticks": self.max_age_ticks,
             "starving_ticks": self.starving_ticks,
+            "sick_ticks": self.sick_ticks,
             "relationships": {str(k): round(v, 4) for k, v in self.relationships.items()},
             "trust": {str(k): round(v, 4) for k, v in self.trust.items()},
             "inventory": {k: round(v, 4) for k, v in self.inventory.items()},
@@ -311,6 +377,7 @@ class Agent:
             age_ticks=data.get("age_ticks", 0),
             max_age_ticks=data.get("max_age_ticks", MAX_LIFESPAN_TICKS),
             starving_ticks=data.get("starving_ticks", 0),
+            sick_ticks=data.get("sick_ticks", 0),
             relationships={int(k): v for k, v in data.get("relationships", {}).items()},
             trust={int(k): v for k, v in data.get("trust", {}).items()},
             inventory=dict(data.get("inventory", {})),

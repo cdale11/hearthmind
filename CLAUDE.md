@@ -444,6 +444,72 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## Disease as a population-control valve; LLM concurrency floor restored; UI flicker; era progression tuned (v0.44.0)
+
+Four explicit user follow-ups, one batch.
+
+**LLM concurrency: floor raised back to 2, permanently.** Explicit
+instruction: LLM use is never traded off against memory — `llm_max_
+concurrent` will not go below 2 again. `llm_num_ctx`/`llm_num_predict`/
+`llm_keep_alive` remain the memory levers for further optimization if
+ever needed; concurrency is off the table.
+
+**Phase G: audited, confirmed complete, no code changes needed.** Every
+docs/ROADMAP.md checklist item is `[x]` and verified present in code.
+The one remaining "not built" line (no player-facing acknowledgment the
+system exists) is a deliberate permanent design choice, not a gap —
+stays exactly as documented under "Phase G v1" above.
+
+**Population control: disease, a real deterministic mechanism, not
+another hard cap.** The 400-population safety valve (`POPULATION_CAP`)
+was creating an artificial ceiling with no in-world explanation, and
+kept the town brain's fallback priority pinned on "food" once hit
+(nothing else to steer toward). `Population._maybe_outbreak`/`_tick_
+disease` (agents/population.py) give the settlement a real epidemiology
+loop instead: a small, population- and crowding-scaled chance of a new
+spontaneous case each tick (deliberately reusing the same housing-
+pressure signal `CROWDING_ENERGY_MULTIPLIER` already reads — real
+disease risk rises with density, same as real crowd diseases), person-
+to-person transmission on colocation, natural recovery, and a per-tick
+death chance (~8% case-fatality per bout, halved by a standing
+hospital, nudged by temperament — same shape as predator-attack
+lethality). This is deterministic engine reality (a pathogen's spread
+is physical, not judged), consistent with the priority-#1 split between
+objective mechanics and LLM interpretation. `town_brain.fallback_
+priority` now has a real, frequently-reachable "health" trigger tied to
+actual sick_count (previously it required a predator to have killed
+someone AND zero hospitals — a narrow combination that rarely fired) —
+directly answers "town brain gets stuck on food": a real epidemic can
+now compete as a legitimate priority. No immunity/reinfection modeling
+in v1, same smallest-coherent-milestone scoping as everywhere else;
+extend later if wanted.
+
+**UI flicker/"tabs jumping around": fixed.** Root cause was two
+compounding issues in `interface/static/`: variable-length list panels
+(beliefs/traditions/inventions/festivals/infrastructure) had no
+`min-height`, so a tick that added or removed a list item resized the
+whole panel and shoved everything below it; and those panels were
+rebuilt via `innerHTML` on every tick regardless of whether content
+had actually changed, resetting any manual scroll position. Fixed with
+CSS `min-height` matching the existing `max-height`, plus a
+`setInnerHTMLIfChanged` helper that skips the DOM write when markup is
+unchanged.
+
+**Era progression: not a gating bug, just slower than a typical
+observation session.** Investigated and confirmed `tech_level`/era
+advancement (`era_for_tech_level`) has no hidden blocking condition —
+only "settlement is named" and a prosperity bar (currency >=10 OR
+materials >=50% capacity), both easily met. The real cause was pure
+rarity: `INVENTION_CHANCE_PER_SEASON` at 0.15 with steep era thresholds
+meant ~5 in-game years to `electrical`, ~20 to `digital` — plausibly
+longer than most live sessions run, hence never being witnessed. Raised
+to 0.2 (~3.75/~15 years respectively) — still a genuine long-run
+milestone, the thresholds themselves are untouched, just observable
+within a realistic session. The v0.43.2 HUT-decay fix was an incidental
+second contributor: a settlement whose materials no longer crash near
+the population cap also clears the prosperity gate more reliably, so
+invention rolls actually happen closer to their nominal rate.
+
 ## HUT decay/upkeep collapse near the population cap (fixed v0.43.2)
 
 Root-cause finding, not the already-documented Malthusian equilibrium

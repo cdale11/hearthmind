@@ -33,6 +33,8 @@ from hearthmind.agents.agent import (
     MAX_LIFESPAN_TICKS,
     MIN_LIFESPAN_TICKS,
     MOVE_CHANCE,
+    OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK,
+    OUTBREAK_CROWDING_MULTIPLIER,
     PERSONAL_FOOD_CAPACITY,
     POPULATION_CAP,
     REPRODUCTION_AFFINITY_THRESHOLD,
@@ -42,6 +44,12 @@ from hearthmind.agents.agent import (
     REPRODUCTION_WELLFED_HUNGER,
     REST_THRESHOLD,
     RIVALRY_THRESHOLD,
+    SICKNESS_DEATH_CHANCE_PER_TICK,
+    SICKNESS_DURATION_TICKS,
+    SICKNESS_ENERGY_DRAIN_MULTIPLIER,
+    SICKNESS_HOSPITAL_KILL_CHANCE_REDUCTION,
+    SICKNESS_HUNGER_RATE_MULTIPLIER,
+    SICKNESS_TRANSMISSION_CHANCE_PER_TICK,
     STARVATION_HUNGER_THRESHOLD,
     STARVATION_TICKS_TO_DEATH,
     TRADE_FOOD_AMOUNT,
@@ -308,6 +316,7 @@ class Population:
     deaths_starvation: int = 0
     deaths_old_age: int = 0
     deaths_predator: int = 0
+    deaths_disease: int = 0
     """Cumulative counts since world creation, for diagnosis — the
     inhabitant listing only shows who's alive *now*, so without these a
     population crash (many deaths between two snapshots) is invisible in
@@ -491,6 +500,11 @@ class Population:
 
         self._update_roads(by_position, settlement, farms, roads)
         self._update_relationships(by_position)
+        disease_events, died_of_disease = self._tick_disease(
+            self.agents, by_position, has_hospital, settlement.temperament, rng,
+        )
+        life_events.extend(disease_events)
+        life_events.extend(self._maybe_outbreak(rng, crowded))
         life_events.extend(self._advance_construction(by_position, settlement))
         life_events.extend(self._maybe_repair(by_position, settlement))
         self._maybe_stock_granaries(by_position, settlement)
@@ -508,7 +522,7 @@ class Population:
             self._wear_carts(settlement)
         life_events.extend(self._maybe_start_vehicle(by_position, settlement, farms, rng))
         life_events.extend(self._maybe_reproduce(by_position, rng))
-        life_events.extend(self._apply_deaths(killed_by_predator, settlement))
+        life_events.extend(self._apply_deaths(killed_by_predator, settlement, died_of_disease))
         life_events.extend(self._maybe_welcome_migrant(rng, settlement))
         return life_events
 
@@ -519,6 +533,12 @@ class Population:
     ) -> None:
         hunger_rate = HUNGER_RATE
         energy_drain = ENERGY_DRAIN_AWAKE
+        if agent.sick_ticks > 0:
+            # Illness has a real mechanical cost, not just a status flag —
+            # see SICKNESS_ENERGY_DRAIN_MULTIPLIER/SICKNESS_HUNGER_RATE_
+            # MULTIPLIER, Population._tick_disease.
+            hunger_rate *= SICKNESS_HUNGER_RATE_MULTIPLIER
+            energy_drain *= SICKNESS_ENERGY_DRAIN_MULTIPLIER
         if weather_harsh and agent.state is AgentState.AWAKE:
             # "Weather affects people": harsh weather (heavy rain/snow/high
             # wind/an active heatwave) costs an awake agent more — resting
@@ -597,6 +617,74 @@ class Population:
         agent.energy = max(0.0, agent.energy - PREDATOR_ATTACK_ENERGY_DRAIN)
         agent.hunger = min(1.0, agent.hunger + PREDATOR_ATTACK_HUNGER_INCREASE)
         return (("predator_attack", f"{agent.name} was attacked by predators and barely escaped."), False)
+
+    def _maybe_outbreak(self, rng: random.Random, crowded: bool) -> list[tuple[str, str]]:
+        """Rolled once per tick, settlement-wide: a small chance a new,
+        spontaneous case of illness appears among the currently-healthy
+        population — the *origin* of a bout. Scaled by population size
+        and boosted under crowding (OUTBREAK_CROWDING_MULTIPLIER), same
+        housing-pressure signal Population.tick already computes for
+        CROWDING_ENERGY_MULTIPLIER — a settlement growing past its
+        housing capacity draws real disease risk, not just tighter
+        quarters. Person-to-person spread from this index case is
+        handled separately by `_tick_disease`. See docs/DECISIONS.md,
+        "population control: disease" pass."""
+        healthy = [a for a in self.agents if a.sick_ticks == 0]
+        if not healthy:
+            return []
+        chance = OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK * len(self.agents)
+        if crowded:
+            chance *= OUTBREAK_CROWDING_MULTIPLIER
+        if rng.random() >= chance:
+            return []
+        index_case = rng.choice(healthy)
+        index_case.sick_ticks = 1
+        return [("illness", f"{index_case.name} has fallen ill.")]
+
+    @staticmethod
+    def _tick_disease(
+        agents: list[Agent], by_position: dict[tuple[int, int], list[Agent]],
+        has_hospital: bool, temperament: float, rng: random.Random,
+    ) -> tuple[list[tuple[str, str]], set[int]]:
+        """Advances every currently-sick agent by one tick: a chance of
+        death (reduced by a standing hospital, nudged by temperament —
+        same shape as `_maybe_predator_attack`'s lethality, giving the
+        town brain's "health" priority a real mechanical reason to
+        matter), natural recovery after SICKNESS_DURATION_TICKS, and
+        person-to-person transmission to any colocated healthy agent.
+        Returns (life_events, died_of_disease) — the latter is folded
+        into `_apply_deaths` the same way `killed_by_predator` is."""
+        life_events: list[tuple[str, str]] = []
+        died_of_disease: set[int] = set()
+        death_chance = SICKNESS_DEATH_CHANCE_PER_TICK
+        if has_hospital:
+            death_chance *= (1.0 - SICKNESS_HOSPITAL_KILL_CHANCE_REDUCTION)
+        death_chance = max(0.0, death_chance * (1.0 - temperament * TEMPERAMENT_KILL_CHANCE_INFLUENCE))
+        for agent in agents:
+            if agent.sick_ticks <= 0:
+                continue
+            agent.sick_ticks += 1
+            if rng.random() < death_chance:
+                died_of_disease.add(agent.id)
+                continue
+            if agent.sick_ticks >= SICKNESS_DURATION_TICKS:
+                agent.sick_ticks = 0
+                life_events.append(("recovery", f"{agent.name} has recovered from illness."))
+        for group in by_position.values():
+            if len(group) < 2:
+                continue
+            sick = [a for a in group if a.sick_ticks > 0]
+            if not sick:
+                continue
+            for target in group:
+                if target.sick_ticks > 0 or target.id in died_of_disease:
+                    continue
+                for carrier in sick:
+                    if rng.random() < SICKNESS_TRANSMISSION_CHANCE_PER_TICK:
+                        target.sick_ticks = 1
+                        life_events.append(("illness", f"{target.name} caught the illness from {carrier.name}."))
+                        break
+        return life_events, died_of_disease
 
     @staticmethod
     def _maybe_forage(
@@ -1585,6 +1673,7 @@ class Population:
 
     def _apply_deaths(
         self, killed_by_predator: set[int] = frozenset(), settlement: Settlement | None = None,
+        died_of_disease: set[int] = frozenset(),
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         # Resilience-minded traditions soften (never erase) grief's
@@ -1597,6 +1686,7 @@ class Population:
         for agent in self.agents:
             if (
                 agent.id in killed_by_predator
+                or agent.id in died_of_disease
                 or agent.starving_ticks >= STARVATION_TICKS_TO_DEATH
                 or agent.age_ticks >= agent.max_age_ticks
             ):
@@ -1612,6 +1702,9 @@ class Population:
                 # event was appended there so the description could
                 # reference the specific attack) — just count it here.
                 self.deaths_predator += 1
+            elif agent.id in died_of_disease:
+                life_events.append(("death", f"{agent.name} died of illness."))
+                self.deaths_disease += 1
             elif agent.starving_ticks >= STARVATION_TICKS_TO_DEATH:
                 life_events.append(("death", f"{agent.name} died of starvation."))
                 self.deaths_starvation += 1
@@ -1971,6 +2064,7 @@ class Population:
         avg_personal_food = (
             sum(a.inventory.get("food", 0.0) for a in self.agents) / total if total else 0.0
         )
+        sick_count = sum(1 for a in self.agents if a.sick_ticks > 0)
 
         return {
             "total": total,
@@ -1982,10 +2076,12 @@ class Population:
             "deaths_starvation": self.deaths_starvation,
             "deaths_old_age": self.deaths_old_age,
             "deaths_predator": self.deaths_predator,
+            "deaths_disease": self.deaths_disease,
             "avg_affinity": round(avg_affinity, 3),
             "close_bonds": bonds,
             "rivalries": rivalries,
             "avg_personal_food": round(avg_personal_food, 3),
+            "sick_count": sick_count,
         }
 
     # --- (de)serialization -----------------------------------------------------
@@ -1997,6 +2093,7 @@ class Population:
             "deaths_starvation": self.deaths_starvation,
             "deaths_old_age": self.deaths_old_age,
             "deaths_predator": self.deaths_predator,
+            "deaths_disease": self.deaths_disease,
             "dialogue_cooldowns": {
                 f"{a_id}:{b_id}": tick for (a_id, b_id), tick in self.dialogue_cooldowns.items()
             },
@@ -2019,6 +2116,7 @@ class Population:
             deaths_starvation=data.get("deaths_starvation", 0),
             deaths_old_age=data.get("deaths_old_age", 0),
             deaths_predator=data.get("deaths_predator", 0),
+            deaths_disease=data.get("deaths_disease", 0),
             dialogue_cooldowns=dialogue_cooldowns,
             cognition_trigger_cooldowns=cognition_trigger_cooldowns,
         )

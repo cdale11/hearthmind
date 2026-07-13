@@ -7,6 +7,19 @@
 
 const CELL = 8; // px per terrain tile
 
+// Skips the innerHTML write (and the reflow/scroll-reset it causes) when
+// the new markup is identical to what's already there — most ticks don't
+// actually change a slow-growing list (beliefs/traditions/inventions/
+// festivals/infrastructure), so this both cuts needless per-tick DOM churn
+// and stops a user's mid-scroll position in one of these panels from
+// snapping back to the top on every message. See docs/DECISIONS.md, UI
+// flicker fix.
+function setInnerHTMLIfChanged(el, html) {
+  if (!el || el.__lastHtml === html) return;
+  el.__lastHtml = html;
+  el.innerHTML = html;
+}
+
 const BIOME_COLORS = {
   deep_water: "#1c3f6e",
   shallow_water: "#2e6ea6",
@@ -77,6 +90,8 @@ const CATEGORY_META = {
   lake_rose: { icon: "💧" },
   lake_receded: { icon: "🏖️" },
   migrant_arrived: { icon: "🚶" },
+  illness: { icon: "🤒" },
+  recovery: { icon: "💊" },
 };
 
 // Terrain evolves now (deforestation, reclamation, climate drift), so the
@@ -825,6 +840,9 @@ function computeConsequences(summary) {
   if (p && p.total > 0 && p.total <= 3) {
     out.push("The village teeters on the edge of extinction.");
   }
+  if (p && p.total > 0 && p.sick_count / p.total > 0.05) {
+    out.push("Sickness is spreading through the village.");
+  }
   const granaryCap = s && s.granary_capacity;
   if (granaryCap) {
     const frac = s.granary_food / granaryCap;
@@ -968,18 +986,18 @@ function renderStats(summary) {
       "nearby buildings/crops. Dry summer forest can catch fire and spread. Extreme wind can batter structures directly.",
     ],
   ];
-  document.getElementById("stat-grid").innerHTML = tiles
+  setInnerHTMLIfChanged(document.getElementById("stat-grid"), tiles
     .map(([label, value, title]) =>
       `<div class="stat-tile"${title ? ` title="${title}"` : ""}><div class="label">${label}</div><div class="value">${value}</div></div>`
     )
-    .join("");
+    .join(""));
 
   document.getElementById("settlement-name").textContent = s.name || "Hearthmind (unnamed settlement)";
   document.getElementById("clock-line").textContent = `${summary.date} · ${summary.clock} · ${summary.weather}`;
 
   const beliefsEl = document.getElementById("beliefs-list");
   if (beliefsEl) {
-    beliefsEl.innerHTML = s.beliefs && s.beliefs.length
+    setInnerHTMLIfChanged(beliefsEl, s.beliefs && s.beliefs.length
       ? s.beliefs
           .slice()
           .sort((a, b) => b.confidence - a.confidence)
@@ -988,33 +1006,33 @@ function renderStats(summary) {
             return `<li><b>${b.subject}</b>: ${b.belief} <span class="muted">(confidence ${Math.round(b.confidence * 100)}%${revised})</span></li>`;
           })
           .join("")
-      : "<li>none yet — forms and revises over time</li>";
+      : "<li>none yet — forms and revises over time</li>");
   }
 
   const traditionsEl = document.getElementById("traditions-list");
-  traditionsEl.innerHTML = s.traditions.length
+  setInnerHTMLIfChanged(traditionsEl, s.traditions.length
     ? s.traditions.map((t) => `<li>${t}</li>`).join("")
-    : "<li>none yet</li>";
+    : "<li>none yet</li>");
 
   const inventionsEl = document.getElementById("inventions-list");
   if (inventionsEl) {
-    inventionsEl.innerHTML = s.inventions.length
+    setInnerHTMLIfChanged(inventionsEl, s.inventions.length
       ? s.inventions.map((t) => `<li>${t}</li>`).join("")
-      : "<li>none yet</li>";
+      : "<li>none yet</li>");
   }
 
   const festivalsEl = document.getElementById("festivals-list");
   if (festivalsEl && s.festivals) {
-    festivalsEl.innerHTML = s.festivals.length
+    setInnerHTMLIfChanged(festivalsEl, s.festivals.length
       ? s.festivals.map((t) => `<li>${t}</li>`).join("")
-      : "<li>none yet</li>";
+      : "<li>none yet</li>");
   }
 
   const brainEl = document.getElementById("town-brain-priority");
   if (brainEl) {
-    brainEl.innerHTML = s.current_priority
+    setInnerHTMLIfChanged(brainEl, s.current_priority
       ? `Current priority: <b>${s.current_priority}</b><br><span class="muted">${s.priority_rationale}</span>`
-      : "No decision yet — the town brain decides once a season, once the village is named.";
+      : "No decision yet — the town brain decides once a season, once the village is named.");
   }
   const monologueEl = document.getElementById("town-brain-monologue");
   if (monologueEl) {
@@ -1024,9 +1042,9 @@ function renderStats(summary) {
     // just a single overwritten "current state" line.
     const history = (s.priority_history || []).slice(0, -1).reverse(); // most-recent-first, excluding the current one (already shown above)
     monologueEl.classList.toggle("hidden", history.length === 0);
-    monologueEl.innerHTML = history
+    setInnerHTMLIfChanged(monologueEl, history
       .map((h) => `<li><span class="muted">tick ${h.tick}, ${h.priority}:</span> ${h.rationale}</li>`)
-      .join("");
+      .join(""));
   }
 
   const pendingWhispersEl = document.getElementById("pending-whispers");
@@ -1049,10 +1067,10 @@ function renderInfrastructure(rows) {
   const el = document.getElementById("infrastructure-list");
   if (!el) return;
   if (!rows || rows.length === 0) {
-    el.innerHTML = "<li>nothing built yet</li>";
+    setInnerHTMLIfChanged(el, "<li>nothing built yet</li>");
     return;
   }
-  el.innerHTML = rows
+  setInnerHTMLIfChanged(el, rows
     .slice(0, 40)
     .map((r) => {
       const label = r.kind.charAt(0).toUpperCase() + r.kind.slice(1);
@@ -1062,7 +1080,7 @@ function renderInfrastructure(rows) {
         `<li><span class="${statusClass}">${label} (${r.x}, ${r.y}): ${r.status} (${pct}%)</span></li>`
       );
     })
-    .join("");
+    .join(""));
 }
 
 function renderDevConsole(payload) {

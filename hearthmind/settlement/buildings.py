@@ -565,13 +565,33 @@ are a product of surplus, not survival. Checked at the same `season_end`
 cadence as traditions (Population.tick -> SimulationEngine), one
 independent roll each. See docs/DECISIONS.md, E3."""
 
-INVENTION_CHANCE_PER_SEASON = 0.15
+INVENTION_CHANCE_PER_SEASON = 0.2
 """Rolled once per season (was once per year at 0.5 — moved for the
 same real-365-day-calendar reason as every other season/year-gated LLM
 job, see docs/DECISIONS.md "cadence decoupling" pass) for a prosperous,
-named settlement. 0.15 was chosen so four independent seasonal rolls
-reproduce roughly the original annual rate (1-(1-0.15)^4 ~= 0.48 ~= the
-old 0.5), deliberately rare so an invention stays a notable event, not
+named settlement. Raised 0.15 -> 0.2 (v0.44.0) after a live report of
+never observing era advancement (industrial -> electrical -> modern ->
+digital, see era_for_tech_level/ERA_TECH_THRESHOLDS below) in practice
+— at 0.15 and the steep tech_level thresholds, reaching `electrical`
+took ~5 in-game years on average and `digital` ~20, plausibly longer
+than most live sessions actually run. 0.2 brings that down to roughly
+~3.75/~15 years — still a genuine long-run milestone (the era
+thresholds themselves are untouched), just observable within a more
+realistic play/observation session. The INVENTION_CURRENCY_THRESHOLD/
+INVENTION_MATERIALS_FRACTION prosperity gate below was also an
+incidental beneficiary of the v0.43.2 HUT-decay/crowding fixes, which
+reduced how often a settlement's materials crash near the population
+cap — a settlement that clears the prosperity bar more reliably now
+also rolls for inventions more reliably, on top of this direct chance
+increase. Deliberately still rare — four independent seasonal rolls at
+0.2 give ~59% annual invention odds when prosperous (was ~48% at 0.15),
+not a fast unlock. See docs/DECISIONS.md, "population control: disease"
+and "era progression" pass.
+
+0.15 was originally chosen so four independent seasonal rolls
+reproduce roughly the pre-real-calendar annual rate (1-(1-0.15)^4 ~=
+0.48 ~= the old 0.5), deliberately rare so an invention stays a notable
+event, not
 a formality."""
 
 # --- collective behaviour: festivals ----------------------------------------
