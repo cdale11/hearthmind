@@ -4,6 +4,56 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.60.0] — Continue expanding: GUILD institutions, rumor instrumentation, content variety, NPC personality
+
+Explicit user follow-up ("continue expanding") to v0.59.0's four-front
+batch — one more substantial item per category.
+
+### Added
+
+- **`InstitutionKind.GUILD`** (H3 v4): a third, trade-specific
+  institution kind — one instance per skill (`SKILL_FARMING`/
+  `SKILL_CONSTRUCTION`), formed once at least
+  `GUILD_FORMATION_MASTER_COUNT` (3) living agents reach
+  `GUILD_SKILL_MASTERY_THRESHOLD` (0.6) in that trade
+  (`Population._maybe_form_guild`). Membership grows (never shrinks
+  back down, matches FAMILY/COUNCIL's "outlives its members" shape) as
+  more agents master the trade (`_maybe_refresh_guild`). Shared guild
+  membership for the specific skill being taught gives
+  `GUILD_TEACHING_BONUS_MULTIPLIER` (1.6x) in `_maybe_teach_skills`,
+  stacking with the existing trade-agnostic FAMILY/COUNCIL bonus
+  (1.4x). First real use of `Institution.name` (previously always
+  empty). `Settlement.summary()`'s `institutions` gained `guilds` (a
+  list of which trades currently have one).
+- **Rumor-epidemiology instrumentation**: `Population.rumors_seeded_
+  total`/`rumor_listener_exposures_total`, incremented at both real
+  rumor-entry points (`spread_rumor`'s caravan-news seeding,
+  `apply_dialogue`'s LLM/fallback-generated rumors) — closes the
+  long-flagged "rumor-epidemiology instrumentation" gap from the July
+  2026 architecture review with real counters on the *existing*
+  gossip/trust-contagion machinery, not a new propagation mechanic.
+  Surfaced in `Population.summary()`.
+- **Content variety**: two-three more fallback-pool entries each to
+  `llm/festival.py`, `llm/invention.py`, `llm/culture.py` (tradition),
+  and `llm/dialogue.py`'s three sentiment pools.
+- **NPC inspector shows personality and skills**: the browser's
+  mind-first NPC inspector modal (click an agent) gained "Personality"
+  (resilience/sociability/ambition, with a plain-language "notably
+  high/low/unremarkable" reading) and "Skills" sections, between
+  memories and vitals — the data (`Agent.traits`/`skills`) was already
+  in the per-tick payload but never rendered per-agent.
+
+Verified: direct unit checks for guild formation/idempotence/refresh,
+a statistical check of the teaching-bonus ratio (measured 1.57x vs.
+expected 1.6x across 4,000 trials), a real-engine 50-tick run
+confirming guild formation fires inside the actual tick loop (not just
+the isolated method) with a full to_dict/from_dict round-trip, direct
+checks of both rumor counters' increment/no-increment paths plus
+serialization round-trip, a live FastAPI route check confirming the
+new fields reach `/snapshots/{tick}`, `node -c` syntax check on
+app.js, and a 5,000-tick full-engine smoke run (0.91ms/tick, no
+regression).
+
 ## [0.59.0] — "Expand all features": disease v2, where-to-build, MARKET, scrub-through-time
 
 Explicit user directive to expand across four fronts at once: deepen

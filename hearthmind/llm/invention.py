@@ -24,6 +24,9 @@ _FALLBACK_POOL: tuple[tuple[str, str], ...] = (
     ("The Root Cellar", "Cool storage dug below ground keeps food from spoiling."),
     ("Crop Rotation", "Fields are rested and rotated, yielding more over time."),
     ("The Grain Quern", "A hand-turned mill grinds harvests faster than before."),
+    ("The Rain Cistern", "A dug cistern catches rainwater, easing the well's burden in dry spells."),
+    ("Woven Fencing", "Interlaced hedging keeps livestock and wandering feet out of tended fields."),
+    ("The Handcart Axle", "A stronger axle lets carts haul heavier loads without breaking."),
 )
 
 

@@ -1627,6 +1627,7 @@ class Settlement:
                 "total": len(self.institutions),
                 "families": sum(1 for i in self.institutions if i.kind is InstitutionKind.FAMILY),
                 "councils": sum(1 for i in self.institutions if i.kind is InstitutionKind.COUNCIL),
+                "guilds": [i.name for i in self.institutions if i.kind is InstitutionKind.GUILD],
             },
         }
 

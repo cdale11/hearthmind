@@ -4970,3 +4970,106 @@ run post-batch (0.89ms/tick, unchanged from pre-batch baseline,
 serialization round-trip implicitly exercised by the snapshot-load
 checks) — no regression to ordinary tick throughput from any of the
 four additions.
+
+## "Continue expanding" (v0.60.0)
+
+Explicit user follow-up to "Expand all features": "continue
+expanding." Same category structure (deepen, close a gap, content
+variety, UI depth), one substantial fully-verified item per category
+again rather than attempting broader coverage in one pass. Scoped by
+first auditing what actually exists in each area (an Explore-agent
+research pass over the NPC inspector, rumor instrumentation, LLM
+fallback pools, and institution kinds) before writing any code, so the
+choices below are grounded in the real current state rather than
+assumption.
+
+**Deepen: GUILD, a third institution kind (H3 v4).**
+`institutions.py` had explicitly named GUILD/MARKET/RELIGION as
+"future kinds" in a comment since FAMILY/COUNCIL first shipped — the
+natural next increment was already flagged, not invented fresh. Unlike
+FAMILY (formed on birth) and COUNCIL (formed on population threshold,
+membership fixed-then-refilled), GUILD is trade-specific: one instance
+per skill (`SKILL_FARMING`/`SKILL_CONSTRUCTION`), formed once
+`GUILD_FORMATION_MASTER_COUNT` (3) living agents cross `GUILD_SKILL_
+MASTERY_THRESHOLD` (0.6, well above `SKILL_TEACHING_MIN_GAP`'s 0.15,
+so this represents genuine expertise not mere competence). Membership
+only grows (`_maybe_refresh_guild` adds any living agent who newly
+crosses the threshold) — no seat cap, since there's no reason to cap
+how many people can be skilled. `Institution.name` — a field that has
+existed since v1 but had zero consumers (the module docstring called
+it "empty for now") — now holds which skill a guild is for; this is
+the field's first real use. Mechanical output: `_maybe_teach_skills`
+now checks, per skill being taught, whether the teacher/learner pair
+share a GUILD for that specific trade, applying `GUILD_TEACHING_
+BONUS_MULTIPLIER` (1.6x) on top of (not instead of) the existing
+trade-agnostic FAMILY/COUNCIL bonus (`INSTITUTION_TEACHING_BONUS_
+MULTIPLIER`, 1.4x) — expertise-sharing is a stronger, more specific
+effect than generic bonding, and the two stack when a pair happens to
+share both. `Settlement.summary()`'s `institutions` block gained
+`guilds` (list of trades with a standing guild, not just a count,
+since there are at most 2 ever).
+
+Verified: a direct call sequence proving formation fires once enough
+masters exist, doesn't re-fire on a second call (idempotent), and
+refresh adds a newly-mastered agent to `member_agent_ids`; a
+statistical check (4,000 trials each) comparing teach-success rate for
+a learner sharing a guild with their teacher vs. one who doesn't,
+measuring a 1.57x ratio against an expected 1.6x; a real 50-tick
+`SimulationEngine` run (not just isolated method calls) with two
+agents pre-seeded past mastery, confirming guild formation actually
+fires inside the real tick loop's scheduling order, survives a
+Settlement to_dict/from_dict round-trip, and is visible via `summary()`
+and the live `/snapshots/{tick}` FastAPI route.
+
+**Close a gap: rumor-epidemiology instrumentation.** The July 2026
+architecture review's "still open (in priority order)" list has named
+this specifically since it was written, never picked up. An Explore
+pass confirmed the actual gap: `world.rumor_total` already exists as a
+single global lifetime counter of rumor-carrying dialogue exchanges,
+but nothing tracked *reach* (how many agents a given rumor actually
+touched) or gave a `Population`-level view independent of the world-
+wide field. Rather than invent a new propagation mechanic (this
+project's dialogue-carried rumors are each independently LLM/fallback-
+generated per exchange, not literally the same string hopping listener
+to listener — real per-rumor transmission-chain tracing isn't
+structurally possible without a much larger rearchitecture, explicitly
+out of scope here), added two real counters at the actual code paths
+where a rumor enters the world: `Population.rumors_seeded_total`
+(incremented once per `spread_rumor` call — a caravan's outside news —
+and once per rumor-carrying `apply_dialogue` call — a villager-
+invented one) and `rumor_listener_exposures_total` (incremented by the
+listener count each time: `len(listeners)` for caravan seeding, 2 for
+a dialogue exchange, since both parties hear it). Together these give
+a genuine "how much gossip has moved through the village" volume
+signal against population size — honest instrumentation of the
+existing machinery, not a new one dressed up as observability.
+Verified directly: both counters increment on the two real entry
+points and stay flat on a non-rumor dialogue exchange, survive a
+`Population` to_dict/from_dict round-trip, and appear in `summary()`.
+
+**Content variety.** Two-to-three more fallback-pool entries each to
+`llm/festival.py`, `llm/invention.py`, `llm/culture.py` (tradition),
+and all three of `llm/dialogue.py`'s sentiment pools (tense/warm/
+neutral) — the Explore pass's pool-count audit showed these hadn't
+been touched in the prior variety pass (which covered omens/caravan
+only), so this closes the remaining gap rather than re-padding pools
+already extended.
+
+**UI depth: NPC inspector gains personality and skills.** The Explore
+pass confirmed the mind-first NPC inspector modal (goal, beliefs,
+relationships, memories, vitals) never rendered `Agent.traits`/
+`skills` per-agent, even though both fields were already present in
+the per-tick broadcast payload (`Agent.to_dict()`, sent via
+`_maybe_broadcast`) — population-wide averages of the same fields were
+already shown in the stats legend, so the data pipeline existed end to
+end and only the per-agent rendering was missing. New "Personality"
+section (resilience/sociability/ambition, each with a plain-language
+"notably high/low/unremarkable" reading rather than a bare number,
+matching the project's "consequences over raw stats" UI direction) and
+"Skills" section (only non-zero skills shown), placed between memories
+and the vitals row — deepens the existing mind-first design rather
+than adding a new UI surface. Syntax-verified with `node -c` (no real
+browser available in this environment); not visually verified.
+
+Full 5,000-tick smoke run post-batch: 0.91ms/tick, consistent with the
+pre-batch baseline — no regression.

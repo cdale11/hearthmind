@@ -444,6 +444,50 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## "Continue expanding" batch (v0.60.0)
+
+Explicit user follow-up to v0.59.0, same category structure, one more
+substantial item per category. Scoped after an Explore-agent audit of
+what actually exists in each area (NPC inspector, rumor
+instrumentation, LLM fallback pools, institution kinds) rather than
+guessing.
+
+**Deepen: `InstitutionKind.GUILD` (H3 v4).** A third, trade-specific
+institution — one per skill (farming/construction), formed once
+`GUILD_FORMATION_MASTER_COUNT` (3) agents cross `GUILD_SKILL_MASTERY_
+THRESHOLD` (0.6), membership grows as more master the trade. First
+real use of `Institution.name` (holds which skill). Shared guild
+membership for that specific trade gives `GUILD_TEACHING_BONUS_
+MULTIPLIER` (1.6x) in `_maybe_teach_skills`, stacking with the
+existing trade-agnostic FAMILY/COUNCIL bonus (1.4x).
+
+**Close a gap: rumor-epidemiology instrumentation.** `Population.
+rumors_seeded_total`/`rumor_listener_exposures_total` — real counters
+on the *existing* gossip machinery's two real entry points
+(`spread_rumor`, rumor-carrying `apply_dialogue` calls), not a new
+propagation mechanic (this project's dialogue rumors are each
+independently generated per exchange, not a traceable hop-by-hop
+chain — true per-rumor tracing would need a larger rearchitecture,
+out of scope here).
+
+**Content variety.** More fallback-pool entries in festival/
+invention/tradition/dialogue — the pools the prior variety pass
+(omens/caravan) didn't touch.
+
+**UI depth.** The mind-first NPC inspector modal gained "Personality"
+(traits, plain-language high/low reading) and "Skills" sections — the
+data was already in the per-tick payload, just never rendered
+per-agent.
+
+Verified: guild formation/idempotence/refresh unit checks, a 4,000-
+trial statistical check of the teaching-bonus ratio (1.57x measured
+vs. 1.6x expected), a real 50-tick engine run confirming formation
+fires inside the actual tick loop with a full serialization round-
+trip, rumor-counter increment/no-increment/serialization checks, a
+live FastAPI route check, `node -c` on app.js, and a 5,000-tick smoke
+run (0.91ms/tick, no regression). Full accounting in
+docs/DECISIONS.md, "continue expanding."
+
 ## "Expand all features" batch (v0.59.0)
 
 Explicit user directive, narrowed via a clarifying question into four
@@ -916,9 +960,15 @@ sparklines off `GET /metrics`; and `hearthmind-experiment` (new CLI)
 runs headless seed batches and exports per-sim-day metrics CSVs for
 A/B ablations. Still open (in priority order): multiple named
 settlements (own session), spatial buckets for nearest-X scans (only
-needed past ~10x population), rumor-epidemiology instrumentation, a
-scrub-through-time replay view (keyframes already preserved by
-snapshot pruning).
+needed past ~10x population). Rumor-epidemiology instrumentation:
+**shipped, v0.60.0** — `Population.rumors_seeded_total`/
+`rumor_listener_exposures_total`, real counters on the existing
+gossip machinery (not a new propagation mechanic — see
+docs/DECISIONS.md, "continue expanding"). Scrub-through-time replay
+view: **v1 shipped, v0.59.0** (see the dedicated CLAUDE.md section
+above) — keyframes were already preserved by snapshot pruning as
+noted here; a true frame-by-frame agent-level replay remains a larger
+future effort.
 Post-rework equilibrium note: growth is food-coupled but abundant maps
 still reach the 400 valve by ~tick 30k with hunger ~0.4 and real
 starvation pressure at the top — a legitimate Malthusian equilibrium,

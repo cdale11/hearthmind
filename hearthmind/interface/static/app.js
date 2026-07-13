@@ -95,6 +95,8 @@ const CATEGORY_META = {
   family_formed: { icon: "🏡" },
   council_formed: { icon: "⚖️" },
   council_seat_filled: { icon: "🪑" },
+  guild_formed: { icon: "🔨" },
+  guild_joined: { icon: "🔨" },
   illness: { icon: "🤒" },
   recovery: { icon: "💊" },
   caravan: { icon: "🐫" },
@@ -856,6 +858,22 @@ function renderNpcInspector() {
   const memoriesHtml = memories.length
     ? `<ul>${memories.map((m) => `<li>${m}</li>`).join("")}</ul>`
     : `<div class="muted">nothing memorable yet</div>`;
+  const traits = agent.traits || {};
+  const traitLabel = (value) => {
+    const v = value || 0;
+    if (Math.abs(v) < 0.15) return "unremarkable";
+    return v > 0 ? "notably high" : "notably low";
+  };
+  const traitsHtml = `<div class="npc-stats-row">
+    <span>resilience ${(traits.resilience || 0).toFixed(2)} <span class="muted">(${traitLabel(traits.resilience)})</span></span>
+    <span>sociability ${(traits.sociability || 0).toFixed(2)} <span class="muted">(${traitLabel(traits.sociability)})</span></span>
+    <span>ambition ${(traits.ambition || 0).toFixed(2)} <span class="muted">(${traitLabel(traits.ambition)})</span></span>
+  </div>`;
+  const skills = agent.skills || {};
+  const skillEntries = Object.entries(skills).filter(([, v]) => v > 0.01);
+  const skillsHtml = skillEntries.length
+    ? `<div class="npc-stats-row">${skillEntries.map(([name, v]) => `<span>${name} ${v.toFixed(2)}</span>`).join("")}</div>`
+    : `<div class="muted">no notable skill yet</div>`;
 
   npcContent.innerHTML = `
     <h3>${agent.name}</h3>
@@ -876,6 +894,14 @@ function renderNpcInspector() {
     <div class="npc-section">
       <h4>Recent memories</h4>
       ${memoriesHtml}
+    </div>
+    <div class="npc-section">
+      <h4>Personality</h4>
+      ${traitsHtml}
+    </div>
+    <div class="npc-section">
+      <h4>Skills</h4>
+      ${skillsHtml}
     </div>
     <div class="npc-section">
       <h4>Vitals</h4>

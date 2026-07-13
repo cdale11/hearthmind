@@ -44,6 +44,8 @@ _FALLBACK_POOL: tuple[tuple[str, str, str], ...] = (
     ("Founders' Rest", "A day of rest is kept in memory of those who built the first structure.", "resilience"),
     ("The Apprentice's Vow", "Elders take a turn each season teaching whoever wants to learn a craft.", "knowledge"),
     ("The Quiet Meal", "Once a year the village eats together in silence, remembering the dead.", "none"),
+    ("The Naming Stone", "A newborn's name is carved into the village's naming stone.", "festivity"),
+    ("Winter's Debt", "Households settle small debts to each other before the first frost.", "resilience"),
 )
 
 

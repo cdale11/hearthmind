@@ -299,6 +299,30 @@ FAMILY institutions already work (member_agent_ids only ever grows,
 never gets swapped out) rather than introducing a different, dynamic-
 membership shape for the second kind."""
 
+GUILD_SKILL_MASTERY_THRESHOLD = 0.6
+"""A living agent counts as having "mastered" a trade (SKILL_FARMING/
+SKILL_CONSTRUCTION, both 0..1) once their skill level reaches this —
+well above SKILL_TEACHING_MIN_GAP (0.15), so a guild forms around
+genuine expertise, not merely-competent practitioners. See
+_maybe_form_guild/_maybe_refresh_guild."""
+
+GUILD_FORMATION_MASTER_COUNT = 3
+"""A GUILD institution forms for a given skill the first tick at least
+this many living agents have mastered it — a real critical mass of
+expertise, not a single skilled individual declaring a guild of one.
+Same "cheapest, most unambiguous moment" formation discipline as
+FAMILY/COUNCIL."""
+
+GUILD_TEACHING_BONUS_MULTIPLIER = 1.6
+"""_maybe_teach_skills' per-trade bonus for a teacher/learner pair who
+share a living GUILD for the specific skill being taught — larger than
+INSTITUTION_TEACHING_BONUS_MULTIPLIER (1.4, FAMILY/COUNCIL's
+trade-agnostic bonus) since this is expertise-specific: a builders'
+guild member teaches construction better than a family member who
+merely happens to share a house. Stacks multiplicatively with the
+trade-agnostic bonus when a pair happens to share both kinds of
+institution."""
+
 POPULATION_CRITICAL_THRESHOLD = 4
 """Below this many living inhabitants (but above 0 — total extinction is
 a legitimate, permanent settlement-collapse outcome, see
@@ -472,6 +496,27 @@ class Population:
     `inspect_world` unless you happened to be watching the event log at
     the time. See docs/DECISIONS.md, D5 (deaths_predator added in the
     danger pass)."""
+    rumors_seeded_total: int = 0
+    """Rumor-epidemiology instrumentation (docs/DECISIONS.md "continue
+    expanding" pass): cumulative count of distinct rumors that have
+    entered the world — every `spread_rumor` call (a caravan's outside
+    news) plus every dialogue exchange whose LLM/fallback result
+    carries a non-empty `rumor` (a villager-invented one, via
+    `apply_dialogue`). Not a measure of *reach* (see the next field) —
+    just how many separate pieces of gossip have ever been born."""
+    rumor_listener_exposures_total: int = 0
+    """Cumulative agent-exposures to rumor content — incremented by
+    `len(listeners)` per `spread_rumor` call and by 2 (both dialogue
+    parties) per rumor-carrying `apply_dialogue` call. This is real
+    instrumentation of the *existing* gossip/trust contagion machinery
+    (docs/ROADMAP.md's long-flagged "rumor-epidemiology
+    instrumentation" gap), not a new propagation mechanic — this
+    project's dialogue-carried rumors are each independently LLM/
+    fallback-generated per exchange rather than the same rumor string
+    literally hopping listener to listener, so this counts total
+    exposure volume (a meaningful "how much gossip has moved through
+    the village" signal against population size), not a traceable
+    per-rumor transmission chain."""
     dialogue_cooldowns: dict[tuple[int, int], int] = field(default_factory=dict)
     """(agent_id, agent_id) sorted pair -> tick of their last dialogue
     exchange, so a stable colocated pair doesn't re-trigger the LLM every
@@ -705,6 +750,8 @@ class Population:
         life_events.extend(self._maybe_welcome_migrant(rng, settlement))
         life_events.extend(self._maybe_form_council(settlement, tick))
         life_events.extend(self._maybe_refresh_council(settlement))
+        life_events.extend(self._maybe_form_guild(settlement, tick))
+        life_events.extend(self._maybe_refresh_guild(settlement))
         return life_events
 
     @staticmethod
@@ -1464,7 +1511,19 @@ class Population:
                     gap = a_level - b_level
                     if abs(gap) < SKILL_TEACHING_MIN_GAP:
                         continue
-                    if rng.random() >= chance:
+                    skill_chance = chance
+                    # H3 v4: a shared guild for THIS trade specifically
+                    # is a stronger teaching bonus than the trade-
+                    # agnostic FAMILY/COUNCIL one above — expertise-
+                    # sharing, not just bonding. Stacks multiplicatively.
+                    shared_guild = any(
+                        inst.kind is InstitutionKind.GUILD and inst.name == skill
+                        and a.id in inst.member_agent_ids and b.id in inst.member_agent_ids
+                        for inst in settlement.institutions
+                    )
+                    if shared_guild:
+                        skill_chance *= GUILD_TEACHING_BONUS_MULTIPLIER
+                    if rng.random() >= skill_chance:
                         continue
                     teacher, learner = (a, b) if gap > 0 else (b, a)
                     learner.skills[skill] = min(
@@ -1741,6 +1800,63 @@ class Population:
         council.member_agent_ids.update(a.id for a in candidates)
         names = ", ".join(a.name for a in candidates)
         return [("council_seat_filled", f"{names} joined the council of elders, filling an empty seat.")]
+
+    def _maybe_form_guild(self, settlement: Settlement, tick: int) -> list[tuple[str, str]]:
+        """H3 v4 (docs/DECISIONS.md "continue expanding" pass): a third
+        institution kind, one per mastered trade (SKILL_FARMING/
+        SKILL_CONSTRUCTION), formed the first tick at least
+        GUILD_FORMATION_MASTER_COUNT living agents have reached
+        GUILD_SKILL_MASTERY_THRESHOLD in that skill. Uses `Institution.
+        name` to hold which skill this guild is for — the first real
+        consumer of that field, previously always empty. A no-op for a
+        skill that already has a standing guild."""
+        if not settlement.name:
+            return []
+        events: list[tuple[str, str]] = []
+        existing_skills = {
+            inst.name for inst in settlement.institutions if inst.kind is InstitutionKind.GUILD
+        }
+        for skill in (SKILL_FARMING, SKILL_CONSTRUCTION):
+            if skill in existing_skills:
+                continue
+            masters = [a for a in self.agents if a.skills.get(skill, 0.0) >= GUILD_SKILL_MASTERY_THRESHOLD]
+            if len(masters) < GUILD_FORMATION_MASTER_COUNT:
+                continue
+            guild = Institution(
+                id=settlement.next_institution_id,
+                kind=InstitutionKind.GUILD,
+                founding_tick=tick,
+                member_agent_ids={a.id for a in masters},
+                name=skill,
+            )
+            settlement.next_institution_id += 1
+            settlement.institutions.append(guild)
+            names = ", ".join(a.name for a in masters)
+            events.append(("guild_formed", f"A {skill} guild formed: {names}."))
+        return events
+
+    def _maybe_refresh_guild(self, settlement: Settlement) -> list[tuple[str, str]]:
+        """Unlike COUNCIL's fixed-size seat-refilling, a guild's living
+        membership grows unboundedly as more agents reach mastery in its
+        trade — there's no seat cap on expertise, only a floor
+        (GUILD_FORMATION_MASTER_COUNT) to found one at all. A no-op most
+        ticks (only fires when a living non-member agent has just
+        crossed GUILD_SKILL_MASTERY_THRESHOLD in a guild's trade)."""
+        events: list[tuple[str, str]] = []
+        for guild in settlement.institutions:
+            if guild.kind is not InstitutionKind.GUILD:
+                continue
+            skill = guild.name
+            newly_mastered = [
+                a for a in self.agents
+                if a.id not in guild.member_agent_ids and a.skills.get(skill, 0.0) >= GUILD_SKILL_MASTERY_THRESHOLD
+            ]
+            if not newly_mastered:
+                continue
+            guild.member_agent_ids.update(a.id for a in newly_mastered)
+            names = ", ".join(a.name for a in newly_mastered)
+            events.append(("guild_joined", f"{names} mastered {skill} and joined the {skill} guild."))
+        return events
 
     def _maybe_welcome_migrant(self, rng: random.Random, settlement: Settlement) -> list[tuple[str, str]]:
         """The population equivalent of wildlife's `_maybe_recolonize` —
@@ -2728,6 +2844,8 @@ class Population:
             else:
                 _remember(agent_b, f"Heard a rumor: {rumor}")
             self._apply_gossip_contagion(agent_a, agent_b, rumor, trust_a_in_b, trust_b_in_a)
+            self.rumors_seeded_total += 1
+            self.rumor_listener_exposures_total += 2
             surfaced = True
         if surfaced and line_a:
             # A conversation memorable enough to surface is memorable
@@ -2829,6 +2947,9 @@ class Population:
         listeners = rng.sample(self.agents, k=min(count, len(self.agents)))
         for agent in listeners:
             _remember(agent, text)
+        if listeners:
+            self.rumors_seeded_total += 1
+            self.rumor_listener_exposures_total += len(listeners)
         return [a.name for a in listeners]
 
     def council_disposition(self, council: "Institution") -> dict:
@@ -2909,6 +3030,8 @@ class Population:
             "avg_ambition": round(
                 sum(a.traits.get(TRAIT_AMBITION, 0.0) for a in self.agents) / total, 3
             ) if total else 0.0,
+            "rumors_seeded_total": self.rumors_seeded_total,
+            "rumor_listener_exposures_total": self.rumor_listener_exposures_total,
         }
 
     # --- (de)serialization -----------------------------------------------------
@@ -2921,6 +3044,8 @@ class Population:
             "deaths_old_age": self.deaths_old_age,
             "deaths_predator": self.deaths_predator,
             "deaths_disease": self.deaths_disease,
+            "rumors_seeded_total": self.rumors_seeded_total,
+            "rumor_listener_exposures_total": self.rumor_listener_exposures_total,
             "dialogue_cooldowns": {
                 f"{a_id}:{b_id}": tick for (a_id, b_id), tick in self.dialogue_cooldowns.items()
             },
@@ -2944,6 +3069,8 @@ class Population:
             deaths_old_age=data.get("deaths_old_age", 0),
             deaths_predator=data.get("deaths_predator", 0),
             deaths_disease=data.get("deaths_disease", 0),
+            rumors_seeded_total=data.get("rumors_seeded_total", 0),
+            rumor_listener_exposures_total=data.get("rumor_listener_exposures_total", 0),
             dialogue_cooldowns=dialogue_cooldowns,
             cognition_trigger_cooldowns=cognition_trigger_cooldowns,
         )

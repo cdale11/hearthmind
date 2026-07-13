@@ -21,9 +21,12 @@ membership topped up as members die (it used to silently decay into a
 roster of the dead), `llm/beliefs.sync_council_beliefs` gives it its own
 accumulated civic theories, and `Population.council_disposition` feeds
 its members' average traits into both `town_brain`'s prompt/fallback
-tie-break and `Population.carrying_capacity`'s coordination term.
-Deliberate founding (an agent choosing to start a guild) remains future
-work — see docs/ROADMAP.md H3.
+tie-break and `Population.carrying_capacity`'s coordination term. A
+third kind, `GUILD` (v0.60.0, docs/DECISIONS.md "continue expanding"),
+forms automatically once enough agents master a trade — see
+`InstitutionKind.GUILD`'s docstring. All three kinds remain fully
+automatic; deliberate founding (an agent choosing to start one) remains
+future work — see docs/ROADMAP.md H3.
 """
 from __future__ import annotations
 
@@ -34,10 +37,23 @@ from enum import Enum
 class InstitutionKind(str, Enum):
     FAMILY = "family"
     COUNCIL = "council"
-    # Future kinds: GUILD, MARKET, RELIGION. Adding one is a matter of
-    # a new enum value plus a formation path (mirroring
-    # Population._extend_family/_maybe_form_council) — the Institution
-    # shape below already supports any of them.
+    GUILD = "guild"
+    """A third kind (v0.60.0, docs/DECISIONS.md "continue expanding"
+    pass): unlike FAMILY/COUNCIL, GUILD is trade-specific — one GUILD
+    instance per mastered skill (SKILL_FARMING/SKILL_CONSTRUCTION),
+    `Institution.name` holding which skill (the first real consumer of
+    that previously-always-empty field). Formed once enough living
+    agents have mastered the same trade (`Population._maybe_form_
+    guild`), membership grows as more agents reach mastery
+    (`_maybe_refresh_guild`), and shared guild membership gives a
+    teaching bonus specific to that one trade (`GUILD_TEACHING_
+    BONUS_MULTIPLIER`), on top of — not instead of — the trade-
+    agnostic FAMILY/COUNCIL bonus `_maybe_teach_skills` already
+    applies."""
+    # Future kinds: MARKET (the institution, distinct from BuildingKind.
+    # MARKET the building), RELIGION. Adding one is a matter of a new
+    # enum value plus a formation path — the Institution shape below
+    # already supports any of them.
 
 
 @dataclass

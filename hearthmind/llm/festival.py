@@ -26,6 +26,9 @@ _FALLBACK_POOL: tuple[tuple[str, str], ...] = (
     ("Lantern Walk", "Villagers walk the settlement's edge together carrying lanterns."),
     ("The Story Circle", "Elders and children trade stories around a fire."),
     ("Firstlight Dance", "The village dances together at first light of the new season."),
+    ("The Mending Fair", "Neighbors trade repaired tools and mended clothes at a small open fair."),
+    ("Quiet Supper", "The village shares a simple meal outdoors, saying little and enjoying it."),
+    ("The Ribbon Race", "Children race tied-together ribbons across the square while adults cheer."),
 )
 
 

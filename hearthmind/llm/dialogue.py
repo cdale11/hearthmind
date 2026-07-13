@@ -83,18 +83,21 @@ _TENSE_POOL: tuple[tuple[str, str], ...] = (
     ("Still avoiding me, {b}?", "Can you blame me?"),
     ("We should talk. Eventually.", "Eventually."),
     ("Out of my way.", "Gladly."),
+    ("Don't start, {b}.", "I wasn't going to."),
 )
 _WARM_POOL: tuple[tuple[str, str], ...] = (
     ("Good to see you, {b}.", "And you, always."),
     ("I was hoping to run into you.", "Likewise, {a}."),
     ("You look well today.", "Feeling well, thanks to you."),
     ("Walk with me a while?", "Always."),
+    ("Save me a seat next time?", "Already do."),
 )
 _NEUTRAL_POOL: tuple[tuple[str, str], ...] = (
     ("Quiet day.", "Quiet enough."),
     ("Cold one, isn't it.", "That it is."),
     ("Anything new?", "Not much, no."),
     ("Long day.", "Isn't it always."),
+    ("Busy morning?", "Busy enough."),
 )
 """Small pools rather than one fixed line per band, cycled
 deterministically by (agent ids, tick) — a fallback-only run (Ollama
