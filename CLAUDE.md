@@ -773,6 +773,44 @@ that should steer future sessions:
   subjective state split, Phase G ambiguity discipline, constants-with-
   rationale + decision log, the two-surface UI split.
 
+## Phase H: living knowledge, institutions, dynamic carrying capacity (direction-setting)
+
+Explicit user directive (2026-07-13, not yet implemented — see
+docs/ROADMAP.md "Phase H" for the full per-item breakdown and
+docs/DECISIONS.md for the log entry): treat memory/belief/knowledge as an
+evolving ecosystem — spreading, competing, mutating, merging, and
+disappearing across generations, not static per-agent/per-settlement
+lists — with people, families, settlements, and eventually the Town
+learning through observation, experimentation, prediction, and
+experience. User was explicit this is architecture-direction, not an
+implementation request: "identify where the current architecture should
+evolve... do not implement everything immediately." Nine priorities, in
+the user's own order: replace `POPULATION_CAP` with dynamic carrying
+capacity (food/housing/labor/infrastructure/security/environment);
+expand `Settlement.beliefs` into fuller, revisable world models held by
+NPCs/families/settlements/Town; institutions (families, councils,
+guilds, markets, religions, politics) as first-class entities that
+outlive individuals; a resource-driven economy with ownership,
+specialization, supply chains, trade (not isolated per-agent
+production); knowledge/skills as a system distinct from beliefs, spread
+by teaching/observation/apprenticeship; deeper psychology (habits,
+identity, values, trauma, ambition, changing personality); cross-
+generational inheritance of land/knowledge/tradition/story/bias; the
+Town continuing toward a subtle ancient intelligence (Phase G's
+permanent ambiguity rule unchanged); continued investment in
+documentary/replay/timeline/observatory tooling. Suggested sequencing
+(docs/ROADMAP.md has the reasoning): dynamic carrying capacity first
+(cheapest, answers a recurring live complaint), then institutions
+starting with families-as-entities (several other items structurally
+depend on an addressable entity beyond individual `Agent`), belief-
+structure and knowledge-as-a-system in parallel once that lands, full
+supply chains and inheritance last as their own dedicated sessions —
+same treatment "multiple named settlements" already gets below. Every
+new subsystem here should keep the objective/subjective split and
+interacting-systems-over-isolated-mechanics rules above, and should be
+judged the same way: does it increase the chance of unscripted
+emergence.
+
 ## Known architectural gaps (not yet built)
 
 - **Multiple named settlements** — the one remaining genuinely large,

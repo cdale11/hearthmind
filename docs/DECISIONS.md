@@ -3691,3 +3691,31 @@ defaults, not a RAM/swap one — no pragma changes were needed or made.
 it's keyed by a fixed set of ~9 job names (naming/chronicle/
 documentary/tradition/invention/festival/town_brain/beliefs/omen),
 never per-agent, so it cannot grow with population or run length.
+
+## Phase H: living-knowledge/institutions direction set (no code changes)
+
+Explicit user directive (2026-07-13): treat memory/belief/knowledge as an
+evolving ecosystem (spread, compete, mutate, merge, disappear across
+generations), replace the hard population cap with dynamic carrying
+capacity, introduce institutions as first-class persistent entities,
+expand beliefs into fuller world models, separate knowledge/skills from
+beliefs, deepen psychology, and support cross-generational inheritance —
+explicitly framed as a direction to plan for, not a batch to implement
+immediately ("Do not implement everything immediately... identify where
+the current architecture should evolve").
+
+Response was documentation-only: `docs/ROADMAP.md`'s new "Phase H" section
+maps each of the user's nine priorities onto the current architecture
+(Settlement facade, `llm/beliefs.py`, `Agent.memories`/`relationships`/
+`trust`, the disease/gossip contagion mechanics, Phase G's temperament/
+omens) and identifies the smallest concrete evolution point for each,
+plus a suggested sequencing (H1 dynamic carrying capacity first — cheapest,
+directly answers the recurring "town brain stuck on food" complaint;
+H3 institutions, starting with families-as-entities, next, since H4/H6/H7
+structurally depend on an addressable entity beyond individual `Agent`s;
+H2/H5 can proceed in parallel with H3; H4 full supply chains and H7
+inheritance are large enough to warrant their own dedicated sessions, same
+treatment already given to "multiple named settlements"). No code, config,
+or schema changes were made in this pass — this entry and the ROADMAP.md
+section are the entire deliverable, consistent with the user's explicit
+instruction not to implement yet.

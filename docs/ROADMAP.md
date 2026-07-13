@@ -439,6 +439,222 @@ Two adjacent, previously-flagged gaps, closed alongside Phase G:
 
 See docs/DECISIONS.md, "everything left" pass.
 
+## Phase H — Living knowledge, institutions, and dynamic carrying capacity
+
+Explicit user directive (2026-07-13): treat knowledge as a living ecosystem —
+memories evolving into beliefs, hypotheses, traditions, myths, and scientific
+knowledge that spread, compete, mutate, merge, and disappear across
+generations; people, settlements, and the world itself learning through
+observation, experimentation, prediction, and experience; unique cultures and
+emergent collective intelligence rather than static memory dumps. **This is a
+direction-setting entry, not a implementation batch** — the user explicitly
+asked to identify where the architecture should evolve to support this over
+future releases, not to build it all now. Nothing below is `[x]`; treat every
+bullet as a future session's starting brief, prioritized per the user's own
+ordering.
+
+Two things every item below should preserve, because they're why Hearthmind
+works today: (1) the objective/subjective split (`World`/`Settlement`/`Agent`
+ground truth vs. `Agent.memories`/`Settlement.beliefs` as fallible
+interpretation) — every new "knowledge" system is another *interpretation*
+layer, never a new source of ground truth; (2) deterministic-engine-does-
+physics, LLM-does-judgement — a spreading/mutating idea is still judgement,
+so its content stays LLM-authored even as its propagation mechanics (who
+hears it, how it decays, what it competes with) can be deterministic, same
+shape as gossip/rumor contagion already is.
+
+### H1. Dynamic carrying capacity (highest priority — replaces `POPULATION_CAP`)
+
+Current state: `POPULATION_CAP = 400` (`agents/population.py`) is a flat
+safety valve with no in-world referent, and it's the direct cause of the
+"town brain gets stuck on food" complaint fixed partially by disease (v0.44.0)
+— disease adds a release valve but doesn't make the *ceiling itself* mean
+anything. Food is already load-bearing (farm/granary carrying-capacity rework,
+v0.41.0) but housing (`huts_standing`), labor (idle-agent count), civic
+infrastructure (upkeep-funded capacity), security (predator/disease pressure),
+and environment (terrain/climate quality) are not yet composed into one
+number.
+
+Evolution point: replace the single scalar cap with a settlement-computed
+`carrying_capacity()` derived from the same signals `Settlement`'s four
+domain objects (`Infrastructure`/`Economy`/`Culture`/`Disposition`) already
+track — housing slots from `Infrastructure`, food surplus trend from
+`Economy`, sickness/predator pressure from `Population`/`Disposition` — so
+reproduction/migration gating (`Population._maybe_welcome_migrant`, birth
+eligibility) reads a number that moves with the settlement's real situation
+instead of a constant. `POPULATION_CAP` becomes a hard ceiling far above any
+realistic computed value (an actual safety valve again, not the operative
+constraint). No new entity required — this is a derived-property addition to
+existing domain objects, the smallest-footprint item on this list.
+
+### H2. Beliefs -> world models
+
+Current state: `Settlement.beliefs` (`llm/beliefs.py`) is a small, capped,
+settlement-level list of independent theory-strings, each optionally resolved
+to `subject_agent_id`/`subject_family_agent_ids`. It has no structure beyond
+"text + optional subject" — no confidence, no evidence trail, no notion of
+one belief superseding or contradicting another, no per-agent equivalent
+(only per-family resolution via `Agent.parents` matching).
+
+Evolution point, staged rather than a single rewrite:
+1. Give existing beliefs a minimal schema upgrade (confidence/strength,
+   formed-tick, superseded-by-index) *within* the current list-of-dicts
+   shape — same incremental-extension discipline the project has used for
+   every prior beliefs expansion (subject resolution, family resolution),
+   not a new store.
+2. Extend belief *holders* beyond settlement-only: an agent's `memories`
+   list already carries interpretation; a "personal belief" is structurally
+   the same list-of-theories shape as `Settlement.beliefs`, just scoped to
+   one agent instead of the settlement facade — reuse the mechanism, don't
+   invent a parallel one, mirroring the explicit "don't build a second
+   per-agent belief-store" instruction already honored for per-person
+   beliefs.
+3. Family- and institution-level beliefs (H3) become the natural next
+   scope once institutions exist as addressable entities to attach a
+   belief-holder to, rather than resolving only to individual agent ids.
+4. "Continuously build, revise, and act upon" is the real bar — revision
+   already exists (subject-string matching, not fragile index-matching per
+   the v0.39.0 review fix); *acting upon* a belief already happens for
+   dialogue/town-brain; extending that consumption to cognition goal
+   selection itself (an agent avoiding a place its beliefs mark dangerous)
+   is the concrete next mechanical payoff, not just more belief text.
+
+### H3. Institutions as first-class entities
+
+Current state: none. Families exist only implicitly via `Agent.parents`;
+there is no persistent object representing a council, guild, market, or
+religion — nothing outlives the individuals currently holding a role.
+
+Evolution point: this is the largest structural addition on this list and
+should follow the same shape as the Settlement-facade split (v0.40.0) —
+introduce a lightweight base (an `Institution` dataclass: id, kind, founding
+tick, member agent ids, a beliefs-shaped list of its own persistent
+positions/norms, optional resource claims) rather than one bespoke class per
+institution kind. Families are the cheapest first instance (derivable
+today from `Agent.parents` chains — mostly a matter of giving the existing
+implicit structure a persistent id and a beliefs-list) and should land before
+councils/guilds/markets, both because they're structurally simplest and
+because H6 (inheritance) needs an addressable family entity to inherit
+*through*. Institutions should be tick-visible in `Settlement`'s composed
+domain objects (most naturally a fifth domain, or folded into `Culture`)
+rather than a bolt-on registry, to keep the single-writer/tick-loop
+invariant intact.
+
+### H4. Resource-driven economy: ownership, specialization, supply chains, trade
+
+Current state: settlement-scale only (materials/currency pools,
+`Agent.inventory`'s single-good personal food stash, direct neighbor food
+sharing). No ownership of land/buildings by specific agents, no per-agent
+production specialization, no multi-good supply chain.
+
+Evolution point: `Agent.inventory` is already the right seam — it was
+deliberately scoped to one good as v1. The natural next slice is multi-good
+(materials, crafted goods) before ownership/specialization, since goods
+without an owner-to-produce-them can't specialize meaningfully. Building
+ownership (which agent(s) a HUT/WORKSHOP belongs to) is a small addition to
+`Building` (an owner agent id, defaulting to "commons" for existing
+settlement-wide buildings so nothing currently working breaks). Supply
+chains (workshop consumes materials -> produces goods -> traded) are the
+first place this project would need a genuine multi-step production graph;
+scope that as its own dedicated session per the project's "one coherent
+milestone at a time" rule, not folded into a batch with unrelated systems.
+
+### H5. Knowledge as a system distinct from beliefs
+
+Current state: doesn't exist as a separate axis. `tech_level` (buildings.py)
+is a settlement-wide scalar unlocked by rare LLM "invention" rolls —
+knowledge that a settlement has it, not knowledge any specific agent
+possesses, teaches, or could fail to pass on.
+
+Evolution point: the key design distinction to hold onto — beliefs are
+*interpretive and revisable* ("the harvest failed because the town is
+unlucky"), knowledge is *procedural and teachable* ("how to smith a tool").
+Model it as a second list-shaped attribute (`Agent.skills` or similar),
+propagated by a colocation-driven teaching/observation roll — structurally
+the same shape as dialogue-driven rumor spread and gossip contagion already
+use (`Population.apply_dialogue`, `GOSSIP_OPINION_CONTAGION`), just carrying
+a skill/technique payload instead of an opinion. `tech_level` becomes the
+settlement-aggregate signal (e.g. threshold count of agents holding a skill)
+rather than an independently-rolled scalar — ties invention mechanics to
+actual population knowledge instead of a disconnected dice roll, a concrete
+emergence win (a settlement that loses its few skilled elders to plague
+should visibly regress, not just narratively).
+
+### H6. Psychology: habits, identity, values, trauma, ambition
+
+Current state: `Agent` has needs (hunger/energy), relationships, trust,
+memories, and a fixed small goal set. No persistent personality trait beyond
+what a cognition prompt reconstructs fresh each call.
+
+Evolution point: smallest coherent step is a compact, bounded trait vector on
+`Agent` (2-4 axes to start, not a big-five system) that (a) is read into
+cognition/dialogue prompts as context the way beliefs already are, and (b) is
+nudged slowly by lived experience (grief, violence witnessed, sustained
+hunger) using the same bounded-random-walk-plus-event-nudge shape
+`temperament`/`player_standing` already establish at the settlement level —
+reuse that pattern at agent scale rather than inventing a new one. Trauma
+specifically should hook the *existing* memory-of-grief/violence events
+already logged, not require new event types.
+
+### H7. Cross-generational inheritance
+
+Current state: `Agent.parents` links generations for memory/dialogue
+purposes only; nothing material passes down — land/buildings aren't owned,
+so nothing can be inherited; traditions/culture are settlement-wide already
+so every generation "inherits" them by default, uniformly.
+
+Evolution point: genuinely blocked on H3 (family as an addressable entity)
+and H4 (ownership) landing first — inheritance is the mechanism that moves
+something (land claim, a family belief, a grudge, a skill from H5) from a
+dying agent to specific living relations rather than dissolving it. Once
+those exist, inheritance is mostly a hook on the existing death path
+(`Population._apply_deaths`) that reassigns ownership/beliefs to
+`Agent.parents`/children instead of just logging grief.
+
+### H8. The Town as an ancient, ambiguous intelligence
+
+Current state (Phase G, already shipped): `Settlement.temperament` +
+`llm/omens.py` + `Settlement.beliefs`. The permanent instruction — subtlety,
+never confirmed, never labeled in the UI — is unchanged and should keep
+gating every future addition here.
+
+Evolution point: once H2 gives beliefs more structure (confidence, revision
+history) and H3 gives the settlement an institution-shaped home for its own
+"opinions," the Town's belief list becomes a natural place for those same
+upgrades to land first (it's already the most-established belief-holder in
+the codebase) — a proving ground for H2's schema before extending it to
+per-agent/per-institution holders, not a separate effort.
+
+### H9. Documentary mode, replay, timelines, developer observatory
+
+Current state: yearly documentary narration (`llm/documentary.py`), curated
+`GET /history`, capped `priority_history`/`omen_history` logs, and the
+dev-console diagnostics panel — no scrub-through-time replay (flagged
+open since Phase F).
+
+Evolution point: every H1-H8 addition should log through the *existing*
+categorized-event pipeline (`events` table, `SimulationEngine._log`) rather
+than a parallel log, so replay/observatory tooling built once continues to
+cover new systems automatically — the standing reason F's "why did this
+happen" tooling has stayed cheap to extend so far. A scrub-through-time view
+remains its own dedicated session (needs a keyframe+delta replay model, not
+just more curated narration) and gets more valuable, not less, the more of
+H1-H8 actually ships — more worth explaining accumulates over time.
+
+### Suggested sequencing
+
+H1 (carrying capacity) first — it's the smallest, most self-contained, and
+directly answers a recurring live-diagnostic complaint. H3 (institutions,
+starting with families-as-entities) next, since H4/H6/H7 all structurally
+depend on having an addressable entity beyond individual `Agent`s. H2
+(belief structure) and H5 (knowledge) can proceed in parallel with H3 once
+it lands, since both mostly extend existing list-shaped mechanisms rather
+than depending on institutions directly. H6 (psychology) and H8 (Town
+belief upgrades) are cheap, low-risk, and can slot into any batch once H2's
+schema exists. H4 (full supply chains) and H7 (inheritance) are the largest
+and most dependent items and should each get their own dedicated session,
+same treatment "multiple named settlements" already gets.
+
 ## Cross-cutting, ongoing at every phase
 
 - **Snapshot scaling.** Flagged since Milestone 1 (`docs/DECISIONS.md`
