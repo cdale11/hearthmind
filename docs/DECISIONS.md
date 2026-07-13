@@ -3719,3 +3719,55 @@ treatment already given to "multiple named settlements"). No code, config,
 or schema changes were made in this pass — this entry and the ROADMAP.md
 section are the entire deliverable, consistent with the user's explicit
 instruction not to implement yet.
+
+## H1: dynamic carrying capacity replaces the flat population cap
+
+First implementation pass on Phase H (docs/ROADMAP.md), per the explicit
+user directive to prioritize H1 first. `Population.carrying_capacity()`
+(agents/population.py) replaces the flat `POPULATION_CAP` as the
+operative constraint on reproduction: it composes the pre-existing
+housing base (`CAMP_TOLERANCE + HUT_CAPACITY x standing huts`) with
+economic headroom (granary fill fraction, only scored once a granary
+exists — a founding party with zero infrastructure isn't penalized for
+infrastructure it hasn't had time to build yet), security pressure
+(sickness fraction plus live predator presence), labor availability
+(fraction of mature, healthy agents), and current weather harshness,
+into one multiplier bounded to `CARRYING_CAPACITY_MIN/MAX_MULTIPLIER`
+(0.5x-1.5x, settlement/buildings.py). `POPULATION_CAP` (400) is
+untouched and now functions purely as a safety ceiling far above any
+realistic computed value, matching its original "pure safety valve"
+docstring intent that had quietly become the real binding constraint at
+scale.
+
+Design choices worth recording: (1) the economy term is neutral, not
+negative, when no granary exists yet — an early penalty would have
+strangled founding populations before they had any chance to build
+infrastructure, defeating the whole point of a *dynamic* capacity; (2)
+housing remains the base term rather than one factor among equals,
+since it's the one signal already load-bearing pre-H1 (crowding/
+disease already read it) and gives every other term a sensible resting
+point (multiplier 1.0 = "housing alone, nothing else pulling it up or
+down"); (3) the multiplier is intentionally coarse (four terms, no
+cross-term interaction) — this is explicitly the smallest coherent
+milestone per CLAUDE.md's batching discipline, not a full economic
+model; richer coupling (e.g. institutions eventually setting their own
+capacity policy, H3) is future work, not a gap in this pass.
+
+Verified: a direct scenario script (`/tmp/.../verify_h1.py`, not
+committed — ad-hoc per CLAUDE.md's no-unittest workflow rule) covering
+four cases — a founding party with no infrastructure lands near its
+housing base rather than being punished (13.6 vs base 12); a developed,
+well-fed settlement with full granaries exceeds its raw housing base
+(40.96 vs base 32); a settlement under simultaneous plague, predator
+pressure, an empty granary, and harsh weather drops below its housing
+base but respects the 0.5x floor (16.0 vs base 32, floor 16.0 — hits it
+exactly); and capacity never exceeds `POPULATION_CAP` regardless of how
+much housing exists (400 vs a housing base of 2512). Also ran a real
+20,000-tick engine tick loop (LLM disabled, seed 42) with no exceptions,
+`carrying_capacity` visible and moving in `summary()`. A byte-identical
+comparison of the population trajectory against the pre-change code on
+the same seed (via `git stash`) confirmed this change is inert when a
+settlement never builds housing/granaries in the observed window — the
+new mechanism only engages once there's real infrastructure to reason
+about, so it doesn't retroactively change already-understood early-game
+dynamics.

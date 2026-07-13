@@ -74,6 +74,12 @@ from hearthmind.economy.farms import (
 )
 from hearthmind.settlement.buildings import (
     CAMP_TOLERANCE,
+    CARRYING_CAPACITY_ECONOMY_WEIGHT,
+    CARRYING_CAPACITY_ENVIRONMENT_WEIGHT,
+    CARRYING_CAPACITY_LABOR_WEIGHT,
+    CARRYING_CAPACITY_MAX_MULTIPLIER,
+    CARRYING_CAPACITY_MIN_MULTIPLIER,
+    CARRYING_CAPACITY_SECURITY_WEIGHT,
     CONSTRUCTION_MATERIALS_MULTIPLIER,
     CONSTRUCTION_WORK_PER_TICK,
     CROWDING_ENERGY_MULTIPLIER,
@@ -332,6 +338,15 @@ class Population:
     daily) cognition call — see due_for_triggered_cognition. Same
     per-pair-cooldown shape as dialogue_cooldowns, just keyed by a
     single agent instead of a pair."""
+    last_carrying_capacity: float = float(POPULATION_CAP)
+    """Recomputed every tick by `carrying_capacity()` — the dynamic ceiling
+    that now actually gates reproduction/growth (H1, docs/ROADMAP.md Phase
+    H), composing housing/economy/labor/security/environment into one
+    number instead of the flat `POPULATION_CAP` safety valve. Stored (not
+    just returned) so `summary()` can expose it without threading a
+    `Settlement` through a method that otherwise doesn't need one; not
+    itself persisted, since it's fully derived and recomputed on the next
+    tick regardless."""
     last_triggered_agent_ids: set[int] = field(default_factory=set, compare=False)
     """Agent ids whose circumstances changed sharply enough *this tick*
     to warrant an immediate goal reevaluation rather than waiting for
@@ -521,7 +536,10 @@ class Population:
         if any_gather_occurred:
             self._wear_carts(settlement)
         life_events.extend(self._maybe_start_vehicle(by_position, settlement, farms, rng))
-        life_events.extend(self._maybe_reproduce(by_position, rng))
+        self.last_carrying_capacity = self.carrying_capacity(
+            settlement, housing_capacity, weather_harsh, bool(predator_tiles),
+        )
+        life_events.extend(self._maybe_reproduce(by_position, rng, self.last_carrying_capacity))
         life_events.extend(self._apply_deaths(killed_by_predator, settlement, died_of_disease))
         life_events.extend(self._maybe_welcome_migrant(rng, settlement))
         return life_events
@@ -1178,11 +1196,51 @@ class Population:
                     1.0, b.relationships.get(a.id, 0.0) + RELATIONSHIP_GAIN_PER_TICK_COLOCATED
                 )
 
+    def carrying_capacity(
+        self, settlement: Settlement, housing_capacity: int, weather_harsh: bool, predator_pressure: bool,
+    ) -> float:
+        """Dynamic carrying capacity (H1, docs/ROADMAP.md Phase H):
+        composes housing (the base), economy, security, and labor/
+        environment pressure into one number that moves with the
+        settlement's actual situation, the same way food already gates
+        reproduction via the surplus check below — rather than the flat
+        `POPULATION_CAP` scalar being the only real constraint. Called
+        once per tick from `tick()`; the result also drives
+        `_maybe_reproduce`'s gate and is exposed via `summary()`."""
+        total = len(self.agents)
+        granaries = [
+            b for b in settlement.buildings
+            if b.kind is BuildingKind.GRANARY and b.stage is BuildingStage.STANDING
+        ]
+        granary_capacity = len(granaries) * GRANARY_CAPACITY
+        if granary_capacity > 0:
+            granary_fill = sum(b.stored_food for b in granaries) / granary_capacity
+            economy_term = (granary_fill - 0.5) * 2.0 * CARRYING_CAPACITY_ECONOMY_WEIGHT
+        else:
+            # No granary yet isn't a penalty — a founding party hasn't had
+            # time to build infrastructure it wouldn't need at this scale.
+            economy_term = 0.0
+
+        sick_fraction = (sum(1 for a in self.agents if a.sick_ticks > 0) / total) if total else 0.0
+        security_term = -(
+            sick_fraction * 2.0 + (0.3 if predator_pressure else 0.0)
+        ) * CARRYING_CAPACITY_SECURITY_WEIGHT
+
+        working_age = sum(1 for a in self.agents if self._is_mature(a) and self._is_healthy(a))
+        labor_fraction = (working_age / total) if total else 1.0
+        labor_term = (labor_fraction - 0.5) * CARRYING_CAPACITY_LABOR_WEIGHT
+
+        environment_term = (-0.5 if weather_harsh else 0.2) * CARRYING_CAPACITY_ENVIRONMENT_WEIGHT
+
+        multiplier = 1.0 + economy_term + security_term + labor_term + environment_term
+        multiplier = max(CARRYING_CAPACITY_MIN_MULTIPLIER, min(CARRYING_CAPACITY_MAX_MULTIPLIER, multiplier))
+        return min(float(POPULATION_CAP), housing_capacity * multiplier)
+
     def _maybe_reproduce(
-        self, by_position: dict[tuple[int, int], list[Agent]], rng: random.Random
+        self, by_position: dict[tuple[int, int], list[Agent]], rng: random.Random, capacity: float,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
-        if len(self.agents) >= POPULATION_CAP:
+        if len(self.agents) >= capacity:
             return life_events
 
         newborns: list[Agent] = []
@@ -1191,7 +1249,7 @@ class Population:
             if len(group) < 2:
                 continue
             for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
-                if len(self.agents) + len(newborns) >= POPULATION_CAP:
+                if len(self.agents) + len(newborns) >= capacity:
                     break
                 if not (self._is_mature(a) and self._is_mature(b)):
                     continue
@@ -2082,6 +2140,7 @@ class Population:
             "rivalries": rivalries,
             "avg_personal_food": round(avg_personal_food, 3),
             "sick_count": sick_count,
+            "carrying_capacity": round(self.last_carrying_capacity, 1),
         }
 
     # --- (de)serialization -----------------------------------------------------

@@ -453,6 +453,29 @@ roof wear people down. Deliberately mild (same order as the night
 multiplier), but it finally gives the town brain's "growth" priority a
 real consequence: building huts relieves a measurable pressure."""
 
+CARRYING_CAPACITY_ECONOMY_WEIGHT = 0.25
+CARRYING_CAPACITY_SECURITY_WEIGHT = 0.25
+CARRYING_CAPACITY_LABOR_WEIGHT = 0.2
+CARRYING_CAPACITY_ENVIRONMENT_WEIGHT = 0.15
+"""Weights composing `Population.carrying_capacity`'s multiplier applied
+to housing (the base term, huts x HUT_CAPACITY + CAMP_TOLERANCE): granary
+fill (economy — only scored once a granary exists, so a founding party
+with no infrastructure yet isn't penalized for infrastructure it hasn't
+had time to build), sickness/predator pressure (security), the fraction
+of mature/healthy agents (labor), and current weather harshness
+(environment). H1, docs/ROADMAP.md Phase H — replaces the flat
+`POPULATION_CAP` as the operative constraint on reproduction/migration;
+`POPULATION_CAP` itself remains untouched as a hard ceiling far above any
+realistic computed value, a safety valve against a tuning mistake here,
+not the intended limiting mechanism."""
+
+CARRYING_CAPACITY_MIN_MULTIPLIER = 0.5
+CARRYING_CAPACITY_MAX_MULTIPLIER = 1.5
+"""Bounds on the composed multiplier above — a settlement in crisis
+(plague, siege, famine) can still support down to half its housing-based
+capacity, and a thriving one can stretch to 1.5x it, but neither factor
+set can send the ceiling to zero or unbounded growth on its own."""
+
 SHELTER_NEGATES_WEATHER = True
 """An AWAKE agent standing on any STANDING building's tile is treated
 as working indoors: the harsh-weather hunger/energy multipliers don't

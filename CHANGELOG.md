@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.45.0] — H1: dynamic carrying capacity replaces the flat population cap
+
+### Added
+
+- **`Population.carrying_capacity()`** (docs/ROADMAP.md "Phase H",
+  explicit user directive to move toward knowledge/economy/institutions
+  as living systems rather than hard caps). Composes housing (huts x
+  `HUT_CAPACITY` + `CAMP_TOLERANCE`, the pre-existing base), economic
+  headroom (granary fill — only scored once a granary exists, so a
+  founding party with no infrastructure isn't penalized for
+  infrastructure it hasn't had time to build), security pressure
+  (sickness fraction + live predator presence), labor availability
+  (fraction of mature/healthy agents), and current weather harshness
+  into one bounded multiplier (`CARRYING_CAPACITY_MIN/MAX_MULTIPLIER`,
+  0.5x-1.5x) applied to the housing base, clamped to `POPULATION_CAP`.
+  Recomputed once per tick, stored as `Population.last_carrying_
+  capacity`, and exposed via `summary()["carrying_capacity"]` — visible
+  to anyone looking at raw data, same treatment temperament/player_
+  standing already get.
+
+### Changed
+
+- **`_maybe_reproduce`'s gate is now the dynamic capacity, not the flat
+  `POPULATION_CAP`.** `POPULATION_CAP` (400) itself is untouched and
+  remains a hard ceiling far above any realistic computed value — a
+  safety valve against a tuning mistake in the new composition, not the
+  operative constraint anymore. This is the mechanism the July 2026
+  review and later live reports both flagged: the town brain's "food"
+  priority getting stuck once population approached the flat cap with
+  nothing else to steer toward. A settlement now stops growing when its
+  actual situation (housing/food/health/labor/weather) says so, not
+  when an arbitrary number is hit.
+
+Verified with a direct scenario script (four cases: a founding party
+with no infrastructure isn't penalized; a well-fed, developed
+settlement with full granaries exceeds its raw housing base; a
+settlement under plague + predator pressure + empty granaries + harsh
+weather drops capacity below housing but respects the 0.5x floor; and
+capacity never exceeds `POPULATION_CAP` regardless of housing size) plus
+a real 20,000-tick engine run (LLM disabled, seed 42) confirming no
+exceptions and `carrying_capacity` tracking the settlement's state
+sensibly tick to tick. A byte-for-byte comparison against the
+pre-change population trajectory on the same seed confirmed this
+change doesn't itself alter outcomes when housing/granaries never
+materialize (both trajectories identical) — the new mechanism only
+bites once a settlement actually has infrastructure to reason about.
+
 ## [0.44.1] — Ruined buildings clear faster; last unbounded lists capped
 
 ### Changed

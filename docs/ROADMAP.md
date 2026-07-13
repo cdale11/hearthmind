@@ -463,7 +463,7 @@ so its content stays LLM-authored even as its propagation mechanics (who
 hears it, how it decays, what it competes with) can be deterministic, same
 shape as gossip/rumor contagion already is.
 
-### H1. Dynamic carrying capacity (highest priority — replaces `POPULATION_CAP`)
+### [x] H1. Dynamic carrying capacity (highest priority — replaces `POPULATION_CAP`)
 
 Current state: `POPULATION_CAP = 400` (`agents/population.py`) is a flat
 safety valve with no in-world referent, and it's the direct cause of the
@@ -486,6 +486,15 @@ instead of a constant. `POPULATION_CAP` becomes a hard ceiling far above any
 realistic computed value (an actual safety valve again, not the operative
 constraint). No new entity required — this is a derived-property addition to
 existing domain objects, the smallest-footprint item on this list.
+
+**Shipped, v0.45.0.** `Population.carrying_capacity()` composes housing
+(the existing `CAMP_TOLERANCE + HUT_CAPACITY x huts` base), granary fill
+(economy), sickness fraction + predator presence (security), fraction of
+mature/healthy agents (labor), and current weather (environment) into a
+bounded 0.5x-1.5x multiplier on the housing base, clamped to
+`POPULATION_CAP`. Recomputed every tick, drives `_maybe_reproduce`'s gate
+directly, and is exposed via `summary()["carrying_capacity"]`. See
+docs/DECISIONS.md, "H1: dynamic carrying capacity."
 
 ### H2. Beliefs -> world models
 
