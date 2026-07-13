@@ -1069,23 +1069,36 @@ class Settlement:
         )
 
         # Upkeep: civic buildings draw currency; whatever fraction goes
-        # unpaid accelerates decay proportionally. See
-        # UPKEEP_PER_CIVIC_BUILDING_PER_TICK.
+        # unpaid accelerates *civic* decay proportionally — HUTs draw no
+        # upkeep (see UPKEEP_PER_CIVIC_BUILDING_PER_TICK) and must not
+        # share this penalty. Bug fixed v0.43.2: `civic_decay` used to be
+        # applied to every standing building via a single shared `decay`
+        # variable, so an unpaid civic bill also accelerated HUT decay —
+        # HUTs are the settlement's housing/crowding pressure valve
+        # (HUT_CAPACITY), so punishing them for buildings that never drew
+        # on them created a self-reinforcing collapse: unpaid upkeep ->
+        # huts ruin faster -> housing capacity drops -> more agents
+        # crowded -> CROWDING_ENERGY_MULTIPLIER forces more RESTING ->
+        # fewer idle agents available to repair anything (`_maybe_repair`
+        # needs a colocated non-critically-hungry pair) -> decay keeps
+        # winning -> starvation deaths spike. See docs/DECISIONS.md.
         civic_standing = sum(
             1 for b in self.buildings
             if b.stage is BuildingStage.STANDING and b.kind is not BuildingKind.HUT
         )
         upkeep_due = civic_standing * UPKEEP_PER_CIVIC_BUILDING_PER_TICK
+        civic_decay = decay
         if upkeep_due > 0:
             paid = min(self.currency, upkeep_due)
             self.currency -= paid
             unpaid_fraction = 1.0 - paid / upkeep_due
             if unpaid_fraction > 0:
-                decay *= 1.0 + (UPKEEP_UNPAID_DECAY_MULTIPLIER - 1.0) * unpaid_fraction
+                civic_decay = decay * (1.0 + (UPKEEP_UNPAID_DECAY_MULTIPLIER - 1.0) * unpaid_fraction)
 
         for building in self.buildings:
             if building.stage is BuildingStage.STANDING:
-                building.condition = max(0.0, building.condition - decay)
+                building_decay = decay if building.kind is BuildingKind.HUT else civic_decay
+                building.condition = max(0.0, building.condition - building_decay)
                 if building.condition <= 0.0:
                     building.stage = BuildingStage.RUINED
                     events.append(("building_ruined", f"A structure at ({building.x}, {building.y}) fell into ruin."))

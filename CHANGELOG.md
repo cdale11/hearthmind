@@ -4,6 +4,42 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.43.2] — Fixed: unpaid civic upkeep was collapsing HUT housing near the population cap
+
+Root-cause investigation into a live report of population "still
+declining and dying of starvation." Found a real bug, not just the
+already-documented Malthusian equilibrium.
+
+### Fixed
+
+- **`Settlement.tick()`'s upkeep-driven decay penalty was applied to
+  every standing building, including HUTs, which draw zero upkeep.**
+  `UPKEEP_UNPAID_DECAY_MULTIPLIER`'s own docstring says it should make
+  "civic buildings wear out faster" when the settlement can't afford
+  their upkeep — but the code computed one shared `decay` value
+  (boosted by the unpaid-upkeep fraction) and applied it to *every*
+  standing building in the loop, HUTs included, even though HUTs are
+  explicitly excluded from `civic_standing`/`upkeep_due` and draw no
+  currency at all. As a settlement's civic-building count grows near
+  the population cap, per-tick upkeep (`civic_standing x
+  UPKEEP_PER_CIVIC_BUILDING_PER_TICK`) outpaces currency income, the
+  unpaid fraction climbs toward 1.0, and every HUT — the settlement's
+  entire housing supply — started decaying up to 1.5x faster for a
+  bill they never incurred. A matched 44,000-tick diagnostic (seed 42,
+  default config, LLM disabled) showed `huts_standing` collapsing 78 ->
+  16 in a single 2,000-tick window right as population approached the
+  400 cap, with cumulative starvation deaths jumping from 21 to 293
+  across the same stretch — a self-reinforcing spiral: unpaid upkeep ->
+  huts ruin faster -> housing capacity drops -> more agents crowded ->
+  `CROWDING_ENERGY_MULTIPLIER` forces more agents into RESTING -> fewer
+  idle agents left to repair anything (`_maybe_repair` needs a
+  colocated, non-critically-hungry pair) -> decay keeps winning. Fixed
+  by splitting the shared `decay` into a HUT-exempt base rate and a
+  `civic_decay` rate (upkeep penalty included) applied only to non-HUT
+  standing buildings — HUTs now always decay at the plain weather/
+  season rate regardless of the settlement's currency situation,
+  matching the mechanic's own stated design.
+
 ## [0.43.1] — More aggressive Ollama memory optimization: concurrency floor, keep_alive
 
 v0.43.0's `llm_max_concurrent=2` still wasn't enough to prevent the

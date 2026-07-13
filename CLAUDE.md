@@ -444,6 +444,29 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## HUT decay/upkeep collapse near the population cap (fixed v0.43.2)
+
+Root-cause finding, not the already-documented Malthusian equilibrium
+(see "Post-rework equilibrium note" below): `Settlement.tick()`
+computed one `decay` value boosted by unpaid civic upkeep and applied
+it to every standing building including HUTs, which draw zero upkeep
+(`UPKEEP_PER_CIVIC_BUILDING_PER_TICK` explicitly excludes them). As
+civic-building count grows toward the population cap, upkeep outpaces
+currency income and HUTs — the settlement's entire housing supply —
+started decaying up to 1.5x faster for a bill they never incurred. A
+44k-tick diagnostic (seed 42) measured `huts_standing` collapsing
+78->16 in one 2,000-tick window right at the population cap, with
+cumulative starvation deaths jumping 21->293 across the same stretch:
+unpaid upkeep -> huts ruin -> housing capacity drops -> more crowding
+-> `CROWDING_ENERGY_MULTIPLIER` forces more RESTING -> fewer idle
+agents left to repair anything -> decay keeps winning. Fixed by
+splitting `decay` into a HUT-exempt base rate and a `civic_decay` rate
+(upkeep penalty) applied only to non-HUT buildings. This was very
+likely the real mechanism behind a live "population still declining
+and dying of starvation" report — worth checking first if a similar
+report recurs: is `huts_standing` actually tracking population growth,
+or collapsing at a specific trigger point.
+
 ## Ollama memory, second pass (v0.43.1)
 
 v0.43.0's `llm_max_concurrent=2` wasn't aggressive enough per explicit

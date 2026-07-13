@@ -3344,3 +3344,88 @@ code reading (not a live Ollama call, since none is available in this
 environment) that `max_concurrent=1` still produces a valid
 `asyncio.Semaphore(1)` and that `_backpressure_limit` computes
 correctly at the new value.
+
+## HUT decay/upkeep collapse near the population cap (v0.43.2)
+
+Explicit user follow-up: "see why population is still declining and
+dying of starvation." The "Post-rework equilibrium note" below
+already documents a legitimate, intended Malthusian ceiling (abundant
+maps reach POPULATION_CAP=400 with hunger ~0.4 and real starvation
+pressure) — but a live diagnostic run turned up something worse than
+that documented baseline, and worth distinguishing from it.
+
+Method: a 44,000-tick engine run (seed 42, default `Config`,
+`llm_enabled=False` to isolate deterministic mechanics from LLM
+variance), instrumented every 2,000 ticks with population, average
+hunger, standing/under-construction HUT counts, computed housing
+capacity (`CAMP_TOLERANCE + HUT_CAPACITY * huts_standing`), crowding
+state, settlement materials, and cumulative starvation deaths.
+
+Finding: housing capacity comfortably outpaced population through
+tick 24,000 (huts_standing 78, capacity 402 at population 272, zero
+deficit) — the funnel/carrying-capacity mechanics were working
+correctly up to that point. Then, in the next single 2,000-tick
+window (tick 24,000 -> 26,000 -> 28,000), `huts_standing` collapsed
+78 -> 72 -> 16 while population kept climbing toward the cap, flipping
+the settlement from zero housing deficit to a 221-person deficit and
+`crowded=True`. Cumulative starvation deaths, which had climbed
+steadily and proportionally to population through tick 24,000 (2, 3,
+5, 7, 7, 9, 12, 17, 21), jumped to 37 then 147 across that same
+2,000-tick window, then kept climbing to 293 by tick 44,000 even as
+`huts_standing` slowly recovered (huts_building stayed elevated the
+whole time — construction was trying to keep up, just losing the
+race). `materials` collapsed in lockstep (30.0 -> 20.0 -> 2.7 ->
+0.7), consistent with the settlement burning everything it had trying
+to rebuild collapsing huts rather than growing net housing.
+
+Traced to `Settlement.tick()` (`settlement/buildings.py`): the method
+computes `decay` from weather/season, then boosts it by the unpaid
+fraction of this tick's civic upkeep (`UPKEEP_UNPAID_DECAY_MULTIPLIER
+`, up to 1.5x) — but applies that single boosted value to *every*
+standing building in the survivors loop, with no kind check. HUTs are
+explicitly excluded from `civic_standing`/`upkeep_due` (`b.kind is not
+BuildingKind.HUT`) and draw no currency at all — `UPKEEP_UNPAID_DECAY
+_MULTIPLIER`'s own docstring says the intent is "a town that can't
+afford maintenance watches its *civic* buildings wear out faster," not
+its housing. As a settlement approaches the population cap it
+naturally accumulates more civic buildings (granaries, workshops,
+etc., all weighted into `BUILDING_KIND_BASE_WEIGHTS`), so
+`upkeep_due` grows with settlement maturity while currency income
+(from staffed workshops, per the same review's earlier finding) can
+lag — once the unpaid fraction climbs toward 1.0, every standing HUT
+started losing condition up to 1.5x faster than its base rate, for a
+bill it never incurred. This closes a real self-reinforcing loop:
+unpaid civic upkeep -> HUTs ruin faster -> housing capacity drops ->
+more agents exceed `housing_capacity` -> `CROWDING_ENERGY_MULTIPLIER`
+pushes more agents into RESTING -> fewer idle, non-critically-hungry
+agents left to satisfy `_maybe_repair`'s colocated-pair requirement ->
+nothing offsets the accelerated decay -> the spiral continues until
+either currency recovers or population/materials crash hard enough to
+break it (which the diagnostic shows eventually happening, tick
+36,000+, but only after several hundred extra starvation deaths beyond
+what the funnel/carrying-capacity design intended).
+
+Fix: split the single `decay` value into a HUT-exempt base rate and a
+`civic_decay` rate (the upkeep-boosted one), and select per building by
+`kind` in the survivors loop — `civic_decay` for everything except
+HUT, plain `decay` for HUT regardless of the settlement's currency
+state. This is a narrow, surgical fix (one loop, one conditional) that
+restores the mechanic's own documented intent rather than changing its
+design. Deliberately did not touch `REPRODUCTION_WELLFED_HUNGER` or
+scale birth chance by hunger (the "if it still feels too grim" lever
+CLAUDE.md's post-rework equilibrium note already flags) — the baseline
+equilibrium (hunger ~0.4, real starvation pressure at the cap) is
+still the intended target; this fix removes an unintended amplifier on
+top of it, not the equilibrium itself. If a live run still shows
+excessive starvation after this fix, that reproduction-side lever is
+the next one to reach for, not another housing-side change.
+
+Verification in progress at commit time: a matched second 44,000-tick
+run (same seed, same config, only the `settlement/buildings.py` change
+applied) is running to confirm `huts_standing` stays proportional to
+population through the same tick range instead of collapsing — see the
+next DECISIONS.md/CHANGELOG entry (or this section's amendment) for the
+completed A/B numbers once that run finishes. `python3 -m py_compile`
+on the touched module passed; the fix's logic was also verified by
+inspection against the exact conditions the baseline run hit (unpaid
+upkeep fraction approaching 1.0 near the population cap).
