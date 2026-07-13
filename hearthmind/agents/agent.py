@@ -184,6 +184,21 @@ relationship value — rivals don't get fed first, though this is well
 above RIVALRY_THRESHOLD (-0.4) so mere strangers (relationship 0) still
 trade freely."""
 
+TRADE_TOOLS_AMOUNT = 1.0
+"""H4: personal tools transferred in one barter exchange — see
+Population._maybe_trade_tools. Chunkier than TRADE_FOOD_AMOUNT since
+tools are a durable, lower-frequency good, not consumed on use."""
+
+GATHER_TOOLS_YIELD_BONUS = 0.4
+"""H4: a GATHER-goal agent's own tools stretch what they bring back —
+up to +40% materials per gather at a full personal tools stash
+(TOOLS_CAPACITY), scaled linearly. Higher than SKILL_FARMING_YIELD_
+BONUS (25%) since a physical tool is a more direct force-multiplier on
+raw extraction than accumulated technique alone — the two are
+deliberately distinct levers (skill from practice/teaching, tools from
+the crafting supply chain) that could eventually stack for the same
+goal. See Population._maybe_gather."""
+
 ELDER_AGE_FRACTION = 0.8
 ELDER_RECOVERY_MULTIPLIER = 0.7
 """Past ELDER_AGE_FRACTION of their own max_age_ticks, an agent's
@@ -204,6 +219,25 @@ GRIEF_ENERGY_PENALTY = 0.2
 """Energy lost when a close bond (affinity >= REPRODUCTION_AFFINITY_THRESHOLD)
 dies — grief has a real cost, not just a memory entry. See
 Population._apply_deaths."""
+
+INHERITANCE_SKILL_TRANSFER_FRACTION = 0.5
+"""H7 (docs/ROADMAP.md "Phase H"): on death, an heir's skill closes half
+the gap toward the deceased's — "a last lesson," not a full transfer
+(skill is procedural; it can't simply be copied the way a possession
+can, only accelerated by whatever notes/technique are left behind). A
+no-op if the heir was already equally or more skilled. See
+Population._apply_inheritance."""
+
+INHERITANCE_BIAS_THRESHOLD = -0.3
+INHERITANCE_BIAS_TRANSFER_FRACTION = 0.4
+"""H7: a deceased agent's strong distrust of someone still living
+(trust <= INHERITANCE_BIAS_THRESHOLD) partially carries over to their
+heir — the heir's own trust in that person steps 40% of the way toward
+the deceased's, a real "inherited grudge/bias" rather than pure
+narration. Deliberately one-directional (only carries negative bias,
+not positive trust) — a family's caution about someone is the more
+mechanically interesting inheritance to model first; warm trust
+already has its own accrual path through the heir's own dialogue."""
 
 POPULATION_CAP = 400
 """A pure safety valve now, no longer the binding constraint it had

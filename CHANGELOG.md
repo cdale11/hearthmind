@@ -4,6 +4,50 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.49.0] — H4: building ownership + a real materials->tools supply chain
+
+### Added
+
+- **Building ownership.** New `Building.owner_agent_id: int | None` —
+  only HUTs are personally owned in v1 (a home is the natural first
+  case of "property"; every other kind stays commons). Set at founding
+  (`Population._maybe_start_construction`, the lowest-id eligible
+  founder) via a new `owner_agent_id` param on `Settlement.
+  start_construction`.
+- **A genuine multi-good supply chain.** New personal good `"tools"`
+  in `Agent.inventory` (cap `TOOLS_CAPACITY=5.0`). A standing,
+  staffed workshop now also converts shared `settlement.materials`
+  into personal tools for its awake, well-fed workers, one worker at a
+  time each tick as materials last (`Population._maybe_craft_tools`,
+  `WORKSHOP_CRAFT_MATERIALS_COST_PER_TICK`/`WORKSHOP_CRAFT_TOOLS_
+  PER_TICK`) — additive to the existing `_maybe_run_workshops` currency
+  income, not a replacement. Tools then feed back into `Population.
+  _maybe_gather`: a tool-equipped gatherer hauls up to
+  `GATHER_TOOLS_YIELD_BONUS` (40%) more materials at a full personal
+  stash — closing a real loop (gather -> shared materials -> crafted
+  tools -> better gathering) where the crafted output belongs to the
+  specific worker who made it, the first genuinely owned crafted good
+  in the project (everything else workshops/factories produce is
+  settlement-wide currency or communal stock). `Population.
+  _maybe_trade_tools` mirrors `_maybe_trade_food`'s shape for the new
+  good (a GATHER-goal agent with none, colocated with a non-rival
+  neighbor who has spare, receives a share). `summary()` gained
+  `avg_tools`.
+
+Materials are now a genuinely contested resource across three
+consumers (construction, crafting, D10's overflow-selling) rather than
+two — a real tradeoff, not just more content. Verified: direct scripts
+confirmed HUT ownership assignment (lowest-id eligible founder) and
+serialization round-trip; a 50-tick crafting simulation (one workshop,
+one worker, 5.0 starting materials) produced tools and drew down the
+stockpile; a controlled gather comparison (unequipped vs. a fully
+tool-equipped agent on the identical tile/terrain) measured exactly the
+intended +40% yield (0.042 vs 0.03 materials/tick); a direct tool-trade
+script confirmed transfer + relationship nudge. A 6,000-tick full
+engine run (LLM disabled, seed 42) completed with no exceptions and a
+full `World.to_dict()`/`from_dict()` round-trip preserved `avg_tools`
+and building ownership byte-identically.
+
 ## [0.48.0] — H2: belief lineage + family-scoped beliefs; H5: knowledge/skills
 
 ### Added

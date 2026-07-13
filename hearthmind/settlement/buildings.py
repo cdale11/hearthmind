@@ -397,6 +397,28 @@ factory is the settlement's industrial-era-or-later economic upgrade,
 foundable only once `Settlement.era` has advanced past `industrial`
 (see `_ERA_UNLOCKS_FACTORY`)."""
 
+TOOLS_CAPACITY = 5.0
+"""H4 (docs/ROADMAP.md "Phase H"): max personal `"tools"` an agent's
+inventory can hold — see `Agent.inventory`, same shape as
+PERSONAL_FOOD_CAPACITY but a separate cap since tools and food are
+different goods with different scarcity."""
+
+WORKSHOP_CRAFT_MATERIALS_COST_PER_TICK = 0.05
+WORKSHOP_CRAFT_TOOLS_PER_TICK = 0.02
+"""H4: the first real multi-good supply chain — a staffed, standing
+workshop with materials available converts `WORKSHOP_CRAFT_MATERIALS_
+COST_PER_TICK` of the settlement's shared stockpile into
+`WORKSHOP_CRAFT_TOOLS_PER_TICK` *personal* tools for each present awake
+worker (added directly to `Agent.inventory["tools"]`, up to
+TOOLS_CAPACITY) — a real ownership/specialization step: crafted output
+belongs to the specific worker who made it, not the commons, unlike
+every other workshop/factory mechanic in this project so far. Additive
+to (not replacing) WORKSHOP_INCOME_PER_TICK's existing currency income;
+the two compete for the same finite materials stockpile as construction
+already does, which is the point — materials are now a genuinely
+contested resource across three consumers (building, crafting,
+overflow-selling), not just two. See Population._maybe_craft_tools."""
+
 EDUCATION_CAPACITY = 1.0
 """Max `Settlement.education_level` — see SCHOOL_EDUCATION_PER_TICK and
 `education_invention_bonus`."""
@@ -711,6 +733,17 @@ class Building:
     """Ticks spent as a ruin so far — see RUIN_REMOVAL_TICKS."""
     stored_food: float = 0.0
     """0..GRANARY_CAPACITY, meaningful only for a STANDING GRANARY."""
+    owner_agent_id: int | None = None
+    """H4 (docs/ROADMAP.md "Phase H"): the agent this building belongs
+    to, or None for a commons building (every kind except HUT, and any
+    HUT founded before this field existed). Only HUTs are personally
+    owned in v1 — a home is the natural first case of "property," while
+    granaries/workshops/schools/etc. are deliberately kept communal,
+    matching how they already behave mechanically (any awake agent can
+    use a granary or staff a workshop, ownership would change nothing
+    there yet). Set at founding (`Population._maybe_start_construction`)
+    and reassigned to a living heir on the owner's death — see H7,
+    `Population._apply_deaths`."""
 
     def to_dict(self) -> dict:
         return {
@@ -723,6 +756,7 @@ class Building:
             "condition": round(self.condition, 4),
             "ruined_ticks": self.ruined_ticks,
             "stored_food": round(self.stored_food, 4),
+            "owner_agent_id": self.owner_agent_id,
         }
 
     @classmethod
@@ -737,6 +771,7 @@ class Building:
             condition=data["condition"],
             ruined_ticks=data.get("ruined_ticks", 0),
             stored_food=data.get("stored_food", 0.0),
+            owner_agent_id=data.get("owner_agent_id"),
         )
 
 
@@ -1184,8 +1219,10 @@ class Settlement:
 
     # --- construction ------------------------------------------------------
 
-    def start_construction(self, x: int, y: int, kind: BuildingKind = BuildingKind.HUT) -> Building:
-        building = Building(id=self._next_id, x=x, y=y, kind=kind)
+    def start_construction(
+        self, x: int, y: int, kind: BuildingKind = BuildingKind.HUT, owner_agent_id: int | None = None,
+    ) -> Building:
+        building = Building(id=self._next_id, x=x, y=y, kind=kind, owner_agent_id=owner_agent_id)
         self._next_id += 1
         self.buildings.append(building)
         self._position_index = None  # explicit invalidation, belt-and-braces beyond at()'s length check

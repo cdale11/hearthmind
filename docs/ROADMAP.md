@@ -575,7 +575,7 @@ anchor). Councils/guilds/markets/religions, deliberate founding, and
 institution-scoped beliefs remain open follow-ups on the same
 `Institution` shape. See docs/DECISIONS.md, "H3: institutions v1."
 
-### H4. Resource-driven economy: ownership, specialization, supply chains, trade
+### [x] H4. Resource-driven economy: ownership, specialization, supply chains, trade (v1)
 
 Current state: settlement-scale only (materials/currency pools,
 `Agent.inventory`'s single-good personal food stash, direct neighbor food
@@ -593,6 +593,21 @@ chains (workshop consumes materials -> produces goods -> traded) are the
 first place this project would need a genuine multi-step production graph;
 scope that as its own dedicated session per the project's "one coherent
 milestone at a time" rule, not folded into a batch with unrelated systems.
+
+**Shipped, v0.49.0 (v1: one owned building kind, one crafted good).**
+`Building.owner_agent_id` — only HUTs are personal property in v1,
+assigned to the lowest-id eligible founder at construction, every other
+kind stays commons. `Agent.inventory["tools"]` is the first crafted,
+individually-owned good: a staffed workshop converts shared
+`settlement.materials` into personal tools for its workers
+(`Population._maybe_craft_tools`), which then boost that same worker's
+own `_maybe_gather` yield up to +40% (`GATHER_TOOLS_YIELD_BONUS`) — a
+real multi-step chain (gather -> shared stockpile -> crafted personal
+good -> better gathering), and `_maybe_trade_tools` extends barter to
+the new good, same shape as existing food trade. Deliberately v1-scoped:
+no other building kind is owned, no second crafted good, no
+market/price-discovery — those remain open for a larger future session,
+per this section's own scoping note above.
 
 ### [x] H5. Knowledge as a system distinct from beliefs (v1: one skill)
 

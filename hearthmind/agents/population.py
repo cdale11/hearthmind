@@ -24,6 +24,7 @@ from hearthmind.agents.agent import (
     FORAGE_HUNGER_RELIEF,
     FORAGE_HUNGER_THRESHOLD,
     FORAGE_INVENTORY_SKIM,
+    GATHER_TOOLS_YIELD_BONUS,
     GOSSIP_OPINION_CONTAGION,
     GOSSIP_OPINION_MAX_STEP,
     GRIEF_ENERGY_PENALTY,
@@ -58,10 +59,14 @@ from hearthmind.agents.agent import (
     SKILL_TEACHING_MIN_GAP,
     STARVATION_HUNGER_THRESHOLD,
     STARVATION_TICKS_TO_DEATH,
+    INHERITANCE_BIAS_THRESHOLD,
+    INHERITANCE_BIAS_TRANSFER_FRACTION,
+    INHERITANCE_SKILL_TRANSFER_FRACTION,
     TRADE_FOOD_AMOUNT,
     TRADE_HUNGER_RELIEF,
     TRADE_MIN_RELATIONSHIP,
     TRADE_RELATIONSHIP_BOOST,
+    TRADE_TOOLS_AMOUNT,
     TRUST_DELTA,
     TRUST_SKEPTICISM_THRESHOLD,
     WAKE_THRESHOLD,
@@ -120,6 +125,9 @@ from hearthmind.settlement.buildings import (
     SHRINE_FESTIVAL_BOOST_MULTIPLIER,
     TECH_BONUS_PER_LEVEL,
     TEMPERAMENT_KILL_CHANCE_INFLUENCE,
+    TOOLS_CAPACITY,
+    WORKSHOP_CRAFT_MATERIALS_COST_PER_TICK,
+    WORKSHOP_CRAFT_TOOLS_PER_TICK,
     UNIVERSITY_EDUCATION_MULTIPLIER,
     UNIVERSITY_MATERIALS_COST,
     UNIVERSITY_TECH_REQUIREMENT,
@@ -533,6 +541,8 @@ class Population:
         self._maybe_stock_granaries(by_position, settlement)
         self._maybe_trade_food(by_position, rng)
         self._maybe_run_workshops(by_position, settlement)
+        self._maybe_craft_tools(by_position, settlement)
+        self._maybe_trade_tools(by_position, rng)
         self._maybe_run_factories(by_position, settlement)
         self._maybe_run_schools(by_position, settlement)
         life_events.extend(self._maybe_upgrade_university(by_position, settlement, rng))
@@ -839,6 +849,10 @@ class Population:
         # Ready carts speed hauling of whatever was just gathered back to
         # the stockpile — see CART_HAUL_BONUS_PER_CART, D8/vehicles pass.
         gathered *= _haul_factor(settlement)
+        # H4: the gatherer's own tools stretch their own haul further —
+        # a personal, ownership-driven multiplier distinct from the
+        # settlement-wide cart bonus above. See GATHER_TOOLS_YIELD_BONUS.
+        gathered *= 1.0 + (agent.inventory.get("tools", 0.0) / TOOLS_CAPACITY) * GATHER_TOOLS_YIELD_BONUS
 
         # A full stockpile doesn't waste the surplus — it sells to an
         # abstract outside economy instead (D10).
@@ -1517,7 +1531,13 @@ class Population:
             if settlement.materials < cost:
                 continue  # presence alone isn't enough — building needs material on site
             settlement.materials -= cost
-            settlement.start_construction(x, y, kind=kind)
+            # H4: a HUT is personally owned by whichever eligible founder
+            # has the lowest id (arbitrary but stable tie-break — no
+            # "whose idea was it" concept exists to pick more meaningfully)
+            # — every other kind stays commons (owner_agent_id=None), see
+            # Building.owner_agent_id.
+            owner_agent_id = min(a.id for a in eligible) if kind is BuildingKind.HUT else None
+            settlement.start_construction(x, y, kind=kind, owner_agent_id=owner_agent_id)
             life_events.append((
                 "construction_started",
                 f"{kind.value.capitalize()} construction began at ({x}, {y}), using {cost:.0f} materials.",
@@ -1614,6 +1634,76 @@ class Population:
                 continue
             income = WORKSHOP_INCOME_PER_TICK * staff * _tech_factor(settlement)
             settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
+
+    @staticmethod
+    def _maybe_craft_tools(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:
+        """H4 (docs/ROADMAP.md "Phase H"): a standing workshop's awake,
+        well-fed staff also convert shared materials into *personal*
+        tools for themselves, one worker at a time each tick as long as
+        materials last — additive to `_maybe_run_workshops`'s currency
+        income, not a replacement. This is the project's first genuinely
+        owned crafted good: unlike currency (settlement-wide) or stored
+        food (communal granary), the tools land directly in the specific
+        worker's own `Agent.inventory`. See WORKSHOP_CRAFT_MATERIALS_
+        COST_PER_TICK/WORKSHOP_CRAFT_TOOLS_PER_TICK."""
+        for building in settlement.buildings:
+            if building.kind is not BuildingKind.WORKSHOP or building.stage is not BuildingStage.STANDING:
+                continue
+            workers = [
+                a for a in by_position.get((building.x, building.y), [])
+                if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
+            ]
+            for worker in workers:
+                if settlement.materials < WORKSHOP_CRAFT_MATERIALS_COST_PER_TICK:
+                    break
+                if worker.inventory.get("tools", 0.0) >= TOOLS_CAPACITY:
+                    continue
+                settlement.materials -= WORKSHOP_CRAFT_MATERIALS_COST_PER_TICK
+                worker.inventory["tools"] = min(
+                    TOOLS_CAPACITY, worker.inventory.get("tools", 0.0) + WORKSHOP_CRAFT_TOOLS_PER_TICK
+                )
+
+    @staticmethod
+    def _maybe_trade_tools(by_position: dict[tuple[int, int], list[Agent]], rng: random.Random) -> int:
+        """Same shape as `_maybe_trade_food`, for the H4 tools good — a
+        GATHER-goal agent with no tools of their own, colocated with a
+        non-rival neighbor who has spare tools, receives a share.
+        Deliberately reuses TRADE_MIN_RELATIONSHIP/TRADE_RELATIONSHIP_
+        BOOST rather than introducing parallel constants for a second
+        good. Returns how many trades occurred."""
+        trades = 0
+        for group in by_position.values():
+            if len(group) < 2:
+                continue
+            wanting = [
+                a for a in group if a.goal is AgentGoal.GATHER and a.inventory.get("tools", 0.0) <= 0.0
+            ]
+            if not wanting:
+                continue
+            givers = [a for a in group if a.inventory.get("tools", 0.0) > 0.0]
+            for recipient in wanting:
+                giver = next(
+                    (
+                        g for g in givers
+                        if g.id != recipient.id
+                        and g.relationships.get(recipient.id, 0.0) > TRADE_MIN_RELATIONSHIP
+                    ),
+                    None,
+                )
+                if giver is None:
+                    continue
+                amount = min(giver.inventory.get("tools", 0.0), TRADE_TOOLS_AMOUNT)
+                if amount <= 0.0:
+                    continue
+                giver.inventory["tools"] = giver.inventory.get("tools", 0.0) - amount
+                recipient.inventory["tools"] = min(TOOLS_CAPACITY, recipient.inventory.get("tools", 0.0) + amount)
+                for a, b in ((giver, recipient), (recipient, giver)):
+                    a.relationships[b.id] = max(-1.0, min(1.0, a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST))
+                _remember(recipient, f"{giver.name} shared tools with me.")
+                if giver.inventory.get("tools", 0.0) <= 0.0:
+                    givers.remove(giver)
+                trades += 1
+        return trades
 
     @staticmethod
     def _maybe_run_factories(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:
@@ -2219,6 +2309,9 @@ class Population:
             "carrying_capacity": round(self.last_carrying_capacity, 1),
             "avg_farming_skill": round(
                 sum(a.skills.get(SKILL_FARMING, 0.0) for a in self.agents) / total, 3
+            ) if total else 0.0,
+            "avg_tools": round(
+                sum(a.inventory.get("tools", 0.0) for a in self.agents) / total, 3
             ) if total else 0.0,
         }
 

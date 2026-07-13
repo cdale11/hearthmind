@@ -3959,3 +3959,68 @@ disabled, seed 42, reproduction odds forced to 1.0 to exercise
 births/institutions/beliefs/skills together in one pass) completed
 with no exceptions, and a full `World.to_dict()`/`from_dict()`
 round-trip preserved `avg_farming_skill` byte-identically.
+
+## H4 v1: building ownership + a real materials->tools supply chain
+
+Fifth implementation pass on Phase H, per explicit user instruction to
+proceed with "H4 and H7."
+
+Scoped deliberately narrow, per the roadmap's own H4 note that a full
+supply chain deserves its own dedicated session — this is the smallest
+version that makes "ownership, specialization, supply chains, trade"
+mechanically real rather than a stub, not the maximal reading. Three
+concrete pieces:
+
+**Ownership.** `Building.owner_agent_id` is new, but only HUTs are
+personally owned — every other kind (granary, workshop, school,
+hospital, university, factory, shrine) stays commons
+(`owner_agent_id=None`), matching how they already behave mechanically
+(any awake agent can use a granary or staff a workshop regardless of
+who's "supposed" to own it; changing that would be a much larger
+behavioral change than this pass intended). A HUT is assigned to the
+lowest-id eligible founder among the colocated pair that triggers
+construction — an arbitrary but stable tie-break, since no "whose idea
+was it" concept exists in this project to pick more meaningfully.
+
+**Supply chain.** The real addition: `Population._maybe_craft_tools`
+gives a standing, staffed workshop a second output besides its existing
+currency income (`_maybe_run_workshops`, untouched) — converting shared
+`settlement.materials` into personal `"tools"` for each present awake,
+well-fed worker, one worker at a time per tick as materials last. This
+is the project's first crafted good that belongs to the individual who
+made it rather than the settlement commons (currency, granary stock,
+and the existing workshop income are all communal). Tools then feed
+back into `Population._maybe_gather`, boosting that same agent's own
+material-gathering yield up to +40%
+(`GATHER_TOOLS_YIELD_BONUS`) — a genuine three-stage loop (raw
+gathering -> shared stockpile -> crafted personal good -> better
+gathering), not an isolated mechanic. Materials are now contested by
+three consumers (construction, crafting, D10 overflow-selling) instead
+of two, a real scarcity tradeoff.
+
+**Trade.** `Population._maybe_trade_tools` mirrors `_maybe_trade_food`'s
+exact shape (a needing agent — here, a GATHER-goal agent with no tools
+— colocated with a non-rival neighbor who has spare, receives some,
+with the same relationship nudge) rather than inventing a new barter
+mechanism for the new good.
+
+Deliberately NOT attempted this pass, staying inside the "smallest
+coherent milestone" discipline: ownership of any other building kind,
+a second crafted good, market/price discovery, or hauling goods between
+tiles. All remain open for the larger dedicated session the roadmap's
+H4 section already flagged.
+
+Verified: a direct script confirmed HUT ownership assignment (forcing
+`choose_building_kind` to always return HUT, two founders with ids 5
+and 3 — the hut was correctly owned by the lower id, 3) and
+`Building.to_dict()`/`from_dict()` round-trip preservation; a 50-tick
+crafting simulation (one workshop, one worker, 5.0 starting materials)
+produced 1.0 tools and drew the stockpile down to 2.5, confirming both
+the cap and the draw rate; a controlled gather comparison on identical
+terrain/tile (unequipped agent: 0.03 materials gathered; agent with a
+full personal tools stash: 0.042) measured exactly the intended 1.4x
+(+40%) multiplier; a direct tool-trade script confirmed transfer amount
+and the relationship nudge on both sides. A 6,000-tick full engine run
+(LLM disabled, seed 42) completed with no exceptions, and a full
+`World.to_dict()`/`from_dict()` round-trip preserved `avg_tools` and
+building-ownership state byte-identically.
