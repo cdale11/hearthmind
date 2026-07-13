@@ -415,9 +415,32 @@ SKILL_CONSTRUCTION_SPEED_BONUS = 0.25
 than an unskilled one, on top of (not instead of) the existing
 materials-multiplier and tech-level bonuses."""
 
+SKILL_MEDICINE = "medicine"
+"""Third skill axis (docs/DECISIONS.md, "continue expanding, round
+three"): gained by a hospital worker's own practice while crafting the
+`"medicine"` good (`Population._maybe_craft_medicine`), taught the same
+skill-name-agnostic way as farming/construction. Distinct from the
+crafted good of the same name — the good is a personal stockpile that
+gets consumed treating illness; the skill is the crafter's own growing
+proficiency at making it."""
+
+SKILL_MEDICINE_PRACTICE_GAIN = 0.012
+"""Per successful medicine-crafting tick — close to SKILL_PRACTICE_GAIN
+(farming's solo-practice rate), since both are "learning by doing" at a
+fixed workplace rather than a rarer event-triggered gain."""
+
+SKILL_MEDICINE_YIELD_BONUS = 0.3
+"""At full mastery, a medicine-skilled hospital worker crafts up to +30%
+more medicine per tick (`HOSPITAL_CRAFT_MEDICINE_PER_TICK` base) — same
+"practiced yield bonus" shape as SKILL_FARMING_YIELD_BONUS/
+SKILL_CONSTRUCTION_SPEED_BONUS, slightly higher since medicine has no
+tech-level bonus of its own to stack with the way farming/construction
+do."""
+
 SKILL_INVENTION_BONUS_WEIGHT = 0.3
-"""H5 extension: the settlement-wide average of both skills (farming +
-construction) gives a small additive nudge to invention chance
+"""H5 extension: the settlement-wide average skill level (farming +
+construction, now also medicine) gives a small additive nudge to
+invention chance
 (`SimulationEngine._maybe_schedule_invention`), mirroring `education_
 invention_bonus`'s shape (1.0 + something). This is the roadmap's own
 suggested H5 evolution point ("tech_level becomes the settlement-

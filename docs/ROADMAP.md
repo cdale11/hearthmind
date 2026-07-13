@@ -611,7 +611,10 @@ prompt as "your own private theory." One agent per month, not all —
 deliberately scoped against LLM scheduling load, matching the "real
 interpretive content, not a routine per-agent stat" framing this
 extension earns. Stage 3 (deeper institution-level belief *formation*,
-beyond H2/H3's existing mirroring) remains open.
+beyond H2/H3's existing mirroring) remains open — v0.62.0 closed the
+remaining mirroring gap instead (`sync_guild_beliefs`, GUILD's own
+missing counterpart to `sync_family_beliefs`/`sync_council_beliefs`),
+which is still mirroring, not formation.
 
 ### [x] H3. Institutions as first-class entities (v1: families)
 
@@ -766,6 +769,14 @@ tuned. A full replacement of the roll remains open if ever wanted, but
 risked destabilizing an already-balance-tuned era-progression system
 for a benefit this additive version already captures at much lower
 risk.
+
+**Extended, v0.62.0: `SKILL_MEDICINE`, a third skill.** Closes the one
+crafted good (H4's "medicine") that had no personal-skill hook at all —
+gained by a hospital worker's own crafting practice, boosts their own
+crafted yield up to +30% at full mastery. Wired into every consumer
+the first two skills already reach (teaching, GUILD formation,
+`carrying_capacity`'s knowledge term, the invention-chance aggregate
+nudge) in the same commit.
 
 **Extended, v0.56.0 (integration milestone): teaching becomes
 institution- and culture-aware.** `_maybe_teach_skills`'s roll chance

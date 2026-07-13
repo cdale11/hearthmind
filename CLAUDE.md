@@ -444,6 +444,47 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## "Continue expanding," round three (v0.62.0)
+
+Third follow-up, same discipline: an Explore-agent audit first
+(skills, belief-mirroring coverage, LLM fallback pools, frontend
+disease-state rendering), then one substantial fully-verified item per
+category.
+
+**Deepen: `SKILL_MEDICINE` (third skill axis).** Closes the one
+crafted good (H4's "medicine") with no personal-skill hook — a
+hospital worker's own crafting practice now grows a skill that boosts
+their own crafted yield up to +30% at full mastery. Wired into every
+consumer the first two skills reach (teaching, GUILD formation,
+carrying-capacity knowledge term, invention-chance aggregate nudge) in
+the same commit.
+
+**Close a gap: GUILD belief mirroring (`sync_guild_beliefs`).** The
+one institution kind FAMILY/COUNCIL's mirroring never covered — a
+belief whose text names a guild's trade is now mirrored onto that
+guild's own beliefs, same shape as the other two syncs. Deliberately
+still mirroring, not the roadmap's still-open "Stage 3" independent
+institution-level belief formation.
+
+**Content variety: chronicle's fallback summary.** The season-end
+fallback — the most frequently-fired narrative fallback in the
+project — was still a single hardcoded line; now cycles a 3-entry
+template pool by seed, same discipline as disaster narration's own
+variety pass, no LLM call added.
+
+**UI depth: sick/immune status rendering.** `sick_ticks`/`immune_ticks`
+were already broadcast per-agent (disease v2, v0.59.0) but never
+rendered — map agent dots gained a magenta/green status ring, the NPC
+inspector's Vitals row gained a plain-language Health line.
+
+Verified: craft-yield/practice-gain unit checks (1.30x yield ratio at
+full mastery, exact), guild-formation-with-medicine, guild-belief
+match/no-match/revision checks, chronicle template-variety sampling
+(3 phrasings across 50 seeds), `node -c`, and a 5,000-tick real-engine
+run with a full serialization round-trip (0.499ms/tick, no
+regression). Full accounting in docs/DECISIONS.md, "continue
+expanding, round three."
+
 ## "Continue expanding," round two (v0.61.0)
 
 Second follow-up, same discipline: an Explore-agent audit first (trait

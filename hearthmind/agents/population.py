@@ -58,6 +58,9 @@ from hearthmind.agents.agent import (
     SKILL_CONSTRUCTION_SPEED_BONUS,
     SKILL_FARMING,
     SKILL_FARMING_YIELD_BONUS,
+    SKILL_MEDICINE,
+    SKILL_MEDICINE_PRACTICE_GAIN,
+    SKILL_MEDICINE_YIELD_BONUS,
     SKILL_PRACTICE_GAIN,
     SKILL_TEACHING_CHANCE_PER_TICK,
     SKILL_TEACHING_GAIN,
@@ -1480,8 +1483,9 @@ class Population:
         the less skilled one — same colocation-driven contagion shape as
         `_update_relationships`'s gain loop and dialogue's gossip
         contagion. Skill-name-agnostic — H5 extension added
-        SKILL_CONSTRUCTION as a second skill with no changes needed
-        here beyond listing it below.
+        SKILL_CONSTRUCTION as a second skill, and the "continue
+        expanding, round three" pass added SKILL_MEDICINE as a third,
+        both with no changes needed here beyond listing them below.
 
         Integration milestone: the base chance is no longer a flat
         constant — it's scaled by both agents' average sociability
@@ -1509,7 +1513,7 @@ class Population:
                 ) * knowledge_multiplier
                 if shared_institution:
                     chance *= INSTITUTION_TEACHING_BONUS_MULTIPLIER
-                for skill in (SKILL_FARMING, SKILL_CONSTRUCTION):
+                for skill in (SKILL_FARMING, SKILL_CONSTRUCTION, SKILL_MEDICINE):
                     a_level, b_level = a.skills.get(skill, 0.0), b.skills.get(skill, 0.0)
                     gap = a_level - b_level
                     if abs(gap) < SKILL_TEACHING_MIN_GAP:
@@ -1608,8 +1612,10 @@ class Population:
             coordination_term = 0.0
 
         avg_skill = (
-            sum(a.skills.get(SKILL_FARMING, 0.0) + a.skills.get(SKILL_CONSTRUCTION, 0.0) for a in self.agents)
-            / (2 * total) if total else 0.0
+            sum(
+                a.skills.get(SKILL_FARMING, 0.0) + a.skills.get(SKILL_CONSTRUCTION, 0.0)
+                + a.skills.get(SKILL_MEDICINE, 0.0) for a in self.agents
+            ) / (3 * total) if total else 0.0
         )
         knowledge_term = avg_skill * CARRYING_CAPACITY_KNOWLEDGE_WEIGHT
 
@@ -1807,19 +1813,19 @@ class Population:
     def _maybe_form_guild(self, settlement: Settlement, tick: int) -> list[tuple[str, str]]:
         """H3 v4 (docs/DECISIONS.md "continue expanding" pass): a third
         institution kind, one per mastered trade (SKILL_FARMING/
-        SKILL_CONSTRUCTION), formed the first tick at least
-        GUILD_FORMATION_MASTER_COUNT living agents have reached
-        GUILD_SKILL_MASTERY_THRESHOLD in that skill. Uses `Institution.
-        name` to hold which skill this guild is for — the first real
-        consumer of that field, previously always empty. A no-op for a
-        skill that already has a standing guild."""
+        SKILL_CONSTRUCTION, now also SKILL_MEDICINE), formed the first
+        tick at least GUILD_FORMATION_MASTER_COUNT living agents have
+        reached GUILD_SKILL_MASTERY_THRESHOLD in that skill. Uses
+        `Institution.name` to hold which skill this guild is for — the
+        first real consumer of that field, previously always empty. A
+        no-op for a skill that already has a standing guild."""
         if not settlement.name:
             return []
         events: list[tuple[str, str]] = []
         existing_skills = {
             inst.name for inst in settlement.institutions if inst.kind is InstitutionKind.GUILD
         }
-        for skill in (SKILL_FARMING, SKILL_CONSTRUCTION):
+        for skill in (SKILL_FARMING, SKILL_CONSTRUCTION, SKILL_MEDICINE):
             if skill in existing_skills:
                 continue
             masters = [a for a in self.agents if a.skills.get(skill, 0.0) >= GUILD_SKILL_MASTERY_THRESHOLD]
@@ -2241,7 +2247,15 @@ class Population:
         standing hospital's awake, well-fed staff convert shared
         materials into personal medicine for themselves. See
         HOSPITAL_CRAFT_MATERIALS_COST_PER_TICK/HOSPITAL_CRAFT_MEDICINE_
-        PER_TICK, `_tick_disease` for the consumption side."""
+        PER_TICK, `_tick_disease` for the consumption side.
+
+        "Continue expanding, round three": a worker's own SKILL_MEDICINE
+        proficiency now boosts their crafted yield per tick (same
+        "practiced yield bonus" shape SKILL_FARMING/SKILL_CONSTRUCTION
+        already have — see SKILL_MEDICINE_YIELD_BONUS) and grows by
+        SKILL_MEDICINE_PRACTICE_GAIN each tick they craft, closing what
+        was otherwise the only crafted good with no personal-skill
+        hook at all."""
         for building in settlement.buildings:
             if building.kind is not BuildingKind.HOSPITAL or building.stage is not BuildingStage.STANDING:
                 continue
@@ -2255,9 +2269,12 @@ class Population:
                 if worker.inventory.get("medicine", 0.0) >= MEDICINE_CAPACITY:
                     continue
                 settlement.materials -= HOSPITAL_CRAFT_MATERIALS_COST_PER_TICK
+                medicine_skill = worker.skills.get(SKILL_MEDICINE, 0.0)
+                yield_amount = HOSPITAL_CRAFT_MEDICINE_PER_TICK * (1.0 + medicine_skill * SKILL_MEDICINE_YIELD_BONUS)
                 worker.inventory["medicine"] = min(
-                    MEDICINE_CAPACITY, worker.inventory.get("medicine", 0.0) + HOSPITAL_CRAFT_MEDICINE_PER_TICK
+                    MEDICINE_CAPACITY, worker.inventory.get("medicine", 0.0) + yield_amount
                 )
+                worker.skills[SKILL_MEDICINE] = min(1.0, medicine_skill + SKILL_MEDICINE_PRACTICE_GAIN)
 
     @staticmethod
     def _maybe_trade_medicine(by_position: dict[tuple[int, int], list[Agent]], rng: random.Random) -> int:
@@ -3024,6 +3041,9 @@ class Population:
             ) if total else 0.0,
             "avg_construction_skill": round(
                 sum(a.skills.get(SKILL_CONSTRUCTION, 0.0) for a in self.agents) / total, 3
+            ) if total else 0.0,
+            "avg_medicine_skill": round(
+                sum(a.skills.get(SKILL_MEDICINE, 0.0) for a in self.agents) / total, 3
             ) if total else 0.0,
             "avg_tools": round(
                 sum(a.inventory.get("tools", 0.0) for a in self.agents) / total, 3

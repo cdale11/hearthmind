@@ -591,6 +591,24 @@ function drawFrame() {
       ctx.lineWidth = 1;
       ctx.stroke();
     }
+    // "Continue expanding, round three": sick_ticks/immune_ticks were
+    // already broadcast per-agent (disease v2, v0.59.0) but never
+    // rendered anywhere — a distinct outer ring (magenta while sick,
+    // faint green while recently immune) closes that gap the same way
+    // starving_ticks' own ring already does, without colliding with it.
+    if (a.sick_ticks > 0) {
+      ctx.beginPath();
+      ctx.strokeStyle = "#c94cef";
+      ctx.lineWidth = 1;
+      ctx.arc(px, py, CELL / 3 + 2, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (a.immune_ticks > 0) {
+      ctx.beginPath();
+      ctx.strokeStyle = "rgba(120, 220, 150, 0.65)";
+      ctx.lineWidth = 1;
+      ctx.arc(px, py, CELL / 3 + 2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
 }
 
@@ -975,9 +993,16 @@ function renderNpcInspector() {
         <span>hunger ${agent.hunger.toFixed(2)}</span>
         <span>energy ${agent.energy.toFixed(2)}</span>
         <span>position (${agent.x}, ${agent.y})</span>
+        <span>${healthLabel(agent)}</span>
       </div>
     </div>
   `;
+}
+
+function healthLabel(agent) {
+  if ((agent.sick_ticks || 0) > 0) return `sick, ${agent.sick_ticks} ticks`;
+  if ((agent.immune_ticks || 0) > 0) return `recently immune, ${agent.immune_ticks} ticks`;
+  return "healthy";
 }
 
 // --- consequences overlay ("the village is aging," not raw stats) ----------

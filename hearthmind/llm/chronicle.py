@@ -42,16 +42,35 @@ def build_prompt(
     )
 
 
-def fallback_summary(recent_events: list[dict], population_summary: dict, season: str, year: int) -> dict:
+_FALLBACK_TEMPLATES = (
+    "{season} of year {year} ended with {total} inhabitants remaining ({births} born, {deaths} died this season).",
+    "As {season}, year {year}, drew to a close, the village counted {total} souls — {births} born, {deaths} lost.",
+    "The books were closed on {season}, year {year}: {total} inhabitants, {births} new arrivals, {deaths} deaths.",
+)
+""""Continue expanding, round three" (docs/DECISIONS.md): chronicle's
+own fallback is arguably the most frequently-fired narrative fallback
+in the whole project (it stands in for the season-end summary on any
+world running without live Ollama), yet was still a single hardcoded
+line with zero variation — every other narrative fallback (dialogue,
+culture, festival, invention, omens, disaster narration, world_genesis)
+already cycles a small pool by this point. Same shape as disasters.py's
+`_pick_template`: a small, fixed pool selected by seed, no LLM call
+added — the counts-based content stays identical, only the phrasing
+varies."""
+
+
+def fallback_summary(
+    recent_events: list[dict], population_summary: dict, season: str, year: int, seed_hint: int = 0,
+) -> dict:
     """Deterministic templated stand-in used when the LLM is unavailable —
     counts-based rather than prose, but still a real, useful record."""
+    import random
     births = sum(1 for event in recent_events if event["category"] == "birth")
     deaths = sum(1 for event in recent_events if event["category"] == "death")
+    template = random.Random(seed_hint).choice(_FALLBACK_TEMPLATES)
     return {
-        "summary": (
-            f"{season.capitalize()} of year {year} ended with "
-            f"{population_summary['total']} inhabitants remaining "
-            f"({births} born, {deaths} died this season)."
+        "summary": template.format(
+            season=season.capitalize(), year=year, total=population_summary["total"], births=births, deaths=deaths,
         )
     }
 

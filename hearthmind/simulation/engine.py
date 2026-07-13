@@ -36,6 +36,7 @@ from hearthmind.agents.agent import (
     SKILL_CONSTRUCTION,
     SKILL_FARMING,
     SKILL_INVENTION_BONUS_WEIGHT,
+    SKILL_MEDICINE,
     TRIGGERED_COGNITION_COOLDOWN_TICKS,
     AgentGoal,
 )
@@ -743,7 +744,10 @@ class SimulationEngine:
             traditions=self.world.settlement.traditions[-PROMPT_CULTURE_LIST_MAX:],
             beliefs=list(self.world.settlement.beliefs),
         )
-        fallback = chronicle.fallback_summary(recent, population_summary, previous_season, year)
+        fallback = chronicle.fallback_summary(
+            recent, population_summary, previous_season, year,
+            seed_hint=self.world.clock.tick_count,
+        )
 
         def apply(result: dict, used_fallback: bool) -> None:
             self._log("chronicle", chronicle.parse_summary(result, fallback))
@@ -861,8 +865,9 @@ class SimulationEngine:
         agents = self.world.population.agents
         if agents:
             avg_skill = sum(
-                a.skills.get(SKILL_FARMING, 0.0) + a.skills.get(SKILL_CONSTRUCTION, 0.0) for a in agents
-            ) / (2 * len(agents))
+                a.skills.get(SKILL_FARMING, 0.0) + a.skills.get(SKILL_CONSTRUCTION, 0.0)
+                + a.skills.get(SKILL_MEDICINE, 0.0) for a in agents
+            ) / (3 * len(agents))
             chance = min(1.0, chance * (1.0 + avg_skill * SKILL_INVENTION_BONUS_WEIGHT))
         chance = max(0.0, chance * (1.0 + settlement.temperament * TEMPERAMENT_INVENTION_INFLUENCE))
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "invention_roll") >= chance:
@@ -1144,6 +1149,7 @@ class SimulationEngine:
                 self._log("belief_formed", f"The village came to believe something about {entry['subject']}: {entry['belief']}")
             beliefs.sync_family_beliefs(entry, settlement.institutions)  # H2/H3 crossover
             beliefs.sync_council_beliefs(entry, settlement.institutions)  # integration milestone
+            beliefs.sync_guild_beliefs(entry, settlement.institutions)  # continue expanding, round three
 
         self._schedule_llm_job("beliefs", prompt, beliefs.SYSTEM_PROMPT, fallback, apply)
 

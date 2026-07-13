@@ -5176,3 +5176,90 @@ edges and the new inspector section is unverified); a 5,000-tick
 full-engine smoke run (0.80ms/tick, consistent with the pre-batch
 baseline, no regression from the added broadcast payload key or any
 other change in this batch).
+
+## Continue expanding, round three (v0.62.0)
+
+Third follow-up batch, same discipline: an Explore-agent audit first
+(skills, belief-mirroring coverage, LLM fallback pools, frontend
+disease-state rendering), then one substantial fully-verified item per
+category.
+
+**Deepen: `SKILL_MEDICINE` (third skill axis).** The audit found
+disease recovery/death chance had exactly one personal-skill hook
+missing versus farming/construction: the "medicine" crafted good (H4)
+boosted a *holder's* death-chance reduction, but the *crafter's* own
+skill at making it had no mechanic at all — the only crafted good with
+zero personal-proficiency loop. Added `SKILL_MEDICINE`, gained by a
+hospital worker's own practice each tick they craft
+(`SKILL_MEDICINE_PRACTICE_GAIN`, same magnitude as `SKILL_PRACTICE_
+GAIN`), boosting their own crafted yield up to +30% at full mastery
+(`SKILL_MEDICINE_YIELD_BONUS`, slightly above farming/construction's
++25% since medicine has no separate tech-level bonus to stack with).
+Wired into every place `SKILL_FARMING`/`SKILL_CONSTRUCTION` already
+reach in the same commit, per the project's standing "introduce and
+consume together" rule: `_maybe_teach_skills`'s colocated-teaching
+loop, `_maybe_form_guild`'s mastery tuple (a medicine guild can now
+form the same way farming/construction guilds do), `carrying_
+capacity`'s knowledge term, and the invention-chance aggregate skill
+nudge (`SimulationEngine._maybe_schedule_invention`).
+`Population.summary()` gained `avg_medicine_skill`.
+
+**Close a gap: GUILD belief mirroring (`sync_guild_beliefs`).**
+`llm/beliefs.py`'s own module docstring already names `sync_family_
+beliefs`/`sync_council_beliefs` as the mirroring mechanism for two of
+the three institution kinds — GUILD, added later (v0.60.0), was never
+given the equivalent. Added `sync_guild_beliefs`: when a settlement
+belief's subject/text names a guild's trade (`Institution.name`, e.g.
+"farming"), a copy is mirrored onto that guild's own `Institution.
+beliefs`, same shape (same `INSTITUTION_BELIEF_CAP` eviction, same
+copy-not-reference semantics) as the other two syncs — just keyed by
+keyword match against the trade name rather than person/family
+resolution, since a guild has no member list a belief could resolve
+through the way `resolve_subject_agent_id` does for people. This is
+deliberately scoped as mirroring, not the roadmap's still-open "Stage
+3" (independent institution-level belief *formation*, a distinct, much
+larger LLM-job addition) — same "mirroring first, formation later"
+sequencing the family/council syncs already established.
+
+**Content variety: chronicle's fallback summary.** The audit found
+`chronicle.fallback_summary` — season-end summary, the most frequently
+-fired narrative fallback in the project (fires every season on any
+world running without live Ollama) — was still a single hardcoded
+f-string, unlike every other narrative fallback (dialogue, culture,
+festival, invention, omens, disaster narration, world_genesis) touched
+by the last two variety passes. Converted to a small 3-entry template
+pool selected by `random.Random(seed_hint)` (mirrors `omens.fallback_
+omen`'s own `seed_hint` shape), `seed_hint` passed as the current
+`tick_count` at the call site — same pool-cycling, zero-new-LLM-call
+discipline as disaster narration's own variety pass. Counts-based
+content (population/births/deaths) is identical across all three
+templates; only phrasing varies.
+
+**UI depth: sick/immune status rendering.** The audit found `Agent.
+to_dict()` already broadcasts `sick_ticks`/`immune_ticks` per tick
+(disease v2, v0.59.0) but grepping `app.js` found zero references to
+either — the same "data already broadcast, only rendering missing"
+gap the personality/skills and institutions UI passes closed in the
+prior two rounds, just for disease state. Added a magenta outer ring
+on map agent dots while `sick_ticks > 0`, a faint green ring while
+`immune_ticks > 0` (distinct from the existing red `starving_ticks`
+ring, non-colliding since they're drawn at different radii/colors),
+and a plain-language Health line in the NPC inspector's Vitals row
+("sick, N ticks" / "recently immune, N ticks" / "healthy").
+
+Verified: direct unit checks for `_maybe_craft_medicine`'s yield/
+practice-gain math (measured 1.30x yield ratio at full mastery vs.
+expected 1.3x — exact, since it's a direct multiplier), guild
+formation including medicine, `sync_guild_beliefs`'s match/no-match/
+revision-in-place behavior, and `chronicle.fallback_summary`'s
+template variety (3 distinct phrasings sampled across 50 seeds,
+counts-content identical, same-seed calls stable); `node -c` on
+app.js; a 5,000-tick real-`SimulationEngine` run (`load_or_create` +
+`_tick_once`, matching the project's own test-suite pattern) with a
+full `World.to_dict()`/`from_dict()` serialization round-trip
+confirming `avg_medicine_skill` and institution counts survive intact
+(0.499ms/tick, no regression from the pre-batch baseline). No real
+Ollama/browser available in this environment — the visual appearance
+of the new map rings and inspector Health line is unverified beyond
+payload/syntax checks, same standing caveat as every other frontend
+change in this project's history.

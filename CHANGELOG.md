@@ -4,6 +4,48 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.62.0] — Continue expanding, round three: SKILL_MEDICINE, guild belief mirroring, chronicle variety, disease UI
+
+Third follow-up batch, scoped after an Explore-agent audit of skills,
+belief mirroring, LLM fallback pools, and the frontend's disease-state
+rendering, to find genuine unimplemented next steps.
+
+### Added
+
+- **`SKILL_MEDICINE`**: a third skill axis alongside `SKILL_FARMING`/
+  `SKILL_CONSTRUCTION`, closing the one crafted good (medicine) that
+  previously had no personal-skill hook. Gained by a hospital worker's
+  own practice while crafting (`_maybe_craft_medicine`); boosts their
+  own crafted yield up to +30% at full mastery
+  (`SKILL_MEDICINE_YIELD_BONUS`). Wired into every place the other two
+  skills already reach: colocated teaching, GUILD formation (a third
+  possible guild, one per mastered trade), the settlement's
+  `carrying_capacity` knowledge term, and the invention-chance
+  aggregate skill nudge — introduced and fully consumed in the same
+  batch, per the project's standing "no write-only mechanics" rule.
+  `Population.summary()` gained `avg_medicine_skill`.
+- **GUILD belief mirroring (`sync_guild_beliefs`)**: closes the one
+  institution kind FAMILY/COUNCIL's belief-mirroring pattern never
+  covered — a settlement belief whose text names a guild's trade (e.g.
+  "farming") is now mirrored onto that GUILD's own `Institution.
+  beliefs`, the same "mirroring, not independent formation" mechanism
+  the other two kinds already use. Independent institution-level belief
+  *formation* (the roadmap's still-open "Stage 3") remains a distinct,
+  larger future step.
+- **Chronicle fallback template variety**: `chronicle.fallback_summary`
+  — the season-end summary fallback, arguably the most frequently-fired
+  narrative fallback in the project — was still a single hardcoded
+  line with zero variation, unlike every other narrative fallback
+  touched by the last two variety passes. Now cycles a small 3-entry
+  pool by seed, same shape as disaster narration's own template
+  variety (no LLM call added).
+- **Sick/immune status rendering**: `sick_ticks`/`immune_ticks` were
+  already broadcast per-agent (disease v2, v0.59.0) but never rendered
+  anywhere. Map agent dots now show a magenta ring while sick, a faint
+  green ring while recently immune; the NPC inspector's Vitals row
+  gained a plain-language Health line ("sick, N ticks" / "recently
+  immune, N ticks" / "healthy").
+
 ## [0.61.0] — Continue expanding: TRAIT_OPENNESS, family-tree edges, disaster variety, NPC institutions
 
 Second follow-up batch, scoped after an Explore-agent audit of trait

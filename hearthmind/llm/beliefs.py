@@ -336,6 +336,41 @@ def sync_family_beliefs(entry: dict, institutions: list[Institution]) -> None:
             inst.beliefs.remove(weakest)
 
 
+def sync_guild_beliefs(entry: dict, institutions: list[Institution]) -> None:
+    """"Continue expanding, round three" (docs/DECISIONS.md): closes the
+    one institution kind `sync_family_beliefs`/`sync_council_beliefs`
+    never covered — a GUILD (`Institution.name` holds its trade, e.g.
+    "farming") gets its own copy of any settlement belief whose text
+    actually names that trade, the same "mirroring, not independent
+    formation" mechanism families/councils already use, just keyed by
+    keyword match against `Institution.name` instead of person/family
+    resolution (a guild has no member list a belief could resolve
+    through the way `resolve_subject_agent_id` does for people). Real
+    independent institution-level belief *formation* (the roadmap's
+    still-open "Stage 3") remains a separate, larger future step — this
+    is the same scoped mirroring increment as the other two kinds.
+    No-op if no GUILD's trade name appears in the belief's text."""
+    haystack = f"{entry['subject']} {entry['belief']}".lower()
+    tick = entry.get("revised_tick", entry.get("formed_tick", 0))
+    for inst in institutions:
+        if inst.kind is not InstitutionKind.GUILD or not inst.name:
+            continue
+        if inst.name.lower() not in haystack:
+            continue
+        copy = {
+            "subject": entry["subject"], "belief": entry["belief"],
+            "confidence": entry["confidence"], "tick": tick,
+        }
+        existing = next((b for b in inst.beliefs if b.get("subject") == entry["subject"]), None)
+        if existing is not None:
+            existing.update(copy)
+            continue
+        inst.beliefs.append(copy)
+        if len(inst.beliefs) > INSTITUTION_BELIEF_CAP:
+            weakest = min(inst.beliefs, key=lambda b: b.get("confidence", 0.0))
+            inst.beliefs.remove(weakest)
+
+
 def sync_council_beliefs(entry: dict, institutions: list[Institution]) -> None:
     """Integration-milestone counterpart to `sync_family_beliefs`: a
     council of elders is a plausible holder of the settlement's *civic*
