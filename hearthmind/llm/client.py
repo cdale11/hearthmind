@@ -51,6 +51,13 @@ class OllamaClient:
     anonymous memory the kernel can only relieve via swap rather than
     the cheaper drop-and-re-read-from-disk path mmap'd (file-backed)
     pages allow. `None` omits it (server default/heuristic)."""
+    num_gpu: int | None = None
+    """Explicit `num_gpu` request option (see Config.llm_num_gpu) — how
+    many layers Ollama offloads to a GPU it has detected. `None` (the
+    default) omits it, leaving Ollama's own auto-detected split in
+    place; this project has no standing opinion on GPU layer count the
+    way it does on mmap/ctx/predict, since it depends entirely on
+    hardware Ollama may or may not recognize."""
 
     def generate_json(self, prompt: str, system: str | None = None) -> dict:
         """Blocking call — issue one generate request and parse the
@@ -64,6 +71,8 @@ class OllamaClient:
             options["num_predict"] = self.num_predict
         if self.use_mmap is not None:
             options["use_mmap"] = self.use_mmap
+        if self.num_gpu is not None:
+            options["num_gpu"] = self.num_gpu
         payload = {
             "model": self.model,
             "prompt": prompt,

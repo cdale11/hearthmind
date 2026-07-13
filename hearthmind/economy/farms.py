@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from hearthmind.world.resources import is_adjacent_to_water
 from hearthmind.world.terrain import Biome, Tile
 
 FARMABLE_BIOMES = frozenset({Biome.GRASSLAND})
@@ -74,6 +75,20 @@ farming"). A season name absent from this table (a custom Config's
 `seasons_per_year` need not use these four names) defaults to 1.0 via
 `.get(season, 1.0)` in `FarmGrid.tick`. See docs/DECISIONS.md, scarcity
 pass."""
+
+IRRIGATION_GROWTH_MULTIPLIER = 1.35
+"""Integration milestone ("infrastructure networks"): a plot adjacent
+to water (`world/resources.is_adjacent_to_water` — the same helper H-
+era fishing already uses for node placement) grows this much faster —
+a real irrigation effect, not flavor text, reusing an existing terrain
+signal rather than inventing a new water-network data structure.
+Deliberately still weaker than a bad season is harsh (`SEASON_GROWTH_
+MULTIPLIER["winter"]` = 0.35, more than a 2x swing) — irrigation helps,
+it doesn't override the calendar. Stacks multiplicatively with the
+season multiplier and the existing tool/no-tool yield distinction
+(which affects `max_yield`, not growth *rate* — irrigation and tooling
+are deliberately independent levers: how fast a plot grows vs. how
+much it eventually yields)."""
 
 
 class FarmStage(str, Enum):
@@ -169,11 +184,19 @@ class FarmGrid:
 
     # --- tick ------------------------------------------------------------------
 
-    def tick(self, season: str = "summer") -> None:
-        growth_rate = GROWTH_PER_TICK * SEASON_GROWTH_MULTIPLIER.get(season, 1.0)
+    def tick(self, season: str = "summer", terrain: list[list[Tile]] | None = None) -> None:
+        base_growth_rate = GROWTH_PER_TICK * SEASON_GROWTH_MULTIPLIER.get(season, 1.0)
         rotted: list[tuple[int, int]] = []
         for (x, y), plot in self.plots.items():
             if plot.stage is FarmStage.GROWING:
+                # Irrigation (integration milestone): a water-adjacent
+                # plot grows faster — see IRRIGATION_GROWTH_MULTIPLIER.
+                # `terrain` is optional so callers that only care about
+                # depletion/season behavior (older call sites, tests)
+                # aren't forced to thread it through.
+                growth_rate = base_growth_rate
+                if terrain is not None and is_adjacent_to_water(terrain, x, y):
+                    growth_rate *= IRRIGATION_GROWTH_MULTIPLIER
                 plot.growth = min(1.0, plot.growth + growth_rate)
                 if plot.growth >= 1.0:
                     plot.stage = FarmStage.READY

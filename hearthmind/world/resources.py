@@ -40,7 +40,7 @@ would be pointless)."""
 WATER_ADJACENT_BIOMES = frozenset({Biome.DEEP_WATER, Biome.SHALLOW_WATER, Biome.RIVER})
 """A fishing spot needs a walkable tile bordering one of these — not
 "is beach" specifically, since a grassland/forest tile hugging a river
-is just as fishable as a beach hugging the sea. See `_adjacent_to_water`."""
+is just as fishable as a beach hugging the sea. See `is_adjacent_to_water`."""
 
 NODE_DENSITY = 0.12
 """Fraction of FOOD_BIOMES tiles that get a food node at world creation."""
@@ -103,7 +103,7 @@ def _resource_rng(seed: int) -> random.Random:
 _ADJACENT = ((0, -1), (0, 1), (-1, 0), (1, 0))
 
 
-def _adjacent_to_water(terrain: list[list[Tile]], x: int, y: int) -> bool:
+def is_adjacent_to_water(terrain: list[list[Tile]], x: int, y: int) -> bool:
     height, width = len(terrain), len(terrain[0]) if terrain else 0
     for dx, dy in _ADJACENT:
         nx, ny = x + dx, y + dy
@@ -160,7 +160,7 @@ class ResourceGrid:
             for tile in row:
                 if tile.biome in WATER_ADJACENT_BIOMES:
                     continue
-                if _adjacent_to_water(terrain, tile.x, tile.y) and rng.random() < FISH_NODE_DENSITY:
+                if is_adjacent_to_water(terrain, tile.x, tile.y) and rng.random() < FISH_NODE_DENSITY:
                     nodes[(tile.x, tile.y)] = ResourceNode(
                         x=tile.x, y=tile.y, kind=ResourceKind.FISH, amount=MAX_FISH_AMOUNT,
                     )

@@ -190,6 +190,20 @@ class Config:
     own requests. `True` unconditionally — this project has no scenario
     where forcing anonymous-memory residency is preferable to letting
     the kernel manage weight pages as reclaimable file-backed memory."""
+    llm_num_gpu: int | None = None
+    """Explicit `num_gpu` sent in every call's `options` when set — how
+    many model layers Ollama offloads to a detected GPU. `None` (the
+    default) omits it entirely, leaving Ollama's own GPU-layer heuristic
+    in charge, same "don't touch it unless there's a reason to" stance
+    as every optional `OllamaClient` field before it (`num_ctx`/
+    `num_predict` are the exception because they're safety ceilings, not
+    heuristics to defer to). This is a genuinely no-op field until the
+    user's Ollama server actually recognizes a GPU (see docs/DECISIONS.md,
+    "iGPU offload investigation" — the user's AMD Radeon 740M iGPU
+    (gfx1103) wasn't being used despite `rocminfo` detecting it, most
+    likely because Ollama's bundled ROCm build doesn't include gfx1103
+    by default) — set it once GPU acceleration is confirmed working, if
+    Ollama's own auto-detected layer count ever needs overriding."""
 
     # --- runtime: Phase G (subtle supernatural layer), on by default -----------
     phase_g_intensity: float = 1.0

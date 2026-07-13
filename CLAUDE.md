@@ -444,6 +444,40 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## Water/power/irrigation + iGPU offload investigation (v0.57.0)
+
+Explicit user follow-up to the integration milestone: implement the two
+infrastructure-network pieces deferred there, and investigate GPU
+offload on the user's AMD Ryzen 3 8300GE / Radeon 740M (gfx1103).
+
+**Irrigation**: farm plots adjacent to water grow `IRRIGATION_GROWTH_
+MULTIPLIER` (1.35x) faster (`FarmGrid.tick`, reusing the existing
+`is_adjacent_to_water` helper H-era fishing already built). **Power**:
+new `BuildingKind.POWER_PLANT`, foundable from `electrical` era onward
+(hung off that era's own previously mechanically-thin identity) —
+boosts WORKSHOP/FACTORY income and adds a small `carrying_capacity`
+infrastructure bonus alongside roads. Both verified via direct unit
+checks.
+
+**iGPU offload**: this environment has no access to the user's real
+Ollama/ROCm installation, so nothing here could be tested directly.
+Diagnosis (full reasoning in docs/DECISIONS.md): `rocminfo` detecting
+`gfx1103` doesn't mean Ollama's bundled ROCm build will use it — the
+Phoenix/Phoenix2 iGPU family (740M/780M) has historically fallen
+outside Ollama's vendored-ROCm supported-target list even when the
+system's own ROCm stack recognizes the chip fine, matching the reported
+symptom (`rocminfo` sees it, `ollama ps` still says 100% CPU). Guidance
+given: try `HSA_OVERRIDE_GFX_VERSION=11.0.0` on `ollama serve` first
+(spoofs `gfx1103` as the nearest supported target, a known community
+workaround for this exact GPU family); llama.cpp's Vulkan backend as a
+fallback if that doesn't work (more permissive with unsupported ROCm
+targets, at the cost of leaving Ollama's own management behind).
+Explicitly did not promise a "guaranteed" speedup — the iGPU is small
+(4 CU) and shared-memory, real gains can only be measured on the user's
+actual hardware. Shipped one genuinely safe, no-op-by-default lever:
+`Config.llm_num_gpu` (default `None`), ready to set once/if GPU offload
+is confirmed working server-side.
+
 ## Integration milestone: cross-system audit and vertical integration (v0.56.0)
 
 Explicit user directive: audit every major subsystem for isolation,

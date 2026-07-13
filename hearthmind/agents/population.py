@@ -113,6 +113,7 @@ from hearthmind.settlement.buildings import (
     CARRYING_CAPACITY_ENVIRONMENT_WEIGHT,
     CARRYING_CAPACITY_INFRASTRUCTURE_WEIGHT,
     CARRYING_CAPACITY_KNOWLEDGE_WEIGHT,
+    CARRYING_CAPACITY_POWER_PLANT_BONUS,
     CARRYING_CAPACITY_LABOR_WEIGHT,
     CARRYING_CAPACITY_MAX_MULTIPLIER,
     CARRYING_CAPACITY_MIN_MULTIPLIER,
@@ -144,6 +145,7 @@ from hearthmind.settlement.buildings import (
     MEDICINE_CONSUMPTION_PER_TICK,
     MEDICINE_DEATH_CHANCE_REDUCTION,
     MATERIALS_CAPACITY,
+    POWER_GRID_INDUSTRY_MULTIPLIER,
     MATERIALS_COST_BY_KIND,
     MATERIALS_GATHER_PER_TICK,
     MATERIALS_PER_CONSTRUCTION_TICK,
@@ -1517,6 +1519,11 @@ class Population:
             min(1.0, roads_per_capita / CARRYING_CAPACITY_ROADS_PER_CAPITA_SATURATION)
             * CARRYING_CAPACITY_INFRASTRUCTURE_WEIGHT
         )
+        # Integration milestone (water/power/irrigation follow-up): a
+        # standing POWER_PLANT is a second, smaller infrastructure
+        # signal alongside road density — roads stay dominant.
+        if settlement.has_power_plant():
+            infrastructure_term += CARRYING_CAPACITY_POWER_PLANT_BONUS
 
         multiplier = (
             1.0 + economy_term + security_term + labor_term + environment_term
@@ -1979,6 +1986,8 @@ class Population:
             if staff == 0:
                 continue
             income = WORKSHOP_INCOME_PER_TICK * staff * _tech_factor(settlement)
+            if settlement.has_power_plant():
+                income *= POWER_GRID_INDUSTRY_MULTIPLIER
             settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
 
     @staticmethod
@@ -2134,6 +2143,8 @@ class Population:
             if staff == 0:
                 continue
             income = FACTORY_INCOME_PER_TICK * staff * _tech_factor(settlement)
+            if settlement.has_power_plant():
+                income *= POWER_GRID_INDUSTRY_MULTIPLIER
             settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
 
     @staticmethod

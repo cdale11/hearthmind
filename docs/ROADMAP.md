@@ -171,6 +171,18 @@ Finishes what Milestone 2 slice 1 (agent needs/movement) opened.
   longer purely uniform-random across every eligible tile. See
   docs/DECISIONS.md, "everything left" pass and "Integration
   milestone."
+- **[x] Water/power as infrastructure networks, v1 (v0.57.0).** Roads
+  were the integration milestone's infrastructure-network item;
+  water/power followed as an explicit user follow-up. Water: farm plots
+  adjacent to a river/lake/deep-water tile now grow `IRRIGATION_GROWTH_
+  MULTIPLIER` (1.35x) faster (`FarmGrid.tick`, reusing the existing
+  water-adjacency helper H-era fishing already uses). Power: new
+  `BuildingKind.POWER_PLANT`, foundable from the `electrical` era
+  onward (hung off that era's own previously-thin mechanical identity
+  rather than a new utility-grid concept) — boosts WORKSHOP/FACTORY
+  income settlement-wide and adds a small `carrying_capacity`
+  infrastructure bonus alongside roads. See docs/DECISIONS.md,
+  "Water/power/irrigation."
 - **[x] Vehicles.** `hearthmind/settlement/vehicles.py`: hauling carts
   (settlement-wide, boost gathered-material yield) and personal-travel
   mounts (an agent claims one, moves faster), built/repaired/decayed the

@@ -154,7 +154,7 @@ class World:
             previous=self.weather,
         )
         self.resources.tick(season=self.clock.season)
-        self.farms.tick(season=self.clock.season)
+        self.farms.tick(season=self.clock.season, terrain=self.terrain)
         wildlife_events = self.wildlife.tick(
             seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain, resources=self.resources,
             temperament=self.settlement.temperament,

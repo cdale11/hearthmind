@@ -35,6 +35,7 @@ const BIOME_COLORS = {
 const BUILDING_COLORS = {
   hut: "#c98a3c", granary: "#d9a441", workshop: "#8a7fd6", school: "#4fa3c9",
   hospital: "#e0473c", university: "#2f7fc9", factory: "#5c5c66", shrine: "#c9a3e0",
+  power_plant: "#e0c93c",
 };
 const FARM_COLORS = { growing: "#7fae4a", ready: "#e0c34a" };
 
@@ -947,10 +948,12 @@ function renderStats(summary) {
       "Civic buildings",
       `${s.workshops} workshop${s.workshops === 1 ? "" : "s"}, ${s.schools} school${s.schools === 1 ? "" : "s"}, ` +
       `${s.hospitals} hospital${s.hospitals === 1 ? "" : "s"}, ${s.universities} universit${s.universities === 1 ? "y" : "ies"}` +
-      (s.factories ? `, ${s.factories} factor${s.factories === 1 ? "y" : "ies"}` : ""),
+      (s.factories ? `, ${s.factories} factor${s.factories === 1 ? "y" : "ies"}` : "") +
+      (s.power_plants ? `, ${s.power_plants} power plant${s.power_plants === 1 ? "" : "s"}` : ""),
       "Workshops generate currency from staffed presence. Schools/universities raise education (shown below), which " +
       "boosts invention chance. Hospitals speed rest recovery on-site and settlement-wide reduce the odds a predator " +
-      "attack proves lethal. Factories (era: electrical+) generate currency at double a workshop's rate.",
+      "attack proves lethal. Factories (era: electrical+) generate currency at double a workshop's rate. Power plants " +
+      "(era: electrical+) boost workshop/factory income settlement-wide and add a little carrying-capacity headroom.",
     ],
     [
       "Era", `${s.era} — ${s.era_description}`,

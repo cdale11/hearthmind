@@ -4588,15 +4588,130 @@ frequency directly at unit-test scale); a dedicated caravan-only run
 confirmed at least one visit fires within 20,000 ticks with a clean
 currency/materials exchange and a real logged event — then a
 50,000-tick full-`SimulationEngine` integration run (real async tick
-loop, LLM disabled, seed 99) exercising every new mechanic together,
-confirmed clean through 20,000+ ticks with zero exceptions before this
-entry was written (population 245, still climbing toward the carrying-
-capacity ceiling): COUNCIL formed by tick 8,000 and held a full living
-complement of 5 the whole way (refresh working), average ambition
-trended measurably upward as founding events accumulated, and HUT
-ownership was assigned to a real, growing count of founders. A full
-`Settlement.to_dict()`/`from_dict()` round-trip preserved every
-institution's
-`beliefs` list byte-identically (no snapshot schema changes were
-needed — every new state lives in fields that already existed and
+loop, LLM disabled, seed 99) exercising every new mechanic together
+completed with zero exceptions across the full run. COUNCIL formed by
+tick 8,000 and stayed at a full living complement of 5 the entire way
+(42 `council_seat_filled` refresh events fired over the run, so the
+fix is doing real, repeated work, not a one-off), 570 construction
+events fired, and 3 caravans visited (roughly matching the ~15%/month
+expected rate). Genuinely emergent, unscripted story from the trait-
+consumption changes: population peaked at 268 around tick 24,000, then
+crashed to 84 by tick 32,000 with average resilience diving to -0.86 —
+a real hardship period (want deaths/violence/hunger all nudge
+resilience down) visibly marking the population's psychology, not just
+its headcount — before both population and average resilience
+recovered together over the following 20,000 ticks (208 population,
+-0.22 average resilience by tick 48,000). That correlated rise-and-fall
+is exactly the kind of "believable causality nobody explicitly
+programmed" CLAUDE.md's design priorities ask for, and it only exists
+because resilience is now read by a real mechanic instead of sitting
+inert. A full `Settlement.to_dict()`/`from_dict()` round-trip preserved
+every institution's `beliefs` list byte-identically (no snapshot schema
+changes were needed — every new state lives in fields that already
+existed and
 already serialize).
+
+## Water/power/irrigation (v0.57.0) + iGPU offload investigation
+
+Explicit user follow-up to the integration milestone: implement the two
+infrastructure-network pieces deliberately deferred there (water/power
+were flagged as "no concrete mechanical hook yet" for power, and water
+"already exists as terrain/fishing" for irrigation), plus investigate
+whether the user's AMD iGPU can offload some Ollama inference.
+
+**Irrigation.** Reused `world/resources.py`'s existing `_adjacent_to_
+water` helper (already built for H-era fish-node placement, renamed
+public `is_adjacent_to_water` since a second module now needs it) rather
+than inventing a water-network data structure — a farm plot adjacent to
+a river/lake/deep-water tile now grows `IRRIGATION_GROWTH_MULTIPLIER`
+(1.35x) faster. Deliberately a *growth-rate* lever, independent of the
+existing tool/no-tool *yield* lever (`FARM_TOOL_YIELD_MULTIPLIER`) —
+irrigation and tooling answer different questions ("how fast" vs. "how
+much"), so they stack rather than compete. `FarmGrid.tick` gained an
+optional `terrain` parameter (defaults to `None`, in which case behavior
+is unchanged) rather than a breaking signature change, so no other
+caller needed updating.
+
+**Power.** The `electrical` era already existed by name (`ERA_ORDER`,
+`ERA_TECH_THRESHOLDS`) and already gated FACTORY, but had no dedicated
+"power" mechanic of its own — exactly the "no concrete mechanical hook
+yet" gap flagged in the integration milestone entry above, now closed
+by giving it one instead of inventing a parallel utility-grid concept.
+New `BuildingKind.POWER_PLANT`, foundable from `electrical` onward
+(shares FACTORY's era-gate frozenset, renamed `_ERA_UNLOCKS_FACTORY` ->
+`_ERA_UNLOCKS_ELECTRICAL` now that two kinds use it). While standing:
+boosts WORKSHOP/FACTORY income settlement-wide (`POWER_GRID_INDUSTRY_
+MULTIPLIER`, 1.3x — "electrified industry produces more," the literal
+payoff of the era's own description, "the first wired lights and
+machinery") and adds a small, secondary bonus to `carrying_capacity`'s
+infrastructure term (`CARRYING_CAPACITY_POWER_PLANT_BONUS`) alongside
+the dominant road-density signal from the integration milestone — a
+single power plant is one building, not a network, so it stays the
+smaller of the two infrastructure inputs. `Settlement.has_power_plant()`
+is the one shared query both consumers use, same pattern as `council()`.
+Verified via direct unit checks (irrigation growth-rate ratio matches
+the constant exactly; carrying capacity measurably higher with a
+standing power plant than an otherwise-identical settlement without
+one; `choose_building_kind` never selects `power_plant` before
+`electrical` era and does select it after, over 20,000 trials).
+
+**iGPU offload investigation (AMD Ryzen 3 8300GE / Radeon 740M,
+gfx1103, RDNA3).** The user ran `ollama ps` (showing 100% CPU) and
+`rocminfo` (showing the GPU agent, `gfx1103`, correctly detected by
+ROCm) and asked whether llama.cpp could help route some inference to
+the iGPU. This is fundamentally a question about the user's own Ollama/
+ROCm installation, which this sandboxed environment has no access to —
+nothing here could be tested directly, only reasoned about and one
+genuinely safe, no-op-by-default code lever added in case it helps once
+confirmed working on the user's actual machine.
+
+Diagnosis: `rocminfo` detecting `gfx1103` does not mean Ollama's bundled
+ROCm runtime will use it — Ollama ships its own vendored ROCm libraries
+with a fixed list of supported GPU targets, and consumer/APU RDNA3
+iGPUs in the Phoenix/Phoenix2 family (740M/780M, `gfx1103`) have
+historically fallen outside that list even when the system's own ROCm
+stack (what `rocminfo` queries) recognizes the chip fine — exactly
+matching the symptom reported (`rocminfo` sees it, `ollama ps` still
+says 100% CPU). This is a well-known class of issue for this GPU
+family, not specific to this project's code.
+
+Two paths, in order of effort:
+1. **`HSA_OVERRIDE_GFX_VERSION=11.0.0`** set in the environment `ollama
+   serve` runs under (e.g. its systemd unit's `Environment=` line, or
+   the shell that launches it) — spoofs `gfx1103` as `gfx1100`, the
+   nearest officially-supported RDNA3 target, architecturally close
+   enough that this is a widely-used community workaround for exactly
+   this GPU family. Cheapest thing to try first; requires only
+   restarting `ollama serve`, no rebuild. Confirm with `ollama ps`
+   afterward — the `PROCESSOR` column should show GPU involvement
+   instead of `100% CPU`.
+2. **llama.cpp directly, if (1) doesn't work.** Ollama's own inference
+   backend *is* a fork/vendor of llama.cpp, so switching to llama.cpp
+   itself mainly buys more backend choice, not a fundamentally
+   different engine. Its **Vulkan** backend is generally the more
+   permissive path for an unsupported-by-ROCm iGPU like this one — it
+   doesn't require an exact gfx-target match the way the HIP/ROCm
+   backend does — at the cost of leaving Ollama's own scheduling/
+   model-management conveniences behind (would need `llama-server` run
+   directly, with this project's `OllamaClient` pointed at it — the
+   `/api/generate` shape differs, so that would need actual code
+   changes here, not just a config flag, if it came to that).
+
+Expectation-setting, since "guaranteed improvements" was the bar: even
+if GPU offload is confirmed working, the Radeon 740M is a small iGPU (4
+compute units, RDNA3, sharing system RAM rather than dedicated VRAM —
+`rocminfo`'s pool sizes show ~3.4GB accessible to the GPU agent) — a
+real speedup over CPU-only inference for a 2B model is plausible but
+not large, and no claim here should be read as promising a specific
+number, since it can only be measured on the user's actual hardware.
+
+What shipped from this investigation: `Config.llm_num_gpu` (default
+`None`) sent as `num_gpu` in `OllamaClient`'s `options`, same pattern as
+`num_ctx`/`num_predict`/`use_mmap` — but deliberately left at `None`,
+a genuine no-op, rather than set to any value, since this project has
+no informed opinion on layer count until GPU offload is actually
+confirmed working server-side. This is the lever to set (if Ollama's
+own auto-detected split ever needs overriding) once path (1) or (2)
+above is confirmed working — not a fix in itself, since the blocker is
+server-side GPU recognition, not anything this project's requests were
+withholding.

@@ -4,6 +4,37 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.57.0] — Water/power/irrigation; iGPU offload investigation
+
+### Added
+
+- **Irrigation**: `FarmGrid.tick` now accepts `terrain` and applies
+  `IRRIGATION_GROWTH_MULTIPLIER` (1.35x) to any plot adjacent to water
+  (`world/resources.is_adjacent_to_water`, made public — the same
+  helper H-era fishing already uses for node placement, reused rather
+  than a new water-network data structure). Independent lever from
+  tool/no-tool yield (which affects `max_yield`, not growth rate).
+- **Power**: new `BuildingKind.POWER_PLANT`, foundable from the
+  `electrical` era onward (same gate as FACTORY — `_ERA_UNLOCKS_
+  ELECTRICAL`, renamed from `_ERA_UNLOCKS_FACTORY` now that both kinds
+  share it). While standing, boosts WORKSHOP/FACTORY income settlement-
+  wide (`POWER_GRID_INDUSTRY_MULTIPLIER`, 1.3x) and adds a small bonus
+  to `Population.carrying_capacity`'s infrastructure term alongside
+  road density. This is the "power" half of the integration milestone's
+  infrastructure-networks priority — hung off the era system's
+  already-named-but-previously-thin `electrical` era rather than
+  inventing a parallel utility grid. `Settlement.has_power_plant()`
+  is the shared query both consumers use.
+- **iGPU offload investigation.** User has an AMD Ryzen 3 8300GE with
+  Radeon 740M (gfx1103, RDNA3) — `rocminfo` detects the GPU agent, but
+  `ollama ps` showed 100% CPU. Diagnosis and guidance in
+  docs/DECISIONS.md (this environment has no access to the user's real
+  Ollama/ROCm stack to test directly). New `Config.llm_num_gpu`
+  (default `None`, genuinely a no-op until GPU offload is confirmed
+  working server-side) sent as `num_gpu` in `OllamaClient`'s options,
+  same optional-lever pattern as `num_ctx`/`num_predict`/`use_mmap` —
+  ready for the user to set once/if GPU acceleration is confirmed.
+
 ## [0.56.0] — Integration milestone: cross-system audit and vertical integration
 
 Explicit user directive: audit every major subsystem for isolation, then

@@ -77,6 +77,17 @@ class BuildingKind(str, Enum):
     Population.hold_festival) — culture begetting more culture, not
     just a differently-named hut. See docs/DECISIONS.md,
     "culture-specific building types" pass."""
+    POWER_PLANT = "power_plant"
+    """Integration milestone ("infrastructure networks"): the `power`
+    half of that priority, hung off the era system's own already-named
+    but previously mechanically-thin `electrical` era rather than
+    inventing a parallel utility-grid data structure. Foundable from
+    `electrical` onward, same era gate as FACTORY (`_ERA_UNLOCKS_
+    ELECTRICAL`). While standing, boosts WORKSHOP/FACTORY income
+    settlement-wide (`POWER_GRID_INDUSTRY_MULTIPLIER`) — electrified
+    industry produces more — and contributes to `Population.
+    carrying_capacity`'s infrastructure term alongside roads. See
+    docs/DECISIONS.md, "Integration milestone: water/power/irrigation.\""""
 
 
 CONSTRUCTION_WORK_PER_TICK = 0.05
@@ -223,6 +234,9 @@ HOSPITAL_MATERIALS_COST = 8.0
 UNIVERSITY_MATERIALS_COST = 10.0
 FACTORY_MATERIALS_COST = 14.0
 SHRINE_MATERIALS_COST = 5.0
+POWER_PLANT_MATERIALS_COST = 12.0
+"""Comparable investment to a FACTORY — a real infrastructure
+commitment, not a cheap add-on."""
 """Materials deducted from the settlement stockpile when construction is
 founded — buildings are now genuinely "built from resources available"
 (previously materials only sped construction up, via
@@ -246,11 +260,12 @@ MATERIALS_COST_BY_KIND: dict[BuildingKind, float] = {
     BuildingKind.UNIVERSITY: UNIVERSITY_MATERIALS_COST,
     BuildingKind.FACTORY: FACTORY_MATERIALS_COST,
     BuildingKind.SHRINE: SHRINE_MATERIALS_COST,
+    BuildingKind.POWER_PLANT: POWER_PLANT_MATERIALS_COST,
 }
 
 BUILDING_KIND_BASE_WEIGHTS: dict[str, float] = {
     "hut": 0.42, "granary": 0.23, "workshop": 0.15, "school": 0.12, "hospital": 0.08,
-    "factory": 0.10, "shrine": 0.07,
+    "factory": 0.10, "shrine": 0.07, "power_plant": 0.06,
 }
 """Baseline odds a new civic building is each kind, before
 `Settlement.current_priority` (the seasonal "town brain" LLM
@@ -294,10 +309,12 @@ ERA_DESCRIPTIONS: dict[str, str] = {
     "digital": "computing woven into daily civic life",
 }
 
-_ERA_UNLOCKS_FACTORY = frozenset({"electrical", "modern", "digital"})
-"""FACTORY is foundable from `electrical` onward, not `industrial` —
-the settlement starts industrial with only the earlier building kinds
-available; a factory represents genuine progress past that baseline."""
+_ERA_UNLOCKS_ELECTRICAL = frozenset({"electrical", "modern", "digital"})
+"""FACTORY and POWER_PLANT are foundable from `electrical` onward, not
+`industrial` — the settlement starts industrial with only the earlier
+building kinds available; both represent genuine progress past that
+baseline (renamed from `_ERA_UNLOCKS_FACTORY` when POWER_PLANT started
+sharing the same gate — integration milestone)."""
 
 ERA_UNLOCKS_AUTOMOBILE = frozenset({"modern", "digital"})
 """The AUTOMOBILE vehicle kind (settlement/vehicles.py) is foundable
@@ -329,16 +346,18 @@ def choose_building_kind(
     """Weighted pick among the foundable civic kinds (not UNIVERSITY,
     which upgrades an existing school instead) — base odds nudged
     toward whatever the settlement's current priority calls for,
-    FACTORY excluded entirely until `era` has advanced past
+    FACTORY/POWER_PLANT excluded entirely until `era` has advanced past
     `industrial`, and SHRINE excluded until the settlement has
     established at least one tradition (`has_tradition`). Falls back to
     the unweighted base odds for an unrecognized/empty priority (e.g.
     before the first town-brain decision has ever run). See
     docs/DECISIONS.md, "LLM-as-brain batch\", the real-calendar/
-    genesis-seed follow-up, and "culture-specific building types.\""""
+    genesis-seed follow-up, "culture-specific building types,\" and
+    "Integration milestone: water/power/irrigation.\""""
     weights = dict(BUILDING_KIND_BASE_WEIGHTS)
-    if era not in _ERA_UNLOCKS_FACTORY:
+    if era not in _ERA_UNLOCKS_ELECTRICAL:
         weights.pop("factory", None)
+        weights.pop("power_plant", None)
     if not has_tradition:
         weights.pop("shrine", None)
     boosted = _PRIORITY_TO_KIND.get(current_priority)
@@ -425,7 +444,22 @@ FACTORY_INCOME_PER_TICK = 0.06
 """Same shape as WORKSHOP_INCOME_PER_TICK, at twice the rate — a
 factory is the settlement's industrial-era-or-later economic upgrade,
 foundable only once `Settlement.era` has advanced past `industrial`
-(see `_ERA_UNLOCKS_FACTORY`)."""
+(see `_ERA_UNLOCKS_ELECTRICAL`)."""
+
+POWER_GRID_INDUSTRY_MULTIPLIER = 1.3
+"""Multiplies WORKSHOP_INCOME_PER_TICK/FACTORY_INCOME_PER_TICK
+settlement-wide while a standing POWER_PLANT exists (`Population.
+_maybe_run_workshops`/`_maybe_run_factories`) — electrified industry
+produces more, the concrete payoff for `electrical` era being more
+than a label. Applied once per settlement (not per powered building —
+there's no per-building grid-connection concept, matching every other
+building-effect's settlement-wide scope in this project)."""
+
+CARRYING_CAPACITY_POWER_PLANT_BONUS = 0.03
+"""Flat addition to `Population.carrying_capacity`'s infrastructure
+term while a POWER_PLANT stands, alongside the existing road-density
+component — small on purpose (roads remain the dominant infrastructure
+signal; a power plant is a single building, not a network)."""
 
 TOOLS_CAPACITY = 5.0
 """H4 (docs/ROADMAP.md "Phase H"): max personal `"tools"` an agent's
@@ -1241,6 +1275,16 @@ class Settlement:
         rather than each re-filtering `institutions` themselves."""
         return next((inst for inst in self.institutions if inst.kind is InstitutionKind.COUNCIL), None)
 
+    def has_power_plant(self) -> bool:
+        """Whether a POWER_PLANT is currently standing — consumed by
+        `Population._maybe_run_workshops`/`_maybe_run_factories`
+        (income multiplier) and `carrying_capacity` (infrastructure
+        term). Integration milestone."""
+        return any(
+            b.kind is BuildingKind.POWER_PLANT and b.stage is BuildingStage.STANDING
+            for b in self.buildings
+        )
+
     @property
     def temperament(self) -> float:
         return self.disposition.temperament
@@ -1438,6 +1482,7 @@ class Settlement:
             for kind in (
                 BuildingKind.WORKSHOP, BuildingKind.SCHOOL, BuildingKind.HOSPITAL,
                 BuildingKind.UNIVERSITY, BuildingKind.FACTORY, BuildingKind.SHRINE,
+                BuildingKind.POWER_PLANT,
             )
         }
         return {
@@ -1466,6 +1511,7 @@ class Settlement:
             "universities": kind_counts["university"],
             "factories": kind_counts["factory"],
             "shrines": kind_counts["shrine"],
+            "power_plants": kind_counts["power_plant"],
             "education_level": round(self.education_level, 3),
             "education_capacity": EDUCATION_CAPACITY,
             "current_priority": self.current_priority,
