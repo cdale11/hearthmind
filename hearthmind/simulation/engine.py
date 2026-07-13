@@ -1216,13 +1216,31 @@ class SimulationEngine:
         db_size_mb = None
         if self.config.db_path != ":memory:" and os.path.exists(self.config.db_path):
             db_size_mb = round(os.path.getsize(self.config.db_path) / 1_000_000, 2)
+        agents = self.world.population.agents
+        pop_total = len(agents)
+        relationship_entries = sum(len(a.relationships) for a in agents)
+        trust_entries = sum(len(a.trust) for a in agents)
         return {
             **self._diagnostics_snapshot(),
             "peak_memory_rss_mb": peak_rss_mb,
             "db_size_mb": db_size_mb,
             "uptime_ticks": self.world.clock.tick_count,
-            "population_total": len(self.world.population.agents),
+            "population_total": pop_total,
             "last_llm_calls": self._last_llm_calls,
             "pending_player_whispers": list(self.world.settlement.player_influence),
             "temperament": round(self.world.settlement.temperament, 3),
+            "relationship_graph": {
+                # A cheap live signal for the class of leak fixed in the
+                # "memory leak: unpruned relationships" pass — dead or
+                # decayed-to-zero entries are pruned every tick, so
+                # avg_per_agent should stay a small, roughly-stable
+                # multiple of *recent* colocation, not grow with the
+                # world's total historical population. A steadily
+                # climbing average here on a live soak run is the same
+                # symptom to watch for if a similar leak is ever
+                # reintroduced elsewhere. See docs/DECISIONS.md.
+                "relationship_entries": relationship_entries,
+                "trust_entries": trust_entries,
+                "avg_relationships_per_agent": round(relationship_entries / pop_total, 1) if pop_total else 0.0,
+            },
         }

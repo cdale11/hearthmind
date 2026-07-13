@@ -3174,3 +3174,67 @@ pre-split shape asserted through a mid-flight round-trip; spring
 start + legacy-offset load both verified; experiment runner smoke-run
 produced a 31-row CSV with correct columns; `node --check` on app.js;
 `py_compile` across all touched files.
+
+## Memory leak fix (v0.42.0): unpruned Agent.relationships/trust
+
+User-reported live symptom: heavy swap usage and an unresponsive
+system at only ~100 population. Investigated as a genuine leak rather
+than assumed-Ollama-overhead, since the report specifically named a
+modest population as the trigger, which pointed at per-agent state
+rather than the LLM process (whose footprint is population-independent).
+
+Root cause: `Population._update_relationships` decayed relationship
+values toward 0.0 but never deleted the dict key once it arrived
+there, and `Population._apply_deaths` never stripped a dying agent's
+id from any other agent's `relationships`/`trust` dict. Both dicts are
+keyed by agent id and grow by one entry per new acquaintance; with
+neither pruning path, every pairwise colocation in the world's entire
+history accumulated permanently in both parties' dicts, including
+colocations with agents who had since died.
+
+Fix: two additions, each independently a pure memory bound with zero
+observable behavior change (every read site already used
+`.get(id, 0.0)`, so an absent key and a present zero-valued key were
+always equivalent):
+1. `_update_relationships`'s decay loop now deletes an entry the tick
+   it reaches exactly 0.0 (the clamp `max(0.0, ...)`/`min(0.0, ...)`
+   produces an exact float 0.0, not an asymptotic approach, so this is
+   a precise check, not an epsilon heuristic).
+2. `_apply_deaths` now pops each dying agent's id from every
+   survivor's `relationships` and `trust` dicts, in the same pass that
+   already computes `dying_ids` for grief — after the grief loop reads
+   relationships for the dying (so grief detection is unaffected).
+
+Also added: `GET /diagnostics`'s `relationship_graph` block (total
+relationship/trust entries, average per agent) as a cheap, always-on
+live signal for this class of leak — a climbing average on an
+overnight soak run is now visible without a custom probe.
+
+Investigated and explicitly NOT fixed as part of this pass: large
+crowds at scarce food/granary tiles trigger `_update_relationships`'
+colocation-bonus loop's O(group^2) full-mesh relationship formation
+every tick (measured a 29-agent crowd at one granary at population
+381, seed 3) — this is real, current social contact between people who
+are actually interacting, not stale data, so it's correctly retained
+rather than pruned. It's a legitimate population-scaling cost worth
+watching (both memory and the CPU cost already flagged in the July
+2026 review's performance section), not a bug fitting this entry's
+scope — noted for a future session if crowding intensifies enough to
+matter at target populations.
+
+Verified: a matched 50,000-tick A/B run, same seed (3), same initial
+population (100), LLM disabled, through a population boom (100 -> 381)
+and a starvation-driven crash (381 -> 27) and partial recovery (-> 121)
+— chosen deliberately over a monotonic-growth run because the crash is
+the clearest test of the death-cleanup path specifically. At the boom
+peak (tick 20,000, population 229): baseline 112,075 total relationship
+entries (489/agent) vs fixed 23,600 (103/agent), a >4.7x reduction.
+Immediately after the crash (tick 25,000, population 36, 751
+cumulative deaths): baseline 322 entries/agent (predominantly stale
+references to the dead) vs fixed 19/agent. Process RSS across the full
+run: baseline 42.8 -> 117.5 MB, fixed 40.9 -> 89.7 MB. Unit-level
+checks: colocation correctly builds mutual relationship entries;
+scattering + waiting past the full decay window (value/DECAY_PER_TICK
+ticks) prunes both sides' entries to `{}`; a forced old-age death
+correctly empties the survivor's relationship and trust entries for
+the deceased. `python3 -m py_compile` on the touched module.

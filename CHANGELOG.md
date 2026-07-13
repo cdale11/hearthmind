@@ -4,6 +4,45 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.42.0] — Fixed: unbounded relationship/trust memory growth
+
+A user-reported live symptom (heavy swap usage and an unresponsive
+system at only 100 population) traced to a real leak, not LLM/Ollama
+memory pressure — see docs/DECISIONS.md for the measured before/after.
+
+### Fixed
+
+- **`Agent.relationships`/`Agent.trust` grew without bound.** A
+  relationship entry was created the first tick two agents shared a
+  tile and never removed — not when it decayed back to 0 (a
+  transient, one-time encounter), and not when the other agent died.
+  Every acquaintance a villager ever had, living or dead, stayed in
+  their dict for the rest of the world's life. Measured (fallback-only,
+  seed 3, population starting at 100, matched A/B run to tick 50,000
+  through a population boom and a starvation-driven crash): the
+  boom peaked at 112,075 total relationship entries at population 229
+  (489 per agent) in the unfixed baseline, versus 23,600 entries (103
+  per agent) at the same tick with the fix — a >4.7x reduction at the
+  same moment in the same run. The crash (population 229 -> 36 by
+  starvation) is the clearest demonstration of the bug: baseline
+  survivors kept 322 relationship entries per agent afterward — mostly
+  references to the 751 people who had died by that point — while the
+  fix dropped to 19 per agent, correctly reflecting who was actually
+  still alive to know. Process RSS over the full 50k-tick run: baseline
+  43 -> 118 MB (2.7x), fix 41 -> 90 MB, with the fixed run's peak driven
+  by the same legitimate population boom rather than accumulated dead
+  weight.
+- Fix, in `Population._update_relationships`/`_apply_deaths`: an entry
+  that decays to exactly 0.0 is now deleted (a pair whose bond faded
+  reads identically via `.get(id, 0.0)` either way — no behavior
+  change, purely a memory bound), and every survivor's relationship/
+  trust entries for a dying agent are stripped at the same point grief
+  is processed.
+- `GET /diagnostics` now reports `relationship_graph` (total entries,
+  trust entries, average per agent) so this class of leak — a live
+  soak run's average climbing over time — is visible without a custom
+  probe if anything similar is ever reintroduced.
+
 ## [0.41.0] — Founding funnel fixed; Settlement split; culture riders; shelter/upkeep; job framework; sparklines; experiment runner
 
 The remaining July 2026 architecture-review recommendations, performed

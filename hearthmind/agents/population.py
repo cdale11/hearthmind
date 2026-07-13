@@ -1025,15 +1025,31 @@ class Population:
     def _update_relationships(by_position: dict[tuple[int, int], list[Agent]]) -> None:
         agents_by_id = {a.id: a for group in by_position.values() for a in group}
         for agent in agents_by_id.values():
+            # Pulls toward 0 from whichever side it's on — relationship
+            # values range -1..1 as of E2 (rivalry as well as affinity),
+            # so decay can no longer just clamp at a 0.0 floor. A pair
+            # that decays exactly to 0.0 (or was already there — a
+            # single transient encounter that never grew past one tick's
+            # gain) is pruned from the dict entirely: `.get(id, 0.0)`
+            # reads it identically to an absent key either way, so this
+            # changes no observable behavior, but without it every pair
+            # that ever shared a tile anywhere in the world's history
+            # stayed in the dict forever — measured at ~94 relationship
+            # entries per agent after only 5,000 ticks at population 125
+            # (near-total connectivity in a young population), the
+            # dominant driver of unbounded RAM growth on a long-running,
+            # high-population world. See docs/DECISIONS.md, "memory
+            # leak: unpruned relationships" pass.
             for other_id in list(agent.relationships):
-                # Pulls toward 0 from whichever side it's on — relationship
-                # values range -1..1 as of E2 (rivalry as well as affinity),
-                # so decay can no longer just clamp at a 0.0 floor.
                 value = agent.relationships[other_id]
                 if value > 0.0:
-                    agent.relationships[other_id] = max(0.0, value - RELATIONSHIP_DECAY_PER_TICK)
+                    value = max(0.0, value - RELATIONSHIP_DECAY_PER_TICK)
                 elif value < 0.0:
-                    agent.relationships[other_id] = min(0.0, value + RELATIONSHIP_DECAY_PER_TICK)
+                    value = min(0.0, value + RELATIONSHIP_DECAY_PER_TICK)
+                if value == 0.0:
+                    del agent.relationships[other_id]
+                else:
+                    agent.relationships[other_id] = value
         for group in by_position.values():
             if len(group) < 2:
                 continue
@@ -1597,6 +1613,21 @@ class Population:
                     other.energy = max(0.0, other.energy - grief_penalty)
                     self.last_triggered_agent_ids.add(other.id)
         self.agents = survivors
+        if dying_ids:
+            # Strip every survivor's relationships/trust entries for the
+            # dying — a dead agent is never colocated again, so these
+            # entries would otherwise sit in every acquaintance's dict
+            # for the rest of the world's history, forever. Grief itself
+            # already ran above (it reads relationships/parents for the
+            # dying before this point); this is pure post-death cleanup,
+            # same "dead weight, no observable behavior change" rationale
+            # as the decayed-to-zero pruning in _update_relationships.
+            # See docs/DECISIONS.md, "memory leak: unpruned
+            # relationships" pass.
+            for survivor in survivors:
+                for dying_id in dying_ids:
+                    survivor.relationships.pop(dying_id, None)
+                    survivor.trust.pop(dying_id, None)
         if settlement is not None and dying_ids:
             # A dead rider's mount goes back to the unclaimed pool rather
             # than staying claimed forever by nobody.

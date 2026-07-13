@@ -444,6 +444,34 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## Memory leak: unpruned relationships/trust (fixed v0.42.0)
+
+A user-reported live symptom (heavy swap, unresponsive system at only
+100 population) traced to `Agent.relationships`/`Agent.trust`: an entry
+was created on first colocation and never removed, including for
+agents who later died — every acquaintance a villager ever had stayed
+in their dict forever. A matched 50k-tick A/B run (same seed, through
+a population boom to 229 and a starvation crash back to 36) measured
+the baseline peaking at 489 relationship entries per agent (112k
+total) versus 103 per agent (23.6k total) with the fix at the same
+tick — >4.7x — and, after the crash, baseline survivors carrying 322
+stale entries per agent (mostly references to the 751 people who'd
+died by then) versus 19 per agent with the fix. Fixed by pruning
+decayed-to-exactly-0.0 entries in `Population._update_relationships`
+and stripping dead-agent references from every survivor in
+`_apply_deaths` — both are pure memory bounds with no observable
+behavior change (`.get(id, 0.0)` already treated an absent key
+identically to a present zero-valued one). `GET /diagnostics`'s new
+`relationship_graph.avg_relationships_per_agent` is the live signal to
+watch if a similar leak is ever reintroduced elsewhere (dicts keyed by
+agent id are the pattern to audit first). Separately noted, not fixed
+(legitimate behavior, not a leak): large crowds at scarce food tiles
+under the v0.41.0 carrying-capacity rework trigger an O(group^2)
+full-mesh relationship bonus every tick (observed a 29-agent crowd at
+one granary) — this is real social contact, not stale data, but is
+worth watching as a CPU/memory cost if crowding gets more extreme at
+higher populations.
+
 ## Architecture review: implemented in v0.40.0
 
 The review below was performed at v0.39.0; v0.40.0 then *implemented*
