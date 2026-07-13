@@ -128,6 +128,7 @@ from hearthmind.settlement.buildings import (
     HOSPITAL_KILL_CHANCE_REDUCTION,
     HOSPITAL_REST_RECOVERY_MULTIPLIER,
     HUT_CAPACITY,
+    INSTITUTION_LIST_MAX_STORED,
     MEDICINE_CAPACITY,
     MEDICINE_CONSUMPTION_PER_TICK,
     MEDICINE_DEATH_CHANCE_REDUCTION,
@@ -356,6 +357,29 @@ def _nudge_trait(agent: Agent, trait: str, delta: float) -> None:
     """H6: apply one event-driven nudge to a trait axis, clamped -1..1.
     See TRAIT_RESILIENCE/TRAIT_SOCIABILITY."""
     agent.traits[trait] = max(-1.0, min(1.0, agent.traits.get(trait, 0.0) + delta))
+
+
+def _prune_extinct_families(settlement: Settlement, living_ids: set[int]) -> None:
+    """v0.54.0 memory-bounds fix: `Settlement.institutions` was
+    discovered unbounded on a persistent world (see
+    INSTITUTION_LIST_MAX_STORED's docstring — measured 191 families by
+    tick 24,000 on a single settlement, still climbing regardless of
+    population plateauing at the carrying-capacity cap). Only runs once
+    stored FAMILY count exceeds the cap, and only ever removes families
+    with zero living members (oldest-founded first) — a family with
+    even one living member is never touched, so this can never orphan a
+    still-living agent's `family_for` lookup."""
+    families = [i for i in settlement.institutions if i.kind is InstitutionKind.FAMILY]
+    if len(families) <= INSTITUTION_LIST_MAX_STORED:
+        return
+    extinct = sorted(
+        (i for i in families if i.member_agent_ids.isdisjoint(living_ids)),
+        key=lambda i: i.founding_tick,
+    )
+    excess = len(families) - INSTITUTION_LIST_MAX_STORED
+    to_remove = {inst.id for inst in extinct[:excess]}
+    if to_remove:
+        settlement.institutions = [i for i in settlement.institutions if i.id not in to_remove]
 
 
 def _is_walkable(terrain: list[list[Tile]], x: int, y: int) -> bool:
@@ -1447,6 +1471,7 @@ class Population:
                 family_event = self._extend_family(settlement, tick, a.id, b.id, child.id, a.name, b.name)
                 if family_event is not None:
                     life_events.append(family_event)
+                    _prune_extinct_families(settlement, {a.id for a in self.agents})
 
         self.agents.extend(newborns)
         return life_events

@@ -4290,3 +4290,64 @@ scripts and the paired death-rate comparison above. A 6,000-tick full
 engine run (LLM disabled, seed 42) completed with no exceptions across
 all three mechanics together, with a full `World.to_dict()`/
 `from_dict()` round-trip preserving every new stat byte-identically.
+
+## Unbounded `Settlement.institutions` growth (fixed v0.54.0)
+
+A live user report of continuing swap pressure prompted a fresh audit
+rather than re-tuning already-tuned Ollama levers (concurrency floor,
+`num_ctx`/`num_predict`/`keep_alive` are all pinned by earlier explicit
+decisions and weren't touched again here). Root cause found by direct
+measurement, not guesswork: a 40k-tick in-process run (seed 42, no cap,
+LLM disabled) showed `Settlement.institutions`'s FAMILY count climbing
+roughly linearly with cumulative births — 0 at tick 4,000, 191 by tick
+24,000, 275 by tick 26,000 — with **no** ceiling, unlike population
+itself which plateaus at the dynamic carrying capacity (H1) and never
+exceeds the hard `POPULATION_CAP=400` safety valve. This is the same
+bug class fixed twice before in this project's history
+(`relationships`/`trust` dicts, v0.42.0; `traditions`/`inventions`/
+`festivals` lists, v0.44.1) — a per-event append with no corresponding
+removal — just never audited when H3 (families), H7 (inheritance), and
+H9 (family_formed events) introduced and then built on top of
+institutions across three separate earlier sessions in this same
+conversation. On a genuinely persistent, always-running world (the
+project's core premise) this is unbounded growth in the literal sense,
+not just a large-but-finite number.
+
+Institutions differ from the traditions/inventions/festivals precedent
+in one important way: those three are pure flavor text fed into LLM
+prompts, so truncating to the newest N (what `CULTURE_LIST_MAX_STORED`
+does) is always safe. A FAMILY institution is looked up by living-agent
+membership — `Settlement.family_for()`, H7's inheritance heir search,
+H2's family-scoped belief mirroring, dialogue's beliefs_about — so
+blindly dropping the oldest entries risks silently orphaning a
+still-living elder's family reference. The fix (`INSTITUTION_LIST_
+MAX_STORED = 300`, same magnitude as `CULTURE_LIST_MAX_STORED`;
+`population._prune_extinct_families`, called after every new FAMILY
+institution forms) is therefore extinction-aware rather than a blind
+truncation: only FAMILY institutions whose `member_agent_ids` is
+disjoint from every currently-living agent id are eligible for removal,
+oldest-founded first, and only once stored count exceeds the cap — a
+family with even one living member is never touched regardless of age.
+COUNCIL institutions are excluded entirely (`COUNCIL_SIZE` already caps
+that kind at a handful of members and a single instance per settlement,
+so it was never a growth risk).
+
+Verified three ways: a direct unit check against a tiny synthetic cap
+confirming both that the oldest fully-extinct entries are evicted first
+and that a family containing a living member always survives regardless
+of its age; a 60,000-tick full-`SimulationEngine` integration run (real
+async tick loop, real cap, LLM disabled) confirming the stored count
+holds flat at the cap once population/births plateau rather than
+continuing to climb; and a `Settlement.to_dict()`/`from_dict()`
+round-trip confirming serialization is unaffected. Also audited every
+other per-agent/per-settlement collection touched across the H2/H4/H5/
+H6/H7/H8/H9 work for the same pattern (`Agent.skills`/`traits`/
+`beliefs`/`inventory`, `Institution.beliefs`, `omen_history`/
+`priority_history`, `trust`/`relationships` post-death cleanup) — all
+were already correctly bounded (fixed key sets, existing caps, or
+already-pruned on death from the v0.42.0 pass); institutions was the
+one genuine miss. If swap pressure persists after this fix, the next
+most likely remaining cause is Ollama's own server-side memory (a
+separate process this environment cannot exercise with a real model) —
+that would need a fresh live diagnostic from the user's own machine to
+pin down further, same as the v0.43.0/v0.43.1 Ollama-memory passes.

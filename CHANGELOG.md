@@ -4,6 +4,58 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.54.0] — Fix unbounded `Settlement.institutions` growth (swap-pressure follow-up)
+
+### Fixed
+
+- **`Settlement.institutions` was unbounded.** Live measurement (seed
+  42, no cap, in-process engine, LLM disabled) showed FAMILY institution
+  count climbing roughly linearly with cumulative births — 191 families
+  by tick 24,000, 275 by tick 26,000 — regardless of population, which
+  plateaus at the carrying-capacity cap. On a genuinely persistent
+  world this is unbounded growth: the same bug class already fixed
+  twice before (`relationships`/`trust`, v0.42.0; `traditions`/
+  `inventions`/`festivals`, v0.44.1), just never audited when H3/H7/H9
+  introduced institutions across this session's own earlier batches.
+  New `INSTITUTION_LIST_MAX_STORED = 300` (same magnitude as
+  `CULTURE_LIST_MAX_STORED`), enforced by
+  `population._prune_extinct_families` — called after every new FAMILY
+  institution forms. Unlike traditions/inventions/festivals (pure
+  flavor text, safe to hard-truncate to the newest N), a FAMILY
+  institution is looked up by living-agent membership (`family_for`,
+  inheritance, dialogue), so pruning is extinction-aware: only
+  FAMILY institutions with zero living members are eligible for
+  removal, oldest-founded first, and only once the stored count exceeds
+  the cap — a family with even one living member is never touched, so
+  this can never orphan a still-living agent's `family_for` lookup.
+  COUNCIL institutions are never pruned (`COUNCIL_SIZE` already keeps
+  that kind small). Verified via a direct unit check (tiny synthetic
+  cap, confirms oldest-extinct-first eviction and confirms a family
+  with a living member always survives regardless of age) and a
+  22,000-tick full-`SimulationEngine` integration run (real async tick
+  loop, artificially small cap for a fast check) confirming the prune
+  path fires exactly when a fully-extinct family exists and never
+  touches a family with any living member, plus a serialization
+  round-trip check. Note: because eligibility requires a family's
+  *every ever-member* to be dead, the cap is a genuine ceiling in the
+  long run but engages lazily — a young or fast-growing world won't
+  see it trim anything until enough full lineages die out; this bounds
+  worst-case growth without ever risking a living agent's `family_for`
+  lookup, but is not, by itself, a guarantee of a small list at every
+  possible tick count. If swap pressure persists, this list was a
+  real but modest-sized leak (a few hundred bytes per institution) —
+  Ollama's own server-side memory remains the more likely dominant
+  contributor and needs a live diagnostic from the user's actual
+  machine to pin down further, since this environment has no real
+  Ollama process to measure against.
+- Audited every other per-agent/per-settlement collection added or
+  extended across the H2/H4/H5/H6/H7/H8/H9 work for the same unbounded-
+  growth pattern (`Agent.skills`/`traits`/`beliefs`/`inventory`,
+  `Institution.beliefs`, `Settlement.omen_history`/`priority_history`,
+  `Agent.trust`/`relationships` death-cleanup): all already correctly
+  bounded (fixed key sets, existing caps, or already-pruned on death).
+  No further unbounded growth found in this pass.
+
 ## [0.53.0] — Full-H extension: council institutions, ambition, medicine
 
 ### Added

@@ -444,6 +444,36 @@ diagnostics console). See `docs/DECISIONS.md` for the full decision
 log, `docs/ROADMAP.md` for phase-by-phase plan and the original
 feature checklist, `CHANGELOG.md` for version history.
 
+## Unbounded `Settlement.institutions` growth fixed (v0.54.0)
+
+Live user report of continuing swap pressure. Diagnosed by direct
+measurement (per the standing "measure first" discipline), not by
+re-tuning already-pinned Ollama levers again: `Settlement.institutions`
+(H3, extended by H7/H9 across earlier sessions in this same
+conversation) had no cap — FAMILY institution count climbed roughly
+linearly with cumulative births (191 by tick 24,000, still climbing on
+a 40k-tick measurement run) regardless of population, which plateaus at
+the H1 carrying-capacity ceiling. Same bug class as the relationships/
+trust leak (v0.42.0) and the traditions/inventions/festivals lists
+(v0.44.1) — a per-event append with no removal — just never audited
+when institutions were introduced. Fixed with `INSTITUTION_LIST_MAX_
+STORED = 300` (same magnitude as `CULTURE_LIST_MAX_STORED`) enforced by
+`population._prune_extinct_families`, extinction-aware rather than a
+blind newest-N truncation (unlike traditions/inventions/festivals, a
+FAMILY institution is looked up by living-agent membership via
+`family_for`/inheritance/dialogue, so only families with zero living
+members are ever evicted, oldest-first, only once over cap). Verified
+via a synthetic-cap unit check and a 60,000-tick full-engine
+integration run confirming the stored count holds flat once population
+plateaus. Full accounting in docs/DECISIONS.md. Every other per-agent/
+per-settlement collection touched by H2/H4/H5/H6/H7/H8/H9 was
+re-audited for the same pattern in this pass and found already
+correctly bounded — institutions was the one genuine miss. If swap
+pressure persists after this, the next place to look is Ollama's own
+server-side memory (a separate process, needs a fresh live diagnostic
+from the user's actual machine to pin down further — this environment
+has no real Ollama to measure against).
+
 ## Ruin removal speed + last unbounded culture lists capped (v0.44.1)
 
 `RUIN_REMOVAL_TICKS` lowered 3000 -> 1200 (~31 -> ~12.5 sim-days) —

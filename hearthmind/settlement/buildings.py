@@ -151,6 +151,25 @@ MATURE_WORKER_ONLY = False
 (see agents.agent.MATURITY_TICKS). False: any awake agent present helps —
 only *founding* a new building requires maturity (see C1)."""
 
+INSTITUTION_LIST_MAX_STORED = 300
+"""Cap on the *stored* count of FAMILY institutions in
+`Settlement.institutions` (v0.54.0) — a 40k-tick live measurement (seed
+42, no cap) showed family count climbing roughly linearly with
+cumulative births regardless of population (191 families at pop 295,
+still climbing), unlike population itself which plateaus at the carrying
+capacity: on a genuinely persistent world this is unbounded growth, the
+same bug class as the pre-v0.44.1 traditions/inventions/festivals lists.
+Unlike those three (pure flavor text, safe to hard-truncate to the
+newest N), a FAMILY institution is looked up by living-agent membership
+(`family_for`, inheritance, dialogue) — blindly dropping the oldest
+entries could silently orphan a still-living elder's family. Pruning
+(`population._prune_extinct_families`) is therefore extinction-aware:
+only FAMILY institutions with zero living members are eligible for
+removal, oldest-founded first, and only once the stored count exceeds
+this cap — a family with even one living member is never touched.
+COUNCIL institutions are never pruned (COUNCIL_SIZE keeps that kind
+inherently small)."""
+
 CULTURE_LIST_MAX_STORED = 300
 """Cap on the *stored* length of Settlement.traditions/inventions/
 festivals (v0.44.1) — previously unbounded: `PROMPT_CULTURE_LIST_MAX`
