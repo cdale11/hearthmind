@@ -1895,6 +1895,73 @@ class Population:
             ))
         return life_events
 
+    def _apply_inheritance(
+        self, agent: Agent, settlement: Settlement, dying_ids: set[int],
+    ) -> list[tuple[str, str]]:
+        """H7 (docs/ROADMAP.md "Phase H"): a death moves what a person
+        had to a living heir instead of it simply vanishing — land
+        (any HUT they owned, see H4), personal goods (food/tools), a
+        partial transfer of accumulated skill (a "last lesson," not a
+        full copy — see INHERITANCE_SKILL_TRANSFER_FRACTION), and a
+        carried-over bias (a strong distrust they held of someone still
+        living, see INHERITANCE_BIAS_THRESHOLD). Genuinely blocked on H3
+        landing first, per the roadmap's own note: the heir is found via
+        `Settlement.family_for`, so a lone survivor with no living
+        family leaves nothing behind but grief and memory — a legitimate
+        outcome, not a gap. Only logs an `inheritance` event when
+        something concrete actually changed hands, so most deaths (an
+        agent with no home, no goods, no notable skill or grudge) don't
+        spam the feed."""
+        family = settlement.family_for(agent.id)
+        if family is None:
+            return []
+        candidates = [
+            a for a in self.agents
+            if a.id in family.member_agent_ids and a.id != agent.id and a.id not in dying_ids
+        ]
+        if not candidates:
+            return []
+        heir = max(candidates, key=lambda a: (agent.relationships.get(a.id, 0.0), -a.id))
+
+        inherited: list[str] = []
+        homes_inherited = 0
+        for building in settlement.buildings:
+            if building.owner_agent_id == agent.id:
+                building.owner_agent_id = heir.id
+                homes_inherited += 1
+        if homes_inherited == 1:
+            inherited.append("a home")
+        elif homes_inherited > 1:
+            inherited.append(f"{homes_inherited} homes")
+
+        good_caps = {"food": PERSONAL_FOOD_CAPACITY, "tools": TOOLS_CAPACITY}
+        for good, amount in agent.inventory.items():
+            if amount <= 0.0:
+                continue
+            cap = good_caps.get(good)
+            current = heir.inventory.get(good, 0.0)
+            heir.inventory[good] = min(cap, current + amount) if cap is not None else current + amount
+            inherited.append(good)
+
+        for skill, level in agent.skills.items():
+            heir_level = heir.skills.get(skill, 0.0)
+            if level > heir_level:
+                heir.skills[skill] = min(1.0, heir_level + INHERITANCE_SKILL_TRANSFER_FRACTION * (level - heir_level))
+                inherited.append(f"{skill} technique")
+
+        for source_id, value in agent.trust.items():
+            if value <= INHERITANCE_BIAS_THRESHOLD and source_id not in dying_ids and source_id != heir.id:
+                current = heir.trust.get(source_id, 0.0)
+                heir.trust[source_id] = max(
+                    -1.0, min(1.0, current + INHERITANCE_BIAS_TRANSFER_FRACTION * (value - current))
+                )
+                inherited.append("a wariness of someone")
+
+        if not inherited:
+            return []
+        _remember(heir, f"I inherited from {agent.name}: {', '.join(inherited)}.")
+        return [("inheritance", f"{heir.name} inherited from {agent.name}: {', '.join(inherited)}.")]
+
     def _apply_deaths(
         self, killed_by_predator: set[int] = frozenset(), settlement: Settlement | None = None,
         died_of_disease: set[int] = frozenset(),
@@ -1958,6 +2025,8 @@ class Population:
                     _remember(other, f"{agent.name} died. I miss them.")
                     other.energy = max(0.0, other.energy - grief_penalty)
                     self.last_triggered_agent_ids.add(other.id)
+            if settlement is not None:
+                life_events.extend(self._apply_inheritance(agent, settlement, dying_ids))
         self.agents = survivors
         if dying_ids:
             # Strip every survivor's relationships/trust entries for the

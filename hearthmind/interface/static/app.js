@@ -90,6 +90,7 @@ const CATEGORY_META = {
   lake_rose: { icon: "💧" },
   lake_receded: { icon: "🏖️" },
   migrant_arrived: { icon: "🚶" },
+  inheritance: { icon: "🪦" },
   illness: { icon: "🤒" },
   recovery: { icon: "💊" },
 };

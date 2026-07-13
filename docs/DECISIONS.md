@@ -4024,3 +4024,59 @@ and the relationship nudge on both sides. A 6,000-tick full engine run
 (LLM disabled, seed 42) completed with no exceptions, and a full
 `World.to_dict()`/`from_dict()` round-trip preserved `avg_tools` and
 building-ownership state byte-identically.
+
+## H7 v1: inheritance on death
+
+Sixth implementation pass on Phase H, closing out the explicit "H4 and
+H7" instruction. Confirmed genuinely blocked on H3/H4 landing first, as
+the roadmap predicted — `Population._apply_inheritance` is essentially
+a straightforward hook because both prerequisites (an addressable
+family entity, an ownable good) already existed.
+
+Design choices: the heir is the *closest living relative by
+relationship value* among the deceased's family institution members,
+not simply "the first child" or "the spouse" — reuses
+`Agent.relationships` (already tracking real affinity) rather than
+introducing a new kinship-priority rule, and naturally falls back to
+whoever the deceased was actually close to if the family has an
+unconventional shape (e.g. a sibling closer than an estranged parent).
+No living family (either the deceased never formed one, or every
+family member predeceased them) means no inheritance — deliberately
+left as a legitimate outcome, matching the project's existing "settlements
+expand or collapse," "extinction is a legitimate ending" stance rather
+than special-casing "always find someone."
+
+Skill and bias transfers are both *partial*, not full copies, and this
+was a deliberate choice over a simpler "just copy the value": a
+possession (a hut, food, tools) is the same object whether held by one
+person or another, but skill is procedural competence built through
+practice/teaching (H5) and trust is a subjective read on someone
+(itself built through lived interaction) — neither transfers cleanly
+the way property does. `INHERITANCE_SKILL_TRANSFER_FRACTION=0.5`/
+`INHERITANCE_BIAS_TRANSFER_FRACTION=0.4` frame this as "notes/technique
+left behind" and "a caution passed down," not literal knowledge/opinion
+transplantation — consistent with the project's objective/subjective
+split (a person's beliefs/skill are their own imperfect state, not
+freely copyable ground truth).
+
+The `inheritance` event only logs when something concrete changed hands
+— most deaths (an agent with no home, no goods, no notable skill, no
+strong grudge on anyone still living) correctly produce nothing, so the
+event log isn't spammed by every single death the way `"death"` already
+is (that event fires unconditionally, by design, since a death is
+itself always noteworthy — inheritance is conditional on there being
+anything to inherit).
+
+Verified: a direct scenario script confirmed heir selection (closer
+relationship wins over a more distant family member), exact transfer
+amounts for goods, the precise partial-transfer math for both skill
+(0.8 -> 0.4, exactly half the 0-to-0.8 gap) and bias (-0.6 -> -0.24,
+exactly 40% of the gap), and that an unrelated/more-distant family
+member received nothing. A no-living-family scenario correctly produced
+no event. A full real-engine integration run (reproduction forced
+high, `choose_building_kind` forced to HUT so there was land to
+inherit, short forced lifespans to trigger natural old-age deaths)
+produced genuine `inheritance` events end-to-end through the real tick
+loop, with buildings correctly reassigned across generations —
+confirmed by inspecting final `Building.owner_agent_id` values after
+the run, not just by reading the logged event text.

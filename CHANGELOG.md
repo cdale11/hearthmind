@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.50.0] — H7: inheritance (land, goods, skill, bias) on death
+
+### Added
+
+- **`Population._apply_inheritance`**, called for every dying agent
+  from inside `_apply_deaths` (right after grief, before the agent is
+  removed). Finds a living heir via the existing H3 family institution
+  (`Settlement.family_for`) — the closest living relative by
+  relationship value, or nobody if no family survives, a legitimate
+  outcome, not a gap. When an heir exists, transfers:
+  - **Land**: any HUT the deceased owned (H4) — `Building.owner_
+    agent_id` reassigned to the heir.
+  - **Goods**: personal `food`/`tools` inventory, added to the heir's
+    own (capped the same way each good already is).
+  - **Knowledge**: a partial skill transfer — the heir's proficiency in
+    any skill the deceased held closes half the gap toward the
+    deceased's own level (`INHERITANCE_SKILL_TRANSFER_FRACTION`), "a
+    last lesson" rather than a full copy, since skill is procedural and
+    can't simply be handed over the way a possession can.
+  - **Bias**: a strong distrust the deceased held of someone still
+    living (`trust <= INHERITANCE_BIAS_THRESHOLD`) partially carries
+    over to the heir's own trust in that person
+    (`INHERITANCE_BIAS_TRANSFER_FRACTION`) — an inherited grudge/
+    caution, mechanically real rather than only narrated.
+  Logs a new `inheritance` category event (UI icon added) only when
+  something concrete actually changed hands — most deaths (no home, no
+  goods, nothing notable to pass on) stay silent, so the feed isn't
+  spammed by every death.
+
+Verified: a direct scenario script (a deceased owning a HUT, holding
+food/tools, a farming skill, and a strong distrust of a third living
+agent; a family institution linking the deceased to a closer heir and
+a more distant relative) confirmed the closer-relationship heir was
+correctly selected and received the hut, exact inventory amounts, the
+expected partial skill bump (0.8 -> 0.4, exactly half the 0-to-0.8
+gap), and the expected partial bias transfer (-0.6 trust -> -0.24,
+exactly 40% of the gap) — the more distant relative received nothing.
+A no-living-family case correctly produced no inheritance event. A
+full end-to-end integration run (real engine tick loop, reproduction
+odds forced high, `choose_building_kind` forced to always pick HUT so
+ownership had something to transfer, short lifespans to force natural
+old-age deaths) produced real `inheritance` events with correct
+descriptions ("Ulric inherited from Fenwick: 5 homes, farming
+technique.") and left buildings correctly reassigned across
+generations, confirmed via `Building.owner_agent_id` inspection after
+the run.
+
 ## [0.49.0] — H4: building ownership + a real materials->tools supply chain
 
 ### Added

@@ -660,7 +660,7 @@ reuse that pattern at agent scale rather than inventing a new one. Trauma
 specifically should hook the *existing* memory-of-grief/violence events
 already logged, not require new event types.
 
-### H7. Cross-generational inheritance
+### [x] H7. Cross-generational inheritance (v1)
 
 Current state: `Agent.parents` links generations for memory/dialogue
 purposes only; nothing material passes down — land/buildings aren't owned,
@@ -674,6 +674,21 @@ dying agent to specific living relations rather than dissolving it. Once
 those exist, inheritance is mostly a hook on the existing death path
 (`Population._apply_deaths`) that reassigns ownership/beliefs to
 `Agent.parents`/children instead of just logging grief.
+
+**Shipped, v0.50.0.** `Population._apply_inheritance`, hooked into
+`_apply_deaths` exactly as predicted above — the heir is found via H3's
+`Settlement.family_for` (closest living relative by relationship
+value), and inheritance moves H4's land (any owned HUT), personal
+goods (food/tools), a partial H5 skill transfer (half the gap, "a last
+lesson"), and a partial trust/bias transfer (a strong distrust of
+someone still living carries over at 40%). No living family means
+nothing to inherit — a legitimate outcome per this section's own
+framing, not a bug. Not yet extended to `Settlement.beliefs`/
+traditions/stories themselves (those are already settlement-wide, so
+every generation already "inherits" them uniformly, per the "current
+state" note above) — a future pass could still make family-specific
+beliefs (H2's `Institution.beliefs`) inheritance-aware in a more
+targeted way.
 
 ### H8. The Town as an ancient, ambiguous intelligence
 
