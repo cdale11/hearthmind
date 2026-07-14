@@ -224,20 +224,24 @@ def _pick_template(rng: random.Random, templates: tuple[str, ...]) -> str:
     return templates[rng.randrange(len(templates))]
 
 
-def _damage_at(settlement: Settlement, farms: FarmGrid, x: int, y: int, amount: float) -> None:
-    building = settlement.at(x, y)
-    if building is not None and building.stage is BuildingStage.STANDING:
-        building.condition = max(0.0, building.condition - amount)
-    vehicle = settlement.vehicle_at(x, y)
-    if vehicle is not None:
-        vehicle.condition = max(0.0, vehicle.condition - amount)
+def _damage_at(settlements: list[Settlement], farms: FarmGrid, x: int, y: int, amount: float) -> None:
+    # Physics doesn't care who owns the structure — every settlement's
+    # buildings/vehicles on this tile take the hit (multi-settlement
+    # pass, v0.65.0; previously only the single settlement existed).
+    for settlement in settlements:
+        building = settlement.at(x, y)
+        if building is not None and building.stage is BuildingStage.STANDING:
+            building.condition = max(0.0, building.condition - amount)
+        vehicle = settlement.vehicle_at(x, y)
+        if vehicle is not None:
+            vehicle.condition = max(0.0, vehicle.condition - amount)
     if (x, y) in farms.plots:
         del farms.plots[(x, y)]
 
 
 def tick_flood(
     state: DisasterState, terrain: list[list[Tile]], weather: WeatherState,
-    settlement: Settlement, farms: FarmGrid, water_tiles: set[tuple[int, int]], rng: random.Random,
+    settlements: list[Settlement], farms: FarmGrid, water_tiles: set[tuple[int, int]], rng: random.Random,
 ) -> list[tuple[str, str]]:
     """Called every tick. Builds/decays flood pressure from sustained
     rain, occasionally triggers a new flood along a random water-adjacent
@@ -279,7 +283,7 @@ def tick_flood(
             # as damage + a log line, invisible on the map and to every
             # water-biome consumer.
             terrain[y][x] = Tile(x=x, y=y, elevation=terrain[y][x].elevation, biome=Biome.SHALLOW_WATER)
-            _damage_at(settlement, farms, x, y, FLOOD_DAMAGE)
+            _damage_at(settlements, farms, x, y, FLOOD_DAMAGE)
             events.append(("disaster_flood", _pick_template(rng, _FLOOD_ONSET_TEMPLATES).format(x=x, y=y)))
             state.flood_pressure *= 0.5  # one flood relieves some of the built-up pressure
 
@@ -299,7 +303,7 @@ def tick_flood(
 
 def tick_wildfire(
     state: DisasterState, terrain: list[list[Tile]], weather: WeatherState, season: str,
-    temperament: float, settlement: Settlement, is_week_end: bool, rng: random.Random,
+    temperament: float, settlements: list[Settlement], is_week_end: bool, rng: random.Random,
     heatwave_active: bool = False, farms: FarmGrid | None = None,
 ) -> list[tuple[str, str]]:
     """Called every tick — ignition is only rolled on week boundaries
@@ -328,7 +332,7 @@ def tick_wildfire(
                 # so crops caught in a spreading fire never burned —
                 # `_damage_at`'s farm-destruction branch was dead code
                 # on the one disaster where it matters most.
-                _damage_at(settlement, farms if farms is not None else FarmGrid(), x, y, WILDFIRE_BUILDING_DAMAGE)
+                _damage_at(settlements, farms if farms is not None else FarmGrid(), x, y, WILDFIRE_BUILDING_DAMAGE)
             if len(state.active_wildfire_tiles) >= WILDFIRE_MAX_TILES:
                 continue
             for dx, dy in _ADJACENT:
@@ -361,7 +365,7 @@ def tick_wildfire(
 
 
 def tick_storm(
-    weather: WeatherState, settlement: Settlement, rng: random.Random,
+    weather: WeatherState, settlements: list[Settlement], rng: random.Random,
 ) -> list[tuple[str, str]]:
     """Called every tick. Extreme wind occasionally batters standing
     structures and ready vehicles directly — a sharper, rarer hit than
@@ -370,13 +374,14 @@ def tick_storm(
     if weather.wind < STORM_WIND_THRESHOLD or rng.random() >= STORM_CHANCE_PER_TICK:
         return []
     hit = 0
-    for building in settlement.buildings:
-        if building.stage is BuildingStage.STANDING:
-            building.condition = max(0.0, building.condition - STORM_DAMAGE)
+    for settlement in settlements:
+        for building in settlement.buildings:
+            if building.stage is BuildingStage.STANDING:
+                building.condition = max(0.0, building.condition - STORM_DAMAGE)
+                hit += 1
+        for vehicle in settlement.vehicles:
+            vehicle.condition = max(0.0, vehicle.condition - STORM_DAMAGE)
             hit += 1
-    for vehicle in settlement.vehicles:
-        vehicle.condition = max(0.0, vehicle.condition - STORM_DAMAGE)
-        hit += 1
     if hit == 0:
         return []
     return [(

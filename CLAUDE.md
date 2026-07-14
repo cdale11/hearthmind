@@ -243,7 +243,7 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
-## Current state (v0.64.0)
+## Current state (v0.65.0)
 
 All original phases (A–F), Phase G, and the full Phase H program are
 shipped at least a v1: optional-determinism physical substrate
@@ -265,6 +265,29 @@ never submerging, wildfire farm damage dead, starvation-death
 misclassification, uncapped medicine inheritance) and added idle
 broadcast skipping, biome-count caching, a teaching membership index,
 a predator-attack early-out, and `synchronous=NORMAL`.
+
+v0.65.0 closed the last three architectural gaps (explicit user
+directive "perform the remaining additions") plus the residual memory
+issue: **multiple named settlements** — LLM-decided fission from a
+crowded settlement (`llm/fission.py`, `Population.fission_candidate/
+fission_party`, `Agent.settlement_id`/`travel_target` with greedy+BFS
+journey pathing, reachability-filtered site choice, per-community
+ownership on one shared physical map, `MAX_SETTLEMENTS=3`, round-robin
+monthly LLM jobs via `_job_target` so LLM volume stays flat, legacy
+snapshots load fine, UI name labels + settlement switcher; whispers/
+documentary/geography/player-standing stay with the founding
+settlement); **fully agent-pathed construction** (site staked out by
+score within radius 3, builders drawn by the WANDER work attractor);
+**true frame-by-frame replay** (timeline ▶ plays real past maps,
+server-side frame cache). Memory: the monthly LLM cluster is now
+STAGGERED across days of the month (`MONTHLY_JOB_DAY` — the month-end
+~10-call burst was the remaining swap-spike source; volume unchanged,
+coincident load now 1 routine job/day), `/diagnostics` gained a
+`system_memory` attribution section (self + per-Ollama-process RSS/
+swap + meminfo), and README documents the remaining Ollama levers
+(flash attention + q8_0 KV cache, NUM_PARALLEL=1 trade) and the
+size-down model path (`qwen3:1.7b`) — default model unchanged;
+diagnose via `system_memory` before changing anything.
 
 v0.64.0 shipped the audit's ENTIRE suggested backlog (explicit user
 directive): Stage 3 institution own-belief formation (`origin: "own"`,
@@ -320,6 +343,14 @@ remain in the decision log:
   persistent ordinal counters), institutions (v0.54.0, extinction-aware
   prune at 300), dialogue/cognition cooldowns (pruned). v0.63.0
   re-audit: no unbounded structure remains.
+- **Bursts, not just leaks:** the v0.65.0 residual-pressure fix — every
+  monthly LLM job used to schedule on the same `month_end` tick (~10
+  coincident calls after v0.64.0), a per-month *burst* no steady-state
+  leak audit could see. Jobs are now staggered one-per-day
+  (`MONTHLY_JOB_DAY`); if a new periodic LLM job is ever added, give it
+  its own day there, never `month_end`. `/diagnostics.system_memory`
+  now attributes memory (self vs. each Ollama process vs. system)
+  live — read it during an episode before tuning anything.
 - **Swap pressure has always been Ollama-side call volume/config**, not
   this process (RSS-probed clean repeatedly): concurrency (v0.43.0/1),
   keep_alive, num_ctx/num_predict, `use_mmap: true` (v0.55.0 — the
@@ -352,17 +383,9 @@ remain in the decision log:
 
 ## Known architectural gaps (not yet built)
 
-- **Multiple named settlements** — the one remaining genuinely large,
-  architecturally separate effort (touches population/engine/every LLM
-  prompt/interface/snapshot schema in one pass). The Settlement facade
-  split (four composed domain objects) landed as its prerequisite.
-  Correct candidate for its own dedicated session.
-- **Where to build, fully agent-pathed** — road/resource adjacency now
-  weight *which colocated tile* gets settled, but agents still don't
-  path toward a chosen site.
-- **True frame-by-frame replay** — timeline v1 shows per-snapshot
-  summaries only; keyframes are already preserved for a future full
-  replay.
-- Everything else once listed as "not yet built" has shipped —
-  including Institutions Stage 3 and deliberate founding (v0.64.0) —
-  see docs/ROADMAP.md for the per-item accounting.
+Every item once on this list has shipped — multiple named settlements,
+fully agent-pathed construction, and frame-by-frame replay all landed
+in v0.65.0 (see "Current state"). The only surviving deliberate
+deferral is **WebSocket delta payloads**, whose own condition (only if
+bandwidth is ever *measured* as a problem) remains unmet. If a future
+gap is discovered, list it here with the same shape as before.

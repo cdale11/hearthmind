@@ -397,6 +397,86 @@ The founder must personally clear the ambition bar
 (TRAIT_NOTABLE_THRESHOLD's magnitude class): founding early is an act
 of individual drive, not a census threshold."""
 
+FISSION_MIN_POPULATION = 40
+"""A settlement can only fission once it holds at least this many
+people — below that, splitting leaves two fragile hamlets instead of
+one viable town and one viable expedition. Roughly twice
+COUNCIL_FORMATION_POPULATION_THRESHOLD: fission is a later-stage event
+than civic organization."""
+
+FISSION_LEADER_AMBITION = 0.35
+"""Minimum TRAIT_AMBITION for the mature, healthy member who would lead
+a founding party out — comfortably above TRAIT_NOTABLE_THRESHOLD (0.3),
+so the leader is someone whose drive already shows in their prompts.
+The decision itself still goes to the LLM (llm/fission.py); this only
+gates who could credibly propose it."""
+
+FISSION_PARTY_MIN = 4
+FISSION_PARTY_MAX = 8
+"""Founding-party size bounds: fewer than 4 can't sustain construction
+pace + foraging at a raw site (the measured founding-funnel lesson,
+applied in reverse); more than 8 guts the mother settlement's labor
+pool in one event."""
+
+FISSION_MIN_REMAINING = 16
+"""The mother settlement must keep at least this many people after the
+party leaves — a fission is expansion, not collapse-by-emigration."""
+
+FISSION_COOLDOWN_TICKS = 20_000
+"""Minimum ticks between fissions world-wide (~208 sim-days) — founding
+a settlement should be a once-an-era event a long-running world
+remembers, not a recurring drain."""
+
+FISSION_MATERIALS_SHARE = 0.4
+"""Fraction of the mother settlement's materials stockpile the party
+carries to the new site — seed capital for the first huts (HUT cost is
+3.0; a healthy stockpile's 40% funds several), leaving the mother the
+larger share. Physically hauled, not duplicated."""
+
+FISSION_MIN_DISTANCE = 18
+"""Minimum Chebyshev distance between a new founding site and every
+existing settlement's center — far enough (on a 64x64 default map) to
+be a genuinely separate community with its own hinterland, not a
+suburb."""
+
+FISSION_PARTY_RELATIONSHIP = 0.2
+"""Beyond the leader's own family, only members with at least this much
+affinity for the leader join the party — people follow someone they
+actually like, they aren't conscripted."""
+
+MAX_SETTLEMENTS = 3
+"""Hard cap on concurrent settlements. Each named settlement joins the
+monthly LLM job rotation (SimulationEngine's round-robin), so this also
+bounds total LLM volume/memory on the 8GB target hardware — raise it
+deliberately, not incidentally."""
+
+BUILD_SITE_SEARCH_RADIUS = 3
+"""How far (Chebyshev) founders look around their own feet for the best
+tile to stake out when a construction roll passes — the close of the
+long-standing "where to build, fully agent-pathed" gap. Previously the
+building always went up exactly where the group happened to stand;
+road/resource adjacency only nudged the *chance*. Now the group
+deliberately picks the best nearby site (scored below), and builders
+walk to it: an under-construction site is a WANDER-goal attractor the
+same way a damaged building already is (see _dispatch_movement), so a
+staked-out site a few tiles away genuinely draws labor rather than
+depending on incidental colocation. Radius 3 keeps the choice local —
+a decision the founders can see from where they stand, not a
+map-wide optimizer."""
+
+BUILD_SITE_ADJACENCY_SCORE = 0.5
+"""Score bonus per satisfied adjacency (established road; productive
+resource or open water) when ranking candidate build sites — both
+bonuses can stack. Same two signals SETTLE_CHANCE_*_MULTIPLIER already
+uses for the roll, reused as a ranking so the two "where does the town
+grow" mechanisms can't disagree about what makes a tile good."""
+
+BUILD_SITE_DISTANCE_PENALTY = 0.15
+"""Score penalty per Chebyshev step from the founders' own tile — all
+else equal they build where they stand (zero penalty), and a
+road/resource-adjacent tile (+0.5 or +1.0) is worth walking up to a
+few tiles for, but never the full radius for no gain."""
+
 MAX_DIALOGUES_PER_TICK = 3
 """Caps how many LLM-authored dialogue exchanges are scheduled in a
 single tick regardless of how many colocated pairs qualify — keeps LLM
@@ -585,6 +665,11 @@ class Population:
     """(agent_id, agent_id) sorted pair -> tick of their last dispute-
     resolution moment — same shape/pruning as dialogue_cooldowns. See
     due_for_dispute."""
+    last_fission_tick: int = -1_000_000
+    """Tick of the most recent settlement fission (world-wide) — gates
+    FISSION_COOLDOWN_TICKS. Persisted; the far-negative default means a
+    fresh or pre-multi-settlement world is immediately eligible once
+    the other conditions hold."""
     last_written_records: list[dict] = field(default_factory=list, compare=False)
     """Written-artifact candidates from THIS tick's deaths (`{author,
     memories, belief}` for each dying agent with RECORD_MIN_MEMORIES+
@@ -666,7 +751,7 @@ class Population:
 
     def tick(
         self, seed: int, tick: int, terrain: list[list[Tile]],
-        resources: ResourceGrid, settlement: Settlement, farms: FarmGrid, wildlife: WildlifeGrid,
+        resources: ResourceGrid, settlements: list[Settlement], farms: FarmGrid, wildlife: WildlifeGrid,
         roads: RoadNetwork, weather: WeatherState, night_factor: float = 0.0,
         heatwave_active: bool = False, month_end: bool = False,
     ) -> list[tuple[str, str]]:
@@ -709,21 +794,52 @@ class Population:
         killed_by_predator: set[int] = set()
         by_position: dict[tuple[int, int], list[Agent]] = {}
         any_gather_occurred = False
-        has_hospital = any(
-            b.kind is BuildingKind.HOSPITAL and b.stage is BuildingStage.STANDING for b in settlement.buildings
-        )
-        housing_capacity = CAMP_TOLERANCE + HUT_CAPACITY * sum(
-            1 for b in settlement.buildings
-            if b.kind is BuildingKind.HUT and b.stage is BuildingStage.STANDING
-        )
-        crowded = len(self.agents) > housing_capacity
-        food_positions = (self.ready_farm_positions(farms), self.stocked_granary_positions(settlement))
-        repair_positions = self.damaged_building_positions(settlement)
+        # --- multi-settlement partition (v0.65.0) ------------------------
+        # One shared physical world, N home communities: spatial systems
+        # (movement, colocation, trade, dialogue, disease spread) stay
+        # global — people of different settlements still meet, talk,
+        # trade, teach, and infect each other when colocated. Ownership
+        # systems (granaries/stockpiles, construction, institutions,
+        # carrying capacity) resolve through each agent's home
+        # settlement. See docs/DECISIONS.md, "multiple named
+        # settlements."
+        primary = settlements[0]
+        settlements_by_id = {s.id: s for s in settlements}
+
+        def home_of(a: Agent) -> Settlement:
+            return settlements_by_id.get(a.settlement_id, primary)
+
+        members_count: dict[int, int] = {s.id: 0 for s in settlements}
+        for a in self.agents:
+            members_count[home_of(a).id] += 1
+        has_hospital_by_id = {
+            s.id: any(
+                b.kind is BuildingKind.HOSPITAL and b.stage is BuildingStage.STANDING
+                for b in s.buildings
+            )
+            for s in settlements
+        }
+        housing_by_id = {
+            s.id: CAMP_TOLERANCE + HUT_CAPACITY * sum(
+                1 for b in s.buildings
+                if b.kind is BuildingKind.HUT and b.stage is BuildingStage.STANDING
+            )
+            for s in settlements
+        }
+        crowded_by_id = {s.id: members_count[s.id] > housing_by_id[s.id] for s in settlements}
+        crowded = any(crowded_by_id.values())
+        farm_positions = self.ready_farm_positions(farms)
+        granary_positions_by_id = {s.id: self.stocked_granary_positions(s) for s in settlements}
+        work_positions_by_id = {
+            s.id: self.damaged_building_positions(s) + self.under_construction_positions(s)
+            for s in settlements
+        }
         self.last_triggered_agent_ids = set()
         self.last_written_records = []
         for agent in self.agents:
+            home = home_of(agent)
             agent.age_ticks += 1
-            self._update_needs(agent, weather_harsh, settlement, night_factor, crowded)
+            self._update_needs(agent, weather_harsh, settlements, night_factor, crowded_by_id[home.id])
             critically_hungry = agent.hunger >= CRITICAL_HUNGER_THRESHOLD
             if critically_hungry:
                 # A hunger emergency deserves the LLM's actual reasoning
@@ -733,8 +849,8 @@ class Population:
                 self.last_triggered_agent_ids.add(agent.id)
             if critically_hungry and agent.state is AgentState.RESTING:
                 agent.state = AgentState.AWAKE  # emergency wake: starving beats sleeping
-            self._maybe_forage(agent, resources, farms, settlement, wildlife)  # can eat while resting, not just awake
-            if self._maybe_gather(agent, terrain, settlement, resources):
+            self._maybe_forage(agent, resources, farms, settlements, wildlife)  # can eat while resting, not just awake
+            if self._maybe_gather(agent, terrain, home, resources):
                 any_gather_occurred = True
             if agent.hunger >= STARVATION_HUNGER_THRESHOLD:
                 agent.starving_ticks += 1
@@ -751,7 +867,7 @@ class Population:
                 agent.state = AgentState.RESTING  # proactive rest: a chosen goal, not just necessity
             if agent.state is AgentState.AWAKE:
                 attack_event = self._maybe_predator_attack(
-                    agent, wildlife, rng, has_hospital, settlement.temperament,
+                    agent, wildlife, rng, has_hospital_by_id[home.id], home.temperament,
                     predator_tiles=predator_tiles,
                 )
                 if attack_event is not None:
@@ -761,66 +877,90 @@ class Population:
                     else:
                         _nudge_trait(agent, TRAIT_RESILIENCE, TRAIT_VIOLENCE_NUDGE)
                 self._dispatch_movement(
-                    agent, terrain, rng, resources, farms, settlement, wildlife, roads,
+                    agent, terrain, rng, resources, farms, home, wildlife, roads,
                     predator_tiles, position_snapshot, critically_hungry, weather,
                     rival_tiles=rival_tiles_by_agent.get(agent.id),
-                    food_positions=food_positions,
-                    repair_positions=repair_positions,
+                    food_positions=(farm_positions, granary_positions_by_id[home.id]),
+                    work_positions=work_positions_by_id[home.id],
                 )
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
-        self._update_roads(by_position, settlement, farms, roads)
+        self._update_roads(by_position, settlements, farms, roads)
         self._update_relationships(by_position)
-        self._maybe_teach_skills(by_position, rng, settlement)
+        self._maybe_teach_skills(by_position, rng, settlements)
         if month_end:
             self._tick_traits(rng)
+        hospital_settlement_ids = {sid for sid, has in has_hospital_by_id.items() if has}
         disease_events, died_of_disease = self._tick_disease(
-            self.agents, by_position, has_hospital, settlement.temperament, rng,
+            self.agents, by_position, hospital_settlement_ids, primary.temperament, rng,
         )
         life_events.extend(disease_events)
         life_events.extend(self._maybe_outbreak(rng, crowded, roads))
-        life_events.extend(self._advance_construction(by_position, settlement))
-        life_events.extend(self._maybe_repair(by_position, settlement))
-        self._maybe_stock_granaries(by_position, settlement)
+        # Building-driven subsystems run once per settlement over the
+        # global colocation map: each settlement's own structures get
+        # worked/stocked/crafted-at by whoever is physically present —
+        # a visiting neighbor genuinely can help raise a wall or study
+        # at the other village's school.
+        for stl in settlements:
+            life_events.extend(self._advance_construction(by_position, stl))
+            life_events.extend(self._maybe_repair(by_position, stl))
+            self._maybe_stock_granaries(by_position, stl)
+            self._maybe_run_workshops(by_position, stl)
+            self._maybe_craft_tools(by_position, stl)
+            self._maybe_craft_medicine(by_position, stl)
+            self._maybe_run_factories(by_position, stl)
+            self._maybe_run_schools(by_position, stl)
+            life_events.extend(self._maybe_upgrade_university(by_position, stl, rng))
+            life_events.extend(self._advance_vehicle_construction(by_position, stl))
+            self._maybe_repair_vehicles(by_position, stl)
+            self._maybe_assign_mounts(by_position, stl)
+            if any_gather_occurred:
+                self._wear_carts(stl)
+            life_events.extend(self._maybe_start_vehicle(by_position, stl, farms, rng))
         self._maybe_trade_food(by_position, rng)
-        self._maybe_run_workshops(by_position, settlement)
-        self._maybe_craft_tools(by_position, settlement)
         self._maybe_trade_tools(by_position, rng)
-        self._maybe_craft_medicine(by_position, settlement)
         self._maybe_trade_medicine(by_position, rng)
-        self._maybe_run_factories(by_position, settlement)
-        self._maybe_run_schools(by_position, settlement)
-        life_events.extend(self._maybe_upgrade_university(by_position, settlement, rng))
         life_events.extend(
-            self._maybe_start_construction(by_position, settlement, farms, rng, roads, resources, terrain)
+            self._maybe_start_construction(by_position, settlements, farms, rng, roads, resources, terrain)
         )
-        life_events.extend(self._maybe_plant(by_position, farms, settlement, terrain, rng))
-        life_events.extend(self._advance_vehicle_construction(by_position, settlement))
-        self._maybe_repair_vehicles(by_position, settlement)
-        self._maybe_assign_mounts(by_position, settlement)
-        if any_gather_occurred:
-            self._wear_carts(settlement)
-        life_events.extend(self._maybe_start_vehicle(by_position, settlement, farms, rng))
-        self.last_carrying_capacity = self.carrying_capacity(
-            settlement, housing_capacity, weather_harsh, bool(predator_tiles),
-            established_roads=roads.summary()["established_roads"],
-        )
+        life_events.extend(self._maybe_plant(by_position, farms, settlements, terrain, rng))
+        established_roads = roads.summary()["established_roads"]
+        capacity_by_id = {
+            s.id: self.carrying_capacity(
+                s, housing_by_id[s.id], weather_harsh, bool(predator_tiles),
+                established_roads=established_roads,
+                members=[a for a in self.agents if home_of(a).id == s.id],
+            )
+            for s in settlements
+        }
+        self.last_carrying_capacity = sum(capacity_by_id.values())
         life_events.extend(
-            self._maybe_reproduce(by_position, rng, self.last_carrying_capacity, settlement, tick)
+            self._maybe_reproduce(by_position, rng, capacity_by_id, settlements, tick)
         )
-        life_events.extend(self._apply_deaths(killed_by_predator, settlement, died_of_disease, tick=tick))
-        life_events.extend(self._maybe_welcome_migrant(rng, settlement))
-        life_events.extend(self._maybe_form_council(settlement, tick))
-        life_events.extend(self._maybe_refresh_council(settlement))
-        life_events.extend(self._maybe_form_guild(settlement, tick))
-        life_events.extend(self._maybe_refresh_guild(settlement))
+        life_events.extend(self._apply_deaths(killed_by_predator, settlements, died_of_disease, tick=tick))
+        life_events.extend(self._maybe_welcome_migrant(rng, primary))
+        for stl in settlements:
+            members = [a for a in self.agents if home_of(a).id == stl.id]
+            life_events.extend(self._maybe_form_council(stl, tick, members))
+            life_events.extend(self._maybe_refresh_council(stl, members))
+            life_events.extend(self._maybe_form_guild(stl, tick, members))
+            life_events.extend(self._maybe_refresh_guild(stl, members))
         return life_events
 
     @staticmethod
     def _update_needs(
-        agent: Agent, weather_harsh: bool = False, settlement: Settlement | None = None,
+        agent: Agent, weather_harsh: bool = False, settlements: list[Settlement] | None = None,
         night_factor: float = 0.0, crowded: bool = False,
     ) -> None:
+        # Shelter/care are physical: standing inside ANY settlement's
+        # building counts, whoever owns it — a traveler sheltering in
+        # the neighboring village's granary is dry all the same.
+        building = None
+        if settlements:
+            for stl in settlements:
+                building = stl.at(agent.x, agent.y)
+                if building is not None:
+                    break
         hunger_rate = HUNGER_RATE
         energy_drain = ENERGY_DRAIN_AWAKE
         if agent.sick_ticks > 0:
@@ -837,10 +977,10 @@ class Population:
             # (working indoors). See SHELTER_NEGATES_WEATHER,
             # docs/DECISIONS.md, scarcity pass + review-implementation
             # follow-up.
-            sheltered = False
-            if SHELTER_NEGATES_WEATHER and settlement is not None:
-                building = settlement.at(agent.x, agent.y)
-                sheltered = building is not None and building.stage is BuildingStage.STANDING
+            sheltered = (
+                SHELTER_NEGATES_WEATHER
+                and building is not None and building.stage is BuildingStage.STANDING
+            )
             if not sheltered:
                 hunger_rate *= WEATHER_HARSH_HUNGER_MULTIPLIER
                 energy_drain *= WEATHER_HARSH_ENERGY_DRAIN_MULTIPLIER
@@ -861,16 +1001,14 @@ class Population:
                 # Age-graded frailty: elders recover slower — see
                 # ELDER_RECOVERY_MULTIPLIER in agents/agent.py.
                 recovery *= ELDER_RECOVERY_MULTIPLIER
-            if settlement is not None:
-                building = settlement.at(agent.x, agent.y)
-                if (
-                    building is not None and building.kind is BuildingKind.HOSPITAL
-                    and building.stage is BuildingStage.STANDING
-                ):
-                    # Care exists: resting at a standing hospital recovers
-                    # energy faster. See HOSPITAL_REST_RECOVERY_MULTIPLIER,
-                    # docs/DECISIONS.md, "LLM-as-brain batch."
-                    recovery *= HOSPITAL_REST_RECOVERY_MULTIPLIER
+            if (
+                building is not None and building.kind is BuildingKind.HOSPITAL
+                and building.stage is BuildingStage.STANDING
+            ):
+                # Care exists: resting at a standing hospital recovers
+                # energy faster. See HOSPITAL_REST_RECOVERY_MULTIPLIER,
+                # docs/DECISIONS.md, "LLM-as-brain batch."
+                recovery *= HOSPITAL_REST_RECOVERY_MULTIPLIER
             agent.energy = min(1.0, agent.energy + recovery)
             if agent.energy >= WAKE_THRESHOLD:
                 agent.state = AgentState.AWAKE
@@ -962,7 +1100,7 @@ class Population:
     @staticmethod
     def _tick_disease(
         agents: list[Agent], by_position: dict[tuple[int, int], list[Agent]],
-        has_hospital: bool, temperament: float, rng: random.Random,
+        hospital_settlement_ids: set[int], temperament: float, rng: random.Random,
     ) -> tuple[list[tuple[str, str]], set[int]]:
         """Advances every currently-sick agent by one tick: a chance of
         death (reduced by a standing hospital, nudged by temperament —
@@ -976,10 +1114,9 @@ class Population:
         `_apply_deaths` the same way `killed_by_predator` is."""
         life_events: list[tuple[str, str]] = []
         died_of_disease: set[int] = set()
-        death_chance = SICKNESS_DEATH_CHANCE_PER_TICK
-        if has_hospital:
-            death_chance *= (1.0 - SICKNESS_HOSPITAL_KILL_CHANCE_REDUCTION)
-        death_chance = max(0.0, death_chance * (1.0 - temperament * TEMPERAMENT_KILL_CHANCE_INFLUENCE))
+        death_chance = max(
+            0.0, SICKNESS_DEATH_CHANCE_PER_TICK * (1.0 - temperament * TEMPERAMENT_KILL_CHANCE_INFLUENCE)
+        )
         for agent in agents:
             if agent.sick_ticks <= 0:
                 if agent.immune_ticks > 0:
@@ -987,6 +1124,11 @@ class Population:
                 continue
             agent.sick_ticks += 1
             agent_death_chance = death_chance
+            # Care is a home-community benefit: the hospital that treats
+            # you is your own settlement's (a bedridden patient isn't
+            # commuting to the neighbors').
+            if agent.settlement_id in hospital_settlement_ids:
+                agent_death_chance *= (1.0 - SICKNESS_HOSPITAL_KILL_CHANCE_REDUCTION)
             # H4 extension: personal medicine is a second, individually-
             # earned layer of protection on top of the settlement-wide
             # hospital reduction above — see MEDICINE_DEATH_CHANCE_
@@ -1028,10 +1170,15 @@ class Population:
 
     @staticmethod
     def _maybe_forage(
-        agent: Agent, resources: ResourceGrid, farms: FarmGrid, settlement: Settlement, wildlife: WildlifeGrid,
+        agent: Agent, resources: ResourceGrid, farms: FarmGrid, settlements: list[Settlement],
+        wildlife: WildlifeGrid,
     ) -> None:
         if agent.hunger < FORAGE_HUNGER_THRESHOLD:
             return
+        # Technique/customs travel with the eater's own community; the
+        # physical food comes from whichever settlement's granary the
+        # agent is actually standing at (hospitality is spatial).
+        home = next((s for s in settlements if s.id == agent.settlement_id), settlements[0])
 
         # A ready farm plot is preferred over wild foraging — better yield,
         # and it's the deliberate incentive for cultivating one at all.
@@ -1046,8 +1193,8 @@ class Population:
                 # wide tech/tradition bonuses — see SKILL_FARMING_YIELD_BONUS.
                 farming_skill = agent.skills.get(SKILL_FARMING, 0.0)
                 relief = (
-                    HARVEST_HUNGER_RELIEF * (consumed / HARVEST_AMOUNT) * _tech_factor(settlement)
-                    * culture_effect_multiplier(settlement.culture_effects, "harvest")
+                    HARVEST_HUNGER_RELIEF * (consumed / HARVEST_AMOUNT) * _tech_factor(home)
+                    * culture_effect_multiplier(home.culture_effects, "harvest")
                     * (1.0 + farming_skill * SKILL_FARMING_YIELD_BONUS)
                 )
                 agent.hunger = max(0.0, agent.hunger - relief)
@@ -1064,14 +1211,19 @@ class Population:
 
         # A stocked granary is preferred over wild foraging too — a
         # deliberate community buffer, second only to a fresh farm.
-        granary = settlement.at(agent.x, agent.y)
+        granary, granary_owner = None, home
+        for stl in settlements:
+            candidate = stl.at(agent.x, agent.y)
+            if candidate is not None:
+                granary, granary_owner = candidate, stl
+                break
         if (
             granary is not None and granary.kind is BuildingKind.GRANARY
             and granary.stage is BuildingStage.STANDING and granary.stored_food > 0
         ):
             consumed = min(granary.stored_food, GRANARY_WITHDRAW_AMOUNT)
             granary.stored_food -= consumed
-            relief = GRANARY_HUNGER_RELIEF * (consumed / GRANARY_WITHDRAW_AMOUNT) * _tech_factor(settlement)
+            relief = GRANARY_HUNGER_RELIEF * (consumed / GRANARY_WITHDRAW_AMOUNT) * _tech_factor(granary_owner)
             agent.hunger = max(0.0, agent.hunger - relief)
             agent.inventory["food"] = min(
                 PERSONAL_FOOD_CAPACITY, agent.inventory.get("food", 0.0) + FORAGE_INVENTORY_SKIM
@@ -1117,13 +1269,13 @@ class Population:
         # when a MARKET has discovered a food price (tick_market_prices)
         # — scarcity now cuts both ways for the buyer, not just the
         # seller side of overflow sales.
-        ration_cost = CURRENCY_EMERGENCY_RATION_COST * settlement.market_price("food")
+        ration_cost = CURRENCY_EMERGENCY_RATION_COST * granary_owner.market_price("food")
         if (
             granary is not None and granary.kind is BuildingKind.GRANARY
             and granary.stage is BuildingStage.STANDING
-            and settlement.currency >= ration_cost
+            and granary_owner.currency >= ration_cost
         ):
-            settlement.currency -= ration_cost
+            granary_owner.currency -= ration_cost
             agent.hunger = max(0.0, agent.hunger - CURRENCY_EMERGENCY_HUNGER_RELIEF)
 
     @staticmethod
@@ -1180,12 +1332,13 @@ class Population:
 
     @staticmethod
     def _maybe_plant(
-        by_position: dict[tuple[int, int], list[Agent]], farms: FarmGrid, settlement: Settlement,
-        terrain: list[list[Tile]], rng: random.Random,
+        by_position: dict[tuple[int, int], list[Agent]], farms: FarmGrid,
+        settlements: list[Settlement], terrain: list[list[Tile]], rng: random.Random,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
+        settlements_by_id = {s.id: s for s in settlements}
         for (x, y), group in by_position.items():
-            if farms.get(x, y) is not None or settlement.at(x, y) is not None:
+            if farms.get(x, y) is not None or any(s.at(x, y) is not None for s in settlements):
                 continue
             if not FarmGrid.is_farmable(terrain, x, y):
                 continue
@@ -1207,6 +1360,8 @@ class Population:
                 continue
             if rng.random() >= PLANT_CHANCE_PER_TICK:
                 continue
+            # Farm tools come from the planters' own stockpile.
+            settlement = settlements_by_id.get(group[0].settlement_id, settlements[0])
             tooled = settlement.materials >= FARM_TOOL_MATERIALS_COST
             if tooled:
                 settlement.materials -= FARM_TOOL_MATERIALS_COST
@@ -1227,7 +1382,7 @@ class Population:
         weather: WeatherState | None = None,
         rival_tiles: set[tuple[int, int]] | None = None,
         food_positions: tuple[list[tuple[int, int]], list[tuple[int, int]]] | None = None,
-        repair_positions: list[tuple[int, int]] | None = None,
+        work_positions: list[tuple[int, int]] | None = None,
     ) -> None:
         """Goal-directed agents (FORAGE/SOCIALIZE) take a deliberate step
         toward a visible target when one exists; otherwise (including
@@ -1251,6 +1406,38 @@ class Population:
         # See docs/DECISIONS.md, "rivalry avoidance" pass.
         if rival_tiles:
             predator_tiles = predator_tiles | rival_tiles
+
+        # A long-range journey (today: a fission party walking to its
+        # new settlement's site) overrides goal-directed movement — but
+        # never a hunger emergency: a starving traveler detours for food
+        # first, the same override precedence everything else follows.
+        # See Agent.travel_target.
+        if agent.travel_target is not None and not critically_hungry:
+            if (agent.x, agent.y) == agent.travel_target:
+                agent.travel_target = None
+            else:
+                journey_mount = _agent_mount(settlement, agent.id)
+                moved = cls._step_toward(agent, agent.travel_target, terrain, predator_tiles)
+                if moved and journey_mount is not None and agent.travel_target is not None:
+                    if cls._step_toward(agent, agent.travel_target, terrain, predator_tiles):
+                        journey_mount.condition = max(
+                            0.0, journey_mount.condition - PERSONAL_VEHICLE_USE_DECAY[journey_mount.kind]
+                        )
+                if agent.travel_target is not None and not moved:
+                    # Greedy step blocked (concave water/mountain pocket
+                    # — greedy would oscillate forever): take one step
+                    # of a real BFS path instead. Unreachable target =
+                    # the journey is abandoned where they stand.
+                    step = cls._bfs_step(terrain, (agent.x, agent.y), agent.travel_target)
+                    if step is None:
+                        agent.travel_target = None
+                    else:
+                        agent.x, agent.y = step
+                        moved = True
+                if agent.travel_target is not None and (agent.x, agent.y) == agent.travel_target:
+                    agent.travel_target = None
+                if moved:
+                    return
 
         effective_goal = AgentGoal.FORAGE if critically_hungry else agent.goal
         target = None
@@ -1276,7 +1463,7 @@ class Population:
             target = cls._nearest_other_agent(agent, position_snapshot)
         elif effective_goal is AgentGoal.GATHER:
             target = cls._nearest_material_tile(agent, terrain)
-        elif effective_goal is AgentGoal.WANDER and repair_positions:
+        elif effective_goal is AgentGoal.WANDER and work_positions:
             # Root-cause fix (v0.43.2 follow-up): a WANDERing agent
             # previously had zero attraction toward a decaying building —
             # `_maybe_repair` only ever fires from *incidental* colocation,
@@ -1289,7 +1476,11 @@ class Population:
             # settlement's most-damaged building gives every otherwise-
             # idle agent a chance to become repair labor, the same way
             # FORAGE already biases toward food. See docs/DECISIONS.md.
-            target = cls._nearest_position(agent, repair_positions)
+            # v0.65.0: the same attractor list now also carries staked-
+            # out/under-construction sites (see under_construction_
+            # positions) — the "builders walk to the chosen site" half
+            # of agent-pathed construction.
+            target = cls._nearest_position(agent, work_positions)
 
         mount = _agent_mount(settlement, agent.id)
         if target is not None and cls._step_toward(agent, target, terrain, predator_tiles):
@@ -1453,6 +1644,71 @@ class Population:
         return False
 
     @staticmethod
+    def _bfs_step(
+        terrain: list[list[Tile]], start: tuple[int, int], target: tuple[int, int],
+        node_cap: int = 4096,
+    ) -> tuple[int, int] | None:
+        """First step of a real shortest path from `start` toward
+        `target` over walkable tiles — used ONLY when a travel_target
+        journey's greedy step is blocked (a concave water/mountain
+        pocket makes greedy stepping oscillate forever; a fission party
+        must actually arrive). Deliberately not used for routine
+        FORAGE/GATHER targeting: journeys are rare (one party per
+        FISSION_COOLDOWN_TICKS) so a full-map BFS per blocked traveler
+        per tick is nothing, but running it for every goal-seeking
+        agent every tick would be a real cost for no observed problem.
+        Returns None when target is unreachable within `node_cap`
+        expansions (an island) — the caller then abandons the
+        journey."""
+        if start == target:
+            return None
+        height = len(terrain)
+        width = len(terrain[0]) if height else 0
+        from collections import deque as _deque
+        first_step: dict[tuple[int, int], tuple[int, int]] = {}
+        queue = _deque([start])
+        seen = {start}
+        expanded = 0
+        while queue and expanded < node_cap:
+            cx, cy = queue.popleft()
+            expanded += 1
+            for dx, dy in _NEIGHBOR_OFFSETS:
+                nx, ny = cx + dx, cy + dy
+                if not (0 <= nx < width and 0 <= ny < height) or (nx, ny) in seen:
+                    continue
+                if not _is_walkable(terrain, nx, ny):
+                    continue
+                seen.add((nx, ny))
+                first_step[(nx, ny)] = first_step.get((cx, cy), (nx, ny))
+                if (nx, ny) == target:
+                    return first_step[(nx, ny)]
+                queue.append((nx, ny))
+        return None
+
+    @staticmethod
+    def _reachable_tiles(terrain: list[list[Tile]], origin: tuple[int, int]) -> set[tuple[int, int]]:
+        """The walkable connected component containing `origin` — one
+        flood fill, used by the engine's fission-site chooser so a
+        founding party is never pointed at land it cannot walk to (the
+        map's rivers/lakes genuinely disconnect some regions)."""
+        from collections import deque as _deque
+        seen = {origin}
+        queue = _deque([origin])
+        height = len(terrain)
+        width = len(terrain[0]) if height else 0
+        while queue:
+            cx, cy = queue.popleft()
+            for dx, dy in _NEIGHBOR_OFFSETS:
+                nx, ny = cx + dx, cy + dy
+                if (
+                    0 <= nx < width and 0 <= ny < height and (nx, ny) not in seen
+                    and _is_walkable(terrain, nx, ny)
+                ):
+                    seen.add((nx, ny))
+                    queue.append((nx, ny))
+        return seen
+
+    @staticmethod
     def _maybe_move(
         agent: Agent, terrain: list[list[Tile]], rng: random.Random, roads: RoadNetwork,
         predator_tiles: set[tuple[int, int]] = frozenset(), speed_multiplier: float = 1.0,
@@ -1489,7 +1745,7 @@ class Population:
 
     @staticmethod
     def _update_roads(
-        by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement,
+        by_position: dict[tuple[int, int], list[Agent]], settlements: list[Settlement],
         farms: FarmGrid, roads: RoadNetwork,
     ) -> None:
         """Tiles with at least one awake agent present, excluding
@@ -1498,7 +1754,7 @@ class Population:
         occupied = {
             (x, y) for (x, y), group in by_position.items()
             if any(a.state is AgentState.AWAKE for a in group)
-            and settlement.at(x, y) is None and farms.get(x, y) is None
+            and all(s.at(x, y) is None for s in settlements) and farms.get(x, y) is None
         }
         roads.tick(occupied)
 
@@ -1544,7 +1800,8 @@ class Population:
 
     @staticmethod
     def _maybe_teach_skills(
-        by_position: dict[tuple[int, int], list[Agent]], rng: random.Random, settlement: Settlement,
+        by_position: dict[tuple[int, int], list[Agent]], rng: random.Random,
+        settlements: list[Settlement],
     ) -> None:
         """H5 (docs/ROADMAP.md "Phase H"): knowledge spreads through
         teaching, not only solo practice (see the farming-skill gain in
@@ -1567,7 +1824,10 @@ class Population:
         (culture_effect_multiplier — a village that has come to value
         apprenticeship teaches faster, the same mechanical-rider shape
         festivals/harvests/grief already use)."""
-        knowledge_multiplier = culture_effect_multiplier(settlement.culture_effects, "knowledge")
+        knowledge_by_id = {
+            s.id: culture_effect_multiplier(s.culture_effects, "knowledge") for s in settlements
+        }
+        default_knowledge = knowledge_by_id[settlements[0].id]
         # Membership index built once per tick (audit perf pass): the
         # previous per-pair `any()` over the full institutions list was
         # O(colocated pairs x stored institutions) — with the stored
@@ -1577,7 +1837,8 @@ class Population:
         # tick. Same results, one pass over institutions instead.
         bonded_memberships: dict[int, set[int]] = {}  # agent id -> FAMILY/COUNCIL institution ids
         guild_members: dict[str, set[int]] = {}  # skill name -> that guild's member agent ids
-        for inst in settlement.institutions:
+        all_institutions = [inst for s in settlements for inst in s.institutions]
+        for inst in all_institutions:
             if inst.kind in (InstitutionKind.FAMILY, InstitutionKind.COUNCIL):
                 for member_id in inst.member_agent_ids:
                     bonded_memberships.setdefault(member_id, set()).add(inst.id)
@@ -1593,6 +1854,13 @@ class Population:
                     & bonded_memberships.get(b.id, no_memberships)
                 )
                 sociability = (a.traits.get(TRAIT_SOCIABILITY, 0.0) + b.traits.get(TRAIT_SOCIABILITY, 0.0)) / 2.0
+                # A knowledge-minded tradition helps the lesson if EITHER
+                # party's community carries it — customs travel with the
+                # person, not the tile.
+                knowledge_multiplier = max(
+                    knowledge_by_id.get(a.settlement_id, default_knowledge),
+                    knowledge_by_id.get(b.settlement_id, default_knowledge),
+                )
                 chance = SKILL_TEACHING_CHANCE_PER_TICK * (
                     1.0 + sociability * TRAIT_SOCIABILITY_CONTACT_CHANCE_INFLUENCE
                 ) * knowledge_multiplier
@@ -1637,7 +1905,7 @@ class Population:
 
     def carrying_capacity(
         self, settlement: Settlement, housing_capacity: int, weather_harsh: bool, predator_pressure: bool,
-        established_roads: int = 0,
+        established_roads: int = 0, members: "list[Agent] | None" = None,
     ) -> float:
         """Dynamic carrying capacity (H1, docs/ROADMAP.md Phase H):
         composes housing (the base), economy, security, and labor/
@@ -1653,7 +1921,11 @@ class Population:
         housing/economy/security/labor/weather, leaving three real,
         effortful systems with no way to expand what a settlement can
         actually support."""
-        total = len(self.agents)
+        # Multi-settlement pass: capacity is per community — `members`
+        # scopes the human terms (sickness, labor) to this settlement's
+        # own people; None keeps the legacy whole-population behavior.
+        members = self.agents if members is None else members
+        total = len(members)
         granaries = [
             b for b in settlement.buildings
             if b.kind is BuildingKind.GRANARY and b.stage is BuildingStage.STANDING
@@ -1667,12 +1939,12 @@ class Population:
             # time to build infrastructure it wouldn't need at this scale.
             economy_term = 0.0
 
-        sick_fraction = (sum(1 for a in self.agents if a.sick_ticks > 0) / total) if total else 0.0
+        sick_fraction = (sum(1 for a in members if a.sick_ticks > 0) / total) if total else 0.0
         security_term = -(
             sick_fraction * 2.0 + (0.3 if predator_pressure else 0.0)
         ) * CARRYING_CAPACITY_SECURITY_WEIGHT
 
-        working_age = sum(1 for a in self.agents if self._is_mature(a) and self._is_healthy(a))
+        working_age = sum(1 for a in members if self._is_mature(a) and self._is_healthy(a))
         labor_fraction = (working_age / total) if total else 1.0
         labor_term = (labor_fraction - 0.5) * CARRYING_CAPACITY_LABOR_WEIGHT
 
@@ -1719,12 +1991,18 @@ class Population:
         return min(float(POPULATION_CAP), housing_capacity * multiplier)
 
     def _maybe_reproduce(
-        self, by_position: dict[tuple[int, int], list[Agent]], rng: random.Random, capacity: float,
-        settlement: Settlement, tick: int,
+        self, by_position: dict[tuple[int, int], list[Agent]], rng: random.Random,
+        capacity_by_id: dict[int, float], settlements: list[Settlement], tick: int,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
-        if len(self.agents) >= capacity:
+        total_capacity = sum(capacity_by_id.values())
+        if len(self.agents) >= total_capacity:
             return life_events
+        settlements_by_id = {s.id: s for s in settlements}
+        primary = settlements[0]
+        home_counts: dict[int, int] = {s.id: 0 for s in settlements}
+        for member in self.agents:
+            home_counts[member.settlement_id if member.settlement_id in settlements_by_id else primary.id] += 1
 
         newborns: list[Agent] = []
         newborn_names: set[str] = set()
@@ -1732,8 +2010,15 @@ class Population:
             if len(group) < 2:
                 continue
             for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
-                if len(self.agents) + len(newborns) >= capacity:
+                if len(self.agents) + len(newborns) >= total_capacity:
                     break
+                # A child is born into its parents' community and counts
+                # against THAT settlement's carrying capacity — growth
+                # pressure is local, which is exactly what eventually
+                # makes a crowded settlement fission.
+                home = settlements_by_id.get(a.settlement_id, primary)
+                if home_counts[home.id] >= capacity_by_id.get(home.id, total_capacity):
+                    continue
                 if not (self._is_mature(a) and self._is_mature(b)):
                     continue
                 if not (self._is_healthy(a) and self._is_healthy(b)):
@@ -1765,9 +2050,11 @@ class Population:
                     y=a.y,
                     max_age_ticks=rng.randint(MIN_LIFESPAN_TICKS, MAX_LIFESPAN_TICKS),
                     parents=(a.id, b.id),
+                    settlement_id=home.id,
                 )
                 self._next_id += 1
                 newborns.append(child)
+                home_counts[home.id] += 1
                 life_events.append(("birth", f"{child.name} was born to {a.name} and {b.name}."))
                 # Generational memory: a newborn "knows" its parents from
                 # birth (looked up by id later — parent names can change
@@ -1778,10 +2065,10 @@ class Population:
                 _remember(child, f"I was born to {a.name} and {b.name}.")
                 _remember(a, f"{child.name} was born to us.")
                 _remember(b, f"{child.name} was born to us.")
-                family_event = self._extend_family(settlement, tick, a.id, b.id, child.id, a.name, b.name)
+                family_event = self._extend_family(home, tick, a.id, b.id, child.id, a.name, b.name)
                 if family_event is not None:
                     life_events.append(family_event)
-                    _prune_extinct_families(settlement, {a.id for a in self.agents})
+                    _prune_extinct_families(home, {a.id for a in self.agents})
 
         self.agents.extend(newborns)
         return life_events
@@ -1824,7 +2111,9 @@ class Population:
         who = f"{parent_a_name} and {parent_b_name}" if names else "a new couple"
         return ("family_formed", f"A new family began with {who}.")
 
-    def _maybe_form_council(self, settlement: Settlement, tick: int) -> list[tuple[str, str]]:
+    def _maybe_form_council(
+        self, settlement: Settlement, tick: int, members: "list[Agent] | None" = None,
+    ) -> list[tuple[str, str]]:
         """H3 extension (docs/ROADMAP.md "Phase H"): a second
         institution kind, formed the first tick a named settlement's
         population reaches COUNCIL_FORMATION_POPULATION_THRESHOLD —
@@ -1835,12 +2124,13 @@ class Population:
         deterministic/automatic — no agent goal or LLM decision founds
         one, matching how buildings/families are founded in this
         project. A no-op every tick after the one where it fires."""
-        if not settlement.name or len(self.agents) < COUNCIL_FORMATION_POPULATION_THRESHOLD:
+        members = self.agents if members is None else members
+        if not settlement.name or len(members) < COUNCIL_FORMATION_POPULATION_THRESHOLD:
             return []
         if any(inst.kind is InstitutionKind.COUNCIL for inst in settlement.institutions):
             return []
         elders = sorted(
-            self.agents,
+            members,
             key=lambda a: (a.age_ticks / a.max_age_ticks) if a.max_age_ticks else 0.0,
             reverse=True,
         )[:COUNCIL_SIZE]
@@ -1855,7 +2145,9 @@ class Population:
         names = ", ".join(a.name for a in elders)
         return [("council_formed", f"A council of elders formed: {names}.")]
 
-    def _maybe_refresh_council(self, settlement: Settlement) -> list[tuple[str, str]]:
+    def _maybe_refresh_council(
+        self, settlement: Settlement, members: "list[Agent] | None" = None,
+    ) -> list[tuple[str, str]]:
         """Integration-milestone fix: `_maybe_form_council` set
         `member_agent_ids` once at formation and nothing ever added to
         it afterward — every council member who died just stayed a
@@ -1873,15 +2165,16 @@ class Population:
         already uses. A no-op most ticks (only fires the tick after a
         sitting member's death, and only while enough living population
         remains to fill the seat)."""
+        members = self.agents if members is None else members
         council = next((i for i in settlement.institutions if i.kind is InstitutionKind.COUNCIL), None)
         if council is None:
             return []
-        living_members = [a for a in self.agents if a.id in council.member_agent_ids]
+        living_members = [a for a in members if a.id in council.member_agent_ids]
         seats_open = COUNCIL_SIZE - len(living_members)
         if seats_open <= 0:
             return []
         candidates = sorted(
-            (a for a in self.agents if a.id not in council.member_agent_ids),
+            (a for a in members if a.id not in council.member_agent_ids),
             key=lambda a: (a.age_ticks / a.max_age_ticks) if a.max_age_ticks else 0.0,
             reverse=True,
         )[:seats_open]
@@ -1891,7 +2184,9 @@ class Population:
         names = ", ".join(a.name for a in candidates)
         return [("council_seat_filled", f"{names} joined the council of elders, filling an empty seat.")]
 
-    def _maybe_form_guild(self, settlement: Settlement, tick: int) -> list[tuple[str, str]]:
+    def _maybe_form_guild(
+        self, settlement: Settlement, tick: int, members: "list[Agent] | None" = None,
+    ) -> list[tuple[str, str]]:
         """H3 v4 (docs/DECISIONS.md "continue expanding" pass): a third
         institution kind, one per mastered trade (SKILL_FARMING/
         SKILL_CONSTRUCTION, now also SKILL_MEDICINE), formed the first
@@ -1902,6 +2197,7 @@ class Population:
         no-op for a skill that already has a standing guild."""
         if not settlement.name:
             return []
+        members = self.agents if members is None else members
         events: list[tuple[str, str]] = []
         existing_skills = {
             inst.name for inst in settlement.institutions if inst.kind is InstitutionKind.GUILD
@@ -1909,7 +2205,7 @@ class Population:
         for skill in (SKILL_FARMING, SKILL_CONSTRUCTION, SKILL_MEDICINE):
             if skill in existing_skills:
                 continue
-            masters = [a for a in self.agents if a.skills.get(skill, 0.0) >= GUILD_SKILL_MASTERY_THRESHOLD]
+            masters = [a for a in members if a.skills.get(skill, 0.0) >= GUILD_SKILL_MASTERY_THRESHOLD]
             if len(masters) < GUILD_FORMATION_MASTER_COUNT:
                 continue
             guild = Institution(
@@ -1925,7 +2221,9 @@ class Population:
             events.append(("guild_formed", f"A {skill} guild formed: {names}."))
         return events
 
-    def _maybe_refresh_guild(self, settlement: Settlement) -> list[tuple[str, str]]:
+    def _maybe_refresh_guild(
+        self, settlement: Settlement, members: "list[Agent] | None" = None,
+    ) -> list[tuple[str, str]]:
         """Unlike COUNCIL's fixed-size seat-refilling, a guild's living
         membership grows unboundedly as more agents reach mastery in its
         trade — there's no seat cap on expertise, only a floor
@@ -1938,7 +2236,7 @@ class Population:
                 continue
             skill = guild.name
             newly_mastered = [
-                a for a in self.agents
+                a for a in (self.agents if members is None else members)
                 if a.id not in guild.member_agent_ids and a.skills.get(skill, 0.0) >= GUILD_SKILL_MASTERY_THRESHOLD
             ]
             if not newly_mastered:
@@ -2081,43 +2379,52 @@ class Population:
 
     @classmethod
     def _maybe_start_construction(
-        cls, by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement,
+        cls, by_position: dict[tuple[int, int], list[Agent]], settlements: list[Settlement],
         farms: FarmGrid, rng: random.Random, roads: RoadNetwork | None = None,
         resources: ResourceGrid | None = None, terrain: list[list[Tile]] | None = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
+        settlements_by_id = {s.id: s for s in settlements}
         for (x, y), group in by_position.items():
-            if len(group) < 2 or settlement.at(x, y) is not None or farms.get(x, y) is not None:
+            if len(group) < 2 or any(s.at(x, y) is not None for s in settlements) or farms.get(x, y) is not None:
                 continue
             eligible = [a for a in group if cls._is_mature(a) and cls._is_healthy(a)]
             if len(eligible) < 2:
                 continue
+            # The founders build for their own community — materials,
+            # priority steer, and the finished structure all belong to
+            # the first founder's home settlement.
+            settlement = settlements_by_id.get(eligible[0].settlement_id, settlements[0])
+            # Deliberate site choice ("where to build, fully agent-pathed"
+            # — the last colocation-only piece of urban growth): the
+            # founders survey BUILD_SITE_SEARCH_RADIUS around themselves
+            # and stake out the best-scoring tile, which may not be the
+            # one they're standing on. Builders then *walk* to the staked
+            # site (an under-construction building is a WANDER-goal
+            # attractor, see _dispatch_movement), so a site chosen for
+            # its road/resource adjacency genuinely draws its own labor.
+            bx, by = cls._choose_build_site(x, y, terrain, settlements, farms, roads, resources)
             settle_chance = SETTLE_CHANCE_PER_TICK
             if settlement.current_priority == "growth":
                 settle_chance *= SETTLE_CHANCE_GROWTH_PRIORITY_MULTIPLIER
             elif settlement.current_priority:
                 settle_chance *= SETTLE_CHANCE_OFF_PRIORITY_MULTIPLIER
-            # Integration milestone (urban growth): the standing roadmap
-            # gap "where to build is still pure chance" — a tile next to
-            # an established road is measurably more likely to be
-            # settled, the same "infrastructure shapes growth" pattern
-            # real towns show, without picking the tile outright (still
-            # colocation-driven, still a chance roll).
+            # The adjacency multipliers now read the *chosen* site rather
+            # than the founders' feet — the same two signals the site
+            # chooser ranks by, so a group that found a good spot nearby
+            # is exactly as likely to act on it as one standing on it.
             if roads is not None and any(
-                roads.is_road(x + dx, y + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                roads.is_road(bx + dx, by + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
             ):
                 settle_chance *= URBAN_GROWTH_ROAD_ADJACENCY_MULTIPLIER
-            # Second, independent "where to build" factor: a tile near a
-            # still-productive resource node or open water is also more
-            # likely to be settled — see SETTLE_CHANCE_RESOURCE_
-            # ADJACENCY_MULTIPLIER's docstring for why this stacks with,
-            # rather than replaces, the road bias above.
-            if resources is not None and _near_productive_resource(resources, x, y):
+            if resources is not None and _near_productive_resource(resources, bx, by):
                 settle_chance *= SETTLE_CHANCE_RESOURCE_ADJACENCY_MULTIPLIER
-            elif terrain is not None and is_adjacent_to_water(terrain, x, y):
+            elif terrain is not None and is_adjacent_to_water(terrain, bx, by):
                 settle_chance *= SETTLE_CHANCE_RESOURCE_ADJACENCY_MULTIPLIER
             if rng.random() >= settle_chance:
                 continue
+            if any(s.at(bx, by) is not None for s in settlements):
+                continue  # another group staked this exact tile earlier this same tick
             # Which kind gets built is weighted by the settlement's
             # current civic priority (the seasonal "town brain" LLM
             # decision) — a real steer, not just a coin flip. See
@@ -2145,16 +2452,78 @@ class Population:
                 owner_agent_id = rng.choices(eligible, weights=weights, k=1)[0].id
             else:
                 owner_agent_id = None
-            settlement.start_construction(x, y, kind=kind, owner_agent_id=owner_agent_id)
+            settlement.start_construction(bx, by, kind=kind, owner_agent_id=owner_agent_id)
             # H6 extension: founding a building is a tangible
             # achievement for its founders — see TRAIT_AMBITION_FOUNDING_NUDGE.
             for a in eligible:
                 _nudge_trait(a, TRAIT_AMBITION, TRAIT_AMBITION_FOUNDING_NUDGE)
-            life_events.append((
-                "construction_started",
-                f"{kind.value.capitalize()} construction began at ({x}, {y}), using {cost:.0f} materials.",
-            ))
+            if (bx, by) == (x, y):
+                description = f"{kind.value.capitalize()} construction began at ({bx}, {by}), using {cost:.0f} materials."
+            else:
+                description = (
+                    f"{kind.value.capitalize()} construction was staked out at ({bx}, {by})"
+                    f" — a better spot than where its founders stood — using {cost:.0f} materials."
+                )
+            life_events.append(("construction_started", description))
         return life_events
+
+    @classmethod
+    def _choose_build_site(
+        cls, x: int, y: int, terrain: list[list[Tile]] | None, settlements: list[Settlement],
+        farms: FarmGrid, roads: RoadNetwork | None, resources: "ResourceGrid | None",
+    ) -> tuple[int, int]:
+        """The best buildable tile within BUILD_SITE_SEARCH_RADIUS of the
+        founders at (x, y) — scored by road/resource/water adjacency
+        minus a per-step distance penalty (see the three BUILD_SITE_*
+        constants). Falls back to (x, y) itself when terrain isn't
+        provided (legacy callers) or nothing else scores higher. Ties
+        keep the earliest-scanned tile, which the scan order below makes
+        the one nearest the founders."""
+        if terrain is None:
+            return (x, y)
+        height = len(terrain)
+        width = len(terrain[0]) if height else 0
+        best = (x, y)
+        best_score = None
+        # Ring-by-ring from radius 0 outward so equal scores resolve to
+        # the closest tile without a separate tie-break pass.
+        for radius in range(0, BUILD_SITE_SEARCH_RADIUS + 1):
+            for dy in range(-radius, radius + 1):
+                for dx in range(-radius, radius + 1):
+                    if max(abs(dx), abs(dy)) != radius:
+                        continue
+                    cx, cy = x + dx, y + dy
+                    if not (0 <= cx < width and 0 <= cy < height):
+                        continue
+                    if not _is_walkable(terrain, cx, cy):
+                        continue
+                    if any(s.at(cx, cy) is not None for s in settlements) or farms.get(cx, cy) is not None:
+                        continue
+                    score = -radius * BUILD_SITE_DISTANCE_PENALTY
+                    if roads is not None and any(
+                        roads.is_road(cx + ox, cy + oy) for ox, oy in _NEIGHBOR_OFFSETS
+                    ):
+                        score += BUILD_SITE_ADJACENCY_SCORE
+                    if (resources is not None and _near_productive_resource(resources, cx, cy)) or (
+                        is_adjacent_to_water(terrain, cx, cy)
+                    ):
+                        score += BUILD_SITE_ADJACENCY_SCORE
+                    if best_score is None or score > best_score:
+                        best, best_score = (cx, cy), score
+        return best
+
+    @staticmethod
+    def under_construction_positions(settlement: Settlement) -> list[tuple[int, int]]:
+        """Staked-out/in-progress sites — merged with damaged buildings
+        into the WANDER-goal work attractor (see _dispatch_movement), so
+        a deliberately-chosen site a few tiles from its founders draws
+        builders instead of waiting on incidental colocation. Same
+        no-distance-cap rationale as damaged_building_positions: the
+        community knows where its own half-built structures are."""
+        return [
+            (b.x, b.y) for b in settlement.buildings
+            if b.stage is BuildingStage.UNDER_CONSTRUCTION
+        ]
 
     @staticmethod
     def _maybe_trade_food(by_position: dict[tuple[int, int], list[Agent]], rng: random.Random) -> int:
@@ -2661,16 +3030,30 @@ class Population:
         return [("inheritance", f"{heir.name} inherited from {agent.name}: {', '.join(inherited)}.")]
 
     def _apply_deaths(
-        self, killed_by_predator: set[int] = frozenset(), settlement: Settlement | None = None,
+        self, killed_by_predator: set[int] = frozenset(), settlements: list[Settlement] | None = None,
         died_of_disease: set[int] = frozenset(), tick: int = 0,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
+        settlements = settlements or []
+        settlements_by_id = {s.id: s for s in settlements}
+        primary = settlements[0] if settlements else None
+
+        def home_of(a: Agent) -> "Settlement | None":
+            return settlements_by_id.get(a.settlement_id, primary)
+
         # Resilience-minded traditions soften (never erase) grief's
         # energy cost — a village with mourning customs carries loss
-        # better. See culture_effect_multiplier.
-        grief_penalty = GRIEF_ENERGY_PENALTY
-        if settlement is not None:
-            grief_penalty /= culture_effect_multiplier(settlement.culture_effects, "resilience")
+        # better; the custom that matters is the MOURNER's own
+        # community's. See culture_effect_multiplier.
+        grief_by_id = {
+            s.id: GRIEF_ENERGY_PENALTY / culture_effect_multiplier(s.culture_effects, "resilience")
+            for s in settlements
+        }
+
+        def grief_penalty_for(mourner: Agent) -> float:
+            if primary is None:
+                return GRIEF_ENERGY_PENALTY
+            return grief_by_id.get(mourner.settlement_id, grief_by_id[primary.id])
         dying_ids: set[int] = set()
         for agent in self.agents:
             if (
@@ -2711,11 +3094,12 @@ class Population:
                 life_events.append(("death", f"{agent.name} died of old age."))
                 self.deaths_old_age += 1
                 cause = "died of old age"
-            if settlement is not None:
+            home = home_of(agent)
+            if home is not None:
                 # A grave mark where they fell — history becomes
                 # physically visible, applied to people. See
                 # SettlementInfrastructure.memorials.
-                settlement.add_memorial(agent.x, agent.y, agent.name, cause, tick)
+                home.add_memorial(agent.x, agent.y, agent.name, cause, tick)
             left_record = len(agent.memories) >= RECORD_MIN_MEMORIES
             if left_record:
                 # The letter's existence is an objective fact of this
@@ -2727,6 +3111,7 @@ class Population:
                 )
                 self.last_written_records.append({
                     "author": agent.name, "memories": list(agent.memories), "belief": best_belief,
+                    "settlement_id": agent.settlement_id,
                 })
             # Grief: a survivor bonded to the dying agent remembers them
             # and pays a real cost, not just a log line. See
@@ -2752,16 +3137,16 @@ class Population:
                     # pass.
                     label = "parent" if is_child else "child"
                     _remember(other, f"My {label}, {agent.name}, died.")
-                    other.energy = max(0.0, other.energy - grief_penalty)
+                    other.energy = max(0.0, other.energy - grief_penalty_for(other))
                     self.last_triggered_agent_ids.add(other.id)
                     _nudge_trait(other, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
                 elif other.relationships.get(agent.id, 0.0) >= REPRODUCTION_AFFINITY_THRESHOLD:
                     _remember(other, f"{agent.name} died. I miss them.")
-                    other.energy = max(0.0, other.energy - grief_penalty)
+                    other.energy = max(0.0, other.energy - grief_penalty_for(other))
                     self.last_triggered_agent_ids.add(other.id)
                     _nudge_trait(other, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
-            if settlement is not None:
-                life_events.extend(self._apply_inheritance(agent, settlement, dying_ids))
+            if home is not None:
+                life_events.extend(self._apply_inheritance(agent, home, dying_ids))
         self.agents = survivors
         if dying_ids:
             # Strip every survivor's relationships/trust entries for the
@@ -2778,12 +3163,13 @@ class Population:
                 for dying_id in dying_ids:
                     survivor.relationships.pop(dying_id, None)
                     survivor.trust.pop(dying_id, None)
-        if settlement is not None and dying_ids:
+        if dying_ids:
             # A dead rider's mount goes back to the unclaimed pool rather
             # than staying claimed forever by nobody.
-            for vehicle in settlement.vehicles:
-                if vehicle.assigned_agent_id in dying_ids:
-                    vehicle.assigned_agent_id = None
+            for stl in settlements:
+                for vehicle in stl.vehicles:
+                    if vehicle.assigned_agent_id in dying_ids:
+                        vehicle.assigned_agent_id = None
         return life_events
 
     # --- cognition (Phase B) --------------------------------------------------
@@ -3102,7 +3488,9 @@ class Population:
 
     # --- deliberate guild founding (v0.64.0) ------------------------------------
 
-    def deliberate_guild_candidate(self, settlement: Settlement) -> tuple[Agent, str, list[Agent]] | None:
+    def deliberate_guild_candidate(
+        self, settlement: Settlement, members: "list[Agent] | None" = None,
+    ) -> tuple[Agent, str, list[Agent]] | None:
         """An ambitious master who might push a guild into existence
         early — see DELIBERATE_GUILD_MIN_MASTERS. Returns (founder,
         skill, current masters) for the first qualifying trade, or None.
@@ -3115,7 +3503,8 @@ class Population:
             if skill in existing_skills:
                 continue
             masters = [
-                a for a in self.agents if a.skills.get(skill, 0.0) >= GUILD_SKILL_MASTERY_THRESHOLD
+                a for a in (self.agents if members is None else members)
+                if a.skills.get(skill, 0.0) >= GUILD_SKILL_MASTERY_THRESHOLD
             ]
             if not (DELIBERATE_GUILD_MIN_MASTERS <= len(masters) < GUILD_FORMATION_MASTER_COUNT):
                 continue  # 0-1 masters is nothing to organize; 3+ auto-forms anyway
@@ -3136,7 +3525,10 @@ class Population:
             for inst in settlement.institutions
         ):
             return None
-        masters = [a for a in self.agents if a.skills.get(skill, 0.0) >= GUILD_SKILL_MASTERY_THRESHOLD]
+        masters = [
+            a for a in self.agents
+            if a.settlement_id == settlement.id and a.skills.get(skill, 0.0) >= GUILD_SKILL_MASTERY_THRESHOLD
+        ]
         founder = self.get(founder_id)
         if founder is None or len(masters) < DELIBERATE_GUILD_MIN_MASTERS:
             return None
@@ -3156,6 +3548,95 @@ class Population:
             "guild_formed",
             f"At {founder.name}'s urging, a {skill} guild formed early: {names}.",
         )
+
+    # --- settlement fission (multiple named settlements, v0.65.0) ---------------
+
+    def fission_candidate(
+        self, settlements: list[Settlement], tick: int,
+    ) -> tuple[Agent, Settlement] | None:
+        """An ambitious member of a crowded, established settlement who
+        might lead a founding party out — the deterministic candidacy
+        half; whether they actually go is an LLM decision
+        (llm/fission.py), same candidacy/decision split as deliberate
+        guild founding. Pure query, no state change."""
+        if len(settlements) >= MAX_SETTLEMENTS:
+            return None
+        if tick - self.last_fission_tick < FISSION_COOLDOWN_TICKS:
+            return None
+        settlements_by_id = {s.id: s for s in settlements}
+        counts: dict[int, int] = {s.id: 0 for s in settlements}
+        for a in self.agents:
+            counts[a.settlement_id if a.settlement_id in settlements_by_id else settlements[0].id] += 1
+        for stl in settlements:
+            if not stl.name or counts[stl.id] < FISSION_MIN_POPULATION:
+                continue
+            housing = CAMP_TOLERANCE + HUT_CAPACITY * sum(
+                1 for b in stl.buildings
+                if b.kind is BuildingKind.HUT and b.stage is BuildingStage.STANDING
+            )
+            if counts[stl.id] <= housing:
+                continue  # only real crowding pressure pushes people out
+            leaders = [
+                a for a in self.agents
+                if a.settlement_id == stl.id and self._is_mature(a) and self._is_healthy(a)
+                and a.traits.get(TRAIT_AMBITION, 0.0) >= FISSION_LEADER_AMBITION
+            ]
+            if not leaders:
+                continue
+            leader = max(leaders, key=lambda a: a.traits.get(TRAIT_AMBITION, 0.0))
+            return leader, stl
+        return None
+
+    def fission_party(self, leader: Agent, home: Settlement) -> list[Agent] | None:
+        """Who follows the leader out: their own family first (the
+        FAMILY institutions that contain them), then whoever likes them
+        enough (FISSION_PARTY_RELATIONSHIP), bounded by FISSION_PARTY_
+        MIN/MAX and the mother settlement's FISSION_MIN_REMAINING floor.
+        Returns None when a viable party can't be assembled — the
+        candidacy then simply lapses until conditions change."""
+        members = [a for a in self.agents if a.settlement_id == home.id]
+        party: list[Agent] = [leader]
+        taken = {leader.id}
+        for inst in home.institutions:
+            if inst.kind is not InstitutionKind.FAMILY or leader.id not in inst.member_agent_ids:
+                continue
+            for a in members:
+                if len(party) >= FISSION_PARTY_MAX:
+                    break
+                if a.id in inst.member_agent_ids and a.id not in taken:
+                    party.append(a)
+                    taken.add(a.id)
+        ranked = sorted(
+            (a for a in members if a.id not in taken),
+            key=lambda a: leader.relationships.get(a.id, 0.0),
+            reverse=True,
+        )
+        for a in ranked:
+            if len(party) >= FISSION_PARTY_MAX:
+                break
+            if leader.relationships.get(a.id, 0.0) >= FISSION_PARTY_RELATIONSHIP:
+                party.append(a)
+                taken.add(a.id)
+        if len(party) < FISSION_PARTY_MIN:
+            return None
+        if len(members) - len(party) < FISSION_MIN_REMAINING:
+            return None
+        return party
+
+    def depart_for_fission(
+        self, party: list[Agent], new_settlement: Settlement, site: tuple[int, int],
+        tick: int, home_name: str,
+    ) -> None:
+        """Actually send the party off: reassign their home, point their
+        travel_target at the chosen site (see _dispatch_movement's
+        journey override), and mark the world-wide fission cooldown.
+        The new Settlement object itself (and its seed-materials grant)
+        is created by the engine, which owns site selection."""
+        for a in party:
+            a.settlement_id = new_settlement.id
+            a.travel_target = site
+            _remember(a, f"We left {home_name} to found a new settlement of our own.")
+        self.last_fission_tick = tick
 
     # --- festivals (collective behaviour) ---------------------------------------
 
@@ -3329,6 +3810,7 @@ class Population:
                 f"{a_id}:{b_id}": tick for (a_id, b_id), tick in self.dispute_cooldowns.items()
             },
             "cognition_trigger_cooldowns": dict(self.cognition_trigger_cooldowns),
+            "last_fission_tick": self.last_fission_tick,
         }
 
     @classmethod
@@ -3357,4 +3839,5 @@ class Population:
             dialogue_cooldowns=dialogue_cooldowns,
             dispute_cooldowns=dispute_cooldowns,
             cognition_trigger_cooldowns=cognition_trigger_cooldowns,
+            last_fission_tick=data.get("last_fission_tick", -1_000_000),
         )

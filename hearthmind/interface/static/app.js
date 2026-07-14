@@ -323,6 +323,7 @@ async function loadTimelineTick(tick) {
 }
 
 timelineSlider.addEventListener("input", () => {
+  stopReplay(); // hand-scrubbing takes over from any running replay
   const tick = timelineTicks[Number(timelineSlider.value)];
   if (tick !== undefined) loadTimelineTick(tick);
 });
@@ -331,8 +332,61 @@ timelineToggle.addEventListener("click", () => {
   timelinePanel.classList.toggle("hidden");
   timelineToggle.classList.toggle("active");
   if (!timelinePanel.classList.contains("hidden")) loadTimelineIndex();
-  else exitGhostMode(); // closing the timeline always returns the map to live
+  else {
+    stopReplay();
+    exitGhostMode(); // closing the timeline always returns the map to live
+  }
 });
+
+// --- frame-by-frame replay (v0.65.0): play the saved snapshots in order ----
+// True replay over timeline v2's real past maps: each stored snapshot
+// renders as one frame (ghost mode), advancing at a chosen frames/sec,
+// prefetching the next frame while the current one is on screen (the
+// server keeps a small cache of built map payloads, so scrubbing back
+// over replayed ground is instant). Snapshot pruning means old frames
+// are sparser than recent ones — the replay simply plays what history
+// was kept, keyframes included.
+
+const timelinePlayBtn = document.getElementById("timeline-play");
+const timelineSpeedSel = document.getElementById("timeline-speed");
+let replayActive = false;
+let replayTimer = null;
+
+function stopReplay() {
+  replayActive = false;
+  if (replayTimer) { clearTimeout(replayTimer); replayTimer = null; }
+  if (timelinePlayBtn) timelinePlayBtn.textContent = "▶ replay";
+}
+
+async function replayStep() {
+  if (!replayActive) return;
+  let idx = Number(timelineSlider.value);
+  if (idx >= timelineTicks.length - 1) { stopReplay(); return; }
+  idx += 1;
+  timelineSlider.value = String(idx);
+  await loadTimelineTick(timelineTicks[idx]);
+  if (idx + 1 < timelineTicks.length) {
+    fetchJSON(`/snapshots/${timelineTicks[idx + 1]}`).catch(() => {}); // prefetch, best-effort
+  }
+  if (!replayActive) return;
+  const fps = Number((timelineSpeedSel && timelineSpeedSel.value) || 2);
+  replayTimer = setTimeout(replayStep, Math.max(120, 1000 / fps));
+}
+
+if (timelinePlayBtn) {
+  timelinePlayBtn.addEventListener("click", () => {
+    if (replayActive) { stopReplay(); return; }
+    if (!timelineTicks.length) return;
+    if (Number(timelineSlider.value) >= timelineTicks.length - 1) {
+      timelineSlider.value = "0"; // at the end: replay from the beginning
+      loadTimelineTick(timelineTicks[0]);
+    }
+    replayActive = true;
+    timelinePlayBtn.textContent = "⏸ pause";
+    const fps = Number((timelineSpeedSel && timelineSpeedSel.value) || 2);
+    replayTimer = setTimeout(replayStep, Math.max(120, 1000 / fps));
+  });
+}
 
 // Map-as-primary-interface: raw stats/culture-lists/infrastructure detail
 // are reachable but not shown by default — same toggle-panel pattern as
@@ -739,6 +793,27 @@ function drawFrame() {
     }
   }
 
+  // Settlement name labels (multiple named settlements, v0.65.0):
+  // small floating nameplates at each named settlement's center — the
+  // one always-on hint that there is more than one community out
+  // there, readable at a glance like everything else on the map.
+  const settlementList = (latest && latest.summary && latest.summary.settlements) || [];
+  if (settlementList.length) {
+    ctx.font = "9px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    for (const s of settlementList) {
+      if (!s.name || !s.center) continue;
+      const lx = s.center[0] * CELL + CELL / 2;
+      const ly = s.center[1] * CELL - 6;
+      const w = ctx.measureText(s.name).width + 8;
+      ctx.fillStyle = "rgba(8, 10, 14, 0.55)";
+      ctx.fillRect(lx - w / 2, ly - 9, w, 12);
+      ctx.fillStyle = "rgba(236, 231, 218, 0.92)";
+      ctx.fillText(s.name, lx, ly);
+    }
+    ctx.textAlign = "left";
+  }
+
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   drawMinimap();
 }
@@ -848,6 +923,16 @@ function enterGhostMode(tick, map) {
     gctx.beginPath();
     gctx.arc(ax * CELL + CELL / 2, ay * CELL + CELL / 2, CELL / 3, 0, Math.PI * 2);
     gctx.fill();
+  }
+  if (map.labels && map.labels.length) {
+    gctx.font = "9px system-ui, sans-serif";
+    gctx.textAlign = "center";
+    for (const l of map.labels) {
+      if (!l.name || !l.center) continue;
+      gctx.fillStyle = "rgba(236, 231, 218, 0.92)";
+      gctx.fillText(l.name, l.center[0] * CELL + CELL / 2, l.center[1] * CELL - 5);
+    }
+    gctx.textAlign = "left";
   }
   ghost.canvas = g;
   if (ghostBanner) {
@@ -1253,7 +1338,10 @@ function renderNpcInspector() {
     return;
   }
   const byId = new Map((latest.agents || []).map((a) => [a.id, a]));
-  const beliefs = ((latest.summary && latest.summary.settlement && latest.summary.settlement.beliefs) || [])
+  const beliefSources = (latest.settlement_summaries && latest.settlement_summaries.length)
+    ? latest.settlement_summaries
+    : [(latest.summary && latest.summary.settlement) || {}];
+  const beliefs = beliefSources.flatMap((s) => s.beliefs || [])
     .filter((b) => b.subject_agent_id === agent.id);
   const relationships = Object.entries(agent.relationships || {})
     .map(([idStr, affinity]) => ({ name: (byId.get(Number(idStr)) || {}).name || `#${idStr}`, affinity }))
@@ -1461,8 +1549,52 @@ function renderConsequences(summary) {
 
 function fmtPct(x) { return `${Math.round(x * 100)}%`; }
 
+// --- settlement switcher (multiple named settlements, v0.65.0) --------------
+// The stats/beliefs/culture detail panels show ONE settlement at a time;
+// with a single settlement the chips stay hidden and everything reads
+// exactly as before.
+
+let activeSettlementId = 0;
+const settlementChipsEl = document.getElementById("settlement-chips");
+
+function activeSettlementSummary(summary) {
+  const list = (latest && latest.settlement_summaries) || [];
+  if (list.length > 1) {
+    const found = list.find((s) => s.id === activeSettlementId);
+    if (found) return found;
+  }
+  return summary.settlement;
+}
+
+function renderSettlementChips(payload) {
+  if (!settlementChipsEl) return;
+  const list = payload.settlement_summaries || [];
+  if (list.length < 2) {
+    settlementChipsEl.classList.add("hidden");
+    return;
+  }
+  settlementChipsEl.classList.remove("hidden");
+  settlementChipsEl.innerHTML = list.map((s) =>
+    `<button class="settlement-chip${s.id === activeSettlementId ? " active" : ""}" data-sid="${s.id}">` +
+    `${s.name || "(unnamed)"} · ${s.members}</button>`
+  ).join("");
+}
+
+if (settlementChipsEl) {
+  settlementChipsEl.addEventListener("click", (ev) => {
+    const chip = ev.target.closest(".settlement-chip");
+    if (!chip) return;
+    activeSettlementId = Number(chip.dataset.sid);
+    if (latest) {
+      renderSettlementChips(latest);
+      renderStats(latest.summary);
+    }
+  });
+}
+
 function renderStats(summary) {
-  const p = summary.population, s = summary.settlement, r = summary.resources;
+  const p = summary.population, r = summary.resources;
+  const s = activeSettlementSummary(summary);
   const f = summary.farms, llm = summary.llm, w = summary.wildlife, rd = summary.roads;
   const c = summary.climate;
   const tiles = [
@@ -1793,6 +1925,7 @@ async function refreshTerrainIfChanged(events) {
 
 function applyPayload(payload) {
   latest = payload;
+  renderSettlementChips(payload);
   renderStats(payload.summary);
   renderConsequences(payload.summary);
   renderInfrastructure(payload.infrastructure);

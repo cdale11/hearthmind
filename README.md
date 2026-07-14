@@ -258,18 +258,48 @@ export OLLAMA_NUM_PARALLEL=2
 # A server-wide default matching Config.llm_keep_alive, in case
 # anything else on the machine talks to the same Ollama instance.
 export OLLAMA_KEEP_ALIVE=3m
+
+# Quantize the KV cache to 8-bit — roughly HALVES per-slot KV memory
+# with negligible quality impact at this scale. Requires flash
+# attention, so set both together. The single biggest still-unapplied
+# server-side saving as of v0.65.0.
+export OLLAMA_FLASH_ATTENTION=1
+export OLLAMA_KV_CACHE_TYPE=q8_0
 ```
 
-If memory pressure persists even with all of the above, the next step
-is a smaller/more aggressively quantized model (e.g. a Q4_0 or Q3
-quantization of the same 2B model, trading some output quality for a
-smaller resident footprint) rather than lowering `llm_max_concurrent`
-further — concurrency is a non-negotiable lever per the instruction
-above. Conversely, if `qwen3.5:2b`'s output quality is ever
-insufficient, `qwen3:4b` is the documented size-up path (`--llm-model
-qwen3:4b`) — larger (~2.5-3.5GB Q4 weights) but still fits the same
-budget with somewhat less headroom; size up and report back rather than
-silently reverting, per the standing project policy.
+If pressure *still* persists after those, one more server-side lever
+exists before touching the model: `OLLAMA_NUM_PARALLEL=1`. This halves
+the KV-cache slots again *without* violating the `llm_max_concurrent=2`
+floor — Hearthmind still keeps two calls in flight; Ollama just serves
+them one at a time instead of side by side, so the second waits ~17-20s
+longer. Richness (which calls get made) is unchanged; only burst
+latency degrades. That trade is yours to judge from a live run.
+
+**Diagnosing before changing anything:** as of v0.65.0,
+`GET /diagnostics` (and the browser dev console) includes a
+`system_memory` section attributing memory live — Hearthmind's own
+RSS/swap, every Ollama process's RSS/swap, and system-wide
+MemAvailable/swap-used. Check it during a pressure episode: if the
+Ollama runner's `swap_mb` dominates, the levers above (and the model
+choice below) are the fix; if `mem_available_mb` is low while Ollama is
+modest, something else on the machine (often the browser tab itself) is
+the real tenant. v0.65.0 also staggered the monthly LLM jobs across
+different days of the month instead of firing all ~10 in one burst on
+every month boundary — the "sparse but sudden" monthly swap spike came
+from that cluster, not from any steady leak.
+
+**Changing the model for memory (size-down path):** if `system_memory`
+shows the Ollama runner itself is genuinely too big even after the
+levers above, the recommended step down is `qwen3:1.7b`
+(`ollama pull qwen3:1.7b`, then `--llm-model qwen3:1.7b`) — same Qwen3
+family, so the existing `"think": false` handling and strict-JSON
+behavior carry over, at roughly 25-35% less resident weight than
+`qwen3.5:2b`. Below that, `qwen3:0.6b` exists but noticeably degrades
+the multi-field JSON decisions (town brain, disputes, beliefs) — try it
+only if 1.7b still swaps. The default stays `qwen3.5:2b` per standing
+project policy; size down and report back rather than silently
+switching. Conversely, if output quality is ever insufficient,
+`qwen3:4b` remains the documented size-up path (~2.5-3.5GB Q4 weights).
 
 ## World genesis (LLM-chosen seed) and calendar
 
@@ -359,9 +389,16 @@ families/councils/guilds, evolving beliefs/world-models at settlement,
 family, and personal scale, skills and teaching, supply chains and
 personal property, inheritance, psychology traits) have shipped at
 least a v1, plus an integration milestone wiring the systems into each
-other. The one remaining genuinely large architectural effort is
-**multiple named settlements** — see `CLAUDE.md`, "Known architectural
-gaps."
+other. As of v0.65.0 the three last architectural gaps are closed too:
+**multiple named settlements** (a crowded settlement can fission — an
+LLM-decided founding party walks to a distant site and builds a second
+named community with its own economy, institutions, temperament, and
+place in the monthly LLM job rotation), **fully agent-pathed
+construction** (founders stake out the best nearby site and builders
+walk to it), and **true frame-by-frame replay** (the timeline's ▶
+button plays the world's real past maps snapshot by snapshot). The one
+surviving deliberate deferral is WebSocket delta payloads — see
+`CLAUDE.md`.
 
 See `CHANGELOG.md` for the version-by-version history,
 `docs/DECISIONS.md` for the reasoning behind non-obvious choices (the

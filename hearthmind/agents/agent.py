@@ -715,6 +715,20 @@ class Agent:
     context once a trait is notable (see llm/cognition.py,
     llm/dialogue.py), the same "only mentioned once notably warm/cold"
     treatment temperament gets."""
+    settlement_id: int = 0
+    """Which settlement this agent calls home (multi-settlement pass,
+    v0.65.0) — 0, the founding settlement, for everyone until a fission
+    party departs. Home scopes which granaries/stockpiles/institutions
+    an agent treats as their own (see Population.tick's partition);
+    physical interaction stays spatial, so members of different
+    settlements still meet, talk, trade, and teach when colocated."""
+    travel_target: tuple[int, int] | None = None
+    """A long-range destination that overrides goal-directed movement
+    until reached (see Population._dispatch_movement) — set today only
+    on a fission party walking to its new settlement's site; cleared on
+    arrival. A critically hungry traveler still detours for food first:
+    survival outranks the journey, same override order as every other
+    goal."""
     beliefs: list[dict] = field(default_factory=list)
     """H2 extension (docs/ROADMAP.md "Phase H" stage 2): this agent's
     own private, evolving theories about their life — same shape as
@@ -752,6 +766,8 @@ class Agent:
             "skills": {k: round(v, 4) for k, v in self.skills.items()},
             "traits": {k: round(v, 4) for k, v in self.traits.items()},
             "beliefs": list(self.beliefs),
+            "settlement_id": self.settlement_id,
+            "travel_target": list(self.travel_target) if self.travel_target is not None else None,
         }
 
     @classmethod
@@ -780,4 +796,8 @@ class Agent:
             skills=dict(data.get("skills", {})),
             traits=dict(data.get("traits", {})),
             beliefs=list(data.get("beliefs", [])),
+            settlement_id=data.get("settlement_id", 0),
+            travel_target=(
+                tuple(data["travel_target"]) if data.get("travel_target") is not None else None
+            ),
         )

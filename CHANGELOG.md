@@ -4,6 +4,99 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.65.0] — Multiple named settlements, agent-pathed construction, true replay, memory-spike fix
+
+The three remaining "Known architectural gaps" from CLAUDE.md, plus a
+direct response to the live "swap pressure reduced but memory still
+very high" report.
+
+### Fixed — memory
+- **Staggered the monthly LLM job cluster across days of the month**
+  (`MONTHLY_JOB_DAY`). Every monthly job — chronicle, festival,
+  caravan, town brain, settlement/personal/institution beliefs, omens,
+  guild founding, geography, and the new fission job — used to
+  schedule on the same `month_end` tick: up to ~10 back-to-back Ollama
+  calls twelve times a year (a minute-plus of continuous inference at
+  concurrency 2), the exact "sparse but sudden" swap-spike shape that
+  every steady-state leak audit kept coming back clean against. Same
+  per-month volume and cadence, now at most one routine settlement job
+  per day. Deterministic month-end work (market prices, temperament)
+  stays on `month_end`; seasonal/yearly jobs keep their boundaries.
+- **`GET /diagnostics` now attributes memory live** (`system_memory`):
+  this process's RSS/swap, every Ollama process's RSS/swap, and
+  system-wide MemAvailable/swap from /proc — so the next pressure
+  report says who owns the memory instead of requiring another
+  guess-and-fix cycle.
+- **README: remaining Ollama levers documented** —
+  `OLLAMA_FLASH_ATTENTION=1` + `OLLAMA_KV_CACHE_TYPE=q8_0` (halves KV
+  cache), `OLLAMA_NUM_PARALLEL=1` as a memory-vs-burst-latency trade
+  that keeps the client concurrency floor of 2, and the model
+  size-down path (`qwen3:1.7b`, same family) with the explicit
+  diagnose-first workflow. The default model is unchanged.
+
+### Added — multiple named settlements (the last big architectural gap)
+- **Settlement fission**: a crowded settlement (population over housing,
+  ≥ `FISSION_MIN_POPULATION`) with an ambitious leader triggers a real
+  LLM decision (`llm/fission.py` — declining is a valid outcome). On
+  yes, a founding party (leader's family first, then close bonds, 4-8
+  people, mother settlement keeps ≥ 16) hauls a 40% materials grant and
+  *walks* (`Agent.travel_target`) to a distant food-scored, reachable
+  site — then first hut, placeholder name, background LLM naming, and
+  everything else happens through the same machinery as the founding
+  settlement. Capped at `MAX_SETTLEMENTS` (3) with a ~208-sim-day
+  cooldown.
+- **Per-community ownership on one shared physical world**: agents have
+  a home settlement (`Agent.settlement_id`); granaries/stockpiles/
+  rations/priorities/carrying-capacity/councils/guilds/families resolve
+  per home, while movement, colocation, trade, dialogue, teaching, and
+  disease stay spatial — visitors genuinely help build and shelter, and
+  a child is born into (and gated by) its parents' community.
+- **Round-robin monthly LLM jobs** (`_job_target`): each settlement
+  takes turns owning the month's chronicle/town-brain/beliefs/omen/
+  festival/caravan/tradition/invention/guild/institution jobs — total
+  LLM volume stays flat no matter how many settlements exist.
+- **Disasters and terrain evolution see every settlement** (floods,
+  wildfire, storms damage any community's structures; reclamation and
+  climate drift respect them all).
+- **UI**: floating name labels at each settlement's center (live map,
+  minimap source, and replay frames), plus a settlement switcher above
+  the details stats when more than one community exists. Whispers and
+  the documentary stay with the founding settlement.
+- **Snapshots**: `World.to_dict` writes a `settlements` list;
+  pre-multi-settlement snapshots load as the founding settlement,
+  unchanged.
+
+### Added — where to build, fully agent-pathed
+- Founders now survey `BUILD_SITE_SEARCH_RADIUS` and stake out the
+  best-scoring nearby tile (road/resource/water adjacency minus a
+  distance penalty) instead of always building underfoot; the chance
+  multipliers read the *chosen* site so the two "where does the town
+  grow" mechanisms agree. Under-construction sites join damaged
+  buildings as WANDER-goal work attractors, so builders walk to the
+  staked site.
+- **Bounded BFS pathing for journeys**: a fission party whose greedy
+  step is blocked by a concave water pocket takes a real
+  shortest-path step instead of oscillating forever; unreachable
+  targets abandon the journey, and the fission site chooser only
+  considers land actually reachable from the leader.
+
+### Added — true frame-by-frame replay
+- The Timeline panel's ▶ replay button plays the stored snapshots in
+  order over timeline v2's real past maps (terrain as it was,
+  buildings/agents/farms/graves/name labels), at 1/2/4 frames per
+  second with prefetch; `GET /snapshots/{tick}` keeps a small FIFO
+  cache of built frames so scrubbing replayed ground is instant.
+  Hand-scrubbing or closing the timeline stops the replay.
+
+### Verification
+39-check ad-hoc script (staggered days actually fire on their assigned
+distinct days; memory probe; site choice + work attractor + journey
+override incl. blocked/unreachable cases; forced fission end to end —
+party departs, walks, arrives, builds, and the daughter settlement
+earns its own name in a real engine run; serialization round-trip +
+legacy snapshot load; replay frames served with labels and cache), plus
+CLI fresh/resume smoke tests and 1.2 ms/tick at 64x64 (budget 1000 ms).
+
 ## [0.64.0] — The whole audit backlog: seven emergence systems + six UI features
 
 Explicit user directive: take the v0.63.0 audit's entire suggested

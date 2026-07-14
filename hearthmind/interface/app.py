@@ -39,6 +39,15 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
     ever read from, never written to, from this module."""
     app = FastAPI(title="Hearthmind", docs_url=None, redoc_url=None)
 
+    # Frame-by-frame replay (v0.65.0) re-fetches consecutive snapshot
+    # ticks in quick succession; rebuilding a World from its DB row for
+    # a tick the player just scrubbed past is pure waste, so the last
+    # few built payloads are kept. Small + FIFO-evicted: replay only
+    # ever needs the ticks around the playhead, and each entry is a
+    # rendered-map dict, not a live World.
+    snapshot_payload_cache: dict[int, dict] = {}
+    SNAPSHOT_CACHE_MAX = 24
+
     # `/static/*` assets (app.js, style.css) are fetched by their bare
     # path, and browsers cache static assets aggressively across page
     # loads by default — a stale cached app.js can silently keep serving
@@ -129,39 +138,55 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
         deliberately small step on docs/ROADMAP.md's flagged "a true
         scrub-through-time replay view" gap, not a rewind/undo
         feature."""
+        cached = snapshot_payload_cache.get(tick)
+        if cached is not None:
+            return JSONResponse(cached)
         world = load_snapshot_at_tick(conn, tick, config)
         if world is None:
             return JSONResponse({"error": f"no snapshot on file for tick {tick}"}, status_code=404)
-        return JSONResponse({
+        payload = {
             "tick": world.clock.tick_count,
             "day": world.clock.day_of_year,
             "month": world.clock.month_name,
             "year": world.clock.year,
             "season": world.clock.season,
             "settlement": world.settlement.summary(),
+            "settlements": [
+                {"id": s.id, "name": s.name, "center": s.center()}
+                for s in world.settlements
+            ],
             "population": world.population.summary(),
             # Timeline v2 (v0.64.0): enough to actually *render* the past
             # map — the terrain as it was (snapshots carry the full
             # terrain, so past floods/deforestation/climate drift show
             # correctly), plus lightweight positions. Only built
-            # on-demand for the specific scrubbed tick, never part of
-            # the per-tick payload.
+            # on-demand for the specific scrubbed/replayed tick, never
+            # part of the per-tick payload. Multi-settlement (v0.65.0):
+            # physical layers merge across every settlement of that era.
             "map": {
                 "width": world.config.width,
                 "height": world.config.height,
                 "biomes": [[tile.biome.value for tile in row] for row in world.terrain],
                 "buildings": [
                     {"x": b.x, "y": b.y, "kind": b.kind.value, "stage": b.stage.value}
-                    for b in world.settlement.buildings
+                    for s in world.settlements for b in s.buildings
                 ],
                 "agents": [[a.x, a.y] for a in world.population.agents],
                 "farms": [
                     {"x": p.x, "y": p.y, "stage": p.stage.value}
                     for p in world.farms.plots.values()
                 ],
-                "memorials": list(world.settlement.memorials),
+                "memorials": [m for s in world.settlements for m in s.memorials],
+                "labels": [
+                    {"name": s.name, "center": s.center()}
+                    for s in world.settlements if s.name and s.center() is not None
+                ],
             },
-        })
+        }
+        snapshot_payload_cache[tick] = payload
+        while len(snapshot_payload_cache) > SNAPSHOT_CACHE_MAX:
+            snapshot_payload_cache.pop(next(iter(snapshot_payload_cache)))
+        return JSONResponse(payload)
 
     @app.post("/intervene/agent-goal")
     async def intervene_agent_goal(payload: dict) -> JSONResponse:

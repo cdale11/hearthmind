@@ -124,7 +124,7 @@ HISTORY_CATEGORIES = (
     "disaster_flood", "disaster_wildfire", "disaster_storm", "disaster_heatwave", "disaster_frost",
     "migrant_arrived", "dialogue_surfaced", "documentary",
     "dispute", "record_written", "place_named", "institution_belief",
-    "family_formed", "council_formed", "guild_formed",
+    "family_formed", "council_formed", "guild_formed", "settlement_founded",
 )
 """The curated, narrative subset of event categories — settlement-level
 history, not per-tick noise (day_end, dialogue, farm_planted, etc.).

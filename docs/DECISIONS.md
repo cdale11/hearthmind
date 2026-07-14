@@ -5528,3 +5528,89 @@ and a 2,000-tick throughput check at 0.695ms/tick (no regression).
 `node -c` on app.js. Standing caveat: no real Ollama/browser in this
 environment — LLM-authored text quality and the visual rendering of
 memorials/zoom/minimap/ghost mode await the user's live run.
+
+## Multiple named settlements, agent-pathed construction, replay, and the month-end memory spike (v0.65.0)
+
+Driven by two things at once: the standing "Known architectural gaps"
+list (user: "perform the remaining additions") and a live report that
+swap pressure was reduced after v0.63.0/v0.64.0 but memory remained
+very high.
+
+**Root cause of the residual memory spikes — the month-end LLM
+cluster.** Every monthly job gated on the same `month_end` tick. After
+v0.64.0 added guild-founding, institution-belief, and geography to
+that tick, a routine month boundary could schedule ~6-10 LLM calls at
+once; at `llm_max_concurrent=2` and ~17-20s per real call that is a
+minute-plus of continuous inference with both KV slots hot, twelve
+times a year — precisely the "sparse but sudden" swap-spike shape
+(diagnostic history) that steady-state leak audits kept coming back
+clean against, and the reason "still very high memory usage" survived
+the v0.58.0 backpressure gate (which bounds the queue but not the
+burst). Fix: `MONTHLY_JOB_DAY` staggers each job onto its own
+day-of-month (all ≤ 27, so February has them too). Volume and cadence
+per month are identical; coincident load drops to one routine job per
+day. Verified: a spy on `_monthly_gate` over a >1-month engine run saw
+each job fire exactly on its assigned, mutually distinct day.
+
+**Memory attribution instrument.** Every swap investigation so far
+reconstructed "who owns the memory" by hand from the user's ps/free
+output. `/diagnostics` now carries `system_memory`: self RSS/swap,
+per-Ollama-process RSS/swap (comm scan of /proc), system
+MemAvailable/swap. The README documents the still-unapplied server
+levers (flash attention + q8_0 KV cache ≈ half the KV footprint;
+NUM_PARALLEL=1 as a latency trade that preserves the concurrency-2
+floor) and the model size-down path (qwen3:1.7b) — with the explicit
+rule: read `system_memory` during an episode first, change the model
+last. The default model is unchanged (explicit user setting).
+
+**Multiple named settlements — the fission model.** One shared
+physical world, N communities. Chosen over a parallel-worlds design
+because everything interesting comes from the communities sharing
+terrain, wildlife, weather, disease, and each other: visitors help
+build, travelers shelter under any roof, gossip and teaching stay
+spatial. Ownership (stores, rations, priorities, capacity,
+institutions) resolves through `Agent.settlement_id`. Design choices
+worth recording:
+- *Fission is an LLM decision with deterministic candidacy* — same
+  split as deliberate guild founding. Crowding (population > housing)
+  is the push; an ambitious leader is the voice; declining is real.
+- *The party walks.* `Agent.travel_target` + a greedy step, with a
+  bounded BFS step only when greedy is blocked — the site chooser
+  additionally filters to land reachable from the leader (rivers
+  genuinely disconnect regions on this generator; the first verify run
+  aimed a journey at an island and proved the need).
+- *Round-robin, not fan-out, for monthly LLM jobs* (`_job_target`):
+  total monthly LLM volume must stay flat on the 8GB target, so
+  settlements take turns owning the month's jobs. `MAX_SETTLEMENTS=3`
+  bounds prompt/state growth for the same reason.
+- *Whispers, documentary, geography names, player standing stay with
+  the founding settlement* — they are world/player-scoped, and a
+  daughter's empty whisper queue makes the town-brain path a natural
+  no-op rather than a special case.
+- *Legacy snapshots* load as `settlements=[the one]`; `World.settlement`
+  is now a property (founding settlement) so the single-settlement-era
+  call sites keep reading naturally.
+
+**Agent-pathed construction.** The founders' roll now stakes out the
+best tile within radius 3 (road/resource/water score minus distance
+penalty), and under-construction sites join damaged buildings as the
+WANDER work attractor — the site chosen for its adjacency draws its
+own labor. The settle-chance multipliers moved from the founders' feet
+to the chosen site so the ranking and the roll can't disagree.
+
+**Frame-by-frame replay.** Timeline v2 already rendered one real past
+map; replay is "play them in order": ▶ button, 1/2/4 fps, prefetch of
+the next frame, and a small FIFO cache (24 entries) server-side so
+scrubbing over replayed ground never rebuilds a World twice. Snapshot
+pruning means older frames are sparser — the replay plays what history
+was kept, which is honest rather than a limitation to hide.
+
+**Verification (no unit suite, per standing rule):** 39-check ad-hoc
+script — staggering, memory probe shape, site choice/attractor,
+journey override incl. blocked + unreachable arms, forced fission end
+to end in a real engine run (depart → walk → arrive → build → daughter
+named by the background job), serialization round-trip + legacy load,
+replay frames with labels via a live FastAPI test client — plus CLI
+fresh/resume smoke runs and a throughput check: 1.196 ms/tick at 64x64
+(vs ~0.9 before; the added per-settlement loops cost ~0.3 ms against a
+1000 ms budget).

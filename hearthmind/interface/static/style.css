@@ -405,3 +405,32 @@ main {
   font-size: 12px;
   padding: 3px 10px;
 }
+
+/* --- multiple named settlements + replay (v0.65.0) --- */
+#settlement-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.settlement-chip {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 10px;
+}
+.settlement-chip.active {
+  background: rgba(217, 164, 65, 0.18);
+  border-color: rgba(217, 164, 65, 0.6);
+}
+#timeline-speed {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: inherit;
+  font-size: 11px;
+  padding: 2px 4px;
+}

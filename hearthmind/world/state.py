@@ -67,7 +67,13 @@ class World:
     weather: WeatherState
     population: Population
     resources: ResourceGrid
-    settlement: Settlement
+    settlements: list[Settlement]
+    """Every settlement in the world, founding settlement (id 0) first
+    — the multi-settlement pass (v0.65.0). New settlements appear only
+    through fission (SimulationEngine._maybe_schedule_fission); the
+    list never shrinks (an emptied settlement's ruins decay away on
+    their own, and its entry simply stops mattering — same
+    "extinction is a legitimate ending" stance as population)."""
     farms: FarmGrid
     wildlife: WildlifeGrid
     roads: RoadNetwork
@@ -114,6 +120,11 @@ class World:
     previously rebuilt with a full terrain scan every tick even though
     water only changes on the rare TERRAIN_CHANGING_CATEGORIES events.
     Never serialized; None means "recompute". July 2026 review, §6.3."""
+    newly_named_settlement_ids: list = field(default_factory=list, compare=False, repr=False)
+    """Ids of settlements whose deterministic placeholder name was
+    assigned THIS tick — consumed by SimulationEngine's per-settlement
+    background-naming scheduler the same tick, never serialized (same
+    transient shape as last_life_events)."""
     _biome_counts_cache: dict = field(default=None, compare=False, repr=False)  # type: ignore[assignment]
     """Same caching pattern as `_water_tiles`, for `summary()`'s
     biome_counts (audit perf pass): `summary()` runs every tick for the
@@ -122,6 +133,14 @@ class World:
     on the same rare TERRAIN_CHANGING_CATEGORIES events the water cache
     already keys off. Invalidated at the end of `tick()` whenever one of
     those events fired; never serialized."""
+
+    @property
+    def settlement(self) -> Settlement:
+        """The founding settlement — kept as a property so the very
+        large number of single-settlement-era call sites (and the
+        primary-settlement semantics of whispers, documentaries, and
+        world-level geography names) read naturally."""
+        return self.settlements[0]
 
     # --- construction ----------------------------------------------------
 
@@ -138,13 +157,13 @@ class World:
         population = Population.spawn_initial(
             seed=config.seed, count=config.initial_population, terrain=terrain, resources=resources,
         )
-        settlement = Settlement(founding_scenario=founding_scenario)  # settlements emerge from population behavior, not pre-placed
+        settlements = [Settlement(founding_scenario=founding_scenario)]  # settlements emerge from population behavior, not pre-placed
         farms = FarmGrid()  # likewise: no farms exist until agents plant them
         wildlife = WildlifeGrid.generate(seed=config.seed, terrain=terrain)
         roads = RoadNetwork()  # paths emerge from foot traffic, not pre-placed
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
-            population=population, resources=resources, settlement=settlement, farms=farms,
+            population=population, resources=resources, settlements=settlements, farms=farms,
             wildlife=wildlife, roads=roads, lakes=lakes,
         )
 
@@ -168,13 +187,18 @@ class World:
             seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain, resources=self.resources,
             temperament=self.settlement.temperament, season=self.clock.season,
         )
-        settlement_events = self.settlement.tick(weather=self.weather, season=self.clock.season)
-        if not self.settlement.name and any(
-            b.stage is BuildingStage.STANDING for b in self.settlement.buildings
-        ):
-            rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "settlement_naming")
-            self.settlement.name = generate_settlement_name(rng)
-            settlement_events.append(("settlement_named", f"The village was named {self.settlement.name}."))
+        settlement_events: list[tuple[str, str]] = []
+        self.newly_named_settlement_ids = []
+        for stl in self.settlements:
+            settlement_events += stl.tick(weather=self.weather, season=self.clock.season)
+            if not stl.name and any(b.stage is BuildingStage.STANDING for b in stl.buildings):
+                rng = _namespaced_rng(
+                    self.config.seed, self.clock.tick_count, f"settlement_naming_{stl.id}",
+                )
+                stl.name = generate_settlement_name(rng)
+                noun = "The village" if stl.id == 0 else "The new settlement"
+                settlement_events.append(("settlement_named", f"{noun} was named {stl.name}."))
+                self.newly_named_settlement_ids.append(stl.id)
         night = compute_night_factor(
             hour_of_day=self.clock.minute_of_day / 60.0, month_name=self.clock.month_name,
         )
@@ -182,7 +206,7 @@ class World:
         population_events = self.population.tick(
             seed=self.config.seed, tick=self.clock.tick_count,
             terrain=self.terrain, resources=self.resources,
-            settlement=self.settlement, farms=self.farms, wildlife=self.wildlife, roads=self.roads,
+            settlements=self.settlements, farms=self.farms, wildlife=self.wildlife, roads=self.roads,
             weather=self.weather, night_factor=night, heatwave_active=self.disasters.heatwave_active,
             month_end="month_end" in events,
         )
@@ -219,18 +243,18 @@ class World:
         water_tiles = self._water_tiles
         flood_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_flood")
         events = tick_flood(
-            self.disasters, self.terrain, self.weather, self.settlement, self.farms, water_tiles, flood_rng,
+            self.disasters, self.terrain, self.weather, self.settlements, self.farms, water_tiles, flood_rng,
         )
         heat_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_heatwave")
         events += tick_heatwave(self.disasters, self.weather, self.farms, heat_rng)
         fire_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_wildfire")
         events += tick_wildfire(
             self.disasters, self.terrain, self.weather, self.clock.season, self.settlement.temperament,
-            self.settlement, "week_end" in calendar_events, fire_rng,
+            self.settlements, "week_end" in calendar_events, fire_rng,
             heatwave_active=self.disasters.heatwave_active, farms=self.farms,
         )
         storm_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_storm")
-        events += tick_storm(self.weather, self.settlement, storm_rng)
+        events += tick_storm(self.weather, self.settlements, storm_rng)
         frost_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_frost")
         events += tick_frost(self.disasters, self.weather, self.farms, frost_rng)
         if "month_end" in calendar_events and self.lakes:
@@ -261,14 +285,14 @@ class World:
         if "week_end" in calendar_events:
             reclaim_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "terrain_reclaim")
             events += maybe_reclaim(
-                self.terrain, self.terrain_activity, self.settlement, self.farms, occupied_tiles, reclaim_rng,
+                self.terrain, self.terrain_activity, self.settlements, self.farms, occupied_tiles, reclaim_rng,
             )
 
         if "month_end" in calendar_events:
             climate_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "climate_drift")
             tick_climate(self.climate, climate_rng)
             events += apply_climate_drift(
-                self.terrain, self.climate, self.settlement, self.farms, occupied_tiles, climate_rng,
+                self.terrain, self.climate, self.settlements, self.farms, occupied_tiles, climate_rng,
             )
 
         return events
@@ -320,6 +344,17 @@ class World:
             "population": self.population.summary(),
             "resources": self.resources.summary(),
             "settlement": self.settlement.summary(),
+            "settlements": [
+                {
+                    "id": stl.id,
+                    "name": stl.name,
+                    "center": stl.center(),
+                    "members": stl.living_member_count(self.population.agents),
+                    "standing": sum(1 for b in stl.buildings if b.stage is BuildingStage.STANDING),
+                    "era": stl.era,
+                }
+                for stl in self.settlements
+            ],
             "farms": self.farms.summary(),
             "wildlife": self.wildlife.summary(),
             "roads": self.roads.summary(self.weather),
@@ -357,7 +392,7 @@ class World:
             "weather": self.weather.to_dict(),
             "population": self.population.to_dict(),
             "resources": self.resources.to_dict(),
-            "settlement": self.settlement.to_dict(),
+            "settlements": [stl.to_dict() for stl in self.settlements],
             "farms": self.farms.to_dict(),
             "wildlife": self.wildlife.to_dict(),
             "roads": self.roads.to_dict(),
@@ -435,10 +470,15 @@ class World:
             resources = ResourceGrid.generate(seed=config.seed, terrain=terrain)
             migrated_subsystems.append("resources")
 
-        if "settlement" in data:
-            settlement = Settlement.from_dict(data["settlement"])
+        if "settlements" in data:
+            settlements = [Settlement.from_dict(entry) for entry in data["settlements"]]
+        elif "settlement" in data:
+            # Pre-multi-settlement snapshot: the one settlement becomes
+            # the founding entry (id 0 is Settlement.from_dict's default
+            # for data without an "id" key).
+            settlements = [Settlement.from_dict(data["settlement"])]
         else:
-            settlement = Settlement()  # no retroactive guessing at pre-existing structures
+            settlements = [Settlement()]  # no retroactive guessing at pre-existing structures
             migrated_subsystems.append("settlement")
 
         if "farms" in data:
@@ -481,7 +521,7 @@ class World:
 
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
-            population=population, resources=resources, settlement=settlement, farms=farms,
+            population=population, resources=resources, settlements=settlements, farms=farms,
             wildlife=wildlife, roads=roads, climate=climate, lakes=lakes, disasters=disasters,
             terrain_activity=terrain_activity,
             llm_calls_total=data.get("llm_calls_total", 0),

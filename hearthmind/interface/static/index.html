@@ -81,7 +81,15 @@
           Read-only look back at a saved snapshot — doesn't rewind or change the live world.
         </div>
         <input type="range" id="timeline-slider" min="0" max="0" value="0" step="1" />
-        <div id="timeline-label" class="muted" style="font-size:11px; margin:4px 0;">no snapshots yet</div>
+        <div style="display:flex; align-items:center; gap:6px; margin:4px 0;">
+          <button id="timeline-play" class="dev-toggle" title="Play the saved snapshots in order — the map replays the world's real past">▶ replay</button>
+          <select id="timeline-speed" title="Replay speed (snapshots per second)">
+            <option value="1">1 fps</option>
+            <option value="2" selected>2 fps</option>
+            <option value="4">4 fps</option>
+          </select>
+          <div id="timeline-label" class="muted" style="font-size:11px;">no snapshots yet</div>
+        </div>
         <ul id="timeline-summary" class="muted"><li>select a point on the slider</li></ul>
       </div>
 
@@ -103,6 +111,8 @@
           <div class="sparkline-row"><span class="sparkline-label">hunger</span><canvas class="sparkline" id="spark-hunger" width="180" height="28"></canvas><span class="sparkline-value" id="spark-hunger-value"></span></div>
           <div class="sparkline-row"><span class="sparkline-label">granary food</span><canvas class="sparkline" id="spark-granary" width="180" height="28"></canvas><span class="sparkline-value" id="spark-granary-value"></span></div>
         </div>
+
+        <div id="settlement-chips" class="hidden"></div>
 
         <div class="stat-grid" id="stat-grid"></div>
 

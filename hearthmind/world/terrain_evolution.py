@@ -100,13 +100,15 @@ def tick_climate(climate: ClimateState, rng: random.Random) -> None:
     )))
 
 
-def _is_developed(x: int, y: int, settlement, farms, excluded: set[tuple[int, int]]) -> bool:
+def _is_developed(x: int, y: int, settlements, farms, excluded: set[tuple[int, int]]) -> bool:
     """A tile agents live/work on, or are standing on right now, doesn't
-    spontaneously change biome underfoot."""
+    spontaneously change biome underfoot. Checks every settlement's
+    structures — multi-settlement pass, v0.65.0."""
     if (x, y) in excluded:
         return True
-    if settlement.at(x, y) is not None or settlement.vehicle_at(x, y) is not None:
-        return True
+    for settlement in settlements:
+        if settlement.at(x, y) is not None or settlement.vehicle_at(x, y) is not None:
+            return True
     if farms.get(x, y) is not None:
         return True
     return False
@@ -157,7 +159,7 @@ def apply_local_activity(
 
 def maybe_reclaim(
     terrain: list[list[Tile]], heat: dict[tuple[int, int], float],
-    settlement, farms, excluded: set[tuple[int, int]], rng: random.Random,
+    settlements, farms, excluded: set[tuple[int, int]], rng: random.Random,
 ) -> list[tuple[str, str]]:
     """Called once per week. An abandoned grassland tile bordered by
     enough forest can revert to forest — nature reclaiming unused land,
@@ -170,7 +172,7 @@ def maybe_reclaim(
             tile = terrain[y][x]
             if tile.biome is not Biome.GRASSLAND:
                 continue
-            if (x, y) in heat or _is_developed(x, y, settlement, farms, excluded):
+            if (x, y) in heat or _is_developed(x, y, settlements, farms, excluded):
                 continue
             forest_neighbors = 0
             for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
@@ -191,7 +193,7 @@ def maybe_reclaim(
 
 def apply_climate_drift(
     terrain: list[list[Tile]], climate: ClimateState,
-    settlement, farms, excluded: set[tuple[int, int]], rng: random.Random,
+    settlements, farms, excluded: set[tuple[int, int]], rng: random.Random,
 ) -> list[tuple[str, str]]:
     """Called once per month. Re-evaluates a small random sample of tiles
     against the current climate bias and nudges each one biome-step
@@ -206,7 +208,7 @@ def apply_climate_drift(
     changed = 0
     for _ in range(sample_size):
         x, y = rng.randrange(width), rng.randrange(height)
-        if _is_developed(x, y, settlement, farms, excluded):
+        if _is_developed(x, y, settlements, farms, excluded):
             continue
         tile = terrain[y][x]
         if _skip_climate_drift(tile):

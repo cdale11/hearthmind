@@ -1206,8 +1206,23 @@ class Settlement:
         institutions: list[Institution] | None = None, next_institution_id: int = 0,
         caravans_visited: int = 0, market_prices: dict | None = None,
         memorials: list[dict] | None = None, place_names: dict | None = None,
-        records: list[dict] | None = None,
+        records: list[dict] | None = None, id: int = 0,
+        center_x: int = -1, center_y: int = -1,
     ):
+        self.id = id
+        """Stable settlement identity (multi-settlement pass, v0.65.0):
+        0 is always the founding settlement; daughters take the next
+        free id at fission. Agents point home via Agent.settlement_id;
+        engine job closures re-resolve targets by this id so a result
+        arriving ticks later can't apply to the wrong settlement."""
+        self.center_x = center_x
+        self.center_y = center_y
+        """Nominal heart of the settlement — set at fission for a
+        daughter (its chosen founding site); -1/-1 for the founding
+        settlement until `center()` lazily backfills it from the
+        centroid of its own buildings. Used for fission-site distance,
+        migrant assignment, and the map's name labels — nothing
+        mechanical pins buildings to it."""
         # Legacy flat-kwarg constructor, kept so from_dict/tests/callers
         # predating the split keep working unchanged.
         self.infrastructure = SettlementInfrastructure(
@@ -1571,6 +1586,24 @@ class Settlement:
     def priority_history(self, value: list[dict]) -> None:
         self.disposition.priority_history = value
 
+    def center(self) -> tuple[int, int] | None:
+        """See `center_x`'s docstring. None only while a settlement has
+        neither an assigned center nor any buildings to infer one from
+        (a brand-new world before its first construction)."""
+        if self.center_x >= 0 and self.center_y >= 0:
+            return (self.center_x, self.center_y)
+        if not self.buildings:
+            return None
+        self.center_x = round(sum(b.x for b in self.buildings) / len(self.buildings))
+        self.center_y = round(sum(b.y for b in self.buildings) / len(self.buildings))
+        return (self.center_x, self.center_y)
+
+    def living_member_count(self, agents) -> int:
+        """How many of `agents` call this settlement home — the routine
+        "is this settlement alive / how big is it" query the
+        multi-settlement partition asks everywhere."""
+        return sum(1 for a in agents if a.settlement_id == self.id)
+
     # --- queries -------------------------------------------------------------
 
     def at(self, x: int, y: int) -> Building | None:
@@ -1716,6 +1749,8 @@ class Settlement:
             )
         }
         return {
+            "id": self.id,
+            "center": self.center(),
             "total": len(self.buildings),
             "under_construction": under_construction,
             "standing": len(standing),
@@ -1829,6 +1864,9 @@ class Settlement:
 
     def to_dict(self) -> dict:
         return {
+            "id": self.id,
+            "center_x": self.center_x,
+            "center_y": self.center_y,
             "buildings": [b.to_dict() for b in self.buildings],
             "next_id": self._next_id,
             "materials": round(self.materials, 4),
@@ -1899,4 +1937,6 @@ class Settlement:
             memorials=list(data.get("memorials", [])),
             place_names=dict(data.get("place_names", {})),
             records=list(data.get("records", [])),
+            id=data.get("id", 0),
+            center_x=data.get("center_x", -1), center_y=data.get("center_y", -1),
         )

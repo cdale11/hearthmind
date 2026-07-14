@@ -3,8 +3,11 @@
 This is the long-term plan for Hearthmind, organized into phases rather than
 strict version numbers (see `CHANGELOG.md` for what's actually shipped).
 The v0.63.0 audit's suggested UI/emergence backlogs shipped in full in
-v0.64.0 (see `CHANGELOG.md`); the one deliberate deferral (WebSocket delta
-payloads) is recorded in `CLAUDE.md`, "Full audit (v0.63.0)".
+v0.64.0, and the three long-standing architectural gaps — multiple named
+settlements (fission), fully agent-pathed construction, and true
+frame-by-frame replay — shipped in v0.65.0 (see `CHANGELOG.md`). The one
+deliberate deferral (WebSocket delta payloads) is recorded in
+`CLAUDE.md`, "Full audit (v0.63.0)".
 
 **Emergence is the primary objective.** Every system below exists to produce
 behavior nobody scripted — a famine that reshapes settlement culture, a

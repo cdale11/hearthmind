@@ -42,7 +42,8 @@ from hearthmind.agents.agent import (
 )
 from hearthmind.config import Config
 from hearthmind.llm import (
-    artifacts, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, festival, founding,
+    artifacts,
+    fission, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, festival, founding,
     geography, invention, naming, omens, town_brain,
 )
 from hearthmind.llm.client import OllamaClient
@@ -51,7 +52,14 @@ from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import (
     history_events, load_latest_snapshot, log_event, log_metrics, recent_events, save_snapshot,
 )
-from hearthmind.agents.population import DISPUTE_COOLDOWN_TICKS
+from hearthmind.agents.population import (
+    DISPUTE_COOLDOWN_TICKS,
+    FISSION_MATERIALS_SHARE,
+    FISSION_MIN_DISTANCE,
+    MAX_SETTLEMENTS,
+    Population,
+    _walkable_tiles,
+)
 from hearthmind.settlement.buildings import (
     CULTURE_LIST_MAX_STORED,
     CURRENCY_CAPACITY,
@@ -64,10 +72,13 @@ from hearthmind.settlement.buildings import (
     MARKET_CARAVAN_CHANCE_MULTIPLIER,
     MARKET_CARAVAN_YIELD_MULTIPLIER,
     MATERIALS_CAPACITY,
+    CAMP_TOLERANCE,
+    HUT_CAPACITY,
     SHRINE_OMEN_CHANCE_MULTIPLIER,
     TEMPERAMENT_INVENTION_INFLUENCE,
     BuildingKind,
     BuildingStage,
+    Settlement,
     education_invention_bonus,
     era_for_tech_level,
     tick_market_prices,
@@ -162,12 +173,104 @@ already persisted to the events table regardless (a reconnecting
 client reloads history via GET /events), so trimming the oldest
 buffered entries loses nothing durable."""
 
+MONTHLY_JOB_DAY = {
+    "chronicle": 1, "festival": 4, "caravan": 7, "fission": 8, "town_brain": 10,
+    "beliefs": 13, "personal_belief": 16, "guild_founding": 19,
+    "institution_belief": 22, "geography": 25, "omen": 27,
+}
+"""Day-of-month (0-based; every value <= 27 so it exists even in
+February) on which each monthly LLM job fires — the memory-pressure
+follow-up to the v0.58.0 backpressure gate. That gate stopped the
+month-end job cluster from growing an unbounded queue, but every
+monthly job still *scheduled* on the same `month_end` tick, so twelve
+times a year Ollama was pushed through a back-to-back burst of up to
+~10 calls (v0.64.0 added three more jobs to the same tick) — at
+llm_max_concurrent=2 and ~17-20s per real call, a minute-plus of
+continuous inference with both KV-cache slots hot, which is precisely
+the "sparse but sudden" swap-spike shape live reports kept showing
+after every steady-state leak audit came back clean. Spreading the
+jobs across the month keeps the exact same per-month LLM volume and
+cadence while capping the *coincident* load at one routine job per
+day (plus whatever event-driven work — dialogue, cognition, records —
+happens to overlap). Deterministic month-end ticks (market prices,
+temperament) stay on `month_end`: they cost no LLM call. Seasonal/
+yearly jobs (tradition, invention, documentary) keep their own
+boundaries — at most 3 coincident calls once a year versus the old
+monthly ~10."""
+
 PAUSED_POLL_SECONDS = 0.25
 """How often `run_forever`'s loop wakes up to re-check pause/stop state
 while paused, instead of sleeping for a full (possibly very long, at a
 low speed multiplier) tick interval — see interface/api.py's
 WorldBroadcaster pause/speed fields and `_apply_intervention`'s note on
 why pause/speed bypass the usual queued-intervention seam."""
+
+def _proc_status_mb(pid: str) -> dict | None:
+    """VmRSS/VmSwap (MB) for one pid from /proc/<pid>/status, or None if
+    unreadable (process exited, permission, non-Linux)."""
+    try:
+        fields = {}
+        with open(f"/proc/{pid}/status") as handle:
+            for line in handle:
+                if line.startswith(("VmRSS:", "VmSwap:")):
+                    key, value = line.split(":", 1)
+                    fields[key] = round(int(value.split()[0]) / 1024, 1)  # kB -> MB
+        return {"rss_mb": fields.get("VmRSS", 0.0), "swap_mb": fields.get("VmSwap", 0.0)}
+    except OSError:
+        return None
+
+
+def system_memory_report() -> dict | None:
+    """Best-effort Linux memory attribution for `/diagnostics` — the
+    instrument every swap-pressure investigation so far has had to
+    reconstruct by hand from the user's `ps`/`free` output. Reports this
+    process's current RSS+swap, the same for every process whose comm
+    contains "ollama" (server and per-model runner both), and the
+    system-wide MemAvailable/swap picture from /proc/meminfo — so one
+    pasted report answers "who owns the memory right now" instead of
+    only this process's peak RSS (which has repeatedly probed clean
+    while Ollama held the real weight; see CLAUDE.md's diagnostic
+    history). A stat+read per process on demand only (never per-tick);
+    returns None off Linux."""
+    if not os.path.isdir("/proc"):
+        return None
+    report: dict = {"self": _proc_status_mb("self"), "ollama_processes": []}
+    try:
+        for pid in os.listdir("/proc"):
+            if not pid.isdigit():
+                continue
+            try:
+                with open(f"/proc/{pid}/comm") as handle:
+                    comm = handle.read().strip()
+            except OSError:
+                continue
+            if "ollama" not in comm.lower():
+                continue
+            status = _proc_status_mb(pid)
+            if status is not None:
+                report["ollama_processes"].append({"pid": int(pid), "comm": comm, **status})
+    except OSError:
+        pass
+    try:
+        meminfo = {}
+        with open("/proc/meminfo") as handle:
+            for line in handle:
+                key, value = line.split(":", 1)
+                if key in ("MemTotal", "MemAvailable", "SwapTotal", "SwapFree"):
+                    meminfo[key] = round(int(value.split()[0]) / 1024, 1)
+        report["system"] = {
+            "mem_total_mb": meminfo.get("MemTotal"),
+            "mem_available_mb": meminfo.get("MemAvailable"),
+            "swap_used_mb": (
+                round(meminfo["SwapTotal"] - meminfo["SwapFree"], 1)
+                if "SwapTotal" in meminfo and "SwapFree" in meminfo else None
+            ),
+            "swap_total_mb": meminfo.get("SwapTotal"),
+        }
+    except OSError:
+        report["system"] = None
+    return report
+
 
 _MIGRATIONS = {
     # subsystem name -> (description template, count-of-what-was-backfilled).
@@ -269,15 +372,16 @@ class SimulationEngine:
         per job is kept (bounded, not a growing history) — see
         `_record_llm_debug`. See docs/DECISIONS.md, "map/UI/ecology
         follow-up.\""""
-        self._naming_scheduled = False
-        """Guards `_maybe_schedule_naming` from firing more than once —
-        naming is a one-time-per-world event, and the deterministic
-        placeholder name (set inside World.tick the instant a building
-        first stands) already satisfies every other system's
-        `if not settlement.name: return` gate, so there's no retry
-        logic here — either the LLM job runs once and (maybe) renames
-        the settlement, or it doesn't and the placeholder stands
-        forever, same as any other LLM-fallback outcome."""
+        self._naming_scheduled_ids: set[int] = set()
+        """Settlement ids whose one-time background naming job has been
+        scheduled (multi-settlement pass: was a single bool). The
+        deterministic placeholder name (set inside World.tick the
+        instant a settlement's first building stands) already satisfies
+        every other system's `if not settlement.name: return` gate, so
+        there's no retry logic here — either the LLM job runs once and
+        (maybe) renames that settlement, or it doesn't and the
+        placeholder stands forever, same as any other LLM-fallback
+        outcome."""
 
         if self._broadcaster is not None:
             # Terrain never changes after creation — set once, not part
@@ -365,6 +469,37 @@ class SimulationEngine:
             return True
         return False
 
+    def _monthly_gate(self, events: list[str], job: str) -> bool:
+        """True when `job`'s staggered day-of-month boundary was crossed
+        this tick — see MONTHLY_JOB_DAY. Replaces the shared
+        `"month_end" in events` gate every monthly LLM job used to
+        check, which made them all fire in one burst."""
+        return "day_end" in events and self.world.clock.day_of_month == MONTHLY_JOB_DAY[job]
+
+    def _settlement_by_id(self, settlement_id: int) -> "Settlement":
+        """Resolve a settlement id captured in a job closure back to the
+        live object at apply time — falls back to the founding
+        settlement if the id is unknown (can't happen today; settlements
+        are never removed, but a closure must not crash the task set)."""
+        return next(
+            (s for s in self.world.settlements if s.id == settlement_id), self.world.settlement,
+        )
+
+    def _job_target(self) -> "Settlement":
+        """Which settlement this month's settlement-scoped LLM jobs are
+        about: a month-indexed round-robin over the *named* settlements.
+        Rotation (rather than running every job for every settlement)
+        keeps total monthly LLM volume flat no matter how many
+        settlements exist — the multi-settlement pass must not multiply
+        the call load on the 8GB target hardware. With one settlement
+        this is exactly the old behavior."""
+        named = [s for s in self.world.settlements if s.name]
+        if not named:
+            return self.world.settlement
+        clock = self.world.clock
+        month_ordinal = clock.year * len(self.world.config.days_per_month) + clock.month_index
+        return named[month_ordinal % len(named)]
+
     # --- the one scheduling path for settlement-level LLM jobs -----------------
 
     def _schedule_llm_job(self, name: str, prompt: str, system: str, fallback: dict, apply) -> None:
@@ -408,11 +543,8 @@ class SimulationEngine:
         founding scenario and terrain, not a bare random draw — which
         replaces the placeholder when it resolves. See
         docs/DECISIONS.md, "naming mechanism follow-up.\""""
-        if self._naming_scheduled:
+        if not self.world.newly_named_settlement_ids:
             return
-        if not any(cat == "settlement_named" for cat, _ in self.world.last_life_events):
-            return
-        self._naming_scheduled = True
         if not self._cognition_runner.enabled:
             # The deterministic placeholder already *is* the fallback
             # outcome here — unlike other jobs, running a second,
@@ -420,19 +552,25 @@ class SimulationEngine:
             # settlement to another random name for no reason when
             # there's no real LLM contribution happening.
             return
-        settlement = self.world.settlement
-        counts = biome_counts(self.world.terrain)
-        top_biome = max(counts, key=lambda b: counts[b]).replace("_", " ") if counts else ""
-        prompt = naming.build_prompt(settlement.founding_scenario, top_biome, settlement.era)
-        fallback = naming.fallback_name(self.world.config.seed)
+        for settlement_id in self.world.newly_named_settlement_ids:
+            if settlement_id in self._naming_scheduled_ids:
+                continue
+            self._naming_scheduled_ids.add(settlement_id)
+            settlement = self._settlement_by_id(settlement_id)
+            counts = biome_counts(self.world.terrain)
+            top_biome = max(counts, key=lambda b: counts[b]).replace("_", " ") if counts else ""
+            prompt = naming.build_prompt(settlement.founding_scenario, top_biome, settlement.era)
+            fallback = naming.fallback_name(self.world.config.seed + settlement_id)
 
-        def apply(result: dict, used_fallback: bool) -> None:
-            new_name = naming.parse_name(result, fallback)
-            if new_name and new_name != self.world.settlement.name:
-                self.world.settlement.name = new_name
-                self._log("settlement_named", f"The village came to be known as {new_name}.")
+            def apply(result: dict, used_fallback: bool, sid: int = settlement_id, fb: dict = fallback) -> None:
+                target = self._settlement_by_id(sid)
+                new_name = naming.parse_name(result, fb)
+                if new_name and new_name != target.name:
+                    target.name = new_name
+                    noun = "The village" if sid == 0 else "The settlement"
+                    self._log("settlement_named", f"{noun} came to be known as {new_name}.")
 
-        self._schedule_llm_job("naming", prompt, naming.SYSTEM_PROMPT, fallback, apply)
+            self._schedule_llm_job("naming", prompt, naming.SYSTEM_PROMPT, fallback, apply)
 
     async def run_forever(self) -> None:
         logger.info(
@@ -513,6 +651,7 @@ class SimulationEngine:
         self._maybe_schedule_guild_founding(events)
         self._maybe_schedule_institution_belief(events)
         self._maybe_schedule_geography(events)
+        self._maybe_schedule_fission(events)
         self._schedule_due_cognition()
         self._schedule_due_dialogue()
         self.conn.commit()  # one commit for everything this tick logged (see log_event's commit param)
@@ -578,19 +717,20 @@ class SimulationEngine:
                 continue
             backlog += 1  # count this tick's own scheduling against the gate
             self._inflight_cognition_agent_ids.add(agent.id)
-            latest_tradition = self.world.settlement.traditions[-1] if self.world.settlement.traditions else ""
+            home = self._settlement_by_id(agent.settlement_id)
+            latest_tradition = home.traditions[-1] if home.traditions else ""
             colocated_names = [
                 other.name for other in population.agents
                 if other.id != agent.id and (other.x, other.y) == (agent.x, agent.y)
             ][:4]
             food_steps = population.nearest_food_steps(
-                agent, self.world.farms, self.world.settlement, self.world.resources, self.world.wildlife,
+                agent, self.world.farms, home, self.world.resources, self.world.wildlife,
             )
-            beliefs_about = beliefs.beliefs_about_agent(agent.id, self.world.settlement.beliefs)
+            beliefs_about = beliefs.beliefs_about_agent(agent.id, home.beliefs)
             own_belief = max(agent.beliefs, key=lambda b: b["confidence"])["belief"] if agent.beliefs else ""
             prompt = build_prompt(
                 agent, self.world.clock.season, self.world.weather.describe(),
-                settlement_name=self.world.settlement.name, latest_tradition=latest_tradition,
+                settlement_name=home.name, latest_tradition=latest_tradition,
                 colocated_names=colocated_names, nearest_food_steps=food_steps,
                 beliefs_about=beliefs_about, own_belief=own_belief,
             )
@@ -756,23 +896,24 @@ class SimulationEngine:
         # the same reason: a real season is too long a wait in
         # wall-clock terms for a narrative cadence meant to feel alive.
         # See docs/DECISIONS.md, "cadence decoupling" pass.
-        if "month_end" not in events:
+        if not self._monthly_gate(events, "chronicle"):
             return
         if self._settlement_job_backpressured():
             return
+        settlement = self._job_target()
         recent = recent_events(self.conn, limit=50)
         population_summary = self.world.population.summary()
         year = self.world.clock.year
         prompt = chronicle.build_prompt(
             recent, population_summary, previous_season, year,
-            settlement_name=self.world.settlement.name,
+            settlement_name=settlement.name,
             # Only the newest few traditions reach the prompt — the full
             # list grows unbounded over a multi-year world, and feeding
             # it whole would swell every monthly call's tokens forever
             # (July 2026 review, §3.7). The list itself still persists.
-            traditions=self.world.settlement.traditions[-PROMPT_CULTURE_LIST_MAX:],
-            beliefs=list(self.world.settlement.beliefs),
-            place_names=dict(self.world.settlement.place_names),
+            traditions=settlement.traditions[-PROMPT_CULTURE_LIST_MAX:],
+            beliefs=list(settlement.beliefs),
+            place_names=dict(settlement.place_names),
         )
         fallback = chronicle.fallback_summary(
             recent, population_summary, previous_season, year,
@@ -828,27 +969,29 @@ class SimulationEngine:
         while staying rarer/more deliberate than their monthly cadence.
         Unnamed settlements (no standing building yet) have no culture
         to speak of, so nothing is scheduled. See docs/DECISIONS.md, E1."""
-        if "season_end" not in events or not self.world.settlement.name:
+        target = self._job_target()
+        if "season_end" not in events or not target.name:
             return
         if self._settlement_job_backpressured():
             return
         recent = recent_events(self.conn, limit=50)
-        traditions = self.world.settlement.traditions
+        traditions = target.traditions
         prompt = culture.build_prompt(
-            self.world.settlement.name, recent, traditions[-PROMPT_CULTURE_LIST_MAX:], self.world.clock.year,
+            target.name, recent, traditions[-PROMPT_CULTURE_LIST_MAX:], self.world.clock.year,
         )
         # `traditions_established` (a persistent, never-decremented
         # counter) rather than len(traditions) — the stored list is
         # capped at CULTURE_LIST_MAX_STORED, so list length alone would
         # eventually corrupt "Tradition the Nth"-style fallback naming.
         fallback = culture.fallback_tradition(
-            self.world.settlement.name, self.world.clock.year, self.world.settlement.traditions_established,
+            target.name, self.world.clock.year, target.traditions_established,
         )
+        target_id = target.id
 
         def apply(result: dict, used_fallback: bool) -> None:
             name, description, influence = culture.parse_tradition(result, fallback)
             entry = f"{name}: {description}"
-            settlement = self.world.settlement
+            settlement = self._settlement_by_id(target_id)
             settlement.traditions.append(entry)
             settlement.traditions_established += 1
             if len(settlement.traditions) > CULTURE_LIST_MAX_STORED:
@@ -859,7 +1002,7 @@ class SimulationEngine:
                 # buildings.culture_effect_multiplier and its consumers
                 # (festival bonds, harvest relief, grief cost).
                 settlement.culture_effects[influence] = settlement.culture_effects.get(influence, 0) + 1
-            self._log("tradition", f"The village established a new tradition — {entry}")
+            self._log("tradition", f"{settlement.name or 'The village'} established a new tradition — {entry}")
 
         self._schedule_llm_job("tradition", prompt, culture.SYSTEM_PROMPT, fallback, apply)
 
@@ -874,9 +1017,9 @@ class SimulationEngine:
         reproduce roughly the original yearly rate), so it stays a
         notable event rather than a formality. See docs/DECISIONS.md,
         E3."""
-        if "season_end" not in events or not self.world.settlement.name:
+        settlement = self._job_target()
+        if "season_end" not in events or not settlement.name:
             return
-        settlement = self.world.settlement
         prosperous = (
             settlement.currency >= INVENTION_CURRENCY_THRESHOLD
             or settlement.materials >= MATERIALS_CAPACITY * INVENTION_MATERIALS_FRACTION
@@ -915,34 +1058,36 @@ class SimulationEngine:
         # since that list is now capped at CULTURE_LIST_MAX_STORED.
         fallback = invention.fallback_invention(settlement.name, settlement.tech_level, settlement.tech_level)
 
+        invention_target_id = settlement.id
+
         def apply(result: dict, used_fallback: bool) -> None:
             name, description = invention.parse_invention(result, fallback)
             entry = f"{name}: {description}"
-            settlement = self.world.settlement
+            settlement = self._settlement_by_id(invention_target_id)
             settlement.inventions.append(entry)
             if len(settlement.inventions) > CULTURE_LIST_MAX_STORED:
                 settlement.inventions = settlement.inventions[-CULTURE_LIST_MAX_STORED:]
             settlement.tech_level += 1
-            self._log("invention", f"The village invented {entry}")
-            self._maybe_advance_era()
+            self._log("invention", f"{settlement.name or 'The village'} invented {entry}")
+            self._maybe_advance_era(settlement)
 
         self._schedule_llm_job("invention", prompt, invention.SYSTEM_PROMPT, fallback, apply)
 
-    def _maybe_advance_era(self) -> None:
+    def _maybe_advance_era(self, settlement=None) -> None:
         """A settlement starts in the industrial era (see
         `Settlement.era`) and moves forward as inventions accumulate —
         each new era is a mechanically real unlock (see
         `buildings.era_for_tech_level`, the FACTORY building kind), not
         just a label. See docs/DECISIONS.md, real-calendar/genesis-seed
         follow-up."""
-        settlement = self.world.settlement
+        settlement = settlement if settlement is not None else self.world.settlement
         new_era = era_for_tech_level(settlement.tech_level)
         if new_era == settlement.era:
             return
         settlement.era = new_era
         self._log(
             "era_advance",
-            f"The village has entered the {new_era} era — {ERA_DESCRIPTIONS[new_era]}.",
+            f"{settlement.name or 'The village'} has entered the {new_era} era — {ERA_DESCRIPTIONS[new_era]}.",
         )
 
     # --- collective behaviour: festivals ----------------------------------------
@@ -955,7 +1100,8 @@ class SimulationEngine:
         _maybe_schedule_invention), deliberately distinct from both
         traditions and inventions' now-seasonal cadence. See
         docs/DECISIONS.md, collective-behaviour pass."""
-        if "month_end" not in events or not self.world.settlement.name:
+        festival_target = self._job_target()
+        if not self._monthly_gate(events, "festival") or not festival_target.name:
             return
         if self.world.population.avg_hunger() > FESTIVAL_HUNGER_GATE:
             return
@@ -964,26 +1110,27 @@ class SimulationEngine:
         if self._settlement_job_backpressured():
             return
         recent = recent_events(self.conn, limit=50)
-        festivals = self.world.settlement.festivals
+        festivals = festival_target.festivals
         prompt = festival.build_prompt(
-            self.world.settlement.name, recent, self.world.clock.season,
-            beliefs=list(self.world.settlement.beliefs),
+            festival_target.name, recent, self.world.clock.season,
+            beliefs=list(festival_target.beliefs),
         )
         # festivals_held (persistent, never-decremented) rather than
         # len(festivals) — same CULTURE_LIST_MAX_STORED-cap rationale as
         # tradition/invention naming above.
-        fallback = festival.fallback_festival(self.world.settlement.name, self.world.settlement.festivals_held)
+        fallback = festival.fallback_festival(festival_target.name, festival_target.festivals_held)
+        festival_target_id = festival_target.id
 
         def apply(result: dict, used_fallback: bool) -> None:
             name, description = festival.parse_festival(result, fallback)
             entry = f"{name}: {description}"
-            settlement = self.world.settlement
+            settlement = self._settlement_by_id(festival_target_id)
             settlement.festivals.append(entry)
             settlement.festivals_held += 1
             if len(settlement.festivals) > CULTURE_LIST_MAX_STORED:
                 settlement.festivals = settlement.festivals[-CULTURE_LIST_MAX_STORED:]
             affected = self.world.population.hold_festival(settlement)
-            self._log("festival", f"The village held {entry} ({affected} bonds strengthened)")
+            self._log("festival", f"{settlement.name or 'The village'} held {entry} ({affected} bonds strengthened)")
 
         self._schedule_llm_job("festival", prompt, festival.SYSTEM_PROMPT, fallback, apply)
 
@@ -1000,9 +1147,9 @@ class SimulationEngine:
         deterministic engine's domain), same as a disaster's material
         cost; only *how it's described*, and whether it happens to
         carry a rumor, goes through the LLM-or-fallback path."""
-        if "month_end" not in events or not self.world.settlement.name:
+        settlement = self._job_target()
+        if not self._monthly_gate(events, "caravan") or not settlement.name:
             return
-        settlement = self.world.settlement
         # MARKET (content-variety/roadmap pass): a standing market draws
         # traders more often, closing the loop the other direction from
         # its own MARKET_CARAVAN_VISIT_REQUIREMENT foundability gate.
@@ -1071,11 +1218,11 @@ class SimulationEngine:
         POST /intervene/town-brain) are folded in as one input among
         the real stats, then consumed. See docs/DECISIONS.md,
         "LLM-as-brain batch.\""""
-        if "month_end" not in events or not self.world.settlement.name:
+        settlement = self._job_target()
+        if not self._monthly_gate(events, "town_brain") or not settlement.name:
             return
         if self._settlement_job_backpressured():
             return
-        settlement = self.world.settlement
         recent = recent_events(self.conn, limit=50)
         population_summary = self.world.population.summary()
         settlement_summary = settlement.summary()
@@ -1088,8 +1235,10 @@ class SimulationEngine:
             council_beliefs=list(council.beliefs) if council else None,
         )
         fallback = town_brain.fallback_priority(population_summary, settlement_summary, council_disposition)
+        brain_target_id = settlement.id
 
         def apply(result: dict, used_fallback: bool) -> None:
+            target = self._settlement_by_id(brain_target_id)
             if whispers_sent and not used_fallback:
                 # A whisper only counts as heard when the LLM actually
                 # read the prompt containing it. On timeout/fallback it
@@ -1098,13 +1247,13 @@ class SimulationEngine:
                 # at schedule time, so a whisper submitted during a
                 # flaky LLM stretch was consumed by nobody (July 2026
                 # architecture review, §0.2).
-                remaining = [w for w in self.world.settlement.player_influence if w not in whispers_sent]
-                self.world.settlement.player_influence = remaining[-3:]
+                remaining = [w for w in target.player_influence if w not in whispers_sent]
+                target.player_influence = remaining[-3:]
             priority, rationale = town_brain.parse_priority(result, fallback)
-            self.world.settlement.current_priority = priority
-            self.world.settlement.priority_rationale = rationale
-            self.world.settlement.record_priority(self.world.clock.tick_count, priority, rationale)
-            self._log("town_brain", f"The village's priority is now {priority} — {rationale}")
+            target.current_priority = priority
+            target.priority_rationale = rationale
+            target.record_priority(self.world.clock.tick_count, priority, rationale)
+            self._log("town_brain", f"{target.name or 'The village'}'s priority is now {priority} — {rationale}")
 
         self._schedule_llm_job("town_brain", prompt, town_brain.SYSTEM_PROMPT, fallback, apply)
 
@@ -1122,11 +1271,11 @@ class SimulationEngine:
         (not seasonal, like town_brain) since this is meant to
         accumulate faster and more granularly — a running theory, not a
         rare civic decision."""
-        if "month_end" not in events or not self.world.settlement.name:
+        settlement = self._job_target()
+        if not self._monthly_gate(events, "beliefs") or not settlement.name:
             return
         if self._settlement_job_backpressured():
             return
-        settlement = self.world.settlement
         recent = recent_events(self.conn, limit=30)
         population_summary = self.world.population.summary()
         settlement_summary = settlement.summary()
@@ -1135,10 +1284,11 @@ class SimulationEngine:
         )
         fallback = beliefs.fallback_belief(recent, list(settlement.beliefs), settlement_summary)
         existing_count = len(settlement.beliefs)
+        beliefs_target_id = settlement.id
 
         def apply(result: dict, used_fallback: bool) -> None:
             parsed = beliefs.parse_belief(result, fallback, existing_count)
-            settlement = self.world.settlement
+            settlement = self._settlement_by_id(beliefs_target_id)
             tick = self.world.clock.tick_count
             # H8: the village's own current mood colors how starkly it
             # holds this theory — see temperament_confidence_bias.
@@ -1198,7 +1348,7 @@ class SimulationEngine:
         scheduling load for a reflective mechanic that's meant to
         surface occasional, notable personal theories, not a monthly
         diary entry for everyone."""
-        if "month_end" not in events:
+        if not self._monthly_gate(events, "personal_belief"):
             return
         candidates = [a for a in self.world.population.agents if a.memories]
         if not candidates:
@@ -1258,10 +1408,16 @@ class SimulationEngine:
         if "month_end" not in events:
             return
         recent = recent_events(self.conn, limit=50)
-        rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "temperament")
-        self.world.settlement.temperament = tick_temperament(
-            self.world.settlement.temperament, recent, rng, intensity=self.world.config.phase_g_intensity,
-        )
+        for stl in self.world.settlements:
+            rng = _namespaced_rng(
+                self.world.config.seed, self.world.clock.tick_count, f"temperament_{stl.id}",
+            )
+            stl.temperament = tick_temperament(
+                stl.temperament, recent, rng, intensity=self.world.config.phase_g_intensity,
+            )
+        # Player standing stays a founding-settlement (world-primary)
+        # number: whispers land there and the intervention volume it
+        # tracks is world-scoped, not per-community.
         standing_rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "player_standing")
         self.world.settlement.player_standing = tick_player_standing(
             self.world.settlement.player_standing, recent, standing_rng,
@@ -1275,16 +1431,17 @@ class SimulationEngine:
         to produce one, without it ever becoming frequent. Also scales
         with Config.phase_g_intensity (0.0 disables omens outright,
         matching tick_temperament's own intensity=0.0 behavior)."""
-        if "month_end" not in events or not self.world.settlement.name:
+        omen_target = self._job_target()
+        if not self._monthly_gate(events, "omen") or not omen_target.name:
             return
         intensity = self.world.config.phase_g_intensity
         if intensity <= 0.0:
             return
-        temperament = self.world.settlement.temperament
+        temperament = omen_target.temperament
         chance = (omens.OMEN_CHANCE_BASE + abs(temperament) * omens.OMEN_CHANCE_TEMPERAMENT_SCALE) * intensity
         has_shrine = any(
             b.kind is BuildingKind.SHRINE and b.stage is BuildingStage.STANDING
-            for b in self.world.settlement.buildings
+            for b in omen_target.buildings
         )
         if has_shrine:
             chance *= SHRINE_OMEN_CHANCE_MULTIPLIER
@@ -1303,7 +1460,7 @@ class SimulationEngine:
         subject_name = ""
         subject_candidates: list[str] = [
             self.world.population.get(b["subject_agent_id"]).name
-            for b in self.world.settlement.beliefs
+            for b in omen_target.beliefs
             if b.get("subject_agent_id") is not None
             and self.world.population.get(b["subject_agent_id"]) is not None
         ]
@@ -1313,7 +1470,7 @@ class SimulationEngine:
         # noticed about "the council of elders" rather than a settlement
         # in the abstract, same permanent ambiguity rule, just extended
         # from person-depth to institution-depth.
-        council = self.world.settlement.council()
+        council = omen_target.council()
         if council is not None and council.beliefs:
             subject_candidates.append("the council of elders")
         if subject_candidates and _namespaced_roll(
@@ -1321,16 +1478,17 @@ class SimulationEngine:
         ) < 0.5:
             pick_roll = _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "omen_subject_pick")
             subject_name = subject_candidates[min(len(subject_candidates) - 1, int(pick_roll * len(subject_candidates)))]
-        past_omens = [entry["omen"] for entry in self.world.settlement.omen_history]
+        past_omens = [entry["omen"] for entry in omen_target.omen_history]
         prompt = omens.build_prompt(
-            self.world.settlement.name, temperament, recent, subject_name=subject_name, past_omens=past_omens,
+            omen_target.name, temperament, recent, subject_name=subject_name, past_omens=past_omens,
         )
         fallback = omens.fallback_omen(temperament, self.world.clock.tick_count, subject_name=subject_name)
+        omen_target_id = omen_target.id
 
         def apply(result: dict, used_fallback: bool) -> None:
             omen = omens.parse_omen(result, fallback)
             self._log("omen", omen)
-            self.world.settlement.record_omen(self.world.clock.tick_count, omen, subject_name)
+            self._settlement_by_id(omen_target_id).record_omen(self.world.clock.tick_count, omen, subject_name)
 
         self._schedule_llm_job("omen", prompt, omens.SYSTEM_PROMPT, fallback, apply)
 
@@ -1342,7 +1500,8 @@ class SimulationEngine:
         scarcity. See buildings.tick_market_prices."""
         if "month_end" not in events:
             return
-        tick_market_prices(self.world.settlement)
+        for stl in self.world.settlements:
+            tick_market_prices(stl)
 
     def _maybe_schedule_record(self) -> None:
         """Written artifacts: `Population._apply_deaths` decided this
@@ -1358,21 +1517,25 @@ class SimulationEngine:
                 result = artifacts.fallback_record(
                     candidate["author"], candidate["memories"], self.world.clock.tick_count,
                 )
-                self._apply_record(candidate["author"], result["text"])
+                self._apply_record(candidate["author"], result["text"], candidate.get("settlement_id", 0))
                 continue
             prompt = artifacts.build_prompt(candidate["author"], candidate["memories"], candidate["belief"])
             fallback = artifacts.fallback_record(
                 candidate["author"], candidate["memories"], self.world.clock.tick_count,
             )
             author = candidate["author"]
+            author_settlement_id = candidate.get("settlement_id", 0)
 
-            def apply(result: dict, used_fallback: bool, author: str = author, fallback: dict = fallback) -> None:
-                self._apply_record(author, artifacts.parse_record(result, fallback))
+            def apply(
+                result: dict, used_fallback: bool, author: str = author,
+                fallback: dict = fallback, sid: int = author_settlement_id,
+            ) -> None:
+                self._apply_record(author, artifacts.parse_record(result, fallback), sid)
 
             self._schedule_llm_job("record", prompt, artifacts.SYSTEM_PROMPT, fallback, apply)
 
-    def _apply_record(self, author: str, text: str) -> None:
-        self.world.settlement.add_record(self.world.clock.tick_count, author, text)
+    def _apply_record(self, author: str, text: str, settlement_id: int = 0) -> None:
+        self._settlement_by_id(settlement_id).add_record(self.world.clock.tick_count, author, text)
         self._log("record_written", f'{author} left a written record behind: "{text}"')
 
     def _maybe_schedule_dispute(self) -> None:
@@ -1387,16 +1550,18 @@ class SimulationEngine:
             return
         agent_a, agent_b = pair
         relationship = agent_a.relationships.get(agent_b.id, 0.0)
-        has_council = self.world.settlement.council() is not None
+        dispute_home = self._settlement_by_id(agent_a.settlement_id)
+        has_council = dispute_home.council() is not None
         prompt = dispute.build_prompt(
-            agent_a, agent_b, relationship, self.world.settlement.name, has_council,
+            agent_a, agent_b, relationship, dispute_home.name, has_council,
         )
         fallback = dispute.fallback_dispute(agent_a, agent_b, has_council)
         a_id, b_id = agent_a.id, agent_b.id
+        dispute_home_id = dispute_home.id
 
         def apply(result: dict, used_fallback: bool) -> None:
             outcome, narration = dispute.parse_dispute(
-                result, fallback, self.world.settlement.council() is not None,
+                result, fallback, self._settlement_by_id(dispute_home_id).council() is not None,
             )
             applied = self.world.population.apply_dispute(a_id, b_id, outcome)
             if applied is None:
@@ -1410,24 +1575,27 @@ class SimulationEngine:
         Population.deliberate_guild_candidate/found_guild. Monthly roll
         cadence: an ambitious master mulling this over is a rare,
         deliberate act, not a per-tick scan."""
-        if "month_end" not in events or not self.world.settlement.name:
+        guild_target = self._job_target()
+        if not self._monthly_gate(events, "guild_founding") or not guild_target.name:
             return
-        candidate = self.world.population.deliberate_guild_candidate(self.world.settlement)
+        members = [a for a in self.world.population.agents if a.settlement_id == guild_target.id]
+        candidate = self.world.population.deliberate_guild_candidate(guild_target, members)
         if candidate is None:
             return
         if self._settlement_job_backpressured():
             return
         founder, skill, masters = candidate
-        prompt = founding.build_prompt(founder, skill, len(masters), self.world.settlement.name)
+        prompt = founding.build_prompt(founder, skill, len(masters), guild_target.name)
         fallback = founding.fallback_founding(founder)
         founder_id = founder.id
+        guild_target_id = guild_target.id
 
         def apply(result: dict, used_fallback: bool) -> None:
             found, reason = founding.parse_founding(result, fallback)
             if not found:
                 return  # they weighed it and held back — a real decision, quietly made
             event = self.world.population.found_guild(
-                self.world.settlement, skill, founder_id, self.world.clock.tick_count,
+                self._settlement_by_id(guild_target_id), skill, founder_id, self.world.clock.tick_count,
             )
             if event is not None:
                 self._log(event[0], f'{event[1]} — "{reason}"')
@@ -1439,11 +1607,14 @@ class SimulationEngine:
         living members forms/revises a theory of its own — no longer
         only mirrored copies of settlement beliefs. See
         beliefs.INSTITUTION_SYSTEM_PROMPT for the design note."""
-        if "month_end" not in events or not self.world.settlement.name:
+        inst_target = self._job_target()
+        if not self._monthly_gate(events, "institution_belief"):
+            return
+        if not inst_target.name:
             return
         living_ids = {a.id for a in self.world.population.agents}
         candidates = [
-            inst for inst in self.world.settlement.institutions
+            inst for inst in inst_target.institutions
             if inst.member_agent_ids & living_ids
         ]
         if not candidates:
@@ -1467,10 +1638,11 @@ class SimulationEngine:
         fallback = beliefs.fallback_institution_belief(label, recent)
         existing_count = len(existing)
         institution_id = institution.id
+        inst_target_id = inst_target.id
 
         def apply(result: dict, used_fallback: bool) -> None:
             target = next(
-                (i for i in self.world.settlement.institutions if i.id == institution_id), None,
+                (i for i in self._settlement_by_id(inst_target_id).institutions if i.id == institution_id), None,
             )
             if target is None:
                 return  # pruned while the job was in flight
@@ -1484,11 +1656,105 @@ class SimulationEngine:
 
         self._schedule_llm_job("institution_belief", prompt, beliefs.INSTITUTION_SYSTEM_PROMPT, fallback, apply)
 
+    def _choose_fission_site(self, origin: tuple[int, int] | None = None) -> tuple[int, int] | None:
+        """The best walkable tile at least FISSION_MIN_DISTANCE from
+        every existing settlement's center, scored by nearby wild-food
+        supply — the same criterion the original founders' spawn used
+        (Population._best_founding_site), because a founding party faces
+        the same first problem: eating before infrastructure exists.
+        None when the map has no qualifying tile (fission then lapses
+        this month)."""
+        centers = [c for c in (s.center() for s in self.world.settlements) if c is not None]
+        spots = [
+            (x, y) for (x, y) in _walkable_tiles(self.world.terrain)
+            if all(max(abs(x - cx), abs(y - cy)) >= FISSION_MIN_DISTANCE for cx, cy in centers)
+        ]
+        if origin is not None and spots:
+            # Never point the party at land it can't walk to — rivers/
+            # lakes genuinely disconnect regions on this generator.
+            reachable = Population._reachable_tiles(self.world.terrain, origin)
+            spots = [pos for pos in spots if pos in reachable]
+        if not spots:
+            return None
+        rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "fission_site")
+        return Population._best_founding_site(spots, self.world.resources, rng)
+
+    def _maybe_schedule_fission(self, events: list[str]) -> None:
+        """Multiple named settlements (v0.65.0): once a month, if a
+        crowded, established settlement has an ambitious would-be
+        leader (Population.fission_candidate), the LLM decides whether
+        they actually lead a founding party out (llm/fission.py). On
+        "yes": a distant site is chosen, a new Settlement is created
+        with a materials grant physically hauled from the mother
+        settlement, and the party walks there (Agent.travel_target) to
+        build from nothing — first hut, placeholder name, background
+        LLM naming, and the monthly job rotation all then happen
+        through the exact machinery the founding settlement already
+        uses. Declining is a real outcome."""
+        if not self._monthly_gate(events, "fission"):
+            return
+        candidate = self.world.population.fission_candidate(
+            self.world.settlements, self.world.clock.tick_count,
+        )
+        if candidate is None:
+            return
+        if self._settlement_job_backpressured():
+            return
+        leader, home = candidate
+        members = home.living_member_count(self.world.population.agents)
+        housing = sum(
+            1 for b in home.buildings
+            if b.kind is BuildingKind.HUT and b.stage is BuildingStage.STANDING
+        ) * HUT_CAPACITY + CAMP_TOLERANCE
+        prompt = fission.build_prompt(leader, home.name, members, housing, self.world.clock.season)
+        fallback = fission.fallback_decision(leader)
+        leader_id, home_id = leader.id, home.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            depart, reason = fission.parse_decision(result, fallback)
+            if not depart:
+                return  # they weighed the leap and stayed — a real decision
+            population = self.world.population
+            leader = population.get(leader_id)
+            home = self._settlement_by_id(home_id)
+            if leader is None or leader.settlement_id != home_id:
+                return  # died or already uprooted while the decision was in flight
+            if len(self.world.settlements) >= MAX_SETTLEMENTS:
+                return
+            party = population.fission_party(leader, home)
+            if party is None:
+                return  # no viable party could be assembled after all
+            site = self._choose_fission_site(origin=(leader.x, leader.y))
+            if site is None:
+                return  # no qualifying land far enough from everyone
+            new_id = max(s.id for s in self.world.settlements) + 1
+            new_settlement = Settlement(
+                id=new_id, center_x=site[0], center_y=site[1],
+                era=home.era, tech_level=home.tech_level,
+                founding_scenario=(
+                    f"Settled by families who left {home.name} seeking room of their own."
+                ),
+            )
+            grant = home.materials * FISSION_MATERIALS_SHARE
+            home.materials -= grant
+            new_settlement.materials = grant
+            self.world.settlements.append(new_settlement)
+            population.depart_for_fission(
+                party, new_settlement, site, self.world.clock.tick_count, home.name,
+            )
+            self._log(
+                "settlement_founded",
+                f"{leader.name} led {len(party)} settlers out of {home.name}"
+                f" toward a new home in the distance — \"{reason}\"",
+            )
+
+        self._schedule_llm_job("fission", prompt, fission.SYSTEM_PROMPT, fallback, apply)
+
     def _maybe_schedule_geography(self, events: list[str]) -> None:
         """Named geography: one unnamed feature (the river first, then
         each lake) earns a permanent name per month once the settlement
         itself is named. See llm/geography.py."""
-        if "month_end" not in events or not self.world.settlement.name:
+        if not self._monthly_gate(events, "geography") or not self.world.settlement.name:
             return
         place_names = self.world.settlement.place_names
         feature_key = feature_kind = None
@@ -1543,6 +1809,7 @@ class SimulationEngine:
         studies all need a fixed-cadence series, not just the narrative
         event log. Committed by _tick_once's end-of-tick commit."""
         population = self.world.population
+        settlements = self.world.settlements
         settlement = self.world.settlement
         pop_summary = population.summary()
         farm_summary = self.world.farms.summary()
@@ -1560,12 +1827,14 @@ class SimulationEngine:
             "farms_total": farm_summary["total"],
             "farms_ready": farm_summary["ready"],
             "granary_food": round(sum(
-                b.stored_food for b in settlement.buildings
+                b.stored_food for s in settlements for b in s.buildings
                 if b.kind is BuildingKind.GRANARY and b.stage is BuildingStage.STANDING
             ), 3),
-            "materials": round(settlement.materials, 3),
-            "currency": round(settlement.currency, 3),
-            "buildings_standing": sum(1 for b in settlement.buildings if b.stage is BuildingStage.STANDING),
+            "materials": round(sum(s.materials for s in settlements), 3),
+            "currency": round(sum(s.currency for s in settlements), 3),
+            "buildings_standing": sum(
+                1 for s in settlements for b in s.buildings if b.stage is BuildingStage.STANDING
+            ),
             "grazers": wildlife_summary.get("grazer_total", 0),
             "predators": wildlife_summary.get("predator_total", 0),
             "tech_level": settlement.tech_level,
@@ -1630,18 +1899,23 @@ class SimulationEngine:
         # first is the order the frontend's prepend loop expects.
         life_events = self._pending_broadcast_events + tick_events
         self._pending_broadcast_events = []
+        settlements = self.world.settlements
         payload = {
             "summary": self.world.summary(),
             "life_events": life_events,
             "agents": [a.to_dict() for a in self.world.population.agents],
-            "buildings": [b.to_dict() for b in self.world.settlement.buildings],
-            "vehicles": [v.to_dict() for v in self.world.settlement.vehicles],
+            # Physical layers merge across every settlement — the map
+            # shows the world, not one community's slice of it.
+            "buildings": [b.to_dict() for s in settlements for b in s.buildings],
+            "vehicles": [v.to_dict() for s in settlements for v in s.vehicles],
             "farms": [p.to_dict() for p in self.world.farms.plots.values()],
             "resources": [n.to_dict() for n in self.world.resources.nodes.values()],
             "wildlife": [h.to_dict() for h in self.world.wildlife.herds.values()],
             "roads": self.world.roads.to_dict()["wear"],
             "diagnostics": self._diagnostics_snapshot(),
-            "infrastructure": self.world.settlement.infrastructure_report(),
+            "infrastructure": [
+                row for s in settlements for row in s.infrastructure_report()
+            ],
             # Full institution membership (not just settlement.summary()'s
             # counts-only view) — added for the relationship graph's
             # family-tree edges and the NPC inspector's institution
@@ -1649,10 +1923,20 @@ class SimulationEngine:
             # A separate top-level key rather than nested in `summary`,
             # matching how buildings/vehicles/farms are already broadcast
             # alongside it rather than folded in.
-            "institutions": [i.to_dict() for i in self.world.settlement.institutions],
+            "institutions": [i.to_dict() for s in settlements for i in s.institutions],
             # Grave marks (v0.64.0): drawn as persistent map memorials —
             # already capped server-side (MEMORIALS_MAX_STORED).
-            "memorials": list(self.world.settlement.memorials),
+            "memorials": [m for s in settlements for m in s.memorials],
+            # One full per-settlement summary each, for the UI's
+            # settlement switcher; summary.settlement stays the founding
+            # settlement for anything predating the switcher.
+            "settlement_summaries": [
+                {
+                    **s.summary(),
+                    "members": s.living_member_count(self.world.population.agents),
+                }
+                for s in settlements
+            ],
         }
         task = asyncio.create_task(self._broadcaster.broadcast(payload))
         self._background_tasks.add(task)
@@ -1705,6 +1989,7 @@ class SimulationEngine:
         return {
             **self._diagnostics_snapshot(),
             "peak_memory_rss_mb": peak_rss_mb,
+            "system_memory": system_memory_report(),
             "db_size_mb": db_size_mb,
             "uptime_ticks": self.world.clock.tick_count,
             "population_total": pop_total,

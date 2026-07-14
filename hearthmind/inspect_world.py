@@ -155,7 +155,8 @@ def main(argv: list[str] | None = None) -> None:
         condition = f", currently {rd['condition']} ({rd['speed_multiplier']}x)" if "condition" in rd else ""
         print(f"Roads:       {rd['established_roads']} established ({rd['worn_tiles']} worn tiles){condition}")
 
-    infra = world.settlement.infrastructure_report()
+    infra = [row for s in world.settlements for row in s.infrastructure_report()]
+    infra.sort(key=lambda r: r["condition"])
     needing_attention = [r for r in infra if r["status"] not in ("excellent", "good")]
     if needing_attention:
         print(f"\nInfrastructure needing attention ({len(needing_attention)} of {len(infra)}):")
