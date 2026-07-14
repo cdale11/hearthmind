@@ -129,6 +129,27 @@ GRAZER_RECOLONIZE_TARGET_HERDS_FRACTION = 0.5
 herd count is below (this fraction of what world-creation density would
 have produced for the map's size) — see `_maybe_recolonize`."""
 
+SEASON_GRAZER_REPRODUCE_MULTIPLIER = {"winter": 0.3, "autumn": 0.7, "spring": 1.3, "summer": 1.0}
+"""Seasonal migration pressure (v0.64.0 audit-backlog item): grazer
+reproduction follows the calendar the way farm growth and resource
+regen already do — lean winters, a spring flush. Objective ecology, so
+deterministic, matching SEASON_GROWTH_MULTIPLIER/SEASON_REGEN_
+MULTIPLIER's shape; absent season names default to 1.0."""
+
+SEASON_MIGRATE_AWAY_CHANCE = {"autumn": 0.0005, "winter": 0.0008}
+"""Per-herd per-tick chance a grazer herd leaves the map entirely
+during the cold half of the year (an event, not a silent vanish) —
+the "pressure" half of seasonal migration: herds genuinely thin out
+over autumn/winter rather than only breeding slower. Balanced by
+SEASON_RECOLONIZE_MULTIPLIER's spring surge below, so the yearly cycle
+reads as departure-and-return, not slow extinction. Seasons absent
+from this table never migrate away."""
+
+SEASON_RECOLONIZE_MULTIPLIER = {"spring": 3.0, "summer": 1.5}
+"""Applied to WILDLIFE_RECOLONIZE_CHECK_CHANCE — the return half of
+the migration cycle: herds that drifted off over winter come back with
+the spring flush. Stacks with the existing warm-temperament nudge."""
+
 
 def _wildlife_init_rng(seed: int) -> random.Random:
     digest = hashlib.sha256(f"{seed}:wildlife_init".encode()).hexdigest()
@@ -238,7 +259,7 @@ class WildlifeGrid:
 
     def tick(
         self, seed: int, tick: int, terrain: list[list[Tile]], resources: ResourceGrid | None = None,
-        temperament: float = 0.0,
+        temperament: float = 0.0, season: str = "summer",
     ) -> list[tuple[str, str]]:
         """Advance every herd/pack by one tick. Returns (category,
         description) events for a successful hunt or a pack/herd going
@@ -280,12 +301,24 @@ class WildlifeGrid:
                     herd.x, herd.y = rng.choice(candidates)
 
             if herd.species is Species.GRAZER:
+                # Seasonal migration pressure: a cold-season herd may
+                # simply leave for beyond the map (see SEASON_MIGRATE_
+                # AWAY_CHANCE) — the spring recolonize surge below is
+                # the return leg of the same cycle.
+                if rng.random() < SEASON_MIGRATE_AWAY_CHANCE.get(season, 0.0):
+                    herd.count = 0
+                    events.append((
+                        "wildlife_migrated",
+                        f"A grazer herd near ({herd.x}, {herd.y}) drifted away with the turning season.",
+                    ))
+                    continue
                 node = resources.get(herd.x, herd.y) if resources is not None else None
                 grazing_food = node is not None and node.kind is ResourceKind.FOOD
                 if grazing_food:
                     node.amount = max(0.0, node.amount - GRAZE_CONSUMPTION_PER_TICK)
                 overgrazed = grazing_food and node.amount < GRAZE_REPRODUCE_MIN_FOOD
-                if herd.count < MAX_HERD_SIZE and not overgrazed and rng.random() < GRAZER_REPRODUCE_CHANCE:
+                reproduce_chance = GRAZER_REPRODUCE_CHANCE * SEASON_GRAZER_REPRODUCE_MULTIPLIER.get(season, 1.0)
+                if herd.count < MAX_HERD_SIZE and not overgrazed and rng.random() < reproduce_chance:
                     herd.count += 1
                 continue
 
@@ -320,7 +353,11 @@ class WildlifeGrid:
 
         self.herds = {herd_id: h for herd_id, h in self.herds.items() if h.count > 0}
 
-        recolonize_chance = WILDLIFE_RECOLONIZE_CHECK_CHANCE * (1.0 + max(0.0, temperament) * WILDLIFE_TEMPERAMENT_INFLUENCE)
+        recolonize_chance = (
+            WILDLIFE_RECOLONIZE_CHECK_CHANCE
+            * (1.0 + max(0.0, temperament) * WILDLIFE_TEMPERAMENT_INFLUENCE)
+            * SEASON_RECOLONIZE_MULTIPLIER.get(season, 1.0)
+        )
         if rng.random() < recolonize_chance:
             events += self._maybe_recolonize(rng, terrain)
 

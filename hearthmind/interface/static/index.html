@@ -30,6 +30,15 @@
       <canvas id="weather-canvas"></canvas>
       <div id="tooltip" class="tooltip hidden"></div>
       <ul id="consequences-strip" class="hidden"></ul>
+      <canvas id="minimap" width="150" height="150" title="Click to jump; scroll the map to zoom, drag to pan"></canvas>
+      <div id="ghost-banner" class="hidden">
+        <span id="ghost-banner-label">viewing the past</span>
+        <button id="ghost-return">return to live</button>
+      </div>
+      <div id="follow-banner" class="hidden">
+        <span id="follow-banner-label"></span>
+        <button id="follow-stop">stop following</button>
+      </div>
     </section>
 
     <aside id="sidebar">
@@ -51,6 +60,13 @@
 
       <div class="panel">
         <h2>Recent events</h2>
+        <div id="event-filter-chips">
+          <button class="event-chip active" data-group="all">all</button>
+          <button class="event-chip" data-group="people">people</button>
+          <button class="event-chip" data-group="town">town</button>
+          <button class="event-chip" data-group="nature">nature</button>
+          <button class="event-chip" data-group="mind">mind</button>
+        </div>
         <ul id="event-log"></ul>
       </div>
 
@@ -115,6 +131,13 @@
           <h2>Festivals</h2>
           <ul id="festivals-list" class="muted">
             <li>none yet</li>
+          </ul>
+        </div>
+
+        <div class="panel">
+          <h2>Written records</h2>
+          <ul id="records-list" class="muted">
+            <li>nothing set down yet — notable villagers leave letters behind</li>
           </ul>
         </div>
 

@@ -123,6 +123,8 @@ HISTORY_CATEGORIES = (
     "omen", "wildlife_recolonized", "wildlife_extinct",
     "disaster_flood", "disaster_wildfire", "disaster_storm", "disaster_heatwave", "disaster_frost",
     "migrant_arrived", "dialogue_surfaced", "documentary",
+    "dispute", "record_written", "place_named", "institution_belief",
+    "family_formed", "council_formed", "guild_formed",
 )
 """The curated, narrative subset of event categories — settlement-level
 history, not per-tick noise (day_end, dialogue, farm_planted, etc.).

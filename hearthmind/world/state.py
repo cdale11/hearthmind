@@ -166,7 +166,7 @@ class World:
         self.farms.tick(season=self.clock.season, terrain=self.terrain)
         wildlife_events = self.wildlife.tick(
             seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain, resources=self.resources,
-            temperament=self.settlement.temperament,
+            temperament=self.settlement.temperament, season=self.clock.season,
         )
         settlement_events = self.settlement.tick(weather=self.weather, season=self.clock.season)
         if not self.settlement.name and any(
@@ -275,9 +275,17 @@ class World:
 
     # --- summary for humans / the future interface ------------------------
 
-    def summary(self) -> dict:
+    def cached_biome_counts(self) -> dict:
+        """Biome tally with the terrain-change-invalidated cache — see
+        `_biome_counts_cache`. Shared by `summary()` and the engine's
+        named-geography job (which needs to know whether a river
+        exists without a full scan)."""
         if self._biome_counts_cache is None:
             self._biome_counts_cache = biome_counts(self.terrain)
+        return self._biome_counts_cache
+
+    def summary(self) -> dict:
+        place_names = self.settlement.place_names
         return {
             "tick": self.clock.tick_count,
             "date": self.clock.date_string(),
@@ -287,12 +295,19 @@ class World:
             "year": self.clock.year,
             "weather": self.weather.describe(),
             "weather_detail": self.weather.to_dict(),
-            "biome_counts": dict(self._biome_counts_cache),
+            "biome_counts": dict(self.cached_biome_counts()),
             "climate": self.climate.to_dict(),
             "night_factor": round(compute_night_factor(
                 hour_of_day=self.clock.minute_of_day / 60.0, month_name=self.clock.month_name,
             ), 3),
-            "lakes": [{"id": lake.id, "tiles": len(lake.tiles), "level": round(lake.level, 3)} for lake in self.lakes],
+            "lakes": [
+                {
+                    "id": lake.id, "tiles": len(lake.tiles), "level": round(lake.level, 3),
+                    "name": place_names.get(f"lake_{lake.id}", ""),
+                }
+                for lake in self.lakes
+            ],
+            "river_name": place_names.get("river", ""),
             "disasters": {
                 "flood_pressure": round(self.disasters.flood_pressure, 3),
                 "active_flood_tiles": len(self.disasters.flooded_tiles),

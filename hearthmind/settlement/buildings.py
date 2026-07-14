@@ -206,6 +206,18 @@ MATURE_WORKER_ONLY = False
 (see agents.agent.MATURITY_TICKS). False: any awake agent present helps —
 only *founding* a new building requires maturity (see C1)."""
 
+MEMORIALS_MAX_STORED = 150
+"""Cap on stored grave marks (`SettlementInfrastructure.memorials`) —
+oldest pruned first: the oldest graves fade from living memory, same
+bounded-memory discipline as every other capped list. Generous enough
+that a normal settlement's whole visible history of loss stays on the
+map for many sim-years."""
+
+RECORDS_MAX_STORED = 40
+"""Cap on stored written artifacts (`SettlementCulture.records`) —
+letters are rare (one per notable death, see RECORD_MIN_MEMORIES), so
+this is a true safety ceiling, not a working limit."""
+
 INSTITUTION_LIST_MAX_STORED = 300
 """Cap on the *stored* count of FAMILY institutions in
 `Settlement.institutions` (v0.54.0) — a 40k-tick live measurement (seed
@@ -519,6 +531,47 @@ a standing MARKET exists (`SimulationEngine._maybe_schedule_caravan`)
 — a town with a real place to trade gets better terms from a visiting
 caravan, the direct payoff for building one. Same order of magnitude
 as POWER_GRID_INDUSTRY_MULTIPLIER (1.3x)."""
+
+MARKET_PRICE_MIN = 0.5
+MARKET_PRICE_MAX = 2.0
+MARKET_PRICE_SMOOTHING = 0.6
+"""Multi-good market pricing (v0.64.0 audit-backlog item): while a
+MARKET stands, the settlement carries a per-good price multiplier
+(`SettlementEconomy.market_prices`, food/materials), re-derived monthly
+from actual scarcity — a good's price drifts toward `2.0 - 1.5 x fill
+ratio` (empty stores -> 2.0x, full stores -> 0.5x), smoothed so one
+lean month doesn't whipsaw the economy. Deterministic (objective
+economics, the engine's domain — same reasoning as the caravan
+exchange itself). Consumed by overflow-selling (scarce goods fetch
+more when sold to the abstract outside economy) and the emergency-
+ration purchase (famine food costs more) — so a MARKET makes the
+settlement's economy *react to its own state* instead of trading at
+flat constants forever. Without a standing market, prices reset to
+1.0: informal barter has no price discovery."""
+
+
+def tick_market_prices(settlement: "Settlement", population_hint: int = 0) -> None:
+    """Called on month boundaries (SimulationEngine). Mutates
+    `settlement.economy.market_prices` in place — see MARKET_PRICE_MIN's
+    docstring for the model."""
+    prices = settlement.economy.market_prices
+    if not settlement.has_market():
+        if prices:
+            prices.clear()
+        return
+    granaries = [
+        b for b in settlement.buildings
+        if b.kind is BuildingKind.GRANARY and b.stage is BuildingStage.STANDING
+    ]
+    granary_capacity = len(granaries) * GRANARY_CAPACITY
+    food_fill = (sum(b.stored_food for b in granaries) / granary_capacity) if granary_capacity else 0.5
+    materials_fill = settlement.materials / MATERIALS_CAPACITY if MATERIALS_CAPACITY else 0.5
+    for good, fill in (("food", food_fill), ("materials", materials_fill)):
+        target = MARKET_PRICE_MAX - (MARKET_PRICE_MAX - MARKET_PRICE_MIN) * min(1.0, max(0.0, fill))
+        current = prices.get(good, 1.0)
+        blended = current * MARKET_PRICE_SMOOTHING + target * (1.0 - MARKET_PRICE_SMOOTHING)
+        prices[good] = round(max(MARKET_PRICE_MIN, min(MARKET_PRICE_MAX, blended)), 3)
+
 
 MARKET_CARAVAN_CHANCE_MULTIPLIER = 1.25
 """Multiplies CARAVAN_CHANCE_PER_MONTH while a standing MARKET exists
@@ -977,6 +1030,13 @@ class SettlementInfrastructure:
     """Carts and mounts — see settlement/vehicles.py. A separate id
     space from `buildings` since they're a distinct kind of asset."""
     next_vehicle_id: int = 0
+    memorials: list[dict] = field(default_factory=list)
+    """Graveyard marks (v0.64.0 audit-backlog item): `{x, y, name,
+    cause, tick}` appended on every death at the place it happened —
+    "history becomes physically visible" applied to people. Rendered
+    as small persistent map marks with hover text; capped at
+    MEMORIALS_MAX_STORED (oldest graves fade from living memory first,
+    the same bounded-memory discipline as every other list here)."""
 
 
 @dataclass
@@ -1004,6 +1064,9 @@ class SettlementEconomy:
     that makes "external settlements and trade" (integration milestone)
     feed back into the building/construction system, not just currency/
     materials and an occasional rumor."""
+    market_prices: dict = field(default_factory=dict)
+    """good name -> price multiplier, empty (all goods read 1.0) unless
+    a MARKET stands — see `tick_market_prices`/MARKET_PRICE_MIN."""
 
 
 @dataclass
@@ -1059,6 +1122,21 @@ class SettlementCulture:
     llm/beliefs.MAX_BELIEFS — the concrete expression of "cognition as
     continuous rather than stateless". Not guaranteed correct, exactly
     like a person's own beliefs about their community."""
+    place_names: dict = field(default_factory=dict)
+    """Named geography (v0.64.0 audit-backlog item): feature key ->
+    LLM-authored (or fallback) name, e.g. `{"river": "The Aldwash",
+    "lake_0": "Stillmere"}`. Named once per feature by a monthly
+    background job once the settlement itself is named; consumed by
+    the chronicle prompt and the UI's geography surfaces. A name, once
+    given, is permanent — places outlive the people who named them."""
+    records: list[dict] = field(default_factory=list)
+    """Written artifacts (v0.64.0 audit-backlog item): `{tick, author,
+    text}` — letters/records a notable villager leaves behind at death,
+    LLM-authored from their own memories/beliefs (fallback assembles
+    from the same). Outlives the author: fed into the yearly
+    documentary prompt and left as a memory with the heir — the memory-
+    beyond-the-8-entry-cap mechanism the roadmap asked for. Capped at
+    RECORDS_MAX_STORED."""
     institutions: list["Institution"] = field(default_factory=list)
     """Persistent entities the population organizes into — v1 only
     forms FAMILY institutions, automatically, on a child's birth (H3,
@@ -1126,7 +1204,9 @@ class Settlement:
         beliefs: list[dict] | None = None, omen_history: list[dict] | None = None,
         player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
         institutions: list[Institution] | None = None, next_institution_id: int = 0,
-        caravans_visited: int = 0,
+        caravans_visited: int = 0, market_prices: dict | None = None,
+        memorials: list[dict] | None = None, place_names: dict | None = None,
+        records: list[dict] | None = None,
     ):
         # Legacy flat-kwarg constructor, kept so from_dict/tests/callers
         # predating the split keep working unchanged.
@@ -1135,10 +1215,12 @@ class Settlement:
             next_id=_next_id,
             vehicles=vehicles if vehicles is not None else [],
             next_vehicle_id=_next_vehicle_id,
+            memorials=memorials if memorials is not None else [],
         )
         self.economy = SettlementEconomy(
             materials=materials, currency=currency, education_level=education_level,
             caravans_visited=caravans_visited,
+            market_prices=market_prices if market_prices is not None else {},
         )
         self.culture = SettlementCulture(
             name=name, founding_scenario=founding_scenario, era=era, tech_level=tech_level,
@@ -1149,6 +1231,8 @@ class Settlement:
             festivals=festivals if festivals is not None else [],
             festivals_held=festivals_held,
             beliefs=beliefs if beliefs is not None else [],
+            place_names=place_names if place_names is not None else {},
+            records=records if records is not None else [],
             institutions=institutions if institutions is not None else [],
             next_institution_id=next_institution_id,
         )
@@ -1339,6 +1423,56 @@ class Settlement:
     @next_institution_id.setter
     def next_institution_id(self, value: int) -> None:
         self.culture.next_institution_id = value
+
+    @property
+    def memorials(self) -> list[dict]:
+        return self.infrastructure.memorials
+
+    @memorials.setter
+    def memorials(self, value: list[dict]) -> None:
+        self.infrastructure.memorials = value
+
+    @property
+    def place_names(self) -> dict:
+        return self.culture.place_names
+
+    @place_names.setter
+    def place_names(self, value: dict) -> None:
+        self.culture.place_names = value
+
+    @property
+    def records(self) -> list[dict]:
+        return self.culture.records
+
+    @records.setter
+    def records(self, value: list[dict]) -> None:
+        self.culture.records = value
+
+    @property
+    def market_prices(self) -> dict:
+        return self.economy.market_prices
+
+    def market_price(self, good: str) -> float:
+        """Current price multiplier for a good — 1.0 (flat/no market)
+        unless a standing MARKET has discovered a price. See
+        `tick_market_prices`."""
+        return self.economy.market_prices.get(good, 1.0)
+
+    def add_memorial(self, x: int, y: int, name: str, cause: str, tick: int) -> None:
+        """Append a grave mark, oldest pruned past MEMORIALS_MAX_STORED
+        — see SettlementInfrastructure.memorials."""
+        self.infrastructure.memorials.append(
+            {"x": x, "y": y, "name": name, "cause": cause, "tick": tick}
+        )
+        if len(self.infrastructure.memorials) > MEMORIALS_MAX_STORED:
+            del self.infrastructure.memorials[: len(self.infrastructure.memorials) - MEMORIALS_MAX_STORED]
+
+    def add_record(self, tick: int, author: str, text: str) -> None:
+        """Append a written artifact, oldest pruned past
+        RECORDS_MAX_STORED — see SettlementCulture.records."""
+        self.culture.records.append({"tick": tick, "author": author, "text": text})
+        if len(self.culture.records) > RECORDS_MAX_STORED:
+            del self.culture.records[: len(self.culture.records) - RECORDS_MAX_STORED]
 
     def family_for(self, agent_id: int) -> Institution | None:
         """The most recently formed FAMILY institution `agent_id` belongs
@@ -1610,6 +1744,9 @@ class Settlement:
             "power_plants": kind_counts["power_plant"],
             "markets": kind_counts["market"],
             "caravans_visited": self.caravans_visited,
+            "market_prices": dict(self.market_prices),
+            "place_names": dict(self.place_names),
+            "records": list(self.records),
             "education_level": round(self.education_level, 3),
             "education_capacity": EDUCATION_CAPACITY,
             "current_priority": self.current_priority,
@@ -1720,6 +1857,10 @@ class Settlement:
             "institutions": [i.to_dict() for i in self.institutions],
             "next_institution_id": self.next_institution_id,
             "caravans_visited": self.caravans_visited,
+            "market_prices": dict(self.market_prices),
+            "memorials": list(self.memorials),
+            "place_names": dict(self.place_names),
+            "records": list(self.records),
         }
 
     @classmethod
@@ -1754,4 +1895,8 @@ class Settlement:
             institutions=[Institution.from_dict(i) for i in data.get("institutions", [])],
             next_institution_id=data.get("next_institution_id", 0),
             caravans_visited=data.get("caravans_visited", 0),
+            market_prices=dict(data.get("market_prices", {})),
+            memorials=list(data.get("memorials", [])),
+            place_names=dict(data.get("place_names", {})),
+            records=list(data.get("records", [])),
         )

@@ -20,6 +20,7 @@ SYSTEM_PROMPT = (
 def build_prompt(
     recent_events: list[dict], population_summary: dict, season: str, year: int,
     settlement_name: str = "", traditions: list[str] | None = None, beliefs: list[dict] | None = None,
+    place_names: dict | None = None,
 ) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened."
@@ -33,6 +34,10 @@ def build_prompt(
                 "Its own accumulated theories about itself: "
                 + "; ".join(f"{b['subject']} ({b['belief']})" for b in beliefs) + ". "
             )
+        if place_names:
+            # Named geography (v0.64.0): the chronicle refers to the
+            # village's own named waters, not "the river" in the abstract.
+            culture += f"Its named places: {'; '.join(place_names.values())}. "
     return (
         f"{culture}The season just ended: {season}, year {year}. "
         f"Current population: {population_summary['total']} inhabitants "

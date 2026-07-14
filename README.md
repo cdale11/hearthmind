@@ -101,7 +101,6 @@ hearthmind/
   server.py              # CLI entrypoint that runs the engine forever
   inspect_world.py       # CLI to print a summary of the saved world state
   experiment.py          # headless seed-batch runs -> per-sim-day metrics CSVs
-tests/                   # retained as reference only — not run (see docs/TESTING.md)
 ```
 
 ## Running it

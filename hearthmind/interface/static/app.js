@@ -100,7 +100,36 @@ const CATEGORY_META = {
   illness: { icon: "🤒" },
   recovery: { icon: "💊" },
   caravan: { icon: "🐫" },
+  wildlife_migrated: { icon: "🦌" },
+  dispute: { icon: "🤝" },
+  record_written: { icon: "✍️" },
+  place_named: { icon: "🗺️" },
+  institution_belief: { icon: "🏛️" },
 };
+
+// Event-log filter chips (v0.64.0 UI backlog): coarse groups, display-only —
+// everything is still stored and still reaches /events untouched.
+const EVENT_GROUP_OF = {
+  birth: "people", death: "people", dialogue_surfaced: "people", rumor: "people",
+  migrant_arrived: "people", inheritance: "people", dispute: "people",
+  record_written: "people", illness: "people", recovery: "people", predator_attack: "people",
+  construction_started: "town", building_completed: "town", building_ruined: "town",
+  building_reclaimed: "town", farm_planted: "town", vehicle_started: "town",
+  vehicle_completed: "town", vehicle_broken: "town", era_advance: "town",
+  settlement_named: "town", guild_formed: "town", guild_joined: "town",
+  council_formed: "town", council_seat_filled: "town", family_formed: "town",
+  intervention: "town", town_brain: "town", caravan: "town", founding: "town", genesis: "town",
+  terrain_thinned: "nature", terrain_reclaimed: "nature", climate_drift: "nature",
+  wildlife_hunt: "nature", wildlife_extinct: "nature", wildlife_recolonized: "nature",
+  wildlife_migrated: "nature", disaster_flood: "nature", disaster_wildfire: "nature",
+  disaster_storm: "nature", disaster_heatwave: "nature", disaster_frost: "nature",
+  lake_rose: "nature", lake_receded: "nature", season_end: "nature", year_end: "nature",
+  place_named: "nature",
+  chronicle: "mind", documentary: "mind", tradition: "mind", invention: "mind",
+  festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind",
+  institution_belief: "mind",
+};
+let activeEventGroup = "all";
 
 // Terrain evolves now (deforestation, reclamation, climate drift), so the
 // once-per-boot static canvas can go stale — re-fetch /terrain and redraw
@@ -117,6 +146,44 @@ function categoryMeta(category) {
 let terrain = null;
 let latest = null; // last full payload: {summary, life_events, agents, buildings, farms, wildlife, roads, diagnostics}
 let staticCanvas = null; // offscreen: biome grid, drawn once
+
+// --- zoom/pan view state (v0.64.0 UI backlog) -------------------------------
+// The whole map layer (terrain + everything drawn per frame) renders through
+// one canvas transform; scale 1 shows the full map exactly as before, so the
+// feature is invisible until the user scrolls to zoom. The weather overlay
+// stays screen-space (ambient rain/darkness doesn't need to zoom).
+const VIEW_MIN_SCALE = 1;
+const VIEW_MAX_SCALE = 8;
+const view = { scale: 1, x: 0, y: 0 };
+
+function clampView() {
+  view.scale = Math.max(VIEW_MIN_SCALE, Math.min(VIEW_MAX_SCALE, view.scale));
+  const minX = canvas.width * (1 - view.scale);
+  const minY = canvas.height * (1 - view.scale);
+  view.x = Math.min(0, Math.max(minX, view.x));
+  view.y = Math.min(0, Math.max(minY, view.y));
+}
+
+function screenToGrid(px, py) {
+  return {
+    gx: Math.floor((px - view.x) / view.scale / CELL),
+    gy: Math.floor((py - view.y) / view.scale / CELL),
+  };
+}
+
+function centerViewOn(gx, gy) {
+  view.x = canvas.width / 2 - (gx * CELL + CELL / 2) * view.scale;
+  view.y = canvas.height / 2 - (gy * CELL + CELL / 2) * view.scale;
+  clampView();
+}
+
+// --- follow-agent camera + movement trail (v0.64.0 UI backlog) --------------
+let followAgentId = null;
+const TRAIL_MAX_POINTS = 40;
+const agentTrails = new Map(); // id -> [[gx, gy], ...] most-recent-last
+
+// --- timeline v2 ghost mode (v0.64.0 UI backlog): render the past map -------
+const ghost = { active: false, map: null, canvas: null, tick: null };
 
 const canvas = document.getElementById("map-canvas");
 const ctx = canvas.getContext("2d");
@@ -238,6 +305,9 @@ async function loadTimelineTick(tick) {
   try {
     const snap = await fetchJSON(`/snapshots/${tick}`);
     timelineLabel.textContent = `tick ${snap.tick} — ${snap.month} ${snap.day}, year ${snap.year} (${snap.season})`;
+    // Timeline v2: don't just describe the past — show it. The main map
+    // switches to a rendering of this snapshot until "return to live".
+    if (snap.map) enterGhostMode(snap.tick, snap.map);
     const s = snap.settlement, p = snap.population;
     timelineSummary.innerHTML = [
       `<li>${s.name || "(unnamed)"} — era: ${s.era}</li>`,
@@ -261,6 +331,7 @@ timelineToggle.addEventListener("click", () => {
   timelinePanel.classList.toggle("hidden");
   timelineToggle.classList.toggle("active");
   if (!timelinePanel.classList.contains("hidden")) loadTimelineIndex();
+  else exitGhostMode(); // closing the timeline always returns the map to live
 });
 
 // Map-as-primary-interface: raw stats/culture-lists/infrastructure detail
@@ -486,7 +557,36 @@ function drawStaticTerrain() {
 }
 
 function drawFrame() {
-  if (!staticCanvas || !latest) return;
+  if (!staticCanvas) return;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Timeline v2 ghost mode: the past map replaces the live layer
+  // entirely (it has its own terrain — floods/deforestation as they
+  // were), same view transform so zoom/pan works in the past too.
+  if (ghost.active && ghost.canvas) {
+    ctx.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
+    ctx.drawImage(ghost.canvas, 0, 0);
+    drawMinimap();
+    return;
+  }
+  if (!latest) return;
+
+  // Follow-agent camera: keep the followed agent's interpolated
+  // position centered every frame (zoom level stays the user's).
+  if (followAgentId !== null) {
+    const target = (latest.agents || []).find((a) => a.id === followAgentId);
+    if (target) {
+      const { px, py } = agentRenderPos(target);
+      view.x = canvas.width / 2 - px * view.scale;
+      view.y = canvas.height / 2 - py * view.scale;
+      clampView();
+    } else {
+      stopFollowing(); // followed agent died/despawned
+    }
+  }
+
+  ctx.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
   ctx.drawImage(staticCanvas, 0, 0);
 
   // Roads: worn tiles get a visible dirt-path tint from the very first
@@ -499,6 +599,18 @@ function drawFrame() {
     const alpha = wear >= 0.5 ? 0.75 : Math.max(0.35, wear * 1.2);
     ctx.fillStyle = `rgba(196, 148, 58, ${alpha})`;
     ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+  }
+
+  // Grave marks (v0.64.0): a small grey cross where each villager fell —
+  // persistent history on the map itself, hover a bare tile to read who.
+  for (const m of latest.memorials || []) {
+    const cx = m.x * CELL + CELL / 2, cy = m.y * CELL + CELL / 2;
+    ctx.strokeStyle = "rgba(170, 170, 180, 0.7)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 2.5); ctx.lineTo(cx, cy + 2.5);
+    ctx.moveTo(cx - 1.8, cy - 0.8); ctx.lineTo(cx + 1.8, cy - 0.8);
+    ctx.stroke();
   }
 
   // Wild resource nodes (bushes/mines): small, unobtrusive markers so
@@ -610,7 +722,148 @@ function drawFrame() {
       ctx.stroke();
     }
   }
+
+  // Movement trail for the followed agent: a fading line through their
+  // recent tiles (see agentTrails, updated per payload).
+  if (followAgentId !== null) {
+    const trail = agentTrails.get(followAgentId);
+    if (trail && trail.length > 1) {
+      for (let i = 1; i < trail.length; i++) {
+        ctx.beginPath();
+        ctx.strokeStyle = `rgba(217, 164, 65, ${0.12 + (i / trail.length) * 0.55})`;
+        ctx.lineWidth = 1.4;
+        ctx.moveTo(trail[i - 1][0] * CELL + CELL / 2, trail[i - 1][1] * CELL + CELL / 2);
+        ctx.lineTo(trail[i][0] * CELL + CELL / 2, trail[i][1] * CELL + CELL / 2);
+        ctx.stroke();
+      }
+    }
+  }
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  drawMinimap();
 }
+
+// --- minimap (v0.64.0 UI backlog) -------------------------------------------
+
+const minimapEl = document.getElementById("minimap");
+
+function drawMinimap() {
+  if (!minimapEl || !staticCanvas) return;
+  // Only worth screen space once the user has actually zoomed in (at
+  // scale 1 the map is already fully visible).
+  const zoomed = view.scale > 1.01;
+  minimapEl.classList.toggle("hidden", !zoomed && !ghost.active);
+  if (!zoomed && !ghost.active) return;
+  const mctx = minimapEl.getContext("2d");
+  const source = ghost.active && ghost.canvas ? ghost.canvas : staticCanvas;
+  mctx.clearRect(0, 0, minimapEl.width, minimapEl.height);
+  mctx.drawImage(source, 0, 0, minimapEl.width, minimapEl.height);
+  // Viewport rectangle: which slice of the map the main canvas shows.
+  const sx = (-view.x / view.scale) / canvas.width * minimapEl.width;
+  const sy = (-view.y / view.scale) / canvas.height * minimapEl.height;
+  const sw = minimapEl.width / view.scale;
+  const sh = minimapEl.height / view.scale;
+  mctx.strokeStyle = "#d9a441";
+  mctx.lineWidth = 1;
+  mctx.strokeRect(sx, sy, sw, sh);
+}
+
+if (minimapEl) {
+  minimapEl.addEventListener("click", (ev) => {
+    const rect = minimapEl.getBoundingClientRect();
+    const fx = (ev.clientX - rect.left) / rect.width;
+    const fy = (ev.clientY - rect.top) / rect.height;
+    stopFollowing();
+    centerViewOn(fx * (terrain ? terrain.width : 0), fy * (terrain ? terrain.height : 0));
+  });
+}
+
+// --- follow controls ----------------------------------------------------------
+
+const followBanner = document.getElementById("follow-banner");
+const followBannerLabel = document.getElementById("follow-banner-label");
+const followStopBtn = document.getElementById("follow-stop");
+
+function startFollowing(agentId, name) {
+  followAgentId = agentId;
+  if (view.scale <= 1.01) {
+    view.scale = 3; // following at full-map zoom would be a no-op — zoom in to make it read
+  }
+  clampView();
+  if (followBanner) {
+    followBannerLabel.textContent = `following ${name}`;
+    followBanner.classList.remove("hidden");
+  }
+  closeNpcInspector();
+}
+
+function stopFollowing() {
+  followAgentId = null;
+  if (followBanner) followBanner.classList.add("hidden");
+}
+
+if (followStopBtn) followStopBtn.addEventListener("click", stopFollowing);
+window.hmFollowAgent = startFollowing; // reachable from inspector-rendered HTML
+
+// --- timeline v2 ghost mode ---------------------------------------------------
+
+const ghostBanner = document.getElementById("ghost-banner");
+const ghostBannerLabel = document.getElementById("ghost-banner-label");
+const ghostReturnBtn = document.getElementById("ghost-return");
+
+function enterGhostMode(tick, map) {
+  ghost.active = true;
+  ghost.tick = tick;
+  ghost.map = map;
+  const g = document.createElement("canvas");
+  g.width = map.width * CELL;
+  g.height = map.height * CELL;
+  const gctx = g.getContext("2d");
+  for (let y = 0; y < map.height; y++) {
+    for (let x = 0; x < map.width; x++) {
+      gctx.fillStyle = BIOME_COLORS[map.biomes[y][x]] || "#000";
+      gctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    }
+  }
+  for (const m of map.memorials || []) {
+    const cx = m.x * CELL + CELL / 2, cy = m.y * CELL + CELL / 2;
+    gctx.strokeStyle = "rgba(170, 170, 180, 0.7)";
+    gctx.beginPath();
+    gctx.moveTo(cx, cy - 2.5); gctx.lineTo(cx, cy + 2.5);
+    gctx.moveTo(cx - 1.8, cy - 0.8); gctx.lineTo(cx + 1.8, cy - 0.8);
+    gctx.stroke();
+  }
+  for (const f of map.farms || []) {
+    gctx.fillStyle = FARM_COLORS[f.stage] || "#888";
+    gctx.fillRect(f.x * CELL + 2, f.y * CELL + 2, CELL - 4, CELL - 4);
+  }
+  for (const b of map.buildings || []) {
+    gctx.fillStyle = BUILDING_COLORS[b.kind] || "#aaa";
+    gctx.globalAlpha = b.stage === "under_construction" ? 0.45 : b.stage === "ruined" ? 0.35 : 1.0;
+    gctx.fillRect(b.x * CELL - 1, b.y * CELL - 1, CELL + 2, CELL + 2);
+    gctx.globalAlpha = 1.0;
+  }
+  gctx.fillStyle = "#f2f2f2";
+  for (const [ax, ay] of map.agents || []) {
+    gctx.beginPath();
+    gctx.arc(ax * CELL + CELL / 2, ay * CELL + CELL / 2, CELL / 3, 0, Math.PI * 2);
+    gctx.fill();
+  }
+  ghost.canvas = g;
+  if (ghostBanner) {
+    ghostBannerLabel.textContent = `viewing tick ${tick} — the world as it was`;
+    ghostBanner.classList.remove("hidden");
+  }
+}
+
+function exitGhostMode() {
+  ghost.active = false;
+  ghost.canvas = null;
+  ghost.map = null;
+  if (ghostBanner) ghostBanner.classList.add("hidden");
+}
+
+if (ghostReturnBtn) ghostReturnBtn.addEventListener("click", exitGhostMode);
 
 // --- smooth inter-tick agent movement --------------------------------------
 // Server ticks (and thus new agent positions) arrive at most a few times a
@@ -628,6 +881,16 @@ function updateAgentAnimTargets(agents) {
   const seen = new Set();
   for (const a of agents) {
     seen.add(a.id);
+    // Movement trail bookkeeping (v0.64.0): only meaningful while
+    // followed, but cheap enough to track for everyone (bounded at
+    // TRAIL_MAX_POINTS per living agent, deleted on death below).
+    const trail = agentTrails.get(a.id) || [];
+    const last = trail[trail.length - 1];
+    if (!last || last[0] !== a.x || last[1] !== a.y) {
+      trail.push([a.x, a.y]);
+      if (trail.length > TRAIL_MAX_POINTS) trail.shift();
+      agentTrails.set(a.id, trail);
+    }
     const prev = agentAnim.get(a.id);
     if (!prev) {
       agentAnim.set(a.id, { fx: a.x, fy: a.y, tx: a.x, ty: a.y, t0: now, dur: 1 });
@@ -640,6 +903,9 @@ function updateAgentAnimTargets(agents) {
   }
   for (const id of agentAnim.keys()) {
     if (!seen.has(id)) agentAnim.delete(id); // agent died/despawned
+  }
+  for (const id of agentTrails.keys()) {
+    if (!seen.has(id)) agentTrails.delete(id);
   }
 }
 
@@ -805,15 +1071,60 @@ function findBuildingAt(gx, gy) {
   return null;
 }
 
+// --- zoom (wheel) + pan (drag) on the map canvas (v0.64.0 UI backlog) --------
+
+let panState = null; // {startX, startY, viewX, viewY, moved}
+
+canvas.addEventListener("wheel", (ev) => {
+  ev.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
+  const factor = ev.deltaY < 0 ? 1.2 : 1 / 1.2;
+  const before = view.scale;
+  view.scale = Math.max(VIEW_MIN_SCALE, Math.min(VIEW_MAX_SCALE, view.scale * factor));
+  // Zoom around the cursor: the world point under it stays put.
+  view.x = px - (px - view.x) * (view.scale / before);
+  view.y = py - (py - view.y) * (view.scale / before);
+  clampView();
+}, { passive: false });
+
+canvas.addEventListener("mousedown", (ev) => {
+  panState = { startX: ev.clientX, startY: ev.clientY, viewX: view.x, viewY: view.y, moved: false };
+});
+window.addEventListener("mouseup", () => {
+  if (panState && panState.moved) {
+    // Swallow the click that ends a drag (see the click handler).
+    setTimeout(() => { panState = null; }, 0);
+  } else {
+    panState = null;
+  }
+});
+
 // Hover inspection covers everything on the map, not just agents (Observatory
 // UI direction, CLAUDE.md): agent, then building, then bare terrain — each
 // with its own tooltip content, cheapest/most-specific check first.
 canvas.addEventListener("mousemove", (ev) => {
   const rect = canvas.getBoundingClientRect();
   const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
-  const gx = Math.floor(px / CELL), gy = Math.floor(py / CELL);
+  if (panState) {
+    const dx = ev.clientX - panState.startX, dy = ev.clientY - panState.startY;
+    if (panState.moved || Math.hypot(dx, dy) > 4) {
+      panState.moved = true;
+      stopFollowing(); // a manual pan takes the camera back
+      view.x = panState.viewX + dx;
+      view.y = panState.viewY + dy;
+      clampView();
+      tooltip.classList.add("hidden");
+      return;
+    }
+  }
+  const { gx, gy } = screenToGrid(px, py);
   tooltip.style.left = `${px + 12}px`;
   tooltip.style.top = `${py + 12}px`;
+  if (ghost.active) {
+    tooltip.classList.add("hidden");
+    return; // the past is a picture — hover/click inspection is live-only
+  }
 
   const a = findAgentAt(gx, gy);
   if (a) {
@@ -844,22 +1155,38 @@ canvas.addEventListener("mousemove", (ev) => {
 
   if (terrain && gx >= 0 && gy >= 0 && gx < terrain.width && gy < terrain.height) {
     const biome = terrain.biomes[gy][gx];
+    const graves = memorialsAt(gx, gy);
+    const graveText = graves.length
+      ? `<br><span class="muted">✝ ${graves.map((m) => m.name).join(", ")} rest${graves.length === 1 ? "s" : ""} here</span>`
+      : "";
     tooltip.classList.remove("hidden");
-    tooltip.innerHTML = `<span class="muted">${biome.replace(/_/g, " ")}</span> (${gx}, ${gy})`;
+    tooltip.innerHTML = `<span class="muted">${biome.replace(/_/g, " ")}</span> (${gx}, ${gy})${graveText}` +
+      `<br><span class="muted">click for details</span>`;
     return;
   }
   tooltip.classList.add("hidden");
 });
+
+function memorialsAt(gx, gy) {
+  return ((latest && latest.memorials) || []).filter((m) => m.x === gx && m.y === gy);
+}
 canvas.addEventListener("mouseleave", () => {
   tooltip.classList.add("hidden");
   canvas.style.cursor = "default";
 });
 
 canvas.addEventListener("click", (ev) => {
+  if (panState && panState.moved) return; // that was a drag, not a click
+  if (ghost.active) return;
   const rect = canvas.getBoundingClientRect();
-  const gx = Math.floor((ev.clientX - rect.left) / CELL), gy = Math.floor((ev.clientY - rect.top) / CELL);
+  const { gx, gy } = screenToGrid(ev.clientX - rect.left, ev.clientY - rect.top);
   const a = findAgentAt(gx, gy);
-  if (a) openNpcInspector(a.id);
+  if (a) return openNpcInspector(a.id);
+  const b = findBuildingAt(gx, gy);
+  if (b) return openBuildingInspector(gx, gy);
+  if (terrain && gx >= 0 && gy >= 0 && gx < terrain.width && gy < terrain.height) {
+    openTileInspector(gx, gy);
+  }
 });
 
 // --- NPC inspector: "mind before stats" (Observatory UI direction) ---------
@@ -873,16 +1200,42 @@ const npcBackdrop = document.getElementById("npc-inspector-backdrop");
 const npcContent = document.getElementById("npc-inspector-content");
 const npcClose = document.getElementById("npc-inspector-close");
 let inspectedAgentId = null;
+let inspectedTarget = null; // {type: "building"|"tile", x, y} — v0.64.0 click-inspector parity
 
 function openNpcInspector(agentId) {
   inspectedAgentId = agentId;
+  inspectedTarget = null;
   npcBackdrop.classList.remove("hidden");
   renderNpcInspector();
 }
 
+function openBuildingInspector(x, y) {
+  inspectedTarget = { type: "building", x, y };
+  inspectedAgentId = null;
+  npcBackdrop.classList.remove("hidden");
+  renderTargetInspector();
+}
+
+function openTileInspector(x, y) {
+  inspectedTarget = { type: "tile", x, y };
+  inspectedAgentId = null;
+  npcBackdrop.classList.remove("hidden");
+  renderTargetInspector();
+}
+
 function closeNpcInspector() {
   inspectedAgentId = null;
+  inspectedTarget = null;
   npcBackdrop.classList.add("hidden");
+}
+
+// Follow button inside the (innerHTML-rebuilt) inspector: event
+// delegation, since direct listeners wouldn't survive re-render.
+if (npcContent) {
+  npcContent.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-follow]");
+    if (btn) window.hmFollowAgent(Number(btn.dataset.follow), btn.dataset.followName || "them");
+  });
 }
 
 if (npcClose) {
@@ -958,6 +1311,7 @@ function renderNpcInspector() {
   npcContent.innerHTML = `
     <h3>${agent.name}</h3>
     <div class="npc-subtitle">${agent.state}, age ${agent.age_ticks}</div>
+    <button class="npc-follow-btn" data-follow="${agent.id}" data-follow-name="${agent.name}">⌖ follow on map</button>
     <div class="npc-section">
       <h4>Right now</h4>
       <div>Pursuing <b>${agent.goal}</b></div>
@@ -1003,6 +1357,58 @@ function healthLabel(agent) {
   if ((agent.sick_ticks || 0) > 0) return `sick, ${agent.sick_ticks} ticks`;
   if ((agent.immune_ticks || 0) > 0) return `recently immune, ${agent.immune_ticks} ticks`;
   return "healthy";
+}
+
+// --- building / bare-tile click inspector (v0.64.0 UI backlog) ---------------
+// Parity with the NPC inspector: click anything on the map and get a real
+// panel, not just a hover tooltip. Re-rendered per payload like the NPC one.
+
+function renderTargetInspector() {
+  if (!inspectedTarget || !latest) return;
+  const { x, y } = inspectedTarget;
+  if (inspectedTarget.type === "building") {
+    const b = (latest.buildings || []).find((bb) => bb.x === x && bb.y === y);
+    if (!b) {
+      npcContent.innerHTML = `<h3>Gone</h3><div class="npc-subtitle">Nothing stands here any more.</div>`;
+      return;
+    }
+    const byId = new Map((latest.agents || []).map((a) => [a.id, a]));
+    const owner = b.owner_agent_id != null
+      ? ((byId.get(b.owner_agent_id) || {}).name || "someone no longer living")
+      : "the village (commons)";
+    const label = b.kind.charAt(0).toUpperCase() + b.kind.slice(1);
+    const conditionPct = Math.round((b.condition || 0) * 100);
+    const occupants = (latest.agents || []).filter((a) => a.x === x && a.y === y).map((a) => a.name);
+    npcContent.innerHTML = `
+      <h3>${label}</h3>
+      <div class="npc-subtitle">${b.stage.replace(/_/g, " ")} at (${x}, ${y})</div>
+      <div class="npc-section"><h4>Condition</h4>
+        <div>${conditionPct}%${b.stage === "under_construction" ? ` · progress ${Math.round((b.progress || 0) * 100)}%` : ""}</div>
+      </div>
+      <div class="npc-section"><h4>Ownership</h4><div>Belongs to ${owner}</div></div>
+      ${b.stored_food ? `<div class="npc-section"><h4>Stores</h4><div>${b.stored_food.toFixed(1)} food</div></div>` : ""}
+      <div class="npc-section"><h4>Right now</h4>
+        <div>${occupants.length ? `Present: ${occupants.join(", ")}` : "Nobody inside"}</div>
+      </div>`;
+    return;
+  }
+  // Bare tile: biome, whatever sits on it, and whoever rests beneath it.
+  const biome = terrain && terrain.biomes[y] ? terrain.biomes[y][x] : "?";
+  const node = (latest.resources || []).find((n) => n.x === x && n.y === y);
+  const farm = (latest.farms || []).find((f) => f.x === x && f.y === y);
+  const roadEntry = (latest.roads || []).find(([rx, ry]) => rx === x && ry === y);
+  const graves = memorialsAt(x, y);
+  const bits = [];
+  if (node) bits.push(`<div class="npc-section"><h4>Wild resource</h4><div>${node.kind}, ${Math.round(node.amount * 100) / 100} remaining</div></div>`);
+  if (farm) bits.push(`<div class="npc-section"><h4>Field</h4><div>${farm.stage}${farm.stage === "growing" ? `, ${Math.round(farm.growth * 100)}% grown` : `, ${farm.amount.toFixed(1)} to harvest`}</div></div>`);
+  if (roadEntry) bits.push(`<div class="npc-section"><h4>Path</h4><div>worn ${Math.round(roadEntry[2] * 100)}%${roadEntry[2] >= 0.5 ? " — an established road" : ""}</div></div>`);
+  if (graves.length) {
+    bits.push(`<div class="npc-section"><h4>Resting here</h4><ul>${graves.map((m) => `<li>✝ ${m.name} — ${m.cause} (tick ${m.tick})</li>`).join("")}</ul></div>`);
+  }
+  npcContent.innerHTML = `
+    <h3>${biome.replace(/_/g, " ")}</h3>
+    <div class="npc-subtitle">tile (${x}, ${y})</div>
+    ${bits.join("") || '<div class="muted">nothing but the land itself</div>'}`;
 }
 
 // --- consequences overlay ("the village is aging," not raw stats) ----------
@@ -1191,10 +1597,26 @@ function renderStats(summary) {
     ["NPC dialogue", `${llm.dialogue_total} exchanges, ${llm.rumor_total} rumors`, null],
     [
       "Geography",
-      `${(summary.biome_counts || {}).river || 0} river tile${(summary.biome_counts || {}).river === 1 ? "" : "s"}, ` +
-      `${(summary.lakes || []).length} lake${(summary.lakes || []).length === 1 ? "" : "s"}`,
+      (() => {
+        const riverTiles = (summary.biome_counts || {}).river || 0;
+        const lakes = summary.lakes || [];
+        const namedLakes = lakes.filter((l) => l.name);
+        let text = `${riverTiles} river tile${riverTiles === 1 ? "" : "s"}, ${lakes.length} lake${lakes.length === 1 ? "" : "s"}`;
+        if (summary.river_name) text += ` · river: ${summary.river_name}`;
+        if (namedLakes.length) text += ` · ${namedLakes.map((l) => l.name).join(", ")}`;
+        return text;
+      })(),
       "Rivers are carved once at world creation. Lakes each have their own slowly-changing water level " +
-      "(nudged monthly, biased by the climate trend above) that grows or shrinks the shoreline by a tile at a time.",
+      "(nudged monthly, biased by the climate trend above) that grows or shrinks the shoreline by a tile at a time. " +
+      "Once the settlement is named, its waters gradually earn names of their own.",
+    ],
+    [
+      "Market prices",
+      (s.market_prices && Object.keys(s.market_prices).length)
+        ? Object.entries(s.market_prices).map(([g, p]) => `${g} ${p.toFixed(2)}x`).join(", ")
+        : "no market yet (flat 1.00x)",
+      "While a MARKET stands, per-good price multipliers re-derive monthly from real scarcity (empty stores -> " +
+      "up to 2.0x, full stores -> down to 0.5x). Overflow sales earn the current price; emergency rations cost it.",
     ],
     [
       "Disasters",
@@ -1243,6 +1665,14 @@ function renderStats(summary) {
     setInnerHTMLIfChanged(inventionsEl, s.inventions.length
       ? s.inventions.map((t) => `<li>${t}</li>`).join("")
       : "<li>none yet</li>");
+  }
+
+  const recordsEl = document.getElementById("records-list");
+  if (recordsEl) {
+    const records = (s.records || []).slice().reverse(); // newest first
+    setInnerHTMLIfChanged(recordsEl, records.length
+      ? records.map((r) => `<li>✍️ <b>${r.author}</b> <span class="muted">(tick ${r.tick})</span>: "${r.text}"</li>`).join("")
+      : "<li>nothing set down yet — notable villagers leave letters behind</li>");
   }
 
   const festivalsEl = document.getElementById("festivals-list");
@@ -1324,12 +1754,32 @@ function prependEvents(events) {
     if (meta.skip) continue;
     const li = document.createElement("li");
     li.className = `event-category-${e.category || "unknown"}`;
+    li.dataset.group = EVENT_GROUP_OF[e.category] || "town";
+    if (activeEventGroup !== "all" && li.dataset.group !== activeEventGroup) {
+      li.classList.add("hidden-by-filter");
+    }
     const tickPart = e.tick !== undefined ? `<span class="event-tick">[${e.tick}]</span>` : "";
     li.innerHTML = `${tickPart}<span class="event-icon">${meta.icon}</span><span class="event-text">${e.description}</span>`;
     log.prepend(li);
   }
   while (log.children.length > 150) log.removeChild(log.lastChild);
 }
+
+// --- event-log filter chips (v0.64.0 UI backlog) ------------------------------
+
+const eventChips = document.querySelectorAll(".event-chip");
+eventChips.forEach((chip) => {
+  chip.addEventListener("click", () => {
+    activeEventGroup = chip.dataset.group;
+    eventChips.forEach((c) => c.classList.toggle("active", c === chip));
+    for (const li of document.getElementById("event-log").children) {
+      li.classList.toggle(
+        "hidden-by-filter",
+        activeEventGroup !== "all" && li.dataset.group !== activeEventGroup,
+      );
+    }
+  });
+});
 
 async function refreshTerrainIfChanged(events) {
   if (!events || !events.some((e) => TERRAIN_CHANGING_CATEGORIES.has(e.category))) return;
@@ -1348,6 +1798,7 @@ function applyPayload(payload) {
   renderInfrastructure(payload.infrastructure);
   if (payload.diagnostics && payload.diagnostics.sim_pacing) renderSimPacing(payload.diagnostics.sim_pacing);
   if (inspectedAgentId !== null) renderNpcInspector();
+  if (inspectedTarget !== null) renderTargetInspector();
   updateAgentAnimTargets(payload.agents || []);
   if (payload.diagnostics) renderDevConsole(payload);
   if (payload.life_events && payload.life_events.length) {

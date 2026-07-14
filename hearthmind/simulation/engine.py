@@ -42,7 +42,8 @@ from hearthmind.agents.agent import (
 )
 from hearthmind.config import Config
 from hearthmind.llm import (
-    beliefs, caravan, chronicle, culture, dialogue, documentary, festival, invention, naming, omens, town_brain,
+    artifacts, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, festival, founding,
+    geography, invention, naming, omens, town_brain,
 )
 from hearthmind.llm.client import OllamaClient
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
@@ -50,6 +51,7 @@ from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import (
     history_events, load_latest_snapshot, log_event, log_metrics, recent_events, save_snapshot,
 )
+from hearthmind.agents.population import DISPUTE_COOLDOWN_TICKS
 from hearthmind.settlement.buildings import (
     CULTURE_LIST_MAX_STORED,
     CURRENCY_CAPACITY,
@@ -68,9 +70,11 @@ from hearthmind.settlement.buildings import (
     BuildingStage,
     education_invention_bonus,
     era_for_tech_level,
+    tick_market_prices,
     tick_player_standing,
     tick_temperament,
 )
+from hearthmind.settlement.institutions import InstitutionKind
 from hearthmind.world.state import TERRAIN_CHANGING_CATEGORIES, World
 from hearthmind.world.terrain import biome_counts
 
@@ -503,6 +507,12 @@ class SimulationEngine:
         self._maybe_schedule_personal_belief(events)
         self._maybe_tick_temperament(events)
         self._maybe_schedule_omen(events)
+        self._maybe_tick_market_prices(events)
+        self._maybe_schedule_record()
+        self._maybe_schedule_dispute()
+        self._maybe_schedule_guild_founding(events)
+        self._maybe_schedule_institution_belief(events)
+        self._maybe_schedule_geography(events)
         self._schedule_due_cognition()
         self._schedule_due_dialogue()
         self.conn.commit()  # one commit for everything this tick logged (see log_event's commit param)
@@ -762,6 +772,7 @@ class SimulationEngine:
             # (July 2026 review, §3.7). The list itself still persists.
             traditions=self.world.settlement.traditions[-PROMPT_CULTURE_LIST_MAX:],
             beliefs=list(self.world.settlement.beliefs),
+            place_names=dict(self.world.settlement.place_names),
         )
         fallback = chronicle.fallback_summary(
             recent, population_summary, previous_season, year,
@@ -795,6 +806,7 @@ class SimulationEngine:
         prompt = documentary.build_prompt(
             self.world.settlement.name, self.world.settlement.era, self.world.clock.year,
             milestones, population_summary, self.world.settlement.temperament,
+            records=self.world.settlement.records[-5:],
         )
         fallback = documentary.fallback_narration(
             self.world.settlement.name, self.world.clock.year, milestones, population_summary,
@@ -1322,6 +1334,191 @@ class SimulationEngine:
 
         self._schedule_llm_job("omen", prompt, omens.SYSTEM_PROMPT, fallback, apply)
 
+    # --- v0.64.0 audit-backlog jobs ---------------------------------------------
+
+    def _maybe_tick_market_prices(self, events: list[str]) -> None:
+        """Monthly, deterministic (objective economics — no LLM): while
+        a MARKET stands, re-derive per-good price multipliers from real
+        scarcity. See buildings.tick_market_prices."""
+        if "month_end" not in events:
+            return
+        tick_market_prices(self.world.settlement)
+
+    def _maybe_schedule_record(self) -> None:
+        """Written artifacts: `Population._apply_deaths` decided this
+        tick that a departing villager leaves a record (an objective
+        fact); the LLM (or fallback, assembled from the same memories)
+        authors its text in the background. See llm/artifacts.py."""
+        for candidate in self.world.population.last_written_records:
+            if self._settlement_job_backpressured():
+                # The letter still exists in-fiction; under saturation
+                # its text is authored by the fallback path instead of
+                # being dropped — a record is a one-time, unrepeatable
+                # event, unlike the monthly jobs a skip simply delays.
+                result = artifacts.fallback_record(
+                    candidate["author"], candidate["memories"], self.world.clock.tick_count,
+                )
+                self._apply_record(candidate["author"], result["text"])
+                continue
+            prompt = artifacts.build_prompt(candidate["author"], candidate["memories"], candidate["belief"])
+            fallback = artifacts.fallback_record(
+                candidate["author"], candidate["memories"], self.world.clock.tick_count,
+            )
+            author = candidate["author"]
+
+            def apply(result: dict, used_fallback: bool, author: str = author, fallback: dict = fallback) -> None:
+                self._apply_record(author, artifacts.parse_record(result, fallback))
+
+            self._schedule_llm_job("record", prompt, artifacts.SYSTEM_PROMPT, fallback, apply)
+
+    def _apply_record(self, author: str, text: str) -> None:
+        self.world.settlement.add_record(self.world.clock.tick_count, author, text)
+        self._log("record_written", f'{author} left a written record behind: "{text}"')
+
+    def _maybe_schedule_dispute(self) -> None:
+        """LLM-mediated dispute resolution — see llm/dispute.py and
+        Population.due_for_dispute/apply_dispute. Backpressure is
+        checked *before* selection so a saturated queue doesn't burn a
+        pair's cooldown on a job that never got scheduled."""
+        if self._cognition_runner.backlog >= self._backpressure_limit:
+            return
+        pair = self.world.population.due_for_dispute(self.world.clock.tick_count, DISPUTE_COOLDOWN_TICKS)
+        if pair is None:
+            return
+        agent_a, agent_b = pair
+        relationship = agent_a.relationships.get(agent_b.id, 0.0)
+        has_council = self.world.settlement.council() is not None
+        prompt = dispute.build_prompt(
+            agent_a, agent_b, relationship, self.world.settlement.name, has_council,
+        )
+        fallback = dispute.fallback_dispute(agent_a, agent_b, has_council)
+        a_id, b_id = agent_a.id, agent_b.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            outcome, narration = dispute.parse_dispute(
+                result, fallback, self.world.settlement.council() is not None,
+            )
+            applied = self.world.population.apply_dispute(a_id, b_id, outcome)
+            if applied is None:
+                return  # one of them died while the decision was in flight
+            self._log("dispute", narration)
+
+        self._schedule_llm_job("dispute", prompt, dispute.SYSTEM_PROMPT, fallback, apply)
+
+    def _maybe_schedule_guild_founding(self, events: list[str]) -> None:
+        """Deliberate institution founding — see llm/founding.py and
+        Population.deliberate_guild_candidate/found_guild. Monthly roll
+        cadence: an ambitious master mulling this over is a rare,
+        deliberate act, not a per-tick scan."""
+        if "month_end" not in events or not self.world.settlement.name:
+            return
+        candidate = self.world.population.deliberate_guild_candidate(self.world.settlement)
+        if candidate is None:
+            return
+        if self._settlement_job_backpressured():
+            return
+        founder, skill, masters = candidate
+        prompt = founding.build_prompt(founder, skill, len(masters), self.world.settlement.name)
+        fallback = founding.fallback_founding(founder)
+        founder_id = founder.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            found, reason = founding.parse_founding(result, fallback)
+            if not found:
+                return  # they weighed it and held back — a real decision, quietly made
+            event = self.world.population.found_guild(
+                self.world.settlement, skill, founder_id, self.world.clock.tick_count,
+            )
+            if event is not None:
+                self._log(event[0], f'{event[1]} — "{reason}"')
+
+        self._schedule_llm_job("guild_founding", prompt, founding.SYSTEM_PROMPT, fallback, apply)
+
+    def _maybe_schedule_institution_belief(self, events: list[str]) -> None:
+        """Institutions Stage 3: once a month, ONE institution with
+        living members forms/revises a theory of its own — no longer
+        only mirrored copies of settlement beliefs. See
+        beliefs.INSTITUTION_SYSTEM_PROMPT for the design note."""
+        if "month_end" not in events or not self.world.settlement.name:
+            return
+        living_ids = {a.id for a in self.world.population.agents}
+        candidates = [
+            inst for inst in self.world.settlement.institutions
+            if inst.member_agent_ids & living_ids
+        ]
+        if not candidates:
+            return
+        if self._settlement_job_backpressured():
+            return
+        rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "institution_belief")
+        institution = rng.choice(candidates)
+        if institution.kind is InstitutionKind.COUNCIL:
+            label = "council of elders"
+        elif institution.kind is InstitutionKind.GUILD:
+            label = f"{institution.name} guild"
+        else:
+            label = "family"
+        member_names = [
+            a.name for a in self.world.population.agents if a.id in institution.member_agent_ids
+        ]
+        recent = recent_events(self.conn, limit=20)
+        existing = list(institution.beliefs)
+        prompt = beliefs.build_institution_prompt(label, member_names, existing, recent)
+        fallback = beliefs.fallback_institution_belief(label, recent)
+        existing_count = len(existing)
+        institution_id = institution.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            target = next(
+                (i for i in self.world.settlement.institutions if i.id == institution_id), None,
+            )
+            if target is None:
+                return  # pruned while the job was in flight
+            parsed = beliefs.parse_belief(result, fallback, existing_count)
+            verb = beliefs.apply_institution_belief(target, parsed, self.world.clock.tick_count)
+            self._log(
+                "institution_belief",
+                f"The {label} {'revised its view' if verb == 'revised' else 'came to believe something'}"
+                f" of {parsed['subject']}: {parsed['belief']}",
+            )
+
+        self._schedule_llm_job("institution_belief", prompt, beliefs.INSTITUTION_SYSTEM_PROMPT, fallback, apply)
+
+    def _maybe_schedule_geography(self, events: list[str]) -> None:
+        """Named geography: one unnamed feature (the river first, then
+        each lake) earns a permanent name per month once the settlement
+        itself is named. See llm/geography.py."""
+        if "month_end" not in events or not self.world.settlement.name:
+            return
+        place_names = self.world.settlement.place_names
+        feature_key = feature_kind = None
+        if "river" not in place_names and self.world.cached_biome_counts().get("river", 0) > 0:
+            feature_key, feature_kind = "river", "river"
+        else:
+            for lake in self.world.lakes:
+                key = f"lake_{lake.id}"
+                if key not in place_names:
+                    feature_key, feature_kind = key, "lake"
+                    break
+        if feature_key is None:
+            return  # everything nameable already has a name — permanent no-op
+        if self._settlement_job_backpressured():
+            return
+        prompt = geography.build_prompt(
+            self.world.settlement.name, feature_kind, self.world.settlement.founding_scenario,
+        )
+        fallback = geography.fallback_name(feature_kind, self.world.clock.tick_count)
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            if feature_key in self.world.settlement.place_names:
+                return  # already named by an earlier in-flight job
+            name = geography.parse_name(result, fallback)
+            self.world.settlement.place_names[feature_key] = name
+            noun = "the river" if feature_kind == "river" else "the lake"
+            self._log("place_named", f"The villagers took to calling {noun} {name}.")
+
+        self._schedule_llm_job("geography", prompt, geography.SYSTEM_PROMPT, fallback, apply)
+
     def _log(self, category: str, description: str) -> None:
         """Persist an event AND buffer it for the next broadcast —
         use this (not a bare `log_event` call) for anything logged
@@ -1453,6 +1650,9 @@ class SimulationEngine:
             # matching how buildings/vehicles/farms are already broadcast
             # alongside it rather than folded in.
             "institutions": [i.to_dict() for i in self.world.settlement.institutions],
+            # Grave marks (v0.64.0): drawn as persistent map memorials —
+            # already capped server-side (MEMORIALS_MAX_STORED).
+            "memorials": list(self.world.settlement.memorials),
         }
         task = asyncio.create_task(self._broadcaster.broadcast(payload))
         self._background_tasks.add(task)

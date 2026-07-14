@@ -140,6 +140,27 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
             "season": world.clock.season,
             "settlement": world.settlement.summary(),
             "population": world.population.summary(),
+            # Timeline v2 (v0.64.0): enough to actually *render* the past
+            # map — the terrain as it was (snapshots carry the full
+            # terrain, so past floods/deforestation/climate drift show
+            # correctly), plus lightweight positions. Only built
+            # on-demand for the specific scrubbed tick, never part of
+            # the per-tick payload.
+            "map": {
+                "width": world.config.width,
+                "height": world.config.height,
+                "biomes": [[tile.biome.value for tile in row] for row in world.terrain],
+                "buildings": [
+                    {"x": b.x, "y": b.y, "kind": b.kind.value, "stage": b.stage.value}
+                    for b in world.settlement.buildings
+                ],
+                "agents": [[a.x, a.y] for a in world.population.agents],
+                "farms": [
+                    {"x": p.x, "y": p.y, "stage": p.stage.value}
+                    for p in world.farms.plots.values()
+                ],
+                "memorials": list(world.settlement.memorials),
+            },
         })
 
     @app.post("/intervene/agent-goal")

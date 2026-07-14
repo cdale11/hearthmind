@@ -2,8 +2,9 @@
 
 This is the long-term plan for Hearthmind, organized into phases rather than
 strict version numbers (see `CHANGELOG.md` for what's actually shipped).
-Newer candidate work that isn't part of a phase — the v0.63.0 audit's UI and
-emergence backlogs — lives in `CLAUDE.md`, "Full audit (v0.63.0)".
+The v0.63.0 audit's suggested UI/emergence backlogs shipped in full in
+v0.64.0 (see `CHANGELOG.md`); the one deliberate deferral (WebSocket delta
+payloads) is recorded in `CLAUDE.md`, "Full audit (v0.63.0)".
 
 **Emergence is the primary objective.** Every system below exists to produce
 behavior nobody scripted — a famine that reshapes settlement culture, a

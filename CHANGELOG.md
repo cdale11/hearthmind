@@ -4,6 +4,91 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.64.0] — The whole audit backlog: seven emergence systems + six UI features
+
+Explicit user directive: take the v0.63.0 audit's entire suggested
+backlog and "pick them all one by one and finish it." Every item below
+is mechanically real per the standing workflow rules. Also per user
+decision: the unused `tests/` directory is deleted outright.
+
+### Added — emergence
+
+- **Institutions Stage 3 — own belief formation**: one institution with
+  living members per month now *forms/revises its own theory*
+  (`beliefs.INSTITUTION_SYSTEM_PROMPT`/`apply_institution_belief`,
+  `origin: "own"` marker) — no longer only mirrored copies of
+  settlement beliefs. Group theories may contradict the village's; the
+  existing consumers (council -> town-brain prompt, family -> dialogue)
+  read them from the same `Institution.beliefs` store.
+- **Deliberate institution founding**: an ambitious master can push a
+  guild into existence at 2 masters — below the automatic 3 — via a
+  monthly LLM decision (`llm/founding.py`, fallback keyed on the
+  founder's own ambition). The first institution-formation path that
+  runs through an agent's decision rather than a census threshold.
+- **LLM-mediated dispute resolution**: a mutually-festered pair
+  (relationship ≤ -0.6 both ways) gets a rare resolution moment
+  (`llm/dispute.py`): reconcile / hardened feud / council ruling (only
+  if a council exists), each with real effects — relationships/trust
+  move, memories are left, traits nudge (`Population.apply_dispute`,
+  per-pair cooldown ~31 sim-days).
+- **Named geography**: once the settlement is named, its river and each
+  lake earn permanent LLM-authored names, one per month
+  (`llm/geography.py`, `Settlement.place_names`) — consumed by the
+  chronicle prompt, the lake summary/`river_name`, and the UI's
+  Geography tile.
+- **Written artifacts**: a dying villager with a full-enough life
+  (≥4 memories) leaves a letter — existence decided synchronously at
+  death, text LLM-authored from their own memories/belief
+  (`llm/artifacts.py`, `Settlement.records`, capped 40). Records feed
+  the yearly documentary prompt ("words the departed left behind"),
+  the first grieving relative keeps the letter as a memory, and a
+  Written Records panel shows them in the UI.
+- **Seasonal wildlife migration**: grazer reproduction now follows the
+  calendar (winter 0.3x, spring 1.3x), cold-season herds can drift off
+  the map entirely (`wildlife_migrated` events), and the spring
+  recolonization surge (3x) brings them back — a yearly
+  departure-and-return cycle, not a static backdrop.
+- **Multi-good market pricing**: while a MARKET stands, monthly
+  per-good price multipliers derive from real scarcity
+  (`tick_market_prices`, 0.5x–2.0x, smoothed): overflow food/materials
+  sales earn the current price and emergency famine rations cost it.
+  No market -> flat 1.0x (no price discovery).
+
+### Added — UI
+
+- **Graveyard/memorials**: every death leaves a small grey cross on the
+  map where it happened (`Settlement.memorials`, capped 150, persisted
+  and broadcast) — hover a tile to read who rests there; the tile
+  inspector lists name/cause/tick.
+- **Building & tile click-inspector**: parity with the NPC inspector —
+  click a building (kind, stage, condition, owner by name, stores,
+  who's inside) or any bare tile (biome, resource node fullness, field
+  state, path wear, graves).
+- **Event-log filter chips**: all/people/town/nature/mind, display-only
+  filtering over the existing categorized log.
+- **Zoom/pan + minimap**: wheel-zoom around the cursor (1x–8x), drag to
+  pan, and a corner minimap with a viewport rectangle (click to jump)
+  that appears once zoomed — at 1x everything renders exactly as
+  before.
+- **Follow-agent camera + movement trails**: a "follow on map" button
+  in the NPC inspector keeps that agent centered (auto-zooms to 3x)
+  and draws their recent path as a fading trail; manual pan or their
+  death releases the camera.
+- **Timeline v2 — render the past map**: scrubbing the timeline now
+  *shows* the world as it was — full past terrain (floods/
+  deforestation/climate drift included, since snapshots carry
+  terrain), buildings, agents, farms, and memorials — with a
+  "return to live" banner. `GET /snapshots/{tick}` gained an on-demand
+  `map` payload.
+
+### Removed / decided
+
+- `tests/` deleted entirely (explicit user decision; the suite was
+  already unused per the standing workflow rule).
+- WebSocket delta payloads: deliberately NOT implemented — the backlog
+  item's own condition ("only if bandwidth ever measured as a
+  problem") remains unmet.
+
 ## [0.63.0] — Full audit: six bug fixes, idle-CPU/memory optimizations, docs cleanup
 
 An extensive whole-codebase audit (bugs, memory, performance, long-term

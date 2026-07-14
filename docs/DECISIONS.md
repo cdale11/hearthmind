@@ -5445,3 +5445,86 @@ tiles, runtime config fields all preserved). No real Ollama/browser in
 this environment — the standing caveat applies: the swap-pressure
 reduction from the concurrency-default fix can only be confirmed by
 the user's own live diagnostics.
+
+## The whole audit backlog in one batch (v0.64.0)
+
+Explicit user directive on the v0.63.0 report's open questions: delete
+`tests/` (done — the suite was already unused per the standing workflow
+rule), keep the idle-broadcast optimization as shipped, and take the
+audit's entire suggested backlog — all seven emergence items and all
+six implementable UI items — "one by one and finish it."
+
+### Design decisions worth recording
+
+- **Stage 3 institution beliefs coexist with mirroring.** `sync_family_/
+  council_/guild_beliefs` (the mirroring path) is untouched; the new
+  monthly formation job writes into the same `Institution.beliefs`
+  store with an `origin: "own"` marker. One institution per month
+  (namespaced-RNG pick among those with living members) — group
+  theories accumulate at a deliberate pace, and the existing consumers
+  needed zero changes. Group theories are allowed to contradict the
+  settlement's own — the objective/subjective split applied one scale
+  down, per the standing design priorities.
+- **Deliberate founding is a *decision*, not a lower threshold.** The
+  candidacy conditions (2 masters, ambitious founder) only put the
+  question to the LLM; "found": false is a valid, quiet outcome. The
+  fallback founds only above a higher ambition bar (0.4 vs. 0.3
+  candidacy) so deterministic runs get occasional early guilds, not
+  automatic ones. `found_guild` re-validates at apply time — the
+  automatic 3-master path may have fired while the decision was in
+  flight.
+- **Disputes require *mutual* festering** (both directions ≤ -0.6) —
+  one-sided resentment isn't a feud, and dialogue's asymmetric nudges
+  make one-sided cases common. No colocation requirement (a feud
+  simmers regardless of where either stands), per-pair cooldown ~31
+  sim-days, backpressure checked *before* pair selection so a saturated
+  queue can't burn a cooldown on an unscheduled job. `council_ruling`
+  from the model degrades to `feud` when no council exists.
+- **A record's existence is objective; its text is interpretive.**
+  Death (deterministic engine) decides a letter exists (≥4 memories);
+  the LLM authors its text in the background. Under backpressure the
+  fallback authors it *immediately* rather than dropping the job — a
+  death is unrepeatable, unlike the monthly jobs a skip merely delays.
+  Records feed the documentary prompt and leave the letter with the
+  first grieving relative — memory beyond the 8-entry cap, exactly the
+  roadmap's ask.
+- **Market pricing is deterministic** (objective economics, engine's
+  domain — same reasoning as the caravan exchange itself): monthly
+  price = smoothed drift toward `2.0 - 1.5 x fill` per good, bounded
+  [0.5, 2.0], reset to flat with no standing MARKET (informal barter
+  has no price discovery). Consumed at overflow sales and emergency
+  rations — scarcity now cuts both ways.
+- **Seasonal migration balances leave and return**: cold-season
+  migrate-away chances are sized against the spring 3x recolonize
+  surge so the cycle reads as departure-and-return, not slow
+  extinction; verified over a 4,000-tick synthetic winter (herds do
+  leave) with the existing recolonize floor unchanged.
+- **Timeline v2 renders real past terrain.** Snapshots already carry
+  the full terrain, so the scrub view shows floods/deforestation/
+  climate drift as they were — the `map` payload is built on demand
+  for the one scrubbed tick only, never part of the per-tick payload.
+- **Zoom/pan is invisible at 1x.** One canvas transform wraps the whole
+  live layer; scale 1 renders pixel-identical to the old UI, the
+  minimap only appears once zoomed, and the weather overlay stays
+  screen-space. Hover/click coordinates go through the same transform
+  (`screenToGrid`), and a >4px drag suppresses the click that ends it.
+- **WS delta payloads deliberately not implemented** — the item's own
+  guard ("only if bandwidth ever measured as a problem") is unmet.
+
+### Verification
+
+47-check ad-hoc script (`backlog_verify.py`): unit-level coverage of
+every new mechanic (pricing bounds/reset, memorial/record caps, all
+three dispute outcomes + one-sided/cooldown/dead-party edges,
+deliberate-founding candidacy/founding/no-op re-found, Stage 3
+formed/revised-with-history/cap, geography + artifacts parse/fallback,
+synthetic-winter migration) plus a real-engine month-boundary
+integration run with the LLM disabled (fallbacks resolve instantly):
+market prices ticked, a dispute resolved with memories left, a record
+written and stored, a memorial placed, an institution formed an own
+belief, geography named a feature, and the deliberate guild founding
+fired — followed by a full serialization round-trip of every new field
+and a 2,000-tick throughput check at 0.695ms/tick (no regression).
+`node -c` on app.js. Standing caveat: no real Ollama/browser in this
+environment — LLM-authored text quality and the visual rendering of
+memorials/zoom/minimap/ghost mode await the user's live run.

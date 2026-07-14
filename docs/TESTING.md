@@ -1,9 +1,9 @@
 # Verification workflow
 
-**Standing rule (see CLAUDE.md, "Workflow rules"): the automated unit
-test suite is not run and no new unit tests are added — it was deemed
-unreliable.** The `tests/` directory is retained as reference material
-only. Verification for every change is instead:
+**Standing rule (see CLAUDE.md, "Workflow rules"): no automated unit
+test suite is run and no unit tests are added — the old suite was
+deemed unreliable and was deleted entirely in v0.64.0 (explicit user
+decision).** Verification for every change is instead:
 
 1. **Ad-hoc verification scripts**, written per batch and run directly
    (a real `SimulationEngine` via `open_db()` +

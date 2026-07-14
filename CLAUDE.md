@@ -243,7 +243,7 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
-## Current state (v0.63.0)
+## Current state (v0.64.0)
 
 All original phases (A–F), Phase G, and the full Phase H program are
 shipped at least a v1: optional-determinism physical substrate
@@ -266,7 +266,24 @@ misclassification, uncapped medicine inheritance) and added idle
 broadcast skipping, biome-count caching, a teaching membership index,
 a predator-attack early-out, and `synchronous=NORMAL`.
 
-## Full audit (v0.63.0): backlog and recorded evaluations
+v0.64.0 shipped the audit's ENTIRE suggested backlog (explicit user
+directive): Stage 3 institution own-belief formation (`origin: "own"`,
+mirroring untouched), deliberate guild founding via LLM decision
+(`llm/founding.py`), LLM-mediated dispute resolution
+(`llm/dispute.py`, mutual ≤-0.6 festering, three outcomes with real
+effects), named geography (`llm/geography.py`,
+`Settlement.place_names`), written artifacts (`llm/artifacts.py`,
+`Settlement.records`, fed to documentary + heir memory), seasonal
+wildlife migration (leave-in-winter/return-in-spring), multi-good
+market pricing (`tick_market_prices`, deterministic, 0.5-2.0x), map
+memorials (`Settlement.memorials`), building/tile click-inspectors,
+event filter chips, zoom/pan + minimap, follow-agent camera + trails,
+and timeline v2 (renders the real past map from snapshots). `tests/`
+deleted per user decision; idle `/state` staleness approved by user.
+WS delta payloads remain deliberately unbuilt (own only-if-measured
+condition unmet).
+
+## Full audit (v0.63.0): recorded evaluations
 
 **C/C++ (or Rust/Cython) port: evaluated, recommended against.** The
 engine runs ~0.9ms/tick against a 1000ms budget; the bottleneck is
@@ -278,44 +295,11 @@ maps), escalate in order: (1) spatial buckets for nearest-X scans,
 C/C++. Don't re-litigate from scratch; revisit only with a measured
 tick-time problem.
 
-**Open user decisions (asked in the v0.63.0 report, unanswered):**
-- Delete `tests/` entirely (unused per workflow rule) or keep as
-  reference? Currently kept, labeled reference-only.
-- Idle `/state` staleness: with no browser connected the payload
-  rebuilds every 10th tick (`IDLE_BROADCAST_EVERY_TICKS`) — fine, or
-  should it stay per-tick fresh?
-- Which backlog items below to prioritize next.
-
-**UI backlog (suggested, not committed):**
-- Building/terrain click-inspector (parity with the NPC inspector —
-  buildings currently only get a hover tooltip): construction history,
-  owner, stored food, condition trend.
-- Event-log filter chips by category (data already tagged).
-- Zoom/pan + minimap for 128x128-and-larger worlds (canvas is 1024px at
-  CELL=8; 256x256 would need it).
-- "Follow this agent" camera mode + optional movement trails.
-- Graveyard/memorial: deaths leave a small persistent map mark —
-  "history becomes physically visible" applied to people.
-- Timeline v2: render the past map (building/agent positions) from
-  stored snapshots, not just summary text.
-- WebSocket delta payloads (only if bandwidth ever measured as a
-  problem).
-
-**Emergence backlog (suggested, not committed):**
-- Institutions Stage 3: independent institution-level belief
-  *formation* (current: mirroring only) — the roadmap's own open item.
-- Deliberate institution founding via agent goal/LLM decision (all
-  three kinds currently form automatically).
-- LLM-mediated dispute resolution: when a rivalry crosses a threshold,
-  a rare job decides an outcome (reconciliation, feud, council ruling)
-  with mechanical effects.
-- Named geography: LLM names lakes/rivers/districts once the settlement
-  matures; names feed prompts/chronicles.
-- Written artifacts: agents leave letters/records that outlive them,
-  feeding documentary/inheritance (memory beyond the 8-entry cap).
-- Seasonal wildlife migration pressure.
-- Multi-good market pricing at the MARKET building (currently
-  caravan-terms only).
+**User decisions resolved (v0.64.0):** `tests/` deleted; idle `/state`
+staleness (rebuild every 10th tick with no clients) approved; the
+entire UI + emergence backlog was ordered built and shipped in v0.64.0
+(see "Current state") — the only surviving deferral is WebSocket delta
+payloads, whose own only-if-bandwidth-measured condition is unmet.
 
 **Ollama levers (user-side, recorded):** `OLLAMA_MAX_LOADED_MODELS=1`,
 `OLLAMA_NUM_PARALLEL=2`, `OLLAMA_KEEP_ALIVE=3m` (README section);
@@ -379,6 +363,6 @@ remain in the decision log:
 - **True frame-by-frame replay** — timeline v1 shows per-snapshot
   summaries only; keyframes are already preserved for a future full
   replay.
-- Institutions Stage 3 + deliberate founding (see audit backlog).
-- Everything else once listed as "not yet built" has shipped — see
-  docs/ROADMAP.md for the per-item accounting.
+- Everything else once listed as "not yet built" has shipped —
+  including Institutions Stage 3 and deliberate founding (v0.64.0) —
+  see docs/ROADMAP.md for the per-item accounting.

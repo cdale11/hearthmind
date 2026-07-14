@@ -303,6 +303,103 @@ def push_belief_history(entry: dict, tick: int) -> None:
         del history[: len(history) - BELIEF_HISTORY_MAX]
 
 
+INSTITUTION_SYSTEM_PROMPT = (
+    "You are the private, shared understanding of one small group inside "
+    "a simulated village — a family, a council of elders, or a trade "
+    "guild — not the village at large and not an outside narrator. Given "
+    "who belongs to it and what has been happening, either sharpen/revise "
+    "one theory the group already holds, or form one new theory from the "
+    "group's own narrow point of view (its members, its trade, its "
+    "standing, its worries). Group theories are not guaranteed correct "
+    "and may contradict what the wider village believes — that is "
+    "expected, not an error. "
+    'Respond with strict JSON only, no other text: {"subject": "short '
+    'label", "belief": "one sentence, under 30 words, stated as the '
+    'group\'s own belief", "confidence": 0.0-1.0, "revises": integer '
+    "index of an existing theory this replaces, or null for a new one}."
+)
+"""Institutions Stage 3 (v0.64.0 audit-backlog item): institutions now
+*form* beliefs of their own, not only receive mirrored copies of
+settlement-wide ones (`sync_family_/council_/guild_beliefs` below stay
+untouched as the mirroring path). One institution per month gets its
+own formation/revision job (`SimulationEngine._maybe_schedule_
+institution_belief`) — its beliefs land in the same `Institution.
+beliefs` list the existing consumers already read (council beliefs ->
+town-brain prompt, family beliefs -> dialogue context), capped at the
+same INSTITUTION_BELIEF_CAP. A group's own theory is allowed to
+contradict the village's — the objective/subjective split, one scale
+down."""
+
+
+def build_institution_prompt(
+    kind_label: str, member_names: list[str], existing_beliefs: list[dict], recent_events: list[dict],
+) -> str:
+    """Mirrors `build_prompt`'s enumerated-theories shape at group
+    scale. Same deliberate no-ground-truth-stats rule: a group's theory
+    forms from what it has seen narrated, so it can drift or stay wrong
+    until events correct it."""
+    lines = [f"- {event['description']}" for event in recent_events]
+    events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
+    if existing_beliefs:
+        beliefs_text = "\n".join(
+            f"  [{i}] (confidence {b['confidence']:.2f}) {b['subject']}: {b['belief']}"
+            for i, b in enumerate(existing_beliefs)
+        )
+    else:
+        beliefs_text = "  (none yet — this would be the group's first theory of its own)"
+    members = ", ".join(member_names[:6]) if member_names else "nobody still living"
+    return (
+        f"The group: {kind_label}. Its living members: {members}.\n"
+        f"What has been happening around them lately:\n{events_text}\n"
+        f"Theories the group already holds:\n{beliefs_text}\n"
+        "Form or revise one theory of the group's own."
+    )
+
+
+def fallback_institution_belief(kind_label: str, recent_events: list[dict]) -> dict:
+    """Same most-common-category shape as `fallback_belief`, framed from
+    the group's own vantage."""
+    counts: dict[str, int] = {}
+    for event in recent_events:
+        counts[event["category"]] = counts.get(event["category"], 0) + 1
+    if counts:
+        top_category = max(counts, key=lambda c: counts[c])
+        subject = top_category.replace("_", " ")
+        belief = f"The {kind_label} has taken note of the recent run of {subject}-related happenings."
+    else:
+        subject = "the quiet"
+        belief = f"The {kind_label} expects the current quiet to hold."
+    return {"subject": subject, "belief": belief, "confidence": 0.4, "revises": None}
+
+
+def apply_institution_belief(institution: Institution, parsed: dict, tick: int) -> str:
+    """Write a formed/revised own-belief into `institution.beliefs` —
+    same revise-by-subject-identity + cap/eviction shape the settlement-
+    level apply uses, shared here so engine code stays thin. Returns
+    "formed" or "revised" for event logging. Entries carry
+    `"origin": "own"` so a mirrored copy (which lacks the key) remains
+    distinguishable from a theory the group formed itself."""
+    revises = parsed["revises"]
+    if revises is None:
+        revises = find_belief_index_by_subject(parsed["subject"], institution.beliefs)
+    if revises is not None and revises < len(institution.beliefs):
+        entry = institution.beliefs[revises]
+        push_belief_history(entry, tick)
+        entry.update({
+            "subject": parsed["subject"], "belief": parsed["belief"],
+            "confidence": parsed["confidence"], "tick": tick, "origin": "own",
+        })
+        return "revised"
+    institution.beliefs.append({
+        "subject": parsed["subject"], "belief": parsed["belief"],
+        "confidence": parsed["confidence"], "tick": tick, "origin": "own",
+    })
+    if len(institution.beliefs) > INSTITUTION_BELIEF_CAP:
+        weakest = min(institution.beliefs, key=lambda b: b.get("confidence", 0.0))
+        institution.beliefs.remove(weakest)
+    return "formed"
+
+
 def sync_family_beliefs(entry: dict, institutions: list[Institution]) -> None:
     """H2/H3 crossover: when a settlement-wide belief resolves to a
     living family (`entry["subject_family_agent_ids"]`, from

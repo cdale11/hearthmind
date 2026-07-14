@@ -23,14 +23,22 @@ SYSTEM_PROMPT = (
 
 def build_prompt(
     settlement_name: str, era: str, year: int, milestones: list[dict],
-    population_summary: dict, temperament: float,
+    population_summary: dict, temperament: float, records: list[dict] | None = None,
 ) -> str:
     lines = [f"- {event['description']}" for event in milestones]
     events_text = "\n".join(lines) if lines else "A quiet year — nothing rose to the level of history."
+    records_text = ""
+    if records:
+        # Written artifacts (v0.64.0): the dead speak in their own words
+        # — a documentary quoting the letters people left behind is
+        # exactly the "memory that outlives its author" payoff.
+        records_text = "\nWords the departed left behind:\n" + "\n".join(
+            f'- {r["author"]} wrote: "{r["text"]}"' for r in records
+        )
     return (
         f"The village of {settlement_name or 'an unnamed settlement'} ({era} era), "
         f"year {year}. Population now {population_summary.get('total', 0)}.\n"
-        f"This year's milestones:\n{events_text}\n"
+        f"This year's milestones:\n{events_text}{records_text}\n"
         "Narrate this year for a documentary."
     )
 

@@ -357,6 +357,46 @@ immediately reproduction-eligible rather than waiting out
 MATURITY_TICKS) when the population is critically low. See
 docs/DECISIONS.md, "population recovery" pass."""
 
+RECORD_MIN_MEMORIES = 4
+"""Written artifacts (v0.64.0 audit-backlog item): a dying agent leaves
+a letter/record behind only when they had at least this many memories —
+a life with enough in it to be worth writing down. Half the memory cap
+(MAX_AGENT_MEMORIES=8), so a mid-length life qualifies but a newborn or
+a barely-arrived migrant doesn't."""
+
+DISPUTE_RELATIONSHIP_THRESHOLD = -0.6
+"""A pair whose mutual relationship has soured to or below this (well
+past RIVALRY_THRESHOLD's -0.4) is eligible for a rare LLM-mediated
+dispute-resolution moment — see Population.due_for_dispute,
+SimulationEngine._maybe_schedule_dispute. Deep enough that ordinary
+tense patches never trigger it; a feud has to have genuinely festered."""
+
+DISPUTE_COOLDOWN_TICKS = 3000
+"""Minimum ticks between two dispute-resolution moments for the same
+pair (~31 sim-days at default pacing) — a resolution is a rare, notable
+event, not a recurring mechanic; an outcome needs time to settle (or
+fester again) before the question can reopen."""
+
+DISPUTE_RECONCILE_RELATIONSHIP = 0.1
+DISPUTE_TRUCE_RELATIONSHIP = -0.1
+DISPUTE_FEUD_DEEPEN = -0.2
+DISPUTE_TRUST_DELTA = 0.1
+"""Mechanical teeth for the three dispute outcomes (apply_dispute):
+reconciliation resets the pair to mildly-warm and rebuilds a little
+trust; a council ruling forces a cool truce without warmth (the feud is
+suppressed, not resolved); a feud deepens the rivalry toward -1 and
+costs trust both ways."""
+
+DELIBERATE_GUILD_MIN_MASTERS = 2
+DELIBERATE_GUILD_FOUNDER_AMBITION = 0.3
+"""Deliberate institution founding (v0.64.0 audit-backlog item): an
+ambitious master may push a guild into existence at only this many
+living masters — below GUILD_FORMATION_MASTER_COUNT's automatic 3 —
+via an LLM decision (SimulationEngine._maybe_schedule_guild_founding).
+The founder must personally clear the ambition bar
+(TRAIT_NOTABLE_THRESHOLD's magnitude class): founding early is an act
+of individual drive, not a census threshold."""
+
 MAX_DIALOGUES_PER_TICK = 3
 """Caps how many LLM-authored dialogue exchanges are scheduled in a
 single tick regardless of how many colocated pairs qualify — keeps LLM
@@ -541,6 +581,18 @@ class Population:
     `Settlement` through a method that otherwise doesn't need one; not
     itself persisted, since it's fully derived and recomputed on the next
     tick regardless."""
+    dispute_cooldowns: dict[tuple[int, int], int] = field(default_factory=dict)
+    """(agent_id, agent_id) sorted pair -> tick of their last dispute-
+    resolution moment — same shape/pruning as dialogue_cooldowns. See
+    due_for_dispute."""
+    last_written_records: list[dict] = field(default_factory=list, compare=False)
+    """Written-artifact candidates from THIS tick's deaths (`{author,
+    memories, belief}` for each dying agent with RECORD_MIN_MEMORIES+
+    memories) — computed fresh every tick like last_triggered_agent_ids,
+    consumed by SimulationEngine._maybe_schedule_record the same tick,
+    never serialized. The record's *existence* is objective (set here,
+    synchronously); its text is interpretive, so the LLM (or fallback)
+    authors it in the background."""
     last_triggered_agent_ids: set[int] = field(default_factory=set, compare=False)
     """Agent ids whose circumstances changed sharply enough *this tick*
     to warrant an immediate goal reevaluation rather than waiting for
@@ -668,6 +720,7 @@ class Population:
         food_positions = (self.ready_farm_positions(farms), self.stocked_granary_positions(settlement))
         repair_positions = self.damaged_building_positions(settlement)
         self.last_triggered_agent_ids = set()
+        self.last_written_records = []
         for agent in self.agents:
             agent.age_ticks += 1
             self._update_needs(agent, weather_harsh, settlement, night_factor, crowded)
@@ -755,7 +808,7 @@ class Population:
         life_events.extend(
             self._maybe_reproduce(by_position, rng, self.last_carrying_capacity, settlement, tick)
         )
-        life_events.extend(self._apply_deaths(killed_by_predator, settlement, died_of_disease))
+        life_events.extend(self._apply_deaths(killed_by_predator, settlement, died_of_disease, tick=tick))
         life_events.extend(self._maybe_welcome_migrant(rng, settlement))
         life_events.extend(self._maybe_form_council(settlement, tick))
         life_events.extend(self._maybe_refresh_council(settlement))
@@ -1060,13 +1113,17 @@ class Population:
 
         # Last resort: buy emergency rations with settlement currency at a
         # standing granary (the village's trade post) — only reachable
-        # once nothing free is available. See D10.
+        # once nothing free is available. See D10. Famine food costs more
+        # when a MARKET has discovered a food price (tick_market_prices)
+        # — scarcity now cuts both ways for the buyer, not just the
+        # seller side of overflow sales.
+        ration_cost = CURRENCY_EMERGENCY_RATION_COST * settlement.market_price("food")
         if (
             granary is not None and granary.kind is BuildingKind.GRANARY
             and granary.stage is BuildingStage.STANDING
-            and settlement.currency >= CURRENCY_EMERGENCY_RATION_COST
+            and settlement.currency >= ration_cost
         ):
-            settlement.currency -= CURRENCY_EMERGENCY_RATION_COST
+            settlement.currency -= ration_cost
             agent.hunger = max(0.0, agent.hunger - CURRENCY_EMERGENCY_HUNGER_RELIEF)
 
     @staticmethod
@@ -1109,10 +1166,13 @@ class Population:
         gathered *= 1.0 + (agent.inventory.get("tools", 0.0) / TOOLS_CAPACITY) * GATHER_TOOLS_YIELD_BONUS
 
         # A full stockpile doesn't waste the surplus — it sells to an
-        # abstract outside economy instead (D10).
+        # abstract outside economy instead (D10). With a standing MARKET
+        # the sale fetches the current materials price (scarce materials
+        # sell high) rather than a flat rate — see tick_market_prices.
         if settlement.materials >= MATERIALS_CAPACITY:
             settlement.currency = min(
-                CURRENCY_CAPACITY, settlement.currency + gathered * CURRENCY_PER_OVERFLOW_UNIT
+                CURRENCY_CAPACITY,
+                settlement.currency + gathered * CURRENCY_PER_OVERFLOW_UNIT * settlement.market_price("materials"),
             )
             return True
         settlement.materials = min(MATERIALS_CAPACITY, settlement.materials + gathered)
@@ -1263,7 +1323,7 @@ class Population:
         """Worth-the-walk granaries: stocked, or empty but the settlement
         can afford emergency rations (D10) — a built granary is a known
         community landmark (D7), so no distance cap when targeted."""
-        can_buy_rations = settlement.currency >= CURRENCY_EMERGENCY_RATION_COST
+        can_buy_rations = settlement.currency >= CURRENCY_EMERGENCY_RATION_COST * settlement.market_price("food")
         return [
             (b.x, b.y) for b in settlement.buildings
             if b.kind is BuildingKind.GRANARY and b.stage is BuildingStage.STANDING
@@ -2165,8 +2225,11 @@ class Population:
                 continue
             deposit = GRANARY_DEPOSIT_PER_TICK * contributors * _tech_factor(settlement)
             if building.stored_food >= GRANARY_CAPACITY:
+                # Overflow food sells at the market's food price when one
+                # stands — see tick_market_prices.
                 settlement.currency = min(
-                    CURRENCY_CAPACITY, settlement.currency + deposit * CURRENCY_PER_OVERFLOW_UNIT
+                    CURRENCY_CAPACITY,
+                    settlement.currency + deposit * CURRENCY_PER_OVERFLOW_UNIT * settlement.market_price("food"),
                 )
                 continue
             building.stored_food = min(GRANARY_CAPACITY, building.stored_food + deposit)
@@ -2599,7 +2662,7 @@ class Population:
 
     def _apply_deaths(
         self, killed_by_predator: set[int] = frozenset(), settlement: Settlement | None = None,
-        died_of_disease: set[int] = frozenset(),
+        died_of_disease: set[int] = frozenset(), tick: int = 0,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         # Resilience-minded traditions soften (never erase) grief's
@@ -2628,9 +2691,11 @@ class Population:
                 # event was appended there so the description could
                 # reference the specific attack) — just count it here.
                 self.deaths_predator += 1
+                cause = "killed by predators"
             elif agent.id in died_of_disease:
                 life_events.append(("death", f"{agent.name} died of illness."))
                 self.deaths_disease += 1
+                cause = "died of illness"
             # Same resilience-adjusted threshold the dying_ids check above
             # used — audit fix: this arm previously compared against the
             # raw STARVATION_TICKS_TO_DEATH, so a fragile (negative-
@@ -2641,17 +2706,43 @@ class Population:
             elif agent.starving_ticks >= _starvation_threshold(agent):
                 life_events.append(("death", f"{agent.name} died of starvation."))
                 self.deaths_starvation += 1
+                cause = "died of starvation"
             else:
                 life_events.append(("death", f"{agent.name} died of old age."))
                 self.deaths_old_age += 1
+                cause = "died of old age"
+            if settlement is not None:
+                # A grave mark where they fell — history becomes
+                # physically visible, applied to people. See
+                # SettlementInfrastructure.memorials.
+                settlement.add_memorial(agent.x, agent.y, agent.name, cause, tick)
+            left_record = len(agent.memories) >= RECORD_MIN_MEMORIES
+            if left_record:
+                # The letter's existence is an objective fact of this
+                # tick; its text is interpretive and gets authored by
+                # the LLM/fallback in the background — see
+                # last_written_records' docstring.
+                best_belief = (
+                    max(agent.beliefs, key=lambda b: b["confidence"])["belief"] if agent.beliefs else ""
+                )
+                self.last_written_records.append({
+                    "author": agent.name, "memories": list(agent.memories), "belief": best_belief,
+                })
             # Grief: a survivor bonded to the dying agent remembers them
             # and pays a real cost, not just a log line. See
             # docs/DECISIONS.md, relationship-memory pass.
+            record_kept = False
             for other in self.agents:
                 if other.id == agent.id or other.id in dying_ids:
                     continue
                 is_child = other.parents is not None and agent.id in other.parents
                 is_parent = agent.parents is not None and other.id in agent.parents
+                if left_record and not record_kept and (is_child or is_parent):
+                    # The physical letter stays with the first grieving
+                    # relative — memory that outlives the 8-entry cap,
+                    # since the record itself persists on the settlement.
+                    _remember(other, f"I keep the letter {agent.name} left behind.")
+                    record_kept = True
                 if is_child or is_parent:
                     # Family grief lands regardless of the numeric
                     # relationship value — a newborn's affinity with its
@@ -2942,6 +3033,130 @@ class Population:
             if step:
                 listener.relationships[subject.id] = max(-1.0, min(1.0, listener_view + step))
 
+    # --- disputes: rare LLM-mediated resolution of a festered feud (v0.64.0) ----
+
+    def due_for_dispute(self, tick: int, cooldown_ticks: int) -> tuple[Agent, Agent] | None:
+        """At most one deeply-soured pair per tick (mutual relationship
+        at or below DISPUTE_RELATIONSHIP_THRESHOLD, both alive, cooldown
+        expired) whose feud is ripe for a rare LLM-mediated resolution
+        moment — see SimulationEngine._maybe_schedule_dispute. Marks the
+        cooldown immediately, same convention as due_for_dialogue.
+        Colocation deliberately NOT required: a feud simmers regardless
+        of where either party happens to be standing."""
+        alive_ids = {a.id for a in self.agents}
+        prune_horizon = cooldown_ticks * 4
+        stale_keys = [
+            key for key, last in self.dispute_cooldowns.items()
+            if key[0] not in alive_ids or key[1] not in alive_ids or tick - last > prune_horizon
+        ]
+        for key in stale_keys:
+            del self.dispute_cooldowns[key]
+
+        by_id = {a.id: a for a in self.agents}
+        for agent in self.agents:
+            for other_id, value in agent.relationships.items():
+                if other_id <= agent.id or value > DISPUTE_RELATIONSHIP_THRESHOLD:
+                    continue  # each pair once (lower id first), and only genuinely festered feuds
+                other = by_id.get(other_id)
+                if other is None:
+                    continue
+                if other.relationships.get(agent.id, 0.0) > DISPUTE_RELATIONSHIP_THRESHOLD:
+                    continue  # the resentment must be mutual, not one-sided
+                key = (agent.id, other_id)
+                last = self.dispute_cooldowns.get(key, -cooldown_ticks)
+                if tick - last < cooldown_ticks:
+                    continue
+                self.dispute_cooldowns[key] = tick
+                return agent, other
+        return None
+
+    def apply_dispute(self, a_id: int, b_id: int, outcome: str) -> tuple[Agent, Agent] | None:
+        """Apply a resolved dispute outcome with real mechanical effects
+        (see the DISPUTE_* constants) — a no-op returning None if either
+        party has since died, same convention as apply_dialogue."""
+        agent_a, agent_b = self.get(a_id), self.get(b_id)
+        if agent_a is None or agent_b is None:
+            return None
+        pairs = ((agent_a, agent_b), (agent_b, agent_a))
+        if outcome == "reconcile":
+            for me, them in pairs:
+                me.relationships[them.id] = DISPUTE_RECONCILE_RELATIONSHIP
+                me.trust[them.id] = max(-1.0, min(1.0, me.trust.get(them.id, 0.0) + DISPUTE_TRUST_DELTA))
+                _remember(me, f"{them.name} and I made peace after our long feud.")
+                _nudge_trait(me, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
+        elif outcome == "council_ruling":
+            for me, them in pairs:
+                # A ruling suppresses the feud without warming it — a
+                # cool, enforced truce, not a reconciliation.
+                me.relationships[them.id] = DISPUTE_TRUCE_RELATIONSHIP
+                _remember(me, f"The council ruled on my dispute with {them.name}; we keep our distance now.")
+        else:  # feud — the default/worst outcome
+            for me, them in pairs:
+                me.relationships[them.id] = max(
+                    -1.0, me.relationships.get(them.id, 0.0) + DISPUTE_FEUD_DEEPEN
+                )
+                me.trust[them.id] = max(-1.0, min(1.0, me.trust.get(them.id, 0.0) - DISPUTE_TRUST_DELTA))
+                _remember(me, f"My feud with {them.name} has hardened for good.")
+                _nudge_trait(me, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
+        return agent_a, agent_b
+
+    # --- deliberate guild founding (v0.64.0) ------------------------------------
+
+    def deliberate_guild_candidate(self, settlement: Settlement) -> tuple[Agent, str, list[Agent]] | None:
+        """An ambitious master who might push a guild into existence
+        early — see DELIBERATE_GUILD_MIN_MASTERS. Returns (founder,
+        skill, current masters) for the first qualifying trade, or None.
+        Pure query; the founding itself only happens if the LLM decision
+        (or its fallback) says so — see found_guild."""
+        existing_skills = {
+            inst.name for inst in settlement.institutions if inst.kind is InstitutionKind.GUILD
+        }
+        for skill in (SKILL_FARMING, SKILL_CONSTRUCTION, SKILL_MEDICINE):
+            if skill in existing_skills:
+                continue
+            masters = [
+                a for a in self.agents if a.skills.get(skill, 0.0) >= GUILD_SKILL_MASTERY_THRESHOLD
+            ]
+            if not (DELIBERATE_GUILD_MIN_MASTERS <= len(masters) < GUILD_FORMATION_MASTER_COUNT):
+                continue  # 0-1 masters is nothing to organize; 3+ auto-forms anyway
+            founder = max(masters, key=lambda a: a.traits.get(TRAIT_AMBITION, 0.0))
+            if founder.traits.get(TRAIT_AMBITION, 0.0) < DELIBERATE_GUILD_FOUNDER_AMBITION:
+                continue
+            return founder, skill, masters
+        return None
+
+    def found_guild(self, settlement: Settlement, skill: str, founder_id: int, tick: int) -> tuple[str, str] | None:
+        """Actually found the guild a deliberate-founding decision
+        approved. Re-validates at apply time (the decision resolves
+        ticks later: the guild may have auto-formed meanwhile, or
+        masters may have died below the deliberate minimum). Returns the
+        life event, or None if founding is no longer valid."""
+        if any(
+            inst.kind is InstitutionKind.GUILD and inst.name == skill
+            for inst in settlement.institutions
+        ):
+            return None
+        masters = [a for a in self.agents if a.skills.get(skill, 0.0) >= GUILD_SKILL_MASTERY_THRESHOLD]
+        founder = self.get(founder_id)
+        if founder is None or len(masters) < DELIBERATE_GUILD_MIN_MASTERS:
+            return None
+        guild = Institution(
+            id=settlement.next_institution_id,
+            kind=InstitutionKind.GUILD,
+            founding_tick=tick,
+            member_agent_ids={a.id for a in masters},
+            name=skill,
+        )
+        settlement.next_institution_id += 1
+        settlement.institutions.append(guild)
+        _nudge_trait(founder, TRAIT_AMBITION, TRAIT_AMBITION_FOUNDING_NUDGE)
+        _remember(founder, f"I brought the {skill} guild into being.")
+        names = ", ".join(a.name for a in masters)
+        return (
+            "guild_formed",
+            f"At {founder.name}'s urging, a {skill} guild formed early: {names}.",
+        )
+
     # --- festivals (collective behaviour) ---------------------------------------
 
     def avg_hunger(self) -> float:
@@ -3110,6 +3325,9 @@ class Population:
             "dialogue_cooldowns": {
                 f"{a_id}:{b_id}": tick for (a_id, b_id), tick in self.dialogue_cooldowns.items()
             },
+            "dispute_cooldowns": {
+                f"{a_id}:{b_id}": tick for (a_id, b_id), tick in self.dispute_cooldowns.items()
+            },
             "cognition_trigger_cooldowns": dict(self.cognition_trigger_cooldowns),
         }
 
@@ -3120,6 +3338,10 @@ class Population:
         for key, tick in data.get("dialogue_cooldowns", {}).items():
             a_id, b_id = key.split(":")
             dialogue_cooldowns[(int(a_id), int(b_id))] = tick
+        dispute_cooldowns = {}
+        for key, tick in data.get("dispute_cooldowns", {}).items():
+            a_id, b_id = key.split(":")
+            dispute_cooldowns[(int(a_id), int(b_id))] = tick
         cognition_trigger_cooldowns = {
             int(agent_id): tick for agent_id, tick in data.get("cognition_trigger_cooldowns", {}).items()
         }
@@ -3133,5 +3355,6 @@ class Population:
             rumors_seeded_total=data.get("rumors_seeded_total", 0),
             rumor_listener_exposures_total=data.get("rumor_listener_exposures_total", 0),
             dialogue_cooldowns=dialogue_cooldowns,
+            dispute_cooldowns=dispute_cooldowns,
             cognition_trigger_cooldowns=cognition_trigger_cooldowns,
         )
