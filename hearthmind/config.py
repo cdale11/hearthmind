@@ -204,6 +204,25 @@ class Config:
     likely because Ollama's bundled ROCm build doesn't include gfx1103
     by default) — set it once GPU acceleration is confirmed working, if
     Ollama's own auto-detected layer count ever needs overriding."""
+    llm_num_thread: int | None = None
+    """Explicit `num_thread` sent in every call's `options` when set —
+    how many CPU threads Ollama devotes to a single inference call.
+    `None` leaves Ollama's own (often conservative, on CPU-only
+    hardware) thread heuristic in charge. This is the "maximize CPU,
+    minimize memory" lever this project had been missing: the tick
+    loop itself is nowhere near CPU-bound (~1ms against a 1000ms
+    budget — see docs/DECISIONS.md's C/C++-port evaluation), so idle
+    cores sit unused while the one thing that actually takes real
+    wall-clock time, an Ollama call, runs on however many threads
+    Ollama's heuristic picked. Pointing this at the machine's full
+    core count finishes each call faster, which shortens the window
+    its KV-cache allocation holds memory — WITHOUT adding a second
+    call's worth of concurrent KV cache the way raising
+    `llm_max_concurrent` would (that floor is untouched). `server.py`
+    defaults `--llm-num-thread` to `os.cpu_count()` rather than
+    leaving it unset, since "use every core available" is the right
+    default for a dedicated box running one Ollama instance for one
+    simulation."""
 
     # --- runtime: Phase G (subtle supernatural layer), on by default -----------
     phase_g_intensity: float = 1.0

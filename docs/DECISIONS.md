@@ -5614,3 +5614,26 @@ replay frames with labels via a live FastAPI test client — plus CLI
 fresh/resume smoke runs and a throughput check: 1.196 ms/tick at 64x64
 (vs ~0.9 before; the added per-settlement loops cost ~0.3 ms against a
 1000 ms budget).
+
+## Maximize CPU, minimize memory: `llm_num_thread` (v0.65.1)
+
+Direct user instruction, read literally: the tick loop has nothing to
+gain from more CPU (already measured at ~1ms/tick against a 1000ms
+budget — see the standing C/C++-port evaluation, which concluded the
+same thing from the other direction: Python isn't the bottleneck,
+Ollama latency is). So "maximize CPU" only makes sense applied to the
+one CPU-bound thing in the system: an Ollama inference call. Ollama's
+own thread-count default on CPU-only hardware is conservative, leaving
+cores idle mid-call. `num_thread` (per-call `options` field, same
+plumbing as `num_gpu`/`use_mmap`) tells it to use every core instead —
+finishing the call faster, which is a *time* win that becomes a
+*memory* win: the call's KV-cache allocation is held for less wall-
+clock time. This is categorically different from `llm_max_concurrent`
+(which trades memory for more simultaneous calls) — `num_thread` adds
+no concurrent KV-cache buffer, it just does the one call's existing
+work faster. Genuinely free, so `server.py` defaults it to
+`os.cpu_count()` (unlike every other optional `OllamaClient` field,
+which defaults to "don't touch it"); `Config`'s own dataclass default
+stays `None` since `os.cpu_count()` isn't a valid static dataclass
+default and library callers (`experiment.py`, tests) shouldn't have an
+opinion imposed on them.

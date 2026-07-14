@@ -349,6 +349,7 @@ class SimulationEngine:
                 host=config.llm_host, model=config.llm_model, timeout_seconds=config.llm_timeout_seconds,
                 num_ctx=config.llm_num_ctx, num_predict=config.llm_num_predict,
                 keep_alive=config.llm_keep_alive, use_mmap=config.llm_use_mmap, num_gpu=config.llm_num_gpu,
+                num_thread=config.llm_num_thread,
             )
         self._cognition_runner = CognitionRunner(client=client, max_concurrent=config.llm_max_concurrent)
         self._backpressure_limit = config.llm_max_concurrent * BACKPRESSURE_BACKLOG_PER_SLOT

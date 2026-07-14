@@ -58,6 +58,18 @@ class OllamaClient:
     place; this project has no standing opinion on GPU layer count the
     way it does on mmap/ctx/predict, since it depends entirely on
     hardware Ollama may or may not recognize."""
+    num_thread: int | None = None
+    """Explicit `num_thread` request option (see Config.llm_num_thread) —
+    how many CPU threads Ollama uses for this single inference call.
+    Unlike `llm_max_concurrent` (which trades memory for richness and
+    is a hard floor), this is a pure "use the CPU you already have"
+    lever: on CPU-only hardware, Ollama defaults to a conservative
+    thread count, leaving cores idle while a call runs. Pointing it at
+    the machine's full core count makes each call finish faster —
+    shortening the window its KV-cache allocation holds memory,
+    without adding a second concurrent call's worth of KV cache the
+    way raising `llm_max_concurrent` would. `None` (the default) omits
+    it, leaving Ollama's own heuristic in charge."""
 
     def generate_json(self, prompt: str, system: str | None = None) -> dict:
         """Blocking call — issue one generate request and parse the
@@ -73,6 +85,8 @@ class OllamaClient:
             options["use_mmap"] = self.use_mmap
         if self.num_gpu is not None:
             options["num_gpu"] = self.num_gpu
+        if self.num_thread is not None:
+            options["num_thread"] = self.num_thread
         payload = {
             "model": self.model,
             "prompt": prompt,

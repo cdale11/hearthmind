@@ -4,6 +4,31 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.65.1] — Maximize CPU, minimize memory: an unused Ollama thread lever
+
+Direct response to "maximize cpu usage and minimize memory usage."
+The tick loop itself has no CPU lever to pull (already ~1ms against a
+1000ms budget); the free trade was on the Ollama side.
+
+### Added
+- **`Config.llm_num_thread` / `--llm-num-thread`**: how many CPU
+  threads Ollama devotes to a single inference call, sent as the
+  request's `num_thread` option (`OllamaClient`, `SimulationEngine`,
+  and the one-time genesis call in `server.py` all wired). Defaults to
+  `os.cpu_count()` at the CLI (every core on the machine) — `Config`'s
+  own default stays `None` (defer to Ollama), matching the "don't
+  touch it without reason" convention `num_gpu` already set. This is
+  distinct from `llm_max_concurrent`: more threads per call finishes
+  that call faster, shrinking the window its KV-cache allocation holds
+  memory, without adding a second call's worth of concurrent KV cache
+  the way raising concurrency would — CPU utilization goes up, peak
+  memory does not. Pass `--llm-num-thread 0` to opt back out.
+
+### Verification
+Confirmed `num_thread` reaches the actual Ollama request payload via a
+mocked `urlopen` call; `--help` shows the CLI default resolving to this
+machine's real core count (4); full compile check.
+
 ## [0.65.0] — Multiple named settlements, agent-pathed construction, true replay, memory-spike fix
 
 The three remaining "Known architectural gaps" from CLAUDE.md, plus a

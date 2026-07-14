@@ -10,6 +10,7 @@ import argparse
 import asyncio
 import dataclasses
 import logging
+import os
 import random
 import signal
 
@@ -58,6 +59,13 @@ def parse_args(argv: list[str] | None = None) -> Config:
                          help="Seconds before an LLM call falls back.")
     parser.add_argument("--llm-max-concurrent", type=int, default=Config.llm_max_concurrent,
                          help="Max simultaneous in-flight LLM requests.")
+    parser.add_argument("--llm-num-thread", type=int, default=os.cpu_count() or 4,
+                         help="CPU threads Ollama devotes to a single inference call. Defaults to every "
+                              "core on this machine — finishes each call faster without adding memory, "
+                              "unlike raising --llm-max-concurrent (Config.llm_num_thread's own default "
+                              "is None, i.e. defer to Ollama; this CLI entry point picks a smarter "
+                              "runtime default since os.cpu_count() can't be a dataclass default). Pass "
+                              "0 to leave Ollama's own heuristic in charge instead.")
     parser.add_argument("--api-disabled", action="store_true",
                          help="Disable the browser interface (on by default; requires 'fastapi'/'uvicorn' — "
                               "run without them installed and this is disabled automatically with a warning).")
@@ -85,6 +93,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         llm_model=args.llm_model,
         llm_timeout_seconds=args.llm_timeout,
         llm_max_concurrent=args.llm_max_concurrent,
+        llm_num_thread=args.llm_num_thread or None,
         api_enabled=not args.api_disabled,
         api_host=args.api_host,
         api_port=args.api_port,
@@ -106,6 +115,7 @@ async def _resolve_genesis_seed(config: Config) -> tuple[int, str]:
                 host=config.llm_host, model=config.llm_model, timeout_seconds=config.llm_timeout_seconds,
                 num_ctx=config.llm_num_ctx, num_predict=config.llm_num_predict,
                 keep_alive=config.llm_keep_alive, use_mmap=config.llm_use_mmap, num_gpu=config.llm_num_gpu,
+                num_thread=config.llm_num_thread,
             )
             result = await asyncio.wait_for(
                 asyncio.to_thread(client.generate_json, world_genesis.build_prompt(), world_genesis.SYSTEM_PROMPT),

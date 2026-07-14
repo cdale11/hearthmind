@@ -275,6 +275,23 @@ them one at a time instead of side by side, so the second waits ~17-20s
 longer. Richness (which calls get made) is unchanged; only burst
 latency degrades. That trade is yours to judge from a live run.
 
+### Use more CPU, not more memory (`--llm-num-thread`, v0.65.0)
+
+The engine's own tick loop is nowhere near CPU-bound — ~0.9-1.2ms
+against a 1000ms-per-tick budget (see `docs/DECISIONS.md`'s C/C++-port
+evaluation) — so "maximize CPU usage" has no lever on the Python side;
+burning more CPU there would buy nothing. The real CPU-bound work is
+each Ollama inference call, and on CPU-only hardware Ollama's default
+thread count is often conservative, leaving cores idle mid-call. This
+is a genuinely *free* trade against memory: `--llm-num-thread` (default
+`os.cpu_count()`, i.e. every core on the machine) tells Ollama to use
+all available cores for a single call, finishing it faster — which
+shortens the window that call's KV-cache allocation actually holds
+memory. Unlike raising `--llm-max-concurrent`, this adds zero
+concurrent KV-cache buffers; it just does the same work faster. Pass
+`--llm-num-thread 0` to leave Ollama's own heuristic in charge instead
+(e.g. if something else on the machine also needs CPU headroom).
+
 **Diagnosing before changing anything:** as of v0.65.0,
 `GET /diagnostics` (and the browser dev console) includes a
 `system_memory` section attributing memory live — Hearthmind's own
