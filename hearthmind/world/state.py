@@ -191,13 +191,22 @@ class World:
         self.newly_named_settlement_ids = []
         for stl in self.settlements:
             settlement_events += stl.tick(weather=self.weather, season=self.clock.season)
-            if not stl.name and any(b.stage is BuildingStage.STANDING for b in stl.buildings):
+            has_standing_building = any(b.stage is BuildingStage.STANDING for b in stl.buildings)
+            if not stl.name and has_standing_building:
                 rng = _namespaced_rng(
                     self.config.seed, self.clock.tick_count, f"settlement_naming_{stl.id}",
                 )
                 stl.name = generate_settlement_name(rng)
                 noun = "The village" if stl.id == 0 else "The new settlement"
                 settlement_events.append(("settlement_named", f"{noun} was named {stl.name}."))
+            # Queue the background LLM naming job whenever a settlement
+            # has a placeholder it hasn't gotten a real name for yet —
+            # not just the one tick the placeholder is first assigned.
+            # A resumed world already has `stl.name` truthy (the
+            # placeholder was persisted), so gating this solely on
+            # "name just got set" left it permanently un-renameable
+            # after any restart (v0.68.0 fix, see `llm_named`).
+            if stl.name and not stl.llm_named and has_standing_building:
                 self.newly_named_settlement_ids.append(stl.id)
         night = compute_night_factor(
             hour_of_day=self.clock.minute_of_day / 60.0, month_name=self.clock.month_name,

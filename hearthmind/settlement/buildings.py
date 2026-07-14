@@ -367,6 +367,19 @@ building kinds available; both represent genuine progress past that
 baseline (renamed from `_ERA_UNLOCKS_FACTORY` when POWER_PLANT started
 sharing the same gate — integration milestone)."""
 
+ERA_UNLOCKS_MOUNTAIN_BUILDING = frozenset({"electrical", "modern", "digital"})
+"""Mining/tunneling technology past `industrial` lets a settlement stake
+construction sites on MOUNTAIN terrain and lets its agents actually walk
+onto it (`Population._choose_build_site`, `_dispatch_movement`'s
+mountain_unlocked threading into `_step_toward`/`_bfs_step`) — before
+this era, MOUNTAIN/SNOWCAP stay outside `WALKABLE_BIOMES` entirely, a
+hard, unconditional barrier at every era (v0.68.0 fix for a live report
+that geography never interacted with tech level at all). Same gate as
+FACTORY/POWER_PLANT (`_ERA_UNLOCKS_ELECTRICAL`) — reused conceptually,
+not the same object, since this one is consumed by `agents/population.py`
+and importing a private name across modules is worse than one more
+frozenset literal."""
+
 ERA_UNLOCKS_AUTOMOBILE = frozenset({"modern", "digital"})
 """The AUTOMOBILE vehicle kind (settlement/vehicles.py) is foundable
 from `modern` onward — carts and mounts stay realistic transport at
@@ -682,11 +695,18 @@ mechanical function (previously it was a pure materials sink with no
 effect; the July 2026 review's "huts do nothing" finding). Total
 housing = standing huts x this, plus CAMP_TOLERANCE below."""
 
-CAMP_TOLERANCE = 12
+CAMP_TOLERANCE = 18
 """People a settlement absorbs comfortably with no housing at all — a
-founding party camps fine (sized to the default initial_population), so
-crowding pressure only begins once the population has genuinely
-outgrown tents. See Population.tick's crowding computation."""
+founding party camps fine, so crowding pressure only begins once the
+population has genuinely outgrown tents. Deliberately kept above
+`Config.initial_population` (12): `carrying_capacity`'s multiplier
+starts below 1.0 for an immature founding party (all agents start at
+age_ticks=0 in `_generate_founders`, so `labor_term` is negative until
+MATURITY_TICKS), which combined with a tolerance exactly equal to the
+founding size left zero reproduction headroom until the first HUT was
+built — a live report of "no births by tick 15000" traced to this
+(v0.68.0). See Population.tick's crowding computation and
+Population.carrying_capacity."""
 
 CROWDING_ENERGY_MULTIPLIER = 1.12
 """Awake energy-drain multiplier while the population exceeds total
@@ -1175,6 +1195,18 @@ class SettlementCulture:
     """The one-time "genesis" LLM call's founding-scenario sentence
     (hearthmind.llm.world_genesis) — the same text whose hash chose the
     world's seed. Empty when `--seed` was passed (genesis skipped)."""
+    llm_named: bool = False
+    """True once the background LLM naming job has actually resolved
+    (real or fallback) and replaced the deterministic placeholder — as
+    opposed to `bool(name)`, which goes true the instant the placeholder
+    itself is assigned. `SimulationEngine._maybe_schedule_naming` used to
+    key entirely off `not stl.name` to decide when to schedule that job,
+    which only ever fires the one tick the placeholder is first set; on
+    any resume `name` is already non-empty so the job silently never
+    (re)schedules and a village can be stuck on its placeholder forever
+    (v0.68.0 fix for a live "village never named" report). Persisted so
+    a resumed world can tell "never scheduled" apart from "already
+    proposed a real name"."""
     era: str = "industrial"
     """One of ERA_ORDER — advances purely as `tech_level` grows (see
     `era_for_tech_level`); gates FACTORY and (via vehicles) AUTOMOBILE."""
@@ -1304,7 +1336,7 @@ class Settlement:
         _next_vehicle_id: int = 0, education_level: float = 0.0,
         current_priority: str = "", priority_rationale: str = "",
         priority_history: list[dict] | None = None, player_influence: list[str] | None = None,
-        era: str = "industrial", founding_scenario: str = "", temperament: float = 0.0,
+        era: str = "industrial", founding_scenario: str = "", llm_named: bool = False, temperament: float = 0.0,
         beliefs: list[dict] | None = None, omen_history: list[dict] | None = None,
         player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
         institutions: list[Institution] | None = None, next_institution_id: int = 0,
@@ -1343,7 +1375,7 @@ class Settlement:
             market_prices=market_prices if market_prices is not None else {},
         )
         self.culture = SettlementCulture(
-            name=name, founding_scenario=founding_scenario, era=era, tech_level=tech_level,
+            name=name, founding_scenario=founding_scenario, llm_named=llm_named, era=era, tech_level=tech_level,
             traditions=traditions if traditions is not None else [],
             traditions_established=traditions_established,
             culture_effects=culture_effects if culture_effects is not None else {},
@@ -1464,6 +1496,14 @@ class Settlement:
     @founding_scenario.setter
     def founding_scenario(self, value: str) -> None:
         self.culture.founding_scenario = value
+
+    @property
+    def llm_named(self) -> bool:
+        return self.culture.llm_named
+
+    @llm_named.setter
+    def llm_named(self, value: bool) -> None:
+        self.culture.llm_named = value
 
     @property
     def era(self) -> str:
@@ -1920,6 +1960,7 @@ class Settlement:
             "era": self.era,
             "era_description": ERA_DESCRIPTIONS.get(self.era, ""),
             "founding_scenario": self.founding_scenario,
+            "llm_named": self.llm_named,
             "beliefs": list(self.beliefs),
             "temperament": round(self.temperament, 3),
             "omen_history": list(self.omen_history),
@@ -2024,6 +2065,7 @@ class Settlement:
             "player_influence": list(self.player_influence),
             "era": self.era,
             "founding_scenario": self.founding_scenario,
+            "llm_named": self.llm_named,
             "beliefs": list(self.beliefs),
             "temperament": round(self.temperament, 4),
             "omen_history": list(self.omen_history),
@@ -2064,6 +2106,7 @@ class Settlement:
             player_influence=list(data.get("player_influence", [])),
             era=data.get("era", "industrial"),
             founding_scenario=data.get("founding_scenario", ""),
+            llm_named=data.get("llm_named", False),
             beliefs=list(data.get("beliefs", [])),
             temperament=data.get("temperament", 0.0),
             omen_history=list(data.get("omen_history", [])),

@@ -5954,3 +5954,124 @@ occasionally reference a *different* settlement (echoing the existing
 within one) — deliberately small, since Phase G's standing rule is
 that this stays ambiguous and never escalates toward anything explicit;
 a bigger swing here needs its own careful pass, not a rushed addition.
+
+## Fixed: four live-report bugs — births, naming, disease, mountain geography (v0.68.0)
+
+Four symptoms reported from a real long-running world (year 2, tick
+~15000). Each investigated to root cause before fixing (per the
+standing "audit before continuing" rule), not patched on guesswork.
+
+**No births by tick 15000.** `carrying_capacity`'s multiplier starts
+below 1.0 for a freshly-founded settlement: founders start at
+`age_ticks=0` (`_generate_founders`), so until `MATURITY_TICKS` passes,
+`labor_term = (labor_fraction - 0.5) * CARRYING_CAPACITY_LABOR_WEIGHT`
+is negative (nobody is mature+healthy yet). `CAMP_TOLERANCE` — the
+housing-free baseline capacity — was set to exactly
+`Config.initial_population` (12 == 12), so this early negative
+multiplier pushed capacity *below* the founding population itself,
+and `_maybe_reproduce`'s `len(self.agents) >= total_capacity` gate
+blocked every birth from tick 0. Capacity does recover once agents
+mature (labor_term turns positive) and further once economy/knowledge
+terms kick in, but the margin stays thin without a standing HUT, and a
+run that's had bad luck on other terms (harsh weather, any sickness)
+can sit right at the cap indefinitely. Fix: raised `CAMP_TOLERANCE` to
+18 (`hearthmind/settlement/buildings.py`) so a founding party always
+has real headroom independent of the multiplier's early swings.
+Verified with a 20,000-tick engine run (real `SimulationEngine._tick_once`
+loop, not a bare `World.tick()` — see the note below): 216 births,
+population 12 -> 227.
+
+**Village never gets its LLM-proposed name.** `World.tick()` gives
+every settlement an instant deterministic placeholder the first tick a
+building stands, and a background LLM job is supposed to replace it
+with a better, context-aware name. `SimulationEngine._maybe_schedule_naming`
+keyed the *entire* scheduling decision off `World.newly_named_
+settlement_ids`, which was itself only ever populated inside the
+`if not stl.name` branch that assigns the placeholder — i.e. it only
+ever fires the one tick the placeholder is first set. On any resume,
+`stl.name` is already truthy (the placeholder was persisted in the
+snapshot), so that branch never runs again, the job is never
+(re)scheduled, and the settlement is stuck on its placeholder forever
+— a real, structural bug, not a rare corner case, since any
+long-running world under `hearthmind-server` is expected to restart
+occasionally. Fix: added a persisted `Settlement.llm_named` boolean
+(`SettlementCulture.llm_named`), set true only in the naming job's
+`apply()` callback once it actually resolves (real name or fallback —
+either is a genuine resolution). `World.tick()` now decouples
+"placeholder assignment" from "queue the LLM job": it queues the job
+whenever a settlement has a standing building, a name, and
+`not llm_named` — every tick, not just the one the placeholder was
+set — so a resumed world with an unresolved name gets it re-queued.
+`SimulationEngine._naming_scheduled_ids` (in-memory, per-process)
+still prevents re-scheduling within one run once the job is in flight.
+
+**Disease effectively invisible early game.** Not a bug in the sense of
+broken code — `Population._maybe_outbreak` is real, deterministic, and
+fully surfaced (`sick_count`/`immune_count`/`deaths_disease` in
+`summary()`, sick/immune rings in the UI, all live-wired, no stub).
+The problem is calibration: `OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK
+(1e-7) * len(agents)` gives roughly 1 case/year at population 200
+(the documented design target), but at a founding population of ~12
+that's ~1.2e-6/tick, an expected first case around tick ~830,000
+(~24 sim-years) — long past any practical observation window, reading
+as "disease doesn't exist" for the entire early-to-mid game. Fix:
+added `OUTBREAK_MIN_CHANCE_PER_TICK = 2e-5` as a floor
+(`max(chance, OUTBREAK_MIN_CHANCE_PER_TICK)` in `_maybe_outbreak`) —
+puts a small settlement's first case within roughly a sim-year or two.
+Any settlement large/crowded enough that the population-scaled term
+already exceeds this floor is completely unaffected, so the "rare at
+low population, real pressure once crowded" design intent for mature
+settlements is untouched.
+
+**Geography never interacted with technology.** `WALKABLE_BIOMES`
+(`GRASSLAND, FOREST, HILLS, BEACH`) excludes `MOUNTAIN`/`SNOWCAP`
+unconditionally, and nothing in `agents/population.py` or
+`settlement/buildings.py` ever referenced `MOUNTAIN` — it was a hard
+barrier to movement, foraging, and construction site selection at
+every era, including `digital`. `tech_level`/`era` only ever gated
+building *kinds* (FACTORY/POWER_PLANT past `industrial`) and vehicles
+(AUTOMOBILE past `modern`), never terrain passability, despite mining/
+tunneling being exactly the kind of era-appropriate technology this
+project's design priorities call for modeling. Fix: added
+`ERA_UNLOCKS_MOUNTAIN_BUILDING = frozenset({"electrical", "modern",
+"digital"})` (`settlement/buildings.py`, same shape/threshold as
+`_ERA_UNLOCKS_ELECTRICAL`) and `MOUNTAIN_WALKABLE_BIOMES` (`agents/
+population.py`). `_is_walkable` takes a `mountain_unlocked: bool`
+param (default False, so every existing caller is unaffected);
+`_choose_build_site` now takes the settlement's `era` and includes
+MOUNTAIN tiles once unlocked; `_dispatch_movement` computes
+`mountain_unlocked = settlement.era in ERA_UNLOCKS_MOUNTAIN_BUILDING`
+once per agent and threads it into that settlement's own
+`_step_toward`/`_bfs_step` calls (both the goal-directed target step
+and the long-range travel_target journey step), so agents can actually
+walk onto and build on a staked mountain site once their settlement's
+tech qualifies — not just "foundable in theory but unreachable," the
+mistake the RAFT/water-transport precedent explicitly warns against
+repeating. `SNOWCAP` stays impassable at every era (mountains become
+passable, not the snowline above them). The general random-walk
+fallback (`_maybe_move`) and fission-site selection (`_best_founding_
+site`/`_reachable_tiles`) were deliberately left untouched — routine
+wandering and initial founding don't need mountain access, and
+extending those too would be scope creep beyond what was asked.
+Verified via direct unit checks (`_is_walkable(terrain, x, y,
+mountain_unlocked=True/False)`, `_choose_build_site` with a
+synthetic all-mountain terrain at `industrial` vs `electrical` era)
+since a fresh world doesn't organically reach `electrical` within a
+practical verification run (tech_level 0 after 20,000 ticks in the
+births-verification run above).
+
+**Methodology note:** the first attempt at verifying the births/naming
+fixes used a raw `World.tick()` loop (the pattern from the v0.67.0
+profiling pass) and showed zero births, zero construction, and
+materials stuck at 0.0 across 60,000 ticks — looked alarming, but was
+a test artifact: per-agent goal assignment (`_schedule_due_cognition`,
+which resolves to `fallback_goal` when the LLM is disabled) lives
+entirely in `SimulationEngine._tick_once`, not in `World.tick()`
+itself, so bypassing the engine leaves every agent's goal at its
+default forever — nobody ever gathers materials or builds. Re-verified
+correctly through `SimulationEngine._tick_once()` in a loop (real
+entry point, matches what `hearthmind-server` actually calls), which
+produced the real numbers cited above. Worth remembering for any
+future ad-hoc verification script: `World.tick()` alone is the
+physical-substrate layer only; goal/dialogue/most LLM-adjacent
+scheduling is engine-level.

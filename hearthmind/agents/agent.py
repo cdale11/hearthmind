@@ -283,6 +283,20 @@ already straining housing. v0.44.0, "population control: disease" pass
 fact of a pathogen taking hold; nothing here is LLM-judged, consistent
 with disease being objective reality, not interpretation."""
 
+OUTBREAK_MIN_CHANCE_PER_TICK = 2e-5
+"""Floor applied to the population-scaled outbreak chance (see
+`Population._maybe_outbreak`) — at a small founding population (~12),
+`OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK * len(agents)` alone gives an
+expected first case around tick ~830,000 (~24 sim-years), which reads
+as "disease doesn't exist" for the entire early game even though the
+system (and its UI: sick/immune rings, `/state` counters) is fully
+real and live-report-confirmed invisible for that reason (v0.68.0).
+This floor puts a small settlement's first case within roughly a
+sim-year or two instead, while leaving the population-scaled term (and
+therefore the "rare at low/mid population, real pressure once crowded"
+design intent) untouched for any settlement large enough that the
+scaled term already exceeds this floor on its own."""
+
 OUTBREAK_CROWDING_MULTIPLIER = 6.0
 """Applied to OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK while the
 settlement is crowded (same flag CROWDING_ENERGY_MULTIPLIER already

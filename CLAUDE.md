@@ -250,6 +250,32 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.68.0)
+
+Four live-report bug fixes, root-caused before fixing (see
+docs/DECISIONS.md for full detail). **Births**: `CAMP_TOLERANCE` raised
+12 -> 18 — it was exactly equal to `initial_population`, and founders'
+`age_ticks=0` start makes `carrying_capacity`'s labor term negative
+until maturity, so a founding party had zero real reproduction
+headroom until a HUT stood; verified 216 births / 12->227 population
+over a 20k-tick engine run. **Settlement naming**: added persisted
+`Settlement.llm_named` — the background naming job used to key
+entirely off `not stl.name`, which only fires the one tick the
+placeholder is first set, so any resumed world (name already
+persisted) never re-queued it and stayed on its placeholder forever.
+**Disease**: added `OUTBREAK_MIN_CHANCE_PER_TICK` floor — the
+population-scaled outbreak chance alone gave an expected first case
+around sim-year 24 at founding population, reading as "no disease" for
+the entire early game even though the system (and its UI) was fully
+real; larger/crowded settlements are unaffected (their scaled chance
+already clears the floor). **Mountain geography x tech**: added
+`ERA_UNLOCKS_MOUNTAIN_BUILDING` (`electrical` onward, mining/tunneling
+tech) — MOUNTAIN was a hard barrier at every era with zero tech
+interaction; `_choose_build_site` and `_dispatch_movement`'s pathing
+(`_step_toward`/`_bfs_step`) now open it per-settlement once unlocked,
+so agents can actually reach and build on a staked mountain site, not
+just stake one unreachably. SNOWCAP stays impassable at every era.
+
 ## Current state (v0.67.0)
 
 Closes both items deferred from v0.66.0, plus two direct follow-ups.

@@ -4,6 +4,54 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.68.0] — Four live-report bug fixes: births, naming, disease, mountain geography
+
+Investigated and fixed four symptoms from a real year-2/tick-15000 run.
+
+### Fixed
+- **No births by tick 15000**: `CAMP_TOLERANCE` (12) was exactly equal
+  to `Config.initial_population` (12), and founders start at
+  `age_ticks=0` — so `carrying_capacity`'s `labor_term` starts
+  *negative* (immature population) and stays thin for a long stretch
+  after maturity too, leaving zero real reproduction headroom until a
+  HUT is actually built. Raised `CAMP_TOLERANCE` to 18 so a founding
+  party has genuine growth room independent of the multiplier's early
+  swings. Verified via a 20,000-tick engine run: 216 births, population
+  12 -> 227.
+- **Village never gets its LLM-proposed name**: `_maybe_schedule_naming`
+  keyed entirely off `not stl.name`, which only ever fires the one tick
+  the deterministic placeholder is first assigned — on any resume,
+  `name` is already truthy so the background LLM naming job silently
+  never (re)schedules, and the settlement is stuck on its placeholder
+  forever. Added a persisted `Settlement.llm_named` flag, set true only
+  when the naming job actually resolves (real name or fallback); the
+  engine now schedules the job whenever a settlement has a placeholder
+  it hasn't gotten a real name for yet, not just the tick it was set.
+- **Disease effectively invisible early game**: fully real and
+  surfaced (`sick_count`/`immune_count`, sick/immune UI rings) but
+  `OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK * population` gives an
+  expected first case around tick ~830,000 (~24 sim-years) at a
+  founding population of 12 — calibrated for a large, mature
+  settlement, reading as "disease doesn't exist" for the entire early
+  game. Added `OUTBREAK_MIN_CHANCE_PER_TICK` floor so a small
+  settlement's first case lands within roughly a sim-year or two;
+  larger/crowded settlements are unaffected (their population-scaled
+  chance already exceeds the floor).
+- **Geography never interacted with technology**: MOUNTAIN terrain was
+  a hard, unconditional barrier to movement and construction at every
+  era, including `digital` — `tech_level` only ever gated building
+  *kinds*, never terrain passability. Added
+  `ERA_UNLOCKS_MOUNTAIN_BUILDING` (same `electrical`-onward gate as
+  FACTORY/POWER_PLANT, representing real mining/tunneling tech):
+  `_choose_build_site` now includes MOUNTAIN tiles once a settlement's
+  era qualifies, and `_dispatch_movement` threads a `mountain_unlocked`
+  flag into that settlement's own goal/journey pathing
+  (`_step_toward`/`_bfs_step`) so agents can actually walk onto and
+  build on mountains once unlocked. SNOWCAP stays impassable at every
+  era. Verified via direct unit checks (`_is_walkable`,
+  `_choose_build_site`) since a fresh world doesn't reach `electrical`
+  within a practical verification run.
+
 ## [0.67.0] — Cross-settlement relationships, cross-settlement omens, dialogue turn-taking, perf pass
 
 Builds the two items deferred from v0.66.0, plus two direct follow-up

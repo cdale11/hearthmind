@@ -569,6 +569,7 @@ class SimulationEngine:
 
             def apply(result: dict, used_fallback: bool, sid: int = settlement_id, fb: dict = fallback) -> None:
                 target = self._settlement_by_id(sid)
+                target.llm_named = True
                 new_name = naming.parse_name(result, fb)
                 if new_name and new_name != target.name:
                     target.name = new_name

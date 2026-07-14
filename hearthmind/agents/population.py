@@ -38,6 +38,7 @@ from hearthmind.agents.agent import (
     MOVE_CHANCE,
     OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK,
     OUTBREAK_CROWDING_MULTIPLIER,
+    OUTBREAK_MIN_CHANCE_PER_TICK,
     OUTBREAK_ROAD_CONTACT_MULTIPLIER,
     PERSONAL_FOOD_CAPACITY,
     POPULATION_CAP,
@@ -135,6 +136,7 @@ from hearthmind.settlement.buildings import (
     CURRENCY_PER_OVERFLOW_UNIT,
     EDUCATION_CAPACITY,
     ERA_UNLOCKS_AUTOMOBILE,
+    ERA_UNLOCKS_MOUNTAIN_BUILDING,
     FACTORY_INCOME_PER_TICK,
     FESTIVAL_RELATIONSHIP_BOOST,
     GRANARY_CAPACITY,
@@ -229,6 +231,12 @@ from hearthmind.world.wildlife import (
 )
 
 WALKABLE_BIOMES = frozenset({Biome.GRASSLAND, Biome.FOREST, Biome.HILLS, Biome.BEACH})
+MOUNTAIN_WALKABLE_BIOMES = WALKABLE_BIOMES | frozenset({Biome.MOUNTAIN})
+"""Once a settlement's era reaches ERA_UNLOCKS_MOUNTAIN_BUILDING, its
+own pathing (_dispatch_movement's travel/goal steps, and build-site
+staking) treats MOUNTAIN as walkable too — SNOWCAP stays a hard barrier
+at every era, mountains only become passable, not the snowline above
+them. See _is_walkable's mountain_unlocked parameter."""
 MATERIAL_BIOMES = frozenset({Biome.FOREST, Biome.HILLS})
 """Where GATHER-goal agents can collect wood/stone — see D8."""
 
@@ -602,8 +610,9 @@ def _prune_extinct_families(settlement: Settlement, living_ids: set[int]) -> Non
         settlement.institutions = [i for i in settlement.institutions if i.id not in to_remove]
 
 
-def _is_walkable(terrain: list[list[Tile]], x: int, y: int) -> bool:
-    return terrain[y][x].biome in WALKABLE_BIOMES
+def _is_walkable(terrain: list[list[Tile]], x: int, y: int, mountain_unlocked: bool = False) -> bool:
+    biomes = MOUNTAIN_WALKABLE_BIOMES if mountain_unlocked else WALKABLE_BIOMES
+    return terrain[y][x].biome in biomes
 
 
 def _walkable_tiles(terrain: list[list[Tile]]) -> list[tuple[int, int]]:
@@ -1103,6 +1112,7 @@ class Population:
         if roads is not None and self.agents:
             on_road_fraction = sum(1 for a in self.agents if roads.is_road(a.x, a.y)) / len(self.agents)
             chance *= 1.0 + on_road_fraction * OUTBREAK_ROAD_CONTACT_MULTIPLIER
+        chance = max(chance, OUTBREAK_MIN_CHANCE_PER_TICK)
         if rng.random() >= chance:
             return []
         index_case = rng.choice(healthy)
@@ -1421,6 +1431,12 @@ class Population:
         if rival_tiles:
             predator_tiles = predator_tiles | rival_tiles
 
+        # Mining/tunneling technology (ERA_UNLOCKS_MOUNTAIN_BUILDING)
+        # opens MOUNTAIN terrain to this settlement's own pathing — see
+        # docs/DECISIONS.md, "geography x tech" fix (v0.68.0). SNOWCAP
+        # stays impassable at every era.
+        mountain_unlocked = settlement.era in ERA_UNLOCKS_MOUNTAIN_BUILDING
+
         # A long-range journey (today: a fission party walking to its
         # new settlement's site) overrides goal-directed movement — but
         # never a hunger emergency: a starving traveler detours for food
@@ -1431,9 +1447,9 @@ class Population:
                 agent.travel_target = None
             else:
                 journey_mount = _agent_mount(settlement, agent.id)
-                moved = cls._step_toward(agent, agent.travel_target, terrain, predator_tiles)
+                moved = cls._step_toward(agent, agent.travel_target, terrain, predator_tiles, mountain_unlocked)
                 if moved and journey_mount is not None and agent.travel_target is not None:
-                    if cls._step_toward(agent, agent.travel_target, terrain, predator_tiles):
+                    if cls._step_toward(agent, agent.travel_target, terrain, predator_tiles, mountain_unlocked):
                         journey_mount.condition = max(
                             0.0, journey_mount.condition - PERSONAL_VEHICLE_USE_DECAY[journey_mount.kind]
                         )
@@ -1442,7 +1458,7 @@ class Population:
                     # — greedy would oscillate forever): take one step
                     # of a real BFS path instead. Unreachable target =
                     # the journey is abandoned where they stand.
-                    step = cls._bfs_step(terrain, (agent.x, agent.y), agent.travel_target)
+                    step = cls._bfs_step(terrain, (agent.x, agent.y), agent.travel_target, mountain_unlocked=mountain_unlocked)
                     if step is None:
                         agent.travel_target = None
                     else:
@@ -1497,8 +1513,8 @@ class Population:
             target = cls._nearest_position(agent, work_positions)
 
         mount = _agent_mount(settlement, agent.id)
-        if target is not None and cls._step_toward(agent, target, terrain, predator_tiles):
-            if mount is not None and cls._step_toward(agent, target, terrain, predator_tiles):
+        if target is not None and cls._step_toward(agent, target, terrain, predator_tiles, mountain_unlocked):
+            if mount is not None and cls._step_toward(agent, target, terrain, predator_tiles, mountain_unlocked):
                 # A ready personal vehicle (mount or the era-gated
                 # automobile upgrade) covers ground twice as fast toward
                 # a deliberate target — the goal-directed equivalent of
@@ -1650,7 +1666,7 @@ class Population:
     @staticmethod
     def _step_toward(
         agent: Agent, target: tuple[int, int], terrain: list[list[Tile]],
-        predator_tiles: set[tuple[int, int]] = frozenset(),
+        predator_tiles: set[tuple[int, int]] = frozenset(), mountain_unlocked: bool = False,
     ) -> bool:
         """Take one greedy step toward `target`. Returns False (and leaves
         `agent` unmoved) if already there or if both preferred directions
@@ -1675,7 +1691,7 @@ class Population:
         fallback: tuple[int, int] | None = None
         for cdx, cdy in steps:
             nx, ny = agent.x + cdx, agent.y + cdy
-            if not (0 <= nx < width and 0 <= ny < height and _is_walkable(terrain, nx, ny)):
+            if not (0 <= nx < width and 0 <= ny < height and _is_walkable(terrain, nx, ny, mountain_unlocked)):
                 continue
             if (nx, ny) in predator_tiles:
                 fallback = fallback or (nx, ny)
@@ -1690,7 +1706,7 @@ class Population:
     @staticmethod
     def _bfs_step(
         terrain: list[list[Tile]], start: tuple[int, int], target: tuple[int, int],
-        node_cap: int = 4096,
+        node_cap: int = 4096, mountain_unlocked: bool = False,
     ) -> tuple[int, int] | None:
         """First step of a real shortest path from `start` toward
         `target` over walkable tiles — used ONLY when a travel_target
@@ -1720,7 +1736,7 @@ class Population:
                 nx, ny = cx + dx, cy + dy
                 if not (0 <= nx < width and 0 <= ny < height) or (nx, ny) in seen:
                     continue
-                if not _is_walkable(terrain, nx, ny):
+                if not _is_walkable(terrain, nx, ny, mountain_unlocked):
                     continue
                 seen.add((nx, ny))
                 first_step[(nx, ny)] = first_step.get((cx, cy), (nx, ny))
@@ -2447,7 +2463,7 @@ class Population:
             # site (an under-construction building is a WANDER-goal
             # attractor, see _dispatch_movement), so a site chosen for
             # its road/resource adjacency genuinely draws its own labor.
-            bx, by = cls._choose_build_site(x, y, terrain, settlements, farms, roads, resources)
+            bx, by = cls._choose_build_site(x, y, terrain, settlements, farms, roads, resources, settlement.era)
             settle_chance = SETTLE_CHANCE_PER_TICK
             if settlement.current_priority == "growth":
                 settle_chance *= SETTLE_CHANCE_GROWTH_PRIORITY_MULTIPLIER
@@ -2515,6 +2531,7 @@ class Population:
     def _choose_build_site(
         cls, x: int, y: int, terrain: list[list[Tile]] | None, settlements: list[Settlement],
         farms: FarmGrid, roads: RoadNetwork | None, resources: "ResourceGrid | None",
+        era: str = "industrial",
     ) -> tuple[int, int]:
         """The best buildable tile within BUILD_SITE_SEARCH_RADIUS of the
         founders at (x, y) — scored by road/resource/water adjacency
@@ -2522,11 +2539,17 @@ class Population:
         constants). Falls back to (x, y) itself when terrain isn't
         provided (legacy callers) or nothing else scores higher. Ties
         keep the earliest-scanned tile, which the scan order below makes
-        the one nearest the founders."""
+        the one nearest the founders. `era` unlocks MOUNTAIN as a
+        candidate tile once the settlement has real mining/tunneling
+        technology (ERA_UNLOCKS_MOUNTAIN_BUILDING) — before that it's
+        excluded exactly like water, a real geography constraint that
+        eases with tech level rather than never applying at all
+        (v0.68.0 fix)."""
         if terrain is None:
             return (x, y)
         height = len(terrain)
         width = len(terrain[0]) if height else 0
+        mountain_unlocked = era in ERA_UNLOCKS_MOUNTAIN_BUILDING
         best = (x, y)
         best_score = None
         # Ring-by-ring from radius 0 outward so equal scores resolve to
@@ -2539,7 +2562,7 @@ class Population:
                     cx, cy = x + dx, y + dy
                     if not (0 <= cx < width and 0 <= cy < height):
                         continue
-                    if not _is_walkable(terrain, cx, cy):
+                    if not _is_walkable(terrain, cx, cy, mountain_unlocked):
                         continue
                     if any(s.at(cx, cy) is not None for s in settlements) or farms.get(cx, cy) is not None:
                         continue
