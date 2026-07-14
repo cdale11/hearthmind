@@ -32,6 +32,17 @@ class VehicleKind(str, Enum):
     genuinely modernizes as its era does, the same way FACTORY answers
     it for buildings. See docs/DECISIONS.md, "vehicle era-progression
     follow-up.\""""
+    RAFT = "raft"
+    """Settlement-wide, same passive-bonus shape as CART but for
+    fishing instead of gathering: each ready raft richens the catch
+    from a FISH resource node (Population._maybe_forage), up to
+    RAFT_BONUS_CAP. Only enters the foundable roll at a build site
+    adjacent to water (see Population._maybe_start_vehicle) — a raft
+    on dry land makes no sense, the same way FACTORY needs `electrical`
+    era. Doesn't grant actual water crossing/pathing (agents still only
+    move across WALKABLE_BIOMES); it's the concrete "make fishing a
+    real investment, not just an incidental catch" lever. See
+    docs/DECISIONS.md, "boats/rafts.\""""
 
 
 class VehicleStage(str, Enum):
@@ -47,6 +58,10 @@ CART_MATERIALS_COST = 4.0
 MOUNT_MATERIALS_COST = 6.0
 """Costlier than a hut (HUT_MATERIALS_COST=3.0 in buildings.py): a mount
 is a bigger investment than shelter, matching its bigger per-agent payoff."""
+
+RAFT_MATERIALS_COST = 5.0
+"""Between a cart (4.0) and a mount (6.0) — a simple watercraft, costlier
+than a hauling cart but simpler than a claimed personal mount."""
 
 VEHICLE_CONSTRUCTION_WORK_PER_TICK = 0.05
 VEHICLE_MAX_WORKERS = 3
@@ -80,6 +95,18 @@ CART_BONUS_CAP = 3
 """Each ready cart adds 25% to gathered-material yield, up to 3 carts
 (+75%) — a hard ceiling since, unlike inventions, carts are buildable at
 will and shouldn't compound without limit."""
+
+RAFT_FISH_BONUS_PER_RAFT = 0.3
+RAFT_BONUS_CAP = 2
+"""Each ready raft adds 30% to a fish catch's hunger relief, up to 2
+rafts (+60%) — a lower cap than CART_BONUS_CAP (3): fishing is already
+the richer/faster-regenerating catch (FISH_HUNGER_RELIEF_MULTIPLIER,
+world/resources.py), so its own vehicle bonus doesn't need to stack as
+high to feel like a real investment."""
+
+RAFT_USE_DECAY = 0.0015
+"""Same magnitude as CART_USE_DECAY — wear spread across all ready
+rafts on any tick at least one raft's catch bonus was actually applied."""
 
 MOUNT_SPEED_MULTIPLIER = 1.6
 """Slightly better than ROAD_SPEED_MULTIPLIER (1.4, world/roads.py) and

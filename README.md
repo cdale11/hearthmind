@@ -328,6 +328,34 @@ disputes, beliefs) — try it only as a last resort. Report back with
 what you observe rather than silently switching, same standing policy
 as before.
 
+**Model choice under a 6GB ceiling, weighed against dialogue quality
+(v0.66.0):** dialogue is the one output where raw model size matters
+most directly — a bigger model writes less repetitive, more in-
+character lines and hits `_is_sane_line`'s leakage/length rejection
+far less often, on top of the grounding fix above. That pulls toward
+staying on the largest model that fits; memory pulls the other way.
+At the user-reported measurement (`qwen3:4b-instruct`, under 4.5GB,
+no swap observed), the budget math from the section above still
+leaves roughly 1.5GB of headroom under a strict 6GB ceiling (OS
+~1-1.5GB, Hearthmind's own process under 200MB, Ollama daemon
+overhead ~300-500MB — the model + KV cache is the rest) — tight but
+workable, and the recommendation stays `qwen3:4b-instruct` rather than
+sizing down preemptively. Apply `OLLAMA_FLASH_ATTENTION=1` +
+`OLLAMA_KV_CACHE_TYPE=q8_0` (above) first if that margin ever gets
+eaten by something else running on the same 6GB box — it buys back KV-
+cache headroom without touching the model at all. Only size down to
+`qwen3:1.7b` if a live `system_memory` reading still shows pressure
+after that lever, and go in expecting a real, noticeable dialogue-
+quality regression (shorter, more generic lines, more fallback-pool
+triggers) as the direct cost — this is a case where the memory fix and
+the "dialogue is off" fix are in tension, so don't downsize past the
+point the 6GB ceiling actually forces. Non-Qwen alternatives (Llama
+3.2 3B Instruct, Phi-3.5-mini, Gemma 2 2B) weren't adopted: staying in
+the Qwen3 family keeps the existing `"think": false`/`<think>`-stripping
+handling and every-generation-tested prompt shapes intact, and none of
+them is a clear enough quality-per-GB win over `qwen3:4b-instruct` to
+justify re-validating a whole new model family for this project.
+
 **Why not switch to raw llama.cpp:** evaluated and recommended against
 for now (see `docs/DECISIONS.md`, "Model default: `qwen3:4b-instruct`
 replaces `qwen3.5:2b`"). Ollama's own runner already *is* llama.cpp —

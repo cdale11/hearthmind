@@ -112,7 +112,8 @@ def main(argv: list[str] | None = None) -> None:
     )
     print(
         f"             tech level {settle.get('tech_level', 0)}, "
-        f"education {settle.get('education_level', 0.0):.2f}/{settle.get('education_capacity', 1.0):.2f}"
+        f"education {settle.get('education_level', 0.0):.2f}/{settle.get('education_capacity', 1.0):.2f}, "
+        f"{settle.get('fish_caught', 0)} fish caught"
     )
     print(
         f"             civic buildings: {settle.get('workshops', 0)} workshops, "
@@ -140,7 +141,9 @@ def main(argv: list[str] | None = None) -> None:
         print(
             f"             vehicles: {v['carts_ready']}/{v['carts_total']} carts ready "
             f"({v['carts_broken']} broken), {v['mounts_ready']}/{v['mounts_total']} mounts ready "
-            f"({v['mounts_claimed']} claimed, {v['mounts_broken']} broken)"
+            f"({v['mounts_claimed']} claimed, {v['mounts_broken']} broken), "
+            f"{v.get('rafts_ready', 0)}/{v.get('rafts_total', 0)} rafts ready "
+            f"({v.get('rafts_broken', 0)} broken)"
         )
 
     farms = summary["farms"]

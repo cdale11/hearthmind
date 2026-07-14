@@ -5729,3 +5729,143 @@ and now the `qwen3:4b-instruct` switch itself). Revisit only if a live
 Ollama runner as the dominant, unavoidable consumer — same "revisit
 only with a measured problem, don't re-litigate from scratch" standard
 as the C/C++-port evaluation above.
+
+## Dialogue grounding fix + settlement-resolution bug (v0.66.0)
+
+User: "the npc-npc conversations are very off." Read `llm/dialogue.py`
+end to end: the prompt already grounded an exchange in hunger/energy/
+weather/relationship-band/culture/beliefs/personality — a reasonable
+amount of context — but never `agent.memories` (the per-agent memory
+list that `llm/cognition.py`'s goal-setting prompt already reads from,
+see `RECENT_MEMORIES_IN_PROMPT`) and never each speaker's current
+`goal` (what they're actually doing right now). Two colocated villagers
+could only ever talk about their stats and the weather, never about
+anything that had actually happened to either of them — a death, a
+bond, a rumor heard, a mastered skill — which reads as generic small
+talk ("Quiet day." / "Quiet enough.") regardless of how good the model
+is, since the prompt never gave it anything more specific to say.
+Fixed: `build_prompt` now includes each speaker's current activity and
+most recent memory (`DIALOGUE_MEMORY_IN_PROMPT = 1` — a line only has
+room for one concrete thing per speaker), and `SYSTEM_PROMPT` now
+explicitly instructs preferring that grounding over small talk.
+
+Separately, and likely compounding on any world that has fissioned
+(v0.65.0): `SimulationEngine._schedule_due_dialogue` unconditionally
+read `self.world.settlement` (a property returning the *founding*
+settlement, `settlements[0]`) for the "They live in {settlement_name}"
+culture line and for belief resolution — a colocated pair who'd
+fissioned into settlement #2 or #3 would be told they live in the
+wrong town, with the wrong settlement's traditions/beliefs feeding
+their exchange. Fixed by resolving `agent_a.settlement_id` via
+`_settlement_by_id` per pair, same pattern already used for dispute
+resolution (`dispute_home = self._settlement_by_id(agent_a.
+settlement_id)`).
+
+Not changed: dialogue's fallback pools (`_TENSE_POOL`/`_WARM_POOL`/
+`_NEUTRAL_POOL`) or the malformed-response guards in `_is_sane_line` —
+those already handle "the model degrades to canned lines" and "the
+model leaks/hallucinates" respectively; the actual gap was upstream,
+in what the prompt gave a *working* model to talk about.
+
+## Personality visibly steers profession (v0.66.0)
+
+User: NPC personality should visibly steer profession. Traced through
+`llm/cognition.py`: the live-LLM prompt already describes personality
+in words (`describe_traits`), but `fallback_goal` — the deterministic
+path taken whenever the LLM is disabled, unreachable, or backpressured,
+which by this project's own liveness design is a real fraction of
+ticks, not a rare edge case — split content (not hungry, not tired)
+agents purely by `agent_id % 3` among SOCIALIZE/GATHER/WANDER, with
+zero reference to `Agent.traits`. An agent's "profession" (which goal
+they gravitate to when nothing urgent is happening) was an arbitrary
+id-based caste, completely disconnected from the psychology vector H6
+built. Fixed: a standout `TRAIT_AMBITION` (>= `TRAIT_NOTABLE_THRESHOLD`)
+now leans the fallback toward GATHER ("driven to make something of
+themself"), a standout `TRAIT_SOCIABILITY` leans it toward SOCIALIZE,
+overriding the id%3 split; a neutral-personality agent (traits near 0,
+the common case for an agent whose trait walk hasn't drifted far) gets
+the exact old split, so this is additive, not a behavior change for
+the average agent. The live-LLM `SYSTEM_PROMPT` also gained one
+sentence asking the model to let personality break ties the same way,
+closing the gap on the LLM path too (previously personality was
+*described* in the prompt but never explicitly tied to the decision).
+
+## Boats/rafts (v0.66.0)
+
+User: add boats/rafts. Scoped deliberately: actual water-crossing
+pathing would mean walkable-tile logic (`WALKABLE_BIOMES`, greedy/BFS
+movement) learning to traverse `DEEP_WATER`/`SHALLOW_WATER` tiles for
+raft-carrying agents specifically — a real pathing-system change, not
+a "smallest coherent milestone." Instead followed the existing CART
+pattern (settlement-wide passive bonus building, not a personally
+claimed vehicle like MOUNT/AUTOMOBILE): `VehicleKind.RAFT`, built at a
+water-adjacent site only (mirrors `is_adjacent_to_water`'s gate on FISH
+resource nodes), each ready raft adds 30% to a fish catch's hunger
+relief up to a cap of 2 (+60% — deliberately lower than CART_BONUS_CAP
+of 3, since fishing already gets its own multiplier via
+`FISH_HUNGER_RELIEF_MULTIPLIER`). This is the concrete "make fishing a
+real investment, not just an incidental catch" lever the fishing-
+visibility fix above set up, landed in the same batch since they're the
+same feature from two angles. True water transport (a raft that lets
+an agent actually cross water tiles, or ferries a fission party faster
+than the existing greedy+BFS land journey) is a real follow-up but a
+separate, bigger milestone — noted here rather than half-built.
+
+## Era progression re-investigated: multi-settlement dilution (v0.66.0)
+
+User: "no era change from industrial to modern observed yet." Re-read
+the v0.44.0 investigation (already-tuned `INVENTION_CHANCE_PER_SEASON`)
+and did the arithmetic at current settings: 0.2 chance x 4 seasonal
+rolls/year, expected time to `tech_level` 7 (`modern`) is ~8.75
+in-game years. At default `sim_minutes_per_tick=15`/`tick_seconds=1.0`
+(96 ticks/day, ~35040 ticks/year), that's ~85 real hours of continuous
+uptime — several days, not a single sitting. No hidden gating bug
+found; `era_for_tech_level`/`ERA_TECH_THRESHOLDS` and the prosperity
+gate all behave as designed. This is very plausibly just "hasn't run
+long enough yet," matching the v0.44.0 finding almost exactly (it
+concluded the same "reads as stuck, isn't" pattern for `electrical`).
+
+One genuine, newly-found compounding factor for a world that HAS
+fissioned (v0.65.0): `_maybe_schedule_invention` calls
+`settlement = self._job_target()`, the same month-indexed round-robin
+used by every settlement-scoped monthly LLM job — with N named
+settlements, any given settlement's invention roll (and thus its own
+`tech_level`/era progress) only fires on its 1-in-N turn, not every
+season. This is the documented, deliberate trade-off `_job_target`'s
+own docstring states ("keeps total monthly LLM volume flat no matter
+how many settlements exist... with one settlement this is exactly the
+old behavior") — not a bug, but worth naming explicitly here since it
+directly multiplies the real-world wait for *any single settlement* to
+reach `modern`/`digital` by roughly its settlement count. Not changed:
+giving every settlement its own independent invention roll would
+multiply LLM call volume by settlement count, which the whole
+multi-settlement design explicitly ruled out for 8GB-target hardware.
+Actionable check for the user: `inspect_world`/`/diagnostics` already
+show `tech_level` and `era` live — watch it rise over real hours rather
+than assuming a fixed threshold means a fixed wall-clock time.
+
+## Deferred: cross-settlement relationships, further supernatural emergence
+
+User requested both in the same batch as the items above. Not built
+this pass — both are genuine new subsystems, not incremental fixes to
+existing mechanics, and CLAUDE.md's own "smallest coherent milestone at
+a time" / Phase G "ambiguity discipline, extend incrementally, never
+escalate toward anything explicit" rules argue for a deliberate design
+pass rather than bolting them on inside an already-large mixed batch.
+
+Scoped for next time: **cross-settlement relationships** would need a
+`Settlement.relations: dict[int, float]` (settlement id -> affinity,
+same shape as `Agent.relationships`), seeded at fission from some
+signal of how the departing party felt about the settlement they left
+(founder ambition/grievance, or the fission LLM decision's own
+rationale), mean-reverting like `temperament`, and wired into at least
+one real mechanic — most natural candidates: a trade-price modifier
+between settlements (extends `tick_market_prices`) or a migration/
+caravan bias (extends the existing caravan mechanism to sometimes be
+*inter-settlement* rather than only external). **Further supernatural
+emergence** would extend `llm/omens.py`/`Settlement.omen_history` to
+occasionally reference a *different* settlement (echoing the existing
+"omen echoes a past omen" mechanic across settlements instead of only
+within one) — deliberately small, since Phase G's standing rule is
+that this stays ambiguous and never escalates toward anything explicit;
+a bigger swing here needs its own careful pass, not a rushed addition.

@@ -1067,6 +1067,15 @@ class SettlementEconomy:
     market_prices: dict = field(default_factory=dict)
     """good name -> price multiplier, empty (all goods read 1.0) unless
     a MARKET stands — see `tick_market_prices`/MARKET_PRICE_MIN."""
+    fish_caught: int = 0
+    """Persistent, never-decremented count of meals relieved from a
+    FISH resource node (Population._maybe_forage) — same shape as
+    `caravans_visited`. Fishing was mechanically real since the
+    resource-variety pass but had no visible tally anywhere; this is
+    the "make fishing visible" counter, surfaced in the UI's wild-
+    resources tile instead of logging a per-catch event (which would
+    spam the curated event log at population scale). See
+    docs/DECISIONS.md, "fishing visibility.\""""
 
 
 @dataclass
@@ -1204,7 +1213,7 @@ class Settlement:
         beliefs: list[dict] | None = None, omen_history: list[dict] | None = None,
         player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
         institutions: list[Institution] | None = None, next_institution_id: int = 0,
-        caravans_visited: int = 0, market_prices: dict | None = None,
+        caravans_visited: int = 0, fish_caught: int = 0, market_prices: dict | None = None,
         memorials: list[dict] | None = None, place_names: dict | None = None,
         records: list[dict] | None = None, id: int = 0,
         center_x: int = -1, center_y: int = -1,
@@ -1234,7 +1243,7 @@ class Settlement:
         )
         self.economy = SettlementEconomy(
             materials=materials, currency=currency, education_level=education_level,
-            caravans_visited=caravans_visited,
+            caravans_visited=caravans_visited, fish_caught=fish_caught,
             market_prices=market_prices if market_prices is not None else {},
         )
         self.culture = SettlementCulture(
@@ -1334,6 +1343,14 @@ class Settlement:
     @caravans_visited.setter
     def caravans_visited(self, value: int) -> None:
         self.economy.caravans_visited = value
+
+    @property
+    def fish_caught(self) -> int:
+        return self.economy.fish_caught
+
+    @fish_caught.setter
+    def fish_caught(self, value: int) -> None:
+        self.economy.fish_caught = value
 
     @property
     def name(self) -> str:
@@ -1779,6 +1796,7 @@ class Settlement:
             "power_plants": kind_counts["power_plant"],
             "markets": kind_counts["market"],
             "caravans_visited": self.caravans_visited,
+            "fish_caught": self.fish_caught,
             "market_prices": dict(self.market_prices),
             "place_names": dict(self.place_names),
             "records": list(self.records),
@@ -1840,9 +1858,11 @@ class Settlement:
         carts = [v for v in self.vehicles if v.kind is VehicleKind.CART]
         mounts = [v for v in self.vehicles if v.kind is VehicleKind.MOUNT]
         automobiles = [v for v in self.vehicles if v.kind is VehicleKind.AUTOMOBILE]
+        rafts = [v for v in self.vehicles if v.kind is VehicleKind.RAFT]
         ready_carts = [v for v in carts if v.stage is VehicleStage.READY]
         ready_mounts = [v for v in mounts if v.stage is VehicleStage.READY]
         ready_automobiles = [v for v in automobiles if v.stage is VehicleStage.READY]
+        ready_rafts = [v for v in rafts if v.stage is VehicleStage.READY]
         return {
             "carts_total": len(carts),
             "carts_ready": len(ready_carts),
@@ -1858,6 +1878,10 @@ class Settlement:
             "automobiles_building": sum(1 for v in automobiles if v.stage is VehicleStage.BUILDING),
             "automobiles_broken": sum(1 for v in automobiles if v.stage is VehicleStage.BROKEN),
             "automobiles_claimed": sum(1 for v in ready_automobiles if v.assigned_agent_id is not None),
+            "rafts_total": len(rafts),
+            "rafts_ready": len(ready_rafts),
+            "rafts_building": sum(1 for v in rafts if v.stage is VehicleStage.BUILDING),
+            "rafts_broken": sum(1 for v in rafts if v.stage is VehicleStage.BROKEN),
         }
 
     # --- (de)serialization -----------------------------------------------------
@@ -1895,6 +1919,7 @@ class Settlement:
             "institutions": [i.to_dict() for i in self.institutions],
             "next_institution_id": self.next_institution_id,
             "caravans_visited": self.caravans_visited,
+            "fish_caught": self.fish_caught,
             "market_prices": dict(self.market_prices),
             "memorials": list(self.memorials),
             "place_names": dict(self.place_names),
@@ -1933,6 +1958,7 @@ class Settlement:
             institutions=[Institution.from_dict(i) for i in data.get("institutions", [])],
             next_institution_id=data.get("next_institution_id", 0),
             caravans_visited=data.get("caravans_visited", 0),
+            fish_caught=data.get("fish_caught", 0),
             market_prices=dict(data.get("market_prices", {})),
             memorials=list(data.get("memorials", [])),
             place_names=dict(data.get("place_names", {})),

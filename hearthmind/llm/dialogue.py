@@ -13,9 +13,12 @@ from hearthmind.agents.agent import RIVALRY_THRESHOLD, Agent, describe_traits
 SYSTEM_PROMPT = (
     "You are writing a brief, natural exchange between two villagers who "
     "just crossed paths in a simulated world. Ground it in the specific "
-    "facts you're given (their hunger/energy, the weather, their "
-    "relationship) — never invent unrelated topics, and never mention "
-    "that this is a game, a simulation, or that you are an AI. Optionally "
+    "facts you're given (their hunger/energy, what each is currently "
+    "doing, the weather, their relationship, and especially anything "
+    "listed as something one of them recently remembers or believes) — "
+    "prefer talking about that over generic small talk, never invent "
+    "unrelated topics, and never mention that this is a game, a "
+    "simulation, or that you are an AI. Optionally "
     "the exchange plants a short rumor that might spread through the "
     "village — leave it blank most of the time. Output ONLY the JSON "
     "object below, nothing before or after it, no explanation.\n"
@@ -32,6 +35,20 @@ SYSTEM_PROMPT = (
     'words, said by the second", "sentiment": "warm" | "tense" | '
     '"neutral", "rumor": "" or a short rumor under 15 words}.'
 )
+
+
+DIALOGUE_MEMORY_IN_PROMPT = 1
+"""How many of each speaker's most recent memories reach the dialogue
+prompt — same reasoning as cognition.RECENT_MEMORIES_IN_PROMPT, kept to
+1 here (vs. cognition's 3) since a conversational line only has room to
+land one concrete thing per speaker anyway. Previously 0: dialogue was
+the one LLM-authored prompt in the project that never read from
+`agent.memories` at all, despite cognition (goal-setting) already doing
+so — a colocated pair had no way to talk about anything that actually
+happened to either of them (a death, a bond, a rumor heard), only their
+current stats/weather/relationship, which reads as generic small talk
+regardless of model quality. See docs/DECISIONS.md, "dialogue grounding
+fix.\""""
 
 
 def build_prompt(
@@ -70,10 +87,18 @@ def build_prompt(
         if personality:
             personality_bits.append(f"{label} is {personality}")
     personality_text = f" {'; '.join(personality_bits)}." if personality_bits else ""
+    memory_bits = []
+    for agent, label in ((agent_a, agent_a.name), (agent_b, agent_b.name)):
+        recent = agent.memories[-DIALOGUE_MEMORY_IN_PROMPT:]
+        if recent:
+            memory_bits.append(f"{label} recently: {'; '.join(recent)}")
+    memory_text = f" {'. '.join(memory_bits)}." if memory_bits else ""
     return (
-        f"{agent_a.name} (hunger {agent_a.hunger:.2f}, energy {agent_a.energy:.2f}) "
-        f"meets {agent_b.name} (hunger {agent_b.hunger:.2f}, energy {agent_b.energy:.2f}). "
-        f"They are {tie}. It is {season}, weather: {weather}.{culture}{beliefs_text}{personality_text} "
+        f"{agent_a.name} (hunger {agent_a.hunger:.2f}, energy {agent_a.energy:.2f}, "
+        f"currently {agent_a.goal.value}) meets {agent_b.name} (hunger "
+        f"{agent_b.hunger:.2f}, energy {agent_b.energy:.2f}, currently {agent_b.goal.value}). "
+        f"They are {tie}. It is {season}, weather: {weather}."
+        f"{culture}{beliefs_text}{personality_text}{memory_text} "
         "Write their brief exchange."
     )
 

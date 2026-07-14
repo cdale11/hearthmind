@@ -700,15 +700,20 @@ function drawFrame() {
   }
 
   // Vehicles: a small icon-like mark at their build/home tile — carts as
-  // an amber square (settlement-wide haul bonus), mounts/automobiles as
-  // a diamond (personal, claimed/unclaimed shown via color; automobile
-  // gets a distinct steel-blue hue from mount's violet, so era-driven
+  // an amber square and rafts as a teal square (both settlement-wide
+  // passive bonuses, not personally claimed, so neither uses the
+  // claimed/unclaimed diamond below), mounts/automobiles as a diamond
+  // (personal, claimed/unclaimed shown via color; automobile gets a
+  // distinct steel-blue hue from mount's violet, so era-driven
   // transport progress is visible on the map, not just in stat tiles).
   for (const v of latest.vehicles || []) {
     const cx = v.x * CELL + CELL / 2, cy = v.y * CELL + CELL / 2;
     ctx.globalAlpha = v.stage === "building" ? 0.4 : v.stage === "broken" ? 0.3 : 1.0;
     if (v.kind === "cart") {
       ctx.fillStyle = "#c9863c";
+      ctx.fillRect(cx - CELL / 4, cy - CELL / 4, CELL / 2, CELL / 2);
+    } else if (v.kind === "raft") {
+      ctx.fillStyle = "#3ba8a0";
       ctx.fillRect(cx - CELL / 4, cy - CELL / 4, CELL / 2, CELL / 2);
     } else {
       const isAutomobile = v.kind === "automobile";
@@ -1690,10 +1695,14 @@ function renderStats(summary) {
       `(${s.vehicles.mounts_claimed} claimed)` +
       (s.vehicles.automobiles_total
         ? `, ${s.vehicles.automobiles_ready} automobile${s.vehicles.automobiles_ready === 1 ? "" : "s"} (${s.vehicles.automobiles_claimed} claimed)`
+        : "") +
+      (s.vehicles.rafts_total
+        ? `, ${s.vehicles.rafts_ready} raft${s.vehicles.rafts_ready === 1 ? "" : "s"}`
         : ""),
       "Carts: each ready cart adds 25% to gathered-material haul yield (up to 3 stacked). " +
       "Mounts: an awake agent standing with an unclaimed ready mount claims it and moves ~1.6x faster " +
       "for as long as it stays repaired. Automobiles (era: modern+) work the same way, faster still (~2.2x). " +
+      "Rafts: only built at a waterside site, each adds 30% to a fish catch's hunger relief (up to 2 stacked). " +
       "All wear with use and weather, and break down if neglected.",
     ],
     [
@@ -1714,8 +1723,8 @@ function renderStats(summary) {
     ],
     ["Farms", `${f.total} (${f.growing} growing, ${f.ready} ready)`, null],
     [
-      "Wild resources", `${r.total_nodes} nodes (${r.depleted} depleted, ${r.fish_nodes || 0} fishing spots)`,
-      "Wild forageable nodes (berries, fishing spots along water, ore veins) — the last-resort food source, behind farms, granaries, and hunting. Fishing spots yield a richer catch and replenish faster than a bush.",
+      "Wild resources", `${r.total_nodes} nodes (${r.depleted} depleted, ${r.fish_nodes || 0} fishing spots, ${s.fish_caught || 0} caught)`,
+      "Wild forageable nodes (berries, fishing spots along water, ore veins) — the last-resort food source, behind farms, granaries, and hunting. Fishing spots yield a richer catch and replenish faster than a bush. \"Caught\" is the settlement's all-time count of meals relieved from a fishing spot specifically.",
     ],
     [
       "Wildlife", `${w.grazer_total} grazers (${w.grazer_herds} herds), ${w.predator_total} predators (${w.predator_packs} packs)`,

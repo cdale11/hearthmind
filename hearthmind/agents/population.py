@@ -194,6 +194,10 @@ from hearthmind.settlement.vehicles import (
     PERSONAL_VEHICLE_KINDS,
     PERSONAL_VEHICLE_SPEED_MULTIPLIER,
     PERSONAL_VEHICLE_USE_DECAY,
+    RAFT_BONUS_CAP,
+    RAFT_FISH_BONUS_PER_RAFT,
+    RAFT_MATERIALS_COST,
+    RAFT_USE_DECAY,
     VEHICLE_CHANCE_PER_TICK,
     VEHICLE_CONSTRUCTION_WORK_PER_TICK,
     VEHICLE_MAX_WORKERS,
@@ -502,6 +506,14 @@ def _haul_factor(settlement: Settlement) -> float:
     vehicles pass."""
     ready_carts = sum(1 for v in settlement.vehicles if v.kind is VehicleKind.CART and v.stage is VehicleStage.READY)
     return 1.0 + CART_HAUL_BONUS_PER_CART * min(ready_carts, CART_BONUS_CAP)
+
+
+def _raft_factor(settlement: Settlement) -> float:
+    """Multiplicative bonus from ready rafts on a fish catch's hunger
+    relief — same shape as `_haul_factor`, see RAFT_FISH_BONUS_PER_RAFT/
+    RAFT_BONUS_CAP."""
+    ready_rafts = sum(1 for v in settlement.vehicles if v.kind is VehicleKind.RAFT and v.stage is VehicleStage.READY)
+    return 1.0 + RAFT_FISH_BONUS_PER_RAFT * min(ready_rafts, RAFT_BONUS_CAP)
 
 
 def _agent_mount(settlement: Settlement, agent_id: int) -> Vehicle | None:
@@ -916,7 +928,7 @@ class Population:
             self._maybe_assign_mounts(by_position, stl)
             if any_gather_occurred:
                 self._wear_carts(stl)
-            life_events.extend(self._maybe_start_vehicle(by_position, stl, farms, rng))
+            life_events.extend(self._maybe_start_vehicle(by_position, stl, farms, rng, terrain))
         self._maybe_trade_food(by_position, rng)
         self._maybe_trade_tools(by_position, rng)
         self._maybe_trade_medicine(by_position, rng)
@@ -1259,7 +1271,9 @@ class Population:
             node.amount -= consumed
             relief = FORAGE_HUNGER_RELIEF * (consumed / FORAGE_AMOUNT)
             if node.kind is ResourceKind.FISH:
-                relief *= FISH_HUNGER_RELIEF_MULTIPLIER
+                relief *= FISH_HUNGER_RELIEF_MULTIPLIER * _raft_factor(home)
+                home.fish_caught += 1
+                Population._wear_rafts(home)
             agent.hunger = max(0.0, agent.hunger - relief)
             return
 
@@ -2930,10 +2944,21 @@ class Population:
         for cart in ready_carts:
             cart.condition = max(0.0, cart.condition - wear)
 
+    @staticmethod
+    def _wear_rafts(settlement: Settlement) -> None:
+        """Same shape as `_wear_carts`, triggered per fish catch instead
+        of per gather tick — see RAFT_USE_DECAY."""
+        ready_rafts = [v for v in settlement.vehicles if v.kind is VehicleKind.RAFT and v.stage is VehicleStage.READY]
+        if not ready_rafts:
+            return
+        wear = RAFT_USE_DECAY / len(ready_rafts)
+        for raft in ready_rafts:
+            raft.condition = max(0.0, raft.condition - wear)
+
     @classmethod
     def _maybe_start_vehicle(
         cls, by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement,
-        farms: FarmGrid, rng: random.Random,
+        farms: FarmGrid, rng: random.Random, terrain: list[list[Tile]] | None = None,
     ) -> list[tuple[str, str]]:
         """A vehicle presupposes an existing community (see
         VEHICLE_CHANCE_PER_TICK) — nothing is built before the settlement
@@ -2958,15 +2983,27 @@ class Population:
             # past `industrial` — the settlement's transport modernizes
             # alongside its buildings, not just carts forever. See
             # buildings.ERA_UNLOCKS_AUTOMOBILE, docs/DECISIONS.md,
-            # "vehicle era-progression follow-up."
+            # "vehicle era-progression follow-up." A RAFT only joins the
+            # roll at a build site actually adjacent to water — same
+            # gating idea as FISH resource nodes (world/resources.py's
+            # is_adjacent_to_water) — a raft built inland makes no sense.
+            water_adjacent = terrain is not None and is_adjacent_to_water(terrain, x, y)
             roll = rng.random()
-            if settlement.era in ERA_UNLOCKS_AUTOMOBILE:
+            if water_adjacent:
+                if settlement.era in ERA_UNLOCKS_AUTOMOBILE:
+                    kind = (
+                        VehicleKind.CART if roll < 0.3 else VehicleKind.MOUNT if roll < 0.55
+                        else VehicleKind.AUTOMOBILE if roll < 0.75 else VehicleKind.RAFT
+                    )
+                else:
+                    kind = VehicleKind.MOUNT if roll < 0.35 else VehicleKind.CART if roll < 0.7 else VehicleKind.RAFT
+            elif settlement.era in ERA_UNLOCKS_AUTOMOBILE:
                 kind = VehicleKind.CART if roll < 0.4 else VehicleKind.MOUNT if roll < 0.7 else VehicleKind.AUTOMOBILE
             else:
                 kind = VehicleKind.MOUNT if roll < 0.5 else VehicleKind.CART
             cost = {
                 VehicleKind.MOUNT: MOUNT_MATERIALS_COST, VehicleKind.CART: CART_MATERIALS_COST,
-                VehicleKind.AUTOMOBILE: AUTOMOBILE_MATERIALS_COST,
+                VehicleKind.AUTOMOBILE: AUTOMOBILE_MATERIALS_COST, VehicleKind.RAFT: RAFT_MATERIALS_COST,
             }[kind]
             if settlement.materials < cost:
                 continue

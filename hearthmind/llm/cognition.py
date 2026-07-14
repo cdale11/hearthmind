@@ -9,13 +9,24 @@ the project roadmap. See docs/DECISIONS.md, B2.
 """
 from __future__ import annotations
 
-from hearthmind.agents.agent import Agent, AgentGoal, describe_traits
+from hearthmind.agents.agent import (
+    TRAIT_AMBITION,
+    TRAIT_NOTABLE_THRESHOLD,
+    TRAIT_SOCIABILITY,
+    Agent,
+    AgentGoal,
+    describe_traits,
+)
 
 SYSTEM_PROMPT = (
     "You are the inner voice of a villager in a small simulated world. "
     "Given their current state, choose what they should focus on right now. "
     "'gather' means collecting wood and stone for the village's shared "
-    "building supply. "
+    "building supply. When nothing urgent (hunger, exhaustion) forces the "
+    "choice, let personality tilt it: an ambitious or driven villager "
+    "leans toward 'gather' (visible, effortful work), a sociable one "
+    "leans toward 'socialize' — don't override real needs for this, just "
+    "break ties toward it. "
     'Respond with strict JSON only, no other text: '
     '{"goal": "forage" | "rest" | "socialize" | "wander" | "gather", '
     '"reason": "a short first-person reason, under 15 words"}.'
@@ -94,7 +105,7 @@ def build_prompt(
     )
 
 
-def fallback_goal(hunger: float, energy: float, agent_id: int = 0) -> dict:
+def fallback_goal(hunger: float, energy: float, agent_id: int = 0, traits: dict | None = None) -> dict:
     """Deterministic rule-based stand-in for the LLM's choice, used when
     Ollama is disabled, unreachable, or misbehaves. Mirrors the kind of
     reasoning the prompt asks for, just without an actual model behind it.
@@ -103,11 +114,29 @@ def fallback_goal(hunger: float, energy: float, agent_id: int = 0) -> dict:
     `agent_id % 3` between SOCIALIZE, WANDER, and GATHER, rather than
     always wandering — without this, a fallback-only run (no live LLM)
     could never produce clustering (D2/D4) or a materials stockpile (D8),
-    since only a live LLM could ever choose those goals otherwise."""
+    since only a live LLM could ever choose those goals otherwise.
+
+    A standout `TRAIT_AMBITION` or `TRAIT_SOCIABILITY` (see agents/
+    agent.py) overrides the `agent_id % 3` split toward GATHER/SOCIALIZE
+    respectively — previously this fallback (which fires on every LLM
+    miss: disabled, unreachable, backpressured) ignored personality
+    entirely, so a content agent's "profession" was purely an id-based
+    caste with zero connection to their trait vector, even though the
+    live-LLM prompt already described that same personality in words.
+    Neutral-personality agents (the common case) keep the exact old
+    id%3 split unchanged. See docs/DECISIONS.md, "personality steers
+    profession.\""""
     if hunger > 0.6:
         return {"goal": AgentGoal.FORAGE.value, "reason": "hungry"}
     if energy < 0.3:
         return {"goal": AgentGoal.REST.value, "reason": "tired"}
+    traits = traits or {}
+    ambition = traits.get(TRAIT_AMBITION, 0.0)
+    sociability = traits.get(TRAIT_SOCIABILITY, 0.0)
+    if ambition >= TRAIT_NOTABLE_THRESHOLD and ambition >= sociability:
+        return {"goal": AgentGoal.GATHER.value, "reason": "content, driven to make something of themself"}
+    if sociability >= TRAIT_NOTABLE_THRESHOLD and sociability > ambition:
+        return {"goal": AgentGoal.SOCIALIZE.value, "reason": "content, seeking company"}
     branch = agent_id % 3
     if branch == 0:
         return {"goal": AgentGoal.SOCIALIZE.value, "reason": "content, seeking company"}

@@ -4,6 +4,70 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.66.0] — Dialogue grounding, fishing visibility, boats, personality-steered profession
+
+Direct response to a numbered feedback list: dialogue quality, fishing
+visibility, boats/rafts, personality steering profession. (Cross-
+settlement relationships and further supernatural-emergence work were
+also requested — scoped out of this batch, see docs/DECISIONS.md for
+why and what a v1 of each would involve.)
+
+### Fixed
+- **NPC-NPC dialogue never used `agent.memories` or current activity.**
+  `llm/dialogue.py`'s prompt grounded conversations in hunger/energy/
+  weather/relationship/culture/beliefs/personality, but never what
+  either speaker was actually doing (`agent.goal`) or had recently
+  experienced (`agent.memories` — a death, a bond, a rumor) — the one
+  concrete thing that would make a line feel like it was about *this*
+  world instead of generic small talk. cognition.py already fed
+  memories into goal-setting; dialogue now does the same, plus a
+  SYSTEM_PROMPT instruction to prefer that grounding over small talk.
+- **Post-fission dialogue used the wrong settlement.** `engine.py`'s
+  `_schedule_due_dialogue` unconditionally read `world.settlement`
+  (the founding settlement) for name/tradition/beliefs context, even
+  for a colocated pair who'd fissioned to settlement #2 or #3 — now
+  resolves each pair's actual home settlement.
+- **`inspect_world.py` never printed a fish count** (see v0.65.2) —
+  carried forward, also added a fish-caught tally (below).
+
+### Added
+- **Fishing visibility**: `Settlement.fish_caught`, a persistent count
+  of meals relieved from a FISH resource node, surfaced in the UI's
+  Wild Resources tile and `inspect_world`'s Resources line.
+- **Boats/rafts**: `VehicleKind.RAFT` — same settlement-wide passive-
+  bonus shape as CART (not a personally-claimed vehicle), each ready
+  raft adds 30% to a fish catch's hunger relief (cap 2, +60%). Only
+  enters the vehicle-founding roll at a build site actually adjacent to
+  water (`is_adjacent_to_water`), costs 5.0 materials, wears with use
+  like a cart. Rendered on the map as a teal square (carts are amber).
+  Does not grant water crossing/pathing — a concrete "make fishing an
+  investment" mechanic, not a transport mechanic.
+- **Personality visibly steers profession.** `llm/cognition.py`'s
+  `fallback_goal` (the deterministic path used whenever the LLM is
+  disabled/unreachable/backpressured — a meaningful fraction of ticks
+  by design) previously split content agents purely by `agent_id % 3`,
+  completely ignoring their trait vector. A standout `TRAIT_AMBITION`
+  now leans GATHER, a standout `TRAIT_SOCIABILITY` leans SOCIALIZE,
+  overriding the id-based split; neutral-personality agents (the common
+  case) are unaffected. The live-LLM `SYSTEM_PROMPT` also now
+  explicitly asks the model to let personality break ties the same way.
+
+### Investigated, no code change
+- **Era progression (industrial → modern)**: re-confirmed no gating
+  bug. At default pacing, reaching `modern` (tech_level 7) is ~8.75
+  in-game years — roughly 85 real hours of continuous uptime at
+  `tick_seconds=1.0` — a genuine long-run milestone per the v0.44.0
+  tuning pass, not evidence of something stuck. One real caveat: on a
+  world that has fissioned into multiple named settlements, each
+  settlement's invention roll is diluted 1/N by the round-robin
+  `_job_target()` design (deliberate — keeps total LLM volume flat).
+  See docs/DECISIONS.md for the full arithmetic.
+- **Best model at a 6GB ceiling, considering dialogue quality**: see
+  README's memory-tuning section — recommendation is unchanged from
+  `qwen3:4b-instruct` (v0.65.2) but with the 6GB headroom explicitly
+  reasoned through, since dialogue quality scales with model size more
+  than any other single lever here.
+
 ## [0.65.2] — Fishing fix, model default swap, llama.cpp evaluation
 
 Direct response to a live-hardware report: "why are npcs not fishing,"

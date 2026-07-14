@@ -736,15 +736,20 @@ class SimulationEngine:
                 beliefs_about=beliefs_about, own_belief=own_belief,
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
-            task = asyncio.create_task(self._run_cognition(agent.id, prompt, hunger_snapshot, energy_snapshot))
+            traits_snapshot = dict(agent.traits)
+            task = asyncio.create_task(
+                self._run_cognition(agent.id, prompt, hunger_snapshot, energy_snapshot, traits_snapshot)
+            )
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
-    async def _run_cognition(self, agent_id: int, prompt: str, hunger: float, energy: float) -> None:
+    async def _run_cognition(
+        self, agent_id: int, prompt: str, hunger: float, energy: float, traits: dict,
+    ) -> None:
         scheduled_tick = self.world.clock.tick_count
         try:
             result, used_fallback = await self._cognition_runner.run(
-                prompt, SYSTEM_PROMPT, fallback=lambda: fallback_goal(hunger, energy, agent_id),
+                prompt, SYSTEM_PROMPT, fallback=lambda: fallback_goal(hunger, energy, agent_id, traits),
             )
             self._pending_goal_results[agent_id] = (scheduled_tick, result)
             self._record_llm_call(used_fallback)
@@ -862,14 +867,20 @@ class SimulationEngine:
         )
         if not pairs:
             return
-        latest_tradition = self.world.settlement.traditions[-1] if self.world.settlement.traditions else ""
         for agent_a, agent_b in pairs:
+            # Post-fission (v0.65.0), a colocated pair isn't guaranteed to
+            # belong to the founding settlement — resolve the actual home
+            # settlement so its name/tradition/beliefs ground the prompt
+            # correctly instead of a fissioned pair "living in" the wrong
+            # town. See docs/DECISIONS.md, "dialogue grounding fix."
+            local = self._settlement_by_id(agent_a.settlement_id)
+            latest_tradition = local.traditions[-1] if local.traditions else ""
             affinity = agent_a.relationships.get(agent_b.id, 0.0)
             beliefs_about = beliefs.beliefs_about_agent(
-                agent_a.id, self.world.settlement.beliefs
-            ) + beliefs.beliefs_about_agent(agent_b.id, self.world.settlement.beliefs)
+                agent_a.id, local.beliefs
+            ) + beliefs.beliefs_about_agent(agent_b.id, local.beliefs)
             prompt = dialogue.build_prompt(
-                agent_a, agent_b, affinity, self.world.settlement.name, latest_tradition,
+                agent_a, agent_b, affinity, local.name, latest_tradition,
                 self.world.clock.season, self.world.weather.describe(), beliefs_about=beliefs_about,
             )
             fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)

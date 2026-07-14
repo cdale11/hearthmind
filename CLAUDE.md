@@ -250,6 +250,33 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.66.0)
+
+Batch response to numbered live feedback. **Dialogue grounding fixed**:
+`llm/dialogue.py`'s prompt now includes each speaker's current
+activity and most recent memory (previously stats/weather/relationship/
+culture/beliefs/personality only, never what actually happened to
+either of them) — root cause of "conversations are very off." Also
+fixed a real bug where post-fission dialogue used the founding
+settlement's name/traditions/beliefs regardless of the pair's actual
+home. **Fishing made visible**: `Settlement.fish_caught` counter
+(Wild Resources tile, `inspect_world`) plus **RAFT** vehicles — a
+settlement-wide passive bonus to fish-catch yield (same shape as CART,
+water-adjacent build sites only; does not grant water-crossing
+pathing, see "Known architectural gaps"). **Personality steers
+profession**: `cognition.fallback_goal` (the deterministic path used
+on every LLM miss) previously split content agents by `agent_id % 3`
+with zero trait influence; a standout ambition/sociability trait now
+overrides that split, and the live-LLM prompt explicitly asks for the
+same tie-break. **Era progression and model choice re-investigated**,
+no code change beyond the personality/dialogue items above — see
+docs/DECISIONS.md for the full arithmetic (era: ~85 real hours to
+`modern` at default pacing, legitimately long-run, plus a documented
+multi-settlement dilution caveat; model: `qwen3:4b-instruct` stays the
+recommendation even under a 6GB ceiling). Cross-settlement
+relationships and further supernatural emergence were requested in the
+same batch and deliberately deferred — see "Known architectural gaps."
+
 ## Current state (v0.65.2)
 
 v0.65.2: two live-report-driven fixes. **Default model changed to
@@ -414,9 +441,25 @@ remain in the decision log:
 
 ## Known architectural gaps (not yet built)
 
-Every item once on this list has shipped — multiple named settlements,
-fully agent-pathed construction, and frame-by-frame replay all landed
-in v0.65.0 (see "Current state"). The only surviving deliberate
-deferral is **WebSocket delta payloads**, whose own condition (only if
-bandwidth is ever *measured* as a problem) remains unmet. If a future
-gap is discovered, list it here with the same shape as before.
+**WebSocket delta payloads**: deliberate deferral, own condition (only
+if bandwidth is ever *measured* as a problem) remains unmet.
+
+**Cross-settlement relationships** (requested v0.66.0, deferred that
+same pass — see docs/DECISIONS.md, "Deferred: cross-settlement
+relationships, further supernatural emergence" for full scoping): a
+`Settlement.relations` affinity score between named settlements,
+seeded at fission, wired into at least one real mechanic (trade-price
+modifier or inter-settlement migration/caravan bias are the leading
+candidates).
+
+**Further supernatural emergence** (same request/deferral): extend
+`llm/omens.py` so an omen can occasionally echo across settlements,
+not just within one — small and incremental per Phase G's standing
+ambiguity discipline, not a bigger swing.
+
+**True water transport**: v0.66.0 shipped RAFT as a settlement-wide
+fishing-yield bonus (see "Current state" below), explicitly NOT actual
+water-crossing pathing — an agent still can't walk a raft across
+`DEEP_WATER`/`SHALLOW_WATER`. A real follow-up (faster fission-journey
+crossing, or reaching an otherwise-unreachable site) needs its own
+pathing-system pass, not a bolt-on.
