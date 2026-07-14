@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from hearthmind.util import clamp
 from hearthmind.settlement.institutions import Institution, InstitutionKind
 from hearthmind.settlement.vehicles import (
     VEHICLE_DECAY_PER_TICK_BASE,
@@ -584,7 +585,7 @@ def tick_market_prices(settlement: "Settlement", population_hint: int = 0) -> No
     # market_relation_factor/RELATION_MARKET_INFLUENCE.
     relation_factor = market_relation_factor(settlement)
     for good, fill in (("food", food_fill), ("materials", materials_fill)):
-        target = MARKET_PRICE_MAX - (MARKET_PRICE_MAX - MARKET_PRICE_MIN) * min(1.0, max(0.0, fill))
+        target = MARKET_PRICE_MAX - (MARKET_PRICE_MAX - MARKET_PRICE_MIN) * clamp(fill, 0.0, 1.0)
         target *= relation_factor
         current = prices.get(good, 1.0)
         blended = current * MARKET_PRICE_SMOOTHING + target * (1.0 - MARKET_PRICE_SMOOTHING)
@@ -849,7 +850,7 @@ def tick_temperament(temperament: float, recent_events: list[dict], rng, intensi
     ill = sum(1 for e in recent_events if e.get("category") in _ILL_FORTUNE_CATEGORIES)
     fortune = (good - ill) / (good + ill) if (good + ill) else 0.0
     step = (rng.uniform(-TEMPERAMENT_STEP_MAX, TEMPERAMENT_STEP_MAX) + fortune * TEMPERAMENT_FORTUNE_WEIGHT) * intensity
-    return max(-1.0, min(1.0, temperament * TEMPERAMENT_MEAN_REVERSION + step))
+    return clamp(temperament * TEMPERAMENT_MEAN_REVERSION + step, -1.0, 1.0)
 
 # --- player standing: a discrete "how does the village feel about being --
 # --- nudged from outside" lever, alongside temperament's general mood ---
@@ -885,7 +886,7 @@ def tick_player_standing(standing: float, recent_events: list[dict], rng, intens
         1 for e in recent_events if e.get("category") == "intervention"
     ))
     step = (rng.uniform(-TEMPERAMENT_STEP_MAX, TEMPERAMENT_STEP_MAX) + touches * PLAYER_STANDING_STEP_PER_INTERVENTION) * intensity
-    return max(-1.0, min(1.0, standing * PLAYER_STANDING_MEAN_REVERSION + step))
+    return clamp(standing * PLAYER_STANDING_MEAN_REVERSION + step, -1.0, 1.0)
 
 # --- cross-settlement relations: a settlement's own read of its sister ----
 # --- settlements, seeded at fission and nudged by cross-settlement talk ---
@@ -930,7 +931,7 @@ def tick_relation(value: float, rng, intensity: float = 1.0) -> float:
     `intensity` is `Config.phase_g_intensity`, same convention as
     `tick_temperament`/`tick_player_standing` — 0.0 holds it flat."""
     step = rng.uniform(-RELATION_STEP_MAX, RELATION_STEP_MAX) * intensity
-    return max(-1.0, min(1.0, value * RELATION_MEAN_REVERSION + step))
+    return clamp(value * RELATION_MEAN_REVERSION + step, -1.0, 1.0)
 
 
 def seed_relation(origin_temperament: float, rng) -> float:
@@ -939,7 +940,7 @@ def seed_relation(origin_temperament: float, rng) -> float:
     A small independent random jitter keeps every fission from seeding
     an identical value."""
     jitter = rng.uniform(-0.05, 0.05)
-    return max(-1.0, min(1.0, RELATION_SEED_BASE + origin_temperament * RELATION_SEED_TEMPERAMENT_WEIGHT + jitter))
+    return clamp(RELATION_SEED_BASE + origin_temperament * RELATION_SEED_TEMPERAMENT_WEIGHT + jitter, -1.0, 1.0)
 
 
 RELATION_MARKET_INFLUENCE = 0.1

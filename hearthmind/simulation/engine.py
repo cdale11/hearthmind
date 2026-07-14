@@ -17,10 +17,8 @@ docs/DECISIONS.md, B1/B2/B3.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import os
-import random
 import sqlite3
 import time
 from collections import deque
@@ -42,6 +40,7 @@ from hearthmind.agents.agent import (
     AgentGoal,
 )
 from hearthmind.config import Config
+from hearthmind.util import namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
     fission, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, festival, founding,
@@ -94,21 +93,10 @@ from hearthmind.world.state import TERRAIN_CHANGING_CATEGORIES, World
 from hearthmind.world.terrain import biome_counts
 
 
-def _namespaced_roll(seed: int, tick: int, namespace: str) -> float:
-    """A single deterministic float in [0, 1) from (seed, tick, namespace)
-    — the same discipline as Population's namespaced RNG, for the rare
-    engine-level rolls (e.g. invention) that don't need a full
-    random.Random instance."""
-    digest = hashlib.sha256(f"{seed}:{namespace}:{tick}".encode()).hexdigest()
-    return int(digest[:8], 16) / 0xFFFFFFFF
-
-
-def _namespaced_rng(seed: int, tick: int, namespace: str) -> random.Random:
-    """Same discipline as `_namespaced_roll`, for the rare engine-level
-    calls (e.g. temperament) that do need a full `random.Random`
-    instance rather than a single float."""
-    digest = hashlib.sha256(f"{seed}:{namespace}:{tick}".encode()).hexdigest()
-    return random.Random(int(digest[:16], 16))
+# Shared helpers (hearthmind/util.py) under their historical private
+# names so this module's call sites are unchanged.
+_namespaced_roll = namespaced_roll
+_namespaced_rng = namespaced_rng
 
 if TYPE_CHECKING:
     # Only imported for type hints — importing hearthmind.simulation.engine

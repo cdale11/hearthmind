@@ -4,6 +4,43 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.69.0] — Codebase audit + safe dedup refactor
+
+Full read-through audit for performance/maintainability/features, with
+a behavior-preserving bias. Findings and the sequenced plan for the
+larger (deferred) refactors are in `docs/REFACTOR-2026-07.md`.
+
+### Changed
+- **New `hearthmind/util.py`** (stdlib-only, cycle-safe bottom of the
+  dependency graph) consolidating three cross-cutting helpers:
+  `clamp(value, low, high)`, and `namespaced_rng`/`namespaced_roll`
+  which had been **copy-pasted verbatim** into `agents/population.py`,
+  `world/state.py`, and `simulation/engine.py`. Each module keeps its
+  historical private `_namespaced_rng`/`_namespaced_roll` name via a
+  one-line alias, so no call site changed. Migrated the 5 `clamp`
+  sites in `settlement/buildings.py`'s Phase-G/market math.
+- **Import hygiene**: removed a dead `import random`
+  (`llm/caravan.fallback_caravan`) and the `hashlib`/`random` imports
+  left unused in `state.py`/`engine.py` once the RNG helpers moved;
+  hoisted two function-local `deque` imports in `population.py` to
+  module scope.
+- Verified **byte-identical**: a 7000-tick fresh-world run (deterministic
+  fallback) produced the same SHA-256 of the entire event stream before
+  and after, exercising construction, naming, temperament, and player
+  standing; plus a server-CLI boot smoke test.
+
+### Documented (deferred, not done — see docs/REFACTOR-2026-07.md)
+- **R1**: split the three oversized modules (`population.py` ~3930,
+  `buildings.py` ~2140, `engine.py` ~2090) into packages via **mixins**
+  (preserves `self`/`cls`/MRO and every call site), one cohesive
+  method-group at a time behind the event-hash equivalence check.
+- **R2**: collapse `engine.py`'s ~20 near-identical `_maybe_schedule_*`
+  methods into a declarative job registry.
+- **R3**: finish the `clamp` migration (25+ remaining sites).
+- **R4**: numpy grid-pass vectorization — **explicitly declined** (tick
+  loop has ~250× headroom; would add a heavy dependency for <1% of an
+  unspent budget), consistent with CLAUDE.md's escalation order.
+
 ## [0.68.0] — Four live-report bug fixes: births, naming, disease, mountain geography
 
 Investigated and fixed four symptoms from a real year-2/tick-15000 run.

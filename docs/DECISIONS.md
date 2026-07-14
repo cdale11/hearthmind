@@ -6075,3 +6075,38 @@ produced the real numbers cited above. Worth remembering for any
 future ad-hoc verification script: `World.tick()` alone is the
 physical-substrate layer only; goal/dialogue/most LLM-adjacent
 scheduling is engine-level.
+
+## Codebase audit + safe dedup refactor (v0.69.0)
+
+Full read-through audit for performance, maintainability, and ease of
+adding features — the detailed findings and the sequenced plan for the
+deferred larger refactors live in `docs/REFACTOR-2026-07.md`. Summary
+of the decisions:
+
+- **The codebase is clean.** An AST scan found one real unused import
+  (fixed) and zero dead functions. A fresh cProfile (60 agents/64×64)
+  confirmed the standing finding yet again: no wasteful hotspot remains
+  after v0.67.0's `_nearest_resource` fix; every top cost is
+  proportional to genuine simulated activity, and the tick loop uses
+  ~4 ms of a 1000 ms budget.
+- **Shipped a behavior-preserving dedup pass**: a new stdlib-only
+  `hearthmind/util.py` (`clamp`, `namespaced_rng`, `namespaced_roll`)
+  removes a verbatim triple-copy of the namespaced-RNG helper and gives
+  the recurring `clamp` idiom a named home. Every module keeps its
+  historical private helper name via a one-line alias, so **no call
+  site changed**. Proven equivalent by a 7000-tick event-stream hash
+  match (before vs. after) plus a boot smoke test — the standard,
+  test-suite-free verification this project uses.
+- **The big structural refactor (splitting the three 2000–4000-line
+  files) was deliberately NOT attempted in this run.** Rationale: no
+  automated test net exists here, so the only safe way to move a
+  method-group out of `population.py` is one group at a time behind the
+  event-hash equivalence check — several careful iterations, not a
+  single edit that could silently change behavior. The plan (R1:
+  mixin-based package split; R2: engine scheduler registry; R3: finish
+  `clamp`; R4: the explicitly-declined numpy grid pass) is written up
+  concretely in `docs/REFACTOR-2026-07.md` so a future run (or the
+  user's own live-verified session) can execute it incrementally. This
+  is the "properly document what you can't safely finish" half of the
+  brief, and it aligns with the standing "smallest coherent milestone
+  at a time" / "audit before continuing" rules.

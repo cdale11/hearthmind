@@ -100,7 +100,6 @@ def build_prompt(settlement_name: str, recent_events: list[dict]) -> str:
 
 
 def fallback_caravan(seed_hint: int) -> dict:
-    import random
     description, rumor = _FALLBACK_POOL[seed_hint % len(_FALLBACK_POOL)]
     return {"description": description, "rumor": rumor}
 

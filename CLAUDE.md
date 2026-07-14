@@ -250,6 +250,29 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.69.0)
+
+Full codebase audit + a safe, behavior-preserving dedup refactor (detail
+in `docs/REFACTOR-2026-07.md`; audit confirmed the codebase is clean —
+one dead import, no wasteful hotspots, tick loop uses ~4ms of 1000ms).
+**New `hearthmind/util.py`** is now the stdlib-only, cycle-safe home for
+cross-cutting helpers: `clamp(value, low, high)` (use it for new bounded
+math instead of hand-rolling `max(lo, min(hi, x))`) and
+`namespaced_rng`/`namespaced_roll` (previously copy-pasted into three
+modules; now single-sourced, with each module keeping its private
+`_namespaced_rng` alias so call sites are unchanged). Proven equivalent
+by a 7000-tick event-stream hash match before/after. **Deferred and
+documented, not done** (`docs/REFACTOR-2026-07.md`): R1 splitting the
+three oversized files (`population.py` ~3930, `buildings.py` ~2140,
+`engine.py` ~2090) into packages via mixins — the real maintainability
+win, held back because there's no test net so it must be done one
+method-group at a time behind the event-hash check; R2 an engine
+scheduler registry to collapse the ~20 near-identical `_maybe_schedule_*`
+methods; R3 finishing the `clamp` migration; R4 numpy grid passes,
+explicitly declined (unspent tick budget). When adding a new
+cross-cutting helper, put it in `util.py`; when adding a new LLM job,
+know that R2 wants to make that a registry entry eventually.
+
 ## Current state (v0.68.0)
 
 Four live-report bug fixes, root-caused before fixing (see

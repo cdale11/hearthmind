@@ -7,8 +7,6 @@ which is what makes snapshotting trivial (see persistence/snapshot.py).
 from __future__ import annotations
 
 import dataclasses
-import hashlib
-import random
 from dataclasses import dataclass, field
 
 from hearthmind.agents.agent import AgentGoal, AgentState
@@ -40,11 +38,11 @@ from hearthmind.world.disasters import (
 from hearthmind.world.hydrology import LakeState, generate_rivers, identify_lakes, tick_lakes
 from hearthmind.world.weather import WeatherState, compute_weather
 from hearthmind.world.wildlife import WildlifeGrid
+from hearthmind.util import namespaced_rng
 
-
-def _namespaced_rng(seed: int, tick: int, namespace: str) -> random.Random:
-    digest = hashlib.sha256(f"{seed}:{namespace}:{tick}".encode()).hexdigest()
-    return random.Random(int(digest[:16], 16))
+# Shared helper (hearthmind/util.py) under its historical private name so
+# this module's call sites are unchanged.
+_namespaced_rng = namespaced_rng
 
 
 TERRAIN_CHANGING_CATEGORIES = frozenset({

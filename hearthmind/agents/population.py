@@ -8,10 +8,12 @@ population history.
 """
 from __future__ import annotations
 
-import hashlib
 import itertools
 import random
+from collections import deque
 from dataclasses import dataclass, field
+
+from hearthmind.util import namespaced_rng
 
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
@@ -497,9 +499,10 @@ load bounded as population/clustering grows, same rationale as
 E2."""
 
 
-def _namespaced_rng(seed: int, tick: int, namespace: str) -> random.Random:
-    digest = hashlib.sha256(f"{seed}:{namespace}:{tick}".encode()).hexdigest()
-    return random.Random(int(digest[:16], 16))
+# `_namespaced_rng` is the shared helper (see hearthmind/util.py) — kept
+# under its historical private name here so the many call sites in this
+# module are unchanged.
+_namespaced_rng = namespaced_rng
 
 
 def _tech_factor(settlement: Settlement) -> float:
@@ -1724,9 +1727,8 @@ class Population:
             return None
         height = len(terrain)
         width = len(terrain[0]) if height else 0
-        from collections import deque as _deque
         first_step: dict[tuple[int, int], tuple[int, int]] = {}
-        queue = _deque([start])
+        queue = deque([start])
         seen = {start}
         expanded = 0
         while queue and expanded < node_cap:
@@ -1751,9 +1753,8 @@ class Population:
         flood fill, used by the engine's fission-site chooser so a
         founding party is never pointed at land it cannot walk to (the
         map's rivers/lakes genuinely disconnect some regions)."""
-        from collections import deque as _deque
         seen = {origin}
-        queue = _deque([origin])
+        queue = deque([origin])
         height = len(terrain)
         width = len(terrain[0]) if height else 0
         while queue:
