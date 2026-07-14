@@ -1573,23 +1573,37 @@ class Population:
         forest/grassland/hills tile) — under plain nearest-wins, a FISH
         node essentially never won the tie-break, so fishing only ever
         happened by incidental colocation, never as visible in-game
-        behavior. Root cause of the "NPCs never seem to fish" report."""
+        behavior. Root cause of the "NPCs never seem to fish" report.
+
+        Scans the bounded (2*FORAGE_SEARCH_RADIUS+1)^2 box around the
+        agent via direct dict lookups rather than every node on the map
+        (v0.67.0 perf pass — profiling a 60-agent/64x64 run found this
+        the single largest self-time hotspot: ~800 total resource nodes
+        scanned per call, most of them far outside any agent's search
+        radius). Fixed-cost regardless of map size/node density, so it
+        stops scaling with total node count the way the old `.items()`
+        scan did — CLAUDE.md's pre-approved first escalation step
+        ("spatial buckets for nearest-X scans") applied to the one
+        function that actually needed it."""
         best_food: tuple[int, int] | None = None
         best_food_dist: int | None = None
         best_fish: tuple[int, int] | None = None
         best_fish_dist: int | None = None
-        for (x, y), node in resources.nodes.items():
-            if node.kind not in (ResourceKind.FOOD, ResourceKind.FISH) or node.amount <= 0:
-                continue
-            if max(abs(x - agent.x), abs(y - agent.y)) > FORAGE_SEARCH_RADIUS:
-                continue
-            dist = abs(x - agent.x) + abs(y - agent.y)
-            if node.kind is ResourceKind.FISH:
-                if best_fish_dist is None or dist < best_fish_dist:
-                    best_fish, best_fish_dist = (x, y), dist
-            else:
-                if best_food_dist is None or dist < best_food_dist:
-                    best_food, best_food_dist = (x, y), dist
+        nodes = resources.nodes
+        ax, ay = agent.x, agent.y
+        for dy in range(-FORAGE_SEARCH_RADIUS, FORAGE_SEARCH_RADIUS + 1):
+            y = ay + dy
+            for dx in range(-FORAGE_SEARCH_RADIUS, FORAGE_SEARCH_RADIUS + 1):
+                node = nodes.get((ax + dx, y))
+                if node is None or node.kind not in (ResourceKind.FOOD, ResourceKind.FISH) or node.amount <= 0:
+                    continue
+                dist = abs(dx) + abs(dy)
+                if node.kind is ResourceKind.FISH:
+                    if best_fish_dist is None or dist < best_fish_dist:
+                        best_fish, best_fish_dist = (ax + dx, y), dist
+                else:
+                    if best_food_dist is None or dist < best_food_dist:
+                        best_food, best_food_dist = (ax + dx, y), dist
         return best_fish if best_fish is not None else best_food
 
     @staticmethod

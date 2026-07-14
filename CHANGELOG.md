@@ -4,6 +4,57 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.67.0] — Cross-settlement relationships, cross-settlement omens, dialogue turn-taking, perf pass
+
+Builds the two items deferred from v0.66.0, plus two direct follow-up
+requests: dialogue turns reading as disconnected, and a performance
+pass grounded in real profiling data.
+
+### Added
+- **Cross-settlement relationships**: `Settlement.relations` (id ->
+  affinity, -1..1), seeded warm at fission (`seed_relation`, colored by
+  the origin settlement's temperament), mean-reverting monthly
+  (`tick_relation`, same shape as `temperament`). Two real mechanical
+  hooks: a small market-price nudge from a settlement's average
+  standing with its sisters (`market_relation_factor`, +-10% at fully
+  warm/cold, wired into `tick_market_prices`), and a nudge from
+  cross-settlement dialogue sentiment (colocated pairs from different
+  settlements are rare but real on the shared map — each exchange
+  nudges both settlements' mutual relation the same way it nudges the
+  two agents' personal one). Surfaced in `summary()`/`to_dict()`.
+- **Cross-settlement omens**: `omens.CROSS_SETTLEMENT_OMEN_CHANCE` —
+  when authoring a new omen, a 30% chance blends in a past omen from a
+  *different* named settlement's own history into the existing "echo
+  of something noticed before" pool, using the exact same ambiguous
+  framing as an in-settlement echo. No settlement attribution is ever
+  surfaced in the prompt or output — a shared phrase turning up in two
+  villages' histories is left for a player to notice, never narrated
+  as a connection. Small, incremental, same Phase G ambiguity
+  discipline as everything else in this system.
+
+### Fixed
+- **Dialogue turns could read as disconnected.** `llm/dialogue.py`'s
+  `SYSTEM_PROMPT` asked for two lines but never explicitly required
+  `line_b` to respond to `line_a` — a weaker model could (and did)
+  produce two independently-plausible statements instead of a real
+  back-and-forth. Added an explicit instruction: line_b must directly
+  respond to, react to, or answer what line_a just said.
+
+### Performance
+- Profiled a 60-agent/64x64/2000-tick run (cProfile): `Population.
+  _nearest_resource` (the FORAGE-goal targeting function touched in
+  v0.65.2's fishing fix) was the single largest self-time hotspot —
+  it scanned every resource node on the map (~800 on this map) per
+  call regardless of the agent's actual `FORAGE_SEARCH_RADIUS`. Now
+  scans the bounded (2*radius+1)^2 box directly via dict lookups —
+  fixed cost regardless of map size/node density, ~7x less self-time
+  in the profiled run (1.554s -> 0.219s). Same behavior, same tie-
+  break, just not scanning tiles that were always going to be
+  filtered out. Clean (unprofiled) throughput: 1.42ms/tick at
+  population 60 on a 64x64 map — still ~700x headroom against the
+  1000ms/tick budget; this was a real measured hotspot worth fixing,
+  not evidence the engine was ever close to CPU-bound.
+
 ## [0.66.0] — Dialogue grounding, fishing visibility, boats, personality-steered profession
 
 Direct response to a numbered feedback list: dialogue quality, fishing

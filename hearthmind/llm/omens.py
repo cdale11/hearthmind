@@ -22,6 +22,19 @@ OMEN_CHANCE_TEMPERAMENT_SCALE = 0.25
 month makes an omen somewhat more likely to be noticed, without ever
 making it common."""
 
+CROSS_SETTLEMENT_OMEN_CHANCE = 0.3
+"""When an omen is about to be authored and at least one *other* named
+settlement has its own omen history, this is the chance a past omen
+from that other settlement is blended into the "echo of something
+noticed before" pool alongside the local settlement's own history —
+see SimulationEngine._maybe_schedule_omen. No settlement attribution
+is ever surfaced in the prompt or the resulting text; the same phrase
+turning up in two villages' histories is left as something a player
+might notice on their own, never narrated as a connection. Small and
+incremental per Phase G's standing ambiguity discipline — this doesn't
+add a new kind of event, just widens where an existing one's memory
+can come from."""
+
 SYSTEM_PROMPT = (
     "You are noting a small, unexplained occurrence noticed in a simulated "
     "village — something residents mention to each other without quite "

@@ -250,6 +250,33 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.67.0)
+
+Closes both items deferred from v0.66.0, plus two direct follow-ups.
+**Cross-settlement relationships**: `Settlement.relations` (id ->
+affinity, seeded warm at fission via `seed_relation`, mean-reverts
+monthly via `tick_relation` alongside temperament), wired into two
+real mechanics — a small market-price nudge from average standing with
+sister settlements (`market_relation_factor`), and a nudge from
+cross-settlement dialogue sentiment (rare but real: the map is
+shared). Dialogue prompts also read the pair's relation as ambient
+context. **Further supernatural emergence**: omens have a 30% chance
+to blend in a past omen from a *different* named settlement's history
+into the existing in-settlement "echo" pool — no settlement is ever
+named in the prompt/output, so the only way this is visible is a
+player noticing the same phrase across two villages' histories
+themselves; same ambiguity discipline as everything else in Phase G.
+**Dialogue turn-taking fixed**: `SYSTEM_PROMPT` now explicitly requires
+line_b to respond to line_a rather than allowing two independently-
+plausible statements. **Performance pass**: profiled (not guessed)
+a 60-agent/64x64 run — `Population._nearest_resource` (touched by the
+v0.65.2 fishing fix) was the clear top hotspot, scanning every
+resource node on the map per call; now scans a fixed-size bounded box
+via dict lookups instead, ~7x less self-time in the profiled run, no
+behavior change. Tick throughput: 1.42ms/tick at population 60 — the
+tick loop remains nowhere near CPU-bound, this was a genuine measured
+win, not evidence of a real bottleneck.
+
 ## Current state (v0.66.0)
 
 Batch response to numbered live feedback. **Dialogue grounding fixed**:
@@ -443,19 +470,6 @@ remain in the decision log:
 
 **WebSocket delta payloads**: deliberate deferral, own condition (only
 if bandwidth is ever *measured* as a problem) remains unmet.
-
-**Cross-settlement relationships** (requested v0.66.0, deferred that
-same pass — see docs/DECISIONS.md, "Deferred: cross-settlement
-relationships, further supernatural emergence" for full scoping): a
-`Settlement.relations` affinity score between named settlements,
-seeded at fission, wired into at least one real mechanic (trade-price
-modifier or inter-settlement migration/caravan bias are the leading
-candidates).
-
-**Further supernatural emergence** (same request/deferral): extend
-`llm/omens.py` so an omen can occasionally echo across settlements,
-not just within one — small and incremental per Phase G's standing
-ambiguity discipline, not a bigger swing.
 
 **True water transport**: v0.66.0 shipped RAFT as a settlement-wide
 fishing-yield bonus (see "Current state" below), explicitly NOT actual

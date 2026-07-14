@@ -5844,7 +5844,92 @@ Actionable check for the user: `inspect_world`/`/diagnostics` already
 show `tech_level` and `era` live — watch it rise over real hours rather
 than assuming a fixed threshold means a fixed wall-clock time.
 
-## Deferred: cross-settlement relationships, further supernatural emergence
+## Shipped: cross-settlement relationships, further supernatural emergence, dialogue turn-taking, perf pass (v0.67.0)
+
+Built the two items deferred below, plus two new requests: dialogue
+turns reading as "disconnected," and a general performance pass.
+
+**Cross-settlement relationships**, following the scoping below closely:
+`Settlement.relations: dict[int, float]` on `SettlementDisposition`
+(same domain as `temperament`/`player_standing`), seeded at fission via
+`seed_relation(origin.temperament, rng)` — base warmth 0.3 (a peaceful
+split, not an exile), colored +-0.2 by the origin's mood at the moment
+of departure, small jitter so no two fissions seed identically. Ticks
+monthly via `tick_relation` (pure mean-reversion + noise, no fortune-
+category input like temperament — a between-settlement relationship is
+driven by recorded contact, not the settlement's own general luck),
+same cadence as `_maybe_tick_temperament`. Two real mechanical hooks,
+matching the two candidates this entry originally proposed: (1)
+`market_relation_factor` — a settlement's average standing with its
+named sisters nudges its own market-price target +-10%
+(`RELATION_MARKET_INFLUENCE`), wired into `tick_market_prices`; (2)
+cross-settlement dialogue — `SimulationEngine._apply_pending_dialogue_
+results` now checks whether a resolved dialogue pair belongs to two
+different settlements (rare but real: the map is shared, so a pair can
+be colocated near a settlement border even though each settlement's
+population mostly stays near its own home) and nudges both
+settlements' mutual relation by `DIALOGUE_SENTIMENT_DELTA` — the same
+per-exchange magnitude a personal `Agent.relationships` nudge gets.
+`dialogue.build_prompt` also reads the pair's cross-settlement relation
+(when one exists) into the prompt as ambient context ("Rivertown and
+Hillside are on warm/cold terms"), the same way personal affinity
+already colors the `tie` text one level up.
+
+**Further supernatural emergence**: `omens.CROSS_SETTLEMENT_OMEN_
+CHANCE` (0.3) — when `_maybe_schedule_omen` is about to author a new
+omen and at least one *other* named settlement has its own
+`omen_history`, there's a 30% chance one of that settlement's past
+omens is blended into the local `past_omens` pool passed to the
+prompt, using the exact same "if it fits naturally, this could echo
+something noticed before" framing `omens.build_prompt` already offers
+for in-settlement echoes. Deliberately minimal: no settlement name or
+cross-settlement framing is ever mentioned in the prompt or the
+resulting omen text — from the LLM's (and the player's) point of view
+it's indistinguishable from any other echo. The only way this is ever
+visible is if a player compares two different settlements' omen
+histories and notices the same phrase in both — exactly the kind of
+connection this project leaves for the player to find, never narrates
+directly. Matches Phase G's standing rule: extend incrementally, never
+escalate toward anything explicit.
+
+**Dialogue turn-taking**: user report that NPC-NPC exchanges could
+read as disconnected — line_b not clearly responding to line_a. Both
+lines are already generated in one JSON call, so the model technically
+has "context" of both simultaneously, but `SYSTEM_PROMPT` never
+explicitly required line_b to be a response rather than an independent
+statement, which a weaker model can (and evidently did) produce as two
+plausible-but-unrelated lines. A true multi-turn generation (produce
+line_a, then feed it into a second call to produce line_b as a reply)
+would double dialogue's LLM call volume for a fix achievable in the
+prompt — added one explicit instruction instead: "line_b must directly
+respond to, react to, or answer what line_a just said... not a restart
+on a new topic."
+
+**Performance pass**: profiled a 60-agent/64x64/2000-tick run with
+cProfile rather than guessing where to optimize. `Population.
+_nearest_resource` — the function v0.65.2's fishing-preference fix
+touched — was the clear largest self-time hotspot: a full scan of
+every resource node on the map (~800 nodes on this map) on every call,
+regardless of `FORAGE_SEARCH_RADIUS` (6). Rewrote it to scan the
+bounded (2*radius+1)^2 = 169-cell box directly via `dict.get` lookups
+instead of iterating `resources.nodes.items()` — behavior-identical
+(same FISH-preferred, same distance tie-break), but now a fixed cost
+independent of map size or node density instead of scaling with total
+node count. Measured: 1.554s -> 0.219s self-time in the profiled run
+(~7x), total profiled time down ~11%. This is exactly CLAUDE.md's
+pre-approved first escalation step ("spatial buckets for nearest-X
+scans") applied to the one function that actually warranted it —
+checked the rest of the top-25 profile entries too (`Settlement.at`
+already position-indexed/O(1); `_update_relationships`'s cost is
+proportional to genuine relationship count/colocation, not wasted
+work) and found nothing else worth changing without a measured reason.
+Clean (unprofiled) throughput after the fix: 1.42ms/tick at population
+60 on a 64x64 map — still ~700x headroom against the 1000ms/tick
+budget. Restating the standing finding: the tick loop was never
+CPU-bound and still isn't; this was a genuine, measured hotspot worth
+fixing on its own merits, not evidence otherwise.
+
+## Deferred (shipped in v0.67.0, see above): cross-settlement relationships, further supernatural emergence
 
 User requested both in the same batch as the items above. Not built
 this pass — both are genuine new subsystems, not incremental fixes to

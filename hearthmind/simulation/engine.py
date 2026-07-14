@@ -33,6 +33,7 @@ except ImportError:  # pragma: no cover — this project's target hardware is Li
 
 from hearthmind.agents.agent import (
     DIALOGUE_COOLDOWN_TICKS,
+    DIALOGUE_SENTIMENT_DELTA,
     SKILL_CONSTRUCTION,
     SKILL_FARMING,
     SKILL_INVENTION_BONUS_WEIGHT,
@@ -81,8 +82,11 @@ from hearthmind.settlement.buildings import (
     Settlement,
     education_invention_bonus,
     era_for_tech_level,
+    RELATION_DIALOGUE_NUDGE_SCALE,
+    seed_relation,
     tick_market_prices,
     tick_player_standing,
+    tick_relation,
     tick_temperament,
 )
 from hearthmind.settlement.institutions import InstitutionKind
@@ -789,6 +793,19 @@ class SimulationEngine:
             if parsed["rumor"]:
                 self._log("rumor", f"{agent_a.name} and {agent_b.name}: {parsed['rumor']}")
                 self.world.rumor_total += 1
+            if agent_a.settlement_id != agent_b.settlement_id:
+                # Cross-settlement relations (v0.67.0): a colocated pair
+                # from two different named settlements is itself a real,
+                # if rare, point of contact between those settlements —
+                # nudge both settlements' mutual relation the same
+                # direction as the sentiment, same shape as an individual
+                # dialogue nudging Agent.relationships. See
+                # docs/DECISIONS.md, "cross-settlement relationships."
+                stl_a = self._settlement_by_id(agent_a.settlement_id)
+                stl_b = self._settlement_by_id(agent_b.settlement_id)
+                nudge = RELATION_DIALOGUE_NUDGE_SCALE * DIALOGUE_SENTIMENT_DELTA.get(parsed["sentiment"], 0.0)
+                stl_a.relations[stl_b.id] = max(-1.0, min(1.0, stl_a.relation_with(stl_b.id) + nudge))
+                stl_b.relations[stl_a.id] = max(-1.0, min(1.0, stl_b.relation_with(stl_a.id) + nudge))
         self._pending_dialogue_results.clear()
 
     # --- interventions ("nudges" from outside the simulation) ------------------
@@ -879,9 +896,15 @@ class SimulationEngine:
             beliefs_about = beliefs.beliefs_about_agent(
                 agent_a.id, local.beliefs
             ) + beliefs.beliefs_about_agent(agent_b.id, local.beliefs)
+            other_settlement_name, cross_relation = "", None
+            if agent_b.settlement_id != agent_a.settlement_id:
+                other = self._settlement_by_id(agent_b.settlement_id)
+                other_settlement_name = other.name
+                cross_relation = local.relation_with(other.id)
             prompt = dialogue.build_prompt(
                 agent_a, agent_b, affinity, local.name, latest_tradition,
                 self.world.clock.season, self.world.weather.describe(), beliefs_about=beliefs_about,
+                other_settlement_name=other_settlement_name, cross_settlement_relation=cross_relation,
             )
             fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
             task = asyncio.create_task(self._run_dialogue(agent_a.id, agent_b.id, prompt, fallback))
@@ -1427,6 +1450,16 @@ class SimulationEngine:
             stl.temperament = tick_temperament(
                 stl.temperament, recent, rng, intensity=self.world.config.phase_g_intensity,
             )
+            # Cross-settlement relations (v0.67.0): every relation this
+            # settlement has on record mean-reverts monthly too, same
+            # cadence as temperament — see tick_relation.
+            for other_id, value in list(stl.relations.items()):
+                relation_rng = _namespaced_rng(
+                    self.world.config.seed, self.world.clock.tick_count, f"relation_{stl.id}_{other_id}",
+                )
+                stl.relations[other_id] = tick_relation(
+                    value, relation_rng, intensity=self.world.config.phase_g_intensity,
+                )
         # Player standing stays a founding-settlement (world-primary)
         # number: whispers land there and the intervention volume it
         # tracks is world-scoped, not per-community.
@@ -1491,6 +1524,24 @@ class SimulationEngine:
             pick_roll = _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "omen_subject_pick")
             subject_name = subject_candidates[min(len(subject_candidates) - 1, int(pick_roll * len(subject_candidates)))]
         past_omens = [entry["omen"] for entry in omen_target.omen_history]
+        # Further supernatural emergence (v0.67.0): occasionally blend in
+        # a past omen from a *different* named settlement, using the same
+        # ambiguous "echo of something noticed before" framing omen_
+        # history already offers within one settlement — see
+        # omens.CROSS_SETTLEMENT_OMEN_CHANCE.
+        others_with_history = [
+            s for s in self.world.settlements if s.id != omen_target.id and s.omen_history
+        ]
+        if others_with_history and _namespaced_roll(
+            self.world.config.seed, self.world.clock.tick_count, "omen_cross_settlement",
+        ) < omens.CROSS_SETTLEMENT_OMEN_CHANCE:
+            pick_roll = _namespaced_roll(
+                self.world.config.seed, self.world.clock.tick_count, "omen_cross_settlement_pick",
+            )
+            foreign = others_with_history[min(len(others_with_history) - 1, int(pick_roll * len(others_with_history)))]
+            foreign_omen = foreign.omen_history[-1]["omen"]
+            if foreign_omen not in past_omens:
+                past_omens = past_omens + [foreign_omen]
         prompt = omens.build_prompt(
             omen_target.name, temperament, recent, subject_name=subject_name, past_omens=past_omens,
         )
@@ -1750,6 +1801,14 @@ class SimulationEngine:
             grant = home.materials * FISSION_MATERIALS_SHARE
             home.materials -= grant
             new_settlement.materials = grant
+            # Cross-settlement relations (v0.67.0): the daughter starts
+            # warm toward the settlement it just split from (and vice
+            # versa) — a peaceful split, colored a little by the origin's
+            # mood at the moment of departure. See buildings.seed_relation.
+            relation_rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "fission_relation")
+            seed = seed_relation(home.temperament, relation_rng)
+            home.relations[new_id] = seed
+            new_settlement.relations[home_id] = seed
             self.world.settlements.append(new_settlement)
             population.depart_for_fission(
                 party, new_settlement, site, self.world.clock.tick_count, home.name,

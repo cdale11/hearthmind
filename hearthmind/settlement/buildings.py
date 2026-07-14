@@ -566,8 +566,13 @@ def tick_market_prices(settlement: "Settlement", population_hint: int = 0) -> No
     granary_capacity = len(granaries) * GRANARY_CAPACITY
     food_fill = (sum(b.stored_food for b in granaries) / granary_capacity) if granary_capacity else 0.5
     materials_fill = settlement.materials / MATERIALS_CAPACITY if MATERIALS_CAPACITY else 0.5
+    # Cross-settlement relations (v0.67.0) add a small, ambient regional-
+    # trade nudge on top of the supply/demand target — see
+    # market_relation_factor/RELATION_MARKET_INFLUENCE.
+    relation_factor = market_relation_factor(settlement)
     for good, fill in (("food", food_fill), ("materials", materials_fill)):
         target = MARKET_PRICE_MAX - (MARKET_PRICE_MAX - MARKET_PRICE_MIN) * min(1.0, max(0.0, fill))
+        target *= relation_factor
         current = prices.get(good, 1.0)
         blended = current * MARKET_PRICE_SMOOTHING + target * (1.0 - MARKET_PRICE_SMOOTHING)
         prices[good] = round(max(MARKET_PRICE_MIN, min(MARKET_PRICE_MAX, blended)), 3)
@@ -861,6 +866,85 @@ def tick_player_standing(standing: float, recent_events: list[dict], rng, intens
     ))
     step = (rng.uniform(-TEMPERAMENT_STEP_MAX, TEMPERAMENT_STEP_MAX) + touches * PLAYER_STANDING_STEP_PER_INTERVENTION) * intensity
     return max(-1.0, min(1.0, standing * PLAYER_STANDING_MEAN_REVERSION + step))
+
+# --- cross-settlement relations: a settlement's own read of its sister ----
+# --- settlements, seeded at fission and nudged by cross-settlement talk ---
+
+RELATION_SEED_BASE = 0.3
+"""Starting affinity a fresh fission creates between origin and daughter
+— warm by default (a peaceful split, not an exile): the two communities
+were one village a moment before, so indifference (0.0) would undersell
+how recently they were the same people."""
+
+RELATION_SEED_TEMPERAMENT_WEIGHT = 0.2
+"""The origin settlement's `temperament` at the moment of fission colors
+the seed a little further — a fission launched from a settlement in a
+sour mood starts its daughter relationship somewhat cooler than one
+launched from a settlement doing well, without ever flipping the base
+warmth negative on its own (temperament is bounded -1..1, so the
+adjustment is bounded -0.2..+0.2)."""
+
+RELATION_STEP_MAX = 0.02
+RELATION_MEAN_REVERSION = 0.98
+"""Slower decay than temperament's 0.97 — a between-settlement
+relationship, built from rarer direct contact (cross-settlement
+dialogue, not a monthly settlement-wide mood roll), should drift back
+toward neutral more slowly than the village's own internal weather."""
+
+RELATION_DIALOGUE_NUDGE_SCALE = 1.0
+"""Multiplies `DIALOGUE_SENTIMENT_DELTA` (agent.py, +-0.05/warm-tense)
+when a colocated dialogue pair belongs to two different settlements —
+the same per-exchange nudge magnitude as an individual `Agent.
+relationships` nudge, reused rather than a bespoke constant so a
+cross-settlement encounter counts for exactly as much as any other
+one. See SimulationEngine._apply_pending_dialogue_results."""
+
+
+def tick_relation(value: float, rng, intensity: float = 1.0) -> float:
+    """Nudge one cross-settlement relation value one step (called
+    monthly per settlement pair with a recorded relation, alongside
+    temperament/player_standing) — pure mean-reversion plus noise, no
+    fortune-category input like temperament: a between-settlement
+    relationship is driven by recorded direct contact (fission origin,
+    cross-settlement dialogue), not the settlement's own general luck.
+    `intensity` is `Config.phase_g_intensity`, same convention as
+    `tick_temperament`/`tick_player_standing` — 0.0 holds it flat."""
+    step = rng.uniform(-RELATION_STEP_MAX, RELATION_STEP_MAX) * intensity
+    return max(-1.0, min(1.0, value * RELATION_MEAN_REVERSION + step))
+
+
+def seed_relation(origin_temperament: float, rng) -> float:
+    """Starting mutual affinity between a fission's origin and daughter
+    settlement — see RELATION_SEED_BASE/RELATION_SEED_TEMPERAMENT_WEIGHT.
+    A small independent random jitter keeps every fission from seeding
+    an identical value."""
+    jitter = rng.uniform(-0.05, 0.05)
+    return max(-1.0, min(1.0, RELATION_SEED_BASE + origin_temperament * RELATION_SEED_TEMPERAMENT_WEIGHT + jitter))
+
+
+RELATION_MARKET_INFLUENCE = 0.1
+"""Max swing from `market_relation_factor` at a fully warm (+1.0) or
+fully cold (-1.0) average relation — a 10% price nudge, the same order
+of magnitude as a single invention's TECH_BONUS_PER_LEVEL (0.15) but
+deliberately a touch smaller since this is ambient/systemic rather than
+an earned settlement achievement."""
+
+
+def market_relation_factor(settlement: "Settlement") -> float:
+    """Small multiplicative nudge to this settlement's own market prices
+    from its average standing with named sister settlements — a
+    regional trade-network effect: a settlement on generally warm terms
+    with the settlements it split from/alongside sees modestly better
+    prices (trade flows more easily), cold terms modestly worse.
+    Deliberately small and centered on 1.0, same "never dominant" shape
+    as every other Phase G nudge (temperament's own influence on
+    invention/predator/migrant chances). Returns 1.0 (no effect) for a
+    settlement with no recorded relations yet."""
+    values = list(settlement.relations.values())
+    if not values:
+        return 1.0
+    avg = sum(values) / len(values)
+    return 1.0 + avg * RELATION_MARKET_INFLUENCE
 
 # --- Phase E3: inventions (tech-tier unlocks) -------------------------------
 
@@ -1185,6 +1269,17 @@ class SettlementDisposition:
     priority_history: list[dict] = field(default_factory=list)
     """Rolling log of past town-brain decisions, capped at
     PRIORITY_HISTORY_MAX — the UI's Town Brain monologue."""
+    relations: dict[int, float] = field(default_factory=dict)
+    """Other named settlement id -> affinity, -1..1 — this settlement's
+    own (possibly one-sided) read of how it stands with each sister
+    settlement, same shape as `Agent.relationships` one level up.
+    Seeded at fission (`Population.depart_for_fission`) from the
+    departing party's own temperament/ambition, nudged by cross-
+    settlement dialogue sentiment (`Population.apply_dialogue`), and
+    mean-reverts monthly like `temperament` (`tick_relation`). Feeds a
+    market-price modifier (`tick_market_prices`) and colors the "tie"
+    a colocated cross-settlement pair's dialogue starts from — the
+    "cross-settlement relationships" milestone. See docs/DECISIONS.md."""
 
 
 class Settlement:
@@ -1214,6 +1309,7 @@ class Settlement:
         player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
         institutions: list[Institution] | None = None, next_institution_id: int = 0,
         caravans_visited: int = 0, fish_caught: int = 0, market_prices: dict | None = None,
+        relations: dict[int, float] | None = None,
         memorials: list[dict] | None = None, place_names: dict | None = None,
         records: list[dict] | None = None, id: int = 0,
         center_x: int = -1, center_y: int = -1,
@@ -1267,6 +1363,7 @@ class Settlement:
             player_influence=player_influence if player_influence is not None else [],
             current_priority=current_priority, priority_rationale=priority_rationale,
             priority_history=priority_history if priority_history is not None else [],
+            relations=relations if relations is not None else {},
         )
         self._position_index: dict | None = None
         """(x, y) -> Building cache behind `at()` — never serialized,
@@ -1572,6 +1669,20 @@ class Settlement:
         self.disposition.player_standing = value
 
     @property
+    def relations(self) -> dict[int, float]:
+        return self.disposition.relations
+
+    @relations.setter
+    def relations(self, value: dict[int, float]) -> None:
+        self.disposition.relations = value
+
+    def relation_with(self, other_settlement_id: int) -> float:
+        """0.0 (neutral, unopinionated) for a settlement this one has no
+        relation on record with yet — the common case before fission
+        ever happens, or for a sister settlement that's never come up."""
+        return self.disposition.relations.get(other_settlement_id, 0.0)
+
+    @property
     def player_influence(self) -> list[str]:
         return self.disposition.player_influence
 
@@ -1813,6 +1924,7 @@ class Settlement:
             "temperament": round(self.temperament, 3),
             "omen_history": list(self.omen_history),
             "player_standing": round(self.player_standing, 3),
+            "relations": {str(k): round(v, 3) for k, v in self.relations.items()},
             "institutions": {
                 "total": len(self.institutions),
                 "families": sum(1 for i in self.institutions if i.kind is InstitutionKind.FAMILY),
@@ -1916,6 +2028,7 @@ class Settlement:
             "temperament": round(self.temperament, 4),
             "omen_history": list(self.omen_history),
             "player_standing": round(self.player_standing, 4),
+            "relations": {str(k): round(v, 4) for k, v in self.relations.items()},
             "institutions": [i.to_dict() for i in self.institutions],
             "next_institution_id": self.next_institution_id,
             "caravans_visited": self.caravans_visited,
@@ -1955,6 +2068,7 @@ class Settlement:
             temperament=data.get("temperament", 0.0),
             omen_history=list(data.get("omen_history", [])),
             player_standing=data.get("player_standing", 0.0),
+            relations={int(k): v for k, v in data.get("relations", {}).items()},
             institutions=[Institution.from_dict(i) for i in data.get("institutions", [])],
             next_institution_id=data.get("next_institution_id", 0),
             caravans_visited=data.get("caravans_visited", 0),

@@ -18,7 +18,12 @@ SYSTEM_PROMPT = (
     "listed as something one of them recently remembers or believes) — "
     "prefer talking about that over generic small talk, never invent "
     "unrelated topics, and never mention that this is a game, a "
-    "simulation, or that you are an AI. Optionally "
+    "simulation, or that you are an AI. Treat this as one real, "
+    "connected back-and-forth, not two separate statements: line_b must "
+    "directly respond to, react to, or answer what line_a just said — "
+    "if line_a asks a question or makes an observation, line_b should "
+    "read as the other villager actually having heard it, not a "
+    "restart on a new topic. Optionally "
     "the exchange plants a short rumor that might spread through the "
     "village — leave it blank most of the time. Output ONLY the JSON "
     "object below, nothing before or after it, no explanation.\n"
@@ -54,6 +59,7 @@ fix.\""""
 def build_prompt(
     agent_a: Agent, agent_b: Agent, affinity: float, settlement_name: str,
     latest_tradition: str, season: str, weather: str, beliefs_about: list[str] | None = None,
+    other_settlement_name: str = "", cross_settlement_relation: float | None = None,
 ) -> str:
     is_parent_child = (
         (agent_a.parents is not None and agent_b.id in agent_a.parents)
@@ -77,6 +83,21 @@ def build_prompt(
     culture = f" They live in {settlement_name}." if settlement_name else ""
     if settlement_name and latest_tradition:
         culture += f" The village keeps this tradition: {latest_tradition}."
+    if other_settlement_name and other_settlement_name != settlement_name:
+        # Cross-settlement relationships (v0.67.0): a colocated pair from
+        # two different named settlements — rare, since each settlement's
+        # own population mostly stays near its own home, but the shared
+        # physical map means it can happen. `cross_settlement_relation`
+        # is that settlement pair's own recorded affinity (Settlement.
+        # relations, seeded at fission, nudged by exactly this kind of
+        # encounter) — colors the exchange the same way personal
+        # affinity colors `tie`, one level up. See docs/DECISIONS.md.
+        culture += f" {agent_b.name} is from {other_settlement_name}, not {settlement_name}."
+        if cross_settlement_relation is not None:
+            if cross_settlement_relation >= 0.4:
+                culture += f" {settlement_name} and {other_settlement_name} are on warm terms."
+            elif cross_settlement_relation <= -0.4:
+                culture += f" {settlement_name} and {other_settlement_name} are on cold terms."
     beliefs_text = (
         f" What the village has come to believe about them: {'; '.join(beliefs_about)}."
         if beliefs_about else ""
