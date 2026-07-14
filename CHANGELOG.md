@@ -4,6 +4,54 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.65.2] — Fishing fix, model default swap, llama.cpp evaluation
+
+Direct response to a live-hardware report: "why are npcs not fishing,"
+a request to push CPU/RAM tuning further, "move to llama.cpp if
+required," and a report that `qwen3:4b-instruct` uses under 4.5GB with
+no swapping versus `qwen3.5:2b`.
+
+### Fixed
+- **NPCs weren't visibly fishing.** The mechanic was real (`FISH`
+  resource nodes, richer/faster-relieving than a bush) but
+  `Population._nearest_resource` treated FOOD and FISH nodes
+  identically and returned whichever was physically closest. FISH nodes
+  only roll on the thin ring of water-adjacent tiles, so they almost
+  never won a raw-distance tie-break against the far more numerous FOOD
+  nodes scattered across every forest/grassland/hills tile — fishing
+  only ever happened by incidental colocation. Now a FISH node within
+  `FORAGE_SEARCH_RADIUS` is always preferred over a farther-but-closer
+  FOOD node, matching the resource-variety pass's own stated intent
+  that fish is the deliberately preferred catch.
+- **`inspect_world.py` never showed a fish count.** Its `Resources:`
+  line printed bushes/mines only — a leftover from before the fishing
+  pass added `fish_nodes`/`fish_avg_amount` to `ResourceGrid.summary()`.
+  A live smoke-tested world had 80 fishing spots that the project's own
+  primary CLI verification tool never surfaced. Now prints them.
+
+### Changed
+- **Default model: `qwen3.5:2b` → `qwen3:4b-instruct`.** Live report:
+  `qwen3.5:2b` (never an officially released Qwen tag) showed
+  memory-leak-like growth/swapping on the user's 8GB machine, while the
+  larger, official `qwen3:4b-instruct` stayed under 4.5GB with no
+  swapping. `-instruct` is non-thinking by design; the existing
+  `"think": false` handling in `OllamaClient` stays as a defensive
+  no-op for it. README/CLAUDE.md/docs/DECISIONS.md updated throughout
+  (pull command, size-up/size-down guidance, memory budget numbers);
+  `qwen3.5:2b` is now explicitly flagged as not recommended.
+
+### Evaluated (no change)
+- **llama.cpp migration**: considered per the report that "the ollama
+  process is taking the most memory," and declined for now. Ollama's
+  own runner already is llama.cpp — the memory is model weights + KV
+  cache either way, not Ollama-specific overhead (which is a real but
+  small ~100-300MB Go-daemon/blob-store cost). A migration would trade
+  a real engineering cost (rewriting `OllamaClient`, losing Ollama's
+  model management/`keep_alive`) for a saving already available via
+  already-documented server-side levers plus the model switch above.
+  See docs/DECISIONS.md for the full reasoning and the revisit
+  condition.
+
 ## [0.65.1] — Maximize CPU, minimize memory: an unused Ollama thread lever
 
 Direct response to "maximize cpu usage and minimize memory usage."

@@ -94,19 +94,25 @@ class Config:
     local smoke test). See docs/DECISIONS.md, E2."""
 
     llm_host: str = "http://localhost:11434"
-    llm_model: str = "qwen3.5:2b"
-    """Set per explicit user instruction (confirmed available/pulled on
-    their machine) — smaller still than the prior `qwen3:4b` default,
-    leaving more of the 8GB+zram budget for the simulation process
-    itself. Qwen3.x is a hybrid "thinking" model; this project disables
-    that (see OllamaClient.generate_json's `"think": False` and its
-    defensive `<think>` stripping) since every prompt here wants a
-    single strict-JSON answer, not visible chain-of-thought eating into
-    the timeout budget. If a live run shows 2B is too weak for coherent
-    town-brain/dialogue output, report back rather than silently
-    reverting. See docs/DECISIONS.md, "LLM-as-brain batch,\" the
-    real-calendar/genesis-seed follow-up, and the world-model/beliefs
-    follow-up."""
+    llm_model: str = "qwen3:4b-instruct"
+    """Changed from `qwen3.5:2b` in v0.65.2 per a live user report: on
+    their real 8GB machine, `qwen3.5:2b` showed memory-leak-like growth
+    and swapping over long runs, while `qwen3:4b-instruct` — a *larger*
+    model — stayed below 4.5GB with no swapping observed. Counter-
+    intuitive on paper (bigger model, less memory) but the project's own
+    standing rule is to trust the user's live environment over training-
+    data assumptions about model naming/behavior; `qwen3.5:2b` isn't a
+    real released Qwen tag, so whatever it resolved to on the user's
+    Ollama install was never a known-good quantization the way
+    `qwen3:4b-instruct` (an official released tag) is. `-instruct`
+    means non-thinking/non-hybrid by design, so `OllamaClient`'s
+    `"think": False` + `<think>` stripping becomes a defensive no-op
+    for this model rather than a load-bearing setting — left in place
+    since it's harmless and keeps the size-down path (below) working if
+    a future choice is a hybrid-thinking model again. If this model
+    proves too weak or too heavy on other hardware, report back rather
+    than silently reverting. See docs/DECISIONS.md, "model default:
+    qwen3:4b-instruct (v0.65.2)."""
     llm_timeout_seconds: float = 60.0
     """A live diagnostic report on the user's own hardware running
     `qwen3.5:2b` showed p50 latency 17.4s, p95 19.7s, max 29.7s against

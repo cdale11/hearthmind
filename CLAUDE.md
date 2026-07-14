@@ -22,17 +22,24 @@ index" below for pointers.
 
 ## Hardware target
 
-8GB RAM + zram swap, CPU-only inference. Default model `qwen3.5:2b` —
-set by explicit user instruction (confirmed available/pulled on their
-machine; take the user's live environment as ground truth over training
-data on model naming/availability). `qwen3:4b` is the documented
-size-up path if 2B proves too weak — size up and report back, don't
-silently guess. Qwen3.x is a hybrid "thinking" model; every call
-disables that (`OllamaClient` sends `"think": false` and strips any
-leaked `<think>` block) since every prompt here wants one strict-JSON
-answer. `llm_timeout_seconds=60`, `llm_num_ctx=2048`,
+8GB RAM + zram swap, CPU-only inference. Default model
+`qwen3:4b-instruct` (v0.65.2, changed from `qwen3.5:2b`) — set per a
+live user report on their own machine: `qwen3.5:2b` (never a real
+released Qwen tag) showed memory-leak-like growth/swapping, while the
+larger, official `qwen3:4b-instruct` stayed under 4.5GB with no swap
+(take the user's live environment as ground truth over training data on
+model naming/availability/behavior). `-instruct` means non-thinking by
+design; the hybrid-thinking `"think": false` handling below stays as a
+defensive no-op for it and becomes load-bearing again for the
+`qwen3:1.7b` size-down path (not an `-instruct` tag). Size up/down and
+report back, don't silently guess. Every call disables "thinking" mode
+(`OllamaClient` sends `"think": false` and strips any leaked `<think>`
+block) since every prompt here wants one strict-JSON answer.
+`llm_timeout_seconds=60`, `llm_num_ctx=2048`,
 `llm_num_predict=512`, `llm_keep_alive="3m"`, `llm_use_mmap=True`,
-`llm_num_gpu=None` (set once GPU offload is confirmed server-side —
+`llm_num_thread=None` (`server.py` CLI defaults `--llm-num-thread` to
+every CPU core — see below), `llm_num_gpu=None` (set once GPU offload
+is confirmed server-side —
 see the iGPU investigation in docs/DECISIONS.md).
 
 **`llm_max_concurrent=2` is a permanent floor** (explicit user
@@ -243,7 +250,31 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
-## Current state (v0.65.0)
+## Current state (v0.65.2)
+
+v0.65.2: two live-report-driven fixes. **Default model changed to
+`qwen3:4b-instruct`** (was `qwen3.5:2b`) — a live user report showed
+`qwen3.5:2b` leaking/swapping while the larger, official
+`qwen3:4b-instruct` tag stayed under 4.5GB with no swap; `qwen3.5:2b`
+was never a real released Qwen tag, so the leak is attributed to that
+specific local blob, not to small models generally (see
+docs/DECISIONS.md). **Fishing targeting fixed**: `_nearest_resource`
+now prefers a FISH node over a nearer FOOD node within
+`FORAGE_SEARCH_RADIUS` (previously plain nearest-wins, and FISH nodes
+are far sparser than FOOD nodes map-wide, so they essentially never won
+the tie-break) — root cause of the "NPCs never fish" report; the
+fishing mechanic itself (richer/faster-regen catch) was already real.
+Evaluated and declined a llama.cpp migration (Ollama's runner already
+is llama.cpp; the memory is weights/KV-cache either way, not Ollama's
+own ~100-300MB daemon overhead) — see docs/DECISIONS.md. v0.65.1 added
+`Config.llm_num_thread`/`--llm-num-thread` (default every CPU core):
+Ollama's per-call thread count was an untouched free lever — more
+threads finishes a call faster, shrinking the window its KV-cache
+allocation holds memory, without adding a second call's worth of
+concurrent KV cache the way raising `llm_max_concurrent` would (that
+floor stays 2).
+
+## v0.65.0 and earlier
 
 All original phases (A–F), Phase G, and the full Phase H program are
 shipped at least a v1: optional-determinism physical substrate

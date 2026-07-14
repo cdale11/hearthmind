@@ -1550,17 +1550,33 @@ class Population:
 
     @staticmethod
     def _nearest_resource(agent: Agent, resources: ResourceGrid) -> tuple[int, int] | None:
-        best: tuple[int, int] | None = None
-        best_dist: int | None = None
+        """A FISH node in range is preferred over a nearer FOOD node, not
+        just whichever tile wins a raw distance tie-break. FISH nodes are
+        deliberately the richer, faster-regenerating catch (see world/
+        resources.py's FISH_HUNGER_RELIEF_MULTIPLIER/FISH_REGEN_PER_TICK
+        docstrings) but are only ~35% as dense as FOOD nodes are across a
+        much smaller footprint (water-adjacent tiles only, vs. every
+        forest/grassland/hills tile) — under plain nearest-wins, a FISH
+        node essentially never won the tie-break, so fishing only ever
+        happened by incidental colocation, never as visible in-game
+        behavior. Root cause of the "NPCs never seem to fish" report."""
+        best_food: tuple[int, int] | None = None
+        best_food_dist: int | None = None
+        best_fish: tuple[int, int] | None = None
+        best_fish_dist: int | None = None
         for (x, y), node in resources.nodes.items():
             if node.kind not in (ResourceKind.FOOD, ResourceKind.FISH) or node.amount <= 0:
                 continue
             if max(abs(x - agent.x), abs(y - agent.y)) > FORAGE_SEARCH_RADIUS:
                 continue
             dist = abs(x - agent.x) + abs(y - agent.y)
-            if best_dist is None or dist < best_dist:
-                best, best_dist = (x, y), dist
-        return best
+            if node.kind is ResourceKind.FISH:
+                if best_fish_dist is None or dist < best_fish_dist:
+                    best_fish, best_fish_dist = (x, y), dist
+            else:
+                if best_food_dist is None or dist < best_food_dist:
+                    best_food, best_food_dist = (x, y), dist
+        return best_fish if best_fish is not None else best_food
 
     @staticmethod
     def _nearest_material_tile(agent: Agent, terrain: list[list[Tile]]) -> tuple[int, int] | None:

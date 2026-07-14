@@ -94,8 +94,10 @@ def main(argv: list[str] | None = None) -> None:
     res = summary["resources"]
     print(
         f"Resources:   {res.get('food_nodes', res['total_nodes'])} bushes, "
-        f"{res.get('ore_nodes', 0)} mines ({res['depleted']} depleted total)  "
-        f"avg fullness {res['avg_amount']:.2f} (mines {res.get('ore_avg_amount', 0.0):.2f})"
+        f"{res.get('ore_nodes', 0)} mines, {res.get('fish_nodes', 0)} fishing spots "
+        f"({res['depleted']} depleted total)  "
+        f"avg fullness {res['avg_amount']:.2f} "
+        f"(mines {res.get('ore_avg_amount', 0.0):.2f}, fish {res.get('fish_avg_amount', 0.0):.2f})"
     )
 
     settle = summary["settlement"]

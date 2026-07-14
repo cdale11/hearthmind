@@ -141,7 +141,7 @@ Useful flags on `server.py`:
   deterministic fallback, so this flag is only needed for a fully
   offline/deterministic run.
 - `--llm-host URL` (default `http://localhost:11434`), `--llm-model NAME`
-  (default `qwen3.5:2b`), `--llm-timeout SECONDS` (default 60 —
+  (default `qwen3:4b-instruct`), `--llm-timeout SECONDS` (default 60 —
   CPU inference under contention on 8GB+zram can be slower than a quiet
   benchmark, see `docs/DECISIONS.md` D5), `--llm-max-concurrent INT`
   (default 2 — deliberately low for 8GB-memory headroom; every CLI
@@ -163,9 +163,11 @@ Ollama is reachable. The simulation stays fully functional without
 Ollama installed (`fallback_goal`/`fallback_summary`/`fallback_tradition`/
 `fallback_dialogue` stand in for it, see `docs/DECISIONS.md` B1-B3, E1,
 E2) — nothing raises or blocks a tick if the LLM is disabled,
-unreachable, or times out. The default model, `qwen3.5:2b`, was set by
-explicit user instruction (confirmed pulled/available on their
-machine), leaving substantial 8GB+zram headroom for the simulation
+unreachable, or times out. The default model, `qwen3:4b-instruct`, was
+set per a live user report on their own 8GB machine (see the memory-
+tuning section below) — it uses less real memory than the smaller
+`qwen3.5:2b` it replaced, leaving substantial 8GB+zram headroom for the
+simulation
 process itself — if a live run shows 2B is too weak for coherent
 town-brain/dialogue output, size up (e.g. `--llm-model qwen3:4b`) and
 let the maintainers know. Qwen3.x is a hybrid "thinking" model; this
@@ -176,7 +178,7 @@ real-calendar/genesis-seed and world-model/beliefs follow-ups.
 
 ```bash
 # 1. Install and start Ollama (see https://ollama.com), then pull a model:
-ollama pull qwen3.5:2b
+ollama pull qwen3:4b-instruct
 
 # 2. Run the server (LLM is on by default):
 python3 -m hearthmind.server --db world.sqlite3
@@ -220,16 +222,16 @@ An iGPU shares system RAM rather than having its own dedicated VRAM —
 every megabyte Ollama uses for model weights and KV cache comes
 directly out of the same 8GB pool the OS and the simulation process
 also need, so there's no separate GPU memory budget to lean on.
-`qwen3.5:2b` (the default) at its standard Q4 quantization is the right
-size class for this: roughly 1.3-1.7GB of resident weights, small
-enough that the process-level tuning below leaves comfortable headroom.
-Rough budget on a live 8GB machine: OS baseline ~1-1.5GB, Hearthmind's
-own process well under 200MB even at population 400 (see
-`docs/DECISIONS.md`, memory-leak fixes), Ollama server overhead
-~300-500MB, model weights ~1.3-1.7GB, plus `llm_max_concurrent` (2) x a
-small per-call KV cache bounded by `llm_num_ctx` (2048) — comfortably
-under 4-5GB total, leaving multiple GB of headroom rather than sitting
-at the edge.
+`qwen3:4b-instruct` (the default as of v0.65.2) is confirmed on a live
+8GB machine to stay below 4.5GB total with no swapping — this replaced
+`qwen3.5:2b`, which despite being the *smaller* nominal model showed
+memory-leak-like growth and swapping on that same hardware (see
+"Changing the model for memory" below for why). Rough budget on a live
+8GB machine: OS baseline ~1-1.5GB, Hearthmind's own process well under
+200MB even at population 400 (see `docs/DECISIONS.md`, memory-leak
+fixes), Ollama server overhead ~300-500MB, model weights + KV cache the
+remainder — under 4.5GB total measured live, leaving real headroom
+rather than sitting at the edge.
 
 Levers already applied on the Hearthmind side (`Config`, see
 `docs/DECISIONS.md` for the full history): `llm_num_ctx=2048`/
@@ -247,7 +249,7 @@ environment variables before starting `ollama serve`:
 
 ```bash
 # Never load more than one model at a time (relevant if you ever
-# experiment with a second model alongside qwen3.5:2b).
+# experiment with a second model alongside qwen3:4b-instruct).
 export OLLAMA_MAX_LOADED_MODELS=1
 
 # Match Ollama's own server-side concurrency cap to Config.llm_max_
@@ -305,18 +307,40 @@ different days of the month instead of firing all ~10 in one burst on
 every month boundary — the "sparse but sudden" monthly swap spike came
 from that cluster, not from any steady leak.
 
-**Changing the model for memory (size-down path):** if `system_memory`
-shows the Ollama runner itself is genuinely too big even after the
-levers above, the recommended step down is `qwen3:1.7b`
-(`ollama pull qwen3:1.7b`, then `--llm-model qwen3:1.7b`) — same Qwen3
-family, so the existing `"think": false` handling and strict-JSON
-behavior carry over, at roughly 25-35% less resident weight than
-`qwen3.5:2b`. Below that, `qwen3:0.6b` exists but noticeably degrades
-the multi-field JSON decisions (town brain, disputes, beliefs) — try it
-only if 1.7b still swaps. The default stays `qwen3.5:2b` per standing
-project policy; size down and report back rather than silently
-switching. Conversely, if output quality is ever insufficient,
-`qwen3:4b` remains the documented size-up path (~2.5-3.5GB Q4 weights).
+**Model choice (v0.65.2 update):** the default is now
+`qwen3:4b-instruct`, changed from `qwen3.5:2b` on the strength of a
+live user report — `qwen3.5:2b` showed memory-leak-like growth and
+swapping on real 8GB hardware, while the larger `qwen3:4b-instruct`
+stayed under 4.5GB with no swapping. **`qwen3.5:2b` is no longer
+recommended** on this project: it isn't a real released Qwen tag (Qwen
+releases are Qwen, 1.5, 2, 2.5, 3 — there is no "3.5"), so whatever it
+resolved to locally was never a verified-good quantization the way an
+official tag is; treat its apparent leak as a property of that specific
+local blob, not of small models in general. If `system_memory` still
+shows pressure on `qwen3:4b-instruct`, try `qwen3:1.7b` or
+`qwen3:1.7b-instruct` (`ollama pull qwen3:1.7b`, then
+`--llm-model qwen3:1.7b`) before going smaller — both are official
+Qwen3 tags. Note the non-`-instruct` `qwen3:1.7b` is a hybrid-thinking
+model, so `OllamaClient`'s `"think": false` handling becomes load-
+bearing again for that one. `qwen3:0.6b` exists below that but
+noticeably degrades the multi-field JSON decisions (town brain,
+disputes, beliefs) — try it only as a last resort. Report back with
+what you observe rather than silently switching, same standing policy
+as before.
+
+**Why not switch to raw llama.cpp:** evaluated and recommended against
+for now (see `docs/DECISIONS.md`, "Model default: `qwen3:4b-instruct`
+replaces `qwen3.5:2b`"). Ollama's own runner already *is* llama.cpp —
+the memory an `ollama` process holds is overwhelmingly model weights +
+KV cache, which a direct llama.cpp deployment would use just as much of
+for the same model/quantization/context. Ollama's own overhead on top
+of that is real but small (~100-300MB, its Go daemon + blob store), not
+the multi-GB swap-triggering delta a migration would be chasing —
+whereas rewriting `OllamaClient` around a different API is a genuine
+engineering cost. Revisit only if `system_memory` still shows the
+Ollama runner dominant after every lever above (flash attention + q8_0
+KV cache, `OLLAMA_NUM_PARALLEL=1`, `--llm-num-thread`, and the
+`qwen3:4b-instruct` switch) is actually applied and measured.
 
 ## World genesis (LLM-chosen seed) and calendar
 

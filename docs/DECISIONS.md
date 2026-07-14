@@ -5637,3 +5637,95 @@ which defaults to "don't touch it"); `Config`'s own dataclass default
 stays `None` since `os.cpu_count()` isn't a valid static dataclass
 default and library callers (`experiment.py`, tests) shouldn't have an
 opinion imposed on them.
+
+## Bug fix: FISH nodes never won the FORAGE nearest-tile tie-break (v0.65.2)
+
+User report: "why are NPCs not fishing?" Fishing itself has been real
+since the resource-variety pass — `ResourceKind.FISH` nodes exist,
+eating from one gives a richer/faster-relieving meal than a bush (see
+`world/resources.py`'s `FISH_HUNGER_RELIEF_MULTIPLIER`/
+`FISH_REGEN_PER_TICK`), and the UI renders them distinctly and counts
+them in the "Wild resources" tile. The bug was in targeting, not
+mechanics: `Population._nearest_resource` (the FORAGE-goal movement
+target once no farm/granary/grazer-herd is available) treated FOOD and
+FISH nodes identically and just returned whichever tile was physically
+closest. `FISH_NODE_DENSITY=0.35` sounds generous, but it only rolls on
+the thin ring of tiles adjacent to water, versus `NODE_DENSITY=0.12`
+rolling across every forest/grassland/hills tile on the whole map — in
+absolute count, FOOD nodes vastly outnumber FISH nodes almost
+everywhere except right at a shoreline, so under plain nearest-wins a
+FISH node essentially never won the distance tie-break. Fishing only
+ever happened by incidental colocation (an agent's own tile happened to
+be a fishing spot when hunger crossed `FORAGE_HUNGER_THRESHOLD`), never
+as a deliberate, visible walk-to-the-water behavior — exactly matching
+the "not fishing" report.
+
+Fix: `_nearest_resource` now tracks the nearest FISH and nearest FOOD
+candidate separately within `FORAGE_SEARCH_RADIUS` and returns the
+FISH one whenever any exists in range, falling back to FOOD only when
+no FISH node is reachable. This matches the resource-variety pass's own
+stated intent (fish is deliberately the richer, preferred catch) rather
+than adding new behavior. No density/regen constants changed — this is
+a pure targeting-preference fix, and a FORAGE agent still eats from
+whatever it's standing on first (farm > granary > personal reserve >
+grazer herd > this) same as before.
+
+A second, compounding gap: `inspect_world.py`'s `Resources:` summary
+line never printed a fish count at all (only `food_nodes`/`ore_nodes`,
+a leftover from before the fishing pass added `fish_nodes`/
+`fish_avg_amount` to `ResourceGrid.summary()`) — the one CLI tool this
+project's own workflow leans on for manual verification made fishing
+look entirely absent even though a smoke-tested 64x64 map had 80
+fishing spots. Now prints `{n} fishing spots` and average fish
+fullness alongside bushes/mines.
+
+## Model default: `qwen3:4b-instruct` replaces `qwen3.5:2b` (v0.65.2)
+
+Direct live report from the user's own 8GB machine: `qwen3.5:2b`
+(default since early in the project) showed memory-leak-like growth and
+swapping over a run, while `qwen3:4b-instruct` — a nominally *larger*
+model — stayed under 4.5GB total with no swapping observed. Taken at
+face value per this project's standing rule (trust the user's live
+environment over training-data assumptions about model naming): note
+`qwen3.5:2b` was never a real released Qwen tag (Qwen's actual releases
+are Qwen, 1.5, 2, 2.5, 3 — there is no "3.5" generation), so whatever
+weights it resolved to locally on the user's Ollama install was never a
+verified-good, well-tested quantization the way an official
+`library/qwen3` tag is. The apparent "leak" most plausibly traces to
+that specific local blob/quantization mismatch rather than to model
+size in general — consistent with the user's own observation that a
+strictly bigger, official model uses *less* memory.
+
+Changed `Config.llm_model` to `"qwen3:4b-instruct"`. The `-instruct`
+suffix means this is a non-thinking model by design (unlike the hybrid-
+thinking `qwen3`/`qwen3.5` family this project has always had to
+explicitly silence via `"think": false`) — that handling in
+`OllamaClient.generate_json` stays in place regardless, now a
+defensive no-op for this specific model rather than load-bearing, so
+switching to a hybrid-thinking model again later (e.g. the `qwen3:1.7b`
+size-down path, which is NOT an `-instruct` tag) doesn't require
+touching client code.
+
+**Not pursuing a llama.cpp migration.** The user also asked whether to
+move off Ollama to raw llama.cpp, since "the ollama process is taking
+the most memory." Evaluated and recommended against, for now: Ollama's
+own model runner *is* llama.cpp under the hood (`ggml`/`llama-server`)
+— the memory the user sees in an `ollama` process is overwhelmingly
+model weights + KV cache, which a raw llama.cpp deployment would carry
+at essentially the same size for the same model/quantization/context.
+The only memory actually attributable to "Ollama" specifically is its
+Go orchestrator daemon and blob-store bookkeeping, typically on the
+order of 100-300MB — real, but small next to the multi-GB weight/KV-
+cache footprint, and not the swap-triggering delta the user is chasing.
+Migrating would mean replacing `OllamaClient`'s small, dependency-free
+`urllib`-based REST client with a bespoke llama.cpp `/completion` (or
+`llama-cpp-python`) integration, giving up Ollama's model pull/registry
+management, `keep_alive` unload-on-idle, and multi-model juggling — a
+real engineering cost for a saving already achievable via the
+already-documented server-side levers (`OLLAMA_FLASH_ATTENTION=1` +
+`OLLAMA_KV_CACHE_TYPE=q8_0`, `OLLAMA_NUM_PARALLEL=1`, `--llm-num-thread`,
+and now the `qwen3:4b-instruct` switch itself). Revisit only if a live
+`system_memory` reading with all of the above applied still shows the
+Ollama runner as the dominant, unavoidable consumer — same "revisit
+only with a measured problem, don't re-litigate from scratch" standard
+as the C/C++-port evaluation above.
