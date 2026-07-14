@@ -13,7 +13,7 @@ import random
 from collections import deque
 from dataclasses import dataclass, field
 
-from hearthmind.util import namespaced_rng
+from hearthmind.util import clamp, namespaced_rng
 
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
@@ -587,7 +587,7 @@ def _near_productive_resource(resources: ResourceGrid, x: int, y: int) -> bool:
 def _nudge_trait(agent: Agent, trait: str, delta: float) -> None:
     """H6: apply one event-driven nudge to a trait axis, clamped -1..1.
     See TRAIT_RESILIENCE/TRAIT_SOCIABILITY."""
-    agent.traits[trait] = max(-1.0, min(1.0, agent.traits.get(trait, 0.0) + delta))
+    agent.traits[trait] = clamp(agent.traits.get(trait, 0.0) + delta, -1.0, 1.0)
 
 
 def _prune_extinct_families(settlement: Settlement, living_ids: set[int]) -> None:
@@ -1962,7 +1962,7 @@ class Population:
             for trait in (TRAIT_RESILIENCE, TRAIT_SOCIABILITY, TRAIT_AMBITION, TRAIT_OPENNESS):
                 current = agent.traits.get(trait, 0.0)
                 step = rng.uniform(-TRAIT_STEP_MAX, TRAIT_STEP_MAX)
-                agent.traits[trait] = max(-1.0, min(1.0, current * TRAIT_MEAN_REVERSION + step))
+                agent.traits[trait] = clamp(current * TRAIT_MEAN_REVERSION + step, -1.0, 1.0)
 
     def carrying_capacity(
         self, settlement: Settlement, housing_capacity: int, weather_harsh: bool, predator_pressure: bool,
@@ -2634,7 +2634,7 @@ class Population:
                 relief = TRADE_HUNGER_RELIEF * (amount / TRADE_FOOD_AMOUNT)
                 recipient.hunger = max(0.0, recipient.hunger - relief)
                 for a, b in ((giver, recipient), (recipient, giver)):
-                    a.relationships[b.id] = max(-1.0, min(1.0, a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST))
+                    a.relationships[b.id] = clamp(a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST, -1.0, 1.0)
                     _nudge_trait(a, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
                 _remember(recipient, f"{giver.name} shared food with me.")
                 if giver.inventory.get("food", 0.0) <= 0.0:
@@ -2753,7 +2753,7 @@ class Population:
                 giver.inventory["tools"] = giver.inventory.get("tools", 0.0) - amount
                 recipient.inventory["tools"] = min(TOOLS_CAPACITY, recipient.inventory.get("tools", 0.0) + amount)
                 for a, b in ((giver, recipient), (recipient, giver)):
-                    a.relationships[b.id] = max(-1.0, min(1.0, a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST))
+                    a.relationships[b.id] = clamp(a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST, -1.0, 1.0)
                     _nudge_trait(a, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
                 _remember(recipient, f"{giver.name} shared tools with me.")
                 if giver.inventory.get("tools", 0.0) <= 0.0:
@@ -2830,7 +2830,7 @@ class Population:
                     MEDICINE_CAPACITY, recipient.inventory.get("medicine", 0.0) + amount
                 )
                 for a, b in ((giver, recipient), (recipient, giver)):
-                    a.relationships[b.id] = max(-1.0, min(1.0, a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST))
+                    a.relationships[b.id] = clamp(a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST, -1.0, 1.0)
                     _nudge_trait(a, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
                 _remember(recipient, f"{giver.name} shared medicine with me.")
                 if giver.inventory.get("medicine", 0.0) <= 0.0:
@@ -3435,9 +3435,9 @@ class Population:
         trust_b_in_a = agent_b.trust.get(a_id, 0.0)
         if delta:
             before = agent_a.relationships.get(b_id, 0.0)
-            new_value = max(-1.0, min(1.0, before + delta))
+            new_value = clamp(before + delta, -1.0, 1.0)
             agent_a.relationships[b_id] = new_value
-            agent_b.relationships[a_id] = max(-1.0, min(1.0, agent_b.relationships.get(a_id, 0.0) + delta))
+            agent_b.relationships[a_id] = clamp(agent_b.relationships.get(a_id, 0.0) + delta, -1.0, 1.0)
             if before < REPRODUCTION_AFFINITY_THRESHOLD <= new_value:
                 _remember(agent_a, f"Grew close with {agent_b.name}.")
                 _remember(agent_b, f"Grew close with {agent_a.name}.")
@@ -3448,8 +3448,8 @@ class Population:
                 surfaced = True
         trust_delta = TRUST_DELTA.get(sentiment, 0.0)
         if trust_delta:
-            agent_a.trust[b_id] = max(-1.0, min(1.0, trust_a_in_b + trust_delta))
-            agent_b.trust[a_id] = max(-1.0, min(1.0, trust_b_in_a + trust_delta))
+            agent_a.trust[b_id] = clamp(trust_a_in_b + trust_delta, -1.0, 1.0)
+            agent_b.trust[a_id] = clamp(trust_b_in_a + trust_delta, -1.0, 1.0)
         if rumor:
             # Trust lever: an agent who already doesn't put much stock in
             # the speaker remembers the rumor as hearsay, not fact —
@@ -3508,7 +3508,7 @@ class Population:
             step = GOSSIP_OPINION_CONTAGION * (speaker_view - listener_view)
             step = max(-GOSSIP_OPINION_MAX_STEP, min(GOSSIP_OPINION_MAX_STEP, step))
             if step:
-                listener.relationships[subject.id] = max(-1.0, min(1.0, listener_view + step))
+                listener.relationships[subject.id] = clamp(listener_view + step, -1.0, 1.0)
 
     # --- disputes: rare LLM-mediated resolution of a festered feud (v0.64.0) ----
 
@@ -3558,7 +3558,7 @@ class Population:
         if outcome == "reconcile":
             for me, them in pairs:
                 me.relationships[them.id] = DISPUTE_RECONCILE_RELATIONSHIP
-                me.trust[them.id] = max(-1.0, min(1.0, me.trust.get(them.id, 0.0) + DISPUTE_TRUST_DELTA))
+                me.trust[them.id] = clamp(me.trust.get(them.id, 0.0) + DISPUTE_TRUST_DELTA, -1.0, 1.0)
                 _remember(me, f"{them.name} and I made peace after our long feud.")
                 _nudge_trait(me, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
         elif outcome == "council_ruling":
@@ -3572,7 +3572,7 @@ class Population:
                 me.relationships[them.id] = max(
                     -1.0, me.relationships.get(them.id, 0.0) + DISPUTE_FEUD_DEEPEN
                 )
-                me.trust[them.id] = max(-1.0, min(1.0, me.trust.get(them.id, 0.0) - DISPUTE_TRUST_DELTA))
+                me.trust[them.id] = clamp(me.trust.get(them.id, 0.0) - DISPUTE_TRUST_DELTA, -1.0, 1.0)
                 _remember(me, f"My feud with {them.name} has hardened for good.")
                 _nudge_trait(me, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
         return agent_a, agent_b
@@ -3768,8 +3768,8 @@ class Population:
                 ):
                     boost *= SHRINE_FESTIVAL_BOOST_MULTIPLIER
             for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
-                a.relationships[b.id] = max(-1.0, min(1.0, a.relationships.get(b.id, 0.0) + boost))
-                b.relationships[a.id] = max(-1.0, min(1.0, b.relationships.get(a.id, 0.0) + boost))
+                a.relationships[b.id] = clamp(a.relationships.get(b.id, 0.0) + boost, -1.0, 1.0)
+                b.relationships[a.id] = clamp(b.relationships.get(a.id, 0.0) + boost, -1.0, 1.0)
                 affected += 1
         return affected
 

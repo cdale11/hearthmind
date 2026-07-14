@@ -28,6 +28,7 @@ import hashlib
 import random
 from dataclasses import dataclass, field
 
+from hearthmind.util import clamp
 from hearthmind.world.terrain import Biome, Tile
 
 RIVER_SOURCE_TILES_PER_1000 = 1.2
@@ -187,10 +188,10 @@ def tick_lakes(
     width = len(terrain[0]) if height else 0
     events: list[tuple[str, str]] = []
     for lake in lakes:
-        lake.level = max(-1.0, min(1.0, (
+        lake.level = clamp((
             lake.level * LAKE_MEAN_REVERSION + rng.uniform(-LAKE_STEP_MAX, LAKE_STEP_MAX)
             - drying * LAKE_DRYING_WEIGHT * LAKE_STEP_MAX
-        )))
+        ), -1.0, 1.0)
         if lake.level >= LAKE_GROW_THRESHOLD:
             neighbors: set[tuple[int, int]] = set()
             for (x, y) in lake.tiles:

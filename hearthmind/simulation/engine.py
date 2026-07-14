@@ -40,7 +40,7 @@ from hearthmind.agents.agent import (
     AgentGoal,
 )
 from hearthmind.config import Config
-from hearthmind.util import namespaced_rng, namespaced_roll
+from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
     fission, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, festival, founding,
@@ -793,8 +793,8 @@ class SimulationEngine:
                 stl_a = self._settlement_by_id(agent_a.settlement_id)
                 stl_b = self._settlement_by_id(agent_b.settlement_id)
                 nudge = RELATION_DIALOGUE_NUDGE_SCALE * DIALOGUE_SENTIMENT_DELTA.get(parsed["sentiment"], 0.0)
-                stl_a.relations[stl_b.id] = max(-1.0, min(1.0, stl_a.relation_with(stl_b.id) + nudge))
-                stl_b.relations[stl_a.id] = max(-1.0, min(1.0, stl_b.relation_with(stl_a.id) + nudge))
+                stl_a.relations[stl_b.id] = clamp(stl_a.relation_with(stl_b.id) + nudge, -1.0, 1.0)
+                stl_b.relations[stl_a.id] = clamp(stl_b.relation_with(stl_a.id) + nudge, -1.0, 1.0)
         self._pending_dialogue_results.clear()
 
     # --- interventions ("nudges" from outside the simulation) ------------------
@@ -841,9 +841,9 @@ class SimulationEngine:
             if "temperature_c" in item:
                 weather.temperature_c = float(item["temperature_c"])
             if "precipitation" in item:
-                weather.precipitation = max(0.0, min(1.0, float(item["precipitation"])))
+                weather.precipitation = clamp(float(item["precipitation"]), 0.0, 1.0)
             if "wind" in item:
-                weather.wind = max(0.0, min(1.0, float(item["wind"])))
+                weather.wind = clamp(float(item["wind"]), 0.0, 1.0)
             if "is_snowing" in item:
                 weather.is_snowing = bool(item["is_snowing"])
             self._log(

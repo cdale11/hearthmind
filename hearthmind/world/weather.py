@@ -18,6 +18,8 @@ import hashlib
 import random
 from dataclasses import dataclass
 
+from hearthmind.util import clamp
+
 # UK-climate-style monthly baselines: (temperature_c, precipitation_chance, wind_avg).
 _MONTH_BASELINES: dict[str, tuple[float, float, float]] = {
     "january": (5.0, 0.48, 0.48),
@@ -143,8 +145,8 @@ def compute_weather(seed: int, tick: int, month: str, previous: "WeatherState | 
     base_temp, base_precip, base_wind = _MONTH_BASELINES[month]
 
     target_temp = base_temp + rng.uniform(-6.0, 6.0)
-    target_precip = max(0.0, min(1.0, base_precip + rng.uniform(-0.25, 0.25)))
-    target_wind = max(0.0, min(1.0, base_wind + rng.uniform(-0.25, 0.25)))
+    target_precip = clamp(base_precip + rng.uniform(-0.25, 0.25), 0.0, 1.0)
+    target_wind = clamp(base_wind + rng.uniform(-0.25, 0.25), 0.0, 1.0)
 
     if previous is None:
         temperature_c, precipitation, wind = target_temp, target_precip, target_wind

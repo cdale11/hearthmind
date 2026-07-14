@@ -28,6 +28,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
+from hearthmind.util import clamp
 from hearthmind.world.terrain import BIOME_ORDER, Biome, Tile, classify_with_bias
 
 DEFOREST_HEAT_GAIN = 0.01
@@ -92,12 +93,12 @@ class ClimateState:
 
 def tick_climate(climate: ClimateState, rng: random.Random) -> None:
     """Nudge the climate bias one month's worth. Mutates in place."""
-    climate.warming = max(-1.0, min(1.0, (
+    climate.warming = clamp((
         climate.warming * CLIMATE_MEAN_REVERSION + rng.uniform(-CLIMATE_STEP_MAX, CLIMATE_STEP_MAX)
-    )))
-    climate.drying = max(-1.0, min(1.0, (
+    ), -1.0, 1.0)
+    climate.drying = clamp((
         climate.drying * CLIMATE_MEAN_REVERSION + rng.uniform(-CLIMATE_STEP_MAX, CLIMATE_STEP_MAX)
-    )))
+    ), -1.0, 1.0)
 
 
 def _is_developed(x: int, y: int, settlements, farms, excluded: set[tuple[int, int]]) -> bool:

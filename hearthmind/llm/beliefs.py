@@ -17,6 +17,7 @@ not just raw stats — see `SimulationEngine._maybe_schedule_beliefs`.
 """
 from __future__ import annotations
 
+from hearthmind.util import clamp
 from hearthmind.settlement.institutions import Institution, InstitutionKind
 
 MAX_BELIEFS = 12
@@ -125,7 +126,7 @@ def temperament_confidence_bias(confidence: float, temperament: float, intensity
         confidence += magnitude
     else:
         confidence -= magnitude
-    return round(max(0.0, min(1.0, confidence)), 3)
+    return round(clamp(confidence, 0.0, 1.0), 3)
 
 SYSTEM_PROMPT = (
     "You are the quiet, slowly-forming understanding a small simulated village "
@@ -278,7 +279,7 @@ def parse_belief(result: dict, fallback: dict, existing_count: int) -> dict:
         belief = fallback["belief"]
     if not isinstance(confidence, (int, float)):
         confidence = fallback["confidence"]
-    confidence = max(0.0, min(1.0, float(confidence)))
+    confidence = clamp(float(confidence), 0.0, 1.0)
     if not isinstance(revises, int) or not (0 <= revises < existing_count):
         revises = None
 
