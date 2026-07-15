@@ -6188,3 +6188,65 @@ feature (only to R3, which it still passes). Verified instead by: a
 goals still assigned, dialogues still occur, no crash, snapshot
 round-trips the cast); a mock-client llm-enabled run proving the volume
 bound and the daily cap; and a server-CLI boot smoke test.
+
+## Unbounded-growth re-audit: event-log retention + query clamps (v0.71.0)
+
+Follow-up to the v0.70.0 swap fix, per a request to hunt any remaining
+place memory can grow without bound. **The RAM/Python side is clean** —
+every per-agent/per-pair collection is capped or pruned: agent memories
+(MAX_AGENT_MEMORIES), personal beliefs (MAX_PERSONAL_BELIEFS, evict
+weakest), settlement/family/council/guild beliefs (MAX_BELIEFS /
+INSTITUTION_BELIEF_CAP), belief history (BELIEF_HISTORY_MAX),
+relationships/trust (pruned on decay/death), dialogue &
+cognition-trigger cooldowns (pruned), traditions/inventions/festivals
+(CULTURE_LIST_MAX_STORED), records (RECORDS_MAX_STORED), memorials
+(MEMORIALS_MAX_STORED), omen/priority history (OMEN/PRIORITY_HISTORY_MAX),
+institutions (extinction-prune at 300), core cast (llm_core_cast_size),
+and every engine structure (pending goal/dialogue results cleared each
+tick, `_last_llm_calls` keyed by job name, broadcast buffer capped,
+snapshot-payload cache evicted). `place_names` is bounded by the map's
+*fixed* lake count (`identify_lakes` runs only at world creation, so lake
+ids never churn). Nothing per-agent or per-event accumulates in RAM.
+
+Two genuine unbounded-growth vectors were found, both on the
+persistence/interface boundary rather than the sim core:
+
+**1. The `events` table had no retention.** Snapshots are already pruned
+to recent + keyframes and metrics grow only ~1 row/sim-day, but `events`
+logged every notable world/life event forever (~1-2 rows/tick), so a
+persistent, always-running world grew the SQLite file without limit —
+the exact "runs forever" failure the snapshot keyframe design already
+guards against, left unaddressed for the higher-frequency table. Fix:
+`snapshot._prune_events` keeps the most-recent `Config.event_log_retention`
+rows (default 200k, CLI `--event-log-retention`, 0 disables), pruned on
+the snapshot cadence inside the same transaction. Lossless for every
+real reader — the live feed queries LIMIT 50, History LIMIT 200, both
+newest-first, and deep world-state history is preserved by snapshot
+keyframes; only the ability to scroll the *raw* event log back past
+~months of activity is affected, which no UI does. `event_category_counts`
+becomes windowed rather than literally all-time (docstring updated).
+Verified: a 3000-tick run with retention=500 leaves exactly 500 rows.
+
+**2. Unclamped query `limit`.** `/events`, `/history`, `/metrics` passed
+the client's `?limit=` straight into `LIMIT ?`. Against the (now bounded
+but still large) events table, a single request for a huge limit would
+materialize that many rows into a Python list at once — a client-
+triggered RAM spike that scaled with the table. Fix: `recent_events`/
+`history_events`/`recent_metrics` clamp to `QUERY_LIMIT_MAX = 5000`
+(far above any UI view: live feed 50, History 200, metrics 365). Clamped
+in the query functions themselves, so every caller is protected, not
+just the HTTP layer. Verified: `recent_events(limit=10_000_000)` returns
+at most the clamp, never the whole table.
+
+**3. Intervention queue** (defensive): `WorldBroadcaster._interventions`
+drains every tick, but a POST burst against a stalled/paused loop could
+grow it unbounded between drains. Capped at `INTERVENTION_QUEUE_MAX = 256`
+(oldest dropped) — far above any realistic burst of genuine nudges.
+
+Standing note: `metrics` (one row/sim-day) is slow enough to leave
+unpruned for now; if a world runs for *years* of sim-time it too should
+get a retention window, but at ~365 rows/year it is nowhere near the
+`events` table's growth rate. These are DB/disk-and-request-RAM fixes;
+the sim event stream is untouched (the changes are orthogonal to tick
+logic — prompts only ever read the newest ~50 events, which pruning
+never removes).

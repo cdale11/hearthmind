@@ -82,6 +82,20 @@ class Config:
     snapshot_every_ticks: int = 60
     """How often (in ticks) to persist a full snapshot."""
 
+    event_log_retention: int = 200_000
+    """Most-recent rows kept in the `events` table; older rows are pruned
+    on the snapshot cadence (`snapshot.save_snapshot` → `_prune_events`).
+    v0.71.0 memory-audit pass: `events` was the one genuinely unbounded-
+    growth table on a persistent, always-running world (snapshots already
+    prune to recent + keyframes; metrics grow only ~1 row/sim-day), at
+    ~1-2 rows/tick sustained → an indefinite run grew the DB file without
+    limit. 200k rows is many months of the *notable* history the UI's
+    History tab surfaces (the live feed and History both read only the
+    newest tail — 50 and 200 rows — and deep world-state history is
+    preserved by snapshot keyframes), while bounding the DB to tens of
+    MB. Raise it if you have disk and want a longer raw event log; 0
+    disables event pruning entirely (unbounded, opt-in)."""
+
     db_path: str = "world.sqlite3"
 
     # --- runtime: LLM (Ollama) cognition layer, off by default -----------------

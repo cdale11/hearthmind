@@ -34,6 +34,12 @@ movement; 8x is fast enough to skip through quiet stretches without the
 tick loop's LLM concurrency cap (config.llm_max_concurrent) getting
 overwhelmed by ticks arriving faster than jobs resolve."""
 
+INTERVENTION_QUEUE_MAX = 256
+"""Cap on the pending-intervention queue (`enqueue_intervention`) — it
+drains every tick, so this is only reached if POSTs burst faster than
+ticks or the loop is stalled/paused. Well above any realistic burst of
+genuine user nudges; the oldest is dropped past it (v0.71.0)."""
+
 
 class WorldBroadcaster:
     def __init__(self) -> None:
@@ -88,8 +94,17 @@ class WorldBroadcaster:
         `SimulationEngine._apply_pending_interventions` drains and
         applies this at the top of its next tick, so `World` is still
         only ever mutated from the tick loop. See docs/DECISIONS.md,
-        interventions pass."""
+        interventions pass.
+
+        Bounded at INTERVENTION_QUEUE_MAX: the queue drains every tick, so
+        it's normally tiny, but a burst of POSTs between two ticks (or a
+        stalled/paused tick loop) could otherwise grow it without bound.
+        Past the cap the oldest queued intervention is dropped — an
+        intervention is a best-effort nudge, and shedding the stalest one
+        is the right failure mode (v0.71.0 memory-audit pass)."""
         self._interventions.append(intervention)
+        if len(self._interventions) > INTERVENTION_QUEUE_MAX:
+            del self._interventions[: len(self._interventions) - INTERVENTION_QUEUE_MAX]
 
     # --- called by SimulationEngine (writer side) -----------------------------
 

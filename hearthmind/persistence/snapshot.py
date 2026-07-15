@@ -25,6 +25,17 @@ so a future scrub-through-time/replay feature (docs/ROADMAP.md) still
 has sparse anchors across the world's whole history without the
 unbounded growth."""
 
+QUERY_LIMIT_MAX = 5000
+"""Hard ceiling clamped onto the `limit` of every events/metrics query
+(`recent_events`/`history_events`/`recent_metrics`). These are reachable
+from the browser API's `?limit=` query param (interface/app.py); without
+a clamp, a single request for a huge limit against the (now bounded, but
+still large) events table would pull that many rows into a Python list
+in one go — a client-triggered RAM spike that grows with the table.
+5000 is far more than any UI view shows (the live feed uses 50, History
+200) while capping the worst case. See docs/DECISIONS.md, v0.71.0
+memory-audit pass."""
+
 
 def save_snapshot(conn: sqlite3.Connection, world: World) -> None:
     conn.execute(
@@ -32,7 +43,35 @@ def save_snapshot(conn: sqlite3.Connection, world: World) -> None:
         (world.clock.tick_count, time.time(), json.dumps(world.to_dict())),
     )
     _prune_snapshots(conn)
+    _prune_events(conn, world.config.event_log_retention)
     conn.commit()
+
+
+def _prune_events(conn: sqlite3.Connection, keep: int) -> None:
+    """Keep only the most-recent `keep` rows of the `events` table.
+
+    `events` is the one genuinely unbounded-growth table on a persistent,
+    always-running world (snapshots are already pruned to recent +
+    keyframes; metrics grow only one row per sim-day). It logs every
+    notable world/life event — ~1-2 rows/tick sustained — so an
+    indefinite run would grow the DB file without limit. Nothing reads
+    beyond the recent tail (the live feed queries LIMIT 50, History
+    LIMIT 200, both newest-first), and deep world-state history is
+    preserved separately by snapshot keyframes, so trimming the raw log
+    to a large recent window is lossless for every actual reader. Runs on
+    the snapshot cadence (every `snapshot_every_ticks`), inside the same
+    transaction. `keep <= 0` disables pruning (unbounded, opt-in). See
+    docs/DECISIONS.md, v0.71.0 memory-audit pass."""
+    if keep <= 0:
+        return
+    conn.execute(
+        """
+        DELETE FROM events WHERE id NOT IN (
+            SELECT id FROM events ORDER BY id DESC LIMIT ?
+        )
+        """,
+        (keep,),
+    )
 
 
 def _prune_snapshots(conn: sqlite3.Connection) -> None:
@@ -95,6 +134,7 @@ def log_metrics(conn: sqlite3.Connection, tick: int, metrics: dict, commit: bool
 def recent_metrics(conn: sqlite3.Connection, limit: int = 365) -> list[dict]:
     """Most-recent metrics rows, oldest-first (chart-ready). Each row is
     the stored dict plus its tick."""
+    limit = max(1, min(limit, QUERY_LIMIT_MAX))
     rows = conn.execute(
         "SELECT tick, metrics_json FROM metrics ORDER BY id DESC LIMIT ?", (limit,)
     ).fetchall()
@@ -107,6 +147,7 @@ def recent_metrics(conn: sqlite3.Connection, limit: int = 365) -> list[dict]:
 
 
 def recent_events(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
+    limit = max(1, min(limit, QUERY_LIMIT_MAX))
     rows = conn.execute(
         "SELECT tick, logged_at, category, description FROM events ORDER BY id DESC LIMIT ?",
         (limit,),
@@ -134,6 +175,7 @@ docs/DECISIONS.md, "map/UI/ecology follow-up.\""""
 
 
 def history_events(conn: sqlite3.Connection, limit: int = 200) -> list[dict]:
+    limit = max(1, min(limit, QUERY_LIMIT_MAX))
     placeholders = ",".join("?" for _ in HISTORY_CATEGORIES)
     rows = conn.execute(
         f"SELECT tick, logged_at, category, description FROM events "
@@ -147,11 +189,13 @@ def history_events(conn: sqlite3.Connection, limit: int = 200) -> list[dict]:
 
 
 def event_category_counts(conn: sqlite3.Connection) -> dict[str, int]:
-    """All-time histogram of event categories — part of the extensive
-    diagnostic report (`GET /diagnostics`) built for debugging an
-    unattended overnight soak run: how many dialogues/rumors/deaths/etc.
-    happened over the whole run, not just the recent-events tail. See
-    docs/DECISIONS.md, diagnostics pass."""
+    """Histogram of event categories across the retained event log — part
+    of the extensive diagnostic report (`GET /diagnostics`) built for
+    debugging an unattended overnight soak run: how many dialogues/
+    rumors/deaths/etc. are on file, not just the recent-events tail.
+    Counts are over the retained window (`Config.event_log_retention`,
+    v0.71.0), not literally all-time, once pruning has kicked in on a
+    very long run. See docs/DECISIONS.md, diagnostics pass."""
     rows = conn.execute("SELECT category, COUNT(*) FROM events GROUP BY category").fetchall()
     return {category: count for category, count in rows}
 

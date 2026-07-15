@@ -4,6 +4,36 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.71.0] — Unbounded-growth audit: event-log retention + query clamps
+
+Follow-up to the v0.70.0 swap fix: a full re-audit for any structure
+that can grow without bound. The Python/RAM side is clean — every
+per-agent/per-pair collection is capped or pruned (memories, beliefs at
+MAX_PERSONAL_BELIEFS, institution beliefs at INSTITUTION_BELIEF_CAP,
+relationships/trust, cooldowns, omen/priority history, records,
+memorials, core cast, engine pending/debug dicts, broadcast buffer,
+snapshot-payload cache, place_names is bounded by the map's fixed lake
+count). Two genuine unbounded-growth vectors were found and fixed, both
+on the persistence/interface boundary rather than the sim core:
+
+### Fixed
+- **Events table had no retention** — the one truly unbounded table on a
+  persistent, always-running world (snapshots already prune to recent +
+  keyframes; metrics grow ~1 row/sim-day). At ~1-2 rows/tick an
+  indefinite run grew the DB file without limit. Added `_prune_events`
+  on the snapshot cadence, keeping `Config.event_log_retention` (default
+  200k) most-recent rows — lossless for every reader (live feed reads 50,
+  History 200, deep state lives in snapshot keyframes). CLI
+  `--event-log-retention` (0 disables). Bounds the DB to tens of MB.
+- **Unclamped query `limit`** — `/events`, `/history`, `/metrics` took a
+  client-supplied `?limit=` straight to SQLite; against a large events
+  table a huge limit would pull that many rows into RAM in one request.
+  `recent_events`/`history_events`/`recent_metrics` now clamp to
+  `QUERY_LIMIT_MAX` (5000, far above any UI view).
+- **Intervention queue** — defensively capped at `INTERVENTION_QUEUE_MAX`
+  (256); it drains every tick, but a POST burst against a stalled/paused
+  loop could otherwise grow it unbounded. Oldest dropped past the cap.
+
 ## [0.70.0] — LLM core cast + daily call ceiling (swap-after-hours fix)
 
 Root-causes and fixes the live report that swap usage climbs after a

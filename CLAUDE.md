@@ -258,6 +258,30 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.71.0)
+
+Unbounded-growth re-audit (follow-up to the v0.70.0 swap fix). **RAM
+side is clean** — every per-agent/per-pair collection is capped/pruned
+(memories, beliefs, relationships/trust, cooldowns, culture lists,
+records, memorials, omen/priority history, institutions, core cast,
+engine pending/debug dicts, broadcast + snapshot-payload caches);
+`place_names` is bounded by the map's fixed lake count. Two real
+unbounded vectors found + fixed, both on the persistence/interface
+boundary: **(1) the `events` table had no retention** — the one
+table that grew forever on a perpetual run (snapshots already
+keyframe-prune; metrics grow ~1 row/day) — now pruned to
+`Config.event_log_retention` (default 200k, `--event-log-retention`, 0
+disables) on the snapshot cadence, lossless for every reader; **(2)
+unclamped query `limit`** on `/events`/`/history`/`/metrics` clamped to
+`QUERY_LIMIT_MAX=5000` in the query funcs themselves (a huge limit
+against a big table was a client-triggered RAM spike). Plus a defensive
+`INTERVENTION_QUEUE_MAX=256` cap. **Standing rule:** any new persisted
+table that grows per-tick/per-event needs a retention window like
+`events`; anything read into a prompt must stay bounded (prompts read
+only the newest ~50 events). `metrics` left unpruned for now (slow;
+revisit only for multi-year sim runs). **Refactor status:** R3 shipped
+(v0.69.0); R1/R2/R4 from `docs/REFACTOR-2026-07.md` still pending.
+
 ## Current state (v0.70.0)
 
 **Swap-after-hours fix + R3.** Live report: swap climbs after a few

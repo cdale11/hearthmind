@@ -66,6 +66,10 @@ def parse_args(argv: list[str] | None = None) -> Config:
                               "is None, i.e. defer to Ollama; this CLI entry point picks a smarter "
                               "runtime default since os.cpu_count() can't be a dataclass default). Pass "
                               "0 to leave Ollama's own heuristic in charge instead.")
+    parser.add_argument("--event-log-retention", type=int, default=Config.event_log_retention,
+                         help="Most-recent rows kept in the events table (older pruned on the snapshot "
+                              "cadence). The events table is the one unbounded-growth table on a perpetual "
+                              "run. 0 disables event pruning (unbounded).")
     parser.add_argument("--llm-core-cast-size", type=int, default=Config.llm_core_cast_size,
                          help="How many NPCs are the LLM-driven 'core cast' — only these get LLM cognition, "
                               "and only a pair of them gets LLM dialogue; everyone else uses the deterministic "
@@ -94,6 +98,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         tick_seconds=args.tick_seconds,
         sim_minutes_per_tick=args.sim_minutes_per_tick,
         snapshot_every_ticks=args.snapshot_every,
+        event_log_retention=args.event_log_retention,
         initial_population=args.initial_population,
         db_path=args.db,
         llm_enabled=not args.llm_disabled,
