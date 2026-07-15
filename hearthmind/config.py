@@ -163,23 +163,35 @@ class Config:
     Further memory reduction must come from elsewhere (shorter
     `llm_keep_alive`, a smaller/more quantized model, or Python-side
     savings) — see docs/DECISIONS.md, "LLM concurrency floor restored.\""""
-    llm_num_ctx: int = 2048
-    """Explicit Ollama context-window cap sent with every request
-    (v0.43.0). Previously unset, so Ollama silently used its own default —
-    fine when it happens to be small, a hidden memory multiplier
-    (`llm_max_concurrent` x this) when it isn't. Every prompt in this
-    project is capped short (`PROMPT_CULTURE_LIST_MAX`, `RECENT_MEMORIES_
-    IN_PROMPT`, grounded single-scene cognition/dialogue prompts) and
-    comfortably fits well under 2048 tokens — this is a safety ceiling on
-    Ollama's per-call KV-cache allocation, not a working limit any real
-    prompt here is expected to hit."""
-    llm_num_predict: int = 512
-    """Explicit cap on generated tokens per call (v0.43.0). Every response
-    here is meant to be a short, strict-JSON answer (a goal, a line of
-    dialogue, a settlement decision) — this bounds the worst case where
-    the model rambles instead of terminating cleanly, which otherwise
-    burns both memory and the `llm_timeout_seconds` budget for no benefit
-    (the JSON parse would reject an overlong response anyway)."""
+    llm_num_ctx: int = 1280
+    """Explicit Ollama context-window cap sent with every request.
+    **This is the single most important memory knob this code controls**:
+    Ollama allocates a KV cache sized at `num_ctx` for *every* parallel
+    slot it opens (`OLLAMA_NUM_PARALLEL`), and that allocation is made up
+    front at `num_ctx` tokens regardless of how full any given prompt
+    actually is. So lowering `num_ctx` cuts resident Ollama memory
+    directly and unconditionally. Lowered 2048 -> 1280 in the v0.71.1
+    "Ollama is swapping" pass after *measuring* the real prompts: the
+    largest (the monthly chronicle, with PROMPT_RECENT_EVENTS recent
+    events + culture) is ~620 input tokens, and `num_predict` (384) bounds
+    the generation, so the worst-case peak is ~1000 tokens — 1280 leaves
+    a safe ~280-token margin while shrinking the KV cache ~37% vs 2048.
+    Do NOT raise this without re-measuring prompts (undersizing silently
+    truncates a prompt and degrades the answer); do lower it further only
+    if you also shrink prompts (PROMPT_RECENT_EVENTS). The other big KV
+    levers are Ollama-server env vars, not code — see the README's "8GB /
+    avoiding swap" section (OLLAMA_NUM_PARALLEL, OLLAMA_KV_CACHE_TYPE,
+    OLLAMA_FLASH_ATTENTION)."""
+    llm_num_predict: int = 384
+    """Explicit cap on generated tokens per call. Every response here is a
+    short, strict-JSON answer (a goal, a line of dialogue, a settlement
+    decision) — this bounds the worst case where the model rambles
+    instead of terminating cleanly, which otherwise burns memory (the
+    generated tokens also occupy the KV cache), the `llm_timeout_seconds`
+    budget, and would be rejected by the JSON parse anyway. Lowered
+    512 -> 384 in the v0.71.1 Ollama-memory pass (no real answer here
+    approaches even 384 tokens); counts against `llm_num_ctx`'s budget,
+    so keep the two in step."""
     llm_keep_alive: str = "3m"
     """How long Ollama keeps the model resident in memory after the last
     call before unloading it (v0.43.1) — previously never sent, so the

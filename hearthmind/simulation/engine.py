@@ -135,6 +135,18 @@ grew forever on a multi-year world (July 2026 architecture review,
 §3.7). Fallback numbering still uses the full list's length, so
 "Tradition the 14th"-style names stay correct."""
 
+PROMPT_RECENT_EVENTS = 30
+"""How many recent events reach a settlement-level LLM prompt
+(chronicle, tradition, invention, town-brain, etc.). Lowered from 50
+(v0.71.1 Ollama-memory pass): the recent-events block was the dominant
+term in the biggest prompt (~680 of ~900 tokens at 50 events), and
+shrinking it lets `Config.llm_num_ctx` — and therefore Ollama's
+per-slot KV-cache allocation, which is sized at `num_ctx` regardless of
+how full the prompt actually is — drop without any risk of truncating a
+real prompt. 30 events is still ample narrative material for a monthly
+summary. The measured worst-case prompt+generation now fits well inside
+the lowered num_ctx (see docs/DECISIONS.md, "Ollama memory" pass)."""
+
 _JOB_NO_ARGS = 0
 _JOB_EVENTS = 1
 _JOB_EVENTS_SEASON = 2
@@ -1048,7 +1060,7 @@ class SimulationEngine:
         if self._settlement_job_backpressured():
             return
         settlement = self._job_target()
-        recent = recent_events(self.conn, limit=50)
+        recent = recent_events(self.conn, limit=PROMPT_RECENT_EVENTS)
         population_summary = self.world.population.summary()
         year = self.world.clock.year
         prompt = chronicle.build_prompt(
@@ -1121,7 +1133,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
-        recent = recent_events(self.conn, limit=50)
+        recent = recent_events(self.conn, limit=PROMPT_RECENT_EVENTS)
         traditions = target.traditions
         prompt = culture.build_prompt(
             target.name, recent, traditions[-PROMPT_CULTURE_LIST_MAX:], self.world.clock.year,
@@ -1193,7 +1205,7 @@ class SimulationEngine:
         chance = max(0.0, chance * (1.0 + settlement.temperament * TEMPERAMENT_INVENTION_INFLUENCE))
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "invention_roll") >= chance:
             return
-        recent = recent_events(self.conn, limit=50)
+        recent = recent_events(self.conn, limit=PROMPT_RECENT_EVENTS)
         inventions = settlement.inventions
         prompt = invention.build_prompt(
             settlement.name, recent, inventions[-PROMPT_CULTURE_LIST_MAX:], settlement.tech_level,
@@ -1256,7 +1268,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
-        recent = recent_events(self.conn, limit=50)
+        recent = recent_events(self.conn, limit=PROMPT_RECENT_EVENTS)
         festivals = festival_target.festivals
         prompt = festival.build_prompt(
             festival_target.name, recent, self.world.clock.season,
@@ -1370,7 +1382,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
-        recent = recent_events(self.conn, limit=50)
+        recent = recent_events(self.conn, limit=PROMPT_RECENT_EVENTS)
         population_summary = self.world.population.summary()
         settlement_summary = settlement.summary()
         whispers_sent = list(settlement.player_influence)
@@ -1554,7 +1566,7 @@ class SimulationEngine:
         the player" pass."""
         if "month_end" not in events:
             return
-        recent = recent_events(self.conn, limit=50)
+        recent = recent_events(self.conn, limit=PROMPT_RECENT_EVENTS)
         for stl in self.world.settlements:
             rng = _namespaced_rng(
                 self.world.config.seed, self.world.clock.tick_count, f"temperament_{stl.id}",

@@ -6250,3 +6250,53 @@ get a retention window, but at ~365 rows/year it is nowhere near the
 the sim event stream is untouched (the changes are orthogonal to tick
 logic — prompts only ever read the newest ~50 events, which pruning
 never removes).
+
+## Ollama swapping "worse than before": resident memory, not call volume (v0.71.1)
+
+Live report: swap pressure is worse than ever despite the v0.70.0
+core-cast fix. **Diagnosis: the previous fixes targeted the wrong
+quantity.** v0.70.0 cut LLM *call volume*, which governs *sustained CPU
+load* — but Ollama's *resident RAM* is model **weights** (loaded once,
+resident while warm) + **KV cache**, and neither shrinks when you call
+the model less often. The KV cache is the swing term on 8GB:
+
+    KV cache ≈ num_ctx × OLLAMA_NUM_PARALLEL × bytes_per_element
+
+and crucially it's allocated **up front at the full `num_ctx`**,
+independent of how short the actual prompts are. Ollama's default
+`OLLAMA_NUM_PARALLEL` is often **4**, so a stock server reserves four
+full context windows of KV cache (commonly 2-4 GB) on top of ~2.6 GB of
+qwen3:4b weights — that's what tips 8GB into swap, and it does so
+whether Hearthmind makes 11 calls/day or 1100.
+
+**What the app can control (done here):**
+- `llm_num_ctx` 2048 → 1280, `llm_num_predict` 512 → 384. Measured the
+  real prompts first (the largest, the monthly chronicle, is ~600 input
+  tokens; +384 generation ≈ ~1000 peak), so 1280 fits with ~280 margin.
+  This is a ~37% cut to *our* per-slot KV allocation, applied
+  unconditionally. Undersizing `num_ctx` silently truncates prompts, so
+  this was measured, not guessed.
+- `PROMPT_RECENT_EVENTS` 50 → 30: the recent-events block dominated the
+  biggest prompt (~680 of ~900 tokens); trimming it is what makes the
+  lower `num_ctx` safe.
+- Verified byte-identical for the deterministic (llm-disabled) sim —
+  these only affect the Ollama request/prompt, never tick logic.
+
+**What only the user can control (README, made prominent + turnkey):**
+the dominant levers are Ollama *server* env vars — `OLLAMA_NUM_PARALLEL=1`
+(one KV slot instead of four; safe with our `llm_max_concurrent=2` floor,
+Ollama just serializes the two in-flight calls), `OLLAMA_KV_CACHE_TYPE=
+q8_0` + `OLLAMA_FLASH_ATTENTION=1` (half the KV bytes), `OLLAMA_MAX_
+LOADED_MODELS=1`. Together ~8× less KV cache than the stock default.
+The README's old "8GB tuning" section had `NUM_PARALLEL=2` as the
+recommendation and buried `=1` as a last resort; it now leads with `=1`
+and a single copy-paste block. Escalation if weights are still too big:
+size the model down to `qwen3:1.7b` (~1.4 GB vs ~2.6 GB) — documented
+with exact commands — and/or `--llm-core-cast-size 8`.
+
+**Standing note:** call-volume tuning (core cast, daily ceiling) and
+resident-memory tuning (num_ctx, num_parallel, kv dtype, model size) are
+*orthogonal*. A swap report is almost always the latter; diagnose with
+`ollama ps` / `/diagnostics.system_memory` (weights vs KV vs our RSS)
+before touching call volume. Do not raise `llm_num_ctx` without
+re-measuring prompts.

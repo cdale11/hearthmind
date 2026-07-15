@@ -35,8 +35,10 @@ defensive no-op for it and becomes load-bearing again for the
 report back, don't silently guess. Every call disables "thinking" mode
 (`OllamaClient` sends `"think": false` and strips any leaked `<think>`
 block) since every prompt here wants one strict-JSON answer.
-`llm_timeout_seconds=60`, `llm_num_ctx=2048`,
-`llm_num_predict=512`, `llm_keep_alive="3m"`, `llm_use_mmap=True`,
+`llm_timeout_seconds=60`, `llm_num_ctx=1280`,
+`llm_num_predict=384` (both lowered from 2048/512 in v0.71.1 after
+measuring real prompts — see below), `llm_keep_alive="3m"`,
+`llm_use_mmap=True`,
 `llm_num_thread=None` (`server.py` CLI defaults `--llm-num-thread` to
 every CPU core — see below), `llm_num_gpu=None` (set once GPU offload
 is confirmed server-side —

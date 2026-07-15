@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.71.1] — Ollama memory: shrink KV cache + definitive 8GB README
+
+Response to "swap is even worse than before." Audit conclusion: reducing
+LLM *call volume* (v0.70.0) never shrinks Ollama's *resident* memory —
+model weights + KV cache sit in RAM while the model is warm regardless
+of call frequency. Resident Ollama memory = weights + `num_ctx ×
+OLLAMA_NUM_PARALLEL × dtype` KV cache, and the KV cache is allocated up
+front at `num_ctx` no matter how short prompts are.
+
+### Changed (app-side KV-cache reduction, verified byte-identical for
+the deterministic sim)
+- `llm_num_ctx` 2048 → **1280** and `llm_num_predict` 512 → **384**,
+  after *measuring* real prompts: the largest (monthly chronicle) peaks
+  at ~1000 tokens incl. generation, so 1280 fits with a ~280-token
+  margin. Cuts our KV footprint ~37% unconditionally.
+- Recent events fed into settlement prompts 50 → **30**
+  (`PROMPT_RECENT_EVENTS`) — the dominant prompt term — so the lower
+  `num_ctx` can't truncate a real prompt.
+
+### Docs
+- Rewrote the README's 8GB section into a prominent, turnkey **"⚠️
+  Running on 8GB RAM — stop Ollama from swapping"** recipe: the
+  dominant fix is Ollama *server* env vars (`OLLAMA_NUM_PARALLEL=1` —
+  down from a default of 4 — plus `OLLAMA_KV_CACHE_TYPE=q8_0` +
+  `OLLAMA_FLASH_ATTENTION=1`, together ~8× less KV cache), with the
+  model size-down (`qwen3:1.7b`) and `--llm-core-cast-size` as
+  escalations, and `ollama ps` / `/diagnostics.system_memory` to
+  confirm. Added a pointer to it from "Running it".
+
 ## [0.71.0] — Unbounded-growth audit: event-log retention + query clamps
 
 Follow-up to the v0.70.0 swap fix: a full re-audit for any structure

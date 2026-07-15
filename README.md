@@ -105,6 +105,13 @@ hearthmind/
 
 ## Running it
 
+> **On 8GB RAM and Ollama is swapping?** Jump to
+> [⚠️ Running on 8GB RAM](#-running-on-8gb-ram--stop-ollama-from-swapping-read-this-first)
+> first — the fix is mostly a handful of `OLLAMA_*` environment variables
+> set before `ollama serve`, and it's the difference between a smooth run
+> and constant swap. Or run `--llm-disabled` for a fully offline,
+> zero-Ollama world.
+
 ```bash
 # Start (or resume) the world. Ctrl+C for a graceful, saved shutdown.
 python3 -m hearthmind.server --db world.sqlite3
@@ -216,66 +223,80 @@ python3 -m hearthmind.inspect_world --db world.sqlite3 --agents
 for each inhabitant's current `goal`/`goal_reason`, and watch the
 `Recent events` list for `chronicle` entries — see `docs/TESTING.md`.
 
-### Memory tuning for 8GB RAM / integrated-GPU hardware
+### ⚠️ Running on 8GB RAM — stop Ollama from swapping (read this first)
 
-An iGPU shares system RAM rather than having its own dedicated VRAM —
-every megabyte Ollama uses for model weights and KV cache comes
-directly out of the same 8GB pool the OS and the simulation process
-also need, so there's no separate GPU memory budget to lean on.
-`qwen3:4b-instruct` (the default as of v0.65.2) is confirmed on a live
-8GB machine to stay below 4.5GB total with no swapping — this replaced
-`qwen3.5:2b`, which despite being the *smaller* nominal model showed
-memory-leak-like growth and swapping on that same hardware (see
-"Changing the model for memory" below for why). Rough budget on a live
-8GB machine: OS baseline ~1-1.5GB, Hearthmind's own process well under
-200MB even at population 400 (see `docs/DECISIONS.md`, memory-leak
-fixes), Ollama server overhead ~300-500MB, model weights + KV cache the
-remainder — under 4.5GB total measured live, leaving real headroom
-rather than sitting at the edge.
+If Ollama is pushing your machine into swap, **the fix is almost
+entirely Ollama *server* configuration, not this app.** Here's why: on
+an 8GB box the memory Ollama holds resident is dominated by two things —
+the model **weights** (loaded once, resident while the model is warm)
+and the **KV cache**, whose size is `num_ctx × OLLAMA_NUM_PARALLEL ×
+(bytes per element)`. That KV cache is allocated *up front at the full
+`num_ctx`*, regardless of how short the actual prompts are. Ollama's
+default `OLLAMA_NUM_PARALLEL` can be **4**, so out of the box it may
+reserve *four* full context windows of KV cache — often 2-4 GB — on top
+of the ~2.6 GB of weights. That's what tips an 8GB machine into swap,
+and **reducing how often Hearthmind calls the model does not shrink it**
+(the v0.70.0 core-cast fix cut call *volume*, which matters for
+sustained CPU load, but resident weights + KV cache sit there while the
+model is warm no matter how rarely you call it).
 
-Levers already applied on the Hearthmind side (`Config`, see
-`docs/DECISIONS.md` for the full history): `llm_num_ctx=2048`/
-`llm_num_predict=512` bound per-call memory and worst-case generation
-length; `llm_keep_alive="3m"` releases the model from memory during a
-real lull instead of holding it resident indefinitely;
-`llm_max_concurrent=2` is a hard floor — LLM richness is treated as
-non-negotiable, so this project will not trade it away for further
-memory headroom (see `docs/DECISIONS.md`, "LLM concurrency floor
-restored").
-
-If a live run still shows swap pressure, the remaining levers are all
-on the Ollama *server* side, outside this repo, worth setting as
-environment variables before starting `ollama serve`:
+**Do this — set these before `ollama serve`, then restart Ollama:**
 
 ```bash
-# Never load more than one model at a time (relevant if you ever
-# experiment with a second model alongside qwen3:4b-instruct).
-export OLLAMA_MAX_LOADED_MODELS=1
-
-# Match Ollama's own server-side concurrency cap to Config.llm_max_
-# concurrent, so it never provisions more simultaneous request slots
-# (and their KV-cache buffers) than Hearthmind will actually send it.
-export OLLAMA_NUM_PARALLEL=2
-
-# A server-wide default matching Config.llm_keep_alive, in case
-# anything else on the machine talks to the same Ollama instance.
-export OLLAMA_KEEP_ALIVE=3m
-
-# Quantize the KV cache to 8-bit — roughly HALVES per-slot KV memory
-# with negligible quality impact at this scale. Requires flash
-# attention, so set both together. The single biggest still-unapplied
-# server-side saving as of v0.65.0.
-export OLLAMA_FLASH_ATTENTION=1
-export OLLAMA_KV_CACHE_TYPE=q8_0
+export OLLAMA_NUM_PARALLEL=1        # ONE KV-cache slot, not 4 — the single biggest win
+export OLLAMA_KV_CACHE_TYPE=q8_0    # 8-bit KV cache: ~half the KV memory, negligible quality loss
+export OLLAMA_FLASH_ATTENTION=1     # required for q8_0 KV; set both together
+export OLLAMA_MAX_LOADED_MODELS=1   # never hold two models resident at once
+export OLLAMA_KEEP_ALIVE=3m         # release the model during real lulls
+# then (re)start the server:
+ollama serve
 ```
 
-If pressure *still* persists after those, one more server-side lever
-exists before touching the model: `OLLAMA_NUM_PARALLEL=1`. This halves
-the KV-cache slots again *without* violating the `llm_max_concurrent=2`
-floor — Hearthmind still keeps two calls in flight; Ollama just serves
-them one at a time instead of side by side, so the second waits ~17-20s
-longer. Richness (which calls get made) is unchanged; only burst
-latency degrades. That trade is yours to judge from a live run.
+`OLLAMA_NUM_PARALLEL=1` is safe with Hearthmind: `Config.llm_max_
+concurrent=2` is our scheduling floor (two calls can be *in flight* from
+our side), but with `NUM_PARALLEL=1` Ollama simply serves them one at a
+time using a single KV slot — the second call waits ~17-20s longer, no
+richness is lost. Combined with `q8_0` KV, this typically cuts Ollama's
+KV cache by **~8×** versus the default (4 slots × f16).
+
+**Already done for you on the app side (v0.71.1):** `llm_num_ctx` was
+lowered `2048 → 1280` and `llm_num_predict` `512 → 384` after *measuring*
+the real prompts (the biggest, the monthly chronicle, peaks at ~1000
+tokens including generation — 1280 fits it with margin), and the
+recent-events fed into prompts was trimmed `50 → 30`. That shrinks our
+KV footprint ~37% on its own, on top of whatever the env vars save. You
+don't need to touch these, but if you *raise* `--llm-num-ctx` you'll
+grow Ollama's KV cache proportionally.
+
+**If it still swaps after the env vars — size the model down.** The
+model weights are the other big resident chunk (~2.6 GB for
+`qwen3:4b-instruct`). A smaller model roughly halves that:
+
+```bash
+ollama pull qwen3:1.7b
+python3 -m hearthmind.server --db world.sqlite3 --llm-model qwen3:1.7b
+```
+
+`qwen3:1.7b` (~1.4 GB) is the documented size-down path. It's a hybrid
+"thinking" model, which Hearthmind already handles (`"think": false` +
+a `<think>`-block strip on every call), so it behaves like an instruct
+model here. Town-brain/dialogue prose will be a little less polished
+than 4B; that's the trade for headroom. You can also shrink the
+LLM-driven cast with `--llm-core-cast-size 8` (fewer deep NPCs, fewer
+concurrent-ish calls) — though on 8GB the env vars + model size are the
+levers that actually move resident memory.
+
+**Confirm what's actually resident** while a run is live:
+
+```bash
+ollama ps                              # shows the loaded model's real size + whether it fits RAM
+# or, from the running Hearthmind server, the attributed breakdown:
+curl -s localhost:8765/diagnostics | python3 -m json.tool | grep -A20 system_memory
+```
+
+`/diagnostics.system_memory` reports this process's RSS/swap and each
+Ollama process's RSS/swap separately, so you can see exactly where the
+memory is going before changing anything.
 
 ### Use more CPU, not more memory (`--llm-num-thread`, v0.65.0)
 
