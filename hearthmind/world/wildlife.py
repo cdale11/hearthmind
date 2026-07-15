@@ -18,6 +18,15 @@ from enum import Enum
 from hearthmind.world.resources import ResourceGrid, ResourceKind
 from hearthmind.world.terrain import Biome, Tile
 
+try:
+    from hearthmind._native import GrazerHerdIndex as _NativeGrazerHerdIndex
+except ImportError:
+    _NativeGrazerHerdIndex = None
+"""Optional compiled fast path for `nearest_grazer_herd` (module 5, see
+cpp/src/wildlife_index.cpp, docs/DECISIONS.md "Native extension port").
+`None` when the extension wasn't built — falls back to the equivalent
+pure-Python scan in that case."""
+
 _NEIGHBOR_OFFSETS = ((0, -1), (0, 1), (-1, 0), (1, 0))
 
 
@@ -190,6 +199,20 @@ class AnimalHerd:
 class WildlifeGrid:
     herds: dict[int, AnimalHerd] = field(default_factory=dict)
     _next_id: int = 0
+    _native_index: "object | None" = field(default=None, compare=False, repr=False)
+    """Rebuilt at the end of `tick()` (herd positions only change there,
+    always before Population.tick() runs — see world/state.py's
+    World.tick ordering) and live-patched by `hunt()` for the same
+    same-tick-multi-agent-ordering reason `ResourceIndex` needs
+    `mark_regenerating`. `None` when the native extension isn't built."""
+
+    def _refresh_native_index(self) -> None:
+        if _NativeGrazerHerdIndex is None:
+            return
+        self._native_index = _NativeGrazerHerdIndex([
+            (h.id, h.x, h.y, h.count)
+            for h in self.herds.values() if h.species is Species.GRAZER
+        ])
 
     # --- construction ------------------------------------------------------
 
@@ -233,6 +256,18 @@ class WildlifeGrid:
         return {(h.x, h.y) for h in self.herds.values() if h.species is Species.PREDATOR and h.count > 0}
 
     def nearest_grazer_herd(self, x: int, y: int, radius: int) -> AnimalHerd | None:
+        if self._native_index is not None:
+            pos = self._native_index.nearest(x, y, radius)
+            if pos is None:
+                return None
+            # Recover the actual AnimalHerd object (callers read fields
+            # like `.id`/`.count` off it) — the index only tracks
+            # position/count, not full herd identity, so resolve the one
+            # live grazer herd at that exact tile.
+            for herd in self.herds.values():
+                if herd.species is Species.GRAZER and herd.count > 0 and (herd.x, herd.y) == pos:
+                    return herd
+            return None
         best: AnimalHerd | None = None
         best_dist: int | None = None
         for herd in self.herds.values():
@@ -253,6 +288,8 @@ class WildlifeGrid:
             return 0
         killed = min(amount, herd.count)
         herd.count -= killed
+        if self._native_index is not None and herd.species is Species.GRAZER:
+            self._native_index.update(herd.id, herd.x, herd.y, herd.count)
         return killed
 
     # --- tick ------------------------------------------------------------------
@@ -362,6 +399,7 @@ class WildlifeGrid:
         if rng.random() < recolonize_chance:
             events += self._maybe_recolonize(rng, terrain)
 
+        self._refresh_native_index()
         return events
 
     def _maybe_recolonize(self, rng: random.Random, terrain: list[list[Tile]]) -> list[tuple[str, str]]:

@@ -291,18 +291,97 @@ population scales. `WildlifeGrid.nearest_grazer_herd` remains the next
 same-shape (radius-bounded, so fixed-cost) candidate if porting
 continues.
 
-`population.py`/`engine.py`/`buildings.py` themselves (the
-orchestration layer — cross-references dozens of other modules, mutates
-shared `World`/`Settlement` state, drives the LLM job scheduling) are
-NOT good near-term candidates for a mechanical translation the way a
-self-contained numeric loop is; porting those meaningfully means
+**Module 5 shipped (v0.72.4 follow-up): `WildlifeGrid.nearest_grazer_herd`.**
+`GrazerHerdIndex` (`cpp/src/wildlife_index.cpp`) — same live-patch shape
+as `ResourceIndex`: herd positions only change in `WildlifeGrid.tick()`
+(always before `Population.tick()`, see world/state.py's ordering), but
+`hunt()` can zero a herd's count mid-`Population.tick()`, so the index
+is rebuilt once at the end of `WildlifeGrid.tick()` and live-patched via
+`hunt()`. **A real bug was caught during verification, not just
+confirmed absent**: the first implementation stored herds in an
+`unordered_map`, whose iteration order doesn't match Python dict
+insertion order — invisible for a unique-nearest query, but a
+tied-Manhattan-distance query could silently resolve to a *different*
+(still valid, but not identical) herd than the Python path. Caught by a
+20,000-query randomized check (238/20000 mismatches, all tied-distance
+cases), fixed by switching to an insertion-order `vector` + an
+id→index map for `update()`. Re-verified at 0/20000 mismatches
+afterward, plus 0/5000 on a separate live-patch-ordering check, plus the
+standard cumulative-event-hash soak. Recorded because the earlier
+ported indexes (`ResourceIndex`, `TerrainMaterialIndex`) don't have this
+failure mode — they're keyed by *position* and iterate a fixed spatial
+loop, so container iteration order never leaks into tie-break behavior;
+`GrazerHerdIndex`/`AgentPositionIndex` iterate object identity directly,
+so it does. **Any future index port must ask this question explicitly.**
+
+## R6: full engine-core rewrite (started v0.72.4, explicit user directive)
+
+Distinct from R5's incremental hot-loop track above. Explicit user
+instruction, after the R5 module-5 batch: port the *orchestration*
+layer itself into C++, not just self-contained lookups — "port all
+remaining code to C++... then do a full engine rewrite as well." This
+directly contradicts the R5-era framing immediately below (still true
+on its own narrow terms, kept for the historical record) that
+`population.py`/`engine.py`/`buildings.py` are not good mechanical-
+translation candidates. Flagged to the user before starting (per this
+project's standing "conflict flagged, not silently resolved" rule) —
+the user chose to proceed, explicitly scoping it: **SQLite persistence,
+asyncio LLM job scheduling, and the FastAPI web layer stay Python**;
+only the deterministic tick-time simulation logic moves.
+
+*Historical framing being superseded, kept for context:* "porting
+`population.py`/`engine.py`/`buildings.py` meaningfully means
 redesigning around C++ ownership semantics for what's currently
-Python's reference/GC model, which is a redesign, not a port, and needs
-its own dedicated-session scoping the way R1 (mixin split) does. Revisit
-R1 alongside this — a mixin split first would actually make the
-boundaries between "orchestration" and "hot numeric loop" clearer for
-extraction. **Do not treat "R1/R2/R4 done" as license to consider this
-item small** — it is explicitly the largest deferred item in this file.
+Python's reference/GC model, which is a redesign, not a port." Still
+true — R6 is explicitly that redesign, undertaken deliberately rather
+than avoided. The mitigation isn't "it's not a redesign," it's the same
+discipline every native module here has used since v0.72.0: byte-
+identical fallback + hash-soak proof per increment, so a redesign
+proceeds without the project's missing test suite meaning "no way to
+tell if it broke something."
+
+**Scoping principle:** port pure, deterministic, no-I/O computation —
+math and branching over already-resolved primitive/boolean inputs —
+leaving every place that touches a Python object graph (`Agent`,
+`Settlement`, `Building` dataclasses), SQLite, asyncio tasks, or the
+LLM client in Python. This mirrors module 6 below exactly: object-shaped
+resolution (which building an agent stands on, whether it's a standing
+hospital) stays Python; only the arithmetic that follows crosses into
+C++. A function belongs in R6 only if it can be expressed as "given
+these scalars, compute these scalars" with no side effects on shared
+state beyond its own return value.
+
+**Module 6 shipped (v0.72.4): `Population._update_needs`.** The first
+R6 module — unlike every R5 module (goal-gated: only fires for an agent
+pursuing a specific goal), this runs unconditionally for *every* agent,
+*every* tick, so it's the real per-tick cost floor, not just a
+worst-case bound. `update_needs` (`cpp/src/needs.cpp`) takes the
+already-resolved shelter/hospital/elder booleans plus the agent's
+current hunger/energy/resting state and every tunable constant (via a
+`NeedsConstants` struct, one instance built once per `Population.tick()`
+— constants don't change mid-tick) and returns the updated hunger/
+energy/resting triple; Python writes the result back onto the `Agent`
+dataclass. Constants are passed as parameters rather than duplicated as
+C++ literals — they're currently spread across `agents/agent.py`,
+`agents/population.py`, and `settlement/buildings.py` with no single
+home, and a second hardcoded copy risks silent drift on a future retune
+that only updates the Python side. Verified via 50,000 randomized
+input combinations against a reference Python port of the exact same
+branching (0 mismatches to 1e-9) plus the cumulative-event-hash soak
+across three seeds.
+
+**Queued next for R6**, roughly in order of how self-contained they are
+(least Python-object entanglement first): `Population._maybe_predator_
+attack`'s pure-math tail (kill-chance computation, once the predator/
+hospital/temperament/resilience inputs are resolved in Python, same
+shape as module 6); `FarmGrid`/`FarmPlot` growth-tick math (`world/
+farms.py`, not yet inspected in detail — likely close to module 6's
+shape); building decay/repair progress math (`settlement/buildings.py`)
+once the "which building, which stage" resolution is separated from the
+"how much did its condition change" arithmetic. Each gets its own
+module number, its own byte-identical-fallback function, and its own
+verification pass — R6 does not get a discount on that discipline just
+because the target scope is bigger.
 
 ## One-line summary for CLAUDE.md / CHANGELOG
 

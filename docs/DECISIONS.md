@@ -6685,3 +6685,102 @@ pure noise, not a controlled variable. Dropping the reload calls and
 just patching the module attribute directly reproduced byte-identical
 results consistently across repeated runs. Recorded here so this
 harness mistake doesn't get rediscovered the hard way next time.
+
+## v0.72.5: native port modules 5-6, full engine-core rewrite started (R6)
+
+**Conflict flagged, not silently resolved.** User instruction: "port
+all remaining code to C++." This is in direct tension with a standing
+finding in this same file (v0.63.0 audit): a full C/C++ port was
+evaluated and declined, on the grounds that the tick loop is nowhere
+near CPU-bound (~1-2ms against a 1000ms budget — the real cost is LLM
+wall-clock time) and a full rewrite has no automated-test-suite net to
+prove equivalence. Flagged this explicitly before starting, via
+`AskUserQuestion`, offering three scope options: keep going
+incrementally only; attempt a full engine-core rewrite (tick loop, LLM
+job scheduling, persistence orchestration) with no test suite as
+equivalence proof; or also replace the Python-ecosystem-integrated
+layers (SQLite, asyncio, FastAPI) with C++ equivalents. User chose the
+middle option, explicitly scoping out the third: "Let's go
+incrementally first and then do a full engine rewrite as well. Need
+not rewrite the python libraries like SQLite in c++." This is recorded
+as the standing scope for the new R6 track (docs/REFACTOR-2026-07.md):
+SQLite persistence, asyncio LLM job scheduling, and the FastAPI web
+layer stay Python; only the deterministic tick-time simulation logic
+(math and branching over already-resolved primitives, no Python-object-
+graph or I/O touching) moves to C++, one verified module at a time,
+same discipline as every native-port module since v0.72.0.
+
+**Module 5: `WildlifeGrid.nearest_grazer_herd` → `GrazerHerdIndex`.**
+Same live-patch shape as `ResourceIndex`: herd positions are stable
+during `Population.tick()` (only `WildlifeGrid.tick()`'s migration step
+moves them, and that always runs first — see world/state.py's
+`World.tick` ordering), but `hunt()` can zero a herd's count
+mid-`Population.tick()`, so the index needs the same rebuild-once-plus-
+live-patch shape `ResourceIndex` uses for depletion. **A real bug,
+caught by the verification harness rather than assumed absent**: the
+first implementation kept herds in a `std::unordered_map`, and
+`nearest_grazer_herd`'s Python original resolves *tied*-Manhattan-
+distance queries by dict iteration (insertion) order — an
+`unordered_map`'s iteration order doesn't preserve insertion order, so
+a tied query could silently return a different (equally close, but not
+identical) herd than the Python path. This is invisible for a unique-
+nearest query, so it wasn't caught by casual testing — it took the
+20,000-randomized-query check to surface it (238/20,000 mismatches, all
+tied-distance cases). Root cause understood, fixed by switching to an
+insertion-order `std::vector<...>` plus a separate `id -> index`
+`unordered_map` used only by `update()` (which patches the vector
+entry in place, preserving order across live-patches). Re-verified at
+0/20,000 mismatches, plus a separate 0/5,000 check specifically
+exercising interleaved `update()` calls (simulating hunts) before
+querying. **Standing lesson for any future index port:** ask explicitly
+whether the underlying pure-Python function's tie-break behavior
+depends on container iteration order. `ResourceIndex`/
+`TerrainMaterialIndex` don't have this failure mode — both are keyed by
+*position* and iterate a fixed spatial (dy, dx) loop matching the
+Python original's own loop order, so the *container's* internal
+iteration order never leaks into the result. `GrazerHerdIndex` (and
+`AgentPositionIndex`, module 4) instead iterate object identity
+directly — a list of herds/agents, not a spatial grid — so their
+underlying container's order IS the tie-break order, and choosing an
+order-scrambling container is a real correctness bug, not just a
+missed optimization.
+
+**Module 6: `Population._update_needs` → `update_needs` (first R6
+module).** The scoping principle in practice: every object-shaped
+lookup (which building an agent stands on, whether it's STANDING,
+whether it's a HOSPITAL, the elder-age comparison) is resolved in
+Python exactly as before and passed into the native call as plain
+booleans/floats; the C++ function only does the arithmetic that follows
+— hunger/energy drain-and-recovery math, sickness/weather/crowding/
+night multipliers, the awake/resting state transition. This is a
+different shape from modules 1-5: those are goal-gated (only an agent
+pursuing a specific goal triggers the lookup), so their cost is bounded
+by however many agents have that goal active; `_update_needs` runs for
+every agent every tick unconditionally, so it's the actual per-tick
+cost floor rather than a worst-case bound — the real justification for
+calling this the start of a "full engine rewrite" track rather than
+just another lookup port. Every tunable constant (15 of them) is passed
+in via a `NeedsConstants` struct built once per `Population.tick()`
+(values never change mid-tick) rather than duplicated as C++ literals:
+`resource_grid.cpp`'s existing precedent (season-multiplier tables
+embedded directly in C++) was considered and declined for this module
+specifically because these particular constants are scattered across
+three files (`agents/agent.py`, `agents/population.py`, `settlement/
+buildings.py`) with no natural single owner, unlike a self-contained
+constants table — duplicating them risks a future retune updating only
+the Python side and silently diverging. Verified via 50,000 randomized
+input combinations against a hand-written reference Python port of the
+exact same branching (0 mismatches to floating-point tolerance 1e-9)
+plus the standard cumulative-event-hash engine soak across three
+different seeds, all six native modules on vs. off, byte-identical
+every time.
+
+**Queued next for R6** (docs/REFACTOR-2026-07.md has the full list):
+the pure-math tail of `Population._maybe_predator_attack`'s kill-chance
+computation, `FarmGrid`/`FarmPlot` growth-tick math, and building decay/
+repair progress math — each will get its own module number and the
+same verification discipline. This is explicitly an open-ended,
+multi-session effort, not a single-turn deliverable — R6 does not
+relax the "byte-identical fallback + hash-soak proof, every increment"
+rule just because the eventual scope (the orchestration layer) is
+larger than any single module ported so far.

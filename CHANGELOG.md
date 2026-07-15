@@ -4,6 +4,36 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.72.5] — Native port modules 5-6, full engine-core rewrite started (R6)
+
+Explicit user directive: port all remaining code to C++, then begin a
+full engine rewrite (SQLite persistence, asyncio LLM scheduling, and
+FastAPI stay Python — see docs/DECISIONS.md for the scope discussion
+and the conflict this raises with the project's earlier "full C++ port:
+evaluated, recommended against" finding).
+
+### Added
+- Native port module 5: `WildlifeGrid.nearest_grazer_herd` →
+  `GrazerHerdIndex` (`cpp/src/wildlife_index.cpp`). Live-patched by
+  `hunt()`, same shape as `ResourceIndex`. A real ordering bug was
+  caught during verification (unordered_map iteration order didn't
+  match Python dict insertion order, causing wrong tie-break resolution
+  on 238/20,000 randomized queries) and fixed with an insertion-order
+  vector — see docs/REFACTOR-2026-07.md for the full writeup.
+- Native port module 6 (first from the new R6 "full engine rewrite"
+  track): `Population._update_needs` → `update_needs`
+  (`cpp/src/needs.cpp`). Unlike modules 1-5 (goal-gated lookups), this
+  runs unconditionally for every agent every tick. Constants passed as
+  parameters (via a `NeedsConstants` struct) rather than duplicated as
+  C++ literals, since they're spread across three Python files with no
+  single home. Verified via 50,000 randomized input combinations (0
+  mismatches) plus the cumulative-event-hash soak across three seeds.
+- `docs/REFACTOR-2026-07.md` gained an "R6: full engine-core rewrite"
+  section scoping what's in bounds (pure deterministic math/branching
+  over already-resolved primitives) vs. out of bounds (anything
+  touching the Python object graph, SQLite, asyncio, or the LLM client)
+  and a queued-next list for future R6 modules.
+
 ## [0.72.4] — RAM correction (real ~6.5GB usable), run.sh simplified, native port module 4
 
 Follow-up to v0.72.3 based on a live `htop` reading: actual usable RAM

@@ -284,6 +284,34 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.72.5)
+
+Explicit user directive: "port all remaining code to C++" then "do a
+full engine rewrite as well." Flagged the conflict with the v0.63.0
+audit's "full C++ port: evaluated, recommended against" finding via
+`AskUserQuestion` before proceeding — user chose to continue the
+incremental track first, then start a full engine-core rewrite, with
+SQLite/asyncio/FastAPI explicitly staying Python. New standing track:
+**R6** (docs/REFACTOR-2026-07.md) — only pure, deterministic, no-I/O
+math/branching over already-resolved primitives moves to C++; anything
+touching the `Agent`/`Settlement`/`Building` object graph, SQLite,
+asyncio, or the LLM client stays Python. Same byte-identical-fallback +
+hash-soak discipline as every native module since v0.72.0, not relaxed
+for R6's larger eventual scope. **Module 5**: `WildlifeGrid.
+nearest_grazer_herd` → `GrazerHerdIndex` — caught and fixed a real bug
+during verification (an `unordered_map`'s iteration order doesn't match
+Python dict insertion order, so tied-distance queries could resolve to
+a different herd; switched to an insertion-order vector). **Module 6**
+(first R6 module): `Population._update_needs` → `update_needs` — the
+first ported function that runs unconditionally every tick for every
+agent, not goal-gated like modules 1-5. Both verified via randomized
+equivalence checks (20,000 and 50,000 respectively, 0 mismatches after
+the module-5 fix) plus the cumulative-event-hash soak across multiple
+seeds, all six native modules on vs. off, byte-identical. Queued next:
+`_maybe_predator_attack`'s kill-chance math, farm growth-tick math,
+building decay/repair math — R6 is explicitly open-ended and
+multi-session, not a single-turn deliverable.
+
 ## Current state (v0.72.4)
 
 Follow-up correction to v0.72.3, plus a fourth native module, three

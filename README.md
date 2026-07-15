@@ -114,15 +114,20 @@ Started in v0.72.0 as an incremental port of the engine's hottest
 per-tick loops into C++ (see `docs/DECISIONS.md`, "Native extension
 port"). **Optional and additive** — every ported function has a
 byte-identical pure-Python fallback in `hearthmind/`, so the simulation
-runs correctly with or without a compiler. Four modules ported so far:
+runs correctly with or without a compiler. Six modules ported so far:
 `world/resources.py`'s `ResourceGrid.tick` (regrowing foraged/mined/
 fished nodes), `agents/population.py`'s `_nearest_resource` (the
 bounded-box FOOD/FISH lookup for foraging), `_nearest_material_tile`
-(the same for GATHER-goal wood/stone), and `_nearest_other_agent` (the
-SOCIALIZE-goal lookup — uncapped by radius, so this one genuinely scales
-with population squared rather than map size, the highest-value port so
-far) — more hot loops move over incrementally, one provably-equivalent
-module at a time (see "Refactor status" below).
+(the same for GATHER-goal wood/stone), `_nearest_other_agent` (the
+SOCIALIZE-goal lookup — uncapped by radius, so it scales with population
+squared rather than map size), `world/wildlife.py`'s
+`nearest_grazer_herd`, and `_update_needs` (hunger/energy/aging math —
+the first module from the new **R6 "full engine rewrite"** track,
+started v0.72.5: unlike the others, this runs unconditionally every
+tick for every agent rather than only when a specific goal is active;
+see `docs/REFACTOR-2026-07.md`, "R6"). More hot loops and, as of R6,
+orchestration-layer math move over incrementally, one
+provably-equivalent module at a time (see "Refactor status" below).
 
 ```bash
 pip install pybind11              # build-time only, not a runtime dependency

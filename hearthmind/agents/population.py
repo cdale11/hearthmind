@@ -36,6 +36,19 @@ it's the highest-value remaining native-port candidate. `None` when
 the extension wasn't built — falls back to the equivalent pure-Python
 linear scan in that case."""
 
+try:
+    from hearthmind._native import NeedsConstants as _NativeNeedsConstants
+    from hearthmind._native import update_needs as _native_update_needs
+except ImportError:
+    _NativeNeedsConstants = None
+    _native_update_needs = None
+"""Optional compiled fast path for `_update_needs` (module 6, see
+cpp/src/needs.cpp, docs/DECISIONS.md "Native extension port" — the
+first module from the "full engine rewrite" track: this runs
+unconditionally for every agent every tick, unlike the goal-gated
+lookups in modules 1-5. `None` when the extension wasn't built — falls
+back to the equivalent pure-Python branching in that case."""
+
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
     DIALOGUE_SENTIMENT_DELTA,
@@ -947,6 +960,32 @@ class Population:
                 for row in terrain for tile in row
                 if tile.biome in MATERIAL_BIOMES
             ])
+        # Built once per tick (values never change mid-tick), shared by
+        # every agent's `_update_needs` call — module 6 of the native
+        # port, and the first from the "full engine rewrite" track: this
+        # runs unconditionally every tick for every agent, unlike the
+        # goal-gated lookups modules 1-5 ported. Passed as parameters
+        # rather than duplicated as C++ literals since these constants
+        # live in three different files with no single home — see
+        # cpp/src/needs.cpp.
+        needs_constants = None
+        if _NativeNeedsConstants is not None:
+            needs_constants = _NativeNeedsConstants()
+            needs_constants.hunger_rate = HUNGER_RATE
+            needs_constants.energy_drain_awake = ENERGY_DRAIN_AWAKE
+            needs_constants.sickness_hunger_mult = SICKNESS_HUNGER_RATE_MULTIPLIER
+            needs_constants.sickness_energy_mult = SICKNESS_ENERGY_DRAIN_MULTIPLIER
+            needs_constants.weather_hunger_mult = WEATHER_HARSH_HUNGER_MULTIPLIER
+            needs_constants.weather_energy_mult = WEATHER_HARSH_ENERGY_DRAIN_MULTIPLIER
+            needs_constants.crowding_energy_mult = CROWDING_ENERGY_MULTIPLIER
+            needs_constants.night_energy_extra = NIGHT_ENERGY_DRAIN_EXTRA
+            needs_constants.rest_threshold = REST_THRESHOLD
+            needs_constants.night_rest_threshold_boost = NIGHT_REST_THRESHOLD_BOOST
+            needs_constants.energy_recovery_resting = ENERGY_RECOVERY_RESTING
+            needs_constants.night_rest_recovery_bonus = NIGHT_REST_RECOVERY_BONUS
+            needs_constants.elder_recovery_mult = ELDER_RECOVERY_MULTIPLIER
+            needs_constants.hospital_rest_recovery_mult = HOSPITAL_REST_RECOVERY_MULTIPLIER
+            needs_constants.wake_threshold = WAKE_THRESHOLD
         farm_positions = self.ready_farm_positions(farms)
         granary_positions_by_id = {s.id: self.stocked_granary_positions(s) for s in settlements}
         work_positions_by_id = {
@@ -958,7 +997,9 @@ class Population:
         for agent in self.agents:
             home = home_of(agent)
             agent.age_ticks += 1
-            self._update_needs(agent, weather_harsh, settlements, night_factor, crowded_by_id[home.id])
+            self._update_needs(
+                agent, weather_harsh, settlements, night_factor, crowded_by_id[home.id], needs_constants,
+            )
             critically_hungry = agent.hunger >= CRITICAL_HUNGER_THRESHOLD
             if critically_hungry:
                 # A hunger emergency deserves the LLM's actual reasoning
@@ -1071,7 +1112,7 @@ class Population:
     @staticmethod
     def _update_needs(
         agent: Agent, weather_harsh: bool = False, settlements: list[Settlement] | None = None,
-        night_factor: float = 0.0, crowded: bool = False,
+        night_factor: float = 0.0, crowded: bool = False, needs_constants: "object | None" = None,
     ) -> None:
         # Shelter/care are physical: standing inside ANY settlement's
         # building counts, whoever owns it — a traveler sheltering in
@@ -1082,6 +1123,28 @@ class Population:
                 building = stl.at(agent.x, agent.y)
                 if building is not None:
                     break
+        standing = building is not None and building.stage is BuildingStage.STANDING
+
+        if needs_constants is not None:
+            # Native fast path (module 6, cpp/src/needs.cpp): every
+            # object-shaped lookup (which building, whether it's a
+            # standing hospital, elder-age comparison) is resolved here
+            # in Python first — the native function only does the
+            # arithmetic on the already-resolved scalars/booleans.
+            result = _native_update_needs(
+                needs_constants,
+                agent.hunger, agent.energy, agent.state is AgentState.RESTING,
+                agent.sick_ticks > 0, weather_harsh,
+                SHELTER_NEGATES_WEATHER and standing,
+                crowded, night_factor,
+                agent.age_ticks >= agent.max_age_ticks * ELDER_AGE_FRACTION,
+                standing and building.kind is BuildingKind.HOSPITAL,
+            )
+            agent.hunger = result.hunger
+            agent.energy = result.energy
+            agent.state = AgentState.RESTING if result.resting else AgentState.AWAKE
+            return
+
         hunger_rate = HUNGER_RATE
         energy_drain = ENERGY_DRAIN_AWAKE
         if agent.sick_ticks > 0:
@@ -1098,10 +1161,7 @@ class Population:
             # (working indoors). See SHELTER_NEGATES_WEATHER,
             # docs/DECISIONS.md, scarcity pass + review-implementation
             # follow-up.
-            sheltered = (
-                SHELTER_NEGATES_WEATHER
-                and building is not None and building.stage is BuildingStage.STANDING
-            )
+            sheltered = SHELTER_NEGATES_WEATHER and standing
             if not sheltered:
                 hunger_rate *= WEATHER_HARSH_HUNGER_MULTIPLIER
                 energy_drain *= WEATHER_HARSH_ENERGY_DRAIN_MULTIPLIER
@@ -1122,10 +1182,7 @@ class Population:
                 # Age-graded frailty: elders recover slower — see
                 # ELDER_RECOVERY_MULTIPLIER in agents/agent.py.
                 recovery *= ELDER_RECOVERY_MULTIPLIER
-            if (
-                building is not None and building.kind is BuildingKind.HOSPITAL
-                and building.stage is BuildingStage.STANDING
-            ):
+            if standing and building.kind is BuildingKind.HOSPITAL:
                 # Care exists: resting at a standing hospital recovers
                 # energy faster. See HOSPITAL_REST_RECOVERY_MULTIPLIER,
                 # docs/DECISIONS.md, "LLM-as-brain batch."

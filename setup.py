@@ -25,6 +25,8 @@ try:
                 "cpp/src/resource_grid.cpp",
                 "cpp/src/terrain_index.cpp",
                 "cpp/src/agent_position_index.cpp",
+                "cpp/src/wildlife_index.cpp",
+                "cpp/src/needs.cpp",
             ]),
             cxx_std=17,
         )
