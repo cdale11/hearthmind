@@ -103,6 +103,18 @@ class World:
     seeded since world creation — the same "make emergence visible in
     diagnostics" rationale as llm_calls_total, for a system (E2) that has
     no other cumulative counter. See docs/DECISIONS.md, E2/UI pass."""
+    sim_summary_text: str = ""
+    sim_summary_tick: int = -1
+    sim_summary_pending: bool = False
+    """On-demand LLM-authored simulation summary (the "summarize the
+    sim, whenever asked" tab): `sim_summary_text` holds the most recent
+    result, `sim_summary_tick` the tick it was generated on (-1 = never
+    generated), `sim_summary_pending` true from the moment a
+    `request_summary` intervention is applied until its `_schedule_
+    llm_job` callback resolves — the UI polls `/summary` and shows a
+    "generating..." state in between. Persisted (unlike last_life_events)
+    so a page refresh or resumed world still shows the last summary
+    rather than reading empty."""
     last_calendar_events: list[str] = field(default_factory=list)
     last_life_events: list[tuple[str, str]] = field(default_factory=list, compare=False)
     """(category, description) pairs from this tick's births/deaths, for the
@@ -375,6 +387,11 @@ class World:
                 "dialogue_total": self.dialogue_total,
                 "rumor_total": self.rumor_total,
             },
+            "sim_summary": {
+                "text": self.sim_summary_text,
+                "tick": self.sim_summary_tick,
+                "pending": self.sim_summary_pending,
+            },
         }
 
     # --- (de)serialization --------------------------------------------------
@@ -411,6 +428,12 @@ class World:
             "llm_fallback_total": self.llm_fallback_total,
             "dialogue_total": self.dialogue_total,
             "rumor_total": self.rumor_total,
+            "sim_summary_text": self.sim_summary_text,
+            "sim_summary_tick": self.sim_summary_tick,
+            # sim_summary_pending is deliberately NOT persisted — a
+            # generation left in flight at shutdown never resolves after
+            # restart, so it must load back as False, not stuck "true"
+            # forever with no job to clear it.
         }
 
     @classmethod
@@ -535,5 +558,7 @@ class World:
             llm_fallback_total=data.get("llm_fallback_total", 0),
             dialogue_total=data.get("dialogue_total", 0),
             rumor_total=data.get("rumor_total", 0),
+            sim_summary_text=data.get("sim_summary_text", ""),
+            sim_summary_tick=data.get("sim_summary_tick", -1),
             migrated_subsystems=migrated_subsystems,
         )

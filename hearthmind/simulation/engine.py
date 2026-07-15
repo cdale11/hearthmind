@@ -44,7 +44,7 @@ from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
     fission, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, festival, founding,
-    geography, invention, naming, omens, town_brain,
+    geography, invention, naming, omens, summary, town_brain,
 )
 from hearthmind.llm.client import build_llm_client
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
@@ -382,7 +382,7 @@ class SimulationEngine:
         lets `_apply_pending_cognition_results` drop results that went
         stale in a saturated queue (STALE_GOAL_RESULT_TICKS)."""
         self._inflight_cognition_agent_ids: set[int] = set()
-        self._pending_dialogue_results: list[tuple[int, int, int, dict]] = []
+        self._pending_dialogue_results: list[tuple[int, int, int, dict, bool]] = []
         """(scheduled_tick, agent_a_id, agent_b_id, parsed) — same
         staleness convention as `_pending_goal_results`."""
         self._background_tasks: set[asyncio.Task] = set()
@@ -866,7 +866,7 @@ class SimulationEngine:
         if not self._pending_dialogue_results:
             return
         now = self.world.clock.tick_count
-        for scheduled_tick, agent_a_id, agent_b_id, parsed in self._pending_dialogue_results:
+        for scheduled_tick, agent_a_id, agent_b_id, parsed, is_llm in self._pending_dialogue_results:
             if now - scheduled_tick > STALE_DIALOGUE_RESULT_TICKS:
                 continue  # see STALE_DIALOGUE_RESULT_TICKS
             applied = self.world.population.apply_dialogue(
@@ -879,16 +879,22 @@ class SimulationEngine:
             # "Record all conversations internally [...] surface
             # conversations that changed beliefs, relationships or future
             # events" (Observatory UI direction, CLAUDE.md): every
-            # exchange is still logged (so /events and the dev console see
-            # the full transcript), but only a `surfaced` one — a rumor,
-            # or crossing into a close bond/rivalry — uses the distinct
-            # `dialogue_surfaced` category the main UI's event feed keys
-            # off of; routine background chatter stays under the quieter
-            # `dialogue` category. See docs/DECISIONS.md.
-            category = "dialogue_surfaced" if surfaced else "dialogue"
-            self._log(
-                category, f'{agent_a.name}: "{parsed["line_a"]}" — {agent_b.name}: "{parsed["line_b"]}"',
-            )
+            # exchange still applies its relationship/trust/gossip effects
+            # (`apply_dialogue` above, unconditional), but only a genuine
+            # LLM-authored core-cast exchange (`is_llm`) reaches the event
+            # log at all — the crowd's deterministic fallback chatter is
+            # real and mechanically consequential, it's just not narration
+            # worth surfacing in /events or /history (explicit user
+            # direction). Among LLM exchanges, only a `surfaced` one — a
+            # rumor, or crossing into a close bond/rivalry — uses the
+            # distinct `dialogue_surfaced` category the main UI's event
+            # feed keys off of; the rest stay under the quieter `dialogue`
+            # category. See docs/DECISIONS.md.
+            if is_llm:
+                category = "dialogue_surfaced" if surfaced else "dialogue"
+                self._log(
+                    category, f'{agent_a.name}: "{parsed["line_a"]}" — {agent_b.name}: "{parsed["line_b"]}"',
+                )
             self.world.dialogue_total += 1
             if parsed["rumor"]:
                 self._log("rumor", f"{agent_a.name} and {agent_b.name}: {parsed['rumor']}")
@@ -966,6 +972,8 @@ class SimulationEngine:
                 self.world.settlement.player_influence.append(text)
                 self.world.settlement.player_influence = self.world.settlement.player_influence[-3:]
                 self._log("intervention", f"A whisper reached the village's ear: \"{text}\"")
+        elif kind == "request_summary":
+            self._schedule_summary()
 
     def _schedule_due_dialogue(self) -> None:
         """Route this tick's due dialogue pairs (v0.70.0). `due_for_
@@ -1037,7 +1045,7 @@ class SimulationEngine:
         fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
         parsed = dialogue.parse_dialogue(fallback, fallback)
         self._pending_dialogue_results.append(
-            (self.world.clock.tick_count, agent_a.id, agent_b.id, parsed)
+            (self.world.clock.tick_count, agent_a.id, agent_b.id, parsed, False)
         )
 
     async def _run_dialogue(self, agent_a_id: int, agent_b_id: int, prompt: str, fallback: dict) -> None:
@@ -1046,7 +1054,14 @@ class SimulationEngine:
             prompt, dialogue.SYSTEM_PROMPT, fallback=lambda: fallback
         )
         parsed = dialogue.parse_dialogue(result, fallback)
-        self._pending_dialogue_results.append((scheduled_tick, agent_a_id, agent_b_id, parsed))
+        # is_llm=not used_fallback: only a genuine core-cast Ollama reply
+        # is treated as LLM-authored for event-feed purposes (below) — a
+        # core pair that degraded to its fallback text inside the
+        # CognitionRunner (timeout/error, not backpressure/budget, which
+        # never reach here at all) reads the same as a crowd exchange.
+        self._pending_dialogue_results.append(
+            (scheduled_tick, agent_a_id, agent_b_id, parsed, not used_fallback)
+        )
         self._record_llm_debug("dialogue", prompt, result, used_fallback)
         self._record_llm_call(used_fallback)
 
@@ -1121,6 +1136,41 @@ class SimulationEngine:
             self._log("documentary", documentary.parse_narration(result, fallback))
 
         self._schedule_llm_job("documentary", prompt, documentary.SYSTEM_PROMPT, fallback, apply)
+
+    # --- on-demand simulation summary (user-triggered, not cadence-gated) ------
+
+    def _schedule_summary(self) -> None:
+        """Applied the tick after `POST /summary/request` enqueues a
+        `request_summary` intervention (same enqueue-now/apply-next-tick
+        seam as every other intervention). Deliberately NOT gated by
+        `_settlement_job_backpressured()` — that gate exists to smooth
+        out the *coincident* monthly cluster of several jobs firing on
+        the same boundary tick; a single user-triggered request is not
+        part of that cluster, and silently dropping it would leave the
+        UI's "generating..." spinner waiting for a job that was never
+        scheduled. The daily LLM ceiling (`_schedule_llm_job`'s own
+        `_consume_llm_budget` check) still applies — a spent budget
+        degrades this to the deterministic fallback like any other job,
+        it just never vanishes outright."""
+        settlement = self._job_target()
+        recent = recent_events(self.conn, limit=PROMPT_RECENT_EVENTS)
+        population_summary = self.world.population.summary()
+        settlement_summary = settlement.summary()
+        year = self.world.clock.year
+        prompt = summary.build_prompt(
+            settlement.name, settlement.era, year, recent,
+            population_summary, settlement_summary, settlement.current_priority,
+        )
+        fallback = summary.fallback_summary(settlement.name, year, recent, population_summary)
+        self.world.sim_summary_pending = True
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            self.world.sim_summary_text = summary.parse_summary(result, fallback)
+            self.world.sim_summary_tick = self.world.clock.tick_count
+            self.world.sim_summary_pending = False
+            self._log("sim_summary", self.world.sim_summary_text)
+
+        self._schedule_llm_job("sim_summary", prompt, summary.SYSTEM_PROMPT, fallback, apply)
 
     # --- Phase E: village culture (traditions) --------------------------------
 

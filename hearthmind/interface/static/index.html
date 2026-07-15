@@ -17,6 +17,7 @@
       <button id="sim-speed-up" title="Double simulation speed">+</button>
       <button id="sim-speed-reset" title="Reset to default speed">reset</button>
     </div>
+    <button id="summary-toggle" class="dev-toggle" title="LLM-generated summary of the simulation, on demand">🧭 summary</button>
     <button id="history-toggle" class="dev-toggle" title="Summarized town history">📜 history</button>
     <button id="timeline-toggle" class="dev-toggle" title="Scrub through past snapshots">🕰 timeline</button>
     <button id="relationship-toggle" class="dev-toggle" title="Interactive relationship graph">🕸 relationships</button>
@@ -68,6 +69,16 @@
           <button class="event-chip" data-group="mind">mind</button>
         </div>
         <ul id="event-log"></ul>
+      </div>
+
+      <div class="panel hidden" id="summary-panel">
+        <h2>Simulation summary</h2>
+        <div class="muted" style="font-size:11px; margin-bottom:6px;">
+          Ask the town's LLM brain to summarize where things stand right now — generated fresh each time, not a live feed.
+        </div>
+        <button id="summary-generate">Generate summary</button>
+        <span id="summary-status" class="muted"></span>
+        <p id="summary-text" class="muted">no summary generated yet</p>
       </div>
 
       <div class="panel hidden" id="history-panel">

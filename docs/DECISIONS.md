@@ -7161,3 +7161,96 @@ content to be worth porting), and the rest of `world/hydrology.py`
 remain the correctly-scoped remainder — each already individually
 assessed rather than assumed hard by association, see v0.72.13's entry
 for the underlying test.
+
+## v0.73.0: LLM-only conversation feed + on-demand simulation summary
+
+Two explicit user requests handled together with the native-port queue
+left where v0.72.14 left it (see CLAUDE.md "Current state (v0.73.0)"
+for the "full engine rewrite" framing — R6/R7 continue incrementally,
+not addressed as a single change here).
+
+**Event feed filtering.** The user asked that recent events/history
+show only core-NPC (LLM) conversations, not deterministic ones. The
+events table (`persistence/database.py`) has no per-row field
+distinguishing LLM-authored from fallback dialogue — that distinction
+only ever existed in *which code path* produced the result
+(`SimulationEngine._run_dialogue` vs. `_queue_fallback_dialogue`), and
+both funneled into the same `_pending_dialogue_results` queue with no
+marker once merged. Adding a DB column was rejected as overkill for a
+mechanic that's entirely resolved before logging — instead, `_pending_
+dialogue_results` tuples gained a fifth element, `is_llm`, set at the
+point of origin (`not used_fallback` from the real `_run_dialogue`
+call — this also naturally covers a core pair whose Ollama call itself
+timed out/errored inside `CognitionRunner`, which reads the same as a
+crowd exchange; `False` unconditionally from `_queue_fallback_
+dialogue`). `_apply_pending_dialogue_results` still applies every
+exchange's relationship/trust/gossip effects unconditionally (`apply_
+dialogue` doesn't know or care about `is_llm`) — only the `self._log`
+call that pushes the exchange into the narrative event table is now
+gated on `is_llm`. This preserves the mechanic's full richness (the
+crowd is still socially alive, fallback dialogue for backpressure/
+budget-demoted core pairs still happens) while trimming what a player
+actually sees as "conversations" in `/events`/`/history`/the main UI.
+Rumor events (`self._log("rumor", ...)`) were deliberately left
+unconditional — a rumor is downstream of a conversation and reads as
+its own emergent event, not raw transcript text, so hiding a rumor
+that originated from fallback dialogue would remove a real piece of
+history the player can currently see play out via belief/trust
+effects elsewhere.
+
+Verified via a 3000-tick, 3-seed engine run with `llm_enabled=False`
+(so every dialogue pair is necessarily fallback-resolved): confirmed
+zero `dialogue`/`dialogue_surfaced` rows land in the `events` table
+across all three seeds, while `World.dialogue_total` still climbed
+normally (136/186/162 across the three seeds) — proof the mechanic
+runs unaffected, only the log entry is suppressed.
+
+**On-demand simulation summary.** The user asked for a tab that
+provides an LLM-generated summary of the simulation whenever asked.
+Modeled closely on `documentary.py` (yearly narrated look-back) but
+triggered by the player instead of a calendar boundary: new `llm/
+summary.py` (`build_prompt`/`fallback_summary`/`parse_summary`, same
+three-function shape). Wiring reuses two existing seams rather than
+inventing new ones: `POST /summary/request` enqueues a
+`{"type": "request_summary"}` intervention through the same `Broadcaster.
+enqueue_intervention`/`drain_interventions` path every other `/intervene/*`
+endpoint uses (so it applies on the engine's next tick, never touching
+`World` off the tick thread), and the actual generation runs through
+the existing `_schedule_llm_job` helper every settlement-level LLM job
+already shares (daily call-budget gating, fallback-on-timeout, debug
+recording — all for free). The one deliberate deviation from the other
+settlement jobs: `_schedule_summary` is NOT gated by `_settlement_job_
+backpressured()`. That gate exists specifically to smooth out the
+*coincident* burst of several monthly jobs firing on the same calendar
+boundary tick (see the "bursts, not just leaks" standing lesson in
+CLAUDE.md) — a single user-clicked request isn't part of that cluster,
+and silently dropping it would leave the UI's "generating..." spinner
+waiting on a job that was never scheduled, with no way for the player
+to know why. The daily ceiling (`_consume_llm_budget`, inside `_schedule_
+llm_job` itself) still applies, so a spent budget degrades this to the
+deterministic fallback exactly like any other job — it just never
+vanishes outright.
+
+Result storage: three new `World` fields, `sim_summary_text`/
+`sim_summary_tick` (both persisted through `to_dict`/`from_dict`, same
+pattern as `dialogue_total`/`rumor_total`) and `sim_summary_pending`
+(deliberately NOT persisted — a generation left in-flight at shutdown
+has no job left to resolve it after restart, so it must load back
+`False`, not stuck `True` forever). `GET /summary` reads these off the
+existing broadcast payload (`world.summary()` already runs every tick
+for `/state`/the WebSocket feed; it gained a `sim_summary` key) rather
+than adding a second path into the engine — the same "don't touch the
+engine from a GET handler" discipline `/snapshots/{tick}` already
+follows. The result is also logged under a new `sim_summary` event
+category (icon 🧭, "mind" filter group, alongside chronicle/
+documentary/tradition/invention/belief/omen) so it's visible in the
+general event feed and dev console too, not just the dedicated tab.
+
+Verified via a direct `_apply_intervention({"type": "request_summary"})`
+call against a 500-tick world with `llm_enabled=False` (fallback
+summary generated, `sim_summary_pending` correctly True immediately
+after scheduling and False once the fire-and-forget task resolves a
+few ticks later, one `sim_summary` event row logged) and a `World.
+to_dict`/`from_dict` round-trip confirming `sim_summary_text`/`_tick`
+survive a save/load cycle while `sim_summary_pending` correctly resets
+to `False`.

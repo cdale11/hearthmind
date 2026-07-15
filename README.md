@@ -539,7 +539,9 @@ dashboard covering every system (population, relationships, economy,
 tech level, wildlife, roads, LLM/dialogue diagnostics), a human-readable
 event log (icons, color-coded by category), traditions, inventions,
 festivals, a relationship graph, an NPC "mind-first" inspector, a
-history tab, a scrub-through-time timeline, live pause/speed controls,
+history tab, an on-demand "🧭 summary" tab (`POST /summary/request`
+generates a fresh LLM-authored summary of where the simulation stands
+right now), a scrub-through-time timeline, live pause/speed controls,
 and a `⚙ dev` toggle exposing raw engine telemetry (tick timing,
 background task counts, connected clients, LLM latency) plus a
 "Full diagnostic report" button (`GET /diagnostics`) for debugging an

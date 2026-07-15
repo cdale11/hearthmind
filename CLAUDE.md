@@ -304,6 +304,35 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.73.0)
+
+Two explicit user directives, plus a note on the third ("full engine
+rewrite in C++") staying on the existing R6/R7 incremental track — see
+"Preserve absolutely" and the R6 scoping in docs/REFACTOR-2026-07.md;
+this version didn't add a new native module, R6/R7 continue from
+v0.72.14's queue next session. **(1) Event feed now LLM-conversation-
+only**: `/events`/`/history`/the main UI's Recent Events feed no longer
+show deterministic fallback dialogue — only genuine core-cast
+LLM-authored exchanges reach the narrative log (`SimulationEngine.
+_pending_dialogue_results` gained an `is_llm` flag; `_apply_pending_
+dialogue_results` only calls `_log` when it's true). The underlying
+mechanic (relationships/trust/gossip, `dialogue_total`) is unchanged
+and still runs for every pair — this only trims what reaches the
+narrative feed, not what's simulated. Rumor events stay unconditional.
+**(2) On-demand simulation summary tab**: new "🧭 summary" panel with a
+"Generate summary" button — `POST /summary/request` queues a
+`request_summary` intervention, applied via the existing settlement-
+job machinery (`SimulationEngine._schedule_summary`, new `llm/
+summary.py`). Deliberately NOT gated by `_settlement_job_backpressured`
+(that gate smooths the monthly-boundary job cluster; a single
+user-triggered request isn't part of it) but still subject to the
+daily LLM call ceiling like every other job. Result persists on
+`World.sim_summary_text`/`sim_summary_tick` (serialized across
+restarts); `sim_summary_pending` is deliberately NOT persisted so a
+generation in flight at shutdown loads back as done, not stuck. `GET
+/summary` reads off the existing broadcast payload rather than a new
+engine call. See CHANGELOG.md for verification detail.
+
 ## Current state (v0.72.14)
 
 `tick_wildfire`'s spread step (world/disasters.py) now reuses module

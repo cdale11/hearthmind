@@ -82,6 +82,7 @@ const CATEGORY_META = {
   predator_attack: { icon: "🐺" },
   chronicle: { icon: "📜" },
   documentary: { icon: "🎬" },
+  sim_summary: { icon: "🧭" },
   vehicle_started: { icon: "🛠️" },
   vehicle_completed: { icon: "🐎" },
   vehicle_broken: { icon: "⚠️" },
@@ -138,7 +139,7 @@ const EVENT_GROUP_OF = {
   disaster_storm: "nature", disaster_heatwave: "nature", disaster_frost: "nature",
   lake_rose: "nature", lake_receded: "nature", season_end: "nature", year_end: "nature",
   place_named: "nature",
-  chronicle: "mind", documentary: "mind", tradition: "mind", invention: "mind",
+  chronicle: "mind", documentary: "mind", sim_summary: "mind", tradition: "mind", invention: "mind",
   festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind",
   institution_belief: "mind",
 };
@@ -281,6 +282,65 @@ historyToggle.addEventListener("click", () => {
   historyPanel.classList.toggle("hidden");
   historyToggle.classList.toggle("active");
   if (!historyPanel.classList.contains("hidden")) loadHistory();
+});
+
+// --- on-demand LLM simulation summary --------------------------------------
+
+const summaryPanel = document.getElementById("summary-panel");
+const summaryToggle = document.getElementById("summary-toggle");
+const summaryGenerateBtn = document.getElementById("summary-generate");
+const summaryStatus = document.getElementById("summary-status");
+const summaryText = document.getElementById("summary-text");
+let summaryPollTimer = null;
+
+function renderSummary(data) {
+  if (data.pending) {
+    summaryStatus.textContent = "generating…";
+    summaryGenerateBtn.disabled = true;
+  } else {
+    summaryStatus.textContent = data.tick >= 0 ? `as of tick ${data.tick}` : "";
+    summaryGenerateBtn.disabled = false;
+  }
+  if (data.text) summaryText.textContent = data.text;
+}
+
+async function loadSummary() {
+  try {
+    renderSummary(await fetchJSON("/summary"));
+  } catch (e) {
+    summaryStatus.textContent = `failed to load: ${e.message}`;
+  }
+}
+
+function pollSummaryUntilDone() {
+  if (summaryPollTimer) clearInterval(summaryPollTimer);
+  summaryPollTimer = setInterval(async () => {
+    try {
+      const data = await fetchJSON("/summary");
+      renderSummary(data);
+      if (!data.pending) clearInterval(summaryPollTimer);
+    } catch (e) {
+      clearInterval(summaryPollTimer);
+    }
+  }, 2000);
+}
+
+summaryToggle.addEventListener("click", () => {
+  summaryPanel.classList.toggle("hidden");
+  summaryToggle.classList.toggle("active");
+  if (!summaryPanel.classList.contains("hidden")) loadSummary();
+});
+
+summaryGenerateBtn.addEventListener("click", async () => {
+  summaryGenerateBtn.disabled = true;
+  summaryStatus.textContent = "generating…";
+  try {
+    await fetch("/summary/request", { method: "POST" });
+    pollSummaryUntilDone();
+  } catch (e) {
+    summaryStatus.textContent = `failed: ${e.message}`;
+    summaryGenerateBtn.disabled = false;
+  }
 });
 
 // Observatory UI depth pass: a read-only scrub-through-time view over

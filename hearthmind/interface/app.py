@@ -234,6 +234,29 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
         broadcaster.enqueue_intervention({"type": "town_influence", "text": text})
         return JSONResponse({"queued": True})
 
+    @app.get("/summary")
+    async def summary() -> JSONResponse:
+        """The most recent on-demand LLM-authored simulation summary
+        (see `POST /summary/request`) — reads `World.sim_summary_*` off
+        the same broadcast payload `/state` already serializes (`world.
+        summary()`'s `sim_summary` key), so this never touches the
+        engine directly. `pending=True` while a requested generation is
+        in flight; the UI polls this until it clears."""
+        payload = broadcaster.get_state()
+        if payload is None:
+            return JSONResponse({"error": "no tick has completed yet"}, status_code=503)
+        return JSONResponse(payload.get("summary", {}).get("sim_summary", {"text": "", "tick": -1, "pending": False}))
+
+    @app.post("/summary/request")
+    async def request_summary() -> JSONResponse:
+        """Queue an on-demand LLM summary of the current simulation
+        state — applied the engine's next tick (same enqueue-now/apply-
+        next-tick seam as every other intervention), then generated
+        async like any other settlement-level LLM job. See
+        SimulationEngine._schedule_summary."""
+        broadcaster.enqueue_intervention({"type": "request_summary"})
+        return JSONResponse({"queued": True})
+
     @app.post("/intervene/sim-speed")
     async def intervene_sim_speed(payload: dict) -> JSONResponse:
         """Live pause/speed control — deliberately applied immediately

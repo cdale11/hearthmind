@@ -4,6 +4,43 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.73.0] — event feed filters to LLM conversations; on-demand summary tab
+
+### Added
+- Event log filtering: `/events` and `/history` (and the main UI's
+  Recent Events feed) now only show `dialogue`/`dialogue_surfaced`
+  entries for genuine core-cast LLM-authored exchanges — deterministic
+  fallback dialogue (the crowd, and any core pair that degraded to its
+  fallback under backpressure/budget) still runs its full mechanic
+  (relationships/trust/gossip effects, `dialogue_total`) but no longer
+  reaches the narrative event log. `SimulationEngine._pending_dialogue_
+  results` carries a new `is_llm` flag (`not used_fallback` from
+  `_run_dialogue`, `False` from `_queue_fallback_dialogue`) threaded
+  through to `_apply_pending_dialogue_results`, which now only calls
+  `_log` for `is_llm=True` exchanges. Rumor events stay unconditional
+  (an emergent consequence, not raw conversation text).
+- On-demand simulation summary: new "🧭 summary" tab — `POST /summary/
+  request` queues a `request_summary` intervention (same enqueue-now/
+  apply-next-tick seam as every other intervention), applied by
+  `SimulationEngine._schedule_summary` via the shared `_schedule_llm_
+  job` path (daily LLM ceiling still applies; deliberately NOT gated by
+  `_settlement_job_backpressured` since that gate exists to smooth the
+  monthly job cluster, not a single user-triggered request). New
+  `llm/summary.py` (`build_prompt`/`fallback_summary`/`parse_summary`,
+  same shape as `documentary.py`). Result persists on `World.
+  sim_summary_text`/`sim_summary_tick` (serialized; `sim_summary_
+  pending` deliberately not persisted — a generation left in flight at
+  shutdown must load back as `False`, not stuck). `GET /summary` reads
+  it off the existing broadcast payload (`world.summary()`'s new
+  `sim_summary` key) rather than touching the engine directly. Also
+  logged under a new `sim_summary` event category (icon 🧭, "mind"
+  filter group) so it reaches the main event feed and dev console too.
+- Verified via a 3000-tick, 3-seed `llm_enabled=False` soak (fallback
+  dialogue mechanic still runs, `dialogue`/`dialogue_surfaced` event
+  rows correctly absent) plus a direct `_apply_intervention({"type":
+  "request_summary"})` round-trip and a `World.to_dict`/`from_dict`
+  persistence round-trip for the new fields.
+
 ## [0.72.14] — tick_wildfire's spread roll now reuses module 15
 
 ### Added
