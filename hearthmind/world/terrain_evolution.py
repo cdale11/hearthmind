@@ -32,6 +32,18 @@ from hearthmind.util import clamp
 from hearthmind.world.terrain import BIOME_ORDER, Biome, Tile, classify_with_bias
 
 try:
+    from hearthmind._native import climate_drift_batch as _native_climate_drift_batch
+except ImportError:
+    _native_climate_drift_batch = None
+"""Optional compiled fast path for apply_climate_drift's biome-step
+mutation (module 16) — the first native module where a Biome enum
+value crosses the boundary, done as a plain int index into BIOME_ORDER
+(Python converts both ways) rather than exposing the enum itself. RNG
+draws (rng.randrange for tile sampling) stay in Python; this batch call
+only replaces the pure classify_with_bias + one-step-toward-target
+arithmetic for tiles Python has already filtered as eligible."""
+
+try:
     from hearthmind._native import bounded_random_walk_step as _native_bounded_random_walk_step
 except ImportError:
     _native_bounded_random_walk_step = None
@@ -266,7 +278,10 @@ def apply_climate_drift(
     if total == 0:
         return []
     sample_size = max(1, int(total * CLIMATE_DRIFT_SAMPLE_FRACTION))
-    changed = 0
+    # sample_size is fixed before the loop starts (doesn't depend on any
+    # in-loop outcome), so the rng.randrange draws stay a plain, safe
+    # Python pass regardless of which tiles end up eligible.
+    sampled: list[tuple[int, int]] = []
     for _ in range(sample_size):
         x, y = rng.randrange(width), rng.randrange(height)
         if _is_developed(x, y, settlements, farms, excluded):
@@ -274,15 +289,40 @@ def apply_climate_drift(
         tile = terrain[y][x]
         if _skip_climate_drift(tile):
             continue
-        target = classify_with_bias(tile.elevation, climate.warming, climate.drying)
-        if target is tile.biome:
-            continue
-        cur_idx = BIOME_ORDER.index(tile.biome)
-        tgt_idx = BIOME_ORDER.index(target)
-        step = 1 if tgt_idx > cur_idx else -1
-        new_biome = BIOME_ORDER[cur_idx + step]
-        terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=new_biome)
-        changed += 1
+        sampled.append((x, y))
+
+    changed = 0
+    if _native_climate_drift_batch is not None:
+        # Genuine same-pass dependency, caught by A/B verification (not
+        # assumed up front): `sampled` can contain the same (x, y) twice
+        # — rng.randrange draws with replacement, so a tile can be
+        # sampled more than once in one call. The pure-Python original
+        # mutates `terrain` in place as it goes, so a duplicate's second
+        # occurrence reads the tile's *already-stepped* biome from the
+        # first — one native call per sample (not one batched call over
+        # `sampled` as a whole) preserves that by always reading current
+        # terrain state each iteration. Still zero RNG in the native
+        # call itself; this is purely about read-your-own-writes order.
+        for (x, y) in sampled:
+            tile = terrain[y][x]
+            entry = [(tile.elevation, BIOME_ORDER.index(tile.biome))]
+            result = _native_climate_drift_batch(entry, climate.warming, climate.drying)[0]
+            if not result.changed:
+                continue
+            terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=BIOME_ORDER[result.new_biome_idx])
+            changed += 1
+    else:
+        for (x, y) in sampled:
+            tile = terrain[y][x]
+            target = classify_with_bias(tile.elevation, climate.warming, climate.drying)
+            if target is tile.biome:
+                continue
+            cur_idx = BIOME_ORDER.index(tile.biome)
+            tgt_idx = BIOME_ORDER.index(target)
+            step = 1 if tgt_idx > cur_idx else -1
+            new_biome = BIOME_ORDER[cur_idx + step]
+            terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=new_biome)
+            changed += 1
     if changed == 0:
         return []
     if climate.warming > CLIMATE_TREND_REPORT_THRESHOLD:

@@ -600,16 +600,150 @@ RNG stream since the first pass draws nothing. Verified via 300 direct
 mismatches) plus the cumulative-event-hash soak across five seeds at
 6000 ticks each, byte-identical.
 
-**Remaining queue, now correctly scoped after two individual traces**:
-`maybe_reclaim` (confirmed genuine same-pass dependency — a converted
-tile can be a later tile's forest-neighbor in the same pass);
-`apply_climate_drift`'s position sampling (fixed draw count, unlike
-the others, but the actual biome-step mutation needs `classify_with_
-bias`/`BIOME_ORDER` logic not yet exposed to C++ — a real but different
-kind of blocker than RNG ordering); `tick_flood` (single-event trigger
-+ a single candidate-index pick, not a batched sweep — too little
-batchable content to be worth a native module regardless of RNG
-shape); the rest of `world/hydrology.py` (not yet traced).
+**Module 16 shipped (v0.73.0): `apply_climate_drift`'s biome-step
+mutation — the first Biome enum crossing the native boundary, and a
+second same-pass-dependency catch inside a function whose RNG-draw
+count IS fixed.** `classify_with_bias`/`BIOME_ORDER`-index-stepping
+(`world/terrain.py`) moved to `cpp/src/climate_drift.cpp`
+(`classify_biome_index`, `climate_drift_batch`). Python enums can't
+cross pybind11 directly, so both sides speak plain `int` biome codes
+matching `BIOME_ORDER` position — Python converts `Biome -> int` via
+`BIOME_ORDER.index(...)` before the call and `int -> Biome` via
+`BIOME_ORDER[i]` after, the same "resolve enums/objects in Python,
+hand C++ only plain data" strategy every prior module already used
+(no precedent existed for the enum itself crossing, since e.g.
+`apply_local_activity`'s `Biome.FOREST` filtering happens entirely in
+Python before the native call). The sampling loop's RNG draws
+(`rng.randrange(width)`/`(height)`, fixed count = `sample_size`,
+known before the loop starts) and the `_is_developed`/
+`_skip_climate_drift` tile-eligibility filtering stay in Python, same
+split as every module.
+
+The randomized-equivalence check on the raw `classify_biome_index`/
+`climate_drift_batch` functions passed clean first try (50,000 inputs,
+0 mismatches) — but the first direct A/B run of the actual wrapper
+function (`apply_climate_drift`, 500 trials) found real mismatches,
+consistently off by exactly one changed-tile count per trial. Root
+cause: `rng.randrange` samples *with replacement* — the same `(x, y)`
+can be drawn twice in one `apply_climate_drift` call (`sample_size` is
+only ~3% of the map, but collisions are still expected via the
+birthday-paradox math over ~48 draws against a few thousand tiles).
+The pure-Python original mutates `terrain` in place as it goes, so a
+duplicate's second occurrence reads the tile's *already-stepped*
+biome from the first occurrence — a genuine same-pass dependency, the
+same disqualifying shape as `maybe_reclaim`, just triggered by
+duplicate sampling rather than neighbor-count drift. The fix: call the
+native function once per sample (reading current `terrain` state each
+iteration) instead of batching every sample into one call up front —
+preserves read-your-own-writes order while still doing the per-tile
+arithmetic in C++; RNG draws were never affected either way. Re-run of
+the same 500-trial A/B suite after the fix: 0 mismatches. This is the
+second time in this queue a same-pass dependency wasn't visible from
+reading the code alone and only surfaced once the actual wrapper
+function was A/B tested against synthetic state — reinforces that step
+2 of the verification methodology (direct wrapper A/B, not just the
+raw-function randomized check) is load-bearing, not redundant with
+step 1. Verified via 50,000 randomized inputs against the raw
+functions (0 mismatches), 500 direct `apply_climate_drift()` A/B runs
+on synthetic terrain (0 mismatches after the fix), and the
+cumulative-event-hash engine soak across four seeds at 6000 ticks
+each, all sixteen native modules on vs. off, byte-identical.
+
+**Remaining queue**: `maybe_reclaim` (confirmed genuine same-pass
+dependency — a converted tile can be a later tile's forest-neighbor in
+the same pass); `tick_flood` (single-event trigger + a single
+candidate-index pick, not a batched sweep — too little batchable
+content to be worth a native module regardless of RNG shape); the
+rest of `world/hydrology.py` (not yet traced). With module 16 closing
+out `apply_climate_drift`, the "R7 incremental port" track's queue is
+down to items each already individually assessed as either genuinely
+hard (`maybe_reclaim`) or not worth it regardless of hardness
+(`tick_flood`) — `world/hydrology.py`'s remainder is the only
+still-untraced item.
+
+## R8: full engine-core rewrite — scoping pass (v0.73.0)
+
+Explicit user directive to pursue "a full engine rewrite... in C++,"
+distinct from R6 (opportunistic pure-math ports) and R7 (new
+cellular-automata code C++-first). This section scopes what that would
+actually mean, deliberately BEFORE any code moves, per this project's
+standing discipline of designing a change before executing an
+open-ended one (same posture as the v0.72.0 flag-before-proceeding for
+the original C++/llama.cpp pivot).
+
+**What "full engine rewrite" could mean, three readings, from
+narrowest to broadest:**
+
+1. **Finish the R6 opportunistic-port queue to completion** — every
+remaining pure-math/no-I/O function gets ported (the `maybe_reclaim`/
+`tick_flood`/hydrology remainder above), including functions that
+need a genuine same-pass-dependency-safe design (a callback-into-
+Python-RNG pattern, or restructuring the algorithm itself to remove
+the dependency). This is a continuation of exactly what's been
+happening since v0.72.0 — no new architectural category, just closing
+out what's left. Lowest risk, most consistent with "sixteen provably-
+equivalent increments, not a rewrite."
+
+2. **Port the object graph itself** (`Agent`, `Settlement`, `Building`,
+`Population`, terrain grid) into C++ classes that Python holds
+handles to, with the orchestration logic (`population.py`/
+`engine.py`/`buildings.py`) becoming thin Python wrappers calling into
+compiled tick methods. This is what "engine rewrite" most naturally
+means as English, and is a different kind of change from every module
+shipped so far: modules 1-16 all took a *pure function* operating on
+already-resolved primitives and ported the function in isolation,
+verified against the *existing* Python object graph as ground truth.
+Porting the object graph itself removes that ground truth — there's
+no longer an "existing Python version" to A/B against for the ported
+classes themselves, only for the tick-level behavior they produce.
+This is the R5 scoping document's own explicit boundary ("`population.
+py`/`engine.py`/`buildings.py` are explicitly NOT ported and are not
+simple mechanical translations") — reading 2 crosses exactly that
+boundary. Substantially higher risk given no automated test suite;
+would need a much heavier verification harness (full snapshot-state
+diffing across thousands of ticks, not just the event-hash soak) built
+*before* the first class moves, not after.
+
+3. **Rewrite everything except SQLite/asyncio/FastAPI** (the standing
+"stays Python" carve-out from v0.72.5) — the most literal reading of
+"full engine rewrite," effectively reading 2 plus the LLM-adjacent
+orchestration (`_schedule_llm_job`, the tick-job dispatch table,
+`CognitionRunner`) reimplemented in C++ with Python only as a thin
+FastAPI/SQLite shell calling into a compiled engine core. This is a
+different program from Hearthmind-as-it-exists — the "plain-Python
+hackability the whole workflow depends on" (v0.63.0's stated reason
+the original full-port was recommended against) would be gone for the
+entire simulation core, leaving only the web/persistence edges
+hackable in Python. Given "Determinism/reproducibility is NOT a
+requirement" and the CLAUDE.md-stated LLM/deterministic split must
+stay exactly as documented, this reading doesn't unlock anything the
+simulation's design priorities (emergence, believable causality,
+persistent identity) actually need — it's a pure engineering
+undertaking with no design-priority payoff of its own.
+
+**Recommendation, not yet executed pending user confirmation**:
+reading 1 continues under R6/R7 exactly as before (no new decision
+needed — it's already in flight). Reading 2 is the one worth actually
+committing to as "the full engine rewrite" if that's what's meant: it
+delivers real value (a compiled object graph means the ~0.9-2ms/tick
+measured cost, already far under budget, gets meaningfully lower,
+which matters if population/map-size ever scale up materially) without
+discarding the LLM-orchestration layer's Python hackability, which is
+where nearly all of Hearthmind's actual design work happens session to
+session. Reading 3 is not recommended — it trades away the exact
+quality (fast, safe, incremental Python iteration on emergence/belief/
+dialogue systems) this project's entire development history has
+depended on, for a category of engineering payoff (further tick-time
+headroom) the project doesn't currently need and has no measured
+demand for. If the user confirms reading 2, the next session should
+open with a design pass BEFORE any porting: which class(es) first
+(`Tile`/terrain grid is the least entangled — no cross-references to
+other mutable objects, unlike `Agent`, which touches `Population`,
+`Settlement`, and belief/relationship state directly), what the
+snapshot-diffing verification harness looks like before the first
+line of the port, and how `to_dict`/`from_dict` persistence continues
+to work when the live object is a C++-backed handle rather than a
+Python dataclass.
 
 ## One-line summary for CLAUDE.md / CHANGELOG
 

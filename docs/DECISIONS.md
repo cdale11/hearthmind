@@ -7254,3 +7254,91 @@ few ticks later, one `sim_summary` event row logged) and a `World.
 to_dict`/`from_dict` round-trip confirming `sim_summary_text`/`_tick`
 survive a save/load cycle while `sim_summary_pending` correctly resets
 to `False`.
+
+## v0.73.1: climate_drift native port (module 16) + R8 scoping pass
+
+**Native port.** Closes the item flagged at the end of v0.72.14:
+`apply_climate_drift`'s biome-step mutation needed `classify_with_
+bias`/`BIOME_ORDER` (world/terrain.py) exposed to C++, which no prior
+module had done because `Biome` is a Python `str, Enum` and pybind11
+can't pass an enum across the boundary directly. Resolved the same way
+this codebase always resolves enum/object friction at the native
+boundary — convert on the Python side, hand C++ only plain data —
+except this is the first case where the *thing being converted* is the
+enum itself rather than an object attribute filtered away before the
+call (contrast `TerrainMaterialIndex`, which only ever sees `(x, y)`
+pairs because the `tile.biome in MATERIAL_BIOMES` check already
+happened in Python). Both `classify_biome_index` (mirrors `classify_
+with_bias`) and `climate_drift_batch` (the one-step-toward-target
+arithmetic) take/return a plain `int` index into `BIOME_ORDER`;
+Python does `BIOME_ORDER.index(tile.biome)` going in and `BIOME_
+ORDER[i]` coming out.
+
+The raw-function randomized-equivalence check (50,000 inputs across
+both `classify_biome_index` and `climate_drift_batch`) passed clean on
+the first attempt — the arithmetic itself was never the risky part.
+The direct A/B run of the actual `apply_climate_drift` wrapper
+function (500 trials on synthetic 40x40 terrain) is what caught a real
+bug: a consistent off-by-one in the reported `changed` tile count
+every time the two paths disagreed, with the underlying terrain
+biomes matching in every case. Root cause: `apply_climate_drift`
+samples `sample_size` positions via `rng.randrange(width)`/`(height)`
+*with replacement* — nothing dedupes the draws — so across ~48 draws
+against a map with a few thousand eligible tiles, a repeat `(x, y)`
+draw within the same call is common (birthday-paradox math, not rare).
+The pure-Python original processes samples strictly in order and
+mutates `terrain` in place as it goes, so a duplicate's second
+occurrence naturally reads the tile's *already-stepped* biome from the
+first occurrence and can step it again. The first implementation
+attempt collected every sampled tile's `(elevation, cur_biome_idx)`
+from pre-loop state and handed the whole batch to `climate_drift_
+batch` in one call — correct for `classify_biome_index`/`climate_
+drift_batch` themselves, but wrong for the *sequence*, since it
+computed every entry from the original unstepped biome regardless of
+an earlier duplicate in the same batch. This is the same disqualifying
+shape as `maybe_reclaim` (a later candidate's outcome depends on an
+earlier candidate's outcome within the same pass) — the twist is that
+`apply_climate_drift`'s RNG-draw *count* is fixed (unlike `maybe_
+reclaim`'s), so the earlier "fixed draw count = safe to pre-draw and
+batch" heuristic from v0.72.11 wasn't sufficient on its own here; a
+fixed draw count only guarantees the RNG stream is safe to pre-draw,
+not that the *tiles being drawn* are dependency-free once duplicates
+enter the picture. Fix: call `climate_drift_batch` once per sample
+(single-entry list) inside the Python loop, always reading `terrain`'s
+current state for that iteration — this restores read-your-own-writes
+order exactly like the pure-Python original while still doing the
+per-tile arithmetic in C++. Re-ran the same 500-trial A/B suite after
+the fix: 0 mismatches. This is the second time in the native-port
+queue a same-pass dependency wasn't visible from reading the code
+alone (the first was the original `maybe_reclaim` finding) and only
+surfaced via the direct wrapper-function A/B step — confirms that step
+of the three-layer verification methodology is catching real bugs the
+raw-function randomized check structurally cannot, and should never be
+skipped as "redundant" for a module that touches any kind of stateful
+sampling loop. Verified via 50,000 randomized inputs (raw functions),
+500 direct `apply_climate_drift()` A/B runs (0 mismatches post-fix),
+and the cumulative-event-hash engine soak across four seeds at 6000
+ticks each, all sixteen native modules on vs. off, byte-identical.
+
+**R8 scoping.** The user's standing "full engine rewrite... in C++"
+directive (first raised alongside the C++-port directive that became
+R5/R6, reaffirmed this session) is broad enough to mean several
+different things in practice, and this project's own workflow rules
+say to design an open-ended/risky change before executing it — doubly
+true with no automated test suite as a safety net. Rather than guess
+which reading and start moving code, docs/REFACTOR-2026-07.md's new
+"R8" section lays out three readings (finish the existing R6/R7
+opportunistic queue; port the object graph — `Agent`/`Settlement`/
+`Population`/terrain — into C++ classes behind Python handles;
+rewrite everything except the standing SQLite/asyncio/FastAPI
+carve-out) with an explicit recommendation (reading 2, if the user
+wants to commit to "full engine rewrite" as a real category beyond
+finishing the existing queue) and an explicit non-recommendation
+(reading 3 — trades away the plain-Python hackability the LLM/
+emergence-design side of this project's entire session-to-session
+workflow depends on, for tick-time headroom the project has no
+measured need for; the same tension the original v0.63.0 audit and
+v0.72.0's pre-port flag both already identified). No object-graph code
+has moved — this is a scoping document only, matching the same
+"flag before proceeding on an open-ended full-port directive" posture
+v0.72.0 took for the original C++/llama.cpp pivot.

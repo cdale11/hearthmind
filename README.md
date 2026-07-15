@@ -114,7 +114,7 @@ Started in v0.72.0 as an incremental port of the engine's hottest
 per-tick loops into C++ (see `docs/DECISIONS.md`, "Native extension
 port"). **Optional and additive** — every ported function has a
 byte-identical pure-Python fallback in `hearthmind/`, so the simulation
-runs correctly with or without a compiler. Fifteen modules ported so far:
+runs correctly with or without a compiler. Sixteen modules ported so far:
 `world/resources.py`'s `ResourceGrid.tick` (regrowing foraged/mined/
 fished nodes), `agents/population.py`'s `_nearest_resource` (the
 bounded-box FOOD/FISH lookup for foraging), `_nearest_material_tile`
@@ -137,10 +137,13 @@ shared `bounded_random_walk_step` used by five separate monthly-nudge
 functions across `settlement/buildings.py`, `world/terrain_
 evolution.py`, and `world/hydrology.py`, `world/disasters.py`'s
 `_wilt_farms` (heatwave/frost) and `tick_storm`'s flat-damage sweep,
-and `apply_local_activity`'s/`tick_wildfire`'s roll batches (the latter
-two share the same underlying native function). More hot loops and
-physical-substrate modules move over incrementally, one
-provably-equivalent module at a time (see "Refactor status" below).
+`apply_local_activity`'s/`tick_wildfire`'s roll batches (the latter
+two share the same underlying native function), and `world/terrain_
+evolution.py`'s `apply_climate_drift` biome-step mutation (the first
+module where a `Biome` enum value crosses the native boundary, as a
+plain `int` index into `BIOME_ORDER` converted on the Python side).
+More hot loops and physical-substrate modules move over incrementally,
+one provably-equivalent module at a time (see "Refactor status" below).
 
 ```bash
 pip install pybind11              # build-time only, not a runtime dependency

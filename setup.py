@@ -35,6 +35,7 @@ try:
                 "cpp/src/wilt_farms.cpp",
                 "cpp/src/flat_damage.cpp",
                 "cpp/src/roll_batch.cpp",
+                "cpp/src/climate_drift.cpp",
             ]),
             cxx_std=17,
         )

@@ -4,6 +4,37 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.73.1] — climate_drift native port (module 16); R8 full-rewrite scoping
+
+### Added
+- Native port module 16: `apply_climate_drift`'s biome-step mutation
+  (world/terrain_evolution.py) → `classify_biome_index`/`climate_drift_
+  batch` (`cpp/src/climate_drift.cpp`) — the first module where a
+  `Biome` enum value crosses the pybind11 boundary, expressed as a
+  plain `int` index into `BIOME_ORDER` on both sides (Python converts
+  both ways; no precedent existed for the enum itself crossing).
+  Direct A/B verification of the wrapper function (not just the raw
+  functions) caught a genuine same-pass dependency the raw-function
+  check missed: `rng.randrange` samples tiles with replacement, so a
+  duplicate `(x, y)` draw's second occurrence must read the first
+  occurrence's already-stepped biome — fixed by calling the native
+  function once per sample (reading current terrain state each
+  iteration) rather than batching every sample into one call. Verified
+  via 50,000 randomized inputs against the raw functions, 500 direct
+  `apply_climate_drift()` A/B runs (0 mismatches after the fix), and
+  the cumulative-event-hash engine soak across four seeds at 6000
+  ticks each, all sixteen native modules on vs. off, byte-identical.
+  See docs/DECISIONS.md for the full root-cause writeup.
+- R8 scoping (docs/REFACTOR-2026-07.md): a design-first pass on the
+  "full engine rewrite" directive, laying out three readings from
+  narrowest (finish the R6/R7 opportunistic-port queue — already in
+  flight) to broadest (rewrite everything but SQLite/asyncio/FastAPI).
+  No object-graph porting has started — recommends confirming scope
+  with the user before committing to it, given the lack of an
+  automated test suite and the real risk profile of porting `Agent`/
+  `Settlement`/`Population` themselves versus porting isolated pure
+  functions as every module so far has done.
+
 ## [0.73.0] — event feed filters to LLM conversations; on-demand summary tab
 
 ### Added

@@ -304,6 +304,38 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.73.1)
+
+Two items, both direct follow-ups to explicit user directives from
+v0.73.0. **Native port module 16**: `apply_climate_drift`'s biome-step
+mutation (world/terrain_evolution.py) → `cpp/src/climate_drift.cpp` —
+unblocks the item v0.72.14 had flagged as needing `classify_with_bias`/
+`BIOME_ORDER` exposed to C++. First module where a `Biome` enum value
+crosses the pybind11 boundary (as a plain `int` `BIOME_ORDER` index,
+converted both ways in Python — no precedent existed for the enum
+itself crossing). Caught a real same-pass-dependency bug during
+verification: `rng.randrange` sampling is with-replacement, so a
+duplicate tile draw's second occurrence must see the first's
+already-stepped biome — fixed by calling native per-sample (reading
+live terrain state each time) instead of batching all samples into one
+call. Verified via 50,000 randomized inputs, 500 direct wrapper-
+function A/B runs (0 mismatches post-fix), and the cumulative-event-
+hash soak across four seeds at 6000 ticks, all sixteen native modules
+on vs. off, byte-identical. Remaining R7 queue: `maybe_reclaim`
+(genuine same-pass dependency, not portable this way), `tick_flood`
+(too little batchable content), rest of `world/hydrology.py` (untraced).
+**R8 scoping**: the "full engine rewrite" directive got a design-first
+pass (docs/REFACTOR-2026-07.md, "R8") rather than code — three readings
+laid out (finish the opportunistic R6/R7 queue; port the object graph
+itself — `Agent`/`Settlement`/`Population`/terrain grid — behind
+Python handles; rewrite everything but SQLite/asyncio/FastAPI). No
+object-graph porting has started pending user confirmation of scope —
+every module shipped so far ports an isolated pure function verified
+against the existing Python object graph as ground truth, which is a
+categorically different (and much lower-risk) kind of change than
+porting the object graph itself, especially with no automated test
+suite as a safety net.
+
 ## Current state (v0.73.0)
 
 Two explicit user directives, plus a note on the third ("full engine
