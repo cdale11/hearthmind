@@ -304,6 +304,27 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.72.10)
+
+Native port module 12: a shared `bounded_random_walk_step`
+(`cpp/src/bounded_random_walk.cpp`) — noticed while porting `world/
+terrain_evolution.py`'s `tick_climate` and `world/hydrology.py`'s
+`tick_lakes` level nudge that both share an identical `value =
+clamp(value*mean_reversion + jitter [+ extra], -1, 1)` shape with three
+existing functions in `settlement/buildings.py`
+(`tick_temperament`/`tick_player_standing`/`tick_relation`). Ported once,
+wired into all five call sites, rather than writing near-duplicate
+functions — same instinct as `util.py`'s `clamp`/`namespaced_rng` dedup
+(v0.69.0). RNG draws stay in Python at every call site. Verified via
+30,000 randomized inputs against the pure function, direct multi-call
+sequences at each of the five call sites, and the cumulative-event-hash
+soak across four seeds at 6000 ticks (long enough to span several
+months, since these are all monthly-cadence functions), all twelve
+native modules on vs. off, byte-identical. Note:
+`tick_temperament`/`tick_player_standing`/`tick_relation` are Phase G/
+institution mechanics, not physical substrate — R6 rather than R7 — but
+the shared function serves both tracks.
+
 ## Current state (v0.72.9)
 
 Native port module 11: `compute_weather`'s blend/threshold math →

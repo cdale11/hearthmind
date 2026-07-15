@@ -114,7 +114,7 @@ Started in v0.72.0 as an incremental port of the engine's hottest
 per-tick loops into C++ (see `docs/DECISIONS.md`, "Native extension
 port"). **Optional and additive** — every ported function has a
 byte-identical pure-Python fallback in `hearthmind/`, so the simulation
-runs correctly with or without a compiler. Eleven modules ported so far:
+runs correctly with or without a compiler. Twelve modules ported so far:
 `world/resources.py`'s `ResourceGrid.tick` (regrowing foraged/mined/
 fished nodes), `agents/population.py`'s `_nearest_resource` (the
 bounded-box FOOD/FISH lookup for foraging), `_nearest_material_tile`
@@ -131,9 +131,12 @@ code in the agriculture/ecology/weather/disasters/terrain-evolution
 domain is now written in C++ from the start rather than ported later —
 see `docs/REFACTOR-2026-07.md`, "R6" and "R7"), `settlement/
 buildings.py`'s building decay/ruin/reclaim and vehicle decay passes,
-and `world/weather.py`'s `compute_weather` blend/threshold math (RNG
-draws stay in Python; only the deterministic arithmetic moved). More
-hot loops and physical-substrate modules move over incrementally, one
+`world/weather.py`'s `compute_weather` blend/threshold math (RNG
+draws stay in Python; only the deterministic arithmetic moved), and a
+shared `bounded_random_walk_step` used by five separate monthly-nudge
+functions across `settlement/buildings.py`, `world/terrain_
+evolution.py`, and `world/hydrology.py`. More hot loops and
+physical-substrate modules move over incrementally, one
 provably-equivalent module at a time (see "Refactor status" below).
 
 ```bash

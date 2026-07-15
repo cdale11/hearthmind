@@ -31,6 +31,7 @@ try:
                 "cpp/src/farm_grid.cpp",
                 "cpp/src/settlement_decay.cpp",
                 "cpp/src/weather.cpp",
+                "cpp/src/bounded_random_walk.cpp",
             ]),
             cxx_std=17,
         )

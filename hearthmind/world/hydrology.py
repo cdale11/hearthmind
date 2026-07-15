@@ -31,6 +31,16 @@ from dataclasses import dataclass, field
 from hearthmind.util import clamp
 from hearthmind.world.terrain import Biome, Tile
 
+try:
+    from hearthmind._native import bounded_random_walk_step as _native_bounded_random_walk_step
+except ImportError:
+    _native_bounded_random_walk_step = None
+"""Optional compiled fast path for the lake-level bounded-random-walk
+step (module 12, see cpp/src/bounded_random_walk.cpp, docs/DECISIONS.md
+"Native extension port"). Shared with world/terrain_evolution.py's
+tick_climate and settlement/buildings.py's tick_temperament/tick_
+player_standing/tick_relation. The RNG draw stays in Python."""
+
 RIVER_SOURCE_TILES_PER_1000 = 1.2
 """How many river sources to carve per 1000 map tiles — scales river
 count with map size instead of a fixed count."""
@@ -188,10 +198,16 @@ def tick_lakes(
     width = len(terrain[0]) if height else 0
     events: list[tuple[str, str]] = []
     for lake in lakes:
-        lake.level = clamp((
-            lake.level * LAKE_MEAN_REVERSION + rng.uniform(-LAKE_STEP_MAX, LAKE_STEP_MAX)
-            - drying * LAKE_DRYING_WEIGHT * LAKE_STEP_MAX
-        ), -1.0, 1.0)
+        level_jitter = rng.uniform(-LAKE_STEP_MAX, LAKE_STEP_MAX)
+        extra = -drying * LAKE_DRYING_WEIGHT * LAKE_STEP_MAX
+        if _native_bounded_random_walk_step is not None:
+            lake.level = _native_bounded_random_walk_step(
+                lake.level, LAKE_MEAN_REVERSION, level_jitter, extra, -1.0, 1.0,
+            )
+        else:
+            lake.level = clamp((
+                lake.level * LAKE_MEAN_REVERSION + level_jitter + extra
+            ), -1.0, 1.0)
         if lake.level >= LAKE_GROW_THRESHOLD:
             neighbors: set[tuple[int, int]] = set()
             for (x, y) in lake.tiles:

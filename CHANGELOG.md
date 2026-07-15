@@ -4,6 +4,26 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.72.10] — Native port module 12: shared bounded-random-walk step
+
+### Added
+- Native port module 12: the bounded-random-walk step shared by
+  `Settlement.tick_temperament`/`tick_player_standing`/`tick_relation`
+  (settlement/buildings.py) and `tick_climate`/the lake-level nudge
+  inside `tick_lakes` (world/terrain_evolution.py, world/hydrology.py)
+  → `bounded_random_walk_step` (`cpp/src/bounded_random_walk.cpp`). All
+  five call sites shared the identical `value*mean_reversion + jitter
+  [+ extra], clamped to [-1, 1]` shape, so this is one native function
+  reused five times rather than five near-identical ports — same
+  dedup principle as `util.py`'s existing `clamp`/`namespaced_rng`
+  helpers. RNG draws stay in Python at every call site. Verified via
+  30,000 randomized inputs against the pure function (0 mismatches),
+  direct multi-call sequences for each of the five call sites (0
+  mismatches), and the cumulative-event-hash engine soak across four
+  seeds at 6000 ticks each (long enough to span several months, so the
+  monthly-cadence call sites actually fire), all twelve native modules
+  on vs. off, byte-identical.
+
 ## [0.72.9] — Native port module 11: weather blend/threshold math
 
 ### Added

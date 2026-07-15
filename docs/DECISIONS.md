@@ -6935,3 +6935,38 @@ each tick's output depend on the previous tick's — a single off-by-
 epsilon bug in the native path could compound over thousands of ticks
 in a way a single-call equivalence check (1) wouldn't catch, so this
 sequence check is the one that actually stresses accumulated drift.
+
+## v0.72.10: native port module 12 — shared bounded-random-walk step
+
+While looking for the next R7 candidate in `world/terrain_evolution.py`
+(`tick_climate`) and `world/hydrology.py` (`tick_lakes`'s level nudge),
+noticed both share an identical shape with three existing R6-era
+functions in `settlement/buildings.py`
+(`tick_temperament`/`tick_player_standing`/`tick_relation`): `value =
+clamp(value * mean_reversion + jitter [+ an extra additive term], -1,
+1)`. Rather than port `tick_climate`'s and `tick_lakes`'s copies in
+isolation, wrote one shared `bounded_random_walk_step`
+(cpp/src/bounded_random_walk.cpp) and wired it into all five call
+sites — the same deduplication instinct that produced `util.py`'s
+`clamp`/`namespaced_rng` helpers in v0.69.0, just crossing into C++
+this time. `tick_temperament`/`tick_player_standing`/`tick_relation`
+are Phase G's literal deterministic implementation (temperament/player-
+standing) and cross-settlement institution state (relation) — not
+physical substrate, so strictly R6 rather than R7 — but the function
+itself is domain-agnostic pure arithmetic, and porting it once instead
+of writing three near-identical R6 copies plus two R7 copies was the
+obviously better call. Every call site keeps its own RNG draw in
+Python, matching every prior module's "RNG stays in Python" rule.
+
+Verified in layers given the fan-out: (1) 30,000 randomized inputs
+directly against the pure function's Python reference, 0 mismatches;
+(2) for each of the five call sites, a native-vs-Python multi-call
+sequence (50-200 successive calls, matching the "value depends on the
+previous call's result" shape these functions all have) comparing
+final state, 0 mismatches in all five; (3) the standard cumulative-
+event-hash engine soak across four seeds, this time at 6000 ticks
+(longer than the 4000-5000 used for modules 8-11) specifically so the
+monthly-cadence call sites (temperament/player_standing/relation/
+climate/lakes all tick once per sim-month) actually fire multiple
+times within the soak rather than sitting untested at tick 0. All
+twelve native modules on vs. off, byte-identical.

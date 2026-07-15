@@ -502,9 +502,33 @@ single-call equivalence check alone wouldn't catch compounding drift),
 and the cumulative-event-hash engine soak across four seeds, all eleven
 native modules on vs. off, byte-identical.
 
-**Queued next for R7/R6** (now explicitly framed as "the CA engine's
-remaining Python surface"): `world/terrain_evolution.py`'s weekly/
-monthly rules; `world/disasters.py`; `world/hydrology.py`.
+**Module 12 shipped (v0.72.10): shared `bounded_random_walk_step`.**
+While scoping `tick_climate` (world/terrain_evolution.py) and the
+lake-level nudge inside `tick_lakes` (world/hydrology.py), noticed both
+share the exact `value = clamp(value*mean_reversion + jitter [+ extra],
+-1, 1)` shape already used by three R6-era functions in `settlement/
+buildings.py` (`tick_temperament`/`tick_player_standing`/
+`tick_relation`). Ported once (`cpp/src/bounded_random_walk.cpp`),
+wired into all five call sites instead of writing near-duplicate
+functions — same dedup instinct as `util.py`'s `clamp`/`namespaced_rng`
+(v0.69.0), just crossing into C++. `tick_temperament`/`tick_player_
+standing`/`tick_relation` are Phase G/institution mechanics, not
+physical substrate, so strictly R6 rather than R7 — noted for scope
+accuracy, not re-litigated; the function itself is domain-agnostic.
+Every call site keeps its own RNG draw in Python. Verified via 30,000
+randomized inputs against the pure function, direct multi-call
+sequences at each of the five call sites, and the cumulative-event-hash
+soak across four seeds at 6000 ticks (long enough to span several
+months so the monthly-cadence call sites actually fire), all twelve
+native modules on vs. off, byte-identical.
+
+**Queued next for R7/R6** (the rest of "the CA engine's remaining
+Python surface" — `tick_climate`'s and `tick_lakes`'s own per-tile
+logic, beyond the level-nudge math just ported, remains unported):
+`world/terrain_evolution.py`'s `apply_local_activity`/`maybe_reclaim`
+(data-dependent RNG-in-loop shape — harder to port under the
+"RNG stays Python" rule than modules 1-12, needs its own design pass);
+`world/disasters.py`; the rest of `world/hydrology.py`.
 
 ## One-line summary for CLAUDE.md / CHANGELOG
 

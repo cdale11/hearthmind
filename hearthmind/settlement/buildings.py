@@ -26,9 +26,11 @@ from hearthmind.world.weather import WeatherState
 try:
     from hearthmind._native import building_decay_tick as _native_building_decay_tick
     from hearthmind._native import vehicle_decay_tick as _native_vehicle_decay_tick
+    from hearthmind._native import bounded_random_walk_step as _native_bounded_random_walk_step
 except ImportError:
     _native_building_decay_tick = None
     _native_vehicle_decay_tick = None
+    _native_bounded_random_walk_step = None
 """Optional compiled fast path for Settlement.tick's building/vehicle
 decay-ruin-reclaim passes (modules 9-10, see cpp/src/settlement_decay.
 cpp, docs/DECISIONS.md "Native extension port"). `None` when the
@@ -861,7 +863,10 @@ def tick_temperament(temperament: float, recent_events: list[dict], rng, intensi
     good = sum(1 for e in recent_events if e.get("category") in _GOOD_FORTUNE_CATEGORIES)
     ill = sum(1 for e in recent_events if e.get("category") in _ILL_FORTUNE_CATEGORIES)
     fortune = (good - ill) / (good + ill) if (good + ill) else 0.0
-    step = (rng.uniform(-TEMPERAMENT_STEP_MAX, TEMPERAMENT_STEP_MAX) + fortune * TEMPERAMENT_FORTUNE_WEIGHT) * intensity
+    jitter = rng.uniform(-TEMPERAMENT_STEP_MAX, TEMPERAMENT_STEP_MAX)
+    step = (jitter + fortune * TEMPERAMENT_FORTUNE_WEIGHT) * intensity
+    if _native_bounded_random_walk_step is not None:
+        return _native_bounded_random_walk_step(temperament, TEMPERAMENT_MEAN_REVERSION, step, 0.0, -1.0, 1.0)
     return clamp(temperament * TEMPERAMENT_MEAN_REVERSION + step, -1.0, 1.0)
 
 # --- player standing: a discrete "how does the village feel about being --
@@ -897,7 +902,10 @@ def tick_player_standing(standing: float, recent_events: list[dict], rng, intens
     touches = min(PLAYER_STANDING_MAX_EVENTS_COUNTED, sum(
         1 for e in recent_events if e.get("category") == "intervention"
     ))
-    step = (rng.uniform(-TEMPERAMENT_STEP_MAX, TEMPERAMENT_STEP_MAX) + touches * PLAYER_STANDING_STEP_PER_INTERVENTION) * intensity
+    jitter = rng.uniform(-TEMPERAMENT_STEP_MAX, TEMPERAMENT_STEP_MAX)
+    step = (jitter + touches * PLAYER_STANDING_STEP_PER_INTERVENTION) * intensity
+    if _native_bounded_random_walk_step is not None:
+        return _native_bounded_random_walk_step(standing, PLAYER_STANDING_MEAN_REVERSION, step, 0.0, -1.0, 1.0)
     return clamp(standing * PLAYER_STANDING_MEAN_REVERSION + step, -1.0, 1.0)
 
 # --- cross-settlement relations: a settlement's own read of its sister ----
@@ -943,6 +951,8 @@ def tick_relation(value: float, rng, intensity: float = 1.0) -> float:
     `intensity` is `Config.phase_g_intensity`, same convention as
     `tick_temperament`/`tick_player_standing` — 0.0 holds it flat."""
     step = rng.uniform(-RELATION_STEP_MAX, RELATION_STEP_MAX) * intensity
+    if _native_bounded_random_walk_step is not None:
+        return _native_bounded_random_walk_step(value, RELATION_MEAN_REVERSION, step, 0.0, -1.0, 1.0)
     return clamp(value * RELATION_MEAN_REVERSION + step, -1.0, 1.0)
 
 

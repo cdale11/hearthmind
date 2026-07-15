@@ -31,6 +31,18 @@ from dataclasses import dataclass
 from hearthmind.util import clamp
 from hearthmind.world.terrain import BIOME_ORDER, Biome, Tile, classify_with_bias
 
+try:
+    from hearthmind._native import bounded_random_walk_step as _native_bounded_random_walk_step
+except ImportError:
+    _native_bounded_random_walk_step = None
+"""Optional compiled fast path for the bounded-random-walk step (module
+12, see cpp/src/bounded_random_walk.cpp, docs/DECISIONS.md "Native
+extension port"). Shared with settlement/buildings.py's tick_temperament/
+tick_player_standing/tick_relation and world/hydrology.py's tick_lakes.
+The RNG draw producing the jitter stays in Python. `None` when the
+extension wasn't built — falls back to the equivalent pure-Python
+arithmetic."""
+
 DEFOREST_HEAT_GAIN = 0.01
 """Activity heat added to a forest tile per tick a GATHER-goal agent is
 present on it."""
@@ -93,11 +105,21 @@ class ClimateState:
 
 def tick_climate(climate: ClimateState, rng: random.Random) -> None:
     """Nudge the climate bias one month's worth. Mutates in place."""
+    warming_jitter = rng.uniform(-CLIMATE_STEP_MAX, CLIMATE_STEP_MAX)
+    drying_jitter = rng.uniform(-CLIMATE_STEP_MAX, CLIMATE_STEP_MAX)
+    if _native_bounded_random_walk_step is not None:
+        climate.warming = _native_bounded_random_walk_step(
+            climate.warming, CLIMATE_MEAN_REVERSION, warming_jitter, 0.0, -1.0, 1.0,
+        )
+        climate.drying = _native_bounded_random_walk_step(
+            climate.drying, CLIMATE_MEAN_REVERSION, drying_jitter, 0.0, -1.0, 1.0,
+        )
+        return
     climate.warming = clamp((
-        climate.warming * CLIMATE_MEAN_REVERSION + rng.uniform(-CLIMATE_STEP_MAX, CLIMATE_STEP_MAX)
+        climate.warming * CLIMATE_MEAN_REVERSION + warming_jitter
     ), -1.0, 1.0)
     climate.drying = clamp((
-        climate.drying * CLIMATE_MEAN_REVERSION + rng.uniform(-CLIMATE_STEP_MAX, CLIMATE_STEP_MAX)
+        climate.drying * CLIMATE_MEAN_REVERSION + drying_jitter
     ), -1.0, 1.0)
 
 
