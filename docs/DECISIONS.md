@@ -7011,3 +7011,50 @@ cumulative-event-hash engine soak across four seeds, all thirteen
 native modules on vs. off, byte-identical. `world/terrain_evolution.py`'s
 harder-shaped loops and the rest of `world/disasters.py`/`world/
 hydrology.py` remain queued, still needing their own design pass.
+
+## v0.72.12: native port module 14 — storm flat-damage sweep
+
+Checked `tick_flood`/`tick_wildfire`/`tick_storm` (world/disasters.py)
+for the same "fixed RNG draw count" shape module 13 exploited.
+`tick_flood` and `tick_wildfire` don't qualify — both roll a variable
+number of `rng.random()` calls depending on which candidate tiles pass
+earlier checks (flood candidate selection scans water-adjacent tiles
+matching a biome filter; wildfire spread rolls once per FOREST neighbor
+of each currently-burning tile, a count that changes as the fire
+grows), same "data-dependent draw count" problem terrain_evolution.py's
+functions have. `tick_storm` does qualify, in an even simpler way than
+`_wilt_farms`: it draws **at most one** `rng.random()` per call, and
+even that draw is conditional on a check (`weather.wind >=
+STORM_WIND_THRESHOLD`) the caller already has all the information to
+evaluate itself, before any loop runs — not a draw count that depends
+on iterating anything. Once Python has decided (via that single
+possible draw) whether a storm triggered, the remainder of the
+function — flat, unconditional damage to every standing building and
+every vehicle across every settlement — has no randomness left in it
+at all.
+
+`flat_damage_tick` (cpp/src/flat_damage.cpp) is about as simple as a
+native port gets: `max(0, condition - damage)` applied to a list, no
+branching. Worth documenting anyway because of what it *doesn't* do:
+unlike every decay pass ported so far (modules 9-10), it never
+transitions a building to RUINED or a vehicle to BROKEN even at zero
+condition — the pure-Python original genuinely doesn't do that either,
+so the native port had to resist the temptation to "complete" the
+mirroring by adding a stage transition that would make it consistent
+with `building_decay_tick`/`vehicle_decay_tick` but inconsistent with
+what `tick_storm` actually does. A native port's job is to mirror the
+source exactly, not to fix what might look like an oversight.
+
+Verified via 10,000 randomized inputs against the trivial reference
+(0 mismatches) plus the cumulative-event-hash engine soak across four
+seeds, all fourteen native modules on vs. off, byte-identical.
+`tick_flood`/`tick_wildfire` and the rest of `world/terrain_
+evolution.py`/`world/hydrology.py` remain the queue's genuinely-hard
+remainder — they need the "call back into Python's rng.random() from
+C++ at the exact point a draw is needed" pattern (viable, but adds
+real per-draw Python/C++ crossing overhead and its own risk surface)
+rather than the "pre-draw everything, then hand off" pattern every
+module since 11 has used successfully. Flagging this as a deliberate
+scope boundary, not an oversight: escalate to that pattern only with a
+measured need, per this project's own standing evaluation discipline
+(see the v0.63.0 full-port audit).

@@ -4,6 +4,21 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.72.12] — Native port module 14: storm flat-damage sweep
+
+### Added
+- Native port module 14: the flat-damage sweep inside `tick_storm`
+  (world/disasters.py) → `flat_damage_tick` (`cpp/src/flat_damage.cpp`).
+  The single storm-trigger roll (gated on wind threshold, short-
+  circuited so the RNG draw is itself conditional) stays in Python
+  exactly as before; once triggered, every standing building and every
+  vehicle (regardless of stage) across all settlements takes a flat,
+  unconditional `max(0, condition - damage)` hit with no further
+  randomness — the simplest possible per-cell local rule. Verified via
+  10,000 randomized inputs (0 mismatches) plus the cumulative-event-
+  hash engine soak across four seeds, all fourteen native modules on
+  vs. off, byte-identical.
+
 ## [0.72.11] — Native port module 13: farm-wilt disaster math
 
 ### Added

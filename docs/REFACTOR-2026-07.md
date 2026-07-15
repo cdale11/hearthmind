@@ -540,13 +540,38 @@ cloned `FarmGrid` instances sharing a seeded RNG (0 mismatches), and
 the cumulative-event-hash engine soak across four seeds, all thirteen
 native modules on vs. off, byte-identical.
 
-**Queued next for R7/R6** (the rest of "the CA engine's remaining
-Python surface" — the RNG-in-loop modules still need their own design
-pass; other `world/disasters.py` functions, e.g. `tick_flood`/
-`tick_wildfire`/`tick_storm`, haven't been individually checked yet for
-which shape they fit): `world/terrain_evolution.py`'s
-`apply_local_activity`/`maybe_reclaim`; the rest of `world/
-disasters.py`; the rest of `world/hydrology.py`.
+**Module 14 shipped (v0.72.12): `tick_storm`'s flat-damage sweep.**
+Checked `tick_flood`/`tick_wildfire`/`tick_storm` for module 13's "fixed
+RNG draw count" shape. `tick_flood`/`tick_wildfire` don't qualify —
+both roll a data-dependent number of draws (flood candidate-tile count,
+wildfire spread count per burning tile) that changes as the loop runs,
+same problem as terrain_evolution.py's functions. `tick_storm` does
+qualify, more simply than `_wilt_farms`: at most one RNG draw total,
+gated by a condition (`weather.wind >= threshold`) the caller already
+knows before any loop — not a per-iteration draw. `flat_damage_tick`
+(`cpp/src/flat_damage.cpp`) is the remainder once that single draw is
+resolved: unconditional `max(0, condition - damage)` across every
+building/vehicle, no RNG left. Deliberately does not add a RUINED/
+BROKEN transition at zero condition (unlike modules 9-10) — the
+pure-Python original doesn't either, and mirroring the source exactly
+matters more than internal consistency with a different function.
+Verified via 10,000 randomized inputs plus the cumulative-event-hash
+soak across four seeds, all fourteen native modules on vs. off,
+byte-identical.
+
+**Remaining queue is now the genuinely-hard tier**: `world/
+terrain_evolution.py`'s `apply_local_activity`/`maybe_reclaim`,
+`world/disasters.py`'s `tick_flood`/`tick_wildfire`, and the rest of
+`world/hydrology.py` all share the data-dependent-RNG-draw-count
+problem — porting them safely needs a "call back into Python's
+`rng.random()` from C++ at the exact point a draw is needed" design
+(viable via pybind11, but real per-draw crossing overhead and its own
+risk surface), not the "pre-draw everything in Python, hand off the
+batch" pattern that carried modules 11-14. Deliberately not attempted
+without a measured performance need — these functions run at weekly/
+monthly cadence over small candidate sets, nowhere near the tick loop's
+actual (already-established-nonexistent) CPU bottleneck. Escalate only
+if that changes.
 
 ## One-line summary for CLAUDE.md / CHANGELOG
 

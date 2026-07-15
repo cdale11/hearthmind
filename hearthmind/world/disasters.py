@@ -53,6 +53,16 @@ Python pre-draws the whole batch (preserving stream order) and hands
 it to the native call. `None` when the extension wasn't built — falls
 back to the equivalent pure-Python loop in that case."""
 
+try:
+    from hearthmind._native import flat_damage_tick as _native_flat_damage_tick
+except ImportError:
+    _native_flat_damage_tick = None
+"""Optional compiled fast path for the flat-damage sweep inside
+tick_storm (module 14, see cpp/src/flat_damage.cpp). No RNG involved
+once the single trigger roll (kept in Python) has decided a storm
+happened — this only replaces the per-building/vehicle condition
+subtraction loop."""
+
 FLOOD_PRESSURE_GAIN = 0.05
 FLOOD_PRESSURE_DECAY = 0.02
 FLOOD_PRESSURE_THRESHOLD = 1.0
@@ -386,10 +396,22 @@ def tick_storm(
         return []
     hit = 0
     for settlement in settlements:
-        for building in settlement.buildings:
-            if building.stage is BuildingStage.STANDING:
-                building.condition = max(0.0, building.condition - STORM_DAMAGE)
-                hit += 1
+        standing = [b for b in settlement.buildings if b.stage is BuildingStage.STANDING]
+        if _native_flat_damage_tick is not None:
+            for building, condition in zip(standing, _native_flat_damage_tick(
+                [b.condition for b in standing], STORM_DAMAGE,
+            )):
+                building.condition = condition
+            hit += len(standing)
+            for vehicle, condition in zip(settlement.vehicles, _native_flat_damage_tick(
+                [v.condition for v in settlement.vehicles], STORM_DAMAGE,
+            )):
+                vehicle.condition = condition
+            hit += len(settlement.vehicles)
+            continue
+        for building in standing:
+            building.condition = max(0.0, building.condition - STORM_DAMAGE)
+            hit += 1
         for vehicle in settlement.vehicles:
             vehicle.condition = max(0.0, vehicle.condition - STORM_DAMAGE)
             hit += 1

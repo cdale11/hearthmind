@@ -304,6 +304,26 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.72.12)
+
+Native port module 14: the flat-damage sweep inside `tick_storm`
+(world/disasters.py) → `flat_damage_tick` (`cpp/src/flat_damage.cpp`).
+Checked `tick_flood`/`tick_wildfire` too — both roll a data-dependent
+number of RNG draws (candidate-tile/fire-spread counts vary), same
+hard shape as terrain_evolution.py's loops, so they stay queued.
+`tick_storm` qualifies: at most one RNG draw total, and that draw's
+own trigger condition is knowable before any loop runs — once decided,
+the rest is unconditional `max(0, condition - damage)` across every
+building/vehicle, no randomness left. Deliberately does NOT add a
+RUINED/BROKEN stage transition at zero condition even though modules
+9-10 do — the pure-Python original doesn't either, and a port's job is
+to mirror the source, not "fix" it. Verified via 10,000 randomized
+inputs plus the cumulative-event-hash soak across four seeds, all
+fourteen native modules on vs. off, byte-identical. Remaining
+disasters/terrain-evolution/hydrology functions need a callback-into-
+Python-RNG pattern to port safely — deliberately not attempted without
+a measured need, per this project's standing evaluation discipline.
+
 ## Current state (v0.72.11)
 
 Native port module 13: `_wilt_farms` (world/disasters.py, shared by

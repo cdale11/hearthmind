@@ -194,6 +194,7 @@ void register_settlement_decay(py::module_ &m);
 void register_weather(py::module_ &m);
 void register_bounded_random_walk(py::module_ &m);
 void register_wilt_farms(py::module_ &m);
+void register_flat_damage(py::module_ &m);
 
 PYBIND11_MODULE(_native, m) {
     m.doc() = "Hearthmind native (C++) hot-path extensions. Optional — "
@@ -225,4 +226,5 @@ PYBIND11_MODULE(_native, m) {
     register_weather(m);
     register_bounded_random_walk(m);
     register_wilt_farms(m);
+    register_flat_damage(m);
 }
