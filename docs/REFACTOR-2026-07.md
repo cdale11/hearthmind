@@ -522,13 +522,31 @@ soak across four seeds at 6000 ticks (long enough to span several
 months so the monthly-cadence call sites actually fire), all twelve
 native modules on vs. off, byte-identical.
 
+**Module 13 shipped (v0.72.11): `_wilt_farms` (world/disasters.py).**
+Resolves the RNG-in-loop question flagged after module 12 by finding a
+function that actually fits the "pre-draw the rolls in Python" pattern
+rather than forcing one that doesn't: `_wilt_farms` (shared by
+`tick_heatwave`/`tick_frost`) rolls exactly one `rng.random()` per farm
+plot, unconditionally, so the draw count is fixed and known before the
+loop runs — unlike `apply_local_activity`/`maybe_reclaim`, where the
+number of rolls depends on which tiles clear a heat threshold or
+neighbor-count check first. `wilt_farms_tick`
+(`cpp/src/wilt_farms.cpp`) takes the per-plot state plus one pre-drawn
+roll per plot (same order `farms.plots.items()` iterates) and returns
+updated state + a hit/removed flag per plot, same shape as
+`farm_grid_tick` (module 8). Verified via 20,000 randomized input
+combinations (0 mismatches), 500 direct `_wilt_farms()` A/B calls on
+cloned `FarmGrid` instances sharing a seeded RNG (0 mismatches), and
+the cumulative-event-hash engine soak across four seeds, all thirteen
+native modules on vs. off, byte-identical.
+
 **Queued next for R7/R6** (the rest of "the CA engine's remaining
-Python surface" — `tick_climate`'s and `tick_lakes`'s own per-tile
-logic, beyond the level-nudge math just ported, remains unported):
-`world/terrain_evolution.py`'s `apply_local_activity`/`maybe_reclaim`
-(data-dependent RNG-in-loop shape — harder to port under the
-"RNG stays Python" rule than modules 1-12, needs its own design pass);
-`world/disasters.py`; the rest of `world/hydrology.py`.
+Python surface" — the RNG-in-loop modules still need their own design
+pass; other `world/disasters.py` functions, e.g. `tick_flood`/
+`tick_wildfire`/`tick_storm`, haven't been individually checked yet for
+which shape they fit): `world/terrain_evolution.py`'s
+`apply_local_activity`/`maybe_reclaim`; the rest of `world/
+disasters.py`; the rest of `world/hydrology.py`.
 
 ## One-line summary for CLAUDE.md / CHANGELOG
 

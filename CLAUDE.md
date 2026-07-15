@@ -304,6 +304,23 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.72.11)
+
+Native port module 13: `_wilt_farms` (world/disasters.py, shared by
+`tick_heatwave`/`tick_frost`) → `wilt_farms_tick`
+(`cpp/src/wilt_farms.cpp`) — solves the RNG-in-loop design question
+flagged at the end of v0.72.10 by finding a function that actually
+fits: `_wilt_farms` rolls exactly one `rng.random()` per farm plot,
+unconditionally, so the draw count is fixed and Python can pre-draw
+the whole batch (preserving stream order) before handing it to the
+native call. `world/terrain_evolution.py`'s activity/reclaim loops
+still don't fit this pattern (their draw count is data-dependent — how
+many tiles clear a threshold first) and remain queued, needing their
+own design. Verified via 20,000 randomized inputs (0 mismatches), 500
+direct `_wilt_farms()` A/B runs on cloned farm grids (0 mismatches),
+and the cumulative-event-hash soak across four seeds, all thirteen
+native modules on vs. off, byte-identical.
+
 ## Current state (v0.72.10)
 
 Native port module 12: a shared `bounded_random_walk_step`

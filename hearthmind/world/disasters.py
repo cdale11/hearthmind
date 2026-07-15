@@ -42,6 +42,17 @@ from hearthmind.settlement.buildings import BuildingStage, Settlement
 from hearthmind.world.terrain import Biome, Tile
 from hearthmind.world.weather import WeatherState
 
+try:
+    from hearthmind._native import wilt_farms_tick as _native_wilt_farms_tick
+except ImportError:
+    _native_wilt_farms_tick = None
+"""Optional compiled fast path for `_wilt_farms` (module 13, see
+cpp/src/wilt_farms.cpp, docs/DECISIONS.md "Native extension port").
+Exactly one `rng.random()` draw per farm plot, unconditionally, so
+Python pre-draws the whole batch (preserving stream order) and hands
+it to the native call. `None` when the extension wasn't built — falls
+back to the equivalent pure-Python loop in that case."""
+
 FLOOD_PRESSURE_GAIN = 0.05
 FLOOD_PRESSURE_DECAY = 0.02
 FLOOD_PRESSURE_THRESHOLD = 1.0
@@ -395,8 +406,31 @@ def _wilt_farms(farms: FarmGrid, loss_fraction: float, chance: float, rng: rando
     `loss_fraction` of growth (GROWING) or amount (READY) off any plot
     that rolls under `chance`. A plot reduced to nothing is removed, same
     as a fully-harvested one. Returns how many plots were hit."""
+    items = list(farms.plots.items())
+
+    if _native_wilt_farms_tick is not None:
+        # Native fast path (module 13): one RNG roll per plot, drawn
+        # here in Python in the same order the pure-Python loop would,
+        # so the stream stays identical either way.
+        rolls = [rng.random() for _ in items]
+        stage_in = {FarmStage.GROWING: 0, FarmStage.READY: 1}
+        inputs = [
+            (stage_in[plot.stage], plot.growth, plot.amount, plot.max_yield)
+            for _, plot in items
+        ]
+        hit, results = _native_wilt_farms_tick(inputs, rolls, chance, loss_fraction)
+        for (pos, plot), r in zip(items, results):
+            if not r.hit:
+                continue
+            if r.removed:
+                del farms.plots[pos]
+                continue
+            plot.growth = r.growth
+            plot.amount = r.amount
+        return hit
+
     hit = 0
-    for pos, plot in list(farms.plots.items()):
+    for pos, plot in items:
         if rng.random() >= chance:
             continue
         hit += 1

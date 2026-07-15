@@ -6970,3 +6970,44 @@ monthly-cadence call sites (temperament/player_standing/relation/
 climate/lakes all tick once per sim-month) actually fire multiple
 times within the soak rather than sitting untested at tick 0. All
 twelve native modules on vs. off, byte-identical.
+
+## v0.72.11: native port module 13 — farm-wilt disaster math
+
+Solved the RNG-in-loop design question flagged at the end of v0.72.10
+by finding a function that actually fits the established pattern
+rather than forcing one that doesn't. `world/terrain_evolution.py`'s
+`apply_local_activity`/`maybe_reclaim` were correctly identified as
+hard to port: the number of `rng.random()` calls in those loops depends
+on which tiles clear a heat threshold or pass a neighbor check first —
+a genuinely data-dependent draw count, which breaks the "pre-draw all
+the rolls in Python, hand the batch to C++" pattern every module since
+11 has used (that pattern only works when the draw count is fixed and
+knowable before the loop runs). `world/disasters.py`'s `_wilt_farms`
+(shared by `tick_heatwave` and `tick_frost`) doesn't have that problem:
+it calls `rng.random()` exactly once per farm plot, every time,
+unconditionally, before deciding whether that plot is "hit." Same
+shape as `farm_grid_tick`'s per-plot loop (module 8), just with an
+extra pre-drawn roll value per plot.
+
+`wilt_farms_tick` (cpp/src/wilt_farms.cpp) takes the per-plot state
+(stage/growth/amount/max_yield) plus one pre-drawn roll per plot, in
+the same order `farms.plots.items()` would iterate, and returns
+per-plot results (updated growth/amount, whether it was hit, whether it
+should be removed) plus the total hit count. Python still draws every
+`rng.random()` call itself, in the same loop order the original code
+used, before handing the whole batch to the native function — so the
+RNG stream is byte-identical between paths by construction, not by
+coincidence.
+
+Verified three ways given the fixed-shape risk (the wrong number of
+rolls, or rolls in the wrong order, would silently desync the RNG
+stream from what the rest of the tick expects): (1) 20,000 randomized
+input combinations against a hand-written reference Python port, 0
+mismatches; (2) 500 direct `_wilt_farms()` calls on cloned `FarmGrid`
+instances (native path vs. pure-Python path, same starting grid, same
+seeded `random.Random` instance per pair) comparing both the returned
+hit count and the final plot dictionary, 0 mismatches; (3) the standard
+cumulative-event-hash engine soak across four seeds, all thirteen
+native modules on vs. off, byte-identical. `world/terrain_evolution.py`'s
+harder-shaped loops and the rest of `world/disasters.py`/`world/
+hydrology.py` remain queued, still needing their own design pass.

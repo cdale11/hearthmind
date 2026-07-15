@@ -4,6 +4,24 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.72.11] — Native port module 13: farm-wilt disaster math
+
+### Added
+- Native port module 13: `_wilt_farms` (world/disasters.py, shared by
+  `tick_heatwave` and `tick_frost`) → `wilt_farms_tick`
+  (`cpp/src/wilt_farms.cpp`). Rolls exactly one `rng.random()` per farm
+  plot, unconditionally — unlike `world/terrain_evolution.py`'s
+  activity/reclaim loops (where the number of rolls depends on which
+  tiles clear a heat threshold first, making the total draw count
+  itself data-dependent), this has a fixed, data-independent draw
+  count per call, so Python pre-draws the whole roll batch (preserving
+  exact stream order) and hands it to the native call. Verified via
+  20,000 randomized input combinations against a reference Python port
+  (0 mismatches), 500 direct `_wilt_farms()` A/B runs on cloned farm
+  grids (0 mismatches), and the cumulative-event-hash engine soak
+  across four seeds, all thirteen native modules on vs. off,
+  byte-identical.
+
 ## [0.72.10] — Native port module 12: shared bounded-random-walk step
 
 ### Added
