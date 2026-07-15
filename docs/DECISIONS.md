@@ -7058,3 +7058,52 @@ module since 11 has used successfully. Flagging this as a deliberate
 scope boundary, not an oversight: escalate to that pattern only with a
 measured need, per this project's own standing evaluation discipline
 (see the v0.63.0 full-port audit).
+
+## v0.72.13: native port module 15 — deforestation roll batch, and a correction to the v0.72.11/12 RNG-in-loop assessment
+
+Re-examined `world/terrain_evolution.py`'s `apply_local_activity` after
+flagging its deforestation loop as "hard" in v0.72.11/12 without
+actually tracing through *why*. On closer inspection, the "data-
+dependent draw count" problem that genuinely blocks a port
+(`maybe_reclaim`, wildfire spread, flood candidate selection — where
+an earlier iteration's outcome changes whether/how a later iteration
+rolls) does NOT apply to this specific loop: each candidate tile's
+eligibility for a roll depends only on (a) its current heat value and
+(b) its current terrain biome — both fully known before the loop
+starts, and neither is mutated by this loop until *after* a tile's own
+roll resolves (and a tile never re-reads its own post-roll state, so
+there's no self-dependency either). Contrast with `maybe_reclaim`,
+where a tile's forest-neighbor count can include a neighbor that an
+*earlier* iteration in the very same pass just converted from
+grassland to forest — that's the real disqualifying shape, and it's
+narrower than "this loop rolls dice" alone suggests. The lesson:
+"this loop has RNG calls with a variable count" isn't itself
+disqualifying — what matters is whether a *later* roll's eligibility
+depends on an *earlier* roll's outcome within the same pass. Worth
+recording so this distinction doesn't get lost and the remaining queue
+doesn't get written off wholesale as "the hard tier" without
+individually re-checking each function against it.
+
+`roll_passes_tick` (cpp/src/roll_batch.cpp) is deliberately generic —
+"which of these pre-drawn rolls beat their chance" — rather than
+baked into a single call site, since the same shape will likely recur
+(any future R7 code with independent per-candidate RNG-gated decisions
+can reuse it directly, continuing the `util.py`/`bounded_random_walk_
+step` dedup precedent). The arithmetic itself (a single `<` comparison)
+is trivial — the value is in having one tested building block for the
+candidate-selection-then-batch-roll pattern, not in the comparison's
+own cost.
+
+Verified via 20,000 randomized inputs against the trivial reference (0
+mismatches), 300 direct `apply_local_activity()` A/B runs on synthetic
+terrain grids with randomized heat/active-tile state (native path on
+one terrain snapshot, pure-Python path — native function temporarily
+nulled — on a separate deep-copied snapshot, same seeded RNG per pair),
+comparing final terrain biomes, heat dict contents, and emitted events,
+0 mismatches. Plus the standard cumulative-event-hash engine soak
+across four seeds, all fifteen native modules on vs. off, byte-
+identical. `maybe_reclaim`, `apply_climate_drift`'s position sampling,
+`tick_flood`, `tick_wildfire`, and the rest of `world/hydrology.py`
+remain queued — each should still be individually re-checked against
+the "does eligibility depend on other candidates' outcomes within the
+same pass" question rather than assumed hard by association.

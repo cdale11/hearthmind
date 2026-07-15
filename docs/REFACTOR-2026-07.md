@@ -559,19 +559,39 @@ Verified via 10,000 randomized inputs plus the cumulative-event-hash
 soak across four seeds, all fourteen native modules on vs. off,
 byte-identical.
 
-**Remaining queue is now the genuinely-hard tier**: `world/
-terrain_evolution.py`'s `apply_local_activity`/`maybe_reclaim`,
-`world/disasters.py`'s `tick_flood`/`tick_wildfire`, and the rest of
-`world/hydrology.py` all share the data-dependent-RNG-draw-count
-problem — porting them safely needs a "call back into Python's
-`rng.random()` from C++ at the exact point a draw is needed" design
-(viable via pybind11, but real per-draw crossing overhead and its own
-risk surface), not the "pre-draw everything in Python, hand off the
-batch" pattern that carried modules 11-14. Deliberately not attempted
-without a measured performance need — these functions run at weekly/
-monthly cadence over small candidate sets, nowhere near the tick loop's
-actual (already-established-nonexistent) CPU bottleneck. Escalate only
-if that changes.
+**Module 15 shipped (v0.72.13): `apply_local_activity`'s deforestation
+roll — and a correction to the "remaining queue is genuinely hard"
+framing above.** Re-traced `apply_local_activity` rather than taking
+the earlier blanket "RNG-in-loop" characterization at face value: its
+per-tile deforestation-roll eligibility depends only on state that
+exists before the loop runs (current heat value, current biome), never
+on another tile's outcome within the same pass. That's different from
+`maybe_reclaim`, where an earlier iteration's conversion can change a
+later iteration's forest-neighbor count — a genuine same-pass
+dependency that blocks pre-drawing. The real disqualifying test isn't
+"does this loop call `rng.random()` a variable number of times," it's
+"does a later candidate's eligibility depend on an earlier candidate's
+outcome within the same pass." `roll_passes_tick`
+(`cpp/src/roll_batch.cpp`) is a small, deliberately generic "which
+pre-drawn rolls beat their chance" utility — reusable by any future
+per-candidate RNG-gated decision with this shape, not just this one
+call site. Verified via 20,000 randomized inputs, 300 direct
+`apply_local_activity()` A/B runs on synthetic terrain/heat state, and
+the cumulative-event-hash soak across four seeds, all fifteen native
+modules on vs. off, byte-identical.
+
+**Remaining queue, now correctly scoped**: `maybe_reclaim` (genuine
+same-pass dependency, confirmed), `apply_climate_drift`'s position
+sampling (not yet individually re-checked against the actual test),
+`world/disasters.py`'s `tick_flood`/`tick_wildfire` (not yet
+individually re-checked either — flood's candidate-list build and
+wildfire's spread-frontier growth both look like they may have the
+same same-pass-dependency shape as `maybe_reclaim`, but that's an
+assumption pending the same trace `apply_local_activity` just got, not
+a conclusion), and the rest of `world/hydrology.py`. Each should be
+individually traced against "does eligibility depend on same-pass
+outcomes" before being written off — don't assume the whole remaining
+list is uniformly hard just because two members of it are.
 
 ## One-line summary for CLAUDE.md / CHANGELOG
 

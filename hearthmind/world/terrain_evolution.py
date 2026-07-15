@@ -43,6 +43,20 @@ The RNG draw producing the jitter stays in Python. `None` when the
 extension wasn't built — falls back to the equivalent pure-Python
 arithmetic."""
 
+try:
+    from hearthmind._native import roll_passes_tick as _native_roll_passes_tick
+except ImportError:
+    _native_roll_passes_tick = None
+"""Optional compiled fast path for `apply_local_activity`'s
+deforestation roll (module 15, see cpp/src/roll_batch.cpp,
+docs/DECISIONS.md "Native extension port"). Each candidate tile's
+eligibility depends only on state that exists before the loop runs
+(current heat value + biome), never on another candidate's outcome
+within the same pass — unlike `maybe_reclaim` below, which does have
+that cross-iteration dependency and stays pure Python. `None` when the
+extension wasn't built — falls back to the equivalent pure-Python
+loop in that case."""
+
 DEFOREST_HEAT_GAIN = 0.01
 """Activity heat added to a forest tile per tick a GATHER-goal agent is
 present on it."""
@@ -162,6 +176,7 @@ def apply_local_activity(
         if heat[pos] <= 0.0:
             del heat[pos]
 
+    candidates: list[tuple[int, int]] = []
     for (x, y), value in list(heat.items()):
         if value < DEFOREST_HEAT_THRESHOLD:
             continue
@@ -169,8 +184,31 @@ def apply_local_activity(
         if tile.biome is not Biome.FOREST:
             del heat[(x, y)]  # already changed some other way — stop tracking
             continue
+        candidates.append((x, y))
+
+    if _native_roll_passes_tick is not None:
+        # Native fast path (module 15): each candidate's eligibility
+        # was already fully determined above from pre-loop state, so
+        # the rolls can be pre-drawn here (same order the pure-Python
+        # loop would draw them) and handed to the native comparison.
+        rolls = [rng.random() for _ in candidates]
+        passed = _native_roll_passes_tick(rolls, DEFOREST_CHANCE_PER_TICK)
+        for (x, y), did_pass in zip(candidates, passed):
+            if not did_pass:
+                continue
+            tile = terrain[y][x]
+            terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.GRASSLAND)
+            del heat[(x, y)]
+            events.append((
+                "terrain_thinned",
+                f"Heavy use thinned the forest at ({x}, {y}) to open grassland.",
+            ))
+        return events
+
+    for (x, y) in candidates:
         if rng.random() >= DEFOREST_CHANCE_PER_TICK:
             continue
+        tile = terrain[y][x]
         terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.GRASSLAND)
         del heat[(x, y)]
         events.append((

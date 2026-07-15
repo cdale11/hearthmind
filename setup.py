@@ -34,6 +34,7 @@ try:
                 "cpp/src/bounded_random_walk.cpp",
                 "cpp/src/wilt_farms.cpp",
                 "cpp/src/flat_damage.cpp",
+                "cpp/src/roll_batch.cpp",
             ]),
             cxx_std=17,
         )

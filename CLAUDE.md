@@ -304,6 +304,29 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.72.13)
+
+Native port module 15: `apply_local_activity`'s deforestation roll
+(world/terrain_evolution.py) → `roll_passes_tick`
+(`cpp/src/roll_batch.cpp`). **Correction to the v0.72.11/12 "RNG-in-
+loop is hard" assessment**: re-traced this specific loop and found its
+per-tile eligibility depends only on pre-loop state (heat value +
+current biome), never on another tile's outcome within the same pass —
+unlike `maybe_reclaim` (a forest-neighbor count that changes as earlier
+same-pass tiles convert), which genuinely doesn't fit and stays pure
+Python. The real disqualifying shape is narrower than "this loop rolls
+dice a variable number of times" — it's specifically whether a later
+roll's eligibility depends on an earlier roll's outcome within the same
+pass. `roll_passes_tick` is a small generic "which pre-drawn rolls beat
+their chance" utility, reusable by future R7 code with the same shape.
+Verified via 20,000 randomized inputs, 300 direct `apply_local_
+activity()` A/B runs on synthetic terrain, and the cumulative-event-
+hash soak across four seeds, all fifteen native modules on vs. off,
+byte-identical. `maybe_reclaim`/`apply_climate_drift`/`tick_flood`/
+`tick_wildfire`/the rest of `hydrology.py` remain queued — each needs
+individual re-checking against the actual disqualifying question
+rather than assumed hard by association.
+
 ## Current state (v0.72.12)
 
 Native port module 14: the flat-damage sweep inside `tick_storm`

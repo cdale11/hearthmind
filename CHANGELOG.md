@@ -4,6 +4,27 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.72.13] — Native port module 15: deforestation roll batch
+
+### Added
+- Native port module 15: `apply_local_activity`'s deforestation roll
+  (world/terrain_evolution.py) → `roll_passes_tick`
+  (`cpp/src/roll_batch.cpp`), a small shared "which of these pre-drawn
+  rolls beat their chance" utility. Re-examined the RNG-in-loop concern
+  flagged in v0.72.11/12: this specific loop's per-tile eligibility
+  (heat value + current biome) depends only on state that exists
+  *before* the loop runs, never on another tile's outcome within the
+  same pass — unlike `maybe_reclaim` (a forest-neighbor count that
+  changes as earlier tiles in the same loop convert), which genuinely
+  doesn't fit this pattern and stays pure Python. Python determines the
+  candidate set, pre-draws one roll per candidate (same order the
+  original loop would), and hands the batch to the native comparison.
+  Verified via 20,000 randomized inputs against the trivial reference
+  (0 mismatches), 300 direct `apply_local_activity()` A/B runs on
+  synthetic terrain/heat state (0 mismatches), and the cumulative-
+  event-hash engine soak across four seeds, all fifteen native modules
+  on vs. off, byte-identical.
+
 ## [0.72.12] — Native port module 14: storm flat-damage sweep
 
 ### Added
