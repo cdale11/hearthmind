@@ -30,6 +30,7 @@ try:
                 "cpp/src/predator_kill_chance.cpp",
                 "cpp/src/farm_grid.cpp",
                 "cpp/src/settlement_decay.cpp",
+                "cpp/src/weather.cpp",
             ]),
             cxx_std=17,
         )

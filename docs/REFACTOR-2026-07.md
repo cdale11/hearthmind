@@ -483,10 +483,28 @@ soaks to give the comparatively rare ruin/reclaim/breakdown events more
 chances to actually fire — all ten native modules on vs. off,
 byte-identical.
 
+**Module 11 shipped (v0.72.9): `compute_weather`'s blend/threshold
+math.** First module whose Python original draws from a seeded
+`random.Random` (`_tick_rng`) rather than either having no randomness
+or receiving a caller-owned `rng.Random` (modules 6-7's pattern).
+Decided NOT to reproduce CPython's Mersenne Twister in C++ — this
+project's native-port discipline only requires native-vs-Python parity
+for the *same* code path, not cross-implementation RNG parity, and
+CLAUDE.md's standing rule is explicit that cross-run determinism isn't
+a goal here at all. So the three `rng.uniform(...)` jitter draws stay
+in Python; `compute_weather_blend` (`cpp/src/weather.cpp`) takes the
+already-drawn jitter values and does the baseline+jitter/clamp/EMA-
+blend/snow-threshold arithmetic. Verified via 30,000 randomized input
+combinations (0 mismatches), a direct 20,000-tick `compute_weather()`
+A/B sequence across all twelve months (0 mismatches — this check
+specifically stresses the EMA blend's tick-to-tick dependency, where a
+single-call equivalence check alone wouldn't catch compounding drift),
+and the cumulative-event-hash engine soak across four seeds, all eleven
+native modules on vs. off, byte-identical.
+
 **Queued next for R7/R6** (now explicitly framed as "the CA engine's
-remaining Python surface"): `world/weather.py`'s per-tick computation;
-`world/terrain_evolution.py`'s weekly/monthly rules; `world/
-disasters.py`; `world/hydrology.py`.
+remaining Python surface"): `world/terrain_evolution.py`'s weekly/
+monthly rules; `world/disasters.py`; `world/hydrology.py`.
 
 ## One-line summary for CLAUDE.md / CHANGELOG
 

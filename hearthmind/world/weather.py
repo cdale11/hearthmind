@@ -20,6 +20,18 @@ from dataclasses import dataclass
 
 from hearthmind.util import clamp
 
+try:
+    from hearthmind._native import compute_weather_blend as _native_compute_weather_blend
+except ImportError:
+    _native_compute_weather_blend = None
+"""Optional compiled fast path for `compute_weather`'s blend/threshold
+math (module 11, see cpp/src/weather.cpp, docs/DECISIONS.md "Native
+extension port"). The three `rng.uniform(...)` jitter draws stay in
+Python regardless — reproducing CPython's Mersenne Twister in C++
+would be its own project and isn't needed under this project's
+"determinism is not a requirement" rule. `None` when the extension
+wasn't built — falls back to the equivalent pure-Python arithmetic."""
+
 # UK-climate-style monthly baselines: (temperature_c, precipitation_chance, wind_avg).
 _MONTH_BASELINES: dict[str, tuple[float, float, float]] = {
     "january": (5.0, 0.48, 0.48),
@@ -143,10 +155,33 @@ def compute_weather(seed: int, tick: int, month: str, previous: "WeatherState | 
     extremes. `month` is a lowercase month name (see SimClock.month_name)."""
     rng = _tick_rng(seed, tick)
     base_temp, base_precip, base_wind = _MONTH_BASELINES[month]
+    jitter_temp = rng.uniform(-6.0, 6.0)
+    jitter_precip = rng.uniform(-0.25, 0.25)
+    jitter_wind = rng.uniform(-0.25, 0.25)
 
-    target_temp = base_temp + rng.uniform(-6.0, 6.0)
-    target_precip = clamp(base_precip + rng.uniform(-0.25, 0.25), 0.0, 1.0)
-    target_wind = clamp(base_wind + rng.uniform(-0.25, 0.25), 0.0, 1.0)
+    if _native_compute_weather_blend is not None:
+        # Native fast path (module 11): the RNG draws above stay in
+        # Python (see the import comment) — only the blend/threshold
+        # arithmetic that follows crosses into C++.
+        result = _native_compute_weather_blend(
+            base_temp, base_precip, base_wind,
+            jitter_temp, jitter_precip, jitter_wind,
+            previous is not None,
+            previous.temperature_c if previous is not None else 0.0,
+            previous.precipitation if previous is not None else 0.0,
+            previous.wind if previous is not None else 0.0,
+            0.7, SNOW_PRECIPITATION_THRESHOLD, SNOW_TEMPERATURE_THRESHOLD_C,
+        )
+        return WeatherState(
+            temperature_c=result.temperature_c,
+            precipitation=result.precipitation,
+            wind=result.wind,
+            is_snowing=result.is_snowing,
+        )
+
+    target_temp = base_temp + jitter_temp
+    target_precip = clamp(base_precip + jitter_precip, 0.0, 1.0)
+    target_wind = clamp(base_wind + jitter_wind, 0.0, 1.0)
 
     if previous is None:
         temperature_c, precipitation, wind = target_temp, target_precip, target_wind

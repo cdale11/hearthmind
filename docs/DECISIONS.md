@@ -6896,3 +6896,42 @@ seeds at 5000 ticks each — noticeably longer than prior soaks
 specifically to give building ruin/reclaim and vehicle breakdown, both
 comparatively rare events, more chances to actually occur across the
 run. All ten native modules on vs. off, byte-identical every time.
+
+## v0.72.9: native port module 11 — weather blend/threshold math
+
+`compute_weather` (world/weather.py) is the first ported function that
+draws from a seeded `random.Random` stream rather than either (a)
+having no randomness at all, or (b) receiving an `rng.Random` the
+caller already owns and rolls itself (modules 6-7's pattern). This
+raised a real design question: does porting this function mean
+reproducing CPython's Mersenne Twister seeding and `genrand_res53`
+output bit-for-bit in C++? Decided no, on two grounds — first, this
+project's standing rule that "Determinism/reproducibility is NOT a
+requirement" (explicit, CLAUDE.md workflow rules) means cross-run
+reproducibility was never a goal to begin with, only "namespaced RNG
+where natural"; second, and more directly relevant to the native-port
+discipline specifically, what actually needs to hold is "the native
+code path and the pure-Python code path produce identical results,"
+not "a from-scratch C++ RNG matches CPython's C RNG implementation." So
+the three `rng.uniform(...)` draws (`_tick_rng`, temperature/
+precipitation/wind jitter) stay exactly where they were, in Python; only
+the deterministic arithmetic that follows them — baseline + jitter,
+clamping to [0, 1] for precipitation/wind, the previous-tick EMA blend,
+and the snow threshold check — moved into `compute_weather_blend`
+(cpp/src/weather.cpp).
+
+Verified three ways given the RNG-boundary split makes this a different
+shape from prior modules: (1) 30,000 randomized input combinations
+(pre-computed jitter values, baselines, and previous-tick state) against
+a hand-written reference Python port of the same arithmetic, 0
+mismatches; (2) a direct 20,000-tick `compute_weather()` call sequence
+across all twelve months, comparing the native-backed and pure-Python-
+backed call chains tick-by-tick (each feeding its own previous
+WeatherState forward, so blend-state drift over a long run would show
+up), 0 mismatches; (3) the standard cumulative-event-hash engine soak
+across four seeds, all eleven native modules on vs. off, byte-identical.
+(2) matters specifically because `compute_weather`'s EMA blend makes
+each tick's output depend on the previous tick's — a single off-by-
+epsilon bug in the native path could compound over thousands of ticks
+in a way a single-call equivalence check (1) wouldn't catch, so this
+sequence check is the one that actually stresses accumulated drift.

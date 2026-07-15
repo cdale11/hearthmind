@@ -304,6 +304,24 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.72.9)
+
+Native port module 11: `compute_weather`'s blend/threshold math →
+`compute_weather_blend` (`cpp/src/weather.cpp`) — the first module
+whose Python original draws from a seeded `random.Random` stream. RNG
+draws stay in Python (reproducing CPython's Mersenne Twister in C++
+isn't required — this project's "determinism is not a requirement"
+rule, plus the native-port discipline only needs native-vs-Python
+parity, not cross-implementation RNG parity); only the baseline+jitter/
+clamp/EMA-blend/snow-threshold arithmetic crosses into C++. Verified via
+30,000 randomized inputs (0 mismatches), a 20,000-tick direct
+`compute_weather()` A/B sequence across all twelve months (0
+mismatches — this one matters because the EMA blend makes each tick
+depend on the last, so drift would compound), and the cumulative-
+event-hash soak across four seeds, all eleven native modules on vs.
+off, byte-identical. Queued next: `world/terrain_evolution.py`,
+`world/disasters.py`, `world/hydrology.py`.
+
 ## Current state (v0.72.8)
 
 Native port modules 9-10, closing out the "building decay/repair math"

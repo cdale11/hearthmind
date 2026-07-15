@@ -4,6 +4,23 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.72.9] — Native port module 11: weather blend/threshold math
+
+### Added
+- Native port module 11: `compute_weather`'s blend/threshold math →
+  `compute_weather_blend` (`cpp/src/weather.cpp`). Unlike modules 1-10,
+  `compute_weather` draws from a seeded `random.Random` stream — the
+  three `rng.uniform(...)` jitter draws stay in Python (reproducing
+  CPython's Mersenne Twister bit-for-bit in C++ isn't needed under this
+  project's "determinism is not a requirement" rule, and would be a
+  project of its own); only the baseline+jitter/clamp/EMA-blend/snow-
+  threshold arithmetic that follows crosses into C++. Verified via
+  30,000 randomized input combinations against a reference Python port
+  (0 mismatches), a direct 20,000-tick `compute_weather()` A/B run
+  across all twelve months (0 mismatches), and the cumulative-event-
+  hash engine soak across four seeds, all eleven native modules on vs.
+  off, byte-identical.
+
 ## [0.72.8] — Native port modules 9-10: building and vehicle decay
 
 ### Added
