@@ -189,6 +189,7 @@ void register_agent_position_index(py::module_ &m);
 void register_wildlife_index(py::module_ &m);
 void register_needs(py::module_ &m);
 void register_predator_kill_chance(py::module_ &m);
+void register_farm_grid(py::module_ &m);
 
 PYBIND11_MODULE(_native, m) {
     m.doc() = "Hearthmind native (C++) hot-path extensions. Optional — "
@@ -215,4 +216,5 @@ PYBIND11_MODULE(_native, m) {
     register_wildlife_index(m);
     register_needs(m);
     register_predator_kill_chance(m);
+    register_farm_grid(m);
 }

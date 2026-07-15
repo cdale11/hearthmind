@@ -28,6 +28,7 @@ try:
                 "cpp/src/wildlife_index.cpp",
                 "cpp/src/needs.cpp",
                 "cpp/src/predator_kill_chance.cpp",
+                "cpp/src/farm_grid.cpp",
             ]),
             cxx_std=17,
         )

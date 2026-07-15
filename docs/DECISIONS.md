@@ -6831,3 +6831,38 @@ rule, or agriculture mechanic as a C++ module from its first line
 rather than prototyping it in Python and porting later. See
 docs/REFACTOR-2026-07.md, "R7," for the full scope list and the
 in-scope/out-of-scope boundary.
+
+## v0.72.7: native port module 8 — FarmGrid.tick, first R7 module
+
+`FarmGrid.tick` (economy/farms.py) was the natural first pick for R7:
+it's already the cleanest "cellular automata" shape in the codebase —
+a fixed grid of independent cells (farm plots), each updated purely
+from its own prior state plus a small set of tick-level inputs (season
+growth multiplier, irrigation adjacency), no cross-cell interaction.
+Structurally near-identical to `resource_grid_tick` (module 1, shipped
+v0.72.0): both are "for each cell, apply a local rule, collect the
+cells that need removing" passes. `farm_grid_tick`
+(cpp/src/farm_grid.cpp) keeps the same division of labor established
+since module 6 — `is_adjacent_to_water` is a `Tile`-object terrain
+lookup, so it's resolved in Python before the call and passed in as a
+plain per-plot boolean; the native function only does the growth-rate/
+rot-tick arithmetic and the GROWING→READY stage transition.
+
+Verified three separate ways, more than most modules so far, because
+this one has two return channels (updated plots AND a separate
+rotted-positions list) where a subtle A/B harness bug could hide: (1)
+20,000 randomized input combinations against a hand-written reference
+Python port of the same branching, 0 mismatches; (2) 500 direct
+`FarmGrid.tick()` calls on cloned grids — native path on one clone,
+pure-Python path (native function temporarily nulled) on a `copy.
+deepcopy`'d twin, 5 ticks each, comparing final plot dictionaries
+key-by-key — 0 mismatches; (3) the standard cumulative-event-hash
+engine soak across four seeds, all eight native modules on vs. off,
+byte-identical. (1) proves the C++ function alone is correct against a
+reference; (2) proves the actual Python wiring (building `plots_in`,
+writing `updated` back onto live `FarmPlot` objects, deleting `rotted`
+positions) doesn't introduce a translation bug even when (1) already
+passed; (3) proves it holds up inside the real engine loop alongside
+every other system. All three matter — a module with two output
+channels is exactly the shape where "the pure function is right but the
+plumbing around it is wrong" bugs like to hide.

@@ -304,6 +304,24 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.72.7)
+
+Native port module 8: `FarmGrid.tick` → `farm_grid_tick`
+(`cpp/src/farm_grid.cpp`) — the first module shipped under R7, and the
+cleanest "cellular automata" fit yet: a fixed grid of independent farm
+plots, each updated purely from its own prior state plus tick-level
+inputs (season multiplier, irrigation adjacency), no cross-cell
+interaction — structurally near-identical to `resource_grid_tick`
+(module 1). Irrigation adjacency (`is_adjacent_to_water`, a `Tile`-
+object lookup) stays Python-resolved, passed in as a plain boolean.
+Verified three ways given the extra risk surface of two return
+channels (updated plots + a separate rotted-positions list): 20,000
+randomized inputs against a reference Python port (0 mismatches), 500
+direct `FarmGrid.tick()` A/B runs on cloned grids (0 mismatches), and
+the cumulative-event-hash engine soak across four seeds, all eight
+native modules on vs. off, byte-identical. Queued next: building
+decay/repair math, then weather/terrain-evolution/disasters/hydrology.
+
 ## Current state (v0.72.6)
 
 Two items: native port module 7, and a new standing architectural

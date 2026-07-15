@@ -446,6 +446,31 @@ code from here forward; the backlog of not-yet-ported existing code
 is unchanged in shape, just now understood as "the CA engine's
 remaining Python surface" rather than an ungrouped list of modules.
 
+**Module 8 shipped (v0.72.7): `FarmGrid.tick`.** First module ported
+under the R7 banner, and the cleanest fit for the "cellular automata"
+framing so far — a plain per-plot local rule (GROWING accumulates
+growth and flips to READY at 1.0; READY accumulates `ready_ticks` and
+rots past `FARM_ROT_TICKS`), same shape as `resource_grid_tick` (module
+1), just a second grid. `farm_grid_tick` (`cpp/src/farm_grid.cpp`)
+takes an already-resolved `irrigated` boolean per plot (the
+`is_adjacent_to_water` terrain lookup stays in Python, same "object-
+graph resolution stays Python" principle as every module since 6) and
+returns updated per-plot state plus the list of positions that rotted
+this tick, so the caller's `del self.plots[pos]` loop is unchanged in
+shape. Verified three ways: 20,000 randomized input combinations
+against a reference Python port (0 mismatches), 500 direct `FarmGrid.
+tick()` A/B runs (5 ticks each, native vs. Python paths on cloned
+grids, comparing final plot state — 0 mismatches), and the cumulative-
+event-hash engine soak across four seeds, all eight native modules on
+vs. off, byte-identical.
+
+**Queued next for R7/R6** (same list as before, now explicitly framed
+as "the CA engine's remaining Python surface"): building decay/repair
+progress math (`settlement/buildings.py`, once "which building/stage"
+resolution is separated from "how much did condition change"); `world/
+weather.py`'s per-tick computation; `world/terrain_evolution.py`'s
+weekly/monthly rules; `world/disasters.py`; `world/hydrology.py`.
+
 ## One-line summary for CLAUDE.md / CHANGELOG
 
 Audit found the codebase clean (near-zero dead code, no wasteful

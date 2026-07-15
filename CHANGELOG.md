@@ -4,6 +4,20 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.72.7] — Native port module 8: FarmGrid.tick (first R7 module)
+
+### Added
+- Native port module 8: `FarmGrid.tick` → `farm_grid_tick`
+  (`cpp/src/farm_grid.cpp`), the first module shipped under R7. Plain
+  per-plot local rule (GROWING accumulates growth and flips to READY;
+  READY accumulates ready-ticks and rots past `FARM_ROT_TICKS`) — same
+  shape as `resource_grid_tick` (module 1). Irrigation adjacency stays
+  a Python-side terrain lookup, resolved before the call. Verified via
+  20,000 randomized input combinations (0 mismatches), 500 direct
+  `FarmGrid.tick()` A/B runs on cloned grids (0 mismatches), and the
+  cumulative-event-hash engine soak across four seeds, all eight native
+  modules on vs. off, byte-identical.
+
 ## [0.72.6] — Native port module 7, new scope: C++ cellular-automata physical substrate (R7)
 
 ### Added

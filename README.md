@@ -114,19 +114,23 @@ Started in v0.72.0 as an incremental port of the engine's hottest
 per-tick loops into C++ (see `docs/DECISIONS.md`, "Native extension
 port"). **Optional and additive** — every ported function has a
 byte-identical pure-Python fallback in `hearthmind/`, so the simulation
-runs correctly with or without a compiler. Six modules ported so far:
+runs correctly with or without a compiler. Eight modules ported so far:
 `world/resources.py`'s `ResourceGrid.tick` (regrowing foraged/mined/
 fished nodes), `agents/population.py`'s `_nearest_resource` (the
 bounded-box FOOD/FISH lookup for foraging), `_nearest_material_tile`
 (the same for GATHER-goal wood/stone), `_nearest_other_agent` (the
 SOCIALIZE-goal lookup — uncapped by radius, so it scales with population
 squared rather than map size), `world/wildlife.py`'s
-`nearest_grazer_herd`, and `_update_needs` (hunger/energy/aging math —
-the first module from the new **R6 "full engine rewrite"** track,
-started v0.72.5: unlike the others, this runs unconditionally every
-tick for every agent rather than only when a specific goal is active;
-see `docs/REFACTOR-2026-07.md`, "R6"). More hot loops and, as of R6,
-orchestration-layer math move over incrementally, one
+`nearest_grazer_herd`, `_update_needs` (hunger/energy/aging math — the
+first module from the **R6 "full engine rewrite"** track, started
+v0.72.5: unlike the others, this runs unconditionally every tick for
+every agent), `_maybe_predator_attack`'s kill-chance math, and
+`economy/farms.py`'s `FarmGrid.tick` (the first module from the **R7
+"cellular-automata physical substrate"** track, started v0.72.6: new
+code in the agriculture/ecology/weather/disasters/terrain-evolution
+domain is now written in C++ from the start rather than ported later —
+see `docs/REFACTOR-2026-07.md`, "R6" and "R7"). More hot loops and
+physical-substrate modules move over incrementally, one
 provably-equivalent module at a time (see "Refactor status" below).
 
 ```bash

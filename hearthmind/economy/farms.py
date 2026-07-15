@@ -20,6 +20,15 @@ from enum import Enum
 from hearthmind.world.resources import is_adjacent_to_water
 from hearthmind.world.terrain import Biome, Tile
 
+try:
+    from hearthmind._native import farm_grid_tick as _native_farm_grid_tick
+except ImportError:
+    _native_farm_grid_tick = None
+"""Optional compiled fast path for `FarmGrid.tick` (module 8, R7's first
+module — see cpp/src/farm_grid.cpp, docs/DECISIONS.md "Native extension
+port"). `None` when the extension wasn't built — falls back to the
+equivalent pure-Python per-plot loop in that case."""
+
 FARMABLE_BIOMES = frozenset({Biome.GRASSLAND})
 """Deliberately narrower than WALKABLE_BIOMES/FORAGEABLE_BIOMES — open
 grassland only, not forest/hills, matching the "cleared field" image."""
@@ -186,6 +195,35 @@ class FarmGrid:
 
     def tick(self, season: str = "summer", terrain: list[list[Tile]] | None = None) -> None:
         base_growth_rate = GROWTH_PER_TICK * SEASON_GROWTH_MULTIPLIER.get(season, 1.0)
+
+        if _native_farm_grid_tick is not None:
+            # Native fast path (module 8): irrigation adjacency is a
+            # terrain lookup over `Tile` objects, so it's resolved here
+            # in Python exactly as before; the native call only does the
+            # per-plot growth/rot arithmetic.
+            stage_by_enum = {FarmStage.GROWING: 0, FarmStage.READY: 1}
+            stage_by_int = {0: FarmStage.GROWING, 1: FarmStage.READY}
+            plots_in = [
+                (
+                    x, y, stage_by_enum[plot.stage], plot.growth, plot.amount,
+                    plot.max_yield, plot.ready_ticks,
+                    terrain is not None and is_adjacent_to_water(terrain, x, y),
+                )
+                for (x, y), plot in self.plots.items()
+            ]
+            updated, rotted = _native_farm_grid_tick(
+                plots_in, base_growth_rate, IRRIGATION_GROWTH_MULTIPLIER, FARM_ROT_TICKS,
+            )
+            for x, y, stage, growth, amount, max_yield, ready_ticks in updated:
+                plot = self.plots[(x, y)]
+                plot.stage = stage_by_int[stage]
+                plot.growth = growth
+                plot.amount = amount
+                plot.ready_ticks = ready_ticks
+            for pos in rotted:
+                del self.plots[tuple(pos)]
+            return
+
         rotted: list[tuple[int, int]] = []
         for (x, y), plot in self.plots.items():
             if plot.stage is FarmStage.GROWING:
