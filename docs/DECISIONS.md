@@ -6300,3 +6300,107 @@ resident-memory tuning (num_ctx, num_parallel, kv dtype, model size) are
 `ollama ps` / `/diagnostics.system_memory` (weights vs KV vs our RSS)
 before touching call volume. Do not raise `llm_num_ctx` without
 re-measuring prompts.
+
+## llama.cpp default backend + native C++ port begins (v0.72.0)
+
+Explicit user directive: port hot engine code to C++, switch the
+default LLM backend from Ollama to llama.cpp, tune for AMD Ryzen iGPU
+offload (Radeon 740M/780M). Two prior standing findings pushed directly
+against this: "C/C++ port: evaluated, recommended against" (the tick
+loop is ~1ms against a 1000ms budget — a full port buys almost nothing
+on throughput) and the earlier "why not switch to raw llama.cpp"
+evaluation (Ollama's runner already *is* llama.cpp, so the memory math
+is nearly identical). Both were surfaced to the user before starting,
+along with the concrete risk that this project has no automated test
+suite, so a full-engine C++ rewrite in one pass has no equivalence-proof
+net the way the existing SHA-256 event-hash harness provides for a
+scoped change. User chose to proceed with the full-port *direction*
+anyway; the response was to scope execution as a sequence of provably-
+equivalent increments rather than one unreviewable rewrite — same
+discipline this project already uses for every other behavior-
+preserving change (R2/R4), just applied to a larger target.
+
+**llama.cpp backend.** `LlamaCppClient` (hearthmind/llm/client.py)
+talks to `llama-server`'s OpenAI-compatible `/v1/chat/completions`
+endpoint with `response_format: {"type": "json_object"}` — llama.cpp
+enforces this via grammar-constrained sampling, structurally stronger
+than Ollama's `"format": "json"` (which is a request hint, not a hard
+constraint). `Config.llm_backend` (default `"llamacpp"`) / `"ollama"`
+select the backend; `build_llm_client(config)` is now the single
+factory both `SimulationEngine.__init__` and `server.py`'s genesis-seed
+call use, closing off the class of bug where the two call sites drift
+on which fields each client actually consumes (the same failure mode
+the v0.63.0 CLI-default audit found once already). `LLMUnavailable`
+replaces `OllamaUnavailable` as the base exception name since both
+clients raise it; the old name survives as an alias so nothing else had
+to change. Why llama.cpp over keeping Ollama as default: not a memory
+argument (the earlier evaluation's core claim — same runner, same
+weights+KV math — still holds), but Ollama's daemon adds ~100-300MB of
+its own overhead and, more importantly, this project has spent several
+releases fighting Ollama's *defaults* (mmap heuristics, keep_alive,
+`OLLAMA_NUM_PARALLEL`) through per-request options and README
+environment-variable workarounds; `llama-server` exposes the same
+knobs (context size, KV quantization, thread count, GPU layers) as
+direct process flags the README can hand the user verbatim, with no
+daemon-level defaults to route around. AMD iGPU offload was also a
+direct motivator: Ollama's bundled ROCm build didn't recognize the
+Radeon 740M (gfx1103) in an earlier investigation, while llama.cpp's
+Vulkan backend doesn't depend on ROCm's hardware allowlist — see the
+README's "AMD Ryzen iGPU offload" section. That section is **not
+verified against real hardware** by this pass (this execution
+environment has no GPU) — flagged explicitly rather than presented as
+tested.
+
+**Native C++ port, module 1: `ResourceGrid.tick`.** New optional
+`hearthmind._native` pybind11 extension (`cpp/src/resource_grid.cpp`,
+built by `setup.py build_ext --inplace`, wired into `pyproject.toml`'s
+build-system requirements so `pip install -e .` attempts it
+automatically). `world/resources.py`'s `tick` now dispatches to
+`_tick_native` when the extension is importable, `_tick_python`
+(byte-for-byte the pre-v0.72.0 implementation) otherwise — chosen as
+the first module because it's self-contained pure arithmetic over a
+small key/value shape with no cross-module state, and because R4 had
+already isolated its hot loop into a working-set iteration that was
+straightforward to mirror in C++ exactly. Verified via a standalone
+3000-tick equivalence script (randomized season changes + depletion
+events) hashing final node-amount state to a SHA-256 — native and
+Python paths matched exactly — plus the existing 4000-tick
+`llm_enabled=False` engine soak run with the extension loaded, to
+confirm the import/dispatch wiring doesn't disturb anything else in the
+tick loop.
+
+**Gotcha that cost a debugging round-trip:** the first implementation
+passed the node-amounts dict to C++ as `std::unordered_map<long long,
+double> &` expecting pybind11 to mutate the caller's Python dict in
+place. It doesn't — pybind11's default STL casters *copy* a Python
+container into a temporary C++ object on the way in; mutating that
+temporary has no effect on the Python side. This compiled and ran
+without error, silently producing wrong results (a bug the equivalence
+hash caught immediately, which is the whole point of writing the check
+before trusting the port). Fixed by having the C++ function return the
+updated mapping instead of mutating a reference parameter. Recorded as
+a standing gotcha for the next module: never rely on "pass a container
+by reference and mutate it" across the pybind11 boundary — return the
+new value.
+
+**Scope discipline for what's NOT done.** `population.py`/`engine.py`/
+`buildings.py` — the orchestration layer, ~8,400 lines combined,
+touching dozens of other modules and the LLM job scheduler — are
+explicitly not attempted here and are not simple mechanical
+translations the way a self-contained numeric loop is; porting them
+meaningfully means redesigning around C++ ownership semantics for
+what's currently Python's reference/GC model, which is a redesign
+project, not a port, and needs its own dedicated-session scoping (see
+`docs/REFACTOR-2026-07.md`, R5, which also ties this back to R1 — a
+mixin split first would make the orchestration/hot-loop boundary
+cleaner to extract from). Two more self-contained candidates
+(`world/weather.py`'s grid pass, `Population._nearest_resource`) are
+queued next in R5, same one-module-at-a-time discipline.
+
+**`/diagnostics.system_memory` backend-agnostic fix.** Its process
+scan matched only `"ollama"` in `/proc/<pid>/comm` — with llama.cpp now
+the default, this would have silently reported zero LLM-server memory
+on every fresh install. Widened to also match `llama-server`/
+`llama-cli`/`llama.cpp`; the JSON key stays `ollama_processes` for
+backward compatibility with the existing UI/README rather than a
+rename that would touch more surface for no functional benefit.

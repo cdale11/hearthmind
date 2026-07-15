@@ -16,7 +16,7 @@ import signal
 
 from hearthmind.config import Config
 from hearthmind.llm import world_genesis
-from hearthmind.llm.client import OllamaClient
+from hearthmind.llm.client import build_llm_client
 from hearthmind.persistence.database import is_fresh, open_db, write_world_meta
 from hearthmind.simulation.engine import SimulationEngine
 
@@ -53,8 +53,17 @@ def parse_args(argv: list[str] | None = None) -> Config:
                          help="Disable the Ollama cognition/dialogue/culture layer (on by default as of "
                               "E2; every LLM call still falls back to deterministic behavior if Ollama "
                               "isn't reachable, so this is only needed for a fully offline run).")
-    parser.add_argument("--llm-host", default=Config.llm_host, help="Ollama server URL.")
-    parser.add_argument("--llm-model", default=Config.llm_model, help="Ollama model name (must be pulled already).")
+    parser.add_argument("--llm-backend", choices=["llamacpp", "ollama"], default=Config.llm_backend,
+                         help="Which local LLM server to talk to (v0.72.0). 'llamacpp' (default) talks to a "
+                              "llama-server process (see README, 'Running the LLM (llama.cpp)'); 'ollama' keeps "
+                              "the original Ollama HTTP client for anyone with an existing Ollama setup.")
+    parser.add_argument("--llm-host", default=Config.llm_host, help="Ollama server URL (only used with --llm-backend=ollama).")
+    parser.add_argument("--llm-llamacpp-host", default=Config.llm_llamacpp_host,
+                         help="llama-server URL (only used with --llm-backend=llamacpp, the default).")
+    parser.add_argument("--llm-model", default=Config.llm_model,
+                         help="Model name/tag. For --llm-backend=ollama this must already be `ollama pull`ed; "
+                              "for llamacpp it's informational only (llama-server loads one GGUF file at "
+                              "startup via --model, see README) but still sent in the request body.")
     parser.add_argument("--llm-timeout", type=float, default=Config.llm_timeout_seconds,
                          help="Seconds before an LLM call falls back.")
     parser.add_argument("--llm-max-concurrent", type=int, default=Config.llm_max_concurrent,
@@ -102,7 +111,9 @@ def parse_args(argv: list[str] | None = None) -> Config:
         initial_population=args.initial_population,
         db_path=args.db,
         llm_enabled=not args.llm_disabled,
+        llm_backend=args.llm_backend,
         llm_host=args.llm_host,
+        llm_llamacpp_host=args.llm_llamacpp_host,
         llm_model=args.llm_model,
         llm_timeout_seconds=args.llm_timeout,
         llm_max_concurrent=args.llm_max_concurrent,
@@ -126,12 +137,7 @@ async def _resolve_genesis_seed(config: Config) -> tuple[int, str]:
     fallback_hint = random.SystemRandom().randrange(1, 2**31 - 1)
     if config.llm_enabled:
         try:
-            client = OllamaClient(
-                host=config.llm_host, model=config.llm_model, timeout_seconds=config.llm_timeout_seconds,
-                num_ctx=config.llm_num_ctx, num_predict=config.llm_num_predict,
-                keep_alive=config.llm_keep_alive, use_mmap=config.llm_use_mmap, num_gpu=config.llm_num_gpu,
-                num_thread=config.llm_num_thread,
-            )
+            client = build_llm_client(config)
             result = await asyncio.wait_for(
                 asyncio.to_thread(client.generate_json, world_genesis.build_prompt(), world_genesis.SYSTEM_PROMPT),
                 timeout=config.llm_timeout_seconds + 5.0,

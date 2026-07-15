@@ -20,7 +20,7 @@ import time
 from collections import deque
 from typing import Callable
 
-from hearthmind.llm.client import OllamaClient, OllamaUnavailable
+from hearthmind.llm.client import LlamaCppClient, LLMUnavailable, OllamaClient
 
 logger = logging.getLogger("hearthmind.llm")
 
@@ -31,7 +31,7 @@ stays bounded on a long soak run."""
 
 
 class CognitionRunner:
-    def __init__(self, client: OllamaClient | None, max_concurrent: int):
+    def __init__(self, client: OllamaClient | LlamaCppClient | None, max_concurrent: int):
         self.client = client
         self.max_concurrent = max(1, max_concurrent)
         self._semaphore = asyncio.Semaphore(self.max_concurrent)
@@ -129,7 +129,7 @@ class CognitionRunner:
                 self.calls_timed_out += 1
                 logger.warning("LLM call timed out, using deterministic fallback: %s", exc)
                 return fallback(), True
-            except OllamaUnavailable as exc:
+            except LLMUnavailable as exc:
                 self.calls_errored += 1
                 logger.warning("LLM call failed, using deterministic fallback: %s", exc)
                 return fallback(), True

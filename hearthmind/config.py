@@ -107,7 +107,29 @@ class Config:
     is only needed for a fully offline/deterministic run (e.g. a fast
     local smoke test). See docs/DECISIONS.md, E2."""
 
+    llm_backend: str = "llamacpp"
+    """Which local LLM server this project talks to: `"llamacpp"`
+    (default, v0.72.0) or `"ollama"`. Switched the default from Ollama to
+    llama.cpp's own `llama-server` for the same reason documented in the
+    earlier "llama.cpp migration" evaluation (docs/DECISIONS.md) that had
+    previously declined this move: Ollama's runner *is* llama.cpp under
+    the hood, so the model-memory math (weights + KV cache) is identical
+    either way — but Ollama adds its own management daemon on top
+    (~100-300MB baseline RSS) and its own opinions about mmap/
+    keep_alive/OLLAMA_NUM_PARALLEL that this project has spent several
+    releases fighting through per-request options and README env-var
+    workarounds (see llm_num_ctx's docstring). Talking to `llama-server`
+    directly removes that whole layer and exposes context size, KV-cache
+    quantization, thread count, and GPU layer count as direct process
+    launch flags instead of environment variables this project can't set
+    on the user's behalf. `OllamaClient` (hearthmind/llm/client.py) is
+    unchanged and fully supported via `llm_backend="ollama"` for anyone
+    with an existing setup. See README, "Running the LLM (llama.cpp)"."""
     llm_host: str = "http://localhost:11434"
+    """Ollama server URL — only consulted when `llm_backend="ollama"`."""
+    llm_llamacpp_host: str = "http://localhost:8080"
+    """`llama-server` URL — only consulted when `llm_backend="llamacpp"`
+    (the default). 8080 is `llama-server`'s own default port."""
     llm_model: str = "qwen3:4b-instruct"
     """Changed from `qwen3.5:2b` in v0.65.2 per a live user report: on
     their real 8GB machine, `qwen3.5:2b` showed memory-leak-like growth

@@ -21,6 +21,11 @@ dist/
 build/
 *.egg-info/
 
+# Native extension build output (hearthmind/_native.*.so) — compiled by
+# `python3 setup.py build_ext --inplace`, platform-specific, never
+# committed. See README, "Native C++ extension (optional)".
+*.so
+
 # SQLite runtime (server default is world.sqlite3 — cover the -wal/-shm
 # sidecars too)
 *.db

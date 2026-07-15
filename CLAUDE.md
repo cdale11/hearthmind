@@ -1,8 +1,10 @@
 # Hearthmind — Project Memory
 
-Persistent, always-running town simulation. Python, SQLite persistence,
-local LLM via Ollama. Repo `cdale11/hearthmind`, branch
-`claude/hearthmind-overview-5bekay`.
+Persistent, always-running town simulation. Python (+ an optional
+incremental C++ extension, `hearthmind._native`, see v0.72.0 below),
+SQLite persistence, local LLM via llama.cpp (`llama-server`, default
+since v0.72.0) or Ollama (`Config.llm_backend`, both fully supported).
+Repo `cdale11/hearthmind`, branch `claude/hearthmind-overview-5bekay`.
 
 This file holds the *standing rules and current state*. The full
 narrative history (root causes, measurements, per-version rationale)
@@ -259,6 +261,56 @@ Single-writer tick loop + queued interventions; fallback-on-every-LLM-
 call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
+
+## Current state (v0.72.0)
+
+Explicit user directive: port hot engine code to C++, switch the
+default LLM backend to llama.cpp, tune for AMD Ryzen iGPU (Radeon
+740M) offload. This pushes directly against two standing findings
+recorded elsewhere in this file (C/C++ port "evaluated, recommended
+against"; llama.cpp migration "evaluated, recommended against" — both
+still true on their own narrow terms) — flagged explicitly to the user
+before starting, since this project has no automated test suite and a
+full-engine C++ rewrite in one pass has no equivalence-proof net the
+existing SHA-256 event-hash harness gives a scoped change. User chose
+to proceed with the full-port direction anyway; execution is scoped as
+a sequence of provably-equivalent increments, same discipline as every
+other behavior-preserving change here (R2/R4), not a single rewrite.
+
+**LLM backend:** `Config.llm_backend` — `"llamacpp"` (new default) or
+`"ollama"` (unchanged, still fully supported). `LlamaCppClient` talks to
+`llama-server`'s OpenAI-compatible endpoint with grammar-constrained
+JSON output (`response_format: json_object` — structurally stronger
+than Ollama's `"format": "json"` hint). `build_llm_client(config)` is
+now the single factory both call sites (`engine.py`, `server.py`) use,
+closing off the "two call sites drift on which fields a client
+consumes" bug class the v0.63.0 audit already found once. Default model
+tag/GGUF unchanged (`qwen3:4b-instruct`); `--llm-num-ctx`/`--ctx-size`
+1280, `--parallel 1`/`llm_max_concurrent=2`, `q8_0` KV cache — same
+tuned values, now expressed as `llama-server` launch flags in the
+README instead of `OLLAMA_*` env vars. **AMD iGPU Vulkan instructions
+are written but NOT verified against real Radeon 740M/780M hardware**
+(this execution environment has no GPU) — report back what you observe.
+
+**Native C++ port:** `hearthmind._native` (pybind11, `cpp/src/`,
+optional — every ported function has a pure-Python fallback, `pip
+install -e .` / the extension failing to build never breaks anything).
+Module 1 shipped: `world/resources.py`'s `ResourceGrid.tick`, verified
+byte-identical via a 3000-tick standalone hash-equivalence script plus
+a 4000-tick engine soak. **Standing gotcha for the next module:**
+pybind11's default STL casters copy Python containers rather than bind
+them by reference — "mutate this dict in place from C++" silently
+no-ops; return the updated value instead. `population.py`/`engine.py`/
+`buildings.py` (the orchestration layer) are explicitly NOT ported and
+are not simple mechanical translations — see `docs/REFACTOR-2026-07.md`
+R5 for the full scoping and what's queued next (weather grid pass,
+`_nearest_resource`). **Do not treat this as a completed full port** —
+it is module 1 of an open-ended incremental effort.
+
+**Deferred from this batch** (explicit user ask, not started — see
+`docs/REFACTOR-2026-07.md` for why a fresh session is the right unit):
+LLM-authored-NPC blue-triangle map markers + hover/click surfacing;
+NPC-NPC dialogue quality improvements (both LLM and deterministic).
 
 ## Current state (v0.71.0)
 

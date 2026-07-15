@@ -101,16 +101,44 @@ hearthmind/
   server.py              # CLI entrypoint that runs the engine forever
   inspect_world.py       # CLI to print a summary of the saved world state
   experiment.py          # headless seed-batch runs -> per-sim-day metrics CSVs
+cpp/
+  src/                   # C++ sources for hearthmind._native (pybind11 extension)
+setup.py                 # builds hearthmind._native (optional — see below)
 ```
+
+## Native C++ extension (optional)
+
+Started in v0.72.0 as an incremental port of the engine's hottest
+per-tick loops into C++ (see `docs/DECISIONS.md`, "Native extension
+port"). **Optional and additive** — every ported function has a
+byte-identical pure-Python fallback in `hearthmind/`, so the simulation
+runs correctly with or without a compiler. `hearthmind/world/resources.py`'s
+`ResourceGrid.tick` (regrowing foraged/mined/fished nodes) is the first
+module ported; more hot loops move over incrementally in future
+sessions, one provably-equivalent module at a time (see "Refactor
+status" below).
+
+```bash
+pip install pybind11              # build-time only, not a runtime dependency
+python3 setup.py build_ext --inplace
+```
+
+This builds `hearthmind/_native.*.so`. If it fails (no compiler, no
+pybind11, unsupported platform) `pip install -e .` / running the
+simulation still works — you'll just be on the pure-Python path for the
+ported modules, exactly as before v0.72.0. `pip install -e .` also
+attempts this build automatically via `pyproject.toml`'s build-system
+requirement on `pybind11`.
 
 ## Running it
 
-> **On 8GB RAM and Ollama is swapping?** Jump to
-> [⚠️ Running on 8GB RAM](#-running-on-8gb-ram--stop-ollama-from-swapping-read-this-first)
-> first — the fix is mostly a handful of `OLLAMA_*` environment variables
-> set before `ollama serve`, and it's the difference between a smooth run
-> and constant swap. Or run `--llm-disabled` for a fully offline,
-> zero-Ollama world.
+> **New to this repo?** The LLM backend defaults to **llama.cpp**
+> (`llama-server`) as of v0.72.0 — jump to
+> [Running the LLM (llama.cpp)](#running-the-llm-llamacpp) to set it up,
+> or [⚠️ Running on 8GB RAM](#-running-on-8gb-ram--stop-the-llm-server-from-swapping-read-this-first)
+> if memory is tight. Prefer Ollama? Pass `--llm-backend ollama` — it's
+> still fully supported, see [Alternative: Ollama backend](#alternative-ollama-backend).
+> Or run `--llm-disabled` for a fully offline, zero-LLM world.
 
 ```bash
 # Start (or resume) the world. Ctrl+C for a graceful, saved shutdown.
@@ -143,17 +171,22 @@ Useful flags on `server.py`:
 - `--width / --height` — terrain grid size (default 64x64).
 - `--initial-population INT` — inhabitants spawned when a world is first
   created (default 12; only used the first time, like `--seed`).
-- `--llm-disabled` — turn off the Ollama cognition/dialogue/culture layer
+- `--llm-disabled` — turn off the LLM cognition/dialogue/culture layer
   (on by default as of E2; see below). Every LLM call still has a
   deterministic fallback, so this flag is only needed for a fully
   offline/deterministic run.
-- `--llm-host URL` (default `http://localhost:11434`), `--llm-model NAME`
-  (default `qwen3:4b-instruct`), `--llm-timeout SECONDS` (default 60 —
-  CPU inference under contention on 8GB+zram can be slower than a quiet
-  benchmark, see `docs/DECISIONS.md` D5), `--llm-max-concurrent INT`
-  (default 2 — deliberately low for 8GB-memory headroom; every CLI
-  default mirrors its `Config` attribute, see the v0.63.0 audit) — all
-  runtime settings, safe to change between runs.
+- `--llm-backend {llamacpp,ollama}` (default `llamacpp`, v0.72.0) — which
+  local LLM server to talk to; see
+  [Running the LLM (llama.cpp)](#running-the-llm-llamacpp).
+  `--llm-llamacpp-host URL` (default `http://localhost:8080`) for the
+  llama.cpp backend, `--llm-host URL` (default `http://localhost:11434`)
+  for the Ollama backend, `--llm-model NAME` (default `qwen3:4b-instruct`),
+  `--llm-timeout SECONDS` (default 60 — CPU inference under contention
+  on 8GB+zram can be slower than a quiet benchmark, see
+  `docs/DECISIONS.md` D5), `--llm-max-concurrent INT` (default 2 —
+  deliberately low for 8GB-memory headroom; every CLI default mirrors its
+  `Config` attribute, see the v0.63.0 audit) — all runtime settings, safe
+  to change between runs.
 - `--api-disabled` — turn off the browser interface (on by default; see
   below). `--api-host` (default `0.0.0.0`), `--api-port` (default `8765`).
 
@@ -162,59 +195,36 @@ With the defaults, 1 real second = 15 sim-minutes, so a full sim day
 turn over in a single sitting while developing, but every constant is a flag
 so this is easy to slow down later for a "real" long-running deployment.
 
-## LLM cognition layer (Ollama)
+## LLM cognition layer
 
 On by default as of E2 — agent goals, the seasonal chronicle, yearly
 culture/traditions, and NPC-to-NPC dialogue are all LLM-authored when
-Ollama is reachable. The simulation stays fully functional without
-Ollama installed (`fallback_goal`/`fallback_summary`/`fallback_tradition`/
-`fallback_dialogue` stand in for it, see `docs/DECISIONS.md` B1-B3, E1,
-E2) — nothing raises or blocks a tick if the LLM is disabled,
-unreachable, or times out. The default model, `qwen3:4b-instruct`, was
-set per a live user report on their own 8GB machine (see the memory-
-tuning section below) — it uses less real memory than the smaller
-`qwen3.5:2b` it replaced, leaving substantial 8GB+zram headroom for the
-simulation
-process itself — if a live run shows 2B is too weak for coherent
-town-brain/dialogue output, size up (e.g. `--llm-model qwen3:4b`) and
-let the maintainers know. Qwen3.x is a hybrid "thinking" model; this
-project always disables that (`"think": false`, plus a defensive
-`<think>`-block strip) since every prompt here wants one strict-JSON
-answer. See `docs/DECISIONS.md`, "LLM-as-brain batch," B4, and the
-real-calendar/genesis-seed and world-model/beliefs follow-ups.
+the local LLM server is reachable. The simulation stays fully functional
+without it running (`fallback_goal`/`fallback_summary`/`fallback_
+tradition`/`fallback_dialogue` stand in, see `docs/DECISIONS.md` B1-B3,
+E1, E2) — nothing raises or blocks a tick if the LLM is disabled,
+unreachable, or times out.
 
-```bash
-# 1. Install and start Ollama (see https://ollama.com), then pull a model:
-ollama pull qwen3:4b-instruct
+**Two backends, `Config.llm_backend` / `--llm-backend`:**
 
-# 2. Run the server (LLM is on by default):
-python3 -m hearthmind.server --db world.sqlite3
+- **`llamacpp` (default, v0.72.0)** — talks to `llama-server`, llama.cpp's
+  own HTTP server. See [Running the LLM (llama.cpp)](#running-the-llm-llamacpp)
+  below for setup.
+- **`ollama`** — the original backend, still fully supported for anyone
+  with an existing Ollama install. See
+  [Alternative: Ollama backend](#alternative-ollama-backend).
 
-# To run fully offline/deterministic instead:
-python3 -m hearthmind.server --db world.sqlite3 --llm-disabled
-```
+The default model tag/GGUF is `qwen3:4b-instruct` either way (set per a
+live user report — see "Model choice" below); `-instruct` means
+non-thinking by design, and this project always disables hybrid
+"thinking" output regardless (`"think": false` for Ollama, plus a
+defensive `<think>`-block strip applied by both clients) since every
+prompt here wants one strict-JSON answer.
 
-With it enabled, each agent's daily goal (wander/forage/socialize/rest)
-and the seasonal chronicle entry are LLM-authored instead of rule-based;
-everything else about the simulation is unaffected. Any LLM failure
-(unreachable server, timeout, malformed response) transparently falls
-back to the same deterministic behavior used when it's disabled — see
-`hearthmind/llm/jobs.py`.
-
-**Verified against a real Ollama instance:** confirmed working on real
-hardware — `--agents` output showed genuine, contextual, weather-aware
-LLM-authored reasoning (e.g. *"To gather food before hunger increases in
-rainy weather"*), not the canned fallback text. That same real run also
-surfaced a severe bug (`CRITICAL_HUNGER_THRESHOLD`/D3 below) that no unit
-test had caught: the LLM correctly recognized starving agents and set
-`goal=forage`, but the deterministic execution layer ignored it because
-resting blocked foraging entirely, with nothing able to interrupt rest
-for a hunger emergency — the LLM's judgment was right and irrelevant.
-Fixed in D3; see `docs/DECISIONS.md` for the full story. This is a good
-demonstration of why "verified" means actually running it, not just
-passing tests against a fake server.
-
-To check it yourself:
+Any LLM failure (unreachable server, timeout, malformed response)
+transparently falls back to the same deterministic behavior used when
+it's disabled — see `hearthmind/llm/jobs.py`. To check it's actually
+working:
 
 ```bash
 python3 -m hearthmind.inspect_world --db world.sqlite3 --agents
@@ -223,173 +233,222 @@ python3 -m hearthmind.inspect_world --db world.sqlite3 --agents
 for each inhabitant's current `goal`/`goal_reason`, and watch the
 `Recent events` list for `chronicle` entries — see `docs/TESTING.md`.
 
-### ⚠️ Running on 8GB RAM — stop Ollama from swapping (read this first)
+## Running the LLM (llama.cpp)
 
-If Ollama is pushing your machine into swap, **the fix is almost
-entirely Ollama *server* configuration, not this app.** Here's why: on
-an 8GB box the memory Ollama holds resident is dominated by two things —
-the model **weights** (loaded once, resident while the model is warm)
-and the **KV cache**, whose size is `num_ctx × OLLAMA_NUM_PARALLEL ×
-(bytes per element)`. That KV cache is allocated *up front at the full
-`num_ctx`*, regardless of how short the actual prompts are. Ollama's
-default `OLLAMA_NUM_PARALLEL` can be **4**, so out of the box it may
-reserve *four* full context windows of KV cache — often 2-4 GB — on top
-of the ~2.6 GB of weights. That's what tips an 8GB machine into swap,
-and **reducing how often Hearthmind calls the model does not shrink it**
-(the v0.70.0 core-cast fix cut call *volume*, which matters for
-sustained CPU load, but resident weights + KV cache sit there while the
-model is warm no matter how rarely you call it).
+llama.cpp talked to directly, rather than through Ollama's management
+daemon, for three reasons: it removes Ollama's own ~100-300MB daemon
+overhead and its opinionated defaults (mmap heuristics, keep-alive,
+`OLLAMA_NUM_PARALLEL`) this project spent several releases fighting
+around; it exposes context size, KV-cache quantization, thread count,
+and GPU layer offload as direct process flags instead of environment
+variables set on the user's behalf; and it's a straightforward path to
+Vulkan iGPU offload (see the AMD Radeon 740M section below), which
+Ollama's bundled ROCm build didn't recognize on this hardware (see
+`docs/DECISIONS.md`, "iGPU offload investigation").
 
-**Do this — set these before `ollama serve`, then restart Ollama:**
+**1. Build llama.cpp** (CPU backend always built; add Vulkan for iGPU
+offload — see below):
 
 ```bash
-export OLLAMA_NUM_PARALLEL=1        # ONE KV-cache slot, not 4 — the single biggest win
-export OLLAMA_KV_CACHE_TYPE=q8_0    # 8-bit KV cache: ~half the KV memory, negligible quality loss
-export OLLAMA_FLASH_ATTENTION=1     # required for q8_0 KV; set both together
-export OLLAMA_MAX_LOADED_MODELS=1   # never hold two models resident at once
-export OLLAMA_KEEP_ALIVE=3m         # release the model during real lulls
-# then (re)start the server:
-ollama serve
+git clone https://github.com/ggml-org/llama.cpp
+cd llama.cpp
+cmake -B build -DGGML_NATIVE=ON
+cmake --build build --config Release -j$(nproc) --target llama-server
 ```
 
-`OLLAMA_NUM_PARALLEL=1` is safe with Hearthmind: `Config.llm_max_
-concurrent=2` is our scheduling floor (two calls can be *in flight* from
-our side), but with `NUM_PARALLEL=1` Ollama simply serves them one at a
-time using a single KV slot — the second call waits ~17-20s longer, no
-richness is lost. Combined with `q8_0` KV, this typically cuts Ollama's
-KV cache by **~8×** versus the default (4 slots × f16).
+**2. Get a Qwen3-4B-Instruct GGUF.** Search Hugging Face for a GGUF
+quantization of `Qwen3-4B-Instruct` (community accounts like `bartowski`
+and `unsloth` publish these routinely) and download a `Q4_K_M` file
+(~2.6GB, matches the memory profile the `qwen3:4b-instruct` default was
+tuned against) — or a smaller quant if you're following the size-down
+path below.
 
-**Already done for you on the app side (v0.71.1):** `llm_num_ctx` was
-lowered `2048 → 1280` and `llm_num_predict` `512 → 384` after *measuring*
-the real prompts (the biggest, the monthly chronicle, peaks at ~1000
-tokens including generation — 1280 fits it with margin), and the
-recent-events fed into prompts was trimmed `50 → 30`. That shrinks our
-KV footprint ~37% on its own, on top of whatever the env vars save. You
-don't need to touch these, but if you *raise* `--llm-num-ctx` you'll
-grow Ollama's KV cache proportionally.
-
-**If it still swaps after the env vars — size the model down.** The
-model weights are the other big resident chunk (~2.6 GB for
-`qwen3:4b-instruct`). A smaller model roughly halves that:
+**3. Run `llama-server`, tuned for 8GB CPU-only hardware:**
 
 ```bash
-ollama pull qwen3:1.7b
-python3 -m hearthmind.server --db world.sqlite3 --llm-model qwen3:1.7b
+./build/bin/llama-server \
+  --model /path/to/Qwen3-4B-Instruct-Q4_K_M.gguf \
+  --ctx-size 1280 \
+  --parallel 1 \
+  --cache-type-k q8_0 --cache-type-v q8_0 \
+  --threads $(nproc) \
+  --no-mmproj \
+  --port 8080
 ```
 
-`qwen3:1.7b` (~1.4 GB) is the documented size-down path. It's a hybrid
-"thinking" model, which Hearthmind already handles (`"think": false` +
-a `<think>`-block strip on every call), so it behaves like an instruct
-model here. Town-brain/dialogue prose will be a little less polished
-than 4B; that's the trade for headroom. You can also shrink the
-LLM-driven cast with `--llm-core-cast-size 8` (fewer deep NPCs, fewer
-concurrent-ish calls) — though on 8GB the env vars + model size are the
-levers that actually move resident memory.
+- `--ctx-size 1280` matches `Config.llm_num_ctx` — this project's own
+  measured worst-case prompt size (~1000 tokens peak); llama.cpp
+  allocates its KV cache at this size up front, same as Ollama's
+  `num_ctx`, so this is the single biggest memory knob here too.
+- `--parallel 1` — one KV-cache slot, matching the `OLLAMA_NUM_PARALLEL=1`
+  guidance below; safe against `Config.llm_max_concurrent=2` the same
+  way (a second in-flight request just waits its turn on the one slot).
+- `--cache-type-k/-v q8_0` — 8-bit KV cache, ~half the memory of the f16
+  default, same trade as Ollama's `OLLAMA_KV_CACHE_TYPE=q8_0`.
+- `--threads $(nproc)` — every CPU core for inference ("maximize CPU,
+  minimize memory": the tick loop itself is nowhere near CPU-bound, ~1ms
+  against a 1000ms budget, so idle cores should go to the one thing that
+  actually takes wall-clock time). `server.py` already defaults
+  `--llm-num-thread` this way for its own diagnostics/documentation
+  purposes even though llama.cpp's thread count is a server flag, not a
+  per-request option.
+- `--no-mmproj` — explicitly disables multimodal/vision (mmproj)
+  loading. Hearthmind never sends images, so this is free memory back
+  with zero functionality lost.
+- `--port 8080` — matches `Config.llm_llamacpp_host` default
+  (`http://localhost:8080`).
+
+**4. Run Hearthmind** (llama.cpp is the default backend, nothing extra
+needed):
+
+```bash
+python3 -m hearthmind.server --db world.sqlite3
+
+# To run fully offline/deterministic instead:
+python3 -m hearthmind.server --db world.sqlite3 --llm-disabled
+```
+
+### AMD Ryzen iGPU offload (Radeon 740M / 780M, Vulkan)
+
+Ollama's bundled ROCm build didn't recognize this hardware (gfx1103) by
+default — llama.cpp's Vulkan backend is a more direct path since it
+doesn't depend on ROCm's own hardware allowlist:
+
+```bash
+# Vulkan SDK + loader must be installed first (distro package, e.g.
+# `vulkan-tools mesa-vulkan-drivers` on Debian/Ubuntu with Mesa's RADV
+# driver, which supports RDNA2/RDNA3 iGPUs including the 740M/780M).
+vulkaninfo --summary   # confirm the iGPU is visible to Vulkan before building
+
+cmake -B build -DGGML_VULKAN=ON
+cmake --build build --config Release -j$(nproc) --target llama-server
+
+./build/bin/llama-server \
+  --model /path/to/Qwen3-4B-Instruct-Q4_K_M.gguf \
+  --ctx-size 1280 --parallel 1 --cache-type-k q8_0 --cache-type-v q8_0 \
+  --no-mmproj --port 8080 \
+  --n-gpu-layers 999   # offload every layer Vulkan can fit; lower this if VRAM (shared system RAM) is tight
+```
+
+`Config.llm_num_gpu` (Ollama's own GPU-layer option) has no llama.cpp
+equivalent needed here since `--n-gpu-layers` is a server launch flag,
+not a per-request one — set it once at server startup. iGPU memory is
+shared with system RAM on this hardware, so offloading doesn't free up
+RAM the way a discrete GPU would — it mainly trades CPU time for GPU
+time, which still helps the "maximize CPU, minimize memory" goal
+indirectly (faster calls finish sooner, shortening how long the KV
+cache stays allocated). **Not verified on real Radeon 740M hardware by
+this project** — the flags above are correct llama.cpp Vulkan usage, but
+report back what you observe (does `--n-gpu-layers 999` actually load,
+does it help wall-clock latency) so this section can be corrected
+against real measurements rather than left as untested guidance.
+
+### ⚠️ Running on 8GB RAM — stop the LLM server from swapping (read this first)
+
+If the LLM server is pushing your machine into swap, **the fix is
+almost entirely server configuration, not this app.** On an 8GB box the
+memory it holds resident is dominated by two things — the model
+**weights** (loaded once, resident while the model is warm) and the
+**KV cache**, whose size is `ctx_size × parallel_slots × bytes_per_
+element`. That KV cache is allocated *up front at the full context
+size*, regardless of how short the actual prompts are. **Reducing how
+often Hearthmind calls the model does not shrink it** (the v0.70.0
+core-cast fix cut call *volume*, which matters for sustained CPU load,
+but resident weights + KV cache sit there while the model is warm no
+matter how rarely you call it).
+
+**llama.cpp (default):** the launch command in the section above
+already applies every lever that matters — `--ctx-size 1280`,
+`--parallel 1`, `--cache-type-k/-v q8_0`. Combined, that's roughly an
+**8×** smaller KV cache than an untuned launch (`--ctx-size 2048+
+--parallel 4`, f16 cache). If it still swaps, size the model down (next
+section) before touching anything else.
+
+**Already done for you on the app side (v0.71.1):** `Config.llm_num_ctx`
+was lowered `2048 → 1280` and `Config.llm_num_predict` `512 → 384` after
+*measuring* the real prompts (the biggest, the monthly chronicle, peaks
+at ~1000 tokens including generation — 1280 fits it with margin), and
+the recent-events fed into prompts was trimmed `50 → 30`. That shrinks
+the KV footprint ~37% on its own, on top of the server-launch flags. If
+you raise `--ctx-size`/`--llm-num-ctx` you'll grow the KV cache
+proportionally — re-measure prompts first.
+
+**If it still swaps — size the model down.** The model weights are the
+other big resident chunk (~2.6GB for `qwen3:4b-instruct` at Q4_K_M). A
+smaller quant roughly halves that — search Hugging Face for a
+`Qwen3-1.7B` GGUF (~1.4GB at Q4_K_M) and point `--model` at it (llama.cpp)
+or run `ollama pull qwen3:1.7b` + `--llm-model qwen3:1.7b` (Ollama
+backend). `qwen3:1.7b` is a hybrid "thinking" model — both clients'
+`<think>`-stripping handles this correctly, so it behaves like an
+instruct model in practice. Town-brain/dialogue prose will be a little
+less polished than 4B; that's the trade for headroom. You can also
+shrink the LLM-driven cast with `--llm-core-cast-size 8` (fewer deep
+NPCs, fewer concurrent-ish calls), though the launch flags + model size
+are the levers that actually move resident memory.
 
 **Confirm what's actually resident** while a run is live:
 
 ```bash
-ollama ps                              # shows the loaded model's real size + whether it fits RAM
+ps aux | grep llama-server            # RSS of the actual llama.cpp process
 # or, from the running Hearthmind server, the attributed breakdown:
 curl -s localhost:8765/diagnostics | python3 -m json.tool | grep -A20 system_memory
 ```
 
-`/diagnostics.system_memory` reports this process's RSS/swap and each
-Ollama process's RSS/swap separately, so you can see exactly where the
-memory is going before changing anything.
+`/diagnostics.system_memory` reports this process's RSS/swap and the
+LLM server process's RSS/swap separately (matches on `ollama`,
+`llama-server`, `llama-cli`, or `llama.cpp` in the process name — same
+report either backend) so you can see exactly where the memory is going
+before changing anything.
 
-### Use more CPU, not more memory (`--llm-num-thread`, v0.65.0)
+### Model choice history
 
-The engine's own tick loop is nowhere near CPU-bound — ~0.9-1.2ms
-against a 1000ms-per-tick budget (see `docs/DECISIONS.md`'s C/C++-port
-evaluation) — so "maximize CPU usage" has no lever on the Python side;
-burning more CPU there would buy nothing. The real CPU-bound work is
-each Ollama inference call, and on CPU-only hardware Ollama's default
-thread count is often conservative, leaving cores idle mid-call. This
-is a genuinely *free* trade against memory: `--llm-num-thread` (default
-`os.cpu_count()`, i.e. every core on the machine) tells Ollama to use
-all available cores for a single call, finishing it faster — which
-shortens the window that call's KV-cache allocation actually holds
-memory. Unlike raising `--llm-max-concurrent`, this adds zero
-concurrent KV-cache buffers; it just does the same work faster. Pass
-`--llm-num-thread 0` to leave Ollama's own heuristic in charge instead
-(e.g. if something else on the machine also needs CPU headroom).
+The default model tag, `qwen3:4b-instruct`, was set in v0.65.2 per a
+live user report on real 8GB hardware: `qwen3.5:2b` (not a real
+released Qwen tag) showed memory-leak-like growth and swapping, while
+the larger, official `qwen3:4b-instruct` stayed under 4.5GB with no
+swapping — counter-intuitive on paper, but this project trusts a live
+environment report over training-data assumptions about model
+naming/behavior. If `system_memory` still shows pressure on
+`qwen3:4b-instruct` after every server-side lever above, try
+`qwen3:1.7b` before going smaller (`qwen3:0.6b` exists but noticeably
+degrades multi-field JSON decisions like town-brain/disputes/beliefs —
+last resort only). Dialogue quality is the output most sensitive to
+model size (`_is_sane_line`'s leakage/length rejection fires more on
+weaker models) — see `docs/DECISIONS.md` for the full v0.65.2/v0.66.0
+narrative if you're deciding whether to size down. Report back what you
+observe rather than silently switching, same standing policy as always.
 
-**Diagnosing before changing anything:** as of v0.65.0,
-`GET /diagnostics` (and the browser dev console) includes a
-`system_memory` section attributing memory live — Hearthmind's own
-RSS/swap, every Ollama process's RSS/swap, and system-wide
-MemAvailable/swap-used. Check it during a pressure episode: if the
-Ollama runner's `swap_mb` dominates, the levers above (and the model
-choice below) are the fix; if `mem_available_mb` is low while Ollama is
-modest, something else on the machine (often the browser tab itself) is
-the real tenant. v0.65.0 also staggered the monthly LLM jobs across
-different days of the month instead of firing all ~10 in one burst on
-every month boundary — the "sparse but sudden" monthly swap spike came
-from that cluster, not from any steady leak.
+### Alternative: Ollama backend
 
-**Model choice (v0.65.2 update):** the default is now
-`qwen3:4b-instruct`, changed from `qwen3.5:2b` on the strength of a
-live user report — `qwen3.5:2b` showed memory-leak-like growth and
-swapping on real 8GB hardware, while the larger `qwen3:4b-instruct`
-stayed under 4.5GB with no swapping. **`qwen3.5:2b` is no longer
-recommended** on this project: it isn't a real released Qwen tag (Qwen
-releases are Qwen, 1.5, 2, 2.5, 3 — there is no "3.5"), so whatever it
-resolved to locally was never a verified-good quantization the way an
-official tag is; treat its apparent leak as a property of that specific
-local blob, not of small models in general. If `system_memory` still
-shows pressure on `qwen3:4b-instruct`, try `qwen3:1.7b` or
-`qwen3:1.7b-instruct` (`ollama pull qwen3:1.7b`, then
-`--llm-model qwen3:1.7b`) before going smaller — both are official
-Qwen3 tags. Note the non-`-instruct` `qwen3:1.7b` is a hybrid-thinking
-model, so `OllamaClient`'s `"think": false` handling becomes load-
-bearing again for that one. `qwen3:0.6b` exists below that but
-noticeably degrades the multi-field JSON decisions (town brain,
-disputes, beliefs) — try it only as a last resort. Report back with
-what you observe rather than silently switching, same standing policy
-as before.
+Still fully supported for anyone with an existing Ollama setup — pass
+`--llm-backend ollama` (or `Config.llm_backend="ollama"`):
 
-**Model choice under a 6GB ceiling, weighed against dialogue quality
-(v0.66.0):** dialogue is the one output where raw model size matters
-most directly — a bigger model writes less repetitive, more in-
-character lines and hits `_is_sane_line`'s leakage/length rejection
-far less often, on top of the grounding fix above. That pulls toward
-staying on the largest model that fits; memory pulls the other way.
-At the user-reported measurement (`qwen3:4b-instruct`, under 4.5GB,
-no swap observed), the budget math from the section above still
-leaves roughly 1.5GB of headroom under a strict 6GB ceiling (OS
-~1-1.5GB, Hearthmind's own process under 200MB, Ollama daemon
-overhead ~300-500MB — the model + KV cache is the rest) — tight but
-workable, and the recommendation stays `qwen3:4b-instruct` rather than
-sizing down preemptively. Apply `OLLAMA_FLASH_ATTENTION=1` +
-`OLLAMA_KV_CACHE_TYPE=q8_0` (above) first if that margin ever gets
-eaten by something else running on the same 6GB box — it buys back KV-
-cache headroom without touching the model at all. Only size down to
-`qwen3:1.7b` if a live `system_memory` reading still shows pressure
-after that lever, and go in expecting a real, noticeable dialogue-
-quality regression (shorter, more generic lines, more fallback-pool
-triggers) as the direct cost — this is a case where the memory fix and
-the "dialogue is off" fix are in tension, so don't downsize past the
-point the 6GB ceiling actually forces. Non-Qwen alternatives (Llama
-3.2 3B Instruct, Phi-3.5-mini, Gemma 2 2B) weren't adopted: staying in
-the Qwen3 family keeps the existing `"think": false`/`<think>`-stripping
-handling and every-generation-tested prompt shapes intact, and none of
-them is a clear enough quality-per-GB win over `qwen3:4b-instruct` to
-justify re-validating a whole new model family for this project.
+```bash
+# 1. Install and start Ollama (see https://ollama.com), then pull a model:
+ollama pull qwen3:4b-instruct
 
-**Why not switch to raw llama.cpp:** evaluated and recommended against
-for now (see `docs/DECISIONS.md`, "Model default: `qwen3:4b-instruct`
-replaces `qwen3.5:2b`"). Ollama's own runner already *is* llama.cpp —
-the memory an `ollama` process holds is overwhelmingly model weights +
-KV cache, which a direct llama.cpp deployment would use just as much of
-for the same model/quantization/context. Ollama's own overhead on top
-of that is real but small (~100-300MB, its Go daemon + blob store), not
-the multi-GB swap-triggering delta a migration would be chasing —
-whereas rewriting `OllamaClient` around a different API is a genuine
-engineering cost. Revisit only if `system_memory` still shows the
-Ollama runner dominant after every lever above (flash attention + q8_0
-KV cache, `OLLAMA_NUM_PARALLEL=1`, `--llm-num-thread`, and the
-`qwen3:4b-instruct` switch) is actually applied and measured.
+# 2. Run with the Ollama backend explicitly:
+python3 -m hearthmind.server --db world.sqlite3 --llm-backend ollama
+```
+
+Every Ollama-specific memory lever from earlier releases still applies
+and is unchanged — set these before `ollama serve`:
+
+```bash
+export OLLAMA_NUM_PARALLEL=1        # ONE KV-cache slot, not the default of 4
+export OLLAMA_KV_CACHE_TYPE=q8_0    # 8-bit KV cache: ~half the KV memory
+export OLLAMA_FLASH_ATTENTION=1     # required for q8_0 KV; set both together
+export OLLAMA_MAX_LOADED_MODELS=1   # never hold two models resident at once
+export OLLAMA_KEEP_ALIVE=3m         # release the model during real lulls
+ollama serve
+```
+
+`--llm-num-thread` (default `os.cpu_count()`) still applies to the
+Ollama backend the same way it always did — points Ollama at every
+available core for a single call so it finishes faster, shortening the
+window its KV-cache allocation holds memory, without adding a second
+call's worth of concurrent KV cache the way raising
+`--llm-max-concurrent` would.
 
 ## World genesis (LLM-chosen seed) and calendar
 

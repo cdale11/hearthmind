@@ -187,6 +187,68 @@ magnitude and a real per-tick problem is *measured*, `resources.tick`
 is the first candidate (a "non-full nodes" working set avoids touching
 capped nodes) — but not before.
 
+### R5 (new, v0.72.0+). Native C++ port — IN PROGRESS, module-by-module
+
+Explicit user directive (July 2026): "port as many python modules into
+C++ as possible," overriding the earlier "C/C++ port: evaluated,
+recommended against" finding above (still true on its own terms — the
+tick loop is nowhere near CPU-bound — but a full port is now a directly
+requested product decision, not a perf-chasing one, and it's also a
+real, if modest, resident-memory reduction: fewer live Python objects
+per agent/tile). Flagged to the user before starting: with no automated
+test suite, a full-engine rewrite in one pass has no equivalence-proof
+net at the scale of `population.py`/`engine.py`/`buildings.py`
+(~8,400 lines combined) — the SHA-256 event-stream-hash harness used for
+R2/R4 proves a *scoped* change equivalent, not an entire rewrite. The
+path taken: **incremental, one provably-equivalent hot-path module at a
+time**, via a `hearthmind._native` pybind11 extension
+(`cpp/src/*.cpp`, `setup.py`) with a mandatory pure-Python fallback for
+every ported function — never a hard dependency, so a failed/skipped
+build only costs the CPU/memory the port would have saved, nothing
+breaks.
+
+**Shipped (v0.72.0):** `world/resources.py`'s `ResourceGrid.tick`
+(regeneration of the below-cap working set from R4) — the first module,
+chosen because it's self-contained (pure arithmetic over a small
+key/value shape, no cross-module state) and already had the R4
+working-set optimization to port faithfully. Verified via a 3000-tick
+standalone equivalence script (mixed depletion + season changes) hashing
+final node-amount state: native and pure-Python paths produce an
+identical SHA-256. Also ran the existing 4000-tick engine soak
+(`llm_enabled=False`) with the extension built and loaded — no crash,
+confirms the wiring (import try/except, `_key` encoding round-trip)
+doesn't disturb the rest of the tick loop.
+
+**Gotcha worth recording:** pybind11's default STL type casters (`py::
+arg` of `std::unordered_map<...> &`) **copy** a Python dict into a
+temporary C++ object rather than binding it by reference — mutating that
+temporary in C++ has zero effect on the caller's Python dict. The first
+implementation attempt relied on "mutate `amounts` in place" and
+silently no-op'd (caught by the equivalence script, not by the build —
+it compiled and ran fine, just produced wrong results). Fixed by having
+the C++ function *return* the updated mapping instead. Any future
+ported function that looks like it needs an in-place-mutated container
+argument should return the new value instead, not rely on reference
+semantics working across the language boundary.
+
+**Queued next** (pick up in a dedicated session, same one-module-at-a-
+time discipline): `world/weather.py`'s per-tile grid pass, `world/
+terrain_evolution.py`, and `Population._nearest_resource`'s bounded-box
+scan are the next candidates — self-contained, hot relative to their
+neighbors, and each provable in isolation the same way `resources.tick`
+was. `population.py`/`engine.py`/`buildings.py` themselves (the
+orchestration layer — cross-references dozens of other modules, mutates
+shared `World`/`Settlement` state, drives the LLM job scheduling) are
+NOT good near-term candidates for a mechanical translation the way a
+self-contained numeric loop is; porting those meaningfully means
+redesigning around C++ ownership semantics for what's currently
+Python's reference/GC model, which is a redesign, not a port, and needs
+its own dedicated-session scoping the way R1 (mixin split) does. Revisit
+R1 alongside this — a mixin split first would actually make the
+boundaries between "orchestration" and "hot numeric loop" clearer for
+extraction. **Do not treat "R1/R2/R4 done" as license to consider this
+item small** — it is explicitly the largest deferred item in this file.
+
 ## One-line summary for CLAUDE.md / CHANGELOG
 
 Audit found the codebase clean (near-zero dead code, no wasteful

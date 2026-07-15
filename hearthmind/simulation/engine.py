@@ -46,7 +46,7 @@ from hearthmind.llm import (
     fission, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, festival, founding,
     geography, invention, naming, omens, town_brain,
 )
-from hearthmind.llm.client import OllamaClient
+from hearthmind.llm.client import build_llm_client
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import (
@@ -232,18 +232,26 @@ def _proc_status_mb(pid: str) -> dict | None:
         return None
 
 
+_LLM_SERVER_COMM_SUBSTRINGS = ("ollama", "llama-server", "llama-cli", "llama.cpp")
+"""Process-comm substrings that identify the local LLM server, whichever
+backend is configured (v0.72.0 added the llama-server names alongside
+the original ollama-only match — see `Config.llm_backend`)."""
+
+
 def system_memory_report() -> dict | None:
     """Best-effort Linux memory attribution for `/diagnostics` — the
     instrument every swap-pressure investigation so far has had to
     reconstruct by hand from the user's `ps`/`free` output. Reports this
     process's current RSS+swap, the same for every process whose comm
-    contains "ollama" (server and per-model runner both), and the
-    system-wide MemAvailable/swap picture from /proc/meminfo — so one
-    pasted report answers "who owns the memory right now" instead of
-    only this process's peak RSS (which has repeatedly probed clean
-    while Ollama held the real weight; see CLAUDE.md's diagnostic
-    history). A stat+read per process on demand only (never per-tick);
-    returns None off Linux."""
+    matches `_LLM_SERVER_COMM_SUBSTRINGS` (Ollama's server + per-model
+    runner, or llama.cpp's `llama-server`), and the system-wide
+    MemAvailable/swap picture from /proc/meminfo — so one pasted report
+    answers "who owns the memory right now" instead of only this
+    process's peak RSS (which has repeatedly probed clean while the LLM
+    server held the real weight; see CLAUDE.md's diagnostic history). A
+    stat+read per process on demand only (never per-tick); returns None
+    off Linux. Key stays `ollama_processes` for UI/README backward
+    compatibility even though it now also covers llama-server."""
     if not os.path.isdir("/proc"):
         return None
     report: dict = {"self": _proc_status_mb("self"), "ollama_processes": []}
@@ -256,7 +264,8 @@ def system_memory_report() -> dict | None:
                     comm = handle.read().strip()
             except OSError:
                 continue
-            if "ollama" not in comm.lower():
+            comm_lower = comm.lower()
+            if not any(needle in comm_lower for needle in _LLM_SERVER_COMM_SUBSTRINGS):
                 continue
             status = _proc_status_mb(pid)
             if status is not None:
@@ -357,12 +366,7 @@ class SimulationEngine:
 
         client = None
         if config.llm_enabled:
-            client = OllamaClient(
-                host=config.llm_host, model=config.llm_model, timeout_seconds=config.llm_timeout_seconds,
-                num_ctx=config.llm_num_ctx, num_predict=config.llm_num_predict,
-                keep_alive=config.llm_keep_alive, use_mmap=config.llm_use_mmap, num_gpu=config.llm_num_gpu,
-                num_thread=config.llm_num_thread,
-            )
+            client = build_llm_client(config)
         self._cognition_runner = CognitionRunner(client=client, max_concurrent=config.llm_max_concurrent)
         self._backpressure_limit = config.llm_max_concurrent * BACKPRESSURE_BACKLOG_PER_SLOT
         self._llm_calls_today = 0

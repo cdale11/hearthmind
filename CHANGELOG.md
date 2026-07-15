@@ -4,6 +4,60 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.72.0] — llama.cpp default backend + native C++ port begins
+
+Response to an explicit user directive: port hot engine code to C++,
+switch the default LLM backend from Ollama to llama.cpp, and tune for
+AMD Ryzen iGPU offload. Scoped to a realistic, verifiable increment per
+session rather than attempted as one unreviewable rewrite — see
+`docs/REFACTOR-2026-07.md`, "R5" for the full rationale and queued next
+steps.
+
+### Added
+- **`hearthmind._native`**, an optional pybind11 C++ extension
+  (`cpp/src/resource_grid.cpp`, built via `setup.py build_ext --inplace`
+  or automatically by `pip install -e .`). First ported module:
+  `world/resources.py`'s `ResourceGrid.tick`. Every ported function has
+  a pure-Python fallback (`_tick_python`) used automatically when the
+  extension isn't built — never a hard dependency. Verified
+  byte-identical to the pure-Python path via a 3000-tick equivalence
+  script hashing final node-amount state, plus a 4000-tick engine soak
+  with the extension loaded.
+- **`LlamaCppClient`** (`hearthmind/llm/client.py`) — talks to
+  llama.cpp's own `llama-server` via its OpenAI-compatible
+  `/v1/chat/completions` endpoint, using `response_format: json_object`
+  for grammar-constrained JSON output. `Config.llm_backend` (default
+  `"llamacpp"`) selects it; `"ollama"` keeps the original `OllamaClient`
+  fully supported. `build_llm_client(config)` factory used by both
+  `SimulationEngine` and `server.py` so the two call sites can't drift.
+- `Config.llm_llamacpp_host` (default `http://localhost:8080`),
+  `--llm-backend`/`--llm-llamacpp-host` CLI flags.
+- README: full llama.cpp build/run instructions (CPU + AMD iGPU Vulkan
+  offload for the Radeon 740M/780M family, `--no-mmproj` to drop
+  unneeded image support, 8GB memory tuning via `--ctx-size`/
+  `--parallel`/`--cache-type-k/-v`), plus a "Native C++ extension"
+  section.
+
+### Changed
+- `LLMUnavailable` replaces `OllamaUnavailable` as the base exception
+  name (both backends raise it); `OllamaUnavailable` kept as an alias
+  for compatibility.
+- `system_memory_report()`'s process-matching now also recognizes
+  `llama-server`/`llama-cli`/`llama.cpp` process names, not just
+  `ollama` — `/diagnostics.system_memory` attributes memory correctly
+  under either backend (still reported under the `ollama_processes` key
+  for UI/README backward compatibility).
+
+### Known limitations (be honest about scope)
+- This sandbox has no GPU — the AMD Vulkan iGPU instructions are
+  correct llama.cpp usage but **not verified against real Radeon
+  740M/780M hardware** by this pass; report back what you observe.
+- The native C++ port covers exactly one module so far. `population.py`/
+  `engine.py`/`buildings.py` (the orchestration layer, ~8,400 lines
+  combined) are explicitly NOT ported and are not simple mechanical
+  translations — see `docs/REFACTOR-2026-07.md` R5 for why, and what's
+  queued next.
+
 ## [0.71.1] — Ollama memory: shrink KV cache + definitive 8GB README
 
 Response to "swap is even worse than before." Audit conclusion: reducing

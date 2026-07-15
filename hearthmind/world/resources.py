@@ -24,6 +24,17 @@ from enum import Enum
 
 from hearthmind.world.terrain import Biome, Tile
 
+try:
+    from hearthmind._native import resource_grid_tick as _native_tick
+except ImportError:
+    _native_tick = None
+"""Optional compiled fast path for `ResourceGrid.tick` (see cpp/src/
+resource_grid.cpp, docs/DECISIONS.md "Native extension port"). `None`
+when the extension wasn't built (missing compiler, `pip install -e .`
+run without pybind11, unsupported platform, ...) — `tick` below falls
+back to the equivalent pure-Python loop in that case. Never a hard
+dependency; behavior is identical either way."""
+
 
 class ResourceKind(str, Enum):
     FOOD = "food"
@@ -196,12 +207,43 @@ class ResourceGrid:
             self._regenerating.add((x, y))
 
     def tick(self, season: str = "summer") -> None:
-        multiplier = SEASON_REGEN_MULTIPLIER.get(season, 1.0)
         if self._regenerating is None:
             # First tick: seed the working set with every node. Full nodes
             # are pruned below on this same pass, so from tick 2 on only
             # genuinely-regenerating nodes are visited.
             self._regenerating = set(self.nodes.keys())
+        if _native_tick is not None:
+            self._tick_native(season)
+        else:
+            self._tick_python(season)
+
+    def _tick_native(self, season: str) -> None:
+        """Compiled fast path — see cpp/src/resource_grid.cpp. Amounts are
+        mutated in a plain dict handed to C++ (not the ResourceNode objects
+        themselves; pybind11 doesn't know about our dataclass), then
+        written back. Identical arithmetic/branch order to `_tick_python`,
+        proven via the SHA-256 resource-state hash harness."""
+        positions = list(self._regenerating)
+        # C++ side keys amounts/kinds by the same (x << 32) ^ y encoding
+        # used internally in resource_grid.cpp — must match exactly.
+        def _key(pos: tuple[int, int]) -> int:
+            return (pos[0] << 32) ^ (pos[1] & 0xFFFFFFFF)
+
+        amounts = {_key(pos): self.nodes[pos].amount for pos in positions if pos in self.nodes}
+        kinds = {_key(pos): self.nodes[pos].kind.value for pos in positions if pos in self.nodes}
+        updated, still_regenerating = _native_tick(positions, amounts, kinds, season)
+        for pos in positions:
+            key = _key(pos)
+            if key in updated and pos in self.nodes:
+                self.nodes[pos].amount = updated[key]
+        self._regenerating = set(still_regenerating)
+
+    def _tick_python(self, season: str) -> None:
+        """Pure-Python fallback, used when hearthmind._native isn't built
+        (see the import at the top of this module). Kept byte-for-byte
+        equivalent to `_tick_native`'s arithmetic — this was the only
+        implementation prior to the v0.72.0 native port."""
+        multiplier = SEASON_REGEN_MULTIPLIER.get(season, 1.0)
         for pos in list(self._regenerating):
             node = self.nodes.get(pos)
             if node is None:
