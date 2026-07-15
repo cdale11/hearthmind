@@ -4,6 +4,59 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.74.0] — bridges (real water-crossing pathing); R8 full-state verification harness
+
+### Added
+- **Bridges**: closes the "True water transport" architectural gap
+  CLAUDE.md flagged as needing "its own pathing-system pass, not a
+  bolt-on." New `BuildingKind.BRIDGE` — unlike RAFT (a passive
+  fishing-yield bonus that never touches passability), a STANDING
+  bridge's spanned water tiles actually become walkable.
+  `Population._is_walkable` gained a `bridge_tiles` parameter (same
+  shape as the existing `mountain_unlocked` era-gate), threaded
+  through `_step_toward`/`_bfs_step`/`_reachable_tiles`/`_dispatch_
+  movement`. Bridges are founded like vehicles: a colocated group
+  standing on a shore tile (water-adjacent) rolls `BRIDGE_CHANCE_PER_
+  TICK`, then `_find_bridge_span` (a bounded multi-source BFS through
+  water tiles, capped at `BRIDGE_MAX_SPAN`) searches for the nearest
+  opposite shore not already reachable by land. `Building.x`/`y` stays
+  the land anchor (agent-pathed construction/repair/decay all work
+  unchanged); `Building.bridge_span` is the ordered water-tile path,
+  fixed at founding time. Bridges are shared physical infrastructure
+  across every settlement (`_bridge_tiles_from_settlements`), same as
+  roads. Cost scales with span length (`BRIDGE_MATERIALS_COST_PER_
+  SPAN_TILE`, floored at `BRIDGE_MIN_MATERIALS_COST`). Frontend: new
+  "🌉"-colored building marker plus a rendered deck across the actual
+  water span (`app.js`).
+- **R8 full-state verification harness** (`scripts/verify_native_
+  soak.py`): every native module until now was verified via a
+  cumulative-event-hash soak (proves narrated consequences match, but
+  a state field that never produces a life event could theoretically
+  drift unnoticed). This script instead hashes the complete `World.
+  to_dict()` snapshot every tick across a configurable seed list, with
+  every native module's Python-fallback toggle flipped in one pass —
+  the "heavier full-state-diffing verification harness" the R8 scoping
+  doc (v0.73.1) called for building before the next object-graph
+  slice. Sanity-checked to actually detect divergence (two different
+  seeds produce different hashes) before trusting its "no divergence"
+  result. All eighteen native modules pass full per-tick state
+  equality across a 6000-tick, 4-seed run.
+
+### Verified
+- `_find_bridge_span` unit-tested against synthetic terrain: exact
+  span found across a narrow strait, `None` correctly returned for a
+  gap wider than `BRIDGE_MAX_SPAN`, `None` correctly returned when the
+  two "shores" were already land-connected elsewhere (no redundant
+  bridge). Direct engine test: a founded bridge reaches STANDING and an
+  agent's `travel_target` successfully routes across a STANDING
+  bridge's span through a full `SimulationEngine._tick_once()` loop
+  (not just the isolated pathing functions). `Building.to_dict`/
+  `from_dict` round-trip verified, including legacy-snapshot backward
+  compatibility (missing `bridge_span` key defaults to `()`). 6000-
+  tick/3-seed regression soak confirms no behavior change when bridges
+  aren't present (the common case). Live `hearthmind.server` smoke
+  test confirmed `/state` serializes bridge buildings without error.
+
 ## [0.73.3] — build flags (-O3/-march=native); world/hydrology.py fully traced
 
 ### Added

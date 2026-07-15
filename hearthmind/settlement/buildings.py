@@ -118,6 +118,28 @@ class BuildingKind(str, Enum):
     outside contact and its own infrastructure reinforce each other,
     rather than caravans being a one-way, un-influenceable event.
     """
+    BRIDGE = "bridge"
+    """The true-water-transport gap CLAUDE.md flagged as needing "its
+    own pathing-system pass, not a bolt-on": unlike RAFT (a passive
+    fishing-yield bonus that never touches passability), a STANDING
+    BRIDGE's spanned water tiles (`Building.bridge_span`) actually
+    become walkable — see `Population._is_walkable`'s `bridge_tiles`
+    parameter. Founded like a vehicle (`Population._maybe_start_
+    bridge`), not through the normal `choose_building_kind` civic-
+    priority pool: a colocated group standing on a shore tile
+    (water-adjacent, same gate RAFT uses) triggers a search
+    (`Population._find_bridge_span`) for the nearest opposite shore
+    reachable via a bounded run of water tiles (`BRIDGE_MAX_SPAN`),
+    and only founds if one exists. `Building.x`/`y` stays the land
+    anchor tile (so agent-pathed construction/repair/decay all work
+    unchanged — builders walk to solid ground, never onto the water
+    itself); `bridge_span` is the ordered water-tile path the bridge
+    covers once STANDING. Bridges are physical infrastructure on the
+    shared map, not settlement-private — every settlement's STANDING
+    bridges pool into one global passability set, the same "physical
+    structure anyone can use" shape roads already have. See
+    docs/DECISIONS.md, "bridges/water-crossing pathing."
+    """
 
 
 CONSTRUCTION_WORK_PER_TICK = 0.05
@@ -302,6 +324,22 @@ MARKET_MATERIALS_COST = 7.0
 investment, not gated by cost so much as by MARKET_CARAVAN_VISIT_
 REQUIREMENT (the town needs a reason to build one before it can afford
 to want to)."""
+BRIDGE_MATERIALS_COST_PER_SPAN_TILE = 2.5
+"""Bridges cost scales with how much water they actually cross
+(`len(Building.bridge_span)`) rather than a flat price like every other
+kind — a one-tile hop across a narrow channel is cheap, a full
+BRIDGE_MAX_SPAN crossing is a real commitment (roughly comparable to a
+HOSPITAL at max span). See Population._maybe_start_bridge."""
+BRIDGE_MIN_MATERIALS_COST = 4.0
+"""Floor under BRIDGE_MATERIALS_COST_PER_SPAN_TILE so even a one-tile
+span costs a genuine amount, not less than a HUT."""
+
+BRIDGE_CHANCE_PER_TICK = 0.003
+"""Slightly rarer than VEHICLE_CHANCE_PER_TICK (0.004) — founding also
+requires `Population._find_bridge_span` to actually find a valid
+crossing near the colocated group's shore, so the effective rate is
+lower still; this is the roll gating whether the (more expensive) span
+search runs at all."""
 """Materials deducted from the settlement stockpile when construction is
 founded — buildings are now genuinely "built from resources available"
 (previously materials only sped construction up, via
@@ -1111,6 +1149,13 @@ class Building:
     there yet). Set at founding (`Population._maybe_start_construction`)
     and reassigned to a living heir on the owner's death — see H7,
     `Population._apply_deaths`."""
+    bridge_span: tuple[tuple[int, int], ...] = ()
+    """Meaningful only for `BuildingKind.BRIDGE`: the ordered water
+    tiles it covers from `(x, y)`'s far shore-adjacent water neighbor to
+    the opposite shore, found once at founding time
+    (`Population._find_bridge_span`) and fixed thereafter — the bridge
+    doesn't grow/shrink, it's either standing (its span is walkable) or
+    it isn't. Empty for every other kind."""
 
     def to_dict(self) -> dict:
         return {
@@ -1124,6 +1169,7 @@ class Building:
             "ruined_ticks": self.ruined_ticks,
             "stored_food": round(self.stored_food, 4),
             "owner_agent_id": self.owner_agent_id,
+            "bridge_span": [[x, y] for x, y in self.bridge_span],
         }
 
     @classmethod
@@ -1136,6 +1182,7 @@ class Building:
             stage=BuildingStage(data["stage"]),
             progress=data["progress"],
             condition=data["condition"],
+            bridge_span=tuple((x, y) for x, y in data.get("bridge_span", [])),
             ruined_ticks=data.get("ruined_ticks", 0),
             stored_food=data.get("stored_food", 0.0),
             owner_agent_id=data.get("owner_agent_id"),
@@ -1812,8 +1859,11 @@ class Settlement:
 
     def start_construction(
         self, x: int, y: int, kind: BuildingKind = BuildingKind.HUT, owner_agent_id: int | None = None,
+        bridge_span: tuple[tuple[int, int], ...] = (),
     ) -> Building:
-        building = Building(id=self._next_id, x=x, y=y, kind=kind, owner_agent_id=owner_agent_id)
+        building = Building(
+            id=self._next_id, x=x, y=y, kind=kind, owner_agent_id=owner_agent_id, bridge_span=bridge_span,
+        )
         self._next_id += 1
         self.buildings.append(building)
         self._position_index = None  # explicit invalidation, belt-and-braces beyond at()'s length check

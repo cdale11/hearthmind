@@ -161,6 +161,9 @@ from hearthmind.economy.farms import (
     FarmStage,
 )
 from hearthmind.settlement.buildings import (
+    BRIDGE_CHANCE_PER_TICK,
+    BRIDGE_MATERIALS_COST_PER_SPAN_TILE,
+    BRIDGE_MIN_MATERIALS_COST,
     CAMP_TOLERANCE,
     CARRYING_CAPACITY_COORDINATION_WEIGHT,
     CARRYING_CAPACITY_ECONOMY_WEIGHT,
@@ -695,9 +698,46 @@ def _prune_extinct_families(settlement: Settlement, living_ids: set[int]) -> Non
         settlement.institutions = [i for i in settlement.institutions if i.id not in to_remove]
 
 
-def _is_walkable(terrain: list[list[Tile]], x: int, y: int, mountain_unlocked: bool = False) -> bool:
+_WATER_BIOMES = frozenset({Biome.DEEP_WATER, Biome.SHALLOW_WATER})
+
+BRIDGE_MAX_SPAN = 6
+"""Longest run of water tiles a single bridge can cover, found by
+`_find_bridge_span`'s BFS from a shore tile — bounds both the search
+cost and how implausibly wide a "bridge" is allowed to be; a channel
+wider than this stays uncrossable until the map's own geography (or a
+future bridge from a different shore point) offers a narrower gap."""
+
+
+def _is_walkable(
+    terrain: list[list[Tile]], x: int, y: int, mountain_unlocked: bool = False,
+    bridge_tiles: frozenset[tuple[int, int]] = frozenset(),
+) -> bool:
     biomes = MOUNTAIN_WALKABLE_BIOMES if mountain_unlocked else WALKABLE_BIOMES
-    return terrain[y][x].biome in biomes
+    if terrain[y][x].biome in biomes:
+        return True
+    # A STANDING bridge's spanned water tiles are the one deliberate
+    # exception to "biome determines passability" — see BuildingKind.
+    # BRIDGE's docstring. Checked second (the common case never reaches
+    # here) and only ever true for the handful of tiles an actual
+    # bridge covers, so this is cheap even though it's a set membership
+    # test on every walkability check.
+    return bool(bridge_tiles) and (x, y) in bridge_tiles
+
+
+def _bridge_tiles_from_settlements(settlements: list[Settlement]) -> frozenset[tuple[int, int]]:
+    """Every STANDING BRIDGE's spanned water tiles, pooled across every
+    settlement into one set — bridges are physical infrastructure on
+    the shared map, not settlement-private (same "anyone can use it"
+    shape roads already have), so this is computed once per tick and
+    passed uniformly to every agent's movement, not looked up per
+    settlement. Cheap: bridges are rare and each span is short
+    (bounded by BRIDGE_MAX_SPAN)."""
+    tiles: set[tuple[int, int]] = set()
+    for settlement in settlements:
+        for building in settlement.buildings:
+            if building.kind is BuildingKind.BRIDGE and building.stage is BuildingStage.STANDING:
+                tiles.update(building.bridge_span)
+    return frozenset(tiles)
 
 
 def _walkable_tiles(terrain: list[list[Tile]]) -> list[tuple[int, int]]:
@@ -712,6 +752,67 @@ def _walkable_tiles(terrain: list[list[Tile]]) -> list[tuple[int, int]]:
     # Degenerate case (e.g. a tiny all-water test map): fall back to every
     # tile rather than failing to spawn anyone.
     return [(tile.x, tile.y) for row in terrain for tile in row]
+
+
+def _find_bridge_span(
+    terrain: list[list[Tile]], origin: tuple[int, int], mountain_unlocked: bool = False,
+) -> tuple[tuple[int, int], ...] | None:
+    """From a walkable shore tile `origin`, a bounded (BRIDGE_MAX_SPAN)
+    multi-step BFS through water tiles only, looking for the nearest
+    opposite shore NOT already reachable from `origin` by land (no
+    point bridging a peninsula back to itself). Returns the ordered
+    water-tile path from `origin`'s first water neighbor to the last
+    water tile before the far shore, or None if no crossing exists
+    within the span limit. Uniform-cost BFS naturally finds the
+    shortest (cheapest) crossing first. Deliberately only called from
+    a colocation-gated, probability-rolled founding check (`_maybe_
+    start_bridge`) — this is not cheap enough to run every tick for
+    every agent, but founding a bridge is itself a rare event."""
+    if not _is_walkable(terrain, *origin, mountain_unlocked):
+        return None
+    height = len(terrain)
+    width = len(terrain[0]) if height else 0
+    # Land already reachable without a bridge — bridging to any tile in
+    # here would connect two points already connected, so it's not a
+    # real crossing.
+    home_component = Population._reachable_tiles(terrain, origin)
+
+    prev: dict[tuple[int, int], tuple[int, int]] = {}
+    seen: set[tuple[int, int]] = set()
+    ox, oy = origin
+    queue: deque[tuple[int, int, int]] = deque()
+    for dx, dy in _NEIGHBOR_OFFSETS:
+        nx, ny = ox + dx, oy + dy
+        if not (0 <= nx < width and 0 <= ny < height) or (nx, ny) in seen:
+            continue
+        if terrain[ny][nx].biome not in _WATER_BIOMES:
+            continue
+        seen.add((nx, ny))
+        prev[(nx, ny)] = origin
+        queue.append((nx, ny, 1))
+
+    while queue:
+        cx, cy, depth = queue.popleft()
+        if depth > BRIDGE_MAX_SPAN:
+            continue
+        for dx, dy in _NEIGHBOR_OFFSETS:
+            nx, ny = cx + dx, cy + dy
+            if not (0 <= nx < width and 0 <= ny < height) or (nx, ny) in seen:
+                continue
+            tile = terrain[ny][nx]
+            if tile.biome in _WATER_BIOMES:
+                seen.add((nx, ny))
+                prev[(nx, ny)] = (cx, cy)
+                queue.append((nx, ny, depth + 1))
+            elif _is_walkable(terrain, nx, ny, mountain_unlocked) and (nx, ny) not in home_component:
+                span: list[tuple[int, int]] = []
+                node = (cx, cy)
+                while node != origin:
+                    span.append(node)
+                    node = prev[node]
+                span.reverse()
+                return tuple(span)
+    return None
 
 
 @dataclass
@@ -1002,6 +1103,11 @@ class Population:
             s.id: self.damaged_building_positions(s) + self.under_construction_positions(s)
             for s in settlements
         }
+        # Every STANDING bridge's spanned water tiles, pooled once per
+        # tick across every settlement (bridges are shared physical
+        # infrastructure, not settlement-private) — see BuildingKind.
+        # BRIDGE / _bridge_tiles_from_settlements.
+        bridge_tiles = _bridge_tiles_from_settlements(settlements)
         self.last_triggered_agent_ids = set()
         self.last_written_records = []
         for agent in self.agents:
@@ -1054,6 +1160,7 @@ class Population:
                     work_positions=work_positions_by_id[home.id],
                     material_index=material_index,
                     agent_position_index=agent_position_index,
+                    bridge_tiles=bridge_tiles,
                 )
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
@@ -1089,6 +1196,7 @@ class Population:
             if any_gather_occurred:
                 self._wear_carts(stl)
             life_events.extend(self._maybe_start_vehicle(by_position, stl, farms, rng, terrain))
+            life_events.extend(self._maybe_start_bridge(by_position, stl, farms, rng, terrain))
         self._maybe_trade_food(by_position, rng)
         self._maybe_trade_tools(by_position, rng)
         self._maybe_trade_medicine(by_position, rng)
@@ -1588,6 +1696,7 @@ class Population:
         work_positions: list[tuple[int, int]] | None = None,
         material_index: "object | None" = None,
         agent_position_index: "object | None" = None,
+        bridge_tiles: frozenset[tuple[int, int]] = frozenset(),
     ) -> None:
         """Goal-directed agents (FORAGE/SOCIALIZE) take a deliberate step
         toward a visible target when one exists; otherwise (including
@@ -1628,9 +1737,13 @@ class Population:
                 agent.travel_target = None
             else:
                 journey_mount = _agent_mount(settlement, agent.id)
-                moved = cls._step_toward(agent, agent.travel_target, terrain, predator_tiles, mountain_unlocked)
+                moved = cls._step_toward(
+                    agent, agent.travel_target, terrain, predator_tiles, mountain_unlocked, bridge_tiles,
+                )
                 if moved and journey_mount is not None and agent.travel_target is not None:
-                    if cls._step_toward(agent, agent.travel_target, terrain, predator_tiles, mountain_unlocked):
+                    if cls._step_toward(
+                        agent, agent.travel_target, terrain, predator_tiles, mountain_unlocked, bridge_tiles,
+                    ):
                         journey_mount.condition = max(
                             0.0, journey_mount.condition - PERSONAL_VEHICLE_USE_DECAY[journey_mount.kind]
                         )
@@ -1639,7 +1752,10 @@ class Population:
                     # — greedy would oscillate forever): take one step
                     # of a real BFS path instead. Unreachable target =
                     # the journey is abandoned where they stand.
-                    step = cls._bfs_step(terrain, (agent.x, agent.y), agent.travel_target, mountain_unlocked=mountain_unlocked)
+                    step = cls._bfs_step(
+                        terrain, (agent.x, agent.y), agent.travel_target,
+                        mountain_unlocked=mountain_unlocked, bridge_tiles=bridge_tiles,
+                    )
                     if step is None:
                         agent.travel_target = None
                     else:
@@ -1694,8 +1810,12 @@ class Population:
             target = cls._nearest_position(agent, work_positions)
 
         mount = _agent_mount(settlement, agent.id)
-        if target is not None and cls._step_toward(agent, target, terrain, predator_tiles, mountain_unlocked):
-            if mount is not None and cls._step_toward(agent, target, terrain, predator_tiles, mountain_unlocked):
+        if target is not None and cls._step_toward(
+            agent, target, terrain, predator_tiles, mountain_unlocked, bridge_tiles,
+        ):
+            if mount is not None and cls._step_toward(
+                agent, target, terrain, predator_tiles, mountain_unlocked, bridge_tiles,
+            ):
                 # A ready personal vehicle (mount or the era-gated
                 # automobile upgrade) covers ground twice as fast toward
                 # a deliberate target — the goal-directed equivalent of
@@ -1882,6 +2002,7 @@ class Population:
     def _step_toward(
         agent: Agent, target: tuple[int, int], terrain: list[list[Tile]],
         predator_tiles: set[tuple[int, int]] = frozenset(), mountain_unlocked: bool = False,
+        bridge_tiles: frozenset[tuple[int, int]] = frozenset(),
     ) -> bool:
         """Take one greedy step toward `target`. Returns False (and leaves
         `agent` unmoved) if already there or if both preferred directions
@@ -1906,7 +2027,10 @@ class Population:
         fallback: tuple[int, int] | None = None
         for cdx, cdy in steps:
             nx, ny = agent.x + cdx, agent.y + cdy
-            if not (0 <= nx < width and 0 <= ny < height and _is_walkable(terrain, nx, ny, mountain_unlocked)):
+            if not (
+                0 <= nx < width and 0 <= ny < height
+                and _is_walkable(terrain, nx, ny, mountain_unlocked, bridge_tiles)
+            ):
                 continue
             if (nx, ny) in predator_tiles:
                 fallback = fallback or (nx, ny)
@@ -1922,6 +2046,7 @@ class Population:
     def _bfs_step(
         terrain: list[list[Tile]], start: tuple[int, int], target: tuple[int, int],
         node_cap: int = 4096, mountain_unlocked: bool = False,
+        bridge_tiles: frozenset[tuple[int, int]] = frozenset(),
     ) -> tuple[int, int] | None:
         """First step of a real shortest path from `start` toward
         `target` over walkable tiles — used ONLY when a travel_target
@@ -1950,7 +2075,7 @@ class Population:
                 nx, ny = cx + dx, cy + dy
                 if not (0 <= nx < width and 0 <= ny < height) or (nx, ny) in seen:
                     continue
-                if not _is_walkable(terrain, nx, ny, mountain_unlocked):
+                if not _is_walkable(terrain, nx, ny, mountain_unlocked, bridge_tiles):
                     continue
                 seen.add((nx, ny))
                 first_step[(nx, ny)] = first_step.get((cx, cy), (nx, ny))
@@ -1960,11 +2085,16 @@ class Population:
         return None
 
     @staticmethod
-    def _reachable_tiles(terrain: list[list[Tile]], origin: tuple[int, int]) -> set[tuple[int, int]]:
+    def _reachable_tiles(
+        terrain: list[list[Tile]], origin: tuple[int, int],
+        bridge_tiles: frozenset[tuple[int, int]] = frozenset(),
+    ) -> set[tuple[int, int]]:
         """The walkable connected component containing `origin` — one
         flood fill, used by the engine's fission-site chooser so a
         founding party is never pointed at land it cannot walk to (the
-        map's rivers/lakes genuinely disconnect some regions)."""
+        map's rivers/lakes genuinely disconnect some regions), and by
+        `_find_bridge_span` to avoid bridging back to already-reachable
+        land."""
         seen = {origin}
         queue = deque([origin])
         height = len(terrain)
@@ -1975,7 +2105,7 @@ class Population:
                 nx, ny = cx + dx, cy + dy
                 if (
                     0 <= nx < width and 0 <= ny < height and (nx, ny) not in seen
-                    and _is_walkable(terrain, nx, ny)
+                    and _is_walkable(terrain, nx, ny, bridge_tiles=bridge_tiles)
                 ):
                     seen.add((nx, ny))
                     queue.append((nx, ny))
@@ -3262,6 +3392,48 @@ class Population:
             life_events.append((
                 "vehicle_started",
                 f"{kind.value.capitalize()} construction began at ({x}, {y}), using {cost:.0f} materials.",
+            ))
+        return life_events
+
+    @classmethod
+    def _maybe_start_bridge(
+        cls, by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement,
+        farms: FarmGrid, rng: random.Random, terrain: list[list[Tile]] | None = None,
+    ) -> list[tuple[str, str]]:
+        """Same colocation-gate shape as `_maybe_start_vehicle`'s RAFT
+        founding, but the payoff is real water-crossing pathing, not a
+        passive bonus (see BuildingKind.BRIDGE). Only a group standing
+        on a shore tile (water-adjacent, same gate RAFT uses) ever
+        attempts the (more expensive) span search — most ticks, most
+        colocated groups aren't near water at all, so the cheap
+        `is_adjacent_to_water` check filters almost everything before
+        `_find_bridge_span`'s BFS ever runs."""
+        life_events: list[tuple[str, str]] = []
+        if not settlement.name or terrain is None:
+            return life_events
+        mountain_unlocked = settlement.era in ERA_UNLOCKS_MOUNTAIN_BUILDING
+        for (x, y), group in by_position.items():
+            if len(group) < 2 or settlement.at(x, y) is not None or farms.get(x, y) is not None:
+                continue
+            if not is_adjacent_to_water(terrain, x, y):
+                continue
+            eligible = [a for a in group if cls._is_mature(a) and cls._is_healthy(a)]
+            if len(eligible) < 2:
+                continue
+            if rng.random() >= BRIDGE_CHANCE_PER_TICK:
+                continue
+            span = _find_bridge_span(terrain, (x, y), mountain_unlocked)
+            if span is None:
+                continue
+            cost = max(BRIDGE_MIN_MATERIALS_COST, len(span) * BRIDGE_MATERIALS_COST_PER_SPAN_TILE)
+            if settlement.materials < cost:
+                continue
+            settlement.materials -= cost
+            settlement.start_construction(x, y, kind=BuildingKind.BRIDGE, bridge_span=span)
+            life_events.append((
+                "construction_started",
+                f"A bridge crossing {len(span)} tile{'s' if len(span) != 1 else ''} of water was staked "
+                f"out at ({x}, {y}), using {cost:.0f} materials.",
             ))
         return life_events
 

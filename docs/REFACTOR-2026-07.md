@@ -760,6 +760,19 @@ fairly-clean but slightly larger surface of hundreds of `terrain[y][x]`
 call sites across many modules) — a smaller, safer first proof of the
 whole pattern (build, dispatch, fallback, verify, soak) before
 tackling something with more call sites to keep behavior-identical.
+**Verification harness shipped (v0.74.0)**: `scripts/verify_native_
+soak.py` — the heavier full-state-diffing harness the original scoping
+called for. Hashes the complete `World.to_dict()` snapshot every tick
+(not just the event-hash soak's narrated-consequences view) across
+every native module's toggle in one coordinated pass, sanity-checked
+against two different seeds to confirm it actually detects divergence
+before trusting a "match" result. All eighteen modules shipped through
+v0.73.3 pass full per-tick state equality across a 6000-tick, 4-seed
+run — see docs/DECISIONS.md's v0.74.0 entry. Committed to the repo
+(prior soaks were one-off shell invocations never saved) so it's
+reusable, not re-derived, in whichever future session actually starts
+the terrain-grid slice.
+
 **Next R8 slice, not yet started**: the terrain grid remains the
 recommended second target (least entangled of the *remaining* pieces),
 but swapping `World.terrain`'s actual type away from `list[list[Tile]]`
@@ -767,14 +780,10 @@ touches hundreds of call sites across `world/*.py`/`agents/population.
 py`/`settlement/buildings.py` that all do `terrain[y][x].biome`-style
 access — this needs its own dedicated design pass (a compatibility
 shim preserving existing indexing syntax, or a more surgical opt-in
-path) before any code moves, not a same-session follow-on to module
-18. The heavier full-state-diffing verification harness the original
-scoping called for (beyond the event-hash soak) is also still
-unbuilt — worth building alongside or just before the terrain-grid
-slice, since that's the first target where "compare full snapshot
-state across native vs. Python" actually matters (SimClock's own
-20,000-tick lockstep A/B was sufficient without it, given how narrow
-its state surface is).
+path) before any code moves, not a same-session follow-on to module 18
+or the verification harness. The tooling half of "build the harness
+before the port" is now done; the design-and-port half is still
+queued.
 
 ## One-line summary for CLAUDE.md / CHANGELOG
 

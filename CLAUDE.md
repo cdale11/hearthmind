@@ -304,6 +304,42 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.74.0)
+
+Two items: bridges (a real gameplay feature closing the "True water
+transport" gap in "Known architectural gaps" below), and continued R8
+progress. **Bridges**: new `BuildingKind.BRIDGE` — unlike RAFT (passive
+fishing bonus only), a STANDING bridge's `bridge_span` water tiles
+actually become walkable via `Population._is_walkable`'s new
+`bridge_tiles` parameter (same threading shape as the existing
+`mountain_unlocked` era-gate, through `_step_toward`/`_bfs_step`/
+`_reachable_tiles`/`_dispatch_movement`). Founded like a vehicle — a
+colocated group on a water-adjacent shore tile rolls `BRIDGE_CHANCE_
+PER_TICK`, then `_find_bridge_span` (bounded multi-source BFS through
+water, capped at `BRIDGE_MAX_SPAN=6`) searches for the nearest
+not-already-reachable opposite shore. `Building.x/y` stays the land
+anchor so existing agent-pathed construction/repair/decay need zero
+special-casing; `bridge_span` is fixed at founding. Bridges pool across
+every settlement into one shared passability set
+(`_bridge_tiles_from_settlements`), same "anyone can use it" shape as
+roads. Verified via synthetic-terrain unit tests of `_find_bridge_span`
+(narrow strait found, over-wide gap correctly rejected, already-
+connected shores correctly rejected), a direct engine test confirming
+an agent's `travel_target` actually routes across a STANDING bridge
+through a real `_tick_once()` loop, `Building.to_dict`/`from_dict`
+round-trip + legacy-snapshot backward compat, and a 6000-tick/3-seed
+regression soak confirming zero behavior change when no bridge exists
+(the common case). **R8**: new `scripts/verify_native_soak.py` — the
+"heavier full-state-diffing verification harness" the v0.73.1 scoping
+doc called for building before the terrain-grid slice. Hashes the
+complete `World.to_dict()` every tick (not just the event-hash soak's
+narrated consequences) across every native module's toggle in one
+pass; sanity-checked to actually detect divergence before trusting a
+"no divergence" result. All eighteen native modules pass full per-tick
+state equality across a 6000-tick, 4-seed run. Terrain-grid porting
+itself has not started — this is the prerequisite tooling, per the R8
+doc's own ordering.
+
 ## Current state (v0.73.3)
 
 Two small items. **Build flags**: `setup.py`'s native extension now
@@ -1107,9 +1143,12 @@ remain in the decision log:
 **WebSocket delta payloads**: deliberate deferral, own condition (only
 if bandwidth is ever *measured* as a problem) remains unmet.
 
-**True water transport**: v0.66.0 shipped RAFT as a settlement-wide
-fishing-yield bonus (see "Current state" below), explicitly NOT actual
-water-crossing pathing — an agent still can't walk a raft across
-`DEEP_WATER`/`SHALLOW_WATER`. A real follow-up (faster fission-journey
-crossing, or reaching an otherwise-unreachable site) needs its own
-pathing-system pass, not a bolt-on.
+**True water transport: closed (v0.74.0).** RAFT (v0.66.0) remains a
+settlement-wide fishing-yield bonus only, never crossing pathing —
+but `BuildingKind.BRIDGE` (v0.74.0) now provides the real pathing-
+system pass this gap called for: a STANDING bridge's spanned water
+tiles are genuinely walkable (`Population._is_walkable`'s `bridge_
+tiles` parameter), founded via a colocation+span-search mechanism
+(`_find_bridge_span`), reachable by goal-directed movement, travel-
+target journeys, and fission-site reachability alike. See "Current
+state (v0.74.0)."

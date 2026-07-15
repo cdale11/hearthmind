@@ -7486,3 +7486,123 @@ flood` and now `generate_rivers`/`identify_lakes` are confirmed
 correctly out of scope (too little batchable content / creation-only,
 respectively) rather than simply unaddressed. Everything queued next
 in native-port work is R8 (object-graph + engine-tick-loop), not R7.
+
+## v0.74.0: bridges (real water-crossing pathing) + R8 full-state verification harness
+
+**Bridges.** CLAUDE.md's "Known architectural gaps" section had
+carried "True water transport" as an open item since v0.66.0's RAFT
+shipped as a fishing-yield bonus only, explicitly documented as NOT
+granting crossing pathing, with the note that a real follow-up "needs
+its own pathing-system pass, not a bolt-on." Two research passes (one
+on the pathing/building system, one on terrain-grid call sites for the
+parallel R8 request) confirmed the shape of that pass: `Population.
+_is_walkable` is the single passability gate every movement function
+funnels through, and it already has a precedent for a second
+passability condition beyond raw biome membership — `mountain_
+unlocked` (era-gated MOUNTAIN access, v0.68.0) — threaded as a
+parameter through `_is_walkable`'s six call sites rather than mutating
+`Tile`/`terrain` itself. Bridges follow the identical shape: a new
+`bridge_tiles: frozenset[tuple[int,int]]` parameter, checked second
+(after biome membership fails) so the common non-bridge case pays
+nothing extra beyond one boolean short-circuit.
+
+Deliberately rejected: mutating `Tile.biome` on a bridge's water tiles
+directly (e.g. to a hypothetical `Biome.BRIDGE_DECK`). This would have
+been simpler to check but breaks every piece of code that treats
+DEEP_WATER/SHALLOW_WATER membership as ground truth for hydrology
+(`identify_lakes`/`tick_lakes` iterate terrain looking for water
+biomes — a bridge-converted tile would silently vanish from a lake's
+tracked area) and disasters (`tick_flood` targets water-adjacent
+tiles). Keeping biome untouched and layering passability as a read-
+time policy (exactly like the mountain-unlock precedent) means bridges
+have zero interaction with any other system that reads `Tile.biome` —
+a lake can still rise/recede under a bridge, a flood can still submerge
+the water it crosses, none of that logic needed to change or even know
+bridges exist.
+
+**Site-finding**: `_find_bridge_span` is a bounded (`BRIDGE_MAX_
+SPAN=6`) multi-source BFS starting from a shore tile's immediate water
+neighbors, expanding through water tiles only, until it reaches a
+walkable tile NOT already in the origin's land-reachable component
+(`Population._reachable_tiles`, reused rather than reimplemented) — a
+peninsula that already loops back to the same landmass by another
+route correctly produces no bridge, since bridging it wouldn't connect
+anything new. Uniform-cost BFS naturally returns the shortest crossing
+first. This function is only ever invoked from a colocation-gated,
+low-probability-rolled founding check (`_maybe_start_bridge`, mirrors
+`_maybe_start_vehicle`'s exact structure — RAFT's own water-adjacency
+gate reused as the pre-filter before the more expensive BFS ever
+runs), so its cost (a full BFS plus one `_reachable_tiles` flood fill)
+is acceptable despite not being cheap per-call.
+
+**Founding without water colocation**: agents can't stand on water, so
+bridges can't reuse the standard `_choose_build_site`/`_maybe_start_
+construction` path (which requires 2+ agents physically on the chosen
+tile and rejects non-walkable candidates outright). Modeled instead
+exactly like vehicle founding (`_maybe_start_vehicle`): a colocated,
+mature, healthy pair standing on a walkable shore tile founds the
+bridge AT their own tile (`Building.x/y` = the land anchor, never
+water) with `bridge_span` recording the water tiles it will come to
+cover. This means `_advance_construction`'s existing generic per-kind-
+agnostic progress logic, `under_construction_positions`' WANDER-
+attractor mechanism, and standing-building decay/ruin/repair all work
+completely unchanged for BRIDGE — nothing about the construction
+lifecycle needed to know a bridge is different from a hut.
+
+**Shared physical infrastructure, not settlement-private**: bridges
+pool across every settlement into one global passability set
+(`_bridge_tiles_from_settlements`, computed once per `Population.
+tick()` and reused for every agent's movement that tick, plus
+`SimulationEngine._choose_fission_site`'s reachability check) — same
+"any agent can use it regardless of which settlement built it" shape
+`RoadNetwork` already has for roads. A per-settlement bridge_tiles
+dict was considered and rejected: bridges are physical structures on
+the shared map, gatekeeping them by settlement ownership would be an
+arbitrary restriction with no analog anywhere else in the codebase
+(roads, farms, and terrain itself are all map-shared, not settlement-
+private).
+
+Verified via: unit tests of `_find_bridge_span` on synthetic terrain
+(exact span found across a narrow strait; `None` correctly returned
+for a gap wider than `BRIDGE_MAX_SPAN`; `None` correctly returned when
+the two shores were already land-connected by another route, proving
+the "don't bridge an already-reachable loop" check works); a direct
+`_is_walkable`/`_step_toward` test confirming a bridge tile is walkable
+only when `bridge_tiles` is passed, not by default; a full engine test
+(`SimulationEngine._tick_once()`, not the isolated pathing functions)
+confirming an agent with a `travel_target` on the far shore of a
+STANDING bridge actually arrives there; `Building.to_dict`/`from_dict`
+round-trip including legacy-snapshot backward compatibility (missing
+`bridge_span` key defaults to the empty tuple, so old saves load fine);
+and a 6000-tick, 3-seed regression soak confirming zero behavior
+change in a world where no bridge is ever founded (the overwhelmingly
+common case, since `BRIDGE_CHANCE_PER_TICK` is deliberately low and
+requires a water-adjacent colocated pair).
+
+**R8 full-state verification harness.** The v0.73.1 R8 scoping pass
+flagged that "the heavier full-state-diffing verification harness ...
+is also still unbuilt" as a prerequisite before the terrain-grid slice
+(the recommended next R8 target) could safely begin — the existing
+cumulative-event-hash soak proves narrated *consequences* match
+native-vs-Python, but a state field with no corresponding life event
+(a farm plot's raw sub-threshold `growth` float, an agent's `energy`
+between whatever thresholds trigger events) could theoretically drift
+without the event-hash soak ever noticing. `scripts/verify_native_
+soak.py` closes that gap: it hashes the complete `World.to_dict()`
+snapshot every single tick (not just accumulated events) across a
+configurable seed list, toggling every native module's fallback flag
+in one coordinated pass via a `(module, attribute)` list rather than
+requiring a bespoke toggle dance per module the way ad-hoc soak scripts
+in this session's own transcript needed. Deliberately committed to the
+repo (previous soaks were one-off shell invocations, never saved) so
+future sessions don't re-derive the same harness from scratch.
+Sanity-checked before trusting its result: ran it against two
+different seeds' own native-mode hash sequences to confirm they
+diverge (they do — the harness isn't vacuously reporting "match" no
+matter what). All eighteen native modules shipped through v0.73.3 pass
+full per-tick state equality across a 6000-tick, 4-seed run — strictly
+stronger evidence than any single soak run in this native-port
+history's earlier entries, since prior soaks only ever compared the
+event stream. Terrain-grid porting itself has not started this
+version — this is purely the prerequisite tooling the R8 doc called
+for, in the order the doc specified.

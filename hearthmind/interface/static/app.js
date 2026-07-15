@@ -48,7 +48,7 @@ const BIOME_COLORS = {
 const BUILDING_COLORS = {
   hut: "#c98a3c", granary: "#d9a441", workshop: "#8a7fd6", school: "#4fa3c9",
   hospital: "#e0473c", university: "#2f7fc9", factory: "#5c5c66", shrine: "#c9a3e0",
-  power_plant: "#e0c93c", market: "#3ccf9e",
+  power_plant: "#e0c93c", market: "#3ccf9e", bridge: "#b08968",
 };
 const FARM_COLORS = { growing: "#7fae4a", ready: "#e0c34a" };
 
@@ -770,6 +770,18 @@ function drawFrame() {
     ctx.strokeStyle = "#f5f5f5";
     ctx.lineWidth = 1;
     ctx.strokeRect(b.x * CELL - 0.5, b.y * CELL - 0.5, CELL + 1, CELL + 1);
+    // A bridge's own tile is just its land anchor (see BuildingKind.
+    // BRIDGE) — the actual water crossing is bridge_span, drawn as a
+    // thin deck across the water tiles it covers so the crossing
+    // itself is visible, not just a marker on one shore.
+    if (b.kind === "bridge" && b.bridge_span && b.bridge_span.length) {
+      ctx.globalAlpha = b.stage === "under_construction" ? 0.4 : b.stage === "ruined" ? 0.3 : 0.85;
+      ctx.fillStyle = BUILDING_COLORS.bridge;
+      for (const [sx, sy] of b.bridge_span) {
+        ctx.fillRect(sx * CELL + 1, sy * CELL + CELL / 2 - 1.5, CELL - 2, 3);
+      }
+      ctx.globalAlpha = 1.0;
+    }
   }
 
   // Vehicles: a small icon-like mark at their build/home tile — carts as

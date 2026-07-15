@@ -58,6 +58,7 @@ from hearthmind.agents.population import (
     FISSION_MIN_DISTANCE,
     MAX_SETTLEMENTS,
     Population,
+    _bridge_tiles_from_settlements,
     _walkable_tiles,
 )
 from hearthmind.settlement.buildings import (
@@ -1914,7 +1915,10 @@ class SimulationEngine:
         if origin is not None and spots:
             # Never point the party at land it can't walk to — rivers/
             # lakes genuinely disconnect regions on this generator.
-            reachable = Population._reachable_tiles(self.world.terrain, origin)
+            # Standing bridges widen what's actually reachable, same as
+            # for any other agent's pathing.
+            bridge_tiles = _bridge_tiles_from_settlements(self.world.settlements)
+            reachable = Population._reachable_tiles(self.world.terrain, origin, bridge_tiles)
             spots = [pos for pos in spots if pos in reachable]
         if not spots:
             return None
