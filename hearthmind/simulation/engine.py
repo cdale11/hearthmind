@@ -135,6 +135,14 @@ grew forever on a multi-year world (July 2026 architecture review,
 §3.7). Fallback numbering still uses the full list's length, so
 "Tradition the 14th"-style names stay correct."""
 
+_JOB_NO_ARGS = 0
+_JOB_EVENTS = 1
+_JOB_EVENTS_SEASON = 2
+"""Argument conventions for `SimulationEngine._TICK_JOBS` entries (R2):
+a per-tick scheduling method takes either no args, this tick's `events`
+list, or `(events, previous_season)`. Kept as small int sentinels so the
+dispatch loop is a cheap branch, not a reflection/inspect call."""
+
 BACKPRESSURE_BACKLOG_PER_SLOT = 3
 """Scheduling gate: no new routine LLM jobs while the runner's backlog
 (in-flight + queued) exceeds `llm_max_concurrent * this`. On the target
@@ -629,6 +637,36 @@ class SimulationEngine:
             save_snapshot(self.conn, self.world)
             self._snapshots_saved += 1
 
+    _TICK_JOBS: tuple[tuple[str, int], ...] = (
+        # The per-tick scheduling sequence (R2, docs/REFACTOR-2026-07.md).
+        # ORDER IS LOAD-BEARING — some jobs read state a prior job set this
+        # same tick (temperament before omen; cognition before dialogue).
+        # Preserve order when editing; add a new job as one entry here plus
+        # its `_maybe_schedule_*` method. `maintain_core_cast` runs just
+        # before this loop (it takes a config arg, not the loop's shape).
+        ("_maybe_schedule_naming", _JOB_NO_ARGS),
+        ("_maybe_schedule_chronicle", _JOB_EVENTS_SEASON),
+        ("_maybe_schedule_documentary", _JOB_EVENTS),
+        ("_maybe_schedule_tradition", _JOB_EVENTS),
+        ("_maybe_schedule_invention", _JOB_EVENTS),
+        ("_maybe_schedule_festival", _JOB_EVENTS),
+        ("_maybe_schedule_caravan", _JOB_EVENTS),
+        ("_maybe_schedule_town_brain", _JOB_EVENTS),
+        ("_maybe_schedule_beliefs", _JOB_EVENTS),
+        ("_maybe_schedule_personal_belief", _JOB_EVENTS),
+        ("_maybe_tick_temperament", _JOB_EVENTS),
+        ("_maybe_schedule_omen", _JOB_EVENTS),
+        ("_maybe_tick_market_prices", _JOB_EVENTS),
+        ("_maybe_schedule_record", _JOB_NO_ARGS),
+        ("_maybe_schedule_dispute", _JOB_NO_ARGS),
+        ("_maybe_schedule_guild_founding", _JOB_EVENTS),
+        ("_maybe_schedule_institution_belief", _JOB_EVENTS),
+        ("_maybe_schedule_geography", _JOB_EVENTS),
+        ("_maybe_schedule_fission", _JOB_EVENTS),
+        ("_schedule_due_cognition", _JOB_NO_ARGS),
+        ("_schedule_due_dialogue", _JOB_NO_ARGS),
+    )
+
     def _tick_once(self) -> None:
         tick_start = time.perf_counter()
         self._apply_pending_cognition_results()
@@ -664,27 +702,20 @@ class SimulationEngine:
         # Keep the LLM core cast full and current before any cognition/
         # dialogue scheduling reads it this tick (v0.70.0).
         self.world.population.maintain_core_cast(self.config.llm_core_cast_size)
-        self._maybe_schedule_naming()
-        self._maybe_schedule_chronicle(events, previous_season)
-        self._maybe_schedule_documentary(events)
-        self._maybe_schedule_tradition(events)
-        self._maybe_schedule_invention(events)
-        self._maybe_schedule_festival(events)
-        self._maybe_schedule_caravan(events)
-        self._maybe_schedule_town_brain(events)
-        self._maybe_schedule_beliefs(events)
-        self._maybe_schedule_personal_belief(events)
-        self._maybe_tick_temperament(events)
-        self._maybe_schedule_omen(events)
-        self._maybe_tick_market_prices(events)
-        self._maybe_schedule_record()
-        self._maybe_schedule_dispute()
-        self._maybe_schedule_guild_founding(events)
-        self._maybe_schedule_institution_belief(events)
-        self._maybe_schedule_geography(events)
-        self._maybe_schedule_fission(events)
-        self._schedule_due_cognition()
-        self._schedule_due_dialogue()
+        # Per-tick scheduling jobs fire in a fixed order via a declarative
+        # table (`_TICK_JOBS`, R2 in docs/REFACTOR-2026-07.md) instead of a
+        # hand-maintained call list. Adding a job is one table entry; the
+        # order — which some jobs genuinely depend on (e.g. temperament
+        # before omen, cognition before dialogue) — lives in exactly one
+        # place. The job methods themselves are unchanged.
+        for method_name, arg_kind in self._TICK_JOBS:
+            method = getattr(self, method_name)
+            if arg_kind == _JOB_NO_ARGS:
+                method()
+            elif arg_kind == _JOB_EVENTS:
+                method(events)
+            else:  # _JOB_EVENTS_SEASON
+                method(events, previous_season)
         self.conn.commit()  # one commit for everything this tick logged (see log_event's commit param)
         self._last_tick_duration_ms = (time.perf_counter() - tick_start) * 1000
         self._tick_durations_ms.append(self._last_tick_duration_ms)

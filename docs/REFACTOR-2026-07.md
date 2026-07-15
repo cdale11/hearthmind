@@ -112,7 +112,23 @@ imported by the mixins). **Verification per step:** move one mixin, run
 the 7000-tick event-hash equivalence script; only proceed when the hash
 is unchanged.
 
-### R2. Collapse `engine.py`'s scheduling boilerplate — medium value
+### R2. Declarative tick-job dispatch table — DONE (v0.71.x)
+
+Shipped a safer, higher-confidence version than the "unify all 20 method
+bodies" idea originally sketched below (which risked flattening real
+per-job differences — record's backpressure-fallback path, dispute's
+distinct backlog check, per-item loops). Instead, the *dispatch* is now
+data-driven: `SimulationEngine._TICK_JOBS` is a table of
+`(method_name, arg_kind)` that `_tick_once` iterates, replacing the
+hand-maintained 20-line call sequence. Adding a per-tick job is now one
+table entry next to its method; the load-bearing order lives in one
+place. The job method bodies are **unchanged** — proven byte-identical
+by a 6000-tick event-stream hash match. The deeper "each job as a
+registry descriptor with build/parse/apply callbacks" idea is left as
+optional future work; the dispatch table captures most of the
+maintainability win at near-zero risk. Original sketch retained below.
+
+### R2 (original sketch). Collapse `engine.py`'s scheduling boilerplate
 
 `engine.py` has ~20 near-identical `_maybe_schedule_<job>(events)`
 methods (chronicle, tradition, invention, festival, caravan, town-brain,
