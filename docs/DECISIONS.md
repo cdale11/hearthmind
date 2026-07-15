@@ -6404,3 +6404,58 @@ on every fresh install. Widened to also match `llama-server`/
 `llama-cli`/`llama.cpp`; the JSON key stays `ollama_processes` for
 backward compatibility with the existing UI/README rather than a
 rename that would touch more surface for no functional benefit.
+
+## LLM core-cast map markers + dialogue quality pass (v0.72.1)
+
+Closed both items explicitly deferred at the end of v0.72.0.
+
+**Map markers.** `is_core` wasn't previously part of the per-agent
+broadcast payload at all — `Population.core_agent_ids` existed
+server-side (v0.70.0's core-cast fix) but had no UI surface beyond a
+raw count in `/diagnostics`. `_maybe_broadcast` now merges
+`population.is_core(a.id)` into each agent dict; the frontend renders a
+blue triangle (`drawAgentTriangle`, a new small shared helper — also
+now used for the predator-pack marker, which was previously an inlined
+duplicate of the same three-point-path logic) instead of the plain dot
+for core-cast agents, plus a "▲ core" badge in the hover tooltip and the
+NPC inspector header. Consistent with the Observatory UI direction
+(CLAUDE.md): the map is the primary instrument, so this needed to be
+visible there directly, not only as a number behind the dev console.
+
+**Dialogue quality — LLM path.** `build_prompt` grounds each speaker's
+activity in `goal_reason` (set by both LLM cognition and the
+trait-aware fallback goal) when present — previously the prompt only
+named the bare goal ("currently forage"), never the motivation, despite
+`cognition.py`'s prompt already including this for goal-setting.
+Measured the worst-case prompt (both speakers with long goal_reason
+text, memories, beliefs, culture, cross-settlement context) at ~786
+tokens including the system prompt — safely under the 1280-token
+`llm_num_ctx` budget the v0.71.1 pass tuned against a ~1000-token peak
+(the chronicle prompt remains the dominant one). `SYSTEM_PROMPT` also
+now explicitly permits disagreement/deflection/off-topic answers —
+previously it only demanded line_b "respond to" line_a, which in
+practice pushed toward uniformly tidy, agreeable exchanges; added a
+tense-band example to the few-shot set to make disagreement a visible
+option, not just a permitted one.
+
+**Dialogue quality — deterministic fallback.** `fallback_dialogue` was
+100% static template pools (5 entries/band) with zero connection to
+what had actually happened to either agent — a fallback-only run (LLM
+disabled, unreachable, or a core-cast pair that lost its slot to
+backpressure/budget) read as pure canned chit-chat regardless of the
+model. Now splices a memory-grounded opening line ("Did you hear?
+{most recent memory}") into roughly one exchange in three for non-tense
+pairs (tense pairs stay pool-only — trading a memory doesn't fit an
+"at odds" read the same way), with a short generic reaction pool on the
+other side. Selection is deterministic from `(agent ids, tick)`, not
+random, matching the project's per-site-deterministic convention (not a
+determinism *requirement* — see CLAUDE.md — just the natural cheap
+choice here too). Each pool also widened 5 → 8 entries for a longer
+repeat cycle before a fallback-only run notices it.
+
+**Verification:** a 6000-tick engine soak (`llm_enabled=False`, so
+every dialogue exchange goes through `fallback_dialogue`) ran without
+error; sampled `events` rows for `category='dialogue'` show the
+memory-grounded lines ("Did you hear? Wren shared food with me.")
+interleaving with the pool lines as expected, not dominating or
+crowding them out.

@@ -4,6 +4,42 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.72.1] — LLM core-cast map markers + dialogue quality pass
+
+Closes the two items explicitly deferred from v0.72.0.
+
+### Added
+- **LLM core-cast agents render as blue triangles** on the live map
+  instead of the plain dot everyone else gets — `is_core` is now
+  broadcast per-agent (`SimulationEngine._maybe_broadcast`, backed by
+  `Population.is_core`). Hover tooltip and the NPC inspector both show a
+  "▲ core" badge with an explanatory title/tooltip. Shared
+  `drawAgentTriangle` helper (also now used for predator-pack markers,
+  previously inlined separately).
+
+### Changed (dialogue quality, both LLM and deterministic paths)
+- `llm/dialogue.py`'s `build_prompt` now grounds each speaker's current
+  activity in *why* (`agent.goal_reason`, when cognition set one) —
+  previously only the bare goal name ("currently forage") reached the
+  prompt. Measured worst-case prompt size with this addition: ~786
+  tokens including the system prompt, still comfortably under the
+  1280-token `llm_num_ctx` budget tuned in v0.71.1.
+- `SYSTEM_PROMPT` explicitly permits disagreement, deflection, and
+  imperfect exchanges (previously implicitly pushed toward tidy
+  back-and-forth agreement) and adds a tense-band example, aiming at
+  less uniformly pleasant dialogue.
+- `fallback_dialogue` (the deterministic path, used whenever the LLM is
+  disabled/unreachable/backpressured) now splices in a memory-grounded
+  opening line roughly one exchange in three for non-tense pairs,
+  referencing whichever speaker has a recent memory — previously 100%
+  static template pools with zero connection to what had actually
+  happened in the world. Each sentiment pool widened 5 → 8 entries for
+  a longer repeat cycle.
+
+Verified via a 6000-tick engine soak (`llm_enabled=False`): no crash,
+sampled dialogue events show the memory-grounded lines interleaving
+correctly with the pool lines.
+
 ## [0.72.0] — llama.cpp default backend + native C++ port begins
 
 Response to an explicit user directive: port hot engine code to C++,

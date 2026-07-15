@@ -2102,7 +2102,18 @@ class SimulationEngine:
         payload = {
             "summary": self.world.summary(),
             "life_events": life_events,
-            "agents": [a.to_dict() for a in self.world.population.agents],
+            # `is_core` (v0.72.0): whether this agent is in the LLM core
+            # cast (Population.core_agent_ids) — the only agents whose
+            # goals/dialogue are model-authored, everyone else runs the
+            # deterministic fallback (see Config.llm_core_cast_size).
+            # Surfaced on the map (blue triangle vs. the plain dot) and
+            # in the NPC inspector so a player can actually see which
+            # inhabitants are the LLM-driven protagonists — Observatory
+            # UI direction: read at a glance, not buried in a stat.
+            "agents": [
+                {**a.to_dict(), "is_core": self.world.population.is_core(a.id)}
+                for a in self.world.population.agents
+            ],
             # Physical layers merge across every settlement — the map
             # shows the world, not one community's slice of it.
             "buildings": [b.to_dict() for s in settlements for b in s.buildings],

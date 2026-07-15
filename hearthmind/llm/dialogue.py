@@ -14,19 +14,24 @@ SYSTEM_PROMPT = (
     "You are writing a brief, natural exchange between two villagers who "
     "just crossed paths in a simulated world. Ground it in the specific "
     "facts you're given (their hunger/energy, what each is currently "
-    "doing, the weather, their relationship, and especially anything "
-    "listed as something one of them recently remembers or believes) — "
-    "prefer talking about that over generic small talk, never invent "
-    "unrelated topics, and never mention that this is a game, a "
-    "simulation, or that you are an AI. Treat this as one real, "
-    "connected back-and-forth, not two separate statements: line_b must "
-    "directly respond to, react to, or answer what line_a just said — "
-    "if line_a asks a question or makes an observation, line_b should "
-    "read as the other villager actually having heard it, not a "
-    "restart on a new topic. Optionally "
-    "the exchange plants a short rumor that might spread through the "
-    "village — leave it blank most of the time. Output ONLY the JSON "
-    "object below, nothing before or after it, no explanation.\n"
+    "doing and WHY if a reason is given, the weather, their relationship, "
+    "and especially anything listed as something one of them recently "
+    "remembers or believes) — prefer talking about that over generic "
+    "small talk, never invent unrelated topics, and never mention that "
+    "this is a game, a simulation, or that you are an AI. Write like two "
+    "real people, not a script: it is fine for a line to be a half-"
+    "finished thought, a single word, a grunt of agreement, or a joke, "
+    "and the two villagers don't have to fully agree with each other — "
+    "someone can deflect, tease, disagree, or answer a different "
+    "question than the one asked, the way real conversations drift. "
+    "Treat this as one real, connected back-and-forth, not two separate "
+    "statements: line_b must be a genuine reaction to line_a — an actual "
+    "answer, a rebuttal, a joke back, a change of subject that still "
+    "acknowledges what was said — never a line that could just as well "
+    "have opened the conversation. Optionally the exchange plants a "
+    "short rumor that might spread through the village — leave it blank "
+    "most of the time. Output ONLY the JSON object below, nothing before "
+    "or after it, no explanation.\n"
     "Examples of the exact shape expected:\n"
     '{"line_a": "You look worn out, friend.", "line_b": "Long day in the '
     'fields.", "sentiment": "warm", "rumor": ""}\n'
@@ -35,6 +40,10 @@ SYSTEM_PROMPT = (
     '{"line_a": "Cold one, isn\'t it.", "line_b": "Heard the miller\'s '
     'roof is leaking.", "sentiment": "neutral", "rumor": "The miller\'s '
     'roof is leaking."}\n'
+    '{"line_a": "You still sore about the fence?", "line_b": "Wasn\'t '
+    'talking about the fence.", "sentiment": "tense", "rumor": ""}\n'
+    '{"line_a": "Hungry work today.", "line_b": "Isn\'t it always with '
+    'you.", "sentiment": "warm", "rumor": ""}\n'
     'Now respond with strict JSON only, in that exact shape: {"line_a": '
     '"under 10 words, said by the first villager", "line_b": "under 10 '
     'words, said by the second", "sentiment": "warm" | "tense" | '
@@ -114,10 +123,23 @@ def build_prompt(
         if recent:
             memory_bits.append(f"{label} recently: {'; '.join(recent)}")
     memory_text = f" {'. '.join(memory_bits)}." if memory_bits else ""
+
+    def _activity(agent: Agent) -> str:
+        # Grounds "currently X" in *why* when cognition set a reason
+        # (LLM-authored goal or the trait-aware fallback_goal both
+        # populate this) — previously the prompt only named the goal
+        # ("currently forage"), never the motivation behind it, so a
+        # villager talking about their own activity had nothing more
+        # specific to say than the deterministic fallback would. See
+        # docs/DECISIONS.md, "dialogue quality" pass (v0.72.0).
+        if agent.goal_reason:
+            return f'{agent.goal.value} ("{agent.goal_reason.strip()[:80]}")'
+        return agent.goal.value
+
     return (
         f"{agent_a.name} (hunger {agent_a.hunger:.2f}, energy {agent_a.energy:.2f}, "
-        f"currently {agent_a.goal.value}) meets {agent_b.name} (hunger "
-        f"{agent_b.hunger:.2f}, energy {agent_b.energy:.2f}, currently {agent_b.goal.value}). "
+        f"currently {_activity(agent_a)}) meets {agent_b.name} (hunger "
+        f"{agent_b.hunger:.2f}, energy {agent_b.energy:.2f}, currently {_activity(agent_b)}). "
         f"They are {tie}. It is {season}, weather: {weather}."
         f"{culture}{beliefs_text}{personality_text}{memory_text} "
         "Write their brief exchange."
@@ -130,6 +152,9 @@ _TENSE_POOL: tuple[tuple[str, str], ...] = (
     ("We should talk. Eventually.", "Eventually."),
     ("Out of my way.", "Gladly."),
     ("Don't start, {b}.", "I wasn't going to."),
+    ("You've got a lot of nerve, {b}.", "So I've been told."),
+    ("Say what you mean, {a}, or don't say it at all.", "Fine. Not now."),
+    ("Funny running into you.", "Isn't it just."),
 )
 _WARM_POOL: tuple[tuple[str, str], ...] = (
     ("Good to see you, {b}.", "And you, always."),
@@ -137,6 +162,9 @@ _WARM_POOL: tuple[tuple[str, str], ...] = (
     ("You look well today.", "Feeling well, thanks to you."),
     ("Walk with me a while?", "Always."),
     ("Save me a seat next time?", "Already do."),
+    ("You're a sight for tired eyes, {b}.", "Comes with practice."),
+    ("Been meaning to thank you for the other day.", "Don't mention it, {a}."),
+    ("How's the family?", "Loud. Same as ever."),
 )
 _NEUTRAL_POOL: tuple[tuple[str, str], ...] = (
     ("Quiet day.", "Quiet enough."),
@@ -144,24 +172,62 @@ _NEUTRAL_POOL: tuple[tuple[str, str], ...] = (
     ("Anything new?", "Not much, no."),
     ("Long day.", "Isn't it always."),
     ("Busy morning?", "Busy enough."),
+    ("Where are you headed?", "Wherever this takes me."),
+    ("You look deep in thought.", "Just thinking out loud, mostly."),
+    ("Fine weather for it, at least.", "Small mercies."),
 )
 """Small pools rather than one fixed line per band, cycled
 deterministically by (agent ids, tick) — a fallback-only run (Ollama
 disabled or unreachable) previously repeated the exact same 3 lines for
 every pair forever, which read as an obvious, boring bug. See
-docs/DECISIONS.md, "NPCs repeating dialogue" fix."""
+docs/DECISIONS.md, "NPCs repeating dialogue" fix. Widened 5 -> 8 entries
+per band in v0.72.0's dialogue-quality pass — still finite, but a longer
+cycle before a fallback-only run notices the repeat."""
+
+_MEMORY_REACTIONS: tuple[str, ...] = (
+    "Is that so.", "Hadn't heard that.", "Hm. Good to know.",
+    "Word travels fast.", "That's something, alright.", "First I'm hearing of it.",
+)
+"""Short, neutral reactions used opposite a memory-grounded opening line
+(see `fallback_dialogue`) — deliberately generic since they only need to
+acknowledge the other speaker, not carry content of their own."""
 
 
 def fallback_dialogue(agent_a: Agent, agent_b: Agent, affinity: float, tick: int = 0) -> dict:
     """Deterministic stand-in, varying by relationship band and cycled
     by tick so the same pair doesn't get the identical line every time —
-    mirrors cognition.fallback_goal's approach, extended for variety."""
+    mirrors cognition.fallback_goal's approach, extended for variety.
+
+    v0.72.0: roughly one exchange in three (when the band isn't tense —
+    trading a genuine memory doesn't fit an "at odds" exchange the same
+    way) splices in whichever speaker has a recent memory instead of a
+    pool line, the same "ground it in what actually happened" fix the
+    LLM prompt already has (see `build_prompt`'s `memory_bits`) — a
+    fallback-only run (LLM disabled/unreachable) previously had zero
+    connection to the world's actual events, reading as pure canned
+    chit-chat regardless of what was happening in the village. Selection
+    is deterministic (agent ids + tick), not random, matching the
+    project's namespaced-but-reproducible-per-site RNG convention."""
     if affinity <= RIVALRY_THRESHOLD:
         pool, sentiment = _TENSE_POOL, "tense"
     elif affinity >= 0.6:
         pool, sentiment = _WARM_POOL, "warm"
     else:
         pool, sentiment = _NEUTRAL_POOL, "neutral"
+
+    if sentiment != "tense" and (agent_a.id + agent_b.id + tick) % 3 == 0:
+        speaker, other = (agent_a, agent_b) if (agent_a.id + tick) % 2 == 0 else (agent_b, agent_a)
+        memory = speaker.memories[-1] if speaker.memories else (other.memories[-1] if other.memories else None)
+        speaker = speaker if speaker.memories else other
+        if memory:
+            trimmed = memory.strip()
+            if len(trimmed) > 90:
+                trimmed = trimmed[:90].rsplit(" ", 1)[0] + "..."
+            opener = f"Did you hear? {trimmed}"
+            reaction = _MEMORY_REACTIONS[(agent_a.id + agent_b.id + tick) % len(_MEMORY_REACTIONS)]
+            line_a, line_b = (opener, reaction) if speaker is agent_a else (reaction, opener)
+            return {"line_a": line_a, "line_b": line_b, "sentiment": sentiment, "rumor": ""}
+
     line_a, line_b = pool[(agent_a.id + agent_b.id + tick) % len(pool)]
     return {
         "line_a": line_a.format(a=agent_a.name, b=agent_b.name),

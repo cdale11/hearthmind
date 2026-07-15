@@ -262,6 +262,27 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.72.1)
+
+Closed both items deferred from v0.72.0. **Map**: agent broadcast
+payload gained `is_core` (`Population.is_core`, computed in
+`_maybe_broadcast`); the frontend renders core-cast agents as a blue
+triangle (`drawAgentTriangle`, shared with the predator-pack marker)
+instead of the plain dot, with a "▲ core" badge in both the hover
+tooltip and the NPC inspector header — Observatory UI direction: this
+reads at a glance on the map itself, not only in a stat. **Dialogue**:
+`llm/dialogue.py`'s `build_prompt` now grounds each speaker's activity
+in `goal_reason` when cognition set one (measured worst case ~786
+tokens incl. system prompt, still under the 1280 `llm_num_ctx` budget —
+re-measure before adding more prompt content); `SYSTEM_PROMPT` now
+explicitly permits disagreement/deflection instead of implicitly
+steering toward tidy agreement. `fallback_dialogue` (the deterministic
+path) now splices in a memory-grounded opener ~1/3 of non-tense
+exchanges instead of being 100% static pools with zero connection to
+world events — same "ground it in what happened" fix the LLM path
+already had, applied to the fallback too. Pools widened 5→8 entries/
+band. Verified via a 6000-tick `llm_enabled=False` soak.
+
 ## Current state (v0.72.0)
 
 Explicit user directive: port hot engine code to C++, switch the
@@ -307,10 +328,10 @@ R5 for the full scoping and what's queued next (weather grid pass,
 `_nearest_resource`). **Do not treat this as a completed full port** —
 it is module 1 of an open-ended incremental effort.
 
-**Deferred from this batch** (explicit user ask, not started — see
-`docs/REFACTOR-2026-07.md` for why a fresh session is the right unit):
-LLM-authored-NPC blue-triangle map markers + hover/click surfacing;
-NPC-NPC dialogue quality improvements (both LLM and deterministic).
+**Deferred from this batch** (explicit user ask): LLM-authored-NPC
+blue-triangle map markers + hover/click surfacing; NPC-NPC dialogue
+quality improvements (both LLM and deterministic) — both closed in
+v0.72.1 immediately after, see below.
 
 ## Current state (v0.71.0)
 

@@ -7,6 +7,19 @@
 
 const CELL = 8; // px per terrain tile
 
+// Shared upward-pointing triangle path (predator packs, and the LLM
+// core-cast agent marker, v0.72.0) — fill/stroke style is the caller's
+// choice; this only builds the path via the current fillStyle/context
+// transform, does not begin/close/fill on its own beyond what's needed
+// to leave a closed path ready to fill or stroke.
+function drawAgentTriangle(ctx, cx, cy, r) {
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r);
+  ctx.lineTo(cx - r, cy + r);
+  ctx.lineTo(cx + r, cy + r);
+  ctx.closePath();
+}
+
 // Skips the innerHTML write (and the reflow/scroll-reset it causes) when
 // the new markup is identical to what's already there — most ticks don't
 // actually change a slow-growing list (beliefs/traditions/inventions/
@@ -741,12 +754,8 @@ function drawFrame() {
       ctx.arc(cx, cy, Math.min(CELL / 2, 1.5 + h.count * 0.25), 0, Math.PI * 2);
       ctx.fill();
     } else {
-      ctx.beginPath();
       ctx.fillStyle = "#c94c4c";
-      ctx.moveTo(cx, cy - CELL / 2.4);
-      ctx.lineTo(cx - CELL / 2.4, cy + CELL / 2.4);
-      ctx.lineTo(cx + CELL / 2.4, cy + CELL / 2.4);
-      ctx.closePath();
+      drawAgentTriangle(ctx, cx, cy, CELL / 2.4);
       ctx.fill();
     }
   }
@@ -754,8 +763,19 @@ function drawFrame() {
   for (const a of latest.agents) {
     const { px, py } = agentRenderPos(a);
     ctx.beginPath();
-    ctx.fillStyle = a.state === "resting" ? "#8894c9" : "#f2f2f2";
-    ctx.arc(px, py, CELL / 3, 0, Math.PI * 2);
+    if (a.is_core) {
+      // LLM core cast (v0.72.0): the persistent, model-authored
+      // protagonists (Config.llm_core_cast_size) get a distinct blue
+      // triangle instead of the plain dot everyone else renders as —
+      // Observatory UI direction: this should be readable at a glance
+      // on the map itself, not only in the inspector. Resting still
+      // dims it the same way a resting dot dims, so state stays legible.
+      ctx.fillStyle = a.state === "resting" ? "#5c7fc9" : "#4d8dff";
+      drawAgentTriangle(ctx, px, py, CELL / 2.6);
+    } else {
+      ctx.fillStyle = a.state === "resting" ? "#8894c9" : "#f2f2f2";
+      ctx.arc(px, py, CELL / 3, 0, Math.PI * 2);
+    }
     ctx.fill();
     if (a.starving_ticks > 0) {
       ctx.strokeStyle = "#e0473c";
@@ -1221,7 +1241,7 @@ canvas.addEventListener("mousemove", (ev) => {
     tooltip.classList.remove("hidden");
     const lastMemory = a.memories && a.memories.length ? a.memories[a.memories.length - 1] : null;
     tooltip.innerHTML =
-      `<b>${a.name}</b> (${a.state}, goal=${a.goal})<br>` +
+      `<b>${a.name}</b>${a.is_core ? ' <span class="core-badge" title="LLM core cast: model-authored goals and dialogue">▲ core</span>' : ""} (${a.state}, goal=${a.goal})<br>` +
       `hunger ${a.hunger.toFixed(2)} · energy ${a.energy.toFixed(2)} · age ${a.age_ticks}` +
       (a.goal_reason ? `<br><i>"${a.goal_reason}"</i>` : "") +
       (lastMemory ? `<br><span class="tooltip-memory">${lastMemory}</span>` : "") +
@@ -1402,7 +1422,7 @@ function renderNpcInspector() {
     : `<div class="muted">no institution ties yet</div>`;
 
   npcContent.innerHTML = `
-    <h3>${agent.name}</h3>
+    <h3>${agent.name}${agent.is_core ? ' <span class="core-badge" title="LLM core cast: goals and dialogue are model-authored, not the deterministic fallback">▲ core</span>' : ""}</h3>
     <div class="npc-subtitle">${agent.state}, age ${agent.age_ticks}</div>
     <button class="npc-follow-btn" data-follow="${agent.id}" data-follow-name="${agent.name}">⌖ follow on map</button>
     <div class="npc-section">
