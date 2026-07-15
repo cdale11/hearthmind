@@ -279,8 +279,12 @@ against a big table was a client-triggered RAM spike). Plus a defensive
 table that grows per-tick/per-event needs a retention window like
 `events`; anything read into a prompt must stay bounded (prompts read
 only the newest ~50 events). `metrics` left unpruned for now (slow;
-revisit only for multi-year sim runs). **Refactor status:** R3 shipped
-(v0.69.0); R1/R2/R4 from `docs/REFACTOR-2026-07.md` still pending.
+revisit only for multi-year sim runs). **Refactor status:** R2 ✅
+(tick-job dispatch table), R3 ✅ (clamp migration), R4 ✅
+(`resources.tick` below-cap working set, pure-Python ~2.1x — numpy
+declined as a poor fit for the sparse-dict hot loops). **R1** (mixin
+split of the three big files) is the one item left, held for a
+dedicated session — see `docs/REFACTOR-2026-07.md`.
 
 ## Current state (v0.70.0)
 

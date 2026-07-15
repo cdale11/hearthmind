@@ -1322,6 +1322,7 @@ class Population:
         if node is not None and node.kind in (ResourceKind.FOOD, ResourceKind.FISH) and node.amount > 0:
             consumed = min(node.amount, FORAGE_AMOUNT)
             node.amount -= consumed
+            resources.mark_regenerating(agent.x, agent.y)
             relief = FORAGE_HUNGER_RELIEF * (consumed / FORAGE_AMOUNT)
             if node.kind is ResourceKind.FISH:
                 relief *= FISH_HUNGER_RELIEF_MULTIPLIER * _raft_factor(home)
@@ -1375,6 +1376,7 @@ class Population:
                 return False
             gathered = min(node.amount, MATERIALS_GATHER_PER_TICK)
             node.amount -= gathered
+            resources.mark_regenerating(agent.x, agent.y)
 
         # Ready carts speed hauling of whatever was just gathered back to
         # the stockpile — see CART_HAUL_BONUS_PER_CART, D8/vehicles pass.

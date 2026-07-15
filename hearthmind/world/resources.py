@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from hearthmind.world.terrain import Biome, Tile
@@ -134,6 +134,19 @@ class ResourceNode:
 @dataclass
 class ResourceGrid:
     nodes: dict[tuple[int, int], ResourceNode]
+    _regenerating: "set[tuple[int, int]] | None" = field(default=None, compare=False, repr=False)
+    """Positions of nodes currently below their cap — the working set
+    `tick` actually iterates (v0.71.x perf pass, R4). Most nodes sit at
+    cap most of the time (regen outpaces harvest), so the old
+    "scan every node every tick" pass did mostly no-op work; iterating
+    only below-cap nodes is a real, measured win with no behavior change
+    (a node at cap is a no-op under `min(cap, amount+regen)` anyway).
+    Not persisted, not part of equality — lazily seeded to every node on
+    the first `tick` and thereafter kept in sync: a node leaves the set
+    when it reaches cap, and re-enters via `mark_regenerating` whenever
+    something depletes it (forage/gather/grazing). `None` means "not yet
+    seeded"; harvests before the first tick are safely covered because
+    that first tick seeds the whole grid regardless."""
 
     # --- construction ------------------------------------------------------
 
@@ -173,9 +186,27 @@ class ResourceGrid:
 
     # --- tick ------------------------------------------------------------------
 
+    def mark_regenerating(self, x: int, y: int) -> None:
+        """Register a node as below-cap so the next `tick` regenerates it.
+        Call after depleting a node (forage/gather/grazing). A no-op
+        before the working set is seeded (the first `tick` seeds every
+        node anyway), so callers never need to care about ordering. See
+        `_regenerating`."""
+        if self._regenerating is not None:
+            self._regenerating.add((x, y))
+
     def tick(self, season: str = "summer") -> None:
         multiplier = SEASON_REGEN_MULTIPLIER.get(season, 1.0)
-        for node in self.nodes.values():
+        if self._regenerating is None:
+            # First tick: seed the working set with every node. Full nodes
+            # are pruned below on this same pass, so from tick 2 on only
+            # genuinely-regenerating nodes are visited.
+            self._regenerating = set(self.nodes.keys())
+        for pos in list(self._regenerating):
+            node = self.nodes.get(pos)
+            if node is None:
+                self._regenerating.discard(pos)  # node vanished (shouldn't happen, defensive)
+                continue
             if node.kind is ResourceKind.ORE:
                 cap, regen = MAX_ORE_AMOUNT, ORE_REGEN_PER_TICK * multiplier
             elif node.kind is ResourceKind.FISH:
@@ -184,6 +215,8 @@ class ResourceGrid:
                 cap, regen = MAX_NODE_AMOUNT, REGEN_PER_TICK * multiplier
             if node.amount < cap:
                 node.amount = min(cap, node.amount + regen)
+            if node.amount >= cap:
+                self._regenerating.discard(pos)  # topped up — stop visiting until next depletion
 
     # --- summary -----------------------------------------------------------------
 

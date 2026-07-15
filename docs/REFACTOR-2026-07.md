@@ -155,7 +155,26 @@ one-line mechanical swap but each is also a chance to flip a bound, so
 do it file-by-file behind the event-hash check. Left out of this pass
 to keep the diff reviewable.
 
-### R4. Grid-pass vectorization (`resources`/`roads`/terrain) — do **not** do without a measured need
+### R4. resources.tick working set — DONE as pure-Python (v0.71.x)
+
+Resolved after review: the numpy path was declined because the hot loops
+(`resources.tick`, `roads.tick`) iterate **sparse dicts**, not dense
+numeric grids, and terrain tiles are enum-based objects — numpy's fit is
+narrow and would force a sparse→dense restructure for marginal gain
+(user agreed: "skip numpy; do the pure-Python win"). Shipped instead the
+algorithmic win the deferral note itself pointed at: `ResourceGrid` now
+keeps a `_regenerating` working set of below-cap node positions and
+`tick` iterates only those (nodes at cap are a no-op under
+`min(cap, amount+regen)` anyway). Kept in sync by `mark_regenerating`,
+called at the three depletion sites (forage/gather/grazing).
+**Byte-identical** (event stream + every node amount matched over 6000
+ticks); measured `resources.tick` self-time 0.777s → 0.372s (~2.1x) at
+population 60. `roads.tick` was left alone — it already iterates only
+worn tiles (its cost is proportional to real road activity, not waste).
+Numpy remains available if a *measured* dense-grid bottleneck ever
+appears; the original declined-rationale is retained below.
+
+### R4 (numpy variant, declined). Grid-pass vectorization — do **not** do without a measured need
 
 These full-collection passes are ~10% of tick time but proportional to
 real state, and the tick loop has ~250× headroom. Per CLAUDE.md's

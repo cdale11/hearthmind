@@ -316,6 +316,7 @@ class WildlifeGrid:
                 grazing_food = node is not None and node.kind is ResourceKind.FOOD
                 if grazing_food:
                     node.amount = max(0.0, node.amount - GRAZE_CONSUMPTION_PER_TICK)
+                    resources.mark_regenerating(herd.x, herd.y)
                 overgrazed = grazing_food and node.amount < GRAZE_REPRODUCE_MIN_FOOD
                 reproduce_chance = GRAZER_REPRODUCE_CHANCE * SEASON_GRAZER_REPRODUCE_MULTIPLIER.get(season, 1.0)
                 if herd.count < MAX_HERD_SIZE and not overgrazed and rng.random() < reproduce_chance:
