@@ -104,7 +104,27 @@ interpretation, creativity, uncertainty, psychology, or social behavior
 should default to the local LLM unless there's a compelling engineering
 reason not to. Don't replace LLM reasoning with a large deterministic
 rule system just because it's easier to implement. The deterministic
-engine provides reality; the LLM provides meaning. NPCs are imperfect:
+engine provides reality; the LLM provides meaning.
+
+**Physical substrate = a C++ cellular-automata engine (R7, added
+v0.72.6, explicit user directive).** The objective-physical-reality
+layer above — agriculture, ecology/wildlife, weather, environment
+effects, disasters, terrain evolution — is explicitly framed as a
+cellular-automata-style substrate (grid/tile-local state, per-tick local
+rules; this was already the shape of these systems, R7 formalizes it)
+and **any new code in this domain is written directly in C++ from the
+start**, not Python-first-then-ported — pybind11 binding + pure-Python
+fallback + randomized-equivalence/hash-soak verification from the first
+commit, same discipline as every R5/R6 module. Existing not-yet-ported
+Python in this domain (`world/weather.py`, `world/terrain_evolution.py`,
+`world/disasters.py`, `world/hydrology.py`, `economy/farms.py`, most of
+`settlement/buildings.py`'s decay math) keeps moving over incrementally
+under R6's queue — R7 governs new code, it doesn't force an immediate
+rewrite of the backlog. See docs/REFACTOR-2026-07.md, "R7." **This does
+not change the LLM/deterministic split above** — town-brain, chronicle,
+dialogue, culture, beliefs, dispute resolution, founding, omens/Phase G
+stay exactly as documented; R7 only sharpens how the physical half gets
+built going forward. NPCs are imperfect:
 they misunderstand, forget, reinterpret memories, procrastinate, become
 biased, gossip, forgive, hold grudges, invent explanations, and change
 over time. Objective reality and subjective belief are separate —
@@ -283,6 +303,30 @@ Single-writer tick loop + queued interventions; fallback-on-every-LLM-
 call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
+
+## Current state (v0.72.6)
+
+Two items: native port module 7, and a new standing architectural
+scope (R7). **Module 7**: `Population._maybe_predator_attack`'s
+kill-chance math → `predator_kill_chance` (`cpp/src/predator_kill_
+chance.cpp`) — pure arithmetic, no RNG; both `rng.random()` rolls stay
+in Python in original order. Verified via 50,000 randomized inputs (0
+mismatches) plus a four-seed cumulative-event-hash soak, all seven
+native modules on vs. off, byte-identical. **R7 (new)**: explicit user
+directive to frame the deterministic physical-reality layer (CLAUDE.md
+design priorities: weather/ecology/agriculture/disasters/terrain
+evolution) as a cellular-automata-style substrate, and — the actual new
+rule — any *new* code in that domain is written directly in C++ from
+the start (pybind11 + pure-Python fallback + verification pass from the
+first commit), not Python-first-then-ported. Existing not-yet-ported
+Python in this domain (weather.py, terrain_evolution.py, disasters.py,
+hydrology.py, economy/farms.py, most of buildings.py's decay math)
+keeps moving over incrementally under R6's existing queue — R7 doesn't
+force an immediate rewrite of the backlog, it governs new code. The
+LLM/deterministic split itself (town consciousness, supernatural
+ambiguity, everything judgment/social/psychological) is explicitly
+unchanged — R7 only reaches the physical half. See
+docs/REFACTOR-2026-07.md, "R7," for the full scoping.
 
 ## Current state (v0.72.5)
 

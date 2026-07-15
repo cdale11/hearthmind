@@ -370,18 +370,81 @@ input combinations against a reference Python port of the exact same
 branching (0 mismatches to 1e-9) plus the cumulative-event-hash soak
 across three seeds.
 
-**Queued next for R6**, roughly in order of how self-contained they are
-(least Python-object entanglement first): `Population._maybe_predator_
-attack`'s pure-math tail (kill-chance computation, once the predator/
-hospital/temperament/resilience inputs are resolved in Python, same
-shape as module 6); `FarmGrid`/`FarmPlot` growth-tick math (`world/
-farms.py`, not yet inspected in detail — likely close to module 6's
-shape); building decay/repair progress math (`settlement/buildings.py`)
-once the "which building, which stage" resolution is separated from the
-"how much did its condition change" arithmetic. Each gets its own
-module number, its own byte-identical-fallback function, and its own
-verification pass — R6 does not get a discount on that discipline just
-because the target scope is bigger.
+**Module 7 shipped (v0.72.6): `Population._maybe_predator_attack`'s
+kill-chance math.** `predator_kill_chance` (`cpp/src/predator_kill_
+chance.cpp`) — pure arithmetic only, no RNG: the function's two
+`rng.random()` rolls (does-an-attack-happen, then does-it-land-lethal)
+stay in Python in their original order, since a native module must
+never introduce a second, uncoordinated randomness source alongside the
+project's namespaced-RNG discipline. `has_hospital`/`temperament`/
+`resilience` are resolved in Python exactly as before and passed in as
+plain scalars. Verified via 50,000 randomized input combinations (0
+mismatches to 1e-12) plus the cumulative-event-hash soak across four
+seeds, all seven native modules on vs. off, byte-identical.
+
+**Queued next for R6**, roughly in order of how self-contained they
+are: `FarmGrid`/`FarmPlot` growth-tick math (`economy/farms.py`, not
+yet inspected in detail — likely close to module 6's shape); building
+decay/repair progress math (`settlement/buildings.py`) once the "which
+building, which stage" resolution is separated from the "how much did
+its condition change" arithmetic. As of v0.72.6 these are also R7
+candidates (below) — see R7 for the reframing of this whole queue.
+
+## R7: cellular-automata physical substrate — new domain code is C++ from the start (added v0.72.6)
+
+Explicit user directive, building on R6: reframe the deterministic
+physical-reality layer this project already commits to (CLAUDE.md's
+design priorities — "the deterministic engine should only model
+objective physical reality: time, weather, seasons, physics, movement,
+pathfinding, resources, ecology, construction, decay") as an explicitly
+**cellular-automata-style substrate**, and — new addition — **write any
+new code in that domain directly in C++ from the outset**, not
+Python-first-then-ported-later. This is a scoping/workflow change, not
+a mechanics change: agriculture, ecology/wildlife, weather, environment
+effects, disasters, and terrain evolution are already grid/tile-based
+systems with local per-cell state updated by per-tick rules (a
+`ResourceNode`'s regen, a `Tile`'s biome/moisture, an `AnimalHerd`'s
+position/count, a farm plot's growth stage) — genuinely CA-shaped
+already, even before this directive; what changes is where new code in
+this domain gets written first.
+
+**In scope (the CA/physical-substrate domain):** `world/resources.py`
+(foraging/mining/fishing nodes — modules 1-2 partially ported),
+`world/wildlife.py` (grazer/predator herds — module 5 partially
+ported), `world/weather.py` (not yet ported — flagged not-yet-a-
+measured-hotspot in the v0.72.2 correction, revisit under the new
+"write new code in C++" rule for anything *added* to it from here),
+`world/terrain_evolution.py` (weekly/monthly terrain change — same
+status as weather.py), `world/disasters.py`, `world/hydrology.py`,
+`economy/farms.py` (agriculture), `settlement/buildings.py`'s pure
+decay/repair math (not the ownership/construction orchestration around
+it). **Out of scope, unchanged:** everything CLAUDE.md already assigns
+to the LLM — town-brain/chronicle/dialogue/culture/beliefs/dispute/
+founding/omens/temperament-as-Phase-G, i.e. "town consciousness,"
+supernatural ambiguity, and every other judgment/interpretation/
+psychology/social-behavior decision point. R7 does not touch that
+split; it only sharpens how the *other* half (physical reality) is
+built going forward.
+
+**The new rule, precisely:** a brand-new mechanic or extension inside
+the CA/physical-substrate domain (a new disaster type, a new terrain
+evolution rule, a new agriculture mechanic, a new weather effect) is
+implemented as a C++ function/module from the first line, following the
+same pattern every R5/R6 module already established — pybind11 binding,
+a pure-Python fallback so a failed/skipped build never breaks the sim,
+and a randomized-equivalence + cumulative-hash verification pass before
+it's considered done. The fallback isn't optional busywork here: it's
+what keeps "new code is C++-first" from becoming "new code has no
+verifiable pure-Python behavior to check it against." **Existing Python
+code in this domain is not being rewritten wholesale on this directive
+alone** — it continues to move over incrementally under R6's existing
+module-by-module queue (farms, weather, terrain evolution, disasters,
+hydrology, building decay math), each still needing its own
+provably-equivalent module and verification pass, same as always. R7
+is additive to that queue, not a replacement for it: it governs new
+code from here forward; the backlog of not-yet-ported existing code
+is unchanged in shape, just now understood as "the CA engine's
+remaining Python surface" rather than an ungrouped list of modules.
 
 ## One-line summary for CLAUDE.md / CHANGELOG
 

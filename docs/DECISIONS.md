@@ -6784,3 +6784,50 @@ multi-session effort, not a single-turn deliverable — R6 does not
 relax the "byte-identical fallback + hash-soak proof, every increment"
 rule just because the eventual scope (the orchestration layer) is
 larger than any single module ported so far.
+
+## v0.72.6: native port module 7, new scope — C++ cellular-automata physical substrate (R7)
+
+**Module 7: `Population._maybe_predator_attack`'s kill-chance math.**
+Continuing the R6 queue from v0.72.5. The function has two RNG-
+consuming rolls (whether an attack happens this tick, then whether it's
+lethal) with pure-math kill-chance computation sandwiched between them
+— only that middle computation moved to C++; both `rng.random()` calls
+stay in Python, in their original order, since this project's
+namespaced-RNG determinism-where-natural discipline depends on there
+being exactly one RNG stream per tick/agent, not a second uncoordinated
+one hiding inside a native call. `has_hospital`/`temperament`/
+`resilience` are resolved in Python exactly as before. Verified via
+50,000 randomized input combinations (0 mismatches to floating-point
+tolerance 1e-12) plus a four-seed cumulative-event-hash soak, all seven
+native modules on vs. off, byte-identical every time.
+
+**New scope: R7, cellular-automata physical substrate, C++ from the
+start.** User instruction, in the same message that asked to keep
+porting: frame the deterministic physical-reality layer (already
+defined in this file's design-priorities section — weather, seasons,
+resources, ecology, construction, decay) as an explicitly cellular-
+automata-style engine, and — the actual behavioral change — write any
+*new* code in that domain directly in C++ from day one, not
+Python-first-then-ported-later the way every module 1-7 so far has
+been. This is scoped narrowly and deliberately: it does NOT touch the
+LLM/deterministic split that's been this project's core architecture
+since the beginning (town-brain, chronicle, dialogue, culture, beliefs,
+dispute resolution, founding, omens/Phase G stay exactly as documented
+— "town consciousness, supernatural, etc." in the user's own words,
+explicitly called out as unaffected). It also does NOT mandate an
+immediate rewrite of existing not-yet-ported Python in the physical
+domain (`world/weather.py`, `world/terrain_evolution.py`,
+`world/disasters.py`, `world/hydrology.py`, `economy/farms.py`, most of
+`settlement/buildings.py`'s decay math) — that backlog keeps moving
+under R6's existing incremental, byte-identical-fallback, hash-soak-
+verified discipline. R7 is a going-forward rule for new work, layered
+on top of R6's existing methodology rather than replacing it: the
+"cellular automata" framing is honestly more a naming/scoping
+clarification than a mechanics change, since these systems (resource
+nodes, herds, tiles, farm plots) already update via local per-cell/
+per-entity state and per-tick rules — what's new is the commitment to
+implement the *next* disaster type, weather effect, terrain-evolution
+rule, or agriculture mechanic as a C++ module from its first line
+rather than prototyping it in Python and porting later. See
+docs/REFACTOR-2026-07.md, "R7," for the full scope list and the
+in-scope/out-of-scope boundary.

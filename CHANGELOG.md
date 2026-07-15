@@ -4,6 +4,31 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.72.6] — Native port module 7, new scope: C++ cellular-automata physical substrate (R7)
+
+### Added
+- Native port module 7: `Population._maybe_predator_attack`'s
+  kill-chance math → `predator_kill_chance`
+  (`cpp/src/predator_kill_chance.cpp`). Pure arithmetic only — both
+  `rng.random()` rolls stay in Python, in original order, so the
+  namespaced-RNG stream is untouched. Verified via 50,000 randomized
+  inputs (0 mismatches) plus a four-seed cumulative-event-hash soak,
+  all seven native modules on vs. off, byte-identical.
+- **New standing scope, R7** (docs/REFACTOR-2026-07.md, CLAUDE.md
+  design priorities): the deterministic physical-reality layer
+  (agriculture, ecology/wildlife, weather, environment effects,
+  disasters, terrain evolution) is now explicitly framed as a
+  cellular-automata-style substrate, and any *new* code in that domain
+  is written directly in C++ from the start — pybind11 binding + pure-
+  Python fallback + verification pass from the first commit, not
+  Python-first-then-ported. Existing not-yet-ported Python in this
+  domain (weather.py, terrain_evolution.py, disasters.py, hydrology.py,
+  economy/farms.py, most of buildings.py's decay math) keeps moving
+  incrementally under R6's existing queue; R7 governs new code, it
+  doesn't force an immediate rewrite of the backlog. The LLM/
+  deterministic split (town consciousness, supernatural ambiguity,
+  everything judgment/social/psychological) is explicitly unchanged.
+
 ## [0.72.5] — Native port modules 5-6, full engine-core rewrite started (R6)
 
 Explicit user directive: port all remaining code to C++, then begin a

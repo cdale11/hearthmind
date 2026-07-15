@@ -42,6 +42,16 @@ try:
 except ImportError:
     _NativeNeedsConstants = None
     _native_update_needs = None
+
+try:
+    from hearthmind._native import predator_kill_chance as _native_predator_kill_chance
+except ImportError:
+    _native_predator_kill_chance = None
+"""Optional compiled fast path for the pure-math kill-chance computation
+inside `_maybe_predator_attack` (module 7, see cpp/src/predator_kill_
+chance.cpp). Only the arithmetic moves — both `rng.random()` rolls stay
+in Python, in the same order, so the namespaced-RNG stream is
+untouched. `None` when the extension wasn't built."""
 """Optional compiled fast path for `_update_needs` (module 6, see
 cpp/src/needs.cpp, docs/DECISIONS.md "Native extension port" — the
 first module from the "full engine rewrite" track: this runs
@@ -1221,15 +1231,25 @@ class Population:
             return None
         if rng.random() >= PREDATOR_ATTACK_CHANCE:
             return None
-        kill_chance = PREDATOR_KILL_CHANCE_ON_ATTACK
-        if has_hospital:
-            kill_chance *= (1.0 - HOSPITAL_KILL_CHANCE_REDUCTION)
-        kill_chance = max(0.0, kill_chance * (1.0 - temperament * TEMPERAMENT_KILL_CHANCE_INFLUENCE))
         # Integration milestone: the agent's own resilience gets a say
         # too, alongside the settlement-wide temperament nudge — see
         # TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE.
         resilience = agent.traits.get(TRAIT_RESILIENCE, 0.0)
-        kill_chance = max(0.0, kill_chance * (1.0 - resilience * TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE))
+        if _native_predator_kill_chance is not None:
+            # Native fast path (module 7): pure math only — this call
+            # consumes no RNG, so it can't disturb the two rng.random()
+            # rolls' order in this function.
+            kill_chance = _native_predator_kill_chance(
+                PREDATOR_KILL_CHANCE_ON_ATTACK, has_hospital, HOSPITAL_KILL_CHANCE_REDUCTION,
+                temperament, TEMPERAMENT_KILL_CHANCE_INFLUENCE,
+                resilience, TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE,
+            )
+        else:
+            kill_chance = PREDATOR_KILL_CHANCE_ON_ATTACK
+            if has_hospital:
+                kill_chance *= (1.0 - HOSPITAL_KILL_CHANCE_REDUCTION)
+            kill_chance = max(0.0, kill_chance * (1.0 - temperament * TEMPERAMENT_KILL_CHANCE_INFLUENCE))
+            kill_chance = max(0.0, kill_chance * (1.0 - resilience * TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE))
         if rng.random() < kill_chance:
             return (("death", f"{agent.name} was killed by predators."), True)
         agent.energy = max(0.0, agent.energy - PREDATOR_ATTACK_ENERGY_DRAIN)
