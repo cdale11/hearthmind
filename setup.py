@@ -21,7 +21,11 @@ try:
     ext_modules = [
         Pybind11Extension(
             "hearthmind._native",
-            sorted(["cpp/src/resource_grid.cpp", "cpp/src/terrain_index.cpp"]),
+            sorted([
+                "cpp/src/resource_grid.cpp",
+                "cpp/src/terrain_index.cpp",
+                "cpp/src/agent_position_index.cpp",
+            ]),
             cxx_std=17,
         )
     ]

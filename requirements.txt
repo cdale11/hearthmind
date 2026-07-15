@@ -1,6 +1,12 @@
-# Base simulation has zero dependencies (Python stdlib only).
-# These are only needed for the optional browser interface (--api-enabled).
+# Base simulation has zero *runtime* dependencies (Python stdlib only).
+# These are only needed for optional pieces:
 # Install with: pip install -r requirements.txt
 # or:           pip install hearthmind[api]
 fastapi>=0.110
 uvicorn[standard]>=0.29
+
+# pybind11 headers, needed to build the optional hearthmind._native C++
+# extension (cpp/src/, see docs/DECISIONS.md "Native extension port").
+# Only used at build time (setup.py); the sim runs fine without it via
+# the pure-Python fallback path for every native-ported function.
+pybind11>=2.11

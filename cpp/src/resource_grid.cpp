@@ -185,6 +185,7 @@ private:
 // since a Python extension module can only have one PYBIND11_MODULE
 // entry point.
 void register_terrain_index(py::module_ &m);
+void register_agent_position_index(py::module_ &m);
 
 PYBIND11_MODULE(_native, m) {
     m.doc() = "Hearthmind native (C++) hot-path extensions. Optional — "
@@ -207,4 +208,5 @@ PYBIND11_MODULE(_native, m) {
              "full rebuilds. See ResourceGrid.mark_regenerating.");
 
     register_terrain_index(m);
+    register_agent_position_index(m);
 }

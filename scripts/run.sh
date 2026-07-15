@@ -1,31 +1,24 @@
 #!/usr/bin/env bash
-# Builds what needs building, then launches llama-server (tuned per
+# Builds hearthmind._native, then launches llama-server (tuned per
 # README's "Running the LLM (llama.cpp)" section) and hearthmind.server
 # together as one command — "start the game" is one script instead of
-# three manually-coordinated steps (build native extension, build/run
-# llama-server, run hearthmind).
+# manually coordinating build + two processes.
 #
 # Usage:
 #   MODEL_PATH=/path/to/Qwen3-4B-Instruct-Q4_K_M.gguf ./scripts/run.sh
-#   MODEL_PATH=... ./scripts/run.sh --db world.sqlite3 --llm-core-cast-size 16
+#   MODEL_PATH=... ./scripts/run.sh --db world.sqlite3 --llm-core-cast-size 12
 #
 # Every argument after the script name is passed straight through to
-# `python3 -m hearthmind.server` (e.g. --db, --seed, --llm-disabled).
+# `python -m hearthmind.server` (e.g. --db, --seed, --llm-disabled).
 # Ctrl+C (or a plain `kill`) stops both processes cleanly — hearthmind
 # gets its normal SIGINT/SIGTERM shutdown (final snapshot, see
 # server.py) before llama-server is stopped.
 #
-# Build steps (both skippable, both safe no-ops if already built):
-#   - hearthmind._native (the pybind11 C++ extension, cpp/src/): always
-#     attempted via `python3 setup.py build_ext --inplace` unless
-#     SKIP_NATIVE_BUILD=1. Failure here is non-fatal — every native
-#     function has a pure-Python fallback (see README).
-#   - llama-server itself: if LLAMA_SERVER_BIN doesn't exist and a
-#     llama.cpp source checkout is found at LLAMA_CPP_DIR, it's built
-#     automatically (CMake + GGML_VULKAN if USE_VULKAN=1). If no
-#     checkout is found, this script prints the clone command and stops
-#     rather than silently fetching code from the network — set
-#     AUTO_CLONE_LLAMA_CPP=1 to let it run that clone for you instead.
+# This script does NOT build or install llama.cpp/llama-server — build
+# it yourself (see README) and point LLAMA_SERVER_BIN at the resulting
+# binary, or have it already on PATH. It only builds hearthmind._native
+# (fast, local, pure-Python fallback if skipped/failed — SKIP_NATIVE_
+# BUILD=1 to skip).
 #
 # Configurable via environment variables (all optional; the llama-server
 # flag defaults below match the confirmed-working GPU-offload recipe —
@@ -33,23 +26,21 @@
 #   MODEL_PATH          Path to a GGUF model file. Required unless
 #                        --llm-disabled is passed through in "$@".
 #   LLAMA_SERVER_BIN     Path to the llama-server binary.
-#                        Default: llama.cpp/build/bin/llama-server
-#   LLAMA_CPP_DIR        Where to find/build a llama.cpp checkout.
-#                        Default: <repo>/llama.cpp
+#                        Default: llama-server (resolved via PATH)
 #   LLAMA_HOST           Host:port llama-server binds to (also passed to
 #                        hearthmind via --llm-llamacpp-host).
 #                        Default: http://localhost:8080
-#   LLAMA_CTX_SIZE       Default: 1280 (matches Config.llm_num_ctx)
+#   LLAMA_CTX_SIZE       Default: 1280 (matches Config.llm_num_ctx's
+#                        CPU-only-safe floor; raise if you've confirmed
+#                        GPU offload and have real RAM headroom — see
+#                        README's 8GB vs. GPU-offload guidance)
 #   LLAMA_THREADS        Default: every CPU core ($(nproc))
 #   LLAMA_N_GPU_LAYERS   Default: 999 (offload every layer the backend
 #                        can fit — confirmed working via GPU inference;
 #                        set 0 to force CPU-only).
 #   LLAMA_CACHE_TYPE_K   Default: q8_0
 #   LLAMA_CACHE_TYPE_V   Default: q8_0
-#   USE_VULKAN           1 to build llama.cpp with -DGGML_VULKAN=ON
-#                        (AMD iGPU offload, see README). Default: 0.
-#   AUTO_CLONE_LLAMA_CPP 1 to let this script `git clone` llama.cpp when
-#                        no checkout is found. Default: 0.
+#   SKIP_NATIVE_BUILD    1 to skip building hearthmind._native. Default: 0.
 #   LLAMA_EXTRA_ARGS     Extra raw flags appended to the llama-server
 #                        command line.
 set -uo pipefail
@@ -57,16 +48,13 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-LLAMA_CPP_DIR="${LLAMA_CPP_DIR:-$REPO_ROOT/llama.cpp}"
-LLAMA_SERVER_BIN="${LLAMA_SERVER_BIN:-$LLAMA_CPP_DIR/build/bin/llama-server}"
+LLAMA_SERVER_BIN="${LLAMA_SERVER_BIN:-llama-server}"
 LLAMA_HOST="${LLAMA_HOST:-http://localhost:8080}"
 LLAMA_CTX_SIZE="${LLAMA_CTX_SIZE:-1280}"
 LLAMA_THREADS="${LLAMA_THREADS:-$(nproc 2>/dev/null || echo 4)}"
 LLAMA_N_GPU_LAYERS="${LLAMA_N_GPU_LAYERS:-999}"
 LLAMA_CACHE_TYPE_K="${LLAMA_CACHE_TYPE_K:-q8_0}"
 LLAMA_CACHE_TYPE_V="${LLAMA_CACHE_TYPE_V:-q8_0}"
-USE_VULKAN="${USE_VULKAN:-0}"
-AUTO_CLONE_LLAMA_CPP="${AUTO_CLONE_LLAMA_CPP:-0}"
 SKIP_NATIVE_BUILD="${SKIP_NATIVE_BUILD:-0}"
 LLAMA_EXTRA_ARGS="${LLAMA_EXTRA_ARGS:-}"
 
@@ -81,36 +69,17 @@ done
 
 if [[ "$SKIP_NATIVE_BUILD" != "1" ]]; then
   echo "run.sh: building hearthmind._native (set SKIP_NATIVE_BUILD=1 to skip)..." >&2
-  ( cd "$REPO_ROOT" && python3 setup.py build_ext --inplace ) || \
+  ( cd "$REPO_ROOT" && python setup.py build_ext --inplace ) || \
     echo "run.sh: native extension build failed — continuing on the pure-Python fallback path (see README)." >&2
 fi
 
-# --- build llama-server if missing ------------------------------------------
+# --- llama-server must already exist ----------------------------------------
 
-if [[ "$llm_disabled" == false && ! -x "$LLAMA_SERVER_BIN" ]]; then
-  if [[ ! -d "$LLAMA_CPP_DIR/.git" && ! -d "$LLAMA_CPP_DIR" ]]; then
-    if [[ "$AUTO_CLONE_LLAMA_CPP" == "1" ]]; then
-      echo "run.sh: cloning llama.cpp into $LLAMA_CPP_DIR..." >&2
-      git clone --depth 1 https://github.com/ggml-org/llama.cpp "$LLAMA_CPP_DIR"
-    else
-      echo "run.sh: no llama-server binary at $LLAMA_SERVER_BIN and no checkout at $LLAMA_CPP_DIR." >&2
-      echo "        Clone it yourself:" >&2
-      echo "          git clone https://github.com/ggml-org/llama.cpp \"$LLAMA_CPP_DIR\"" >&2
-      echo "        ...or re-run with AUTO_CLONE_LLAMA_CPP=1 to let this script do it." >&2
-      exit 1
-    fi
-  fi
-  echo "run.sh: building llama-server (USE_VULKAN=$USE_VULKAN)..." >&2
-  cmake_flags=(-B "$LLAMA_CPP_DIR/build" -S "$LLAMA_CPP_DIR")
-  if [[ "$USE_VULKAN" == "1" ]]; then
-    cmake_flags+=(-DGGML_VULKAN=ON)
-  fi
-  cmake "${cmake_flags[@]}"
-  cmake --build "$LLAMA_CPP_DIR/build" --config Release -j"$(nproc 2>/dev/null || echo 4)" --target llama-server
-  if [[ ! -x "$LLAMA_SERVER_BIN" ]]; then
-    echo "run.sh: build finished but $LLAMA_SERVER_BIN still isn't there — check the cmake/build output above." >&2
-    exit 1
-  fi
+if [[ "$llm_disabled" == false ]] && ! command -v "$LLAMA_SERVER_BIN" >/dev/null 2>&1 && [[ ! -x "$LLAMA_SERVER_BIN" ]]; then
+  echo "run.sh: no llama-server binary found at/on PATH as '$LLAMA_SERVER_BIN'." >&2
+  echo "        Build or install llama.cpp yourself (see README, \"Running the LLM (llama.cpp)\")," >&2
+  echo "        then set LLAMA_SERVER_BIN to the binary path, or pass --llm-disabled to skip the LLM." >&2
+  exit 1
 fi
 
 llama_pid=""
@@ -179,9 +148,9 @@ fi
 echo "run.sh: starting hearthmind.server..." >&2
 cd "$REPO_ROOT"
 if [[ "$llm_disabled" == false ]]; then
-  python3 -m hearthmind.server --llm-backend llamacpp --llm-llamacpp-host "$LLAMA_HOST" "$@" &
+  python -m hearthmind.server --llm-backend llamacpp --llm-llamacpp-host "$LLAMA_HOST" "$@" &
 else
-  python3 -m hearthmind.server "$@" &
+  python -m hearthmind.server "$@" &
 fi
 hearthmind_pid=$!
 wait "$hearthmind_pid"

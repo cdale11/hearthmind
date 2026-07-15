@@ -114,13 +114,15 @@ Started in v0.72.0 as an incremental port of the engine's hottest
 per-tick loops into C++ (see `docs/DECISIONS.md`, "Native extension
 port"). **Optional and additive** — every ported function has a
 byte-identical pure-Python fallback in `hearthmind/`, so the simulation
-runs correctly with or without a compiler. Three modules ported so far:
+runs correctly with or without a compiler. Four modules ported so far:
 `world/resources.py`'s `ResourceGrid.tick` (regrowing foraged/mined/
 fished nodes), `agents/population.py`'s `_nearest_resource` (the
-bounded-box FOOD/FISH lookup for foraging) and `_nearest_material_tile`
-(the same for GATHER-goal wood/stone) — more hot loops move over
-incrementally, one provably-equivalent module at a time (see "Refactor
-status" below).
+bounded-box FOOD/FISH lookup for foraging), `_nearest_material_tile`
+(the same for GATHER-goal wood/stone), and `_nearest_other_agent` (the
+SOCIALIZE-goal lookup — uncapped by radius, so this one genuinely scales
+with population squared rather than map size, the highest-value port so
+far) — more hot loops move over incrementally, one provably-equivalent
+module at a time (see "Refactor status" below).
 
 ```bash
 pip install pybind11              # build-time only, not a runtime dependency
@@ -253,56 +255,64 @@ Vulkan iGPU offload (see the AMD Radeon 740M section below), which
 Ollama's bundled ROCm build didn't recognize on this hardware (see
 `docs/DECISIONS.md`, "iGPU offload investigation").
 
-**The easy way — one command builds and runs everything:**
-
-```bash
-MODEL_PATH=/path/to/Qwen3-4B-Instruct-Q4_K_M.gguf ./scripts/run.sh --db world.sqlite3
-```
-
-`scripts/run.sh` builds `hearthmind._native` (the C++ extension, see
-below), builds `llama-server` if it isn't already built (cloning
-`llama.cpp` first if needed — set `AUTO_CLONE_LLAMA_CPP=1`, or clone it
-yourself first), starts `llama-server` with the flags below, waits for
-its `/health` endpoint, then starts `hearthmind.server` — and stops both
-cleanly on Ctrl+C (hearthmind's own graceful shutdown/snapshot runs
-first). See the script's header comment for every environment variable
-it reads (`LLAMA_CTX_SIZE`, `LLAMA_N_GPU_LAYERS`, `USE_VULKAN`, etc. —
-all optional, defaults match this section). Get a GGUF first: search
-Hugging Face for a quantization of `Qwen3-4B-Instruct` (community
-accounts like `bartowski`/`unsloth` publish these routinely) and
-download a `Q4_K_M` file (~2.6GB).
-
-**Confirmed working** on real GPU-offloaded hardware — noticeably
-better than the CPU-only path this project started from.
-
-**The manual way**, if you'd rather see each step (this is exactly what
-`scripts/run.sh` automates):
+First, build `llama-server` yourself (`scripts/run.sh` does **not**
+build or install llama.cpp — see below):
 
 ```bash
 git clone https://github.com/ggml-org/llama.cpp
 cd llama.cpp
 cmake -B build -DGGML_NATIVE=ON   # add -DGGML_VULKAN=ON for AMD iGPU offload, see below
 cmake --build build --config Release -j$(nproc) --target llama-server
+```
 
+**Then, the easy way — one command builds `hearthmind._native` and runs
+both processes:**
+
+```bash
+LLAMA_SERVER_BIN=/path/to/llama.cpp/build/bin/llama-server \
+  MODEL_PATH=/path/to/Qwen3-4B-Instruct-Q4_K_M.gguf ./scripts/run.sh --db world.sqlite3
+```
+
+`scripts/run.sh` builds `hearthmind._native` (the C++ extension, see
+above), starts `llama-server` (found via `LLAMA_SERVER_BIN` or on
+`PATH`) with the flags below, waits for its `/health` endpoint, then
+starts `hearthmind.server` — and stops both cleanly on Ctrl+C
+(hearthmind's own graceful shutdown/snapshot runs first). See the
+script's header comment for every environment variable it reads
+(`LLAMA_CTX_SIZE`, `LLAMA_N_GPU_LAYERS`, etc. — all optional, defaults
+match this section). Get a GGUF first: search Hugging Face for a
+quantization of `Qwen3-4B-Instruct` (community accounts like
+`bartowski`/`unsloth` publish these routinely) and download a `Q4_K_M`
+file (~2.6GB).
+
+**Confirmed working** on real GPU-offloaded hardware — noticeably
+better than the CPU-only path this project started from.
+
+**The fully manual way**, if you'd rather run both processes yourself
+(this is exactly what `scripts/run.sh`'s launch step automates):
+
+```bash
 ./build/bin/llama-server \
   --model /path/to/Qwen3-4B-Instruct-Q4_K_M.gguf \
-  --ctx-size 4096 --parallel 1 \
+  --ctx-size 3072 --parallel 1 \
   --cache-type-k q8_0 --cache-type-v q8_0 \
   --no-mmproj --port 8080 \
   --n-gpu-layers 999 --threads $(nproc)
 
 # in another terminal:
-python3 -m hearthmind.server --db world.sqlite3
+python -m hearthmind.server --db world.sqlite3
 
 # fully offline/deterministic instead (no llama-server needed either way):
-python3 -m hearthmind.server --db world.sqlite3 --llm-disabled
+python -m hearthmind.server --db world.sqlite3 --llm-disabled
 # or: ./scripts/run.sh --llm-disabled --db world.sqlite3
 ```
 
-- `--ctx-size 4096` matches `Config.llm_num_ctx` — the KV-cache size
+- `--ctx-size 3072` matches `Config.llm_num_ctx` — the KV-cache size
   llama.cpp allocates up front regardless of how full a given prompt
   is. Raised from an earlier 1280 once GPU offload was confirmed
-  working (see `Config.llm_num_ctx`'s docstring) — on CPU-only 8GB
+  working, then re-lowered from an initial 4096 once a live `htop`
+  reading showed only ~6.5GB usable RAM rather than the full 8GB
+  nominal (see `Config.llm_num_ctx`'s docstring) — on CPU-only 8GB
   hardware, use `LLAMA_CTX_SIZE=1280` (or the manual `--ctx-size 1280`)
   instead, see the 8GB section below.
 - `--parallel 1` — one KV-cache slot; safe against `Config.llm_max_
@@ -334,25 +344,24 @@ doesn't depend on ROCm's own hardware allowlist.
 # driver, which supports RDNA2/RDNA3 iGPUs including the 740M/780M).
 vulkaninfo --summary   # confirm the iGPU is visible to Vulkan before building
 
-# Easy way — scripts/run.sh builds with Vulkan and runs everything:
-USE_VULKAN=1 MODEL_PATH=/path/to/Qwen3-4B-Instruct-Q4_K_M.gguf ./scripts/run.sh --db world.sqlite3
-
-# Manual way:
 cmake -B build -DGGML_VULKAN=ON
 cmake --build build --config Release -j$(nproc) --target llama-server
 
 ./build/bin/llama-server \
   --model /path/to/Qwen3-4B-Instruct-Q4_K_M.gguf \
-  --ctx-size 4096 --parallel 1 --cache-type-k q8_0 --cache-type-v q8_0 \
+  --ctx-size 3072 --parallel 1 --cache-type-k q8_0 --cache-type-v q8_0 \
   --no-mmproj --port 8080 \
   --n-gpu-layers 999 --threads $(nproc)
+
+# then, in another terminal (or LLAMA_SERVER_BIN=... ./scripts/run.sh):
+python -m hearthmind.server --db world.sqlite3 --llm-llamacpp-host http://localhost:8080
 ```
 
 `Config.llm_num_gpu` (Ollama's own GPU-layer option) has no llama.cpp
 equivalent needed here since `--n-gpu-layers` is a server launch flag,
 not a per-request one — set it once at server startup (or via
-`LLAMA_N_GPU_LAYERS`/`USE_VULKAN` for `scripts/run.sh`, both default to
-GPU-on now — see the script's header comment). iGPU memory is shared
+`LLAMA_N_GPU_LAYERS` for `scripts/run.sh`, defaults to GPU-on now — see
+the script's header comment). iGPU memory is shared
 with system RAM on this hardware, so offloading doesn't free up RAM the
 way a discrete GPU would — it mainly trades CPU time for GPU time,
 which still helps the "maximize CPU, minimize memory" goal indirectly
@@ -376,13 +385,19 @@ core-cast fix cut call *volume*, which matters for sustained CPU load,
 but resident weights + KV cache sit there while the model is warm no
 matter how rarely you call it).
 
-**Note (v0.72.3):** the defaults documented elsewhere in this README
-(`--ctx-size 4096`, `--n-gpu-layers 999`) assume GPU offload is working
-and RAM isn't the tight constraint it was on CPU-only 8GB hardware —
-confirmed on real hardware to be a real, meaningful improvement. If
-you're on CPU-only 8GB (or GPU offload isn't set up yet), use the
-tighter recipe below instead — these are no longer the project's
-defaults, but every lever still works exactly the same way:
+**Note (v0.72.4, corrected from v0.72.3):** the defaults documented
+elsewhere in this README (`--ctx-size 3072`, `--n-gpu-layers 999`)
+assume GPU offload is working — confirmed on real hardware to be a
+real, meaningful improvement — but were revised down from an initial
+v0.72.3 pass (`--ctx-size 4096`, `llm_core_cast_size=18`,
+`llm_max_calls_per_day=400`) once a live `htop` reading on that same
+hardware showed only ~6.5GB usable RAM, not the full 8GB nominal;
+GPU offload moves weights/KV predominantly into VRAM, but llama-server,
+its mmap'd model file, and hearthmind itself still compete for whatever
+system RAM is actually free. If you're on CPU-only 8GB (or GPU offload
+isn't set up yet), use the tighter recipe below instead — these are no
+longer the project's defaults, but every lever still works exactly the
+same way:
 
 ```bash
 LLAMA_CTX_SIZE=1280 LLAMA_N_GPU_LAYERS=0 \

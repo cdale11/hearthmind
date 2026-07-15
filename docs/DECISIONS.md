@@ -6614,3 +6614,74 @@ path). Verified via 20,000 randomized queries against a synthetic
 standard 6000-tick cumulative-event-hash engine soak, all three native
 modules (resources.tick, ResourceIndex, TerrainMaterialIndex) enabled
 vs. disabled — byte-identical.
+
+## v0.72.4: RAM correction, run.sh simplified, native port module 4
+
+**RAM correction.** The v0.72.3 pass raised `llm_num_ctx`/
+`llm_num_predict`/`llm_core_cast_size`/`llm_max_calls_per_day` on the
+assumption that confirmed GPU offload meant the full 8GB nominal RAM
+was available headroom. A follow-up live report gave the real number:
+`htop` shows only ~6.5GB usable on that machine. GPU offload does move
+weights/KV predominantly into VRAM, but it doesn't zero out system-RAM
+pressure — `llama-server`'s own process overhead, its mmap'd model
+file, and hearthmind's own process still compete for whatever's
+actually free, and 4096/640/18/400 were sized against a number this
+machine doesn't have. Re-lowered to 3072/512/14/320 — still real
+headroom over the original CPU-only-tuned 1280/384/11/200 (GPU offload
+is a genuine, measured win), just not assuming unmeasured RAM. Every
+touched field's docstring in `config.py` records the full 1280→4096→3072
+(etc.) chain rather than overwriting the v0.72.3 rationale, so a future
+reader can see both the original CPU-only tuning and the two GPU-offload
+revisions in order.
+
+**`scripts/run.sh` simplified — no longer builds/clones llama.cpp.**
+The v0.72.3 auto-build/auto-clone step (`AUTO_CLONE_LLAMA_CPP`,
+`LLAMA_CPP_DIR`, `USE_VULKAN` cmake flags) is removed on direct
+instruction — the script now only builds `hearthmind._native` (fast,
+local) and expects `llama-server` to already exist (`LLAMA_SERVER_BIN`
+env var, defaulting to resolving `llama-server` on `PATH`), erroring
+with the manual build instructions if it can't find one. README's
+"Running the LLM (llama.cpp)" section restructured to put the
+`cmake`/`git clone` build step first as an explicit prerequisite, with
+`scripts/run.sh` only covering the "build native extension + launch
+both processes" half. Also switched `python3` → `python` throughout the
+script (was inconsistent with the rest of the project's own preference),
+and added `pybind11>=2.11` to `requirements.txt` as a build-time-only
+dependency (previously only reachable via `pip install pybind11`
+documented in prose, not tracked as a declared dependency anywhere).
+
+**Native port module 4: `Population._nearest_other_agent`.** The
+highest-value native-port candidate flagged at the end of v0.72.3,
+because unlike the terrain/resource lookups (bounded by a fixed search
+radius, so cost is shaped by map density not population) SOCIALIZE's
+target search has no distance cap at all (see D4) — it's a genuine
+O(population) scan per SOCIALIZE-goal agent, O(population²) worst case
+across a tick, growing with town size the same way the v0.70.0 LLM-call
+volume problem did. `AgentPositionIndex` (`cpp/src/agent_position_
+index.cpp`) is a thin linear-scan wrapper, not a spatial index structure
+— there's no radius to bucket by, so a fast scan is the whole
+optimization. Built once per `Population.tick()` from the exact same
+`position_snapshot` list (same order) the pure-Python path already
+constructs, so tie-breaking (first strictly-closer entry wins, in list
+order) stays identical. Threaded through `_dispatch_movement` as one
+more `None`-safe optional parameter, same shape as `material_index`.
+Verified via 20,000 randomized queries against synthetic agent
+populations (0 mismatches vs. a reference Python scan) plus the
+cumulative-event-hash engine soak at two population scales (16 and 60
+agents) — byte-identical native vs. pure-Python in both.
+
+A verification false alarm during this pass is worth recording: an
+early two-run A/B harness (`importlib.reload()`-ing `population`/
+`resources` between a "native" and "python" run in the same process)
+produced a real-looking mismatch (109 vs. 112 events over 3000 ticks).
+Root cause was the harness, not the port: `importlib.reload()` rebinds
+a module's class objects to new instances, but other already-imported
+modules (`engine.py`) hold references to the *old* class objects from
+their own earlier `from ... import Population` — those old classes'
+methods still read the *same* module `__dict__` (reload mutates in
+place, doesn't replace the module object), so patching the native-index
+flag afterward does take effect either way, and the reload itself was
+pure noise, not a controlled variable. Dropping the reload calls and
+just patching the module attribute directly reproduced byte-identical
+results consistently across repeated runs. Recorded here so this
+harness mistake doesn't get rediscovered the hard way next time.

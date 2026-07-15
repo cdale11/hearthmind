@@ -185,39 +185,37 @@ class Config:
     Further memory reduction must come from elsewhere (shorter
     `llm_keep_alive`, a smaller/more quantized model, or Python-side
     savings) — see docs/DECISIONS.md, "LLM concurrency floor restored.\""""
-    llm_num_ctx: int = 4096
+    llm_num_ctx: int = 3072
     """Explicit context-window cap sent with every Ollama request (and
     documented as the `--ctx-size` llama-server launch flag for the
     llama.cpp backend — see README). **This is the single most important
     memory knob this code controls**: the KV cache is allocated up front
     at `num_ctx` tokens regardless of how full any given prompt actually
     is. Raised 1280 -> 4096 in the v0.72.3 "GPU offload confirmed
-    working" pass: the 1280 figure was tuned against CPU-only Ollama on
-    an 8GB box where every KV byte competed directly with system RAM;
-    with the llama.cpp backend's GPU offload confirmed working on real
-    hardware (`--n-gpu-layers 999`, see `scripts/run.sh`), the KV cache
-    lives predominantly in GPU memory instead, and q8_0 KV quantization
-    (`--cache-type-k/-v q8_0`) roughly halves its size regardless — the
-    same 8GB-CPU-only pressure this value was fighting no longer applies
-    the same way. 4096 gives real headroom for the richer, longer prompts
-    this pass also adds (PROMPT_RECENT_EVENTS, DIALOGUE_MEMORY_IN_PROMPT
-    below) without re-measuring against a razor-thin margin the way 1280
-    demanded. Still finite on purpose — an unbounded context is still a
-    real memory number, just a larger one this hardware can now afford.
-    Lower it back toward 1280 if you're on CPU-only inference again (see
-    README's 8GB section, still fully documented and supported)."""
-    llm_num_predict: int = 640
+    working" pass on the assumption that GPU offload removes system-RAM
+    pressure entirely; **re-lowered 4096 -> 3072 in v0.72.4** once the
+    user reported actual usable RAM (per `htop`) is only ~6.5GB, not the
+    full 8GB nominal — GPU offload moves weights/KV predominantly into
+    VRAM, but the llama-server process, its mmap'd model file, and
+    hearthmind itself still compete for that tighter real number, and
+    4096 was sized without that live measurement. 3072 keeps real
+    headroom over the original CPU-only-tuned 1280 (GPU offload is
+    still a genuine win) without assuming RAM this specific machine
+    doesn't actually have free. Lower it back toward 1280 if you're on
+    CPU-only inference again (see README's 8GB section)."""
+    llm_num_predict: int = 512
     """Explicit cap on generated tokens per call. Every response here is a
     short, strict-JSON answer (a goal, a line of dialogue, a settlement
     decision) — this bounds the worst case where the model rambles
     instead of terminating cleanly, which otherwise burns memory (the
     generated tokens also occupy the KV cache), the `llm_timeout_seconds`
     budget, and would be rejected by the JSON parse anyway. Raised
-    384 -> 640 in the v0.72.3 GPU-offload pass alongside `llm_num_ctx` —
-    384 was tight enough to risk truncating a genuinely longer chronicle/
-    town-brain answer; 640 gives real margin now that the KV cost of a
-    longer generation is no longer the dominant memory concern. Counts
-    against `llm_num_ctx`'s budget, so keep the two in step."""
+    384 -> 640 in the v0.72.3 GPU-offload pass, then **re-lowered 640 ->
+    512 in v0.72.4** alongside `llm_num_ctx` once the user's live
+    ~6.5GB-usable `htop` reading showed the full 8GB-of-headroom
+    assumption behind 640 didn't hold. Still real margin over the
+    original 384. Counts against `llm_num_ctx`'s budget, so keep the two
+    in step."""
     llm_keep_alive: str = "3m"
     """How long Ollama keeps the model resident in memory after the last
     call before unloading it (v0.43.1) — previously never sent, so the
@@ -281,7 +279,7 @@ class Config:
     leaving it unset, since "use every core available" is the right
     default for a dedicated box running one Ollama instance for one
     simulation."""
-    llm_core_cast_size: int = 18
+    llm_core_cast_size: int = 14
     """How many NPCs are the LLM-driven "core cast" (v0.70.0). Only these
     agents get LLM cognition (goal reasoning), and only a *pair* of them
     gets LLM-authored dialogue — every other agent, and every mixed/
@@ -302,16 +300,18 @@ class Config:
     death), and refilled from the most-prominent living non-member when
     a seat opens (see Population.maintain_core_cast). 0 disables LLM
     cognition/dialogue entirely (settlement-level jobs still run).
-    Raised 11 -> 18 in the v0.72.3 GPU-offload pass: the original 11 was
-    sized against CPU-only Ollama call latency (~17-20s/call, so even a
-    modest cast could saturate the machine over a few hours); confirmed
-    GPU inference on real hardware cuts per-call wall-clock time enough
-    that a larger cast no longer recreates the sustained-saturation
-    condition v0.70.0 fixed — more of the population's inner lives and
-    conversations get to be genuinely model-authored. `llm_max_calls_
-    per_day` scales with this (see below); re-lower both together if a
-    live `system_memory`/latency reading ever shows pressure again."""
-    llm_max_calls_per_day: int = 400
+    Raised 11 -> 18 in the v0.72.3 GPU-offload pass, then **re-lowered
+    18 -> 14 in v0.72.4** once the user's live `htop` reading showed only
+    ~6.5GB usable RAM rather than the full 8GB v0.72.3 assumed: GPU
+    inference genuinely cuts per-call wall-clock time (the root reason a
+    larger cast is affordable at all), but a bigger cast still means more
+    concurrent conversational/cognition state and more frequent calls,
+    so 18 was sized against headroom this specific machine doesn't have.
+    14 keeps a real gain over the original 11 without assuming that
+    headroom. `llm_max_calls_per_day` scales with this (see below);
+    re-lower both together if a live `system_memory`/latency reading
+    ever shows pressure again."""
+    llm_max_calls_per_day: int = 320
     """Belt-and-braces hard ceiling on total Ollama calls per sim-day
     (v0.70.0) — cognition, dialogue, AND settlement-level jobs all count
     against it; once hit, every further LLM decision that day resolves
@@ -321,8 +321,10 @@ class Config:
     even a future bug in cast selection or a new per-agent LLM job can
     never re-create the unbounded-throughput condition that caused the
     swap. Raised 200 -> 400 alongside the v0.72.3 core-cast-size bump
-    (11 -> 18) to keep the same generous headroom above expected volume
-    (~18 cognition/day + a bounded trickle of core-core dialogue + a few
+    (11 -> 18), then **re-lowered 400 -> 320 in v0.72.4** alongside the
+    core-cast re-lowering (18 -> 14) — same ~6.5GB-usable-RAM correction.
+    Still keeps generous headroom above expected volume (~14
+    cognition/day + a bounded trickle of core-core dialogue + a few
     settlement jobs) so it never rations a healthy run — lower both if a
     live `system_memory`/latency reading ever shows pressure. See
     docs/DECISIONS.md, "core cast + daily LLM ceiling" pass."""

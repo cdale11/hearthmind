@@ -24,6 +24,18 @@ see cpp/src/terrain_index.cpp, docs/DECISIONS.md "Native extension
 port"). `None` when the extension wasn't built — `_nearest_material_
 tile` falls back to an equivalent pure-Python scan in that case."""
 
+try:
+    from hearthmind._native import AgentPositionIndex as _NativeAgentPositionIndex
+except ImportError:
+    _NativeAgentPositionIndex = None
+"""Optional compiled fast path for `_nearest_other_agent` (module 4,
+see cpp/src/agent_position_index.cpp, docs/DECISIONS.md "Native
+extension port"). Unlike the terrain/resource ports, this one scales
+with population squared (SOCIALIZE has no distance cap — see D4), so
+it's the highest-value remaining native-port candidate. `None` when
+the extension wasn't built — falls back to the equivalent pure-Python
+linear scan in that case."""
+
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
     DIALOGUE_SENTIMENT_DELTA,
@@ -846,6 +858,16 @@ class Population:
         # search (SOCIALIZE) sees a consistent picture rather than a mix of
         # this-tick-already-moved and not-yet-moved agents.
         position_snapshot = [(a.id, a.x, a.y) for a in self.agents]
+        # Native fast path for SOCIALIZE's _nearest_other_agent (module 4,
+        # cpp/src/agent_position_index.cpp): built once from the same
+        # snapshot/order the pure-Python scan uses, so tie-breaking stays
+        # identical. This is the highest-value remaining native-port
+        # candidate — SOCIALIZE has no distance cap, so the pure-Python
+        # path is a real O(population) scan per agent, O(population^2)
+        # across a tick.
+        agent_position_index = None
+        if _NativeAgentPositionIndex is not None:
+            agent_position_index = _NativeAgentPositionIndex(position_snapshot)
         # Rival positions, computed once for the whole tick: one pass over
         # each agent's (usually short) relationships dict, instead of the
         # previous per-agent scan of the full position snapshot inside
@@ -980,6 +1002,7 @@ class Population:
                     food_positions=(farm_positions, granary_positions_by_id[home.id]),
                     work_positions=work_positions_by_id[home.id],
                     material_index=material_index,
+                    agent_position_index=agent_position_index,
                 )
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
@@ -1487,6 +1510,7 @@ class Population:
         food_positions: tuple[list[tuple[int, int]], list[tuple[int, int]]] | None = None,
         work_positions: list[tuple[int, int]] | None = None,
         material_index: "object | None" = None,
+        agent_position_index: "object | None" = None,
     ) -> None:
         """Goal-directed agents (FORAGE/SOCIALIZE) take a deliberate step
         toward a visible target when one exists; otherwise (including
@@ -1570,7 +1594,7 @@ class Population:
                 or cls._nearest_resource(agent, resources)
             )
         elif effective_goal is AgentGoal.SOCIALIZE:
-            target = cls._nearest_other_agent(agent, position_snapshot)
+            target = cls._nearest_other_agent(agent, position_snapshot, agent_position_index)
         elif effective_goal is AgentGoal.GATHER:
             target = cls._nearest_material_tile(agent, terrain, material_index)
         elif effective_goal is AgentGoal.WANDER and work_positions:
@@ -1752,12 +1776,21 @@ class Population:
 
     @staticmethod
     def _nearest_other_agent(
-        agent: Agent, position_snapshot: list[tuple[int, int, int]]
+        agent: Agent, position_snapshot: list[tuple[int, int, int]],
+        agent_position_index: "object | None" = None,
     ) -> tuple[int, int] | None:
         """No distance cap, unlike _nearest_resource: an agent actively
         seeking company is assumed to know roughly where the (small)
         population's other members are, not just what's locally visible —
-        see docs/DECISIONS.md, D4."""
+        see docs/DECISIONS.md, D4.
+
+        Scans the full `position_snapshot` (built once per tick, see
+        Population.tick) — the highest-value native-port candidate of
+        the three shipped so far, since this scan has no radius cap and
+        so genuinely scales with population, not map size (module 4,
+        see cpp/src/agent_position_index.cpp)."""
+        if agent_position_index is not None:
+            return agent_position_index.nearest(agent.id, agent.x, agent.y)
         best: tuple[int, int] | None = None
         best_dist: int | None = None
         for other_id, x, y in position_snapshot:

@@ -28,11 +28,18 @@ GPU-offloaded llama.cpp inference confirmed working on real hardware as
 of v0.72.3 ("much much better than expected" — live user report) — this
 is now the assumed default (`--n-gpu-layers 999`, `Config.llm_num_ctx`/
 `llm_num_predict`/`llm_core_cast_size` all raised accordingly, see
-"Current state (v0.72.3)" below). **8GB RAM + zram swap, CPU-only
-inference remains fully supported**, not deprecated — it's a documented
-non-default override (README's 8GB section, `LLAMA_CTX_SIZE=1280
-LLAMA_N_GPU_LAYERS=0` + `--llm-num-ctx 1280 --llm-core-cast-size 8`).
-Default model
+"Current state (v0.72.3)" below). **Actual usable RAM on that same
+machine measures ~6.5GB via `htop`, not the full 8GB nominal** (v0.72.4
+live report) — the v0.72.3 config raise assumed the fuller number and
+was corrected back down (see "Current state (v0.72.4)"); GPU offload
+moves weights/KV predominantly into VRAM but doesn't zero out
+system-RAM pressure from the llama-server process/mmap'd model file, so
+config sized for "plenty of RAM" needs a live `htop`/`system_memory`
+reading behind it, not just "GPU offload is confirmed working." **8GB
+RAM + zram swap, CPU-only inference remains fully supported**, not
+deprecated — it's a documented non-default override (README's 8GB
+section, `LLAMA_CTX_SIZE=1280 LLAMA_N_GPU_LAYERS=0` + `--llm-num-ctx
+1280 --llm-core-cast-size 8`). Default model
 `qwen3:4b-instruct` (v0.65.2, changed from `qwen3.5:2b`) — set per a
 live user report on their own machine: `qwen3.5:2b` (never a real
 released Qwen tag) showed memory-leak-like growth/swapping, while the
@@ -45,12 +52,15 @@ defensive no-op for it and becomes load-bearing again for the
 report back, don't silently guess. Every call disables "thinking" mode
 (`OllamaClient` sends `"think": false` and strips any leaked `<think>`
 block) since every prompt here wants one strict-JSON answer.
-`llm_timeout_seconds=60`, `llm_num_ctx=4096`,
-`llm_num_predict=640` (raised from 1280/384 in v0.72.3 once GPU offload
-was confirmed working — the CPU-only-Ollama KV-cache pressure that
-drove those numbers down in v0.71.1 no longer applies the same way;
-lower back to 1280/384 for CPU-only 8GB hardware, see README),
-`llm_keep_alive="3m"`, `llm_use_mmap=True`,
+`llm_timeout_seconds=60`, `llm_num_ctx=3072`,
+`llm_num_predict=512` (raised from 1280/384 in v0.72.3 once GPU offload
+was confirmed working, then re-lowered from an initial 4096/640 in
+v0.72.4 once the user's live `htop` reading showed only ~6.5GB usable
+RAM rather than the full 8GB nominal — the CPU-only-Ollama KV-cache
+pressure that drove the original 1280/384 down in v0.71.1 doesn't apply
+the same way with GPU offload, but "GPU offload works" ≠ "unlimited RAM
+headroom"; lower back to 1280/384 for CPU-only 8GB hardware, see
+README), `llm_keep_alive="3m"`, `llm_use_mmap=True`,
 `llm_num_thread=None` (`server.py` CLI defaults `--llm-num-thread` to
 every CPU core — see below), `llm_num_gpu=None` for the Ollama backend
 (GPU offload for the default llama.cpp backend is `--n-gpu-layers`, a
@@ -273,6 +283,33 @@ Single-writer tick loop + queued interventions; fallback-on-every-LLM-
 call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
+
+## Current state (v0.72.4)
+
+Follow-up correction to v0.72.3, plus a fourth native module, three
+parts. **RAM correction**: live `htop` report shows only ~6.5GB usable
+RAM, not the full 8GB v0.72.3 assumed when raising LLM config on the
+strength of confirmed GPU offload — `llm_num_ctx` 4096→3072,
+`llm_num_predict` 640→512, `llm_core_cast_size` 18→14,
+`llm_max_calls_per_day` 400→320 (still real headroom over the original
+CPU-only-tuned 1280/384/11/200 — GPU offload remains a genuine win,
+just not an unlimited-RAM one). **`scripts/run.sh` simplified**: no
+longer builds or clones `llama.cpp`/`llama-server` (removed
+`AUTO_CLONE_LLAMA_CPP`/`LLAMA_CPP_DIR`/`USE_VULKAN`) — build it
+yourself and point `LLAMA_SERVER_BIN` at the binary, or have it on
+`PATH`; still builds `hearthmind._native` automatically. Switched
+`python3`→`python` throughout. Added `pybind11>=2.11` to
+`requirements.txt` as a declared build-time dependency. **Native port
+module 4**: `Population._nearest_other_agent` (SOCIALIZE's no-radius-
+cap search, see D4) → `AgentPositionIndex`
+(`cpp/src/agent_position_index.cpp`) — the first ported function whose
+cost genuinely scales with population rather than a fixed map-shaped
+cost, so the highest-value port so far, not just directive-driven.
+Verified via 20,000 randomized queries + cumulative-event-hash soak at
+two population scales, byte-identical. See docs/DECISIONS.md for a
+verification-harness false-alarm writeup (an `importlib.reload()`
+artifact, not a real mismatch) worth reading before reusing that A/B
+pattern.
 
 ## Current state (v0.72.3)
 

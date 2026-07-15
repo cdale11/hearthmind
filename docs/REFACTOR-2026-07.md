@@ -275,6 +275,22 @@ are the next same-shape candidates if the directive to keep porting
 continues — still no fresh profiling behind either, noted for honesty
 rather than re-litigated each time.
 
+**Module 4 shipped (v0.72.4): `Population._nearest_other_agent`.** Of
+the four modules ported so far, this is the first with a *genuine*
+algorithmic case for porting independent of the "keep porting" directive:
+SOCIALIZE's search has no distance cap (D4), so it's an honest
+O(population) scan per agent, O(population²) per tick — the only ported
+function whose cost scales with town size rather than a fixed map-shaped
+cost. `AgentPositionIndex` (`cpp/src/agent_position_index.cpp`) is
+deliberately just a fast linear scan, not a spatial structure — nothing
+to bucket by without a radius. Built once per `Population.tick()` from
+the same `position_snapshot` list/order the Python path already builds,
+preserving tie-break behavior exactly. Verified via 20,000 randomized
+queries (0 mismatches) plus the cumulative-event-hash soak at two
+population scales. `WildlifeGrid.nearest_grazer_herd` remains the next
+same-shape (radius-bounded, so fixed-cost) candidate if porting
+continues.
+
 `population.py`/`engine.py`/`buildings.py` themselves (the
 orchestration layer — cross-references dozens of other modules, mutates
 shared `World`/`Settlement` state, drives the LLM job scheduling) are

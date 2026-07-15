@@ -4,6 +4,46 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.72.4] — RAM correction (real ~6.5GB usable), run.sh simplified, native port module 4
+
+Follow-up to v0.72.3 based on a live `htop` reading: actual usable RAM
+on the target machine is ~6.5GB, not the full 8GB v0.72.3 assumed when
+raising LLM config. Dials the LLM config back down accordingly (still
+above the original CPU-only-tuned baseline — GPU offload is a genuine
+win), removes `scripts/run.sh`'s llama.cpp build/clone automation
+(build llama.cpp yourself; the script only builds `hearthmind._native`),
+switches the script to `python` instead of `python3`, adds `pybind11` to
+`requirements.txt`, and ports a fourth module to C++.
+
+### Changed
+- `Config.llm_num_ctx` 4096 → **3072**, `llm_num_predict` 640 → **512**,
+  `llm_core_cast_size` 18 → **14**, `llm_max_calls_per_day` 400 → **320**
+  — re-lowered from the v0.72.3 pass once the user's live `htop` reading
+  showed only ~6.5GB usable RAM. Still real headroom over the original
+  CPU-only-tuned values (1280/384/11/200); see each field's docstring in
+  `config.py` for the full before/after chain.
+- `scripts/run.sh` no longer builds or clones `llama.cpp`/`llama-server`
+  — build it yourself (see README) and point `LLAMA_SERVER_BIN` at the
+  binary, or have it on `PATH`. Removed `LLAMA_CPP_DIR`,
+  `AUTO_CLONE_LLAMA_CPP`, and `USE_VULKAN` (Vulkan builds are now a
+  manual `cmake` step, documented in README). Still builds
+  `hearthmind._native` automatically (`SKIP_NATIVE_BUILD=1` to skip).
+  Uses `python` instead of `python3` throughout.
+- `requirements.txt` now lists `pybind11>=2.11` (build-time only, for
+  `hearthmind._native`) alongside the existing `--api-enabled` deps.
+
+### Added
+- Native port module 4: `Population._nearest_other_agent` (the
+  SOCIALIZE-goal lookup) — `AgentPositionIndex`
+  (`cpp/src/agent_position_index.cpp`), rebuilt once per
+  `Population.tick()` from the same `position_snapshot` the pure-Python
+  path already builds. This is the highest-value native port so far:
+  unlike the terrain/resource lookups, SOCIALIZE has no distance cap,
+  so the scan genuinely scales with population squared, not map size.
+  Verified via 20,000 randomized queries (0 mismatches) plus the
+  cumulative-event-hash engine soak at both a small and a 60-agent
+  population (byte-identical both times).
+
 ## [0.72.3] — GPU-offload confirmed: run.sh builds everything, richer LLM config, native port module 3
 
 Response to a live report: GPU offload via llama.cpp is confirmed
