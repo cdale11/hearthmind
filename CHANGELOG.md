@@ -4,6 +4,46 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.74.1] — terrain grid native storage (R8 slice 2)
+
+### Added
+- `World.terrain` now stored via `TerrainGrid` (`world/terrain.py`),
+  backed by a compiled flat-array store (`cpp/src/terrain_grid.cpp`,
+  `hearthmind._native.TerrainGrid`) when available — the first R8
+  module that ports actual object-graph STORAGE rather than an
+  isolated pure function. `TerrainGrid`/`TerrainRow` implement the
+  exact same indexing/iteration/length protocol a plain
+  `list[list[Tile]]` already had (`terrain[y][x]`, `terrain[y][x] =
+  Tile(...)`, `len(terrain)`, `for row in terrain: for tile in row`),
+  so none of the ~60+ call sites across `world/*.py`/`agents/
+  population.py`/`settlement/buildings.py` needed to change — Tile
+  objects are materialized on demand from the flat elevation/biome
+  arrays, never cached. Biome is stored as a plain int index into
+  `tuple(Biome)` (all 9 members including RIVER, unlike terrain_
+  evolution.py's `BIOME_ORDER`, which deliberately excludes it).
+  Falls back to a genuine nested list when the native extension isn't
+  built — byte-identical either way. Wired into `World.create_new`
+  and `World.from_dict` via `TerrainGrid.from_nested(...)`; `to_dict`
+  needed no change at all (iteration already produces the same nested
+  structure).
+- `scripts/verify_native_soak.py` gained the new toggle
+  (`hearthmind.world.terrain._NativeTerrainGridImpl`).
+
+### Verified
+- Randomized read/iteration/mutation equivalence (500 random
+  mutations) between the native-backed and pure-Python-fallback paths
+  on a real `generate_terrain()` map, 0 mismatches. Full engine test:
+  world creation → 3000 ticks → snapshot save → snapshot reload, with
+  a full terrain diff after reload — 0 mismatches, confirming the
+  compiled storage round-trips through `to_dict`/`from_dict` (and
+  therefore SQLite persistence) correctly. Live `hearthmind.server`
+  smoke test: `/terrain` and `/state` both serialize correctly, and a
+  browser screenshot confirms the map renders identically — the swap
+  is completely transparent to the frontend. Full-state verification
+  harness (`scripts/verify_native_soak.py`, now including this
+  toggle): all nineteen native modules match byte-for-byte across
+  every tick, 4 seeds, 6000 ticks each.
+
 ## [0.74.0] — bridges (real water-crossing pathing); R8 full-state verification harness
 
 ### Added

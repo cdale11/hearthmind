@@ -114,7 +114,7 @@ Started in v0.72.0 as an incremental port of the engine's hottest
 per-tick loops into C++ (see `docs/DECISIONS.md`, "Native extension
 port"). **Optional and additive** — every ported function has a
 byte-identical pure-Python fallback in `hearthmind/`, so the simulation
-runs correctly with or without a compiler. Eighteen modules ported so far:
+runs correctly with or without a compiler. Nineteen modules ported so far:
 `world/resources.py`'s `ResourceGrid.tick` (regrowing foraged/mined/
 fished nodes), `agents/population.py`'s `_nearest_resource` (the
 bounded-box FOOD/FISH lookup for foraging), `_nearest_material_tile`
@@ -148,8 +148,13 @@ same-pass dependency), and `time_system.py`'s `SimClock.advance()` —
 the first module that's the engine advancing a world tick itself
 rather than a system running on one, and the first slice of the
 **R8 "port the object graph + engine tick loop"** track, started
-v0.73.2 (see `docs/REFACTOR-2026-07.md`, "R8"). More hot loops and
-physical-substrate modules move over incrementally, one
+v0.73.2 (see `docs/REFACTOR-2026-07.md`, "R8"). R8's second slice
+(v0.74.1) ports `World.terrain` itself into a compiled flat-array
+store (`TerrainGrid`/`TerrainRow` in `world/terrain.py`) behind a
+compatibility wrapper that behaves exactly like `list[list[Tile]]` —
+every existing `terrain[y][x]`-style call site across the codebase
+needed zero changes. More hot loops and physical-substrate modules
+move over incrementally, one
 provably-equivalent module at a time (see "Refactor status" below).
 
 ```bash

@@ -304,6 +304,40 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.74.1)
+
+R8 slice 2, per explicit user directive to "start" the terrain-grid
+port the v0.74.0 scoping had queued next. `World.terrain` is now a
+`TerrainGrid` (`world/terrain.py`) — the first R8 module porting
+object-graph STORAGE, not an isolated pure function. Design: `Terrain
+Grid`/`TerrainRow` are a drop-in compatibility shim implementing the
+exact same `terrain[y][x]`/`terrain[y][x] = Tile(...)`/`len(terrain)`/
+`for row in terrain: for tile in row` protocol a plain
+`list[list[Tile]]` already had, backed by a compiled flat-array store
+(`cpp/src/terrain_grid.cpp`, elevation as `vector<double>`, biome as a
+plain int index into `tuple(Biome)` — the full 9-member enum including
+RIVER, unlike `terrain_evolution.py`'s RIVER-excluding `BIOME_ORDER`)
+when the native extension is built, else a genuine nested list. Tiles
+are materialized on demand from the flat arrays, never cached, so no
+call site can hold a stale reference across a mutation. This is why
+**zero of the ~60+ existing call sites needed to change** — the whole
+point of the "compatibility shim" reading the v0.73.1/74.0 scoping
+docs flagged as the safe way to do this. Wired into `World.create_new`/
+`from_dict` via `TerrainGrid.from_nested(...)`; `to_dict` needed no
+change since iteration already produces the same nested structure.
+Verified via randomized read/iteration/mutation equivalence (native vs
+fallback, 500 mutations, 0 mismatches), a full engine test (creation →
+3000 ticks → snapshot save → reload → full terrain diff, 0
+mismatches), a live-server + browser-screenshot smoke test confirming
+the map renders identically, and the full-state verification harness
+(`scripts/verify_native_soak.py`, now including this toggle) — all
+nineteen native modules match byte-for-byte across every tick, 4
+seeds, 6000 ticks each. Remaining object-graph pieces (`Agent`/
+`Settlement`/`Population` themselves) are unstarted — those have real
+cross-references to each other (unlike `SimClock` or the terrain grid,
+both fully isolated) and need their own design pass per the R8 doc's
+own risk framing.
+
 ## Current state (v0.74.0)
 
 Two items: bridges (a real gameplay feature closing the "True water

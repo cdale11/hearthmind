@@ -18,7 +18,7 @@ from hearthmind.settlement.naming import generate_settlement_name
 from hearthmind.time_system import SimClock
 from hearthmind.world.resources import ResourceGrid
 from hearthmind.world.roads import RoadNetwork
-from hearthmind.world.terrain import Biome, Tile, biome_counts, generate_terrain
+from hearthmind.world.terrain import Biome, TerrainGrid, Tile, biome_counts, generate_terrain
 from hearthmind.world.terrain_evolution import (
     ClimateState,
     apply_climate_drift,
@@ -61,7 +61,11 @@ cleanup."""
 class World:
     config: Config
     clock: SimClock
-    terrain: list[list[Tile]]
+    terrain: "list[list[Tile]] | TerrainGrid"
+    """A `TerrainGrid` (R8 slice 2) behaving exactly like `list[list[
+    Tile]]` for every existing access pattern — the type hint stays
+    permissive since a few standalone scripts/tests still construct
+    genuine nested lists directly and pass them through unchanged."""
     weather: WeatherState
     population: Population
     resources: ResourceGrid
@@ -157,7 +161,20 @@ class World:
     @classmethod
     def create_new(cls, config: Config, founding_scenario: str = "") -> "World":
         clock = SimClock(config=config, tick_count=0)
-        terrain = generate_terrain(seed=config.seed, width=config.width, height=config.height)
+        # R8 slice 2: terrain is stored via TerrainGrid (native-backed
+        # flat-array storage when hearthmind._native is built) instead
+        # of a plain list[list[Tile]] — every existing terrain[y][x]/
+        # len(terrain)/for-row-in-terrain call site works unchanged
+        # since TerrainGrid implements the same protocol. generate_
+        # terrain itself still returns a plain nested list (its diamond-
+        # square algorithm is easiest to write against one); wrapped
+        # here so every subsequent mutation (generate_rivers, and every
+        # per-tick terrain-evolution/disaster/hydrology call for the
+        # rest of the world's life) goes through the wrapper. See
+        # world/terrain.py, docs/DECISIONS.md "terrain grid port."
+        terrain = TerrainGrid.from_nested(
+            generate_terrain(seed=config.seed, width=config.width, height=config.height)
+        )
         generate_rivers(seed=config.seed, terrain=terrain)
         lakes = identify_lakes(terrain)
         weather = compute_weather(seed=config.seed, tick=0, month=clock.month_name.lower(), previous=None)
@@ -481,7 +498,9 @@ class World:
             initial_population=saved.get("initial_population", Config.initial_population),
         )
         clock = SimClock.from_dict(config, data["clock"])
-        terrain = [[Tile.from_dict(t) for t in row] for row in data["terrain"]]
+        terrain = TerrainGrid.from_nested(
+            [[Tile.from_dict(t) for t in row] for row in data["terrain"]]
+        )
         weather = WeatherState.from_dict(data["weather"])
 
         migrated_subsystems: list[str] = []

@@ -52,6 +52,7 @@ try:
                 "cpp/src/climate_drift.cpp",
                 "cpp/src/reclaim.cpp",
                 "cpp/src/sim_clock.cpp",
+                "cpp/src/terrain_grid.cpp",
             ]),
             cxx_std=17,
             extra_compile_args=_EXTRA_COMPILE_ARGS,

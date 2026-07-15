@@ -49,6 +49,125 @@ class Tile:
         return cls(x=data["x"], y=data["y"], elevation=data["elevation"], biome=Biome(data["biome"]))
 
 
+try:
+    from hearthmind._native import TerrainGrid as _NativeTerrainGridImpl
+except ImportError:
+    _NativeTerrainGridImpl = None
+"""Optional compiled storage backend for World.terrain (R8 slice 2) —
+the first native module that ports object-graph STORAGE rather than an
+isolated pure function. `TerrainGrid`/`TerrainRow` below are a drop-in
+replacement for `list[list[Tile]]`: every existing `terrain[y][x]`,
+`terrain[y][x] = Tile(...)`, `len(terrain)`, `for row in terrain: for
+tile in row` call site across the codebase keeps working completely
+unchanged, because the wrapper implements the same indexing/iteration/
+length protocol a plain nested list already does. Falls back to an
+actual `list[list[Tile]]` when the native extension isn't built."""
+
+_BIOME_LIST: tuple[Biome, ...] = tuple(Biome)
+"""Canonical int-index <-> Biome mapping for the native boundary, in
+Python's own enum declaration order — includes RIVER (unlike terrain_
+evolution.py's BIOME_ORDER, which deliberately excludes it; this
+storage layer must be able to hold every biome a tile can ever be)."""
+_BIOME_TO_INDEX: dict[Biome, int] = {b: i for i, b in enumerate(_BIOME_LIST)}
+
+
+class TerrainRow:
+    """One row of a `TerrainGrid` — `terrain[y]` returns this, and
+    `terrain[y][x]` / `terrain[y][x] = Tile(...)` on it read/write the
+    backing store. Tile objects are materialized on demand (cheap:
+    Tile is a small frozen dataclass), never cached, so no code can
+    accidentally hold a stale reference across a mutation — the same
+    freshness guarantee a fresh `Tile(...)` construction already gave
+    every mutation site before this wrapper existed."""
+
+    __slots__ = ("_grid", "_y")
+
+    def __init__(self, grid: "TerrainGrid", y: int) -> None:
+        self._grid = grid
+        self._y = y
+
+    def __getitem__(self, x: int) -> Tile:
+        return self._grid._tile_at(x, self._y)
+
+    def __setitem__(self, x: int, tile: Tile) -> None:
+        self._grid._set_tile(x, self._y, tile)
+
+    def __len__(self) -> int:
+        return self._grid.width
+
+    def __iter__(self):
+        for x in range(self._grid.width):
+            yield self[x]
+
+
+class TerrainGrid:
+    """Drop-in replacement for `list[list[Tile]]`. Backed by a
+    compiled flat-array store (`hearthmind._native.TerrainGrid`) when
+    available; otherwise a plain Python nested list, byte-identical in
+    behavior either way — see the module-level `_NativeTerrainGridImpl`
+    docstring above."""
+
+    __slots__ = ("width", "height", "_native", "_rows")
+
+    def __init__(self, width: int, height: int) -> None:
+        self.width = width
+        self.height = height
+        if _NativeTerrainGridImpl is not None:
+            self._native = _NativeTerrainGridImpl(width, height)
+            self._rows = None
+        else:
+            self._native = None
+            self._rows = [
+                [Tile(x=x, y=y, elevation=0.0, biome=Biome.DEEP_WATER) for x in range(width)]
+                for y in range(height)
+            ]
+
+    def _tile_at(self, x: int, y: int) -> Tile:
+        if self._native is not None:
+            elevation = self._native.get_elevation(x, y)
+            biome = _BIOME_LIST[self._native.get_biome(x, y)]
+            return Tile(x=x, y=y, elevation=elevation, biome=biome)
+        return self._rows[y][x]
+
+    def _set_tile(self, x: int, y: int, tile: Tile) -> None:
+        if self._native is not None:
+            self._native.set_tile(x, y, tile.elevation, _BIOME_TO_INDEX[tile.biome])
+        else:
+            self._rows[y][x] = tile
+
+    def __getitem__(self, y: int) -> TerrainRow:
+        return TerrainRow(self, y)
+
+    def __len__(self) -> int:
+        return self.height
+
+    def __iter__(self):
+        for y in range(self.height):
+            yield self[y]
+
+    @classmethod
+    def from_nested(cls, rows: list[list[Tile]]) -> "TerrainGrid":
+        """Wrap an existing `list[list[Tile]]` (e.g. `generate_terrain`'s
+        output, or a freshly-deserialized snapshot) into a `TerrainGrid`.
+        Uses the native bulk `load_flat` path when available — one call
+        instead of width*height individual `set_tile` calls."""
+        height = len(rows)
+        width = len(rows[0]) if height else 0
+        grid = cls(width, height)
+        if grid._native is not None and height and width:
+            elevation = [0.0] * (width * height)
+            biome = [0] * (width * height)
+            for y, row in enumerate(rows):
+                for x, tile in enumerate(row):
+                    i = y * width + x
+                    elevation[i] = tile.elevation
+                    biome[i] = _BIOME_TO_INDEX[tile.biome]
+            grid._native.load_flat(elevation, biome)
+        else:
+            grid._rows = rows
+        return grid
+
+
 BIOME_ORDER: tuple[Biome, ...] = (
     Biome.DEEP_WATER, Biome.SHALLOW_WATER, Biome.BEACH, Biome.GRASSLAND,
     Biome.FOREST, Biome.HILLS, Biome.MOUNTAIN, Biome.SNOWCAP,

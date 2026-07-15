@@ -7606,3 +7606,92 @@ history's earlier entries, since prior soaks only ever compared the
 event stream. Terrain-grid porting itself has not started this
 version — this is purely the prerequisite tooling the R8 doc called
 for, in the order the doc specified.
+
+## v0.74.1: terrain grid native storage (R8 slice 2)
+
+Explicit user directive to "start" the terrain-grid port after
+confirming the R8 direction. The terrain-grid research pass (this
+session, earlier) had already mapped the exact risk: ~63 subscript
+sites, ~14 mutation sites (`terrain[y][x] = Tile(...)`), ~21 iteration
+sites, and 3 serialization paths across `world/*.py`/`agents/
+population.py`/`settlement/buildings.py`/`interface/*.py` all depend
+on `World.terrain` behaving like `list[list[Tile]]`. A naive swap to
+some other representation would need every one of those call sites
+individually verified. The `SimClock.advance()` precedent (module 18)
+didn't have this problem because it has zero references to any other
+mutable object — the terrain grid's problem is entirely about surface
+area, not entanglement.
+
+**Solved via a compatibility shim, not a call-site migration.**
+`TerrainGrid`/`TerrainRow` (world/terrain.py) implement Python's
+`__getitem__`/`__setitem__`/`__len__`/`__iter__` protocol identically
+to what a nested list already provides — `terrain[y][x]` returns a
+freshly-materialized `Tile` from the backing store, `terrain[y][x] =
+Tile(...)` writes into it, `len(terrain)` returns height,
+`len(terrain[0])` (via the row proxy) returns width, `for row in
+terrain: for tile in row` iterates correctly. Because every one of
+those ~98 call sites only ever uses this protocol (confirmed by the
+research pass, not assumed), swapping `World.terrain`'s actual type
+required editing exactly two call sites end-to-end
+(`World.create_new`, `World.from_dict`) — not the ~98 that touch
+terrain. This is the "compatibility shim preserving existing indexing
+syntax" option the v0.73.1 scoping doc named as one of two viable
+paths (the other being "a more surgical opt-in path"), now proven out
+in practice rather than left as a hypothetical.
+
+**Storage design**: elevation as a flat `vector<double>`, biome as a
+flat `vector<int>` indexed into `tuple(Biome)` — Python's own enum
+declaration order, which (unlike `terrain_evolution.py`'s `BIOME_
+ORDER`) includes all 9 members, RIVER included, since this is the
+general-purpose storage layer and must be able to represent every
+biome a tile can ever hold, not just the 8 elevation-classified ones
+climate drift cares about. `Tile` objects are constructed fresh on
+every read, never cached — the same freshness every mutation site
+already got from constructing a brand-new immutable `Tile(...)` before
+this change, so no code anywhere could have been relying on tile
+object identity surviving a mutation (nothing in the codebase does;
+confirmed by the same research pass).
+
+**What stayed untouched by design**: `generate_terrain()` itself still
+returns a plain nested list — its diamond-square midpoint-displacement
+algorithm is easiest to write against ordinary Python lists, and
+there's no reason to force it into the wrapper's protocol when the
+wrapping happens immediately after it returns. `to_dict()`'s terrain
+serialization (`[[tile.to_dict() for tile in row] for row in self.
+terrain]`) needed literally zero changes — it was already written
+against the iteration protocol, which `TerrainGrid` satisfies. Every
+downstream consumer of `terrain` in `world/terrain_evolution.py`,
+`world/disasters.py`, `world/hydrology.py`, `agents/population.py`,
+and `settlement/buildings.py` is similarly untouched.
+
+Verified in four layers, the most of any module in this native-port
+history given the size of the surface area being trusted: (1)
+randomized read/iteration/mutation equivalence — 500 random `(x, y,
+elevation, biome)` writes applied to both a native-backed `TerrainGrid`
+and a parallel plain nested list, compared after every write, 0
+mismatches; (2) a full engine lifecycle test — `SimulationEngine.
+load_or_create` → 3000 ticks → `save_snapshot` → `load_latest_
+snapshot` → full terrain diff between the live and reloaded worlds, 0
+mismatches, confirming the compiled storage survives the actual
+SQLite/JSON persistence path, not just an in-memory comparison; (3) a
+live `hearthmind.server` smoke test plus a browser screenshot
+confirming `/terrain`/`/state` serialize correctly and the map renders
+identically — the swap is completely invisible to the frontend, as it
+should be; (4) `scripts/verify_native_soak.py` (the harness built in
+v0.74.0 specifically to catch exactly this class of change) extended
+with this module's toggle and re-run across 4 seeds at 6000 ticks
+each — all nineteen native modules now shipped pass full per-tick
+`World.to_dict()` equality, the strongest evidence bar this project's
+verification discipline has established.
+
+**Remaining R8 scope, still unstarted**: `Agent`/`Settlement`/
+`Population` themselves. Unlike `SimClock` and the terrain grid — both
+chosen specifically because they have zero references to any other
+mutable object — these three are genuinely entangled with each other
+(an `Agent` touches `Population`, `Settlement`, and belief/relationship
+state directly; `Settlement` holds `Building`/`Vehicle` lists an
+`Agent` reads and mutates). The "wrap in a compatibility shim" trick
+that made this version's port low-risk doesn't obviously generalize to
+an object graph with real cross-references the way it did for a single
+independent grid — that's genuinely the next design question, not
+assumed solvable the same way.

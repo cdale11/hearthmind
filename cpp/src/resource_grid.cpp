@@ -199,6 +199,7 @@ void register_roll_batch(py::module_ &m);
 void register_climate_drift(py::module_ &m);
 void register_reclaim(py::module_ &m);
 void register_sim_clock(py::module_ &m);
+void register_terrain_grid(py::module_ &m);
 
 PYBIND11_MODULE(_native, m) {
     m.doc() = "Hearthmind native (C++) hot-path extensions. Optional — "
@@ -235,4 +236,5 @@ PYBIND11_MODULE(_native, m) {
     register_climate_drift(m);
     register_reclaim(m);
     register_sim_clock(m);
+    register_terrain_grid(m);
 }

@@ -45,6 +45,7 @@ import hearthmind.time_system as _time_system  # noqa: E402
 import hearthmind.world.disasters as _disasters  # noqa: E402
 import hearthmind.world.hydrology as _hydrology  # noqa: E402
 import hearthmind.world.resources as _resources  # noqa: E402
+import hearthmind.world.terrain as _terrain  # noqa: E402
 import hearthmind.world.terrain_evolution as _terrain_evolution  # noqa: E402
 import hearthmind.world.weather as _weather  # noqa: E402
 import hearthmind.world.wildlife as _wildlife  # noqa: E402
@@ -64,6 +65,7 @@ _NATIVE_TOGGLES = [
     (_terrain_evolution, "_native_maybe_reclaim_tick"),
     (_terrain_evolution, "_native_bounded_random_walk_step"),
     (_terrain_evolution, "_native_roll_passes_tick"),
+    (_terrain, "_NativeTerrainGridImpl"),
     (_weather, "_native_compute_weather_blend"),
     (_wildlife, "_NativeGrazerHerdIndex"),
     (_population, "_NativeTerrainMaterialIndex"),

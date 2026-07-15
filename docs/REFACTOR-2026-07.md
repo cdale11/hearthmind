@@ -773,17 +773,30 @@ run — see docs/DECISIONS.md's v0.74.0 entry. Committed to the repo
 reusable, not re-derived, in whichever future session actually starts
 the terrain-grid slice.
 
-**Next R8 slice, not yet started**: the terrain grid remains the
-recommended second target (least entangled of the *remaining* pieces),
-but swapping `World.terrain`'s actual type away from `list[list[Tile]]`
-touches hundreds of call sites across `world/*.py`/`agents/population.
-py`/`settlement/buildings.py` that all do `terrain[y][x].biome`-style
-access — this needs its own dedicated design pass (a compatibility
-shim preserving existing indexing syntax, or a more surgical opt-in
-path) before any code moves, not a same-session follow-on to module 18
-or the verification harness. The tooling half of "build the harness
-before the port" is now done; the design-and-port half is still
-queued.
+**Terrain grid shipped (v0.74.1, R8 slice 2)**: `World.terrain` is now
+a `TerrainGrid` (`world/terrain.py`), backed by `cpp/src/terrain_
+grid.cpp`'s flat-array storage when available. The "compatibility
+shim preserving existing indexing syntax" reading from the paragraph
+above is what got built — `TerrainGrid`/`TerrainRow` implement
+`__getitem__`/`__setitem__`/`__len__`/`__iter__` identically to a
+plain nested list, so the ~60+ call sites across `world/*.py`/
+`agents/population.py`/`settlement/buildings.py` needed ZERO changes;
+only `World.create_new`/`from_dict` (where `terrain` is actually
+constructed) touch `TerrainGrid` directly. See docs/DECISIONS.md's
+v0.74.1 entry for the full verification writeup (four layers:
+randomized native-vs-fallback equivalence, a full engine-lifecycle
+persistence round-trip, a live-server + browser smoke test, and the
+full-state harness across 4 seeds/6000 ticks — all nineteen native
+modules now pass).
+
+**Next R8 scope, not yet started**: `Agent`/`Settlement`/`Population`
+themselves. Unlike `SimClock` and the terrain grid — both chosen
+specifically for having zero references to any other mutable object —
+these three are genuinely entangled with each other, so the
+"compatibility-shim, zero call-site changes" trick that made both
+prior slices low-risk doesn't obviously generalize. This is a real
+open design question for whichever session takes it on next, not a
+known-solved pattern to just repeat.
 
 ## One-line summary for CLAUDE.md / CHANGELOG
 
