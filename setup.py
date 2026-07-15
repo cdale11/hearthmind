@@ -53,6 +53,7 @@ try:
                 "cpp/src/reclaim.cpp",
                 "cpp/src/sim_clock.cpp",
                 "cpp/src/terrain_grid.cpp",
+                "cpp/src/agent_table.cpp",
             ]),
             cxx_std=17,
             extra_compile_args=_EXTRA_COMPILE_ARGS,

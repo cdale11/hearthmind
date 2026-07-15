@@ -844,6 +844,57 @@ writing more C++:
    (spatial buckets → numpy → PyPy → only then C/C++, and this project
    already skipped straight to C++ on explicit user directive).
 
+**R8 slice 3 (v0.74.3): `AgentTable`, the Agent SoA storage primitive
+— shipped, NOT wired in.** User explicitly chose to pursue the
+Agent/Settlement/Population port despite the v0.74.2 finding of no
+measured need, for architectural completeness. Before touching any
+call site, scoped the actual risk (research pass, not guesswork):
+`Agent`'s 12 dense scalar fields (`id, x, y, hunger, energy, state,
+age_ticks, max_age_ticks, starving_ticks, sick_ticks, immune_ticks,
+goal, settlement_id`) are touched at ~700 sites just in `agents/
+population.py`, almost all interleaved in the same expressions as the
+6 variable-size per-agent dict/list fields (`relationships, trust,
+inventory, memories, skills, traits`) that have to stay Python-side
+regardless (no flat-array shape fits a per-agent-variable-size dict).
+Contrast with the terrain port's ~60 sites, which were pure `[y][x]`
+indexing with zero risk of type confusion. Also confirmed: agent ids
+are monotonically increasing and never reused (safe for a slot-based
+store), nothing anywhere holds a raw `Agent` object reference across a
+tick boundary (everything re-resolves via `.id` and a freshly-built
+`by_id` dict each time — no stale-reference hazard from reordering a
+backing array), and population is capped low (`POPULATION_CAP=400`),
+so a swap-with-last removal on every death/birth is cheap without a
+sophisticated allocator.
+
+Given that shape, shipped **only** the storage primitive this
+version: `cpp/src/agent_table.cpp`'s `AgentTable` — a genuine
+structure-of-arrays (one `std::vector` per scalar field, not a vector
+of structs) with `append`/`remove` (swap-with-last, tombstone-free)/
+per-field get/set. Verified via a 20,000-operation randomized fuzz
+test (append/remove/mutate against a parallel Python reference
+implementation, checked every 500 ops plus a final full comparison) —
+0 mismatches — and explicit bounds-check tests confirming out-of-range
+access raises rather than silently corrupting memory. **Deliberately
+NOT wired into the live `Population.agents` list this version** — that
+requires the compatibility-shim `Agent` wrapper class (properties
+routing scalar reads/writes to `AgentTable` slots, dict/list fields
+staying on a parallel Python-side object) plus the ~700-site
+verification pass the terrain port didn't need, which is real,
+separate, substantial work: not a same-session follow-on to shipping
+the storage class, any more than `TerrainGrid`'s storage and its
+wiring into `World.create_new`/`from_dict` would have been safe to
+rush together without the call-site research that preceded it. Next
+session's work, if this is still wanted: (1) design and build the
+`Agent` compatibility-shim wrapper class, (2) an id→slot map (Python
+dict, updated on `AgentTable.remove`'s `moved`/`moved_agent_id`
+result), (3) `Population.agents` becomes a thin sequence view over
+`AgentTable` instead of `list[Agent]`, (4) full verification via
+`scripts/verify_native_soak.py` (already built, just needs this
+module's toggle added) across a real multi-thousand-tick run, not a
+lighter check — given the size of the risk surface, this is the one
+R8 slice that should get MORE verification than SimClock/terrain got,
+not the same amount.
+
 ## One-line summary for CLAUDE.md / CHANGELOG
 
 Audit found the codebase clean (near-zero dead code, no wasteful

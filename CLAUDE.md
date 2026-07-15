@@ -304,6 +304,32 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.74.3)
+
+Explicit user directive: pursue the Agent/Settlement/Population port
+despite v0.74.2's finding of no measured performance need — for
+architectural completeness, not a performance response. Scoped the
+real risk before writing code: `Agent`'s scalar fields are touched
+~700 times in `agents/population.py` alone, almost always interleaved
+with the six variable-size per-agent dicts/lists (`relationships`,
+`trust`, `inventory`, `memories`, `skills`, `traits`) that can't
+flatten into a struct-of-arrays — a much larger, riskier surface than
+terrain's ~60 clean indexing sites. Also confirmed: agent ids are
+monotonic/never reused, nothing holds a raw `Agent` reference across a
+tick boundary (everything re-resolves via `.id`), and
+`POPULATION_CAP=400` makes a naive swap-with-last removal cheap.
+**Shipped only the storage primitive this version**: `AgentTable`
+(`cpp/src/agent_table.cpp`) — a true structure-of-arrays for the 12
+scalar fields, verified via a 20,000-operation randomized fuzz test
+against a parallel Python reference (0 mismatches) plus explicit
+bounds-check tests. **Deliberately NOT wired into `Population.agents`
+this version** — that needs a compatibility-shim `Agent` wrapper class
+(same idea as `TerrainRow`) plus the ~700-site verification pass,
+staged as its own follow-up rather than rushed alongside the storage
+primitive, the same discipline the terrain port's own research pass
+established. See docs/REFACTOR-2026-07.md's "R8 slice 3" for the full
+scoping writeup and the concrete next-session plan.
+
 ## Current state (v0.74.2)
 
 Design-only pass (no code moved), in response to a generic "continue"

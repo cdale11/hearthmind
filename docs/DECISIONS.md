@@ -7722,3 +7722,68 @@ C/C++) the original v0.63.0 audit specified, which this project
 already jumped past on explicit user directive. No code changed this
 version; asked the user how to proceed given the finding rather than
 guessing.
+
+## v0.74.3: AgentTable — Agent scalar-field storage primitive (R8 slice 3, staged)
+
+User explicitly chose to pursue the Agent/Settlement/Population port
+despite the v0.74.2 finding of no measured performance need — for
+architectural completeness, accepting the higher risk knowingly. This
+version's job was to make that risk concrete rather than estimated,
+and to ship whatever slice of it can be done at the same safety bar
+every other native module here has met.
+
+**Scoping first.** A dedicated research pass counted real call sites
+rather than guessing: `Agent`'s 12 scalar fields are touched roughly
+700 times in `agents/population.py` alone (plus ~150 more across
+`engine.py`/`buildings.py`/`llm/*.py`/`interface/*.py`), almost always
+in the same expression as one of the 6 variable-size per-agent
+containers (`relationships`, `trust`, `inventory`, `memories`,
+`skills`, `traits`) that cannot be flattened into a fixed-schema array
+— a dict whose size varies per agent and changes every tick has no
+struct-of-arrays representation. This is categorically different from
+the terrain port's ~60 sites, which were uniformly `terrain[y][x]`
+indexing with no adjacent business logic to worry about. The research
+also settled three prerequisite design questions cheaply: agent ids
+are monotonic and never reused (a slot-based store doesn't need
+id-recycling logic), nothing in the codebase holds a raw `Agent`
+object reference across a tick boundary (every cross-tick reference is
+by `.id`, re-resolved via a freshly-built `by_id` dict each time —
+confirmed by grep, not assumed), and `POPULATION_CAP=400` means a
+naive swap-with-last removal on every death is entirely affordable,
+no free-list or generational-index scheme needed.
+
+**What shipped: the storage primitive only.** `cpp/src/agent_table.cpp`
+— `AgentTable`, a true structure-of-arrays (12 parallel `std::vector`s,
+one per scalar field, not a `std::vector` of a 12-field struct) with
+`append` (returns the new slot index), `remove` (swap-with-last;
+returns which agent id — if any — now occupies the freed slot, so the
+Python-side id→slot map can be kept in sync without the C++ side
+needing to know anything about Python id semantics), and per-field
+get/set. Verified via a 20,000-operation randomized fuzz test —
+append/remove/mutate operations applied in the same sequence to both
+`AgentTable` and a parallel pure-Python reference list of small
+`RefSlot` objects, cross-checked every 500 operations and once at the
+end, 0 mismatches across a final table size of ~5,000 net-appended
+agents — plus explicit tests confirming out-of-range slot access
+raises `IndexError` rather than reading/writing outside the backing
+vectors.
+
+**What deliberately did NOT ship: wiring it into `Population.agents`.**
+This is the actual risk the scoping pass identified, and rushing it
+into the same change as the storage primitive would repeat exactly the
+mistake the terrain port's own research pass was designed to prevent —
+verifying a new primitive in isolation is not the same as verifying
+~700 call sites still behave identically once real `Agent` instances
+are replaced with a compatibility-shim wrapper backed by that
+primitive. The honest next-session scope: build an `Agent`-shaped
+wrapper class whose scalar-field properties route through `AgentTable`
+by slot index (mirroring `TerrainRow`'s role for terrain) while the
+six dict/list fields stay ordinary Python attributes on a parallel
+object; maintain an id→slot map updated from `AgentTable.remove`'s
+result; make `Population.agents` a thin sequence view over the table
+instead of a plain `list[Agent]`; and verify via `scripts/verify_
+native_soak.py` (already built in v0.74.0, just needs this module's
+toggle registered) across a real multi-thousand-tick run — deliberately
+MORE verification than SimClock or the terrain grid needed, given this
+slice's much larger risk surface, not the same amount reused by
+habit.

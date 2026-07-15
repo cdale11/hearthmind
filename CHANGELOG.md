@@ -4,6 +4,36 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.74.3] — AgentTable: Agent scalar-field storage primitive (R8 slice 3, staged)
+
+### Added
+- `cpp/src/agent_table.cpp`'s `AgentTable` — a true structure-of-arrays
+  (12 parallel `std::vector`s, one per `Agent` scalar field: `id, x, y,
+  hunger, energy, state, age_ticks, max_age_ticks, starving_ticks,
+  sick_ticks, immune_ticks, goal, settlement_id`) with `append`,
+  swap-with-last `remove` (reports which agent id — if any — now
+  occupies the freed slot, for the caller's id→slot map), and per-field
+  get/set. Explicit user directive to pursue the Agent/Settlement/
+  Population port despite v0.74.2's finding of no measured performance
+  need. A dedicated scoping pass (before any code moved) found `Agent`'s
+  scalar fields are touched ~700 times in `agents/population.py` alone,
+  almost always interleaved with the six variable-size per-agent dict/
+  list fields that can't flatten into a fixed-schema array — a much
+  larger and riskier surface than terrain's ~60 clean indexing sites.
+  Given that, **this version ships only the storage primitive**,
+  verified in isolation; wiring it into the live `Population.agents`
+  list (the compatibility-shim wrapper class + the ~700-site
+  verification pass) is explicitly staged as separate follow-up work,
+  not bundled into the same change. See docs/REFACTOR-2026-07.md's "R8
+  slice 3" for the full scoping writeup and next-session plan.
+
+### Verified
+- 20,000-operation randomized fuzz test (append/remove/mutate) against
+  a parallel Python reference implementation, checked every 500
+  operations and at the end, 0 mismatches. Explicit bounds tests
+  confirming out-of-range slot access raises rather than corrupting
+  memory.
+
 ## [0.74.2] — R8/native-port design pass: no further code moved
 
 ### Changed
