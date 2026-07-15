@@ -7695,3 +7695,30 @@ that made this version's port low-risk doesn't obviously generalize to
 an object graph with real cross-references the way it did for a single
 independent grid — that's genuinely the next design question, not
 assumed solvable the same way.
+
+## v0.74.2: native-port design pass — no measured-need candidate remains
+
+Response to a generic "continue" following v0.74.1's terrain-grid
+port. Rather than force a next code change, traced whether the queued
+R8 item (`Agent`/`Settlement`/`Population`) or anything else was
+actually tractable/justified right now. Full three-part finding lives
+in docs/REFACTOR-2026-07.md's R8 section: (1) Agent's storage shape
+(many variable-size per-agent containers, not `Tile`'s two dense
+scalars) doesn't fit the compatibility-shim pattern that made
+`SimClock`/the terrain grid safe — the pattern that DOES apply to
+Agent's hot per-tick scalar math is already in use (module 6,
+`_update_needs`: extract primitives, compute in C++, write back, no
+storage change); (2) every previously-flagged O(N²) hotspot in the
+tick loop is already resolved (module 4's `AgentPositionIndex`; an
+algorithmic, not native, fix for the old rival scan); (3) conclusion —
+no measured-need candidate remains anywhere in the codebase. This is
+a direct application of the standing "escalate only with a measured
+need" rule that's governed every module since v0.72.0, now applied to
+the meta-question of whether to keep escalating at all. Recommends the
+native-port track be treated as complete for now, revisited only if a
+real measured tick-time problem shows up at larger population/map
+scale — the same escalation ladder (spatial buckets → numpy → PyPy →
+C/C++) the original v0.63.0 audit specified, which this project
+already jumped past on explicit user directive. No code changed this
+version; asked the user how to proceed given the finding rather than
+guessing.

@@ -789,14 +789,60 @@ persistence round-trip, a live-server + browser smoke test, and the
 full-state harness across 4 seeds/6000 ticks — all nineteen native
 modules now pass).
 
-**Next R8 scope, not yet started**: `Agent`/`Settlement`/`Population`
-themselves. Unlike `SimClock` and the terrain grid — both chosen
-specifically for having zero references to any other mutable object —
-these three are genuinely entangled with each other, so the
-"compatibility-shim, zero call-site changes" trick that made both
-prior slices low-risk doesn't obviously generalize. This is a real
-open design question for whichever session takes it on next, not a
-known-solved pattern to just repeat.
+**`Agent`/`Settlement`/`Population` design pass (v0.74.2), no code
+moved.** Traced why the TerrainGrid trick doesn't generalize, and
+whether *any* further native-port work is currently justified, before
+writing more C++:
+
+1. **`Agent`'s storage shape rules out a TerrainGrid-style port.**
+   `Tile` is two scalars (elevation, biome), dense (every (x,y) always
+   has exactly one), and immutable-replaced-wholesale — a flat
+   `vector<double>`/`vector<int>` pair was a natural fit. `Agent` has
+   ~15 scalar fields plus six variable-size per-agent containers
+   (`relationships`, `trust`, `inventory`, `memories`, `skills`,
+   `traits` — dicts/lists whose size varies per agent and changes
+   every tick). A faithful flat-array port would need either a
+   fixed-schema struct-of-arrays for the scalars plus separate native
+   containers per variable field (a much larger design than
+   `TerrainGrid`'s two arrays), or a hybrid where Python dicts stay
+   Python and only scalars move — which is exactly what module 6
+   (`_update_needs`, R6) already does today: extract primitives,
+   compute in C++, write back to the existing `Agent` object, no
+   storage change. There's no new storage-port shape here to invent;
+   the existing R6 discipline already covers Agent's hot scalar math.
+
+2. **Checked for a genuine measured hotspot that isn't already
+   ported** — re-read every O(N)/O(N²)-flagged comment in `agents/
+   population.py`'s `tick()`. Both flagged quadratic-cost spots are
+   already resolved: SOCIALIZE's no-radius-cap scan (module 4,
+   `AgentPositionIndex`) and the old per-agent rival scan (fixed
+   algorithmically in the July 2026 review, not via native code —
+   rival tiles are now precomputed once per tick from each agent's own
+   short `relationships` dict instead of a full-population scan).
+   `_update_relationships` (the remaining per-tick relationship-decay/
+   colocation-gain pass) is O(total relationships) + O(sum of
+   colocated-group-size²) — bounded by crowding within a tile, not
+   global population, and has no comment or profiling data flagging
+   it as costly. No other per-agent function in the tick loop carries
+   an unresolved cost flag.
+
+3. **Conclusion: there is currently no measured-need candidate left
+   for further native porting** — R6's opportunistic queue, R7's
+   physical-substrate queue, and the two safe R8 storage slices
+   (`SimClock`, terrain grid) are all closed or shipped. What remains
+   (`Agent`/`Settlement`/`Population`'s full object graph) would be
+   engineering effort spent for its own sake, not in response to a
+   measured cost problem — directly the case CLAUDE.md's standing
+   "escalate only with a measured need" rule exists to head off. The
+   tick loop itself remains nowhere near CPU-bound (the original
+   v0.63.0 finding — Ollama call latency dominates, not Python), and
+   nothing measured since then has changed that. Recommend treating
+   the native-port track (R5/R6/R7/R8) as complete for now, not
+   permanently closed — revisit if population/map-size scale up
+   materially enough to produce an actual measured tick-time problem,
+   the same escalation ladder the original v0.63.0 audit specified
+   (spatial buckets → numpy → PyPy → only then C/C++, and this project
+   already skipped straight to C++ on explicit user directive).
 
 ## One-line summary for CLAUDE.md / CHANGELOG
 

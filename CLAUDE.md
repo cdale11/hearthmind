@@ -304,6 +304,27 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.74.2)
+
+Design-only pass (no code moved), in response to a generic "continue"
+after v0.74.1's terrain-grid port. Investigated whether `Agent`/
+`Settlement`/`Population` (the queued-next R8 item) or anything else
+in the codebase is a genuine next native-port target. Findings: `Agent`
+doesn't fit the `TerrainGrid` storage-port pattern (many variable-size
+per-agent dicts, not two dense scalars) — its applicable pattern is
+what module 6 already does (extract primitives, compute in C++, write
+back, no storage change). Re-checked every O(N)/O(N²)-flagged comment
+in the tick loop; both previously-flagged quadratic spots are already
+resolved. **No measured-need candidate remains anywhere in the
+codebase for further native porting** — R6/R7's queues are closed,
+R8's two safe storage slices (`SimClock`, terrain grid) are shipped.
+Per this project's own standing "escalate only with a measured need"
+rule (the same discipline that's governed every module since v0.72.0),
+recommend treating the native-port track as complete for now, not
+permanently closed. See docs/REFACTOR-2026-07.md's R8 section for the
+full three-part writeup. Asked the user how they'd like to proceed
+given this finding.
+
 ## Current state (v0.74.1)
 
 R8 slice 2, per explicit user directive to "start" the terrain-grid

@@ -4,6 +4,31 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.74.2] — R8/native-port design pass: no further code moved
+
+### Changed
+- Design-only pass (no code moved) on whether `Agent`/`Settlement`/
+  `Population` are a tractable next R8 target, and whether any other
+  native-port opportunity remains anywhere in the codebase. Findings
+  (full writeup in docs/REFACTOR-2026-07.md's R8 section):
+  - `Agent`'s storage (many variable-size per-agent dicts/lists, not
+    two dense scalars like `Tile`) doesn't fit the `TerrainGrid`
+    compatibility-shim pattern — the applicable pattern for Agent's
+    hot scalar math is what module 6 (`_update_needs`) already does:
+    extract primitives, compute in C++, write back, no storage change.
+  - Re-checked every O(N)/O(N²)-flagged comment in `agents/
+    population.py`'s tick loop — both previously-flagged quadratic
+    spots are already resolved (module 4's `AgentPositionIndex` for
+    SOCIALIZE; an algorithmic fix, not native code, for the old rival
+    scan). No other function carries an unresolved cost flag.
+  - **Conclusion: no measured-need candidate remains** for further
+    native porting. R6/R7's queues are closed, R8's two safe storage
+    slices (`SimClock`, terrain grid) are shipped. Recommends treating
+    the native-port track as complete for now (not permanently
+    closed) per CLAUDE.md's standing "escalate only with a measured
+    need" rule — revisit only if population/map-size scale up enough
+    to produce an actual measured tick-time problem.
+
 ## [0.74.1] — terrain grid native storage (R8 slice 2)
 
 ### Added
