@@ -137,8 +137,9 @@ shared `bounded_random_walk_step` used by five separate monthly-nudge
 functions across `settlement/buildings.py`, `world/terrain_
 evolution.py`, and `world/hydrology.py`, `world/disasters.py`'s
 `_wilt_farms` (heatwave/frost) and `tick_storm`'s flat-damage sweep,
-and `apply_local_activity`'s deforestation roll batch. More hot loops
-and physical-substrate modules move over incrementally, one
+and `apply_local_activity`'s/`tick_wildfire`'s roll batches (the latter
+two share the same underlying native function). More hot loops and
+physical-substrate modules move over incrementally, one
 provably-equivalent module at a time (see "Refactor status" below).
 
 ```bash

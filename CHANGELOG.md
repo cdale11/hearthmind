@@ -4,6 +4,21 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.72.14] — tick_wildfire's spread roll now reuses module 15
+
+### Added
+- `tick_wildfire`'s spread step (world/disasters.py) now dispatches to
+  module 15's `roll_passes_tick` — no new C++ needed. Re-traced the
+  spread loop (previously assumed hard, alongside `maybe_reclaim`) and
+  found each (active tile, neighbor) pair's spread eligibility depends
+  only on the pre-loop snapshot of `active_wildfire_tiles` and terrain
+  biomes, never on another pair's outcome within the same pass —
+  own-tile conversion draws no RNG at all, so it stays a plain Python
+  pass; only the neighbor-spread rolls get batched. Verified via 300
+  direct `tick_wildfire()` A/B runs on synthetic terrain/fire state (0
+  mismatches) plus the cumulative-event-hash engine soak across five
+  seeds at 6000 ticks each, byte-identical.
+
 ## [0.72.13] — Native port module 15: deforestation roll batch
 
 ### Added

@@ -7107,3 +7107,57 @@ identical. `maybe_reclaim`, `apply_climate_drift`'s position sampling,
 remain queued — each should still be individually re-checked against
 the "does eligibility depend on other candidates' outcomes within the
 same pass" question rather than assumed hard by association.
+
+## v0.72.14: tick_wildfire's spread roll reuses module 15's roll_passes_tick
+
+Continuing the re-trace from v0.72.13: `tick_wildfire`'s spread step
+was flagged as "hard" in v0.72.11/12 without individual verification,
+grouped in with `maybe_reclaim` on the assumption that "fire spread"
+sounds like it should have the same same-pass-dependency problem.
+Traced it properly this time. The loop has two parts: own-tile
+conversion (an active FOREST tile always burns to GRASSLAND — no RNG
+at all) and neighbor-spread rolls (one `rng.random() < WILDFIRE_
+SPREAD_CHANCE` per active-tile/FOREST-neighbor pair). The key
+question, same as `apply_local_activity`'s: does a later pair's
+eligibility depend on an earlier pair's outcome within this same tick?
+No — `active_wildfire_tiles` (the set defining which tiles are
+"active" and therefore excluded as spread targets) is read via
+membership test throughout the loop but never mutated until `|=
+frontier` after the loop completes; `frontier` itself (where roll
+results land) is never consulted for eligibility either. A shared
+neighbor of two active tiles gets rolled twice, independently, exactly
+like the pure-Python original — `frontier` being a set only means the
+*result* de-duplicates, not the roll count.
+
+No new C++ file — this reuses module 15's `roll_passes_tick` directly,
+the payoff of having built that as a generic "which pre-drawn rolls
+beat their chance" utility rather than baking it into `apply_local_
+activity` alone. The Python-side change splits the original single
+combined loop (own-conversion interleaved with spread-checks per tile)
+into two passes: an unconditional own-conversion pass over `active_
+list` (captured once, since `state.active_wildfire_tiles` must not be
+read via `list()` twice and risk two different orderings — Python set
+iteration order is stable within a process for identical contents but
+there's no reason to rely on that twice when capturing once is trivial
+and safer), then a candidate-collection + roll-batch pass. Splitting
+doesn't reorder the RNG stream: the original's own-conversion sub-step
+draws zero random values, so interleaving it with the roll sub-step or
+running it first changes nothing about which `rng.random()` calls
+happen or in what order.
+
+Verified via 300 direct `tick_wildfire()` A/B calls on synthetic
+terrain with randomized active-fire-tile sets (native path vs.
+pure-Python path — native function temporarily nulled — sharing a
+seeded RNG per pair), comparing final terrain biomes, the resulting
+`active_wildfire_tiles` set, and emitted events, 0 mismatches. Plus the
+cumulative-event-hash engine soak across five seeds at 6000 ticks each
+(added a fifth seed this pass for extra coverage of wildfire's
+comparatively rare weekly-ignition path), byte-identical throughout.
+`maybe_reclaim` (confirmed genuine same-pass dependency),
+`apply_climate_drift`'s position sampling (fixed draw count but tied
+to terrain biome classification not yet exposed to C++), `tick_flood`
+(single-event trigger + candidate-index pick, too little batchable
+content to be worth porting), and the rest of `world/hydrology.py`
+remain the correctly-scoped remainder — each already individually
+assessed rather than assumed hard by association, see v0.72.13's entry
+for the underlying test.

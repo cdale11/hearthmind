@@ -63,6 +63,19 @@ once the single trigger roll (kept in Python) has decided a storm
 happened — this only replaces the per-building/vehicle condition
 subtraction loop."""
 
+try:
+    from hearthmind._native import roll_passes_tick as _native_roll_passes_tick
+except ImportError:
+    _native_roll_passes_tick = None
+"""Optional compiled fast path for `tick_wildfire`'s spread roll
+(module 15's `roll_passes_tick`, reused here — see cpp/src/roll_batch.
+cpp). Each (active tile, neighbor) pair's spread eligibility depends
+only on the pre-loop snapshot of `active_wildfire_tiles` and terrain
+biomes, never on another pair's outcome within the same pass — own-
+tile conversion draws no RNG at all, so it stays a separate, ordinary
+Python pass before the roll batch. `None` when the extension wasn't
+built — falls back to the equivalent pure-Python loop."""
+
 FLOOD_PRESSURE_GAIN = 0.05
 FLOOD_PRESSURE_DECAY = 0.02
 FLOOD_PRESSURE_THRESHOLD = 1.0
@@ -344,8 +357,16 @@ def tick_wildfire(
             state.active_wildfire_tiles = set()
             events.append(("disaster_wildfire", "The wildfire burned itself out."))
             return events
-        frontier = set()
-        for (x, y) in list(state.active_wildfire_tiles):
+        # Own-tile conversion draws no RNG at all, so it's a plain
+        # Python pass over a fixed snapshot regardless of the native
+        # extension's availability — only the spread roll below has
+        # anything to hand off. `active_list` is captured once here so
+        # both this pass and the spread-candidate pass below iterate
+        # the exact same order (a live `state.active_wildfire_tiles`
+        # membership test is used for eligibility either way, never
+        # mutated until `|= frontier` at the very end).
+        active_list = list(state.active_wildfire_tiles)
+        for (x, y) in active_list:
             tile = terrain[y][x]
             if tile.biome is Biome.FOREST:
                 terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.GRASSLAND)
@@ -354,15 +375,37 @@ def tick_wildfire(
                 # `_damage_at`'s farm-destruction branch was dead code
                 # on the one disaster where it matters most.
                 _damage_at(settlements, farms if farms is not None else FarmGrid(), x, y, WILDFIRE_BUILDING_DAMAGE)
-            if len(state.active_wildfire_tiles) >= WILDFIRE_MAX_TILES:
-                continue
-            for dx, dy in _ADJACENT:
-                nx, ny = x + dx, y + dy
-                if (
-                    0 <= nx < width and 0 <= ny < height and (nx, ny) not in state.active_wildfire_tiles
-                    and terrain[ny][nx].biome is Biome.FOREST and rng.random() < WILDFIRE_SPREAD_CHANCE
-                ):
-                    frontier.add((nx, ny))
+
+        frontier = set()
+        at_cap = len(state.active_wildfire_tiles) >= WILDFIRE_MAX_TILES
+        if not at_cap:
+            # Native fast path (module 15's roll_passes_tick, reused):
+            # each (active tile, neighbor) pair's spread eligibility
+            # depends only on the pre-loop `active_list`/terrain
+            # snapshot, never on another pair's outcome within this
+            # same pass — a shared neighbor of two active tiles still
+            # gets rolled twice here, exactly like the pure-Python
+            # original, since `frontier` (not `active_wildfire_tiles`)
+            # accumulates the result and isn't consulted for
+            # eligibility mid-pass.
+            candidates: list[tuple[int, int]] = []
+            for (x, y) in active_list:
+                for dx, dy in _ADJACENT:
+                    nx, ny = x + dx, y + dy
+                    if (
+                        0 <= nx < width and 0 <= ny < height and (nx, ny) not in state.active_wildfire_tiles
+                        and terrain[ny][nx].biome is Biome.FOREST
+                    ):
+                        candidates.append((nx, ny))
+            if _native_roll_passes_tick is not None:
+                rolls = [rng.random() for _ in candidates]
+                for (nx, ny), did_pass in zip(candidates, _native_roll_passes_tick(rolls, WILDFIRE_SPREAD_CHANCE)):
+                    if did_pass:
+                        frontier.add((nx, ny))
+            else:
+                for (nx, ny) in candidates:
+                    if rng.random() < WILDFIRE_SPREAD_CHANCE:
+                        frontier.add((nx, ny))
         state.active_wildfire_tiles |= frontier
         return events
 

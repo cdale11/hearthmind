@@ -580,18 +580,36 @@ call site. Verified via 20,000 randomized inputs, 300 direct
 the cumulative-event-hash soak across four seeds, all fifteen native
 modules on vs. off, byte-identical.
 
-**Remaining queue, now correctly scoped**: `maybe_reclaim` (genuine
-same-pass dependency, confirmed), `apply_climate_drift`'s position
-sampling (not yet individually re-checked against the actual test),
-`world/disasters.py`'s `tick_flood`/`tick_wildfire` (not yet
-individually re-checked either — flood's candidate-list build and
-wildfire's spread-frontier growth both look like they may have the
-same same-pass-dependency shape as `maybe_reclaim`, but that's an
-assumption pending the same trace `apply_local_activity` just got, not
-a conclusion), and the rest of `world/hydrology.py`. Each should be
-individually traced against "does eligibility depend on same-pass
-outcomes" before being written off — don't assume the whole remaining
-list is uniformly hard just because two members of it are.
+**`tick_wildfire`'s spread step (v0.72.14): reuses module 15, no new
+C++.** Traced it individually rather than assuming it shared
+`maybe_reclaim`'s problem just because both involve terrain mutation.
+It doesn't: own-tile conversion draws no RNG at all (an active FOREST
+tile always burns), and each neighbor-spread roll's eligibility depends
+only on the pre-loop `active_wildfire_tiles` snapshot + terrain biomes
+— `active_wildfire_tiles` is read via membership test throughout but
+never mutated mid-loop (only unioned with `frontier` at the very end),
+and `frontier` itself is never consulted for eligibility. A neighbor
+shared by two active tiles still gets rolled twice, exactly like the
+original — `frontier` being a set only de-duplicates the *result*, not
+the roll count. Directly reuses `roll_passes_tick` (module 15) — the
+Python side splits the original's single combined loop into an
+unconditional own-conversion pass (no RNG, order-irrelevant) and a
+candidate-collection-then-roll-batch pass, which doesn't reorder the
+RNG stream since the first pass draws nothing. Verified via 300 direct
+`tick_wildfire()` A/B runs on synthetic fire/terrain state (0
+mismatches) plus the cumulative-event-hash soak across five seeds at
+6000 ticks each, byte-identical.
+
+**Remaining queue, now correctly scoped after two individual traces**:
+`maybe_reclaim` (confirmed genuine same-pass dependency — a converted
+tile can be a later tile's forest-neighbor in the same pass);
+`apply_climate_drift`'s position sampling (fixed draw count, unlike
+the others, but the actual biome-step mutation needs `classify_with_
+bias`/`BIOME_ORDER` logic not yet exposed to C++ — a real but different
+kind of blocker than RNG ordering); `tick_flood` (single-event trigger
++ a single candidate-index pick, not a batched sweep — too little
+batchable content to be worth a native module regardless of RNG
+shape); the rest of `world/hydrology.py` (not yet traced).
 
 ## One-line summary for CLAUDE.md / CHANGELOG
 

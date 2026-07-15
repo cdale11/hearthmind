@@ -304,6 +304,25 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.72.14)
+
+`tick_wildfire`'s spread step (world/disasters.py) now reuses module
+15's `roll_passes_tick` — no new C++ file needed. Re-traced the spread
+loop (previously grouped with `maybe_reclaim` as "hard" without
+individual verification) and confirmed each (active tile, neighbor)
+pair's spread eligibility depends only on pre-loop state
+(`active_wildfire_tiles` snapshot + terrain biomes), never on another
+pair's outcome within the same pass — own-tile conversion draws no RNG
+at all, so it's a plain Python pass; only the neighbor-spread rolls get
+batched and handed to the native comparison. Verified via 300 direct
+`tick_wildfire()` A/B runs on synthetic fire/terrain state plus the
+cumulative-event-hash soak across five seeds at 6000 ticks each,
+byte-identical. Correctly-scoped remainder: `maybe_reclaim` (confirmed
+genuine same-pass dependency), `apply_climate_drift` (fixed draw count
+but needs biome-classification logic exposed to C++), `tick_flood`
+(too little batchable content — single-event trigger, not a sweep),
+rest of `world/hydrology.py`.
+
 ## Current state (v0.72.13)
 
 Native port module 15: `apply_local_activity`'s deforestation roll
