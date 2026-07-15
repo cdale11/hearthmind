@@ -25,8 +25,10 @@ from enum import Enum
 from hearthmind.world.terrain import Biome, Tile
 
 try:
+    from hearthmind._native import ResourceIndex as _NativeResourceIndex
     from hearthmind._native import resource_grid_tick as _native_tick
 except ImportError:
+    _NativeResourceIndex = None
     _native_tick = None
 """Optional compiled fast path for `ResourceGrid.tick` (see cpp/src/
 resource_grid.cpp, docs/DECISIONS.md "Native extension port"). `None`
@@ -158,6 +160,19 @@ class ResourceGrid:
     something depletes it (forage/gather/grazing). `None` means "not yet
     seeded"; harvests before the first tick are safely covered because
     that first tick seeds the whole grid regardless."""
+    _native_index: "object | None" = field(default=None, compare=False, repr=False)
+    """Compiled `hearthmind._native.ResourceIndex` snapshot backing
+    `nearest_food_or_fish` (v0.72.2, second native-port module — see
+    cpp/src/resource_grid.cpp `ResourceIndex`). Rebuilt once per `tick`
+    (not per query) from the current FOOD/FISH node amounts — cheap
+    (O(total nodes), same class of one-per-tick cost the working-set
+    rebuild already pays) because the real win is amortizing it across
+    every forage-seeking agent's query that tick, the same "compute once
+    per tick, share across every agent" shape `Population.tick`'s
+    `food_positions`/`granary_positions` precompute already uses one
+    call site up. `None` when the extension isn't built (pure-Python
+    fallback stays in `Population._nearest_resource`) or before the
+    first `tick`."""
 
     # --- construction ------------------------------------------------------
 
@@ -195,6 +210,27 @@ class ResourceGrid:
     def get(self, x: int, y: int) -> ResourceNode | None:
         return self.nodes.get((x, y))
 
+    def nearest_food_or_fish(self, ax: int, ay: int, radius: int) -> tuple[int, int] | None:
+        """Native-backed lookup for `Population._nearest_resource`'s
+        bounded-box scan (v0.72.2) — `None` when `_native_index` isn't
+        built yet (extension unavailable, or before the first `tick`),
+        in which case the caller runs its own pure-Python bounded-box
+        scan unchanged. See `_native_index`'s docstring for the
+        once-per-tick amortization rationale."""
+        if self._native_index is None:
+            return None
+        return self._native_index.nearest(ax, ay, radius)
+
+    def _refresh_native_index(self) -> None:
+        if _NativeResourceIndex is None:
+            return
+        entries = [
+            (n.x, n.y, 1 if n.kind is ResourceKind.FISH else 0, n.amount)
+            for n in self.nodes.values()
+            if n.kind is not ResourceKind.ORE
+        ]
+        self._native_index = _NativeResourceIndex(entries)
+
     # --- tick ------------------------------------------------------------------
 
     def mark_regenerating(self, x: int, y: int) -> None:
@@ -202,9 +238,18 @@ class ResourceGrid:
         Call after depleting a node (forage/gather/grazing). A no-op
         before the working set is seeded (the first `tick` seeds every
         node anyway), so callers never need to care about ordering. See
-        `_regenerating`."""
+        `_regenerating`. Also live-patches `_native_index` when built
+        (v0.72.2) — required for exact equivalence with the pure-Python
+        `_nearest_resource` scan: without this, a second agent foraging
+        later in the *same* tick would see a stale (pre-depletion)
+        native index instead of the just-updated `self.nodes` amount the
+        Python path always reads live. See `_native_index`'s docstring."""
         if self._regenerating is not None:
             self._regenerating.add((x, y))
+        if self._native_index is not None:
+            node = self.nodes.get((x, y))
+            if node is not None and node.kind is not ResourceKind.ORE:
+                self._native_index.update(x, y, 1 if node.kind is ResourceKind.FISH else 0, node.amount)
 
     def tick(self, season: str = "summer") -> None:
         if self._regenerating is None:
@@ -216,6 +261,7 @@ class ResourceGrid:
             self._tick_native(season)
         else:
             self._tick_python(season)
+        self._refresh_native_index()
 
     def _tick_native(self, season: str) -> None:
         """Compiled fast path — see cpp/src/resource_grid.cpp. Amounts are

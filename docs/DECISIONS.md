@@ -6459,3 +6459,84 @@ error; sampled `events` rows for `category='dialogue'` show the
 memory-grounded lines ("Did you hear? Wren shared food with me.")
 interleaving with the pool lines as expected, not dominating or
 crowding them out.
+
+## pyproject license fix, one-command run script, native port module 2 (v0.72.2)
+
+**License field.** `project.license = { text = "MIT" }` triggers a
+setuptools deprecation warning on modern setuptools (>=77 supports and
+prefers a bare SPDX string, `license = "MIT"`, deprecating the TOML
+table form with a 2027-02-18 removal date). Fixed directly. Verifying
+this locally required upgrading this sandbox's own `setuptools` (68.1.2
+-> 83.0.0) and `packaging` (24.0, debian-managed and broken -> 26.2 via
+`--force-reinstall --ignore-installed`) — neither upgrade is shipped as
+a runtime dependency of this project; they're pinned in `build-system.
+requires` so `pip install -e .` resolves a matching pair via its own
+build isolation regardless of what's already on the host.
+
+**One-command run script.** `scripts/run.sh` — the practical answer to
+"how do I actually start the game" now that step 1 of the LLM setup is
+a separate long-running process (`llama-server`) the user has to
+coordinate with `hearthmind.server` themselves. Design choices worth
+recording: (1) `curl .../health` polling before starting hearthmind,
+rather than a fixed sleep, since model load time varies hugely by
+quantization/hardware; (2) the cleanup trap is registered once, up
+front, referencing pid variables that get populated later — bash
+evaluates the function body at call time, so this stays correct
+regardless of where in the script a signal arrives, rather than the
+first draft's bug where the trap only existed for the llama-server pid
+and Ctrl+C during `python3 -m hearthmind.server` orphaned it (caught by
+manually SIGTERM-testing the script, not by inspection — the orphaned
+process kept running for the tool's own 2-minute timeout in testing,
+which is exactly the kind of "looks right, isn't" bug live-testing
+catches and code review doesn't); (3) hearthmind runs backgrounded
+(`&` + `wait`) rather than as the final `exec`'d command, specifically
+so the trap can still reach it — an `exec` replacement can't be reached
+by a parent-registered trap once it's happened.
+
+**Native port module 2: `Population._nearest_resource`.** Chosen after
+re-examining the "queued next" list from v0.72.0/v0.72.1's R5 section,
+which turned out to have named two candidates that weren't actually
+good ports on closer inspection — `world/weather.py`'s `compute_weather`
+is O(1) per tick (a single `WeatherState`, not a per-tile pass at all;
+the original "grid pass" description was simply incorrect), and
+`world/terrain_evolution.py`'s functions run weekly/monthly and touch
+`Settlement`/`Farm` occupancy state — cross-module and infrequent,
+the opposite of what makes `resources.tick` a good port target. Went
+back to the actual evidence instead: the v0.67.0 profiling pass had
+already named `_nearest_resource`'s bounded-box scan the single largest
+self-time hotspot in a 60-agent run. Ported as a compiled
+`ResourceIndex` class (`cpp/src/resource_grid.cpp`) wrapping a native
+hash map of in-range FOOD/FISH node positions.
+
+The nontrivial part wasn't the query (a straightforward bounded-box
+scan, same shape as `resource_grid_tick`) but keeping it exactly
+equivalent to the live Python dict scan across a single tick with
+multiple foraging agents. `resources.tick()` runs *before*
+`population.tick()` in `World.tick()`'s fixed order (confirmed by
+reading `world/state.py` directly, not assumed), so rebuilding the
+native index once per `resources.tick()` call captures every node's
+amount as of the start of that tick's population pass — correct for
+agent #1's query. But agent #2 querying later in the same
+`population.tick()` call needs to see agent #1's depletion too, the way
+a live Python dict always does; a once-per-tick-only rebuild would
+silently diverge here. Fixed by extending `ResourceGrid.mark_
+regenerating` (already called at every depletion site for R4's working
+set) to also live-patch the native index's one changed entry — same
+call site, same discipline, now doing two jobs. `ResourceIndex::update`
+erases the entry when amount drops to/below 0, matching the
+constructor's amount>0 filter (a stale zero-amount entry would
+otherwise still be "found").
+
+**Verification:** a standalone script ran 20,000 randomized bounded-box
+queries against a synthetic 3000-node grid, interleaved with random
+mid-run depletions (mirroring same-tick multi-agent foraging), compared
+against a literal copy of the pre-port Python scan — 0 mismatches. The
+existing 4000-tick `llm_enabled=False` engine soak reproduced the exact
+same event-stream SHA-256 as every prior port's baseline, confirming no
+behavior change end-to-end, not just in the isolated query.
+
+**Deliberately not ported:** `Population._nearest_material_tile` (the
+GATHER-goal equivalent scanning terrain biomes) has the same bounded-
+box shape but no measured-hotspot evidence behind it — CLAUDE.md's
+standing rule is escalation only with a measured problem, so this stays
+pure-Python until profiling says otherwise, not because it's harder.

@@ -1645,7 +1645,20 @@ class Population:
         stops scaling with total node count the way the old `.items()`
         scan did — CLAUDE.md's pre-approved first escalation step
         ("spatial buckets for nearest-X scans") applied to the one
-        function that actually needed it."""
+        function that actually needed it.
+
+        v0.72.2 native port: dispatches to `resources.nearest_food_or_
+        fish` (a compiled `ResourceIndex` query, see cpp/src/resource_
+        grid.cpp) when built, falling back to the identical pure-Python
+        scan below otherwise — same "hot query, share the amortized
+        setup cost across every agent's call this tick" shape as R4's
+        `resources.tick` working set."""
+        native_result = resources.nearest_food_or_fish(agent.x, agent.y, FORAGE_SEARCH_RADIUS)
+        if native_result is not None:
+            return native_result
+        if resources._native_index is not None:
+            return None  # native index built and searched, genuinely nothing in range
+
         best_food: tuple[int, int] | None = None
         best_food_dist: int | None = None
         best_fish: tuple[int, int] | None = None

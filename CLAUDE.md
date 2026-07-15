@@ -262,6 +262,32 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.72.2)
+
+Three items: `pyproject.toml` license fix, one-command run script,
+native port module 2. **License**: `project.license` moved from the
+deprecated `{ text = "MIT" }` table to the SPDX string `license =
+"MIT"` — needs `setuptools>=77`/`packaging>=24.2` (bumped in
+`build-system.requires`; `pip install -e .` resolves this via build
+isolation regardless of the host's installed versions). **Run script**:
+`scripts/run.sh` starts `llama-server` (tuned flags) + `hearthmind.
+server` together, waits for `/health`, forwards Ctrl+C to both — see
+README step 4 under "Running the LLM (llama.cpp)". **Native port
+module 2**: `Population._nearest_resource` (the v0.67.0-profiled top
+hotspot) is now a compiled `ResourceIndex` (`cpp/src/resource_grid.
+cpp`), rebuilt once per `ResourceGrid.tick()` and live-patched at each
+depletion site via the existing `mark_regenerating` hook (R4) so
+same-tick multi-agent ordering matches the pure-Python scan exactly —
+verified via 20,000 randomized queries (0 mismatches) plus the standard
+engine-soak hash check. **Correction**: the "queued next" list from
+v0.72.0/.1 wrongly named `world/weather.py` (actually O(1)/tick, not a
+grid pass) and `world/terrain_evolution.py` (weekly/monthly cadence,
+cross-module state) as native-port candidates — corrected in
+`docs/REFACTOR-2026-07.md`. `Population._nearest_material_tile` has the
+same shape as `_nearest_resource` but no measured-hotspot evidence —
+deliberately left unported, not an oversight (escalate only with a
+measured need, per this file's standing rule).
+
 ## Current state (v0.72.1)
 
 Closed both items deferred from v0.72.0. **Map**: agent broadcast

@@ -13,7 +13,9 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <optional>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -90,6 +92,94 @@ resource_grid_tick(
     return {updated, still_regenerating};
 }
 
+namespace {
+
+inline long long encode_key(int x, int y) {
+    // Same encoding as resource_grid_tick's `key` and Python's
+    // `resources.py::ResourceGrid._tick_native._key` — kept consistent
+    // across every native lookup site in this module, even though each
+    // currently builds it independently (no shared header yet; a small,
+    // deliberate duplication rather than premature module-splitting for
+    // a two-file extension).
+    return (static_cast<long long>(x) << 32) ^ static_cast<unsigned int>(y);
+}
+
+}  // namespace
+
+// Native port of Population._nearest_resource's bounded-box scan (see
+// agents/population.py, v0.67.0 perf pass) — the second module in the
+// incremental C++ port (docs/REFACTOR-2026-07.md, R5). Unlike
+// ResourceGrid.tick (mutates nodes in place, called once per tick),
+// this is a *query* called up to once per forage-seeking agent per
+// tick, so the win here is amortizing the cost of building a native
+// lookup structure across every agent's query that tick, not the
+// per-query cost alone — mirrors the existing "compute food_positions/
+// granary_positions once per tick, share across agents" pattern
+// already used one call site up (`Population.tick`). Only FOOD (kind 0)
+// and FISH (kind 1) nodes are indexed — ORE never participates in
+// foraging, matching the pure-Python version's kind filter.
+class ResourceIndex {
+public:
+    explicit ResourceIndex(const std::vector<std::tuple<int, int, int, double>> &nodes) {
+        data_.reserve(nodes.size());
+        for (const auto &entry : nodes) {
+            int x = std::get<0>(entry);
+            int y = std::get<1>(entry);
+            int kind = std::get<2>(entry);
+            double amount = std::get<3>(entry);
+            if (amount <= 0.0) continue;
+            data_[encode_key(x, y)] = std::make_pair(kind, std::make_pair(x, y));
+        }
+    }
+
+    std::optional<std::pair<int, int>> nearest(int ax, int ay, int radius) const {
+        std::optional<std::pair<int, int>> best_food, best_fish;
+        int best_food_dist = -1, best_fish_dist = -1;
+        for (int dy = -radius; dy <= radius; ++dy) {
+            int y = ay + dy;
+            for (int dx = -radius; dx <= radius; ++dx) {
+                int x = ax + dx;
+                auto it = data_.find(encode_key(x, y));
+                if (it == data_.end()) continue;
+                int kind = it->second.first;
+                int dist = std::abs(dx) + std::abs(dy);
+                if (kind == 1) {  // fish
+                    if (best_fish_dist < 0 || dist < best_fish_dist) {
+                        best_fish = it->second.second;
+                        best_fish_dist = dist;
+                    }
+                } else {  // food
+                    if (best_food_dist < 0 || dist < best_food_dist) {
+                        best_food = it->second.second;
+                        best_food_dist = dist;
+                    }
+                }
+            }
+        }
+        return best_fish.has_value() ? best_fish : best_food;
+    }
+
+    // Live incremental patch — called from Python's `mark_regenerating`
+    // (the same call site R4's `_regenerating` working set already
+    // hooks) right after a forage/gather depletes a node, so this
+    // index stays consistent with `ResourceGrid.nodes` for the rest of
+    // the current tick without a full rebuild. Erases the entry when
+    // amount drops to/below 0 (matches the constructor's amount>0
+    // filter — a stale zero-amount entry would otherwise still be
+    // "found" by `nearest`).
+    void update(int x, int y, int kind, double amount) {
+        long long key = encode_key(x, y);
+        if (amount <= 0.0) {
+            data_.erase(key);
+        } else {
+            data_[key] = std::make_pair(kind, std::make_pair(x, y));
+        }
+    }
+
+private:
+    std::unordered_map<long long, std::pair<int, std::pair<int, int>>> data_;
+};
+
 PYBIND11_MODULE(_native, m) {
     m.doc() = "Hearthmind native (C++) hot-path extensions. Optional — "
               "every function here has a pure-Python fallback; the sim "
@@ -99,4 +189,14 @@ PYBIND11_MODULE(_native, m) {
           "Regenerate all below-cap resource nodes in `positions`. Returns "
           "(updated_amounts_by_key, still_below_cap_positions). Mirrors "
           "world/resources.py ResourceGrid.tick exactly.");
+
+    py::class_<ResourceIndex>(m, "ResourceIndex")
+        .def(py::init<const std::vector<std::tuple<int, int, int, double>> &>(), py::arg("nodes"))
+        .def("nearest", &ResourceIndex::nearest, py::arg("ax"), py::arg("ay"), py::arg("radius"),
+             "Nearest FISH node in range, else nearest FOOD node, else None. "
+             "Mirrors agents/population.py Population._nearest_resource exactly.")
+        .def("update", &ResourceIndex::update, py::arg("x"), py::arg("y"), py::arg("kind"), py::arg("amount"),
+             "Live-patch one entry (upsert, or erase if amount <= 0) — "
+             "keeps the index consistent with ResourceGrid.nodes between "
+             "full rebuilds. See ResourceGrid.mark_regenerating.");
 }

@@ -231,12 +231,39 @@ ported function that looks like it needs an in-place-mutated container
 argument should return the new value instead, not rely on reference
 semantics working across the language boundary.
 
+**Module 2 shipped (v0.72.2): `Population._nearest_resource`.** The
+`world/weather.py`/`world/terrain_evolution.py` candidates named above
+turned out, on closer look, not to be good ports after all:
+`compute_weather` is O(1) per tick (one `WeatherState`, not a per-tile
+pass — the "grid pass" framing above was simply wrong), and
+`terrain_evolution.py`'s functions run on weekly/monthly cadence,
+touch `Settlement`/`Farm` occupancy queries, and mutate `Tile` objects
+— cross-module and infrequent, the opposite of a good native-port
+target. `_nearest_resource` was the real candidate (the v0.67.0
+profiling pass had already named it the top hotspot). Ported as a
+compiled `ResourceIndex` (`cpp/src/resource_grid.cpp`) — a native
+hash map of in-range FOOD/FISH nodes, rebuilt once per `ResourceGrid.
+tick()` (before any agent forages that tick) and live-patched at each
+depletion site via the same `mark_regenerating` call `_regenerating`
+(R4) already hooks, so a second agent foraging later in the same tick
+sees the first agent's depletion exactly like the pure-Python dict scan
+always did — this incremental-patch requirement, not the query itself,
+was the nontrivial part of getting this port byte-identical. Verified
+via 20,000 randomized bounded-box queries interleaved with mid-run
+depletions (0 mismatches against a reference Python scan) plus the
+existing 4000-tick engine soak (identical event-stream hash to the
+pre-port baseline). `Population._nearest_material_tile` (the GATHER-goal
+equivalent, scanning terrain biomes instead of resource nodes) has the
+same shape but no measured-hotspot evidence behind it the way
+`_nearest_resource` had — deliberately left unported per CLAUDE.md's
+"escalate only with a measured need," not an oversight.
+
 **Queued next** (pick up in a dedicated session, same one-module-at-a-
-time discipline): `world/weather.py`'s per-tile grid pass, `world/
-terrain_evolution.py`, and `Population._nearest_resource`'s bounded-box
-scan are the next candidates — self-contained, hot relative to their
-neighbors, and each provable in isolation the same way `resources.tick`
-was. `population.py`/`engine.py`/`buildings.py` themselves (the
+time discipline): profile again at a larger population/map size to see
+whether `_nearest_material_tile`, `_nearest_other_agent`, or
+`WildlifeGrid.nearest_grazer_herd` earn a native port the way
+`_nearest_resource` did, rather than porting them speculatively.
+`population.py`/`engine.py`/`buildings.py` themselves (the
 orchestration layer — cross-references dozens of other modules, mutates
 shared `World`/`Settlement` state, drives the LLM job scheduling) are
 NOT good near-term candidates for a mechanical translation the way a

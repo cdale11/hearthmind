@@ -1,10 +1,10 @@
 [project]
 name = "hearthmind"
-version = "0.72.1"
+version = "0.72.2"
 description = "A persistent, always-running artificial world — a town in a box."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 dependencies = []
 
 [project.optional-dependencies]
@@ -17,7 +17,13 @@ hearthmind-inspect = "hearthmind.inspect_world:main"
 hearthmind-experiment = "hearthmind.experiment:main"
 
 [build-system]
-requires = ["setuptools>=68", "pybind11>=2.11"]
+# setuptools>=77 for the SPDX-string `project.license` form above
+# (older setuptools rejects it outright rather than just warning — see
+# docs/DECISIONS.md, "pyproject.toml license field" fix). `pip install
+# -e .` resolves this automatically via build isolation; a direct
+# `python3 setup.py build_ext --inplace` invocation needs a matching
+# setuptools already installed in the active environment.
+requires = ["setuptools>=77", "pybind11>=2.11"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

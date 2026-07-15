@@ -4,6 +4,46 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.72.2] — pyproject license fix, one-command run script, native port module 2
+
+### Fixed
+- `pyproject.toml`'s `project.license` moved from the deprecated
+  `{ text = "MIT" }` TOML table to the SPDX string form (`license =
+  "MIT"`) — silences the setuptools deprecation warning on `pip install
+  -e .`. Requires `setuptools>=77`/`packaging>=24.2`, bumped in
+  `build-system.requires`; resolved automatically by `pip install -e .`
+  via build isolation.
+
+### Added
+- **`scripts/run.sh`**: one command that starts `llama-server` (with
+  this project's tuned 8GB flags) and `hearthmind.server` together,
+  waits for llama-server's `/health` before starting the sim, and
+  forwards Ctrl+C to both processes cleanly (hearthmind's own graceful
+  shutdown/snapshot runs first). Configurable via `MODEL_PATH`,
+  `LLAMA_SERVER_BIN`, `LLAMA_HOST`, `LLAMA_CTX_SIZE`, `LLAMA_THREADS`,
+  `LLAMA_N_GPU_LAYERS`, `LLAMA_EXTRA_ARGS`; every other argument passes
+  through to `hearthmind.server`.
+- **Native port, module 2: `Population._nearest_resource`.** A compiled
+  `ResourceIndex` (`cpp/src/resource_grid.cpp`) — the bounded-box
+  FOOD/FISH lookup the v0.67.0 profiling pass identified as the top
+  hotspot. Rebuilt once per `ResourceGrid.tick()`, live-patched at each
+  forage/gather depletion site (via the existing `mark_regenerating`
+  call, same hook R4's working set already uses) so same-tick ordering
+  between agents matches the pure-Python scan exactly. Verified via
+  20,000 randomized queries (0 mismatches vs. a reference Python scan)
+  plus the existing 4000-tick engine soak (identical event-stream hash
+  to pre-port).
+
+### Corrected
+- `docs/REFACTOR-2026-07.md`'s R5 "queued next" list previously named
+  `world/weather.py`'s "per-tile grid pass" and `world/terrain_
+  evolution.py` as native-port candidates — on closer inspection
+  neither is: `compute_weather` is O(1) per tick, not a grid pass, and
+  terrain evolution runs on a weekly/monthly cadence touching cross-
+  module state. Corrected; `_nearest_material_tile` is the more honest
+  next candidate but is deliberately left unported pending a measured
+  hotspot, not ported speculatively.
+
 ## [0.72.1] — LLM core-cast map markers + dialogue quality pass
 
 Closes the two items explicitly deferred from v0.72.0.

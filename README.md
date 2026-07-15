@@ -104,6 +104,8 @@ hearthmind/
 cpp/
   src/                   # C++ sources for hearthmind._native (pybind11 extension)
 setup.py                 # builds hearthmind._native (optional — see below)
+scripts/
+  run.sh                 # starts llama-server + hearthmind.server together
 ```
 
 ## Native C++ extension (optional)
@@ -139,6 +141,8 @@ requirement on `pybind11`.
 > if memory is tight. Prefer Ollama? Pass `--llm-backend ollama` — it's
 > still fully supported, see [Alternative: Ollama backend](#alternative-ollama-backend).
 > Or run `--llm-disabled` for a fully offline, zero-LLM world.
+> **Once llama-server is built, `MODEL_PATH=... ./scripts/run.sh` starts
+> both it and the game together** — see step 4 below.
 
 ```bash
 # Start (or resume) the world. Ctrl+C for a graceful, saved shutdown.
@@ -298,15 +302,31 @@ path below.
 - `--port 8080` — matches `Config.llm_llamacpp_host` default
   (`http://localhost:8080`).
 
-**4. Run Hearthmind** (llama.cpp is the default backend, nothing extra
-needed):
+**4. Run Hearthmind.** Two ways:
 
 ```bash
+# One command, starts llama-server (with the tuned flags above) AND
+# hearthmind together, and stops both cleanly on Ctrl+C:
+MODEL_PATH=/path/to/Qwen3-4B-Instruct-Q4_K_M.gguf ./scripts/run.sh --db world.sqlite3
+
+# ...or run them yourself in two terminals (llama-server as in step 3,
+# then, since llama.cpp is the default backend, nothing extra needed):
 python3 -m hearthmind.server --db world.sqlite3
 
-# To run fully offline/deterministic instead:
+# To run fully offline/deterministic instead (no llama-server needed
+# either way):
 python3 -m hearthmind.server --db world.sqlite3 --llm-disabled
+# or: ./scripts/run.sh --llm-disabled --db world.sqlite3
 ```
+
+`scripts/run.sh` reads `LLAMA_SERVER_BIN`/`LLAMA_HOST`/`LLAMA_CTX_SIZE`/
+`LLAMA_THREADS`/`LLAMA_N_GPU_LAYERS`/`LLAMA_EXTRA_ARGS` env vars (all
+optional — defaults match this section's recipe) and passes every
+other argument straight through to `hearthmind.server` — see the
+script's header comment for the full list. It waits for llama-server's
+`/health` endpoint before starting hearthmind, and forwards Ctrl+C to
+both processes (hearthmind gets its normal graceful-shutdown snapshot
+first, then llama-server stops).
 
 ### AMD Ryzen iGPU offload (Radeon 740M / 780M, Vulkan)
 
