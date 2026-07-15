@@ -304,6 +304,30 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.73.3)
+
+Two small items. **Build flags**: `setup.py`'s native extension now
+builds with `-O3 -march=native -mtune=native` (non-Windows). User asked
+for `-O4`, which doesn't exist in GCC/Clang (both cap at `-O3`) —
+substituted the real max standard optimization level; `-Ofast` was
+considered and declined since it changes float semantics in ways that
+could affect the byte-identical-vs-Python verification every module
+here depends on. `-march=native` is safe only because this extension is
+always built locally on the machine that runs it, never shipped as a
+prebuilt wheel — flagged explicitly in setup.py's comment so a future
+change toward wheel distribution catches this. Re-ran the 4-seed/6000-
+tick soak after rebuilding: identical hashes to every prior `-O2` run.
+**`world/hydrology.py` fully traced**: `generate_rivers`/`identify_
+lakes` are world-creation-only (never called per-tick), so they're
+correctly out of scope for the native-port queue regardless of RNG
+shape — `tick_lakes` (the only per-tick function in that file) was
+already ported in module 12. This closes the R7 opportunistic queue
+completely: every function originally flagged has been ported,
+individually confirmed not worth porting, or confirmed one-time/
+creation-only. Remaining native-port work is entirely R8 (object-graph
++ engine-tick-loop track) — see v0.73.2's entry and docs/REFACTOR-2026-
+07.md for the terrain-grid slice queued next.
+
 ## Current state (v0.73.2)
 
 Direct response to explicit user confirmation of the R8 question posed

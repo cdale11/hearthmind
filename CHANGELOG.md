@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.73.3] — build flags (-O3/-march=native); world/hydrology.py fully traced
+
+### Added
+- `setup.py`'s native extension now compiles with `-O3 -march=native
+  -mtune=native` (non-Windows only — MSVC uses different flag syntax).
+  `-O4` isn't a real GCC/Clang flag (both cap at `-O3`); `-Ofast` goes
+  further but changes floating-point semantics in ways that could
+  affect this project's byte-identical-vs-Python verification
+  discipline, so it's deliberately not used. `-march=native` is safe
+  specifically because this extension is always built locally on the
+  machine that runs it (`scripts/run.sh` / `pip install -e .`), never
+  distributed as a prebuilt wheel — a binary built for one CPU and
+  copied to a different one could crash on an unsupported instruction,
+  which is why this flag isn't used for portable wheel builds
+  generally. Re-verified via a 4-seed, 6000-tick cumulative-event-hash
+  soak after rebuilding with the new flags — identical hashes to every
+  prior `-O2` soak run, confirming the more aggressive codegen changes
+  nothing observable.
+- `world/hydrology.py` fully traced (closing the one item still marked
+  "not yet traced" in the R7 queue): `generate_rivers`/`identify_lakes`
+  are both world-creation-only (called once from `World.create_new`
+  and once from the legacy-snapshot-migration backfill path in `World.
+  from_dict`), never per-tick — zero tick-time cost to port, so
+  correctly out of scope regardless of RNG shape. `tick_lakes` was
+  already ported (module 12, `bounded_random_walk_step`). This closes
+  out the R7 opportunistic-port queue entirely — every function in the
+  original queue is now either ported, individually confirmed
+  not-worth-porting, or confirmed one-time/creation-only.
+
 ## [0.73.2] — maybe_reclaim native port (17); SimClock.advance native port (18, first R8 slice)
 
 ### Added

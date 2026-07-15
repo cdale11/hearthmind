@@ -7432,3 +7432,57 @@ those need the heavier full-state-diffing verification harness
 (beyond the event-hash soak) built before the first line of any of
 them moves. `docs/REFACTOR-2026-07.md`'s R8 section will track this as
 a live, multi-session queue the same way R5/R6/R7 do.
+
+## v0.73.3: build flags (-O3/-march=native/-mtune=native); hydrology.py closed out
+
+**Build flags.** User asked for `-O4` and `-march`/`-mtune=native`.
+GCC and Clang both cap standard optimization at `-O3` — there is no
+`-O4` in either compiler's flag set — so `-O3` (the actual maximum)
+was used instead. `-Ofast` (which goes beyond `-O3` by additionally
+enabling `-ffast-math` and relaxed standards compliance) was
+considered and explicitly declined: `-ffast-math` permits floating-
+point reassociation and other transformations that can change rounding
+behavior, which risks silently breaking the byte-identical-vs-Python
+guarantee every native module in this codebase has been verified
+against since v0.72.0 — not worth the tradeoff for a project whose
+entire native-port discipline is "provably equivalent, not just
+probably faster." `-march=native`/`-mtune=native` were added as
+requested; both are genuinely safe here because `hearthmind._native`
+is always compiled locally on the exact machine that will run it
+(`scripts/run.sh` / `pip install -e .`'s build-isolation step) rather
+than distributed as a prebuilt wheel to be run on unknown hardware — a
+`-march=native` binary built on one CPU and copied to a different one
+can crash on an unrecognized instruction, which is the standard reason
+this flag is avoided for portable/distributed builds; flagged
+explicitly in `setup.py`'s comment so a future move toward shipping
+prebuilt wheels doesn't inherit this silently. Guarded to non-Windows
+(`sys.platform != "win32"`) since MSVC uses `/O2`-style flag syntax,
+not GCC/Clang's `-O3`. Re-verified via the standard 4-seed, 6000-tick
+cumulative-event-hash soak after a clean rebuild with the new flags:
+hashes identical to every prior `-O2` soak run for the same seeds —
+the more aggressive codegen doesn't change any observable simulation
+output, as expected (no `-ffast-math`, so IEEE-754 semantics are
+unchanged; `-march=native` only changes which instructions implement
+the same semantics, not the semantics themselves).
+
+**`world/hydrology.py` closed out.** The last item in the R7
+opportunistic-port queue marked "not yet traced." Both remaining
+un-ported functions in that file — `generate_rivers` (carves river
+tiles via `rng.shuffle` + BFS pathing) and `identify_lakes` (flood-
+fills connected water tiles into `LakeState` entries) — are called
+exactly twice in the entire codebase: once from `World.create_new`
+(new-world generation) and once from `World.from_dict`'s legacy-
+snapshot migration path (backfilling a pre-hydrology-pass save). Both
+are creation-time-only, never invoked from the tick loop — porting
+either would buy literally zero per-tick cost reduction, the only
+thing this native-port track exists to improve, regardless of how
+tractable their RNG shape might otherwise be. `tick_lakes` (the one
+function in this file that DOES run every tick) was already ported in
+module 12 (`bounded_random_walk_step`, shared with three other
+monthly-nudge functions). This closes the R7 queue in full: `apply_
+local_activity` (15), `tick_wildfire`'s spread (reuses 15),
+`apply_climate_drift` (16), `maybe_reclaim` (17) are ported; `tick_
+flood` and now `generate_rivers`/`identify_lakes` are confirmed
+correctly out of scope (too little batchable content / creation-only,
+respectively) rather than simply unaddressed. Everything queued next
+in native-port work is R8 (object-graph + engine-tick-loop), not R7.

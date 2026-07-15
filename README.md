@@ -165,6 +165,14 @@ attempts this build automatically via `pyproject.toml`'s build-system
 requirement on `pybind11`. `scripts/run.sh` builds this automatically
 every run (see below); set `SKIP_NATIVE_BUILD=1` to skip.
 
+Compiled with `-O3 -march=native -mtune=native` (non-Windows) — tuned
+for the exact CPU doing the build. This is safe only because the
+extension is always built locally on the machine that runs it, never
+distributed as a prebuilt wheel; a `-march=native` binary copied to a
+different CPU could crash on an unsupported instruction. If you ever
+build on one machine and copy `hearthmind/_native.*.so` to another,
+rebuild instead — don't copy the compiled artifact across hardware.
+
 ## Running it
 
 > **New to this repo?** The LLM backend defaults to **llama.cpp**

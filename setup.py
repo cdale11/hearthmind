@@ -16,6 +16,20 @@ import sys
 from setuptools import setup
 from setuptools.command.build_ext import build_ext as _build_ext
 
+# -O4 isn't a real GCC/Clang flag (both cap at -O3; -Ofast goes further
+# but changes floating-point semantics in ways that could affect the
+# byte-identical-vs-Python verification this project relies on, so it's
+# deliberately not used) — -O3 is the actual max standard optimization
+# level. -march=native/-mtune=native tune codegen for the exact CPU
+# doing the build, which is safe here specifically because this
+# extension is always built locally on the machine that runs it (see
+# scripts/run.sh / README's "pip install -e .") rather than distributed
+# as a prebuilt wheel — a binary built with -march=native on one
+# machine and copied to a different CPU could crash on an unsupported
+# instruction, which is why this isn't done for portable wheel builds.
+# MSVC uses different flag syntax entirely, so these are skipped there.
+_EXTRA_COMPILE_ARGS = [] if sys.platform == "win32" else ["-O3", "-march=native", "-mtune=native"]
+
 try:
     from pybind11.setup_helpers import Pybind11Extension
     ext_modules = [
@@ -40,6 +54,7 @@ try:
                 "cpp/src/sim_clock.cpp",
             ]),
             cxx_std=17,
+            extra_compile_args=_EXTRA_COMPILE_ARGS,
         )
     ]
 except ImportError:

@@ -653,13 +653,22 @@ each, all sixteen native modules on vs. off, byte-identical.
 dependency — a converted tile can be a later tile's forest-neighbor in
 the same pass); `tick_flood` (single-event trigger + a single
 candidate-index pick, not a batched sweep — too little batchable
-content to be worth a native module regardless of RNG shape); the
-rest of `world/hydrology.py` (not yet traced). With module 16 closing
-out `apply_climate_drift`, the "R7 incremental port" track's queue is
-down to items each already individually assessed as either genuinely
-hard (`maybe_reclaim`) or not worth it regardless of hardness
-(`tick_flood`) — `world/hydrology.py`'s remainder is the only
-still-untraced item.
+content to be worth a native module regardless of RNG shape).
+
+**R7 queue closed (v0.73.3).** `world/hydrology.py`'s remaining
+functions traced: `generate_rivers`/`identify_lakes` are both called
+only from `World.create_new` and `World.from_dict`'s legacy-migration
+path — creation-time-only, never per-tick, so out of scope regardless
+of RNG shape (same reasoning as `tick_flood`, just a different flavor
+of "not worth it"). `tick_lakes` (the only per-tick function in that
+file) was already ported in module 12. With module 17 (`maybe_reclaim`)
+also shipped in v0.73.2, every function originally in the R7
+opportunistic-port queue is now accounted for: ported (15, the
+`tick_wildfire` reuse, 16, 17), confirmed genuinely hard and left
+(none remain — `maybe_reclaim` was the one, now ported via the
+callback design), or confirmed creation-time/too-small-to-matter
+(`tick_flood`, `generate_rivers`, `identify_lakes`). **R7 is done** —
+any further native-port work is R8.
 
 ## R8: full engine-core rewrite — scoping pass (v0.73.0)
 
