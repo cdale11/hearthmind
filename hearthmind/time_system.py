@@ -15,6 +15,21 @@ from dataclasses import dataclass
 
 from hearthmind.config import Config
 
+try:
+    from hearthmind._native import sim_clock_advance as _native_sim_clock_advance
+except ImportError:
+    _native_sim_clock_advance = None
+"""Optional compiled fast path for SimClock.advance() (module 18) —
+the first native module that IS the engine advancing a world tick,
+rather than a physical-substrate/settlement-level system running on a
+tick. Runs unconditionally exactly once per tick for the entire life
+of a world, the highest call-frequency function in the codebase. Pure
+calendar arithmetic, no RNG, no object graph — Config's calendar shape
+is unpacked into plain values before the call, same "resolve objects
+in Python, hand C++ only plain data" pattern as every prior module.
+See docs/REFACTOR-2026-07.md, "R8" — a deliberately small first slice
+of the object-graph/engine-tick-loop track."""
+
 
 @dataclass
 class SimClock:
@@ -25,6 +40,26 @@ class SimClock:
         """Advance by one tick. Returns a list of calendar-boundary event
         names crossed by this tick (e.g. ["day_end", "week_end"]), so the
         caller can log/react to them without recomputing calendar math."""
+        if _native_sim_clock_advance is not None:
+            result = _native_sim_clock_advance(
+                self.tick_count, self.config.sim_minutes_per_tick, self.config.minutes_per_day,
+                list(self.config.days_per_month), list(self.config.month_to_season),
+                self.config.start_day_of_year,
+            )
+            self.tick_count = result.tick_count
+            events: list[str] = []
+            if result.day_end:
+                events.append("day_end")
+            if result.week_end:
+                events.append("week_end")
+            if result.month_end:
+                events.append("month_end")
+            if result.season_end:
+                events.append("season_end")
+            if result.year_end:
+                events.append("year_end")
+            return events
+
         prev_day = self.day_index
         prev_week_index = self.week_index
         prev_month_index_abs = self._month_index_absolute
@@ -33,7 +68,7 @@ class SimClock:
 
         self.tick_count += 1
 
-        events: list[str] = []
+        events = []
         if self.day_index != prev_day:
             events.append("day_end")
         if self.week_index != prev_week_index:

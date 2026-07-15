@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.73.2] — maybe_reclaim native port (17); SimClock.advance native port (18, first R8 slice)
+
+### Added
+- Native port module 17: `maybe_reclaim`'s scan/roll loop (world/
+  terrain_evolution.py) → `maybe_reclaim_tick` (`cpp/src/reclaim.cpp`)
+  — the first module using a callback-into-Python-RNG design rather
+  than pre-drawing. `maybe_reclaim` has a genuine same-pass dependency
+  (an earlier tile's reclaim in the same pass changes a later tile's
+  forest-neighbor count), confirmed unportable via pre-drawing since
+  v0.72.11. The C++ loop calls back into `rng.random` for each
+  conditional roll, preserving the exact same-pass order/count while
+  moving the neighbor-scan/branching into C++. Verified via 500 direct
+  `maybe_reclaim()` A/B runs on synthetic mixed grassland/forest
+  terrain (0 mismatches) plus the cumulative-event-hash engine soak.
+- Native port module 18: `SimClock.advance()` (time_system.py) →
+  `sim_clock_advance` (`cpp/src/sim_clock.cpp`) — the first module
+  that IS the engine advancing a world tick, not a system running on
+  one; runs unconditionally exactly once per tick for a world's entire
+  life. Pure calendar arithmetic, no RNG, no object graph (Config's
+  calendar shape unpacked to plain values before the call). The first,
+  deliberately small slice of the R8 "engine running world ticks"
+  track. Verified via a 200,000-tick sequential lockstep A/B (native
+  vs. Python fallback clocks advancing together) spanning multiple
+  years and every calendar boundary, 0 mismatches.
+- Both verified together via a 5-seed, 8000-tick cumulative-event-hash
+  engine soak, all eighteen native modules on vs. off, byte-identical.
+  Live-server smoke test confirmed `terrain_reclaimed` events fire
+  correctly through the browser UI's event feed.
+
 ## [0.73.1] — climate_drift native port (module 16); R8 full-rewrite scoping
 
 ### Added

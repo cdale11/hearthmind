@@ -721,29 +721,51 @@ simulation's design priorities (emergence, believable causality,
 persistent identity) actually need — it's a pure engineering
 undertaking with no design-priority payoff of its own.
 
-**Recommendation, not yet executed pending user confirmation**:
-reading 1 continues under R6/R7 exactly as before (no new decision
-needed — it's already in flight). Reading 2 is the one worth actually
-committing to as "the full engine rewrite" if that's what's meant: it
-delivers real value (a compiled object graph means the ~0.9-2ms/tick
-measured cost, already far under budget, gets meaningfully lower,
-which matters if population/map-size ever scale up materially) without
-discarding the LLM-orchestration layer's Python hackability, which is
-where nearly all of Hearthmind's actual design work happens session to
-session. Reading 3 is not recommended — it trades away the exact
-quality (fast, safe, incremental Python iteration on emergence/belief/
-dialogue systems) this project's entire development history has
-depended on, for a category of engineering payoff (further tick-time
-headroom) the project doesn't currently need and has no measured
-demand for. If the user confirms reading 2, the next session should
-open with a design pass BEFORE any porting: which class(es) first
-(`Tile`/terrain grid is the least entangled — no cross-references to
-other mutable objects, unlike `Agent`, which touches `Population`,
-`Settlement`, and belief/relationship state directly), what the
-snapshot-diffing verification harness looks like before the first
-line of the port, and how `to_dict`/`from_dict` persistence continues
-to work when the live object is a C++-backed handle rather than a
-Python dataclass.
+**Module 17 shipped (v0.73.2): `maybe_reclaim`, closing the R7
+opportunistic queue's last individually-portable item.** Used a new
+design — callback into Python's `rng.random` per conditional roll,
+instead of pre-drawing — since `maybe_reclaim` genuinely has the
+same-pass dependency the pre-draw pattern can't handle (confirmed
+since v0.72.11). See `cpp/src/reclaim.cpp`. `tick_flood`/the rest of
+`world/hydrology.py` remain the only queued R7 items, both already
+individually assessed as not worth a native module (too little
+batchable content) or not yet traced.
+
+**Module 18 shipped (v0.73.2): `SimClock.advance()`, first R8
+slice.** See docs/DECISIONS.md for the full writeup. Chosen as the
+first object-graph/engine-tick-loop target because it has zero
+references to any other mutable object and is the single highest
+call-frequency function in the codebase. Verified via a 200,000-tick
+sequential lockstep A/B (the longest verification run in this
+project's native-port history) — 0 mismatches. `cpp/src/sim_clock.cpp`.
+
+**User confirmed (v0.73.2): pursue reading 1 AND reading 2 together.**
+Reading 3 remains not recommended, unchanged from the original
+assessment above. Reading 1 continues under R6/R7 exactly as before —
+module 17 (below) closed its last individually-portable item this
+version. Reading 2 has its first real slice shipped: `SimClock.
+advance()` (module 18, below), chosen over `Tile`/the terrain grid as
+the literal first move because it's *more* isolated still (zero
+references to any other mutable object at all, vs. terrain's still-
+fairly-clean but slightly larger surface of hundreds of `terrain[y][x]`
+call sites across many modules) — a smaller, safer first proof of the
+whole pattern (build, dispatch, fallback, verify, soak) before
+tackling something with more call sites to keep behavior-identical.
+**Next R8 slice, not yet started**: the terrain grid remains the
+recommended second target (least entangled of the *remaining* pieces),
+but swapping `World.terrain`'s actual type away from `list[list[Tile]]`
+touches hundreds of call sites across `world/*.py`/`agents/population.
+py`/`settlement/buildings.py` that all do `terrain[y][x].biome`-style
+access — this needs its own dedicated design pass (a compatibility
+shim preserving existing indexing syntax, or a more surgical opt-in
+path) before any code moves, not a same-session follow-on to module
+18. The heavier full-state-diffing verification harness the original
+scoping called for (beyond the event-hash soak) is also still
+unbuilt — worth building alongside or just before the terrain-grid
+slice, since that's the first target where "compare full snapshot
+state across native vs. Python" actually matters (SimClock's own
+20,000-tick lockstep A/B was sufficient without it, given how narrow
+its state surface is).
 
 ## One-line summary for CLAUDE.md / CHANGELOG
 

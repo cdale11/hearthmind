@@ -197,6 +197,8 @@ void register_wilt_farms(py::module_ &m);
 void register_flat_damage(py::module_ &m);
 void register_roll_batch(py::module_ &m);
 void register_climate_drift(py::module_ &m);
+void register_reclaim(py::module_ &m);
+void register_sim_clock(py::module_ &m);
 
 PYBIND11_MODULE(_native, m) {
     m.doc() = "Hearthmind native (C++) hot-path extensions. Optional — "
@@ -231,4 +233,6 @@ PYBIND11_MODULE(_native, m) {
     register_flat_damage(m);
     register_roll_batch(m);
     register_climate_drift(m);
+    register_reclaim(m);
+    register_sim_clock(m);
 }

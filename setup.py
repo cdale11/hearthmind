@@ -36,6 +36,8 @@ try:
                 "cpp/src/flat_damage.cpp",
                 "cpp/src/roll_batch.cpp",
                 "cpp/src/climate_drift.cpp",
+                "cpp/src/reclaim.cpp",
+                "cpp/src/sim_clock.cpp",
             ]),
             cxx_std=17,
         )

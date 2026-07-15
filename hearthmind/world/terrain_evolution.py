@@ -35,6 +35,20 @@ try:
     from hearthmind._native import climate_drift_batch as _native_climate_drift_batch
 except ImportError:
     _native_climate_drift_batch = None
+
+try:
+    from hearthmind._native import maybe_reclaim_tick as _native_maybe_reclaim_tick
+except ImportError:
+    _native_maybe_reclaim_tick = None
+"""Optional compiled fast path for maybe_reclaim (module 17) — the
+first native module using a callback-into-Python-RNG design instead of
+pre-drawing, because maybe_reclaim has a genuine same-pass dependency
+(an earlier reclaim in the same pass changes a later tile's forest-
+neighbor count, so the roll count/order can't be determined before the
+loop runs, unlike every other ported module here). The C++ loop calls
+back into `rng.random` for each conditional roll, in the same order
+the pure-Python loop would — preserves the dependency exactly while
+still moving the neighbor-scan/branching into C++."""
 """Optional compiled fast path for apply_climate_drift's biome-step
 mutation (module 16) — the first native module where a Biome enum
 value crosses the boundary, done as a plain int index into BIOME_ORDER
@@ -240,6 +254,30 @@ def maybe_reclaim(
     events: list[tuple[str, str]] = []
     height = len(terrain)
     width = len(terrain[0]) if height else 0
+
+    if _native_maybe_reclaim_tick is not None:
+        biome_codes = [
+            1 if terrain[y][x].biome is Biome.GRASSLAND
+            else (2 if terrain[y][x].biome is Biome.FOREST else 0)
+            for y in range(height) for x in range(width)
+        ]
+        developed = [
+            (x, y) in heat or _is_developed(x, y, settlements, farms, excluded)
+            for y in range(height) for x in range(width)
+        ]
+        reclaimed = _native_maybe_reclaim_tick(
+            width, height, biome_codes, developed,
+            REFOREST_MIN_FOREST_NEIGHBORS, REFOREST_CHANCE_PER_WEEK, rng.random,
+        )
+        for (x, y) in reclaimed:
+            tile = terrain[y][x]
+            terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.FOREST)
+            events.append((
+                "terrain_reclaimed",
+                f"Nature reclaimed abandoned ground at ({x}, {y}) — forest crept back in.",
+            ))
+        return events
+
     for y in range(height):
         for x in range(width):
             tile = terrain[y][x]

@@ -7342,3 +7342,93 @@ v0.72.0's pre-port flag both already identified). No object-graph code
 has moved — this is a scoping document only, matching the same
 "flag before proceeding on an open-ended full-port directive" posture
 v0.72.0 took for the original C++/llama.cpp pivot.
+
+## v0.73.2: maybe_reclaim (17) + SimClock.advance (18, first R8 slice)
+
+User confirmed, when asked, that both R8 readings should proceed
+together: finish the R6/R7 opportunistic queue AND begin the object-
+graph/engine-tick-loop track ("reading 2").
+
+**Module 17 — `maybe_reclaim`.** Every prior module either had no
+same-pass dependency (safe to pre-draw all rolls and batch) or was
+explicitly left unported because it did (`maybe_reclaim`, confirmed
+since v0.72.11). Rather than leave it unported indefinitely, this
+version ports it using a different design: instead of pre-drawing
+rolls in Python, the native function takes `rng.random` itself as a
+bound Python callable and calls it inline, once per conditional roll,
+in the exact same order/count the pure-Python loop would. This
+preserves the same-pass dependency exactly (the C++ loop mutates its
+own local biome buffer as it scans row-major, so a later tile in the
+same call correctly sees an earlier tile's conversion) while still
+moving the actual per-tile cost (neighbor counting, biome-code
+branching) into C++. The `_is_developed`/`heat`-membership check is
+precomputed once in Python before the call (it doesn't change during
+the loop, so no dependency risk there) and passed as a flat bool
+array. Verified via 500 direct `maybe_reclaim()` A/B runs on synthetic
+terrain deliberately built with mixed grassland/forest patches (not
+uniform biome, to actually exercise multi-neighbor-count scenarios
+and same-pass conversions within a single call) — 0 mismatches — plus
+confirming via a 20,000-tick standalone run that `terrain_reclaimed`
+fires at a realistic rate (46 times) so the soak's zero-mismatch
+result reflects a mechanic that's genuinely exercised, not dormant.
+
+Cost note, for anyone extending this pattern: a callback-per-roll
+design has real per-call Python-boundary overhead compared to a
+batched call, so it's slower per-roll than modules that pre-draw and
+batch (13-16). Not a concern here since `maybe_reclaim` is a once-a-
+week job over a bounded number of grassland tiles, nowhere near the
+same cost class as the always-on per-tick loops modules 6/11/18 target
+— but this design shouldn't be reached for reflexively where pre-
+drawing is actually available; it's specifically for the same-pass-
+dependency case pre-drawing can't handle.
+
+**Module 18 — `SimClock.advance()`, first R8 slice.** The R8 scoping
+doc (v0.73.1) recommended starting the object-graph/engine-tick track
+with the least-entangled piece and building confidence in the pattern
+before anything larger moves. `SimClock` is a strong first candidate
+independent of that recommendation: it has no references to any other
+mutable object (`Agent`, `Settlement`, terrain — nothing), its state
+is two integers effectively (`tick_count` plus the `Config` it was
+constructed with, which supplies the calendar *shape*, not further
+mutable state), and `advance()` is the single highest call-frequency
+function in the entire codebase (unconditionally, exactly once per
+tick, for the whole life of a world — every other ported function so
+far is conditional on backpressure, cadence gates, or per-agent/per-
+tile eligibility). Ported as a pure function taking the calendar shape
+unpacked into plain ints/vectors (not the `Config` object) and the
+current `tick_count`, returning the new `tick_count` plus which of the
+five boundary flags were crossed — `SimClock` the dataclass, its other
+derived properties (`day_of_month`, `season`, `clock_string`, etc.),
+and its `to_dict`/`from_dict` persistence are all untouched; only the
+one method that runs every tick moved. Verified via a 200,000-tick
+sequential lockstep A/B — two `SimClock` instances (one forced to the
+Python fallback, one native) advanced together tick-by-tick, checking
+`tick_count` and the returned event list matched after every single
+call — deliberately the longest and most sequentially-strict
+verification run in this entire native-port history, appropriate
+given this function's call frequency and the fact that any drift
+would compound silently for the rest of a run (unlike a once-a-week
+job, a one-tick calendar discrepancy here would be wrong forever
+after). 0 mismatches across the full run, final dates identical
+(`November 14, Year 6` both paths).
+
+Both verified together via a 5-seed, 8000-tick cumulative-event-hash
+engine soak (all eighteen native modules on vs. off, byte-identical)
+and a live `hearthmind.server` smoke test — confirmed `terrain_
+reclaimed` events fire correctly and reach the browser's event feed
+during a real running server, not just the offline harness.
+
+**R8 status after this version**: reading 2 (port the object graph
+behind Python handles) is now confirmed direction, with one real slice
+shipped (`SimClock.advance()`) proving the pattern works end-to-end
+(build, dispatch, fallback, verify, soak) for a piece of the engine
+tick loop itself, not just a physical-substrate system. The much
+larger remaining scope — `Agent`/`Settlement`/`Population`/the terrain
+grid itself — has not started; each needs its own design pass given
+the cross-references between them (an `Agent` touches `Population`,
+`Settlement`, and belief/relationship state directly, unlike the
+terrain grid or `SimClock`), and per the R8 doc's own risk framing,
+those need the heavier full-state-diffing verification harness
+(beyond the event-hash soak) built before the first line of any of
+them moves. `docs/REFACTOR-2026-07.md`'s R8 section will track this as
+a live, multi-session queue the same way R5/R6/R7 do.

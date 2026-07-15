@@ -304,6 +304,39 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.73.2)
+
+Direct response to explicit user confirmation of the R8 question posed
+at the end of v0.73.1: both "finish R6/R7" and "port the object graph
+plus the engine running world ticks" — pursuing both together. **Module
+17**: `maybe_reclaim`'s scan/roll loop → `cpp/src/reclaim.cpp` — the
+first callback-into-Python-RNG native module (rather than pre-drawing),
+since `maybe_reclaim` has a genuine same-pass dependency (confirmed
+unportable via pre-drawing since v0.72.11: an earlier tile's reclaim in
+the same pass changes a later tile's forest-neighbor count). The C++
+loop calls back into `rng.random` per conditional roll, preserving
+exact order/count while still moving the neighbor-scan/branching to
+C++. This closes out the R7 opportunistic queue's last individually-
+portable item (`tick_flood`/`world/hydrology.py`'s remainder stay
+correctly-scoped-as-not-worth-it / not-yet-traced, unchanged from
+v0.72.14's assessment). **Module 18**: `SimClock.advance()` →
+`cpp/src/sim_clock.cpp` — the first R8 slice, and the first native
+module that IS the engine advancing a world tick (runs unconditionally
+every tick, the highest call-frequency function in the codebase) rather
+than a system running on one. Deliberately tiny scope per the R8 design
+doc's own recommendation: pure calendar arithmetic only, `SimClock`
+the dataclass/its other properties/persistence untouched. Both modules
+verified via direct wrapper-function checks (500-trial terrain A/B for
+module 17, a 200,000-tick sequential lockstep A/B spanning years/every
+calendar boundary for module 18) plus a 5-seed, 8000-tick cumulative-
+event-hash engine soak, all eighteen native modules on vs. off,
+byte-identical; live-server smoke test confirmed `terrain_reclaimed`
+fires correctly through the browser event feed. Object-graph work
+beyond `SimClock`'s pure calendar math (`Agent`/`Settlement`/
+`Population`/terrain grid themselves) has not started — the R8 doc's
+"reading 2" is confirmed as direction, next slice needs its own design
+pass (candidate: the terrain grid, per R8's "least entangled" call).
+
 ## Current state (v0.73.1)
 
 Two items, both direct follow-ups to explicit user directives from
