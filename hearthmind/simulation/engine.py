@@ -345,6 +345,13 @@ class SimulationEngine:
             )
         self._cognition_runner = CognitionRunner(client=client, max_concurrent=config.llm_max_concurrent)
         self._backpressure_limit = config.llm_max_concurrent * BACKPRESSURE_BACKLOG_PER_SLOT
+        self._llm_calls_today = 0
+        """Ollama calls scheduled so far this sim-day (all kinds:
+        cognition, dialogue, settlement jobs). Reset to 0 on `day_end`
+        (see `_tick_once`); once it reaches `config.llm_max_calls_per_day`
+        every further LLM decision that day resolves via its fallback.
+        The belt-and-braces half of the v0.70.0 swap fix — see
+        `_consume_llm_budget` and the config field's docstring."""
         self._pending_goal_results: dict[int, tuple[int, dict]] = {}
         """agent_id -> (tick the job was scheduled on, result) — the tick
         lets `_apply_pending_cognition_results` drop results that went
@@ -431,6 +438,19 @@ class SimulationEngine:
         thing, not two unrelated random draws."""
         self._log("founding", f"Before the first stone was laid: {scenario}")
 
+    def _consume_llm_budget(self) -> bool:
+        """Try to spend one call against today's `llm_max_calls_per_day`
+        ceiling. Returns True (and increments the counter) if budget
+        remains, False if the day's ceiling is already hit. Every real
+        Ollama call — cognition, dialogue, settlement job — routes
+        through here first, so the ceiling is a true hard bound on daily
+        Ollama throughput regardless of population or any future job.
+        See `_llm_calls_today` and Config.llm_max_calls_per_day."""
+        if self._llm_calls_today >= self.config.llm_max_calls_per_day:
+            return False
+        self._llm_calls_today += 1
+        return True
+
     def _settlement_job_backpressured(self) -> bool:
         """Backpressure check for the settlement-level jobs (chronicle,
         town_brain, beliefs, tradition, invention, festival, caravan,
@@ -509,6 +529,19 @@ class SimulationEngine:
         Per-agent cognition and dialogue keep their own paths — they
         carry pending-result queues and staleness state this shape
         doesn't need."""
+        # Daily-ceiling gate (v0.70.0): once the day's Ollama budget is
+        # spent, this settlement job resolves via its deterministic
+        # fallback inline rather than scheduling a real call. The job's
+        # in-fiction effect still happens; only the model authorship is
+        # skipped — same degradation as any other fallback.
+        if not self._consume_llm_budget():
+            try:
+                apply(fallback, True)
+            except Exception:
+                logger.exception("Failed to apply %s fallback job result", name)
+            self._record_llm_debug(name, prompt, fallback, True)
+            return
+
         async def _runner() -> None:
             result, used_fallback = await self._cognition_runner.run(
                 prompt, system, fallback=lambda: fallback
@@ -620,6 +653,7 @@ class SimulationEngine:
             )
         if "day_end" in events:
             self._log_daily_metrics()
+            self._llm_calls_today = 0  # reset the daily Ollama-call ceiling (v0.70.0)
         if events:
             logger.info(
                 "Tick %s: %s | %s | %s",
@@ -627,6 +661,9 @@ class SimulationEngine:
                 self.world.clock.clock_string(), self.world.weather.describe(),
             )
 
+        # Keep the LLM core cast full and current before any cognition/
+        # dialogue scheduling reads it this tick (v0.70.0).
+        self.world.population.maintain_core_cast(self.config.llm_core_cast_size)
         self._maybe_schedule_naming()
         self._maybe_schedule_chronicle(events, previous_season)
         self._maybe_schedule_documentary(events)
@@ -700,6 +737,24 @@ class SimulationEngine:
         for agent in due:
             if agent.id in self._inflight_cognition_agent_ids:
                 continue
+            # Core-cast gate (v0.70.0): only core-cast agents spend an
+            # Ollama call on goal reasoning. Everyone else — and everyone,
+            # once the day's LLM ceiling is hit or the LLM is disabled —
+            # gets the deterministic `fallback_goal` applied inline (no
+            # call, no task), through the same `_pending_goal_results`
+            # queue the LLM path uses, so timing is identical. This is
+            # what stops cognition volume scaling with population.
+            use_llm = (
+                self._cognition_runner.enabled
+                and population.is_core(agent.id)
+                and self._llm_calls_today < self.config.llm_max_calls_per_day
+            )
+            if not use_llm:
+                self._pending_goal_results[agent.id] = (
+                    self.world.clock.tick_count,
+                    fallback_goal(agent.hunger, agent.energy, agent.id, dict(agent.traits)),
+                )
+                continue
             # Backpressure (see BACKPRESSURE_BACKLOG_PER_SLOT): routine
             # daily reevaluations are skipped while the queue is
             # saturated — the agent keeps its current goal and gets the
@@ -708,6 +763,14 @@ class SimulationEngine:
             limit = self._backpressure_limit * (2 if agent.id in triggered_ids else 1)
             if backlog >= limit:
                 self._cognition_runner.calls_dropped_backpressure += 1
+                continue
+            if not self._consume_llm_budget():
+                # Day's ceiling reached between the check above and here
+                # (another job spent the last slot): fall back inline.
+                self._pending_goal_results[agent.id] = (
+                    self.world.clock.tick_count,
+                    fallback_goal(agent.hunger, agent.energy, agent.id, dict(agent.traits)),
+                )
                 continue
             backlog += 1  # count this tick's own scheduling against the gate
             self._inflight_cognition_agent_ids.add(agent.id)
@@ -857,23 +920,34 @@ class SimulationEngine:
                 self._log("intervention", f"A whisper reached the village's ear: \"{text}\"")
 
     def _schedule_due_dialogue(self) -> None:
-        """Fire-and-forget an LLM-authored dialogue job for each colocated
-        pair due this tick (see Population.due_for_dialogue for selection
-        and cooldown rules). Scheduled unconditionally, same as cognition
-        — CognitionRunner resolves to the deterministic fallback when the
-        LLM is disabled/unreachable. See docs/DECISIONS.md, E2."""
-        # Dialogue is the most expendable LLM job — under backpressure it
-        # is skipped before anything else (the pair simply stays eligible
-        # for a later tick once its cooldown allows).
-        if self._cognition_runner.backlog >= self._backpressure_limit:
-            self._cognition_runner.calls_dropped_backpressure += 1
-            return
-        pairs = self.world.population.due_for_dialogue(
+        """Route this tick's due dialogue pairs (v0.70.0). `due_for_
+        dialogue` hands back two buckets: `llm_pairs` (core-core, the
+        only exchanges worth an Ollama call) and `fallback_pairs`
+        (everything else). Core-core pairs get a real LLM job when there's
+        backpressure headroom and daily budget; otherwise they degrade to
+        the deterministic fallback like the crowd pairs. Fallback pairs
+        are resolved inline (no call, no task) so the crowd stays socially
+        alive — relationship/trust/gossip effects still apply — without
+        LLM load. See docs/DECISIONS.md, E2 + core-cast pass."""
+        llm_pairs, fallback_pairs = self.world.population.due_for_dialogue(
             self.world.config.seed, self.world.clock.tick_count, DIALOGUE_COOLDOWN_TICKS,
         )
-        if not pairs:
-            return
-        for agent_a, agent_b in pairs:
+        demoted: list[tuple] = []
+        # When the LLM is disabled entirely, every pair is deterministic —
+        # skip the task/budget machinery and resolve them all inline.
+        if not self._cognition_runner.enabled:
+            llm_pairs, demoted = [], list(llm_pairs)
+        for agent_a, agent_b in llm_pairs:
+            # Dialogue is the most expendable LLM job — under backpressure
+            # or a spent daily budget the core-core pair still talks, just
+            # via the deterministic fallback this tick.
+            if self._cognition_runner.backlog >= self._backpressure_limit:
+                self._cognition_runner.calls_dropped_backpressure += 1
+                demoted.append((agent_a, agent_b))
+                continue
+            if not self._consume_llm_budget():
+                demoted.append((agent_a, agent_b))
+                continue
             # Post-fission (v0.65.0), a colocated pair isn't guaranteed to
             # belong to the founding settlement — resolve the actual home
             # settlement so its name/tradition/beliefs ground the prompt
@@ -899,6 +973,24 @@ class SimulationEngine:
             task = asyncio.create_task(self._run_dialogue(agent_a.id, agent_b.id, prompt, fallback))
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
+
+        for agent_a, agent_b in fallback_pairs + demoted:
+            self._queue_fallback_dialogue(agent_a, agent_b)
+
+    def _queue_fallback_dialogue(self, agent_a, agent_b) -> None:
+        """Resolve a dialogue pair via the deterministic fallback and push
+        it onto the same pending-results queue an LLM exchange uses, so it
+        flows through `_apply_pending_dialogue_results` identically (same
+        relationship/trust/gossip effects, logging, surfacing) — just with
+        no Ollama call. The crowd's social life, and any core-core pair
+        that lost its LLM slot to backpressure/budget, runs through here.
+        See _schedule_due_dialogue (v0.70.0)."""
+        affinity = agent_a.relationships.get(agent_b.id, 0.0)
+        fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
+        parsed = dialogue.parse_dialogue(fallback, fallback)
+        self._pending_dialogue_results.append(
+            (self.world.clock.tick_count, agent_a.id, agent_b.id, parsed)
+        )
 
     async def _run_dialogue(self, agent_a_id: int, agent_b_id: int, prompt: str, fallback: dict) -> None:
         scheduled_tick = self.world.clock.tick_count
@@ -2018,6 +2110,10 @@ class SimulationEngine:
             "llm_max_concurrent": self.config.llm_max_concurrent,
             "llm_model": self.config.llm_model,
             "llm_stats": self._cognition_runner.stats(),
+            "llm_calls_today": self._llm_calls_today,
+            "llm_max_calls_per_day": self.config.llm_max_calls_per_day,
+            "llm_core_cast_size": self.config.llm_core_cast_size,
+            "llm_core_cast_current": len(self.world.population.core_agent_ids),
             "dialogue_cooldown_entries": len(self.world.population.dialogue_cooldowns),
             "snapshots_saved": self._snapshots_saved,
             "sim_pacing": self._broadcaster.sim_pacing() if self._broadcaster else {"paused": False, "speed_multiplier": 1.0},

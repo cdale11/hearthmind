@@ -50,10 +50,18 @@ tuning: docs/DECISIONS.md v0.43.0/v0.43.1/v0.44.0. As of v0.63.0 every
 found `--llm-max-concurrent` had silently stayed at a hardcoded 4 for
 several releases, doubling real Ollama concurrency on plain launches.
 
-LLM is on by default (`Config.llm_enabled=True`) and treated as not
-budget-constrained on the user's hardware — prefer giving the LLM more
-genuine decision points over deterministic/RNG-driven ones where it
-plausibly improves emergence, subject to the liveness rule below.
+LLM is on by default (`Config.llm_enabled=True`) — prefer giving the LLM
+more genuine decision points over deterministic/RNG-driven ones where it
+plausibly improves emergence, subject to the liveness rule below. **But
+LLM call *volume* IS budget-constrained** as of v0.70.0 (the swap-after-
+hours fix): a new decision point that fires *per agent* or *per pair*
+must be gated to the LLM core cast (`Population.core_agent_ids`, see
+"Current state (v0.70.0)") and counts against
+`Config.llm_max_calls_per_day` — otherwise it re-creates the
+population-scaled throughput that drove Ollama into swap. Settlement-
+scoped ("once per town per month/season") decision points stay
+round-robin bounded and need no per-agent gating; give those to the LLM
+freely.
 
 ## Design priorities (Hearthmind is an autonomous, persistent artificial society)
 
@@ -249,6 +257,38 @@ Single-writer tick loop + queued interventions; fallback-on-every-LLM-
 call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
+
+## Current state (v0.70.0)
+
+**Swap-after-hours fix + R3.** Live report: swap climbs after a few
+hours. Root cause (re-audited: no Python-side leak) — total LLM call
+throughput scaled linearly with population (one cognition call per agent
+per sim-day + up to 3 dialogues/tick), so a growing town drove Ollama
+from lightly loaded to continuously saturated for hours, and sustained
+saturation accumulates Ollama's own per-call memory growth into swap on
+8GB. **Fix = decouple LLM volume from population** via an **LLM core
+cast**: `Config.llm_core_cast_size` (default 11, CLI
+`--llm-core-cast-size`) — only a fixed, sticky, founders-seeded cast of
+~11 agents (`Population.core_agent_ids`, maintained by
+`maintain_core_cast`/`_prominence`, refilled on death, persisted) gets
+LLM cognition, and only a core–core pair gets LLM dialogue
+(`due_for_dialogue` now returns `(llm_pairs, fallback_pairs)`,
+`MAX_LLM_DIALOGUES_PER_TICK=2`); everyone else and every crowd pair uses
+the deterministic fallback inline (no Ollama call). Measured ~11.5 LLM
+calls/sim-day at population 120 (was ~120/day). Plus a belt-and-braces
+**daily ceiling** `Config.llm_max_calls_per_day` (default 200, CLI
+`--llm-max-calls-per-day`, `_consume_llm_budget`, reset at day_end) that
+hard-bounds *all* Ollama calls (cognition+dialogue+settlement jobs) so no
+future per-agent job can recreate the runaway. Surfaced in
+`/diagnostics` (`llm_calls_today`, `llm_core_cast_current`, …).
+**Standing rule going forward:** any *per-agent* or *per-pair* LLM
+decision MUST be core-cast-gated (and counts against the daily ceiling)
+— settlement-scoped jobs stay round-robin bounded as before. Trades
+crowd LLM richness for stability at explicit user direction; tune the
+cast size to the hardware, diagnose via `/diagnostics.system_memory`
+first. **Deferred (paused for this fix):** R1 (mixin split), R2 (engine
+scheduler registry), R4 (numpy grid passes, user-approved) from
+`docs/REFACTOR-2026-07.md` — R3 (finish `clamp`) shipped here.
 
 ## Current state (v0.69.0)
 

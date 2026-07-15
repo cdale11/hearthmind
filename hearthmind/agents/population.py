@@ -492,11 +492,40 @@ road/resource-adjacent tile (+0.5 or +1.0) is worth walking up to a
 few tiles for, but never the full radius for no gain."""
 
 MAX_DIALOGUES_PER_TICK = 3
-"""Caps how many LLM-authored dialogue exchanges are scheduled in a
-single tick regardless of how many colocated pairs qualify — keeps LLM
-load bounded as population/clustering grows, same rationale as
-`llm_max_concurrent`. See Population.due_for_dialogue, docs/DECISIONS.md,
-E2."""
+"""Caps how many dialogue exchanges are *selected* in a single tick
+regardless of how many colocated pairs qualify. Of these, only
+core-core pairs (see `Population.core_agent_ids`) become LLM calls, and
+those are further capped at MAX_LLM_DIALOGUES_PER_TICK below; the rest
+are resolved by the deterministic fallback. See
+Population.due_for_dialogue, docs/DECISIONS.md, E2."""
+
+MAX_LLM_DIALOGUES_PER_TICK = 2
+"""Of the core-core colocated pairs due this tick, at most this many
+become actual LLM-authored dialogue calls (v0.70.0); any beyond it, and
+every pair that isn't two core-cast members, use the deterministic
+fallback. Small and constant, so LLM dialogue volume never scales with
+population — the core of the swap fix. Preferring core-core pairs for
+these slots (rather than random selection) is what makes the cast's
+conversations reliably model-authored despite the crowd being far more
+numerous. See Population.due_for_dialogue."""
+
+PROMINENCE_BOND_WEIGHT = 4000.0
+"""Weight on an agent's bond count in `_prominence` (core-cast refill
+ranking), expressed in the same units as age_ticks so one strong social
+bond is worth ~4000 ticks (~42 sim-days) of age. A settlement's most
+socially-central and longest-lived inhabitants are its natural
+protagonists; both signals matter, neither should dominate outright."""
+
+PROMINENCE_SKILL_WEIGHT = 2000.0
+"""Weight on an agent's summed skill level in `_prominence` — a master
+of a craft is a notable figure too, but ranks below raw social
+centrality and longevity (a smaller multiplier than
+PROMINENCE_BOND_WEIGHT)."""
+
+PROMINENCE_BOND_THRESHOLD = 0.3
+"""|relationship| at or above which a tie counts as a real 'bond' for
+`_prominence` — same magnitude class as TRAIT_NOTABLE_THRESHOLD; faint
+acquaintances shouldn't inflate a wallflower's prominence."""
 
 
 # `_namespaced_rng` is the shared helper (see hearthmind/util.py) — kept
@@ -676,6 +705,17 @@ class Population:
     daily) cognition call — see due_for_triggered_cognition. Same
     per-pair-cooldown shape as dialogue_cooldowns, just keyed by a
     single agent instead of a pair."""
+    core_agent_ids: set[int] = field(default_factory=set)
+    """The LLM-driven "core cast" (v0.70.0, Config.llm_core_cast_size) —
+    the only agents that receive LLM cognition, and the only agents whose
+    pairings receive LLM-authored dialogue. Everyone else runs on the
+    deterministic fallback. Maintained by `maintain_core_cast`: seeded
+    from the founders, sticky (a member stays until death), and refilled
+    from the most-prominent living non-member (see `_prominence`) when a
+    seat opens. Persisted so the cast is stable across restarts (a
+    resumed world must not reshuffle who its protagonists are). This is
+    the fix for LLM call volume scaling with population — see the config
+    field's docstring and docs/DECISIONS.md."""
     last_carrying_capacity: float = float(POPULATION_CAP)
     """Recomputed every tick by `carrying_capacity()` — the dynamic ceiling
     that now actually gates reproduction/growth (H1, docs/ROADMAP.md Phase
@@ -3263,6 +3303,59 @@ class Population:
                         vehicle.assigned_agent_id = None
         return life_events
 
+    # --- LLM core cast (v0.70.0) ----------------------------------------------
+
+    def is_core(self, agent_id: int) -> bool:
+        """True if `agent_id` is in the LLM-driven core cast — the gate the
+        engine consults before spending an Ollama call on this agent's
+        cognition, or on a dialogue pair. See `core_agent_ids`."""
+        return agent_id in self.core_agent_ids
+
+    def _prominence(self, agent: Agent) -> float:
+        """A cheap 'how much of a protagonist is this agent' score used
+        only to refill an open core-cast seat (see maintain_core_cast).
+        Longevity + social centrality + skill, weighted so no single
+        signal dominates. Not persisted, not consumed by any mechanic —
+        purely a ranking key, recomputed on demand."""
+        bonds = sum(1 for v in agent.relationships.values() if abs(v) >= PROMINENCE_BOND_THRESHOLD)
+        skill = sum(agent.skills.values())
+        return (
+            float(agent.age_ticks)
+            + bonds * PROMINENCE_BOND_WEIGHT
+            + skill * PROMINENCE_SKILL_WEIGHT
+        )
+
+    def maintain_core_cast(self, cast_size: int) -> None:
+        """Keep `core_agent_ids` at `cast_size` living members. Called once
+        per tick by the engine before it schedules cognition/dialogue.
+
+        Two rules, in order:
+        1. Prune the dead — a departed protagonist frees a seat.
+        2. Fill open seats from the most-prominent living non-members
+           (`_prominence`), tie-broken by lowest id for determinism.
+        Members are never demoted while alive: the cast is deliberately
+        sticky so the town's LLM-driven characters are a stable presence
+        across a long run, not a set that churns every time someone
+        newly-notable is born (persistent identity, CLAUDE.md). Seeding
+        is automatic — on a fresh world the founders are the only agents,
+        so the first call fills the cast from them. `cast_size <= 0`
+        empties the cast (LLM cognition/dialogue fully off)."""
+        alive_ids = {a.id for a in self.agents}
+        self.core_agent_ids &= alive_ids
+        if cast_size <= 0:
+            self.core_agent_ids.clear()
+            return
+        # Sticky cap: if the cast is somehow over size (cast_size lowered
+        # at runtime), let attrition bring it down rather than evicting a
+        # living protagonist mid-life.
+        deficit = cast_size - len(self.core_agent_ids)
+        if deficit <= 0:
+            return
+        candidates = [a for a in self.agents if a.id not in self.core_agent_ids]
+        candidates.sort(key=lambda a: (-self._prominence(a), a.id))
+        for agent in candidates[:deficit]:
+            self.core_agent_ids.add(agent.id)
+
     # --- cognition (Phase B) --------------------------------------------------
 
     def due_for_cognition(self, tick: int, ticks_per_day: int) -> list[Agent]:
@@ -3349,22 +3442,34 @@ class Population:
 
     # --- dialogue (Phase E2) ---------------------------------------------------
 
-    def due_for_dialogue(self, seed: int, tick: int, cooldown_ticks: int) -> list[tuple[Agent, Agent]]:
-        """Colocated, awake pairs whose cooldown has expired, capped at
-        MAX_DIALOGUES_PER_TICK and chosen deterministically (namespaced
-        RNG shuffle, not scan order) so which pairs talk first is
-        reproducible for a given seed. Marks the selected pairs' cooldown
-        immediately (not when the LLM result arrives) — the cooldown
-        itself prevents re-selecting a pair while its exchange is still
-        in flight, so no separate inflight-tracking set is needed. See
-        docs/DECISIONS.md, E2.
+    def due_for_dialogue(
+        self, seed: int, tick: int, cooldown_ticks: int,
+    ) -> tuple[list[tuple[Agent, Agent]], list[tuple[Agent, Agent]]]:
+        """Colocated, awake pairs whose cooldown has expired, partitioned
+        into `(llm_pairs, fallback_pairs)` (v0.70.0):
 
-        Also prunes `dialogue_cooldowns`: entries for agents no longer
-        alive, and entries stale enough (well past their own cooldown
-        window) that they're no longer preventing anything — found via
-        an overnight-soak diagnostics audit that this dict grew
-        unbounded over a long run (every pair that ever talked stayed in
-        it forever). See docs/DECISIONS.md, diagnostics pass."""
+        - `llm_pairs`: up to MAX_LLM_DIALOGUES_PER_TICK pairs where BOTH
+          members are in the core cast (`core_agent_ids`) — these are the
+          only exchanges that spend an Ollama call.
+        - `fallback_pairs`: up to MAX_DIALOGUES_PER_TICK of the remaining
+          eligible pairs (any pair with a non-core member) — resolved by
+          the deterministic fallback, so the crowd stays socially alive
+          (relationship/trust/gossip effects still apply) without LLM
+          load.
+
+        Preferring core-core pairs for the LLM slots (rather than the old
+        single random cap) is what makes the cast's conversations
+        reliably model-authored even though crowd pairs vastly outnumber
+        them. Selection within each bucket is a deterministic namespaced-
+        RNG shuffle, reproducible for a given seed. Both buckets mark
+        their pairs' cooldown immediately, so a pair isn't re-selected
+        while its exchange is still in flight (no separate inflight set).
+        See docs/DECISIONS.md, E2 and the core-cast pass.
+
+        Also prunes `dialogue_cooldowns`: entries for dead agents and
+        entries stale past `cooldown_ticks * 8` (they no longer prevent
+        anything) — the dict otherwise grew unbounded on a long run. See
+        docs/DECISIONS.md, diagnostics pass."""
         alive_ids = {a.id for a in self.agents}
         prune_horizon = cooldown_ticks * 8
         stale_keys = [
@@ -3379,7 +3484,8 @@ class Population:
             if agent.state is AgentState.AWAKE:
                 by_position.setdefault((agent.x, agent.y), []).append(agent)
 
-        candidates: list[tuple[Agent, Agent]] = []
+        core_candidates: list[tuple[Agent, Agent]] = []
+        other_candidates: list[tuple[Agent, Agent]] = []
         for group in by_position.values():
             if len(group) < 2:
                 continue
@@ -3387,16 +3493,19 @@ class Population:
                 last = self.dialogue_cooldowns.get((a.id, b.id), -cooldown_ticks)
                 if tick - last < cooldown_ticks:
                     continue
-                candidates.append((a, b))
-        if not candidates:
-            return []
+                if a.id in self.core_agent_ids and b.id in self.core_agent_ids:
+                    core_candidates.append((a, b))
+                else:
+                    other_candidates.append((a, b))
 
         rng = _namespaced_rng(seed, tick, "dialogue_select")
-        rng.shuffle(candidates)
-        selected = candidates[:MAX_DIALOGUES_PER_TICK]
-        for a, b in selected:
+        rng.shuffle(core_candidates)
+        rng.shuffle(other_candidates)
+        llm_pairs = core_candidates[:MAX_LLM_DIALOGUES_PER_TICK]
+        fallback_pairs = other_candidates[:MAX_DIALOGUES_PER_TICK]
+        for a, b in llm_pairs + fallback_pairs:
             self.dialogue_cooldowns[(a.id, b.id)] = tick
-        return selected
+        return llm_pairs, fallback_pairs
 
     def apply_dialogue(
         self, a_id: int, b_id: int, sentiment: str, rumor: str = "", line_a: str = "", line_b: str = "",
@@ -3901,6 +4010,7 @@ class Population:
                 f"{a_id}:{b_id}": tick for (a_id, b_id), tick in self.dispute_cooldowns.items()
             },
             "cognition_trigger_cooldowns": dict(self.cognition_trigger_cooldowns),
+            "core_agent_ids": sorted(self.core_agent_ids),
             "last_fission_tick": self.last_fission_tick,
         }
 
@@ -3930,5 +4040,6 @@ class Population:
             dialogue_cooldowns=dialogue_cooldowns,
             dispute_cooldowns=dispute_cooldowns,
             cognition_trigger_cooldowns=cognition_trigger_cooldowns,
+            core_agent_ids=set(data.get("core_agent_ids", [])),
             last_fission_tick=data.get("last_fission_tick", -1_000_000),
         )

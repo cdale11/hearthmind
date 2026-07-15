@@ -4,6 +4,51 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.70.0] — LLM core cast + daily call ceiling (swap-after-hours fix)
+
+Root-causes and fixes the live report that swap usage climbs after a
+few hours of running. Also lands R3 of the refactor roadmap (finish the
+`clamp()` migration); R1/R2/R4 remain paused for this urgent fix.
+
+### Fixed — Ollama swap climbs over hours
+- **Root cause**: total LLM call *throughput* scaled linearly with
+  population. Cognition scheduled one goal-reevaluation per agent per
+  sim-day (→ population calls/day) and dialogue up to
+  `MAX_DIALOGUES_PER_TICK` per tick; as a town grew from ~12 to hundreds
+  over a few real hours, Ollama went from lightly loaded (idle gaps, the
+  model unloads per `keep_alive`) to **continuously saturated** — always
+  2 calls in flight, back-to-back for hours. Sustained saturation keeps
+  the model + KV cache permanently resident and lets Ollama's own slow
+  per-call memory growth accumulate into swap on 8GB. The Python side
+  has no leak — every per-agent/per-pair structure was already
+  capped/pruned (re-audited).
+- **Fix — LLM core cast** (`Config.llm_core_cast_size`, default 11):
+  only a fixed, sticky cast of ~11 NPCs gets LLM cognition, and only a
+  *pair* of them gets LLM-authored dialogue; every other agent and every
+  mixed/crowd pair runs on the already-real deterministic fallback.
+  Total Ollama call volume is now **decoupled from population** —
+  verified ~11.5 calls/sim-day at population 120 (vs. ~120/day before).
+  The cast is seeded from founders, sticky (a member stays until death),
+  and refilled from the most-prominent living non-member on death
+  (`Population.maintain_core_cast`/`_prominence`). Persisted. Also a
+  design win: the cast are the persistent LLM-driven protagonists, the
+  crowd is deterministic texture.
+- **Fix — daily call ceiling** (`Config.llm_max_calls_per_day`, default
+  200): belt-and-braces hard cap on total Ollama calls per sim-day
+  (cognition + dialogue + settlement jobs all count); once hit, every
+  further LLM decision that day falls back deterministically until the
+  counter resets at day_end. Verified to hard-bound throughput (peak
+  never exceeds the cap). Surfaced in `/diagnostics` (`llm_calls_today`,
+  `llm_core_cast_current`, etc.).
+- New CLI flags `--llm-core-cast-size` and `--llm-max-calls-per-day`
+  (both default to their `Config` attributes).
+
+### Changed
+- **R3**: finished the `clamp()` migration — every remaining
+  `max(lo, min(hi, x))` idiom (25 sites across population/engine/beliefs/
+  weather/terrain_evolution/hydrology) now uses `util.clamp`. Proven
+  byte-identical by the 7000-tick event-stream hash.
+
 ## [0.69.0] — Codebase audit + safe dedup refactor
 
 Full read-through audit for performance/maintainability/features, with

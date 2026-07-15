@@ -66,6 +66,14 @@ def parse_args(argv: list[str] | None = None) -> Config:
                               "is None, i.e. defer to Ollama; this CLI entry point picks a smarter "
                               "runtime default since os.cpu_count() can't be a dataclass default). Pass "
                               "0 to leave Ollama's own heuristic in charge instead.")
+    parser.add_argument("--llm-core-cast-size", type=int, default=Config.llm_core_cast_size,
+                         help="How many NPCs are the LLM-driven 'core cast' — only these get LLM cognition, "
+                              "and only a pair of them gets LLM dialogue; everyone else uses the deterministic "
+                              "fallback. Decouples Ollama call volume from population (the swap fix). 0 disables "
+                              "LLM cognition/dialogue entirely.")
+    parser.add_argument("--llm-max-calls-per-day", type=int, default=Config.llm_max_calls_per_day,
+                         help="Hard ceiling on total Ollama calls per sim-day (belt-and-braces above the core "
+                              "cast); once hit, LLM decisions fall back deterministically until the next day.")
     parser.add_argument("--api-disabled", action="store_true",
                          help="Disable the browser interface (on by default; requires 'fastapi'/'uvicorn' — "
                               "run without them installed and this is disabled automatically with a warning).")
@@ -94,6 +102,8 @@ def parse_args(argv: list[str] | None = None) -> Config:
         llm_timeout_seconds=args.llm_timeout,
         llm_max_concurrent=args.llm_max_concurrent,
         llm_num_thread=args.llm_num_thread or None,
+        llm_core_cast_size=args.llm_core_cast_size,
+        llm_max_calls_per_day=args.llm_max_calls_per_day,
         api_enabled=not args.api_disabled,
         api_host=args.api_host,
         api_port=args.api_port,

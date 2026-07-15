@@ -6110,3 +6110,81 @@ of the decisions:
   is the "properly document what you can't safely finish" half of the
   brief, and it aligns with the standing "smallest coherent milestone
   at a time" / "audit before continuing" rules.
+
+## LLM core cast + daily call ceiling: the swap-after-hours fix (v0.70.0)
+
+**Symptom (live report):** after a few hours of running, swap usage
+climbs again — the user's read was "Ollama-side, and NPC-NPC dialogue
+volume seems to grow over time." Correct on both counts.
+
+**Root cause.** Not a Python-side leak — a re-audit confirmed every
+per-agent/per-pair structure is still capped/pruned (dialogue &
+cognition-trigger cooldowns, agent memories, latency window, background
+tasks, relationships/trust). The real mechanism is that total LLM call
+*throughput scales linearly with population*:
+- `due_for_cognition` schedules one goal-reevaluation per living agent
+  per sim-day → population calls/day.
+- `due_for_dialogue` selected up to `MAX_DIALOGUES_PER_TICK=3` pairs per
+  tick, and at high population nearly every tick hit that cap.
+- Settlement-level jobs are round-robin bounded (`MAX_SETTLEMENTS=3`) —
+  NOT the culprit.
+Concurrency is capped (semaphore at `llm_max_concurrent=2`), so this was
+never about *simultaneous* calls. It's about *sustained* load: as a town
+grows from ~12 to hundreds over a few real hours, Ollama goes from
+lightly loaded (real idle gaps, model unloads per `keep_alive=3m`) to
+continuously saturated — always 2 calls in flight, back-to-back, for
+hours. Sustained saturation keeps the model + KV cache permanently
+resident and lets Ollama's own slow per-call memory growth accumulate
+over thousands of consecutive calls → swap on 8GB. The fix has to
+decouple call volume from population, exactly as the user proposed.
+
+**Fix 1 — LLM core cast (`Config.llm_core_cast_size`, default 11).**
+`Population.core_agent_ids` is a fixed, sticky set of ~11 agents. Only
+core agents get LLM cognition; only a core–core pair gets LLM dialogue.
+Everyone else, and every mixed/crowd pair, uses the deterministic
+fallback (which already exists and is good) — applied inline, no Ollama
+call. `maintain_core_cast` (called each tick by the engine) prunes the
+dead and refills open seats from the most-prominent living non-member
+(`_prominence` = age + social bonds + skill, weighted so none
+dominates), tie-broken by id for determinism. Members are never demoted
+while alive: the cast is deliberately a stable presence (persistent
+identity), seeded from the founders on a fresh world. Persisted so a
+resumed world keeps the same protagonists. Dialogue selection
+(`due_for_dialogue`) now returns `(llm_pairs, fallback_pairs)` and
+*prefers* core–core pairs for the (small, constant)
+`MAX_LLM_DIALOGUES_PER_TICK=2` LLM slots, so the cast reliably converses
+via the model even though crowd pairs vastly outnumber them.
+
+Measured with a mock client (no real Ollama): at **population 120, ~11.5
+LLM calls/sim-day** vs. ~120/day under the old per-agent scheme — and
+crucially flat as population grows further (it tracks cast size, not
+town size). This is the load-bearing change.
+
+**Fix 2 — daily call ceiling (`Config.llm_max_calls_per_day`, default
+200).** Belt-and-braces: a hard per-sim-day cap on *all* Ollama calls
+(cognition, dialogue, settlement jobs), consumed via
+`SimulationEngine._consume_llm_budget`, reset at `day_end`. Once hit,
+every further LLM decision that day resolves via its fallback. The core
+cast already keeps volume far under this; the ceiling exists so a future
+bug in cast selection or a newly-added per-agent LLM job can never
+recreate the unbounded-throughput condition. Verified to hard-bound
+throughput (peak never exceeds the cap; set it to 5 and exactly 5 calls
+land per day). Surfaced in `/diagnostics`
+(`llm_calls_today`/`llm_max_calls_per_day`/`llm_core_cast_current`).
+
+**Design-priority note.** This trades some LLM richness (the crowd is now
+deterministic) for stability, at the user's explicit direction ("swap
+should not occur anymore"). It is *not* a pure loss for emergence: a
+stable cast of ~11 deep, model-authored characters against a
+deterministic crowd is arguably better for legible storytelling than
+diffusing LLM attention across a whole growing town. Tune
+`--llm-core-cast-size` up if the hardware has headroom, down if swap
+ever reappears; diagnose via `/diagnostics.system_memory` first.
+
+**Verification note.** Because this deliberately changes behavior, the
+v0.69.0 golden event-hash equivalence check does NOT apply to this
+feature (only to R3, which it still passes). Verified instead by: a
+20,000-tick llm-disabled soak (core cast fills to 11 and stays alive,
+goals still assigned, dialogues still occur, no crash, snapshot
+round-trips the cast); a mock-client llm-enabled run proving the volume
+bound and the daily cap; and a server-CLI boot smoke test.

@@ -229,6 +229,41 @@ class Config:
     leaving it unset, since "use every core available" is the right
     default for a dedicated box running one Ollama instance for one
     simulation."""
+    llm_core_cast_size: int = 11
+    """How many NPCs are the LLM-driven "core cast" (v0.70.0). Only these
+    agents get LLM cognition (goal reasoning), and only a *pair* of them
+    gets LLM-authored dialogue — every other agent, and every mixed/
+    crowd pair, runs on the already-real deterministic fallback. This is
+    the load-bearing fix for the measured "swap climbs after a few
+    hours" report: total Ollama call volume used to scale linearly with
+    population (one cognition call per agent per sim-day, up to
+    MAX_DIALOGUES_PER_TICK dialogues per tick), so a town that grows from
+    12 to hundreds over a few real hours drives Ollama from lightly
+    loaded to continuously saturated, and sustained saturation is what
+    lets Ollama's own per-call memory growth accumulate into swap on 8GB.
+    Pinning the LLM-eligible set to a fixed cast decouples call volume
+    from town size entirely. Also a *design* win, not just a perf hack:
+    the core cast are the persistent protagonists whose inner lives and
+    conversations are model-authored, while the crowd is deterministic
+    texture — directly serves the "persistent identity" priority. The
+    cast is seeded from the founders, sticky (a member stays until
+    death), and refilled from the most-prominent living non-member when
+    a seat opens (see Population.maintain_core_cast). 0 disables LLM
+    cognition/dialogue entirely (settlement-level jobs still run)."""
+    llm_max_calls_per_day: int = 200
+    """Belt-and-braces hard ceiling on total Ollama calls per sim-day
+    (v0.70.0) — cognition, dialogue, AND settlement-level jobs all count
+    against it; once hit, every further LLM decision that day resolves
+    via its deterministic fallback until the counter resets at day_end.
+    The core cast (`llm_core_cast_size`) is the primary volume limiter
+    and already keeps calls well under this; this ceiling exists so that
+    even a future bug in cast selection or a new per-agent LLM job can
+    never re-create the unbounded-throughput condition that caused the
+    swap. Sized generously above expected core-cast volume (~11
+    cognition/day + a bounded trickle of core-core dialogue + a few
+    settlement jobs) so it never rations a healthy run — lower it if a
+    live `system_memory` reading still shows pressure. See
+    docs/DECISIONS.md, "core cast + daily LLM ceiling" pass."""
 
     # --- runtime: Phase G (subtle supernatural layer), on by default -----------
     phase_g_intensity: float = 1.0
