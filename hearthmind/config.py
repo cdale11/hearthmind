@@ -185,35 +185,39 @@ class Config:
     Further memory reduction must come from elsewhere (shorter
     `llm_keep_alive`, a smaller/more quantized model, or Python-side
     savings) — see docs/DECISIONS.md, "LLM concurrency floor restored.\""""
-    llm_num_ctx: int = 1280
-    """Explicit Ollama context-window cap sent with every request.
-    **This is the single most important memory knob this code controls**:
-    Ollama allocates a KV cache sized at `num_ctx` for *every* parallel
-    slot it opens (`OLLAMA_NUM_PARALLEL`), and that allocation is made up
-    front at `num_ctx` tokens regardless of how full any given prompt
-    actually is. So lowering `num_ctx` cuts resident Ollama memory
-    directly and unconditionally. Lowered 2048 -> 1280 in the v0.71.1
-    "Ollama is swapping" pass after *measuring* the real prompts: the
-    largest (the monthly chronicle, with PROMPT_RECENT_EVENTS recent
-    events + culture) is ~620 input tokens, and `num_predict` (384) bounds
-    the generation, so the worst-case peak is ~1000 tokens — 1280 leaves
-    a safe ~280-token margin while shrinking the KV cache ~37% vs 2048.
-    Do NOT raise this without re-measuring prompts (undersizing silently
-    truncates a prompt and degrades the answer); do lower it further only
-    if you also shrink prompts (PROMPT_RECENT_EVENTS). The other big KV
-    levers are Ollama-server env vars, not code — see the README's "8GB /
-    avoiding swap" section (OLLAMA_NUM_PARALLEL, OLLAMA_KV_CACHE_TYPE,
-    OLLAMA_FLASH_ATTENTION)."""
-    llm_num_predict: int = 384
+    llm_num_ctx: int = 4096
+    """Explicit context-window cap sent with every Ollama request (and
+    documented as the `--ctx-size` llama-server launch flag for the
+    llama.cpp backend — see README). **This is the single most important
+    memory knob this code controls**: the KV cache is allocated up front
+    at `num_ctx` tokens regardless of how full any given prompt actually
+    is. Raised 1280 -> 4096 in the v0.72.3 "GPU offload confirmed
+    working" pass: the 1280 figure was tuned against CPU-only Ollama on
+    an 8GB box where every KV byte competed directly with system RAM;
+    with the llama.cpp backend's GPU offload confirmed working on real
+    hardware (`--n-gpu-layers 999`, see `scripts/run.sh`), the KV cache
+    lives predominantly in GPU memory instead, and q8_0 KV quantization
+    (`--cache-type-k/-v q8_0`) roughly halves its size regardless — the
+    same 8GB-CPU-only pressure this value was fighting no longer applies
+    the same way. 4096 gives real headroom for the richer, longer prompts
+    this pass also adds (PROMPT_RECENT_EVENTS, DIALOGUE_MEMORY_IN_PROMPT
+    below) without re-measuring against a razor-thin margin the way 1280
+    demanded. Still finite on purpose — an unbounded context is still a
+    real memory number, just a larger one this hardware can now afford.
+    Lower it back toward 1280 if you're on CPU-only inference again (see
+    README's 8GB section, still fully documented and supported)."""
+    llm_num_predict: int = 640
     """Explicit cap on generated tokens per call. Every response here is a
     short, strict-JSON answer (a goal, a line of dialogue, a settlement
     decision) — this bounds the worst case where the model rambles
     instead of terminating cleanly, which otherwise burns memory (the
     generated tokens also occupy the KV cache), the `llm_timeout_seconds`
-    budget, and would be rejected by the JSON parse anyway. Lowered
-    512 -> 384 in the v0.71.1 Ollama-memory pass (no real answer here
-    approaches even 384 tokens); counts against `llm_num_ctx`'s budget,
-    so keep the two in step."""
+    budget, and would be rejected by the JSON parse anyway. Raised
+    384 -> 640 in the v0.72.3 GPU-offload pass alongside `llm_num_ctx` —
+    384 was tight enough to risk truncating a genuinely longer chronicle/
+    town-brain answer; 640 gives real margin now that the KV cost of a
+    longer generation is no longer the dominant memory concern. Counts
+    against `llm_num_ctx`'s budget, so keep the two in step."""
     llm_keep_alive: str = "3m"
     """How long Ollama keeps the model resident in memory after the last
     call before unloading it (v0.43.1) — previously never sent, so the
@@ -277,7 +281,7 @@ class Config:
     leaving it unset, since "use every core available" is the right
     default for a dedicated box running one Ollama instance for one
     simulation."""
-    llm_core_cast_size: int = 11
+    llm_core_cast_size: int = 18
     """How many NPCs are the LLM-driven "core cast" (v0.70.0). Only these
     agents get LLM cognition (goal reasoning), and only a *pair* of them
     gets LLM-authored dialogue — every other agent, and every mixed/
@@ -297,8 +301,17 @@ class Config:
     cast is seeded from the founders, sticky (a member stays until
     death), and refilled from the most-prominent living non-member when
     a seat opens (see Population.maintain_core_cast). 0 disables LLM
-    cognition/dialogue entirely (settlement-level jobs still run)."""
-    llm_max_calls_per_day: int = 200
+    cognition/dialogue entirely (settlement-level jobs still run).
+    Raised 11 -> 18 in the v0.72.3 GPU-offload pass: the original 11 was
+    sized against CPU-only Ollama call latency (~17-20s/call, so even a
+    modest cast could saturate the machine over a few hours); confirmed
+    GPU inference on real hardware cuts per-call wall-clock time enough
+    that a larger cast no longer recreates the sustained-saturation
+    condition v0.70.0 fixed — more of the population's inner lives and
+    conversations get to be genuinely model-authored. `llm_max_calls_
+    per_day` scales with this (see below); re-lower both together if a
+    live `system_memory`/latency reading ever shows pressure again."""
+    llm_max_calls_per_day: int = 400
     """Belt-and-braces hard ceiling on total Ollama calls per sim-day
     (v0.70.0) — cognition, dialogue, AND settlement-level jobs all count
     against it; once hit, every further LLM decision that day resolves
@@ -307,10 +320,11 @@ class Config:
     and already keeps calls well under this; this ceiling exists so that
     even a future bug in cast selection or a new per-agent LLM job can
     never re-create the unbounded-throughput condition that caused the
-    swap. Sized generously above expected core-cast volume (~11
-    cognition/day + a bounded trickle of core-core dialogue + a few
-    settlement jobs) so it never rations a healthy run — lower it if a
-    live `system_memory` reading still shows pressure. See
+    swap. Raised 200 -> 400 alongside the v0.72.3 core-cast-size bump
+    (11 -> 18) to keep the same generous headroom above expected volume
+    (~18 cognition/day + a bounded trickle of core-core dialogue + a few
+    settlement jobs) so it never rations a healthy run — lower both if a
+    live `system_memory`/latency reading ever shows pressure. See
     docs/DECISIONS.md, "core cast + daily LLM ceiling" pass."""
 
     # --- runtime: Phase G (subtle supernatural layer), on by default -----------

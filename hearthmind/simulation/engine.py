@@ -135,17 +135,18 @@ grew forever on a multi-year world (July 2026 architecture review,
 §3.7). Fallback numbering still uses the full list's length, so
 "Tradition the 14th"-style names stay correct."""
 
-PROMPT_RECENT_EVENTS = 30
+PROMPT_RECENT_EVENTS = 50
 """How many recent events reach a settlement-level LLM prompt
-(chronicle, tradition, invention, town-brain, etc.). Lowered from 50
-(v0.71.1 Ollama-memory pass): the recent-events block was the dominant
-term in the biggest prompt (~680 of ~900 tokens at 50 events), and
-shrinking it lets `Config.llm_num_ctx` — and therefore Ollama's
-per-slot KV-cache allocation, which is sized at `num_ctx` regardless of
-how full the prompt actually is — drop without any risk of truncating a
-real prompt. 30 events is still ample narrative material for a monthly
-summary. The measured worst-case prompt+generation now fits well inside
-the lowered num_ctx (see docs/DECISIONS.md, "Ollama memory" pass)."""
+(chronicle, tradition, invention, town-brain, etc.). Lowered 50 -> 30 in
+the v0.71.1 CPU-only-Ollama-memory pass (the recent-events block was the
+dominant term in the biggest prompt, ~680 of ~900 tokens at 50 events).
+Restored to 50 in the v0.72.3 GPU-offload pass alongside `Config.
+llm_num_ctx`'s 1280 -> 4096 raise: richer narrative material per prompt
+is a real quality win for the chronicle/town-brain/dialogue-adjacent
+jobs, and the KV-cache pressure that motivated shrinking it in the first
+place is a CPU-only-Ollama concern this hardware no longer has the same
+way (see llm_num_ctx's docstring). Lower it again alongside llm_num_ctx
+if you're back on constrained CPU-only inference."""
 
 _JOB_NO_ARGS = 0
 _JOB_EVENTS = 1

@@ -6540,3 +6540,77 @@ GATHER-goal equivalent scanning terrain biomes) has the same bounded-
 box shape but no measured-hotspot evidence behind it — CLAUDE.md's
 standing rule is escalation only with a measured problem, so this stays
 pure-Python until profiling says otherwise, not because it's harder.
+
+## GPU offload confirmed working: run.sh build-everything, richer LLM config, native port module 3 (v0.72.3)
+
+**Live confirmation changes the tuning baseline.** Every LLM memory
+number in this project since v0.71.1 (`llm_num_ctx`, `llm_num_predict`,
+`PROMPT_RECENT_EVENTS`, `DIALOGUE_MEMORY_IN_PROMPT`, `llm_core_cast_size`,
+`llm_max_calls_per_day`, `MAX_LLM_DIALOGUES_PER_TICK`) was tuned against
+one shared constraint: CPU-only Ollama inference on an 8GB box, where
+every KV-cache byte and every second of call latency competed directly
+against the same RAM and the same clock the sim itself needed. The user
+report driving this pass — GPU offload via llama.cpp confirmed working
+and "much much better than expected" on real hardware — removes that
+shared constraint at the root, not just for one setting: KV cache now
+lives predominantly in GPU memory, and calls finish fast enough that a
+larger LLM-driven cast doesn't recreate v0.70.0's sustained-saturation
+condition. Rather than re-deriving each number in isolation, every
+setting tuned down for that constraint was revisited together, each
+with its own docstring explaining what specifically changed and why
+(see `config.py`, `simulation/engine.py`'s `PROMPT_RECENT_EVENTS`,
+`llm/dialogue.py`'s `DIALOGUE_MEMORY_IN_PROMPT`/`_MAX_LINE_WORDS`,
+`agents/population.py`'s `MAX_LLM_DIALOGUES_PER_TICK`/`MAX_DIALOGUES_
+PER_TICK`). The CPU-only 8GB path is fully preserved, not deleted —
+README's dedicated section documents the non-default override
+(`LLAMA_CTX_SIZE=1280 LLAMA_N_GPU_LAYERS=0` + `--llm-num-ctx 1280
+--llm-core-cast-size 8`) for anyone still on that hardware profile, and
+every constant's docstring says explicitly what to lower and why if
+CPU-only pressure returns.
+
+**One correction made while doing this:** the `_MAX_LINE_WORDS`
+"under 10 words" dialogue line-length limit was *not* actually a
+memory-driven downsize — rereading the original v0.72.1 rationale, it
+was a stylistic choice for natural-sounding short dialogue, unrelated
+to token budget. Loosening it to 14 words is still a legitimate
+dialogue-quality improvement (a longer line reads less like a clipped
+fragment), but the docstring is written to say so honestly rather than
+retroactively attributing a stylistic choice to the memory pass just
+because both changed in the same batch.
+
+**`scripts/run.sh` build-everything expansion.** Previously only
+launched already-built binaries. Now builds `hearthmind._native`
+automatically (matches the "one command does everything" spirit the
+script was written for) and, if `llama-server` is missing, builds it
+too — cloning `llama.cpp` first only with explicit opt-in
+(`AUTO_CLONE_LLAMA_CPP=1`), since silently fetching code from the
+network without being asked is a different risk class than a local
+build step; without that opt-in, it prints the exact clone command and
+stops. Default launch flags now match the user's confirmed-working
+command exactly (`--n-gpu-layers 999`, `--cache-type-k/-v q8_0`,
+`--threads $(nproc)`).
+
+**Native port module 3: `Population._nearest_material_tile`.**
+Explicitly not a profiling-driven port — the v0.72.2 pass had
+deliberately left this unported specifically because it had no measured
+hotspot evidence, per CLAUDE.md's "escalate only with a measured need."
+This pass overrides that on direct user instruction ("keep moving more
+python code to C++"), which is a legitimate reason to proceed but a
+different one than "we measured a problem," and is recorded as such
+rather than silently reframed as if new profiling data existed.
+Mechanically simpler than `ResourceIndex` turned out to be a genuine
+discovery, not just an assumption: MATERIAL_BIOMES (FOREST/HILLS) tiles
+never deplete (GATHER harvests wood/stone abstractly without touching
+the tile's biome), so `TerrainMaterialIndex` needs no live-patch
+mechanism the way `ResourceIndex` needed for `mark_regenerating` — a
+plain full rebuild once per `Population.tick()` is already exactly
+equivalent to the pure-Python scan, no incremental-sync logic required.
+Built at the same point `farm_positions`/`granary_positions` already
+get computed once per tick and shared across every agent, extending
+`_dispatch_movement`'s signature with one new optional parameter
+(`material_index`, `None`-safe, defaults to the original pure-Python
+path). Verified via 20,000 randomized queries against a synthetic
+70x70 terrain (0 mismatches vs. a reference Python scan) plus the
+standard 6000-tick cumulative-event-hash engine soak, all three native
+modules (resources.tick, ResourceIndex, TerrainMaterialIndex) enabled
+vs. disabled — byte-identical.

@@ -180,6 +180,12 @@ private:
     std::unordered_map<long long, std::pair<int, std::pair<int, int>>> data_;
 };
 
+// Defined in terrain_index.cpp — a separate translation unit compiled
+// into this same extension module (see setup.py); registered here
+// since a Python extension module can only have one PYBIND11_MODULE
+// entry point.
+void register_terrain_index(py::module_ &m);
+
 PYBIND11_MODULE(_native, m) {
     m.doc() = "Hearthmind native (C++) hot-path extensions. Optional — "
               "every function here has a pure-Python fallback; the sim "
@@ -199,4 +205,6 @@ PYBIND11_MODULE(_native, m) {
              "Live-patch one entry (upsert, or erase if amount <= 0) — "
              "keeps the index consistent with ResourceGrid.nodes between "
              "full rebuilds. See ResourceGrid.mark_regenerating.");
+
+    register_terrain_index(m);
 }

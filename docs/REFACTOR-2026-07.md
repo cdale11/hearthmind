@@ -252,17 +252,29 @@ was the nontrivial part of getting this port byte-identical. Verified
 via 20,000 randomized bounded-box queries interleaved with mid-run
 depletions (0 mismatches against a reference Python scan) plus the
 existing 4000-tick engine soak (identical event-stream hash to the
-pre-port baseline). `Population._nearest_material_tile` (the GATHER-goal
-equivalent, scanning terrain biomes instead of resource nodes) has the
-same shape but no measured-hotspot evidence behind it the way
-`_nearest_resource` had — deliberately left unported per CLAUDE.md's
-"escalate only with a measured need," not an oversight.
+pre-port baseline).
 
-**Queued next** (pick up in a dedicated session, same one-module-at-a-
-time discipline): profile again at a larger population/map size to see
-whether `_nearest_material_tile`, `_nearest_other_agent`, or
-`WildlifeGrid.nearest_grazer_herd` earn a native port the way
-`_nearest_resource` did, rather than porting them speculatively.
+**Module 3 shipped (v0.72.3): `Population._nearest_material_tile`.**
+Explicit user directive ("keep moving more python code to C++")
+overrode the earlier "deliberately left unported, no measured-hotspot
+evidence" call — ported anyway, on direction rather than fresh
+profiling data (flagged as such, not silently treated as newly
+measured). Same bounded-box shape as `_nearest_resource`, but simpler:
+MATERIAL_BIOMES (FOREST/HILLS) tiles never deplete — GATHER harvests
+wood/stone abstractly without changing the tile's biome — so
+`TerrainMaterialIndex` (`cpp/src/terrain_index.cpp`) needs no live-patch
+the way `ResourceIndex` did for depletion; a plain rebuild once per
+`Population.tick()` (mirroring the existing `farm_positions`/`granary_
+positions` "compute once, share across every agent" pattern one line
+above it) is already exactly equivalent to the pure-Python scan.
+Verified via 20,000 randomized queries against a synthetic 70x70 terrain
+(0 mismatches) plus the standard 6000-tick cumulative-event-hash engine
+soak (byte-identical, all three native modules on vs. off).
+`Population._nearest_other_agent` and `WildlifeGrid.nearest_grazer_herd`
+are the next same-shape candidates if the directive to keep porting
+continues — still no fresh profiling behind either, noted for honesty
+rather than re-litigated each time.
+
 `population.py`/`engine.py`/`buildings.py` themselves (the
 orchestration layer — cross-references dozens of other modules, mutates
 shared `World`/`Settlement` state, drives the LLM job scheduling) are

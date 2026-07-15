@@ -45,23 +45,29 @@ SYSTEM_PROMPT = (
     '{"line_a": "Hungry work today.", "line_b": "Isn\'t it always with '
     'you.", "sentiment": "warm", "rumor": ""}\n'
     'Now respond with strict JSON only, in that exact shape: {"line_a": '
-    '"under 10 words, said by the first villager", "line_b": "under 10 '
+    '"under 14 words, said by the first villager", "line_b": "under 14 '
     'words, said by the second", "sentiment": "warm" | "tense" | '
     '"neutral", "rumor": "" or a short rumor under 15 words}.'
 )
 
 
-DIALOGUE_MEMORY_IN_PROMPT = 1
+DIALOGUE_MEMORY_IN_PROMPT = 2
 """How many of each speaker's most recent memories reach the dialogue
-prompt — same reasoning as cognition.RECENT_MEMORIES_IN_PROMPT, kept to
-1 here (vs. cognition's 3) since a conversational line only has room to
-land one concrete thing per speaker anyway. Previously 0: dialogue was
-the one LLM-authored prompt in the project that never read from
-`agent.memories` at all, despite cognition (goal-setting) already doing
-so — a colocated pair had no way to talk about anything that actually
-happened to either of them (a death, a bond, a rumor heard), only their
-current stats/weather/relationship, which reads as generic small talk
-regardless of model quality. See docs/DECISIONS.md, "dialogue grounding
+prompt. Raised 1 -> 2 in the v0.72.3 GPU-offload pass: 1 was deliberately
+tight against the CPU-only-Ollama token budget (see `Config.llm_num_ctx`'s
+docstring for the hardware context that no longer applies the same way);
+with real headroom back, two recent memories per speaker gives the model
+an actual choice of what to bring up instead of always the single most
+recent thing, without yet approaching cognition's 3 (a conversational
+line still only has room to land one or two concrete things per speaker,
+even with a bigger context budget — this is a content judgment, not just
+a token-budget one). Previously 0: dialogue was the one LLM-authored
+prompt in the project that never read from `agent.memories` at all,
+despite cognition (goal-setting) already doing so — a colocated pair had
+no way to talk about anything that actually happened to either of them
+(a death, a bond, a rumor heard), only their current stats/weather/
+relationship, which reads as generic small talk regardless of model
+quality. See docs/DECISIONS.md, "dialogue grounding
 fix.\""""
 
 
@@ -238,10 +244,17 @@ def fallback_dialogue(agent_a: Agent, agent_b: Agent, affinity: float, tick: int
 
 _VALID_SENTIMENTS = {"warm", "tense", "neutral"}
 
-_MAX_LINE_WORDS = 22
-"""A line requested as "under 10 words" that comes back several times
+_MAX_LINE_WORDS = 26
+"""A line requested as "under 14 words" that comes back several times
 longer is a sign a small/weak model rambled past the instruction rather
-than writing a real line — see `_is_sane_line`."""
+than writing a real line — see `_is_sane_line`. Both the prompt's word
+budget (10 -> 14, v0.72.3) and this sanity ceiling (22 -> 26, kept
+proportional) were raised for dialogue-quality reasons, not a memory
+one: 10-under words often reads as a clipped fragment rather than
+natural speech, and the extra few tokens this costs per line are
+negligible against `Config.llm_num_ctx`'s now-larger budget (see its
+docstring) — there was no real reason to keep the tighter number once
+that budget stopped being razor-thin."""
 
 _LEAKAGE_MARKERS = (
     "json", "system prompt", "you are writing", "villager who",

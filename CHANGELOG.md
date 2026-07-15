@@ -4,6 +4,50 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.72.3] — GPU-offload confirmed: run.sh builds everything, richer LLM config, native port module 3
+
+Response to a live report: GPU offload via llama.cpp is confirmed
+working and "much much better than expected" on real hardware. Uses
+that confirmation to relax settings that were tuned tight for CPU-only
+8GB inference, and to expand `scripts/run.sh` into a full build+run tool.
+
+### Added
+- `scripts/run.sh` now builds `hearthmind._native` automatically
+  (`SKIP_NATIVE_BUILD=1` to skip) and builds `llama-server` itself if
+  missing (cloning `llama.cpp` first if `AUTO_CLONE_LLAMA_CPP=1`, or
+  printing the clone command otherwise; `USE_VULKAN=1` for AMD iGPU
+  offload). New defaults match the confirmed-working GPU recipe:
+  `LLAMA_N_GPU_LAYERS=999`, `LLAMA_CACHE_TYPE_K/V=q8_0`.
+- `--llm-num-ctx`/`--llm-num-predict` CLI flags on `server.py` (existed
+  as `Config` fields but had no CLI exposure until now).
+- Native port module 3: `Population._nearest_material_tile` (the
+  GATHER-goal equivalent of `_nearest_resource`) — `TerrainMaterialIndex`
+  (`cpp/src/terrain_index.cpp`), rebuilt once per `Population.tick()`.
+  Simpler than `ResourceIndex`: MATERIAL_BIOMES tiles never deplete, so
+  no live-patch is needed. Verified via 20,000 randomized queries (0
+  mismatches) plus the standard cumulative-event-hash engine soak.
+
+### Changed (LLM config, now that GPU offload is confirmed)
+- `Config.llm_num_ctx` 1280 → **4096**, `llm_num_predict` 384 → **640**
+  — the CPU-only-Ollama KV-cache pressure that motivated the tight
+  v0.71.1 numbers doesn't apply the same way with GPU offload + q8_0 KV
+  quantization.
+- `PROMPT_RECENT_EVENTS` 30 → **50** (restored to its pre-v0.71.1 level),
+  `DIALOGUE_MEMORY_IN_PROMPT` 1 → **2** — richer context per prompt.
+- `Config.llm_core_cast_size` 11 → **18**, `llm_max_calls_per_day`
+  200 → **400**, `MAX_LLM_DIALOGUES_PER_TICK` 2 → **4**,
+  `MAX_DIALOGUES_PER_TICK` 3 → **6** — confirmed-fast GPU inference
+  affords a larger LLM-driven cast and more core-core dialogue volume
+  without recreating the sustained-saturation swap condition v0.70.0
+  fixed.
+- Dialogue line-length budget "under 10 words" → "under 14 words"
+  (`_MAX_LINE_WORDS` 22 → 26) and `SYSTEM_PROMPT` gained a tense-band
+  few-shot example, for less clipped, more natural exchanges.
+- README's 8GB/CPU-only recipe is preserved and clearly marked as the
+  non-default path (`LLAMA_CTX_SIZE=1280 LLAMA_N_GPU_LAYERS=0` +
+  `--llm-num-ctx 1280 --llm-core-cast-size 8`) for anyone still on that
+  hardware profile.
+
 ## [0.72.2] — pyproject license fix, one-command run script, native port module 2
 
 ### Fixed

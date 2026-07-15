@@ -66,6 +66,14 @@ def parse_args(argv: list[str] | None = None) -> Config:
                               "startup via --model, see README) but still sent in the request body.")
     parser.add_argument("--llm-timeout", type=float, default=Config.llm_timeout_seconds,
                          help="Seconds before an LLM call falls back.")
+    parser.add_argument("--llm-num-ctx", type=int, default=Config.llm_num_ctx,
+                         help="Context-window cap (KV-cache size, see Config.llm_num_ctx's docstring for the "
+                              "GPU-offload-vs-CPU-only rationale). Sent per-request for the Ollama backend; for "
+                              "llama.cpp this is documentation only — the real cap is llama-server's own "
+                              "--ctx-size launch flag (see README/scripts/run.sh), which must be raised/lowered "
+                              "in step with this value.")
+    parser.add_argument("--llm-num-predict", type=int, default=Config.llm_num_predict,
+                         help="Cap on generated tokens per call, counted against --llm-num-ctx's budget.")
     parser.add_argument("--llm-max-concurrent", type=int, default=Config.llm_max_concurrent,
                          help="Max simultaneous in-flight LLM requests.")
     parser.add_argument("--llm-num-thread", type=int, default=os.cpu_count() or 4,
@@ -116,6 +124,8 @@ def parse_args(argv: list[str] | None = None) -> Config:
         llm_llamacpp_host=args.llm_llamacpp_host,
         llm_model=args.llm_model,
         llm_timeout_seconds=args.llm_timeout,
+        llm_num_ctx=args.llm_num_ctx,
+        llm_num_predict=args.llm_num_predict,
         llm_max_concurrent=args.llm_max_concurrent,
         llm_num_thread=args.llm_num_thread or None,
         llm_core_cast_size=args.llm_core_cast_size,

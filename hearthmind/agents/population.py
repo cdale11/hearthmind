@@ -15,6 +15,15 @@ from dataclasses import dataclass, field
 
 from hearthmind.util import clamp, namespaced_rng
 
+try:
+    from hearthmind._native import TerrainMaterialIndex as _NativeTerrainMaterialIndex
+except ImportError:
+    _NativeTerrainMaterialIndex = None
+"""Optional compiled fast path for `_nearest_material_tile` (v0.72.3,
+see cpp/src/terrain_index.cpp, docs/DECISIONS.md "Native extension
+port"). `None` when the extension wasn't built — `_nearest_material_
+tile` falls back to an equivalent pure-Python scan in that case."""
+
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
     DIALOGUE_SENTIMENT_DELTA,
@@ -491,23 +500,32 @@ else equal they build where they stand (zero penalty), and a
 road/resource-adjacent tile (+0.5 or +1.0) is worth walking up to a
 few tiles for, but never the full radius for no gain."""
 
-MAX_DIALOGUES_PER_TICK = 3
+MAX_DIALOGUES_PER_TICK = 6
 """Caps how many dialogue exchanges are *selected* in a single tick
 regardless of how many colocated pairs qualify. Of these, only
 core-core pairs (see `Population.core_agent_ids`) become LLM calls, and
 those are further capped at MAX_LLM_DIALOGUES_PER_TICK below; the rest
-are resolved by the deterministic fallback. See
-Population.due_for_dialogue, docs/DECISIONS.md, E2."""
+are resolved by the deterministic fallback. Raised 3 -> 6 in the
+v0.72.3 GPU-offload pass — must stay >= MAX_LLM_DIALOGUES_PER_TICK (a
+selection cap smaller than the LLM cap would make the LLM cap
+unreachable) with some headroom left for genuine crowd/fallback pairs
+too, not just core-core ones. See Population.due_for_dialogue,
+docs/DECISIONS.md, E2."""
 
-MAX_LLM_DIALOGUES_PER_TICK = 2
+MAX_LLM_DIALOGUES_PER_TICK = 4
 """Of the core-core colocated pairs due this tick, at most this many
-become actual LLM-authored dialogue calls (v0.70.0); any beyond it, and
-every pair that isn't two core-cast members, use the deterministic
-fallback. Small and constant, so LLM dialogue volume never scales with
-population — the core of the swap fix. Preferring core-core pairs for
-these slots (rather than random selection) is what makes the cast's
-conversations reliably model-authored despite the crowd being far more
-numerous. See Population.due_for_dialogue."""
+become actual LLM-authored dialogue calls (v0.70.0). Raised 2 -> 4 in
+the v0.72.3 GPU-offload pass alongside `Config.llm_core_cast_size`
+(11 -> 18) and `llm_max_calls_per_day` (200 -> 400) — confirmed-fast GPU
+inference makes a larger volume of core-core exchanges affordable
+without recreating the sustained-saturation condition v0.70.0 fixed.
+Small and constant either way, so LLM dialogue volume never scales with
+population — that property is what matters for the swap fix, not the
+specific number. Any pair beyond this cap, and every pair that isn't
+two core-cast members, use the deterministic fallback. Preferring
+core-core pairs for these slots (rather than random selection) is what
+makes the cast's conversations reliably model-authored despite the
+crowd being far more numerous. See Population.due_for_dialogue."""
 
 PROMINENCE_BOND_WEIGHT = 4000.0
 """Weight on an agent's bond count in `_prominence` (core-cast refill
@@ -892,6 +910,21 @@ class Population:
         }
         crowded_by_id = {s.id: members_count[s.id] > housing_by_id[s.id] for s in settlements}
         crowded = any(crowded_by_id.values())
+        # Built once per tick, shared by every GATHER-seeking agent's
+        # `_nearest_material_tile` call — same "compute once, amortize
+        # across agents" shape as `farm_positions`/`granary_positions`
+        # below, and as `ResourceGrid`'s `_native_index` (see world/
+        # resources.py). Terrain biomes never change mid-tick (only
+        # weekly/monthly terrain evolution touches them), so unlike
+        # ResourceIndex this needs no live-patch — a fresh once-per-tick
+        # rebuild is already exactly equivalent to the pure-Python scan.
+        material_index = None
+        if _NativeTerrainMaterialIndex is not None:
+            material_index = _NativeTerrainMaterialIndex([
+                (tile.x, tile.y)
+                for row in terrain for tile in row
+                if tile.biome in MATERIAL_BIOMES
+            ])
         farm_positions = self.ready_farm_positions(farms)
         granary_positions_by_id = {s.id: self.stocked_granary_positions(s) for s in settlements}
         work_positions_by_id = {
@@ -946,6 +979,7 @@ class Population:
                     rival_tiles=rival_tiles_by_agent.get(agent.id),
                     food_positions=(farm_positions, granary_positions_by_id[home.id]),
                     work_positions=work_positions_by_id[home.id],
+                    material_index=material_index,
                 )
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
@@ -1452,6 +1486,7 @@ class Population:
         rival_tiles: set[tuple[int, int]] | None = None,
         food_positions: tuple[list[tuple[int, int]], list[tuple[int, int]]] | None = None,
         work_positions: list[tuple[int, int]] | None = None,
+        material_index: "object | None" = None,
     ) -> None:
         """Goal-directed agents (FORAGE/SOCIALIZE) take a deliberate step
         toward a visible target when one exists; otherwise (including
@@ -1537,7 +1572,7 @@ class Population:
         elif effective_goal is AgentGoal.SOCIALIZE:
             target = cls._nearest_other_agent(agent, position_snapshot)
         elif effective_goal is AgentGoal.GATHER:
-            target = cls._nearest_material_tile(agent, terrain)
+            target = cls._nearest_material_tile(agent, terrain, material_index)
         elif effective_goal is AgentGoal.WANDER and work_positions:
             # Root-cause fix (v0.43.2 follow-up): a WANDERing agent
             # previously had zero attraction toward a decaying building —
@@ -1681,9 +1716,21 @@ class Population:
         return best_fish if best_fish is not None else best_food
 
     @staticmethod
-    def _nearest_material_tile(agent: Agent, terrain: list[list[Tile]]) -> tuple[int, int] | None:
+    def _nearest_material_tile(
+        agent: Agent, terrain: list[list[Tile]], material_index: "object | None" = None,
+    ) -> tuple[int, int] | None:
         """Scans a bounded box (no discrete registry like resources/farms
-        exist for terrain biomes) within GATHER_SEARCH_RADIUS. See D8."""
+        exist for terrain biomes) within GATHER_SEARCH_RADIUS. See D8.
+
+        v0.72.3 native port: dispatches to `material_index` (a compiled
+        `TerrainMaterialIndex`, see cpp/src/terrain_index.cpp), built
+        once per `Population.tick()` and shared across every GATHER-
+        seeking agent's call this tick, when available — falls back to
+        the identical pure-Python scan below otherwise (`material_index`
+        is `None` when the extension isn't built)."""
+        if material_index is not None:
+            return material_index.nearest(agent.x, agent.y, GATHER_SEARCH_RADIUS)
+
         height = len(terrain)
         width = len(terrain[0]) if height else 0
         best: tuple[int, int] | None = None

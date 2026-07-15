@@ -24,7 +24,15 @@ index" below for pointers.
 
 ## Hardware target
 
-8GB RAM + zram swap, CPU-only inference. Default model
+GPU-offloaded llama.cpp inference confirmed working on real hardware as
+of v0.72.3 ("much much better than expected" — live user report) — this
+is now the assumed default (`--n-gpu-layers 999`, `Config.llm_num_ctx`/
+`llm_num_predict`/`llm_core_cast_size` all raised accordingly, see
+"Current state (v0.72.3)" below). **8GB RAM + zram swap, CPU-only
+inference remains fully supported**, not deprecated — it's a documented
+non-default override (README's 8GB section, `LLAMA_CTX_SIZE=1280
+LLAMA_N_GPU_LAYERS=0` + `--llm-num-ctx 1280 --llm-core-cast-size 8`).
+Default model
 `qwen3:4b-instruct` (v0.65.2, changed from `qwen3.5:2b`) — set per a
 live user report on their own machine: `qwen3.5:2b` (never a real
 released Qwen tag) showed memory-leak-like growth/swapping, while the
@@ -37,14 +45,18 @@ defensive no-op for it and becomes load-bearing again for the
 report back, don't silently guess. Every call disables "thinking" mode
 (`OllamaClient` sends `"think": false` and strips any leaked `<think>`
 block) since every prompt here wants one strict-JSON answer.
-`llm_timeout_seconds=60`, `llm_num_ctx=1280`,
-`llm_num_predict=384` (both lowered from 2048/512 in v0.71.1 after
-measuring real prompts — see below), `llm_keep_alive="3m"`,
-`llm_use_mmap=True`,
+`llm_timeout_seconds=60`, `llm_num_ctx=4096`,
+`llm_num_predict=640` (raised from 1280/384 in v0.72.3 once GPU offload
+was confirmed working — the CPU-only-Ollama KV-cache pressure that
+drove those numbers down in v0.71.1 no longer applies the same way;
+lower back to 1280/384 for CPU-only 8GB hardware, see README),
+`llm_keep_alive="3m"`, `llm_use_mmap=True`,
 `llm_num_thread=None` (`server.py` CLI defaults `--llm-num-thread` to
-every CPU core — see below), `llm_num_gpu=None` (set once GPU offload
-is confirmed server-side —
-see the iGPU investigation in docs/DECISIONS.md).
+every CPU core — see below), `llm_num_gpu=None` for the Ollama backend
+(GPU offload for the default llama.cpp backend is `--n-gpu-layers`, a
+`llama-server` launch flag — confirmed working via `scripts/run.sh`,
+default 999, see README's AMD iGPU section and the iGPU investigation
+in docs/DECISIONS.md).
 
 **`llm_max_concurrent=2` is a permanent floor** (explicit user
 instruction: LLM richness is never traded off against memory below 2;
@@ -261,6 +273,32 @@ Single-writer tick loop + queued interventions; fallback-on-every-LLM-
 call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
+
+## Current state (v0.72.3)
+
+Live confirmation: GPU offload via llama.cpp works and is "much much
+better than expected" on real hardware. Response, three parts.
+**Run script**: `scripts/run.sh` now builds `hearthmind._native`
+automatically and builds `llama-server` itself if missing (cloning
+`llama.cpp` only with explicit `AUTO_CLONE_LLAMA_CPP=1`); defaults now
+match the confirmed command (`--n-gpu-layers 999`, `--cache-type-k/-v
+q8_0`). **LLM config raised**: every setting tuned down in v0.71.1/
+v0.72.1 for CPU-only-Ollama KV-cache pressure was revisited together
+since GPU offload removes that shared constraint at the root —
+`llm_num_ctx` 1280→4096, `llm_num_predict` 384→640,
+`PROMPT_RECENT_EVENTS` 30→50, `DIALOGUE_MEMORY_IN_PROMPT` 1→2,
+`llm_core_cast_size` 11→18, `llm_max_calls_per_day` 200→400,
+`MAX_LLM_DIALOGUES_PER_TICK` 2→4, `MAX_DIALOGUES_PER_TICK` 3→6,
+dialogue line budget "under 10 words"→"under 14" (the last one wasn't
+actually memory-driven originally — corrected the docstring rather than
+misattribute it). CPU-only 8GB stays fully supported as a documented
+non-default override, never deleted. **Native port module 3**:
+`Population._nearest_material_tile` — explicit user directive to keep
+porting, not fresh profiling (flagged as such); simpler than
+`ResourceIndex` since MATERIAL_BIOMES tiles never deplete, so no
+live-patch needed, just a per-`Population.tick()` rebuild. Verified via
+20,000 randomized queries + the standard cumulative-event-hash soak,
+byte-identical.
 
 ## Current state (v0.72.2)
 
