@@ -6866,3 +6866,33 @@ passed; (3) proves it holds up inside the real engine loop alongside
 every other system. All three matter — a module with two output
 channels is exactly the shape where "the pure function is right but the
 plumbing around it is wrong" bugs like to hide.
+
+## v0.72.8: native port modules 9-10 — building and vehicle decay
+
+Continuing the R7 queue's "building decay/repair progress math" item.
+Split into two functions rather than one, matching the two independent
+per-cell collections `Settlement.tick` already iterates separately
+(`self.buildings`, `self.vehicles`) with different rules (buildings
+have a ruin→reclaim two-stage lifecycle; vehicles just decay to BROKEN,
+no removal). `building_decay_tick` (cpp/src/settlement_decay.cpp)
+mirrors the STANDING→decay→RUINED→rot→removed pipeline, with the civic-
+vs-HUT decay-rate split (the v0.43.2 fix, see the diagnostic history
+index above) preserved as two scalar inputs rather than duplicated
+branching. `vehicle_decay_tick` mirrors the simpler READY-only decay-
+to-BROKEN loop — non-READY vehicles are filtered out in Python before
+the call (they're untouched by the pure-Python original too, so there's
+nothing for the native side to do with them).
+
+Both keep the same "object-graph resolution stays Python" split as
+every module since 6: x/y/kind (needed only for human-readable event
+text) never cross into C++, and the native functions return small
+result-flag tuples (`removed`/`just_ruined` for buildings, `just_broke`
+for vehicles) so Python's event-logging code stays exactly where it
+was, just reading a flag instead of re-deriving it from a condition
+comparison. Verified via 20,000 (buildings) and 10,000 (vehicles)
+randomized input combinations against reference Python ports (0
+mismatches each) plus the cumulative-event-hash engine soak across four
+seeds at 5000 ticks each — noticeably longer than prior soaks
+specifically to give building ruin/reclaim and vehicle breakdown, both
+comparatively rare events, more chances to actually occur across the
+run. All ten native modules on vs. off, byte-identical every time.

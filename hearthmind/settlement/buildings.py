@@ -23,6 +23,18 @@ from hearthmind.settlement.vehicles import (
 )
 from hearthmind.world.weather import WeatherState
 
+try:
+    from hearthmind._native import building_decay_tick as _native_building_decay_tick
+    from hearthmind._native import vehicle_decay_tick as _native_vehicle_decay_tick
+except ImportError:
+    _native_building_decay_tick = None
+    _native_vehicle_decay_tick = None
+"""Optional compiled fast path for Settlement.tick's building/vehicle
+decay-ruin-reclaim passes (modules 9-10, see cpp/src/settlement_decay.
+cpp, docs/DECISIONS.md "Native extension port"). `None` when the
+extension wasn't built — falls back to the equivalent pure-Python loops
+in that case."""
+
 
 class BuildingStage(str, Enum):
     UNDER_CONSTRUCTION = "under_construction"
@@ -1848,22 +1860,46 @@ class Settlement:
             if unpaid_fraction > 0:
                 civic_decay = decay * (1.0 + (UPKEEP_UNPAID_DECAY_MULTIPLIER - 1.0) * unpaid_fraction)
 
-        for building in self.buildings:
-            if building.stage is BuildingStage.STANDING:
-                building_decay = decay if building.kind is BuildingKind.HUT else civic_decay
-                building.condition = max(0.0, building.condition - building_decay)
-                if building.condition <= 0.0:
-                    building.stage = BuildingStage.RUINED
-                    events.append(("building_ruined", f"A structure at ({building.x}, {building.y}) fell into ruin."))
-            elif building.stage is BuildingStage.RUINED:
-                building.ruined_ticks += 1
-                if building.ruined_ticks >= RUIN_REMOVAL_TICKS:
+        if _native_building_decay_tick is not None:
+            # Native fast path (modules 9-10): x/y/kind stay in Python
+            # (needed only for event text), the native call does the
+            # decay/ruin-threshold/rot arithmetic.
+            _bstage_out = {0: BuildingStage.UNDER_CONSTRUCTION, 1: BuildingStage.STANDING, 2: BuildingStage.RUINED}
+            _bstage_in = {BuildingStage.UNDER_CONSTRUCTION: 0, BuildingStage.STANDING: 1, BuildingStage.RUINED: 2}
+            inputs = [
+                (_bstage_in[b.stage], b.condition, b.kind is BuildingKind.HUT, b.ruined_ticks)
+                for b in self.buildings
+            ]
+            results = _native_building_decay_tick(inputs, decay, civic_decay, RUIN_REMOVAL_TICKS)
+            for building, (stage, condition, ruined_ticks, removed, just_ruined) in zip(self.buildings, results):
+                if removed:
                     events.append(
                         ("building_reclaimed", f"Nature reclaimed the ruins at ({building.x}, {building.y}).")
                     )
                     continue  # dropped from survivors — removed from the world
+                building.stage = _bstage_out[stage]
+                building.condition = condition
+                building.ruined_ticks = ruined_ticks
+                if just_ruined:
+                    events.append(("building_ruined", f"A structure at ({building.x}, {building.y}) fell into ruin."))
+                survivors.append(building)
+        else:
+            for building in self.buildings:
+                if building.stage is BuildingStage.STANDING:
+                    building_decay = decay if building.kind is BuildingKind.HUT else civic_decay
+                    building.condition = max(0.0, building.condition - building_decay)
+                    if building.condition <= 0.0:
+                        building.stage = BuildingStage.RUINED
+                        events.append(("building_ruined", f"A structure at ({building.x}, {building.y}) fell into ruin."))
+                elif building.stage is BuildingStage.RUINED:
+                    building.ruined_ticks += 1
+                    if building.ruined_ticks >= RUIN_REMOVAL_TICKS:
+                        events.append(
+                            ("building_reclaimed", f"Nature reclaimed the ruins at ({building.x}, {building.y}).")
+                        )
+                        continue  # dropped from survivors — removed from the world
 
-            survivors.append(building)
+                survivors.append(building)
 
         if len(survivors) != len(self.buildings):
             self._position_index = None  # a ruin was reclaimed — see at()'s cache
@@ -1873,15 +1909,25 @@ class Settlement:
             VEHICLE_DECAY_PER_TICK_BASE * (VEHICLE_DECAY_WEATHER_MULTIPLIER if weather_harsh else 1.0)
             * SEASON_DECAY_MULTIPLIER.get(season, 1.0)
         )
-        for vehicle in self.vehicles:
-            if vehicle.stage is not VehicleStage.READY:
-                continue
-            vehicle.condition = max(0.0, vehicle.condition - vehicle_decay)
-            if vehicle.condition <= 0.0:
-                vehicle.stage = VehicleStage.BROKEN
-                vehicle.assigned_agent_id = None
-                noun = vehicle.kind.value
-                events.append(("vehicle_broken", f"A {noun} at ({vehicle.x}, {vehicle.y}) broke down."))
+        if _native_vehicle_decay_tick is not None:
+            ready_vehicles = [v for v in self.vehicles if v.stage is VehicleStage.READY]
+            results = _native_vehicle_decay_tick([v.condition for v in ready_vehicles], vehicle_decay)
+            for vehicle, (condition, just_broke) in zip(ready_vehicles, results):
+                vehicle.condition = condition
+                if just_broke:
+                    vehicle.stage = VehicleStage.BROKEN
+                    vehicle.assigned_agent_id = None
+                    events.append(("vehicle_broken", f"A {vehicle.kind.value} at ({vehicle.x}, {vehicle.y}) broke down."))
+        else:
+            for vehicle in self.vehicles:
+                if vehicle.stage is not VehicleStage.READY:
+                    continue
+                vehicle.condition = max(0.0, vehicle.condition - vehicle_decay)
+                if vehicle.condition <= 0.0:
+                    vehicle.stage = VehicleStage.BROKEN
+                    vehicle.assigned_agent_id = None
+                    noun = vehicle.kind.value
+                    events.append(("vehicle_broken", f"A {noun} at ({vehicle.x}, {vehicle.y}) broke down."))
 
         return events
 

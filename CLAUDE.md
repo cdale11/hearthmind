@@ -304,6 +304,23 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.72.8)
+
+Native port modules 9-10, closing out the "building decay/repair math"
+R7-queue item: `Settlement.tick`'s building decay/ruin/reclaim pass →
+`building_decay_tick`, and its READY-vehicle decay pass →
+`vehicle_decay_tick` (`cpp/src/settlement_decay.cpp`). Same per-cell
+local-rule shape as `farm_grid_tick` (module 8); x/y/kind (needed only
+for event text) stay in Python, native calls return small result-flag
+tuples (`just_ruined`/`removed`/`just_broke`) so Python's event-logging
+reads a flag instead of re-deriving it. Verified via 20,000 (buildings)
+and 10,000 (vehicles) randomized inputs (0 mismatches) plus a
+5000-tick, four-seed cumulative-event-hash soak (deliberately longer
+than prior soaks to give the comparatively rare ruin/reclaim/breakdown
+events more chances to fire), all ten native modules on vs. off,
+byte-identical. Queued next: `world/weather.py`, `world/terrain_
+evolution.py`, `world/disasters.py`, `world/hydrology.py`.
+
 ## Current state (v0.72.7)
 
 Native port module 8: `FarmGrid.tick` → `farm_grid_tick`

@@ -4,6 +4,22 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.72.8] — Native port modules 9-10: building and vehicle decay
+
+### Added
+- Native port modules 9-10: `Settlement.tick`'s building decay/ruin/
+  reclaim pass → `building_decay_tick`, and its READY-vehicle decay
+  pass → `vehicle_decay_tick` (both in `cpp/src/settlement_decay.cpp`).
+  Same shape as `farm_grid_tick` (module 8) — a fixed collection of
+  independent cells (buildings/vehicles), each updated purely from its
+  own prior state. Event text (needs building/vehicle x/y) stays in
+  Python; the native calls return per-cell result flags
+  (`just_ruined`/`removed`/`just_broke`) so Python knows exactly when
+  to log which event. Verified via 20,000 (buildings) and 10,000
+  (vehicles) randomized input combinations (0 mismatches) plus the
+  cumulative-event-hash engine soak across four seeds at 5000 ticks
+  each, all ten native modules on vs. off, byte-identical.
+
 ## [0.72.7] — Native port module 8: FarmGrid.tick (first R7 module)
 
 ### Added

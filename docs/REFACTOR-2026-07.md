@@ -464,12 +464,29 @@ grids, comparing final plot state — 0 mismatches), and the cumulative-
 event-hash engine soak across four seeds, all eight native modules on
 vs. off, byte-identical.
 
-**Queued next for R7/R6** (same list as before, now explicitly framed
-as "the CA engine's remaining Python surface"): building decay/repair
-progress math (`settlement/buildings.py`, once "which building/stage"
-resolution is separated from "how much did condition change"); `world/
-weather.py`'s per-tick computation; `world/terrain_evolution.py`'s
-weekly/monthly rules; `world/disasters.py`; `world/hydrology.py`.
+**Modules 9-10 shipped (v0.72.8): building and vehicle decay.**
+`building_decay_tick`/`vehicle_decay_tick` (`cpp/src/settlement_decay.
+cpp`) — `Settlement.tick`'s two remaining per-cell decay passes, same
+shape as module 8. Split into two functions since the pure-Python
+original already treats `self.buildings`/`self.vehicles` as separate
+collections with different lifecycles (buildings: STANDING→decay→
+RUINED→rot→removed; vehicles: READY→decay→BROKEN, no removal — a
+non-READY vehicle is untouched, so only READY ones are even passed to
+the native call). x/y/kind stay in Python (event text only); the native
+functions return small per-cell result flags (`just_ruined`/`removed`/
+`just_broke`) so Python's existing event-logging reads a flag instead
+of re-deriving it from a condition comparison. Verified via 20,000
+(buildings) and 10,000 (vehicles) randomized input combinations against
+reference Python ports (0 mismatches each) plus a 5000-tick,
+four-seed cumulative-event-hash soak — deliberately longer than prior
+soaks to give the comparatively rare ruin/reclaim/breakdown events more
+chances to actually fire — all ten native modules on vs. off,
+byte-identical.
+
+**Queued next for R7/R6** (now explicitly framed as "the CA engine's
+remaining Python surface"): `world/weather.py`'s per-tick computation;
+`world/terrain_evolution.py`'s weekly/monthly rules; `world/
+disasters.py`; `world/hydrology.py`.
 
 ## One-line summary for CLAUDE.md / CHANGELOG
 
