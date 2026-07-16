@@ -4,6 +4,77 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.83.0] — Phase M: Faith & Meaning (ritual→religion, Narrative Direction)
+
+First implementation slice of the long-term vision's Phase M
+(docs/VISION-2026-07.md, "Faith & Meaning"), per explicit user
+direction to pursue Phase M first while continuing UI/pacing work in
+parallel. Both pieces follow the standing "maximize emergence per LLM
+call" discipline: detection is free and deterministic, a call is spent
+only once there's real accumulated texture to ask about, and the
+fallback for "does this form" is always an honest "not yet" — never an
+invented placeholder.
+
+### Added
+
+- **Ritual detection** (`SimulationEngine._detect_ritual_signals`/
+  `_maybe_promote_ritual`, zero LLM cost, every tick): recognizes two
+  patterns from real coincidence already tracked elsewhere —
+  `communal_feast` (the settlement has held enough festivals, each
+  already implicitly "after good fortune" via the existing
+  well-fed gate) and `shrine_mourning` (a death lands while a STANDING
+  shrine stands). Promoted into `Settlement.rituals` (capped
+  `RITUAL_MAX_STORED=12`), logged as `ritual_formed`.
+- **Religion crystallization** (`llm/religion.py`,
+  `SimulationEngine._maybe_schedule_religion`, season_end-gated, one
+  call): once a settlement has at least one accumulated ritual, asks
+  the LLM whether its practices/omens/folklore genuinely coalesce into
+  a shared named belief — most of the time the honest answer is no.
+  A formed religion (`Settlement.religion`: name + up to 4 tenets) also
+  pushes one representative entry into the existing `Settlement.
+  beliefs` list (institution-mirrored via the existing sync
+  helpers) rather than building a parallel consumption path. Logged as
+  `religion_formed`.
+- **Schism on fission** (`llm/fission.py`): a departing party from a
+  settlement with a formed religion may now reform it independently —
+  the fission LLM call's existing JSON schema gained one optional
+  `schism` boolean field (zero added call volume), and a schism copies
+  the parent's tenets onto the new settlement as `"Reformed <name>"`
+  with `schism_of` set to the parent's id.
+- **Narrative Direction** (`llm/narrative_direction.py`,
+  `SimulationEngine._maybe_schedule_narrative_direction`,
+  season_end-gated — a season already is a real-calendar quarter, one
+  call): names the theme(s) running through a settlement's recent
+  events/folklore/mood (e.g. "quiet renewal," "unease"). Consumed ONLY
+  as one ambient-bias sentence folded into `town_brain`/`omens`/
+  `chronicle`/`Dream()` prompts (`_narrative_theme_bias`) — never
+  schedules or scripts an event on its own. Stored capped
+  (`NARRATIVE_THEMES_MAX_STORED=8`).
+- UI: new "Faith & rituals" panel (religion name/tenets + ritual list)
+  alongside Folklore, and a "recent theme of village life" line in the
+  Town Brain panel — both reachable under the existing "📊 details"
+  toggle, same as their siblings. Three new event icons/groups
+  (`ritual_formed` 🕯️, `religion_formed` ⛩️, `narrative_direction` 📖,
+  all grouped under the "mind" filter chip).
+
+### Verified
+
+- Direct fake-client tests: `_detect_ritual_signals`/`_maybe_promote_
+  ritual` correctly promote both patterns from synthetic festival/death
+  history; `_maybe_schedule_religion` crystallizes a religion only once
+  a ritual exists and never re-forms one that already exists; schism on
+  fission produces a correctly-tagged reformed offshoot religion on the
+  new settlement.
+- `religion`/`rituals`/`ritual_signal_counts`/`narrative_themes`
+  round-trip exactly through `to_dict`/`from_dict`; legacy snapshots
+  missing these fields default cleanly (`None`/`{}`/`[]`).
+- Live browser (Playwright) verification of the new "Faith & rituals"
+  panel and narrative-theme line rendering real injected data.
+- A 20,000-tick engine soak (fake instant LLM client, Phase M jobs
+  active) completes with zero crashes and healthy LLM stats
+  (1728 calls attempted/succeeded, 0 errors); `scripts/verify_native_
+  soak.py` unaffected — this batch touches no native module.
+
 ## [0.82.0] — LLM-pressure tick pacing; snow fix; "town is alive" UI cues
 
 Explicit standing priority: LLM decision quality over simulation

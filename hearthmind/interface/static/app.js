@@ -120,6 +120,9 @@ const CATEGORY_META = {
   record_written: { icon: "✍️" },
   place_named: { icon: "🗺️" },
   institution_belief: { icon: "🏛️" },
+  ritual_formed: { icon: "🕯️" },
+  religion_formed: { icon: "⛩️" },
+  narrative_direction: { icon: "📖" },
 };
 
 // Event-log filter chips (v0.64.0 UI backlog): coarse groups, display-only —
@@ -142,7 +145,8 @@ const EVENT_GROUP_OF = {
   place_named: "nature",
   chronicle: "mind", documentary: "mind", sim_summary: "mind", tradition: "mind", invention: "mind",
   festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind",
-  institution_belief: "mind",
+  institution_belief: "mind", ritual_formed: "mind", religion_formed: "mind",
+  narrative_direction: "mind",
 };
 let activeEventGroup = "all";
 
@@ -2049,6 +2053,26 @@ function renderStats(summary) {
     setInnerHTMLIfChanged(folkloreEl, folklore.length
       ? folklore.map((f) => `<li>${f.tale}</li>`).join("")
       : "<li>no tales told yet</li>");
+  }
+
+  const religionSummaryEl = document.getElementById("religion-summary");
+  const ritualsEl = document.getElementById("rituals-list");
+  if (religionSummaryEl && ritualsEl) {
+    setInnerHTMLIfChanged(religionSummaryEl, s.religion
+      ? `<b>${s.religion.name}</b>: ${s.religion.tenets.join("; ")}`
+      : "");
+    const rituals = s.rituals || [];
+    setInnerHTMLIfChanged(ritualsEl, rituals.length
+      ? rituals.map((r) => `<li>${r.description}</li>`).join("")
+      : "<li>nothing repeats often enough to be a ritual yet</li>");
+  }
+
+  const narrativeThemeEl = document.getElementById("narrative-theme");
+  if (narrativeThemeEl) {
+    const themes = s.narrative_themes || [];
+    const latest = themes.length ? themes[themes.length - 1] : null;
+    narrativeThemeEl.classList.toggle("hidden", !latest);
+    if (latest) narrativeThemeEl.textContent = `The recent theme of village life: ${latest.themes.join(", ")}`;
   }
 
   const inventionsEl = document.getElementById("inventions-list");

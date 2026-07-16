@@ -50,7 +50,7 @@ SYSTEM_PROMPT = (
 
 def build_prompt(
     settlement_name: str, temperament: float, recent_events: list[dict], subject_name: str = "",
-    past_omens: list[str] | None = None, folklore: list[dict] | None = None,
+    past_omens: list[str] | None = None, folklore: list[dict] | None = None, narrative_theme: str = "",
 ) -> str:
     lean = "unusually fortunate" if temperament > 0.15 else "unusually unlucky" if temperament < -0.15 else "unremarkable"
     lines = [f"- {event['description']}" for event in recent_events[:10]]
@@ -79,9 +79,10 @@ def build_prompt(
         + "; ".join(f["tale"] for f in folklore[-2:])
         if folklore else ""
     )
+    theme_line = f"\nThe recent theme of village life has been {narrative_theme}." if narrative_theme else ""
     return (
         f"The village of {settlement_name} has had a run of {lean} fortune lately.\n"
-        f"Recent history:\n{events_text}{subject_line}{memory_line}{folklore_line}\n"
+        f"Recent history:\n{events_text}{subject_line}{memory_line}{folklore_line}{theme_line}\n"
         "Note one small, unexplained thing someone in the village noticed."
     )
 

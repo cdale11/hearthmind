@@ -373,6 +373,96 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.83.0)
+
+Phase M start (docs/VISION-2026-07.md, "Faith & Meaning"), per explicit
+user direction ("Both together, Phase M first" / "keep both moving in
+parallel" — Phase N and continued UI/observatory work follow this).
+Two pieces, both scoped tightly to the vision doc's own "maximize
+emergence per LLM call" arithmetic: ritual/religion spends real LLM
+budget only once real accumulated texture exists to ask about; Narrative
+Direction is one quarterly call whose entire output is a short ambient
+bias string, never an event trigger.
+
+**Ritual detection is free and deterministic** (`SimulationEngine.
+_detect_ritual_signals`/`_maybe_promote_ritual`, runs every tick,
+cheap even so — bounded by `MAX_SETTLEMENTS`). Two recognized
+patterns, matching the vision doc's own examples: `communal_feast`
+(enough festivals held — `festivals_held` is already a persistent
+counter, and every real festival is already implicitly "after good
+fortune" since `_maybe_schedule_festival` only fires when well-fed) and
+`shrine_mourning` (a death lands the same tick a STANDING shrine
+exists — deaths are settlement-agnostic in `last_life_events`, so this
+counts a world-wide death tick against every settlement with a standing
+shrine, an acceptable looseness for texture-only heuristics). Promoted
+into `Settlement.rituals` (capped `RITUAL_MAX_STORED=12`) at
+`RITUAL_PROMOTION_THRESHOLD=3` occurrences, logged as `ritual_formed`.
+
+**Religion crystallization spends the one real LLM call**
+(`llm/religion.py`, `_maybe_schedule_religion`, season_end-gated —
+requires ≥1 accumulated ritual and no existing religion): asks the
+model to honestly judge whether the settlement's rituals/omens/
+folklore genuinely coalesce into a shared named belief, or whether
+it's still too soon — same "None is not a failure, it's the expected
+common case" discipline as `llm/folklore.py`. `fallback_religion()`
+always answers "not yet"; a religion is never fabricated by a
+fallback. A formed `Settlement.religion` (name + up to 4 tenets) is
+also pushed as one representative entry into the existing `Settlement.
+beliefs` list — institution-mirrored via the existing `sync_family_/
+council_/guild_beliefs` helpers — rather than building a parallel
+consumption pipeline, so dialogue/cognition prompts that already read
+`beliefs_about`/settlement beliefs pick it up for free.
+
+**Schism on fission**: `llm/fission.py`'s existing per-fission LLM call
+gained one optional `schism` boolean field (zero added call volume) —
+a departing party from a settlement with a formed religion may choose
+to reform it independently on the new settlement, tagged `"Reformed
+<name>"` with `schism_of` set to the parent settlement's id and the
+parent's tenets carried over unchanged. Deliberately scoped to
+fission only, not any dispute/faction-driven schism path — no
+faction-religion linkage exists in the codebase yet, and inventing one
+felt like unwarranted scope creep for a first version.
+
+**Narrative Direction** (`llm/narrative_direction.py`,
+`_maybe_schedule_narrative_direction`, season_end-gated, one call —
+a season already IS a real-calendar quarter, no new cadence machinery
+needed): reads the settlement's recent events/folklore/mood trajectory
+and names the theme(s) actually running through its recent life
+("quiet renewal," "unease," "decline") — grounded, never invented
+drama. Consumed ONLY as one short ambient-bias sentence
+(`_narrative_theme_bias`) folded into `town_brain`/`omens`/
+`chronicle`/`Dream()` prompts — it never schedules or scripts an event
+on its own; it makes what those mechanisms already do thematically
+coherent from call to call instead of arbitrary. Stored capped
+(`NARRATIVE_THEMES_MAX_STORED=8`).
+
+**UI**: new "Faith & rituals" panel (religion name/tenets + ritual
+list) alongside Folklore under the existing "📊 details" toggle, and a
+"recent theme of village life" line in the Town Brain panel — same
+per-batch UI-surfacing discipline as every prior phase. Three new
+event icons/groups (`ritual_formed` 🕯️, `religion_formed` ⛩️,
+`narrative_direction` 📖, grouped under the "mind" filter chip).
+
+Verified: direct fake-client tests for `_detect_ritual_signals`/
+`_maybe_promote_ritual` (both patterns promote correctly from
+synthetic festival/death history), `_maybe_schedule_religion`
+(crystallizes only once a ritual exists, never re-forms an existing
+one), and schism-on-fission (correctly tagged reformed offshoot
+religion on the new settlement, tenets carried over); `religion`/
+`rituals`/`ritual_signal_counts`/`narrative_themes` round-trip exactly
+through `to_dict`/`from_dict`, legacy snapshots missing them default
+cleanly; live Playwright verification of the new UI panel/line
+rendering real injected data; a 20,000-tick engine soak (fake instant
+LLM client, Phase M jobs active) completes with zero crashes and
+healthy LLM stats (1728 calls attempted/succeeded, 0 errors — no
+ritual/religion formed in this particular low-stimulus run, expected
+since it's a stability soak rather than a targeted stimulus test, and
+formation was already confirmed correct under controlled conditions in
+the fake-client tests above); `scripts/verify_native_soak.py`
+unaffected — this batch touches no native module. Next milestone:
+Phase N (Town Consciousness v2) per the user's explicit direction, plus
+continued UI/observatory work in parallel.
+
 ## Current state (v0.82.0)
 
 Explicit user directive, and a new standing priority statement: **"the

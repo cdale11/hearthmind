@@ -20,12 +20,18 @@ leap — the deterministic path founds settlements rarely, preserving
 
 SYSTEM_PROMPT = (
     "You decide whether a villager leads a group away to found a new settlement. "
-    "Respond ONLY with JSON: {\"depart\": true or false, \"reason\": \"one short sentence in their voice\"}."
+    "If told the village shares a specific belief, also decide whether the departing group "
+    "carries it with them faithfully or breaks from it in a quiet schism — a different reading "
+    "of the same belief, not necessarily a hostile one. Ignore the schism question entirely if "
+    "no belief is mentioned. "
+    "Respond ONLY with JSON: {\"depart\": true or false, \"reason\": \"one short sentence in their voice\", "
+    "\"schism\": true or false}."
 )
 
 
 def build_prompt(
     leader, settlement_name: str, members: int, housing_capacity: int, season: str,
+    religion_name: str | None = None,
 ) -> str:
     ambition = leader.traits.get("ambition", 0.0)
     openness = leader.traits.get("openness", 0.0)
@@ -39,6 +45,17 @@ def build_prompt(
     ]
     if leader.memories:
         lines.insert(2, f"They remember: {leader.memories[-1]}")
+    # Phase M schism hook: only mentioned when the home settlement
+    # actually holds a named belief — this reuses fission's existing
+    # one call rather than adding a second, per the "zero added call
+    # volume" discipline every optional-field extension in this
+    # codebase follows (see Agent.secrets/mind's docstrings for the
+    # precedent).
+    if religion_name:
+        lines.append(
+            f"{settlement_name} shares a belief called {religion_name}. If {leader.name} departs, "
+            "do the people who leave carry it unchanged, or does the departure mark a quiet schism?"
+        )
     return "\n".join(lines)
 
 
@@ -48,14 +65,21 @@ def fallback_decision(leader) -> dict:
         "There is no room left here for what I mean to build."
         if depart else "Not yet — my roots still hold me here."
     )
-    return {"depart": depart, "reason": reason}
+    # Deterministic fallback always keeps the faith unchanged — a schism
+    # is meant to be a genuine model read of the leader's own bent, never
+    # invented by the fallback path (same discipline as llm/religion.py's
+    # "fallback never forms a religion").
+    return {"depart": depart, "reason": reason, "schism": False}
 
 
-def parse_decision(result: dict, fallback: dict) -> tuple[bool, str]:
+def parse_decision(result: dict, fallback: dict) -> tuple[bool, str, bool]:
     depart = result.get("depart", fallback["depart"])
     if not isinstance(depart, bool):
         depart = str(depart).strip().lower() in ("true", "yes", "1")
     reason = str(result.get("reason", "") or fallback["reason"]).strip()
     if len(reason) > 200:
         reason = reason[:197] + "..."
-    return depart, reason
+    schism = result.get("schism", fallback["schism"])
+    if not isinstance(schism, bool):
+        schism = str(schism).strip().lower() in ("true", "yes", "1")
+    return depart, reason, schism

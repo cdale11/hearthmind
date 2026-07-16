@@ -1,3 +1,3 @@
 """Hearthmind: a persistent, always-running artificial world."""
 
-__version__ = "0.82.0"
+__version__ = "0.83.0"

@@ -48,7 +48,8 @@ from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
     faction, fission, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, dream, festival,
-    folklore, founding, geography, invention, mind, naming, omens, rumor_interpret, summary, town_brain,
+    folklore, founding, geography, invention, mind, naming, narrative_direction, omens, religion,
+    rumor_interpret, summary, town_brain,
 )
 from hearthmind.llm.client import build_llm_client
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
@@ -82,6 +83,9 @@ from hearthmind.settlement.buildings import (
     MATERIALS_CAPACITY,
     CAMP_TOLERANCE,
     HUT_CAPACITY,
+    NARRATIVE_THEMES_MAX_STORED,
+    RITUAL_MAX_STORED,
+    RITUAL_PROMOTION_THRESHOLD,
     SHRINE_OMEN_CHANCE_MULTIPLIER,
     TEMPERAMENT_INVENTION_INFLUENCE,
     BuildingKind,
@@ -942,6 +946,8 @@ class SimulationEngine:
         ("_maybe_schedule_folklore", _JOB_EVENTS),
         ("_maybe_schedule_invention", _JOB_EVENTS),
         ("_maybe_schedule_festival", _JOB_EVENTS),
+        ("_maybe_schedule_religion", _JOB_EVENTS),
+        ("_maybe_schedule_narrative_direction", _JOB_EVENTS),
         ("_maybe_schedule_caravan", _JOB_EVENTS),
         ("_maybe_schedule_town_brain", _JOB_EVENTS),
         ("_maybe_schedule_beliefs", _JOB_EVENTS),
@@ -984,6 +990,7 @@ class SimulationEngine:
                 category=category, description=description,
                 commit=False,
             )
+        self._detect_ritual_signals()
         if "day_end" in events:
             self._log_daily_metrics()
             self._llm_calls_today = 0  # reset the daily Ollama-call ceiling (v0.70.0)
@@ -1459,6 +1466,7 @@ class SimulationEngine:
             beliefs=list(settlement.beliefs),
             place_names=dict(settlement.place_names),
             folklore=list(settlement.folklore),
+            narrative_theme=self._narrative_theme_bias(settlement),
         )
         fallback = chronicle.fallback_summary(
             recent, population_summary, previous_season, year,
@@ -1752,6 +1760,167 @@ class SimulationEngine:
 
         self._schedule_llm_job("festival", prompt, festival.SYSTEM_PROMPT, fallback, apply)
 
+    # --- Phase M: ritual detection (free, deterministic) + religion (one call) -
+
+    def _detect_ritual_signals(self) -> None:
+        """Deterministic, zero-LLM-cost detector (Phase M, docs/VISION-
+        2026-07.md, "Faith & Meaning") — called every tick from
+        `_tick_once`, cheap even so: a death is rare, and the per-
+        settlement check below is a handful of dict/list lookups bounded
+        by MAX_SETTLEMENTS. Two recognized patterns, matching the vision
+        doc's own examples:
+
+        - "communal_feast": the settlement has held enough festivals
+          (`festivals_held`, already a persistent counter — no new
+          tracking needed) — each one already implicitly "after good
+          fortune," since `_maybe_schedule_festival` only ever fires
+          when the settlement is well-fed (FESTIVAL_HUNGER_GATE).
+        - "shrine_mourning": a death occurred this tick while the
+          settlement has a STANDING shrine. Deaths are settlement-
+          agnostic in `last_life_events` (just category/description
+          strings, no settlement id) — rather than invent that
+          association, this counts a world-wide death tick against
+          every settlement that currently has a standing shrine, which
+          is an acceptable looseness for a texture-only heuristic (most
+          worlds have exactly one settlement for a long time anyway).
+
+        Neither pattern costs an LLM call; `_maybe_schedule_religion`
+        below is the one place accumulated rituals get spent on a real
+        model read."""
+        had_death = any(category == "death" for category, _ in self.world.last_life_events)
+        for stl in self.world.settlements:
+            if not stl.name:
+                continue
+            if had_death and any(
+                b.kind is BuildingKind.SHRINE and b.stage is BuildingStage.STANDING for b in stl.buildings
+            ):
+                stl.ritual_signal_counts["shrine_mourning"] = stl.ritual_signal_counts.get("shrine_mourning", 0) + 1
+            self._maybe_promote_ritual(stl)
+
+    def _maybe_promote_ritual(self, stl: "Settlement") -> None:
+        existing_patterns = {r["pattern"] for r in stl.rituals}
+        if (
+            stl.festivals_held >= RITUAL_PROMOTION_THRESHOLD
+            and "communal_feast" not in existing_patterns
+        ):
+            stl.rituals.append({
+                "pattern": "communal_feast",
+                "description": "the village gathers to feast whenever fortune allows it",
+                "formed_tick": self.world.clock.tick_count,
+            })
+            if len(stl.rituals) > RITUAL_MAX_STORED:
+                stl.rituals = stl.rituals[-RITUAL_MAX_STORED:]
+            self._log("ritual_formed", f"{stl.name} has begun to treat its festivals as something more than celebration.")
+        mourning = stl.ritual_signal_counts.get("shrine_mourning", 0)
+        if mourning >= RITUAL_PROMOTION_THRESHOLD and "shrine_mourning" not in existing_patterns:
+            stl.rituals.append({
+                "pattern": "shrine_mourning",
+                "description": "the village gathers at the shrine to mourn its dead",
+                "formed_tick": self.world.clock.tick_count,
+            })
+            if len(stl.rituals) > RITUAL_MAX_STORED:
+                stl.rituals = stl.rituals[-RITUAL_MAX_STORED:]
+            stl.ritual_signal_counts["shrine_mourning"] = 0  # consumed — don't re-promote a duplicate
+            self._log("ritual_formed", f"{stl.name} has taken to mourning its dead at the shrine.")
+
+    def _maybe_schedule_religion(self, events: list[str]) -> None:
+        """Seasonal, one call, gated on having enough accumulated
+        `rituals` — the actual crystallization step. Deliberately never
+        re-attempts once a religion has formed (v1: religions don't yet
+        evolve or get revised, only founded or schismed — see
+        `llm/fission.py`'s optional schism field). Nothing guaranteed:
+        `llm/religion.py`'s fallback always means "not yet," never an
+        invented placeholder faith — see its module docstring."""
+        target = self._job_target()
+        if "season_end" not in events or not target.name:
+            return
+        if target.religion is not None or len(target.rituals) < 1:
+            return
+        if self._settlement_job_backpressured():
+            return
+        omen_history = list(target.omen_history)
+        folklore_entries = list(target.folklore)
+        prompt = religion.build_prompt(target.name, target.rituals, omen_history, folklore_entries)
+        fallback = religion.fallback_religion()
+        target_id = target.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            parsed = religion.parse_religion(result, fallback)
+            if parsed is None:
+                return  # not yet — a real, expected outcome, see module docstring
+            stl = self._settlement_by_id(target_id)
+            if stl.religion is not None:
+                return  # formed by another in-flight attempt already
+            tick = self.world.clock.tick_count
+            stl.religion = {
+                "name": parsed["name"], "tenets": parsed["tenets"],
+                "formed_tick": tick, "schism_of": None,
+            }
+            # Tenets also become one representative belief entry, riding
+            # the existing beliefs machinery (and its institution
+            # mirroring) rather than a parallel consumption path — see
+            # SettlementCulture.religion's docstring.
+            entry = {
+                "subject": "the village's faith",
+                "belief": f"{parsed['name']}: {'; '.join(parsed['tenets'])}",
+                "confidence": 0.7, "subject_agent_id": None, "subject_family_agent_ids": [],
+                "formed_tick": tick, "revised_tick": tick, "revision_count": 0,
+            }
+            stl.beliefs.append(entry)
+            if len(stl.beliefs) > beliefs.MAX_BELIEFS:
+                weakest = min(stl.beliefs, key=lambda b: b["confidence"])
+                stl.beliefs.remove(weakest)
+            beliefs.sync_family_beliefs(entry, stl.institutions)
+            beliefs.sync_council_beliefs(entry, stl.institutions)
+            beliefs.sync_guild_beliefs(entry, stl.institutions)
+            self._log(
+                "religion_formed",
+                f"{stl.name} has come to share a belief it calls {parsed['name']}.",
+            )
+
+        self._schedule_llm_job("religion", prompt, religion.SYSTEM_PROMPT, fallback, apply)
+
+    def _maybe_schedule_narrative_direction(self, events: list[str]) -> None:
+        """Quarterly (season_end — a season already IS a real-calendar
+        quarter, no new cadence machinery needed), one call: names the
+        theme(s) running through the settlement's recent life. Consumed
+        ONLY as prompt bias (see `_narrative_theme_bias` below) — never
+        schedules or scripts anything on its own. See llm/narrative_
+        direction.py's module docstring."""
+        target = self._job_target()
+        if "season_end" not in events or not target.name:
+            return
+        if self._settlement_job_backpressured():
+            return
+        recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
+        mood = dict(target.mood)
+        prompt = narrative_direction.build_prompt(target.name, recent, target.folklore, mood, target.narrative_themes)
+        fallback = narrative_direction.fallback_direction(mood)
+        target_id = target.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            themes = narrative_direction.parse_direction(result, fallback)
+            stl = self._settlement_by_id(target_id)
+            stl.narrative_themes.append({"themes": themes, "formed_tick": self.world.clock.tick_count})
+            if len(stl.narrative_themes) > NARRATIVE_THEMES_MAX_STORED:
+                stl.narrative_themes = stl.narrative_themes[-NARRATIVE_THEMES_MAX_STORED:]
+            self._log("narrative_direction", f"{stl.name}'s recent life reads as: {', '.join(themes)}.")
+
+        self._schedule_llm_job("narrative_direction", prompt, narrative_direction.SYSTEM_PROMPT, fallback, apply)
+
+    @staticmethod
+    def _narrative_theme_bias(stl: "Settlement") -> str:
+        """The one short "current theme" line town_brain/omens/chronicle/
+        Dream() fold into their prompts as ambient bias — never a
+        directive, never guaranteed to be acted on, just coloring
+        already-real decisions the same thematically-coherent way a
+        person's current preoccupations color unrelated choices. Empty
+        string (omitted entirely) until Narrative Direction has ever
+        fired once."""
+        if not stl.narrative_themes:
+            return ""
+        return ", ".join(stl.narrative_themes[-1]["themes"])
+
     # --- caravans: a first, scoped step toward "external settlements and trade" ---
 
     def _maybe_schedule_caravan(self, events: list[str]) -> None:
@@ -1852,6 +2021,7 @@ class SimulationEngine:
             settlement.name, recent, population_summary, settlement_summary, whispers_sent,
             beliefs=list(settlement.beliefs),
             council_beliefs=list(council.beliefs) if council else None,
+            narrative_theme=self._narrative_theme_bias(settlement),
         )
         fallback = town_brain.fallback_priority(population_summary, settlement_summary, council_disposition)
         brain_target_id = settlement.id
@@ -2067,7 +2237,10 @@ class SimulationEngine:
         home = self._settlement_by_id(agent.settlement_id)
         if home.folklore:
             latest_folklore = home.folklore[-1]["tale"]
-        prompt = dream.build_prompt(agent.name, dict(agent.emotions), agent.goal_reason, latest_folklore)
+        prompt = dream.build_prompt(
+            agent.name, dict(agent.emotions), agent.goal_reason, latest_folklore,
+            narrative_theme=self._narrative_theme_bias(home),
+        )
         fallback = dream.fallback_dream(agent.name, dict(agent.emotions))
 
         def apply(result: dict, used_fallback: bool) -> None:
@@ -2210,6 +2383,7 @@ class SimulationEngine:
         prompt = omens.build_prompt(
             omen_target.name, temperament, recent, subject_name=subject_name, past_omens=past_omens,
             folklore=list(omen_target.folklore),
+            narrative_theme=self._narrative_theme_bias(omen_target),
         )
         fallback = omens.fallback_omen(temperament, self.world.clock.tick_count, subject_name=subject_name)
         omen_target_id = omen_target.id
@@ -2536,12 +2710,16 @@ class SimulationEngine:
             1 for b in home.buildings
             if b.kind is BuildingKind.HUT and b.stage is BuildingStage.STANDING
         ) * HUT_CAPACITY + CAMP_TOLERANCE
-        prompt = fission.build_prompt(leader, home.name, members, housing, self.world.clock.season)
+        home_religion_name = home.religion["name"] if home.religion is not None else None
+        prompt = fission.build_prompt(
+            leader, home.name, members, housing, self.world.clock.season,
+            religion_name=home_religion_name,
+        )
         fallback = fission.fallback_decision(leader)
         leader_id, home_id = leader.id, home.id
 
         def apply(result: dict, used_fallback: bool) -> None:
-            depart, reason = fission.parse_decision(result, fallback)
+            depart, reason, schism = fission.parse_decision(result, fallback)
             if not depart:
                 return  # they weighed the leap and stayed — a real decision
             population = self.world.population
@@ -2576,6 +2754,28 @@ class SimulationEngine:
             seed = seed_relation(home.temperament, relation_rng)
             home.relations[new_id] = seed
             new_settlement.relations[home_id] = seed
+            # Phase M schism: the departing party carries the home
+            # settlement's faith (if any) with them — either unchanged,
+            # or, on a genuine model-read schism, a deterministically
+            # generated "different reading" of the same tenets (no
+            # second LLM call — see fission.build_prompt's docstring).
+            if home.religion is not None:
+                if schism:
+                    new_settlement.religion = {
+                        "name": f"{home.religion['name']} (Reformed)",
+                        "tenets": list(home.religion["tenets"]),
+                        "formed_tick": self.world.clock.tick_count,
+                        "schism_of": home_id,
+                    }
+                    self._log(
+                        "religion_formed",
+                        f"The settlers who left {home.name} carry a changed reading of its faith, {home.religion['name']}.",
+                    )
+                else:
+                    new_settlement.religion = {
+                        "name": home.religion["name"], "tenets": list(home.religion["tenets"]),
+                        "formed_tick": self.world.clock.tick_count, "schism_of": None,
+                    }
             self.world.settlements.append(new_settlement)
             population.depart_for_fission(
                 party, new_settlement, site, self.world.clock.tick_count, home.name,

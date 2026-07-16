@@ -24,7 +24,7 @@ SYSTEM_PROMPT = (
 def build_prompt(
     recent_events: list[dict], population_summary: dict, season: str, year: int,
     settlement_name: str = "", traditions: list[str] | None = None, beliefs: list[dict] | None = None,
-    place_names: dict | None = None, folklore: list[dict] | None = None,
+    place_names: dict | None = None, folklore: list[dict] | None = None, narrative_theme: str = "",
 ) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened."
@@ -48,6 +48,10 @@ def build_prompt(
             # required content — the system prompt above only invites
             # using them "if it fits."
             culture += f"Tales the village tells: {'; '.join(f['tale'] for f in folklore[-3:])}. "
+        if narrative_theme:
+            # Phase M "Narrative Direction": ambient interpretive lens,
+            # same "if it fits" treatment as folklore above.
+            culture += f"The recent theme of its life has been {narrative_theme}. "
     return (
         f"{culture}The season just ended: {season}, year {year}. "
         f"Current population: {population_summary['total']} inhabitants "

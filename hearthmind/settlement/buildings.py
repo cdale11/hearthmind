@@ -268,6 +268,29 @@ smaller than `CULTURE_LIST_MAX_STORED=300` — a village's enduring
 legends are meant to read as a curated handful of old tales, not
 hundreds; oldest dropped first, same eviction shape as traditions."""
 
+RITUAL_PROMOTION_THRESHOLD = 3
+"""How many times a candidate pattern (a festival held, a death mourned
+at a standing shrine) must recur before `SimulationEngine._maybe_
+promote_ritual` promotes it from `ritual_signal_counts` into a real
+`SettlementCulture.rituals` entry — one or two is coincidence, three is
+a pattern. Deliberately small: this is free (no LLM call), so there's
+no call-budget reason to make it rare; it just needs to not fire on a
+single lucky festival."""
+
+RITUAL_MAX_STORED = 12
+"""Cap on `SettlementCulture.rituals` — a village's genuinely distinct
+recurring practices are meant to read as a short, curated list (there
+are currently only two detectable pattern kinds — see
+`_detect_ritual_signals` — so this ceiling is generous headroom for
+future pattern kinds, not an expected steady-state count)."""
+
+NARRATIVE_THEMES_MAX_STORED = 8
+"""Cap on `SettlementCulture.narrative_themes` — Phase M "Narrative
+Direction" fires at most once a season (4/year), so this is several
+years of history; only the newest entry is ever read as the "current"
+theme, the rest is context for the LLM's own next call to notice a
+theme shifting or persisting."""
+
 INSTITUTION_LIST_MAX_STORED = 300
 """Cap on the *stored* count of FAMILY institutions in
 `Settlement.institutions` (v0.54.0) — a 40k-tick live measurement (seed
@@ -1435,6 +1458,41 @@ class SettlementCulture:
     become," the same category traditions/beliefs already occupy, and
     this avoids a facade-wide passthrough churn for one new list."""
     next_institution_id: int = 0
+    rituals: list[dict] = field(default_factory=list)
+    """Phase M (docs/VISION-2026-07.md, "Faith & Meaning"): `{"pattern":
+    str, "description": str, "formed_tick": int}` — deterministic, free
+    detection of repeated real coincidence (SimulationEngine.
+    _detect_ritual_signals/_maybe_promote_ritual), not an LLM guess.
+    Once a pattern (a repeated festival, a death mourned at a standing
+    shrine) recurs `RITUAL_PROMOTION_THRESHOLD` times, it's promoted
+    here. This is the raw material `_maybe_schedule_religion` is later
+    allowed to reason about — accumulating rituals doesn't itself cost
+    a call. Capped at RITUAL_MAX_STORED."""
+    ritual_signal_counts: dict = field(default_factory=dict)
+    """pattern key -> running occurrence count, the working state behind
+    `rituals` above — NOT itself surfaced as "the village's culture" (a
+    count of 1 or 2 isn't a ritual yet). Cleared for a pattern once it's
+    promoted, so a pattern can't re-promote a duplicate entry."""
+    religion: dict | None = None
+    """Phase M: `{"name": str, "tenets": list[str], "formed_tick": int,
+    "schism_of": int | None}` once `_maybe_schedule_religion` (seasonal,
+    gated on having enough accumulated `rituals`) genuinely crystallizes
+    one — deliberately NOT guaranteed to ever form; the fallback path
+    for this job is always "not yet," never an invented placeholder
+    faith. `schism_of` is the origin settlement's id when this religion
+    is a fissioned offshoot (see `llm/fission.py`'s optional schism
+    field) rather than an independently-formed one. Tenets are also
+    pushed as one representative entry into `beliefs` above (and
+    institution-mirrored through the same `beliefs.sync_*` helpers
+    every other belief uses) so every existing beliefs-consumer already
+    picks this up for free."""
+    narrative_themes: list[dict] = field(default_factory=list)
+    """Phase M "Narrative Direction": `{"themes": list[str], "formed_
+    tick": int}`, quarterly (season_end-gated, one LLM call reading
+    chronicle + folklore + mood trajectory). Consumed ONLY as prompt
+    bias — town_brain/omens/chronicle/dream read `narrative_themes[-1]`
+    for a "current theme" line — never schedules or scripts an event on
+    its own. Capped at NARRATIVE_THEMES_MAX_STORED."""
 
 
 @dataclass
@@ -1525,6 +1583,8 @@ class Settlement:
         records: list[dict] | None = None, id: int = 0,
         center_x: int = -1, center_y: int = -1,
         mood: dict[str, float] | None = None,
+        rituals: list[dict] | None = None, ritual_signal_counts: dict | None = None,
+        religion: dict | None = None, narrative_themes: list[dict] | None = None,
     ):
         self.id = id
         """Stable settlement identity (multi-settlement pass, v0.65.0):
@@ -1568,6 +1628,10 @@ class Settlement:
             records=records if records is not None else [],
             institutions=institutions if institutions is not None else [],
             next_institution_id=next_institution_id,
+            rituals=rituals if rituals is not None else [],
+            ritual_signal_counts=ritual_signal_counts if ritual_signal_counts is not None else {},
+            religion=religion,
+            narrative_themes=narrative_themes if narrative_themes is not None else [],
         )
         self.disposition = SettlementDisposition(
             temperament=temperament,
@@ -1782,6 +1846,38 @@ class Settlement:
     @next_institution_id.setter
     def next_institution_id(self, value: int) -> None:
         self.culture.next_institution_id = value
+
+    @property
+    def rituals(self) -> list[dict]:
+        return self.culture.rituals
+
+    @rituals.setter
+    def rituals(self, value: list[dict]) -> None:
+        self.culture.rituals = value
+
+    @property
+    def ritual_signal_counts(self) -> dict:
+        return self.culture.ritual_signal_counts
+
+    @ritual_signal_counts.setter
+    def ritual_signal_counts(self, value: dict) -> None:
+        self.culture.ritual_signal_counts = value
+
+    @property
+    def religion(self) -> dict | None:
+        return self.culture.religion
+
+    @religion.setter
+    def religion(self, value: dict | None) -> None:
+        self.culture.religion = value
+
+    @property
+    def narrative_themes(self) -> list[dict]:
+        return self.culture.narrative_themes
+
+    @narrative_themes.setter
+    def narrative_themes(self, value: list[dict]) -> None:
+        self.culture.narrative_themes = value
 
     @property
     def memorials(self) -> list[dict]:
@@ -2210,6 +2306,9 @@ class Settlement:
                 "guilds": [i.name for i in self.institutions if i.kind is InstitutionKind.GUILD],
                 "factions": [i.name for i in self.institutions if i.kind is InstitutionKind.FACTION],
             },
+            "rituals": list(self.rituals),
+            "religion": dict(self.religion) if self.religion is not None else None,
+            "narrative_themes": list(self.narrative_themes),
         }
 
     def infrastructure_report(self) -> list[dict]:
@@ -2319,6 +2418,10 @@ class Settlement:
             "memorials": list(self.memorials),
             "place_names": dict(self.place_names),
             "records": list(self.records),
+            "rituals": list(self.rituals),
+            "ritual_signal_counts": dict(self.ritual_signal_counts),
+            "religion": dict(self.religion) if self.religion is not None else None,
+            "narrative_themes": list(self.narrative_themes),
         }
 
     @classmethod
@@ -2364,4 +2467,8 @@ class Settlement:
             records=list(data.get("records", [])),
             id=data.get("id", 0),
             center_x=data.get("center_x", -1), center_y=data.get("center_y", -1),
+            rituals=list(data.get("rituals", [])),
+            ritual_signal_counts=dict(data.get("ritual_signal_counts", {})),
+            religion=dict(data["religion"]) if data.get("religion") is not None else None,
+            narrative_themes=list(data.get("narrative_themes", [])),
         )

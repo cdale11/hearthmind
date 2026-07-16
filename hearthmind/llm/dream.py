@@ -30,13 +30,19 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_prompt(agent_name: str, emotions: dict, preoccupation: str, latest_folklore: str = "") -> str:
+def build_prompt(
+    agent_name: str, emotions: dict, preoccupation: str, latest_folklore: str = "",
+    narrative_theme: str = "",
+) -> str:
     emotion_text = describe_emotion(emotions)
     feeling_line = f" Lately they've been feeling {emotion_text}." if emotion_text else ""
     preoccupation_line = f" On their mind: {preoccupation}." if preoccupation else ""
     folklore_line = f" A tale they've heard: {latest_folklore}." if latest_folklore else ""
+    # Phase M "Narrative Direction": ambient bias, never a required
+    # symbol — a dream is allowed to have nothing to do with it.
+    theme_line = f" The village's recent mood has been one of {narrative_theme}." if narrative_theme else ""
     return (
-        f"{agent_name} fell asleep last night.{feeling_line}{preoccupation_line}{folklore_line} "
+        f"{agent_name} fell asleep last night.{feeling_line}{preoccupation_line}{folklore_line}{theme_line} "
         "Describe the dream they had."
     )
 
