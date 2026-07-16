@@ -344,8 +344,9 @@ better than the CPU-only path this project started from.
   --model /path/to/Qwen3-4B-Instruct-Q4_K_M.gguf \
   --ctx-size 2560 --parallel 1 \
   --cache-type-k q8_0 --cache-type-v q8_0 \
+  --batch-size 512 --ubatch-size 128 --defrag-thold 0.1 \
   --no-mmproj --port 8080 \
-  --n-gpu-layers auto --fit on --flash-attn on \
+  --n-gpu-layers auto --fit on --fit-target 2560 --flash-attn on \
   --reasoning off --reasoning-budget 0 --threads $(nproc)
 
 # in another terminal:
@@ -368,8 +369,11 @@ python -m hearthmind.server --db world.sqlite3 --llm-disabled
   see `Config.llm_num_ctx`'s docstring for the full reading. On CPU-only
   8GB hardware, use `LLAMA_CTX_SIZE=1280` (or the manual `--ctx-size
   1280`) instead, see the 8GB section below.
-- `--parallel 1` — one KV-cache slot; safe against `Config.llm_max_
-  concurrent=2` (a second in-flight request just waits its turn).
+- `--parallel 1` — one KV-cache slot, matching `Config.llm_max_
+  concurrent=1` (also lowered in v0.78.5 — a second Python-side
+  in-flight request was pure dead weight against a server that could
+  only ever process one at a time; see `llm_max_concurrent`'s docstring
+  in `config.py`).
 - `--cache-type-k/-v q8_0` — 8-bit KV cache, ~half the memory of the f16
   default, free either way.
 - `--no-mmproj` — explicitly disables multimodal/vision (mmproj)
@@ -385,7 +389,20 @@ python -m hearthmind.server --db world.sqlite3 --llm-disabled
   `--fit`), or set `LLAMA_N_GPU_LAYERS=999 LLAMA_FIT=` for `scripts/
   run.sh`. Use `--n-gpu-layers 0` to force CPU-only. Optional
   `--fit-target <MiB>` sets the per-device headroom margin `--fit` leaves
-  free (default 1024 MiB) if you need more slack for other processes.
+  free (default 1024 MiB, **2560 as of v0.78.5** — see the iGPU section
+  below for why a bigger margin matters specifically on shared-memory
+  hardware) if you need more slack for other processes.
+- `--batch-size 512 --ubatch-size 128` (v0.78.5) — down from llama.cpp's
+  own 2048/512, sized for a single-lane (`--parallel 1`) workload rather
+  than a multi-user server: these bound part of the compute-buffer
+  allocation alongside the KV cache, and this project's prompts are
+  short strict-JSON exchanges that don't need large batching to process
+  efficiently. `--batch-size` must stay >= `--ubatch-size`.
+- `--defrag-thold 0.1` (v0.78.5) — triggers a KV-cache defragmentation
+  pass once fragmentation crosses 10%. Aimed at "runs stably for years":
+  a session this long sees many different prompt lengths reuse the same
+  KV cache over time, and periodic defrag keeps that from slowly
+  fragmenting worse than a fresh restart would leave it.
 - `--flash-attn on` — lower attention memory + faster inference on
   supported backends (default `scripts/run.sh` behavior, `LLAMA_FLASH_
   ATTN`). If a particular build/backend combination rejects `on`
@@ -422,8 +439,9 @@ cmake --build build --config Release -j$(nproc) --target llama-server
 ./build/bin/llama-server \
   --model /path/to/Qwen3-4B-Instruct-Q4_K_M.gguf \
   --ctx-size 2560 --parallel 1 --cache-type-k q8_0 --cache-type-v q8_0 \
+  --batch-size 512 --ubatch-size 128 --defrag-thold 0.1 \
   --no-mmproj --port 8080 \
-  --n-gpu-layers auto --fit on --flash-attn on \
+  --n-gpu-layers auto --fit on --fit-target 2560 --flash-attn on \
   --reasoning off --reasoning-budget 0 --threads $(nproc)
 
 # then, in another terminal (or LLAMA_SERVER_BIN=... ./scripts/run.sh):

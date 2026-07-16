@@ -4,6 +4,31 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.78.5] — LLM config tuning: concurrency floor, batch/ubatch, defrag
+
+Explicit user-directed config tuning for a long stable run on ~6.88GB
+available RAM, all synced between `Config` and `scripts/run.sh`.
+
+### Changed
+
+- `Config.llm_max_concurrent` 2 -> 1, explicitly superseding the
+  v0.44.0 "permanent floor of 2" per direct user instruction —
+  `--parallel 1` already meant a second in-flight request was dead
+  weight against a server that could only serve one at a time.
+- `scripts/run.sh`: `LLAMA_CTX_SIZE` 1280 -> 2560 (now synced with
+  `Config.llm_num_ctx`, closing a drift footgun), `LLAMA_FIT_TARGET`
+  unset -> 2560, `LLAMA_BATCH_SIZE`/`LLAMA_UBATCH_SIZE` unset -> 512/128
+  (down from llama.cpp's own 2048/512, tuned for the single-lane
+  `--parallel 1` workload this project runs).
+- README's manual command examples and flag bullets updated to match.
+
+### Added
+
+- `scripts/run.sh`: `LLAMA_DEFRAG_THOLD` (default 0.1) — passes
+  `--defrag-thold`, triggering periodic KV-cache defragmentation aimed
+  at "runs stably for years" (many different prompt lengths reusing the
+  same cache over a long session fragments it).
+
 ## [0.78.4] — Phase J: permanent mind schema + Reflect()-planted secrets
 
 Closes both pieces deferred from v0.78.3 ("do both, ask when in

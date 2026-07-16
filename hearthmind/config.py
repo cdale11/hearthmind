@@ -201,20 +201,30 @@ class Config:
     toward 0.9 for more variety on a stronger model. Kept above 0 so a
     stuck pair doesn't get the identical deterministic-looking line every
     time."""
-    llm_max_concurrent: int = 2
-    """How many LLM requests may be in flight at once. Raised back 1 -> 2
-    in v0.44.0 per explicit user instruction: LLM richness is
-    non-negotiable — concurrency is not the lever for memory pressure
-    beyond this floor, `llm_num_ctx`/`llm_num_predict`/`llm_keep_alive`
-    are. History: 4 (E2) -> 2 (v0.43.0, the v0.39.0 architecture review's
-    own recommendation) -> 1 (v0.43.1, after the symptom recurred at 2)
-    -> back to 2 (v0.44.0). Each in-flight call holds its own KV-cache
-    allocation in the *separate* Ollama server process — invisible to
-    this process's own RSS, but real system memory pressure all the
-    same; 2 is the floor this project will trade for memory headroom.
-    Further memory reduction must come from elsewhere (shorter
-    `llm_keep_alive`, a smaller/more quantized model, or Python-side
-    savings) — see docs/DECISIONS.md, "LLM concurrency floor restored.\""""
+    llm_max_concurrent: int = 1
+    """How many LLM requests may be in flight at once. History: 4 (E2) ->
+    2 (v0.43.0, the v0.39.0 architecture review's own recommendation) ->
+    1 (v0.43.1, after the symptom recurred at 2) -> 2 (v0.44.0, the
+    "permanent floor" — explicit user instruction at the time: LLM
+    richness is non-negotiable, concurrency isn't the memory lever
+    beyond this floor). **Lowered back to 1 in v0.78.5**, explicitly
+    superseding that v0.44.0 floor per a fresh, direct user instruction
+    ("make concurrent task = 1 if it reduces memory pressure") — it
+    does: `scripts/run.sh` already hardcodes llama-server's own
+    `--parallel 1` (one KV-cache slot), so a second Python-side in-flight
+    request was already queueing behind a server that could only ever
+    process one at a time — pure dead weight (a held network connection
+    + waiting asyncio task) for the llama.cpp backend, and for the
+    Ollama backend (which genuinely does allocate a second KV cache per
+    concurrent request, in that *separate* server process — invisible to
+    this process's own RSS, but real system memory pressure) this
+    directly halves worst-case concurrent KV allocation. Raise back to 2
+    only if you've confirmed (via `--parallel 2`+ on the llama.cpp side,
+    or spare Ollama headroom) that true concurrency is worth the
+    memory — this is no longer a floor the project holds regardless of
+    measurement, just the current best-measured default. See docs/
+    DECISIONS.md, "LLM concurrency floor restored" for the v0.44.0
+    history this supersedes."""
     llm_num_ctx: int = 2560
     """Explicit context-window cap sent with every Ollama request (and
     documented as the `--ctx-size` llama-server launch flag for the

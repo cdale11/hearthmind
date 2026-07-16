@@ -60,15 +60,16 @@ backends and `--llm-temperature`-tunable — previously left to the
 server's ~0.8 default; lowered toward coherence since every prompt wants
 one short grounded strict-JSON answer, targeting live-reported garbled/
 off-topic NPC dialogue on the small default model; drop to 0.5-0.6 for a
-weak model, raise to 0.9 on a stronger one), `llm_num_ctx=3072`,
-`llm_num_predict=512` (raised from 1280/384 in v0.72.3 once GPU offload
-was confirmed working, then re-lowered from an initial 4096/640 in
-v0.72.4 once the user's live `htop` reading showed only ~6.5GB usable
-RAM rather than the full 8GB nominal — the CPU-only-Ollama KV-cache
-pressure that drove the original 1280/384 down in v0.71.1 doesn't apply
-the same way with GPU offload, but "GPU offload works" ≠ "unlimited RAM
-headroom"; lower back to 1280/384 for CPU-only 8GB hardware, see
-README), `llm_keep_alive="3m"`, `llm_use_mmap=True`,
+weak model, raise to 0.9 on a stronger one), `llm_num_ctx=2560`,
+`llm_num_predict=448` (raised from 1280/384 in v0.72.3 once GPU offload
+was confirmed working, re-lowered from an initial 4096/640 in v0.72.4
+once the user's live `htop` reading showed only ~6.5GB usable RAM rather
+than the full 8GB nominal, then re-lowered twice more — 3072/512 in
+v0.78.1, current values in the same pass — once a real long-running-
+game diagnostic (301 population, 13k ticks) showed 2GB of llama-server
+swap even at the v0.72.4 numbers; see `Config.llm_num_ctx`'s docstring
+for the full lineage. Lower back to 1280/384 for CPU-only 8GB hardware,
+see README), `llm_keep_alive="3m"`, `llm_use_mmap=True`,
 `llm_num_thread=None` (`server.py` CLI defaults `--llm-num-thread` to
 every CPU core — see below), `llm_num_gpu=None` for the Ollama backend
 (GPU offload for the default llama.cpp backend is `--n-gpu-layers`, a
@@ -77,10 +78,17 @@ default `auto` + `--fit on` as of v0.75.0 so llama.cpp sizes the offload
 to VRAM dynamically instead of the old hardcoded 999, see README's AMD
 iGPU section and the iGPU investigation in docs/DECISIONS.md).
 
-**`llm_max_concurrent=2` is a permanent floor** (explicit user
-instruction: LLM richness is never traded off against memory below 2;
-further memory savings must come from other levers). History of that
-tuning: docs/DECISIONS.md v0.43.0/v0.43.1/v0.44.0. As of v0.63.0 every
+**`llm_max_concurrent=1`** (lowered from the long-standing "permanent
+floor of 2" in v0.78.5 by explicit, direct user instruction — "make
+concurrent task = 1 if it reduces memory pressure" — which it does:
+`scripts/run.sh` already runs llama-server with `--parallel 1`, so a
+second Python-side in-flight request was dead weight against a server
+that could only ever process one at a time, and for the Ollama backend
+it directly halves worst-case concurrent KV-cache allocation). This is
+no longer held as a floor regardless of measurement — raise it only if
+you've confirmed genuine spare concurrency headroom. History of the
+old floor: docs/DECISIONS.md v0.43.0/v0.43.1/v0.44.0; full lineage in
+`Config.llm_max_concurrent`'s docstring. As of v0.63.0 every
 `server.py` CLI default references its `Config` attribute — the audit
 found `--llm-max-concurrent` had silently stayed at a hardcoded 4 for
 several releases, doubling real Ollama concurrency on plain launches.
@@ -357,6 +365,43 @@ Single-writer tick loop + queued interventions; fallback-on-every-LLM-
 call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
+
+## Current state (v0.78.5)
+
+Direct explicit config-tuning instructions, all implemented as asked:
+"make concurrent task = 1 (default) if it reduces memory pressure,
+default LLAMA_FIT_TARGET=2560, tune ubatch/batch size defaults for a
+long stable run on 6.88GB available RAM, tune other flag defaults too."
+
+- **`Config.llm_max_concurrent` 2 -> 1**, explicitly superseding the
+  v0.44.0 "permanent floor of 2" (see "Hardware target" above and the
+  field's own docstring for the full reasoning/history). `--parallel 1`
+  in `scripts/run.sh` already meant a second Python-side in-flight
+  request only ever queued behind a server that could serve one at a
+  time — reducing to 1 removes that dead weight and, for the Ollama
+  backend (which does allocate a real second KV cache per concurrent
+  request), directly halves worst-case concurrent memory.
+- **`scripts/run.sh` defaults tuned together** rather than piecemeal:
+  `LLAMA_CTX_SIZE` 1280 -> 2560 (now synced with `Config.llm_num_ctx`
+  instead of silently drifting from it — a footgun flagged but not
+  fixed in v0.78.1), `LLAMA_FIT_TARGET` unset -> 2560 (was llama.cpp's
+  own 1024 MiB default), `LLAMA_BATCH_SIZE`/`LLAMA_UBATCH_SIZE` unset ->
+  512/128 (down from llama.cpp's own 2048/512 — sized for the
+  single-lane `--parallel 1` workload this project actually runs, not a
+  multi-user server), new `LLAMA_DEFRAG_THOLD` (default 0.1) —
+  `--defrag-thold`, a KV-cache defragmentation trigger aimed squarely at
+  the "runs stably for years" case: many different prompt lengths
+  reusing the same cache over a long session fragments it, periodic
+  defrag keeps that from compounding. README's manual command examples
+  and flag-explanation bullets updated to match every default above.
+- **CPU-only/8GB override path unchanged** — the documented
+  `LLAMA_CTX_SIZE=1280 LLAMA_N_GPU_LAYERS=0` recipe still works exactly
+  the same, now just an explicit override of a higher bare default
+  rather than the bare default itself.
+
+No code logic changed, only config defaults — verified via `Config()`
+instantiation and `server.py --help`/`bash -n scripts/run.sh`, no
+soak needed (nothing simulation-affecting moved).
 
 ## Current state (v0.78.4)
 
