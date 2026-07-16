@@ -171,6 +171,21 @@ class Config:
     still has an instant deterministic fallback either way). See
     docs/DECISIONS.md, "dialogue quality follow-up" (qwen3.5:2b
     diagnostics), and D5 for the original version of this rationale."""
+    llm_temperature: float = 0.7
+    """Sampling temperature sent with every LLM call (both backends,
+    v0.75.2). Previously unset, so each call used the server's own default
+    (llama-server/Ollama both ~0.8) — pinning it makes generation
+    behaviour a visible, tunable config value instead of a silent server
+    default, the same reason `llm_num_ctx`/`llm_num_predict` are pinned.
+    0.7 is a mild step down from ~0.8 toward coherence: every prompt here
+    wants one short, grounded, strict-JSON answer, not creative variety,
+    and lower temperature measurably reduces the rambling/off-shape output
+    small models (the 4B default) produce under a JSON constraint —
+    directly targeting live-reported "garbled / off-topic" NPC dialogue.
+    Lower it further (0.5-0.6) if a small model still wanders; raise
+    toward 0.9 for more variety on a stronger model. Kept above 0 so a
+    stuck pair doesn't get the identical deterministic-looking line every
+    time."""
     llm_max_concurrent: int = 2
     """How many LLM requests may be in flight at once. Raised back 1 -> 2
     in v0.44.0 per explicit user instruction: LLM richness is

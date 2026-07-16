@@ -65,6 +65,9 @@ class OllamaClient:
     place; this project has no standing opinion on GPU layer count the
     way it does on mmap/ctx/predict, since it depends entirely on
     hardware Ollama may or may not recognize."""
+    temperature: float | None = None
+    """Sampling temperature (see Config.llm_temperature) — sent as an
+    `options` entry. `None` omits it (server default)."""
     num_thread: int | None = None
     """Explicit `num_thread` request option (see Config.llm_num_thread) —
     how many CPU threads Ollama uses for this single inference call.
@@ -94,6 +97,8 @@ class OllamaClient:
             options["num_gpu"] = self.num_gpu
         if self.num_thread is not None:
             options["num_thread"] = self.num_thread
+        if self.temperature is not None:
+            options["temperature"] = self.temperature
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -163,6 +168,11 @@ class LlamaCppClient:
     role as `OllamaClient.num_predict`: bounds a rambling generation,
     which otherwise burns KV-cache memory and wall-clock time for no
     reason since every response here is a short strict-JSON answer."""
+    temperature: float | None = None
+    """Sampling temperature (see Config.llm_temperature) — sent as the
+    OpenAI-compatible `temperature` field. `None` omits it (server
+    default). Lower values curb the rambling/off-shape output small
+    models emit under the JSON grammar constraint."""
 
     def generate_json(self, prompt: str, system: str | None = None) -> dict:
         """Blocking call — issue one `/v1/chat/completions` request and
@@ -189,6 +199,8 @@ class LlamaCppClient:
         }
         if self.num_predict is not None:
             payload["max_tokens"] = self.num_predict
+        if self.temperature is not None:
+            payload["temperature"] = self.temperature
 
         request = urllib.request.Request(
             f"{self.host.rstrip('/')}/v1/chat/completions",
@@ -224,9 +236,10 @@ def build_llm_client(config) -> "OllamaClient | LlamaCppClient":
             host=config.llm_host, model=config.llm_model, timeout_seconds=config.llm_timeout_seconds,
             num_ctx=config.llm_num_ctx, num_predict=config.llm_num_predict,
             keep_alive=config.llm_keep_alive, use_mmap=config.llm_use_mmap, num_gpu=config.llm_num_gpu,
-            num_thread=config.llm_num_thread,
+            num_thread=config.llm_num_thread, temperature=config.llm_temperature,
         )
     return LlamaCppClient(
         host=config.llm_llamacpp_host, model=config.llm_model,
         timeout_seconds=config.llm_timeout_seconds, num_predict=config.llm_num_predict,
+        temperature=config.llm_temperature,
     )

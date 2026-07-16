@@ -259,19 +259,42 @@ that budget stopped being razor-thin."""
 _LEAKAGE_MARKERS = (
     "json", "system prompt", "you are writing", "villager who",
     "respond with", "as an ai", "language model", "i cannot", "i'm an ai",
+    "line_a", "line_b", "sentiment", '"rumor"', "as a villager",
+    "here is", "here's a", "sure,", "output:", "```",
 )
-"""Substrings that show up when a weak model leaks its instructions or
-meta-commentary into the output instead of writing an actual line —
-degrading to the fallback in that case reads as an ordinary canned
-line instead of visibly broken text. See docs/DECISIONS.md, "dialogue
-quality follow-up" (qwen3.5:2b diagnostics)."""
+"""Substrings that show up when a weak model leaks its instructions,
+field names, or meta-commentary into the output instead of writing an
+actual line — degrading to the fallback in that case reads as an
+ordinary canned line instead of visibly broken text. Widened in v0.75.2
+(field-name/markdown/preamble leakage: `line_a`, ```` ``` ````, "here
+is", "output:") after a live report of garbled dialogue on the small
+default model. See docs/DECISIONS.md, "dialogue quality follow-up"."""
+
+
+def _looks_garbled(line: str) -> bool:
+    """True if a line is mostly non-letters or a single token spammed —
+    both small-model degeneration modes (mojibake / repetition loops)
+    that read as obviously broken text rather than dialogue. Kept
+    separate from the leakage-marker list since it's a shape check, not
+    a substring match. A short interjection ('Hm.', 'Aye.') is fine — the
+    letter-ratio gate only applies once there's enough text to judge."""
+    stripped = line.strip()
+    letters = sum(c.isalpha() or c.isspace() for c in stripped)
+    if len(stripped) >= 8 and letters / len(stripped) < 0.6:
+        return True
+    tokens = [t for t in stripped.lower().split() if t.isalpha()]
+    if len(tokens) >= 4 and len(set(tokens)) <= max(1, len(tokens) // 3):
+        # e.g. "no no no no no" — one word repeated to fill the line.
+        return True
+    return False
 
 
 def _is_sane_line(line: str, other_line: str) -> bool:
     """Reject a line that's almost certainly a small-model failure mode
-    rather than a real line of dialogue: instruction/meta leakage, wildly
-    over length, or an exact duplicate of the other speaker's line
-    (a "make no sense" symptom actually observed in live 2B-model
+    rather than a real line of dialogue: instruction/meta/field-name
+    leakage, garbled (mostly-symbol or repetition-loop) text, wildly over
+    length, or an exact duplicate of the other speaker's line (all "make
+    no sense" symptoms actually observed in live small-model
     diagnostics)."""
     lowered = line.lower()
     if any(marker in lowered for marker in _LEAKAGE_MARKERS):
@@ -281,6 +304,8 @@ def _is_sane_line(line: str, other_line: str) -> bool:
     if line.strip().lower() == other_line.strip().lower():
         return False
     if "{" in line or "}" in line:
+        return False
+    if _looks_garbled(line):
         return False
     return True
 

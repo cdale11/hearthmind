@@ -74,6 +74,11 @@ def parse_args(argv: list[str] | None = None) -> Config:
                               "in step with this value.")
     parser.add_argument("--llm-num-predict", type=int, default=Config.llm_num_predict,
                          help="Cap on generated tokens per call, counted against --llm-num-ctx's budget.")
+    parser.add_argument("--llm-temperature", type=float, default=Config.llm_temperature,
+                         help="Sampling temperature for every LLM call (both backends). Lower "
+                              "(0.5-0.6) curbs the rambling/garbled/off-topic output small models "
+                              "produce under the JSON constraint; higher (0.9) adds variety on a "
+                              "stronger model.")
     parser.add_argument("--llm-max-concurrent", type=int, default=Config.llm_max_concurrent,
                          help="Max simultaneous in-flight LLM requests.")
     parser.add_argument("--llm-num-thread", type=int, default=os.cpu_count() or 4,
@@ -126,6 +131,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         llm_timeout_seconds=args.llm_timeout,
         llm_num_ctx=args.llm_num_ctx,
         llm_num_predict=args.llm_num_predict,
+        llm_temperature=args.llm_temperature,
         llm_max_concurrent=args.llm_max_concurrent,
         llm_num_thread=args.llm_num_thread or None,
         llm_core_cast_size=args.llm_core_cast_size,

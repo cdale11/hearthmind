@@ -55,7 +55,12 @@ defensive no-op for it and becomes load-bearing again for the
 report back, don't silently guess. Every call disables "thinking" mode
 (`OllamaClient` sends `"think": false` and strips any leaked `<think>`
 block) since every prompt here wants one strict-JSON answer.
-`llm_timeout_seconds=60`, `llm_num_ctx=3072`,
+`llm_timeout_seconds=60`, `llm_temperature=0.7` (v0.75.2, sent on both
+backends and `--llm-temperature`-tunable — previously left to the
+server's ~0.8 default; lowered toward coherence since every prompt wants
+one short grounded strict-JSON answer, targeting live-reported garbled/
+off-topic NPC dialogue on the small default model; drop to 0.5-0.6 for a
+weak model, raise to 0.9 on a stronger one), `llm_num_ctx=3072`,
 `llm_num_predict=512` (raised from 1280/384 in v0.72.3 once GPU offload
 was confirmed working, then re-lowered from an initial 4096/640 in
 v0.72.4 once the user's live `htop` reading showed only ~6.5GB usable

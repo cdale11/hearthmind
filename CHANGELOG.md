@@ -4,6 +4,39 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.75.2] — NPC dialogue quality: temperature control + garbled-line filter
+
+Response to a live report that NPC-NPC dialogue got "extremely worse" —
+repetitive, off-topic, and garbled at once. `llm/dialogue.py`'s prompt
+is unchanged since v0.72.1, so the regression is backend/model-side (the
+llama.cpp default backend + the small default model under grammar-
+constrained JSON). Two contained, low-risk code levers, plus a
+live-tuning recommendation.
+
+### Added
+- `Config.llm_temperature` (default 0.7) + `--llm-temperature` CLI flag,
+  sent with every call on both backends (previously left to the server's
+  ~0.8 default). Lower temperature curbs the rambling/off-shape output
+  small models produce under the JSON constraint — targets the "garbled
+  / off-topic" symptom. Tunable live (0.5-0.6 for a small model that
+  still wanders, 0.9 for variety on a stronger one).
+
+### Changed
+- `_is_sane_line` (the filter that degrades a bad LLM line to the
+  deterministic fallback so broken text never reaches the feed) now also
+  rejects garbled output: mostly-symbol/mojibake lines, single-token
+  repetition loops ("no no no no"), and more leakage markers (field
+  names like `line_a`, markdown fences, "here is"/"output:" preambles).
+  Short interjections ("Hm.", "Aye.") still pass.
+
+### Recommended (live-tuning, not a code change)
+- All three symptoms at once is the fingerprint of an under-powered
+  model. Now that GPU offload is confirmed working, the highest-leverage
+  fix is a larger model (e.g. an 8B): the prompt and mechanics are
+  sound; the 4B default is the bottleneck. Verify against your own runs
+  (the project's source of truth) — the levers above help, but won't
+  match a stronger model.
+
 ## [0.75.1] — weather "only rain" map fix + llama.cpp dynamic GPU fit
 
 ### Fixed
