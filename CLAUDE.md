@@ -311,6 +311,16 @@ this bug class) — don't just raise the roll chance.
 - Batch commits: multiple systems per session/commit unless the user
   asks for a narrow fix. No half-finished pieces within a batch — every
   landed system must be mechanically real, not a stub.
+- **Every new feature gets a browser-UI surfacing pass in the same
+  batch it lands in** (explicit standing user instruction, 2026-07):
+  expose it however fits the existing Observatory style — an NPC
+  inspector section, a map overlay, a dev-console row — not just
+  `to_dict()`/`summary()` reachability. Plain per-agent state (traits,
+  skills, emotions) gets a labeled section in the main UI; anything
+  under the Phase G ambiguity discipline (temperament, mood, omens)
+  stays dev-console/raw-JSON only, same as its siblings. Retrofit an
+  older un-surfaced feature opportunistically when touching nearby UI
+  code, but don't treat that as required scope for unrelated work.
 - Audit before continuing; fix regressions before new features.
 - Preserve existing behavior unless explicitly changing it.
 - Update README/CHANGELOG/docs/DECISIONS.md as part of the work.
@@ -347,6 +357,78 @@ Single-writer tick loop + queued interventions; fallback-on-every-LLM-
 call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
+
+## Current state (v0.77.0)
+
+Batch response to a live report: `calls_dropped_backpressure` climbing
+to ~400 after 2800 ticks, plus a request to redesign the cognition
+scheduler around "maximize emergence per LLM call" rather than routine
+daily cadence, disable llama.cpp's reasoning/thinking output, add
+memory-reduction flags, and audit for real memory growth. Four parts.
+
+**Cognition significance gate** (`simulation/engine.py`): the root
+cause of the backpressure climb — every core-cast agent's *routine*
+once-per-sim-day goal reevaluation (`due_for_cognition`) unconditionally
+spent an LLM call, on top of genuine emergencies
+(`due_for_triggered_cognition`: critical hunger, fresh grief). A
+routine "should I gather or socialize today" day is exactly what the
+trait+emotion-aware deterministic `fallback_goal` (Phase I) already
+handles well — new `SimulationEngine._is_significant_moment` (notable
+emotion present, or an active feud) now gates whether a *routine* slot
+is worth the model's discretion at all; triggered emergencies bypass
+the gate entirely (already significant by construction). Measured with
+a fake always-succeeding LLM client over 2800 ticks/30 agents/14-core
+cast: `calls_dropped_backpressure` 0 (was ~400), `calls_attempted` 265
+against ~406 routine-slot opportunities — most routine days now cost
+nothing, LLM richness concentrates on real drama. `llm_max_concurrent`
+(the permanent floor) is untouched — this is a volume fix, not a
+concurrency one. Same significance signal (`_is_significant_pair`,
+`agents/population.py`) now stably sorts `due_for_dialogue`'s core-core
+candidates so a feuding or emotional pair wins the limited
+`MAX_LLM_DIALOGUES_PER_TICK` slots over an ordinary chat, without
+changing that cap.
+
+**llama.cpp reasoning off + flash attention** (`scripts/run.sh`,
+README): `--reasoning off --reasoning-budget 0` (confirmed working,
+new default) — every prompt here wants one short strict-JSON answer,
+never a `<think>` block a hybrid-thinking model (Qwen3 and similar)
+would otherwise burn tokens/latency/memory on. `--flash-attn on` (new
+default) — lower attention memory, faster inference on supported
+backends. Both are env-var-gated (`LLAMA_REASONING`/`LLAMA_FLASH_ATTN`)
+and omit-the-flag-if-empty for an older llama-server build.
+
+**Memory audit — no Python-side leak found**: a clean 12,000-tick real
+`SimulationEngine` soak (LLM disabled, 30 agents, full event churn —
+births/deaths/disputes/trade/disease) showed RSS flat at 37.7→37.8MB
+and GC object count stable (~22,100 ± 150, pure noise) the entire run.
+Separately audited every prompt-building call site (cognition/
+dialogue) for unbounded growth: `PROMPT_RECENT_EVENTS=50`, `agent.
+memories`/`beliefs_about_agent` both capped (`MAX_AGENT_MEMORIES=8`,
+`MAX_BELIEFS=12`/`MAX_PERSONAL_BELIEFS=4`), `colocated_names` sliced to
+4 — nothing grows with tick count. Conclusion: the reported growth is
+not this codebase's Python process — it matches this file's own
+standing lesson ("swap pressure has always been Ollama-side call
+volume/config," not this process, verified repeatedly since v0.43.0).
+Next step for the user: read `/diagnostics.system_memory` during a
+live growing-memory episode (it already attributes RSS to self vs. each
+Ollama/llama-server process) to confirm which process is actually
+growing; the reasoning-off + flash-attn flags above are the concrete
+levers if it's the LLM server. Not something reproducible in this
+environment (no GPU/LLM here) — report back what `system_memory` shows.
+
+**UI**: per-agent `Agent.emotions` (Phase I, v0.76.1) is now surfaced
+in the NPC inspector — a new "Feeling" section, same `npc-stats-row`
+styling as traits/skills, emoji + label + magnitude for each notable
+emotion (or "calm" when none clear the threshold). `Settlement.mood`
+stays dev-console/raw-JSON-reachable only, same as `temperament` —
+Phase G ambiguity discipline applies to the settlement-level number,
+not the plain per-agent one. New standing rule (see "Workflow rules"):
+every future feature gets a UI-surfacing pass in the same batch, not a
+deferred follow-up.
+
+Verified: the fake-client cognition-volume measurement above; the
+12,000-tick RSS soak; `scripts/verify_native_soak.py` (3 seeds, 1500
+ticks, byte-identical — this batch touches no native module).
 
 ## Current state (v0.76.3)
 

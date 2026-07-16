@@ -1477,6 +1477,22 @@ function renderNpcInspector() {
     <span>ambition ${(traits.ambition || 0).toFixed(2)} <span class="muted">(${traitLabel(traits.ambition)})</span></span>
     <span>openness ${(traits.openness || 0).toFixed(2)} <span class="muted">(${traitLabel(traits.openness)})</span></span>
   </div>`;
+  const emotions = agent.emotions || {};
+  const emotionMeta = {
+    fear: { label: "afraid", icon: "😨" },
+    joy: { label: "joyful", icon: "😊" },
+    grief: { label: "grieving", icon: "😢" },
+    anger: { label: "angry", icon: "😠" },
+  };
+  const emotionEntries = Object.entries(emotions)
+    .filter(([, v]) => v >= 0.1)
+    .sort((a, b) => b[1] - a[1]);
+  const emotionsHtml = emotionEntries.length
+    ? `<div class="npc-stats-row">${emotionEntries.map(([name, v]) => {
+        const meta = emotionMeta[name] || { label: name, icon: "" };
+        return `<span>${meta.icon} ${meta.label} <span class="muted">${v.toFixed(2)}</span></span>`;
+      }).join("")}</div>`
+    : `<div class="muted">calm, nothing weighing on them right now</div>`;
   const skills = agent.skills || {};
   const skillEntries = Object.entries(skills).filter(([, v]) => v > 0.01);
   const skillsHtml = skillEntries.length
@@ -1508,6 +1524,10 @@ function renderNpcInspector() {
       <h4>Right now</h4>
       <div>Pursuing <b>${agent.goal}</b></div>
       ${agent.goal_reason ? `<div class="npc-goal-reason">"${agent.goal_reason}"</div>` : ""}
+    </div>
+    <div class="npc-section">
+      <h4>Feeling</h4>
+      ${emotionsHtml}
     </div>
     <div class="npc-section">
       <h4>What the village believes about them</h4>

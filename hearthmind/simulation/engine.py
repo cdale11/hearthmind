@@ -32,12 +32,14 @@ except ImportError:  # pragma: no cover — this project's target hardware is Li
 from hearthmind.agents.agent import (
     DIALOGUE_COOLDOWN_TICKS,
     DIALOGUE_SENTIMENT_DELTA,
+    RIVALRY_THRESHOLD,
     SKILL_CONSTRUCTION,
     SKILL_FARMING,
     SKILL_INVENTION_BONUS_WEIGHT,
     SKILL_MEDICINE,
     TRIGGERED_COGNITION_COOLDOWN_TICKS,
     AgentGoal,
+    dominant_emotion,
 )
 from hearthmind.config import Config
 from hearthmind.util import clamp, namespaced_rng, namespaced_roll
@@ -763,6 +765,23 @@ class SimulationEngine:
             self.world.population.apply_goal(agent_id, goal, reason)
         self._pending_goal_results.clear()
 
+    @staticmethod
+    def _is_significant_moment(agent) -> bool:
+        """Gate for whether a *routine* (non-triggered) daily cognition
+        slot is worth an actual LLM call, per the standing "maximize
+        emergence per LLM call" rule: reserve the scarce budget for
+        moments that shape the simulation (a notable emotion, an active
+        feud) rather than an ordinary day's habitual goal pick, which
+        the deterministic `fallback_goal` (trait+emotion-aware since
+        Phase I) already handles well. Event-driven emergencies
+        (critical hunger, fresh grief/predator-attack) bypass this
+        entirely via `due_for_triggered_cognition` — they're significant
+        by construction. See docs/DECISIONS.md, "cognition scheduler:
+        significance gate" pass."""
+        if dominant_emotion(agent.emotions) is not None:
+            return True
+        return any(v <= RIVALRY_THRESHOLD for v in agent.relationships.values())
+
     def _schedule_due_cognition(self) -> None:
         """Fire-and-forget a goal-decision task for every agent whose
         staggered daily slot is this tick. Scheduled unconditionally
@@ -794,10 +813,22 @@ class SimulationEngine:
             # call, no task), through the same `_pending_goal_results`
             # queue the LLM path uses, so timing is identical. This is
             # what stops cognition volume scaling with population.
+            #
+            # Significance gate (v0.77.0): even for a core-cast agent, a
+            # *routine* daily slot (not a triggered emergency) only
+            # spends an LLM call when something about this moment is
+            # actually worth the model's discretion — see
+            # `_is_significant_moment`. An ordinary "should I gather or
+            # socialize today" day is exactly what the trait+emotion-
+            # aware deterministic fallback already handles well; this is
+            # the concrete mechanism behind "reserve the scarce LLM
+            # budget for high-impact decisions" (docs/DECISIONS.md).
+            is_triggered = agent.id in triggered_ids
             use_llm = (
                 self._cognition_runner.enabled
                 and population.is_core(agent.id)
                 and self._llm_calls_today < self.config.llm_max_calls_per_day
+                and (is_triggered or self._is_significant_moment(agent))
             )
             if not use_llm:
                 self._pending_goal_results[agent.id] = (

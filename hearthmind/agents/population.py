@@ -168,6 +168,7 @@ from hearthmind.agents.agent import (
     AgentState,
     bump_emotion,
     decay_emotions,
+    dominant_emotion,
 )
 from hearthmind.agents.names import _roman, generate_names
 from hearthmind.economy.farms import (
@@ -641,6 +642,18 @@ def _agent_mount(settlement: Settlement, agent_id: int) -> Vehicle | None:
         ):
             return vehicle
     return None
+
+
+def _is_significant_pair(a: Agent, b: Agent) -> bool:
+    """Shared significance signal for dialogue's LLM-slot prioritization
+    (see `Population.due_for_dialogue`) — a feud between the pair or a
+    notable emotion in either party. Same rivalry/emotion signals as
+    `SimulationEngine._is_significant_moment` uses for cognition, kept
+    here (rather than imported from engine.py) since population.py must
+    not depend on the simulation layer."""
+    if a.relationships.get(b.id, 0.0) <= RIVALRY_THRESHOLD or b.relationships.get(a.id, 0.0) <= RIVALRY_THRESHOLD:
+        return True
+    return dominant_emotion(a.emotions) is not None or dominant_emotion(b.emotions) is not None
 
 
 def _memory_salience(agent: Agent) -> float:
@@ -3942,6 +3955,15 @@ class Population:
         rng = _namespaced_rng(seed, tick, "dialogue_select")
         rng.shuffle(core_candidates)
         rng.shuffle(other_candidates)
+        # Significance gate (v0.77.0), same "reserve the scarce LLM
+        # budget for high-impact decisions" reasoning as cognition's own
+        # gate: within the (already-shuffled, so still varied) core-cast
+        # candidates, a pair with an active feud or a notably emotional
+        # member goes first for the limited LLM slots — an ordinary
+        # "quiet day" chat between two content core agents is exactly
+        # what fallback_dialogue already handles well. Doesn't change
+        # MAX_LLM_DIALOGUES_PER_TICK's own volume cap, only who gets it.
+        core_candidates.sort(key=lambda pair: not _is_significant_pair(pair[0], pair[1]))
         llm_pairs = core_candidates[:MAX_LLM_DIALOGUES_PER_TICK]
         fallback_pairs = other_candidates[:MAX_DIALOGUES_PER_TICK]
         for a, b in llm_pairs + fallback_pairs:

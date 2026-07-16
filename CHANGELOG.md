@@ -4,6 +4,55 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.77.0] — cognition scheduler: significance gate + LLM memory flags + UI
+
+Batch response to a live report (`calls_dropped_backpressure` ~400
+after 2800 ticks) and an explicit request to redesign the cognition
+scheduler around "reserve LLM calls for high-impact moments," disable
+llama.cpp reasoning output, add memory-reduction flags, audit for real
+memory growth, and surface Phase I in the UI.
+
+### Changed
+- `simulation/engine.py`: new `_is_significant_moment` gates whether a
+  core-cast agent's *routine* (non-triggered) daily cognition slot
+  spends an LLM call — only when a notable emotion or active feud makes
+  the moment worth the model's discretion. Triggered emergencies
+  (critical hunger, fresh grief) bypass the gate, unchanged. Measured:
+  `calls_dropped_backpressure` 0 (was ~400), `calls_attempted` 265 vs.
+  ~406 routine-slot opportunities over a 2800-tick/30-agent run.
+- `agents/population.py`: `due_for_dialogue`'s core-core candidates are
+  now stably sorted so a feuding/emotional pair wins the limited
+  `MAX_LLM_DIALOGUES_PER_TICK` slots over routine chat (cap unchanged).
+- `scripts/run.sh`/README: new defaults `--reasoning off
+  --reasoning-budget 0` (confirmed working — no prompt here wants a
+  `<think>` block) and `--flash-attn on` (lower attention memory,
+  faster inference). Both env-var-gated (`LLAMA_REASONING`/`LLAMA_
+  FLASH_ATTN`) and omit-if-empty for an older llama-server build.
+
+### Added
+- NPC inspector: a new "Feeling" section surfacing `Agent.emotions`
+  (Phase I) — emoji + label + magnitude per notable emotion, same
+  styling as the existing traits/skills rows.
+- CLAUDE.md: standing rule — every new feature gets a UI-surfacing pass
+  in the same batch it lands in.
+
+### Investigated — no Python-side leak found
+- 12,000-tick real `SimulationEngine` soak (LLM disabled, full event
+  churn): RSS flat at 37.7→37.8MB, GC object count stable. Audited
+  every prompt-building call site for unbounded growth — all bounded
+  (`PROMPT_RECENT_EVENTS=50`, memories/beliefs capped, colocated_names
+  sliced to 4). The reported memory growth is very likely the llama-
+  server subprocess, not this process — matches this project's own
+  standing "swap pressure has always been Ollama-side" lesson.
+  Recommended: check `/diagnostics.system_memory` during a live episode
+  to confirm which process is growing.
+
+### Verified
+- Fake-client cognition-volume measurement (above).
+- 12,000-tick RSS soak (above).
+- `scripts/verify_native_soak.py` (3 seeds, 1500 ticks): byte-identical
+  — this batch touches no native module.
+
 ## [0.76.3] — Phase I complete: layered memory v1
 
 Closes Phase I (docs/VISION-2026-07.md), the third piece deliberately

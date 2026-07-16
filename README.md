@@ -345,7 +345,8 @@ better than the CPU-only path this project started from.
   --ctx-size 3072 --parallel 1 \
   --cache-type-k q8_0 --cache-type-v q8_0 \
   --no-mmproj --port 8080 \
-  --n-gpu-layers auto --fit on --threads $(nproc)
+  --n-gpu-layers auto --fit on --flash-attn on \
+  --reasoning off --reasoning-budget 0 --threads $(nproc)
 
 # in another terminal:
 python -m hearthmind.server --db world.sqlite3
@@ -381,6 +382,16 @@ python -m hearthmind.server --db world.sqlite3 --llm-disabled
   run.sh`. Use `--n-gpu-layers 0` to force CPU-only. Optional
   `--fit-target <MiB>` sets the per-device headroom margin `--fit` leaves
   free (default 1024 MiB) if you need more slack for other processes.
+- `--flash-attn on` — lower attention memory + faster inference on
+  supported backends (default `scripts/run.sh` behavior, `LLAMA_FLASH_
+  ATTN`). If a particular build/backend combination rejects `on`
+  outright, use `auto` (llama.cpp's own default) instead.
+- `--reasoning off --reasoning-budget 0` — every prompt Hearthmind sends
+  wants exactly one short strict-JSON answer; a hybrid-thinking model
+  (Qwen3 and similar) otherwise spends real tokens, latency, and KV-cache
+  memory on a `<think>` block nobody reads. Confirmed working; default
+  `scripts/run.sh` behavior (`LLAMA_REASONING`). Set `LLAMA_REASONING=
+  auto` to restore the model's own default reasoning behavior instead.
 - `--threads $(nproc)` — every CPU core for whatever inference work
   stays on CPU ("maximize CPU, minimize memory": the tick loop itself
   is nowhere near CPU-bound, ~1ms against a 1000ms budget, so idle
@@ -408,7 +419,8 @@ cmake --build build --config Release -j$(nproc) --target llama-server
   --model /path/to/Qwen3-4B-Instruct-Q4_K_M.gguf \
   --ctx-size 3072 --parallel 1 --cache-type-k q8_0 --cache-type-v q8_0 \
   --no-mmproj --port 8080 \
-  --n-gpu-layers auto --fit on --threads $(nproc)
+  --n-gpu-layers auto --fit on --flash-attn on \
+  --reasoning off --reasoning-budget 0 --threads $(nproc)
 
 # then, in another terminal (or LLAMA_SERVER_BIN=... ./scripts/run.sh):
 python -m hearthmind.server --db world.sqlite3 --llm-llamacpp-host http://localhost:8080

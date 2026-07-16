@@ -53,6 +53,21 @@
 #                        leaving llama.cpp's own 1024 MiB default.
 #   LLAMA_CACHE_TYPE_K   Default: q8_0
 #   LLAMA_CACHE_TYPE_V   Default: q8_0
+#   LLAMA_FLASH_ATTN     Default: on. Passes --flash-attn on|off|auto —
+#                        lower memory + faster attention on supported
+#                        backends. Set LLAMA_FLASH_ATTN=auto if a build/
+#                        backend combination rejects "on" outright, or
+#                        empty (LLAMA_FLASH_ATTN=) to omit the flag on an
+#                        older llama-server that doesn't have it.
+#   LLAMA_REASONING      Default: off. Every prompt here wants one short
+#                        strict-JSON answer — hybrid-thinking models
+#                        (Qwen3 and similar) burn real tokens/latency/
+#                        memory on a <think> block nobody reads, so
+#                        reasoning is off by default (--reasoning off
+#                        --reasoning-budget 0, both confirmed working).
+#                        Set LLAMA_REASONING=auto to restore the model's
+#                        own default, or empty (LLAMA_REASONING=) to omit
+#                        both flags on an older llama-server.
 #   SKIP_NATIVE_BUILD    1 to skip building hearthmind._native. Default: 0.
 #   LLAMA_EXTRA_ARGS     Extra raw flags appended to the llama-server
 #                        command line.
@@ -70,6 +85,8 @@ LLAMA_FIT="${LLAMA_FIT-on}"
 LLAMA_FIT_TARGET="${LLAMA_FIT_TARGET-}"
 LLAMA_CACHE_TYPE_K="${LLAMA_CACHE_TYPE_K:-q8_0}"
 LLAMA_CACHE_TYPE_V="${LLAMA_CACHE_TYPE_V:-q8_0}"
+LLAMA_FLASH_ATTN="${LLAMA_FLASH_ATTN-on}"
+LLAMA_REASONING="${LLAMA_REASONING-off}"
 SKIP_NATIVE_BUILD="${SKIP_NATIVE_BUILD:-0}"
 LLAMA_EXTRA_ARGS="${LLAMA_EXTRA_ARGS:-}"
 
@@ -135,14 +152,29 @@ if [[ "$llm_disabled" == false ]]; then
     fit_str="--fit $LLAMA_FIT"
     [[ -n "$LLAMA_FIT_TARGET" ]] && fit_str="$fit_str --fit-target $LLAMA_FIT_TARGET"
   fi
-  echo "run.sh: starting llama-server on $LLAMA_HOST (ctx=$LLAMA_CTX_SIZE, threads=$LLAMA_THREADS, gpu-layers=$LLAMA_N_GPU_LAYERS, fit=${LLAMA_FIT:-off}, kv=$LLAMA_CACHE_TYPE_K/$LLAMA_CACHE_TYPE_V)..." >&2
-  # shellcheck disable=SC2086  # $fit_str / $LLAMA_EXTRA_ARGS are intentionally word-split
+  # --flash-attn: lower memory + faster attention on supported backends.
+  # --reasoning off --reasoning-budget 0: every prompt here wants one
+  # short strict-JSON answer, never a <think> block — confirmed working,
+  # skips the wasted tokens/latency/memory a hybrid-thinking model (Qwen3
+  # and similar) otherwise spends on reasoning nobody reads. Both are
+  # empty-string-omits-the-flag so an older llama-server still runs.
+  fa_str=""
+  [[ -n "$LLAMA_FLASH_ATTN" ]] && fa_str="--flash-attn $LLAMA_FLASH_ATTN"
+  reasoning_str=""
+  if [[ -n "$LLAMA_REASONING" ]]; then
+    reasoning_str="--reasoning $LLAMA_REASONING"
+    [[ "$LLAMA_REASONING" == "off" ]] && reasoning_str="$reasoning_str --reasoning-budget 0"
+  fi
+  echo "run.sh: starting llama-server on $LLAMA_HOST (ctx=$LLAMA_CTX_SIZE, threads=$LLAMA_THREADS, gpu-layers=$LLAMA_N_GPU_LAYERS, fit=${LLAMA_FIT:-off}, flash-attn=${LLAMA_FLASH_ATTN:-off}, reasoning=${LLAMA_REASONING:-model default}, kv=$LLAMA_CACHE_TYPE_K/$LLAMA_CACHE_TYPE_V)..." >&2
+  # shellcheck disable=SC2086  # $fit_str/$fa_str/$reasoning_str/$LLAMA_EXTRA_ARGS are intentionally word-split
   "$LLAMA_SERVER_BIN" \
     --model "$MODEL_PATH" \
     --ctx-size "$LLAMA_CTX_SIZE" \
     --parallel 1 \
     --cache-type-k "$LLAMA_CACHE_TYPE_K" \
     --cache-type-v "$LLAMA_CACHE_TYPE_V" \
+    $fa_str \
+    $reasoning_str \
     --no-mmproj \
     --port "$llama_port" \
     --n-gpu-layers "$LLAMA_N_GPU_LAYERS" \
