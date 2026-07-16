@@ -54,6 +54,7 @@ try:
                 "cpp/src/sim_clock.cpp",
                 "cpp/src/terrain_grid.cpp",
                 "cpp/src/agent_table.cpp",
+                "cpp/src/emotion_decay.cpp",
             ]),
             cxx_std=17,
             extra_compile_args=_EXTRA_COMPILE_ARGS,

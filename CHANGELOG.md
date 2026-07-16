@@ -4,6 +4,39 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.76.2] — new native module: emotion decay in C++
+
+Direct follow-up to v0.76.1, per explicit user instruction to write new
+Phase I code in C++ from the start where it fits (applying R6's
+existing "pure math over already-resolved primitives" discipline to
+the emotion system rather than revisiting it later).
+
+### Added
+- `cpp/src/emotion_decay.cpp`: native `decay_emotions`/`EmotionState` —
+  the per-tick, per-agent multiply behind `agents/agent.py`'s
+  `decay_emotions`, same "runs unconditionally every tick for every
+  agent" shape as module 6 (`_update_needs`). Takes the four emotion
+  axes as plain doubles (sparse-dict bookkeeping and the <0.005 prune
+  decision stay in Python) since `Agent.emotions` is a sparse dict, not
+  a fixed-slot struct.
+- `scripts/verify_native_soak.py`: two new toggles
+  (`_native_decay_emotions`, `_NativeEmotionState`).
+
+### Verified
+- 20,000 randomized native-vs-Python-fallback trials (0 mismatches).
+- 500-tick direct `decay_emotions()` A/B sequence with bump events
+  mixed in (0 mismatches).
+- `scripts/verify_native_soak.py` full-state hash soak, native vs.
+  fallback, byte-identical every tick.
+
+### Not ported
+- `tick_mood` (settlement-level, monthly aggregation) — evaluated and
+  deliberately left Python: it already reuses the native `bounded_
+  random_walk_step` module for its bounded step, and a once-a-month
+  loop over one settlement's agents isn't hot enough to justify a
+  second native call per the project's "escalate only with a measured
+  need" rule.
+
 ## [0.76.1] — Phase I (Inner Life): per-agent emotions + settlement mood
 
 First implementation slice of docs/VISION-2026-07.md's roadmap, per

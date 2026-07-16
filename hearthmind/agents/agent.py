@@ -11,6 +11,18 @@ from __future__ import annotations
 
 from enum import Enum
 
+try:
+    from hearthmind._native import EmotionState as _NativeEmotionState
+    from hearthmind._native import decay_emotions as _native_decay_emotions
+except ImportError:
+    _NativeEmotionState = None
+    _native_decay_emotions = None
+"""Optional compiled fast path for `decay_emotions` below (Phase I,
+see cpp/src/emotion_decay.cpp) — same "runs every tick, for every
+agent, unconditionally" shape as module 6's `_update_needs`. `None`
+when the extension wasn't built — falls back to the equivalent
+pure-Python per-key multiply in that case."""
+
 
 class AgentState(str, Enum):
     AWAKE = "awake"
@@ -697,8 +709,32 @@ def decay_emotions(agent: "Agent") -> None:
     dropping entries that have decayed to (near enough) nothing so a
     long-lived agent's `emotions` dict doesn't accumulate stale
     near-zero keys forever — same "prune, don't just leak toward zero"
-    discipline as the relationship/trust dicts (v0.42.0)."""
+    discipline as the relationship/trust dicts (v0.42.0).
+
+    Native fast path (see cpp/src/emotion_decay.cpp): the multiply
+    itself moves to C++, one call per agent per tick (module 6's own
+    "runs unconditionally every tick" shape) — the < 0.005 prune
+    decision and the sparse-dict bookkeeping (a missing key never
+    entered the call, decays to a no-op 0.0 either way) stay in Python,
+    exactly like `_update_needs`' native split."""
     if not agent.emotions:
+        return
+    if _native_decay_emotions is not None:
+        state = _NativeEmotionState(
+            agent.emotions.get(EMOTION_FEAR, 0.0), agent.emotions.get(EMOTION_JOY, 0.0),
+            agent.emotions.get(EMOTION_GRIEF, 0.0), agent.emotions.get(EMOTION_ANGER, 0.0),
+        )
+        result = _native_decay_emotions(state, EMOTION_DECAY_RATE)
+        for key, value in (
+            (EMOTION_FEAR, result.fear), (EMOTION_JOY, result.joy),
+            (EMOTION_GRIEF, result.grief), (EMOTION_ANGER, result.anger),
+        ):
+            if key not in agent.emotions:
+                continue
+            if value < 0.005:
+                del agent.emotions[key]
+            else:
+                agent.emotions[key] = value
         return
     for key in list(agent.emotions.keys()):
         value = agent.emotions[key] * (1.0 - EMOTION_DECAY_RATE)

@@ -348,6 +348,35 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.76.2)
+
+Direct follow-up to v0.76.1, per explicit user instruction to write new
+Phase I code in C++ from the start where it fits — applying R6's
+"pure math over already-resolved primitives" discipline to the new
+emotion system rather than leaving it Python-only and revisiting later.
+**New native module**: `decay_emotions`'s per-tick multiply
+(`agents/agent.py`) → `cpp/src/emotion_decay.cpp` — same "runs
+unconditionally every tick, for every agent" shape module 6
+(`_update_needs`) established as the highest-value native-port
+category. Takes the four emotion axes as plain doubles (a missing key
+reads 0.0 in, decays to a no-op 0.0 out) since `Agent.emotions` is a
+sparse dict, not a fixed-slot struct — pybind11's STL-copy-not-
+reference gotcha (v0.72.0's standing note) means the dict itself can't
+cross the boundary usefully anyway; the <0.005 prune-vs-keep decision
+and sparse-key bookkeeping stay in Python, same split as `_update_
+needs`' own object-lookup/arithmetic division. `tick_mood` (settlement-
+level, monthly) was evaluated and deliberately left Python — it already
+reuses the native `bounded_random_walk_step` module for its own bounded
+step, and the aggregation loop over a settlement's agents runs once a
+month, not hot enough to justify a second native call per this
+project's "escalate only with a measured need" rule (the same
+reasoning v0.72.2 applied to `_nearest_material_tile`). Verified via
+20,000 randomized native-vs-Python-fallback trials (0 mismatches), a
+500-tick direct `decay_emotions()` A/B sequence with bump events mixed
+in (0 mismatches), and `scripts/verify_native_soak.py`'s full-state
+hash soak with two new toggles added, every native module on vs. off,
+byte-identical.
+
 ## Current state (v0.76.1)
 
 First implementation slice of the long-term vision: **Phase I, Inner

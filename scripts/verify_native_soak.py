@@ -38,6 +38,7 @@ from hearthmind.config import Config  # noqa: E402
 from hearthmind.persistence.database import connect  # noqa: E402
 from hearthmind.simulation.engine import SimulationEngine  # noqa: E402
 
+import hearthmind.agents.agent as _agent  # noqa: E402
 import hearthmind.agents.agent_store as _agent_store  # noqa: E402
 import hearthmind.agents.population as _population  # noqa: E402
 import hearthmind.economy.farms as _farms  # noqa: E402
@@ -82,6 +83,9 @@ _NATIVE_TOGGLES = [
     # Agent keeps its 12 scalar fields in plain locals — the pre-v0.75.0
     # dataclass path. native=True routes them through cpp AgentTable.
     (_agent_store, "_NativeAgentTable"),
+    # v0.76.2: Phase I's per-tick emotion decay (cpp/src/emotion_decay.cpp).
+    (_agent, "_native_decay_emotions"),
+    (_agent, "_NativeEmotionState"),
 ]
 
 

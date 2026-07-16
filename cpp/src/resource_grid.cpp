@@ -201,6 +201,7 @@ void register_reclaim(py::module_ &m);
 void register_sim_clock(py::module_ &m);
 void register_terrain_grid(py::module_ &m);
 void register_agent_table(py::module_ &m);
+void register_emotion_decay(py::module_ &m);
 
 PYBIND11_MODULE(_native, m) {
     m.doc() = "Hearthmind native (C++) hot-path extensions. Optional — "
@@ -239,4 +240,5 @@ PYBIND11_MODULE(_native, m) {
     register_sim_clock(m);
     register_terrain_grid(m);
     register_agent_table(m);
+    register_emotion_decay(m);
 }
