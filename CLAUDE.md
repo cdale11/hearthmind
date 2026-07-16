@@ -304,6 +304,67 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.75.0)
+
+Explicit user directive: pursue the "full C++ engine, don't break the
+game at all" goal. Those two constraints together fix the method —
+incremental slices, each verified byte-identical against the current
+Python as ground truth *before* the Python is removed, extension always
+optional so a failed build falls back cleanly. Big-bang rewrite is off
+the table (no per-slice ground truth); storage-only is the first leg,
+not the destination. This version ships the first slice of the
+object-graph track that the v0.74.3 `AgentTable` primitive was built
+for: **`AgentTable` is now wired into live `Population.agents`.**
+
+Design (the compatibility-shim pattern `TerrainGrid`/`TerrainRow`
+established, applied to the agent object graph): new
+`agents/agent_store.py` `AgentStore` — an **id-keyed** structure-of-
+arrays store over the native `AgentTable`; `Agent` (converted from a
+`@dataclass` to a hand-written class) exposes its 12 dense scalar
+fields (`x`/`y`/`hunger`/`energy`/`state`/`age_ticks`/`max_age_ticks`/
+`starving_ticks`/`sick_ticks`/`immune_ticks`/`goal`/`settlement_id`) as
+`@property` accessors that route through the store once `Population`
+adopts the agent. The six variable-size per-agent dicts/lists
+(relationships/trust/inventory/memories/skills/traits, plus beliefs/
+parents/travel_target/goal_reason/name) stay ordinary Python
+attributes — they never flattened into a fixed schema and don't move.
+The store's public API is keyed by agent **id, never slot**: it
+resolves id→slot internally on every access and absorbs the native
+table's swap-with-last slot churn into that one map, so no Python-side
+Agent handle can ever point at a stale slot — the entire staleness bug
+class the v0.74.2 scoping flagged is eliminated at the API boundary
+rather than guarded at ~700 call sites. `self.agents` stays an ordered
+`list[Agent]`, so iteration order is fully decoupled from slot order.
+
+**Zero of the ~700 scalar touch sites needed editing** — the property
+shim makes `agent.hunger`/`agent.x = …` work unchanged. The only edits
+were the enum↔int code maps (agent.py, next to the enums; must match
+cpp/src/agent_table.cpp's header — never renumber an existing code or a
+resumed native world misreads saved scalars), `Population.__post_init__`
+(builds the store when native, adopts every agent — covers both
+`spawn_initial` and `from_dict`), and three one-line adoption/removal
+hooks at the only three list-mutation points (birth `extend`, migrant
+`append`, death `self.agents = survivors` → remove `dying_ids` from the
+store). **Fallback stays byte-identical to the old dataclass**: no
+native extension → no store → scalars live in `_x`/… locals exactly as
+before.
+
+Verified: (1) full-`World.to_dict()`-per-tick soak
+(`scripts/verify_native_soak.py`, new `agent_store` toggle), native
+(AgentTable) vs fallback (detached) byte-identical every tick across
+multiple seeds at 2,000 ticks and a 12,000-tick/3-seed run long enough
+to span births (agents mature at 4,000 ticks); (2) a direct death +
+swap-with-last test confirming survivors stay correctly id-mapped after
+the dead are removed and reindexed (native ≡ fallback); (3) a
+save→`from_dict`→reload round-trip proving the store rebuilds
+identically on load and is live afterward. **Not yet ported: the agent
+tick LOGIC** — `population.py`'s methods still run in Python, now
+reading/writing scalars through the C++ store. Porting those method
+bodies to run in C++ over the table is the next leg toward the full
+engine, one method-group at a time, each verified against the Python it
+replaces before that Python is deleted. See docs/REFACTOR-2026-07.md's
+"R8 slice 3 wire-in."
+
 ## Current state (v0.74.3)
 
 Explicit user directive: pursue the Agent/Settlement/Population port

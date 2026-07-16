@@ -4,6 +4,56 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.75.0] — AgentTable wired into live Population.agents (R8 slice 3 wire-in)
+
+### Added
+- `hearthmind/agents/agent_store.py` — `AgentStore`, an **id-keyed**
+  structure-of-arrays store over the native `AgentTable` (v0.74.3). It
+  resolves agent id→table slot internally on every access and updates
+  that map from the table's swap-with-last `remove` result, so no
+  Python-side `Agent` handle ever holds a slot and the staleness bug
+  class the v0.74.2 scoping flagged is closed at the API boundary.
+
+### Changed
+- `Agent` (agents/agent.py) converted from a `@dataclass` to a
+  hand-written class so its 12 dense scalar fields (`x, y, hunger,
+  energy, state, age_ticks, max_age_ticks, starving_ticks, sick_ticks,
+  immune_ticks, goal, settlement_id`) can be `@property` accessors
+  backed by a native `AgentStore` once `Population` adopts the agent —
+  the same compatibility-shim pattern `TerrainGrid`/`TerrainRow` used
+  for the terrain grid. The `__init__` keyword signature and
+  `to_dict`/`from_dict` are byte-for-byte preserved, so **zero of the
+  ~700 scalar touch sites changed**. The six variable-size per-agent
+  dict/list fields stay ordinary Python attributes. `state`/`goal`
+  cross the C++ boundary as int codes via `STATE_TO_CODE`/`GOAL_TO_CODE`
+  (agent.py, matching cpp/src/agent_table.cpp's header).
+- `Population`: `__post_init__` builds the store (native only) and
+  adopts every agent — covering both `spawn_initial` and `from_dict`;
+  three one-line hooks adopt newborns (before `extend`) and migrants
+  (before `append`) and remove the dead (`dying_ids`) after
+  `self.agents = survivors`. `self.agents` stays an ordered
+  `list[Agent]`; iteration order is decoupled from table slot order.
+- **Fallback unchanged**: with no native extension, `Population` builds
+  no store and every `Agent` keeps its scalars in plain `_x`/… locals,
+  byte-identical to the pre-0.75.0 dataclass.
+
+### Verified
+- `scripts/verify_native_soak.py` gains an `agent_store` toggle: full
+  `World.to_dict()` per-tick state is byte-identical native (AgentTable)
+  vs. fallback (detached) across multiple seeds at 2,000 ticks and a
+  12,000-tick/3-seed run (long enough to span births — agents mature at
+  4,000 ticks). Plus a direct death + swap-with-last equivalence test
+  (survivors stay correctly id-mapped after the dead are removed and
+  the table reindexes) and a save→`from_dict`→reload round-trip
+  (identical state, store live after load).
+
+### Not yet done
+- The agent tick **logic** (`population.py` method bodies) still runs in
+  Python, now reading/writing scalars through the C++ store. Porting
+  those to run in C++ over the table is the next leg toward the full
+  engine — one method-group at a time, each verified against the Python
+  it replaces before deletion.
+
 ## [0.74.3] — AgentTable: Agent scalar-field storage primitive (R8 slice 3, staged)
 
 ### Added

@@ -7787,3 +7787,91 @@ toggle registered) across a real multi-thousand-tick run — deliberately
 MORE verification than SimClock or the terrain grid needed, given this
 slice's much larger risk surface, not the same amount reused by
 habit.
+
+## v0.75.0: AgentTable wired into live Population.agents (R8 slice 3 wire-in)
+
+Context: explicit user directive — "full C++ engine, don't break the
+game at all." Those two constraints are the whole design brief. A
+literal 100% C++ rewrite isn't reachable (the LLM layer + asyncio/
+FastAPI/SQLite/LLM-client stay Python by the v0.72.5 directive, ~1/3 of
+the code), and "don't break at all" rules out a big-bang engine (no
+per-slice ground truth, no automated test net). What's left is exactly
+the discipline every native module here already uses: incremental
+slices, each verified byte-identical against the current Python as
+ground truth before the Python is removed, extension always optional.
+This version does the first object-graph slice the v0.74.3 `AgentTable`
+primitive was built for.
+
+The v0.74.3 note (and the v0.74.2 scoping before it) had framed this as
+large and dangerous — "~700 call sites," a per-object `_slot` with
+fragile central fixup, staleness hazards. A pre-implementation grep
+pass changed that estimate materially, and the final design is
+smaller and safer than feared:
+
+- **The ~700 are reads/writes through `agent.<field>`, not edits.**
+  Converting `Agent` from `@dataclass` to a hand-written class whose 12
+  scalar fields are `@property` accessors leaves every one of those
+  sites working verbatim. The scalar *write* surface is ~51 sites and
+  there are exactly **3** `Agent(...)` construction sites +
+  `Agent.from_dict`, all in population.py. Landmine check (all clear):
+  no deepcopy/pickle of agents, no `dataclasses.fields/asdict/replace`
+  on `Agent`, no value-equality/`in`-by-value reliance (every
+  comparison is `.id ==`), no `__dict__`/`setattr`/`getattr` dynamic
+  access, timeline replay reconstructs from snapshots (holds no live
+  `Agent`). So the dataclass→class conversion touches nothing but the
+  class itself.
+
+- **Root cause the id-keyed store fixes.** The native `AgentTable` uses
+  swap-with-last removal, which moves a surviving agent's data into a
+  freed slot — so any Python handle caching a slot could silently read
+  the wrong agent after an unrelated death. Rather than guard ~700
+  sites against that, `agents/agent_store.py`'s `AgentStore` keys its
+  entire public API by agent **id** and resolves id→slot internally,
+  updating that single map from the table's `remove` result
+  (`moved`/`moved_agent_id`). Python never sees a slot; the staleness
+  bug class is designed out at the API boundary. Agent ids are
+  monotonic and never reused, so id is a stable lifetime key.
+  `self.agents` stays an ordered `list[Agent]`, so iteration order is
+  fully decoupled from table slot order — a death reordering slots
+  reorders nothing a caller sees.
+
+Wiring: `Population.__post_init__` builds the store (only when the
+native extension is present) and calls `agent._attach(store)` on every
+agent — this covers both construction paths, since `spawn_initial` and
+`from_dict` both hand a finished `agents` list to `cls(agents=…)`.
+Three one-line hooks handle the only three `self.agents` mutation
+points: `_adopt` each newborn before `extend`, each migrant before
+`append`, and `store.remove(id)` for every `dying_ids` member right
+after `self.agents = survivors` (verified nothing reads a dead agent's
+scalar after that point). `state`/`goal` cross the boundary as int
+codes via `STATE_TO_CODE`/`GOAL_TO_CODE` in agent.py (kept next to the
+enums, matching cpp/src/agent_table.cpp's header — never renumber an
+existing code or a resumed native world misreads saved scalars).
+
+Fallback: no native extension → `Population` builds no store →
+`agent._attach(None)` is a no-op → scalars stay in the `_x`/… locals,
+byte-identical to the pre-0.75.0 dataclass. This path is a first-class
+verified target, not an afterthought.
+
+Verification (the actual guarantee behind "don't break at all," since
+there's no automated suite): (1) `scripts/verify_native_soak.py`'s new
+`agent_store` toggle — full `World.to_dict()` hashed every tick, native
+(AgentTable) vs fallback (detached), byte-identical across seeds at
+2,000 ticks and a 12,000-tick/3-seed run long enough to span births
+(maturity is 4,000 ticks, so shorter runs never exercise the `add`
+hook); (2) a direct death + swap-with-last test — kill agents 2/5/7 of
+10 via `_apply_deaths`, then mutate survivors and confirm native ≡
+fallback `to_dict`, proving the id→slot remap keeps every survivor
+pointed at its own row after the table reindexes; (3) a
+save→`from_dict`→reload round-trip proving the store rebuilds
+identically on load and is live afterward. A 2,000-tick match alone
+would have been misleading (no births/deaths in that window) — the
+death path is proven by (2) and the birth path by the 12k run.
+
+Not done here (the honest boundary): the agent tick **logic** —
+`population.py`'s method bodies — still runs in Python; it just reads
+and writes the 12 scalars through the C++ store now. Moving those
+method bodies into C++ over the table, one method-group at a time with
+per-slice Python ground truth, is the next leg toward the full engine.
+The store makes that possible (the data already lives in C++); it
+doesn't do it.

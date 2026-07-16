@@ -895,6 +895,50 @@ lighter check — given the size of the risk surface, this is the one
 R8 slice that should get MORE verification than SimClock/terrain got,
 not the same amount.
 
+**R8 slice 3 wire-in (v0.75.0): `AgentTable` is now live in
+`Population.agents`.** Done in response to the explicit "full C++
+engine, don't break the game at all" directive — the two constraints
+together mandated the incremental, per-slice-verified method (big-bang
+rejected for having no ground truth; storage-only understood as the
+first leg, not the destination). The wire-in came out considerably
+smaller and safer than the v0.74.3 note above feared, for two reasons
+the call-site research surfaced:
+
+1. **The property shim means zero call-site edits.** Converting `Agent`
+   from a `@dataclass` to a hand-written class with the 12 scalar
+   fields as `@property` accessors leaves every `agent.hunger` /
+   `agent.x = …` site working verbatim — the "~700 sites" are the
+   *risk surface to verify*, not sites to rewrite. Actual edits: the
+   enum↔code maps (agent.py), `Population.__post_init__` (build store +
+   adopt), and three one-line hooks at the only three `self.agents`
+   mutation points (birth `extend`, migrant `append`, death filter).
+   Confirmed by grep that there are exactly 3 `Agent(...)` construction
+   sites + `Agent.from_dict`, all in population.py, and no deepcopy/
+   pickle/`dataclasses.fields`/value-equality reliance on `Agent`
+   anywhere (those were the real landmines; all clear).
+
+2. **id-keyed store kills the staleness class outright.** The v0.74.3
+   note assumed a per-object `_slot` + central fixup. Instead
+   `agents/agent_store.py`'s `AgentStore` keys its whole public API by
+   agent **id** and resolves id→slot internally, updating that one map
+   from `AgentTable.remove`'s `moved`/`moved_agent_id`. Python never
+   sees a slot, so swap-with-last churn can't strand a handle — the
+   hazard is designed out, not guarded against. `self.agents` stays an
+   ordered `list[Agent]`, decoupling iteration order from slot order.
+
+Fallback (no native extension): `Population` builds no store, agents
+keep scalars in `_x`/… locals — byte-identical to the old dataclass.
+Verification (deliberately more than SimClock/terrain, per the note
+above): the `verify_native_soak.py` `agent_store` toggle (full
+`World.to_dict()` per tick, native vs fallback byte-identical, 2k ticks
+multi-seed + a 12k-tick/3-seed run spanning births), a direct death +
+swap-with-last equivalence test, and a save→`from_dict`→reload
+round-trip. **Still Python: the agent tick logic** — `population.py`'s
+method bodies now read/write scalars through the C++ store but run in
+Python. Porting those to C++ over the table, one method-group at a time
+(each verified against the Python it replaces before deletion), is the
+next leg toward the full engine.
+
 ## One-line summary for CLAUDE.md / CHANGELOG
 
 Audit found the codebase clean (near-zero dead code, no wasteful

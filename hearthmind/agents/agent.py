@@ -9,7 +9,6 @@ docs/DECISIONS.md, A1-A3).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -33,6 +32,26 @@ class AgentGoal(str, Enum):
     GATHER = "gather"
     """Added D8: collect building materials from forest/hills into the
     settlement's shared stockpile — see Population._maybe_gather."""
+
+
+# --- enum <-> int code maps for the native AgentStore (v0.75.0) -------------
+# The native AgentTable stores `state`/`goal` as small ints; these are the
+# single authoritative bijection between the enums and those codes. Kept
+# here, next to the enums they encode, so agents/agent_store.py stays
+# enum-free. cpp/src/agent_table.cpp's header documents the same codes —
+# keep the three in sync (append new members at the end; never renumber an
+# existing code, or a resumed native world would misread saved scalars).
+STATE_TO_CODE: dict["AgentState", int] = {AgentState.AWAKE: 0, AgentState.RESTING: 1}
+CODE_TO_STATE: dict[int, "AgentState"] = {v: k for k, v in STATE_TO_CODE.items()}
+
+GOAL_TO_CODE: dict["AgentGoal", int] = {
+    AgentGoal.WANDER: 0,
+    AgentGoal.FORAGE: 1,
+    AgentGoal.SOCIALIZE: 2,
+    AgentGoal.REST: 3,
+    AgentGoal.GATHER: 4,
+}
+CODE_TO_GOAL: dict[int, "AgentGoal"] = {v: k for k, v in GOAL_TO_CODE.items()}
 
 
 # Needs tuning. Kept as module constants rather than Config fields for now —
@@ -644,117 +663,290 @@ def describe_traits(traits: dict) -> str:
     return ", ".join(bits)
 
 
-@dataclass
 class Agent:
-    id: int
-    name: str
-    x: int
-    y: int
-    hunger: float = 0.0
-    energy: float = 1.0
-    state: AgentState = AgentState.AWAKE
-    age_ticks: int = 0
-    max_age_ticks: int = MAX_LIFESPAN_TICKS
-    starving_ticks: int = 0
-    sick_ticks: int = 0
-    """0 = healthy. >0 = ticks spent in the current bout of illness so
-    far (governs recovery via SICKNESS_DURATION_TICKS and is reset to 0
-    on recovery or death) — see Population._maybe_outbreak/_tick_disease.
-    See docs/DECISIONS.md, "population control: disease" pass."""
-    immune_ticks: int = 0
-    """v2 of disease (v1 deliberately shipped with no immunity/
-    reinfection modeling, flagged "extend later if wanted" —
-    docs/DECISIONS.md): set to IMMUNITY_DURATION_TICKS on recovery,
-    decremented every tick regardless of sick_ticks. While >0, this
-    agent can neither become a fresh outbreak's index case nor catch
-    the illness from a colocated carrier (Population._maybe_outbreak/
-    _tick_disease) — temporary, not permanent, resistance, same
-    "real but eventually fades" shape real post-infection immunity
-    takes, not a one-time-only vaccine."""
-    relationships: dict[int, float] = field(default_factory=dict)
-    trust: dict[int, float] = field(default_factory=dict)
-    """-1..1 per source agent id — a distinct axis from `relationships`
-    (fondness): how much *credibility* this agent gives another's word,
-    not how much they like them. Nudged alongside relationships on
-    dialogue (see Population.apply_dialogue's TRUST_DELTA), but tracked
-    separately so the two can diverge — someone can be well-liked but
-    known to embellish, or a rival whose information has still proven
-    reliable. Consumed by apply_dialogue when a rumor arrives: low trust
-    in the speaker gets remembered with visible skepticism instead of
-    at face value. The "discrete trust lever" flagged as a real, not-yet-
-    built gap in CLAUDE.md's per-person-beliefs section. See
-    docs/DECISIONS.md, "trust lever" pass."""
-    inventory: dict[str, float] = field(default_factory=dict)
-    """Personal possessions, currently just `{"food": 0.0..PERSONAL_FOOD_
-    CAPACITY}` — stashed on a successful farm/granary forage (see
-    FORAGE_INVENTORY_SKIM) and spent either on the agent's own future
-    hunger or given to a colocated, non-rival neighbor in
-    Population._maybe_trade_food. Distinct from `Settlement.materials`/
-    `currency` (communal) and from granary `stored_food` (also
-    communal) — this is the one thing that's unambiguously *this
-    agent's own*. See docs/DECISIONS.md, "per-agent inventory and
-    trade" pass."""
-    parents: tuple[int, int] | None = None
-    goal: AgentGoal = AgentGoal.WANDER
-    goal_reason: str = ""
-    memories: list[str] = field(default_factory=list)
-    """Short personal log, capped at MAX_AGENT_MEMORIES — bonds formed,
-    rivalries, rumors heard, a bonded partner's death. Fed back into this
-    agent's own cognition prompt (see hearthmind/llm/cognition.py), so an
-    agent's own history can shape its next goal. See docs/DECISIONS.md,
-    relationship-memory pass."""
-    skills: dict[str, float] = field(default_factory=dict)
-    """H5 (docs/ROADMAP.md "Phase H"): procedural, teachable know-how —
-    named skill -> proficiency (0..1) — deliberately separate from
-    `Settlement.beliefs`/`Agent.memories`. A belief is interpretive and
-    revisable ("the harvest failed because the town is unlucky");
-    knowledge here is procedural and either applied correctly or not
-    ("how to work a farm plot"). v1 has exactly one skill, `"farming"`
-    (SKILL_FARMING), gained slowly through an agent's own practice
-    (harvesting) and spread faster between colocated agents through
-    teaching — see Population._maybe_forage/_maybe_teach_skills."""
-    traits: dict[str, float] = field(default_factory=dict)
-    """H6 (docs/ROADMAP.md "Phase H"): a compact, bounded (-1..1)
-    personality vector, deliberately a handful of named axes rather
-    than a big-five system — `TRAIT_RESILIENCE`/`TRAIT_SOCIABILITY`
-    (v1), `TRAIT_AMBITION` (v3), `TRAIT_OPENNESS` (v4, H6 "identity/
-    values" note). Absent keys read as 0.0 (neutral), same convention
-    as `relationships`/`trust`. Nudged slowly by lived experience
-    (grief, violence witnessed, sustained hunger, positive social
-    contact, direct outside contact — see Population._nudge_trait/
-    _tick_traits) using the same bounded-random-walk-plus-event-nudge
-    shape `Settlement.temperament`/`player_standing` already establish
-    at the settlement level, reused here at agent scale rather than
-    inventing a new one. Read into cognition/dialogue prompts as
-    context once a trait is notable (see llm/cognition.py,
-    llm/dialogue.py), the same "only mentioned once notably warm/cold"
-    treatment temperament gets."""
-    settlement_id: int = 0
-    """Which settlement this agent calls home (multi-settlement pass,
-    v0.65.0) — 0, the founding settlement, for everyone until a fission
-    party departs. Home scopes which granaries/stockpiles/institutions
-    an agent treats as their own (see Population.tick's partition);
-    physical interaction stays spatial, so members of different
-    settlements still meet, talk, trade, and teach when colocated."""
-    travel_target: tuple[int, int] | None = None
-    """A long-range destination that overrides goal-directed movement
-    until reached (see Population._dispatch_movement) — set today only
-    on a fission party walking to its new settlement's site; cleared on
-    arrival. A critically hungry traveler still detours for food first:
-    survival outranks the journey, same override order as every other
-    goal."""
-    beliefs: list[dict] = field(default_factory=list)
-    """H2 extension (docs/ROADMAP.md "Phase H" stage 2): this agent's
-    own private, evolving theories about their life — same shape as
-    `Settlement.beliefs` entries (subject/belief/confidence/formed_
-    tick/revised_tick/revision_count/history), capped at llm/beliefs.
-    MAX_PERSONAL_BELIEFS, formed/revised from this agent's own
-    `memories` by a monthly LLM job
-    (`SimulationEngine._maybe_schedule_personal_belief`) rather than
-    settlement-wide events. Deliberately reuses the exact belief-entry
-    shape and the generic (Settlement-independent) `llm.beliefs.
-    parse_belief`/`push_belief_history`/`find_belief_index_by_subject`
-    functions rather than inventing a parallel per-agent mechanism."""
+    """A single inhabitant.
+
+    Storage (v0.75.0, R8 slice 3 wire-in): the 12 dense scalar fields —
+    `x`, `y`, `hunger`, `energy`, `state`, `age_ticks`, `max_age_ticks`,
+    `starving_ticks`, `sick_ticks`, `immune_ticks`, `goal`,
+    `settlement_id` — are `@property` accessors backed by a native
+    `AgentStore` (structure-of-arrays over cpp/src/agent_table.cpp) once
+    `Population` adopts the agent via `_attach`. Until adopted — and
+    permanently when the native extension isn't built — those scalars
+    live in plain `_x`/`_hunger`/... instance attributes, byte-identical
+    to the former dataclass. The store is a pure change of *where* the
+    numbers sit, never of behaviour (verified native-on vs native-off
+    every tick by scripts/verify_native_soak.py). The variable-size
+    fields (relationships/trust/inventory/memories/skills/traits/beliefs
+    /parents/travel_target) stay ordinary Python attributes regardless.
+
+    Was a `@dataclass` before v0.75.0; converted to a hand-written class
+    so the scalar fields can be properties. The `__init__` keyword
+    signature and `to_dict`/`from_dict` are preserved exactly, so every
+    construction site is unchanged. Per-field rationale that used to live
+    in dataclass field docstrings is retained inline below.
+    """
+
+    def __init__(
+        self,
+        id: int,
+        name: str,
+        x: int,
+        y: int,
+        hunger: float = 0.0,
+        energy: float = 1.0,
+        state: AgentState = AgentState.AWAKE,
+        age_ticks: int = 0,
+        max_age_ticks: int = MAX_LIFESPAN_TICKS,
+        starving_ticks: int = 0,
+        sick_ticks: int = 0,
+        immune_ticks: int = 0,
+        relationships: dict[int, float] | None = None,
+        trust: dict[int, float] | None = None,
+        inventory: dict[str, float] | None = None,
+        parents: tuple[int, int] | None = None,
+        goal: AgentGoal = AgentGoal.WANDER,
+        goal_reason: str = "",
+        memories: list[str] | None = None,
+        skills: dict[str, float] | None = None,
+        traits: dict[str, float] | None = None,
+        settlement_id: int = 0,
+        travel_target: tuple[int, int] | None = None,
+        beliefs: list[dict] | None = None,
+    ) -> None:
+        self.id = id
+        self.name = name
+        # Native store, set by Population._attach when the extension is
+        # built; None means "scalars live in the _x/... locals below",
+        # which is the permanent state in the pure-Python fallback.
+        self._store: "object | None" = None
+        # --- the 12 store-backed scalars (source of truth while detached) ---
+        self._x = x
+        self._y = y
+        self._hunger = hunger
+        self._energy = energy
+        self._state = state
+        self._age_ticks = age_ticks
+        self._max_age_ticks = max_age_ticks
+        self._starving_ticks = starving_ticks
+        # sick_ticks: 0 = healthy; >0 = ticks into the current bout of
+        # illness (recovery via SICKNESS_DURATION_TICKS, reset on
+        # recovery/death). See Population._maybe_outbreak/_tick_disease.
+        self._sick_ticks = sick_ticks
+        # immune_ticks: set to IMMUNITY_DURATION_TICKS on recovery,
+        # decremented every tick; while >0 the agent can neither be an
+        # outbreak index case nor catch illness from a carrier —
+        # temporary, fading resistance, not a permanent vaccine.
+        self._immune_ticks = immune_ticks
+        self._goal = goal
+        # settlement_id: which settlement this agent calls home
+        # (multi-settlement, v0.65.0) — 0 until a fission party departs.
+        # Scopes which granaries/stockpiles/institutions are "theirs";
+        # physical interaction stays spatial across settlements.
+        self._settlement_id = settlement_id
+        self.goal_reason = goal_reason
+        # --- variable-size fields — always plain Python attributes ----------
+        self.relationships: dict[int, float] = {} if relationships is None else relationships
+        # trust: -1..1 per source id — credibility, a distinct axis from
+        # `relationships` (fondness); the two can diverge. Low trust makes
+        # a rumor land with visible skepticism. See apply_dialogue.
+        self.trust: dict[int, float] = {} if trust is None else trust
+        # inventory: personal possessions, today just {"food": 0..
+        # PERSONAL_FOOD_CAPACITY} — the one thing unambiguously this
+        # agent's own, vs. communal Settlement.materials/granary food.
+        self.inventory: dict[str, float] = {} if inventory is None else inventory
+        self.parents = parents
+        # memories: short personal log capped at MAX_AGENT_MEMORIES, fed
+        # back into this agent's own cognition prompt.
+        self.memories: list[str] = [] if memories is None else memories
+        # skills: procedural teachable know-how, name -> proficiency 0..1
+        # (SKILL_FARMING/CONSTRUCTION/MEDICINE) — distinct from beliefs.
+        self.skills: dict[str, float] = {} if skills is None else skills
+        # traits: compact bounded (-1..1) personality vector (resilience/
+        # sociability/ambition/openness); absent keys read 0.0.
+        self.traits: dict[str, float] = {} if traits is None else traits
+        # travel_target: long-range destination that overrides goal-
+        # directed movement until reached (fission journeys); a
+        # critically hungry traveler still detours for food first.
+        self.travel_target = travel_target
+        # beliefs: this agent's own evolving theories, same entry shape as
+        # Settlement.beliefs, capped at llm/beliefs.MAX_PERSONAL_BELIEFS.
+        self.beliefs: list[dict] = [] if beliefs is None else beliefs
+
+    # --- native-store attach + scalar properties ---------------------------
+
+    def _attach(self, store: "object | None") -> None:
+        """Adopt this agent's scalars into a native `AgentStore` (owned by
+        `Population`). No-op when `store` is None — the pure-Python
+        fallback, where scalars stay in the `_x`/... locals. After a
+        successful attach the store is the source of truth; the locals
+        are left as harmless shadows and the properties below never read
+        them again (they dispatch on `self._store`)."""
+        if store is None:
+            return
+        store.add(
+            self.id, self._x, self._y, self._hunger, self._energy,
+            STATE_TO_CODE[self._state], self._age_ticks, self._max_age_ticks,
+            self._starving_ticks, self._sick_ticks, self._immune_ticks,
+            GOAL_TO_CODE[self._goal], self._settlement_id,
+        )
+        self._store = store
+
+    @property
+    def x(self) -> int:
+        s = self._store
+        return self._x if s is None else s.get_x(self.id)
+
+    @x.setter
+    def x(self, v: int) -> None:
+        s = self._store
+        if s is None:
+            self._x = v
+        else:
+            s.set_x(self.id, v)
+
+    @property
+    def y(self) -> int:
+        s = self._store
+        return self._y if s is None else s.get_y(self.id)
+
+    @y.setter
+    def y(self, v: int) -> None:
+        s = self._store
+        if s is None:
+            self._y = v
+        else:
+            s.set_y(self.id, v)
+
+    @property
+    def hunger(self) -> float:
+        s = self._store
+        return self._hunger if s is None else s.get_hunger(self.id)
+
+    @hunger.setter
+    def hunger(self, v: float) -> None:
+        s = self._store
+        if s is None:
+            self._hunger = v
+        else:
+            s.set_hunger(self.id, v)
+
+    @property
+    def energy(self) -> float:
+        s = self._store
+        return self._energy if s is None else s.get_energy(self.id)
+
+    @energy.setter
+    def energy(self, v: float) -> None:
+        s = self._store
+        if s is None:
+            self._energy = v
+        else:
+            s.set_energy(self.id, v)
+
+    @property
+    def state(self) -> AgentState:
+        s = self._store
+        return self._state if s is None else CODE_TO_STATE[s.get_state(self.id)]
+
+    @state.setter
+    def state(self, v: AgentState) -> None:
+        s = self._store
+        if s is None:
+            self._state = v
+        else:
+            s.set_state(self.id, STATE_TO_CODE[v])
+
+    @property
+    def age_ticks(self) -> int:
+        s = self._store
+        return self._age_ticks if s is None else s.get_age_ticks(self.id)
+
+    @age_ticks.setter
+    def age_ticks(self, v: int) -> None:
+        s = self._store
+        if s is None:
+            self._age_ticks = v
+        else:
+            s.set_age_ticks(self.id, v)
+
+    @property
+    def max_age_ticks(self) -> int:
+        s = self._store
+        return self._max_age_ticks if s is None else s.get_max_age_ticks(self.id)
+
+    @max_age_ticks.setter
+    def max_age_ticks(self, v: int) -> None:
+        s = self._store
+        if s is None:
+            self._max_age_ticks = v
+        else:
+            s.set_max_age_ticks(self.id, v)
+
+    @property
+    def starving_ticks(self) -> int:
+        s = self._store
+        return self._starving_ticks if s is None else s.get_starving_ticks(self.id)
+
+    @starving_ticks.setter
+    def starving_ticks(self, v: int) -> None:
+        s = self._store
+        if s is None:
+            self._starving_ticks = v
+        else:
+            s.set_starving_ticks(self.id, v)
+
+    @property
+    def sick_ticks(self) -> int:
+        s = self._store
+        return self._sick_ticks if s is None else s.get_sick_ticks(self.id)
+
+    @sick_ticks.setter
+    def sick_ticks(self, v: int) -> None:
+        s = self._store
+        if s is None:
+            self._sick_ticks = v
+        else:
+            s.set_sick_ticks(self.id, v)
+
+    @property
+    def immune_ticks(self) -> int:
+        s = self._store
+        return self._immune_ticks if s is None else s.get_immune_ticks(self.id)
+
+    @immune_ticks.setter
+    def immune_ticks(self, v: int) -> None:
+        s = self._store
+        if s is None:
+            self._immune_ticks = v
+        else:
+            s.set_immune_ticks(self.id, v)
+
+    @property
+    def goal(self) -> AgentGoal:
+        s = self._store
+        return self._goal if s is None else CODE_TO_GOAL[s.get_goal(self.id)]
+
+    @goal.setter
+    def goal(self, v: AgentGoal) -> None:
+        s = self._store
+        if s is None:
+            self._goal = v
+        else:
+            s.set_goal(self.id, GOAL_TO_CODE[v])
+
+    @property
+    def settlement_id(self) -> int:
+        s = self._store
+        return self._settlement_id if s is None else s.get_settlement_id(self.id)
+
+    @settlement_id.setter
+    def settlement_id(self, v: int) -> None:
+        s = self._store
+        if s is None:
+            self._settlement_id = v
+        else:
+            s.set_settlement_id(self.id, v)
 
     def to_dict(self) -> dict:
         return {

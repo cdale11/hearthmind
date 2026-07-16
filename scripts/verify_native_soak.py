@@ -38,6 +38,7 @@ from hearthmind.config import Config  # noqa: E402
 from hearthmind.persistence.database import connect  # noqa: E402
 from hearthmind.simulation.engine import SimulationEngine  # noqa: E402
 
+import hearthmind.agents.agent_store as _agent_store  # noqa: E402
 import hearthmind.agents.population as _population  # noqa: E402
 import hearthmind.economy.farms as _farms  # noqa: E402
 import hearthmind.settlement.buildings as _buildings  # noqa: E402
@@ -77,6 +78,10 @@ _NATIVE_TOGGLES = [
     (_buildings, "_native_vehicle_decay_tick"),
     (_farms, "_native_farm_grid_tick"),
     (_time_system, "_native_sim_clock_advance"),
+    # v0.75.0: nulling this makes Population build no AgentStore, so every
+    # Agent keeps its 12 scalar fields in plain locals — the pre-v0.75.0
+    # dataclass path. native=True routes them through cpp AgentTable.
+    (_agent_store, "_NativeAgentTable"),
 ]
 
 

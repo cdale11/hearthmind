@@ -59,6 +59,7 @@ unconditionally for every agent every tick, unlike the goal-gated
 lookups in modules 1-5. `None` when the extension wasn't built — falls
 back to the equivalent pure-Python branching in that case."""
 
+from hearthmind.agents import agent_store
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
     DIALOGUE_SENTIMENT_DELTA,
@@ -906,6 +907,29 @@ class Population:
     it's set, same "computed fresh, never serialized" shape as
     `World.last_life_events`. See docs/DECISIONS.md, "cognition
     triggers beyond daily cadence" pass."""
+
+    def __post_init__(self) -> None:
+        """Build the native AgentStore (only when the extension is built)
+        and adopt every agent passed in — this covers both construction
+        paths, `spawn_initial` and `from_dict`, since both hand a fully
+        built `agents` list to `cls(agents=..., ...)`. When the extension
+        isn't present, `_store` stays None and agents keep their scalars
+        in plain locals, byte-identical to the pre-v0.75.0 dataclass.
+
+        Not a dataclass field: derived, per-process, and must never be
+        serialized (the native table can't and shouldn't round-trip
+        through JSON — it's rebuilt from the loaded agents here)."""
+        self._store = agent_store.AgentStore() if agent_store.native_available() else None
+        if self._store is not None:
+            for agent in self.agents:
+                agent._attach(self._store)
+
+    def _adopt(self, agent: Agent) -> None:
+        """Register an agent created *after* construction (a newborn or a
+        migrant) with the store, so its scalars live in the same backing
+        as everyone else's. No-op in the pure-Python fallback."""
+        if self._store is not None:
+            agent._attach(self._store)
 
     # --- construction ------------------------------------------------------
 
@@ -2473,6 +2497,8 @@ class Population:
                     life_events.append(family_event)
                     _prune_extinct_families(home, {a.id for a in self.agents})
 
+        for nb in newborns:
+            self._adopt(nb)
         self.agents.extend(newborns)
         return life_events
 
@@ -2685,6 +2711,7 @@ class Population:
             max_age_ticks=rng.randint(MIN_LIFESPAN_TICKS, MAX_LIFESPAN_TICKS),
         )
         self._next_id += 1
+        self._adopt(migrant)
         self.agents.append(migrant)
         destination = settlement.name or "the dwindling settlement"
         _remember(migrant, f"I came to {destination} looking for a new start.")
@@ -3623,6 +3650,14 @@ class Population:
             if home is not None:
                 life_events.extend(self._apply_inheritance(agent, home, dying_ids))
         self.agents = survivors
+        if self._store is not None:
+            # Drop the dead from the native store too, keeping it in
+            # lockstep with self.agents. Swap-with-last removal internally
+            # reindexes surviving slots; the store's id-keyed map absorbs
+            # that, so no live Agent handle is affected. `dying_ids` is
+            # exactly the removed set (computed above from self.agents).
+            for dead_id in dying_ids:
+                self._store.remove(dead_id)
         if dying_ids:
             # Strip every survivor's relationships/trust entries for the
             # dying — a dead agent is never colocated again, so these
