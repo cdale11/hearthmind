@@ -4,6 +4,59 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.82.0] — LLM-pressure tick pacing; snow fix; "town is alive" UI cues
+
+Explicit standing priority: LLM decision quality over simulation
+throughput — when they compete for the same resource, quality wins.
+Backend pacing change plus two frontend bug fixes plus a first UI
+feature connecting an LLM-authored moment to the map itself.
+
+### Added
+
+- `SimulationEngine.llm_pressure_ratio()`/`llm_pressure_paused()`/
+  `_llm_pressure_interval_multiplier()`: `run_forever` now stretches
+  (up to 6x) or fully pauses the real-time gap between ticks when the
+  LLM backlog is saturated, instead of only dropping jobs that can't
+  get a slot. A live diagnostic showed backlog at 2x the adaptive
+  backpressure limit with 3006 dropped calls against only 134
+  attempted — the tick loop was generating scheduling opportunities
+  faster than the (20-40s/call) hardware could ever clear them. The
+  existing drop-based backpressure/adaptive-limit machinery is
+  unchanged and still the real safety valve for a pathological
+  backlog. Surfaced in diagnostics/broadcast as `llm_pressure_ratio`/
+  `llm_pressure_paused`.
+- UI: a header "the town is thinking…" / "deep in thought…" indicator
+  reading the pacing state above, and a brief pulsing ring over a
+  core-cast agent's map position the instant a genuine LLM-authored
+  dialogue exchange lands (parsed from the existing event description,
+  no schema change) — both verified live via Playwright.
+
+### Fixed
+
+- Snow was invisible whenever it followed rain (a common real
+  transition): `spawnWeatherParticles` only set a particle's `snow`
+  type at creation, so particles already on screen from a moment ago
+  kept behaving as the old weather type forever. Verified live: before
+  the fix, particles stayed 100% rain-typed after `is_snowing` flipped
+  true; after, 100% convert on the next frame. Also added a pale
+  ground-tint overlay when snowing (distinct from rain's darkening
+  tint) so it reads at a glance even with sparse particles.
+- `.consciousness-indicator`'s bare `display:flex` rule tied on CSS
+  specificity with the shared `.hidden{display:none}` rule and won by
+  source order, silently defeating its own show/hide toggle — fixed
+  via `:not(.hidden)`.
+
+### Verified
+
+- Direct unit tests for the pacing ratio/multiplier/pause thresholds
+  and a `run_forever` test confirming zero ticks advance while
+  pressure stays severe.
+- Live browser (Playwright) tests: rain->snow particle conversion,
+  consciousness-indicator hidden/slowed/paused states, thought-flash
+  ring positioning for a synthetic dialogue event.
+- `scripts/verify_native_soak.py` (2 seeds, 1500 ticks) byte-identical
+  — this batch touches no native module.
+
 ## [0.81.1] — Monthly settlement jobs get a bounded retry window
 
 Direct response to a live report: a village had never once formed a

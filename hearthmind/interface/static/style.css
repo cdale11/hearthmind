@@ -261,6 +261,34 @@ main {
   cursor: default;
 }
 
+/* :not(.hidden), not a bare .consciousness-indicator display rule --
+   otherwise this and the shared .hidden{display:none} rule tie on
+   specificity and source order decides, silently breaking the toggle. */
+.consciousness-indicator:not(.hidden) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--accent);
+  font-style: italic;
+}
+.consciousness-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: consciousness-pulse 1.6s ease-in-out infinite;
+}
+.consciousness-indicator.consciousness-paused .consciousness-dot {
+  animation-duration: 0.9s;
+  background: #e0714a;
+}
+.consciousness-indicator.consciousness-paused { color: #e0714a; }
+@keyframes consciousness-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
 .sim-speed-controls { display: flex; align-items: center; gap: 4px; }
 .sim-speed-controls button {
   background: none;

@@ -197,6 +197,48 @@ observed p95, SEVERE sits just under the observed max, so a genuinely
 struggling server (not just ordinary load) is what triggers the
 tightest tier."""
 
+LLM_PRESSURE_SLOWDOWN_START_RATIO = 1.0
+LLM_PRESSURE_PAUSE_RATIO = 2.0
+LLM_PRESSURE_MAX_SLOWDOWN = 6.0
+"""Explicit standing directive (CLAUDE.md, "town consciousness is
+important enough to trade off with simulation speed"): when the LLM
+queue is genuinely saturated, `run_forever` now stretches — or fully
+pauses — real time between ticks instead of only dropping the jobs that
+can't get a slot (the existing `_settlement_job_backpressured`/
+adaptive-backpressure machinery above is unchanged and still the actual
+safety valve; this just tries to avoid needing it as often). A live
+diagnostic showed `llm_backlog_effective` sitting at 12 against a
+`_current_backpressure_limit()` of 6 — 2x over — with `calls_dropped_
+backpressure` at 3006 against only 134 real calls attempted: the tick
+loop kept generating new scheduling opportunities every ~1 real second
+regardless of whether the 12 already-in-flight calls (each taking
+20-40s on this hardware) had any chance to drain, so nearly every new
+opportunity was born already-doomed to be dropped.
+
+Ratio = `_effective_backlog() / _current_backpressure_limit()`.
+Below `LLM_PRESSURE_SLOWDOWN_START_RATIO` (1.0, i.e. at/under the
+adaptive limit): no change, ticks run at the configured/user-selected
+speed. Between START_RATIO and `LLM_PRESSURE_PAUSE_RATIO` (2.0): the
+real-time gap between ticks stretches linearly, up to `LLM_PRESSURE_
+MAX_SLOWDOWN`x slower — fewer new ticks means fewer new agents becoming
+"due" for cognition/dialogue per unit of real time (staggered-daily
+eligibility is tick-count-based), which is what actually relieves
+pressure, since the already-in-flight calls drain at their own
+real-time pace regardless of tick rate. At/above PAUSE_RATIO: ticking
+stops outright (`llm_pressure_paused()`) — same "poll at PAUSED_POLL_
+SECONDS" mechanism the user-facing pause button already uses — until
+backlog drains back under the ratio. This is deliberately still bounded
+(never an unbounded stall): `_current_backpressure_limit()` itself only
+ever shrinks so far (never below `llm_max_concurrent`), so a
+sufficiently pathological backlog still eventually gets relieved by the
+existing drop-based safety valve rather than stalling forever; this
+mechanism only buys the *common* case (a bursty spike, not a wedged
+server) a real chance to resolve via genuine LLM answers instead of
+fallbacks. Surfaced in diagnostics/broadcast as `llm_pressure_ratio`/
+`llm_pressure_paused` so the UI can show a "town is thinking" state
+distinct from the user's own pause button. See docs/DECISIONS.md,
+"LLM-pressure-aware tick pacing"."""
+
 IDLE_BROADCAST_EVERY_TICKS = 10
 """With zero WebSocket clients connected, the full broadcast payload
 (a to_dict() of every agent/building/farm/resource/wildlife entity plus
@@ -617,6 +659,42 @@ class SimulationEngine:
             return max(floor, self._backpressure_limit // 2)
         return self._backpressure_limit
 
+    def llm_pressure_ratio(self) -> float:
+        """`_effective_backlog() / _current_backpressure_limit()` — 1.0
+        means the queue is exactly at the (already-adaptive) limit, 2.0
+        means double over. `run_forever` uses this to slow/pause ticking
+        — see LLM_PRESSURE_SLOWDOWN_START_RATIO's docstring. 0.0 if the
+        limit is somehow 0 (shouldn't happen — `llm_max_concurrent` is
+        always >= 1 — but a division guard costs nothing)."""
+        limit = self._current_backpressure_limit()
+        if limit <= 0:
+            return 0.0
+        return self._effective_backlog() / limit
+
+    def llm_pressure_paused(self) -> bool:
+        """True when `run_forever` should skip ticking entirely this
+        cycle — the LLM backlog is saturated enough that generating more
+        scheduling opportunities right now would just feed the drop
+        counter rather than genuine LLM answers. See LLM_PRESSURE_
+        PAUSE_RATIO."""
+        return self.llm_pressure_ratio() >= LLM_PRESSURE_PAUSE_RATIO
+
+    def _llm_pressure_interval_multiplier(self) -> float:
+        """How much longer than normal `run_forever` should wait before
+        the next tick, given current LLM backlog pressure — 1.0 below
+        `LLM_PRESSURE_SLOWDOWN_START_RATIO`, scaling linearly up to
+        `LLM_PRESSURE_MAX_SLOWDOWN` as pressure approaches `LLM_PRESSURE_
+        PAUSE_RATIO` (at/beyond which `llm_pressure_paused()` takes over
+        and ticking stops outright, making this multiplier moot)."""
+        ratio = self.llm_pressure_ratio()
+        if ratio <= LLM_PRESSURE_SLOWDOWN_START_RATIO:
+            return 1.0
+        span = LLM_PRESSURE_PAUSE_RATIO - LLM_PRESSURE_SLOWDOWN_START_RATIO
+        if span <= 0:
+            return 1.0
+        progress = min(1.0, (ratio - LLM_PRESSURE_SLOWDOWN_START_RATIO) / span)
+        return 1.0 + progress * (LLM_PRESSURE_MAX_SLOWDOWN - 1.0)
+
     def _settlement_job_backpressured(self) -> bool:
         """Backpressure check for the settlement-level jobs (chronicle,
         town_brain, beliefs, tradition, invention, festival, caravan,
@@ -814,13 +892,28 @@ class SimulationEngine:
         try:
             while not self._stop_event.is_set():
                 paused = self._broadcaster is not None and self._broadcaster.is_paused()
-                if not paused:
+                # LLM-pressure pacing (see LLM_PRESSURE_SLOWDOWN_START_RATIO):
+                # a saturated backlog pauses ticking the same way the user's
+                # own pause button does — town consciousness over throughput,
+                # explicit standing directive (CLAUDE.md). Checked every loop
+                # iteration so it reacts live as backlog drains, not just at
+                # the top of a tick.
+                llm_paused = self.llm_pressure_paused()
+                if not paused and not llm_paused:
                     self._tick_once()
                 speed = self._broadcaster.get_speed_multiplier() if self._broadcaster is not None else 1.0
-                # While paused, poll at a short fixed interval rather than
-                # the (possibly very long, at a low speed multiplier) tick
-                # interval, so a resume/stop request is picked up promptly.
-                interval = PAUSED_POLL_SECONDS if paused else max(0.05, self.config.tick_seconds / speed)
+                # While paused (user-requested or LLM-pressure-triggered),
+                # poll at a short fixed interval rather than the (possibly
+                # very long, at a low speed multiplier) tick interval, so a
+                # resume/stop request — or backlog draining back down — is
+                # picked up promptly.
+                if paused or llm_paused:
+                    interval = PAUSED_POLL_SECONDS
+                else:
+                    interval = max(
+                        0.05,
+                        self.config.tick_seconds / speed * self._llm_pressure_interval_multiplier(),
+                    )
                 try:
                     await asyncio.wait_for(self._stop_event.wait(), timeout=interval)
                 except asyncio.TimeoutError:
@@ -2731,6 +2824,15 @@ class SimulationEngine:
             "llm_backlog_reserved_this_tick": self._reserved_this_tick,
             "llm_backpressure_limit": self._backpressure_limit,
             "llm_backpressure_limit_effective": self._current_backpressure_limit(),
+            # LLM-pressure tick pacing (v0.81.2, see LLM_PRESSURE_SLOWDOWN_
+            # START_RATIO's docstring): `llm_pressure_ratio` is how far over
+            # the adaptive limit the backlog currently sits (>1.0 = ticks
+            # are being slowed, >= LLM_PRESSURE_PAUSE_RATIO = ticking is
+            # fully paused this cycle) — the UI's "town is thinking" state
+            # reads these directly rather than inferring pressure from drop
+            # counts.
+            "llm_pressure_ratio": round(self.llm_pressure_ratio(), 3),
+            "llm_pressure_paused": self.llm_pressure_paused(),
             "llm_calls_today": self._llm_calls_today,
             "llm_max_calls_per_day": self.config.llm_max_calls_per_day,
             "llm_core_cast_size": self.config.llm_core_cast_size,

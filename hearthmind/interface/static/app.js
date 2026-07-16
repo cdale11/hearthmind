@@ -1101,8 +1101,71 @@ function agentRenderPos(a) {
   return { px: gx * CELL + CELL / 2, py: gy * CELL + CELL / 2 };
 }
 
+// --- LLM "thought" flashes ---------------------------------------------
+// A brief marker over a core-cast agent the instant a genuine LLM-authored
+// exchange involving them lands — the concrete, moment-to-moment "this
+// mind just reasoned about something" cue the map otherwise never gives
+// you (dialogue only ever showed up as sidebar text, disconnected from
+// WHERE it happened). Only fires for `dialogue`/`dialogue_surfaced`
+// events, which are logged only for genuine LLM-authored core-cast
+// exchanges (never the deterministic crowd fallback) — see engine.py's
+// `is_llm` gating — so this reads as "the model just thought," not noise.
+const THOUGHT_FLASH_DURATION_MS = 2600;
+const thoughtFlashes = new Map(); // agentId -> startTime (performance.now())
+
+// Dialogue events are logged as `Name: "line" — Name: "line"` (engine.py's
+// _maybe_schedule_dialogue) — parsed back into names here rather than
+// widening the event schema just for this cosmetic effect. Best-effort:
+// a name collision or malformed line just skips the flash, never breaks
+// anything else.
+const DIALOGUE_EVENT_RE = /^(.+?): "[\s\S]*" — (.+?): "/;
+
+function registerThoughtFlashes(events, agents) {
+  if (!events || !events.length || !agents || !agents.length) return;
+  const now = performance.now();
+  const byName = new Map(agents.map((a) => [a.name, a.id]));
+  for (const e of events) {
+    if (e.category !== "dialogue" && e.category !== "dialogue_surfaced") continue;
+    const m = DIALOGUE_EVENT_RE.exec(e.description || "");
+    if (!m) continue;
+    for (const name of [m[1], m[2]]) {
+      const id = byName.get(name);
+      if (id !== undefined) thoughtFlashes.set(id, now);
+    }
+  }
+}
+
+function drawThoughtFlashes(ctx) {
+  if (!thoughtFlashes.size) return;
+  const now = performance.now();
+  for (const [id, start] of thoughtFlashes) {
+    const t = (now - start) / THOUGHT_FLASH_DURATION_MS;
+    if (t >= 1) { thoughtFlashes.delete(id); continue; }
+    const agent = latest.agents.find((a) => a.id === id);
+    if (!agent) { thoughtFlashes.delete(id); continue; }
+    const { px, py } = agentRenderPos(agent);
+    // An expanding, fading ring — a vector shape rather than an emoji
+    // glyph so it renders identically regardless of the browser/OS's
+    // emoji font coverage. Two rings a beat apart read as a pulse
+    // rather than a single static ripple.
+    ctx.save();
+    ctx.strokeStyle = "#8fd6ff";
+    ctx.lineWidth = 1.2;
+    for (const offset of [0, 0.35]) {
+      const rt = Math.min(1, Math.max(0, t - offset) / (1 - offset));
+      if (rt <= 0 || rt >= 1) continue;
+      ctx.globalAlpha = (1 - rt) * 0.8;
+      ctx.beginPath();
+      ctx.arc(px, py, CELL * 0.6 + rt * CELL * 1.8, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
 function renderLoop() {
   drawFrame();
+  drawThoughtFlashes(ctx);
   requestAnimationFrame(renderLoop);
 }
 requestAnimationFrame(renderLoop);
@@ -1145,6 +1208,24 @@ function spawnWeatherParticles(w) {
   const target = w.is_snowing
     ? Math.round(intensity * 120)
     : Math.round(intensity * 90);
+  // Keep every EXISTING particle's type in sync with the current weather,
+  // not just newly-spawned ones — the loop below only ever appends once
+  // the array is below target, so a particle left over from a moment ago
+  // (e.g. rain) never got its `snow`/`speed`/`drift`/`size` refreshed on
+  // a rain -> snow transition, and just kept behaving as rain forever.
+  // Root cause of the live "it's snowing but I don't see snow" report:
+  // snow directly following rain (a common transition, both requiring
+  // precipitation) inherited a canvas full of stale rain-streak particles
+  // instead of snowflakes. A transition from clear sky (0 particles) was
+  // unaffected, which is why this was easy to miss in a quick check.
+  for (const p of weatherParticles) {
+    if (p.snow !== w.is_snowing) {
+      p.snow = w.is_snowing;
+      p.speed = w.is_snowing ? 0.4 + Math.random() * 0.6 : 4 + Math.random() * 4;
+      p.drift = (w.wind - 0.5) * (w.is_snowing ? 1.2 : 2.5);
+      p.size = w.is_snowing ? 1 + Math.random() * 1.5 : 1;
+    }
+  }
   while (weatherParticles.length < target) {
     weatherParticles.push({
       x: Math.random() * weatherCanvas.width,
@@ -1199,12 +1280,25 @@ function nightFactor(clockStr, monthName) {
   return (hour - sunset) / DAWN_DUSK_TRANSITION_HOURS;
 }
 
+const SNOW_TINT_MAX_ALPHA = 0.22;
+
 function drawLighting(w) {
   const night = nightFactor(
     latest && latest.summary && latest.summary.clock,
     latest && latest.summary && latest.summary.month,
   );
-  const weatherDark = w ? Math.min(1, w.precipitation) * WEATHER_DARKEN_MAX_ALPHA : 0;
+  // Snow reads as a pale, overcast-white ground tint — real snowy days
+  // are bright, not gloomy — distinct from (and drawn instead of) rain's
+  // darkening tint below. This is the map-level "it's snowing" cue the
+  // falling particles alone don't give you at a glance when the map is
+  // zoomed out or the particles are sparse (light snow). Layered UNDER
+  // the night darkening so a snowy night still reads as night.
+  if (w && w.is_snowing) {
+    const snowAlpha = Math.min(SNOW_TINT_MAX_ALPHA, 0.08 + w.precipitation * 0.22);
+    weatherCtx.fillStyle = `rgba(232, 238, 250, ${snowAlpha})`;
+    weatherCtx.fillRect(0, 0, weatherCanvas.width, weatherCanvas.height);
+  }
+  const weatherDark = w && !w.is_snowing ? Math.min(1, w.precipitation) * WEATHER_DARKEN_MAX_ALPHA : 0;
   const alpha = Math.min(0.75, night * NIGHT_MAX_ALPHA + weatherDark);
   if (alpha <= 0.01) return;
   weatherCtx.fillStyle = `rgba(4, 6, 16, ${alpha})`;
@@ -2095,6 +2189,7 @@ function applyPayload(payload) {
   renderConsequences(payload.summary);
   renderInfrastructure(payload.infrastructure);
   if (payload.diagnostics && payload.diagnostics.sim_pacing) renderSimPacing(payload.diagnostics.sim_pacing);
+  if (payload.diagnostics) renderConsciousnessIndicator(payload.diagnostics);
   if (inspectedAgentId !== null) renderNpcInspector();
   if (inspectedTarget !== null) renderTargetInspector();
   updateAgentAnimTargets(payload.agents || []);
@@ -2102,6 +2197,7 @@ function applyPayload(payload) {
   if (payload.life_events && payload.life_events.length) {
     prependEvents(payload.life_events.map((e) => ({ ...e, tick: payload.summary.tick })));
     refreshTerrainIfChanged(payload.life_events);
+    registerThoughtFlashes(payload.life_events, payload.agents);
   }
 }
 
@@ -2120,6 +2216,32 @@ function renderSimPacing(pacing) {
   pauseToggleBtn.classList.toggle("active", simPaused);
   const mult = pacing.speed_multiplier || 1;
   speedLabel.textContent = `${mult % 1 === 0 ? mult : mult.toFixed(2)}x`;
+}
+
+// --- town-consciousness pressure indicator ----------------------------
+// Surfaces SimulationEngine's LLM-pressure tick pacing (see engine.py's
+// LLM_PRESSURE_SLOWDOWN_START_RATIO) — distinct from the user's own
+// pause button above: this is the SIMULATION deciding, on its own, to
+// slow or stop so the LLM-driven minds get to actually finish reasoning
+// instead of having their turn dropped. Read at a glance, matching the
+// Observatory UI direction, rather than something you'd only notice by
+// opening the dev console.
+const consciousnessEl = document.getElementById("consciousness-indicator");
+const consciousnessLabelEl = document.getElementById("consciousness-label");
+
+function renderConsciousnessIndicator(diagnostics) {
+  if (!consciousnessEl) return;
+  const ratio = diagnostics.llm_pressure_ratio || 0;
+  const paused = !!diagnostics.llm_pressure_paused;
+  if (ratio <= 1.0) {
+    consciousnessEl.classList.add("hidden");
+    return;
+  }
+  consciousnessEl.classList.remove("hidden");
+  consciousnessEl.classList.toggle("consciousness-paused", paused);
+  consciousnessLabelEl.textContent = paused
+    ? "the town is deep in thought…"
+    : "the town is thinking…";
 }
 
 async function postSimSpeed(body) {

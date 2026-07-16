@@ -373,6 +373,94 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.82.0)
+
+Explicit user directive, and a new standing priority statement: **"the
+emergence... is top priority and we will not trade off for that. All
+other systems... should augment the LLM based emergence and not work
+independently."** Concretely: when simulation throughput and LLM
+decision quality compete for the same resource, LLM quality wins —
+codified below, not just followed once. Three parts: backend tick
+pacing, two frontend bugs/gaps, and a first UI feature that makes an
+LLM-authored moment visible on the map itself rather than only in
+sidebar text.
+
+**LLM-pressure-aware tick pacing** (`SimulationEngine.run_forever`):
+direct response to a live diagnostic showing `llm_backlog_effective`
+at 12 against a `_current_backpressure_limit()` of 6 (2x over) with
+`calls_dropped_backpressure` at 3006 against only 134 real calls
+attempted — the tick loop kept generating new scheduling opportunities
+every ~1 real second regardless of whether the 12 already-in-flight
+calls (20-40s each on this hardware) had any chance to drain, so almost
+every new opportunity was born already-doomed to be dropped. New
+`llm_pressure_ratio()`/`llm_pressure_paused()`/`_llm_pressure_interval_
+multiplier()`: below `LLM_PRESSURE_SLOWDOWN_START_RATIO` (1.0, at/under
+the adaptive limit) nothing changes; between 1.0 and `LLM_PRESSURE_
+PAUSE_RATIO` (2.0) the real-time gap between ticks stretches linearly up
+to `LLM_PRESSURE_MAX_SLOWDOWN` (6x); at/above 2.0 ticking stops outright
+(same `PAUSED_POLL_SECONDS` polling the user's own pause button uses)
+until backlog drains back down. Fewer new ticks means fewer agents
+becoming "due" for cognition/dialogue per unit of real time (eligibility
+is tick-count-based), which is what actually relieves pressure — the
+already-in-flight calls keep draining at their own real-time pace
+regardless of tick rate. The existing drop-based backpressure/adaptive-
+limit machinery is unchanged and still the real safety valve for a
+genuinely pathological backlog (this mechanism only needs to buy the
+common case — a bursty spike — a real chance to resolve as genuine LLM
+answers instead of fallbacks). Surfaced in diagnostics/broadcast as
+`llm_pressure_ratio`/`llm_pressure_paused`.
+
+**Frontend: snow bug found and fixed.** Live report: "when it snows it
+is not visible in the effects or on the live map." Verified directly in
+a real browser (Playwright) rather than guessed: `spawnWeatherParticles`
+only ever set a particle's `snow`/`speed`/`drift`/`size` fields at
+CREATION time — the spawn loop only appends NEW particles once the
+array is below its target count, so any particle already on screen from
+a moment ago (most commonly: rain, since rain and snow both require
+real precipitation and a rain-to-snow transition is a common real
+sequence, not rain-to-clear-to-snow) kept behaving as its OLD weather
+type forever. A transition from clear sky (zero particles) was
+unaffected, which is why this was easy to miss in a quick check.
+Confirmed via a forced rain->snow transition in a live page: before the
+fix, particles stayed 100% rain-typed after `is_snowing` flipped true;
+after the fix, 100% convert to snow-typed on the very next frame. Also
+added a pale ground-tint overlay when `is_snowing` (real snowy days
+read bright/overcast-white, not gloomy — distinct from and drawn
+instead of rain's darkening tint) for a map-level "it's snowing" cue
+that doesn't depend on noticing sparse falling particles. Caught and
+fixed a second, self-inflicted bug while building the next feature
+below: `.consciousness-indicator`'s bare `display:flex` rule tied on
+CSS specificity with the shared `.hidden{display:none}` rule and won by
+source order, silently defeating the show/hide toggle — fixed via
+`:not(.hidden)`, a specificity-safety pattern worth reusing for any
+future toggled element that needs its own `display` value.
+
+**UI: two new "the town is alive" cues**, both reading real backend
+state, not decorative: (1) a header "the town is thinking…" /
+"deep in thought…" indicator (`llm_pressure_ratio`/`llm_pressure_
+paused` from the pacing feature above) — the simulation visibly
+choosing quality over speed is now something a player sees, not just a
+`/diagnostics` number; (2) a brief pulsing ring over a core-cast agent's
+map position the instant a genuine LLM-authored exchange lands
+(`dialogue`/`dialogue_surfaced` events, which are logged only for real
+core-cast conversations, never the deterministic crowd fallback — see
+v0.73.0's `is_llm` gating) — parses the two agent names back out of the
+existing `Name: "line" — Name: "line"` event description (best-effort,
+cosmetic; a name-parse miss just skips the flash) rather than widening
+the event schema for a purely visual effect. Both verified live via
+Playwright screenshots, not just read through.
+
+Verified: direct unit tests for the pacing ratio/multiplier/pause
+thresholds and a `run_forever` test confirming zero ticks advance while
+pressure stays severe; a live browser test forcing a rain->snow
+transition confirming all particles convert; a live browser test
+confirming the consciousness indicator's hidden/slowed/paused states
+render with correct text and are hidden at rest (after the CSS fix); a
+live browser test confirming thought-flash rings appear at the correct
+agent position for a synthetic dialogue event.
+`scripts/verify_native_soak.py` (2 seeds, 1500 ticks) byte-identical —
+this batch touches no native module.
+
 ## Current state (v0.81.1)
 
 Direct follow-up to a live "why has my village never formed a theory or
