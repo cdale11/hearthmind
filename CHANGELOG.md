@@ -4,6 +4,32 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.79.1] — Phase K complete: InterpretRumor() + Dream()
+
+Closes Phase K's two pieces deferred from v0.79.0, both implemented at
+their most budget-conscious viable scope per the standing memory-
+pressure directive (scope-downs documented, not silently decided).
+
+### Added
+
+- `llm/rumor_interpret.py` + `SimulationEngine._maybe_interpret_rumor`
+  — a core-cast rumor listener may retell it coloured by their own
+  nature, landing as a new memory (not a new rumor-object/hops model).
+  New `INTERPRET_RUMOR_MAX_PER_DAY=3` (fires per listening event, needs
+  its own ceiling beyond the shared daily budget).
+- `llm/dream.py` + `SimulationEngine._maybe_schedule_dream` — monthly,
+  symbolic, never predictive. New `MONTHLY_JOB_DAY["dream"]=23`.
+  **Scoped to a one-agent-a-month round-robin**, not all core-cast
+  agents monthly as the vision doc describes (~14x less call volume for
+  a 14-agent cast); schema kept to one field.
+
+### Verified
+
+- Fake-client test: InterpretRumor() plants a distorted memory,
+  respects its daily cap; Dream() picks exactly one core-cast agent.
+  Round-trip exact (both reuse existing `memories` serialization).
+  `scripts/verify_native_soak.py` (2 seeds, 1500 ticks): byte-identical.
+
 ## [0.79.0] — Phase K start: folklore condensation + Historian v2
 
 Phase K (docs/VISION-2026-07.md, "Knowledge & Story"), scoped to 2 of

@@ -366,6 +366,50 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.79.1)
+
+Closes Phase K's two deferred pieces (InterpretRumor + Dream), per
+explicit "continue" direction — both implemented at their most
+budget-conscious viable scope, not the vision doc's fuller version,
+consistent with the standing memory-pressure directive; scope-downs
+documented inline rather than silently decided.
+
+**InterpretRumor()**: when a core-cast agent hears a rumor in dialogue,
+they may retell it coloured by their own nature (bias/exaggeration/a
+misremembered detail) — `llm/rumor_interpret.py`, wired into
+`_apply_pending_dialogue_results`. Scoped down from the vision's `hops`/
+`mutated`-field rumor-object model (no such structure exists in this
+codebase) to land as a new memory via the existing `_remember`
+mechanism instead — functionally equivalent emergence (different NPCs
+remember the same rumor differently, and their own distorted version is
+what propagates through future dialogue's "recent memories" context),
+lighter plumbing. New `INTERPRET_RUMOR_MAX_PER_DAY=3` — this fires per
+listening event, not once a month, so it needs its own ceiling on top
+of the shared daily LLM budget.
+
+**Dream()**: monthly, symbolic, never predictive (Phase G/omens'
+ambiguity discipline applies) — `llm/dream.py`, new `SimulationEngine.
+_maybe_schedule_dream`, own `MONTHLY_JOB_DAY["dream"]=23` slot. Reads
+emotions + `goal_reason` + the settlement's newest folklore, writes one
+dream memory via `_remember`. **Explicit scope cut**: rotates through
+the core cast round-robin (one agent/month, same shape as `_maybe_
+schedule_personal_belief`), not "all core-cast agents monthly" as the
+vision doc describes — the fuller version is ~14x the call volume for a
+14-agent cast, which the standing memory-pressure directive argues
+against defaulting to. Schema also kept to one field (just the dream
+text, no separate belief/trust nudge) for the usual "fewer fields per
+call, more reliable small-model output" reason.
+
+Both ride the existing `Agent.memories`/NPC-inspector "Recent memories"
+UI surface for free — no new UI code needed.
+
+Verified: fake-client test confirms InterpretRumor() plants a distorted
+memory and respects its daily cap; Dream() picks exactly one core-cast
+agent and plants a tagged dream memory; round-trip exact (both reuse
+existing `memories` serialization, no new fields). `scripts/verify_
+native_soak.py` (2 seeds, 1500 ticks): byte-identical — this batch
+touches no native module.
+
 ## Current state (v0.79.0)
 
 Phase K start (docs/VISION-2026-07.md, "Knowledge & Story"), scoped to

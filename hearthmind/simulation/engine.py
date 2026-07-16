@@ -47,8 +47,8 @@ from hearthmind.config import Config
 from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
-    fission, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, festival, folklore, founding,
-    geography, invention, mind, naming, omens, summary, town_brain,
+    fission, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, dream, festival, folklore,
+    founding, geography, invention, mind, naming, omens, rumor_interpret, summary, town_brain,
 )
 from hearthmind.llm.client import build_llm_client
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
@@ -64,6 +64,7 @@ from hearthmind.agents.population import (
     MAX_SETTLEMENTS,
     Population,
     _bridge_tiles_from_settlements,
+    _remember,
     _walkable_tiles,
 )
 from hearthmind.settlement.buildings import (
@@ -143,6 +144,14 @@ grew forever on a multi-year world (July 2026 architecture review,
 §3.7). Fallback numbering still uses the full list's length, so
 "Tradition the 14th"-style names stay correct."""
 
+INTERPRET_RUMOR_MAX_PER_DAY = 3
+"""Phase K's InterpretRumor() (docs/VISION-2026-07.md, "Knowledge &
+Story") fires per listening event, not once a month like every other
+settlement job — deliberately small, since this is real *added* call
+volume on top of the existing daily budget, not a reuse of an existing
+job slot. See `SimulationEngine._interpret_rumor_today` and
+`_apply_pending_dialogue_results`."""
+
 PROMPT_RECENT_EVENTS = 40
 """How many recent events reach a settlement-level LLM prompt
 (chronicle, tradition, invention, town-brain, etc.). Lowered 50 -> 30 in
@@ -199,7 +208,7 @@ buffered entries loses nothing durable."""
 MONTHLY_JOB_DAY = {
     "chronicle": 1, "festival": 4, "caravan": 7, "fission": 8, "town_brain": 10,
     "beliefs": 13, "personal_belief": 16, "guild_founding": 19,
-    "institution_belief": 22, "geography": 25, "folklore": 20, "omen": 27,
+    "institution_belief": 22, "geography": 25, "folklore": 20, "dream": 23, "omen": 27,
 }
 """Day-of-month (0-based; every value <= 27 so it exists even in
 February) on which each monthly LLM job fires — the memory-pressure
@@ -387,6 +396,13 @@ class SimulationEngine:
         every further LLM decision that day resolves via its fallback.
         The belt-and-braces half of the v0.70.0 swap fix — see
         `_consume_llm_budget` and the config field's docstring."""
+        self._interpret_rumor_today = 0
+        """Phase K's InterpretRumor() count so far this sim-day, reset
+        alongside `_llm_calls_today` on `day_end` — see INTERPRET_RUMOR_
+        MAX_PER_DAY. Fires per listening event (not once a month like
+        every other settlement job here), so it needs its own volume
+        ceiling on top of the shared daily budget, same "per-agent/
+        per-pair decision must be gated" rule as cognition/dialogue."""
         self._pending_goal_results: dict[int, tuple[int, dict]] = {}
         """agent_id -> (tick the job was scheduled on, result) — the tick
         lets `_apply_pending_cognition_results` drop results that went
@@ -682,6 +698,7 @@ class SimulationEngine:
         ("_maybe_schedule_town_brain", _JOB_EVENTS),
         ("_maybe_schedule_beliefs", _JOB_EVENTS),
         ("_maybe_schedule_personal_belief", _JOB_EVENTS),
+        ("_maybe_schedule_dream", _JOB_EVENTS),
         ("_maybe_tick_temperament", _JOB_EVENTS),
         ("_maybe_schedule_omen", _JOB_EVENTS),
         ("_maybe_tick_market_prices", _JOB_EVENTS),
@@ -720,6 +737,7 @@ class SimulationEngine:
         if "day_end" in events:
             self._log_daily_metrics()
             self._llm_calls_today = 0  # reset the daily Ollama-call ceiling (v0.70.0)
+            self._interpret_rumor_today = 0  # reset InterpretRumor()'s own daily ceiling (Phase K)
         if events:
             logger.info(
                 "Tick %s: %s | %s | %s",
@@ -947,6 +965,7 @@ class SimulationEngine:
             if parsed["rumor"]:
                 self._log("rumor", f"{agent_a.name} and {agent_b.name}: {parsed['rumor']}")
                 self.world.rumor_total += 1
+                self._maybe_interpret_rumor(agent_a, agent_b, parsed["rumor"])
             if agent_a.settlement_id != agent_b.settlement_id:
                 # Cross-settlement relations (v0.67.0): a colocated pair
                 # from two different named settlements is itself a real,
@@ -961,6 +980,50 @@ class SimulationEngine:
                 stl_a.relations[stl_b.id] = clamp(stl_a.relation_with(stl_b.id) + nudge, -1.0, 1.0)
                 stl_b.relations[stl_a.id] = clamp(stl_b.relation_with(stl_a.id) + nudge, -1.0, 1.0)
         self._pending_dialogue_results.clear()
+
+    def _maybe_interpret_rumor(self, agent_a, agent_b, rumor: str) -> None:
+        """Phase K's InterpretRumor() (docs/VISION-2026-07.md, "Knowledge
+        & Story") — a core-cast agent who just heard a rumor retells it
+        coloured by their own nature rather than passing it through
+        pristine. Scoped down from the vision doc's per-rumor hops/
+        mutation tracking (no such structure exists here): the distorted
+        retelling lands as a new memory via the existing `_remember`
+        mechanism, so a later dialogue exchange naturally reads the
+        *distorted* version through the same "recent memories" context
+        every dialogue prompt already includes. See llm/rumor_
+        interpret.py. Tightly capped per day
+        (`INTERPRET_RUMOR_MAX_PER_DAY`) — this fires per listening
+        event, not once a month like every other settlement job."""
+        if not self._cognition_runner.enabled:
+            return
+        core = self.world.population.core_agent_ids
+        listener = agent_a if agent_a.id in core else agent_b if agent_b.id in core else None
+        if listener is None:
+            return
+        if self._interpret_rumor_today >= INTERPRET_RUMOR_MAX_PER_DAY:
+            return
+        if self._settlement_job_backpressured():
+            return
+        if not self._consume_llm_budget():
+            return
+        self._interpret_rumor_today += 1
+        prompt = rumor_interpret.build_prompt(listener.name, dict(listener.traits), rumor)
+        fallback = rumor_interpret.fallback_interpretation(listener.name, rumor)
+        listener_id = listener.id
+
+        async def _runner() -> None:
+            result, used_fallback = await self._cognition_runner.run(
+                prompt, rumor_interpret.SYSTEM_PROMPT, fallback=lambda: fallback,
+            )
+            target = self.world.population.get(listener_id)
+            if target is not None:
+                retelling = rumor_interpret.parse_interpretation(result, fallback)
+                _remember(target, retelling)
+            self._record_llm_call(used_fallback)
+
+        task = asyncio.create_task(_runner())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     # --- interventions ("nudges" from outside the simulation) ------------------
 
@@ -1716,6 +1779,46 @@ class SimulationEngine:
                     push_secret(target, secret_text)
 
         self._schedule_llm_job("personal_belief", prompt, beliefs.PERSONAL_SYSTEM_PROMPT, fallback, apply)
+
+    def _maybe_schedule_dream(self, events: list[str]) -> None:
+        """Phase K's Dream() (docs/VISION-2026-07.md, "Knowledge &
+        Story"), scoped down from "monthly, all core-cast agents" to a
+        monthly ROUND-ROBIN of one core-cast agent (explicit scope
+        decision — the vision doc's fuller version is real added call
+        volume: with a 14-agent cast, "all core-cast agents monthly"
+        is ~14 new calls/month vs. this slice's 1, matching the same
+        "extend an existing bounded shape, don't multiply it" discipline
+        `_maybe_schedule_personal_belief` already established). Own
+        `MONTHLY_JOB_DAY` slot — a dream is a distinct kind of content
+        from a belief/semantic-memory reflection, not a reuse of that
+        job's call. Symbolic only, never predictive — Phase G/omens'
+        ambiguity discipline applies here too. See llm/dream.py."""
+        if not self._monthly_gate(events, "dream"):
+            return
+        core_ids = list(self.world.population.core_agent_ids)
+        candidates = [a for a in self.world.population.agents if a.id in core_ids]
+        if not candidates:
+            return
+        if self._settlement_job_backpressured():
+            return
+        rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "dream")
+        agent = rng.choice(candidates)
+        agent_id = agent.id
+        latest_folklore = ""
+        home = self._settlement_by_id(agent.settlement_id)
+        if home.folklore:
+            latest_folklore = home.folklore[-1]["tale"]
+        prompt = dream.build_prompt(agent.name, dict(agent.emotions), agent.goal_reason, latest_folklore)
+        fallback = dream.fallback_dream(agent.name, dict(agent.emotions))
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            target = self.world.population.get(agent_id)
+            if target is None:
+                return  # died between scheduling and resolution
+            dream_text = dream.parse_dream(result, fallback)
+            _remember(target, f"Dreamed: {dream_text}")
+
+        self._schedule_llm_job("dream", prompt, dream.SYSTEM_PROMPT, fallback, apply)
 
     # --- Phase G v1: temperament and omens (deliberately subtle) ---------------
 
