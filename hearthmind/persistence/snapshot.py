@@ -158,6 +158,54 @@ def recent_events(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
     ]
 
 
+ROUTINE_EVENT_CATEGORIES = frozenset({
+    "day_end", "week_end", "month_end", "season_end", "year_end",
+    "farm_planted", "construction_started", "building_completed",
+    "recovery", "wildlife_recolonized",
+})
+"""Categories that fire routinely at high volume (a calendar tick, a farm
+plot planted, a wall going up) rather than marking something a chronicle
+or a person would actually remark on. Plain chronological `recent_events`
+lets these crowd out the rarer social/dramatic events a 50-row window is
+meant to surface — this is v0.78.0's fix for the live-reported "chronicles
+and conversations are dominated by weather and farming" complaint (there
+is no separate weather-event category; the actual culprits are these
+routine physical/calendar rows outnumbering social ones many-to-one over
+any real stretch of ticks)."""
+
+
+def recent_events_diverse(conn: sqlite3.Connection, limit: int = 20, routine_cap: int | None = None) -> list[dict]:
+    """Same shape/order as `recent_events` (newest-first list of dicts)
+    but caps how many `ROUTINE_EVENT_CATEGORIES` rows can occupy the
+    window, so a burst of farm-planting or calendar ticks doesn't push a
+    rarer dispute/birth/omen/rumor out of an LLM prompt's event digest.
+    Pulls a wider raw batch (`limit * 4`, still bounded by
+    QUERY_LIMIT_MAX) so there's enough non-routine material to fill the
+    window even when routine events dominate the raw stream, then keeps
+    every non-routine row plus up to `routine_cap` (default limit // 3)
+    of the newest routine ones, re-sorted back to newest-first and
+    trimmed to `limit`. Only for LLM-prompt consumers (chronicle,
+    town_brain, beliefs, documentary, personal_belief/reflection) — the
+    public `/events`/`/history` API keeps calling plain `recent_events`
+    so nothing is ever hidden from a reader, only from what a prompt
+    happens to sample."""
+    limit = max(1, min(limit, QUERY_LIMIT_MAX))
+    if routine_cap is None:
+        routine_cap = max(1, limit // 3)
+    raw = recent_events(conn, limit=min(limit * 4, QUERY_LIMIT_MAX))
+    kept: list[dict] = []
+    routine_kept = 0
+    for event in raw:  # newest-first
+        if event["category"] in ROUTINE_EVENT_CATEGORIES:
+            if routine_kept >= routine_cap:
+                continue
+            routine_kept += 1
+        kept.append(event)
+        if len(kept) >= limit:
+            break
+    return kept
+
+
 HISTORY_CATEGORIES = (
     "founding", "genesis", "settlement_named", "era_advance", "chronicle",
     "tradition", "invention", "festival", "belief_formed", "belief_revised",

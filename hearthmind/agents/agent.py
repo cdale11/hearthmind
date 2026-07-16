@@ -298,6 +298,23 @@ episodic slice being read (avoids a duplicated sentence in the common
 case where the most recent event was memorable enough to survive
 eviction too)."""
 
+MAX_SEMANTIC_MEMORIES = 3
+"""Cap on `Agent.semantic_memories` — Phase J's third memory layer
+(docs/VISION-2026-07.md, "Deeper Minds": "Reflect()... writes 1 semantic
+memory ('I have come to think…')"). Unlike `memories` (a short log of
+individual events) or `working_memory` (the single freshest event), a
+semantic memory is a *condensed* lasting belief-about-self distilled
+from several episodic memories at once — "I don't trust the water since
+the flood" rather than a list of separate flood/drought/harvest entries.
+Written only by `SimulationEngine._maybe_schedule_personal_belief`
+(v0.78.0: extended into a full Reflect() alongside its existing personal
+belief output — one LLM call now produces both, no added call volume),
+strictly FIFO (oldest evicted first — a stale abstraction is superseded
+by forming a new one, there is no salience contest between them). Small
+and capped deliberately: this is meant to be a handful of load-bearing
+self-theories a prompt can always afford to include in full, not a
+second episodic log."""
+
 GRIEF_ENERGY_PENALTY = 0.2
 """Energy lost when a close bond (affinity >= REPRODUCTION_AFFINITY_THRESHOLD)
 dies — grief has a real cost, not just a memory entry. See
@@ -904,6 +921,7 @@ class Agent:
         emotions: dict[str, float] | None = None,
         memory_salience: list[float] | None = None,
         working_memory: list[str] | None = None,
+        semantic_memories: list[str] | None = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -960,6 +978,10 @@ class Agent:
         # working_memory: small, strictly-FIFO "what just happened"
         # buffer — see WORKING_MEMORY_MAX above.
         self.working_memory: list[str] = [] if working_memory is None else working_memory
+        # semantic_memories: condensed lasting self-theories distilled
+        # from episodic memory, strictly FIFO, cap MAX_SEMANTIC_MEMORIES
+        # (Phase J, see above) — written only by the Reflect() job.
+        self.semantic_memories: list[str] = [] if semantic_memories is None else semantic_memories
         # skills: procedural teachable know-how, name -> proficiency 0..1
         # (SKILL_FARMING/CONSTRUCTION/MEDICINE) — distinct from beliefs.
         self.skills: dict[str, float] = {} if skills is None else skills
@@ -1179,6 +1201,7 @@ class Agent:
             "memories": list(self.memories),
             "memory_salience": [round(v, 4) for v in self.memory_salience],
             "working_memory": list(self.working_memory),
+            "semantic_memories": list(self.semantic_memories),
             "skills": {k: round(v, 4) for k, v in self.skills.items()},
             "traits": {k: round(v, 4) for k, v in self.traits.items()},
             "beliefs": list(self.beliefs),
@@ -1222,6 +1245,7 @@ class Agent:
             memories=memories,
             memory_salience=memory_salience,
             working_memory=list(data.get("working_memory", [])),
+            semantic_memories=list(data.get("semantic_memories", [])),
             skills=dict(data.get("skills", {})),
             traits=dict(data.get("traits", {})),
             beliefs=list(data.get("beliefs", [])),

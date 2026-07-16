@@ -137,6 +137,7 @@ def build_prompt(
     emotion_text = f" {'; '.join(emotion_bits)}." if emotion_bits else ""
     memory_bits = []
     just_now_bits = []
+    semantic_bits = []
     for agent, label in ((agent_a, agent_a.name), (agent_b, agent_b.name)):
         recent = agent.memories[-DIALOGUE_MEMORY_IN_PROMPT:]
         if recent:
@@ -144,8 +145,11 @@ def build_prompt(
         just_now = _just_now_text(agent.working_memory, recent)
         if just_now:
             just_now_bits.append(f"{label} just now: {just_now}")
+        if agent.semantic_memories:
+            semantic_bits.append(f"{label} has come to feel: {agent.semantic_memories[-1]}")
     memory_text = f" {'. '.join(memory_bits)}." if memory_bits else ""
     just_now_text = f" {'. '.join(just_now_bits)}." if just_now_bits else ""
+    semantic_text = f" {'. '.join(semantic_bits)}." if semantic_bits else ""
 
     def _activity(agent: Agent) -> str:
         # Grounds "currently X" in *why* when cognition set a reason
@@ -164,7 +168,7 @@ def build_prompt(
         f"currently {_activity(agent_a)}) meets {agent_b.name} (hunger "
         f"{agent_b.hunger:.2f}, energy {agent_b.energy:.2f}, currently {_activity(agent_b)}). "
         f"They are {tie}. It is {season}, weather: {weather}."
-        f"{culture}{beliefs_text}{personality_text}{emotion_text}{memory_text}{just_now_text} "
+        f"{culture}{beliefs_text}{personality_text}{emotion_text}{memory_text}{just_now_text}{semantic_text} "
         "Write their brief exchange."
     )
 

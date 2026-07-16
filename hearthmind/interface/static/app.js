@@ -1452,6 +1452,8 @@ function renderNpcInspector() {
     .sort((a, b) => Math.abs(b.affinity) - Math.abs(a.affinity))
     .slice(0, 8);
   const memories = (agent.memories || []).slice(-6).reverse();
+  const ownBeliefs = (agent.beliefs || []).slice().reverse();
+  const semanticMemories = (agent.semantic_memories || []).slice().reverse();
 
   const relHtml = relationships.length
     ? `<ul>${relationships.map((r) => {
@@ -1465,6 +1467,13 @@ function renderNpcInspector() {
   const memoriesHtml = memories.length
     ? `<ul>${memories.map((m) => `<li>${m}</li>`).join("")}</ul>`
     : `<div class="muted">nothing memorable yet</div>`;
+  // Phase J (v0.78.0): their own private theories + distilled semantic
+  // memories, distinct from "What the village believes about them"
+  // above (settlement-wide theory) — this is what THEY privately think,
+  // written by the same Reflect()-extended personal_belief job.
+  const reflectionsHtml = (ownBeliefs.length || semanticMemories.length)
+    ? `<ul>${semanticMemories.map((m) => `<li>${m}</li>`).join("")}${ownBeliefs.map((b) => `<li><span class="muted">(re: ${b.subject})</span> ${b.belief}</li>`).join("")}</ul>`
+    : `<div class="muted">no private theories yet</div>`;
   const traits = agent.traits || {};
   const traitLabel = (value) => {
     const v = value || 0;
@@ -1540,6 +1549,10 @@ function renderNpcInspector() {
     <div class="npc-section">
       <h4>Recent memories</h4>
       ${memoriesHtml}
+    </div>
+    <div class="npc-section">
+      <h4>Their own reflections</h4>
+      ${reflectionsHtml}
     </div>
     <div class="npc-section">
       <h4>Personality</h4>

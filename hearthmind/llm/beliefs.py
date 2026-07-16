@@ -70,22 +70,36 @@ PERSONAL_SYSTEM_PROMPT = (
     "either sharpen/revise one existing theory with new evidence, or form one new "
     "theory if nothing existing fits. Theories are not guaranteed to be correct — "
     "they can be wrong, one-sided, or later revised, exactly like a real person's "
-    "beliefs about their own life. "
+    "beliefs about their own life. Separately, condense what they've been through "
+    "lately into one lasting thought they now carry with them — a distilled "
+    "takeaway, not a list of events, the kind of quiet realization a person forms "
+    "after several similar experiences (\"I don't trust the river since the flood\"), "
+    "not a summary of any single one. "
     'Respond with strict JSON only, no other text: {"subject": "short label, e.g. '
     'a person\'s name, \'my place here\', \'the harvests\', \'what happened to '
     'them\'", "belief": "one sentence, under 30 words, stated as this villager\'s '
     'own private belief, first-person or about themself in third person, not '
     'narration", "confidence": 0.0-1.0, "revises": integer index of an existing '
-    "theory this replaces, or null for a new one}."
+    'theory this replaces, or null for a new one, "semantic_memory": "one sentence, '
+    'under 25 words, first-person, the lasting thought described above"}.'
 )
 
 
-def build_personal_prompt(agent_name: str, recent_memories: list[str], existing_beliefs: list[dict]) -> str:
+def build_personal_prompt(
+    agent_name: str, recent_memories: list[str], existing_beliefs: list[dict],
+    emotion_text: str = "", semantic_memories: list[str] | None = None,
+) -> str:
     """Scoped to one agent's own `memories` (already a short personal
     log — bonds formed, rumors heard, a partner's death) rather than
     settlement-wide recent events. Mirrors `build_prompt`'s shape
     exactly (same enumerated-theories block, same closing instruction)
-    so the two feel like the same underlying mechanism at two scales."""
+    so the two feel like the same underlying mechanism at two scales.
+    `emotion_text`/`semantic_memories` are optional (Phase J, v0.78.0):
+    when this agent was chosen because something notable is happening to
+    them (see `SimulationEngine._maybe_schedule_personal_belief`'s
+    significance-first candidate pick), naming the feeling and any
+    standing self-theories already held grounds the reflection in more
+    than the bare memory list."""
     memories_text = " | ".join(recent_memories) if recent_memories else "Nothing notable has happened to them lately."
     if existing_beliefs:
         beliefs_text = "\n".join(
@@ -94,11 +108,14 @@ def build_personal_prompt(agent_name: str, recent_memories: list[str], existing_
         )
     else:
         beliefs_text = "  (none yet — this would be their first private theory)"
-    return (
-        f"{agent_name}'s recent experiences: {memories_text}\n"
-        f"Theories {agent_name} already holds about their own life:\n{beliefs_text}\n"
-        "Form or revise one theory."
-    )
+    lines = [f"{agent_name}'s recent experiences: {memories_text}"]
+    if emotion_text:
+        lines.append(f"{agent_name} {emotion_text}")
+    if semantic_memories:
+        lines.append(f"Lasting thoughts {agent_name} already carries: {' | '.join(semantic_memories)}")
+    lines.append(f"Theories {agent_name} already holds about their own life:\n{beliefs_text}")
+    lines.append("Form or revise one theory, and distill one lasting thought.")
+    return "\n".join(lines)
 
 
 def fallback_personal_belief(agent_name: str, recent_memories: list[str]) -> dict:
@@ -109,10 +126,15 @@ def fallback_personal_belief(agent_name: str, recent_memories: list[str]) -> dic
     if recent_memories:
         subject = "what's on their mind"
         belief = f"They keep thinking about this: {recent_memories[-1]}"
+        semantic_memory = f"I keep thinking about this: {recent_memories[-1]}"
     else:
         subject = "the quiet"
         belief = "Little has happened to them lately — they assume this quiet will hold."
-    return {"subject": subject, "belief": belief, "confidence": 0.4, "revises": None}
+        semantic_memory = "Little has happened lately — I assume this quiet will hold."
+    return {
+        "subject": subject, "belief": belief, "confidence": 0.4, "revises": None,
+        "semantic_memory": semantic_memory,
+    }
 
 
 def temperament_confidence_bias(confidence: float, temperament: float, intensity: float = 1.0) -> float:
@@ -289,6 +311,33 @@ def parse_belief(result: dict, fallback: dict, existing_count: int) -> dict:
         "confidence": round(confidence, 3),
         "revises": revises,
     }
+
+
+def parse_semantic_memory(result: dict, fallback: dict) -> str:
+    """Extracts and validates the `semantic_memory` field `parse_belief`
+    deliberately doesn't touch (that function is shared with every other
+    belief-forming job — settlement/institution — which never asks for
+    this field). Falls back to the deterministic stand-in on anything
+    malformed, same discipline as every other parse function here."""
+    text = result.get("semantic_memory")
+    if not isinstance(text, str) or not text.strip():
+        text = fallback.get("semantic_memory", "")
+    return text.strip()[:150]
+
+
+def push_semantic_memory(agent, text: str) -> None:
+    """Appends one condensed self-theory to `Agent.semantic_memories`,
+    strictly FIFO-evicted at `MAX_SEMANTIC_MEMORIES` (agents/agent.py) —
+    the layer's own module owns the cap constant; this stays a thin
+    mutator so the engine's apply() closures don't hand-roll the same
+    eviction logic at each call site. No-op on an empty/whitespace-only
+    string (a malformed LLM answer that fell through the fallback too)."""
+    if not text:
+        return
+    from hearthmind.agents.agent import MAX_SEMANTIC_MEMORIES
+    agent.semantic_memories.append(text)
+    if len(agent.semantic_memories) > MAX_SEMANTIC_MEMORIES:
+        del agent.semantic_memories[0]
 
 
 def push_belief_history(entry: dict, tick: int) -> None:

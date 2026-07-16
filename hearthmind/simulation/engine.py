@@ -39,6 +39,7 @@ from hearthmind.agents.agent import (
     SKILL_MEDICINE,
     TRIGGERED_COGNITION_COOLDOWN_TICKS,
     AgentGoal,
+    describe_emotion,
     dominant_emotion,
 )
 from hearthmind.config import Config
@@ -52,7 +53,8 @@ from hearthmind.llm.client import build_llm_client
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import (
-    history_events, load_latest_snapshot, log_event, log_metrics, recent_events, save_snapshot,
+    history_events, load_latest_snapshot, log_event, log_metrics,
+    recent_events, recent_events_diverse, save_snapshot,
 )
 from hearthmind.agents.population import (
     DISPUTE_COOLDOWN_TICKS,
@@ -866,11 +868,13 @@ class SimulationEngine:
             )
             beliefs_about = beliefs.beliefs_about_agent(agent.id, home.beliefs)
             own_belief = max(agent.beliefs, key=lambda b: b["confidence"])["belief"] if agent.beliefs else ""
+            semantic_memory = agent.semantic_memories[-1] if agent.semantic_memories else ""
             prompt = build_prompt(
                 agent, self.world.clock.season, self.world.weather.describe(),
                 settlement_name=home.name, latest_tradition=latest_tradition,
                 colocated_names=colocated_names, nearest_food_steps=food_steps,
                 beliefs_about=beliefs_about, own_belief=own_belief,
+                semantic_memory=semantic_memory,
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             traits_snapshot = dict(agent.traits)
@@ -1117,7 +1121,7 @@ class SimulationEngine:
         if self._settlement_job_backpressured():
             return
         settlement = self._job_target()
-        recent = recent_events(self.conn, limit=PROMPT_RECENT_EVENTS)
+        recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         population_summary = self.world.population.summary()
         year = self.world.clock.year
         prompt = chronicle.build_prompt(
@@ -1190,7 +1194,7 @@ class SimulationEngine:
         degrades this to the deterministic fallback like any other job,
         it just never vanishes outright."""
         settlement = self._job_target()
-        recent = recent_events(self.conn, limit=PROMPT_RECENT_EVENTS)
+        recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         population_summary = self.world.population.summary()
         settlement_summary = settlement.summary()
         year = self.world.clock.year
@@ -1225,7 +1229,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
-        recent = recent_events(self.conn, limit=PROMPT_RECENT_EVENTS)
+        recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         traditions = target.traditions
         prompt = culture.build_prompt(
             target.name, recent, traditions[-PROMPT_CULTURE_LIST_MAX:], self.world.clock.year,
@@ -1297,7 +1301,7 @@ class SimulationEngine:
         chance = max(0.0, chance * (1.0 + settlement.temperament * TEMPERAMENT_INVENTION_INFLUENCE))
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "invention_roll") >= chance:
             return
-        recent = recent_events(self.conn, limit=PROMPT_RECENT_EVENTS)
+        recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         inventions = settlement.inventions
         prompt = invention.build_prompt(
             settlement.name, recent, inventions[-PROMPT_CULTURE_LIST_MAX:], settlement.tech_level,
@@ -1360,7 +1364,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
-        recent = recent_events(self.conn, limit=PROMPT_RECENT_EVENTS)
+        recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         festivals = festival_target.festivals
         prompt = festival.build_prompt(
             festival_target.name, recent, self.world.clock.season,
@@ -1436,7 +1440,7 @@ class SimulationEngine:
         # materials exchange in effect, just undescribed this month.
         if self._settlement_job_backpressured():
             return
-        recent = recent_events(self.conn, limit=20)
+        recent = recent_events_diverse(self.conn, limit=20)
         prompt = caravan.build_prompt(settlement.name, recent)
         fallback = caravan.fallback_caravan(self.world.clock.tick_count)
 
@@ -1474,7 +1478,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
-        recent = recent_events(self.conn, limit=PROMPT_RECENT_EVENTS)
+        recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         population_summary = self.world.population.summary()
         settlement_summary = settlement.summary()
         whispers_sent = list(settlement.player_influence)
@@ -1527,7 +1531,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
-        recent = recent_events(self.conn, limit=30)
+        recent = recent_events_diverse(self.conn, limit=30)
         population_summary = self.world.population.summary()
         settlement_summary = settlement.summary()
         prompt = beliefs.build_prompt(
@@ -1586,22 +1590,31 @@ class SimulationEngine:
         self._schedule_llm_job("beliefs", prompt, beliefs.SYSTEM_PROMPT, fallback, apply)
 
     def _maybe_schedule_personal_belief(self, events: list[str]) -> None:
-        """H2 extension (docs/ROADMAP.md "Phase H" stage 2): once a
-        month, one living agent (chosen deterministically by the
-        namespaced-RNG pattern, weighted toward whoever has the most
-        recent memories to reflect on) forms or revises a private
-        belief about their own life, mirroring `_maybe_schedule_
-        beliefs` at agent scale rather than settlement scale. Same
-        monthly cadence as the settlement's own beliefs job; only one
-        agent per month (not all of them) — this is real interpretive
-        content, not a routine per-agent stat, and 400 agents each
-        getting an LLM call every month would be a genuinely large
-        scheduling load for a reflective mechanic that's meant to
-        surface occasional, notable personal theories, not a monthly
-        diary entry for everyone."""
+        """H2 extension (docs/ROADMAP.md "Phase H" stage 2), extended
+        into a Reflect()-shaped job in v0.78.0 (Phase J, docs/VISION-
+        2026-07.md): once a month, one living agent forms or revises a
+        private belief about their own life AND distills one lasting
+        "semantic memory" (`Agent.semantic_memories`, see agents/
+        agent.py) from their recent episodic memories — one LLM call
+        now does both, so this stays the "settlement-scoped... round-
+        robin bounded" job type CLAUDE.md's LLM-budget rule describes,
+        adding zero call volume for the psychological-update richness.
+        Candidate choice is now significance-first (core cast + a
+        notable emotion or an active feud, via `_is_significant_moment`
+        — same signal v0.77.0's cognition gate uses) so the one call
+        this month lands on real drama when there is any, falling back
+        to the old "any agent with memories" pool when nothing stands
+        out — this is the "psychological state updates ... after
+        important events" ask: the trigger for which agent gets
+        reflected on is now event-driven, not purely random."""
         if not self._monthly_gate(events, "personal_belief"):
             return
-        candidates = [a for a in self.world.population.agents if a.memories]
+        core = self.world.population.core_agent_ids
+        significant = [
+            a for a in self.world.population.agents
+            if a.memories and a.id in core and self._is_significant_moment(a)
+        ]
+        candidates = significant or [a for a in self.world.population.agents if a.memories]
         if not candidates:
             return
         if self._settlement_job_backpressured():
@@ -1611,7 +1624,9 @@ class SimulationEngine:
         agent_id = agent.id
         recent = agent.memories[-3:]
         existing = list(agent.beliefs)
-        prompt = beliefs.build_personal_prompt(agent.name, recent, existing)
+        emotion_text = describe_emotion(agent.emotions)
+        semantic = list(agent.semantic_memories)
+        prompt = beliefs.build_personal_prompt(agent.name, recent, existing, emotion_text, semantic)
         fallback = beliefs.fallback_personal_belief(agent.name, recent)
         existing_count = len(existing)
 
@@ -1641,6 +1656,8 @@ class SimulationEngine:
                 if len(target.beliefs) > beliefs.MAX_PERSONAL_BELIEFS:
                     weakest = min(target.beliefs, key=lambda b: b["confidence"])
                     target.beliefs.remove(weakest)
+            semantic_text = beliefs.parse_semantic_memory(result, fallback)
+            beliefs.push_semantic_memory(target, semantic_text)
 
         self._schedule_llm_job("personal_belief", prompt, beliefs.PERSONAL_SYSTEM_PROMPT, fallback, apply)
 
@@ -1721,7 +1738,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
-        recent = recent_events(self.conn, limit=10)
+        recent = recent_events_diverse(self.conn, limit=10)
         # Deepened narrative payoff (roadmap follow-up): about half the
         # time, if a belief already resolves to a still-living agent,
         # the omen centers on them instead of the settlement in the
@@ -1921,7 +1938,7 @@ class SimulationEngine:
         member_names = [
             a.name for a in self.world.population.agents if a.id in institution.member_agent_ids
         ]
-        recent = recent_events(self.conn, limit=20)
+        recent = recent_events_diverse(self.conn, limit=20)
         existing = list(institution.beliefs)
         prompt = beliefs.build_institution_prompt(label, member_names, existing, recent)
         fallback = beliefs.fallback_institution_belief(label, recent)

@@ -358,6 +358,84 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.78.0)
+
+Phase J start (docs/VISION-2026-07.md, "Deeper Minds"), scoped down to
+one coherent, zero-added-call-volume slice per explicit user direction
+to keep optimizing LLM memory pressure while extending psychological
+depth — three asks: event-triggered psychological updates, memory
+abstraction, and event diversity.
+
+**Semantic memory + event-triggered Reflect()**: `Agent.semantic_
+memories` (new, `agents/agent.py`, cap `MAX_SEMANTIC_MEMORIES=3`,
+strictly FIFO) is the vision's third memory layer — a condensed lasting
+self-theory ("I've learned to keep something in reserve"), distinct
+from episodic `memories` (individual events) and `beliefs` (settlement-
+scale-shaped theories). Written by extending the existing monthly
+per-agent `_maybe_schedule_personal_belief` job (`simulation/engine.py`)
+rather than adding a parallel job — same one LLM call/month now returns
+both a belief revision AND a distilled semantic memory
+(`llm/beliefs.py`'s `PERSONAL_SYSTEM_PROMPT`/`build_personal_prompt`
+gained the second field; `parse_semantic_memory`/`push_semantic_memory`
+are new). **Candidate selection is now significance-first**: prefers a
+core-cast agent with a notable emotion or active feud
+(`_is_significant_moment`, reused from v0.77.0's cognition gate) over
+the old uniform "any agent with memories" pool, falling back to the old
+pool when nothing stands out — this is the "psychological update after
+important events" ask; goal updates (already LLM-gated on significance
+since v0.77.0) and emotion updates (already deterministic/event-driven
+since Phase I) needed no new mechanism, only this reflection layer was
+missing. Semantic memories feed back into `llm/cognition.py`'s and
+`llm/dialogue.py`'s prompts (one line each, freshest entry only, kept
+small deliberately) alongside `working_memory`'s "Just now" line.
+Verified: `_maybe_schedule_personal_belief` called directly against a
+fake client with an emotionally significant core-cast agent present —
+that agent (not a random one) receives both the belief and the semantic
+memory; a to_dict/from_dict round trip is exact (additive-only
+serialization, legacy snapshots default to `[]`).
+
+**Event diversity**: `persistence/snapshot.py`'s new `ROUTINE_EVENT_
+CATEGORIES` (calendar ticks, farm-planted, construction-started/
+completed, recovery, wildlife-recolonized) + `recent_events_diverse`
+cap how many routine rows can occupy an LLM prompt's event window —
+root cause of the live "chronicles/conversations are dominated by
+weather and farming" complaint (there's no literal weather-event
+category; the actual culprits are routine physical/calendar events
+outnumbering social ones many-to-one). Swapped into the 9 genuine
+LLM-prompt call sites in `simulation/engine.py` (chronicle, tradition,
+invention, festival, caravan, town_brain, beliefs, personal_belief/
+reflection, institution_belief, omen); deliberately left the plain
+`recent_events` at the temperament/mood-tracking call site (needs the
+literal stream to count real fortune, not a diversity-adjusted sample)
+and at the public `/events`/`/history` API (nothing is ever hidden from
+a reader, only resampled for what a prompt happens to draw from).
+Measured on a 6000-tick soak: routine share of a 200-row raw window
+70% -> 32% of a diversity-adjusted 50-row window.
+
+**LLM memory pressure**: this batch adds zero new LLM call volume (the
+Reflect() extension reuses personal_belief's existing monthly call
+slot) while widening what one call produces — the "maximize emergence
+per LLM call" mantra (docs/VISION-2026-07.md) applied concretely rather
+than restated.
+
+**UI**: NPC inspector gained a "Their own reflections" section
+(`interface/static/app.js`) showing `semantic_memories` + the agent's
+own private `beliefs` (previously written but never surfaced anywhere,
+retrofit opportunistically per the standing UI-surfacing rule) —
+distinct from the existing "What the village believes about them"
+section (settlement-wide theory about the agent, not their own).
+
+**Not done this slice** (Phase J's fuller scope, deferred): the
+permanent/slow/fast `Agent.mind` schema, `Agent.secrets`, and a true
+weekly Reflect() cadence independent of the monthly personal_belief
+slot — this version deliberately reused the existing monthly job to
+keep the "zero added call volume" property; a higher-frequency Reflect()
+would need its own budget discussion first. "Greater event diversity"
+above addresses the *prompt-sampling* half of that ask; broadening which
+event *kinds* get generated in the first place (more social/dramatic
+event sources, not just less routine-event crowding) is a separate,
+larger piece not attempted here.
+
 ## Current state (v0.77.0)
 
 Batch response to a live report: `calls_dropped_backpressure` climbing

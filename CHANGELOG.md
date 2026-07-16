@@ -4,6 +4,63 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.78.0] — Phase J start: semantic memory + event-triggered reflection + event diversity
+
+Phase J (docs/VISION-2026-07.md, "Deeper Minds"), scoped to one slice
+per explicit direction to keep optimizing LLM memory pressure while
+adding psychological depth: event-triggered psychological updates,
+memory abstraction, and event diversity so chronicles/conversations
+aren't dominated by routine physical events.
+
+### Added
+
+- `Agent.semantic_memories` (`agents/agent.py`, cap
+  `MAX_SEMANTIC_MEMORIES=3`, FIFO) — a third memory layer: condensed
+  lasting self-theories distilled from episodic memory, distinct from
+  individual-event `memories` and settlement-shaped `beliefs`.
+- `persistence/snapshot.py`: `ROUTINE_EVENT_CATEGORIES` +
+  `recent_events_diverse` — caps how many routine (calendar/farm-
+  planted/construction/recovery/wildlife-recolonized) rows can occupy
+  an LLM prompt's event window, so rarer social/dramatic events aren't
+  crowded out. Swapped into 9 LLM-prompt call sites in `simulation/
+  engine.py`; the public `/events`/`/history` API and the temperament/
+  mood tracker keep reading the literal `recent_events` stream.
+- `llm/beliefs.py`: `parse_semantic_memory`/`push_semantic_memory`;
+  `PERSONAL_SYSTEM_PROMPT`/`build_personal_prompt` extended to also
+  request/accept a distilled semantic memory alongside the existing
+  belief field.
+
+### Changed
+
+- `simulation/engine.py`'s `_maybe_schedule_personal_belief` (monthly,
+  one agent) is now significance-first: prefers a core-cast agent with
+  a notable emotion or active feud (`_is_significant_moment`, reused
+  from v0.77.0) over the old uniform random pool, falling back to it
+  when nothing stands out. Same one call/month — zero added LLM call
+  volume, richer output per call ("maximize emergence per LLM call").
+- `llm/cognition.py`/`llm/dialogue.py` prompts gained one short line
+  each surfacing the agent's freshest semantic memory.
+
+### UI
+
+- NPC inspector: new "Their own reflections" section — semantic
+  memories plus the agent's own private `beliefs` (previously written,
+  never surfaced; retrofit opportunistically per the standing rule),
+  distinct from the existing "What the village believes about them".
+
+### Verified
+
+- Direct call to `_maybe_schedule_personal_belief` against a fake LLM
+  client with one emotionally-significant core-cast agent present: that
+  agent (not a random pick) receives both the belief revision and the
+  semantic memory.
+- 6000-tick soak: raw 200-row event window is 70% routine categories;
+  `recent_events_diverse`'s 50-row window is 32% — newest-first order
+  and no duplicates confirmed.
+- `to_dict`/`from_dict` round trip exact with the new field populated.
+- `scripts/verify_native_soak.py` (3 seeds, 1500 ticks): byte-identical
+  — this batch touches no native module.
+
 ## [0.77.0] — cognition scheduler: significance gate + LLM memory flags + UI
 
 Batch response to a live report (`calls_dropped_backpressure` ~400
