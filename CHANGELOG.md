@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.76.0] — long-term design vision: audit + roadmap (design only, no code)
+
+Explicit user directive: adopt the "living civilization simulator"
+long-term vision ("maximize emergence per LLM call", two-layer engine,
+hierarchical intelligence up through Town Consciousness and Narrative
+Direction) — and write the audit + implementation roadmap **without
+implementing anything yet**.
+
+### Added
+- `docs/VISION-2026-07.md`: full codebase audit against the vision
+  (deterministic layer ≈ fully built and already on the C++ R6/R7/R8
+  track; cognition hierarchy is the real gap), the
+  extend-don't-duplicate map, LLM budget arithmetic (entire roadmap ≈
+  +4.6 calls/day against the 320/day ceiling), two flagged conflicts
+  with standing rules (core cast 14 vs "~11"; Town Consciousness
+  "directly causes events" reconciled to deniable-channels-only), and
+  a six-phase roadmap: I Inner Life (deterministic emotions/settlement
+  mood/layered memory) → J Deeper Minds (mind schema, Reflect(),
+  secrets) → K Knowledge & Story (rumor distortion → folklore → myth,
+  dreams, historian v2) → L Society & Power (reputation, factions,
+  economy depth) → M Faith & Meaning (ritual → religion → schism,
+  narrative themes) → N The Town Awake (Town Consciousness v2 as a
+  Phase G extension).
+- CLAUDE.md: standing "Long-term design vision (2026-07)" section +
+  Current state (v0.76.0) entry.
+
+### Changed
+- Nothing — zero code changes in this version, by instruction.
+
 ## [0.75.2] — NPC dialogue quality: temperature control + garbled-line filter
 
 Response to a live report that NPC-NPC dialogue got "extremely worse" —

@@ -163,6 +163,41 @@ copies on FAMILY/COUNCIL/GUILD institutions. A belief is not guaranteed
 correct and can be revised or superseded. The supernatural/
 ambiguous-consciousness framing stays implicit everywhere.
 
+## Long-term design vision (2026-07, standing — full text in docs/VISION-2026-07.md)
+
+Explicit user directive (2026-07-16): Hearthmind's objective is a
+**living civilization simulator** whose guiding rule is **"maximize
+emergence per LLM call"** — never maximize call count. Two layers,
+sharpening (not replacing) the existing split: deterministic simulation
+owns all continuous physical systems (long-term: data-oriented C++/SoA —
+this is R6/R7/R8, already in motion); the LLM owns intelligence only, at
+**multiple hierarchy levels operating at different frequencies**:
+individual minds (core cast, persistent layered identity:
+permanent/slow/fast state, specialized narrow cognitive tasks —
+Reflect/Dream/InterpretRumor/etc. — never giant prompts) → collective
+psychology (settlement mood vector) → culture (emergent, from lived
+history) → civilization → **Town Consciousness** (persistent hidden
+intelligence with memories/personality/objectives/player-model, nudging
+through deniable channels) → **Narrative Direction** (names emerging
+themes, biases the consciousness — never scripts quests). Knowledge is
+local and imperfect: rumors distort through retelling → folklore →
+myth; history is interpreted, not logged; dreams are symbolic, not
+predictive; religions emerge from ritual, never predefined. NPCs may
+lie, panic, procrastinate, hold false memories. Horror register:
+FROM/Higurashi — fear from uncertainty, coincidence, never explicit
+(Phase G ambiguity discipline is the mechanism, unchanged). Mandatory
+audit-before-feature; extend existing systems before adding parallel
+ones; every mechanic must interact with multiple others; design test:
+"will this make the world feel more alive even if the player never
+interacts with it?" Roadmap = phases I–N (Inner Life → Deeper Minds →
+Knowledge & Story → Society & Power → Faith & Meaning → The Town
+Awake) — see docs/VISION-2026-07.md for the full audit (≈60% of the
+vision already exists in v1 form), budget arithmetic (whole roadmap ≈
++4.6 LLM calls/day, 5% of the ceiling), and two flagged conflicts
+(core cast 14 vs "~11"; "directly causes events" reconciled to
+deniable-channels-only pending user override). **Nothing from this
+vision is implemented yet** (explicit instruction: design only).
+
 ## LLM as the town's brain
 
 The LLM isn't a flavor-text generator bolted onto deterministic
@@ -312,6 +347,30 @@ Single-writer tick loop + queued interventions; fallback-on-every-LLM-
 call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
+
+## Current state (v0.76.0)
+
+Design-only pass, per explicit user instruction ("Do not implement
+anything yet"): the long-term design vision delivered in chat was
+audited against the codebase and turned into a standing section above
+plus the full roadmap in **docs/VISION-2026-07.md** — audit tables
+(exists / partial / missing per vision item), the
+extend-don't-duplicate map (new jobs → the `_maybe_schedule_*` registry
++ `MONTHLY_JOB_DAY`; religion/ideology/factions → the beliefs +
+institution machinery; mood → the temperament/`bounded_random_walk_
+step` pattern; Town Consciousness v2 → Phase G extended), LLM budget
+arithmetic (full roadmap ≈ +4.6 calls/day against the 320 ceiling),
+two flagged rule conflicts (§2), and phases I–N with per-phase
+verification approach. Key audit finding: the vision is the codebase's
+own trajectory — the deterministic layer + C++ track need no new plan,
+and the real work is the cognition hierarchy (layered memory, emotions,
+rumor distortion, dreams, factions, religion, narrative themes,
+consciousness v2). No code changed; v0.75.2's three live-report fixes
+(weather rain floor, dialogue temperature/garble filter, llama.cpp
+`--fit`) remain the latest behavior changes. Next milestone when
+implementation is green-lit: **Phase I — Inner Life** (deterministic
+emotions + settlement mood + layered memory v1, near-zero LLM cost,
+feeds every later prompt).
 
 ## Current state (v0.75.0)
 
