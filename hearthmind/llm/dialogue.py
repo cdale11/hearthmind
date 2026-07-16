@@ -8,7 +8,7 @@ docs/DECISIONS.md, E2.
 """
 from __future__ import annotations
 
-from hearthmind.agents.agent import RIVALRY_THRESHOLD, Agent, describe_traits
+from hearthmind.agents.agent import RIVALRY_THRESHOLD, Agent, describe_emotion, describe_traits
 
 SYSTEM_PROMPT = (
     "You are writing a brief, natural exchange between two villagers who "
@@ -123,6 +123,12 @@ def build_prompt(
         if personality:
             personality_bits.append(f"{label} is {personality}")
     personality_text = f" {'; '.join(personality_bits)}." if personality_bits else ""
+    emotion_bits = []
+    for agent, label in ((agent_a, agent_a.name), (agent_b, agent_b.name)):
+        emotion = describe_emotion(agent.emotions)
+        if emotion:
+            emotion_bits.append(f"{label} is currently feeling {emotion}")
+    emotion_text = f" {'; '.join(emotion_bits)}." if emotion_bits else ""
     memory_bits = []
     for agent, label in ((agent_a, agent_a.name), (agent_b, agent_b.name)):
         recent = agent.memories[-DIALOGUE_MEMORY_IN_PROMPT:]
@@ -147,7 +153,7 @@ def build_prompt(
         f"currently {_activity(agent_a)}) meets {agent_b.name} (hunger "
         f"{agent_b.hunger:.2f}, energy {agent_b.energy:.2f}, currently {_activity(agent_b)}). "
         f"They are {tie}. It is {season}, weather: {weather}."
-        f"{culture}{beliefs_text}{personality_text}{memory_text} "
+        f"{culture}{beliefs_text}{personality_text}{emotion_text}{memory_text} "
         "Write their brief exchange."
     )
 

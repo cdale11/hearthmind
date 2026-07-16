@@ -348,6 +348,66 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.76.1)
+
+First implementation slice of the long-term vision: **Phase I, Inner
+Life** (docs/VISION-2026-07.md) — deterministic, near-zero-LLM-cost,
+feeds every later prompt. Two pieces landed; layered memory (working/
+episodic split) is deliberately deferred to its own slice (see below).
+
+**Per-agent emotions** (`agents/agent.py`): `Agent.emotions` — a new
+0..1 dict (fear/joy/grief/anger, missing key reads 0.0, same convention
+as `traits`) — distinct from `traits`' -1..1 near-permanent disposition:
+this is the vision's "rapidly changing" layer. `decay_emotions` runs
+every tick right after `_update_needs` (small entries pruned below
+0.005, same discipline as the relationship/trust dicts); `bump_emotion`
+fires at real lived events already wired into `agents/population.py`:
+predator attack survived (fear), sustained critical hunger (fear,
+scaled per tick), illness onset — both outbreak index case and
+transmission (fear), birth (joy, both parents), festival attendance
+(joy, every colocated pair), dispute reconciliation (joy) vs. hardened
+feud (anger), and a death that lands real grief today — parent/child or
+close-bond (grief). Consumed in three places: `llm/cognition.py`'s
+prompt ("Right now you feel afraid"), `llm/dialogue.py`'s prompt (same
+pattern as its existing `personality_bits`), and — the "even the
+fallback path is real" rule — `fallback_goal` now takes an `emotions`
+dict and a notable fear/grief overrides the personality/id%3 split
+toward REST ("wants to feel safe") or WANDER ("wants to be alone")
+respectively, so this is live even with the LLM disabled.
+
+**Settlement mood** (`settlement/buildings.py`): `Settlement.mood` — a
+new -1..1 dict (hope/fear/grief/suspicion) living on the existing
+`SettlementDisposition` component alongside `temperament`, but a
+different mechanism: `tick_mood` (called monthly from
+`_maybe_tick_temperament`, alongside `tick_temperament`) tracks each
+axis toward the *live aggregate* of that settlement's own agents'
+emotions (joy->hope, fear->fear, grief->grief, anger->suspicion — the
+literal "individual minds aggregate into collective psychology" layer
+the vision's hierarchy diagram calls for), blended with mean-reversion
+and jitter via the existing `bounded_random_walk_step` native module
+(module 12) — same call shape as `tick_temperament`, `extra=0.0`
+folded into `step`. `MOOD_TRACKING_WEIGHT=0.3` means a sustained shift
+closes most of the gap over 3-4 months, not an instant snap.
+`Config.phase_g_intensity=0.0` holds mood flat exactly like temperament.
+Reachable via `summary()`/`to_dict()` like every other Phase G number,
+never labeled "mood" in the UI (ambiguity discipline unchanged).
+
+Both pieces are additive-only serialization (`to_dict`/`from_dict`,
+legacy snapshots missing `emotions`/`mood` default to `{}`) — verified
+via a 9000-tick real `SimulationEngine` soak (LLM disabled, crosses 3
+month boundaries) confirming emotions stay bounded [0,1], mood stays
+bounded [-1,1], mood visibly moves in response to real in-run events,
+and a to_dict->from_dict->to_dict round trip is stable; plus the
+existing `scripts/verify_native_soak.py` full-state hash soak (native
+vs. Python-fallback `bounded_random_walk_step`, byte-identical) since
+`tick_mood` reuses that native module. **Deferred to its own slice**:
+layered memory v1 (`Agent.memories` split into working/episodic with
+salience-weighted eviction) — the third Phase I piece the roadmap
+scoped, held back so this slice stays reviewable and each piece gets
+its own verification pass, same staging discipline as v0.74.3's
+storage-only AgentTable before v0.75.0 wired it in. Phases J-N remain
+fully unstarted.
+
 ## Current state (v0.76.0)
 
 Design-only pass, per explicit user instruction ("Do not implement

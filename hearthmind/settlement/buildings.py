@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from hearthmind.util import clamp
+from hearthmind.agents.agent import EMOTION_ANGER, EMOTION_FEAR, EMOTION_GRIEF, EMOTION_JOY
 from hearthmind.settlement.institutions import Institution, InstitutionKind
 from hearthmind.settlement.vehicles import (
     VEHICLE_DECAY_PER_TICK_BASE,
@@ -907,6 +908,81 @@ def tick_temperament(temperament: float, recent_events: list[dict], rng, intensi
         return _native_bounded_random_walk_step(temperament, TEMPERAMENT_MEAN_REVERSION, step, 0.0, -1.0, 1.0)
     return clamp(temperament * TEMPERAMENT_MEAN_REVERSION + step, -1.0, 1.0)
 
+# --- mood: Phase I "Collective Psychology" — aggregated from individual ---
+# --- minds, the layer directly above Agent.emotions in the vision's ---
+# --- hierarchy (docs/VISION-2026-07.md, Phase I). Distinct in shape from ---
+# --- temperament (event-fortune-driven): mood tracks a live aggregate. ---
+
+MOOD_KEYS = ("hope", "fear", "grief", "suspicion")
+"""The four axes `Settlement.mood` holds. Each maps to one `Agent.
+emotions` axis aggregated across this settlement's own living members
+(see `tick_mood`'s `_MOOD_EMOTION_SOURCE`) — a settlement doesn't feel
+"joy" or "anger" as such, so the mapped names read as the collective,
+social version of the individual feeling: widespread joy reads as
+hope, widespread anger reads as suspicion (a village that's recently
+had a lot of hardened feuds trusts itself less as a whole, not just the
+two parties involved)."""
+
+_MOOD_EMOTION_SOURCE = {
+    "hope": EMOTION_JOY,
+    "fear": EMOTION_FEAR,
+    "grief": EMOTION_GRIEF,
+    "suspicion": EMOTION_ANGER,
+}
+
+MOOD_STEP_MAX = 0.03
+MOOD_MEAN_REVERSION = 0.9
+"""Same bounded-random-walk shape as `TEMPERAMENT_STEP_MAX`/
+`TEMPERAMENT_MEAN_REVERSION`, but a noticeably stronger mean-reversion
+(0.9 vs 0.97) — mood is meant to visibly track the population's current
+felt state (see `MOOD_TRACKING_WEIGHT`) rather than drift like
+temperament's slower fortune-ratio walk, so it needs to be pulled back
+toward 0 faster whenever the underlying agent emotions have calmed
+down, or a single bad month would linger for years."""
+MOOD_TRACKING_WEIGHT = 0.3
+"""How much of the gap between the current mood value and this month's
+live agent-emotion aggregate closes per tick_mood call — the actual
+"individual minds aggregate into collective psychology" mechanism.
+0.3 means roughly 3-4 consecutive months of a sustained population
+feeling closes most of the gap, not an instant snap (a single festival
+shouldn't flip the whole village's hope from cold to warm in one
+sitting) but also not multi-year lag."""
+
+
+def tick_mood(
+    mood: dict[str, float], agent_emotions: list[dict[str, float]], rng, intensity: float = 1.0,
+) -> dict[str, float]:
+    """Nudge every `Settlement.mood` axis one step (called monthly,
+    alongside temperament — see SimulationEngine._maybe_tick_temperament,
+    which now also calls this). `agent_emotions` is this settlement's own
+    living members' `Agent.emotions` dicts (missing keys read 0.0, same
+    convention as the source dicts) — the aggregate mean of each mapped
+    axis (see `_MOOD_EMOTION_SOURCE`) is the "signal" this month's step
+    tracks toward, rescaled from emotions' 0..1 intensity range to mood's
+    -1..1 bounded-walk range. `intensity` is `Config.phase_g_intensity` —
+    scales the step (noise and tracking pull alike), so 0.0 holds every
+    axis flat at its mean-reverted value, matching `tick_temperament`'s
+    own intensity=0.0 behavior. Returns a new dict (never mutates the
+    input) — same "settlement.temperament = tick_temperament(...)"
+    call-site shape as the sibling functions."""
+    result: dict[str, float] = {}
+    for key in MOOD_KEYS:
+        current = mood.get(key, 0.0)
+        source = _MOOD_EMOTION_SOURCE[key]
+        if agent_emotions:
+            avg = sum(e.get(source, 0.0) for e in agent_emotions) / len(agent_emotions)
+        else:
+            avg = 0.0
+        signal = avg * 2.0 - 1.0  # 0..1 emotion intensity -> -1..1 mood range
+        jitter = rng.uniform(-MOOD_STEP_MAX, MOOD_STEP_MAX)
+        step = (jitter + (signal - current) * MOOD_TRACKING_WEIGHT) * intensity
+        if _native_bounded_random_walk_step is not None:
+            result[key] = _native_bounded_random_walk_step(current, MOOD_MEAN_REVERSION, step, 0.0, -1.0, 1.0)
+        else:
+            result[key] = clamp(current * MOOD_MEAN_REVERSION + step, -1.0, 1.0)
+    return result
+
+
 # --- player standing: a discrete "how does the village feel about being --
 # --- nudged from outside" lever, alongside temperament's general mood ---
 
@@ -1382,6 +1458,20 @@ class SettlementDisposition:
     market-price modifier (`tick_market_prices`) and colors the "tie"
     a colocated cross-settlement pair's dialogue starts from — the
     "cross-settlement relationships" milestone. See docs/DECISIONS.md."""
+    mood: dict[str, float] = field(default_factory=dict)
+    """Phase I "Collective Psychology" (docs/VISION-2026-07.md): the
+    settlement-wide reading of hope/fear/grief/suspicion, each -1..1
+    (0.0/missing key = neutral, same bounded-random-walk convention as
+    `temperament`) — distinct from `temperament`'s event-fortune signal.
+    `tick_mood` derives each axis monthly from the *aggregate* of this
+    settlement's own living agents' `Agent.emotions` (joy->hope,
+    fear->fear, grief->grief, anger->suspicion — widespread anger reading
+    as a suspicious village is the one non-obvious mapping, see
+    `tick_mood`'s docstring), so this is literally "individual minds
+    aggregate into collective psychology," the layer directly above
+    `Agent.emotions` in the vision's hierarchy. Biases prompts and small
+    deterministic rates the same non-dominant way temperament does;
+    never labeled "mood" in the UI (same ambiguity discipline)."""
 
 
 class Settlement:
@@ -1415,6 +1505,7 @@ class Settlement:
         memorials: list[dict] | None = None, place_names: dict | None = None,
         records: list[dict] | None = None, id: int = 0,
         center_x: int = -1, center_y: int = -1,
+        mood: dict[str, float] | None = None,
     ):
         self.id = id
         """Stable settlement identity (multi-settlement pass, v0.65.0):
@@ -1466,6 +1557,7 @@ class Settlement:
             current_priority=current_priority, priority_rationale=priority_rationale,
             priority_history=priority_history if priority_history is not None else [],
             relations=relations if relations is not None else {},
+            mood=mood if mood is not None else {},
         )
         self._position_index: dict | None = None
         """(x, y) -> Building cache behind `at()` — never serialized,
@@ -1761,6 +1853,14 @@ class Settlement:
     @temperament.setter
     def temperament(self, value: float) -> None:
         self.disposition.temperament = value
+
+    @property
+    def mood(self) -> dict[str, float]:
+        return self.disposition.mood
+
+    @mood.setter
+    def mood(self, value: dict[str, float]) -> None:
+        self.disposition.mood = value
 
     @property
     def omen_history(self) -> list[dict]:
@@ -2070,6 +2170,7 @@ class Settlement:
             "llm_named": self.llm_named,
             "beliefs": list(self.beliefs),
             "temperament": round(self.temperament, 3),
+            "mood": {k: round(v, 3) for k, v in self.mood.items()},
             "omen_history": list(self.omen_history),
             "player_standing": round(self.player_standing, 3),
             "relations": {str(k): round(v, 3) for k, v in self.relations.items()},
@@ -2175,6 +2276,7 @@ class Settlement:
             "llm_named": self.llm_named,
             "beliefs": list(self.beliefs),
             "temperament": round(self.temperament, 4),
+            "mood": {k: round(v, 4) for k, v in self.mood.items()},
             "omen_history": list(self.omen_history),
             "player_standing": round(self.player_standing, 4),
             "relations": {str(k): round(v, 4) for k, v in self.relations.items()},
@@ -2216,6 +2318,7 @@ class Settlement:
             llm_named=data.get("llm_named", False),
             beliefs=list(data.get("beliefs", [])),
             temperament=data.get("temperament", 0.0),
+            mood=dict(data.get("mood", {})),
             omen_history=list(data.get("omen_history", [])),
             player_standing=data.get("player_standing", 0.0),
             relations={int(k): v for k, v in data.get("relations", {}).items()},

@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.76.1] — Phase I (Inner Life): per-agent emotions + settlement mood
+
+First implementation slice of docs/VISION-2026-07.md's roadmap, per
+explicit user go-ahead. Deterministic, near-zero-LLM-cost — the layer
+every later cognition prompt reads from.
+
+### Added
+- `Agent.emotions` (`agents/agent.py`): a new 0..1 dict — fear/joy/
+  grief/anger, missing key reads 0.0 (same convention as `traits`), but
+  fast-changing/decaying rather than near-permanent. `decay_emotions`
+  runs every tick after `_update_needs`; `bump_emotion` fires at real
+  events: predator attack survived, sustained critical hunger, illness
+  onset (fear); birth, festival attendance (joy); dispute reconciliation
+  (joy) vs. hardened feud (anger); a death that lands real grief today
+  (grief). `describe_emotion`/`dominant_emotion` mirror `describe_
+  traits`' shared-helper pattern.
+- Consumed in `llm/cognition.py`'s prompt, `llm/dialogue.py`'s prompt,
+  and — real even with the LLM off — `fallback_goal` now takes
+  `emotions` and a notable fear/grief overrides the usual split toward
+  REST/WANDER.
+- `Settlement.mood` (`settlement/buildings.py`): a new -1..1 dict —
+  hope/fear/grief/suspicion — living beside `temperament` on
+  `SettlementDisposition`. `tick_mood` (monthly, alongside
+  `tick_temperament`) tracks each axis toward the live aggregate of
+  that settlement's own agents' emotions (joy->hope, fear->fear,
+  grief->grief, anger->suspicion), reusing the native `bounded_random_
+  walk_step` module. Reachable via `summary()`/`to_dict()` like every
+  other Phase G number; never labeled "mood" in the UI.
+
+### Verified
+- 9000-tick real `SimulationEngine` soak (LLM disabled, crosses 3
+  month boundaries): emotions stay bounded [0,1], mood stays bounded
+  [-1,1], mood visibly tracks real in-run events, to_dict->from_dict
+  round trip stable (including a second reload).
+- `scripts/verify_native_soak.py` (1500 ticks x 2 seeds): full
+  `World.to_dict()` state, native vs. Python-fallback, byte-identical
+  every tick — confirms `tick_mood`'s reuse of the native bounded-
+  random-walk module didn't disturb anything.
+- Legacy snapshots (missing `emotions`/`mood` keys) load with empty
+  defaults — additive-only serialization.
+
+### Deferred
+- Layered memory v1 (working/episodic split of `Agent.memories`) — the
+  third Phase I piece, held for its own slice so this one stays
+  reviewable, same staging discipline as v0.74.3's storage-only
+  AgentTable before v0.75.0 wired it in.
+
 ## [0.76.0] — long-term design vision: audit + roadmap (design only, no code)
 
 Explicit user directive: adopt the "living civilization simulator"

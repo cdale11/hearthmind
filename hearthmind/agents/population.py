@@ -64,6 +64,18 @@ from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
     DIALOGUE_SENTIMENT_DELTA,
     ELDER_AGE_FRACTION,
+    EMOTION_ANGER,
+    EMOTION_BIRTH_JOY_BUMP,
+    EMOTION_DEATH_GRIEF_BUMP,
+    EMOTION_DISPUTE_ANGER_BUMP,
+    EMOTION_FEAR,
+    EMOTION_FESTIVAL_JOY_BUMP,
+    EMOTION_GRIEF,
+    EMOTION_ILLNESS_FEAR_BUMP,
+    EMOTION_JOY,
+    EMOTION_PREDATOR_FEAR_BUMP,
+    EMOTION_RECONCILE_JOY_BUMP,
+    EMOTION_STARVATION_FEAR_BUMP,
     ELDER_RECOVERY_MULTIPLIER,
     ENERGY_DRAIN_AWAKE,
     ENERGY_RECOVERY_RESTING,
@@ -151,6 +163,8 @@ from hearthmind.agents.agent import (
     Agent,
     AgentGoal,
     AgentState,
+    bump_emotion,
+    decay_emotions,
 )
 from hearthmind.agents.names import _roman, generate_names
 from hearthmind.economy.farms import (
@@ -1140,7 +1154,18 @@ class Population:
             self._update_needs(
                 agent, weather_harsh, settlements, night_factor, crowded_by_id[home.id], needs_constants,
             )
+            decay_emotions(agent)
             critically_hungry = agent.hunger >= CRITICAL_HUNGER_THRESHOLD
+            if critically_hungry:
+                # Fear of one's own starvation, distinct from the fear a
+                # predator attack or someone else's death produces below —
+                # see EMOTION_STARVATION_FEAR_BUMP. Bumped every tick the
+                # condition holds at a fraction of the full bump (decay_
+                # emotions above already ran this tick, so this doesn't get
+                # immediately erased) — repeated ticks compound toward the
+                # 1.0 ceiling, so a sustained crisis reads as worse than a
+                # momentary one.
+                bump_emotion(agent, EMOTION_FEAR, EMOTION_STARVATION_FEAR_BUMP * 0.1)
             if critically_hungry:
                 # A hunger emergency deserves the LLM's actual reasoning
                 # (a real goal + rationale), not just the movement-layer
@@ -1176,6 +1201,7 @@ class Population:
                         killed_by_predator.add(agent.id)
                     else:
                         _nudge_trait(agent, TRAIT_RESILIENCE, TRAIT_VIOLENCE_NUDGE)
+                        bump_emotion(agent, EMOTION_FEAR, EMOTION_PREDATOR_FEAR_BUMP)
                 self._dispatch_movement(
                     agent, terrain, rng, resources, farms, home, wildlife, roads,
                     predator_tiles, position_snapshot, critically_hungry, weather,
@@ -1426,6 +1452,7 @@ class Population:
             return []
         index_case = rng.choice(healthy)
         index_case.sick_ticks = 1
+        bump_emotion(index_case, EMOTION_FEAR, EMOTION_ILLNESS_FEAR_BUMP)
         return [("illness", f"{index_case.name} has fallen ill.")]
 
     @staticmethod
@@ -1495,6 +1522,7 @@ class Population:
                 for carrier in sick:
                     if rng.random() < SICKNESS_TRANSMISSION_CHANCE_PER_TICK:
                         target.sick_ticks = 1
+                        bump_emotion(target, EMOTION_FEAR, EMOTION_ILLNESS_FEAR_BUMP)
                         life_events.append(("illness", f"{target.name} caught the illness from {carrier.name}."))
                         break
         return life_events, died_of_disease
@@ -2492,6 +2520,8 @@ class Population:
                 _remember(child, f"I was born to {a.name} and {b.name}.")
                 _remember(a, f"{child.name} was born to us.")
                 _remember(b, f"{child.name} was born to us.")
+                bump_emotion(a, EMOTION_JOY, EMOTION_BIRTH_JOY_BUMP)
+                bump_emotion(b, EMOTION_JOY, EMOTION_BIRTH_JOY_BUMP)
                 family_event = self._extend_family(home, tick, a.id, b.id, child.id, a.name, b.name)
                 if family_event is not None:
                     life_events.append(family_event)
@@ -3642,11 +3672,13 @@ class Population:
                     other.energy = max(0.0, other.energy - grief_penalty_for(other))
                     self.last_triggered_agent_ids.add(other.id)
                     _nudge_trait(other, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
+                    bump_emotion(other, EMOTION_GRIEF, EMOTION_DEATH_GRIEF_BUMP)
                 elif other.relationships.get(agent.id, 0.0) >= REPRODUCTION_AFFINITY_THRESHOLD:
                     _remember(other, f"{agent.name} died. I miss them.")
                     other.energy = max(0.0, other.energy - grief_penalty_for(other))
                     self.last_triggered_agent_ids.add(other.id)
                     _nudge_trait(other, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
+                    bump_emotion(other, EMOTION_GRIEF, EMOTION_DEATH_GRIEF_BUMP)
             if home is not None:
                 life_events.extend(self._apply_inheritance(agent, home, dying_ids))
         self.agents = survivors
@@ -4049,6 +4081,7 @@ class Population:
                 me.trust[them.id] = clamp(me.trust.get(them.id, 0.0) + DISPUTE_TRUST_DELTA, -1.0, 1.0)
                 _remember(me, f"{them.name} and I made peace after our long feud.")
                 _nudge_trait(me, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
+                bump_emotion(me, EMOTION_JOY, EMOTION_RECONCILE_JOY_BUMP)
         elif outcome == "council_ruling":
             for me, them in pairs:
                 # A ruling suppresses the feud without warming it — a
@@ -4063,6 +4096,7 @@ class Population:
                 me.trust[them.id] = clamp(me.trust.get(them.id, 0.0) - DISPUTE_TRUST_DELTA, -1.0, 1.0)
                 _remember(me, f"My feud with {them.name} has hardened for good.")
                 _nudge_trait(me, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
+                bump_emotion(me, EMOTION_ANGER, EMOTION_DISPUTE_ANGER_BUMP)
         return agent_a, agent_b
 
     # --- deliberate guild founding (v0.64.0) ------------------------------------
@@ -4258,6 +4292,8 @@ class Population:
             for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
                 a.relationships[b.id] = clamp(a.relationships.get(b.id, 0.0) + boost, -1.0, 1.0)
                 b.relationships[a.id] = clamp(b.relationships.get(a.id, 0.0) + boost, -1.0, 1.0)
+                bump_emotion(a, EMOTION_JOY, EMOTION_FESTIVAL_JOY_BUMP)
+                bump_emotion(b, EMOTION_JOY, EMOTION_FESTIVAL_JOY_BUMP)
                 affected += 1
         return affected
 

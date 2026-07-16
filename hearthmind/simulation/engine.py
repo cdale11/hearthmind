@@ -85,6 +85,7 @@ from hearthmind.settlement.buildings import (
     RELATION_DIALOGUE_NUDGE_SCALE,
     seed_relation,
     tick_market_prices,
+    tick_mood,
     tick_player_standing,
     tick_relation,
     tick_temperament,
@@ -801,7 +802,7 @@ class SimulationEngine:
             if not use_llm:
                 self._pending_goal_results[agent.id] = (
                     self.world.clock.tick_count,
-                    fallback_goal(agent.hunger, agent.energy, agent.id, dict(agent.traits)),
+                    fallback_goal(agent.hunger, agent.energy, agent.id, dict(agent.traits), dict(agent.emotions)),
                 )
                 continue
             # Backpressure (see BACKPRESSURE_BACKLOG_PER_SLOT): routine
@@ -818,7 +819,7 @@ class SimulationEngine:
                 # (another job spent the last slot): fall back inline.
                 self._pending_goal_results[agent.id] = (
                     self.world.clock.tick_count,
-                    fallback_goal(agent.hunger, agent.energy, agent.id, dict(agent.traits)),
+                    fallback_goal(agent.hunger, agent.energy, agent.id, dict(agent.traits), dict(agent.emotions)),
                 )
                 continue
             backlog += 1  # count this tick's own scheduling against the gate
@@ -842,19 +843,23 @@ class SimulationEngine:
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             traits_snapshot = dict(agent.traits)
+            emotions_snapshot = dict(agent.emotions)
             task = asyncio.create_task(
-                self._run_cognition(agent.id, prompt, hunger_snapshot, energy_snapshot, traits_snapshot)
+                self._run_cognition(
+                    agent.id, prompt, hunger_snapshot, energy_snapshot, traits_snapshot, emotions_snapshot,
+                )
             )
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
     async def _run_cognition(
-        self, agent_id: int, prompt: str, hunger: float, energy: float, traits: dict,
+        self, agent_id: int, prompt: str, hunger: float, energy: float, traits: dict, emotions: dict,
     ) -> None:
         scheduled_tick = self.world.clock.tick_count
         try:
             result, used_fallback = await self._cognition_runner.run(
-                prompt, SYSTEM_PROMPT, fallback=lambda: fallback_goal(hunger, energy, agent_id, traits),
+                prompt, SYSTEM_PROMPT,
+                fallback=lambda: fallback_goal(hunger, energy, agent_id, traits, emotions),
             )
             self._pending_goal_results[agent_id] = (scheduled_tick, result)
             self._record_llm_call(used_fallback)
@@ -1611,15 +1616,16 @@ class SimulationEngine:
     # --- Phase G v1: temperament and omens (deliberately subtle) ---------------
 
     def _maybe_tick_temperament(self, events: list[str]) -> None:
-        """Once a month, nudge `Settlement.temperament` and `Settlement.
-        player_standing` — both real, deterministic values (see
-        `tick_temperament`/`tick_player_standing`), not an LLM decision.
-        The LLM's only role in this system is narrating ambiguous omens
-        on top of temperament (`_maybe_schedule_omen`) and folding
-        player_standing into the town-brain prompt as one more subtle
-        input, never computing either value itself. See
-        docs/DECISIONS.md, "World-G follow-up" and "town's opinion of
-        the player" pass."""
+        """Once a month, nudge `Settlement.temperament`, `Settlement.
+        mood`, and `Settlement.player_standing` — all real, deterministic
+        values (see `tick_temperament`/`tick_mood`/`tick_player_
+        standing`), not an LLM decision. The LLM's only role in this
+        system is narrating ambiguous omens on top of temperament
+        (`_maybe_schedule_omen`) and folding player_standing into the
+        town-brain prompt as one more subtle input, never computing any
+        of these values itself. See docs/DECISIONS.md, "World-G
+        follow-up" and "town's opinion of the player" pass; mood is
+        Phase I "Collective Psychology," docs/VISION-2026-07.md."""
         if "month_end" not in events:
             return
         recent = recent_events(self.conn, limit=PROMPT_RECENT_EVENTS)
@@ -1629,6 +1635,15 @@ class SimulationEngine:
             )
             stl.temperament = tick_temperament(
                 stl.temperament, recent, rng, intensity=self.world.config.phase_g_intensity,
+            )
+            mood_rng = _namespaced_rng(
+                self.world.config.seed, self.world.clock.tick_count, f"mood_{stl.id}",
+            )
+            member_emotions = [
+                a.emotions for a in self.world.population.agents if a.settlement_id == stl.id
+            ]
+            stl.mood = tick_mood(
+                stl.mood, member_emotions, mood_rng, intensity=self.world.config.phase_g_intensity,
             )
             # Cross-settlement relations (v0.67.0): every relation this
             # settlement has on record mean-reverts monthly too, same

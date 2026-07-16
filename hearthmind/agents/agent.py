@@ -634,6 +634,111 @@ openness's own write-only loop the same way the integration milestone
 closed resilience/sociability/ambition's."""
 
 
+# --- Phase I: per-agent emotions — fast-changing, deterministic, decaying ---
+# See docs/VISION-2026-07.md, Phase I. Distinct from `traits` (slow,
+# near-permanent disposition): emotions are the "rapidly changing" layer
+# the vision's cognition pipeline calls for — bumped by specific lived
+# events, decaying back toward 0 every tick otherwise. Same dict-with-
+# missing-key-reads-0.0 convention as `traits`.
+
+EMOTION_FEAR = "fear"
+EMOTION_JOY = "joy"
+EMOTION_GRIEF = "grief"
+EMOTION_ANGER = "anger"
+"""The four v1 axes `Agent.emotions` holds, each 0..1 (0 = not feeling
+it, 1 = overwhelmed) — unlike `traits`' -1..1 bipolar convention,
+emotions are intensities, not a spectrum between two opposites (fear
+and joy are not opposites of the same axis). Deliberately not a bigger
+affect model — four legible, event-groundable feelings, matching the
+vision's "fast-changing" layer without turning cognition prompts into a
+psychology thesis."""
+
+EMOTION_DECAY_RATE = 0.01
+"""Fraction of the distance back to 0 an emotion recovers per tick
+(`value *= (1 - EMOTION_DECAY_RATE)`), applied in `Population.tick`
+right after `_update_needs`. At the default tick cadence a strong (1.0)
+fear fades to ~0.5 in about 70 ticks and is negligible within a couple
+of sim-days — fast enough that emotions read as "how I feel right now,"
+not a second belief system; events that should leave a longer mark
+already do, via `memories`/`traits`/`beliefs`."""
+
+EMOTION_PREDATOR_FEAR_BUMP = 0.5
+EMOTION_STARVATION_FEAR_BUMP = 0.3
+EMOTION_ILLNESS_FEAR_BUMP = 0.2
+EMOTION_BIRTH_JOY_BUMP = 0.4
+EMOTION_FESTIVAL_JOY_BUMP = 0.3
+EMOTION_RECONCILE_JOY_BUMP = 0.3
+EMOTION_DEATH_GRIEF_BUMP = 0.6
+EMOTION_DISPUTE_ANGER_BUMP = 0.4
+"""Per-event bump magnitudes (added, then clamped to 1.0 — repeated
+events within the decay window compound toward the ceiling rather than
+resetting). Sized so a single sharp event (survived a predator attack,
+a death in the family) reads as a real spike against the 0..1 range,
+not a rounding error; see the call sites in `agents/population.py` for
+exactly which event fires which bump."""
+
+EMOTION_NOTABLE_THRESHOLD = 0.35
+"""Floor above which an emotion is worth mentioning in a prompt or
+letting bias a deterministic fallback — mirrors `TRAIT_NOTABLE_
+THRESHOLD`'s role for traits. Below this, decay has already made the
+feeling background noise."""
+
+
+def bump_emotion(agent: "Agent", key: str, amount: float) -> None:
+    """Raise one of `agent.emotions`' four axes by `amount`, clamped to
+    1.0. The single call site every event-driven emotion nudge in
+    `agents/population.py` goes through, so the clamp/creation logic
+    lives in one place."""
+    agent.emotions[key] = min(1.0, agent.emotions.get(key, 0.0) + amount)
+
+
+def decay_emotions(agent: "Agent") -> None:
+    """Tick every held emotion back toward 0 by `EMOTION_DECAY_RATE`,
+    dropping entries that have decayed to (near enough) nothing so a
+    long-lived agent's `emotions` dict doesn't accumulate stale
+    near-zero keys forever — same "prune, don't just leak toward zero"
+    discipline as the relationship/trust dicts (v0.42.0)."""
+    if not agent.emotions:
+        return
+    for key in list(agent.emotions.keys()):
+        value = agent.emotions[key] * (1.0 - EMOTION_DECAY_RATE)
+        if value < 0.005:
+            del agent.emotions[key]
+        else:
+            agent.emotions[key] = value
+
+
+def dominant_emotion(emotions: dict) -> tuple[str, float] | None:
+    """The single strongest emotion clearing `EMOTION_NOTABLE_THRESHOLD`,
+    or None — the one-feeling summary prompts and fallbacks consume
+    rather than reasoning over all four axes individually."""
+    if not emotions:
+        return None
+    key, value = max(emotions.items(), key=lambda item: item[1])
+    if value < EMOTION_NOTABLE_THRESHOLD:
+        return None
+    return key, value
+
+
+_EMOTION_PHRASES = {
+    EMOTION_FEAR: "afraid",
+    EMOTION_JOY: "joyful",
+    EMOTION_GRIEF: "grieving",
+    EMOTION_ANGER: "angry",
+}
+
+
+def describe_emotion(emotions: dict) -> str:
+    """Shared by llm/cognition.py and llm/dialogue.py: a short natural-
+    language fragment naming the dominant notable emotion, or "" if none
+    clears the threshold — same one-function-so-prompts-don't-drift
+    reasoning as `describe_traits`."""
+    dominant = dominant_emotion(emotions)
+    if dominant is None:
+        return ""
+    return _EMOTION_PHRASES[dominant[0]]
+
+
 def describe_traits(traits: dict) -> str:
     """Shared by llm/cognition.py and llm/dialogue.py: a short natural-
     language fragment for whichever traits currently clear
@@ -713,6 +818,7 @@ class Agent:
         settlement_id: int = 0,
         travel_target: tuple[int, int] | None = None,
         beliefs: list[dict] | None = None,
+        emotions: dict[str, float] | None = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -772,6 +878,13 @@ class Agent:
         # beliefs: this agent's own evolving theories, same entry shape as
         # Settlement.beliefs, capped at llm/beliefs.MAX_PERSONAL_BELIEFS.
         self.beliefs: list[dict] = [] if beliefs is None else beliefs
+        # emotions: fast-changing 0..1 affect vector (Phase I, see
+        # bump_emotion/decay_emotions above) — missing keys read 0.0,
+        # same convention as traits. Decayed every tick, bumped at
+        # specific lived events; never persisted at a size beyond 4 keys
+        # (bounded by EMOTION_* constants themselves, no separate cap
+        # needed the way memories/beliefs need MAX_*).
+        self.emotions: dict[str, float] = {} if emotions is None else emotions
 
     # --- native-store attach + scalar properties ---------------------------
 
@@ -974,6 +1087,7 @@ class Agent:
             "beliefs": list(self.beliefs),
             "settlement_id": self.settlement_id,
             "travel_target": list(self.travel_target) if self.travel_target is not None else None,
+            "emotions": {k: round(v, 4) for k, v in self.emotions.items()},
         }
 
     @classmethod
@@ -1006,4 +1120,5 @@ class Agent:
             travel_target=(
                 tuple(data["travel_target"]) if data.get("travel_target") is not None else None
             ),
+            emotions=dict(data.get("emotions", {})),
         )

@@ -10,11 +10,15 @@ the project roadmap. See docs/DECISIONS.md, B2.
 from __future__ import annotations
 
 from hearthmind.agents.agent import (
+    EMOTION_FEAR,
+    EMOTION_GRIEF,
+    EMOTION_NOTABLE_THRESHOLD,
     TRAIT_AMBITION,
     TRAIT_NOTABLE_THRESHOLD,
     TRAIT_SOCIABILITY,
     Agent,
     AgentGoal,
+    describe_emotion,
     describe_traits,
 )
 
@@ -80,6 +84,8 @@ def build_prompt(
     memory = f" You remember: {' | '.join(recent)}" if recent else ""
     personality = describe_traits(agent.traits)
     personality_text = f" You are {personality}." if personality else ""
+    emotion = describe_emotion(agent.emotions)
+    emotion_text = f" Right now you feel {emotion}." if emotion else ""
     beliefs_text = (
         f" What the village has come to believe about you: {'; '.join(beliefs_about)}."
         if beliefs_about else ""
@@ -100,12 +106,15 @@ def build_prompt(
         f"Energy: {agent.energy:.2f} (0=exhausted, 1=fully rested). "
         f"Currently {agent.state.value}, focused on '{agent.goal.value}'."
         f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{personality_text}"
-        f"{beliefs_text}{own_belief_text} "
+        f"{emotion_text}{beliefs_text}{own_belief_text} "
         "What should you focus on right now?"
     )
 
 
-def fallback_goal(hunger: float, energy: float, agent_id: int = 0, traits: dict | None = None) -> dict:
+def fallback_goal(
+    hunger: float, energy: float, agent_id: int = 0, traits: dict | None = None,
+    emotions: dict | None = None,
+) -> dict:
     """Deterministic rule-based stand-in for the LLM's choice, used when
     Ollama is disabled, unreachable, or misbehaves. Mirrors the kind of
     reasoning the prompt asks for, just without an actual model behind it.
@@ -130,6 +139,21 @@ def fallback_goal(hunger: float, energy: float, agent_id: int = 0, traits: dict 
         return {"goal": AgentGoal.FORAGE.value, "reason": "hungry"}
     if energy < 0.3:
         return {"goal": AgentGoal.REST.value, "reason": "tired"}
+    emotions = emotions or {}
+    fear = emotions.get(EMOTION_FEAR, 0.0)
+    grief = emotions.get(EMOTION_GRIEF, 0.0)
+    if fear >= EMOTION_NOTABLE_THRESHOLD and fear >= grief:
+        # A frightened agent (recent predator attack, illness, or a
+        # starvation scare) seeks the safety of rest rather than the
+        # id%3/trait split below — Phase I's "emotions bias small
+        # deterministic behavior" rule, applied to the fallback path so
+        # it's real even with the LLM disabled/unreachable.
+        return {"goal": AgentGoal.REST.value, "reason": "shaken, wants to feel safe"}
+    if grief >= EMOTION_NOTABLE_THRESHOLD:
+        # Grief withdraws rather than seeks company — overrides the
+        # sociability standout below, same "real feeling beats routine
+        # tie-break" precedence fear gets above.
+        return {"goal": AgentGoal.WANDER.value, "reason": "grieving, wants to be alone"}
     traits = traits or {}
     ambition = traits.get(TRAIT_AMBITION, 0.0)
     sociability = traits.get(TRAIT_SOCIABILITY, 0.0)
