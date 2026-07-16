@@ -358,6 +358,57 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.78.4)
+
+Closes out both Phase J pieces deferred from v0.78.3, per explicit
+"do both, ask when in doubt" direction — one clarifying question asked
+first (`AskUserQuestion`) on the `Agent.mind` schema's scope, since it
+had genuine, different-call-volume-cost forks; user chose "permanent
+tier only." See `MAX_MIND_TEXT_CHARS`'s docstring (agents/agent.py) for
+the full scope decision this answer produced.
+
+**Agent.mind (permanent tier)**: one-time-authored durable identity
+paragraph (values/fears/ambitions/worldview), core cast only, never
+revised after authoring. Written the instant an agent enters the core
+cast (`Population.maintain_core_cast` now returns the newly-added
+agents; `SimulationEngine._author_minds` sets a deterministic template
+synchronously — `describe_mind_fallback`, agents/agent.py — then
+schedules one optional background LLM call per new agent, new
+`llm/mind.py`, same "instant placeholder, LLM silently improves it"
+shape as settlement naming). Backpressure-gated like `_maybe_schedule_
+dispute` so a genesis-time burst (the initial cast filling all
+`llm_core_cast_size` seats in one tick) doesn't compete with routine
+cognition/dialogue for the concurrency semaphore; a dropped-under-
+pressure agent simply keeps its deterministic placeholder forever (this
+job never retries). Fed into `llm/cognition.py`/`llm/dialogue.py`
+prompts as "at your core: ..." for core-cast agents. **Explicit scope
+cut** (user-approved): the vision's "slow"/"fast" tiers are declared
+aliases of already-existing state — `traits`' own slow bounded-random-
+walk drift, and `goal_reason`/`working_memory` — not new fields, since
+building them would either duplicate existing mechanisms or (for
+"slow") require a new recurring LLM job, i.e. real added call volume.
+Surfaced in the NPC inspector as "At their core" (core-cast agents
+only) — not ambiguity-gated like secrets/mood, since it's closer to a
+character bio than a spoiler.
+
+**Secrets via Reflect()**: `llm/beliefs.py`'s `PERSONAL_SYSTEM_PROMPT`/
+`build_personal_prompt` gained a sixth, optional `"secret"` field
+(left blank almost every call — no deterministic-fallback secret is
+ever invented, `parse_secret` has no fallback path) alongside the
+existing belief+semantic-memory output — same one monthly call slot,
+zero added volume. Planted only when `used_fallback` is false and the
+target is core cast, same restriction the v0.78.3 dispute-planted path
+already uses (`MAX_SECRETS` stays a small, load-bearing set either way).
+
+Verified: direct fake-client test confirms every core-cast agent gets
+*some* mind text immediately (deterministic placeholder) and the
+LLM-authored version lands when the call succeeds; a forced Reflect()
+call with a fake client returning a `"secret"` field plants it on the
+target core-cast agent; `mind`/`secrets` round-trip exactly through
+to_dict/from_dict; `scripts/verify_native_soak.py` (2 seeds, 1500
+ticks) byte-identical — `maintain_core_cast`'s new return value touches
+no native module.
+
 ## Current state (v0.78.3)
 
 Continuing Phase J's roadmap per explicit direction, with a standing

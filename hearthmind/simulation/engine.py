@@ -48,7 +48,7 @@ from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
     fission, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, festival, founding,
-    geography, invention, naming, omens, summary, town_brain,
+    geography, invention, mind, naming, omens, summary, town_brain,
 )
 from hearthmind.llm.client import build_llm_client
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
@@ -727,7 +727,9 @@ class SimulationEngine:
 
         # Keep the LLM core cast full and current before any cognition/
         # dialogue scheduling reads it this tick (v0.70.0).
-        self.world.population.maintain_core_cast(self.config.llm_core_cast_size)
+        newly_core = self.world.population.maintain_core_cast(self.config.llm_core_cast_size)
+        if newly_core:
+            self._author_minds(newly_core)
         # Per-tick scheduling jobs fire in a fixed order via a declarative
         # table (`_TICK_JOBS`, R2 in docs/REFACTOR-2026-07.md) instead of a
         # hand-maintained call list. Adding a job is one table entry; the
@@ -877,7 +879,7 @@ class SimulationEngine:
                 settlement_name=home.name, latest_tradition=latest_tradition,
                 colocated_names=colocated_names, nearest_food_steps=food_steps,
                 beliefs_about=beliefs_about, own_belief=own_belief,
-                semantic_memory=semantic_memory,
+                semantic_memory=semantic_memory, mind_text=agent.mind,
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             traits_snapshot = dict(agent.traits)
@@ -1661,6 +1663,17 @@ class SimulationEngine:
                     target.beliefs.remove(weakest)
             semantic_text = beliefs.parse_semantic_memory(result, fallback)
             beliefs.push_semantic_memory(target, semantic_text)
+            # Secrets via Reflect() (Phase J, v0.78.4): the LLM's own
+            # optional field, left blank almost every call — no
+            # deterministic-fallback secret is ever invented
+            # (`parse_secret` has no fallback path), and only core-cast
+            # agents get one planted (matches the dispute-planted path's
+            # same restriction, keeping MAX_SECRETS a small, load-bearing
+            # set rather than something every agent accumulates).
+            if not used_fallback and target.id in self.world.population.core_agent_ids:
+                secret_text = beliefs.parse_secret(result)
+                if secret_text:
+                    push_secret(target, secret_text)
 
         self._schedule_llm_job("personal_belief", prompt, beliefs.PERSONAL_SYSTEM_PROMPT, fallback, apply)
 
@@ -1846,6 +1859,37 @@ class SimulationEngine:
     def _apply_record(self, author: str, text: str, settlement_id: int = 0) -> None:
         self._settlement_by_id(settlement_id).add_record(self.world.clock.tick_count, author, text)
         self._log("record_written", f'{author} left a written record behind: "{text}"')
+
+    def _author_minds(self, agents: list) -> None:
+        """One-time genesis-style permanent-identity authoring (Phase J,
+        v0.78.4) for agents newly seated in the core cast — see `Agent.
+        mind`/`MAX_MIND_TEXT_CHARS` (agents/agent.py) for the full scope
+        decision. Sets the deterministic fallback synchronously so every
+        core-cast member always has *some* mind text immediately, then
+        optionally enriches it via one background LLM call per agent —
+        same "instant placeholder, LLM silently improves it later" shape
+        as settlement naming. Backpressure-gated like `_maybe_schedule_
+        dispute`: a burst at genesis (the initial cast filling all
+        `llm_core_cast_size` seats in one tick) must not compete with
+        routine cognition/dialogue for the concurrency semaphore. This
+        never retries — an agent dropped under backpressure simply keeps
+        its deterministic placeholder forever, a graceful degrade, not a
+        silent failure (no `used_fallback` path ever re-queues it)."""
+        for agent in agents:
+            fallback = mind.fallback_mind(agent)
+            agent.mind = fallback["mind"]
+            if self._settlement_job_backpressured():
+                continue
+            agent_id = agent.id
+            prompt = mind.build_prompt(agent)
+
+            def apply(result: dict, used_fallback: bool, agent_id=agent_id, fallback=fallback) -> None:
+                target = self.world.population.get(agent_id)
+                if target is None:
+                    return  # died before the answer arrived
+                target.mind = mind.parse_mind(result, fallback)
+
+            self._schedule_llm_job("mind", prompt, mind.SYSTEM_PROMPT, fallback, apply)
 
     def _maybe_schedule_dispute(self) -> None:
         """LLM-mediated dispute resolution — see llm/dispute.py and

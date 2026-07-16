@@ -4,6 +4,44 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.78.4] — Phase J: permanent mind schema + Reflect()-planted secrets
+
+Closes both pieces deferred from v0.78.3 ("do both, ask when in
+doubt"). Asked one clarifying question on the mind schema's scope
+before building (call-volume implications differed by option); user
+chose "permanent tier only."
+
+### Added
+
+- `Agent.mind` (`agents/agent.py`, cap `MAX_MIND_TEXT_CHARS=220`) —
+  one-time-authored durable identity paragraph, core cast only, never
+  revised. `Population.maintain_core_cast` now returns newly-added
+  agents; `SimulationEngine._author_minds` sets a deterministic
+  fallback synchronously (`describe_mind_fallback`) then schedules one
+  optional background LLM call per new agent (`llm/mind.py`, new),
+  backpressure-gated against a genesis-time burst. Fed into cognition/
+  dialogue prompts for core-cast agents; surfaced in the NPC inspector
+  as "At their core."
+- `llm/beliefs.py`: `parse_secret` + a sixth optional `"secret"` field
+  on the personal-belief/Reflect() job's existing schema — reuses that
+  job's one monthly call slot, left blank almost every call, no
+  fallback-invented secrets, planted only on core-cast targets.
+
+### Scope decisions (explicit, user-approved)
+
+- The vision doc's "slow"/"fast" mind tiers are declared aliases of
+  existing state (`traits`' own drift; `goal_reason`/`working_memory`)
+  rather than new fields — avoids duplicating existing mechanisms and,
+  for "slow," a new recurring LLM job.
+
+### Verified
+
+- Fake-client test: every core-cast agent gets immediate deterministic
+  mind text, LLM-authored version lands when the call succeeds; forced
+  Reflect() call with a `"secret"` field plants it on the target.
+  `mind`/`secrets` round-trip exact. `scripts/verify_native_soak.py`
+  (2 seeds, 1500 ticks): byte-identical.
+
 ## [0.78.3] — Phase J: secrets (dispute-planted) + memory-pressure pass over old code
 
 Continues Phase J with the "Secrets & lies" piece, plus a standing

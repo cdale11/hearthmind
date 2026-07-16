@@ -51,7 +51,7 @@ def build_prompt(
     settlement_name: str = "", latest_tradition: str = "",
     colocated_names: list[str] | None = None, nearest_food_steps: int | None = None,
     beliefs_about: list[str] | None = None, own_belief: str = "",
-    semantic_memory: str = "",
+    semantic_memory: str = "", mind_text: str = "",
 ) -> str:
     """`settlement_name`/`latest_tradition` are optional culture context
     (Phase E) — empty until the settlement is named/has a tradition, so
@@ -85,7 +85,14 @@ def build_prompt(
     theory and from the raw `memory` line's individual events. Small,
     high prompt priority per the vision doc; shown as one short clause,
     never the whole capped list, to keep this prompt's token cost flat
-    as the layer fills up."""
+    as the layer fills up.
+
+    `mind_text` (Phase J permanent tier, v0.78.4): `Agent.mind`'s
+    one-time-authored durable identity paragraph, core cast only. Unlike
+    every other field here it never changes across an agent's life —
+    "at your core" framing distinguishes it from `own_belief` (a
+    revisable running theory) and `semantic_memory` (distilled from
+    recent experience)."""
     culture = ""
     if settlement_name:
         culture = f" You live in {settlement_name}."
@@ -105,6 +112,7 @@ def build_prompt(
     )
     own_belief_text = f" Your own private theory: {own_belief}" if own_belief else ""
     semantic_text = f" You've come to feel: {semantic_memory}" if semantic_memory else ""
+    mind_prompt_text = f" At your core: {mind_text}" if mind_text else ""
     company = (
         f" With you right now: {', '.join(colocated_names)}."
         if colocated_names else " Nobody else is here right now."
@@ -120,7 +128,7 @@ def build_prompt(
         f"Energy: {agent.energy:.2f} (0=exhausted, 1=fully rested). "
         f"Currently {agent.state.value}, focused on '{agent.goal.value}'."
         f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{just_now_text}"
-        f"{personality_text}{emotion_text}{beliefs_text}{own_belief_text}{semantic_text} "
+        f"{personality_text}{emotion_text}{beliefs_text}{own_belief_text}{semantic_text}{mind_prompt_text} "
         "What should you focus on right now?"
     )
 

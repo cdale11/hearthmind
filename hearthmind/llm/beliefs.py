@@ -74,14 +74,17 @@ PERSONAL_SYSTEM_PROMPT = (
     "lately into one lasting thought they now carry with them — a distilled "
     "takeaway, not a list of events, the kind of quiet realization a person forms "
     "after several similar experiences (\"I don't trust the river since the flood\"), "
-    "not a summary of any single one. "
+    "not a summary of any single one. Finally, and only rarely (most of the time "
+    "leave this blank) — if something in their recent experience suggests they'd be "
+    "keeping a private secret, something they wouldn't say aloud, name it briefly. "
     'Respond with strict JSON only, no other text: {"subject": "short label, e.g. '
     'a person\'s name, \'my place here\', \'the harvests\', \'what happened to '
     'them\'", "belief": "one sentence, under 30 words, stated as this villager\'s '
     'own private belief, first-person or about themself in third person, not '
     'narration", "confidence": 0.0-1.0, "revises": integer index of an existing '
     'theory this replaces, or null for a new one, "semantic_memory": "one sentence, '
-    'under 25 words, first-person, the lasting thought described above"}.'
+    'under 25 words, first-person, the lasting thought described above", "secret": '
+    '"" (leave blank almost always) or a private secret under 20 words, first-person}.'
 )
 
 
@@ -322,6 +325,19 @@ def parse_semantic_memory(result: dict, fallback: dict) -> str:
     text = result.get("semantic_memory")
     if not isinstance(text, str) or not text.strip():
         text = fallback.get("semantic_memory", "")
+    return text.strip()[:150]
+
+
+def parse_secret(result: dict) -> str:
+    """Extracts the optional `secret` field the personal-belief/Reflect()
+    job may return (v0.78.4). Unlike `parse_semantic_memory`, there is
+    deliberately no fallback here — a deterministic (non-LLM) answer
+    should never invent a secret; a used_fallback resolution simply
+    plants none, which is the common case even on a live LLM call (most
+    calls leave the field blank)."""
+    text = result.get("secret")
+    if not isinstance(text, str):
+        return ""
     return text.strip()[:150]
 
 

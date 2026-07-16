@@ -320,18 +320,47 @@ MAX_SECRETS = 2
 (docs/VISION-2026-07.md, "Deeper Minds": "planted by Reflect()/
 disputes; dialogue prompt may reference or guard them"). Deliberately
 tiny and FIFO: this is a handful of private grievances/held-back
-things, not a growing diary. v0.78.3 scope: planted only by a hardened
-"feud" dispute outcome (`SimulationEngine._maybe_schedule_dispute`,
-`llm/dispute.py`) — a deterministic derivation from the existing
-outcome/narration, not a new LLM output field, so this adds zero call
-volume and zero schema complexity for the model to get wrong. Reflect()
-planting secrets of its own is deferred (see docs/VISION-2026-07.md);
-this slice only closes the "disputes" half of the ask. `dialogue.py`'s
-prompt may allude to a speaker's secret about their conversation
-partner without stating its contents outright — never surfaced in the
-main UI (a "secret" spoiled in the NPC inspector defeats the point);
-reachable via the dev console/raw `/state` JSON like every other
-under-the-hood mechanism."""
+things, not a growing diary. Planted two ways: a hardened "feud"
+dispute outcome (`SimulationEngine._maybe_schedule_dispute`, v0.78.3 —
+a deterministic derivation from the existing outcome/narration, zero
+added call volume/schema risk), and (v0.78.4) an occasional Reflect()
+answer (`SimulationEngine._maybe_schedule_personal_belief` /
+`llm/beliefs.py`'s extended personal-belief job) — the LLM's own optional
+`"secret"` field, left blank most calls, reusing that job's existing
+monthly call slot rather than adding a new one. Both paths are core-cast
+only. `dialogue.py`'s prompt may allude to a speaker's secret about
+their conversation partner without stating its contents outright —
+never surfaced in the main UI (a "secret" spoiled in the NPC inspector
+defeats the point); reachable via the dev console/raw `/state` JSON
+like every other under-the-hood mechanism."""
+
+MAX_MIND_TEXT_CHARS = 220
+"""Length cap on `Agent.mind` — Phase J's "persistent mind schema"
+(docs/VISION-2026-07.md, "Deeper Minds"), scoped down to its
+**permanent** tier only (v0.78.4, explicit user direction): a short,
+one-time-authored paragraph of durable identity — values, fears,
+ambitions, worldview — distinct from both the bounded numeric `traits`
+vector and any single episodic/semantic memory. Authored exactly once,
+when an agent enters the core cast (`Population.maintain_core_cast`),
+never revised afterward — this is who they fundamentally are, not a
+running theory. Set synchronously to a deterministic template
+(`describe_mind_fallback`) the instant they join, then optionally
+overwritten by a one-time background LLM call
+(`SimulationEngine._maybe_author_mind`) if one succeeds — the same
+"instant placeholder, LLM silently improves it later" pattern
+`World.tick()`'s settlement-naming job already uses. Non-core agents
+never get one (empty string) — a deliberate scope cut vs. the vision
+doc's "non-core agents get a cheap deterministic template from traits"
+line: `describe_traits` already serves that purpose inline wherever
+needed, so no second templated string is stored per non-core agent.
+The vision's "slow" (ideology) and "fast" (current preoccupation) tiers
+are **not** separate new fields this round — explicit scope decision:
+`traits`' slow bounded-random-walk drift already is the slow layer,
+and `goal_reason`/`working_memory` already are the fast layer: building
+distinct parallel state for those would duplicate existing mechanisms
+and, for "slow," imply a new *recurring* LLM job — real added call
+volume this project is explicitly trying to hold flat. Revisit only on
+a fresh, explicit ask."""
 
 GRIEF_ENERGY_PENALTY = 0.2
 """Energy lost when a close bond (affinity >= REPRODUCTION_AFFINITY_THRESHOLD)
@@ -897,6 +926,21 @@ def describe_traits(traits: dict) -> str:
     return ", ".join(bits)
 
 
+def describe_mind_fallback(name: str, traits: dict) -> str:
+    """Deterministic stand-in for `Agent.mind`'s one-time LLM-authored
+    paragraph (see `MAX_MIND_TEXT_CHARS`) — set synchronously the
+    instant an agent enters the core cast, before any background LLM
+    call has a chance to run or in case one never succeeds. Built from
+    the same trait descriptions `describe_traits` already produces, just
+    framed as a standing self-description rather than a momentary
+    prompt fragment, so a fallback-only run still gives every core-cast
+    member *some* durable identity text."""
+    traits_text = describe_traits(traits)
+    if traits_text:
+        return f"{name} thinks of themself as someone who is {traits_text}."
+    return f"{name} has never put much thought into who they are — they just live."
+
+
 class Agent:
     """A single inhabitant.
 
@@ -952,6 +996,7 @@ class Agent:
         working_memory: list[str] | None = None,
         semantic_memories: list[str] | None = None,
         secrets: list[str] | None = None,
+        mind: str = "",
     ) -> None:
         self.id = id
         self.name = name
@@ -1015,6 +1060,9 @@ class Agent:
         # secrets: private things this agent holds back, strictly FIFO,
         # cap MAX_SECRETS (see above) — planted by dispute outcomes.
         self.secrets: list[str] = [] if secrets is None else secrets
+        # mind: one-time-authored permanent identity paragraph, core
+        # cast only, "" until they join — see MAX_MIND_TEXT_CHARS above.
+        self.mind: str = mind
         # skills: procedural teachable know-how, name -> proficiency 0..1
         # (SKILL_FARMING/CONSTRUCTION/MEDICINE) — distinct from beliefs.
         self.skills: dict[str, float] = {} if skills is None else skills
@@ -1236,6 +1284,7 @@ class Agent:
             "working_memory": list(self.working_memory),
             "semantic_memories": list(self.semantic_memories),
             "secrets": list(self.secrets),
+            "mind": self.mind,
             "skills": {k: round(v, 4) for k, v in self.skills.items()},
             "traits": {k: round(v, 4) for k, v in self.traits.items()},
             "beliefs": list(self.beliefs),
@@ -1281,6 +1330,7 @@ class Agent:
             working_memory=list(data.get("working_memory", [])),
             semantic_memories=list(data.get("semantic_memories", [])),
             secrets=list(data.get("secrets", [])),
+            mind=data.get("mind", ""),
             skills=dict(data.get("skills", {})),
             traits=dict(data.get("traits", {})),
             beliefs=list(data.get("beliefs", [])),

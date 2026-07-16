@@ -143,6 +143,7 @@ def build_prompt(
     just_now_bits = []
     semantic_bits = []
     secret_bits = []
+    mind_bits = []
     for agent, label, other in (
         (agent_a, agent_a.name, agent_b), (agent_b, agent_b.name, agent_a),
     ):
@@ -162,10 +163,15 @@ def build_prompt(
         own_secret = next((s for s in agent.secrets if other.name in s), None)
         if own_secret:
             secret_bits.append(f"{label} is privately holding something back about {other.name}: {own_secret}")
+        # Permanent mind (Phase J, v0.78.4): core cast only (empty "" for
+        # everyone else, so this is a no-op for a non-core exchange).
+        if agent.mind:
+            mind_bits.append(f"{label}, at their core: {agent.mind}")
     memory_text = f" {'. '.join(memory_bits)}." if memory_bits else ""
     just_now_text = f" {'. '.join(just_now_bits)}." if just_now_bits else ""
     semantic_text = f" {'. '.join(semantic_bits)}." if semantic_bits else ""
     secret_text = f" {'. '.join(secret_bits)}." if secret_bits else ""
+    mind_text = f" {'. '.join(mind_bits)}." if mind_bits else ""
 
     def _activity(agent: Agent) -> str:
         # Grounds "currently X" in *why* when cognition set a reason
@@ -185,7 +191,7 @@ def build_prompt(
         f"{agent_b.hunger:.2f}, energy {agent_b.energy:.2f}, currently {_activity(agent_b)}). "
         f"They are {tie}. It is {season}, weather: {weather}."
         f"{culture}{beliefs_text}{personality_text}{emotion_text}{memory_text}{just_now_text}"
-        f"{semantic_text}{secret_text} "
+        f"{semantic_text}{secret_text}{mind_text} "
         "Write their brief exchange."
     )
 

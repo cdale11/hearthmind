@@ -1529,6 +1529,7 @@ function renderNpcInspector() {
     <h3>${agent.name}${agent.is_core ? ' <span class="core-badge" title="LLM core cast: goals and dialogue are model-authored, not the deterministic fallback">▲ core</span>' : ""}</h3>
     <div class="npc-subtitle">${agent.state}, age ${agent.age_ticks}</div>
     <button class="npc-follow-btn" data-follow="${agent.id}" data-follow-name="${agent.name}">⌖ follow on map</button>
+    ${agent.mind ? `<div class="npc-section"><h4>At their core</h4><div class="npc-goal-reason">${agent.mind}</div></div>` : ""}
     <div class="npc-section">
       <h4>Right now</h4>
       <div>Pursuing <b>${agent.goal}</b></div>

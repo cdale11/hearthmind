@@ -3779,9 +3779,12 @@ class Population:
             + skill * PROMINENCE_SKILL_WEIGHT
         )
 
-    def maintain_core_cast(self, cast_size: int) -> None:
+    def maintain_core_cast(self, cast_size: int) -> list[Agent]:
         """Keep `core_agent_ids` at `cast_size` living members. Called once
         per tick by the engine before it schedules cognition/dialogue.
+        Returns the agents newly added this call (v0.78.4, for `Agent.
+        mind`'s one-time genesis-style authoring — empty list on every
+        tick that doesn't fill a seat, i.e. almost always).
 
         Two rules, in order:
         1. Prune the dead — a departed protagonist frees a seat.
@@ -3798,17 +3801,19 @@ class Population:
         self.core_agent_ids &= alive_ids
         if cast_size <= 0:
             self.core_agent_ids.clear()
-            return
+            return []
         # Sticky cap: if the cast is somehow over size (cast_size lowered
         # at runtime), let attrition bring it down rather than evicting a
         # living protagonist mid-life.
         deficit = cast_size - len(self.core_agent_ids)
         if deficit <= 0:
-            return
+            return []
         candidates = [a for a in self.agents if a.id not in self.core_agent_ids]
         candidates.sort(key=lambda a: (-self._prominence(a), a.id))
-        for agent in candidates[:deficit]:
+        added = candidates[:deficit]
+        for agent in added:
             self.core_agent_ids.add(agent.id)
+        return added
 
     # --- cognition (Phase B) --------------------------------------------------
 
