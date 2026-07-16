@@ -78,20 +78,27 @@ default `auto` + `--fit on` as of v0.75.0 so llama.cpp sizes the offload
 to VRAM dynamically instead of the old hardcoded 999, see README's AMD
 iGPU section and the iGPU investigation in docs/DECISIONS.md).
 
-**`llm_max_concurrent=1`** (lowered from the long-standing "permanent
-floor of 2" in v0.78.5 by explicit, direct user instruction — "make
-concurrent task = 1 if it reduces memory pressure" — which it does:
-`scripts/run.sh` already runs llama-server with `--parallel 1`, so a
-second Python-side in-flight request was dead weight against a server
-that could only ever process one at a time, and for the Ollama backend
-it directly halves worst-case concurrent KV-cache allocation). This is
-no longer held as a floor regardless of measurement — raise it only if
-you've confirmed genuine spare concurrency headroom. History of the
-old floor: docs/DECISIONS.md v0.43.0/v0.43.1/v0.44.0; full lineage in
-`Config.llm_max_concurrent`'s docstring. As of v0.63.0 every
-`server.py` CLI default references its `Config` attribute — the audit
-found `--llm-max-concurrent` had silently stayed at a hardcoded 4 for
-several releases, doubling real Ollama concurrency on plain launches.
+**`llm_max_concurrent=2`** (history: 4 (E2) -> 2 (v0.43.0) -> 1
+(v0.43.1) -> 2 (v0.44.0, "permanent floor") -> 1 (v0.78.5, "make
+concurrent task = 1 if it reduces memory pressure" — it did, at the
+time: `scripts/run.sh` hardcoded llama-server's own `--parallel 1`, so
+a second Python-side in-flight request was dead weight, and the
+measured swap crisis then genuinely justified it) -> **2 again
+(v0.81.0)**, once a fresh live diagnostic showed that swap pressure
+resolved (`mem_available` 3321MB of 7045MB, ~0 swap) and the live
+symptom had shifted to single-lane queueing instead (`calls_dropped_
+backpressure` 616 vs. 100 attempted, latency p50/p95/max 31.8s/69.8s/
+101.9s). `scripts/run.sh`'s `--parallel` is now `LLAMA_PARALLEL`
+(default 2) instead of hardcoded, with `LLAMA_CTX_SIZE` doubled in step
+(llama-server divides one shared `--ctx-size` across its `--parallel`
+slots — raising parallel alone would silently halve each slot's
+context). This is not a floor either direction holds regardless of
+measurement — re-lower to 1 if a future `system_memory` reading shows
+pressure again. Full lineage in `Config.llm_max_concurrent`'s
+docstring. As of v0.63.0 every `server.py` CLI default references its
+`Config` attribute — the audit found `--llm-max-concurrent` had
+silently stayed at a hardcoded 4 for several releases, doubling real
+Ollama concurrency on plain launches.
 
 LLM is on by default (`Config.llm_enabled=True`) — prefer giving the LLM
 more genuine decision points over deterministic/RNG-driven ones where it
@@ -365,6 +372,124 @@ Single-writer tick loop + queued interventions; fallback-on-every-LLM-
 call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
+
+## Current state (v0.81.0)
+
+Direct response to a live `/diagnostics` report at population 231/
+13,006 ticks: `calls_dropped_backpressure` at 616 against only 100
+`calls_attempted`, `backlog` reaching 11, and latency p50/p95/max of
+31.8s/69.8s/101.9s — a single-lane queue (`llm_max_concurrent=1`)
+serializing every job behind whatever's already running, while
+`system_memory` showed the v0.78.x swap crisis this floor had responded
+to was resolved (`mem_available` 3321MB of 7045MB, `swap_used_mb: 1`).
+Five parts, plus a scheduler root-cause fix and a real movement bug
+found while investigating the "queued jobs go stale" report.
+
+**Config raised back up** (`Config.llm_max_concurrent` 1 -> 2,
+`llm_timeout_seconds` 60 -> 120): both docstrings carry the full
+reasoning/history. `scripts/run.sh` gained `LLAMA_PARALLEL` (default 2,
+replacing a hardcoded `--parallel 1`) with `LLAMA_CTX_SIZE` doubled to
+5120 in step — llama-server divides one shared `--ctx-size` across its
+`--parallel` slots, so raising parallel alone would have silently halved
+each concurrent request's context instead of adding real throughput.
+`LLAMA_FIT_TARGET` 2560 -> 2048 (frees a bit more general system RAM for
+the second slot's KV cache, now that headroom is real rather than
+scarce). **Critical compatibility fix while updating these**: the
+README's 8GB CPU-only recipe (`LLAMA_CTX_SIZE=1280`) did NOT set
+`--parallel`, so it would have silently inherited the new default of 2
+and halved to 640 tokens/slot — fixed to pin `LLAMA_PARALLEL=1
+--llm-max-concurrent 1` explicitly. See README's "Running the LLM
+(llama.cpp)" and "Running on 8GB RAM" sections, updated throughout.
+
+**Backpressure reservation gap fixed** (the actual root cause of stale
+queued jobs): `CognitionRunner.backlog` only increments once a scheduled
+task's coroutine body actually starts running, which can't happen until
+`_tick_once` (fully synchronous) returns and the event loop gets a
+turn. Every `_maybe_schedule_*`/cognition/dialogue call site checking
+backlog for backpressure was therefore reading the same stale pre-tick
+value all tick long, even after several jobs had already been scheduled
+moments earlier in that same tick — on a tick where many jobs are
+eligible at once (the documented month-end settlement-job cluster, a
+cognition+dialogue burst), more jobs got through than the concurrency-
+derived limit intended, which is exactly why backlog could reach 11
+against a max_concurrent=1-derived limit of 3. Fix: `SimulationEngine.
+_reserved_this_tick`, incremented the instant any call site actually
+creates a task (`_schedule_llm_job`, `_schedule_due_cognition`,
+`_schedule_due_dialogue`, `_maybe_interpret_rumor`), reset to 0 at the
+top of every `_tick_once`; every backpressure check now reads `_effective_
+backlog()` (real backlog + this-tick reservations) instead of the raw
+counter. Closes the staleness window to zero within a tick — a job
+scheduled two calls ago this same tick is now visible to the next
+check. This is what actually addresses "queued jobs become irrelevant
+before they execute": the existing staleness/dedup machinery (`STALE_
+GOAL_RESULT_TICKS`/`STALE_DIALOGUE_RESULT_TICKS` discarding overly-old
+results, `apply_goal`/`apply_dialogue` no-oping for a dead agent,
+`dialogue_cooldowns` marked synchronously at selection time so the same
+pair can't double-queue, `_inflight_cognition_agent_ids` doing the same
+for cognition, and Phase J's personal_belief job already merging belief
++ semantic-memory + secret into one call) was already sound — the
+backlog was simply growing past what that machinery was tuned to
+expect. Audited for genuine gaps beyond this and found none: per-agent/
+per-pair jobs are all single-candidate-per-cadence-slot by construction
+(one dispute pair/tick, one faction candidate/month, one personal_belief
+target/month), so there is no duplicate-scheduling case those job types
+could hit in the first place.
+
+**Adaptive load control**: `SimulationEngine._current_backpressure_limit`
+scales the static, concurrency-derived limit down using `CognitionRunner.
+stats()`'s existing rolling p95 latency (no new state) — halves the
+tolerated backlog once p95 crosses `ADAPTIVE_LATENCY_ELEVATED_MS`
+(45s), quarters it past `ADAPTIVE_LATENCY_SEVERE_MS` (80s), never below
+`llm_max_concurrent`, and recovers automatically once latency drops
+(the rolling window is a fixed-size deque of the most recent calls, so
+this always reflects current conditions). Proactively tightens before
+the hardware is provably struggling, rather than only reacting once the
+static limit is already blown.
+
+**Diagnostics additions**: `llm_backlog_effective`, `llm_backlog_
+reserved_this_tick`, `llm_backpressure_limit`, `llm_backpressure_limit_
+effective` (watch the adaptive mechanism live), `agents_movement_stuck`
+(agents currently mid-way through the new stuck-tick counter, see
+below), `oldest_pending_goal_ticks`/`oldest_pending_dialogue_ticks`
+(age of the oldest buffered-but-unapplied result — a distinct symptom
+from `llm_stats.backlog`, since results normally drain the very next
+tick).
+
+**Movement bug found and fixed**: `Population._step_toward`'s greedy
+step only ever tries the 1-2 cardinal directions that reduce Manhattan
+distance (worst case: exactly ONE candidate when dy=0, i.e. a
+straight-line target with zero vertical offset) — a concave water/
+mountain pocket (or, in the worst case, simply a wall directly ahead
+with no vertical component to the target) left the agent with zero
+alternative candidates every single tick, silently degrading to the
+pure random walk indefinitely for as long as that goal held, even
+though the target was genuinely reachable by a longer route.
+`travel_target` journeys already had a BFS escape for this; routine
+goal-directed movement (FORAGE/SOCIALIZE/GATHER/WANDER) — which runs
+for every awake agent every tick — never did. Fix: new `Agent.
+stuck_ticks` (plain int, not native-store-backed, round-trips through
+to_dict/from_dict) counts consecutive blocked-not-arrived greedy
+attempts; at `MOVEMENT_STUCK_TICKS_THRESHOLD` (4) ticks, `_dispatch_
+movement` spends one bounded `_bfs_step` (`MOVEMENT_STUCK_BFS_NODE_CAP`
+= 600, smaller than travel_target's 4096 since this can fire for many
+ordinary agents at once) to escape the pocket, resetting the counter
+either way so a genuinely unreachable target costs one modest flood-
+fill every 4 ticks, not every tick.
+
+Verified: direct scratchpad tests — Agent.stuck_ticks round-trip +
+legacy-snapshot default; a synthetic concave-water-wall grid confirming
+an agent reaches a target unreachable by pure greedy stepping within a
+few ticks by detouring through an open row, and a fully-enclosed
+(genuinely unreachable) target never crosses the wall with stuck_ticks
+staying bounded rather than growing; direct backpressure-limit tests
+confirming the adaptive tiers (healthy/elevated/severe latency) and
+confirming a same-tick reservation is visible to the very next
+backpressure check (the exact gap being fixed); a 1500-tick engine soak
+with a fake slow LLM client (50ms/call, `llm_max_concurrent=2`,
+30 agents, 10-agent core cast) — 101 calls attempted/succeeded, 0
+errors, backlog/reservation counters bounded and resetting correctly
+tick to tick, no crash; `scripts/verify_native_soak.py` (2 seeds, 1500
+ticks) byte-identical — this batch touches no native module.
 
 ## Current state (v0.80.0)
 

@@ -322,6 +322,31 @@ GATHER_SEARCH_RADIUS = 6
 """Same rationale as FORAGE_SEARCH_RADIUS — local, plausible awareness of
 nearby forest/hills, not map-wide. See D8."""
 
+MOVEMENT_STUCK_TICKS_THRESHOLD = 4
+"""Consecutive ticks `_step_toward`'s greedy 2-candidate step can fail
+toward a live goal-directed target (FORAGE/SOCIALIZE/GATHER/WANDER)
+before movement escalates to one bounded `_bfs_step` call. Root cause
+this fixes: greedy stepping only ever tries the two cardinal directions
+that reduce Manhattan distance, so a concave water/mountain pocket
+between an agent and a visible-but-blocked target made it fail forever
+— every tick, indefinitely, for as long as that goal held — silently
+degrading to the pure random walk instead of ever arriving, even though
+the target was genuinely reachable by a longer route. `travel_target`
+journeys already had this BFS fallback (fires the same tick the greedy
+step first fails, since journeys are rare); routine goal-directed
+movement runs for every awake agent every tick, so it waits a few
+tries first (an obstacle-free path usually resolves on its own via the
+next tick's fresh target/position) before paying the heavier BFS cost.
+See docs/DECISIONS.md, "movement: stuck-agent BFS escape" pass."""
+
+MOVEMENT_STUCK_BFS_NODE_CAP = 600
+"""Node-expansion cap for the stuck-agent BFS escape — smaller than
+`_bfs_step`'s own 4096 default (used for rare travel_target journeys)
+since this can fire for many ordinary agents, not just one journeying
+party at a time; bounds the worst-case per-agent cost of an unreachable
+target to one modest flood-fill every MOVEMENT_STUCK_TICKS_THRESHOLD
+ticks rather than every tick."""
+
 WEATHER_HARSH_PRECIPITATION = 0.4
 WEATHER_HARSH_WIND = 0.5
 """Same "harsh weather" definition as settlement/buildings.py's
@@ -1999,19 +2024,39 @@ class Population:
             target = cls._nearest_position(agent, work_positions)
 
         mount = _agent_mount(settlement, agent.id)
-        if target is not None and cls._step_toward(
-            agent, target, terrain, predator_tiles, mountain_unlocked, bridge_tiles,
-        ):
-            if mount is not None and cls._step_toward(
-                agent, target, terrain, predator_tiles, mountain_unlocked, bridge_tiles,
-            ):
-                # A ready personal vehicle (mount or the era-gated
-                # automobile upgrade) covers ground twice as fast toward
-                # a deliberate target — the goal-directed equivalent of
-                # PERSONAL_VEHICLE_SPEED_MULTIPLIER's boost to the
-                # random walk below.
-                mount.condition = max(0.0, mount.condition - PERSONAL_VEHICLE_USE_DECAY[mount.kind])
-            return
+        if target is not None:
+            if cls._step_toward(agent, target, terrain, predator_tiles, mountain_unlocked, bridge_tiles):
+                agent.stuck_ticks = 0
+                if mount is not None and cls._step_toward(
+                    agent, target, terrain, predator_tiles, mountain_unlocked, bridge_tiles,
+                ):
+                    # A ready personal vehicle (mount or the era-gated
+                    # automobile upgrade) covers ground twice as fast toward
+                    # a deliberate target — the goal-directed equivalent of
+                    # PERSONAL_VEHICLE_SPEED_MULTIPLIER's boost to the
+                    # random walk below.
+                    mount.condition = max(0.0, mount.condition - PERSONAL_VEHICLE_USE_DECAY[mount.kind])
+                return
+            if (agent.x, agent.y) == target:
+                agent.stuck_ticks = 0  # arrived, not blocked — nothing to escape
+            else:
+                agent.stuck_ticks += 1
+                if agent.stuck_ticks >= MOVEMENT_STUCK_TICKS_THRESHOLD:
+                    # See MOVEMENT_STUCK_TICKS_THRESHOLD: the greedy step has
+                    # failed repeatedly, likely a concave pocket rather than
+                    # true unreachability — spend one bounded BFS to escape
+                    # it instead of leaving the agent to random-walk near a
+                    # target it can see but can't greedily reach.
+                    agent.stuck_ticks = 0
+                    step = cls._bfs_step(
+                        terrain, (agent.x, agent.y), target, node_cap=MOVEMENT_STUCK_BFS_NODE_CAP,
+                        mountain_unlocked=mountain_unlocked, bridge_tiles=bridge_tiles,
+                    )
+                    if step is not None:
+                        agent.x, agent.y = step
+                        return
+        else:
+            agent.stuck_ticks = 0
         cls._maybe_move(
             agent, terrain, rng, roads, predator_tiles,
             speed_multiplier=PERSONAL_VEHICLE_SPEED_MULTIPLIER[mount.kind] if mount is not None else 1.0,
@@ -2238,17 +2283,18 @@ class Population:
         bridge_tiles: frozenset[tuple[int, int]] = frozenset(),
     ) -> tuple[int, int] | None:
         """First step of a real shortest path from `start` toward
-        `target` over walkable tiles — used ONLY when a travel_target
-        journey's greedy step is blocked (a concave water/mountain
-        pocket makes greedy stepping oscillate forever; a fission party
-        must actually arrive). Deliberately not used for routine
-        FORAGE/GATHER targeting: journeys are rare (one party per
-        FISSION_COOLDOWN_TICKS) so a full-map BFS per blocked traveler
-        per tick is nothing, but running it for every goal-seeking
-        agent every tick would be a real cost for no observed problem.
-        Returns None when target is unreachable within `node_cap`
-        expansions (an island) — the caller then abandons the
-        journey."""
+        `target` over walkable tiles. Two callers: a travel_target
+        journey's greedy step being blocked (fires immediately — a
+        concave water/mountain pocket makes greedy stepping oscillate
+        forever, and a fission party must actually arrive), and routine
+        goal-directed movement (FORAGE/SOCIALIZE/GATHER/WANDER) once it's
+        been greedy-blocked for MOVEMENT_STUCK_TICKS_THRESHOLD consecutive
+        ticks (fires rarely, with a smaller node_cap — see
+        MOVEMENT_STUCK_BFS_NODE_CAP — so an ordinary tick's population-wide
+        cost stays near zero; most agents never trip it). Returns None
+        when target is unreachable within `node_cap` expansions (an
+        island) — a journey is then abandoned; a stuck routine target
+        just falls back to the random walk for that tick instead."""
         if start == target:
             return None
         height = len(terrain)

@@ -186,6 +186,17 @@ up to twice this bound — when rationing, the urgent reasoning goes
 first. Deterministic runs are unaffected (fallbacks resolve instantly,
 so the backlog stays ~0). July 2026 architecture review, §3.6."""
 
+ADAPTIVE_LATENCY_ELEVATED_MS = 45_000
+ADAPTIVE_LATENCY_SEVERE_MS = 80_000
+"""Thresholds for `SimulationEngine._current_backpressure_limit`'s
+adaptive load control (v0.81.0): p95 call latency at/above ELEVATED
+halves the tolerated backlog, at/above SEVERE quarters it. Sized against
+a live diagnostic showing p50/p95/max of 31.8s/69.8s/101.9s under real
+load — ELEVATED sits above typical-healthy (~15-20s) but below that
+observed p95, SEVERE sits just under the observed max, so a genuinely
+struggling server (not just ordinary load) is what triggers the
+tightest tier."""
+
 IDLE_BROADCAST_EVERY_TICKS = 10
 """With zero WebSocket clients connected, the full broadcast payload
 (a to_dict() of every agent/building/farm/resource/wildlife entity plus
@@ -389,6 +400,27 @@ class SimulationEngine:
             client = build_llm_client(config)
         self._cognition_runner = CognitionRunner(client=client, max_concurrent=config.llm_max_concurrent)
         self._backpressure_limit = config.llm_max_concurrent * BACKPRESSURE_BACKLOG_PER_SLOT
+        self._reserved_this_tick = 0
+        """Jobs actually scheduled (a task created) so far THIS tick,
+        reset to 0 at the top of every `_tick_once`. `CognitionRunner.
+        backlog` only increments once a scheduled task's coroutine body
+        starts running — which, since `_tick_once` is fully synchronous,
+        can't happen until it returns and the event loop gets a turn — so
+        within one tick, every `_maybe_schedule_*`/cognition/dialogue call
+        site checking backlog for backpressure sees the SAME stale
+        pre-tick value, even after several of them have already scheduled
+        a job this same tick. On a tick where many jobs are eligible at
+        once (the documented month-end settlement-job cluster, or a
+        cognition+dialogue burst), that let more jobs through in a single
+        tick than the concurrency-derived limit intended — observed live
+        as `backlog` reaching 11 against a max_concurrent=1-derived limit
+        of 3. Every real scheduling call site (`_schedule_llm_job`,
+        `_schedule_due_cognition`, `_schedule_due_dialogue`, `_maybe_
+        interpret_rumor`) increments this the instant it creates a task;
+        every backpressure check adds it to `backlog` so a job scheduled
+        two calls ago this same tick is visible to the next check, closing
+        the staleness window to zero. See docs/DECISIONS.md, "backpressure
+        reservation gap" pass."""
         self._llm_calls_today = 0
         """Ollama calls scheduled so far this sim-day (all kinds:
         cognition, dialogue, settlement jobs). Reset to 0 on `day_end`
@@ -502,6 +534,39 @@ class SimulationEngine:
         self._llm_calls_today += 1
         return True
 
+    def _effective_backlog(self) -> int:
+        """`CognitionRunner.backlog` (jobs whose coroutine has actually
+        started) plus `_reserved_this_tick` (jobs scheduled earlier this
+        same tick but not yet started) — see `_reserved_this_tick`'s
+        docstring for why the raw counter alone understates same-tick
+        load. Every backpressure check reads this instead of `self.
+        _cognition_runner.backlog` directly."""
+        return self._cognition_runner.backlog + self._reserved_this_tick
+
+    def _current_backpressure_limit(self) -> int:
+        """Adaptive load control (v0.81.0): scales the static,
+        concurrency-derived `_backpressure_limit` down when the LLM
+        server is measurably running slow, so a saturated queue doesn't
+        keep admitting jobs at a rate the hardware has already shown it
+        can't clear in reasonable time — tightening proactively rather
+        than only reactively (the static limit still drops jobs once hit,
+        but by then every admitted job downstream is also waiting behind
+        a now-longer queue). Reads `CognitionRunner.stats()`'s existing
+        rolling p95 latency — already tracked for `/diagnostics`, no new
+        state. Recovers back to the full static limit automatically once
+        latency comes back down (the rolling window in `CognitionRunner`
+        is a fixed-size deque of the most recent calls, so this always
+        reflects *current* conditions, not history from hours ago).
+        Never drops below `llm_max_concurrent` — a live server should
+        always get to attempt at least one job per concurrency lane."""
+        p95 = self._cognition_runner.stats()["latency_ms_p95"]
+        floor = self.config.llm_max_concurrent
+        if p95 >= ADAPTIVE_LATENCY_SEVERE_MS:
+            return max(floor, self._backpressure_limit // 4)
+        if p95 >= ADAPTIVE_LATENCY_ELEVATED_MS:
+            return max(floor, self._backpressure_limit // 2)
+        return self._backpressure_limit
+
     def _settlement_job_backpressured(self) -> bool:
         """Backpressure check for the settlement-level jobs (chronicle,
         town_brain, beliefs, tradition, invention, festival, caravan,
@@ -527,8 +592,12 @@ class SimulationEngine:
         season/year), nothing is lost or retried out of order. Naming
         (one-time-per-world) is deliberately NOT gated by this — it has
         no periodic retry path, and it isn't part of the recurring
-        monthly cluster this exists to smooth out."""
-        if self._cognition_runner.backlog >= self._backpressure_limit:
+        monthly cluster this exists to smooth out. Adds `_reserved_this_
+        tick` to the real `backlog` (see its docstring) so a job already
+        scheduled earlier in this same tick — before its own coroutine
+        has had a chance to run and increment `backlog` for real — still
+        counts against the limit for the next check this tick."""
+        if self._effective_backlog() >= self._current_backpressure_limit():
             self._cognition_runner.calls_dropped_backpressure += 1
             return True
         return False
@@ -604,6 +673,7 @@ class SimulationEngine:
             self._record_llm_debug(name, prompt, result, used_fallback)
             self._record_llm_call(used_fallback)
 
+        self._reserved_this_tick += 1  # see its docstring — counted the instant scheduling happens
         task = asyncio.create_task(_runner())
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
@@ -715,6 +785,7 @@ class SimulationEngine:
 
     def _tick_once(self) -> None:
         tick_start = time.perf_counter()
+        self._reserved_this_tick = 0  # see its docstring: fresh reservation count each tick
         self._apply_pending_cognition_results()
         self._apply_pending_dialogue_results()
         self._apply_pending_interventions()
@@ -829,7 +900,7 @@ class SimulationEngine:
         if triggered:
             due_ids = {agent.id for agent in due}
             due = due + [agent for agent in triggered if agent.id not in due_ids]
-        backlog = self._cognition_runner.backlog
+        backlog = self._effective_backlog()
         population = self.world.population
         for agent in due:
             if agent.id in self._inflight_cognition_agent_ids:
@@ -869,7 +940,7 @@ class SimulationEngine:
             # saturated — the agent keeps its current goal and gets the
             # next staggered slot; triggered emergencies get twice the
             # headroom before they too are rationed.
-            limit = self._backpressure_limit * (2 if agent.id in triggered_ids else 1)
+            limit = self._current_backpressure_limit() * (2 if agent.id in triggered_ids else 1)
             if backlog >= limit:
                 self._cognition_runner.calls_dropped_backpressure += 1
                 continue
@@ -882,6 +953,7 @@ class SimulationEngine:
                 )
                 continue
             backlog += 1  # count this tick's own scheduling against the gate
+            self._reserved_this_tick += 1  # ...and against every other job type's check this tick
             self._inflight_cognition_agent_ids.add(agent.id)
             home = self._settlement_by_id(agent.settlement_id)
             latest_tradition = home.traditions[-1] if home.traditions else ""
@@ -1022,6 +1094,7 @@ class SimulationEngine:
                 _remember(target, retelling)
             self._record_llm_call(used_fallback)
 
+        self._reserved_this_tick += 1
         task = asyncio.create_task(_runner())
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
@@ -1109,7 +1182,7 @@ class SimulationEngine:
             # Dialogue is the most expendable LLM job — under backpressure
             # or a spent daily budget the core-core pair still talks, just
             # via the deterministic fallback this tick.
-            if self._cognition_runner.backlog >= self._backpressure_limit:
+            if self._effective_backlog() >= self._current_backpressure_limit():
                 self._cognition_runner.calls_dropped_backpressure += 1
                 demoted.append((agent_a, agent_b))
                 continue
@@ -1138,6 +1211,7 @@ class SimulationEngine:
                 other_settlement_name=other_settlement_name, cross_settlement_relation=cross_relation,
             )
             fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
+            self._reserved_this_tick += 1
             task = asyncio.create_task(self._run_dialogue(agent_a.id, agent_b.id, prompt, fallback))
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
@@ -2045,7 +2119,7 @@ class SimulationEngine:
         Population.due_for_dispute/apply_dispute. Backpressure is
         checked *before* selection so a saturated queue doesn't burn a
         pair's cooldown on a job that never got scheduled."""
-        if self._cognition_runner.backlog >= self._backpressure_limit:
+        if self._effective_backlog() >= self._current_backpressure_limit():
             return
         pair = self.world.population.due_for_dispute(self.world.clock.tick_count, DISPUTE_COOLDOWN_TICKS)
         if pair is None:
@@ -2532,7 +2606,19 @@ class SimulationEngine:
     def _diagnostics_snapshot(self) -> dict:
         """Cheap, per-tick diagnostics — safe to compute every tick (no
         disk I/O, no DB queries). See `full_diagnostics` for the heavier,
-        on-demand report behind `GET /diagnostics`."""
+        on-demand report behind `GET /diagnostics`.
+
+        `llm_backlog_effective`/`llm_backlog_reserved_this_tick`/
+        `llm_backpressure_limit`/`llm_backpressure_limit_effective`
+        (v0.81.0) expose the backpressure-reservation fix and adaptive
+        load control directly: `_effective_backlog()` is what every
+        scheduling decision this tick actually compares against (the raw
+        `llm_stats.backlog` plus same-tick reservations not yet reflected
+        there — see `_reserved_this_tick`'s docstring), and `_current_
+        backpressure_limit()` is the live, latency-adaptive ceiling —
+        watch it drop below the static `llm_backpressure_limit` during a
+        genuinely slow stretch and recover once latency does, without
+        needing to infer it from `calls_dropped_backpressure` alone."""
         durations = sorted(self._tick_durations_ms)
         p95 = durations[min(len(durations) - 1, int(len(durations) * 0.95))] if durations else 0.0
         return {
@@ -2545,6 +2631,10 @@ class SimulationEngine:
             "llm_max_concurrent": self.config.llm_max_concurrent,
             "llm_model": self.config.llm_model,
             "llm_stats": self._cognition_runner.stats(),
+            "llm_backlog_effective": self._effective_backlog(),
+            "llm_backlog_reserved_this_tick": self._reserved_this_tick,
+            "llm_backpressure_limit": self._backpressure_limit,
+            "llm_backpressure_limit_effective": self._current_backpressure_limit(),
             "llm_calls_today": self._llm_calls_today,
             "llm_max_calls_per_day": self.config.llm_max_calls_per_day,
             "llm_core_cast_size": self.config.llm_core_cast_size,
@@ -2577,6 +2667,29 @@ class SimulationEngine:
         pop_total = len(agents)
         relationship_entries = sum(len(a.relationships) for a in agents)
         trust_entries = sum(len(a.trust) for a in agents)
+        # Movement diagnostics (v0.81.0, see Agent.stuck_ticks): how many
+        # agents are mid-way through the stuck-tick counter right now (a
+        # snapshot, not cumulative) — a healthy run should read near 0;
+        # a persistently high count across repeated /diagnostics reads
+        # would point at a genuinely unreachable target rather than a
+        # transient obstacle the BFS escape already resolves. Cheap
+        # (bounded by POPULATION_CAP), only computed on this on-demand
+        # path, not every tick.
+        agents_movement_stuck = sum(1 for a in agents if a.stuck_ticks > 0)
+        # Oldest currently-buffered-but-unapplied result's age in ticks
+        # (v0.81.0) — `_pending_goal_results`/`_pending_dialogue_results`
+        # normally drain the very next `_tick_once()`, so this should
+        # read ~0-1 on a healthy run; a climbing value would mean results
+        # are landing faster than the tick loop drains them, a distinct
+        # symptom from `llm_stats.backlog` (in-flight/queued, not yet
+        # resolved) worth telling apart when diagnosing staleness.
+        now = self.world.clock.tick_count
+        oldest_pending_goal_ticks = max(
+            (now - t for t, _ in self._pending_goal_results.values()), default=0,
+        )
+        oldest_pending_dialogue_ticks = max(
+            (now - entry[0] for entry in self._pending_dialogue_results), default=0,
+        )
         return {
             **self._diagnostics_snapshot(),
             "peak_memory_rss_mb": peak_rss_mb,
@@ -2584,6 +2697,9 @@ class SimulationEngine:
             "db_size_mb": db_size_mb,
             "uptime_ticks": self.world.clock.tick_count,
             "population_total": pop_total,
+            "agents_movement_stuck": agents_movement_stuck,
+            "oldest_pending_goal_ticks": oldest_pending_goal_ticks,
+            "oldest_pending_dialogue_ticks": oldest_pending_dialogue_ticks,
             "last_llm_calls": self._last_llm_calls,
             "pending_player_whispers": list(self.world.settlement.player_influence),
             "temperament": round(self.world.settlement.temperament, 3),

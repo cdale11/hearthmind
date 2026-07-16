@@ -164,7 +164,7 @@ class Config:
     proves too weak or too heavy on other hardware, report back rather
     than silently reverting. See docs/DECISIONS.md, "model default:
     qwen3:4b-instruct (v0.65.2)."""
-    llm_timeout_seconds: float = 60.0
+    llm_timeout_seconds: float = 120.0
     """A live diagnostic report on the user's own hardware running
     `qwen3.5:2b` showed p50 latency 17.4s, p95 19.7s, max 29.7s against
     the previous 30s default — a wafer-thin margin (a single call at
@@ -183,9 +183,23 @@ class Config:
     gated`, timer starts inside the semaphore), so this isn't strictly
     required for correctness, but it buys real margin against the
     now-serialized worst case at negligible liveness cost (every call
-    still has an instant deterministic fallback either way). See
-    docs/DECISIONS.md, "dialogue quality follow-up" (qwen3.5:2b
-    diagnostics), and D5 for the original version of this rationale."""
+    still has an instant deterministic fallback either way). **Raised
+    60 -> 120 in v0.81.0**: a live diagnostic (population 231, `qwen3:
+    4b-instruct`) measured p50/p95/max call latency of 31.8s/69.8s/
+    101.9s — already brushing the old 60s ceiling (`CognitionRunner`
+    adds a further +5s defense-in-depth margin on top, see `_run_gated`)
+    with zero measured timeouts, meaning some legitimately-slow-but-
+    successful calls were one bad tick away from a spurious fallback.
+    Raising `llm_max_concurrent` 1 -> 2 in the same pass (see its own
+    docstring) makes this more likely, not less: two calls can now
+    genuinely overlap CPU/GPU work on the same hardware, slowing both.
+    120s keeps real margin over the observed max without materially
+    changing the liveness contract (every call still resolves to its
+    deterministic fallback the instant it fails or times out; this only
+    changes how long a *slow-but-working* call gets before being judged
+    a failure). See docs/DECISIONS.md, "dialogue quality follow-up"
+    (qwen3.5:2b diagnostics), and D5 for the original version of this
+    rationale."""
     llm_temperature: float = 0.7
     """Sampling temperature sent with every LLM call (both backends,
     v0.75.2). Previously unset, so each call used the server's own default
@@ -201,30 +215,36 @@ class Config:
     toward 0.9 for more variety on a stronger model. Kept above 0 so a
     stuck pair doesn't get the identical deterministic-looking line every
     time."""
-    llm_max_concurrent: int = 1
+    llm_max_concurrent: int = 2
     """How many LLM requests may be in flight at once. History: 4 (E2) ->
-    2 (v0.43.0, the v0.39.0 architecture review's own recommendation) ->
-    1 (v0.43.1, after the symptom recurred at 2) -> 2 (v0.44.0, the
-    "permanent floor" — explicit user instruction at the time: LLM
-    richness is non-negotiable, concurrency isn't the memory lever
-    beyond this floor). **Lowered back to 1 in v0.78.5**, explicitly
-    superseding that v0.44.0 floor per a fresh, direct user instruction
-    ("make concurrent task = 1 if it reduces memory pressure") — it
-    does: `scripts/run.sh` already hardcodes llama-server's own
-    `--parallel 1` (one KV-cache slot), so a second Python-side in-flight
-    request was already queueing behind a server that could only ever
-    process one at a time — pure dead weight (a held network connection
-    + waiting asyncio task) for the llama.cpp backend, and for the
-    Ollama backend (which genuinely does allocate a second KV cache per
-    concurrent request, in that *separate* server process — invisible to
-    this process's own RSS, but real system memory pressure) this
-    directly halves worst-case concurrent KV allocation. Raise back to 2
-    only if you've confirmed (via `--parallel 2`+ on the llama.cpp side,
-    or spare Ollama headroom) that true concurrency is worth the
-    memory — this is no longer a floor the project holds regardless of
-    measurement, just the current best-measured default. See docs/
-    DECISIONS.md, "LLM concurrency floor restored" for the v0.44.0
-    history this supersedes."""
+    2 (v0.43.0) -> 1 (v0.43.1) -> 2 (v0.44.0, the "permanent floor") ->
+    1 (v0.78.5, "make concurrent task = 1 if it reduces memory
+    pressure" — it did, at the time: `scripts/run.sh` hardcoded
+    llama-server's own `--parallel 1`, so a second Python-side in-flight
+    request was pure dead weight, and the measured memory picture then
+    (2GB of llama-server swap at population 301/13k ticks) genuinely
+    justified trading concurrency for headroom). **Raised back to 2 in
+    v0.81.0**, per a fresh live diagnostic showing that headroom no
+    longer needed spending: at population 231/13,006 ticks,
+    `system_memory` showed `swap_used_mb: 1` (effectively none) and
+    `mem_available_mb: 3321` of 7045 total with llama-server at 3050.8MB
+    RSS — the v0.78.x swap crisis this floor responded to is resolved,
+    and the live symptom had shifted to a *throughput* problem instead:
+    `calls_dropped_backpressure` at 616 against only 100 attempted,
+    `backlog` hitting 11 against a max_concurrent=1-derived limit of 3,
+    and p50/p95/max latency of 31.8s/69.8s/101.9s — a single-lane queue
+    serializing every job behind whatever's already running. `scripts/
+    run.sh`'s `--parallel` is now `LLAMA_PARALLEL` (default 2, matching
+    this) instead of a hardcoded 1, and `LLAMA_CTX_SIZE` is now sized as
+    `llm_num_ctx * llm_max_concurrent` so each of the 2 slots still gets
+    the full `llm_num_ctx` budget (llama-server divides one shared
+    `--ctx-size` across its `--parallel` slots — raising parallel
+    without raising ctx-size would silently halve each slot's context
+    instead of adding real throughput). Re-lower to 1 if a future
+    `system_memory` reading shows swap pressure again; this is a
+    best-measured default, not a floor either direction holds regardless
+    of measurement. See docs/DECISIONS.md, "LLM concurrency: 1 -> 2
+    (v0.81.0)"."""
     llm_num_ctx: int = 2560
     """Explicit context-window cap sent with every Ollama request (and
     documented as the `--ctx-size` llama-server launch flag for the

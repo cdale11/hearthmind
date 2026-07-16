@@ -4,6 +4,92 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.81.0] — LLM scheduler: backpressure fix, adaptive load control, config re-tune; movement bug fix
+
+Direct response to a live `/diagnostics` report at population 231:
+`calls_dropped_backpressure` 616 vs. 100 attempted, `backlog` 11,
+latency p50/p95/max 31.8s/69.8s/101.9s, while `system_memory` showed
+the v0.78.x swap crisis resolved (`mem_available` 3321MB of 7045MB,
+~0 swap). Root-caused the "queued jobs go stale" symptom to a scheduler
+bug, not a config problem alone; found and fixed a real movement bug
+while investigating.
+
+### Fixed
+
+- **Backpressure reservation gap**: `CognitionRunner.backlog` only
+  increments once a scheduled task's coroutine body actually starts
+  running — impossible until the fully-synchronous `_tick_once`
+  returns and the event loop gets a turn. Every backpressure check
+  within one tick was therefore reading the same stale pre-tick value,
+  even after several jobs had already been scheduled moments earlier
+  that same tick — letting a single busy tick (the documented month-end
+  settlement-job cluster, a cognition+dialogue burst) admit more jobs
+  than the concurrency-derived limit intended. New `SimulationEngine.
+  _reserved_this_tick`, incremented at every real scheduling call site,
+  reset every tick; every backpressure check now reads `_effective_
+  backlog()` instead of the raw counter. This is what actually explains
+  "queued jobs become irrelevant before they execute" — audited the
+  existing staleness/dedup machinery (`STALE_GOAL_RESULT_TICKS`/
+  `STALE_DIALOGUE_RESULT_TICKS`, dead-agent no-ops in `apply_goal`/
+  `apply_dialogue`, synchronous cooldown-marking preventing duplicate
+  per-pair/per-agent scheduling, Phase J's already-merged belief +
+  semantic-memory + secret reflection call) and found it already sound;
+  the backlog was simply growing past what it was tuned to expect.
+- **Movement: stuck-agent BFS escape**: `_step_toward`'s greedy step
+  only ever tries the 1-2 cardinal directions that reduce Manhattan
+  distance (exactly ONE candidate when dy=0) — a blocked straight line
+  left zero alternatives, silently degrading routine goal-directed
+  movement (FORAGE/SOCIALIZE/GATHER/WANDER) to a pure random walk
+  indefinitely even when the target was reachable by a longer route.
+  `travel_target` journeys already had a BFS escape for this; routine
+  movement never did. New `Agent.stuck_ticks` (plain int, round-trips
+  through to_dict/from_dict) triggers one bounded `_bfs_step` after
+  `MOVEMENT_STUCK_TICKS_THRESHOLD` (4) consecutive blocked ticks.
+
+### Added
+
+- **Adaptive load control**: `SimulationEngine._current_backpressure_
+  limit` scales the static concurrency-derived limit down using
+  `CognitionRunner.stats()`'s existing rolling p95 latency — halves
+  past `ADAPTIVE_LATENCY_ELEVATED_MS` (45s), quarters past `ADAPTIVE_
+  LATENCY_SEVERE_MS` (80s), never below `llm_max_concurrent`, recovers
+  automatically as latency drops.
+- Diagnostics: `llm_backlog_effective`, `llm_backlog_reserved_this_
+  tick`, `llm_backpressure_limit`, `llm_backpressure_limit_effective`,
+  `agents_movement_stuck`, `oldest_pending_goal_ticks`, `oldest_
+  pending_dialogue_ticks`.
+
+### Changed
+
+- `Config.llm_max_concurrent` 1 -> 2, `Config.llm_timeout_seconds` 60
+  -> 120 (both docstrings carry the full live-diagnostic rationale).
+- `scripts/run.sh`: new `LLAMA_PARALLEL` (default 2, replacing a
+  hardcoded `--parallel 1`); `LLAMA_CTX_SIZE` default 2560 -> 5120
+  (= `llm_num_ctx * LLAMA_PARALLEL` — llama-server divides one shared
+  `--ctx-size` across its `--parallel` slots, so this keeps each slot
+  at the full `llm_num_ctx` budget); `LLAMA_FIT_TARGET` 2560 -> 2048.
+  README's 8GB CPU-only recipe updated to explicitly pin
+  `LLAMA_PARALLEL=1 --llm-max-concurrent 1` (it previously didn't set
+  `--parallel` at all, so it would have silently inherited the new
+  default of 2 and halved to 640 tokens/slot).
+
+### Verified
+
+- Direct Agent.stuck_ticks round-trip + legacy-snapshot default test.
+- Synthetic concave-water-wall grid: agent reaches an otherwise-
+  unreachable-by-greedy target within a few ticks via the BFS escape; a
+  fully-enclosed target never crosses the wall and stuck_ticks stays
+  bounded rather than growing.
+- Direct adaptive-backpressure-limit tests (healthy/elevated/severe
+  latency tiers) and a direct same-tick-reservation-visibility test
+  (the exact gap being fixed).
+- 1500-tick engine soak with a fake slow LLM client (`llm_max_
+  concurrent=2`, 30 agents, 10-agent core cast): 101 calls attempted/
+  succeeded, 0 errors, backlog/reservation counters bounded and
+  resetting correctly tick to tick, no crash.
+- `scripts/verify_native_soak.py` (2 seeds, 1500 ticks) byte-identical
+  — this batch touches no native module.
+
 ## [0.80.0] — Phase L: Society & Power (Reputation, Factions, Economy depth)
 
 All three Phase L pieces in one batch — the vision doc's own budget

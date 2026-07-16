@@ -30,24 +30,40 @@
 #   LLAMA_HOST           Host:port llama-server binds to (also passed to
 #                        hearthmind via --llm-llamacpp-host).
 #                        Default: http://localhost:8080
-#   LLAMA_CTX_SIZE       Default: 2560 (matches Config.llm_num_ctx —
-#                        synced in v0.78.5 so the two never drift; was
-#                        1280 as a separate "CPU-only-safe floor"
-#                        default while Config already defaulted to
-#                        3072/2560, a real footgun if you launched via
-#                        run.sh without also overriding this. For
-#                        genuinely CPU-only/8GB hardware, explicitly set
-#                        LLAMA_CTX_SIZE=1280 LLAMA_N_GPU_LAYERS=0 — see
-#                        README's 8GB section).
+#   LLAMA_PARALLEL       Default: 2 (v0.81.0, up from a hardcoded 1 —
+#                        matches Config.llm_max_concurrent; see its
+#                        docstring for the live-diagnostics rationale:
+#                        the earlier swap crisis this hardcoded 1
+#                        responded to is resolved, and the live symptom
+#                        had shifted to a single-lane queue serializing
+#                        every job behind whatever's already running).
+#                        Keep this in sync with Config.llm_max_concurrent
+#                        — llama-server can't usefully run more concurrent
+#                        requests than the Python side will ever send.
+#   LLAMA_CTX_SIZE       Default: 5120 (v0.81.0) = Config.llm_num_ctx
+#                        (2560) * LLAMA_PARALLEL (2). llama-server's
+#                        --ctx-size is a TOTAL, divided evenly across its
+#                        --parallel slots — raising LLAMA_PARALLEL without
+#                        raising this in step would silently HALVE the
+#                        context each concurrent request actually gets,
+#                        not add real throughput. Keep this synced to
+#                        `llm_num_ctx * LLAMA_PARALLEL` any time either
+#                        changes. For genuinely CPU-only/8GB hardware,
+#                        explicitly set LLAMA_CTX_SIZE=1280
+#                        LLAMA_PARALLEL=1 LLAMA_N_GPU_LAYERS=0 — see
+#                        README's 8GB section.
 #   LLAMA_BATCH_SIZE     Default: 512 (v0.78.5, down from llama.cpp's own
-#                        2048 — tuned for a single-lane, `--parallel 1`
-#                        workload, not a multi-user server; a long
-#                        sequential prompt just chunks into a couple of
-#                        passes instead of one, negligible on this
-#                        project's short strict-JSON prompts). --batch-
-#                        size (the logical prompt-processing batch) sizes
-#                        part of the compute-buffer allocation alongside
-#                        the KV cache. Must stay >= LLAMA_UBATCH_SIZE
+#                        2048 — tuned for this project's short strict-JSON
+#                        prompts; a long sequential prompt just chunks
+#                        into a couple of passes instead of one).
+#                        --batch-size (the logical prompt-processing
+#                        batch) sizes part of the compute-buffer
+#                        allocation alongside the KV cache — that
+#                        allocation already scales with LLAMA_PARALLEL on
+#                        its own, so this is left unraised at parallel=2
+#                        rather than compounding the increase; revisit if
+#                        prompt-processing throughput measures short with
+#                        2 lanes active. Must stay >= LLAMA_UBATCH_SIZE
 #                        (llama.cpp's own requirement). Empty disables
 #                        the flag, falling back to llama.cpp's default.
 #   LLAMA_UBATCH_SIZE    Default: 128 (v0.78.5, down from llama.cpp's own
@@ -91,16 +107,22 @@
 #                        the old hardcoded 999. Set empty (LLAMA_FIT=) to
 #                        omit the flag entirely on older builds that don't
 #                        support it.
-#   LLAMA_FIT_TARGET     Default: 2560 (v0.78.5, was empty/llama.cpp's own
-#                        1024 MiB default) — MiB margin per device --fit
-#                        leaves free rather than offloading. Raised for
-#                        the shared-memory-iGPU case documented in
-#                        README's "Running stably for years" section:
-#                        "VRAM" there is drawn from the same system-RAM
-#                        pool --ctx-size/hearthmind itself also need, so
-#                        a bigger deliberate margin trades a little
-#                        offload for real system-RAM headroom on a long-
-#                        running box. Set empty (LLAMA_FIT_TARGET=) to
+#   LLAMA_FIT_TARGET     Default: 2048 (v0.81.0, down from 2560 in
+#                        v0.78.5) — MiB margin per device --fit leaves
+#                        free rather than offloading. v0.78.5 raised this
+#                        for the shared-memory-iGPU case ("VRAM" there is
+#                        drawn from the same system-RAM pool --ctx-size/
+#                        hearthmind itself also need); a live diagnostic
+#                        since then (see Config.llm_max_concurrent's
+#                        docstring) showed real headroom to spare
+#                        (mem_available 3321MB of 7045MB, swap ~0) rather
+#                        than pressure, so this pulls back toward a
+#                        slightly larger offload — freeing a bit more
+#                        general system RAM for LLAMA_PARALLEL's second
+#                        KV-cache slot rather than reserving it unused.
+#                        Raise back toward 2560+ if a fresh
+#                        /diagnostics.system_memory reading shows
+#                        pressure again. Set empty (LLAMA_FIT_TARGET=) to
 #                        restore llama.cpp's own default, e.g. on a
 #                        discrete GPU where VRAM genuinely is separate.
 #   LLAMA_CACHE_TYPE_K   Default: q8_0
@@ -130,11 +152,12 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 LLAMA_SERVER_BIN="${LLAMA_SERVER_BIN:-llama-server}"
 LLAMA_HOST="${LLAMA_HOST:-http://localhost:8080}"
-LLAMA_CTX_SIZE="${LLAMA_CTX_SIZE:-2560}"
+LLAMA_PARALLEL="${LLAMA_PARALLEL:-2}"
+LLAMA_CTX_SIZE="${LLAMA_CTX_SIZE:-5120}"
 LLAMA_THREADS="${LLAMA_THREADS:-$(nproc 2>/dev/null || echo 4)}"
 LLAMA_N_GPU_LAYERS="${LLAMA_N_GPU_LAYERS:-auto}"
 LLAMA_FIT="${LLAMA_FIT-on}"
-LLAMA_FIT_TARGET="${LLAMA_FIT_TARGET-2560}"
+LLAMA_FIT_TARGET="${LLAMA_FIT_TARGET-2048}"
 LLAMA_CACHE_TYPE_K="${LLAMA_CACHE_TYPE_K:-q8_0}"
 LLAMA_CACHE_TYPE_V="${LLAMA_CACHE_TYPE_V:-q8_0}"
 LLAMA_FLASH_ATTN="${LLAMA_FLASH_ATTN-on}"
@@ -234,12 +257,12 @@ if [[ "$llm_disabled" == false ]]; then
   [[ "$LLAMA_MLOCK" == "1" ]] && mlock_str="--mlock"
   defrag_str=""
   [[ -n "$LLAMA_DEFRAG_THOLD" ]] && defrag_str="--defrag-thold $LLAMA_DEFRAG_THOLD"
-  echo "run.sh: starting llama-server on $LLAMA_HOST (ctx=$LLAMA_CTX_SIZE, threads=$LLAMA_THREADS, gpu-layers=$LLAMA_N_GPU_LAYERS, fit=${LLAMA_FIT:-off}/target=${LLAMA_FIT_TARGET:-default}, flash-attn=${LLAMA_FLASH_ATTN:-off}, reasoning=${LLAMA_REASONING:-model default}, kv=$LLAMA_CACHE_TYPE_K/$LLAMA_CACHE_TYPE_V, batch=${LLAMA_BATCH_SIZE:-default}/${LLAMA_UBATCH_SIZE:-default}, defrag=${LLAMA_DEFRAG_THOLD:-off}, mlock=${LLAMA_MLOCK:-off})..." >&2
+  echo "run.sh: starting llama-server on $LLAMA_HOST (ctx=$LLAMA_CTX_SIZE, parallel=$LLAMA_PARALLEL, threads=$LLAMA_THREADS, gpu-layers=$LLAMA_N_GPU_LAYERS, fit=${LLAMA_FIT:-off}/target=${LLAMA_FIT_TARGET:-default}, flash-attn=${LLAMA_FLASH_ATTN:-off}, reasoning=${LLAMA_REASONING:-model default}, kv=$LLAMA_CACHE_TYPE_K/$LLAMA_CACHE_TYPE_V, batch=${LLAMA_BATCH_SIZE:-default}/${LLAMA_UBATCH_SIZE:-default}, defrag=${LLAMA_DEFRAG_THOLD:-off}, mlock=${LLAMA_MLOCK:-off})..." >&2
   # shellcheck disable=SC2086  # $fit_str/$fa_str/$reasoning_str/$batch_str/$ubatch_str/$mlock_str/$defrag_str/$LLAMA_EXTRA_ARGS are intentionally word-split
   "$LLAMA_SERVER_BIN" \
     --model "$MODEL_PATH" \
     --ctx-size "$LLAMA_CTX_SIZE" \
-    --parallel 1 \
+    --parallel "$LLAMA_PARALLEL" \
     --cache-type-k "$LLAMA_CACHE_TYPE_K" \
     --cache-type-v "$LLAMA_CACHE_TYPE_V" \
     $fa_str \

@@ -1030,6 +1030,7 @@ class Agent:
         secrets: list[str] | None = None,
         mind: str = "",
         debts: dict[int, float] | None = None,
+        stuck_ticks: int = 0,
     ) -> None:
         self.id = id
         self.name = name
@@ -1124,6 +1125,16 @@ class Agent:
         # trust/relationships/emotions) so an old, small debt eventually
         # reads as forgiven rather than accumulating forever.
         self.debts: dict[int, float] = {} if debts is None else debts
+        # stuck_ticks: consecutive ticks a goal-directed target has existed
+        # but the greedy step in Population._dispatch_movement/_step_toward
+        # failed to move the agent toward it (blocked by a concave water/
+        # mountain pocket, not merely "already there") — once this crosses
+        # MOVEMENT_STUCK_TICKS_THRESHOLD, movement escalates to one bounded
+        # BFS step (_bfs_step) instead of leaving the agent to random-walk
+        # near a target it can see but can't greedily reach. Reset to 0 on
+        # any successful greedy step or when there's no target. See
+        # docs/DECISIONS.md, "movement: stuck-agent BFS escape" pass.
+        self.stuck_ticks: int = stuck_ticks
 
     # --- native-store attach + scalar properties ---------------------------
 
@@ -1333,6 +1344,7 @@ class Agent:
             "travel_target": list(self.travel_target) if self.travel_target is not None else None,
             "emotions": {k: round(v, 4) for k, v in self.emotions.items()},
             "debts": {str(k): round(v, 4) for k, v in self.debts.items()},
+            "stuck_ticks": self.stuck_ticks,
         }
 
     @classmethod
@@ -1382,4 +1394,5 @@ class Agent:
                 tuple(data["travel_target"]) if data.get("travel_target") is not None else None
             ),
             emotions=dict(data.get("emotions", {})),
+            stuck_ticks=data.get("stuck_ticks", 0),
         )

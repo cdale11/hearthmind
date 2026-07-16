@@ -238,12 +238,11 @@ Useful flags on `server.py`:
   `--llm-llamacpp-host URL` (default `http://localhost:8080`) for the
   llama.cpp backend, `--llm-host URL` (default `http://localhost:11434`)
   for the Ollama backend, `--llm-model NAME` (default `qwen3:4b-instruct`),
-  `--llm-timeout SECONDS` (default 60 — CPU inference under contention
-  on 8GB+zram can be slower than a quiet benchmark, see
-  `docs/DECISIONS.md` D5), `--llm-max-concurrent INT` (default 2 —
-  deliberately low for 8GB-memory headroom; every CLI default mirrors its
-  `Config` attribute, see the v0.63.0 audit) — all runtime settings, safe
-  to change between runs.
+  `--llm-timeout SECONDS` (default 120, v0.81.0 — see `Config.llm_
+  timeout_seconds`'s docstring for the live-latency data behind this),
+  `--llm-max-concurrent INT` (default 2, v0.81.0 — every CLI default
+  mirrors its `Config` attribute, see the v0.63.0 audit) — all runtime
+  settings, safe to change between runs.
 - `--api-disabled` — turn off the browser interface (on by default; see
   below). `--api-host` (default `0.0.0.0`), `--api-port` (default `8765`).
 
@@ -342,11 +341,11 @@ better than the CPU-only path this project started from.
 ```bash
 ./build/bin/llama-server \
   --model /path/to/Qwen3-4B-Instruct-Q4_K_M.gguf \
-  --ctx-size 2560 --parallel 1 \
+  --ctx-size 5120 --parallel 2 \
   --cache-type-k q8_0 --cache-type-v q8_0 \
   --batch-size 512 --ubatch-size 128 --defrag-thold 0.1 \
   --no-mmproj --port 8080 \
-  --n-gpu-layers auto --fit on --fit-target 2560 --flash-attn on \
+  --n-gpu-layers auto --fit on --fit-target 2048 --flash-attn on \
   --reasoning off --reasoning-budget 0 --threads $(nproc)
 
 # in another terminal:
@@ -357,23 +356,24 @@ python -m hearthmind.server --db world.sqlite3 --llm-disabled
 # or: ./scripts/run.sh --llm-disabled --db world.sqlite3
 ```
 
-- `--ctx-size 2560` matches `Config.llm_num_ctx` — the KV-cache size
-  llama.cpp allocates up front regardless of how full a given prompt
-  is. Raised from an earlier 1280 once GPU offload was confirmed
-  working, then re-lowered from an initial 4096 once a live `htop`
-  reading showed only ~6.5GB usable RAM rather than the full 8GB
-  nominal, then **re-lowered again from 3072 in v0.78.1** once a live
-  `/diagnostics.system_memory` report from a real 301-population,
-  13,094-tick game showed `llama-server` itself at only 121MB RSS but
-  **2048MB in swap** (`mem_available` down to 174MB of 7046MB total) —
-  see `Config.llm_num_ctx`'s docstring for the full reading. On CPU-only
-  8GB hardware, use `LLAMA_CTX_SIZE=1280` (or the manual `--ctx-size
-  1280`) instead, see the 8GB section below.
-- `--parallel 1` — one KV-cache slot, matching `Config.llm_max_
-  concurrent=1` (also lowered in v0.78.5 — a second Python-side
-  in-flight request was pure dead weight against a server that could
-  only ever process one at a time; see `llm_max_concurrent`'s docstring
-  in `config.py`).
+- `--ctx-size 5120 --parallel 2` (v0.81.0) — llama-server divides one
+  shared `--ctx-size` evenly across its `--parallel` slots, so this is
+  `Config.llm_num_ctx` (2560) **times** `Config.llm_max_concurrent` (2):
+  each of the 2 slots still gets the full 2560-token budget the rest of
+  this project assumes. Raising `--parallel` alone without raising
+  `--ctx-size` in step would silently halve each concurrent request's
+  context instead of adding real throughput — keep the two synced if you
+  change either. History: 1280 (CPU-only) -> 4096 (GPU offload
+  confirmed) -> 3072 (a live `htop` showed only ~6.5GB usable RAM, not
+  the full 8GB nominal) -> 2560 (v0.78.1, a live `/diagnostics.system_
+  memory` report showed `llama-server` swapping 2GB at only 121MB RSS)
+  -> `2560 * parallel` (v0.81.0, once a fresh diagnostic showed that
+  swap pressure resolved — `mem_available` 3321MB of 7045MB, ~0 swap —
+  and the live symptom had shifted to single-lane queueing instead; see
+  `Config.llm_max_concurrent`'s docstring for the full reading). On
+  CPU-only 8GB hardware, use `LLAMA_CTX_SIZE=1280 LLAMA_PARALLEL=1` (or
+  the manual `--ctx-size 1280 --parallel 1`) instead, see the 8GB
+  section below.
 - `--cache-type-k/-v q8_0` — 8-bit KV cache, ~half the memory of the f16
   default, free either way.
 - `--no-mmproj` — explicitly disables multimodal/vision (mmproj)
@@ -389,15 +389,18 @@ python -m hearthmind.server --db world.sqlite3 --llm-disabled
   `--fit`), or set `LLAMA_N_GPU_LAYERS=999 LLAMA_FIT=` for `scripts/
   run.sh`. Use `--n-gpu-layers 0` to force CPU-only. Optional
   `--fit-target <MiB>` sets the per-device headroom margin `--fit` leaves
-  free (default 1024 MiB, **2560 as of v0.78.5** — see the iGPU section
-  below for why a bigger margin matters specifically on shared-memory
+  free (default 1024 MiB, 2560 as of v0.78.5, **2048 as of v0.81.0** —
+  pulled back slightly once a live diagnostic showed real headroom to
+  spare rather than pressure, freeing a bit more general system RAM for
+  the second `--parallel` slot's KV cache; see the iGPU section below
+  for why a bigger margin matters specifically on shared-memory
   hardware) if you need more slack for other processes.
 - `--batch-size 512 --ubatch-size 128` (v0.78.5) — down from llama.cpp's
-  own 2048/512, sized for a single-lane (`--parallel 1`) workload rather
-  than a multi-user server: these bound part of the compute-buffer
-  allocation alongside the KV cache, and this project's prompts are
-  short strict-JSON exchanges that don't need large batching to process
-  efficiently. `--batch-size` must stay >= `--ubatch-size`.
+  own 2048/512, sized for this project's short strict-JSON prompts:
+  these bound part of the compute-buffer allocation alongside the KV
+  cache, which already scales with `--parallel` on its own, so these are
+  left unraised at `--parallel 2` rather than compounding the increase.
+  `--batch-size` must stay >= `--ubatch-size`.
 - `--defrag-thold 0.1` (v0.78.5) — triggers a KV-cache defragmentation
   pass once fragmentation crosses 10%. Aimed at "runs stably for years":
   a session this long sees many different prompt lengths reuse the same
@@ -438,10 +441,10 @@ cmake --build build --config Release -j$(nproc) --target llama-server
 
 ./build/bin/llama-server \
   --model /path/to/Qwen3-4B-Instruct-Q4_K_M.gguf \
-  --ctx-size 2560 --parallel 1 --cache-type-k q8_0 --cache-type-v q8_0 \
+  --ctx-size 5120 --parallel 2 --cache-type-k q8_0 --cache-type-v q8_0 \
   --batch-size 512 --ubatch-size 128 --defrag-thold 0.1 \
   --no-mmproj --port 8080 \
-  --n-gpu-layers auto --fit on --fit-target 2560 --flash-attn on \
+  --n-gpu-layers auto --fit on --fit-target 2048 --flash-attn on \
   --reasoning off --reasoning-budget 0 --threads $(nproc)
 
 # then, in another terminal (or LLAMA_SERVER_BIN=... ./scripts/run.sh):
@@ -465,7 +468,7 @@ itself. If a long-running, large-population world still shows real swap
 pressure (see the `--ctx-size` pull-back above and `Config.llm_num_ctx`'s
 docstring) after lowering `--ctx-size`, the other lever specific to this
 hardware is raising `--fit-target`'s margin (`LLAMA_FIT_TARGET` for
-`scripts/run.sh`, default 1024 MiB) — e.g. `LLAMA_FIT_TARGET=2560` —
+`scripts/run.sh`, default 2048 as of v0.81.0) — e.g. `LLAMA_FIT_TARGET=2560` —
 which makes `--fit` deliberately offload fewer layers and leave more of
 the shared pool free for everything else, trading a bit of inference
 speed for headroom. `Config.llm_num_ctx`/`llm_num_predict`/
@@ -510,28 +513,43 @@ getting paged out once *system-wide* memory pressure builds over a long
 session — this process's own RSS stayed a flat, clean 57.9MB the whole
 time, once again confirming swap pressure here is always the LLM
 server's allocation, never hearthmind's. `--ctx-size`/`Config.llm_num_
-ctx` are now 2560 (was 3072) and `Config.llm_num_predict` is 448 (was
-512) — see their docstrings in `config.py`. On a shared-memory iGPU
-specifically, raising `--fit-target`'s margin (`LLAMA_FIT_TARGET`, e.g.
-`2560`) is a further lever — see the iGPU section above. If you're on
-CPU-only 8GB (or GPU offload isn't set up yet), use the tighter recipe
-below instead — these are no longer the project's defaults, but every
-lever still works exactly the
-same way:
+ctx` were pulled back to 2560 (was 3072) and `Config.llm_num_predict` to
+448 (was 512) — see their docstrings in `config.py`.
+
+**Note (v0.81.0):** a fresh live diagnostic on this same class of
+hardware, after the v0.78.x pull-backs, showed that pressure resolved
+(`mem_available` 3321MB of 7045MB, ~0 swap) with the live symptom
+shifted to `--parallel 1` queueing every job behind whatever's already
+running (latency p50/p95/max 31.8s/69.8s/101.9s, `calls_dropped_
+backpressure` at 616 against 100 attempted). `--parallel` is now 2 by
+default (`LLAMA_PARALLEL`), with `--ctx-size` doubled to 5120 in step so
+each slot keeps its full 2560-token budget (llama-server divides one
+shared `--ctx-size` across its `--parallel` slots) — see `Config.llm_
+max_concurrent`'s docstring for the full reading. On a shared-memory
+iGPU specifically, raising `--fit-target`'s margin (`LLAMA_FIT_TARGET`,
+e.g. `2560`) is a further lever — see the iGPU section above. If you're
+on CPU-only 8GB (or GPU offload isn't set up yet), use the tighter
+recipe below instead — these are no longer the project's defaults, but
+every lever still works exactly the same way:
 
 ```bash
-LLAMA_CTX_SIZE=1280 LLAMA_N_GPU_LAYERS=0 \
+LLAMA_CTX_SIZE=1280 LLAMA_PARALLEL=1 LLAMA_N_GPU_LAYERS=0 \
   MODEL_PATH=/path/to/Qwen3-4B-Instruct-Q4_K_M.gguf ./scripts/run.sh --db world.sqlite3 \
-  --llm-num-ctx 1280 --llm-core-cast-size 8
+  --llm-num-ctx 1280 --llm-core-cast-size 8 --llm-max-concurrent 1
 ```
 
-`--ctx-size 1280`/`--parallel 1`/`--cache-type-k/-v q8_0` together are
-roughly an **8×** smaller KV cache than an untuned launch (`--ctx-size
-2048+ --parallel 4`, f16 cache, no GPU offload). If it still swaps, size
-the model down (next section) before touching anything else. Pass
-`--llm-num-ctx 1280`/`--llm-num-predict 384` to `hearthmind.server` (or
-`scripts/run.sh`, which forwards them) to keep the app-side prompt
-budget in step with a lowered `--ctx-size` — raising one without the
+`LLAMA_PARALLEL=1` is not optional here — the script's own default is
+now 2 (see above), and leaving this unset while lowering `LLAMA_CTX_
+SIZE` to 1280 would silently halve each slot to 640 tokens instead of
+the intended single full-size 1280-token slot. `--ctx-size 1280`/
+`--parallel 1`/`--cache-type-k/-v q8_0` together are roughly an **8×**
+smaller KV cache than an untuned launch (`--ctx-size 2048+ --parallel
+4`, f16 cache, no GPU offload). If it still swaps, size the model down
+(next section) before touching anything else. Pass `--llm-num-ctx
+1280`/`--llm-num-predict 384`/`--llm-max-concurrent 1` to `hearthmind.
+server` (or `scripts/run.sh`, which forwards them) to keep the app-side
+prompt/concurrency budget in step with a lowered `--ctx-size` — raising
+one without the
 other either wastes the smaller KV cache or risks truncating a prompt.
 
 **If it still swaps — size the model down.** The model weights are the
@@ -579,9 +597,11 @@ population size is not what to investigate for memory pressure; the LLM
 server process is.
 
 **Reducing swap** is the guidance throughout this section: lower
-`--ctx-size`/`Config.llm_num_ctx`/`llm_num_predict` (defaults as of
-v0.78.1: 2560/448 — see their docstrings for the live-diagnostic
-history), try `--cache-type-k/-v q4_0` for a further ~2× KV-cache cut
+`--ctx-size`/`--parallel`/`Config.llm_num_ctx`/`llm_num_predict`/
+`llm_max_concurrent` (defaults as of v0.81.0: ctx-size 5120 = num_ctx
+2560 × max_concurrent 2, num_predict 448 — see their docstrings for the
+live-diagnostic history), try `--cache-type-k/-v q4_0` for a further ~2×
+KV-cache cut
 below the default `q8_0`, use `LLAMA_BATCH_SIZE`/`LLAMA_UBATCH_SIZE` to
 shrink the compute buffer, or size the model down (`qwen3:1.7b`, next
 section) — each trades some capability for a smaller resident+swappable
