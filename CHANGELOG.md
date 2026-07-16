@@ -4,6 +4,40 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.84.3] — Phase N complete: misplaced_object intervention
+
+Closes the last item on the vision doc's Town Consciousness
+intervention menu — `misplaced_object` — completing Phase N's full
+scope across v0.84.0/.2/.3.
+
+### Added
+
+- `misplaced_object` (`SimulationEngine._apply_consciousness_
+  intervention`, `llm/consciousness.py`): relocates a partial amount
+  (`MISPLACED_OBJECT_FRACTION=0.4` of the donor's current stock) of one
+  inventory good — food, tools, or medicine — from one core-cast agent
+  to another in the founding settlement, capped by the recipient's own
+  personal capacity for that good. A genuinely mechanical nudge (real
+  inventory quantities move, total conserved — nothing is created or
+  destroyed), not narration-only, matching this project's standing
+  "deterministic engine provides reality" priority even for a Phase
+  G-tier intervention. Plants the same flavor-text memory on both the
+  donor and recipient (same "quietly noticed" register as the other
+  interventions).
+- `ALLOWED_INTERVENTIONS` now covers the vision doc's full menu (6
+  items); `llm/consciousness.py`'s system prompt updated to match.
+
+### Verified
+
+Direct test confirms the total quantity of the moved good is exactly
+conserved across the transfer (relocated, not fabricated) and exactly
+two agents receive the memory; a 20,000-tick engine soak cycling
+through all 7 intervention kinds (including `misplaced_object`)
+completes with zero crashes, bounded consciousness state, and
+inventory totals still non-negative and capacity-respecting.
+`scripts/verify_native_soak.py` unaffected — this batch touches no
+native module.
+
 ## [0.84.2] — Phase N follow-up: omen/dream seeding interventions
 
 Direct emergence follow-up to v0.84.0/.1, per the "both in parallel"

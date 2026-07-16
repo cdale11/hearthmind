@@ -32,6 +32,7 @@ except ImportError:  # pragma: no cover — this project's target hardware is Li
 from hearthmind.agents.agent import (
     DIALOGUE_COOLDOWN_TICKS,
     DIALOGUE_SENTIMENT_DELTA,
+    PERSONAL_FOOD_CAPACITY,
     RIVALRY_THRESHOLD,
     SKILL_CONSTRUCTION,
     SKILL_FARMING,
@@ -81,6 +82,8 @@ from hearthmind.settlement.buildings import (
     MARKET_CARAVAN_CHANCE_MULTIPLIER,
     MARKET_CARAVAN_YIELD_MULTIPLIER,
     MATERIALS_CAPACITY,
+    MEDICINE_CAPACITY,
+    TOOLS_CAPACITY,
     CAMP_TOLERANCE,
     HUT_CAPACITY,
     NARRATIVE_THEMES_MAX_STORED,
@@ -177,6 +180,17 @@ CONSCIOUSNESS_TEMPERAMENT_NUDGE_MAX = 0.15
 """`temperament_nudge`'s bound (Phase N) — folded into `tick_temperament`'s
 new `extra` parameter, same small-magnitude-relative-to-the-visible-range
 rationale as every other Phase G nudge (compare TEMPERAMENT_STEP_MAX)."""
+
+MISPLACED_OBJECT_FRACTION = 0.4
+"""`misplaced_object`'s bound (Phase N) — the fraction of the donor's
+current stock of one inventory good (food/tools/medicine) that
+relocates to a second agent's inventory. Deliberately partial, not the
+donor's whole stock: "some of it went missing/turned up elsewhere"
+reads as misplaced; "all of it" reads as theft, a different and much
+less deniable story. A genuinely mechanical intervention (real
+inventory quantities move, capped by the recipient's own capacity),
+not narration-only — matching the deterministic-engine-provides-
+reality design priority even for a Phase G-tier nudge."""
 
 PROMPT_RECENT_EVENTS = 40
 """How many recent events reach a settlement-level LLM prompt
@@ -2069,6 +2083,32 @@ class SimulationEngine:
         elif kind == "dream_symbol_seed":
             if detail:
                 target.dream_seed = detail
+        elif kind == "misplaced_object":
+            core_ids = [
+                a for a in self.world.population.agents
+                if a.id in self.world.population.core_agent_ids and a.settlement_id == target.id
+            ]
+            if len(core_ids) < 2:
+                return
+            donor_candidates = [a for a in core_ids if any(v > 0.0 for v in a.inventory.values())]
+            if not donor_candidates:
+                return
+            donor = donor_candidates[rng.randrange(len(donor_candidates))]
+            recipient_candidates = [a for a in core_ids if a.id != donor.id]
+            recipient = recipient_candidates[rng.randrange(len(recipient_candidates))]
+            good_candidates = [g for g, v in donor.inventory.items() if v > 0.0]
+            good = good_candidates[rng.randrange(len(good_candidates))]
+            cap = {"food": PERSONAL_FOOD_CAPACITY, "tools": TOOLS_CAPACITY, "medicine": MEDICINE_CAPACITY}.get(good)
+            amount = donor.inventory[good] * MISPLACED_OBJECT_FRACTION
+            if cap is not None:
+                amount = min(amount, max(0.0, cap - recipient.inventory.get(good, 0.0)))
+            if amount <= 0.0:
+                return
+            donor.inventory[good] -= amount
+            recipient.inventory[good] = recipient.inventory.get(good, 0.0) + amount
+            text = detail if detail else f"noticed some {good} that wasn't where they'd left it"
+            _remember(donor, text)
+            _remember(recipient, text)
 
     # --- caravans: a first, scoped step toward "external settlements and trade" ---
 

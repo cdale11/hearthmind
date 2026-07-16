@@ -373,6 +373,21 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.84.3)
+
+Closes Phase N's full vision-doc intervention menu — the last item,
+`misplaced_object`, added directly on top of v0.84.2. Relocates a
+partial amount (`MISPLACED_OBJECT_FRACTION=0.4` of the donor's current
+stock) of one inventory good (food/tools/medicine) between two
+core-cast agents in the founding settlement, capped by the recipient's
+own personal capacity — a genuinely mechanical nudge (total quantity
+conserved, nothing fabricated), not narration-only, matching the
+deterministic-engine-provides-reality priority even at Phase G's small
+scale. `ALLOWED_INTERVENTIONS` (`llm/consciousness.py`) now covers all
+6 vision-doc menu items. Verified: total-quantity-conserved + exactly-
+two-recipients direct test, and a 20,000-tick soak cycling through all
+7 intervention kinds (including this one) with zero crashes.
+
 ## Current state (v0.84.2)
 
 Direct emergence follow-up to v0.84.0/.1 (per "both in parallel"):

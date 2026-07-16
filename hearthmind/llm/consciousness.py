@@ -20,12 +20,12 @@ from __future__ import annotations
 
 ALLOWED_INTERVENTIONS = frozenset({
     "none", "weather_nudge", "temperament_nudge", "false_memory",
-    "omen_phrasing_seed", "dream_symbol_seed",
+    "omen_phrasing_seed", "dream_symbol_seed", "misplaced_object",
 })
-"""The bounded intervention menu. Deliberately smaller than the vision
-doc's full list (still missing a misplaced-object event) — scoped to
-interventions that ride existing state with zero new cross-module
-plumbing beyond a single queued-string field per mechanism (world.
+"""The full vision-doc intervention menu, closed out incrementally
+(v0.84.0 shipped the first three, v0.84.2 the two seeding
+interventions, this pass the last one). Each rides existing state or a
+small, self-contained mechanism rather than a parallel subsystem: world.
 weather is already blended forward tick to tick; tick_temperament
 already supports a bounded `extra` nudge shape via the shared
 bounded_random_walk_step primitive; _remember already exists;
@@ -33,13 +33,15 @@ bounded_random_walk_step primitive; _remember already exists;
 omen_seed`/`dream_seed` — same "queued input for the next job" shape as
 `player_influence` — consumed and cleared by the next `_maybe_schedule_
 omen`/`_maybe_schedule_dream` call, retained on a fallback so a flaky
-LLM stretch never silently drops a queued seed). Each has a mundane
-explanation: weather drifts, moods drift, a memory can simply be
-misremembered, an omen or a dream can simply happen to rhyme with
-something. A misplaced-object event is the one remaining vision-doc
-option, not attempted here — it implies a new inventory-shuffle
-mechanic rather than reusing existing state, a larger unit of work than
-this slice."""
+LLM stretch never silently drops a queued seed; `misplaced_object`
+relocates a partial amount of one existing inventory good (food/tools/
+medicine) between two core-cast agents, capped by the recipient's own
+capacity — a genuinely mechanical nudge, not narration-only, matching
+this project's "deterministic engine provides reality" priority even
+for a Phase G-tier intervention. Each has a mundane explanation:
+weather drifts, moods drift, a memory can simply be misremembered, an
+omen or a dream can simply happen to rhyme with something, an object
+can simply turn up somewhere else."""
 
 SYSTEM_PROMPT = (
     "You are the quiet, persistent awareness a small simulated village might be "
@@ -57,10 +59,11 @@ SYSTEM_PROMPT = (
     'or empty, revising your private read on the outside hand", "objectives": '
     '["at most 2 short standing preoccupations — omit or leave empty to keep your '
     'current ones unchanged"], "intervention": "one of none, weather_nudge, '
-    'temperament_nudge, false_memory, omen_phrasing_seed, dream_symbol_seed", '
-    '"intervention_detail": "one short phrase, or empty if intervention is none — the '
-    "false memory you planted, a hint to color the village's next unexplained omen, "
-    "or an image to color someone's next dream\"}."
+    'temperament_nudge, false_memory, omen_phrasing_seed, dream_symbol_seed, '
+    'misplaced_object", "intervention_detail": "one short phrase, or empty if '
+    "intervention is none — the false memory you planted, a hint to color the "
+    "village's next unexplained omen, an image to color someone's next dream, or "
+    "what quietly turned up somewhere it shouldn't have been\"}."
 )
 
 
