@@ -852,6 +852,38 @@ def decay_emotions(agent: "Agent") -> None:
             agent.emotions[key] = value
 
 
+DEBT_DECAY_RATE = 0.0005
+"""Per-tick fractional decay on `Agent.debts` (Phase L "Economy depth",
+docs/VISION-2026-07.md) — much slower than EMOTION_DECAY_RATE: a debt
+is a lasting social fact, not a passing feeling, so it should take
+genuine time (thousands of ticks) to fade to forgiven rather than
+washing out within a season. Written only by `_record_debt` (agents/
+population.py); this function only ever shrinks it."""
+
+DEBT_PRUNE_THRESHOLD = 0.02
+"""Below this, a decayed debt is dropped from the dict entirely — same
+"prune small entries, don't let them linger forever" discipline as
+`decay_emotions`/the relationship/trust dicts."""
+
+
+def decay_debts(agent: "Agent") -> None:
+    """Tick every owed debt back toward 0, pruning what's decayed near
+    enough to nothing. Pure Python, no native fast path: unlike emotions
+    (a fixed 4-key vector scanned every tick for every agent regardless
+    of activity), `debts` is sparse and only ever has entries for
+    agents who've actually traded — nowhere near the same hot-path
+    cost, so this doesn't clear the native-port bar (CLAUDE.md's
+    "escalate only with a measured need")."""
+    if not agent.debts:
+        return
+    for key in list(agent.debts.keys()):
+        value = agent.debts[key] * (1.0 - DEBT_DECAY_RATE)
+        if value < DEBT_PRUNE_THRESHOLD:
+            del agent.debts[key]
+        else:
+            agent.debts[key] = value
+
+
 def dominant_emotion(emotions: dict) -> tuple[str, float] | None:
     """The single strongest emotion clearing `EMOTION_NOTABLE_THRESHOLD`,
     or None — the one-feeling summary prompts and fallbacks consume
@@ -997,6 +1029,7 @@ class Agent:
         semantic_memories: list[str] | None = None,
         secrets: list[str] | None = None,
         mind: str = "",
+        debts: dict[int, float] | None = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -1083,6 +1116,14 @@ class Agent:
         # (bounded by EMOTION_* constants themselves, no separate cap
         # needed the way memories/beliefs need MAX_*).
         self.emotions: dict[str, float] = {} if emotions is None else emotions
+        # debts: Phase L "Economy depth" (docs/VISION-2026-07.md, "Society
+        # & Power") — id -> abstract amount THIS agent owes that source,
+        # written only by `_record_debt` (agents/population.py) when a
+        # barter trade leaves the recipient in the giver's debt. Decays
+        # slowly every tick (same "prune small entries" discipline as
+        # trust/relationships/emotions) so an old, small debt eventually
+        # reads as forgiven rather than accumulating forever.
+        self.debts: dict[int, float] = {} if debts is None else debts
 
     # --- native-store attach + scalar properties ---------------------------
 
@@ -1291,6 +1332,7 @@ class Agent:
             "settlement_id": self.settlement_id,
             "travel_target": list(self.travel_target) if self.travel_target is not None else None,
             "emotions": {k: round(v, 4) for k, v in self.emotions.items()},
+            "debts": {str(k): round(v, 4) for k, v in self.debts.items()},
         }
 
     @classmethod
@@ -1321,6 +1363,7 @@ class Agent:
             immune_ticks=data.get("immune_ticks", 0),
             relationships={int(k): v for k, v in data.get("relationships", {}).items()},
             trust={int(k): v for k, v in data.get("trust", {}).items()},
+            debts={int(k): v for k, v in data.get("debts", {}).items()},
             inventory=dict(data.get("inventory", {})),
             parents=tuple(parents) if parents is not None else None,
             goal=AgentGoal(data.get("goal", AgentGoal.WANDER.value)),

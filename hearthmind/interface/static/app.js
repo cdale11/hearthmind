@@ -111,6 +111,7 @@ const CATEGORY_META = {
   council_seat_filled: { icon: "🪑" },
   guild_formed: { icon: "🔨" },
   guild_joined: { icon: "🔨" },
+  faction_formed: { icon: "🚩" },
   illness: { icon: "🤒" },
   recovery: { icon: "💊" },
   caravan: { icon: "🐫" },
@@ -130,7 +131,7 @@ const EVENT_GROUP_OF = {
   construction_started: "town", building_completed: "town", building_ruined: "town",
   building_reclaimed: "town", farm_planted: "town", vehicle_started: "town",
   vehicle_completed: "town", vehicle_broken: "town", era_advance: "town",
-  settlement_named: "town", guild_formed: "town", guild_joined: "town",
+  settlement_named: "town", guild_formed: "town", guild_joined: "town", faction_formed: "town",
   council_formed: "town", council_seat_filled: "town", family_formed: "town",
   intervention: "town", town_brain: "town", caravan: "town", founding: "town", genesis: "town",
   terrain_thinned: "nature", terrain_reclaimed: "nature", climate_drift: "nature",
@@ -1454,6 +1455,9 @@ function renderNpcInspector() {
   const memories = (agent.memories || []).slice(-6).reverse();
   const ownBeliefs = (agent.beliefs || []).slice().reverse();
   const semanticMemories = (agent.semantic_memories || []).slice().reverse();
+  const debts = Object.entries(agent.debts || {})
+    .map(([idStr, amount]) => ({ name: (byId.get(Number(idStr)) || {}).name || `#${idStr}`, amount }))
+    .sort((a, b) => b.amount - a.amount);
 
   const relHtml = relationships.length
     ? `<ul>${relationships.map((r) => {
@@ -1464,6 +1468,9 @@ function renderNpcInspector() {
   const beliefsHtml = beliefs.length
     ? `<ul>${beliefs.map((b) => `<li>${b.belief}</li>`).join("")}</ul>`
     : `<div class="muted">the village hasn't formed a theory about them yet</div>`;
+  const debtsHtml = debts.length
+    ? `<ul>${debts.map((d) => `<li>owes <b>${d.name}</b> <span class="muted">(${d.amount.toFixed(2)})</span></li>`).join("")}</ul>`
+    : `<div class="muted">owes nobody anything outstanding</div>`;
   const memoriesHtml = memories.length
     ? `<ul>${memories.map((m) => `<li>${m}</li>`).join("")}</ul>`
     : `<div class="muted">nothing memorable yet</div>`;
@@ -1519,6 +1526,7 @@ function renderNpcInspector() {
     }
     if (inst.kind === "council") return "Sits on the council of elders";
     if (inst.kind === "guild") return `Member of the ${inst.name} guild`;
+    if (inst.kind === "faction") return `Part of ${inst.name || "a faction"}`;
     return inst.kind;
   };
   const institutionsHtml = myInstitutions.length
@@ -1546,6 +1554,10 @@ function renderNpcInspector() {
     <div class="npc-section">
       <h4>Relationships</h4>
       ${relHtml}
+    </div>
+    <div class="npc-section">
+      <h4>Debts</h4>
+      ${debtsHtml}
     </div>
     <div class="npc-section">
       <h4>Recent memories</h4>
@@ -1775,10 +1787,13 @@ function renderStats(summary) {
     [
       "Institutions",
       `${s.institutions ? s.institutions.total : 0} (${s.institutions ? s.institutions.families : 0} families, ` +
-      `${s.institutions ? s.institutions.councils || 0 : 0} councils)`,
+      `${s.institutions ? s.institutions.councils || 0 : 0} councils, ` +
+      `${s.institutions && s.institutions.factions ? s.institutions.factions.length : 0} factions)`,
       "Persistent entities the population organizes into. Families form automatically at a birth and outlive their " +
       "individual members — beliefs and, on a member's death, land/goods/skill/bias inheritance flow through them. " +
-      "A council of elders forms once a named settlement's population is large enough, membership fixed at formation.",
+      "A council of elders forms once a named settlement's population is large enough, membership fixed at formation. " +
+      "Factions form when a cluster of villagers grows closer to each other than to anyone else — chosen loyalty, " +
+      "not blood or trade.",
     ],
     [
       "Skills & tools",

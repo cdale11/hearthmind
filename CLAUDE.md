@@ -366,6 +366,73 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.80.0)
+
+Phase L (docs/VISION-2026-07.md, "Society & Power"), all three pieces —
+the vision doc's own call-volume analysis already resolved every fork
+in this phase's favor (Reputation and Economy depth are zero-LLM-cost;
+Factions spends a call only once per detected cluster, ever), so this
+landed as one batch rather than needing a scoping question first.
+
+**Reputation**: `Population.reputation(agent_id)` — mean trust every
+living agent holds toward that agent, cached monthly (`_refresh_
+reputation`, called from the existing month_end temperament tick, no
+new job). Wired into `_prominence` (core-cast ranking, per the vision
+doc's explicit "extend this ranking's inputs" instruction) and into
+`llm/dispute.py`'s prompt/fallback (a lopsided reputation nudges
+reconciliation odds and gets a context line when notably one-sided).
+
+**Factions**: new `InstitutionKind.FACTION` — a cluster of living
+agents bound by genuinely mutual trust (`Population._detect_faction_
+candidate`: union-find over trust-graph edges clearing FACTION_TRUST_
+EDGE_THRESHOLD both directions, cohesion-gated). Detection is free,
+deterministic, monthly; only once a real candidate clears FACTION_MIN_
+SIZE/FACTION_MIN_COHESION does the engine spend one LLM call
+(`llm/faction.py`, `_maybe_schedule_faction`) to name/frame it — same
+"detect cheaply, spend the call to name it" split as deliberate guild
+founding. Membership is fixed at formation (like FAMILY, unlike GUILD).
+Biases three existing mechanics rather than sitting inert: dispute
+framing/fallback (rival-faction membership pushes toward feud),
+fission-party assembly (a leader's faction-mates follow after family,
+before mere fondness), and — implicitly — `_prominence` via reputation.
+Bounded storage: generalized `_prune_extinct_families` into `_prune_
+extinct_institutions(settlement, living_ids, kind, cap)`, reused for
+both FAMILY and the new FACTION_MAX_STORED=20 cap.
+
+**Economy depth**: scoped to the one piece that rides cleanly on
+existing state — a bounded per-pair debt ledger (`Agent.debts`,
+`_record_debt`, `decay_debts`) that the existing food/tools/medicine
+barter mechanic writes to (a recipient owes the giver half the traded
+amount; a reversed trade nets the ledger down first). Decays slowly
+every tick (same prune-small-entries discipline as trust/relationships/
+emotions) so an old debt eventually reads as forgiven. Feeds dispute
+framing/fallback the same way reputation/factions do. **Scope cuts,
+explicit**: the vision doc's "scarcity-driven specialization pressure"
+piece was already noted as "mostly exists" via the skills system — no
+new work needed; "black-market flag on trades when a council price-
+nudge exists to defy" was dropped because this codebase's trade
+mechanic is presence-driven barter, not price-driven exchange — there
+is no existing "council price-nudge" an agent-to-agent trade could
+defy, and inventing one to hang a flag off felt like the wrong kind of
+scope creep for what's meant to be a lightweight extension of existing
+state.
+
+**UI**: NPC inspector gained "Debts" (mirrors the Relationships
+section) and a faction line in "Institutions"; the Institutions stat
+tile now includes a faction count; new `faction_formed` event
+icon/group, same UI-surfacing-in-the-same-batch discipline as every
+prior phase.
+
+Verified: direct union-find/cohesion tests against synthetic trust
+graphs (candidate detection, formation, faction_of lookup, exclusion of
+already-affiliated agents); `_record_debt`/`decay_debts`/round-trip
+tests (settlement, decay-to-prune, to_dict/from_dict exact); a live
+8000-tick engine run (LLM disabled) confirms no crash and a populated
+reputation cache; `scripts/verify_native_soak.py` (multi-seed)
+byte-identical — this batch touches no native module. Next milestone:
+Phase M (Faith & Meaning) or Phase N (Town Consciousness v2), per the
+user's "continue with L-N" direction — not yet started.
+
 ## Current state (v0.79.1)
 
 Closes Phase K's two deferred pieces (InterpretRumor + Dream), per

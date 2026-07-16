@@ -47,8 +47,8 @@ from hearthmind.config import Config
 from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
-    fission, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, dream, festival, folklore,
-    founding, geography, invention, mind, naming, omens, rumor_interpret, summary, town_brain,
+    faction, fission, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, dream, festival,
+    folklore, founding, geography, invention, mind, naming, omens, rumor_interpret, summary, town_brain,
 )
 from hearthmind.llm.client import build_llm_client
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
@@ -208,7 +208,7 @@ buffered entries loses nothing durable."""
 MONTHLY_JOB_DAY = {
     "chronicle": 1, "festival": 4, "caravan": 7, "fission": 8, "town_brain": 10,
     "beliefs": 13, "personal_belief": 16, "guild_founding": 19,
-    "institution_belief": 22, "geography": 25, "folklore": 20, "dream": 23, "omen": 27,
+    "institution_belief": 22, "geography": 25, "folklore": 20, "dream": 23, "omen": 27, "faction": 26,
 }
 """Day-of-month (0-based; every value <= 27 so it exists even in
 February) on which each monthly LLM job fires — the memory-pressure
@@ -705,6 +705,7 @@ class SimulationEngine:
         ("_maybe_schedule_record", _JOB_NO_ARGS),
         ("_maybe_schedule_dispute", _JOB_NO_ARGS),
         ("_maybe_schedule_guild_founding", _JOB_EVENTS),
+        ("_maybe_schedule_faction", _JOB_EVENTS),
         ("_maybe_schedule_institution_belief", _JOB_EVENTS),
         ("_maybe_schedule_geography", _JOB_EVENTS),
         ("_maybe_schedule_fission", _JOB_EVENTS),
@@ -1869,6 +1870,10 @@ class SimulationEngine:
         self.world.settlement.player_standing = tick_player_standing(
             self.world.settlement.player_standing, recent, standing_rng,
         )
+        # Phase L "Reputation" (docs/VISION-2026-07.md): deterministic,
+        # no LLM call — rides the same free monthly cadence as
+        # temperament/mood above rather than its own scheduled job.
+        self.world.population._refresh_reputation()
 
     def _maybe_schedule_omen(self, events: list[str]) -> None:
         """Rare, ambiguous flavor event — see llm/omens.py's module
@@ -2049,10 +2054,21 @@ class SimulationEngine:
         relationship = agent_a.relationships.get(agent_b.id, 0.0)
         dispute_home = self._settlement_by_id(agent_a.settlement_id)
         has_council = dispute_home.council() is not None
+        reputation_a = self.world.population.reputation(agent_a.id)
+        reputation_b = self.world.population.reputation(agent_b.id)
+        faction_a = self.world.population.faction_of(agent_a.id, dispute_home)
+        faction_b = self.world.population.faction_of(agent_b.id, dispute_home)
+        rival_factions = faction_a is not None and faction_b is not None and faction_a.id != faction_b.id
+        debt_a_owes_b = agent_a.debts.get(agent_b.id, 0.0)
+        debt_b_owes_a = agent_b.debts.get(agent_a.id, 0.0)
         prompt = dispute.build_prompt(
             agent_a, agent_b, relationship, dispute_home.name, has_council,
+            reputation_a, reputation_b, rival_factions, debt_a_owes_b, debt_b_owes_a,
         )
-        fallback = dispute.fallback_dispute(agent_a, agent_b, has_council)
+        fallback = dispute.fallback_dispute(
+            agent_a, agent_b, has_council, reputation_a, reputation_b, rival_factions,
+            debt_a_owes_b, debt_b_owes_a,
+        )
         a_id, b_id = agent_a.id, agent_b.id
         dispute_home_id = dispute_home.id
 
@@ -2078,6 +2094,46 @@ class SimulationEngine:
                     push_secret(b, f"I still resent {a.name} for what happened between us.")
 
         self._schedule_llm_job("dispute", prompt, dispute.SYSTEM_PROMPT, fallback, apply)
+
+    def _maybe_schedule_faction(self, events: list[str]) -> None:
+        """Phase L "Factions" (docs/VISION-2026-07.md, "Society &
+        Power") — see Population._detect_faction_candidate/form_faction
+        and llm/faction.py. Detection itself is free (deterministic
+        trust-graph clustering); this only spends a call when a real
+        candidate cluster exists, and even then only to name/frame it,
+        same "detect cheaply, spend the call to name it" split as
+        deliberate guild founding."""
+        faction_target = self._job_target()
+        if not self._monthly_gate(events, "faction") or not faction_target.name:
+            return
+        members = [a for a in self.world.population.agents if a.settlement_id == faction_target.id]
+        candidate = self.world.population._detect_faction_candidate(faction_target, members)
+        if candidate is None:
+            return
+        if self._settlement_job_backpressured():
+            return
+        prompt = faction.build_prompt(candidate, faction_target.name)
+        fallback = faction.fallback_faction(candidate)
+        member_ids = [a.id for a in candidate]
+        faction_target_id = faction_target.id
+        tick = self.world.clock.tick_count
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            name, framing = faction.parse_faction(result, fallback)
+            home = self._settlement_by_id(faction_target_id)
+            event = self.world.population.form_faction(home, member_ids, tick, name)
+            if event is None:
+                return  # cap reached even after pruning — no room this month
+            new_faction = next(
+                (i for i in home.institutions if i.name == name and i.founding_tick == tick), None,
+            )
+            if new_faction is not None:
+                new_faction.beliefs.append(
+                    {"subject": "founding", "belief": framing, "confidence": 0.6, "revises": None},
+                )
+            self._log(event[0], f"{event[1]} {framing}")
+
+        self._schedule_llm_job("faction", prompt, faction.SYSTEM_PROMPT, fallback, apply)
 
     def _maybe_schedule_guild_founding(self, events: list[str]) -> None:
         """Deliberate institution founding — see llm/founding.py and

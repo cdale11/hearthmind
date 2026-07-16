@@ -28,6 +28,8 @@ SYSTEM_PROMPT = (
 
 def build_prompt(
     agent_a: Agent, agent_b: Agent, relationship: float, settlement_name: str, has_council: bool,
+    reputation_a: float = 0.0, reputation_b: float = 0.0, rival_factions: bool = False,
+    debt_a_owes_b: float = 0.0, debt_b_owes_a: float = 0.0,
 ) -> str:
     personality_bits = []
     for agent in (agent_a, agent_b):
@@ -40,19 +42,62 @@ def build_prompt(
         if has_council else " There is no council to appeal to."
     )
     place = f" in {settlement_name}" if settlement_name else ""
+    # Phase L "Reputation" (docs/VISION-2026-07.md): only mentioned when
+    # it's actually lopsided — a village's general opinion of the two
+    # parties is ambient context for how a feud plausibly breaks, not
+    # something worth stating when both are equally regarded (or
+    # unknown, REPUTATION_MIN_SOURCES-thin).
+    reputation_line = ""
+    if abs(reputation_a - reputation_b) >= 0.3:
+        better, worse = (agent_a, agent_b) if reputation_a > reputation_b else (agent_b, agent_a)
+        reputation_line = f" {better.name} is generally better regarded in the village than {worse.name}."
+    # Phase L "Factions": a rivalry between two different factions raises
+    # the stakes past an ordinary personal grudge.
+    faction_line = (
+        f" {agent_a.name} and {agent_b.name} belong to rival factions in the village."
+        if rival_factions else ""
+    )
+    # Phase L "Economy depth": an unpaid debt is a classic, concrete
+    # dispute source — only worth naming when it's actually sizeable
+    # (DEBT_DISPUTE_CONTEXT_THRESHOLD), not a rounding-error IOU.
+    debt_line = ""
+    if debt_a_owes_b >= 1.0 or debt_b_owes_a >= 1.0:
+        debtor, creditor = (agent_a, agent_b) if debt_a_owes_b >= debt_b_owes_a else (agent_b, agent_a)
+        debt_line = f" {debtor.name} still owes {creditor.name} for past help never repaid."
     return (
         f"{agent_a.name} and {agent_b.name}{place} have festered into open enmity "
         f"(their regard for each other stands at {relationship:.2f} on a -1..1 scale)."
-        f"{personality}{council} How does it break?"
+        f"{personality}{council}{reputation_line}{faction_line}{debt_line} How does it break?"
     )
 
 
-def fallback_dispute(agent_a: Agent, agent_b: Agent, has_council: bool) -> dict:
+def fallback_dispute(
+    agent_a: Agent, agent_b: Agent, has_council: bool, reputation_a: float = 0.0, reputation_b: float = 0.0,
+    rival_factions: bool = False, debt_a_owes_b: float = 0.0, debt_b_owes_a: float = 0.0,
+) -> dict:
     """Deterministic stand-in: a sociable pair finds its own way back; an
-    unsociable one hardens; a council steps in for the in-between case."""
+    unsociable one hardens; a council steps in for the in-between case.
+    Phase L: a pair whose combined village standing runs notably warm
+    nudges the same way sociability does (reconciliation is easier when
+    others already think well of you both) — reputation only pushes the
+    threshold, it never overrides the sociability read outright. Rival
+    faction membership pushes the other way — a personal feud between
+    two people whose factions are already opposed is harder to set
+    down. An unrepaid debt on either side pushes the same way — being
+    owed (or owing) something concrete is friction reconciliation has
+    to overcome."""
     avg_sociability = (
         agent_a.traits.get(TRAIT_SOCIABILITY, 0.0) + agent_b.traits.get(TRAIT_SOCIABILITY, 0.0)
     ) / 2.0
+    avg_reputation = (reputation_a + reputation_b) / 2.0
+    if avg_reputation >= 0.3:
+        avg_sociability += 0.15
+    elif avg_reputation <= -0.3:
+        avg_sociability -= 0.15
+    if rival_factions:
+        avg_sociability -= 0.2
+    if max(debt_a_owes_b, debt_b_owes_a) >= 1.0:
+        avg_sociability -= 0.1
     if avg_sociability > 0.2:
         outcome = "reconcile"
         narration = f"{agent_a.name} and {agent_b.name} talked it through at last and set the feud down."

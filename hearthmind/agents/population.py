@@ -62,6 +62,7 @@ back to the equivalent pure-Python branching in that case."""
 from hearthmind.agents import agent_store
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
+    DEBT_PRUNE_THRESHOLD,
     DIALOGUE_SENTIMENT_DELTA,
     ELDER_AGE_FRACTION,
     EMOTION_ANGER,
@@ -167,6 +168,7 @@ from hearthmind.agents.agent import (
     AgentGoal,
     AgentState,
     bump_emotion,
+    decay_debts,
     decay_emotions,
     dominant_emotion,
 )
@@ -409,6 +411,42 @@ merely happens to share a house. Stacks multiplicatively with the
 trade-agnostic bonus when a pair happens to share both kinds of
 institution."""
 
+FACTION_TRUST_EDGE_THRESHOLD = 0.4
+"""Two living agents count as a "faction edge" (`_detect_faction_
+candidate`) only when each trusts the other at or above this on the
+-1..1 scale — mutual, not one-sided; a faction is chosen loyalty, not
+one agent's unreciprocated opinion of another."""
+
+FACTION_MIN_SIZE = 4
+"""A trust-graph cluster must reach this many members before it's even
+a candidate — same "real critical mass, not a clique of two"
+discipline as GUILD_FORMATION_MASTER_COUNT."""
+
+FACTION_MIN_COHESION = 0.3
+"""The candidate cluster's mean mutual-trust value (across its own
+internal edges) must clear this before formation — a large but only
+loosely-connected cluster (e.g. one long trust chain) shouldn't read as
+a cohesive faction just because it's big."""
+
+FACTION_MAX_STORED = 20
+"""Cap on stored FACTION institutions per settlement (`_prune_extinct_
+institutions`) — deliberately much smaller than FAMILY's 300: a
+settlement realistically has a handful of live factions at once, not
+hundreds, so this stays a curated, meaningful list rather than
+approaching FAMILY's scale."""
+
+DEBT_PER_TRADE_FRACTION = 0.5
+"""Phase L "Economy depth" (docs/VISION-2026-07.md, "Society & Power"):
+a barter recipient owes the giver this fraction of the traded amount,
+in the same abstract units as the good itself (food/tools/medicine
+share one debt ledger — a village doesn't keep separate books per
+good, just a running sense of "I owe them"). See `_record_debt`."""
+
+DEBT_DISPUTE_CONTEXT_THRESHOLD = 1.0
+"""An outstanding one-sided debt at or above this is worth mentioning
+in dispute framing (`llm/dispute.py`) — below it, the amount is too
+small to plausibly be what a feud is really about."""
+
 POPULATION_CRITICAL_THRESHOLD = 4
 """Below this many living inhabitants (but above 0 — total extinction is
 a legitimate, permanent settlement-collapse outcome, see
@@ -602,6 +640,20 @@ PROMINENCE_BOND_THRESHOLD = 0.3
 `_prominence` — same magnitude class as TRAIT_NOTABLE_THRESHOLD; faint
 acquaintances shouldn't inflate a wallflower's prominence."""
 
+PROMINENCE_REPUTATION_WEIGHT = 3000.0
+"""Weight on `reputation()` in `_prominence` (Phase L, docs/VISION-2026-
+07.md "Society & Power") — same units/scale family as PROMINENCE_BOND_
+WEIGHT/PROMINENCE_SKILL_WEIGHT. reputation() is already -1..1, so this
+is the full per-point swing; a widely well-regarded agent is a natural
+protagonist candidate independent of how many *specific* bonds they've
+formed (the existing bond term)."""
+
+REPUTATION_MIN_SOURCES = 2
+"""Below this many living agents holding *any* trust opinion of someone,
+`reputation()` reads as neutral (0.0) rather than a noisy 1-source
+average — mirrors the same 'don't let a thin sample masquerade as a
+real signal' discipline `_prominence` already applies via weighting."""
+
 
 # `_namespaced_rng` is the shared helper (see hearthmind/util.py) — kept
 # under its historical private name here so the many call sites in this
@@ -743,17 +795,50 @@ def _prune_extinct_families(settlement: Settlement, living_ids: set[int]) -> Non
     with zero living members (oldest-founded first) — a family with
     even one living member is never touched, so this can never orphan a
     still-living agent's `family_for` lookup."""
-    families = [i for i in settlement.institutions if i.kind is InstitutionKind.FAMILY]
-    if len(families) <= INSTITUTION_LIST_MAX_STORED:
+    _prune_extinct_institutions(settlement, living_ids, InstitutionKind.FAMILY, INSTITUTION_LIST_MAX_STORED)
+
+
+def _prune_extinct_institutions(
+    settlement: Settlement, living_ids: set[int], kind: InstitutionKind, cap: int,
+) -> None:
+    """Shared eviction rule behind `_prune_extinct_families` (v0.54.0)
+    and, since Phase L (v0.80.0), FACTION — generalized rather than
+    duplicated once a second one-time-authored institution kind needed
+    the same "only prune once over cap, only the fully-dead, oldest
+    first" discipline. GUILD/COUNCIL don't use this: COUNCIL is
+    inherently small (COUNCIL_SIZE) and GUILD grows by mastery, not
+    formation events, so neither has ever measured unbounded."""
+    matching = [i for i in settlement.institutions if i.kind is kind]
+    if len(matching) <= cap:
         return
     extinct = sorted(
-        (i for i in families if i.member_agent_ids.isdisjoint(living_ids)),
+        (i for i in matching if i.member_agent_ids.isdisjoint(living_ids)),
         key=lambda i: i.founding_tick,
     )
-    excess = len(families) - INSTITUTION_LIST_MAX_STORED
+    excess = len(matching) - cap
     to_remove = {inst.id for inst in extinct[:excess]}
     if to_remove:
         settlement.institutions = [i for i in settlement.institutions if i.id not in to_remove]
+
+
+def _record_debt(recipient: Agent, giver: Agent, amount: float) -> None:
+    """Phase L "Economy depth": called by `_maybe_trade_food`/`_maybe_
+    trade_tools`/`_maybe_trade_medicine` after a successful barter. Any
+    debt the giver already owed the recipient (from a past reversed
+    trade) settles first — goods flowing both ways over time nets out
+    toward zero rather than both directions piling up independently —
+    and only the remainder becomes a new debt on the recipient. This is
+    the one mutator of `Agent.debts` besides `decay_debts`' fade."""
+    delta = amount * DEBT_PER_TRADE_FRACTION
+    reverse = giver.debts.get(recipient.id, 0.0)
+    if reverse > 0.0:
+        settled = min(reverse, delta)
+        giver.debts[recipient.id] = reverse - settled
+        if giver.debts[recipient.id] < DEBT_PRUNE_THRESHOLD:
+            giver.debts.pop(recipient.id, None)
+        delta -= settled
+    if delta > 0.0:
+        recipient.debts[giver.id] = recipient.debts.get(giver.id, 0.0) + delta
 
 
 _WATER_BIOMES = frozenset({Biome.DEEP_WATER, Biome.SHALLOW_WATER})
@@ -928,6 +1013,14 @@ class Population:
     resumed world must not reshuffle who its protagonists are). This is
     the fix for LLM call volume scaling with population — see the config
     field's docstring and docs/DECISIONS.md."""
+    _reputation_cache: dict[int, float] = field(default_factory=dict)
+    """Phase L (docs/VISION-2026-07.md "Society & Power"): agent id ->
+    mean trust toward that agent across every living agent who holds an
+    opinion of them, refreshed once a month by `_refresh_reputation`
+    (see `reputation()`). Deliberately NOT persisted — a fully derived
+    view over `Agent.trust`, cheap to rebuild, and (like `last_carrying_
+    capacity`) would just go stale between a save and a reload if it
+    were."""
     last_carrying_capacity: float = float(POPULATION_CAP)
     """Recomputed every tick by `carrying_capacity()` — the dynamic ceiling
     that now actually gates reproduction/growth (H1, docs/ROADMAP.md Phase
@@ -1198,6 +1291,7 @@ class Population:
                 agent, weather_harsh, settlements, night_factor, crowded_by_id[home.id], needs_constants,
             )
             decay_emotions(agent)
+            decay_debts(agent)
             critically_hungry = agent.hunger >= CRITICAL_HUNGER_THRESHOLD
             if critically_hungry:
                 # Fear of one's own starvation, distinct from the fear a
@@ -2748,6 +2842,111 @@ class Population:
             events.append(("guild_joined", f"{names} mastered {skill} and joined the {skill} guild."))
         return events
 
+    def _detect_faction_candidate(
+        self, settlement: Settlement, members: "list[Agent] | None" = None,
+    ) -> list[Agent] | None:
+        """Phase L "Factions" (docs/VISION-2026-07.md, "Society &
+        Power") — the deterministic detection half, same candidacy/
+        decision split as guild founding/fission/dispute: cheap,
+        no-LLM clustering finds a candidate; the engine spends an LLM
+        call only to name/frame it (see `llm/faction.py`,
+        `SimulationEngine._maybe_schedule_faction`).
+
+        Union-find over living settlement members, connecting a pair
+        only when trust is genuinely mutual (both directions clear
+        FACTION_TRUST_EDGE_THRESHOLD) — chosen loyalty, not one agent's
+        unreciprocated regard. Agents already in a living FACTION are
+        excluded from the pool so this only ever proposes new
+        factions among the currently unaffiliated (an agent belongs to
+        at most one faction, keeping detection cheap and factions
+        legible rather than an overlapping tangle). Returns the
+        highest-cohesion cluster clearing both FACTION_MIN_SIZE and
+        FACTION_MIN_COHESION, or None if no such cluster exists — an
+        expected, common outcome, not a failure."""
+        pool_source = self.agents if members is None else members
+        existing_members: set[int] = {
+            aid for inst in settlement.institutions
+            if inst.kind is InstitutionKind.FACTION
+            for aid in inst.member_agent_ids
+        }
+        pool = [a for a in pool_source if a.id not in existing_members]
+        if len(pool) < FACTION_MIN_SIZE:
+            return None
+        id_to_agent = {a.id: a for a in pool}
+        parent = {a.id: a.id for a in pool}
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for a in pool:
+            for other_id, value in a.trust.items():
+                other = id_to_agent.get(other_id)
+                if other is None or value < FACTION_TRUST_EDGE_THRESHOLD:
+                    continue
+                if other.trust.get(a.id, 0.0) < FACTION_TRUST_EDGE_THRESHOLD:
+                    continue
+                root_a, root_b = find(a.id), find(other_id)
+                if root_a != root_b:
+                    parent[root_a] = root_b
+
+        clusters: dict[int, list[Agent]] = {}
+        for a in pool:
+            clusters.setdefault(find(a.id), []).append(a)
+
+        def cohesion(cluster: list[Agent]) -> float:
+            ids = {a.id for a in cluster}
+            total, count = 0.0, 0
+            for a in cluster:
+                for other_id, value in a.trust.items():
+                    if other_id in ids:
+                        total += value
+                        count += 1
+            return total / count if count else 0.0
+
+        candidates = [c for c in clusters.values() if len(c) >= FACTION_MIN_SIZE]
+        if not candidates:
+            return None
+        best = max(candidates, key=lambda c: (cohesion(c), len(c)))
+        if cohesion(best) < FACTION_MIN_COHESION:
+            return None
+        return sorted(best, key=lambda a: a.id)
+
+    def form_faction(
+        self, settlement: Settlement, member_ids: list[int], tick: int, name: str,
+    ) -> tuple[str, str] | None:
+        """Actually create the FACTION institution once the engine's LLM
+        job has named it (or fallen back to a deterministic name) — the
+        detection half (`_detect_faction_candidate`) never mutates
+        state, same query/apply split as guild founding. Returns None
+        if the cap has no room even after pruning the fully-dead (an
+        expected outcome on a very long-running world; formation simply
+        doesn't happen that month)."""
+        living_ids = {a.id for a in self.agents}
+        _prune_extinct_institutions(settlement, living_ids, InstitutionKind.FACTION, FACTION_MAX_STORED)
+        if sum(1 for i in settlement.institutions if i.kind is InstitutionKind.FACTION) >= FACTION_MAX_STORED:
+            return None
+        faction = Institution(
+            id=settlement.next_institution_id,
+            kind=InstitutionKind.FACTION,
+            founding_tick=tick,
+            member_agent_ids=set(member_ids),
+            name=name,
+        )
+        settlement.next_institution_id += 1
+        settlement.institutions.append(faction)
+        return ("faction_formed", f'A faction has formed: "{name}".')
+
+    def faction_of(self, agent_id: int, settlement: Settlement) -> "Institution | None":
+        """The living FACTION `agent_id` belongs to, if any — consumed by
+        dispute rivalry framing and fission-party assembly (Phase L)."""
+        for inst in settlement.institutions:
+            if inst.kind is InstitutionKind.FACTION and agent_id in inst.member_agent_ids:
+                return inst
+        return None
+
     def _maybe_welcome_migrant(self, rng: random.Random, settlement: Settlement) -> list[tuple[str, str]]:
         """The population equivalent of wildlife's `_maybe_recolonize` —
         a settlement crashed down to a handful of survivors (predation,
@@ -3078,6 +3277,7 @@ class Population:
                 for a, b in ((giver, recipient), (recipient, giver)):
                     a.relationships[b.id] = clamp(a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST, -1.0, 1.0)
                     _nudge_trait(a, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
+                _record_debt(recipient, giver, amount)
                 _remember(recipient, f"{giver.name} shared food with me.")
                 if giver.inventory.get("food", 0.0) <= 0.0:
                     givers.remove(giver)
@@ -3197,6 +3397,7 @@ class Population:
                 for a, b in ((giver, recipient), (recipient, giver)):
                     a.relationships[b.id] = clamp(a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST, -1.0, 1.0)
                     _nudge_trait(a, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
+                _record_debt(recipient, giver, amount)
                 _remember(recipient, f"{giver.name} shared tools with me.")
                 if giver.inventory.get("tools", 0.0) <= 0.0:
                     givers.remove(giver)
@@ -3274,6 +3475,7 @@ class Population:
                 for a, b in ((giver, recipient), (recipient, giver)):
                     a.relationships[b.id] = clamp(a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST, -1.0, 1.0)
                     _nudge_trait(a, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
+                _record_debt(recipient, giver, amount)
                 _remember(recipient, f"{giver.name} shared medicine with me.")
                 if giver.inventory.get("medicine", 0.0) <= 0.0:
                     givers.remove(giver)
@@ -3768,16 +3970,53 @@ class Population:
     def _prominence(self, agent: Agent) -> float:
         """A cheap 'how much of a protagonist is this agent' score used
         only to refill an open core-cast seat (see maintain_core_cast).
-        Longevity + social centrality + skill, weighted so no single
-        signal dominates. Not persisted, not consumed by any mechanic —
-        purely a ranking key, recomputed on demand."""
+        Longevity + social centrality + skill + reputation, weighted so
+        no single signal dominates. Not persisted, not consumed by any
+        other mechanic — purely a ranking key, recomputed on demand.
+        Phase L (docs/VISION-2026-07.md) added the reputation term: the
+        vision doc explicitly calls for extending this ranking's inputs
+        rather than adding a parallel one."""
         bonds = sum(1 for v in agent.relationships.values() if abs(v) >= PROMINENCE_BOND_THRESHOLD)
         skill = sum(agent.skills.values())
         return (
             float(agent.age_ticks)
             + bonds * PROMINENCE_BOND_WEIGHT
             + skill * PROMINENCE_SKILL_WEIGHT
+            + self.reputation(agent.id) * PROMINENCE_REPUTATION_WEIGHT
         )
+
+    def reputation(self, agent_id: int) -> float:
+        """Phase L "Reputation" (docs/VISION-2026-07.md, "Society &
+        Power"): -1..1, the mean trust every living agent who has an
+        opinion holds toward `agent_id` — a derived aggregate, not new
+        per-pair state (Agent.trust already carries the raw signal; this
+        just reads it from the other direction and caches the read).
+        Reads 0.0 (neutral) for an unknown id or one held by fewer than
+        REPUTATION_MIN_SOURCES agents. Refreshed monthly by
+        `_refresh_reputation` — a live-tick value would need an O(agents)
+        rescan on every call, and reputation is exactly the kind of slow-
+        moving social signal that doesn't need tick-fresh precision."""
+        return self._reputation_cache.get(agent_id, 0.0)
+
+    def _refresh_reputation(self) -> None:
+        """Monthly rebuild of `_reputation_cache` — one O(agents) pass
+        over every living agent's `trust` dict (each entry read from the
+        truster's side, attributed to the trusted party), then averaged.
+        Called from the engine's existing month_end temperament tick
+        (see `_maybe_tick_temperament`) — same cheap, no-LLM cadence,
+        not its own scheduled job."""
+        sums: dict[int, float] = {}
+        counts: dict[int, int] = {}
+        for agent in self.agents:
+            for target_id, value in agent.trust.items():
+                sums[target_id] = sums.get(target_id, 0.0) + value
+                counts[target_id] = counts.get(target_id, 0) + 1
+        alive_ids = {a.id for a in self.agents}
+        self._reputation_cache = {
+            target_id: sums[target_id] / counts[target_id]
+            for target_id in sums
+            if target_id in alive_ids and counts[target_id] >= REPUTATION_MIN_SOURCES
+        }
 
     def maintain_core_cast(self, cast_size: int) -> list[Agent]:
         """Keep `core_agent_ids` at `cast_size` living members. Called once
@@ -4274,6 +4513,17 @@ class Population:
                 if len(party) >= FISSION_PARTY_MAX:
                     break
                 if a.id in inst.member_agent_ids and a.id not in taken:
+                    party.append(a)
+                    taken.add(a.id)
+        # Phase L (docs/VISION-2026-07.md "Society & Power"): a faction
+        # is chosen loyalty, so a leader's faction-mates follow the same
+        # way family does — after blood, before mere fondness.
+        leader_faction = self.faction_of(leader.id, home)
+        if leader_faction is not None:
+            for a in members:
+                if len(party) >= FISSION_PARTY_MAX:
+                    break
+                if a.id in leader_faction.member_agent_ids and a.id not in taken:
                     party.append(a)
                     taken.add(a.id)
         ranked = sorted(

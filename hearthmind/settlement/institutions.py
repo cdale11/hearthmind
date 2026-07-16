@@ -50,10 +50,21 @@ class InstitutionKind(str, Enum):
     BONUS_MULTIPLIER`), on top of — not instead of — the trade-
     agnostic FAMILY/COUNCIL bonus `_maybe_teach_skills` already
     applies."""
+    FACTION = "faction"
+    """Phase L (v0.80.0, docs/VISION-2026-07.md "Society & Power"): a
+    cluster of living agents detected via mutual-trust-graph clustering
+    (`Population._detect_faction_candidate`) — chosen loyalty rather
+    than FAMILY's blood or GUILD's shared trade. Formed only once a
+    cluster crosses a size/cohesion threshold; `Institution.name` holds
+    the LLM-authored (or deterministic-fallback) name a faction is known
+    by. Unlike GUILD, membership doesn't auto-grow as trust shifts — a
+    faction's roster is fixed at formation, same "one-time-authored,
+    persists as-is" shape as FAMILY.
     # Future kinds: MARKET (the institution, distinct from BuildingKind.
-    # MARKET the building), RELIGION. Adding one is a matter of a new
-    # enum value plus a formation path — the Institution shape below
-    # already supports any of them.
+    # MARKET the building), RELIGION (Phase M). Adding one is a matter
+    # of a new enum value plus a formation path — the Institution shape
+    # below already supports any of them.
+    """
 
 
 @dataclass

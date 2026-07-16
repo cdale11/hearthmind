@@ -4,6 +4,59 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.80.0] — Phase L: Society & Power (Reputation, Factions, Economy depth)
+
+All three Phase L pieces in one batch — the vision doc's own budget
+analysis already resolved every call-volume fork in this phase's favor,
+so no scoping question was needed first.
+
+### Added
+
+- `Population.reputation(agent_id)`/`_refresh_reputation()` — mean
+  trust every living agent holds toward someone, cached monthly (no new
+  LLM call, rides the existing month_end temperament tick). Wired into
+  `_prominence` and `llm/dispute.py`.
+- `InstitutionKind.FACTION` + `Population._detect_faction_candidate`
+  (union-find over mutual-trust edges, cohesion-gated) + `llm/
+  faction.py` + `SimulationEngine._maybe_schedule_faction` — a real
+  candidate cluster is detected for free every month; naming it costs
+  one LLM call, and only once per cluster ever (membership fixed at
+  formation). Biases dispute framing/fallback (rival factions) and
+  fission-party assembly (faction-mates follow after family).
+  `_prune_extinct_families` generalized into `_prune_extinct_
+  institutions(settlement, living_ids, kind, cap)`, shared with the new
+  `FACTION_MAX_STORED=20` cap.
+- `Agent.debts` + `_record_debt`/`decay_debts` — a bounded per-pair
+  debt ledger riding the existing food/tools/medicine barter mechanic
+  (a recipient owes the giver half the traded amount; reversed trades
+  net down first; decays slowly, same prune-small-entries discipline as
+  trust/relationships/emotions). Feeds dispute framing/fallback.
+- UI: NPC inspector "Debts" section, faction line in "Institutions",
+  faction count in the Institutions stat tile, `faction_formed` event
+  icon/group.
+
+### Scope cuts (explicit, not silently decided)
+
+- "Scarcity-driven specialization pressure" — the vision doc itself
+  notes this mostly already exists via the skills system; no new work.
+- "Black-market flag on trades defying a council price-nudge" —
+  dropped. This codebase's trade mechanic is presence-driven barter,
+  not price-driven exchange; there's no existing council-price-nudge
+  concept an agent-to-agent trade could defy, and inventing one just to
+  hang a flag off it was the wrong kind of scope creep for what's meant
+  to be a light extension of existing state.
+
+### Verified
+
+- Direct union-find/cohesion tests (candidate detection, formation,
+  faction_of lookup, exclusion of already-affiliated agents).
+- Direct `_record_debt`/`decay_debts`/round-trip tests (settlement,
+  decay-to-prune, to_dict/from_dict exact).
+- Live 8000-tick engine run (LLM disabled): no crash, populated
+  reputation cache.
+- `scripts/verify_native_soak.py` (multi-seed) byte-identical — this
+  batch touches no native module.
+
 ## [0.79.1] — Phase K complete: InterpretRumor() + Dream()
 
 Closes Phase K's two pieces deferred from v0.79.0, both implemented at
