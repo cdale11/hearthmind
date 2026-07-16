@@ -1117,12 +1117,19 @@ let weatherParticles = [];
 
 // Precipitation is an EMA-smoothed value that (per hearthmind/world/
 // weather.py's CLEAR_PRECIPITATION_THRESHOLD docstring) realistically
-// never drops much below ~0.11 or climbs much past ~0.67 — using the raw
-// 0..1 value directly meant rain particles never actually stopped
-// spawning (min ~10 particles even on a "clear" tick). Rescaled against
-// the same measured floor the backend's sky-band cutoffs use so clear
-// ticks show no rain at all and intensity actually varies with weather.
-const RAIN_FLOOR = 0.27;
+// never drops much below ~0.11 or climbs much past ~0.67. RAIN_FLOOR is
+// the precipitation at/below which NO rain particles are drawn — it must
+// match the backend's "it is actually raining" onset, which is
+// OVERCAST_PRECIPITATION_THRESHOLD (0.38, the light-rain cutoff in
+// weather.py's describe()), NOT the clear/overcast cutoff (0.27). The old
+// 0.27 value drew rain on every "overcast" tick too — and overcast is
+// ~40% of the year (measured) on top of the ~49% actually labelled rain,
+// so ~89% of ticks showed falling rain on the map even though the sky
+// label said otherwise: the "I only see rain" report. At 0.38 the map
+// shows rain exactly when the label reads "light/heavy rain"; "clear" and
+// "overcast" ticks (~51% of the year) are dry, overcast still just reads
+// darker via the WEATHER_DARKEN tint below.
+const RAIN_FLOOR = 0.38;
 const RAIN_CEILING = 0.65;
 
 function currentWeatherDetail() {

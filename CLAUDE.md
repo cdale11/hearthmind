@@ -26,7 +26,10 @@ index" below for pointers.
 
 GPU-offloaded llama.cpp inference confirmed working on real hardware as
 of v0.72.3 ("much much better than expected" — live user report) — this
-is now the assumed default (`--n-gpu-layers 999`, `Config.llm_num_ctx`/
+is now the assumed default (`--n-gpu-layers auto --fit on` as of v0.75.0
+— llama.cpp dynamically sizes the offload to VRAM, replacing the old
+hardcoded `--n-gpu-layers 999`; older llama.cpp builds without
+`auto`/`--fit` fall back to `999`, see README; `Config.llm_num_ctx`/
 `llm_num_predict`/`llm_core_cast_size` all raised accordingly, see
 "Current state (v0.72.3)" below). **Actual usable RAM on that same
 machine measures ~6.5GB via `htop`, not the full 8GB nominal** (v0.72.4
@@ -65,8 +68,9 @@ README), `llm_keep_alive="3m"`, `llm_use_mmap=True`,
 every CPU core — see below), `llm_num_gpu=None` for the Ollama backend
 (GPU offload for the default llama.cpp backend is `--n-gpu-layers`, a
 `llama-server` launch flag — confirmed working via `scripts/run.sh`,
-default 999, see README's AMD iGPU section and the iGPU investigation
-in docs/DECISIONS.md).
+default `auto` + `--fit on` as of v0.75.0 so llama.cpp sizes the offload
+to VRAM dynamically instead of the old hardcoded 999, see README's AMD
+iGPU section and the iGPU investigation in docs/DECISIONS.md).
 
 **`llm_max_concurrent=2` is a permanent floor** (explicit user
 instruction: LLM richness is never traded off against memory below 2;

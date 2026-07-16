@@ -4,6 +4,40 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.75.1] — weather "only rain" map fix + llama.cpp dynamic GPU fit
+
+### Fixed
+- Map showed falling rain on ~89% of ticks even though only ~49% of the
+  year is actually labelled rain. Cause: the frontend's `RAIN_FLOOR`
+  (`app.js`) — the precipitation below which no rain particles spawn —
+  was `0.27`, the *clear/overcast* cutoff, so every "overcast" tick
+  (~40% of the measured year) drew rain despite its dry label. Raised to
+  `0.38`, the light-rain onset (`OVERCAST_PRECIPITATION_THRESHOLD` in
+  `weather.py`'s `describe()`), so the map shows rain exactly when the
+  sky label reads "light/heavy rain"; clear and overcast ticks are now
+  dry (overcast still just reads darker via the existing weather tint).
+  Verified by measuring the realized sky-band distribution over a full
+  simulated year (clear 11% / overcast 40% / light rain 38% / heavy rain
+  10% / snow <1%), per CLAUDE.md's standing "measure the reachable range
+  before touching a weather threshold" rule. No engine/`weather.py`
+  change — the deterministic model was already varied; only the display
+  floor was miscalibrated.
+
+### Changed
+- `scripts/run.sh` and README now launch `llama-server` with
+  `--n-gpu-layers auto --fit on` (new `LLAMA_FIT`/`LLAMA_FIT_TARGET` env
+  vars) instead of the hardcoded `--n-gpu-layers 999`. `auto` + `--fit`
+  (both llama.cpp defaults on recent builds) let llama.cpp dynamically
+  size the GPU-layer offload to available VRAM. Older llama.cpp builds
+  without `auto`/`--fit` fall back with `LLAMA_N_GPU_LAYERS=999
+  LLAMA_FIT=` (documented in the script header and README).
+
+### Note
+- The `-O3 -march=native -mtune=native` extension compile flags reported
+  as missing were already present (setup.py, added v0.73.3) and applied
+  on every `pip install -e .` / `run.sh` build — no change needed; a
+  rebuild picks them up if an older build predates them.
+
 ## [0.75.0] — AgentTable wired into live Population.agents (R8 slice 3 wire-in)
 
 ### Added

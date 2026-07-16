@@ -35,9 +35,22 @@
 #                        GPU offload and have real RAM headroom — see
 #                        README's 8GB vs. GPU-offload guidance)
 #   LLAMA_THREADS        Default: every CPU core ($(nproc))
-#   LLAMA_N_GPU_LAYERS   Default: 999 (offload every layer the backend
-#                        can fit — confirmed working via GPU inference;
-#                        set 0 to force CPU-only).
+#   LLAMA_N_GPU_LAYERS   Default: auto (let llama.cpp size the GPU-layer
+#                        split to available VRAM — see LLAMA_FIT below;
+#                        also accepts 'all', an exact number, or 0 to
+#                        force CPU-only). NOTE: 'auto'/'all' need a recent
+#                        llama.cpp build; on an older binary that only
+#                        takes a number, set LLAMA_N_GPU_LAYERS=999.
+#   LLAMA_FIT            Default: on. Passes llama-server's --fit flag,
+#                        which auto-adjusts unset args (incl. the GPU
+#                        layer count when -ngl is 'auto') to fit device
+#                        memory — the dynamic-allocation path, replacing
+#                        the old hardcoded 999. Set empty (LLAMA_FIT=) to
+#                        omit the flag entirely on older builds that don't
+#                        support it.
+#   LLAMA_FIT_TARGET     Optional MiB margin per device for --fit (llama-
+#                        server's --fit-target). Empty (default) omits it,
+#                        leaving llama.cpp's own 1024 MiB default.
 #   LLAMA_CACHE_TYPE_K   Default: q8_0
 #   LLAMA_CACHE_TYPE_V   Default: q8_0
 #   SKIP_NATIVE_BUILD    1 to skip building hearthmind._native. Default: 0.
@@ -52,7 +65,9 @@ LLAMA_SERVER_BIN="${LLAMA_SERVER_BIN:-llama-server}"
 LLAMA_HOST="${LLAMA_HOST:-http://localhost:8080}"
 LLAMA_CTX_SIZE="${LLAMA_CTX_SIZE:-1280}"
 LLAMA_THREADS="${LLAMA_THREADS:-$(nproc 2>/dev/null || echo 4)}"
-LLAMA_N_GPU_LAYERS="${LLAMA_N_GPU_LAYERS:-999}"
+LLAMA_N_GPU_LAYERS="${LLAMA_N_GPU_LAYERS:-auto}"
+LLAMA_FIT="${LLAMA_FIT-on}"
+LLAMA_FIT_TARGET="${LLAMA_FIT_TARGET-}"
 LLAMA_CACHE_TYPE_K="${LLAMA_CACHE_TYPE_K:-q8_0}"
 LLAMA_CACHE_TYPE_V="${LLAMA_CACHE_TYPE_V:-q8_0}"
 SKIP_NATIVE_BUILD="${SKIP_NATIVE_BUILD:-0}"
@@ -110,8 +125,18 @@ if [[ "$llm_disabled" == false ]]; then
   fi
 
   llama_port="${LLAMA_HOST##*:}"
-  echo "run.sh: starting llama-server on $LLAMA_HOST (ctx=$LLAMA_CTX_SIZE, threads=$LLAMA_THREADS, gpu-layers=$LLAMA_N_GPU_LAYERS, kv=$LLAMA_CACHE_TYPE_K/$LLAMA_CACHE_TYPE_V)..." >&2
-  # shellcheck disable=SC2086
+  # Build the optional --fit args: only passed when LLAMA_FIT is non-empty,
+  # so an older llama-server that predates the flag can omit it with
+  # LLAMA_FIT=. --fit lets llama.cpp dynamically size the offload to
+  # available VRAM (paired with -ngl auto), replacing the old hardcoded
+  # -ngl 999.
+  fit_str=""
+  if [[ -n "$LLAMA_FIT" ]]; then
+    fit_str="--fit $LLAMA_FIT"
+    [[ -n "$LLAMA_FIT_TARGET" ]] && fit_str="$fit_str --fit-target $LLAMA_FIT_TARGET"
+  fi
+  echo "run.sh: starting llama-server on $LLAMA_HOST (ctx=$LLAMA_CTX_SIZE, threads=$LLAMA_THREADS, gpu-layers=$LLAMA_N_GPU_LAYERS, fit=${LLAMA_FIT:-off}, kv=$LLAMA_CACHE_TYPE_K/$LLAMA_CACHE_TYPE_V)..." >&2
+  # shellcheck disable=SC2086  # $fit_str / $LLAMA_EXTRA_ARGS are intentionally word-split
   "$LLAMA_SERVER_BIN" \
     --model "$MODEL_PATH" \
     --ctx-size "$LLAMA_CTX_SIZE" \
@@ -121,6 +146,7 @@ if [[ "$llm_disabled" == false ]]; then
     --no-mmproj \
     --port "$llama_port" \
     --n-gpu-layers "$LLAMA_N_GPU_LAYERS" \
+    $fit_str \
     --threads "$LLAMA_THREADS" \
     $LLAMA_EXTRA_ARGS &
   llama_pid=$!

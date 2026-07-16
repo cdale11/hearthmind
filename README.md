@@ -345,7 +345,7 @@ better than the CPU-only path this project started from.
   --ctx-size 3072 --parallel 1 \
   --cache-type-k q8_0 --cache-type-v q8_0 \
   --no-mmproj --port 8080 \
-  --n-gpu-layers 999 --threads $(nproc)
+  --n-gpu-layers auto --fit on --threads $(nproc)
 
 # in another terminal:
 python -m hearthmind.server --db world.sqlite3
@@ -370,8 +370,17 @@ python -m hearthmind.server --db world.sqlite3 --llm-disabled
 - `--no-mmproj` — explicitly disables multimodal/vision (mmproj)
   loading. Hearthmind never sends images, so this is free memory back
   with zero functionality lost.
-- `--n-gpu-layers 999` — offload every layer the backend can fit.
-  Confirmed working on real hardware; use `0` to force CPU-only.
+- `--n-gpu-layers auto --fit on` — let llama.cpp *dynamically* size the
+  GPU-layer split to available VRAM rather than hardcoding a count.
+  `auto` (llama.cpp's own default) picks the layer count and `--fit on`
+  (also the default) shrinks unset args to fit device memory — together
+  they replace the older `--n-gpu-layers 999` ("offload all layers, hope
+  it fits"). `auto`/`--fit` require a recent llama.cpp build; on an older
+  binary that only accepts a number, use `--n-gpu-layers 999` (and drop
+  `--fit`), or set `LLAMA_N_GPU_LAYERS=999 LLAMA_FIT=` for `scripts/
+  run.sh`. Use `--n-gpu-layers 0` to force CPU-only. Optional
+  `--fit-target <MiB>` sets the per-device headroom margin `--fit` leaves
+  free (default 1024 MiB) if you need more slack for other processes.
 - `--threads $(nproc)` — every CPU core for whatever inference work
   stays on CPU ("maximize CPU, minimize memory": the tick loop itself
   is nowhere near CPU-bound, ~1ms against a 1000ms budget, so idle
@@ -399,7 +408,7 @@ cmake --build build --config Release -j$(nproc) --target llama-server
   --model /path/to/Qwen3-4B-Instruct-Q4_K_M.gguf \
   --ctx-size 3072 --parallel 1 --cache-type-k q8_0 --cache-type-v q8_0 \
   --no-mmproj --port 8080 \
-  --n-gpu-layers 999 --threads $(nproc)
+  --n-gpu-layers auto --fit on --threads $(nproc)
 
 # then, in another terminal (or LLAMA_SERVER_BIN=... ./scripts/run.sh):
 python -m hearthmind.server --db world.sqlite3 --llm-llamacpp-host http://localhost:8080
@@ -434,7 +443,7 @@ but resident weights + KV cache sit there while the model is warm no
 matter how rarely you call it).
 
 **Note (v0.72.4, corrected from v0.72.3):** the defaults documented
-elsewhere in this README (`--ctx-size 3072`, `--n-gpu-layers 999`)
+elsewhere in this README (`--ctx-size 3072`, `--n-gpu-layers auto`)
 assume GPU offload is working — confirmed on real hardware to be a
 real, meaningful improvement — but were revised down from an initial
 v0.72.3 pass (`--ctx-size 4096`, `llm_core_cast_size=18`,
