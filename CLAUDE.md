@@ -373,6 +373,60 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.81.1)
+
+Direct follow-up to a live "why has my village never formed a theory or
+a town-brain decision, even after 20,000 ticks?" report. Investigated
+rather than guessed: confirmed via direct scratchpad tests (both LLM
+disabled, and a fake always-succeeding instant LLM client) that the
+scheduling → parse → write-to-`Settlement.beliefs`/`current_priority` →
+`summary()` → UI-payload path is itself correct — both populate
+reliably within ~7,000-10,000 ticks in an isolated test. Also confirmed
+`current_priority` is genuinely mechanically consequential, not
+cosmetic: it drives `buildings._PRIORITY_TO_KIND` → `choose_building_
+kind`, so "the LLM is guiding emergence" is real, not narration-only.
+
+**Root cause: monthly settlement jobs had no retry.** `_monthly_gate`
+previously granted a job exactly ONE tick's chance per month (its
+single `MONTHLY_JOB_DAY` slot) — if that one tick landed during a
+backpressured stretch, the job silently waited a FULL MONTH before
+trying again. This is a much more fragile failure mode than per-agent
+cognition/dialogue (many staggered chances per sim-day, so one unlucky
+tick barely matters in aggregate). Given the v0.81.0 diagnostic's own
+numbers (`calls_dropped_backpressure` 616 vs. 100 attempted — a highly
+saturated queue at the time), a settlement's single monthly shot at
+`beliefs`/`town_brain` losing that roll for 7 consecutive months
+straight is entirely plausible, not a rare fluke.
+
+**Fix**: new `MONTHLY_JOB_RETRY_WINDOW_DAYS=3` and `MONTHLY_JOBS_WITH_
+RETRY` (chronicle, folklore, town_brain, beliefs, personal_belief,
+dream, faction, guild_founding, institution_belief, fission,
+geography — 11 of the 14 `_monthly_gate`-driven jobs). `_monthly_gate`
+now keeps offering these a chance for up to 3 consecutive days;
+`SimulationEngine._mark_monthly_resolved(job)`, called the instant a
+job's own backpressure check clears, marks it done for the month so it
+doesn't also re-fire on day 2/3 once it's already gotten its one real
+shot. **Deliberately excludes festival/caravan/omen**: each has its own
+independent per-month RNG "does this even happen" roll evaluated
+*before* its backpressure check — widening their window too would
+re-roll that chance on subsequent days, inflating the effective monthly
+probability beyond what `FESTIVAL_CHANCE_PER_MONTH`/`CARAVAN_CHANCE_
+PER_MONTH`/`omens.OMEN_CHANCE_BASE` were tuned for. Caught this exact
+regression risk during implementation (the first pass widened `_monthly_
+gate` for every job uniformly) and fixed it before landing — verified
+with a direct unit test that festival's gate stays exactly single-day
+while beliefs' stays open across its window until marked resolved.
+
+Verified: a live-shaped test that force-blocks `_settlement_job_
+backpressured()` specifically on `town_brain`'s and `beliefs`' first
+scheduled day each month (simulating exactly the reported failure mode)
+confirms both now recover within the same month's retry window (a few
+hundred ticks later) instead of waiting for the next month's slot;
+direct `_monthly_gate` unit tests confirming festival's single-day gate
+is unchanged and beliefs' retry-then-close behavior is correct;
+`scripts/verify_native_soak.py` (2 seeds, 1500 ticks) byte-identical —
+this batch touches no native module.
+
 ## Current state (v0.81.0)
 
 Direct response to a live `/diagnostics` report at population 231/

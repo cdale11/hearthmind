@@ -241,6 +241,49 @@ yearly jobs (tradition, invention, documentary) keep their own
 boundaries — at most 3 coincident calls once a year versus the old
 monthly ~10."""
 
+MONTHLY_JOBS_WITH_RETRY = frozenset({
+    "chronicle", "folklore", "town_brain", "beliefs", "personal_belief",
+    "dream", "faction", "guild_founding", "institution_belief", "fission",
+    "geography",
+})
+"""Job names `_monthly_gate` grants a `MONTHLY_JOB_RETRY_WINDOW_DAYS`-day
+window instead of one exact day — every monthly job EXCEPT festival/
+caravan/omen (each has its own independent per-month RNG roll that must
+stay a single evaluation, see MONTHLY_JOB_RETRY_WINDOW_DAYS). Must stay
+in lockstep with which `_maybe_schedule_*` methods actually call `_mark_
+monthly_resolved` — a job listed here without a matching `_mark_
+monthly_resolved` call would re-run every day of its window forever
+(never marks itself done); a job that calls `_mark_monthly_resolved` but
+isn't listed here gets no benefit from it (still single-exact-day gated,
+mark is simply never read)."""
+
+MONTHLY_JOB_RETRY_WINDOW_DAYS = 3
+"""How many consecutive days (starting at `MONTHLY_JOB_DAY[job]`)
+`_monthly_gate` keeps offering a job a chance to run, for the subset of
+monthly jobs with no RNG-gated "does this even happen" roll of their
+own (chronicle, folklore, town_brain, beliefs, personal_belief, dream,
+faction, guild_founding, institution_belief, fission, geography — see
+`SimulationEngine._mark_monthly_resolved`'s call sites). Root cause
+this fixes: a job previously got exactly ONE tick's chance per month —
+if that single tick happened to land during a backpressured stretch, it
+silently waited a FULL MONTH before trying again, unlike per-agent
+cognition/dialogue (many staggered chances per day, so one unlucky tick
+barely matters in aggregate). A live report of a settlement never once
+forming a belief or a town-brain decision after 20,000 ticks (~7
+monthly opportunities) traced to exactly this: each single-tick shot
+losing the backpressure roll, month after month. Retrying for a few
+days closes that gap without changing volume (still at most one real
+call per job per month — `_mark_monthly_resolved` marks the job done
+the instant backpressure clears, so getting through on day 2 of the
+window doesn't also fire again on day 3). Deliberately NOT applied to
+festival/caravan/omen — each has its own independent per-month RNG
+"does this even happen" roll evaluated *before* their backpressure
+check, and retrying those would re-roll the chance on subsequent days,
+inflating the effective monthly probability beyond what `FESTIVAL_
+CHANCE_PER_MONTH`/`CARAVAN_CHANCE_PER_MONTH`/`omens.OMEN_CHANCE_BASE`
+were tuned for — those three keep their original single-tick-per-month
+shape unchanged. See docs/DECISIONS.md, "monthly job retry window"."""
+
 PAUSED_POLL_SECONDS = 0.25
 """How often `run_forever`'s loop wakes up to re-check pause/stop state
 while paused, instead of sleeping for a full (possibly very long, at a
@@ -421,6 +464,13 @@ class SimulationEngine:
         two calls ago this same tick is visible to the next check, closing
         the staleness window to zero. See docs/DECISIONS.md, "backpressure
         reservation gap" pass."""
+        self._monthly_job_scheduled_month: dict[str, int] = {}
+        """job name -> absolute month ordinal (year * months_per_year +
+        month_index) it last got past its own backpressure check — lets
+        `_monthly_gate` retry on the next couple of days if a job's first
+        scheduled day was backpressured, instead of silently waiting a
+        full month. See MONTHLY_JOB_RETRY_WINDOW_DAYS and `_mark_monthly_
+        resolved`."""
         self._llm_calls_today = 0
         """Ollama calls scheduled so far this sim-day (all kinds:
         cognition, dialogue, settlement jobs). Reset to 0 on `day_end`
@@ -603,11 +653,46 @@ class SimulationEngine:
         return False
 
     def _monthly_gate(self, events: list[str], job: str) -> bool:
-        """True when `job`'s staggered day-of-month boundary was crossed
-        this tick — see MONTHLY_JOB_DAY. Replaces the shared
-        `"month_end" in events` gate every monthly LLM job used to
-        check, which made them all fire in one burst."""
-        return "day_end" in events and self.world.clock.day_of_month == MONTHLY_JOB_DAY[job]
+        """True when `job`'s staggered day-of-month window is open this
+        tick — see MONTHLY_JOB_DAY. Replaces the shared `"month_end" in
+        events` gate every monthly LLM job used to check, which made them
+        all fire in one burst.
+
+        Jobs in `MONTHLY_JOBS_WITH_RETRY` (v0.81.1) get a `MONTHLY_JOB_
+        RETRY_WINDOW_DAYS`-day window instead of one exact day: still True
+        on any of those days UNLESS this job already got past its own
+        backpressure check once this month (`_monthly_job_scheduled_
+        month`, set by `_mark_monthly_resolved` — call it the instant a
+        caller's own backpressure check clears, so a job that got through
+        on day 1 doesn't also fire again on day 2 or 3). Every other job
+        (festival/caravan/omen, each with its own independent per-month
+        RNG "does this even happen" roll) keeps the original single-exact-
+        day behavior — widening their window too would re-evaluate that
+        roll on multiple days a month, inflating the effective monthly
+        chance beyond what it was tuned for. See MONTHLY_JOB_RETRY_
+        WINDOW_DAYS' docstring."""
+        if "day_end" not in events:
+            return False
+        clock = self.world.clock
+        start_day = MONTHLY_JOB_DAY[job]
+        day = clock.day_of_month
+        if job not in MONTHLY_JOBS_WITH_RETRY:
+            return day == start_day
+        if day < start_day or day >= start_day + MONTHLY_JOB_RETRY_WINDOW_DAYS:
+            return False
+        month_ordinal = clock.year * len(self.world.config.days_per_month) + clock.month_index
+        return self._monthly_job_scheduled_month.get(job) != month_ordinal
+
+    def _mark_monthly_resolved(self, job: str) -> None:
+        """Call the instant `job`'s own backpressure check clears (not
+        before — see `_monthly_gate`'s retry-window docstring) so a
+        further `_monthly_gate` check later this same month reads False.
+        Idempotent to call more than once; only ever read back within the
+        same month it was set (compared against a fresh month_ordinal),
+        so nothing here needs pruning across a long-running world."""
+        clock = self.world.clock
+        month_ordinal = clock.year * len(self.world.config.days_per_month) + clock.month_index
+        self._monthly_job_scheduled_month[job] = month_ordinal
 
     def _settlement_by_id(self, settlement_id: int) -> "Settlement":
         """Resolve a settlement id captured in a job closure back to the
@@ -1265,6 +1350,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_monthly_resolved("chronicle")
         settlement = self._job_target()
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         population_summary = self.world.population.summary()
@@ -1425,6 +1511,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_monthly_resolved("folklore")
         rumor_events = events_by_category(self.conn, "rumor", limit=20)
         existing_folklore = list(target.folklore)
         prompt = folklore.build_prompt(target.name, rumor_events, existing_folklore)
@@ -1661,6 +1748,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_monthly_resolved("town_brain")
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         population_summary = self.world.population.summary()
         settlement_summary = settlement.summary()
@@ -1714,6 +1802,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_monthly_resolved("beliefs")
         recent = recent_events_diverse(self.conn, limit=30)
         population_summary = self.world.population.summary()
         settlement_summary = settlement.summary()
@@ -1802,6 +1891,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_monthly_resolved("personal_belief")
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "personal_belief")
         agent = rng.choice(candidates)
         agent_id = agent.id
@@ -1876,6 +1966,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_monthly_resolved("dream")
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "dream")
         agent = rng.choice(candidates)
         agent_id = agent.id
@@ -2186,6 +2277,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_monthly_resolved("faction")
         prompt = faction.build_prompt(candidate, faction_target.name)
         fallback = faction.fallback_faction(candidate)
         member_ids = [a.id for a in candidate]
@@ -2223,6 +2315,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_monthly_resolved("guild_founding")
         founder, skill, masters = candidate
         prompt = founding.build_prompt(founder, skill, len(masters), guild_target.name)
         fallback = founding.fallback_founding(founder)
@@ -2260,6 +2353,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_monthly_resolved("institution_belief")
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "institution_belief")
         institution = rng.choice(candidates)
         if institution.kind is InstitutionKind.COUNCIL:
@@ -2342,6 +2436,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_monthly_resolved("fission")
         leader, home = candidate
         members = home.living_member_count(self.world.population.agents)
         housing = sum(
@@ -2420,6 +2515,7 @@ class SimulationEngine:
             return  # everything nameable already has a name — permanent no-op
         if self._settlement_job_backpressured():
             return
+        self._mark_monthly_resolved("geography")
         prompt = geography.build_prompt(
             self.world.settlement.name, feature_kind, self.world.settlement.founding_scenario,
         )

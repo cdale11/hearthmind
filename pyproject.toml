@@ -1,6 +1,6 @@
 [project]
 name = "hearthmind"
-version = "0.81.0"
+version = "0.81.1"
 description = "A persistent, always-running artificial world — a town in a box."
 readme = "README.md"
 requires-python = ">=3.10"

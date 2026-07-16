@@ -4,6 +4,44 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.81.1] — Monthly settlement jobs get a bounded retry window
+
+Direct response to a live report: a village had never once formed a
+belief or gotten a town-brain decision after 20,000 ticks. Confirmed
+the scheduling/parsing/write/UI-display path itself was correct (fake-
+client tests populate both reliably within ~10k ticks) and that
+`current_priority` is mechanically real (drives `choose_building_kind`,
+not just narration) — the actual bug was scheduling fragility.
+
+### Fixed
+
+- `_monthly_gate` previously gave a job exactly ONE tick's chance per
+  month; if that tick landed during a backpressured stretch (plausible
+  given v0.81.0's own diagnostic: 616 backpressure drops vs. 100
+  attempted calls), the job silently waited a full month before trying
+  again — for 7 straight months in the reported case. New `MONTHLY_JOB_
+  RETRY_WINDOW_DAYS=3` + `MONTHLY_JOBS_WITH_RETRY` (11 of the 14
+  monthly jobs — chronicle, folklore, town_brain, beliefs, personal_
+  belief, dream, faction, guild_founding, institution_belief, fission,
+  geography) + `_mark_monthly_resolved`: these jobs now get up to 3
+  days to get past backpressure, marking themselves done the instant
+  they do (still at most one real attempt per job per month).
+  Deliberately excludes festival/caravan/omen, each of which has its
+  own independent per-month RNG roll that must NOT be re-evaluated on
+  multiple days (would inflate their tuned monthly probability) — kept
+  their original single-exact-day gating unchanged.
+
+### Verified
+
+- A live-shaped test force-blocking backpressure specifically on
+  town_brain's/beliefs' first scheduled day each month confirms both
+  now recover within the same month instead of waiting for the next.
+- Direct `_monthly_gate` unit tests: festival's gate stays exactly
+  single-day; beliefs' stays open across its window until marked
+  resolved, then closes for the rest of the month.
+- `scripts/verify_native_soak.py` (2 seeds, 1500 ticks) byte-identical
+  — this batch touches no native module.
+
 ## [0.81.0] — LLM scheduler: backpressure fix, adaptive load control, config re-tune; movement bug fix
 
 Direct response to a live `/diagnostics` report at population 231:
