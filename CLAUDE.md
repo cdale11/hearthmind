@@ -373,6 +373,32 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.84.2)
+
+Direct emergence follow-up to v0.84.0/.1 (per "both in parallel"):
+closes the two remaining items `llm/consciousness.py`'s own docstring
+had flagged as "not attempted here" — `omen_phrasing_seed` and
+`dream_symbol_seed`. `Settlement.omen_seed`/`dream_seed` (new,
+`settlement/buildings.py`) queue a phrase, same shape as
+`player_influence`, always founding-settlement-scoped regardless of
+which settlement's own omen/dream turn it happens to be (the
+consciousness is world-scoped). `llm/omens.py`/`llm/dream.py`'s
+`build_prompt` each gained an optional seed parameter, folded in with
+the same "texture, never a required thread" treatment as
+`past_omens`/`folklore`/`narrative_theme`. Retained on a fallback
+(cleared only after a genuine success) — same discipline as
+`player_influence`. `ALLOWED_INTERVENTIONS` now has 5 of the vision
+doc's menu; only a misplaced-object event remains unattempted (would
+need a new inventory-shuffle mechanic, not just a reused-state seed).
+
+Verified: direct tests confirm both interventions correctly queue their
+seed, both prompts correctly fold in a queued seed, a forced real
+`_maybe_schedule_omen` call confirms the seed reaches the actual
+engine-built prompt and clears only on non-fallback success;
+`omen_seed`/`dream_seed` round-trip exactly, legacy snapshots default
+cleanly; a 20,000-tick soak cycling through all five intervention kinds
+completes with zero crashes and bounded state.
+
 ## Current state (v0.84.1)
 
 Direct observatory follow-up to v0.84.0: Town Consciousness v2's state

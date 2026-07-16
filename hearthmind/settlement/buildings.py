@@ -1524,6 +1524,15 @@ class SettlementDisposition:
     player_influence: list[str] = field(default_factory=list)
     """Queued player "whispers" (POST /intervene/town-brain), consumed
     by the next *successful* town-brain call (retained on fallback)."""
+    omen_seed: str = ""
+    """Phase N: a queued `omen_phrasing_seed` consciousness intervention
+    (`llm.consciousness`), consumed and cleared by the next
+    `_maybe_schedule_omen` call — same "queued input for the next job"
+    shape as `player_influence`, just single-valued and settlement-
+    internal rather than player-facing."""
+    dream_seed: str = ""
+    """Phase N: a queued `dream_symbol_seed` consciousness intervention,
+    consumed and cleared by the next `_maybe_schedule_dream` call."""
     current_priority: str = ""
     """The town brain's current civic priority — measurably steers
     `choose_building_kind` and settle chance. Empty until the first
@@ -1593,6 +1602,7 @@ class Settlement:
         mood: dict[str, float] | None = None,
         rituals: list[dict] | None = None, ritual_signal_counts: dict | None = None,
         religion: dict | None = None, narrative_themes: list[dict] | None = None,
+        omen_seed: str = "", dream_seed: str = "",
     ):
         self.id = id
         """Stable settlement identity (multi-settlement pass, v0.65.0):
@@ -1650,6 +1660,7 @@ class Settlement:
             priority_history=priority_history if priority_history is not None else [],
             relations=relations if relations is not None else {},
             mood=mood if mood is not None else {},
+            omen_seed=omen_seed, dream_seed=dream_seed,
         )
         self._position_index: dict | None = None
         """(x, y) -> Building cache behind `at()` — never serialized,
@@ -2033,6 +2044,22 @@ class Settlement:
         self.disposition.player_influence = value
 
     @property
+    def omen_seed(self) -> str:
+        return self.disposition.omen_seed
+
+    @omen_seed.setter
+    def omen_seed(self, value: str) -> None:
+        self.disposition.omen_seed = value
+
+    @property
+    def dream_seed(self) -> str:
+        return self.disposition.dream_seed
+
+    @dream_seed.setter
+    def dream_seed(self, value: str) -> None:
+        self.disposition.dream_seed = value
+
+    @property
     def current_priority(self) -> str:
         return self.disposition.current_priority
 
@@ -2317,6 +2344,8 @@ class Settlement:
             "rituals": list(self.rituals),
             "religion": dict(self.religion) if self.religion is not None else None,
             "narrative_themes": list(self.narrative_themes),
+            "omen_seed": self.omen_seed,
+            "dream_seed": self.dream_seed,
         }
 
     def infrastructure_report(self) -> list[dict]:
@@ -2430,6 +2459,8 @@ class Settlement:
             "ritual_signal_counts": dict(self.ritual_signal_counts),
             "religion": dict(self.religion) if self.religion is not None else None,
             "narrative_themes": list(self.narrative_themes),
+            "omen_seed": self.omen_seed,
+            "dream_seed": self.dream_seed,
         }
 
     @classmethod
@@ -2479,4 +2510,6 @@ class Settlement:
             ritual_signal_counts=dict(data.get("ritual_signal_counts", {})),
             religion=dict(data["religion"]) if data.get("religion") is not None else None,
             narrative_themes=list(data.get("narrative_themes", [])),
+            omen_seed=data.get("omen_seed", ""),
+            dream_seed=data.get("dream_seed", ""),
         )

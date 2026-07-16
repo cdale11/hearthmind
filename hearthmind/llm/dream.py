@@ -32,7 +32,7 @@ SYSTEM_PROMPT = (
 
 def build_prompt(
     agent_name: str, emotions: dict, preoccupation: str, latest_folklore: str = "",
-    narrative_theme: str = "",
+    narrative_theme: str = "", symbol_seed: str = "",
 ) -> str:
     emotion_text = describe_emotion(emotions)
     feeling_line = f" Lately they've been feeling {emotion_text}." if emotion_text else ""
@@ -41,8 +41,14 @@ def build_prompt(
     # Phase M "Narrative Direction": ambient bias, never a required
     # symbol — a dream is allowed to have nothing to do with it.
     theme_line = f" The village's recent mood has been one of {narrative_theme}." if narrative_theme else ""
+    # Phase N (docs/VISION-2026-07.md, "The Town Awake"): a
+    # `dream_symbol_seed` consciousness intervention may offer one image
+    # to weave in — allowed, never required, same discipline as every
+    # other optional line here.
+    seed_line = f" If it fits, the dream could involve: {symbol_seed}." if symbol_seed else ""
     return (
-        f"{agent_name} fell asleep last night.{feeling_line}{preoccupation_line}{folklore_line}{theme_line} "
+        f"{agent_name} fell asleep last night.{feeling_line}{preoccupation_line}{folklore_line}"
+        f"{theme_line}{seed_line} "
         "Describe the dream they had."
     )
 

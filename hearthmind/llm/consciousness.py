@@ -18,17 +18,28 @@ for that case.
 """
 from __future__ import annotations
 
-ALLOWED_INTERVENTIONS = frozenset({"none", "weather_nudge", "temperament_nudge", "false_memory"})
+ALLOWED_INTERVENTIONS = frozenset({
+    "none", "weather_nudge", "temperament_nudge", "false_memory",
+    "omen_phrasing_seed", "dream_symbol_seed",
+})
 """The bounded intervention menu. Deliberately smaller than the vision
-doc's full list (also names omen phrasing/dream symbol seeds and a
-misplaced-object event) — scoped to the three that ride existing state
-with zero new cross-module plumbing (world.weather is already blended
-forward tick to tick; tick_temperament already supports a bounded
-`extra` nudge shape via the shared bounded_random_walk_step primitive;
-_remember already exists). Each has a mundane explanation: weather
-drifts, moods drift, a memory can simply be misremembered. Omen/dream
-seeding and misplaced objects are a natural follow-up, not attempted
-here to keep this slice reviewable."""
+doc's full list (still missing a misplaced-object event) — scoped to
+interventions that ride existing state with zero new cross-module
+plumbing beyond a single queued-string field per mechanism (world.
+weather is already blended forward tick to tick; tick_temperament
+already supports a bounded `extra` nudge shape via the shared
+bounded_random_walk_step primitive; _remember already exists;
+`omen_phrasing_seed`/`dream_symbol_seed` queue onto `Settlement.
+omen_seed`/`dream_seed` — same "queued input for the next job" shape as
+`player_influence` — consumed and cleared by the next `_maybe_schedule_
+omen`/`_maybe_schedule_dream` call, retained on a fallback so a flaky
+LLM stretch never silently drops a queued seed). Each has a mundane
+explanation: weather drifts, moods drift, a memory can simply be
+misremembered, an omen or a dream can simply happen to rhyme with
+something. A misplaced-object event is the one remaining vision-doc
+option, not attempted here — it implies a new inventory-shuffle
+mechanic rather than reusing existing state, a larger unit of work than
+this slice."""
 
 SYSTEM_PROMPT = (
     "You are the quiet, persistent awareness a small simulated village might be "
@@ -46,9 +57,10 @@ SYSTEM_PROMPT = (
     'or empty, revising your private read on the outside hand", "objectives": '
     '["at most 2 short standing preoccupations — omit or leave empty to keep your '
     'current ones unchanged"], "intervention": "one of none, weather_nudge, '
-    'temperament_nudge, false_memory", "intervention_detail": "one short phrase, or '
-    'empty if intervention is none, describing what you nudged or the false memory '
-    "you planted\"}."
+    'temperament_nudge, false_memory, omen_phrasing_seed, dream_symbol_seed", '
+    '"intervention_detail": "one short phrase, or empty if intervention is none — the '
+    "false memory you planted, a hint to color the village's next unexplained omen, "
+    "or an image to color someone's next dream\"}."
 )
 
 

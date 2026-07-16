@@ -4,6 +4,56 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.84.2] — Phase N follow-up: omen/dream seeding interventions
+
+Direct emergence follow-up to v0.84.0/.1, per the "both in parallel"
+direction: closes two of the vision doc's two remaining Phase N menu
+items (`omen_phrasing_seed`, `dream_symbol_seed`) that `llm/
+consciousness.py`'s own module docstring had explicitly flagged as "a
+natural follow-up, not attempted here." Both ride existing state with
+minimal new plumbing, matching the same discipline as the original
+three interventions.
+
+### Added
+
+- `Settlement.omen_seed`/`dream_seed` (new, `settlement/buildings.py`):
+  single-valued queued strings, same "queued input for the next job"
+  shape as `player_influence`, always founding-settlement-scoped (the
+  consciousness is world-scoped, not per-settlement) regardless of
+  which settlement's own omen/dream turn it is. Retained on a fallback
+  (only cleared on a genuine, non-fallback LLM success) so a flaky LLM
+  stretch never silently drops a queued seed — same discipline
+  `player_influence` already established.
+- `llm/omens.py`'s `build_prompt` and `llm/dream.py`'s `build_prompt`
+  each gained an optional `seed_phrase`/`symbol_seed` parameter, folded
+  in with the same "texture, never a required thread" treatment as
+  `past_omens`/`folklore`/`narrative_theme` already get — the model is
+  always free to ignore it.
+- `llm/consciousness.py`'s `ALLOWED_INTERVENTIONS` and system prompt
+  extended to include both; `SimulationEngine._apply_consciousness_
+  intervention` queues the detail text onto the relevant seed field;
+  `_maybe_schedule_omen`/`_maybe_schedule_dream` read and (on success)
+  clear it.
+- **Scope note**: a misplaced-object event remains the one unattempted
+  item from the vision doc's fuller menu — it implies a new inventory-
+  shuffle mechanic rather than reusing existing state, a larger unit of
+  work than this follow-up slice.
+
+### Verified
+
+Direct tests: both interventions correctly queue their seed onto the
+founding settlement; `build_prompt` for both omens and dreams correctly
+folds a queued seed into the generated prompt text; a forced real
+`_maybe_schedule_omen` call confirms the seed reaches the engine-built
+prompt and is cleared only after a genuine (non-fallback) success;
+`omen_seed`/`dream_seed` round-trip exactly through `to_dict`/
+`from_dict`, legacy snapshots missing them default cleanly to `""`; a
+20,000-tick engine soak with a fake client cycling through all five
+intervention kinds (including both new ones) completes with zero
+crashes and bounded memory/intervention-log lengths.
+`scripts/verify_native_soak.py` unaffected — this batch touches no
+native module.
+
 ## [0.84.1] — Observatory follow-up: consciousness in the dev console
 
 Direct follow-up to v0.84.0, per the "keep both moving in parallel"

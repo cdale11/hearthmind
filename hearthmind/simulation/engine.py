@@ -2058,6 +2058,17 @@ class SimulationEngine:
                 partner = next((a for a in self.world.population.agents if a.id == partner_id), None)
                 if partner is not None:
                     _remember(partner, text)
+        elif kind == "omen_phrasing_seed":
+            # Queued, not applied directly — the next `_maybe_schedule_
+            # omen` call folds it in as one more optional echo line (see
+            # llm/omens.py's `seed_line`), then clears it, so a seed that
+            # never gets used (omens are rare by design) doesn't pile up
+            # silently — only the freshest seed is ever live.
+            if detail:
+                target.omen_seed = detail
+        elif kind == "dream_symbol_seed":
+            if detail:
+                target.dream_seed = detail
 
     # --- caravans: a first, scoped step toward "external settlements and trade" ---
 
@@ -2375,9 +2386,18 @@ class SimulationEngine:
         home = self._settlement_by_id(agent.settlement_id)
         if home.folklore:
             latest_folklore = home.folklore[-1]["tale"]
+        # Phase N: a queued `dream_symbol_seed` consciousness
+        # intervention lives on the founding settlement (the
+        # consciousness is world-scoped, not per-settlement — same as
+        # player_influence), read here regardless of which settlement
+        # the dreaming agent actually belongs to. Only cleared on a
+        # genuine (non-fallback) success, in `apply` below — same
+        # "retained on fallback so a flaky LLM stretch never silently
+        # eats a queued input" discipline as player_influence.
+        symbol_seed = self.world.settlement.dream_seed
         prompt = dream.build_prompt(
             agent.name, dict(agent.emotions), agent.goal_reason, latest_folklore,
-            narrative_theme=self._narrative_theme_bias(home),
+            narrative_theme=self._narrative_theme_bias(home), symbol_seed=symbol_seed,
         )
         fallback = dream.fallback_dream(agent.name, dict(agent.emotions))
 
@@ -2387,6 +2407,8 @@ class SimulationEngine:
                 return  # died between scheduling and resolution
             dream_text = dream.parse_dream(result, fallback)
             _remember(target, f"Dreamed: {dream_text}")
+            if not used_fallback and self.world.settlement.dream_seed == symbol_seed:
+                self.world.settlement.dream_seed = ""
 
         self._schedule_llm_job("dream", prompt, dream.SYSTEM_PROMPT, fallback, apply)
 
@@ -2526,10 +2548,18 @@ class SimulationEngine:
             foreign_omen = foreign.omen_history[-1]["omen"]
             if foreign_omen not in past_omens:
                 past_omens = past_omens + [foreign_omen]
+        # Phase N: a queued `omen_phrasing_seed` consciousness
+        # intervention lives on the founding settlement regardless of
+        # which settlement's omen turn this is (`omen_target` is a
+        # month-indexed round-robin, but the consciousness itself is
+        # world-scoped, not per-settlement) — same retained-on-fallback
+        # discipline as the dream seed above.
+        seed_phrase = self.world.settlement.omen_seed
         prompt = omens.build_prompt(
             omen_target.name, temperament, recent, subject_name=subject_name, past_omens=past_omens,
             folklore=list(omen_target.folklore),
             narrative_theme=self._narrative_theme_bias(omen_target),
+            seed_phrase=seed_phrase,
         )
         fallback = omens.fallback_omen(temperament, self.world.clock.tick_count, subject_name=subject_name)
         omen_target_id = omen_target.id
@@ -2538,6 +2568,8 @@ class SimulationEngine:
             omen = omens.parse_omen(result, fallback)
             self._log("omen", omen)
             self._settlement_by_id(omen_target_id).record_omen(self.world.clock.tick_count, omen, subject_name)
+            if not used_fallback and self.world.settlement.omen_seed == seed_phrase:
+                self.world.settlement.omen_seed = ""
 
         self._schedule_llm_job("omen", prompt, omens.SYSTEM_PROMPT, fallback, apply)
 

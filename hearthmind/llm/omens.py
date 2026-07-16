@@ -51,6 +51,7 @@ SYSTEM_PROMPT = (
 def build_prompt(
     settlement_name: str, temperament: float, recent_events: list[dict], subject_name: str = "",
     past_omens: list[str] | None = None, folklore: list[dict] | None = None, narrative_theme: str = "",
+    seed_phrase: str = "",
 ) -> str:
     lean = "unusually fortunate" if temperament > 0.15 else "unusually unlucky" if temperament < -0.15 else "unremarkable"
     lines = [f"- {event['description']}" for event in recent_events[:10]]
@@ -80,9 +81,15 @@ def build_prompt(
         if folklore else ""
     )
     theme_line = f"\nThe recent theme of village life has been {narrative_theme}." if narrative_theme else ""
+    # Phase N (docs/VISION-2026-07.md, "The Town Awake"): an
+    # `omen_phrasing_seed` consciousness intervention offers one more
+    # optional texture source, same "coloring, never a required thread"
+    # treatment as memory_line/folklore_line above — the model is free
+    # to ignore it entirely.
+    seed_line = f"\nIf it fits naturally, this could carry a hint of: {seed_phrase}." if seed_phrase else ""
     return (
         f"The village of {settlement_name} has had a run of {lean} fortune lately.\n"
-        f"Recent history:\n{events_text}{subject_line}{memory_line}{folklore_line}{theme_line}\n"
+        f"Recent history:\n{events_text}{subject_line}{memory_line}{folklore_line}{theme_line}{seed_line}\n"
         "Note one small, unexplained thing someone in the village noticed."
     )
 
