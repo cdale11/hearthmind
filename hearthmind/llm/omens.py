@@ -50,7 +50,7 @@ SYSTEM_PROMPT = (
 
 def build_prompt(
     settlement_name: str, temperament: float, recent_events: list[dict], subject_name: str = "",
-    past_omens: list[str] | None = None,
+    past_omens: list[str] | None = None, folklore: list[dict] | None = None,
 ) -> str:
     lean = "unusually fortunate" if temperament > 0.15 else "unusually unlucky" if temperament < -0.15 else "unremarkable"
     lines = [f"- {event['description']}" for event in recent_events[:10]]
@@ -70,9 +70,18 @@ def build_prompt(
         + "; ".join(past_omens[-3:])
         if past_omens else ""
     )
+    # Phase K: the village's own folklore is one more optional echo
+    # source, same "texture, never a required thread" treatment as
+    # past_omens above — a tale already told is exactly the kind of
+    # half-remembered thing a new omen might unconsciously rhyme with.
+    folklore_line = (
+        "\nIt could also, without saying so, echo a tale the village already tells: "
+        + "; ".join(f["tale"] for f in folklore[-2:])
+        if folklore else ""
+    )
     return (
         f"The village of {settlement_name} has had a run of {lean} fortune lately.\n"
-        f"Recent history:\n{events_text}{subject_line}{memory_line}\n"
+        f"Recent history:\n{events_text}{subject_line}{memory_line}{folklore_line}\n"
         "Note one small, unexplained thing someone in the village noticed."
     )
 

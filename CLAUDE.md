@@ -366,6 +366,49 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.79.0)
+
+Phase K start (docs/VISION-2026-07.md, "Knowledge & Story"), scoped to
+two of its four pieces per an explicit scoping question — Folklore
+condensation + Historian v2 — with rumor distortion (InterpretRumor())
+and Dream() deferred pending their own call-volume budget discussion
+(both would add real new recurring per-agent volume; these two don't).
+
+**Folklore condensation**: new `Settlement.folklore` (`settlement/
+buildings.py`, cap `FOLKLORE_MAX_STORED=24`) — monthly, settlement-
+scoped, same call-volume shape as tradition/invention/festival (one
+bounded job in the existing `MONTHLY_JOB_DAY` rotation, day 20, not a
+new per-agent gate). `llm/folklore.py` reads the settlement's own
+recent rumor-category events (new `events_by_category` helper,
+`persistence/snapshot.py` — deliberately the literal rumor stream, not
+the diversity-adjusted digest, since rumors are never routine) and
+condenses them into one short tale, or — the honest, expected common
+case — says there's nothing worth telling yet; a folklore entry doesn't
+form every month just because the job ran. Scoped down from the vision
+doc's fuller per-rumor hops/mutation tracking, which doesn't exist in
+this codebase yet — this closes only the "condensation" half of Phase
+K's rumor→folklore→myth pipeline.
+
+**Historian v2**: `llm/chronicle.py`'s system prompt now explicitly
+asks the model to *interpret* the season, not just summarize it
+("the winter the forest seemed to close in again"), and its prompt
+gains the settlement's newest folklore as an optional interpretive lens
+(used only "if it fits," per the same discipline `past_omens` already
+follows). Folklore also feeds `llm/omens.py`'s existing "echo of
+something noticed before" mechanism, the same texture-not-thread
+treatment. Dialogue consumption deferred (not essential to "Historian
+v2," kept scope tight).
+
+**UI**: new "Folklore" panel (index.html/app.js) alongside Traditions/
+Inventions/Festivals, showing tales newest-first.
+
+Verified: direct `_maybe_schedule_folklore` call against a fake client
+with a real rumor-category event logged — a folklore entry lands on
+the settlement, correctly appears in a subsequently-built chronicle
+prompt; `folklore` round-trips exactly through to_dict/from_dict;
+`scripts/verify_native_soak.py` (2 seeds, 1500 ticks) byte-identical —
+this batch touches no native module.
+
 ## Current state (v0.78.5)
 
 Direct explicit config-tuning instructions, all implemented as asked:

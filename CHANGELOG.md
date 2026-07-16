@@ -4,6 +4,42 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.79.0] — Phase K start: folklore condensation + Historian v2
+
+Phase K (docs/VISION-2026-07.md, "Knowledge & Story"), scoped to 2 of
+4 pieces per an explicit scoping question — rumor distortion
+(InterpretRumor()) and Dream() deferred, both would add real new
+recurring per-agent LLM call volume.
+
+### Added
+
+- `Settlement.folklore` (`settlement/buildings.py`, cap
+  `FOLKLORE_MAX_STORED=24`) + `llm/folklore.py` — monthly settlement job
+  (new `MONTHLY_JOB_DAY["folklore"]=20`), same call-volume shape as
+  tradition/invention/festival. Condenses recent rumor-category events
+  into a short tale, or honestly says nothing's worth telling yet
+  (the common, expected outcome).
+- `persistence/snapshot.py`: `events_by_category` — category-filtered
+  event query, used by the folklore job to read the literal rumor
+  stream (not the diversity-adjusted digest).
+- UI: "Folklore" panel (index.html/app.js), tales newest-first.
+
+### Changed
+
+- `llm/chronicle.py` ("Historian v2"): system prompt now asks the model
+  to interpret the season, not just summarize it; prompt gains the
+  settlement's newest folklore as an optional interpretive lens.
+- `llm/omens.py`: folklore feeds the existing "echo of something
+  noticed before" mechanism, same optional-texture treatment as
+  `past_omens`.
+
+### Verified
+
+- Direct `_maybe_schedule_folklore` call with a fake client and a real
+  rumor event: folklore entry lands, appears in a subsequently-built
+  chronicle prompt. Round-trip exact. `scripts/verify_native_soak.py`
+  (2 seeds, 1500 ticks): byte-identical.
+
 ## [0.78.5] — LLM config tuning: concurrency floor, batch/ubatch, defrag
 
 Explicit user-directed config tuning for a long stable run on ~6.88GB

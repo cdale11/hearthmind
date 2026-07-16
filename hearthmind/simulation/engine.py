@@ -47,14 +47,14 @@ from hearthmind.config import Config
 from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
-    fission, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, festival, founding,
+    fission, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, festival, folklore, founding,
     geography, invention, mind, naming, omens, summary, town_brain,
 )
 from hearthmind.llm.client import build_llm_client
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import (
-    history_events, load_latest_snapshot, log_event, log_metrics,
+    events_by_category, history_events, load_latest_snapshot, log_event, log_metrics,
     recent_events, recent_events_diverse, save_snapshot,
 )
 from hearthmind.agents.population import (
@@ -72,6 +72,7 @@ from hearthmind.settlement.buildings import (
     ERA_DESCRIPTIONS,
     FESTIVAL_CHANCE_PER_MONTH,
     FESTIVAL_HUNGER_GATE,
+    FOLKLORE_MAX_STORED,
     INVENTION_CHANCE_PER_SEASON,
     INVENTION_CURRENCY_THRESHOLD,
     INVENTION_MATERIALS_FRACTION,
@@ -198,7 +199,7 @@ buffered entries loses nothing durable."""
 MONTHLY_JOB_DAY = {
     "chronicle": 1, "festival": 4, "caravan": 7, "fission": 8, "town_brain": 10,
     "beliefs": 13, "personal_belief": 16, "guild_founding": 19,
-    "institution_belief": 22, "geography": 25, "omen": 27,
+    "institution_belief": 22, "geography": 25, "folklore": 20, "omen": 27,
 }
 """Day-of-month (0-based; every value <= 27 so it exists even in
 February) on which each monthly LLM job fires — the memory-pressure
@@ -674,6 +675,7 @@ class SimulationEngine:
         ("_maybe_schedule_chronicle", _JOB_EVENTS_SEASON),
         ("_maybe_schedule_documentary", _JOB_EVENTS),
         ("_maybe_schedule_tradition", _JOB_EVENTS),
+        ("_maybe_schedule_folklore", _JOB_EVENTS),
         ("_maybe_schedule_invention", _JOB_EVENTS),
         ("_maybe_schedule_festival", _JOB_EVENTS),
         ("_maybe_schedule_caravan", _JOB_EVENTS),
@@ -1139,6 +1141,7 @@ class SimulationEngine:
             traditions=settlement.traditions[-PROMPT_CULTURE_LIST_MAX:],
             beliefs=list(settlement.beliefs),
             place_names=dict(settlement.place_names),
+            folklore=list(settlement.folklore),
         )
         fallback = chronicle.fallback_summary(
             recent, population_summary, previous_season, year,
@@ -1265,6 +1268,43 @@ class SimulationEngine:
             self._log("tradition", f"{settlement.name or 'The village'} established a new tradition — {entry}")
 
         self._schedule_llm_job("tradition", prompt, culture.SYSTEM_PROMPT, fallback, apply)
+
+    def _maybe_schedule_folklore(self, events: list[str]) -> None:
+        """Phase K "folklore condensation" (docs/VISION-2026-07.md,
+        "Knowledge & Story") — monthly, same call-volume shape as
+        tradition/invention/festival (one bounded settlement job in the
+        existing rotation). Reads the settlement's own recent rumor-
+        category events (`events_by_category`, not the diversity-
+        adjusted digest — folklore specifically wants the literal rumor
+        stream, the diversity fix exists to keep OTHER prompts from
+        being crowded by routine events, and rumors are never routine)
+        and asks the LLM to condense them into one enduring tale, or
+        honestly say there's nothing worth telling yet — most months
+        that's the real, expected answer, not every month needs to mint
+        a new legend. See llm/folklore.py."""
+        target = self._job_target()
+        if not self._monthly_gate(events, "folklore") or not target.name:
+            return
+        if self._settlement_job_backpressured():
+            return
+        rumor_events = events_by_category(self.conn, "rumor", limit=20)
+        existing_folklore = list(target.folklore)
+        prompt = folklore.build_prompt(target.name, rumor_events, existing_folklore)
+        fallback = folklore.fallback_folklore(target.name, rumor_events)
+        target_id = target.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            entry = folklore.parse_folklore(result, fallback)
+            if entry is None:
+                return  # nothing worth telling this month — a real, expected outcome
+            settlement = self._settlement_by_id(target_id)
+            entry["tick"] = self.world.clock.tick_count
+            settlement.folklore.append(entry)
+            if len(settlement.folklore) > FOLKLORE_MAX_STORED:
+                settlement.folklore = settlement.folklore[-FOLKLORE_MAX_STORED:]
+            self._log("folklore", f"{settlement.name or 'The village'} now tells a new tale — {entry['tale']}")
+
+        self._schedule_llm_job("folklore", prompt, folklore.SYSTEM_PROMPT, fallback, apply)
 
     # --- Phase E3: inventions (tech-tier unlocks) -----------------------------
 
@@ -1803,6 +1843,7 @@ class SimulationEngine:
                 past_omens = past_omens + [foreign_omen]
         prompt = omens.build_prompt(
             omen_target.name, temperament, recent, subject_name=subject_name, past_omens=past_omens,
+            folklore=list(omen_target.folklore),
         )
         fallback = omens.fallback_omen(temperament, self.world.clock.tick_count, subject_name=subject_name)
         omen_target_id = omen_target.id

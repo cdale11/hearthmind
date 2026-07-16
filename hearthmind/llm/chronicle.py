@@ -11,8 +11,12 @@ from __future__ import annotations
 
 SYSTEM_PROMPT = (
     "You are the chronicler of a small simulated world. Given a list of "
-    "recent events, write ONE short paragraph (2-4 sentences) summarizing "
-    "what happened this season, in a plain, slightly wry historical tone. "
+    "recent events, write ONE short paragraph (2-4 sentences) about this "
+    "season, in a plain, slightly wry historical tone. Interpret, don't "
+    "just summarize: a good chronicler reaches for meaning in what "
+    "happened — 'the winter the forest seemed to close in again', not a "
+    "flat list of who did what. If the village's own folklore offers a "
+    "lens that fits, let it color the telling; if not, find your own. "
     'Respond with strict JSON only, no other text: {"summary": "..."}.'
 )
 
@@ -20,7 +24,7 @@ SYSTEM_PROMPT = (
 def build_prompt(
     recent_events: list[dict], population_summary: dict, season: str, year: int,
     settlement_name: str = "", traditions: list[str] | None = None, beliefs: list[dict] | None = None,
-    place_names: dict | None = None,
+    place_names: dict | None = None, folklore: list[dict] | None = None,
 ) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened."
@@ -38,6 +42,12 @@ def build_prompt(
             # Named geography (v0.64.0): the chronicle refers to the
             # village's own named waters, not "the river" in the abstract.
             culture += f"Its named places: {'; '.join(place_names.values())}. "
+        if folklore:
+            # Phase K "Historian v2": the tales the village already
+            # tells itself are available as an interpretive lens, not
+            # required content — the system prompt above only invites
+            # using them "if it fits."
+            culture += f"Tales the village tells: {'; '.join(f['tale'] for f in folklore[-3:])}. "
     return (
         f"{culture}The season just ended: {season}, year {year}. "
         f"Current population: {population_summary['total']} inhabitants "

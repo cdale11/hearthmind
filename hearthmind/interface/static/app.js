@@ -1934,6 +1934,14 @@ function renderStats(summary) {
     ? s.traditions.map((t) => `<li>${t}</li>`).join("")
     : "<li>none yet</li>");
 
+  const folkloreEl = document.getElementById("folklore-list");
+  if (folkloreEl) {
+    const folklore = (s.folklore || []).slice().reverse(); // newest first
+    setInnerHTMLIfChanged(folkloreEl, folklore.length
+      ? folklore.map((f) => `<li>${f.tale}</li>`).join("")
+      : "<li>no tales told yet</li>");
+  }
+
   const inventionsEl = document.getElementById("inventions-list");
   if (inventionsEl) {
     setInnerHTMLIfChanged(inventionsEl, s.inventions.length

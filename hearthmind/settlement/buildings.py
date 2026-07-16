@@ -256,6 +256,18 @@ RECORDS_MAX_STORED = 40
 letters are rare (one per notable death, see RECORD_MIN_MEMORIES), so
 this is a true safety ceiling, not a working limit."""
 
+FOLKLORE_MAX_STORED = 24
+"""Cap on `SettlementCulture.folklore` — Phase K's "folklore
+condensation" (docs/VISION-2026-07.md, "Knowledge & Story"), scoped down
+to reuse the events log's existing "rumor" category rather than the
+vision's fuller per-rumor hops/mutation tracking (deferred — no such
+tracking exists yet; see `llm/folklore.py`). Monthly, settlement-scoped,
+same call-volume shape as tradition/invention/festival (one bounded job
+in the existing rotation, not a new per-agent gate). Deliberately much
+smaller than `CULTURE_LIST_MAX_STORED=300` — a village's enduring
+legends are meant to read as a curated handful of old tales, not
+hundreds; oldest dropped first, same eviction shape as traditions."""
+
 INSTITUTION_LIST_MAX_STORED = 300
 """Cap on the *stored* count of FAMILY institutions in
 `Settlement.institutions` (v0.54.0) — a 40k-tick live measurement (seed
@@ -1387,6 +1399,13 @@ class SettlementCulture:
     festivals_held: int = 0
     """Total festivals ever held, never decremented — same decoupling
     rationale as `traditions_established`."""
+    folklore: list[dict] = field(default_factory=list)
+    """Phase K: `{"tale": str, "tick": int}` entries, LLM-condensed
+    monthly from the settlement's own recent rumor-category events —
+    see `llm/folklore.py` and `FOLKLORE_MAX_STORED`. Feeds dialogue/
+    omen/chronicle prompts, the same "accumulated interpretation feeds
+    future interpretation" loop `beliefs` already established, one
+    layer more folk than formal theory."""
     beliefs: list[dict] = field(default_factory=list)
     """The village's own accumulated, revisable theories about itself
     (`{subject, belief, confidence, subject_agent_id, ...}`), capped at
@@ -1497,7 +1516,7 @@ class Settlement:
         current_priority: str = "", priority_rationale: str = "",
         priority_history: list[dict] | None = None, player_influence: list[str] | None = None,
         era: str = "industrial", founding_scenario: str = "", llm_named: bool = False, temperament: float = 0.0,
-        beliefs: list[dict] | None = None, omen_history: list[dict] | None = None,
+        beliefs: list[dict] | None = None, folklore: list[dict] | None = None, omen_history: list[dict] | None = None,
         player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
         institutions: list[Institution] | None = None, next_institution_id: int = 0,
         caravans_visited: int = 0, fish_caught: int = 0, market_prices: dict | None = None,
@@ -1544,6 +1563,7 @@ class Settlement:
             festivals=festivals if festivals is not None else [],
             festivals_held=festivals_held,
             beliefs=beliefs if beliefs is not None else [],
+            folklore=folklore if folklore is not None else [],
             place_names=place_names if place_names is not None else {},
             records=records if records is not None else [],
             institutions=institutions if institutions is not None else [],
@@ -1738,6 +1758,14 @@ class Settlement:
     @beliefs.setter
     def beliefs(self, value: list[dict]) -> None:
         self.culture.beliefs = value
+
+    @property
+    def folklore(self) -> list[dict]:
+        return self.culture.folklore
+
+    @folklore.setter
+    def folklore(self, value: list[dict]) -> None:
+        self.culture.folklore = value
 
     @property
     def institutions(self) -> list[Institution]:
@@ -2169,6 +2197,7 @@ class Settlement:
             "founding_scenario": self.founding_scenario,
             "llm_named": self.llm_named,
             "beliefs": list(self.beliefs),
+            "folklore": list(self.folklore),
             "temperament": round(self.temperament, 3),
             "mood": {k: round(v, 3) for k, v in self.mood.items()},
             "omen_history": list(self.omen_history),
@@ -2275,6 +2304,7 @@ class Settlement:
             "founding_scenario": self.founding_scenario,
             "llm_named": self.llm_named,
             "beliefs": list(self.beliefs),
+            "folklore": list(self.folklore),
             "temperament": round(self.temperament, 4),
             "mood": {k: round(v, 4) for k, v in self.mood.items()},
             "omen_history": list(self.omen_history),
@@ -2317,6 +2347,7 @@ class Settlement:
             founding_scenario=data.get("founding_scenario", ""),
             llm_named=data.get("llm_named", False),
             beliefs=list(data.get("beliefs", [])),
+            folklore=list(data.get("folklore", [])),
             temperament=data.get("temperament", 0.0),
             mood=dict(data.get("mood", {})),
             omen_history=list(data.get("omen_history", [])),

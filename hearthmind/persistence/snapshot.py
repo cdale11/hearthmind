@@ -225,6 +225,23 @@ def recent_events_diverse(conn: sqlite3.Connection, limit: int = 20, routine_cap
     return kept
 
 
+def events_by_category(conn: sqlite3.Connection, category: str, limit: int = 20) -> list[dict]:
+    """Newest-first events of exactly one category — used by `llm/
+    folklore.py`'s monthly condensation job to pull recent rumor-
+    category events without pulling (and client-side filtering) the
+    whole diverse event window. Same `limit` clamp as every other
+    events query."""
+    limit = max(1, min(limit, QUERY_LIMIT_MAX))
+    rows = conn.execute(
+        "SELECT tick, logged_at, category, description FROM events WHERE category = ? ORDER BY id DESC LIMIT ?",
+        (category, limit),
+    ).fetchall()
+    return [
+        {"tick": tick, "logged_at": logged_at, "category": category, "description": description}
+        for tick, logged_at, category, description in rows
+    ]
+
+
 HISTORY_CATEGORIES = (
     "founding", "genesis", "settlement_named", "era_advance", "chronicle",
     "tradition", "invention", "festival", "belief_formed", "belief_revised",
