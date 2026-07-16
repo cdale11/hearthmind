@@ -200,7 +200,7 @@ class Config:
     Further memory reduction must come from elsewhere (shorter
     `llm_keep_alive`, a smaller/more quantized model, or Python-side
     savings) — see docs/DECISIONS.md, "LLM concurrency floor restored.\""""
-    llm_num_ctx: int = 3072
+    llm_num_ctx: int = 2560
     """Explicit context-window cap sent with every Ollama request (and
     documented as the `--ctx-size` llama-server launch flag for the
     llama.cpp backend — see README). **This is the single most important
@@ -208,29 +208,43 @@ class Config:
     at `num_ctx` tokens regardless of how full any given prompt actually
     is. Raised 1280 -> 4096 in the v0.72.3 "GPU offload confirmed
     working" pass on the assumption that GPU offload removes system-RAM
-    pressure entirely; **re-lowered 4096 -> 3072 in v0.72.4** once the
-    user reported actual usable RAM (per `htop`) is only ~6.5GB, not the
-    full 8GB nominal — GPU offload moves weights/KV predominantly into
-    VRAM, but the llama-server process, its mmap'd model file, and
-    hearthmind itself still compete for that tighter real number, and
-    4096 was sized without that live measurement. 3072 keeps real
-    headroom over the original CPU-only-tuned 1280 (GPU offload is
-    still a genuine win) without assuming RAM this specific machine
-    doesn't actually have free. Lower it back toward 1280 if you're on
-    CPU-only inference again (see README's 8GB section)."""
-    llm_num_predict: int = 512
+    pressure entirely; re-lowered 4096 -> 3072 in v0.72.4 once the user
+    reported actual usable RAM (per `htop`) is only ~6.5GB, not the full
+    8GB nominal. **Re-lowered again, 3072 -> 2560, in v0.78.1**: a live
+    `/diagnostics.system_memory` report from a real long-running game
+    (301 population, 13,094 ticks) showed `llama-server`'s own process
+    at only 121MB RSS but **2048MB in swap** — the fixed KV-cache/
+    compute-buffer allocation `num_ctx` reserves up front sits mostly
+    cold and gets swapped out once system-wide memory pressure builds
+    over a long session (`mem_available` had fallen to 174MB of 7046MB
+    total) — while this process's own RSS stayed a flat, clean 57.9MB,
+    reconfirming the standing "swap pressure is always Ollama/llama-
+    server-side" lesson yet again. GPU offload moves weights predominantly
+    into VRAM, but the KV cache/compute buffers this setting sizes still
+    draw from system RAM (more so on a shared-memory iGPU, where "VRAM"
+    itself is carved from the same pool — see `LLAMA_FIT_TARGET` in
+    scripts/run.sh for the lever that trades a little offload for more
+    system-RAM headroom on that hardware). 2560 keeps real margin over
+    the CPU-only-tuned 1280 floor while giving a long-running large-
+    population world less fixed allocation to have swapped out from
+    under it. Lower further toward 1280 for CPU-only or genuinely tight
+    8GB hardware (see README's 8GB section); this is a live-diagnostics-
+    driven correction, not a guess — report back what a fresh
+    `/diagnostics.system_memory` reading shows after adopting it."""
+    llm_num_predict: int = 448
     """Explicit cap on generated tokens per call. Every response here is a
     short, strict-JSON answer (a goal, a line of dialogue, a settlement
     decision) — this bounds the worst case where the model rambles
     instead of terminating cleanly, which otherwise burns memory (the
     generated tokens also occupy the KV cache), the `llm_timeout_seconds`
     budget, and would be rejected by the JSON parse anyway. Raised
-    384 -> 640 in the v0.72.3 GPU-offload pass, then **re-lowered 640 ->
-    512 in v0.72.4** alongside `llm_num_ctx` once the user's live
-    ~6.5GB-usable `htop` reading showed the full 8GB-of-headroom
-    assumption behind 640 didn't hold. Still real margin over the
-    original 384. Counts against `llm_num_ctx`'s budget, so keep the two
-    in step."""
+    384 -> 640 in the v0.72.3 GPU-offload pass, re-lowered 640 -> 512 in
+    v0.72.4, and **re-lowered again 512 -> 448 in v0.78.1** alongside
+    `llm_num_ctx`'s same live-diagnostics-driven pull-back (see its
+    docstring — a real 301-population/13k-tick game showed 2GB of
+    llama-server swap even at the v0.72.4 settings). Still real margin
+    over the original 384. Counts against `llm_num_ctx`'s budget, so
+    keep the two in step."""
     llm_keep_alive: str = "3m"
     """How long Ollama keeps the model resident in memory after the last
     call before unloading it (v0.43.1) — previously never sent, so the

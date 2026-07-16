@@ -342,7 +342,7 @@ better than the CPU-only path this project started from.
 ```bash
 ./build/bin/llama-server \
   --model /path/to/Qwen3-4B-Instruct-Q4_K_M.gguf \
-  --ctx-size 3072 --parallel 1 \
+  --ctx-size 2560 --parallel 1 \
   --cache-type-k q8_0 --cache-type-v q8_0 \
   --no-mmproj --port 8080 \
   --n-gpu-layers auto --fit on --flash-attn on \
@@ -356,14 +356,18 @@ python -m hearthmind.server --db world.sqlite3 --llm-disabled
 # or: ./scripts/run.sh --llm-disabled --db world.sqlite3
 ```
 
-- `--ctx-size 3072` matches `Config.llm_num_ctx` — the KV-cache size
+- `--ctx-size 2560` matches `Config.llm_num_ctx` — the KV-cache size
   llama.cpp allocates up front regardless of how full a given prompt
   is. Raised from an earlier 1280 once GPU offload was confirmed
   working, then re-lowered from an initial 4096 once a live `htop`
   reading showed only ~6.5GB usable RAM rather than the full 8GB
-  nominal (see `Config.llm_num_ctx`'s docstring) — on CPU-only 8GB
-  hardware, use `LLAMA_CTX_SIZE=1280` (or the manual `--ctx-size 1280`)
-  instead, see the 8GB section below.
+  nominal, then **re-lowered again from 3072 in v0.78.1** once a live
+  `/diagnostics.system_memory` report from a real 301-population,
+  13,094-tick game showed `llama-server` itself at only 121MB RSS but
+  **2048MB in swap** (`mem_available` down to 174MB of 7046MB total) —
+  see `Config.llm_num_ctx`'s docstring for the full reading. On CPU-only
+  8GB hardware, use `LLAMA_CTX_SIZE=1280` (or the manual `--ctx-size
+  1280`) instead, see the 8GB section below.
 - `--parallel 1` — one KV-cache slot; safe against `Config.llm_max_
   concurrent=2` (a second in-flight request just waits its turn).
 - `--cache-type-k/-v q8_0` — 8-bit KV cache, ~half the memory of the f16
@@ -417,7 +421,7 @@ cmake --build build --config Release -j$(nproc) --target llama-server
 
 ./build/bin/llama-server \
   --model /path/to/Qwen3-4B-Instruct-Q4_K_M.gguf \
-  --ctx-size 3072 --parallel 1 --cache-type-k q8_0 --cache-type-v q8_0 \
+  --ctx-size 2560 --parallel 1 --cache-type-k q8_0 --cache-type-v q8_0 \
   --no-mmproj --port 8080 \
   --n-gpu-layers auto --fit on --flash-attn on \
   --reasoning off --reasoning-budget 0 --threads $(nproc)
@@ -430,15 +434,27 @@ python -m hearthmind.server --db world.sqlite3 --llm-llamacpp-host http://localh
 equivalent needed here since `--n-gpu-layers` is a server launch flag,
 not a per-request one — set it once at server startup (or via
 `LLAMA_N_GPU_LAYERS` for `scripts/run.sh`, defaults to GPU-on now — see
-the script's header comment). iGPU memory is shared
-with system RAM on this hardware, so offloading doesn't free up RAM the
-way a discrete GPU would — it mainly trades CPU time for GPU time,
-which still helps the "maximize CPU, minimize memory" goal indirectly
-(faster calls finish sooner, shortening how long the KV cache stays
-allocated) and, confirmed on real hardware, meaningfully speeds up
-inference itself. `Config.llm_num_ctx`/`llm_num_predict`/
+the script's header comment). **iGPU memory is shared with system RAM
+on this hardware** — this cuts both ways. Offloading doesn't free up
+RAM the way a discrete GPU's own VRAM would (it mainly trades CPU time
+for GPU time, which still helps indirectly — faster calls finish
+sooner, shortening how long the KV cache stays allocated — and,
+confirmed on real hardware, meaningfully speeds up inference itself);
+but it also means the "VRAM" `--fit` sizes the offload against is drawn
+from the *same* pool everything else on the box competes for, including
+the KV cache/compute buffers `--ctx-size` reserves and `hearthmind`
+itself. If a long-running, large-population world still shows real swap
+pressure (see the `--ctx-size` pull-back above and `Config.llm_num_ctx`'s
+docstring) after lowering `--ctx-size`, the other lever specific to this
+hardware is raising `--fit-target`'s margin (`LLAMA_FIT_TARGET` for
+`scripts/run.sh`, default 1024 MiB) — e.g. `LLAMA_FIT_TARGET=2560` —
+which makes `--fit` deliberately offload fewer layers and leave more of
+the shared pool free for everything else, trading a bit of inference
+speed for headroom. `Config.llm_num_ctx`/`llm_num_predict`/
 `llm_core_cast_size` were all raised in the v0.72.3 pass on the strength
-of this confirmation — see their docstrings in `config.py`.
+of the original GPU-offload confirmation, then partly pulled back twice
+since (v0.72.4, v0.78.1) as live measurements came in — see their
+docstrings in `config.py`.
 
 ### ⚠️ Running on 8GB RAM — stop the LLM server from swapping (read this first)
 
@@ -455,17 +471,34 @@ but resident weights + KV cache sit there while the model is warm no
 matter how rarely you call it).
 
 **Note (v0.72.4, corrected from v0.72.3):** the defaults documented
-elsewhere in this README (`--ctx-size 3072`, `--n-gpu-layers auto`)
-assume GPU offload is working — confirmed on real hardware to be a
-real, meaningful improvement — but were revised down from an initial
+elsewhere in this README (originally `--ctx-size 3072`, `--n-gpu-layers
+auto`) assume GPU offload is working — confirmed on real hardware to be
+a real, meaningful improvement — but were revised down from an initial
 v0.72.3 pass (`--ctx-size 4096`, `llm_core_cast_size=18`,
 `llm_max_calls_per_day=400`) once a live `htop` reading on that same
 hardware showed only ~6.5GB usable RAM, not the full 8GB nominal;
 GPU offload moves weights/KV predominantly into VRAM, but llama-server,
 its mmap'd model file, and hearthmind itself still compete for whatever
-system RAM is actually free. If you're on CPU-only 8GB (or GPU offload
-isn't set up yet), use the tighter recipe below instead — these are no
-longer the project's defaults, but every lever still works exactly the
+system RAM is actually free.
+
+**Note (v0.78.1):** even the v0.72.4 numbers weren't the end of it. A
+live `/diagnostics.system_memory` report from a real long-running game
+(301 population, 13,094 ticks) on this same class of hardware showed
+`llama-server` itself at only 121MB RSS but **2048MB (2GB) in swap** —
+`mem_available` had fallen to 174MB of a 7046MB total. Low RSS + high
+swap is the signature of a large fixed allocation (the KV cache
+`--ctx-size × --parallel` reserves up front) sitting mostly cold and
+getting paged out once *system-wide* memory pressure builds over a long
+session — this process's own RSS stayed a flat, clean 57.9MB the whole
+time, once again confirming swap pressure here is always the LLM
+server's allocation, never hearthmind's. `--ctx-size`/`Config.llm_num_
+ctx` are now 2560 (was 3072) and `Config.llm_num_predict` is 448 (was
+512) — see their docstrings in `config.py`. On a shared-memory iGPU
+specifically, raising `--fit-target`'s margin (`LLAMA_FIT_TARGET`, e.g.
+`2560`) is a further lever — see the iGPU section above. If you're on
+CPU-only 8GB (or GPU offload isn't set up yet), use the tighter recipe
+below instead — these are no longer the project's defaults, but every
+lever still works exactly the
 same way:
 
 ```bash

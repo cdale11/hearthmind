@@ -4,6 +4,45 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.78.1] — llama-server memory pressure: live diagnostic, config pull-back
+
+Direct response to a live `/diagnostics` report showing sustained
+memory pressure on a long-running game (301 population, 13,094 ticks)
+with the local llama.cpp backend.
+
+### Diagnosed
+
+- `system_memory` showed hearthmind's own process at a flat 57.9MB
+  RSS/11.1MB swap (no leak, consistent with every prior audit) while
+  `llama-server` sat at 121MB RSS but **2048MB in swap**, with system
+  `mem_available` at 174MB of 7046MB total. Low RSS + high swap on the
+  LLM server is its fixed KV-cache/compute-buffer allocation sitting
+  cold and getting paged out under system-wide pressure over a long
+  session — config, not a Python-side bug.
+- Checked and ruled out as red herrings: `dialogue_cooldown_entries`
+  (11,746) and `relationship_entries` (23,382) both read high but are
+  genuinely bounded by existing pruning (staleness horizon; decay-to-
+  zero + death) and cost negligible real memory (confirmed by the flat
+  self-process RSS above).
+
+### Changed
+
+- `Config.llm_num_ctx` 3072 -> 2560, `Config.llm_num_predict` 512 -> 448
+  (both `config.py`) — a second pull-back below the v0.72.3 GPU-offload-
+  optimistic numbers, this time driven by a real long-running-game
+  diagnostic rather than a short soak.
+- README's llama-server example commands updated to match; new
+  "Note (v0.78.1)" explaining the reading and the shared-memory-iGPU
+  angle (`--fit-target`/`LLAMA_FIT_TARGET` trades offload for headroom
+  on hardware where "VRAM" is drawn from the same system-RAM pool).
+
+### Added
+
+- `scripts/run.sh`: `LLAMA_BATCH_SIZE`/`LLAMA_UBATCH_SIZE` — optional
+  `--batch-size`/`--ubatch-size` overrides, omitted unless set (zero
+  risk to existing launches), shrink the compute-buffer allocation
+  independently of the KV cache for further memory-pressure headroom.
+
 ## [0.78.0] — Phase J start: semantic memory + event-triggered reflection + event diversity
 
 Phase J (docs/VISION-2026-07.md, "Deeper Minds"), scoped to one slice

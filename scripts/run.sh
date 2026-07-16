@@ -33,7 +33,20 @@
 #   LLAMA_CTX_SIZE       Default: 1280 (matches Config.llm_num_ctx's
 #                        CPU-only-safe floor; raise if you've confirmed
 #                        GPU offload and have real RAM headroom — see
-#                        README's 8GB vs. GPU-offload guidance)
+#                        README's 8GB vs. GPU-offload guidance. The
+#                        confirmed-working GPU-offload recipe uses 2560
+#                        as of v0.78.1 — a live long-running-game
+#                        diagnostic showed even 3072 swapping under
+#                        sustained memory pressure, see README)
+#   LLAMA_BATCH_SIZE     Optional --batch-size override (prompt-
+#                        processing batch; llama.cpp's own default if
+#                        unset). Lowering it shrinks the compute-buffer
+#                        memory llama-server allocates alongside the KV
+#                        cache — a further lever if --ctx-size alone
+#                        isn't enough headroom (v0.78.1).
+#   LLAMA_UBATCH_SIZE    Optional --ubatch-size override, same rationale
+#                        as LLAMA_BATCH_SIZE (llama.cpp's own default if
+#                        unset).
 #   LLAMA_THREADS        Default: every CPU core ($(nproc))
 #   LLAMA_N_GPU_LAYERS   Default: auto (let llama.cpp size the GPU-layer
 #                        split to available VRAM — see LLAMA_FIT below;
@@ -87,6 +100,8 @@ LLAMA_CACHE_TYPE_K="${LLAMA_CACHE_TYPE_K:-q8_0}"
 LLAMA_CACHE_TYPE_V="${LLAMA_CACHE_TYPE_V:-q8_0}"
 LLAMA_FLASH_ATTN="${LLAMA_FLASH_ATTN-on}"
 LLAMA_REASONING="${LLAMA_REASONING-off}"
+LLAMA_BATCH_SIZE="${LLAMA_BATCH_SIZE-}"
+LLAMA_UBATCH_SIZE="${LLAMA_UBATCH_SIZE-}"
 SKIP_NATIVE_BUILD="${SKIP_NATIVE_BUILD:-0}"
 LLAMA_EXTRA_ARGS="${LLAMA_EXTRA_ARGS:-}"
 
@@ -165,8 +180,16 @@ if [[ "$llm_disabled" == false ]]; then
     reasoning_str="--reasoning $LLAMA_REASONING"
     [[ "$LLAMA_REASONING" == "off" ]] && reasoning_str="$reasoning_str --reasoning-budget 0"
   fi
+  # --batch-size/--ubatch-size (v0.78.1): omitted unless set, so this is
+  # a zero-risk addition — llama.cpp's own defaults govern unless a user
+  # hits real memory pressure and wants to shrink the compute-buffer
+  # allocation further (see README's memory-pressure notes).
+  batch_str=""
+  [[ -n "$LLAMA_BATCH_SIZE" ]] && batch_str="--batch-size $LLAMA_BATCH_SIZE"
+  ubatch_str=""
+  [[ -n "$LLAMA_UBATCH_SIZE" ]] && ubatch_str="--ubatch-size $LLAMA_UBATCH_SIZE"
   echo "run.sh: starting llama-server on $LLAMA_HOST (ctx=$LLAMA_CTX_SIZE, threads=$LLAMA_THREADS, gpu-layers=$LLAMA_N_GPU_LAYERS, fit=${LLAMA_FIT:-off}, flash-attn=${LLAMA_FLASH_ATTN:-off}, reasoning=${LLAMA_REASONING:-model default}, kv=$LLAMA_CACHE_TYPE_K/$LLAMA_CACHE_TYPE_V)..." >&2
-  # shellcheck disable=SC2086  # $fit_str/$fa_str/$reasoning_str/$LLAMA_EXTRA_ARGS are intentionally word-split
+  # shellcheck disable=SC2086  # $fit_str/$fa_str/$reasoning_str/$batch_str/$ubatch_str/$LLAMA_EXTRA_ARGS are intentionally word-split
   "$LLAMA_SERVER_BIN" \
     --model "$MODEL_PATH" \
     --ctx-size "$LLAMA_CTX_SIZE" \
@@ -175,6 +198,8 @@ if [[ "$llm_disabled" == false ]]; then
     --cache-type-v "$LLAMA_CACHE_TYPE_V" \
     $fa_str \
     $reasoning_str \
+    $batch_str \
+    $ubatch_str \
     --no-mmproj \
     --port "$llama_port" \
     --n-gpu-layers "$LLAMA_N_GPU_LAYERS" \

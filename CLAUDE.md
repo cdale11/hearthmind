@@ -358,6 +358,58 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.78.1)
+
+Direct response to a live `/diagnostics` report ("still a lot of memory
+pressure in long term game with local LLM") — the first live diagnostic
+this project has gotten with the actual numbers, not just a symptom
+description. Confirms the standing lesson definitively rather than
+re-guessing at it: at population 301 / 13,094 ticks, `system_memory`
+shows this Python process at a flat, clean **57.9MB RSS / 11.1MB swap**
+(consistent with every prior soak — no leak here, again), while
+`llama-server` itself sits at only **121MB RSS but 2048MB (2GB) in
+swap**, with system `mem_available` down to 174MB of 7046MB total. Low
+RSS + huge swap on the LLM server is the signature of its fixed
+up-front KV-cache/compute-buffer allocation (`--ctx-size × --parallel`)
+sitting mostly cold and getting paged out as system-wide pressure
+mounts over a long session — not a Python-side leak to chase further.
+
+**Response**: pulled `Config.llm_num_ctx` back 3072 -> 2560 and
+`Config.llm_num_predict` back 512 -> 448 (both now sit two corrections
+below the original v0.72.3 GPU-offload-optimistic numbers — see their
+docstrings in `config.py` for the full lineage), updated every README
+example command to match. Added two new zero-risk `scripts/run.sh`
+levers, omitted unless set: `LLAMA_BATCH_SIZE`/`LLAMA_UBATCH_SIZE`
+(`--batch-size`/`--ubatch-size` — shrink the compute-buffer allocation
+independently of the KV cache). Documented the shared-memory-iGPU angle
+explicitly in the README's Radeon 740M/780M section: on that hardware
+"VRAM" is drawn from the same system-RAM pool `--ctx-size` reserves
+against, so `--fit-target`/`LLAMA_FIT_TARGET` (already existed, now
+better-documented as a memory lever, not just a VRAM one) trades a
+little offload for headroom.
+
+**Also checked and ruled out** (not the cause, but worth recording so a
+future session doesn't re-chase them): `dialogue_cooldown_entries`
+(11,746) and `relationship_entries` (23,382, avg 77.7/agent) both read
+high in isolation, but both are pruned by existing, working mechanisms
+(`due_for_dialogue`'s staleness prune at `cooldown_ticks * 8`;
+relationships decay-to-zero + death) — genuinely bounded by population²
+and session length within that pruning horizon, not literally
+unbounded, and this process's own flat 57.9MB RSS proves neither is
+actually costing real memory. Left unchanged.
+
+**Not fixed, because it isn't a code bug**: this is real hardware
+running tighter than its previously-"confirmed working" settings
+assumed, now with a much larger population (301, vs. the smaller scale
+earlier tuning passes were sanity-checked against) sustaining that
+pressure over a much longer session than earlier soaks covered. The fix
+is config, same as every prior memory-pressure fix in this project's
+history — report back what a fresh `/diagnostics.system_memory` reading
+shows after adopting 2560/448, and if it's still swapping, the next
+levers in order are: `LLAMA_BATCH_SIZE`/`LLAMA_UBATCH_SIZE`, raising
+`LLAMA_FIT_TARGET`, dropping `--cache-type-k/-v` to `q4_0`, or sizing
+the model down to `qwen3:1.7b` (already documented in the 8GB section).
+
 ## Current state (v0.78.0)
 
 Phase J start (docs/VISION-2026-07.md, "Deeper Minds"), scoped down to
