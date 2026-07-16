@@ -34,7 +34,11 @@ SYSTEM_PROMPT = (
     "statements: line_b must be a genuine reaction to line_a — an actual "
     "answer, a rebuttal, a joke back, a change of subject that still "
     "acknowledges what was said — never a line that could just as well "
-    "have opened the conversation. Optionally the exchange plants a "
+    "have opened the conversation. If a speaker is noted as privately "
+    "holding something back about the other, that tension may surface as "
+    "a deflection, a pointed silence, or a half-said thing — never have "
+    "them simply state the secret outright, that defeats the point of it "
+    "being one. Optionally the exchange plants a "
     "short rumor that might spread through the village — leave it blank "
     "most of the time. Output ONLY the JSON object below, nothing before "
     "or after it, no explanation.\n"
@@ -138,7 +142,10 @@ def build_prompt(
     memory_bits = []
     just_now_bits = []
     semantic_bits = []
-    for agent, label in ((agent_a, agent_a.name), (agent_b, agent_b.name)):
+    secret_bits = []
+    for agent, label, other in (
+        (agent_a, agent_a.name, agent_b), (agent_b, agent_b.name, agent_a),
+    ):
         recent = agent.memories[-DIALOGUE_MEMORY_IN_PROMPT:]
         if recent:
             memory_bits.append(f"{label} recently: {'; '.join(recent)}")
@@ -147,9 +154,18 @@ def build_prompt(
             just_now_bits.append(f"{label} just now: {just_now}")
         if agent.semantic_memories:
             semantic_bits.append(f"{label} has come to feel: {agent.semantic_memories[-1]}")
+        # Secrets (Phase J, v0.78.3): only surfaced when the secret is
+        # actually about the OTHER speaker in this exchange (matched by
+        # name, same lightweight text-matching convention `beliefs_
+        # about_agent`'s callers already use elsewhere) — a secret about
+        # someone not present has no business shaping this conversation.
+        own_secret = next((s for s in agent.secrets if other.name in s), None)
+        if own_secret:
+            secret_bits.append(f"{label} is privately holding something back about {other.name}: {own_secret}")
     memory_text = f" {'. '.join(memory_bits)}." if memory_bits else ""
     just_now_text = f" {'. '.join(just_now_bits)}." if just_now_bits else ""
     semantic_text = f" {'. '.join(semantic_bits)}." if semantic_bits else ""
+    secret_text = f" {'. '.join(secret_bits)}." if secret_bits else ""
 
     def _activity(agent: Agent) -> str:
         # Grounds "currently X" in *why* when cognition set a reason
@@ -168,7 +184,8 @@ def build_prompt(
         f"currently {_activity(agent_a)}) meets {agent_b.name} (hunger "
         f"{agent_b.hunger:.2f}, energy {agent_b.energy:.2f}, currently {_activity(agent_b)}). "
         f"They are {tie}. It is {season}, weather: {weather}."
-        f"{culture}{beliefs_text}{personality_text}{emotion_text}{memory_text}{just_now_text}{semantic_text} "
+        f"{culture}{beliefs_text}{personality_text}{emotion_text}{memory_text}{just_now_text}"
+        f"{semantic_text}{secret_text} "
         "Write their brief exchange."
     )
 

@@ -315,6 +315,24 @@ and capped deliberately: this is meant to be a handful of load-bearing
 self-theories a prompt can always afford to include in full, not a
 second episodic log."""
 
+MAX_SECRETS = 2
+"""Cap on `Agent.secrets` — Phase J's "Secrets & lies" piece
+(docs/VISION-2026-07.md, "Deeper Minds": "planted by Reflect()/
+disputes; dialogue prompt may reference or guard them"). Deliberately
+tiny and FIFO: this is a handful of private grievances/held-back
+things, not a growing diary. v0.78.3 scope: planted only by a hardened
+"feud" dispute outcome (`SimulationEngine._maybe_schedule_dispute`,
+`llm/dispute.py`) — a deterministic derivation from the existing
+outcome/narration, not a new LLM output field, so this adds zero call
+volume and zero schema complexity for the model to get wrong. Reflect()
+planting secrets of its own is deferred (see docs/VISION-2026-07.md);
+this slice only closes the "disputes" half of the ask. `dialogue.py`'s
+prompt may allude to a speaker's secret about their conversation
+partner without stating its contents outright — never surfaced in the
+main UI (a "secret" spoiled in the NPC inspector defeats the point);
+reachable via the dev console/raw `/state` JSON like every other
+under-the-hood mechanism."""
+
 GRIEF_ENERGY_PENALTY = 0.2
 """Energy lost when a close bond (affinity >= REPRODUCTION_AFFINITY_THRESHOLD)
 dies — grief has a real cost, not just a memory entry. See
@@ -754,6 +772,17 @@ def bump_emotion(agent: "Agent", key: str, amount: float) -> None:
     agent.emotions[key] = min(1.0, agent.emotions.get(key, 0.0) + amount)
 
 
+def push_secret(agent: "Agent", text: str) -> None:
+    """Appends one private secret to `agent.secrets`, FIFO-evicted at
+    `MAX_SECRETS`. Thin mutator (same shape as `llm.beliefs.push_
+    semantic_memory`) so callers don't hand-roll the eviction logic."""
+    if not text:
+        return
+    agent.secrets.append(text)
+    if len(agent.secrets) > MAX_SECRETS:
+        del agent.secrets[0]
+
+
 def decay_emotions(agent: "Agent") -> None:
     """Tick every held emotion back toward 0 by `EMOTION_DECAY_RATE`,
     dropping entries that have decayed to (near enough) nothing so a
@@ -922,6 +951,7 @@ class Agent:
         memory_salience: list[float] | None = None,
         working_memory: list[str] | None = None,
         semantic_memories: list[str] | None = None,
+        secrets: list[str] | None = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -982,6 +1012,9 @@ class Agent:
         # from episodic memory, strictly FIFO, cap MAX_SEMANTIC_MEMORIES
         # (Phase J, see above) — written only by the Reflect() job.
         self.semantic_memories: list[str] = [] if semantic_memories is None else semantic_memories
+        # secrets: private things this agent holds back, strictly FIFO,
+        # cap MAX_SECRETS (see above) — planted by dispute outcomes.
+        self.secrets: list[str] = [] if secrets is None else secrets
         # skills: procedural teachable know-how, name -> proficiency 0..1
         # (SKILL_FARMING/CONSTRUCTION/MEDICINE) — distinct from beliefs.
         self.skills: dict[str, float] = {} if skills is None else skills
@@ -1202,6 +1235,7 @@ class Agent:
             "memory_salience": [round(v, 4) for v in self.memory_salience],
             "working_memory": list(self.working_memory),
             "semantic_memories": list(self.semantic_memories),
+            "secrets": list(self.secrets),
             "skills": {k: round(v, 4) for k, v in self.skills.items()},
             "traits": {k: round(v, 4) for k, v in self.traits.items()},
             "beliefs": list(self.beliefs),
@@ -1246,6 +1280,7 @@ class Agent:
             memory_salience=memory_salience,
             working_memory=list(data.get("working_memory", [])),
             semantic_memories=list(data.get("semantic_memories", [])),
+            secrets=list(data.get("secrets", [])),
             skills=dict(data.get("skills", {})),
             traits=dict(data.get("traits", {})),
             beliefs=list(data.get("beliefs", [])),

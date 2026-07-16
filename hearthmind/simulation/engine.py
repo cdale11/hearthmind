@@ -41,6 +41,7 @@ from hearthmind.agents.agent import (
     AgentGoal,
     describe_emotion,
     dominant_emotion,
+    push_secret,
 )
 from hearthmind.config import Config
 from hearthmind.util import clamp, namespaced_rng, namespaced_roll
@@ -141,18 +142,20 @@ grew forever on a multi-year world (July 2026 architecture review,
 §3.7). Fallback numbering still uses the full list's length, so
 "Tradition the 14th"-style names stay correct."""
 
-PROMPT_RECENT_EVENTS = 50
+PROMPT_RECENT_EVENTS = 40
 """How many recent events reach a settlement-level LLM prompt
 (chronicle, tradition, invention, town-brain, etc.). Lowered 50 -> 30 in
 the v0.71.1 CPU-only-Ollama-memory pass (the recent-events block was the
 dominant term in the biggest prompt, ~680 of ~900 tokens at 50 events).
 Restored to 50 in the v0.72.3 GPU-offload pass alongside `Config.
-llm_num_ctx`'s 1280 -> 4096 raise: richer narrative material per prompt
-is a real quality win for the chronicle/town-brain/dialogue-adjacent
-jobs, and the KV-cache pressure that motivated shrinking it in the first
-place is a CPU-only-Ollama concern this hardware no longer has the same
-way (see llm_num_ctx's docstring). Lower it again alongside llm_num_ctx
-if you're back on constrained CPU-only inference."""
+llm_num_ctx`'s 1280 -> 4096 raise. **Lowered again, 50 -> 40, in
+v0.78.3** alongside `llm_num_ctx`'s own two live-diagnostic-driven
+pull-backs (3072 -> 2560, see its docstring) — every call site here now
+reads through `recent_events_diverse` (v0.78.0) rather than the raw
+chronological stream, so 40 diverse (routine-capped) rows carry
+comparable narrative signal to 50 undiverse ones did, at 20% less
+prompt-token cost per call. Lower it further alongside `llm_num_ctx` if
+you're on constrained CPU-only inference."""
 
 _JOB_NO_ARGS = 0
 _JOB_EVENTS = 1
@@ -1873,6 +1876,18 @@ class SimulationEngine:
             if applied is None:
                 return  # one of them died while the decision was in flight
             self._log("dispute", narration)
+            # Phase J "Secrets & lies" (v0.78.3): a hardened feud plants
+            # a private secret on each core-cast party — deterministic,
+            # not a new LLM output field (zero added call volume/schema
+            # risk). Non-core agents don't get one: MAX_SECRETS is meant
+            # to stay a small, load-bearing set (docs/agents/agent.py).
+            if outcome == "feud":
+                core = self.world.population.core_agent_ids
+                a, b = applied[0], applied[1]
+                if a.id in core:
+                    push_secret(a, f"I still resent {b.name} for what happened between us.")
+                if b.id in core:
+                    push_secret(b, f"I still resent {a.name} for what happened between us.")
 
         self._schedule_llm_job("dispute", prompt, dispute.SYSTEM_PROMPT, fallback, apply)
 

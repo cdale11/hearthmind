@@ -358,6 +358,56 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.78.3)
+
+Continuing Phase J's roadmap per explicit direction, with a standing
+constraint attached: "always keep llama memory pressure in mind, and
+optimize whenever/wherever you feel the need in existing as well as old
+code." Two things follow from that constraint directly, not just the
+new feature.
+
+**Secrets & lies (Phase J piece, scoped down)**: `Agent.secrets`
+(`agents/agent.py`, cap `MAX_SECRETS=2`, FIFO) — planted only by a
+hardened "feud" dispute outcome (`SimulationEngine._maybe_schedule_
+dispute`'s existing `apply()` closure calls the new `push_secret`
+helper), core-cast only. Deliberately **not** a new LLM output field —
+a deterministic derivation from the outcome the model already returns,
+so this adds zero call volume and zero JSON-schema risk for the model
+to get wrong, in keeping with the memory-pressure directive (more
+schema fields per call risk more retries/garbled-output fallbacks, not
+just more tokens). `llm/dialogue.py`'s prompt surfaces a speaker's
+secret only when it's actually about the other person in that exchange
+(matched by name), and its system prompt now explicitly instructs the
+model to let it surface as tension/deflection rather than stating it
+outright. Reachable only via the dev console/raw `/state` JSON, same as
+`Settlement.mood`/`temperament` — a "secret" spelled out in the main
+NPC inspector would defeat the point. **Deferred**: Reflect() planting
+secrets of its own, and the full permanent/slow/fast `Agent.mind`
+schema — both real Phase J pieces still open, held back pending their
+own budget discussion (mind schema in particular implies a genesis-
+style one-time LLM call per core-cast entry, which is a real, if small,
+addition to call volume).
+
+**Memory-pressure pass over existing code**: `PROMPT_RECENT_EVENTS`
+lowered 50 -> 40 (`simulation/engine.py`) — now that v0.78.0's
+`recent_events_diverse` feeds every settlement-level prompt, 40 diverse
+rows carry comparable narrative signal to 50 undiverse ones did, for
+~20% less prompt-token cost on the largest prompts in the codebase (a
+smaller prompt shortens how long a request holds its KV-cache slot, one
+of the "reducing swap" levers documented in v0.78.1/.2). Also did a
+fresh audit for unbounded Python-side growth in older modules
+(`memorials`/`omen_history`/institution belief lists in `settlement/
+buildings.py`) per the "old code too" instruction — all confirmed
+already capped from prior passes; no new fix needed there, recorded so
+a future session doesn't re-check the same ground.
+
+Verified: direct `_maybe_schedule_dispute` call against a fake client
+forcing a "feud" outcome plants a secret on both core-cast parties,
+confirmed present in `llm/dialogue.py`'s built prompt; `Agent.secrets`
+to_dict/from_dict round trip exact; `scripts/verify_native_soak.py` (2
+seeds, 1200 ticks) byte-identical — this batch touches no native
+module.
+
 ## Current state (v0.78.2)
 
 Direct follow-up: "meant to run stably for years... how do I reduce or

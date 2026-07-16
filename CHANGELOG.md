@@ -4,6 +4,43 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.78.3] — Phase J: secrets (dispute-planted) + memory-pressure pass over old code
+
+Continues Phase J with the "Secrets & lies" piece, plus a standing
+instruction to keep optimizing LLM memory pressure wherever found,
+including in already-shipped code.
+
+### Added
+
+- `Agent.secrets` (`agents/agent.py`, cap `MAX_SECRETS=2`, FIFO) +
+  `push_secret` helper. Planted only by a hardened "feud" dispute
+  outcome, core-cast only — deterministic derivation from the existing
+  `llm/dispute.py` output, not a new LLM field, so zero added call
+  volume/schema risk. `llm/dialogue.py`'s prompt surfaces a speaker's
+  secret only when it's about the other person present, with system-
+  prompt guidance to let it show as tension rather than being stated
+  outright. Dev-console/raw-JSON reachable only, never in the main UI.
+
+### Changed
+
+- `PROMPT_RECENT_EVENTS` 50 -> 40 (`simulation/engine.py`) — the
+  v0.78.0 diversity-aware event sampling means fewer rows carry
+  comparable signal, for ~20% less prompt-token cost on the largest
+  prompts in the codebase.
+
+### Audited, no change needed
+
+- Re-checked `memorials`/`omen_history`/institution belief lists
+  (`settlement/buildings.py`) for unbounded growth per the "old code
+  too" instruction — all already capped from prior passes.
+
+### Verified
+
+- Direct `_maybe_schedule_dispute` call with a fake client forcing
+  "feud": secret planted on both core-cast parties, present in the
+  built dialogue prompt. `Agent.secrets` round-trip exact.
+  `scripts/verify_native_soak.py` (2 seeds, 1200 ticks): byte-identical.
+
 ## [0.78.2] — years-long stability: metrics retention, --mlock, population reassurance
 
 Follow-up to v0.78.1: "meant to run stably for years, how do I reduce
