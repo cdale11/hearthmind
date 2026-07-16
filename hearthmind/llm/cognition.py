@@ -20,6 +20,7 @@ from hearthmind.agents.agent import (
     AgentGoal,
     describe_emotion,
     describe_traits,
+    just_now_text as _just_now_text,
 )
 
 SYSTEM_PROMPT = (
@@ -82,6 +83,8 @@ def build_prompt(
             culture += f" The village keeps this tradition: {latest_tradition}."
     recent = agent.memories[-RECENT_MEMORIES_IN_PROMPT:]
     memory = f" You remember: {' | '.join(recent)}" if recent else ""
+    just_now = _just_now_text(agent.working_memory, recent)
+    just_now_text = f" Just now: {just_now}." if just_now else ""
     personality = describe_traits(agent.traits)
     personality_text = f" You are {personality}." if personality else ""
     emotion = describe_emotion(agent.emotions)
@@ -105,8 +108,8 @@ def build_prompt(
         f"You are {agent.name}. Hunger: {agent.hunger:.2f} (0=full, 1=starving). "
         f"Energy: {agent.energy:.2f} (0=exhausted, 1=fully rested). "
         f"Currently {agent.state.value}, focused on '{agent.goal.value}'."
-        f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{personality_text}"
-        f"{emotion_text}{beliefs_text}{own_belief_text} "
+        f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{just_now_text}"
+        f"{personality_text}{emotion_text}{beliefs_text}{own_belief_text} "
         "What should you focus on right now?"
     )
 

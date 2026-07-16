@@ -348,6 +348,54 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.76.3)
+
+Closes out Phase I: **layered memory v1**, the third piece the roadmap
+scoped and v0.76.1 deliberately deferred. `agents/agent.py`: `Agent.
+memories` (episodic, unchanged name/shape for backward compat) is no
+longer strict FIFO — a new index-aligned `Agent.memory_salience` list
+(maintained solely by `agents/population.py`'s `_remember`, the only
+mutator of `memories`) scores each memory at write time from the
+agent's *current* `emotions` (baseline 0.2, up to 1.0 under real
+fear/grief/joy/anger); eviction at `MAX_AGENT_MEMORIES` now drops the
+lowest-salience entry (ties toward oldest) instead of always the
+oldest, so a memorable experience genuinely outlives a mundane one —
+verified directly (fill to cap with mundane memories, inject one
+high-salience memory, push 8 more mundane ones through: the memorable
+one survives). A second new field, `Agent.working_memory` (cap 2,
+strictly FIFO, written at the same `_remember` call), is the vision's
+distinct "fast" layer: once salience-weighted eviction can drop a
+recent-but-mundane memory, `memories[-1]` is no longer guaranteed to be
+"the literal last thing that happened" — `working_memory` is.
+`llm/cognition.py`/`llm/dialogue.py` prompts gained a "Just now: ..."
+line sourced from `working_memory`'s freshest entry, shown only when
+it isn't already present in the episodic slice being read (a shared
+`just_now_text` helper avoids duplicating the sentence in the common
+case). Both new fields are additive-only serialization; `from_dict`
+defensively pads/truncates `memory_salience` to match `memories`'
+length rather than trusting a legacy or hand-edited snapshot raw.
+
+**Not native-ported, deliberately**: the eviction scan is a `min()`
+over at most `MAX_AGENT_MEMORIES=8` entries, firing only inside
+`_remember` — an event-driven call (births, deaths, dialogue,
+disputes, trades…), not something that runs every tick for every
+agent the way `decay_emotions`/`_update_needs` do. This is exactly the
+distinguishing question v0.72.13's correction sharpened ("not 'does
+this loop', but 'does it run routinely at scale'") — an 8-element scan
+on a rare event is nowhere near a hotpath, so this stays pure Python
+per the standing "escalate only with a measured need" rule.
+
+Verified via a direct eviction test (documented above), a 6000-tick
+real `SimulationEngine` soak (LLM disabled) confirming `memory_
+salience` always stays index-aligned with `memories`, `working_memory`
+never exceeds its cap, salience stays in [0.2, 1.0], and a to_dict/
+from_dict round trip is exact; plus `scripts/verify_native_soak.py`'s
+full-state hash soak (3 seeds, 1500 ticks), unaffected since this
+slice touches no native module, byte-identical throughout. **Phase I is
+now fully shipped** (emotions, mood, layered memory); next milestone
+is Phase J (Deeper Minds) per docs/VISION-2026-07.md, on explicit
+go-ahead.
+
 ## Current state (v0.76.2)
 
 Direct follow-up to v0.76.1, per explicit user instruction to write new

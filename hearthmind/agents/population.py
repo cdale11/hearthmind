@@ -93,6 +93,9 @@ from hearthmind.agents.agent import (
     MATURITY_TICKS,
     MAX_AGENT_MEMORIES,
     MAX_LIFESPAN_TICKS,
+    MEMORY_SALIENCE_BASELINE,
+    MEMORY_SALIENCE_EMOTION_WEIGHT,
+    WORKING_MEMORY_MAX,
     MIN_LIFESPAN_TICKS,
     MOVE_CHANCE,
     OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK,
@@ -640,13 +643,40 @@ def _agent_mount(settlement: Settlement, agent_id: int) -> Vehicle | None:
     return None
 
 
+def _memory_salience(agent: Agent) -> float:
+    """How memorable *right now* is, from the agent's own current
+    `emotions` — see MEMORY_SALIENCE_BASELINE's docstring (Phase I,
+    "layered memory v1"). A calm moment gets the baseline; a moment
+    lived through real fear/grief/joy/anger scores higher, up to 1.0."""
+    if not agent.emotions:
+        return MEMORY_SALIENCE_BASELINE
+    return clamp(
+        MEMORY_SALIENCE_BASELINE + sum(agent.emotions.values()) * MEMORY_SALIENCE_EMOTION_WEIGHT,
+        MEMORY_SALIENCE_BASELINE, 1.0,
+    )
+
+
 def _remember(agent: Agent, text: str) -> None:
-    """Append to an agent's short personal log, capped at
-    MAX_AGENT_MEMORIES (oldest drops first). See docs/DECISIONS.md,
-    relationship-memory pass."""
+    """Append to an agent's short personal log (`memories`, episodic)
+    AND its small strictly-FIFO `working_memory` — see WORKING_MEMORY_
+    MAX's docstring. `memories` is capped at MAX_AGENT_MEMORIES but no
+    longer FIFO: eviction drops the LOWEST-salience entry (computed at
+    write time from the agent's current emotions, ties broken toward
+    the oldest index) rather than always the oldest, so a memorable
+    experience genuinely outlasts a mundane one. The only place either
+    `memories` or `memory_salience` is ever mutated — see their
+    docstrings on Agent for the index-alignment invariant this relies
+    on. See docs/DECISIONS.md, relationship-memory pass + Phase I
+    "layered memory v1\" (v0.76.3)."""
     agent.memories.append(text)
+    agent.memory_salience.append(_memory_salience(agent))
     if len(agent.memories) > MAX_AGENT_MEMORIES:
-        agent.memories.pop(0)
+        evict_at = min(range(len(agent.memories)), key=lambda i: (agent.memory_salience[i], i))
+        del agent.memories[evict_at]
+        del agent.memory_salience[evict_at]
+    agent.working_memory.append(text)
+    if len(agent.working_memory) > WORKING_MEMORY_MAX:
+        agent.working_memory.pop(0)
 
 
 def _trade_relationship_threshold(giver: Agent) -> float:

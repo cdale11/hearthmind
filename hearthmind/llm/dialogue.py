@@ -8,7 +8,13 @@ docs/DECISIONS.md, E2.
 """
 from __future__ import annotations
 
-from hearthmind.agents.agent import RIVALRY_THRESHOLD, Agent, describe_emotion, describe_traits
+from hearthmind.agents.agent import (
+    RIVALRY_THRESHOLD,
+    Agent,
+    describe_emotion,
+    describe_traits,
+    just_now_text as _just_now_text,
+)
 
 SYSTEM_PROMPT = (
     "You are writing a brief, natural exchange between two villagers who "
@@ -130,11 +136,16 @@ def build_prompt(
             emotion_bits.append(f"{label} is currently feeling {emotion}")
     emotion_text = f" {'; '.join(emotion_bits)}." if emotion_bits else ""
     memory_bits = []
+    just_now_bits = []
     for agent, label in ((agent_a, agent_a.name), (agent_b, agent_b.name)):
         recent = agent.memories[-DIALOGUE_MEMORY_IN_PROMPT:]
         if recent:
             memory_bits.append(f"{label} recently: {'; '.join(recent)}")
+        just_now = _just_now_text(agent.working_memory, recent)
+        if just_now:
+            just_now_bits.append(f"{label} just now: {just_now}")
     memory_text = f" {'. '.join(memory_bits)}." if memory_bits else ""
+    just_now_text = f" {'. '.join(just_now_bits)}." if just_now_bits else ""
 
     def _activity(agent: Agent) -> str:
         # Grounds "currently X" in *why* when cognition set a reason
@@ -153,7 +164,7 @@ def build_prompt(
         f"currently {_activity(agent_a)}) meets {agent_b.name} (hunger "
         f"{agent_b.hunger:.2f}, energy {agent_b.energy:.2f}, currently {_activity(agent_b)}). "
         f"They are {tie}. It is {season}, weather: {weather}."
-        f"{culture}{beliefs_text}{personality_text}{emotion_text}{memory_text} "
+        f"{culture}{beliefs_text}{personality_text}{emotion_text}{memory_text}{just_now_text} "
         "Write their brief exchange."
     )
 

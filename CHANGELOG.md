@@ -4,6 +4,49 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.76.3] — Phase I complete: layered memory v1
+
+Closes Phase I (docs/VISION-2026-07.md), the third piece deliberately
+deferred from v0.76.1.
+
+### Added
+- `Agent.memory_salience` (`agents/agent.py`): index-aligned with
+  `Agent.memories`, maintained by `agents/population.py`'s `_remember`.
+  Each memory is scored at write time from the agent's current
+  `emotions` (baseline 0.2, up to 1.0 under real emotion). Eviction at
+  `MAX_AGENT_MEMORIES` now drops the lowest-salience entry (ties toward
+  oldest) instead of strict FIFO — memorable experiences outlast
+  mundane ones.
+- `Agent.working_memory` (cap 2, strictly FIFO): a second, faster
+  buffer written alongside `memories` — guarantees "what just happened"
+  stays available even after salience-weighted eviction drops it from
+  the longer-term episodic log.
+- `llm/cognition.py`/`llm/dialogue.py` prompts: a "Just now: ..." line
+  from `working_memory`'s freshest entry, shown only when it isn't
+  already covered by the episodic slice (shared `Agent.just_now_text`
+  helper avoids a duplicated sentence).
+
+### Verified
+- Direct eviction test: fill to cap with mundane memories, inject one
+  high-salience memory, push 8 more mundane ones through — the
+  memorable one survives.
+- 6000-tick real `SimulationEngine` soak (LLM disabled): `memory_
+  salience` stays index-aligned with `memories`, `working_memory` never
+  exceeds its cap, salience stays in [0.2, 1.0], to_dict/from_dict
+  round trip exact.
+- `scripts/verify_native_soak.py` (3 seeds, 1500 ticks): byte-identical
+  — this slice touches no native module.
+- Legacy snapshots (missing the two new fields, or with a corrupted/
+  mismatched-length `memory_salience`) load with defensive
+  pad/truncate rather than trusting the data raw.
+
+### Not native-ported (by design)
+- The eviction scan is a `min()` over at most 8 entries, firing only
+  inside `_remember` on real events — not a per-tick, per-agent hot
+  path like `decay_emotions`. Stays pure Python per the "escalate only
+  with a measured need" rule (see v0.72.13's precedent for the exact
+  same reasoning).
+
 ## [0.76.2] — new native module: emotion decay in C++
 
 Direct follow-up to v0.76.1, per explicit user instruction to write new

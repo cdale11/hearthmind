@@ -262,8 +262,41 @@ they're slower, not doomed. See Population._update_needs."""
 
 MAX_AGENT_MEMORIES = 8
 """Cap on Agent.memories — a short-term personal log (bond formed, rumor
-heard, a bonded partner's death), not a full diary. Oldest entries drop
-first. See docs/DECISIONS.md, relationship-memory pass."""
+heard, a bonded partner's death), not a full diary. See docs/
+DECISIONS.md, relationship-memory pass. Eviction policy: see
+MEMORY_SALIENCE_BASELINE below (Phase I, v0.76.3) — no longer strict
+FIFO."""
+
+MEMORY_SALIENCE_BASELINE = 0.2
+MEMORY_SALIENCE_EMOTION_WEIGHT = 0.7
+"""Phase I "layered memory v1" (docs/VISION-2026-07.md): each memory
+gets a salience score, computed once at write time from the agent's
+`emotions` in that moment (`salience = clamp(BASELINE + sum(emotions.
+values()) * EMOTION_WEIGHT, BASELINE, 1.0)`) and stored alongside it in
+`Agent.memory_salience` (index-aligned with `Agent.memories`, maintained
+solely by `agents/population.py`'s `_remember` — the only place that
+ever mutates `memories`). Eviction at `MAX_AGENT_MEMORIES` now drops the
+LOWEST-salience entry (ties toward the oldest index) instead of always
+the oldest — a routine "quiet day" memory formed with no notable
+emotion (salience 0.2) is forgotten before a memory formed during real
+fear/grief/joy/anger (up to salience 1.0) is, even if the mundane one
+is more recent. This is the actual "layered" mechanism: memorable
+experiences genuinely outlast unremarkable ones, not just a FIFO queue
+with a fancier name."""
+
+WORKING_MEMORY_MAX = 2
+"""Cap on `Agent.working_memory` — a second, much smaller buffer written
+alongside `memories` at every `_remember` call, but strictly FIFO
+(never salience-weighted). This is the vision's "fast, working" layer
+distinct from "episodic": once salience-weighted eviction can drop a
+recent-but-mundane memory in favor of an older-but-memorable one (see
+MEMORY_SALIENCE_BASELINE above), `agent.memories[-1]` is no longer
+guaranteed to be "the literal last thing that happened" — working_
+memory is. Consumed by `llm/cognition.py`/`llm/dialogue.py` as a "just
+now" grounding line, shown only when it isn't already present in the
+episodic slice being read (avoids a duplicated sentence in the common
+case where the most recent event was memorable enough to survive
+eviction too)."""
 
 GRIEF_ENERGY_PENALTY = 0.2
 """Energy lost when a close bond (affinity >= REPRODUCTION_AFFINITY_THRESHOLD)
@@ -775,6 +808,20 @@ def describe_emotion(emotions: dict) -> str:
     return _EMOTION_PHRASES[dominant[0]]
 
 
+def just_now_text(working_memory: list[str], recent_episodic: list[str]) -> str:
+    """Shared by llm/cognition.py and llm/dialogue.py: the freshest
+    `working_memory` entry (bare text, caller formats it), or "" when
+    there isn't one or it's already present in the episodic slice the
+    prompt is separately showing — avoids a duplicated sentence in the
+    common case where the most recent event was memorable enough to
+    survive salience-weighted eviction too (see WORKING_MEMORY_MAX's
+    docstring for why the two can diverge)."""
+    if not working_memory:
+        return ""
+    latest = working_memory[-1]
+    return "" if latest in recent_episodic else latest
+
+
 def describe_traits(traits: dict) -> str:
     """Shared by llm/cognition.py and llm/dialogue.py: a short natural-
     language fragment for whichever traits currently clear
@@ -855,6 +902,8 @@ class Agent:
         travel_target: tuple[int, int] | None = None,
         beliefs: list[dict] | None = None,
         emotions: dict[str, float] | None = None,
+        memory_salience: list[float] | None = None,
+        working_memory: list[str] | None = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -901,6 +950,16 @@ class Agent:
         # memories: short personal log capped at MAX_AGENT_MEMORIES, fed
         # back into this agent's own cognition prompt.
         self.memories: list[str] = [] if memories is None else memories
+        # memory_salience: index-aligned with `memories` (Phase I, see
+        # MEMORY_SALIENCE_BASELINE above) — maintained solely by
+        # agents/population.py's `_remember`, the only mutator of
+        # `memories`. A legacy/mismatched-length list is defensively
+        # padded with the baseline in `from_dict` rather than trusted
+        # raw, so an old snapshot never desyncs the two lists.
+        self.memory_salience: list[float] = [] if memory_salience is None else memory_salience
+        # working_memory: small, strictly-FIFO "what just happened"
+        # buffer — see WORKING_MEMORY_MAX above.
+        self.working_memory: list[str] = [] if working_memory is None else working_memory
         # skills: procedural teachable know-how, name -> proficiency 0..1
         # (SKILL_FARMING/CONSTRUCTION/MEDICINE) — distinct from beliefs.
         self.skills: dict[str, float] = {} if skills is None else skills
@@ -1118,6 +1177,8 @@ class Agent:
             "goal": self.goal.value,
             "goal_reason": self.goal_reason,
             "memories": list(self.memories),
+            "memory_salience": [round(v, 4) for v in self.memory_salience],
+            "working_memory": list(self.working_memory),
             "skills": {k: round(v, 4) for k, v in self.skills.items()},
             "traits": {k: round(v, 4) for k, v in self.traits.items()},
             "beliefs": list(self.beliefs),
@@ -1129,6 +1190,16 @@ class Agent:
     @classmethod
     def from_dict(cls, data: dict) -> "Agent":
         parents = data.get("parents")
+        memories = list(data.get("memories", []))
+        # memory_salience must stay index-aligned with memories — a
+        # legacy snapshot (predating v0.76.3) or any length mismatch is
+        # defensively padded/truncated with the baseline rather than
+        # trusted raw, so a resumed world never desyncs the two lists.
+        memory_salience = list(data.get("memory_salience", []))
+        if len(memory_salience) < len(memories):
+            memory_salience += [MEMORY_SALIENCE_BASELINE] * (len(memories) - len(memory_salience))
+        elif len(memory_salience) > len(memories):
+            memory_salience = memory_salience[:len(memories)]
         return cls(
             id=data["id"],
             name=data["name"],
@@ -1148,7 +1219,9 @@ class Agent:
             parents=tuple(parents) if parents is not None else None,
             goal=AgentGoal(data.get("goal", AgentGoal.WANDER.value)),
             goal_reason=data.get("goal_reason", ""),
-            memories=list(data.get("memories", [])),
+            memories=memories,
+            memory_salience=memory_salience,
+            working_memory=list(data.get("working_memory", [])),
             skills=dict(data.get("skills", {})),
             traits=dict(data.get("traits", {})),
             beliefs=list(data.get("beliefs", [])),
