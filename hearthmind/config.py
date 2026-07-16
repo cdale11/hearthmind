@@ -96,6 +96,21 @@ class Config:
     MB. Raise it if you have disk and want a longer raw event log; 0
     disables event pruning entirely (unbounded, opt-in)."""
 
+    metrics_log_retention: int = 20_000
+    """Most-recent rows kept in the `metrics` table, pruned on the same
+    snapshot-cadence transaction as `event_log_retention`. Left unpruned
+    from v0.71.0 through v0.78.1 on the reasoning that ~1 row/sim-day
+    makes it "slow" growth, with an explicit note to "revisit only for
+    multi-year sim runs" — a live user report of a game meant to run
+    stably for years is exactly that condition. 20k rows is ~55 years of
+    daily metrics (far beyond any realistic session) while giving the
+    table the same hard ceiling `events`/`snapshots` already have, so
+    "runs forever" no longer has a silent exception. `GET /metrics`
+    (the `/metrics` chart) already reads only the newest 365 rows by
+    default, so this is lossless for every actual reader. 0 disables
+    pruning (unbounded, opt-in), same convention as `event_log_
+    retention`."""
+
     db_path: str = "world.sqlite3"
 
     # --- runtime: LLM (Ollama) cognition layer, off by default -----------------

@@ -44,6 +44,7 @@ def save_snapshot(conn: sqlite3.Connection, world: World) -> None:
     )
     _prune_snapshots(conn)
     _prune_events(conn, world.config.event_log_retention)
+    _prune_metrics(conn, world.config.metrics_log_retention)
     conn.commit()
 
 
@@ -68,6 +69,24 @@ def _prune_events(conn: sqlite3.Connection, keep: int) -> None:
         """
         DELETE FROM events WHERE id NOT IN (
             SELECT id FROM events ORDER BY id DESC LIMIT ?
+        )
+        """,
+        (keep,),
+    )
+
+
+def _prune_metrics(conn: sqlite3.Connection, keep: int) -> None:
+    """Keep only the most-recent `keep` rows of the `metrics` table —
+    same shape as `_prune_events`, added in v0.78.1 once "meant to run
+    stably for years" made the previously-deferred "revisit only for
+    multi-year sim runs" condition (see `Config.metrics_log_retention`)
+    concretely true. `keep <= 0` disables pruning (unbounded, opt-in)."""
+    if keep <= 0:
+        return
+    conn.execute(
+        """
+        DELETE FROM metrics WHERE id NOT IN (
+            SELECT id FROM metrics ORDER BY id DESC LIMIT ?
         )
         """,
         (keep,),

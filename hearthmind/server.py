@@ -92,6 +92,10 @@ def parse_args(argv: list[str] | None = None) -> Config:
                          help="Most-recent rows kept in the events table (older pruned on the snapshot "
                               "cadence). The events table is the one unbounded-growth table on a perpetual "
                               "run. 0 disables event pruning (unbounded).")
+    parser.add_argument("--metrics-log-retention", type=int, default=Config.metrics_log_retention,
+                         help="Most-recent rows kept in the metrics table (older pruned on the snapshot "
+                              "cadence, same shape as --event-log-retention). 0 disables metrics pruning "
+                              "(unbounded).")
     parser.add_argument("--llm-core-cast-size", type=int, default=Config.llm_core_cast_size,
                          help="How many NPCs are the LLM-driven 'core cast' — only these get LLM cognition, "
                               "and only a pair of them gets LLM dialogue; everyone else uses the deterministic "
@@ -121,6 +125,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         sim_minutes_per_tick=args.sim_minutes_per_tick,
         snapshot_every_ticks=args.snapshot_every,
         event_log_retention=args.event_log_retention,
+        metrics_log_retention=args.metrics_log_retention,
         initial_population=args.initial_population,
         db_path=args.db,
         llm_enabled=not args.llm_disabled,

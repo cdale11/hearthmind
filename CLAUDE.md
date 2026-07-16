@@ -358,6 +358,44 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.78.2)
+
+Direct follow-up: "meant to run stably for years... how do I reduce or
+eliminate swapping... is population growth to 301 healthy?" Three parts.
+
+**Population growth is healthy, not a memory lever**: reassured and
+documented explicitly (new README section) — `POPULATION_CAP=400` is
+the project's own designed equilibrium (see the "Post-rework
+equilibrium note" diagnostic-history entry), the LLM core cast is
+fixed-size regardless of population (`llm_core_cast_size`), and the KV
+cache is a startup-time allocation that never scales with population or
+session length. 301 is expected, on-track, and unrelated to the swap
+symptom.
+
+**Closed a documented gap**: `Config.metrics_log_retention` (new,
+default 20,000 rows ≈ 55 years of daily metrics) + `_prune_metrics`
+(`persistence/snapshot.py`, same shape as `_prune_events`), wired into
+`save_snapshot`'s existing prune transaction and a new `--metrics-log-
+retention` CLI flag. `metrics` was the one table v0.71.0's "runs
+forever" audit explicitly left unpruned, deferred with "revisit only
+for multi-year sim runs" — a live request for exactly that made the
+deferred condition true. Verified: a 2000-tick soak with retention=5
+confirms the table stays capped and `recent_metrics`/`/metrics` keep
+working.
+
+**Eliminating (not just reducing) swap**: added `LLAMA_MLOCK=1` (`scripts/
+run.sh`, opt-in, `--mlock`) — pins llama-server's memory resident,
+converting silent swap-degradation into a loud startup failure/OOM-kill
+if undersized. Documented as a "size first, then lock" two-step, not a
+default, since locking an undersized allocation just moves the failure
+earlier (which is the point, for unattended years-long operation) but
+still requires correct sizing first. New README section ("Running
+stably for years") consolidates this with the v0.78.1 config pull-back,
+`--cache-type q4_0` as a further KV-cache lever, and operational
+guidance (process supervisor + restart-on-crash, periodic diagnostics
+checks, zram-over-disk-swap) — matching CLAUDE.md's standing "config,
+not code" pattern for this class of problem.
+
 ## Current state (v0.78.1)
 
 Direct response to a live `/diagnostics` report ("still a lot of memory

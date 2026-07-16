@@ -543,6 +543,63 @@ LLM server process's RSS/swap separately (matches on `ollama`,
 report either backend) so you can see exactly where the memory is going
 before changing anything.
 
+### Running stably for years — reducing or eliminating swap
+
+Hearthmind is designed to run indefinitely (`POPULATION_CAP=400` is a
+deliberate equilibrium, not a crash point; the `events`/`snapshots`/
+`metrics` tables are all retention-pruned on the snapshot cadence — see
+`Config.event_log_retention`/`metrics_log_retention` — so the database
+itself never grows without bound). **Population growth toward the cap
+does not scale the LLM's memory footprint**: only a fixed-size "core
+cast" (`Config.llm_core_cast_size`, default 14) ever gets LLM calls
+regardless of how many agents exist, and the KV cache llama-server
+allocates is sized once at startup (`--ctx-size × --parallel`) and never
+grows with population or session length. If `/diagnostics.system_memory`
+shows this hearthmind process's own RSS staying flat over a long run
+(it should — every soak in this project's history confirms it does),
+population size is not what to investigate for memory pressure; the LLM
+server process is.
+
+**Reducing swap** is the guidance throughout this section: lower
+`--ctx-size`/`Config.llm_num_ctx`/`llm_num_predict` (defaults as of
+v0.78.1: 2560/448 — see their docstrings for the live-diagnostic
+history), try `--cache-type-k/-v q4_0` for a further ~2× KV-cache cut
+below the default `q8_0`, use `LLAMA_BATCH_SIZE`/`LLAMA_UBATCH_SIZE` to
+shrink the compute buffer, or size the model down (`qwen3:1.7b`, next
+section) — each trades some capability for a smaller resident+swappable
+footprint.
+
+**Eliminating swap outright** needs a different move: reducing the
+allocation only makes swapping *less likely*, since the OS will still
+swap out whatever doesn't fit whenever the box comes under pressure from
+something else running alongside it. To guarantee zero swap for
+llama-server specifically, use `--mlock` (`LLAMA_MLOCK=1` for
+`scripts/run.sh`) — it pins the process's memory resident and refuses to
+let the kernel page any of it out. This does not reduce memory usage; it
+changes the failure mode from "silently swap and get slower over time"
+to "refuse to start, or get OOM-killed, if the allocation doesn't
+actually fit." For a service meant to run unattended for years, that's
+usually the outcome you want — a loud, immediate failure you can catch
+in a startup check, not a slow degradation you only notice months in.
+**Size first, then lock**: confirm via `/diagnostics.system_memory`
+(or `ps aux | grep llama-server`) that llama-server's RSS comfortably
+fits your real available RAM with margin for everything else on the
+box, *then* add `--mlock` — locking an undersized allocation just moves
+the failure earlier and louder, which is the point, but you still have
+to size it correctly first.
+
+For genuinely unattended years-long operation, also consider: a process
+supervisor that restarts `scripts/run.sh` on crash/OOM-kill (systemd
+`Restart=on-failure` or equivalent — hearthmind's own snapshot/resume
+path means a restart picks the world back up, not starts over); a
+periodic (weekly/monthly) glance at `/diagnostics.system_memory` rather
+than assuming a one-time tuning pass holds forever, since hardware,
+model files, and llama.cpp versions all change over a multi-year
+lifetime; and zram over disk swap if you're on constrained hardware
+(already the documented default for the 8GB path) — a compressed-RAM
+swap degrades far more gracefully than real disk I/O if some swapping
+does occur despite the above.
+
 ### Model choice history
 
 The default model tag, `qwen3:4b-instruct`, was set in v0.65.2 per a

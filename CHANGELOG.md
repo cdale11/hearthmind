@@ -4,6 +4,41 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.78.2] — years-long stability: metrics retention, --mlock, population reassurance
+
+Follow-up to v0.78.1: "meant to run stably for years, how do I reduce
+or eliminate swapping, is population growth to 301 healthy?"
+
+### Added
+
+- `Config.metrics_log_retention` (default 20,000 rows) + `_prune_
+  metrics` (`persistence/snapshot.py`), same shape as the existing
+  `event_log_retention`/`_prune_events`, wired into `save_snapshot`'s
+  prune transaction + new `--metrics-log-retention` CLI flag. Closes
+  the one table the v0.71.0 "runs forever" audit left unpruned pending
+  a genuine multi-year-run request.
+- `scripts/run.sh`: `LLAMA_MLOCK=1` opt-in `--mlock` — pins llama-
+  server's memory resident, converting silent swap-degradation into a
+  loud startup failure/OOM-kill if the allocation is undersized.
+  Documented as "size first, then lock," not a default.
+
+### Documented
+
+- New README section, "Running stably for years — reducing or
+  eliminating swap": population growth toward `POPULATION_CAP=400` is
+  the designed equilibrium and does not scale LLM memory (fixed core
+  cast, startup-time-only KV cache) — not a lever to chase; concrete
+  swap-reduction levers (ctx/predict size, `q4_0` KV cache, batch/
+  ubatch); `--mlock` as the actual swap-elimination mechanism; and
+  operational guidance for unattended years-long runs (process
+  supervisor + restart-on-crash into the existing snapshot/resume path,
+  periodic `/diagnostics.system_memory` checks, zram over disk swap).
+
+### Verified
+
+- 2000-tick soak with `metrics_log_retention=5`: table stays capped,
+  `recent_metrics`/`/metrics` keep working.
+
 ## [0.78.1] — llama-server memory pressure: live diagnostic, config pull-back
 
 Direct response to a live `/diagnostics` report showing sustained
