@@ -3247,6 +3247,23 @@ class SimulationEngine:
             "last_llm_calls": self._last_llm_calls,
             "pending_player_whispers": list(self.world.settlement.player_influence),
             "temperament": round(self.world.settlement.temperament, 3),
+            "consciousness": {
+                # Phase N: same "concise value alongside the raw lists"
+                # treatment `temperament` gets above — the full lists are
+                # already reachable via /state (World.summary()'s
+                # "consciousness" key, now also mirrored into the
+                # lightweight dev-console pane) so this stays a glance-
+                # able summary rather than duplicating them wholesale.
+                "personality": dict(self.world.consciousness_personality),
+                "objectives": list(self.world.consciousness_objectives),
+                "memory_count": len(self.world.consciousness_memory),
+                "latest_memory": self.world.consciousness_memory[-1] if self.world.consciousness_memory else None,
+                "player_model_count": len(self.world.consciousness_player_model),
+                "latest_intervention": (
+                    self.world.consciousness_intervention_log[-1]
+                    if self.world.consciousness_intervention_log else None
+                ),
+            },
             "relationship_graph": {
                 # A cheap live signal for the class of leak fixed in the
                 # "memory leak: unpruned relationships" pass — dead or

@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.84.1] — Observatory follow-up: consciousness in the dev console
+
+Direct follow-up to v0.84.0, per the "keep both moving in parallel"
+direction: Town Consciousness v2's persistent state was reachable via
+raw `/state` JSON but not actually surfaced in the developer
+observatory itself, unlike its Phase G siblings (`temperament` is a
+concise value in `full_diagnostics()`'s on-demand report). Deepens the
+observatory rather than the main UI, matching the standing ambiguity
+discipline exactly.
+
+### Added
+
+- `renderDevConsole`'s lightweight, auto-refreshing dev-console pane
+  now includes `payload.summary.consciousness` alongside `diagnostics`/
+  `llm` — reads straight off the existing broadcast payload, no new
+  endpoint.
+- `SimulationEngine.full_diagnostics()` gained a `consciousness` key
+  (personality, objectives, memory/player-model counts, latest memory,
+  latest intervention) — the same "concise glanceable summary next to
+  the full raw lists" treatment `temperament` already gets, reachable
+  via the "Full diagnostic report" button / `GET /diagnostics`.
+
+### Verified
+
+Direct unit check of `full_diagnostics()`'s new key against synthetic
+consciousness state; a live server (LLM disabled) confirms `GET /state`
+and `GET /diagnostics` both return the new fields with the correct
+empty-state shape before any consciousness activity has occurred.
+
 ## [0.84.0] — Phase N: The Town Awake (Town Consciousness v2)
 
 Phase N (docs/VISION-2026-07.md, "The Town Awake"), per the user's

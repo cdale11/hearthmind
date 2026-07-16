@@ -2155,8 +2155,15 @@ function renderInfrastructure(rows) {
 
 function renderDevConsole(payload) {
   if (devConsole.classList.contains("hidden")) return;
+  // Phase N: the town consciousness's persistent inner state is
+  // deliberately absent from the main UI (same ambiguity discipline as
+  // temperament/mood/player_standing) but belongs squarely in the
+  // developer observatory — "prompt inspection, timing, and internals"
+  // is exactly what this panel is for. Reads straight off the existing
+  // broadcast payload (World.summary()'s "consciousness" key), no new
+  // endpoint needed.
   devConsoleContent.textContent = JSON.stringify(
-    { diagnostics: payload.diagnostics, llm: payload.summary.llm },
+    { diagnostics: payload.diagnostics, llm: payload.summary.llm, consciousness: payload.summary.consciousness },
     null, 2,
   );
 }

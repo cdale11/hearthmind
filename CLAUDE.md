@@ -373,6 +373,21 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.84.1)
+
+Direct observatory follow-up to v0.84.0: Town Consciousness v2's state
+was reachable via raw `/state` but not actually surfaced in the
+developer observatory panel, unlike `temperament` (already a concise
+value in `full_diagnostics()`). Fixed — `renderDevConsole`'s live pane
+now includes `payload.summary.consciousness`, and `full_diagnostics()`
+gained a `consciousness` key (personality/objectives/memory count/
+latest memory/player-model count/latest intervention), same glanceable-
+summary-next-to-the-full-lists shape as `temperament`. Reachable via
+the dev console's live pane and its "Full diagnostic report" button.
+Verified live against a running server (LLM disabled): both `/state`
+and `/diagnostics` return the new fields with correct empty-state shape
+pre-activity.
+
 ## Current state (v0.84.0)
 
 Phase N (docs/VISION-2026-07.md, "The Town Awake" / Town Consciousness
