@@ -925,7 +925,9 @@ Population._maybe_predator_attack. Same small-magnitude rationale as
 TEMPERAMENT_INVENTION_INFLUENCE, applied after the hospital reduction."""
 
 
-def tick_temperament(temperament: float, recent_events: list[dict], rng, intensity: float = 1.0) -> float:
+def tick_temperament(
+    temperament: float, recent_events: list[dict], rng, intensity: float = 1.0, extra: float = 0.0,
+) -> float:
     """Nudge temperament one step (called monthly, alongside beliefs —
     see SimulationEngine._maybe_tick_temperament). `recent_events` is
     the same recent_events(conn, limit=...) shape used elsewhere
@@ -933,15 +935,21 @@ def tick_temperament(temperament: float, recent_events: list[dict], rng, intensi
     intensity — scales the step itself (noise and fortune-bias alike),
     so 0.0 holds temperament flat at its mean-reverted value (drifting
     to 0 over time, never nudged) rather than requiring a separate
-    on/off flag."""
+    on/off flag. `extra` is a one-shot bounded nudge folded straight into
+    the step, UNSCALED by `intensity` (Phase N, docs/VISION-2026-07.md:
+    a `temperament_nudge` consciousness intervention) — the shared
+    `bounded_random_walk_step` primitive (module 12) already supports
+    this exact `value*mean_reversion + jitter + extra` shape, just not
+    threaded through this call site until now. Defaults to 0.0, so every
+    existing caller is unaffected."""
     good = sum(1 for e in recent_events if e.get("category") in _GOOD_FORTUNE_CATEGORIES)
     ill = sum(1 for e in recent_events if e.get("category") in _ILL_FORTUNE_CATEGORIES)
     fortune = (good - ill) / (good + ill) if (good + ill) else 0.0
     jitter = rng.uniform(-TEMPERAMENT_STEP_MAX, TEMPERAMENT_STEP_MAX)
     step = (jitter + fortune * TEMPERAMENT_FORTUNE_WEIGHT) * intensity
     if _native_bounded_random_walk_step is not None:
-        return _native_bounded_random_walk_step(temperament, TEMPERAMENT_MEAN_REVERSION, step, 0.0, -1.0, 1.0)
-    return clamp(temperament * TEMPERAMENT_MEAN_REVERSION + step, -1.0, 1.0)
+        return _native_bounded_random_walk_step(temperament, TEMPERAMENT_MEAN_REVERSION, step, extra, -1.0, 1.0)
+    return clamp(temperament * TEMPERAMENT_MEAN_REVERSION + step + extra, -1.0, 1.0)
 
 # --- mood: Phase I "Collective Psychology" — aggregated from individual ---
 # --- minds, the layer directly above Agent.emotions in the vision's ---

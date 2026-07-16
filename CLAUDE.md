@@ -373,6 +373,92 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.84.0)
+
+Phase N (docs/VISION-2026-07.md, "The Town Awake" / Town Consciousness
+v2), following straight on from Phase M per the user's "continue"
+direction. Phase G given a memory and a will — extension, not
+replacement: `Settlement.temperament`/`mood`/`player_standing` are
+untouched; this is the one monthly LLM call that reads them plus a
+small persistent inner state and may choose at most one small,
+deniable intervention.
+
+**Persistent inner state** lives on `World` (`consciousness_memory`/
+`_personality`/`_objectives`/`_player_model`/`_intervention_log`,
+`world/state.py`), not per-settlement — there is one consciousness, not
+one per settlement, tied to the founding settlement the same way
+player_standing/documentary/whispers already are. `consciousness_
+personality` (curiosity/patience/possessiveness) is genesis-seeded
+once, deterministically from `config.seed` (`llm.consciousness.
+seed_personality`, zero LLM cost) — a settled temperament the monthly
+job reasons *from*, not a fourth Phase G random walk. Objectives (cap
+2) are revised only when the model actually supplies new ones; the
+player model (cap 6, same shape as `Settlement.beliefs` entries but
+never institution-mirrored — this is the consciousness's own,
+possibly-wrong theory about the *player*, not a village belief) prunes
+its weakest-confidence entry past the cap, same discipline as
+`Settlement.beliefs` itself.
+
+**Monthly consciousness job** (`llm/consciousness.py`,
+`SimulationEngine._maybe_schedule_consciousness`, `MONTHLY_JOB_DAY[
+"consciousness"]=24` with the standard retry window, one call): reads
+memory/personality/objectives/player-model plus the settlement's real
+temperament/mood/narrative-theme/player_standing, and may choose at
+most one intervention from `llm.consciousness.ALLOWED_INTERVENTIONS`.
+**Deliberately scoped to three of the vision doc's fuller menu**
+(also names omen-phrasing/dream-symbol seeds and a misplaced-object
+event) — the three chosen ride existing state with zero new cross-
+module plumbing: `weather_nudge` perturbs `World.weather` directly
+(bounded within the range `compute_weather`'s own smoothed output
+actually realizes — the standing "unreachable threshold" lesson
+applies to nudges too — and decays naturally through the existing EMA
+blend the very next tick, no separate "active nudge" state to expire);
+`temperament_nudge` uses a new `extra` parameter on `tick_temperament`
+(the shared `bounded_random_walk_step` primitive from module 12
+already supported this `value*mean_reversion + jitter + extra` shape,
+just not threaded through this call site until now — consumed
+one-shot by the very next `_maybe_tick_temperament`, for the founding
+settlement only); `false_memory` plants a fabricated-but-plausible
+memory on a core-cast agent via the existing `_remember`. **Emotional
+contagion** (the vision's "two agents receiving the same seed in the
+same month"): `false_memory` also plants the identical text on the
+chosen agent's most-bonded living partner, opportunistically (skipped
+if none) — achieved as a free side effect of the mechanism already
+being built rather than separate dream-seed plumbing.
+
+**Fallback is a genuine no-op** — the one deliberate departure from
+every other Phase L/M job's fallback shape (compare `religion.
+fallback_religion`/`narrative_direction.fallback_direction`, both real
+deterministic answers): "no call -> no intervention that month," per
+the vision doc's own explicit framing. `SimulationEngine`'s `apply()`
+checks `used_fallback` directly and returns immediately rather than
+routing through `parse_consciousness` for that case — a flaky/
+overloaded LLM stretch means the town simply doesn't notice or act
+that month, never a fabricated substitute.
+
+**UI**: `consciousness_intervention` event icon (🌫️, deliberately the
+same glyph as `omen` — an intervention is meant to read exactly like
+one), grouped under the "mind" filter chip. No main-UI panel, matching
+Phase G's standing ambiguity discipline exactly as it already applies
+to temperament/mood/player_standing (none of which appear in index.html/
+app.js either) — reachable only via the dev console/raw `/state` JSON
+(`World.summary()`'s new `consciousness` key).
+
+Verified: direct fake-client tests confirm the monthly job writes
+memory/player-model/objectives/personality correctly from a real
+result, `false_memory` plants on exactly one core-cast agent plus its
+bonded partner (contagion), `weather_nudge`/`temperament_nudge` stay
+within their documented bounds; the fallback path is confirmed to be a
+genuine no-op, never a fabricated memory or logged intervention;
+`consciousness_*` fields round-trip exactly through to_dict/from_dict,
+legacy snapshots default cleanly to empty; a 20,000-tick engine soak
+(fake instant LLM client, population 25) completes with zero crashes
+and bounded memory/intervention-log lengths. `scripts/verify_native_
+soak.py` unaffected — this batch touches no native module. Next
+milestone: continued UI/observatory work per the "keep both moving in
+parallel" direction; no further roadmap phase has been explicitly
+green-lit yet.
+
 ## Current state (v0.83.0)
 
 Phase M start (docs/VISION-2026-07.md, "Faith & Meaning"), per explicit

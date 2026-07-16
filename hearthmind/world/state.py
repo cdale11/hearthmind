@@ -45,6 +45,16 @@ from hearthmind.util import namespaced_rng
 _namespaced_rng = namespaced_rng
 
 
+CONSCIOUSNESS_MEMORY_MAX = 16
+"""Cap on `World.consciousness_memory` — Phase N, see its docstring."""
+
+CONSCIOUSNESS_PLAYER_MODEL_MAX = 6
+"""Cap on `World.consciousness_player_model` — small deliberately: this
+is a private running theory, not a growing dossier."""
+
+CONSCIOUSNESS_INTERVENTION_LOG_MAX = 12
+"""Cap on `World.consciousness_intervention_log`."""
+
 TERRAIN_CHANGING_CATEGORIES = frozenset({
     "terrain_thinned", "terrain_reclaimed", "climate_drift",
     "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
@@ -119,6 +129,51 @@ class World:
     "generating..." state in between. Persisted (unlike last_life_events)
     so a page refresh or resumed world still shows the last summary
     rather than reading empty."""
+    consciousness_memory: list[dict] = field(default_factory=list)
+    """Phase N "Town Consciousness v2" (docs/VISION-2026-07.md, "The Town
+    Awake"): bounded log of what the town's persistent inner awareness
+    has noticed (`{"note": str, "tick": int}`), capped at
+    CONSCIOUSNESS_MEMORY_MAX. World-scoped (not per-settlement) — the
+    consciousness is one hidden intelligence tied to the founding
+    settlement, same "stays with the founding settlement" shape as
+    player_standing/documentary/whispers, not something that multiplies
+    with fission."""
+    consciousness_personality: dict = field(default_factory=dict)
+    """`{"curiosity": float, "patience": float, "possessiveness": float}`,
+    each 0..1, genesis-seeded once (`llm.consciousness.seed_personality`
+    — deterministic from `config.seed`, zero LLM cost) the first time
+    `SimulationEngine._maybe_schedule_consciousness` runs. Empty `{}`
+    until then. Deliberately static afterward — a settled temperament
+    the monthly job reasons FROM, not a fourth Phase G random walk."""
+    consciousness_objectives: list[dict] = field(default_factory=list)
+    """At most 2 standing preoccupations (`{"objective": str,
+    "formed_tick": int}`), revised only when the monthly consciousness
+    call actually supplies new ones — otherwise held unchanged, per the
+    vision doc's "LLM-revised rarely.\""""
+    consciousness_player_model: list[dict] = field(default_factory=list)
+    """The consciousness's own private, possibly-wrong theory about the
+    player — same belief shape as `Settlement.beliefs` entries
+    (`{"belief": str, "confidence": float, "formed_tick": int,
+    "revised_tick": int, "revision_count": int}`) but never institution-
+    mirrored (there's no institution this belongs to) and never shown to
+    NPCs — this is the consciousness's model of the OUTSIDE hand, not a
+    village belief about anything in-world. Capped at
+    CONSCIOUSNESS_PLAYER_MODEL_MAX."""
+    consciousness_intervention_log: list[dict] = field(default_factory=list)
+    """Rolling log of what the monthly job has actually done
+    (`{"kind": str, "detail": str, "tick": int}`, "none" entries included
+    so a quiet month is visible too), capped at
+    CONSCIOUSNESS_INTERVENTION_LOG_MAX — the dev-console surface, and
+    also fed back into the next prompt so the consciousness doesn't
+    repeat itself unknowingly."""
+    consciousness_pending_temperament_nudge: float = 0.0
+    """One-shot bounded nudge queued by a `temperament_nudge`
+    intervention, consumed (and reset to 0.0) by the very next
+    `_maybe_tick_temperament` call for the founding settlement — see
+    `tick_temperament`'s `extra` parameter. Never itself serialized
+    (a nudge left pending across a save/restart would apply twice, once
+    from each process) — see `to_dict`'s comment on `sim_summary_
+    pending` for the identical shape of this concern."""
     last_calendar_events: list[str] = field(default_factory=list)
     last_life_events: list[tuple[str, str]] = field(default_factory=list, compare=False)
     """(category, description) pairs from this tick's births/deaths, for the
@@ -409,6 +464,13 @@ class World:
                 "tick": self.sim_summary_tick,
                 "pending": self.sim_summary_pending,
             },
+            "consciousness": {
+                "personality": dict(self.consciousness_personality),
+                "memory": list(self.consciousness_memory),
+                "objectives": list(self.consciousness_objectives),
+                "player_model": list(self.consciousness_player_model),
+                "interventions": list(self.consciousness_intervention_log),
+            },
         }
 
     # --- (de)serialization --------------------------------------------------
@@ -451,6 +513,14 @@ class World:
             # generation left in flight at shutdown never resolves after
             # restart, so it must load back as False, not stuck "true"
             # forever with no job to clear it.
+            "consciousness_memory": list(self.consciousness_memory),
+            "consciousness_personality": dict(self.consciousness_personality),
+            "consciousness_objectives": list(self.consciousness_objectives),
+            "consciousness_player_model": list(self.consciousness_player_model),
+            "consciousness_intervention_log": list(self.consciousness_intervention_log),
+            # consciousness_pending_temperament_nudge is deliberately NOT
+            # persisted — same "in-flight, one-shot, must not double-apply
+            # across a restart" reasoning as sim_summary_pending above.
         }
 
     @classmethod
@@ -579,5 +649,10 @@ class World:
             rumor_total=data.get("rumor_total", 0),
             sim_summary_text=data.get("sim_summary_text", ""),
             sim_summary_tick=data.get("sim_summary_tick", -1),
+            consciousness_memory=list(data.get("consciousness_memory", [])),
+            consciousness_personality=dict(data.get("consciousness_personality", {})),
+            consciousness_objectives=list(data.get("consciousness_objectives", [])),
+            consciousness_player_model=list(data.get("consciousness_player_model", [])),
+            consciousness_intervention_log=list(data.get("consciousness_intervention_log", [])),
             migrated_subsystems=migrated_subsystems,
         )

@@ -47,8 +47,8 @@ from hearthmind.config import Config
 from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
-    faction, fission, beliefs, caravan, chronicle, culture, dialogue, dispute, documentary, dream, festival,
-    folklore, founding, geography, invention, mind, naming, narrative_direction, omens, religion,
+    faction, fission, beliefs, caravan, chronicle, consciousness, culture, dialogue, dispute, documentary, dream,
+    festival, folklore, founding, geography, invention, mind, naming, narrative_direction, omens, religion,
     rumor_interpret, summary, town_brain,
 )
 from hearthmind.llm.client import build_llm_client
@@ -102,7 +102,13 @@ from hearthmind.settlement.buildings import (
     tick_temperament,
 )
 from hearthmind.settlement.institutions import InstitutionKind
-from hearthmind.world.state import TERRAIN_CHANGING_CATEGORIES, World
+from hearthmind.world.state import (
+    CONSCIOUSNESS_INTERVENTION_LOG_MAX,
+    CONSCIOUSNESS_MEMORY_MAX,
+    CONSCIOUSNESS_PLAYER_MODEL_MAX,
+    TERRAIN_CHANGING_CATEGORIES,
+    World,
+)
 from hearthmind.world.terrain import biome_counts
 
 
@@ -155,6 +161,22 @@ settlement job — deliberately small, since this is real *added* call
 volume on top of the existing daily budget, not a reuse of an existing
 job slot. See `SimulationEngine._interpret_rumor_today` and
 `_apply_pending_dialogue_results`."""
+
+CONSCIOUSNESS_WEATHER_PRECIP_NUDGE_MAX = 0.12
+CONSCIOUSNESS_WEATHER_TEMP_NUDGE_MAX_C = 1.5
+"""`weather_nudge`'s bounds (Phase N) — small enough to stay well within
+the smoothed range `compute_weather` actually realizes (measured
+p10/p90 precipitation ~0.11-0.67, see world/weather.py's threshold
+docstrings — the standing "unreachable threshold" lesson applies to
+nudges too, not just fixed bands) and applied to `World.weather`
+directly, so the very next tick's EMA blend carries it forward and lets
+it decay naturally like any other tick-to-tick drift — no separate
+"active nudge" state to track or expire."""
+
+CONSCIOUSNESS_TEMPERAMENT_NUDGE_MAX = 0.15
+"""`temperament_nudge`'s bound (Phase N) — folded into `tick_temperament`'s
+new `extra` parameter, same small-magnitude-relative-to-the-visible-range
+rationale as every other Phase G nudge (compare TEMPERAMENT_STEP_MAX)."""
 
 PROMPT_RECENT_EVENTS = 40
 """How many recent events reach a settlement-level LLM prompt
@@ -266,6 +288,7 @@ MONTHLY_JOB_DAY = {
     "chronicle": 1, "festival": 4, "caravan": 7, "fission": 8, "town_brain": 10,
     "beliefs": 13, "personal_belief": 16, "guild_founding": 19,
     "institution_belief": 22, "geography": 25, "folklore": 20, "dream": 23, "omen": 27, "faction": 26,
+    "consciousness": 24,
 }
 """Day-of-month (0-based; every value <= 27 so it exists even in
 February) on which each monthly LLM job fires — the memory-pressure
@@ -290,7 +313,7 @@ monthly ~10."""
 MONTHLY_JOBS_WITH_RETRY = frozenset({
     "chronicle", "folklore", "town_brain", "beliefs", "personal_belief",
     "dream", "faction", "guild_founding", "institution_belief", "fission",
-    "geography",
+    "geography", "consciousness",
 })
 """Job names `_monthly_gate` grants a `MONTHLY_JOB_RETRY_WINDOW_DAYS`-day
 window instead of one exact day — every monthly job EXCEPT festival/
@@ -948,6 +971,7 @@ class SimulationEngine:
         ("_maybe_schedule_festival", _JOB_EVENTS),
         ("_maybe_schedule_religion", _JOB_EVENTS),
         ("_maybe_schedule_narrative_direction", _JOB_EVENTS),
+        ("_maybe_schedule_consciousness", _JOB_EVENTS),
         ("_maybe_schedule_caravan", _JOB_EVENTS),
         ("_maybe_schedule_town_brain", _JOB_EVENTS),
         ("_maybe_schedule_beliefs", _JOB_EVENTS),
@@ -1921,6 +1945,120 @@ class SimulationEngine:
             return ""
         return ", ".join(stl.narrative_themes[-1]["themes"])
 
+    # --- Phase N: Town Consciousness v2 ---------------------------------------
+
+    def _maybe_schedule_consciousness(self, events: list[str]) -> None:
+        """Monthly, one call, world-scoped (tied to the founding
+        settlement, not round-robin — there is one consciousness, not
+        one per settlement, same "stays with the founding settlement"
+        shape as player_standing/documentary/whispers). Phase G, given a
+        memory and a will: reads its own bounded memory/personality/
+        objectives/player-model plus the settlement's real temperament/
+        mood/narrative-theme, and may choose at most one small,
+        deniable intervention. See llm/consciousness.py's module
+        docstring for the fallback's deliberate "no call -> no
+        intervention" shape, distinct from every other job here."""
+        target = self.world.settlement
+        if not self._monthly_gate(events, "consciousness") or not target.name:
+            return
+        if self._settlement_job_backpressured():
+            return
+        self._mark_monthly_resolved("consciousness")
+        if not self.world.consciousness_personality:
+            self.world.consciousness_personality = consciousness.seed_personality(self.world.config.seed)
+        recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
+        prompt = consciousness.build_prompt(
+            target.name, self.world.consciousness_personality, self.world.consciousness_memory,
+            self.world.consciousness_objectives, self.world.consciousness_player_model,
+            dict(target.mood), target.temperament, self._narrative_theme_bias(target),
+            target.player_standing, recent, self.world.consciousness_intervention_log,
+        )
+        fallback = consciousness.fallback_consciousness()
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            tick = self.world.clock.tick_count
+            if used_fallback:
+                # "No call -> no intervention that month" — the one job
+                # in this codebase whose fallback is a genuine no-op,
+                # not a deterministic stand-in answer. See module
+                # docstring.
+                return
+            parsed = consciousness.parse_consciousness(result, fallback)
+            if parsed["note"]:
+                self.world.consciousness_memory.append({"note": parsed["note"], "tick": tick})
+                if len(self.world.consciousness_memory) > CONSCIOUSNESS_MEMORY_MAX:
+                    self.world.consciousness_memory = self.world.consciousness_memory[-CONSCIOUSNESS_MEMORY_MAX:]
+            if parsed["player_belief"]:
+                self.world.consciousness_player_model.append({
+                    "belief": parsed["player_belief"], "confidence": 0.6,
+                    "formed_tick": tick, "revised_tick": tick, "revision_count": 0,
+                })
+                if len(self.world.consciousness_player_model) > CONSCIOUSNESS_PLAYER_MODEL_MAX:
+                    weakest = min(self.world.consciousness_player_model, key=lambda p: p["confidence"])
+                    self.world.consciousness_player_model.remove(weakest)
+            if parsed["objectives"]:
+                self.world.consciousness_objectives = [
+                    {"objective": o, "formed_tick": tick} for o in parsed["objectives"]
+                ]
+            kind = parsed["intervention"]
+            detail = parsed["intervention_detail"]
+            self._apply_consciousness_intervention(kind, detail, target)
+            self.world.consciousness_intervention_log.append({"kind": kind, "detail": detail, "tick": tick})
+            if len(self.world.consciousness_intervention_log) > CONSCIOUSNESS_INTERVENTION_LOG_MAX:
+                self.world.consciousness_intervention_log = (
+                    self.world.consciousness_intervention_log[-CONSCIOUSNESS_INTERVENTION_LOG_MAX:]
+                )
+            if kind != "none":
+                self._log("consciousness_intervention", f"Something in {target.name} quietly shifted.")
+
+        self._schedule_llm_job("consciousness", prompt, consciousness.SYSTEM_PROMPT, fallback, apply)
+
+    def _apply_consciousness_intervention(self, kind: str, detail: str, target: "Settlement") -> None:
+        """Executes exactly one of the bounded menu (see
+        `llm.consciousness.ALLOWED_INTERVENTIONS`) — every branch reuses
+        existing, already-deterministic state rather than inventing new
+        mechanics, and every branch stays small enough to have a mundane
+        explanation. `detail` is flavor text only (logged/used as the
+        planted memory's content for false_memory); it never changes
+        WHICH mechanism fires, only how it reads."""
+        if kind == "none":
+            return
+        rng = namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "consciousness_intervention")
+        if kind == "weather_nudge":
+            weather = self.world.weather
+            weather.precipitation = clamp(
+                weather.precipitation + rng.uniform(-1, 1) * CONSCIOUSNESS_WEATHER_PRECIP_NUDGE_MAX, 0.0, 1.0,
+            )
+            weather.temperature_c += rng.uniform(-1, 1) * CONSCIOUSNESS_WEATHER_TEMP_NUDGE_MAX_C
+        elif kind == "temperament_nudge":
+            self.world.consciousness_pending_temperament_nudge = (
+                rng.uniform(-1, 1) * CONSCIOUSNESS_TEMPERAMENT_NUDGE_MAX
+            )
+        elif kind == "false_memory":
+            core_ids = [
+                a for a in self.world.population.agents
+                if a.id in self.world.population.core_agent_ids and a.settlement_id == target.id
+            ]
+            if not core_ids:
+                return
+            primary = core_ids[rng.randrange(len(core_ids))]
+            text = detail if detail else "A memory that doesn't quite fit anything that really happened."
+            _remember(primary, text)
+            # Emotional contagion (vision doc): the same fabricated
+            # memory, planted on a second agent bonded to the first,
+            # reads as a synchronized experience only a player comparing
+            # two NPC inspectors would ever notice — pure seed-sharing,
+            # free. Opportunistic: skipped if no living bonded agent
+            # exists this month.
+            if primary.relationships:
+                partner_id = max(primary.relationships, key=lambda aid: primary.relationships[aid])
+                # `population.agents` only ever holds the living (deaths
+                # remove the agent outright, see Population.tick) — no
+                # separate liveness check needed here.
+                partner = next((a for a in self.world.population.agents if a.id == partner_id), None)
+                if partner is not None:
+                    _remember(partner, text)
+
     # --- caravans: a first, scoped step toward "external settlements and trade" ---
 
     def _maybe_schedule_caravan(self, events: list[str]) -> None:
@@ -2272,8 +2410,16 @@ class SimulationEngine:
             rng = _namespaced_rng(
                 self.world.config.seed, self.world.clock.tick_count, f"temperament_{stl.id}",
             )
+            # Phase N: a `temperament_nudge` consciousness intervention
+            # queues a one-shot bounded nudge for the founding settlement
+            # only (the consciousness is tied to it, not per-settlement) —
+            # consumed here and reset so it can't apply twice.
+            extra = 0.0
+            if stl.id == self.world.settlement.id and self.world.consciousness_pending_temperament_nudge:
+                extra = self.world.consciousness_pending_temperament_nudge
+                self.world.consciousness_pending_temperament_nudge = 0.0
             stl.temperament = tick_temperament(
-                stl.temperament, recent, rng, intensity=self.world.config.phase_g_intensity,
+                stl.temperament, recent, rng, intensity=self.world.config.phase_g_intensity, extra=extra,
             )
             mood_rng = _namespaced_rng(
                 self.world.config.seed, self.world.clock.tick_count, f"mood_{stl.id}",

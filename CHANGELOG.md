@@ -4,6 +4,74 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.84.0] — Phase N: The Town Awake (Town Consciousness v2)
+
+Phase N (docs/VISION-2026-07.md, "The Town Awake"), per the user's
+"continue" direction following Phase M — Phase G given a memory and a
+will, extension rather than replacement. Deliberately scoped down from
+the vision doc's full menu (also names omen-phrasing/dream-symbol seeds
+and a misplaced-object event) to the three interventions that ride
+existing state with zero new cross-module plumbing; the fallback is a
+genuine no-op ("no call -> no intervention that month"), a deliberate
+departure from every other Phase L/M job's fallback shape.
+
+### Added
+
+- **Persistent inner state** (`World.consciousness_memory`/
+  `_personality`/`_objectives`/`_player_model`/`_intervention_log`,
+  `world/state.py`): a bounded memory of what it's noticed (cap 16), a
+  genesis-seeded personality (curiosity/patience/possessiveness,
+  deterministic from `config.seed`, zero LLM cost — `llm.consciousness.
+  seed_personality`), at most 2 standing objectives revised only when
+  the model actually supplies new ones, and a private, capped (6) theory
+  about the player (same belief shape as `Settlement.beliefs` but never
+  institution-mirrored — this is the consciousness's read on the
+  *outside hand*, not a village belief). World-scoped, not per-
+  settlement — tied to the founding settlement, same as player_standing/
+  documentary/whispers.
+- **Monthly consciousness job** (`llm/consciousness.py`,
+  `SimulationEngine._maybe_schedule_consciousness`, one call): reads its
+  memory/personality/objectives/player-model plus the settlement's real
+  temperament/mood/narrative-theme, and may choose at most one
+  intervention from a bounded menu — `weather_nudge` (perturbs `World.
+  weather` directly, small enough to stay within the smoothed range
+  `compute_weather` actually realizes, decays naturally through the
+  existing EMA blend next tick), `temperament_nudge` (`tick_temperament`
+  gained an `extra` parameter, the shared `bounded_random_walk_step`
+  primitive already supported this shape — just not threaded through
+  until now), or `false_memory` (plants a fabricated-but-plausible
+  memory on a core-cast agent via the existing `_remember`). Most months
+  the honest answer is "none," per the vision doc's own framing.
+- **Emotional contagion**: `false_memory` plants the identical
+  fabricated text on the chosen agent's most-bonded living partner too
+  (opportunistic — skipped if none) — the vision's "two agents receiving
+  the same seed in the same month" reading, achieved as a side effect of
+  the mechanism already being built rather than separate dream-seed
+  plumbing. Pure seed-sharing, free, and only ever noticeable by a
+  player comparing two NPC inspectors.
+- **UI**: `consciousness_intervention` event icon (🌫️, deliberately the
+  same as `omen`'s — a consciousness intervention is meant to read
+  exactly like one), grouped under the "mind" filter chip. No main-UI
+  panel — Phase G ambiguity discipline applies here exactly as it does
+  to temperament/mood/player_standing: reachable only via the dev
+  console/raw `/state` JSON (`World.summary()`'s new `consciousness`
+  key), never labeled in the normal UI.
+
+### Verified
+
+Direct fake-client tests: the monthly job correctly writes memory/
+player-model/objectives/personality on a real LLM result, `false_memory`
+plants on exactly one core-cast agent plus its bonded partner
+(contagion), `weather_nudge`/`temperament_nudge` stay bounded within
+their documented ranges; the fallback path is confirmed to be a genuine
+no-op (no memory, no intervention logged) rather than a fabricated
+substitute; `consciousness_*` fields round-trip exactly through
+to_dict/from_dict, legacy snapshots missing them default cleanly to
+empty; a 20,000-tick engine soak (fake instant LLM client, population
+25) completes with zero crashes, bounded memory/intervention-log
+lengths, and healthy LLM stats. `scripts/verify_native_soak.py`
+unaffected — this batch touches no native module.
+
 ## [0.83.0] — Phase M: Faith & Meaning (ritual→religion, Narrative Direction)
 
 First implementation slice of the long-term vision's Phase M

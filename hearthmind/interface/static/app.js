@@ -123,6 +123,7 @@ const CATEGORY_META = {
   ritual_formed: { icon: "🕯️" },
   religion_formed: { icon: "⛩️" },
   narrative_direction: { icon: "📖" },
+  consciousness_intervention: { icon: "🌫️" },
 };
 
 // Event-log filter chips (v0.64.0 UI backlog): coarse groups, display-only —
@@ -146,7 +147,7 @@ const EVENT_GROUP_OF = {
   chronicle: "mind", documentary: "mind", sim_summary: "mind", tradition: "mind", invention: "mind",
   festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind",
   institution_belief: "mind", ritual_formed: "mind", religion_formed: "mind",
-  narrative_direction: "mind",
+  narrative_direction: "mind", consciousness_intervention: "mind",
 };
 let activeEventGroup = "all";
 
