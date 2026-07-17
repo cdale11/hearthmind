@@ -1046,6 +1046,7 @@ class Agent:
         working_memory: list[str] | None = None,
         semantic_memories: list[str] | None = None,
         secrets: list[str] | None = None,
+        life_digest: str = "",
         mind: str = "",
         debts: dict[int, float] | None = None,
         stuck_ticks: int = 0,
@@ -1112,6 +1113,23 @@ class Agent:
         # secrets: private things this agent holds back, strictly FIFO,
         # cap MAX_SECRETS (see above) — planted by dispute outcomes.
         self.secrets: list[str] = [] if secrets is None else secrets
+        # life_digest: one LLM-authored sentence condensing this agent's
+        # ENTIRE accumulated self-understanding (their private beliefs +
+        # semantic memories together, not just the newest one) — same
+        # "digest, not just a recency slice" treatment `Settlement.
+        # belief_digest`/`culture_digest` already get (v0.85.4/.5),
+        # applied at the individual level (v0.86.7, Constitution: "the
+        # LLM should learn about the simulation... through persistent,
+        # summarized context"). Written by extending the existing
+        # monthly Reflect() job (`SimulationEngine._maybe_schedule_
+        # personal_belief`) — zero added LLM call volume. Only
+        # overwritten on a genuine LLM answer (that job is `critical=
+        # True`), retained across a fallback stretch, same discipline as
+        # every other digest field. Fed back into this agent's own
+        # cognition/dialogue prompts as one more grounding line — this
+        # is the concrete "read persistent memory back into the LLM"
+        # loop closing at the personal scale.
+        self.life_digest: str = life_digest
         # mind: one-time-authored permanent identity paragraph, core
         # cast only, "" until they join — see MAX_MIND_TEXT_CHARS above.
         self.mind: str = mind
@@ -1354,6 +1372,7 @@ class Agent:
             "working_memory": list(self.working_memory),
             "semantic_memories": list(self.semantic_memories),
             "secrets": list(self.secrets),
+            "life_digest": self.life_digest,
             "mind": self.mind,
             "skills": {k: round(v, 4) for k, v in self.skills.items()},
             "traits": {k: round(v, 4) for k, v in self.traits.items()},
@@ -1403,6 +1422,7 @@ class Agent:
             working_memory=list(data.get("working_memory", [])),
             semantic_memories=list(data.get("semantic_memories", [])),
             secrets=list(data.get("secrets", [])),
+            life_digest=data.get("life_digest", ""),
             mind=data.get("mind", ""),
             skills=dict(data.get("skills", {})),
             traits=dict(data.get("traits", {})),

@@ -49,6 +49,7 @@ const BUILDING_COLORS = {
   hut: "#c98a3c", granary: "#d9a441", workshop: "#8a7fd6", school: "#4fa3c9",
   hospital: "#e0473c", university: "#2f7fc9", factory: "#5c5c66", shrine: "#c9a3e0",
   power_plant: "#e0c93c", market: "#3ccf9e", bridge: "#b08968",
+  pasture: "#8fbf5e", hatchery: "#4ab5cf",
 };
 const FARM_COLORS = { growing: "#7fae4a", ready: "#e0c34a" };
 
@@ -1603,8 +1604,9 @@ function renderNpcInspector() {
   // memories, distinct from "What the village believes about them"
   // above (settlement-wide theory) — this is what THEY privately think,
   // written by the same Reflect()-extended personal_belief job.
-  const reflectionsHtml = (ownBeliefs.length || semanticMemories.length)
-    ? `<ul>${semanticMemories.map((m) => `<li>${m}</li>`).join("")}${ownBeliefs.map((b) => `<li><span class="muted">(re: ${b.subject})</span> ${b.belief}</li>`).join("")}</ul>`
+  const lifeDigestHtml = agent.life_digest ? `<div class="muted"><i>"${agent.life_digest}"</i></div>` : "";
+  const reflectionsHtml = (ownBeliefs.length || semanticMemories.length || agent.life_digest)
+    ? `${lifeDigestHtml}<ul>${semanticMemories.map((m) => `<li>${m}</li>`).join("")}${ownBeliefs.map((b) => `<li><span class="muted">(re: ${b.subject})</span> ${b.belief}</li>`).join("")}</ul>`
     : `<div class="muted">no private theories yet</div>`;
   const traits = agent.traits || {};
   const traitLabel = (value) => {
@@ -2014,6 +2016,14 @@ function renderStats(summary) {
     [
       "Granaries", `${s.granaries} (${s.granary_food.toFixed(1)} / ${s.granary_capacity.toFixed(1)} food)`,
       "Communal food buffer: well-fed agents present at a standing granary deposit surplus; hungry agents withdraw from it before resorting to wild foraging.",
+    ],
+    [
+      "Repairs & upkeep", `${s.buildings_repaired || 0} buildings, ${s.vehicles_repaired || 0} vehicles`,
+      "All-time count of buildings worked back to full condition and vehicles worked back to ready — real labor NPCs put into upkeep, not just construction.",
+    ],
+    [
+      "Husbandry", `${s.pastures || 0} pastures (${(s.pasture_food || 0).toFixed(1)}/${(s.pasture_capacity || 0).toFixed(1)}), ${s.hatcheries || 0} hatcheries (${(s.hatchery_food || 0).toFixed(1)}/${(s.hatchery_capacity || 0).toFixed(1)})`,
+      "Deliberately raised animals/fish, distinct from wild grazer hunting or opportunistic fishing — a standing pasture/hatchery produces food on its own, faster when tended.",
     ],
     [
       "Materials", `${s.materials.toFixed(1)} / ${s.materials_capacity.toFixed(1)}`,

@@ -119,6 +119,26 @@ class BuildingKind(str, Enum):
     outside contact and its own infrastructure reinforce each other,
     rather than caravans being a one-way, un-influenceable event.
     """
+    PASTURE = "pasture"
+    """Animal husbandry (v0.86.7, explicit user direction — a deliberate
+    food source distinct from wild grazer hunting): once standing,
+    passively produces a small trickle of food into its own `stored_
+    food` regardless of staffing (herds tend themselves, slowly), boosted
+    substantially by awake, well-fed agents present tending it — same
+    "presence-driven production" shape WORKSHOP/FACTORY use for currency,
+    applied to food. Withdrawable by hungry agents exactly like a
+    GRANARY (see `Population._maybe_forage`'s cultivated-food-source
+    tier). See PASTURE_CAPACITY/PASTURE_PASSIVE_YIELD_PER_TICK/
+    PASTURE_TENDED_YIELD_PER_TICK."""
+    HATCHERY = "hatchery"
+    """Fish husbandry/aquaculture (v0.86.7) — same shape as PASTURE, but
+    only enters the foundable pool at a water-adjacent site (see
+    `choose_building_kind`'s `water_adjacent` gate, the same check RAFT/
+    BRIDGE already use), distinct from the existing wild FISH resource-
+    node forage mechanic (`world/resources.py`) — this is a deliberate,
+    invested food source a settlement chooses to build, not an
+    opportunistic wild catch. See HATCHERY_CAPACITY/HATCHERY_PASSIVE_
+    YIELD_PER_TICK/HATCHERY_TENDED_YIELD_PER_TICK."""
     BRIDGE = "bridge"
     """The true-water-transport gap CLAUDE.md flagged as needing "its
     own pathing-system pass, not a bolt-on": unlike RAFT (a passive
@@ -360,6 +380,13 @@ MARKET_MATERIALS_COST = 7.0
 investment, not gated by cost so much as by MARKET_CARAVAN_VISIT_
 REQUIREMENT (the town needs a reason to build one before it can afford
 to want to)."""
+PASTURE_MATERIALS_COST = 5.0
+"""Same as GRANARY — another cultivated-food-source building, same
+civic weight."""
+HATCHERY_MATERIALS_COST = 6.0
+"""Slightly above PASTURE — founding is also gated by a real site
+constraint (water adjacency), reflecting the extra effort of building
+at a waterside location."""
 BRIDGE_MATERIALS_COST_PER_SPAN_TILE = 2.5
 """Bridges cost scales with how much water they actually cross
 (`len(Building.bridge_span)`) rather than a flat price like every other
@@ -401,11 +428,14 @@ MATERIALS_COST_BY_KIND: dict[BuildingKind, float] = {
     BuildingKind.SHRINE: SHRINE_MATERIALS_COST,
     BuildingKind.POWER_PLANT: POWER_PLANT_MATERIALS_COST,
     BuildingKind.MARKET: MARKET_MATERIALS_COST,
+    BuildingKind.PASTURE: PASTURE_MATERIALS_COST,
+    BuildingKind.HATCHERY: HATCHERY_MATERIALS_COST,
 }
 
 BUILDING_KIND_BASE_WEIGHTS: dict[str, float] = {
     "hut": 0.42, "granary": 0.23, "workshop": 0.15, "school": 0.12, "hospital": 0.08,
     "factory": 0.10, "shrine": 0.07, "power_plant": 0.06, "market": 0.07,
+    "pasture": 0.14, "hatchery": 0.10,
 }
 """Baseline odds a new civic building is each kind, before
 `Settlement.current_priority` (the seasonal "town brain" LLM
@@ -431,7 +461,11 @@ _PRIORITY_TO_KIND = {
 }
 """Maps a `Settlement.current_priority` value to the `BuildingKind`
 value it boosts. "defense" has no dedicated building yet, so it boosts
-huts (more shelter, more hands) rather than doing nothing."""
+huts (more shelter, more hands) rather than doing nothing. "food"
+boosts GRANARY specifically (storage) rather than PASTURE/HATCHERY
+(production) — deliberately kept simple; a priority-driven husbandry
+boost would need a second civic-priority value this project doesn't
+have yet."""
 
 # --- eras: the town starts industrial and advances as it invents -----------
 
@@ -495,21 +529,25 @@ long-running world."""
 
 def choose_building_kind(
     rng, current_priority: str, era: str = "industrial", has_tradition: bool = False,
-    caravans_visited: int = 0,
+    caravans_visited: int = 0, water_adjacent: bool = False,
 ) -> "BuildingKind":
     """Weighted pick among the foundable civic kinds (not UNIVERSITY,
     which upgrades an existing school instead) — base odds nudged
     toward whatever the settlement's current priority calls for,
     FACTORY/POWER_PLANT excluded entirely until `era` has advanced past
     `industrial`, SHRINE excluded until the settlement has established
-    at least one tradition (`has_tradition`), and MARKET excluded until
+    at least one tradition (`has_tradition`), MARKET excluded until
     at least MARKET_CARAVAN_VISIT_REQUIREMENT caravans have ever
-    reached the settlement (`caravans_visited`). Falls back to the
-    unweighted base odds for an unrecognized/empty priority (e.g.
-    before the first town-brain decision has ever run). See
-    docs/DECISIONS.md, "LLM-as-brain batch\", the real-calendar/
-    genesis-seed follow-up, "culture-specific building types,\" and
-    "Integration milestone: water/power/irrigation.\""""
+    reached the settlement (`caravans_visited`), and HATCHERY excluded
+    unless the chosen construction site is water-adjacent (`water_
+    adjacent`, v0.86.7 — same "physical siting constraint" shape RAFT/
+    BRIDGE already require, since a fish hatchery genuinely needs water
+    access). Falls back to the unweighted base odds for an unrecognized/
+    empty priority (e.g. before the first town-brain decision has ever
+    run). See docs/DECISIONS.md, "LLM-as-brain batch\", the real-
+    calendar/genesis-seed follow-up, "culture-specific building types,\"
+    "Integration milestone: water/power/irrigation," and "animal/fish
+    husbandry.\""""
     weights = dict(BUILDING_KIND_BASE_WEIGHTS)
     if era not in _ERA_UNLOCKS_ELECTRICAL:
         weights.pop("factory", None)
@@ -518,6 +556,8 @@ def choose_building_kind(
         weights.pop("shrine", None)
     if caravans_visited < MARKET_CARAVAN_VISIT_REQUIREMENT:
         weights.pop("market", None)
+    if not water_adjacent:
+        weights.pop("hatchery", None)
     boosted = _PRIORITY_TO_KIND.get(current_priority)
     if boosted in weights:
         weights[boosted] *= PRIORITY_KIND_BOOST
@@ -543,6 +583,36 @@ mechanic here (foraging, construction), not a hauling/inventory system."""
 
 GRANARY_DEPOSIT_PER_TICK = 0.02
 """Food added per well-fed agent present, per tick, up to GRANARY_CAPACITY."""
+
+PASTURE_CAPACITY = 12.0
+"""Max food a standing pasture's own stock can hold — slightly below
+GRANARY_CAPACITY (15.0), since husbandry is a smaller-scale, per-
+building production source rather than the settlement's central
+buffer."""
+
+PASTURE_PASSIVE_YIELD_PER_TICK = 0.005
+"""Food added every tick a PASTURE stands, regardless of staffing —
+herds tend themselves, slowly, even with nobody actively working the
+pasture. Small deliberately: this is a trickle, not the main yield."""
+
+PASTURE_TENDED_YIELD_PER_TICK = 0.02
+"""Additional food added per well-fed, awake agent present at a
+standing PASTURE, per tick, on top of the passive trickle — same
+"presence-driven production" shape WORKSHOP_INCOME_PER_TICK uses for
+currency, applied to food. A tended pasture with MAX_WORKERS present
+comfortably out-produces a granary's own deposit rate."""
+
+HATCHERY_CAPACITY = 12.0
+"""Same as PASTURE_CAPACITY."""
+
+HATCHERY_PASSIVE_YIELD_PER_TICK = 0.006
+"""Slightly above PASTURE_PASSIVE_YIELD_PER_TICK — fish stocks recover
+somewhat faster than livestock even untended, matching FISH_REGEN_PER_
+TICK being faster than plain food regen in the wild-forage mechanic."""
+
+HATCHERY_TENDED_YIELD_PER_TICK = 0.025
+"""Same shape as PASTURE_TENDED_YIELD_PER_TICK, at HATCHERY's slightly
+higher rate."""
 
 GRANARY_WITHDRAW_AMOUNT = 0.25
 """Food consumed from a granary per successful withdrawal (see
@@ -1256,7 +1326,10 @@ class Building:
     ruined_ticks: int = 0
     """Ticks spent as a ruin so far — see RUIN_REMOVAL_TICKS."""
     stored_food: float = 0.0
-    """0..GRANARY_CAPACITY, meaningful only for a STANDING GRANARY."""
+    """0..GRANARY_CAPACITY for a STANDING GRANARY, or 0..PASTURE_
+    CAPACITY / 0..HATCHERY_CAPACITY for a STANDING PASTURE/HATCHERY
+    (v0.86.7) — same generic field reused across every food-producing/
+    storing building kind rather than one field per kind."""
     owner_agent_id: int | None = None
     """H4 (docs/ROADMAP.md "Phase H"): the agent this building belongs
     to, or None for a commons building (every kind except HUT, and any
@@ -1369,6 +1442,22 @@ class SettlementEconomy:
     resources tile instead of logging a per-catch event (which would
     spam the curated event log at population scale). See
     docs/DECISIONS.md, "fishing visibility.\""""
+    buildings_repaired: int = 0
+    """Persistent, never-decremented count of times a standing building
+    was worked back up to full condition (1.0) by present agents
+    (`Population._maybe_repair`) — repair itself has been mechanically
+    real since v0.85.2 (deterministic side always was; the v0.85.2 fix
+    made a live LLM aware `'wander'` could mean going to help), but had
+    no visible tally anywhere, same "make real NPC labor visible" gap
+    `fish_caught`/`caravans_visited` already closed for their own
+    mechanics. Counts *completed* repairs (crossing back to 1.0), not
+    every tick work happens, so this reads as a discrete achievement
+    count rather than a fast-climbing continuous one."""
+    vehicles_repaired: int = 0
+    """Same shape as `buildings_repaired`, for `Population._maybe_
+    repair_vehicles` — counts a vehicle's `BROKEN -> READY` transition
+    (the vehicle system's own existing "repair completed" signal), not
+    the routine READY-but-below-threshold top-up case."""
 
 
 @dataclass
@@ -1620,6 +1709,7 @@ class Settlement:
         player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
         institutions: list[Institution] | None = None, next_institution_id: int = 0,
         caravans_visited: int = 0, fish_caught: int = 0, market_prices: dict | None = None,
+        buildings_repaired: int = 0, vehicles_repaired: int = 0,
         relations: dict[int, float] | None = None,
         memorials: list[dict] | None = None, place_names: dict | None = None,
         records: list[dict] | None = None, id: int = 0,
@@ -1655,6 +1745,7 @@ class Settlement:
         self.economy = SettlementEconomy(
             materials=materials, currency=currency, education_level=education_level,
             caravans_visited=caravans_visited, fish_caught=fish_caught,
+            buildings_repaired=buildings_repaired, vehicles_repaired=vehicles_repaired,
             market_prices=market_prices if market_prices is not None else {},
         )
         self.culture = SettlementCulture(
@@ -1772,6 +1863,22 @@ class Settlement:
     @fish_caught.setter
     def fish_caught(self, value: int) -> None:
         self.economy.fish_caught = value
+
+    @property
+    def buildings_repaired(self) -> int:
+        return self.economy.buildings_repaired
+
+    @buildings_repaired.setter
+    def buildings_repaired(self, value: int) -> None:
+        self.economy.buildings_repaired = value
+
+    @property
+    def vehicles_repaired(self) -> int:
+        return self.economy.vehicles_repaired
+
+    @vehicles_repaired.setter
+    def vehicles_repaired(self, value: int) -> None:
+        self.economy.vehicles_repaired = value
 
     @property
     def name(self) -> str:
@@ -2317,6 +2424,8 @@ class Settlement:
         ruined = sum(1 for b in self.buildings if b.stage is BuildingStage.RUINED)
         avg_condition = sum(b.condition for b in standing) / len(standing) if standing else 0.0
         granaries = [b for b in standing if b.kind is BuildingKind.GRANARY]
+        pastures = [b for b in standing if b.kind is BuildingKind.PASTURE]
+        hatcheries = [b for b in standing if b.kind is BuildingKind.HATCHERY]
         kind_counts = {
             kind.value: sum(1 for b in standing if b.kind is kind)
             for kind in (
@@ -2336,6 +2445,12 @@ class Settlement:
             "granaries": len(granaries),
             "granary_food": round(sum(b.stored_food for b in granaries), 3),
             "granary_capacity": round(len(granaries) * GRANARY_CAPACITY, 3),
+            "pastures": len(pastures),
+            "pasture_food": round(sum(b.stored_food for b in pastures), 3),
+            "pasture_capacity": round(len(pastures) * PASTURE_CAPACITY, 3),
+            "hatcheries": len(hatcheries),
+            "hatchery_food": round(sum(b.stored_food for b in hatcheries), 3),
+            "hatchery_capacity": round(len(hatcheries) * HATCHERY_CAPACITY, 3),
             "materials": round(self.materials, 3),
             "materials_capacity": MATERIALS_CAPACITY,
             "currency": round(self.currency, 3),
@@ -2357,6 +2472,8 @@ class Settlement:
             "markets": kind_counts["market"],
             "caravans_visited": self.caravans_visited,
             "fish_caught": self.fish_caught,
+            "buildings_repaired": self.buildings_repaired,
+            "vehicles_repaired": self.vehicles_repaired,
             "market_prices": dict(self.market_prices),
             "place_names": dict(self.place_names),
             "records": list(self.records),
@@ -2498,6 +2615,8 @@ class Settlement:
             "next_institution_id": self.next_institution_id,
             "caravans_visited": self.caravans_visited,
             "fish_caught": self.fish_caught,
+            "buildings_repaired": self.buildings_repaired,
+            "vehicles_repaired": self.vehicles_repaired,
             "market_prices": dict(self.market_prices),
             "memorials": list(self.memorials),
             "place_names": dict(self.place_names),
@@ -2549,6 +2668,8 @@ class Settlement:
             next_institution_id=data.get("next_institution_id", 0),
             caravans_visited=data.get("caravans_visited", 0),
             fish_caught=data.get("fish_caught", 0),
+            buildings_repaired=data.get("buildings_repaired", 0),
+            vehicles_repaired=data.get("vehicles_repaired", 0),
             market_prices=dict(data.get("market_prices", {})),
             memorials=list(data.get("memorials", [])),
             place_names=dict(data.get("place_names", {})),

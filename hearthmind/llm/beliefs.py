@@ -77,6 +77,10 @@ PERSONAL_SYSTEM_PROMPT = (
     "not a summary of any single one. Finally, and only rarely (most of the time "
     "leave this blank) — if something in their recent experience suggests they'd be "
     "keeping a private secret, something they wouldn't say aloud, name it briefly. "
+    "Also, looking at the whole picture of everything they believe about themselves "
+    "so far (not just the one theory you're forming or revising now), condense it "
+    "into one short sentence — how you'd sum up their outlook on their own life in "
+    "one line. "
     'Respond with strict JSON only, no other text: {"subject": "short label, e.g. '
     'a person\'s name, \'my place here\', \'the harvests\', \'what happened to '
     'them\'", "belief": "one sentence, under 30 words, stated as this villager\'s '
@@ -84,7 +88,9 @@ PERSONAL_SYSTEM_PROMPT = (
     'narration", "confidence": 0.0-1.0, "revises": integer index of an existing '
     'theory this replaces, or null for a new one, "semantic_memory": "one sentence, '
     'under 25 words, first-person, the lasting thought described above", "secret": '
-    '"" (leave blank almost always) or a private secret under 20 words, first-person}.'
+    '"" (leave blank almost always) or a private secret under 20 words, first-person, '
+    '"life_digest": "one sentence, under 25 words, summarizing this person\'s overall '
+    'outlook on their own life so far"}.'
 )
 
 
@@ -343,6 +349,22 @@ def parse_digest(result: dict) -> str:
     influence`/`omen_seed`/`dream_seed` already use — a genuine
     digest earned by a real answer, never a fabricated fallback one."""
     text = result.get("digest")
+    if not isinstance(text, str) or not text.strip():
+        return ""
+    return text.strip()[:180]
+
+
+def parse_life_digest(result: dict) -> str:
+    """Extracts the personal-belief job's `life_digest` field (v0.86.7)
+    — the individual-scale counterpart to `parse_digest` above: one
+    LLM-authored sentence condensing this agent's ENTIRE accumulated
+    self-understanding, not just the theory it's forming/revising this
+    call. Same "genuine answer only, never fabricated" discipline —
+    returns "" on anything malformed; `SimulationEngine._maybe_schedule_
+    personal_belief` only overwrites `Agent.life_digest` when this is
+    non-empty (that job is `critical=True`, so `apply` only runs on a
+    real success anyway — this can never be written by a fallback)."""
+    text = result.get("life_digest")
     if not isinstance(text, str) or not text.strip():
         return ""
     return text.strip()[:180]

@@ -520,6 +520,48 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.86.7)
+
+Four-part batch per explicit user direction (LLM learning, repair/
+upkeep UI visibility, animal+fish husbandry, wider invention scope).
+
+**`Agent.life_digest`**: personal counterpart to `Settlement.belief_
+digest`/`culture_digest` — one LLM-authored sentence condensing an
+agent's whole self-understanding, written by extending the existing
+Reflect() job (zero added calls), fed back into the agent's own
+cognition prompt. This is the "read persistent memory back into the
+LLM" loop closing at the individual scale — settlement-level digests
+already did this via chronicle/town_brain; agents didn't until now.
+
+**Repair/upkeep visibility**: `Settlement.buildings_repaired`/
+`vehicles_repaired` — discrete completed-repair counters (crossing back
+above `REPAIR_THRESHOLD` for buildings, `BROKEN -> READY` for vehicles;
+NOT "condition reaches 1.0" — `_maybe_repair`'s own outer gate stops
+touching a building once it clears the threshold, so it almost never
+reaches literal 1.0 through this mechanism). New "Repairs & upkeep" UI
+tile.
+
+**Husbandry**: `BuildingKind.PASTURE`/`HATCHERY` — deliberate animal/
+fish food production, distinct from wild grazer hunting and
+opportunistic fish foraging (both pre-existing). Passive trickle +
+staffed boost into their own `stored_food`, withdrawable like a
+GRANARY. HATCHERY requires a water-adjacent construction site
+(`choose_building_kind`'s new `water_adjacent` gate). New "Husbandry"
+UI tile + map colors.
+
+**Invention scope**: `llm/invention.py`'s prompt widened to invite
+genuinely novel outcomes (husbandry techniques, new food sources,
+hardship-born medical remedies) grounded in each settlement's own
+history, rather than steering toward a fixed build/farm category list.
+Purely a prompt change — mechanical effect (`tech_level += 1`)
+unchanged, zero downstream risk.
+
+Verified: direct tests for life_digest write+prompt-reach, the
+corrected repair-completion signal, HATCHERY's water-adjacency gate,
+husbandry production/capacity/withdrawal, round-trip + legacy-snapshot
+defaults; a real 30,000-tick engine run organically founds a standing
+PASTURE with zero test-side scripting. Native soak byte-identical.
+
 ## Current state (v0.86.6)
 
 Part B of the §4/§7 pass (Part A was v0.86.5's wildlife native port).

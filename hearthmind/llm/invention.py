@@ -4,15 +4,34 @@ traditions, gated by surplus (currency/materials) rather than a flat
 yearly cadence. Each invention permanently raises `Settlement.tech_level`,
 which boosts construction/repair work and cultivated-food yield (see
 TECH_BONUS_PER_LEVEL). See docs/DECISIONS.md, E3.
+
+`SYSTEM_PROMPT` deliberately widened (v0.86.7, explicit user direction:
+"sometimes NPCs can uncover novel ways to get food, new buildings,
+medical innovation, something the simulation was never built for in
+the first place") beyond its original build/farm framing — the LLM is
+invited toward whatever this settlement's own specific history
+plausibly leads to (a husbandry technique, a genuinely new food source,
+a hardship-born medical remedy, or anything else), not steered into a
+fixed category list. Mechanically this is still just a flavor string —
+the only guaranteed effect remains the flat `tech_level += 1` bump
+(`SimulationEngine._maybe_schedule_invention`) — so a wilder answer
+never risks breaking anything downstream; it only changes what gets
+narrated as the reason tech_level went up.
 """
 from __future__ import annotations
 
 SYSTEM_PROMPT = (
     "You are the craft-keeper of a small simulated village. Given its "
     "name, recent history, and inventions already made, invent ONE new "
-    "practical technique or tool that improves how the village builds or "
-    "grows food — grounded in what has actually happened, not generic "
-    "fantasy flavor. "
+    "practical technique or tool this village now uses — grounded in "
+    "what has actually happened, not generic fantasy flavor. It doesn't "
+    "have to be building or farming: a clever new way to raise animals "
+    "or fish, a genuinely novel food source nobody expected, a remedy or "
+    "medical technique born from a real hardship the village lived "
+    "through, or anything else this particular history plausibly leads "
+    "to — the goal is something that feels like it grew out of these "
+    "specific people's specific experience, not a generic tech-tree "
+    "entry. "
     'Respond with strict JSON only, no other text: {"invention": '
     '"a short name, under 8 words", "description": "one sentence, under '
     '25 words"}.'

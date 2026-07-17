@@ -56,6 +56,7 @@ def build_prompt(
     colocated_names: list[str] | None = None, nearest_food_steps: int | None = None,
     beliefs_about: list[str] | None = None, own_belief: str = "",
     semantic_memory: str = "", mind_text: str = "", needs_repair: bool = False,
+    life_digest: str = "",
 ) -> str:
     """`settlement_name`/`latest_tradition` are optional culture context
     (Phase E) — empty until the settlement is named/has a tradition, so
@@ -108,7 +109,16 @@ def build_prompt(
     model was never told repair was a thing 'wander' could mean, so it
     had no way to rationally choose it over forage/socialize/gather.
     This closes that information gap the same way `nearest_food_steps`
-    already grounds 'forage'."""
+    already grounds 'forage'.
+
+    `life_digest` (v0.86.7): `Agent.life_digest`, one LLM-authored
+    sentence condensing this agent's ENTIRE accumulated self-
+    understanding (their private beliefs and semantic memories taken
+    together), not just the single freshest entry `own_belief`/
+    `semantic_memory` already show — same "digest alongside specifics"
+    shape `chronicle`/`town_brain` already use for `Settlement.
+    belief_digest`, applied at the individual scale. Empty until the
+    Reflect() job has run at least once for this agent."""
     culture = ""
     if settlement_name:
         culture = f" You live in {settlement_name}."
@@ -129,6 +139,7 @@ def build_prompt(
     own_belief_text = f" Your own private theory: {own_belief}" if own_belief else ""
     semantic_text = f" You've come to feel: {semantic_memory}" if semantic_memory else ""
     mind_prompt_text = f" At your core: {mind_text}" if mind_text else ""
+    life_digest_text = f" Your outlook on your own life so far: {life_digest}" if life_digest else ""
     company = (
         f" With you right now: {', '.join(colocated_names)}."
         if colocated_names else " Nobody else is here right now."
@@ -149,7 +160,7 @@ def build_prompt(
         f"Currently {agent.state.value}, focused on '{agent.goal.value}'."
         f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{just_now_text}"
         f"{personality_text}{emotion_text}{beliefs_text}{own_belief_text}{semantic_text}{mind_prompt_text}"
-        f"{repair_text} "
+        f"{life_digest_text}{repair_text} "
         "What should you focus on right now?"
     )
 

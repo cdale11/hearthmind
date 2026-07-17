@@ -1290,7 +1290,7 @@ class SimulationEngine:
                 colocated_names=colocated_names, nearest_food_steps=food_steps,
                 beliefs_about=beliefs_about, own_belief=own_belief,
                 semantic_memory=semantic_memory, mind_text=agent.mind,
-                needs_repair=needs_repair,
+                needs_repair=needs_repair, life_digest=agent.life_digest,
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             traits_snapshot = dict(agent.traits)
@@ -2608,6 +2608,16 @@ class SimulationEngine:
                 # only runs on a genuine LLM answer — never a fabricated
                 # fallback self-theory.
                 log_agent_memory_entry(self.conn, tick, target.id, "semantic", semantic_text)
+            life_digest = beliefs.parse_life_digest(result)
+            if life_digest:
+                # v0.86.7: personal-scale digest, same "condense the
+                # WHOLE picture, not just this call's theory" treatment
+                # Settlement.belief_digest/culture_digest already get —
+                # closes the "read persistent memory back into the LLM"
+                # loop at the individual scale (see Agent.life_digest's
+                # docstring). Never fabricated: this branch only runs on
+                # a genuine answer (critical=True job).
+                target.life_digest = life_digest
             # Secrets via Reflect() (Phase J, v0.78.4): the LLM's own
             # optional field, left blank almost every call — no
             # deterministic-fallback secret is ever invented

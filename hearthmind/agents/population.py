@@ -227,6 +227,9 @@ from hearthmind.settlement.buildings import (
     GRANARY_HUNGER_RELIEF,
     GRANARY_WELLFED_HUNGER_THRESHOLD,
     GRANARY_WITHDRAW_AMOUNT,
+    HATCHERY_CAPACITY,
+    HATCHERY_PASSIVE_YIELD_PER_TICK,
+    HATCHERY_TENDED_YIELD_PER_TICK,
     HOSPITAL_CRAFT_MATERIALS_COST_PER_TICK,
     HOSPITAL_CRAFT_MEDICINE_PER_TICK,
     HOSPITAL_KILL_CHANCE_REDUCTION,
@@ -242,6 +245,9 @@ from hearthmind.settlement.buildings import (
     MATERIALS_GATHER_PER_TICK,
     MATERIALS_PER_CONSTRUCTION_TICK,
     MAX_WORKERS,
+    PASTURE_CAPACITY,
+    PASTURE_PASSIVE_YIELD_PER_TICK,
+    PASTURE_TENDED_YIELD_PER_TICK,
     REPAIR_THRESHOLD,
     REPAIR_WORK_PER_TICK,
     SCHOOL_EDUCATION_PER_TICK,
@@ -1461,6 +1467,7 @@ class Population:
             life_events.extend(self._advance_construction(by_position, stl))
             life_events.extend(self._maybe_repair(by_position, stl))
             self._maybe_stock_granaries(by_position, stl)
+            self._maybe_run_husbandry(by_position, stl)
             self._maybe_run_workshops(by_position, stl)
             self._maybe_craft_tools(by_position, stl)
             self._maybe_craft_medicine(by_position, stl)
@@ -1795,8 +1802,12 @@ class Population:
                     _nudge_trait(agent, TRAIT_AMBITION, TRAIT_AMBITION_MASTERY_NUDGE)
                 return
 
-        # A stocked granary is preferred over wild foraging too — a
-        # deliberate community buffer, second only to a fresh farm.
+        # A stocked granary, pasture, or hatchery is preferred over wild
+        # foraging too — a deliberate community buffer/production
+        # source, second only to a fresh farm. PASTURE/HATCHERY
+        # (v0.86.7) share the exact same withdrawal shape as GRANARY —
+        # all three are "cultivated food a settlement invested in
+        # building," not opportunistic wild catch.
         granary, granary_owner = None, home
         for stl in settlements:
             candidate = stl.at(agent.x, agent.y)
@@ -1804,7 +1815,8 @@ class Population:
                 granary, granary_owner = candidate, stl
                 break
         if (
-            granary is not None and granary.kind is BuildingKind.GRANARY
+            granary is not None
+            and granary.kind in (BuildingKind.GRANARY, BuildingKind.PASTURE, BuildingKind.HATCHERY)
             and granary.stage is BuildingStage.STANDING and granary.stored_food > 0
         ):
             consumed = min(granary.stored_food, GRANARY_WITHDRAW_AMOUNT)
@@ -3335,6 +3347,16 @@ class Population:
                 continue
             repair = REPAIR_WORK_PER_TICK * min(workers, MAX_WORKERS) * _tech_factor(settlement)
             building.condition = min(1.0, building.condition + repair)
+            if building.condition >= REPAIR_THRESHOLD:
+                # Discrete "repair completed" count (v0.86.7) — how many
+                # assets NPCs have actually repaired/maintained, exposed
+                # in the UI. This branch's own outer gate only revisits a
+                # building while condition < REPAIR_THRESHOLD, so
+                # crossing back above it here is the mechanism's own
+                # "no longer needs repair" signal — counting a rise to
+                # 1.0 instead would almost never fire, since nothing
+                # keeps working a building once it clears the threshold.
+                settlement.buildings_repaired += 1
         return []  # repair progress isn't eventful enough on its own to log per-tick
 
     @classmethod
@@ -3393,6 +3415,7 @@ class Population:
             kind = choose_building_kind(
                 rng, settlement.current_priority, settlement.era, has_tradition=bool(settlement.traditions),
                 caravans_visited=settlement.caravans_visited,
+                water_adjacent=terrain is not None and is_adjacent_to_water(terrain, bx, by),
             )
             cost = MATERIALS_COST_BY_KIND[kind]
             if settlement.materials < cost:
@@ -3570,6 +3593,37 @@ class Population:
                 )
                 continue
             building.stored_food = min(GRANARY_CAPACITY, building.stored_food + deposit)
+
+    @staticmethod
+    def _maybe_run_husbandry(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:
+        """PASTURE (animal husbandry) and HATCHERY (fish husbandry),
+        v0.86.7 — explicit user direction: deliberate, invested food
+        sources distinct from wild grazer hunting/fish foraging. Each
+        standing building produces food into its own `stored_food`
+        (withdrawable exactly like a granary, see `_maybe_forage`) on
+        two layers: a small passive trickle regardless of staffing
+        (herds/stocks tend themselves, slowly) plus a substantially
+        larger boost per well-fed, awake agent present tending it — same
+        "presence-driven production" shape `_maybe_run_workshops` uses
+        for currency, applied to food instead. One shared loop for both
+        kinds since the shape is identical; only the constants differ."""
+        for building in settlement.buildings:
+            if building.stage is not BuildingStage.STANDING:
+                continue
+            if building.kind is BuildingKind.PASTURE:
+                capacity, passive, tended = PASTURE_CAPACITY, PASTURE_PASSIVE_YIELD_PER_TICK, PASTURE_TENDED_YIELD_PER_TICK
+            elif building.kind is BuildingKind.HATCHERY:
+                capacity, passive, tended = HATCHERY_CAPACITY, HATCHERY_PASSIVE_YIELD_PER_TICK, HATCHERY_TENDED_YIELD_PER_TICK
+            else:
+                continue
+            if building.stored_food >= capacity:
+                continue
+            tenders = sum(
+                1 for a in by_position.get((building.x, building.y), [])
+                if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
+            )
+            yield_amount = (passive + tended * min(tenders, MAX_WORKERS)) * _tech_factor(settlement)
+            building.stored_food = min(capacity, building.stored_food + yield_amount)
 
     @staticmethod
     def _maybe_run_workshops(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:
@@ -3850,6 +3904,7 @@ class Population:
             vehicle.condition = min(1.0, vehicle.condition + repair)
             if vehicle.stage is VehicleStage.BROKEN and vehicle.condition >= VEHICLE_REPAIR_THRESHOLD:
                 vehicle.stage = VehicleStage.READY
+                settlement.vehicles_repaired += 1  # v0.86.7: discrete repair-completion tally
 
     @classmethod
     def _maybe_assign_mounts(

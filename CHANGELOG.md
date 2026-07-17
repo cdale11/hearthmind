@@ -4,6 +4,79 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.86.7] — Personal life-digest, repair/upkeep tally, animal & fish husbandry, wider invention scope
+
+Four-part batch, explicit user direction: (1) "immediately start taking
+steps for the LLM to 'learn' about the simulation" — extends the
+digest/summarized-context pattern to the individual level; (2) UI
+exposure of NPC repair/maintenance labor; (3) animal husbandry and fish
+husbandry as deliberate food sources beyond farming; (4) invention
+should be able to surface genuinely novel outcomes the simulation
+wasn't explicitly built for.
+
+### Added
+
+- **`Agent.life_digest`** — one LLM-authored sentence condensing an
+  agent's ENTIRE accumulated self-understanding (private beliefs +
+  semantic memories together), the individual-scale counterpart to
+  `Settlement.belief_digest`/`culture_digest`. Written by extending the
+  existing Reflect() job (`_maybe_schedule_personal_belief`) — zero
+  added LLM call volume, only overwritten on a genuine answer (job is
+  `critical=True`). Fed back into the agent's own cognition prompt
+  (`llm/cognition.py`'s `build_prompt`, new `life_digest` parameter) —
+  this is the concrete "read persistent memory back into the LLM" loop
+  closing at the personal scale, and shown in the NPC inspector's
+  "Their own reflections" section.
+- **`Settlement.buildings_repaired`/`vehicles_repaired`** — persistent
+  counters of completed repairs (a building crossing back above
+  `REPAIR_THRESHOLD`, a vehicle transitioning `BROKEN -> READY`), not
+  every work-tick, so this reads as a discrete achievement tally.
+  Surfaced in a new "Repairs & upkeep" UI stat tile — real NPC labor
+  that had zero visibility anywhere before.
+- **`BuildingKind.PASTURE`/`HATCHERY`** — deliberate animal/fish
+  husbandry, distinct from wild grazer hunting and opportunistic fish
+  foraging (both already mechanically real). Each standing building
+  produces food into its own `stored_food` on two layers: a small
+  passive trickle regardless of staffing (herds/stocks tend themselves,
+  slowly) plus a substantially larger boost per well-fed, awake agent
+  tending it (`Population._maybe_run_husbandry`, same "presence-driven
+  production" shape `_maybe_run_workshops` uses for currency). PASTURE
+  is foundable anywhere; HATCHERY requires a water-adjacent
+  construction site (`choose_building_kind`'s new `water_adjacent`
+  gate, same siting-constraint shape RAFT/BRIDGE already use).
+  Withdrawable by hungry agents exactly like a GRANARY (`_maybe_forage`'s
+  cultivated-food-source tier, generalized to accept all three kinds).
+  Surfaced as a new "Husbandry" UI stat tile and given map colors.
+- `llm/invention.py`'s `SYSTEM_PROMPT` widened beyond its original
+  build/farm framing — the LLM is now invited toward whatever this
+  settlement's specific history plausibly leads to (a husbandry
+  technique, a genuinely new food source, a hardship-born medical
+  remedy, or anything else), not steered into a fixed category list.
+  Purely a prompt change: the JSON contract and mechanical effect
+  (`tech_level += 1`) are unchanged, so a wilder answer never risks
+  breaking anything downstream.
+
+### Verified
+
+- Direct engine test: a working personal_belief LLM client's
+  `life_digest` field is written to `Agent.life_digest` and reaches a
+  real cognition prompt.
+- Direct test: `Population._maybe_repair` only counts a completed
+  repair when condition crosses back above `REPAIR_THRESHOLD` (the
+  mechanism's own re-eligibility gate — it never restores a building to
+  a literal 1.0, so that was the wrong signal to count on).
+- Direct tests: `choose_building_kind` never selects HATCHERY without
+  `water_adjacent=True`, and does select it when true; husbandry
+  production respects passive vs. tended rates and the capacity cap;
+  withdrawal via `_maybe_forage` correctly draws from a PASTURE.
+- Round-trip test: new Settlement/Building fields survive `to_dict`/
+  `from_dict`; a legacy snapshot missing them defaults cleanly to 0.
+- End-to-end test: a real 30,000-tick engine run (LLM disabled)
+  organically founds a standing PASTURE via the normal construction
+  pipeline with zero test-side scripting.
+- `scripts/verify_native_soak.py` (2 seeds x 1000 ticks) byte-identical
+  — no native module touched.
+
 ## [0.86.6] — Skip wasted folklore LLM calls with no rumor material
 
 Constitution §7/§8 (LLM-call efficiency) pass. `_maybe_schedule_
