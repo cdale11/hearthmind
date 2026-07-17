@@ -520,6 +520,54 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.86.3)
+
+Explicit user directive, highest priority: **engineered emergent
+learning** — the LLM is never retrained, but the simulation should
+appear to learn continuously through persistent, summarized, disk-
+backed context, and this must be **visible to the observer** (main UI,
+not hidden). Clarified via questions: scope = per-agent AND world/
+settlement; visibility = main UI; per-agent mechanism = both raw
+retention and distilled summaries.
+
+**Per-agent**: new `agent_memory_log` table (main-UI visible, unlike
+`consciousness_log`) — `kind="episodic"` for significant (non-routine)
+memories evicted from `Agent.memories` past its cap (8), `kind=
+"semantic"` for every distilled self-theory `Agent.semantic_memories`
+has ever held. `Population._pending_memory_evictions` (module-level
+transient buffer — `_remember` has no reference to its owning
+Population/the DB connection) is appended by `_remember`'s eviction
+branch (gated `not routine`, matching the existing routine/working_
+memory noise-exclusion discipline) and drained by `SimulationEngine.
+_tick_once()` each tick. `_maybe_schedule_personal_belief`'s apply()
+durably logs every real semantic-memory write — reuses the existing
+Reflect() job, zero added LLM call volume. New `GET /agents/{id}/
+memory_log` (on-demand, not in the hot broadcast payload) backs the
+NPC inspector's new "Full life history" section/button.
+
+**Settlement**: `belief_digest`/`culture_digest` (computed since
+v0.85.4/.5, fed into every relevant prompt) were never actually
+rendered in the frontend — real gap, now fixed: shown above "The
+village's own theories"/"Traditions" panels.
+
+New `Config.agent_memory_log_retention=100_000` (global cap, bounds DB
+growth regardless of population size), pruned on snapshot cadence.
+
+Verified: direct unit test (routine-eviction exclusion holds); e2e
+engine test (drain + semantic logging); pruning test; live server +
+`GET /agents/{id}/memory_log` through the full FastAPI stack; live
+Playwright verification (digests render correct text; "Load full life
+history" fetches and shows all 6 seeded entries for a test agent,
+newest-first; zero JS errors). Native soak (2 seeds x 800 ticks)
+byte-identical.
+
+**Deferred, explicitly out of scope this pass**: a dedicated raw-
+history browsing UI beyond the NPC inspector (e.g. a standalone "town
+archive" panel), and applying the same durable-log pattern to
+`Agent.beliefs`/`secrets` (currently still cap-and-evict with no
+durable record) — flagged as a natural next increment if the user wants
+the pattern extended further.
+
 ## Current state (v0.86.2)
 
 §6 follow-up to v0.86.0's Constitution sequencing ("cold information

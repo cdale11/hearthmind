@@ -18,10 +18,12 @@ from hearthmind import __version__
 from hearthmind.config import Config
 from hearthmind.interface.api import DEFAULT_SPEED_MULTIPLIER, WorldBroadcaster
 from hearthmind.persistence.snapshot import (
+    agent_memory_log_count,
     event_category_counts,
     history_events,
     list_snapshot_ticks,
     load_snapshot_at_tick,
+    recent_agent_memory_log,
     recent_events,
     recent_metrics,
     snapshot_count,
@@ -90,6 +92,24 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
         revised, and omens — filtered out of the everything-included
         live event feed. Backs the UI's History tab."""
         return JSONResponse(history_events(conn, limit=limit))
+
+    @app.get("/agents/{agent_id}/memory_log")
+    async def agent_memory_log(agent_id: int, limit: int = 100) -> JSONResponse:
+        """An NPC's full durable memory history — main-UI visible per
+        explicit user direction (v0.86.3, Constitution §6), unlike the
+        dev-console-only `consciousness_log`. `agent.memories`/
+        `semantic_memories` in the live `/state` payload only ever show
+        the small in-RAM tail; this reaches everything that has ever
+        been logged to disk (significant episodic memories once evicted
+        past their cap, plus every distilled self-theory), newest first.
+        Fetched on demand (not part of the hot broadcast payload) when
+        the NPC inspector's "full life history" section is opened."""
+        entries = recent_agent_memory_log(conn, agent_id=agent_id, limit=limit)
+        return JSONResponse({
+            "agent_id": agent_id,
+            "total_count": agent_memory_log_count(conn, agent_id=agent_id),
+            "entries": entries,
+        })
 
     @app.get("/metrics")
     async def metrics(limit: int = 365) -> JSONResponse:

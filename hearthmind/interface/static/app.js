@@ -1491,10 +1491,34 @@ const npcClose = document.getElementById("npc-inspector-close");
 let inspectedAgentId = null;
 let inspectedTarget = null; // {type: "building"|"tile", x, y} — v0.64.0 click-inspector parity
 
+// Durable full-life-history cache (v0.86.3, Constitution §6): the live
+// broadcast payload's agent.memories/semantic_memories are only ever the
+// small in-RAM tail — GET /agents/{id}/memory_log reaches everything a
+// significant memory/self-theory that's ever been logged to disk, past
+// those caps. Fetched on demand (button click), not on every broadcast
+// tick, and cached here so it survives renderNpcInspector's innerHTML
+// rebuilds across ticks without re-fetching.
+let npcMemoryLogCache = { agentId: null, entries: [], totalCount: 0, state: "idle" };
+
 function openNpcInspector(agentId) {
   inspectedAgentId = agentId;
   inspectedTarget = null;
+  if (npcMemoryLogCache.agentId !== agentId) {
+    npcMemoryLogCache = { agentId, entries: [], totalCount: 0, state: "idle" };
+  }
   npcBackdrop.classList.remove("hidden");
+  renderNpcInspector();
+}
+
+async function loadNpcMemoryLog(agentId) {
+  npcMemoryLogCache = { agentId, entries: [], totalCount: 0, state: "loading" };
+  renderNpcInspector();
+  try {
+    const data = await fetchJSON(`/agents/${agentId}/memory_log?limit=200`);
+    npcMemoryLogCache = { agentId, entries: data.entries || [], totalCount: data.total_count || 0, state: "loaded" };
+  } catch (err) {
+    npcMemoryLogCache = { agentId, entries: [], totalCount: 0, state: "error" };
+  }
   renderNpcInspector();
 }
 
@@ -1522,8 +1546,10 @@ function closeNpcInspector() {
 // delegation, since direct listeners wouldn't survive re-render.
 if (npcContent) {
   npcContent.addEventListener("click", (ev) => {
-    const btn = ev.target.closest("[data-follow]");
-    if (btn) window.hmFollowAgent(Number(btn.dataset.follow), btn.dataset.followName || "them");
+    const followBtn = ev.target.closest("[data-follow]");
+    if (followBtn) window.hmFollowAgent(Number(followBtn.dataset.follow), followBtn.dataset.followName || "them");
+    const memoryBtn = ev.target.closest("[data-load-memory-log]");
+    if (memoryBtn) loadNpcMemoryLog(Number(memoryBtn.dataset.loadMemoryLog));
   });
 }
 
@@ -1667,6 +1693,10 @@ function renderNpcInspector() {
       ${reflectionsHtml}
     </div>
     <div class="npc-section">
+      <h4>Full life history</h4>
+      ${renderMemoryLogSection(agent.id)}
+    </div>
+    <div class="npc-section">
       <h4>Personality</h4>
       ${traitsHtml}
     </div>
@@ -1687,6 +1717,34 @@ function renderNpcInspector() {
         <span>${healthLabel(agent)}</span>
       </div>
     </div>
+  `;
+}
+
+function renderMemoryLogSection(agentId) {
+  // The durable, disk-backed counterpart to "Recent memories"/"Their
+  // own reflections" above (which only ever show the small in-RAM
+  // tail) — engineered emergent learning made visible, not hidden
+  // behind the dev console (v0.86.3, Constitution §6).
+  if (npcMemoryLogCache.agentId !== agentId || npcMemoryLogCache.state === "idle") {
+    return `<button class="npc-load-btn" data-load-memory-log="${agentId}">Load full life history from disk</button>`;
+  }
+  if (npcMemoryLogCache.state === "loading") {
+    return `<div class="muted">loading their full history…</div>`;
+  }
+  if (npcMemoryLogCache.state === "error") {
+    return `<div class="muted">couldn't load their history right now</div>`;
+  }
+  const { entries, totalCount } = npcMemoryLogCache;
+  if (!entries.length) {
+    return `<div class="muted">nothing preserved on disk yet — a fuller history accumulates as their life goes on</div>`;
+  }
+  const items = entries.map((e) => {
+    const label = e.kind === "semantic" ? "self-theory" : "memory";
+    return `<li><span class="muted">[${label}, tick ${e.tick}]</span> ${e.text}</li>`;
+  }).join("");
+  return `
+    <div class="muted">${totalCount} entries preserved from a fuller life (showing ${entries.length})</div>
+    <ul class="npc-memory-log">${items}</ul>
   `;
 }
 
@@ -2096,6 +2154,23 @@ function renderStats(summary) {
     setInnerHTMLIfChanged(festivalsEl, s.festivals.length
       ? s.festivals.map((t) => `<li>${t}</li>`).join("")
       : "<li>none yet</li>");
+  }
+
+  // Digests (v0.85.4/.5): one LLM-authored sentence condensing the
+  // village's ENTIRE current belief set / accumulated culture — engineered
+  // emergent learning made visible (v0.86.3, Constitution §6). Previously
+  // computed and fed into prompts but never actually shown anywhere in
+  // the UI, despite being exactly the "the world learns and shows it"
+  // signal this project's own design priorities call for.
+  const digestEl = document.getElementById("belief-digest");
+  if (digestEl) {
+    digestEl.classList.toggle("hidden", !s.belief_digest);
+    if (s.belief_digest) digestEl.innerHTML = `<i>"${s.belief_digest}"</i>`;
+  }
+  const cultureDigestEl = document.getElementById("culture-digest");
+  if (cultureDigestEl) {
+    cultureDigestEl.classList.toggle("hidden", !s.culture_digest);
+    if (s.culture_digest) cultureDigestEl.innerHTML = `<i>"${s.culture_digest}"</i>`;
   }
 
   const brainEl = document.getElementById("town-brain-priority");

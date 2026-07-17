@@ -56,8 +56,9 @@ from hearthmind.llm.client import build_llm_client
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import (
-    consciousness_log_count, events_by_category, history_events, load_latest_snapshot, log_consciousness_entry,
-    log_event, log_metrics, recent_events, recent_events_diverse, save_snapshot,
+    agent_memory_log_count, consciousness_log_count, events_by_category, history_events, load_latest_snapshot,
+    log_agent_memory_entry, log_consciousness_entry, log_event, log_metrics, recent_agent_memory_log,
+    recent_events, recent_events_diverse, save_snapshot,
 )
 from hearthmind.agents.population import (
     DISPUTE_COOLDOWN_TICKS,
@@ -66,6 +67,7 @@ from hearthmind.agents.population import (
     MAX_SETTLEMENTS,
     Population,
     _bridge_tiles_from_settlements,
+    _pending_memory_evictions,
     _remember,
     _walkable_tiles,
 )
@@ -1100,6 +1102,17 @@ class SimulationEngine:
                 category=category, description=description,
                 commit=False,
             )
+        if _pending_memory_evictions:
+            # Durable per-agent memory history (Constitution §6, v0.86.3)
+            # — drains the transient buffer `_remember` fills whenever a
+            # significant (non-routine) memory gets evicted past its RAM
+            # cap. See `_pending_memory_evictions`'s docstring for why
+            # this lives at module scope in population.py.
+            for entry in _pending_memory_evictions:
+                log_agent_memory_entry(
+                    self.conn, self.world.clock.tick_count, entry["agent_id"], "episodic", entry["text"],
+                )
+            _pending_memory_evictions.clear()
         self._detect_ritual_signals()
         if "day_end" in events:
             self._log_daily_metrics()
@@ -2558,6 +2571,15 @@ class SimulationEngine:
                     target.beliefs.remove(weakest)
             semantic_text = beliefs.parse_semantic_memory(result, fallback)
             beliefs.push_semantic_memory(target, semantic_text)
+            if semantic_text:
+                # Durable full arc of self-understanding (Constitution
+                # §6, v0.86.3) — Agent.semantic_memories stays capped at
+                # MAX_SEMANTIC_MEMORIES=3 for prompt-building, but every
+                # one this agent has ever formed survives on disk. This
+                # job is critical=True (see _schedule_llm_job), so apply
+                # only runs on a genuine LLM answer — never a fabricated
+                # fallback self-theory.
+                log_agent_memory_entry(self.conn, tick, target.id, "semantic", semantic_text)
             # Secrets via Reflect() (Phase J, v0.78.4): the LLM's own
             # optional field, left blank almost every call — no
             # deterministic-fallback secret is ever invented

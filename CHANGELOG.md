@@ -4,6 +4,77 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.86.3] — Emergent per-agent + town learning, disk-backed, main-UI visible
+
+Direct response to explicit user direction: highest priority is
+**engineered emergent learning** — the LLM never retrained, but the
+simulation should appear to learn continuously through persistent,
+summarized, disk-backed context, and this learning should be **visible
+to the observer**, not hidden. User confirmed scope via clarifying
+questions: per-agent AND world/settlement, main-UI surfaced, both raw
+retention and distilled summaries.
+
+### Added
+
+- **`agent_memory_log` SQLite table** — the durable per-agent
+  counterpart to v0.86.2's `consciousness_log`, but deliberately
+  **main-UI visible** (not dev-console-only): `kind="episodic"` rows are
+  significant memories evicted from `Agent.memories` past its cap (8);
+  `kind="semantic"` rows are every distilled self-theory `Agent.
+  semantic_memories` has ever held (capped at 3 in RAM). Routine
+  evictions (frequent food/tool/medicine-sharing notes) are deliberately
+  excluded from the durable log to keep volume bounded to genuinely
+  memorable moments, not noise — same "deprioritized, never hidden"
+  treatment `working_memory` already gives routine entries.
+- `Population._pending_memory_evictions`: a transient module-level
+  buffer `_remember`'s eviction branch appends to (only on a non-routine
+  call), drained and durably logged by `SimulationEngine._tick_once()`
+  every tick. Module-level rather than an instance field because
+  `_remember` receives only `agent`, with no reference back to its
+  owning Population/the engine's DB connection — see its docstring for
+  why this is safe under the project's single-threaded-asyncio,
+  one-World-per-process tick loop.
+- `_maybe_schedule_personal_belief`'s `apply()` now also durably logs
+  every real semantic-memory write (`kind="semantic"`) — reuses the
+  existing Reflect() job entirely, zero added LLM call volume.
+- `snapshot.log_agent_memory_entry`/`recent_agent_memory_log`/
+  `agent_memory_log_count`/`_prune_agent_memory_log`, new `Config.
+  agent_memory_log_retention=100_000` (global, not per-agent — bounds
+  total DB growth regardless of population size), pruned on the
+  snapshot cadence.
+- **`GET /agents/{id}/memory_log`** — an NPC's full durable history,
+  fetched on demand (not part of the hot broadcast payload).
+- **Main UI**: NPC inspector gained a "Full life history" section with
+  a "Load full life history from disk" button, showing every durably-
+  logged entry (newest first) once fetched — the `agent.memories`/
+  `semantic_memories` shown elsewhere in the inspector are still only
+  the small in-RAM tail; this reaches everything, past those caps.
+  `Settlement.belief_digest`/`culture_digest` (already computed since
+  v0.85.4/.5 but never actually rendered anywhere) now show above the
+  "The village's own theories"/"Traditions" panels — a real gap fixed:
+  the town-level engineered-learning signal existed in every prompt but
+  was invisible to any observer until now.
+
+### Verified
+
+- Direct unit test: a non-routine `_remember` eviction buffers correctly;
+  a routine one does not (noise exclusion holds).
+- End-to-end engine test: `_tick_once()` drains the buffer into the
+  durable table (evicted text retrievable via `recent_agent_memory_log`);
+  a forced `_maybe_schedule_personal_belief` call durably logs the real
+  semantic-memory text.
+- Pruning test: `_prune_agent_memory_log` correctly trims to the keep
+  count; `keep<=0` correctly no-ops rather than deleting everything.
+- Live end-to-end: real server + `GET /agents/{id}/memory_log` returns
+  seeded entries correctly through the full FastAPI stack.
+- Live browser (Playwright) verification: `#belief-digest`/`#culture-
+  digest` render the correct text once the details panel is open; the
+  NPC inspector's "Load full life history" button correctly fetches and
+  renders all 6 seeded entries (5 episodic + 1 semantic) for a test
+  agent, newest-first; zero uncaught JS errors during the flow.
+- `scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+  no native module touched.
+
 ## [0.86.2] — Durable Town Consciousness history to disk (Engineering Constitution §6)
 
 First slice of §6 ("efficient persistent storage... cold information

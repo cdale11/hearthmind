@@ -38,6 +38,21 @@ Three tables:
   consciousness_log_retention`); reachable only via the developer
   observatory (`event_category_counts`-style query), same Phase G/N
   dev-console-only discipline as `temperament`/`consciousness` itself.
+- `agent_memory_log` (v0.86.3, same Constitution §6 motivation, but
+  **main-UI visible** per explicit user direction — unlike
+  `consciousness_log`, this is meant to be discovered, not hidden): the
+  durable per-agent counterpart. `kind="episodic"` rows are significant
+  (non-routine) memories evicted from `Agent.memories` past its small
+  cap (8) — routine ones (frequent food/tool/medicine-sharing notes) are
+  deliberately excluded to keep volume bounded to genuinely memorable
+  moments, not noise. `kind="semantic"` rows are every distilled
+  self-theory `Agent.semantic_memories` has ever held (capped at 3 in
+  RAM), giving a full "how this person's understanding of themselves
+  evolved" arc on disk. This is the concrete "the world should appear
+  to learn continuously... visible to the observer" mechanism: an NPC's
+  full life history/self-understanding survives past its RAM caps and
+  is fetchable on demand (`GET /agents/{id}/memory_log`) for the NPC
+  inspector, not just the last few entries a live snapshot shows.
 """
 from __future__ import annotations
 
@@ -89,6 +104,16 @@ CREATE TABLE IF NOT EXISTS consciousness_log (
     text TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_consciousness_log_kind ON consciousness_log (kind, id);
+
+CREATE TABLE IF NOT EXISTS agent_memory_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    tick INTEGER NOT NULL,
+    logged_at REAL NOT NULL,
+    kind TEXT NOT NULL,
+    text TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_memory_log_agent ON agent_memory_log (agent_id, id);
 """
 
 

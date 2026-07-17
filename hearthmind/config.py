@@ -124,6 +124,17 @@ class Config:
     four kinds is centuries of real headroom; 0 disables pruning
     (unbounded, opt-in), same convention as `event_log_retention`."""
 
+    agent_memory_log_retention: int = 100_000
+    """Most-recent rows kept in `agent_memory_log` GLOBALLY (v0.86.3,
+    Engineering Constitution §6), pruned on the same snapshot-cadence
+    transaction as the other log tables. Higher than `consciousness_log_
+    retention` since this is population-wide (every core-cast-eligible
+    agent's significant episodic memories + every semantic-memory write,
+    not one world-scoped monthly job) — still a real, predictable
+    ceiling regardless of population size, matching "memory bounded."
+    0 disables pruning (unbounded, opt-in), same convention as the other
+    retention knobs."""
+
     db_path: str = "world.sqlite3"
 
     # --- runtime: LLM (Ollama) cognition layer, off by default -----------------

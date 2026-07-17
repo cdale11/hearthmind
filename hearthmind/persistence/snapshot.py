@@ -46,6 +46,7 @@ def save_snapshot(conn: sqlite3.Connection, world: World) -> None:
     _prune_events(conn, world.config.event_log_retention)
     _prune_metrics(conn, world.config.metrics_log_retention)
     _prune_consciousness_log(conn, world.config.consciousness_log_retention)
+    _prune_agent_memory_log(conn, world.config.agent_memory_log_retention)
     conn.commit()
 
 
@@ -155,6 +156,81 @@ def consciousness_log_count(conn: sqlite3.Connection) -> int:
     signal that the durable history is actually accumulating (compare
     against the tiny in-RAM cap counts already shown alongside it)."""
     return conn.execute("SELECT COUNT(*) FROM consciousness_log").fetchone()[0]
+
+
+def _prune_agent_memory_log(conn: sqlite3.Connection, keep: int) -> None:
+    """Keep only the most-recent `keep` rows of `agent_memory_log`
+    GLOBALLY (across all agents), same shape as `_prune_events`/
+    `_prune_consciousness_log`. A global cap rather than a per-agent one
+    is deliberate: it bounds total DB growth regardless of population
+    size, matching the "memory bounded" priority — a long-lived world
+    with hundreds of agents still gets one predictable ceiling, not one
+    per agent. `keep <= 0` disables pruning (unbounded, opt-in)."""
+    if keep <= 0:
+        return
+    conn.execute(
+        """
+        DELETE FROM agent_memory_log WHERE id NOT IN (
+            SELECT id FROM agent_memory_log ORDER BY id DESC LIMIT ?
+        )
+        """,
+        (keep,),
+    )
+
+
+def log_agent_memory_entry(
+    conn: sqlite3.Connection, tick: int, agent_id: int, kind: str, text: str, commit: bool = False,
+) -> None:
+    """Durable record of one agent's memory (`kind` "episodic" for a
+    significant memory evicted from `Agent.memories`, or "semantic" for
+    a distilled self-theory written to `Agent.semantic_memories`) — see
+    database.py's schema docstring. Called from `Population._remember`'s
+    eviction branch (episodic, drained by the engine each tick — see
+    `hearthmind.agents.population._pending_memory_evictions`) and from
+    `SimulationEngine._maybe_schedule_personal_belief`'s `apply()`
+    (semantic, at write time). `commit=False` matches `_log`'s per-tick
+    batching convention."""
+    conn.execute(
+        "INSERT INTO agent_memory_log (agent_id, tick, logged_at, kind, text) VALUES (?, ?, ?, ?, ?)",
+        (agent_id, tick, time.time(), kind, text),
+    )
+    if commit:
+        conn.commit()
+
+
+def recent_agent_memory_log(
+    conn: sqlite3.Connection, agent_id: int, kind: str | None = None, limit: int = 100,
+) -> list[dict]:
+    """Newest-first `agent_memory_log` rows for one agent, optionally
+    filtered to one `kind`. Backs `GET /agents/{id}/memory_log` — the
+    NPC inspector's on-demand "full life history" fetch, main-UI
+    visible per explicit user direction (unlike `consciousness_log`)."""
+    limit = max(1, min(limit, QUERY_LIMIT_MAX))
+    if kind is not None:
+        rows = conn.execute(
+            "SELECT tick, logged_at, kind, text FROM agent_memory_log "
+            "WHERE agent_id = ? AND kind = ? ORDER BY id DESC LIMIT ?",
+            (agent_id, kind, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT tick, logged_at, kind, text FROM agent_memory_log "
+            "WHERE agent_id = ? ORDER BY id DESC LIMIT ?",
+            (agent_id, limit),
+        ).fetchall()
+    return [
+        {"tick": tick, "logged_at": logged_at, "kind": kind_, "text": text}
+        for tick, logged_at, kind_, text in rows
+    ]
+
+
+def agent_memory_log_count(conn: sqlite3.Connection, agent_id: int) -> int:
+    """Total retained `agent_memory_log` rows for one agent — the "N
+    memories preserved from a fuller life" count the NPC inspector shows
+    even before the on-demand full-history fetch is triggered."""
+    return conn.execute(
+        "SELECT COUNT(*) FROM agent_memory_log WHERE agent_id = ?", (agent_id,)
+    ).fetchone()[0]
 
 
 def _prune_snapshots(conn: sqlite3.Connection) -> None:

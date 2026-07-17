@@ -757,6 +757,22 @@ def _is_significant_pair(a: Agent, b: Agent) -> bool:
     return dominant_emotion(a.emotions) is not None or dominant_emotion(b.emotions) is not None
 
 
+_pending_memory_evictions: list[dict] = []
+"""Transient (never serialized) buffer of significant evicted agent
+memories — appended by `_remember`'s eviction branch, drained and
+durably logged to disk by `SimulationEngine._tick_once()` every tick
+(see `snapshot.log_agent_memory_entry`, Constitution §6, v0.86.3).
+Module-level rather than a `Population`/`World` field because `_remember`
+receives only `agent`, with no reference back to its owning Population
+or the engine's DB connection — the same constraint that shaped how
+`SimulationEngine._maybe_schedule_consciousness` logs durably (see
+`CLAUDE.md`, "per-agent memory durability" note in the v0.86.2 section).
+Safe under this project's single-threaded-asyncio, one-World-per-process
+tick loop (`CLAUDE.md`, "Preserve absolutely"): `_tick_once()` is fully
+synchronous, so nothing can append to this buffer concurrently with the
+engine draining and clearing it. Entries: `{"agent_id": int, "text": str}`."""
+
+
 def _memory_salience(agent: Agent) -> float:
     """How memorable *right now* is, from the agent's own current
     `emotions` — see MEMORY_SALIENCE_BASELINE's docstring (Phase I,
@@ -796,8 +812,21 @@ def _remember(agent: Agent, text: str, routine: bool = False) -> None:
     agent.memory_salience.append(salience)
     if len(agent.memories) > MAX_AGENT_MEMORIES:
         evict_at = min(range(len(agent.memories)), key=lambda i: (agent.memory_salience[i], i))
+        evicted_text = agent.memories[evict_at]
         del agent.memories[evict_at]
         del agent.memory_salience[evict_at]
+        # Durable record of what would otherwise be permanently lost
+        # (Constitution §6, v0.86.3) — deliberately gated on `not
+        # routine` (this call's OWN significance, not the evicted
+        # entry's): routine calls are frequent, low-narrative-interest
+        # noise (food/tool/medicine sharing) by design, and logging
+        # every one of those evictions would bloat the durable log with
+        # exactly the texture this project already deprioritizes for
+        # `working_memory`. A non-routine call means something
+        # memorable is happening right now, which is also the moment
+        # worth preserving whatever it displaced.
+        if not routine:
+            _pending_memory_evictions.append({"agent_id": agent.id, "text": evicted_text})
     if not routine:
         agent.working_memory.append(text)
         if len(agent.working_memory) > WORKING_MEMORY_MAX:
