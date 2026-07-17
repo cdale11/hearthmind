@@ -373,6 +373,51 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.84.4)
+
+Direct root-cause fix for a live report: "village unnamed till
+20kticks, why do some villages not progress at all (no buildings at
+all as well)." Traced both symptoms to one cause: settlement naming
+gates on a STANDING building existing (`World.tick()`), and
+`Population._dispatch_movement`'s GATHER branch had no fallback beyond
+a small fixed `GATHER_SEARCH_RADIUS=6` — every other goal-directed
+search has one (FORAGE: three tiers; SOCIALIZE: no cap at all), but a
+GATHER agent with no FOREST/HILLS tile within 6 tiles got a permanent
+`target=None` and degraded to a pure random walk, so `Settlement.
+materials` could never cross `HUT_MATERIALS_COST` and the settlement
+stayed buildingless (and therefore unnamed) indefinitely.
+
+Fix: new `Population._nearest_material_tile_global` — once the bounded
+local scan fails and the agent has no journey already under way, a
+one-time reachability-filtered scan (`_reachable_tiles`, the same
+flood fill the fission site-chooser/bridge search already use) finds
+the nearest FOREST/HILLS tile the agent can actually *walk* to and
+sets it as `agent.travel_target`, handing off to the existing
+greedy+BFS journey machinery. Filtering by real walkable reachability
+(not raw distance) was a deliberate second pass — an initial version
+picked nearest-by-distance regardless of reachability, which could
+target a real island across a lake/river the journey pathing would
+correctly detect as unreachable and abandon, only for the very next
+tick's GATHER dispatch to rediscover and reassign the identical
+unreachable tile forever (a wasted-effort loop, not a fix). A
+settlement whose entire reachable region genuinely has no forest/hills
+of its own now correctly stays materials-starved rather than looping —
+same "true extinction is a legitimate permanent ending" acceptance
+this project already applies elsewhere, not something to force-avoid.
+
+Verified via a direct `_dispatch_movement` unit test (synthetic
+terrain, confirms the fallback sets the correct travel_target, the
+journey machinery carries the agent there, arrival clears it, and the
+local scan then succeeds) plus a real `SimulationEngine` A/B on two
+live-generated seeds: a genuinely isolated-island seed stays at
+exactly 0 materials/0 buildings both before and after (correct — no
+fix should manufacture reachability that doesn't exist); a far-but-
+reachable seed goes from 49 buildings pre-fix (materials trickling in
+only from lucky population-wide random-walk drift) to 86 post-fix over
+the same 20,000 ticks. A 6-seed x 15,000-tick soak (LLM disabled)
+confirms no crash across a mix of reachable and unreachable-material
+geographies.
+
 ## Current state (v0.84.3)
 
 Closes Phase N's full vision-doc intervention menu — the last item,

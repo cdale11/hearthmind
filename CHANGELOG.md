@@ -4,6 +4,64 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.84.4] — Fix: settlements can go unnamed/buildingless forever on unlucky geography
+
+Direct response to a live report: a settlement stayed unnamed after
+20,000 ticks, and some settlements never get any buildings at all.
+Root-caused and fixed.
+
+### Fixed
+
+- **`Population._dispatch_movement`'s GATHER branch had no fallback**
+  when no FOREST/HILLS tile fell within the small, fixed
+  `GATHER_SEARCH_RADIUS` (6 tiles) of a GATHER-goal agent — unlike
+  FORAGE (three fallback tiers) or SOCIALIZE (no radius cap at all),
+  a GATHER agent with nothing nearby simply got `target=None` forever
+  and degraded to a pure random walk. `Settlement.materials` then
+  never crosses `HUT_MATERIALS_COST`, so the settlement can go tens of
+  thousands of ticks with zero buildings — and since settlement naming
+  itself gates on a STANDING building existing (`World.tick()`), it
+  stays unnamed indefinitely too. Confirmed directly: a founding party
+  whose nearest reachable material tile sits just outside the bounded
+  radius stayed at exactly 0.0 materials / 0 buildings / unnamed
+  through a full 20,000-tick run on the unpatched code.
+- Fix: new `Population._nearest_material_tile_global` — once the
+  bounded local scan comes back empty and the agent isn't already on a
+  journey, a one-time reachability-filtered scan (`_reachable_tiles`,
+  the same flood fill the fission site-chooser and bridge search
+  already use) finds the nearest FOREST/HILLS tile the agent can
+  actually walk to and sets it as `agent.travel_target` — the existing
+  greedy+BFS journey machinery (already used for fission travel and
+  stuck-pocket escapes) then carries them there over many ticks. Only
+  fires while no nearby material exists and no journey is already
+  under way, so it adds no routine per-tick cost. Filtering by real
+  walkable reachability (not just raw distance) matters: an earlier
+  version of this fix picked the nearest material tile by distance
+  alone, which could be a real island across a lake/river the agent
+  can never reach — that produced an infinite retry loop (travel_target
+  set, journey pathing correctly detects it's unreachable and abandons
+  it, next tick's GATHER dispatch rediscovers and reassigns the exact
+  same unreachable tile). A settlement whose entire reachable region
+  genuinely contains no forest/hills (a small island with none of its
+  own) now correctly stays materials-starved rather than looping —
+  same "true extinction is a legitimate permanent ending" acceptance
+  this project already applies to population going to zero.
+
+### Verified
+
+Confirmed via a direct unit test (`_dispatch_movement` on synthetic
+terrain: bounded local scan returns None, global fallback sets the
+correct distant travel_target, the agent journeys there and arrives,
+local scan then succeeds). Confirmed via a real `SimulationEngine`
+A/B on two live-generated seeds: a genuinely isolated-island seed
+stays at exactly 0 materials/buildings both before and after the fix
+(correct — no reachable material exists at all); a far-but-reachable
+seed goes from 49 buildings pre-fix (materials only from lucky
+random-walk drift over the population, no deliberate journey) to 86
+buildings post-fix over the same 20,000 ticks. A 6-seed x 15,000-tick
+stability soak (LLM disabled) confirms no crash across a mix of
+reachable and unreachable-material geographies.
+
 ## [0.84.3] — Phase N complete: misplaced_object intervention
 
 Closes the last item on the vision doc's Town Consciousness

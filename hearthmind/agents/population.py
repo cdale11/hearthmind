@@ -2004,6 +2004,27 @@ class Population:
             target = cls._nearest_other_agent(agent, position_snapshot, agent_position_index)
         elif effective_goal is AgentGoal.GATHER:
             target = cls._nearest_material_tile(agent, terrain, material_index)
+            if target is None and agent.travel_target is None and terrain is not None:
+                # Root-cause fix for a live report: a settlement founded
+                # (or, more often, fissioned) with no FOREST/HILLS tile
+                # within GATHER_SEARCH_RADIUS left every GATHER-goal agent
+                # with a permanently-None target — no fallback existed the
+                # way FORAGE has three fallback tiers and SOCIALIZE has no
+                # cap at all — degrading to a pure random walk forever.
+                # `settlement.materials` then never crosses HUT_MATERIALS_
+                # COST, so the settlement can go 20,000+ ticks with zero
+                # buildings, which in turn means it never gets named either
+                # (naming gates on a STANDING building, see World.tick()).
+                # One-time whole-map reachability scan (see
+                # _nearest_material_tile_global) sets a real travel_target
+                # so the existing journey/BFS machinery (already used for
+                # fission travel and stuck-pocket escapes) carries them
+                # there over many ticks — cheap because it only fires
+                # while no nearby material exists AND no journey is
+                # already under way.
+                far_target = cls._nearest_material_tile_global(agent.x, agent.y, terrain, bridge_tiles)
+                if far_target is not None:
+                    agent.travel_target = far_target
         elif effective_goal is AgentGoal.WANDER and work_positions:
             # Root-cause fix (v0.43.2 follow-up): a WANDERing agent
             # previously had zero attraction toward a decaying building —
@@ -2203,6 +2224,43 @@ class Population:
                 dist = abs(dx) + abs(dy)
                 if best_dist is None or dist < best_dist:
                     best, best_dist = (x, y), dist
+        return best
+
+    @classmethod
+    def _nearest_material_tile_global(
+        cls, agent_x: int, agent_y: int, terrain: list[list[Tile]],
+        bridge_tiles: frozenset[tuple[int, int]] = frozenset(),
+    ) -> tuple[int, int] | None:
+        """Whole-map escape hatch for `_nearest_material_tile`'s bounded
+        `GATHER_SEARCH_RADIUS` scan, called only once the bounded scan has
+        already come back empty (see its call site in `_dispatch_movement`)
+        — not a routine per-tick cost.
+
+        Filtered by actual walkable reachability (`_reachable_tiles`, the
+        same flood fill the fission site-chooser and bridge search already
+        use) rather than raw Manhattan distance — an earlier version of
+        this fix picked the nearest material tile by distance alone, which
+        could be a real geographic island across a lake/river the agent
+        can never actually walk to. That produced an infinite loop: a
+        travel_target gets set toward the unreachable tile, the greedy+BFS
+        journey machinery exhausts its search and abandons it (correctly
+        detecting it as unreachable), travel_target goes back to None, and
+        the very next tick's GATHER dispatch rediscovers and reassigns the
+        *same* unreachable tile — the agent never makes progress and never
+        gathers, only now spending a wasted journey attempt every cycle
+        instead of a plain random walk. Returns None only if no FOREST/
+        HILLS tile exists anywhere in the agent's own reachable region — a
+        real, if rare, possibility (a small island with no forest/hills of
+        its own)."""
+        reachable = cls._reachable_tiles(terrain, (agent_x, agent_y), bridge_tiles)
+        best: tuple[int, int] | None = None
+        best_dist: int | None = None
+        for (x, y) in reachable:
+            if terrain[y][x].biome not in MATERIAL_BIOMES:
+                continue
+            dist = abs(x - agent_x) + abs(y - agent_y)
+            if best_dist is None or dist < best_dist:
+                best, best_dist = (x, y), dist
         return best
 
     @staticmethod
