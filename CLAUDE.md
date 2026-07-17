@@ -373,6 +373,30 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.85.2)
+
+Direct fix for a live report: "NPCs actually repair/maintain
+buildings... Looks like they aren't." Root cause: the deterministic
+side was already correct (`_dispatch_movement`'s WANDER branch biases
+toward `damaged_building_positions` via `work_positions`, and
+`_maybe_repair` applies real condition restoration once an awake agent
+is colocated), but a live LLM choosing goals (the project default)
+never got told a building needed repair or that `'wander'` was the way
+to help — the model had no basis to rationally pick it over forage/
+socialize/gather, so repair was left to chance colocation.
+`llm/cognition.py`'s `SYSTEM_PROMPT` now explains `'wander'` can mean
+going to help repair; `build_prompt` gained `needs_repair: bool`
+(computed via `Population.damaged_building_positions(home)` in
+`SimulationEngine._schedule_due_cognition`), adding one grounding
+sentence when true — same "ground the choice in what's reachable"
+treatment `nearest_food_steps` already gets. Roads are unaffected
+(self-maintaining via foot traffic, no agent decision); the
+deterministic fallback path was already correct and untouched.
+Verified via prompt-construction tests and a real end-to-end engine
+test (fake LLM client, forced damaged building, forced significance
+gate) confirming an actual cognition prompt includes the repair
+sentence.
+
 ## Current state (v0.85.1)
 
 Direct fix for a live 60,000-tick report: `population_total: 0` with

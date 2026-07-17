@@ -1190,12 +1190,14 @@ class SimulationEngine:
             beliefs_about = beliefs.beliefs_about_agent(agent.id, home.beliefs)
             own_belief = max(agent.beliefs, key=lambda b: b["confidence"])["belief"] if agent.beliefs else ""
             semantic_memory = agent.semantic_memories[-1] if agent.semantic_memories else ""
+            needs_repair = bool(population.damaged_building_positions(home))
             prompt = build_prompt(
                 agent, self.world.clock.season, self.world.weather.describe(),
                 settlement_name=home.name, latest_tradition=latest_tradition,
                 colocated_names=colocated_names, nearest_food_steps=food_steps,
                 beliefs_about=beliefs_about, own_belief=own_belief,
                 semantic_memory=semantic_memory, mind_text=agent.mind,
+                needs_repair=needs_repair,
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             traits_snapshot = dict(agent.traits)

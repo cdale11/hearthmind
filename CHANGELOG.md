@@ -4,6 +4,59 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.85.2] — Fix: NPCs weren't actually repairing buildings
+
+Direct response to a live report: "make sure NPCs actually repair/
+maintain buildings and other infrastructure. Looks like they aren't."
+
+### Root cause
+
+`Population._maybe_repair` only ever fires from incidental colocation
+(an awake agent already standing on a damaged building's tile), and
+the deterministic movement layer (`_dispatch_movement`'s WANDER
+branch) already biases WANDER-goal agents toward the nearest damaged
+building via `work_positions`. But with a live LLM choosing goals
+(the project default), `llm/cognition.py`'s prompt never told the
+model a building needed repair, or that `'wander'` was how an agent
+would go help with one — the model had no information to rationally
+choose it over forage/socialize/gather, so repair was left to chance
+colocation and whatever sliver of goal choices happened to land on
+'wander' for unrelated reasons. Roads are unaffected (self-maintaining
+via foot traffic, no agent decision involved) — this was specifically
+a buildings/repair information gap in the LLM-cognition path, not a
+missing mechanic.
+
+### Fixed
+
+- `llm/cognition.py`'s `SYSTEM_PROMPT` now explicitly explains that
+  `'wander'` covers going to help repair a nearby building, and that a
+  building needing repair is worth leaning toward `'wander'` for
+  regardless of personality — the same weight `'gather'` already gets
+  for an ambitious villager.
+- `build_prompt` gained `needs_repair: bool = False`; when true, the
+  prompt adds one grounding sentence ("A building nearby has fallen
+  into disrepair and could use a hand — 'wander' would take you
+  there."), the same "ground the choice in what's actually reachable"
+  treatment `nearest_food_steps` already gets for `'forage'`.
+- `SimulationEngine._schedule_due_cognition` computes `needs_repair =
+  bool(population.damaged_building_positions(home))` and passes it
+  through — the deterministic side (`work_positions`) was already
+  correct; this closes the information gap on the LLM side.
+- The deterministic fallback path (`fallback_goal`, used when the LLM
+  is disabled/unreachable/off-budget) was not changed — it already
+  sends roughly a third of "content" agents to WANDER, which already
+  gets biased toward damaged buildings deterministically; that path
+  was not the reported gap.
+
+### Verified
+
+Direct prompt-construction tests confirm `needs_repair=True` adds the
+repair sentence and `False` omits it. A real end-to-end engine test
+(fake always-succeeding LLM client, a building forced below
+`REPAIR_THRESHOLD`, emotions forced to trigger the significance gate so
+real cognition calls fire) confirms an actual captured cognition prompt
+correctly includes the repair sentence.
+
 ## [0.85.1] — Fix: population stuck at 0 never recovers
 
 Direct response to a live 60,000-tick diagnostic: `population_total: 0`

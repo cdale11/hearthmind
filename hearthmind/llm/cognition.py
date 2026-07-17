@@ -27,11 +27,15 @@ SYSTEM_PROMPT = (
     "You are the inner voice of a villager in a small simulated world. "
     "Given their current state, choose what they should focus on right now. "
     "'gather' means collecting wood and stone for the village's shared "
-    "building supply. When nothing urgent (hunger, exhaustion) forces the "
-    "choice, let personality tilt it: an ambitious or driven villager "
-    "leans toward 'gather' (visible, effortful work), a sociable one "
-    "leans toward 'socialize' — don't override real needs for this, just "
-    "break ties toward it. "
+    "building supply. 'wander' means going about ordinary business near "
+    "home — if you're told a building nearby needs repair, choosing "
+    "'wander' is how you'd go lend a hand with it. When nothing urgent "
+    "(hunger, exhaustion) forces the choice, let personality tilt it: an "
+    "ambitious or driven villager leans toward 'gather' (visible, "
+    "effortful work), a sociable one leans toward 'socialize' — and if a "
+    "building needs repair, that alone is worth leaning toward 'wander' "
+    "for, regardless of personality. Don't override real needs for any "
+    "of this, just break ties toward it. "
     'Respond with strict JSON only, no other text: '
     '{"goal": "forage" | "rest" | "socialize" | "wander" | "gather", '
     '"reason": "a short first-person reason, under 15 words"}.'
@@ -51,7 +55,7 @@ def build_prompt(
     settlement_name: str = "", latest_tradition: str = "",
     colocated_names: list[str] | None = None, nearest_food_steps: int | None = None,
     beliefs_about: list[str] | None = None, own_belief: str = "",
-    semantic_memory: str = "", mind_text: str = "",
+    semantic_memory: str = "", mind_text: str = "", needs_repair: bool = False,
 ) -> str:
     """`settlement_name`/`latest_tradition` are optional culture context
     (Phase E) — empty until the settlement is named/has a tradition, so
@@ -92,7 +96,19 @@ def build_prompt(
     every other field here it never changes across an agent's life —
     "at your core" framing distinguishes it from `own_belief` (a
     revisable running theory) and `semantic_memory` (distilled from
-    recent experience)."""
+    recent experience).
+
+    `needs_repair` (root-cause fix for a live "NPCs aren't repairing
+    buildings" report): whether the agent's home settlement currently
+    has a STANDING building below `REPAIR_THRESHOLD` (see `Population.
+    damaged_building_positions`). The deterministic side already biases
+    WANDER-goal movement toward the nearest damaged building
+    (`_dispatch_movement`'s WANDER branch, `work_positions`) — repair
+    was only ever incidental with a live LLM in the loop because the
+    model was never told repair was a thing 'wander' could mean, so it
+    had no way to rationally choose it over forage/socialize/gather.
+    This closes that information gap the same way `nearest_food_steps`
+    already grounds 'forage'."""
     culture = ""
     if settlement_name:
         culture = f" You live in {settlement_name}."
@@ -123,12 +139,17 @@ def build_prompt(
         food = " There is food where you stand."
     else:
         food = f" The nearest food you know of is about {nearest_food_steps} steps away."
+    repair_text = (
+        " A building nearby has fallen into disrepair and could use a hand — 'wander' "
+        "would take you there." if needs_repair else ""
+    )
     return (
         f"You are {agent.name}. Hunger: {agent.hunger:.2f} (0=full, 1=starving). "
         f"Energy: {agent.energy:.2f} (0=exhausted, 1=fully rested). "
         f"Currently {agent.state.value}, focused on '{agent.goal.value}'."
         f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{just_now_text}"
-        f"{personality_text}{emotion_text}{beliefs_text}{own_belief_text}{semantic_text}{mind_prompt_text} "
+        f"{personality_text}{emotion_text}{beliefs_text}{own_belief_text}{semantic_text}{mind_prompt_text}"
+        f"{repair_text} "
         "What should you focus on right now?"
     )
 
