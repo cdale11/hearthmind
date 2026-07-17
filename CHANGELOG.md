@@ -4,6 +4,62 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.86.9] — Memory/swap re-audit for long runs + llama-server periodic restart
+
+Direct response to a live report: "LLM memory usage... still increasing
+and swapping has increased for very long runs." Re-audited every
+capped/pruned in-process Python structure this project tracks
+(`SimulationEngine`'s scheduling dicts/sets, `Agent.relationships`/
+`trust`/`debts`/`memories`/`beliefs`/`secrets`, `Settlement.beliefs`/
+`traditions`/`inventions`/`records`/`memorials`, `Institution.beliefs`,
+`World.consciousness_*`, the `agent_memory_log`/`consciousness_log`
+SQLite retention pruning added in v0.86.2/.3, `AgentStore`'s swap-with-
+last compaction, wildlife herd caps) — every one confirmed still
+correctly bounded; nothing newly added since the last audit (v0.86.3–
+v0.86.8) introduced an unbounded structure. Verified live, not just by
+inspection: a synthetic soak (fake instant-responding LLM client so the
+full LLM-scheduling code path runs at volume without a real model,
+population run from 40 to its cap) showed hearthmind's own RSS
+plateauing in step with population (39.6MB@pop31 -> 41.3MB@pop99 ->
+62.8MB@pop333, then flat) rather than climbing independently of it —
+consistent with every prior memory audit this project has run
+(CLAUDE.md's "Diagnostic history index": swap pressure has always
+traced to the LLM server side, never this process).
+
+Given that, the fix targets the one mechanism the Python-side audit
+can't reach: llama-server's own process heap over a genuinely long
+(days/weeks) uptime. `--defrag-thold` (existing, v0.78.5) only
+defragments the KV cache; general heap fragmentation from many
+different prompt/response allocation sizes accumulating over a long-
+lived C++ process's lifetime is a distinct, well-known failure mode no
+in-request flag reclaims — and matches the reported symptom shape
+exactly ("increases on very long runs," not short ones). New
+`LLAMA_RESTART_HOURS` (`scripts/run.sh`, default `0`/disabled): when
+set, restarts llama-server on that real-time cadence to reclaim
+fragmentation via a clean process restart. `start_llama_server`/
+`wait_llama_ready` were extracted from the previously inline launch
+block into reusable functions (zero behavior change for the default
+`LLAMA_RESTART_HOURS=0` path — verified via a live smoke run) so the
+new periodic-restart supervisor (a background subshell, coordinating
+through a pidfile since a subshell can't write back to the parent
+shell's `$llama_pid`) can call the exact same launch/readiness logic
+the initial startup uses. hearthmind.server needs no changes to survive
+a restart — a mid-restart LLM call fails over to the existing
+deterministic fallback/defer path exactly as it already does for any
+timed-out or errored call (CLAUDE.md, "Tick loop... LLM calls are
+fire-and-forget async and must never block a tick").
+
+Verified: a live smoke run of the unmodified default path
+(`LLAMA_RESTART_HOURS=0`, `--llm-disabled`) confirms unchanged
+startup/shutdown behavior; a live run against a mock llama-server (a
+minimal HTTP stub answering `/health`) with a shortened restart
+interval confirms the supervisor correctly kills the old process,
+launches a replacement, updates the pidfile, and that `cleanup()` on
+SIGTERM stops whichever llama-server pid is current — zero orphaned
+processes after shutdown, hearthmind.server's own tick loop unaffected
+(continues ticking and snapshotting through the restart window, LLM
+calls transparently falling back during the brief gap).
+
 ## [0.86.8] — UI polish pass on v0.86.3–v0.86.7's newer panels
 
 Explicit user directive: a dedicated frontend polish pass on the panels

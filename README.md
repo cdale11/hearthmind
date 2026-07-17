@@ -626,6 +626,29 @@ box, *then* add `--mlock` — locking an undersized allocation just moves
 the failure earlier and louder, which is the point, but you still have
 to size it correctly first.
 
+**Heap fragmentation on very long runs** is a distinct failure mode from
+sizing: a live report of memory usage slowly climbing and swap
+increasing specifically on very-long-running sessions (never short
+ones) prompted a fresh audit (v0.86.9) of every capped/pruned
+in-process Python structure this project tracks — all confirmed still
+correctly bounded (see `docs/DECISIONS.md`), and a synthetic soak
+(fake instant LLM client, population run to its cap) showed hearthmind's
+own RSS plateauing alongside population rather than climbing
+independently. The remaining candidate is llama-server's own process
+heap: `--defrag-thold` (`LLAMA_DEFRAG_THOLD`, above) only defragments
+the KV cache specifically — general heap fragmentation from many
+different prompt/response allocation sizes over days or weeks of
+uptime is a separate, well-known long-lived-C++-process pattern that no
+in-request flag reclaims. `LLAMA_RESTART_HOURS` (e.g. `12` or `24`) has
+`scripts/run.sh` restart llama-server on that cadence to reclaim it —
+hearthmind.server keeps running through the brief restart window; any
+LLM call attempted during it fails over to the existing deterministic
+fallback/defer path exactly as it already does for a timed-out call, so
+a restart is invisible beyond a few skipped LLM answers that cycle.
+Disabled by default (`LLAMA_RESTART_HOURS=0`); turn it on if
+`/diagnostics.system_memory` shows llama-server's RSS climbing over a
+multi-day session even after sizing/`--defrag-thold` are already tuned.
+
 For genuinely unattended years-long operation, also consider: a process
 supervisor that restarts `scripts/run.sh` on crash/OOM-kill (systemd
 `Restart=on-failure` or equivalent — hearthmind's own snapshot/resume

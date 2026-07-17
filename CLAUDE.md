@@ -520,6 +520,43 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.86.9)
+
+Direct response to a live report: "LLM memory usage... still increasing
+and swapping has increased for very long runs." Re-audited every
+capped/pruned in-process structure this project tracks — everything
+confirmed still correctly bounded, nothing newly unbounded since the
+last pass. Verified live (not just by inspection): a synthetic soak
+(fake instant-responding LLM client so the full scheduling path runs
+at volume, population run from 40 to its cap) showed hearthmind's own
+RSS plateauing in step with population rather than climbing
+independently — consistent with this project's whole prior audit
+history that swap pressure traces to the LLM server side, never this
+process (see "Diagnostic history index" below).
+
+Fix targets the mechanism the Python-side audit can't reach: llama-
+server's own process heap over a genuinely long uptime. New
+`LLAMA_RESTART_HOURS` (`scripts/run.sh`, default `0`/off): restarts
+llama-server on a real-time cadence to reclaim general heap
+fragmentation that `--defrag-thold`'s KV-cache-only defrag can't touch
+— matches the reported symptom shape exactly ("climbs on very long
+runs," not short ones). `start_llama_server`/`wait_llama_ready` were
+extracted into reusable functions (zero behavior change verified for
+the default off path) so a background-subshell restart supervisor can
+call the same launch/readiness logic, coordinating through a pidfile
+since a subshell can't write back to the parent's `$llama_pid`.
+hearthmind.server needs no changes to survive a restart — an LLM call
+during the gap fails over to the existing deterministic fallback/defer
+path exactly as any timed-out call already does.
+
+Verified: a live smoke run of the unmodified default path confirms
+identical startup/shutdown behavior; a live run against a mock
+llama-server (a minimal `/health`-answering HTTP stub) with a
+shortened restart interval confirms the supervisor correctly cycles
+processes, updates the pidfile, and `cleanup()` on SIGTERM stops
+whichever pid is current — zero orphaned processes, hearthmind's own
+tick loop unaffected through the restart window.
+
 ## Current state (v0.86.8)
 
 Explicit user directive: a UI polishing pass on `hearthmind/interface/

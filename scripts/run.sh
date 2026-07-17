@@ -79,7 +79,34 @@
 #                        periodic defrag keeps that from slowly
 #                        fragmenting worse than a fresh restart would be.
 #                        Empty omits the flag (older builds without it,
-#                        or if you'd rather rely on periodic restarts).
+#                        or if you'd rather rely on periodic restarts —
+#                        see LLAMA_RESTART_HOURS below).
+#   LLAMA_RESTART_HOURS  Default: 0 (disabled). v0.86.9 — --defrag-thold
+#                        only addresses KV-cache fragmentation; general
+#                        heap fragmentation in a llama-server process
+#                        that's been alive for many days/weeks of varied
+#                        allocation sizes (many different prompt/response
+#                        lengths) is a separate, well-known long-running-
+#                        C++-process failure mode, and shows up as the
+#                        same symptom a live report flagged: overall
+#                        memory usage slowly climbing and swap increasing
+#                        specifically on very long runs, never on short
+#                        ones. Set this to a positive integer (e.g. 12 or
+#                        24) to have run.sh restart llama-server on that
+#                        cadence — a clean process restart is the
+#                        reliable way to reclaim heap fragmentation that
+#                        --defrag-thold can't touch. hearthmind.server
+#                        keeps running through the ~1-10s restart window;
+#                        any LLM call attempted during it fails over to
+#                        the existing deterministic fallback/defer path
+#                        (see CLAUDE.md, "Tick loop... LLM calls are
+#                        fire-and-forget async and must never block a
+#                        tick") exactly as it already does for a
+#                        timed-out or errored call, so a restart is never
+#                        visible as more than a few skipped LLM answers
+#                        that month. Model reload time (seconds) scales
+#                        with model size and disk speed, not with how
+#                        long the previous instance had been running.
 #   LLAMA_MLOCK          Default: unset (off). Set to 1 to pass --mlock,
 #                        which pins llama-server's memory in RAM and
 #                        refuses to let the OS swap it. This does NOT
@@ -166,6 +193,7 @@ LLAMA_BATCH_SIZE="${LLAMA_BATCH_SIZE-512}"
 LLAMA_UBATCH_SIZE="${LLAMA_UBATCH_SIZE-128}"
 LLAMA_DEFRAG_THOLD="${LLAMA_DEFRAG_THOLD-0.1}"
 LLAMA_MLOCK="${LLAMA_MLOCK-}"
+LLAMA_RESTART_HOURS="${LLAMA_RESTART_HOURS-0}"
 SKIP_NATIVE_BUILD="${SKIP_NATIVE_BUILD:-0}"
 LLAMA_EXTRA_ARGS="${LLAMA_EXTRA_ARGS:-}"
 
@@ -195,31 +223,47 @@ fi
 
 llama_pid=""
 hearthmind_pid=""
+restart_supervisor_pid=""
+# llama_pid is only ever read/written by THIS process when
+# LLAMA_RESTART_HOURS is unset — the pidfile only starts mattering once
+# the restart supervisor (a separate background subshell, see below) can
+# replace the running llama-server on its own schedule; a subshell can't
+# write back to this shell's `llama_pid` variable, so the pidfile is the
+# one shared channel both sides read/write through instead.
+llama_pidfile="$(mktemp)"
+write_llama_pid() { echo "$1" > "$llama_pidfile"; }
+read_llama_pid() { cat "$llama_pidfile" 2>/dev/null || true; }
 
 # Registered once, up front, so it correctly cleans up whichever
 # process(es) are alive regardless of where in the script a signal or
-# early exit happens — both pid variables are read at call time, not
+# early exit happens — pids are read at call time (llama's via the
+# pidfile, so it sees a supervisor-issued restart too), not
 # trap-registration time, so this stays correct as they get populated.
 cleanup() {
   if [[ -n "$hearthmind_pid" ]] && kill -0 "$hearthmind_pid" 2>/dev/null; then
     kill -TERM "$hearthmind_pid" 2>/dev/null || true
     wait "$hearthmind_pid" 2>/dev/null || true
   fi
-  if [[ -n "$llama_pid" ]] && kill -0 "$llama_pid" 2>/dev/null; then
-    echo "run.sh: stopping llama-server (pid $llama_pid)..." >&2
-    kill -TERM "$llama_pid" 2>/dev/null || true
-    wait "$llama_pid" 2>/dev/null || true
+  if [[ -n "$restart_supervisor_pid" ]] && kill -0 "$restart_supervisor_pid" 2>/dev/null; then
+    kill -TERM "$restart_supervisor_pid" 2>/dev/null || true
   fi
+  local pid; pid="$(read_llama_pid)"
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    echo "run.sh: stopping llama-server (pid $pid)..." >&2
+    kill -TERM "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  fi
+  rm -f "$llama_pidfile" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-if [[ "$llm_disabled" == false ]]; then
-  if [[ -z "${MODEL_PATH:-}" ]]; then
-    echo "run.sh: MODEL_PATH is required (path to a GGUF model file)." >&2
-    echo "        Pass --llm-disabled to skip the LLM entirely instead." >&2
-    exit 1
-  fi
-
+# Launches llama-server with the tuned flags above and records its pid
+# to $llama_pidfile. Echoes the pid on stdout so both the initial launch
+# and the periodic-restart supervisor (same flags, same function) can
+# capture it. Safe to call more than once per process lifetime — every
+# flag is re-read from the same env vars each call.
+start_llama_server() {
+  local llama_port fit_str fa_str reasoning_str batch_str ubatch_str mlock_str defrag_str pid
   llama_port="${LLAMA_HOST##*:}"
   # Build the optional --fit args: only passed when LLAMA_FIT is non-empty,
   # so an older llama-server that predates the flag can omit it with
@@ -277,25 +321,77 @@ if [[ "$llm_disabled" == false ]]; then
     $fit_str \
     --threads "$LLAMA_THREADS" \
     $LLAMA_EXTRA_ARGS &
-  llama_pid=$!
+  pid=$!
+  write_llama_pid "$pid"
+}
 
-  echo "run.sh: waiting for llama-server to become ready..." >&2
-  ready=false
+# Polls /health until llama-server (pid $1) answers or dies. Shared by
+# the initial launch and the periodic-restart supervisor.
+wait_llama_ready() {
+  local pid="$1" ready=false
   for _ in $(seq 1 60); do
     if curl -fsS "$LLAMA_HOST/health" >/dev/null 2>&1; then
-      echo "run.sh: llama-server is up." >&2
       ready=true
       break
     fi
-    if ! kill -0 "$llama_pid" 2>/dev/null; then
-      echo "run.sh: llama-server exited before becoming ready — check the model path and build." >&2
-      exit 1
+    if ! kill -0 "$pid" 2>/dev/null; then
+      return 1
     fi
     sleep 1
   done
-  if [[ "$ready" == false ]]; then
-    echo "run.sh: llama-server did not become ready within 60s — check its output above." >&2
+  [[ "$ready" == true ]]
+}
+
+if [[ "$llm_disabled" == false ]]; then
+  if [[ -z "${MODEL_PATH:-}" ]]; then
+    echo "run.sh: MODEL_PATH is required (path to a GGUF model file)." >&2
+    echo "        Pass --llm-disabled to skip the LLM entirely instead." >&2
     exit 1
+  fi
+
+  start_llama_server
+  llama_pid="$(read_llama_pid)"
+  echo "run.sh: waiting for llama-server to become ready..." >&2
+  if wait_llama_ready "$llama_pid"; then
+    echo "run.sh: llama-server is up." >&2
+  else
+    if kill -0 "$llama_pid" 2>/dev/null; then
+      echo "run.sh: llama-server did not become ready within 60s — check its output above." >&2
+    else
+      echo "run.sh: llama-server exited before becoming ready — check the model path and build." >&2
+    fi
+    exit 1
+  fi
+
+  # Periodic restart (v0.86.9, LLAMA_RESTART_HOURS — see its docstring
+  # above): a clean process restart reclaims general heap fragmentation
+  # that --defrag-thold's KV-cache-only defrag can't touch, which is the
+  # documented cause of "memory usage climbs on very long runs but not
+  # short ones" for long-lived C++ inference processes. Disabled by
+  # default (LLAMA_RESTART_HOURS=0); this subshell can't write back to
+  # this script's own $llama_pid, so it talks through $llama_pidfile the
+  # same way the initial launch above does.
+  if [[ "$LLAMA_RESTART_HOURS" =~ ^[0-9]+$ ]] && [[ "$LLAMA_RESTART_HOURS" -gt 0 ]]; then
+    (
+      while true; do
+        sleep "$((LLAMA_RESTART_HOURS * 3600))"
+        old_pid="$(read_llama_pid)"
+        echo "run.sh: periodic llama-server restart (LLAMA_RESTART_HOURS=$LLAMA_RESTART_HOURS) — reclaiming any long-run heap fragmentation..." >&2
+        if [[ -n "$old_pid" ]] && kill -0 "$old_pid" 2>/dev/null; then
+          kill -TERM "$old_pid" 2>/dev/null || true
+          wait "$old_pid" 2>/dev/null || true
+        fi
+        start_llama_server
+        new_pid="$(read_llama_pid)"
+        if wait_llama_ready "$new_pid"; then
+          echo "run.sh: llama-server restarted (pid $new_pid)." >&2
+        else
+          echo "run.sh: llama-server failed to come back up after a periodic restart — giving up on further restarts." >&2
+          break
+        fi
+      done
+    ) &
+    restart_supervisor_pid=$!
   fi
 fi
 
