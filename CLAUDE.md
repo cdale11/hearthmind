@@ -12,6 +12,16 @@ lives in `docs/DECISIONS.md` and `CHANGELOG.md` — consolidated here in
 v0.63.0 per an explicit user cleanup request; see "Diagnostic history
 index" below for pointers.
 
+**`docs/CONSTITUTION.md` is the canonical priority/architecture guide**
+(user-uploaded, v0.86.0) and supersedes prior audit reports where they
+conflict. Priority order when trade-offs arise: **Emergence > Memory
+efficiency > Performance > Simplicity > Backward compatibility** (save-
+compat is explicitly lowest; the save format may change freely). Prefer
+C++ for performance-critical systems, Python only where mature libraries
+(SQLite/networking/orchestration) give real leverage. Crucial cognition
+is never faked to keep throughput — slow/pause instead (see the tick-
+loop workflow rule below and "Current state (v0.86.0)").
+
 ## Response format (chat)
 
 - Minimum tokens. No restating goals/architecture/history already in this
@@ -352,7 +362,23 @@ this bug class) — don't just raise the roll chance.
   emergence.
 - Tick loop (`World.tick`) is fully synchronous; LLM calls are
   fire-and-forget async and must never block a tick. Every LLM call
-  needs *some* non-blocking fallback (liveness, not determinism).
+  needs *some* non-blocking resolution (liveness, not determinism) —
+  but as of v0.86.0 (Engineering Constitution §3/§7, docs/CONSTITUTION.
+  md) that resolution is **not always a fabricated fallback**. A
+  *crucial-cognition* job (individual-mind goals, belief revision, the
+  town brain, dreams, the consciousness) DEFERS instead: on a spent
+  daily budget or a timed-out/errored call it leaves state unchanged and
+  re-attempts on its natural cadence, never substituting rule-based
+  output for genuine cognition. Liveness there is guaranteed by the
+  deterministic *physical* layer (critical-hunger movement override,
+  etc.) plus the existing backlog pacing that slows/pauses ticking to
+  let inference catch up — not by faking the thought. `_schedule_llm_
+  job(..., critical=True)` marks these; per-agent cognition defers in
+  `_schedule_due_cognition`/`_run_cognition`. Ambient/narrative jobs
+  (chronicle, tradition, folklore, omens, caravan, naming, ...) keep the
+  real deterministic fallback — those have a sensible objective answer
+  and are texture, not cognition. When adding a new LLM job, decide
+  which kind it is and pass `critical` accordingly.
 - Settlement-level LLM jobs share `_schedule_llm_job` and are all
   backpressure-gated (`_settlement_job_backpressured`); per-agent
   cognition/dialogue have their own gates. Caravan's economic exchange
@@ -493,6 +519,76 @@ force-wipes population and buildings to reproduce the live scenario
 exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
+
+## Current state (v0.86.0)
+
+First implementation pass against the **Hearthmind Engineering
+Constitution** (docs/CONSTITUTION.md, uploaded by the user as the
+canonical priority/architecture guide — it supersedes prior audit
+reports). It reorders priorities (Emergent cognition > world behaviour >
+learning > memory > performance > code quality > deterministic physics >
+save compatibility; save-compat is now explicitly the LOWEST priority
+and format changes are allowed) and adds one principle that reverses
+prior architecture: **"Never replace crucial cognition with simplistic
+deterministic fallbacks simply to keep the simulation running. If
+cognition falls behind, slow or pause the simulation instead" (§3, §7).**
+
+Previously EVERY LLM job — including individual-mind goal reasoning,
+belief revision, the town brain, dreams, and the town consciousness —
+resolved to a *fabricated* deterministic substitute whenever the real
+call couldn't run (daily budget spent) or failed (timeout/error). This
+batch makes crucial cognition **defer instead of fabricate**:
+
+- `SimulationEngine._schedule_llm_job` gained a `critical` flag. For a
+  critical job, on budget-exhaustion or an in-flight fallback the
+  `apply` callback is NOT run with a fabricated result — state is left
+  unchanged and the job re-attempts on its natural cadence. Marked
+  critical: `beliefs`, `town_brain`, `personal_belief`, `dream`,
+  `consciousness` (the last already hand-rolled a `used_fallback`
+  early-return; the flag generalizes it). All other settlement jobs
+  (chronicle/tradition/folklore/invention/festival/religion/narrative_
+  direction/culture_digest/caravan/omen/naming/record/geography/faction/
+  guild_founding/institution_belief/dispute/market_prices) keep their
+  deterministic fallback — ambient texture with a sensible objective
+  answer, not crucial cognition.
+- Per-agent cognition defers too: a core-cast agent at a significant/
+  triggered moment that hits the daily ceiling keeps its current
+  LLM-authored goal (re-evaluated next staggered slot) instead of
+  snapping to `fallback_goal`; `_run_cognition` on timeout/error leaves
+  the current goal in place. Physical survival is unaffected — the
+  deterministic critical-hunger movement override (D5) still forces
+  foraging regardless of goal, so deferring the *goal* call never risks
+  starvation. This is the Constitution's deterministic-physics /
+  LLM-meaning split working as intended. The significance gate is
+  untouched (mundane routines stay deterministic by design, §3).
+- The existing live-backlog pacing (`run_forever`/`llm_pressure_paused`,
+  v0.82.0) is the "give inference time to catch up" half; this batch is
+  the other half — deferred work waits for genuine cognition.
+- New `CognitionRunner.calls_deferred_critical` counter, surfaced via
+  `stats()` → `/diagnostics.llm_stats` → dev console (same path as
+  `calls_dropped_backpressure`, no front-end change). A rising count vs.
+  low `calls_succeeded` reads as "the LLM can't keep up and the world is
+  correctly waiting," distinct from silent degradation.
+
+Verified: end-to-end engine test — with an always-failing LLM over ~3
+in-game months, critical belief jobs form 0 fabricated beliefs,
+`current_priority` stays unchanged, `calls_deferred_critical` climbs
+(200), while non-critical chronicle fallbacks keep flowing (no
+over-deferral); a control run with a working belief client confirms
+critical jobs DO mutate state (a real marker belief appears) — the
+deferral is failure-specific, not a permanent disable.
+`scripts/verify_native_soak.py` unaffected (touches no native module;
+the LLM path is disabled in that harness).
+
+**Constitution roadmap (sequenced next, per its own priority order):**
+(1) §6 move cold high-level state (consciousness memory/history, culture
+lists) to on-demand DB storage rather than always-in-RAM + whole-World
+JSON snapshots — the largest structural divergence, deliberately a
+separate batch because it changes the persistence boundary; save-compat
+is now lowest priority so the snapshot format is free to change.
+(2) §4/§7 continue C++ porting of performance-critical systems and add
+LLM-call efficiency (prompt caching/batching). Emergence (§1) outranks
+both, which is why this scheduling batch came first.
 
 ## Current state (v0.85.6)
 

@@ -876,7 +876,9 @@ class SimulationEngine:
 
     # --- the one scheduling path for settlement-level LLM jobs -----------------
 
-    def _schedule_llm_job(self, name: str, prompt: str, system: str, fallback: dict, apply) -> None:
+    def _schedule_llm_job(
+        self, name: str, prompt: str, system: str, fallback: dict, apply, critical: bool = False,
+    ) -> None:
         """Fire-and-forget one settlement-level LLM job (chronicle,
         tradition, town_brain, beliefs, omen, ...): run through the
         CognitionRunner (bounded concurrency + deterministic fallback),
@@ -889,13 +891,39 @@ class SimulationEngine:
         here so one bad apply can never kill the background task set.
         Per-agent cognition and dialogue keep their own paths — they
         carry pending-result queues and staleness state this shape
-        doesn't need."""
+        doesn't need.
+
+        `critical=True` marks a job whose deterministic fallback would be
+        a *fabricated substitute for genuine cognition* rather than an
+        objective-reality answer — belief revision, the town brain,
+        dreams, the consciousness (Engineering Constitution §3/§7:
+        "Never replace [crucial cognition] with simplistic deterministic
+        fallbacks simply to keep the simulation running. If cognition
+        falls behind, slow or pause the simulation instead."). For a
+        critical job, when the real call can't happen (daily budget
+        spent) or fails (timeout/error), `apply` is NOT called with a
+        fabricated result — the relevant state is left exactly as it was
+        and the job re-attempts on its next natural cadence. The world
+        already slows/pauses under live backlog pressure (see `run_
+        forever`/`llm_pressure_paused`), which is the mechanism that
+        gives inference time to catch up. This generalizes the pattern
+        `consciousness`'s apply already hand-rolled (its `used_fallback`
+        early-return). Non-critical jobs (chronicle, tradition, folklore,
+        omens, caravan, naming, ...) keep the deterministic fallback:
+        those genuinely have a sensible deterministic answer and are
+        ambient texture, not crucial cognition."""
         # Daily-ceiling gate (v0.70.0): once the day's Ollama budget is
-        # spent, this settlement job resolves via its deterministic
-        # fallback inline rather than scheduling a real call. The job's
-        # in-fiction effect still happens; only the model authorship is
-        # skipped — same degradation as any other fallback.
+        # spent, a non-critical settlement job resolves via its
+        # deterministic fallback inline rather than scheduling a real
+        # call — the in-fiction effect still happens, only the model
+        # authorship is skipped. A CRITICAL job instead DEFERS: it makes
+        # no change this cadence rather than fabricating cognition, and
+        # the deferral is counted for diagnosis (Constitution §3/§7).
         if not self._consume_llm_budget():
+            if critical:
+                self._cognition_runner.calls_deferred_critical += 1
+                self._record_llm_debug(name, prompt, fallback, True)
+                return
             try:
                 apply(fallback, True)
             except Exception:
@@ -907,10 +935,16 @@ class SimulationEngine:
             result, used_fallback = await self._cognition_runner.run(
                 prompt, system, fallback=lambda: fallback
             )
-            try:
-                apply(result, used_fallback)
-            except Exception:
-                logger.exception("Failed to apply %s LLM job result", name)
+            if critical and used_fallback:
+                # Crucial cognition: the real call failed, so leave state
+                # untouched and re-attempt next cadence rather than apply
+                # a fabricated belief/priority/dream (Constitution §3/§7).
+                self._cognition_runner.calls_deferred_critical += 1
+            else:
+                try:
+                    apply(result, used_fallback)
+                except Exception:
+                    logger.exception("Failed to apply %s LLM job result", name)
             self._record_llm_debug(name, prompt, result, used_fallback)
             self._record_llm_call(used_fallback)
 
@@ -1207,11 +1241,19 @@ class SimulationEngine:
                 continue
             if not self._consume_llm_budget():
                 # Day's ceiling reached between the check above and here
-                # (another job spent the last slot): fall back inline.
-                self._pending_goal_results[agent.id] = (
-                    self.world.clock.tick_count,
-                    fallback_goal(agent.hunger, agent.energy, agent.id, dict(agent.traits), dict(agent.emotions)),
-                )
+                # (another job spent the last slot). This is a core-cast
+                # agent at a genuinely significant/triggered moment — the
+                # LLM's discretion is warranted, so rather than fabricate
+                # a rule-based goal to keep throughput up, DEFER: the
+                # agent keeps its current LLM-authored goal and gets
+                # re-evaluated at its next staggered slot (by when the
+                # daily budget has reset). Physical survival is unaffected
+                # — the deterministic critical-hunger movement override
+                # (D5) still forces foraging regardless of goal, so
+                # deferring the *goal* call never risks starvation. This
+                # is the Engineering Constitution §3/§7 rule applied to
+                # individual minds: crucial cognition is never faked.
+                self._cognition_runner.calls_deferred_critical += 1
                 continue
             backlog += 1  # count this tick's own scheduling against the gate
             self._reserved_this_tick += 1  # ...and against every other job type's check this tick
@@ -1257,7 +1299,21 @@ class SimulationEngine:
                 prompt, SYSTEM_PROMPT,
                 fallback=lambda: fallback_goal(hunger, energy, agent_id, traits, emotions),
             )
-            self._pending_goal_results[agent_id] = (scheduled_tick, result)
+            if used_fallback:
+                # The real call failed (timeout/error). This path is only
+                # reached for a core-cast agent at a significant/triggered
+                # moment (see `_schedule_due_cognition`'s `use_llm` gate),
+                # so a fabricated rule-based goal would be exactly the
+                # "replace crucial cognition to keep throughput" the
+                # Engineering Constitution §3/§7 forbids. DEFER instead:
+                # leave the agent's current LLM-authored goal in place and
+                # let its next staggered slot re-attempt. The deterministic
+                # critical-hunger movement override (D5) still guarantees
+                # physical survival regardless of goal, so no fabricated
+                # goal is needed to keep the world live.
+                self._cognition_runner.calls_deferred_critical += 1
+            else:
+                self._pending_goal_results[agent_id] = (scheduled_tick, result)
             self._record_llm_call(used_fallback)
         finally:
             self._inflight_cognition_agent_ids.discard(agent_id)
@@ -2121,7 +2177,7 @@ class SimulationEngine:
             if kind != "none":
                 self._log("consciousness_intervention", f"Something in {target.name} quietly shifted.")
 
-        self._schedule_llm_job("consciousness", prompt, consciousness.SYSTEM_PROMPT, fallback, apply)
+        self._schedule_llm_job("consciousness", prompt, consciousness.SYSTEM_PROMPT, fallback, apply, critical=True)
 
     def _apply_consciousness_intervention(self, kind: str, detail: str, target: "Settlement") -> None:
         """Executes exactly one of the bounded menu (see
@@ -2331,7 +2387,7 @@ class SimulationEngine:
             target.record_priority(self.world.clock.tick_count, priority, rationale)
             self._log("town_brain", f"{target.name or 'The village'}'s priority is now {priority} — {rationale}")
 
-        self._schedule_llm_job("town_brain", prompt, town_brain.SYSTEM_PROMPT, fallback, apply)
+        self._schedule_llm_job("town_brain", prompt, town_brain.SYSTEM_PROMPT, fallback, apply, critical=True)
 
     # --- the town's own evolving theory of itself (continuous cognition) -------
 
@@ -2418,7 +2474,7 @@ class SimulationEngine:
             beliefs.sync_council_beliefs(entry, settlement.institutions)  # integration milestone
             beliefs.sync_guild_beliefs(entry, settlement.institutions)  # continue expanding, round three
 
-        self._schedule_llm_job("beliefs", prompt, beliefs.SYSTEM_PROMPT, fallback, apply)
+        self._schedule_llm_job("beliefs", prompt, beliefs.SYSTEM_PROMPT, fallback, apply, critical=True)
 
     def _maybe_schedule_personal_belief(self, events: list[str]) -> None:
         """H2 extension (docs/ROADMAP.md "Phase H" stage 2), extended
@@ -2502,7 +2558,7 @@ class SimulationEngine:
                 if secret_text:
                     push_secret(target, secret_text)
 
-        self._schedule_llm_job("personal_belief", prompt, beliefs.PERSONAL_SYSTEM_PROMPT, fallback, apply)
+        self._schedule_llm_job("personal_belief", prompt, beliefs.PERSONAL_SYSTEM_PROMPT, fallback, apply, critical=True)
 
     def _maybe_schedule_dream(self, events: list[str]) -> None:
         """Phase K's Dream() (docs/VISION-2026-07.md, "Knowledge &
@@ -2557,7 +2613,7 @@ class SimulationEngine:
             if not used_fallback and self.world.settlement.dream_seed == symbol_seed:
                 self.world.settlement.dream_seed = ""
 
-        self._schedule_llm_job("dream", prompt, dream.SYSTEM_PROMPT, fallback, apply)
+        self._schedule_llm_job("dream", prompt, dream.SYSTEM_PROMPT, fallback, apply, critical=True)
 
     # --- Phase G v1: temperament and omens (deliberately subtle) ---------------
 

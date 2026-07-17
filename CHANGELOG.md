@@ -4,6 +4,92 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.86.0] — Critical cognition defers, never fabricates (Engineering Constitution §3/§7)
+
+First implementation pass against the new **Hearthmind Engineering
+Constitution** (docs/CONSTITUTION.md). The Constitution reorders the
+project's priorities — Emergent cognition > world behaviour > learning >
+memory > performance > code quality > deterministic physics > save
+compatibility — and adds one principle that directly reverses prior
+architecture:
+
+> "Never replace [crucial cognition] with simplistic deterministic
+> fallbacks simply to keep the simulation running. If cognition falls
+> behind, slow or pause the simulation instead." (§3, §7)
+
+Previously **every** LLM job — including the individual minds' goal
+reasoning, belief revision, the town brain, dreams, and the town
+consciousness — resolved to a *fabricated* deterministic substitute
+whenever the real call couldn't run (daily budget spent) or failed
+(timeout/error). That kept throughput up at the cost of quietly
+replacing genuine cognition with rule-based output, exactly what the
+Constitution forbids.
+
+### Changed
+
+- **`SimulationEngine._schedule_llm_job` gained a `critical` flag.** A
+  critical job is one whose deterministic fallback would be a fabricated
+  substitute for genuine cognition rather than an objective-reality
+  answer. For a critical job, when the real call can't happen (daily
+  ceiling reached) or fails (timeout/error), `apply` is **not** called
+  with a fabricated result — the relevant state is left exactly as it
+  was and the job re-attempts on its next natural cadence. Marked
+  critical: `beliefs`, `town_brain`, `personal_belief`, `dream`,
+  `consciousness` (the last already hand-rolled this via a `used_
+  fallback` early-return; the flag generalizes the pattern). Ambient/
+  narrative jobs (chronicle, tradition, folklore, invention, festival,
+  religion, narrative_direction, culture_digest, caravan, omen, naming,
+  record, geography, faction, guild_founding, institution_belief,
+  dispute, market_prices) keep their deterministic fallback — those
+  genuinely have a sensible deterministic answer and are ambient
+  texture, not crucial cognition.
+- **Per-agent cognition defers instead of fabricating.** In `_schedule_
+  due_cognition`, a core-cast agent at a genuinely significant/triggered
+  moment that hits the daily LLM ceiling now keeps its current
+  LLM-authored goal and is re-evaluated at its next staggered slot,
+  rather than snapping to a rule-based `fallback_goal`. Likewise
+  `_run_cognition` on a timeout/error leaves the agent's current goal in
+  place instead of writing a fabricated one. Physical survival is
+  unaffected — the deterministic critical-hunger movement override (D5)
+  still forces foraging regardless of goal, so deferring the *goal* call
+  never risks starvation. This is the Constitution's deterministic-
+  physics / LLM-meaning split working exactly as intended: objective
+  reality (survival movement) stays deterministic and always-live, while
+  the *interpretation* (what to pursue) waits for real cognition. The
+  significance gate is untouched — a routine "gather or socialize today"
+  is mundane by design and still uses the deterministic goal (the
+  Constitution explicitly assigns mundane routines to deterministic
+  systems, §3).
+- The existing live-backlog pacing (`run_forever`/`llm_pressure_paused`,
+  v0.82.0) is the mechanism that *gives inference time to catch up* —
+  the world already slows and then pauses ticking under sustained LLM
+  backlog. This batch makes the other half true: the work that does get
+  deferred waits for genuine cognition instead of being faked.
+
+### Added
+
+- **`CognitionRunner.calls_deferred_critical`** counter, surfaced in
+  `stats()` → `/diagnostics.llm_stats` → the dev console (same path as
+  `calls_dropped_backpressure`, no front-end change needed). A rising
+  count against a low `calls_succeeded` now reads as "the LLM can't keep
+  up and the world is correctly waiting for it," distinct from silent
+  degradation.
+- **docs/CONSTITUTION.md** — the Engineering Constitution, checked in as
+  the canonical priority/architecture guide it declares itself to be.
+
+### Verified
+
+- End-to-end engine test (`test_critical_defer.py`): with an
+  always-failing LLM client over ~3 in-game months, critical belief
+  jobs form **zero** fabricated beliefs and `calls_deferred_critical`
+  climbs, while non-critical chronicle fallbacks keep flowing (no
+  over-deferral); a control run with a working belief client confirms
+  the critical jobs DO mutate state (real LLM-authored beliefs appear) —
+  proving the deferral is failure-specific, not a permanent disable.
+- `scripts/verify_native_soak.py` unaffected — this batch touches no
+  native module (the LLM path is disabled in that harness, so its
+  byte-identical guarantee is unchanged).
+
 ## [0.85.6] — Whisper routing fix, parallel g++ build, relationship-step native port
 
 Three-part batch: a real bug fix found while investigating a live "I've

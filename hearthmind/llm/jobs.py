@@ -49,6 +49,21 @@ class CognitionRunner:
         because `backlog` was over its limit — surfaced in `stats()` so
         a saturated live run is diagnosable as 'rationing' rather than
         silently degraded."""
+        self.calls_deferred_critical = 0
+        """How many *critical* cognition jobs (individual-mind goals,
+        belief revision, the town brain, dreams, the consciousness) the
+        engine chose to DEFER rather than resolve via a fabricated
+        deterministic substitute, when the real LLM call couldn't happen
+        (daily budget spent) or failed (timeout/error). This is the
+        Engineering Constitution's §3/§7 rule made observable: crucial
+        cognition is never faked to keep throughput up — the state is
+        simply left unchanged and re-attempted on its natural cadence
+        (and the sim already slows/pauses under live backlog pressure to
+        give inference time to catch up). Written by the engine, same as
+        `calls_dropped_backpressure`. A rising count against a low
+        `calls_succeeded` means the LLM can't keep up and the world is
+        correctly waiting for it rather than degrading into rule-based
+        behavior."""
         self.calls_attempted = 0
         self.calls_succeeded = 0
         self.calls_timed_out = 0
@@ -83,6 +98,7 @@ class CognitionRunner:
             "calls_errored": self.calls_errored,
             "backlog": self.backlog,
             "calls_dropped_backpressure": self.calls_dropped_backpressure,
+            "calls_deferred_critical": self.calls_deferred_critical,
             "latency_ms_p50": percentile(0.5),
             "latency_ms_p95": percentile(0.95),
             "latency_ms_max": round(latencies[-1], 1) if latencies else 0.0,
