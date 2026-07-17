@@ -27,6 +27,16 @@ cpp/src/wildlife_index.cpp, docs/DECISIONS.md "Native extension port").
 `None` when the extension wasn't built — falls back to the equivalent
 pure-Python scan in that case."""
 
+try:
+    from hearthmind._native import grazer_tick_step as _native_grazer_tick_step
+except ImportError:
+    _native_grazer_tick_step = None
+"""Optional compiled fast path for `WildlifeGrid.tick`'s GRAZER branch
+(module 22, see cpp/src/wildlife_step.cpp, docs/DECISIONS.md "Native
+extension port"). Bundles node-consumption + overgraze check + reproduce
+roll into one call — herd/dict iteration and movement (terrain lookups)
+stay in Python either way. `None` when the extension wasn't built."""
+
 _NEIGHBOR_OFFSETS = ((0, -1), (0, 1), (-1, 0), (1, 0))
 
 
@@ -351,12 +361,29 @@ class WildlifeGrid:
                     continue
                 node = resources.get(herd.x, herd.y) if resources is not None else None
                 grazing_food = node is not None and node.kind is ResourceKind.FOOD
+                reproduce_chance = GRAZER_REPRODUCE_CHANCE * SEASON_GRAZER_REPRODUCE_MULTIPLIER.get(season, 1.0)
+                reproduce_roll = rng.random()
+                if _native_grazer_tick_step is not None:
+                    # Native fast path (module 22): bundles the node-
+                    # consumption + overgraze check + reproduce roll into
+                    # one call. `node_amount` is a dummy 0.0 when there's
+                    # no colocated FOOD node — `grazed` tells us whether
+                    # to trust the returned amount at all.
+                    new_count, new_amount, grazed = _native_grazer_tick_step(
+                        herd.count, grazing_food, node.amount if grazing_food else 0.0,
+                        GRAZE_CONSUMPTION_PER_TICK, GRAZE_REPRODUCE_MIN_FOOD,
+                        MAX_HERD_SIZE, reproduce_chance, reproduce_roll,
+                    )
+                    herd.count = new_count
+                    if grazed:
+                        node.amount = new_amount
+                        resources.mark_regenerating(herd.x, herd.y)
+                    continue
                 if grazing_food:
                     node.amount = max(0.0, node.amount - GRAZE_CONSUMPTION_PER_TICK)
                     resources.mark_regenerating(herd.x, herd.y)
                 overgrazed = grazing_food and node.amount < GRAZE_REPRODUCE_MIN_FOOD
-                reproduce_chance = GRAZER_REPRODUCE_CHANCE * SEASON_GRAZER_REPRODUCE_MULTIPLIER.get(season, 1.0)
-                if herd.count < MAX_HERD_SIZE and not overgrazed and rng.random() < reproduce_chance:
+                if herd.count < MAX_HERD_SIZE and not overgrazed and reproduce_roll < reproduce_chance:
                     herd.count += 1
                 continue
 

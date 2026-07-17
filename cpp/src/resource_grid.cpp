@@ -204,6 +204,7 @@ void register_agent_table(py::module_ &m);
 void register_emotion_decay(py::module_ &m);
 void register_relationship_step(py::module_ &m);
 void register_road_wear(py::module_ &m);
+void register_wildlife_step(py::module_ &m);
 
 PYBIND11_MODULE(_native, m) {
     m.doc() = "Hearthmind native (C++) hot-path extensions. Optional — "
@@ -245,4 +246,5 @@ PYBIND11_MODULE(_native, m) {
     register_emotion_decay(m);
     register_relationship_step(m);
     register_road_wear(m);
+    register_wildlife_step(m);
 }

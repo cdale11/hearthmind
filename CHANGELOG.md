@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.86.5] — Module 22: wildlife grazer-branch native port
+
+Continues the R6 "opportunistic pure-math port" queue (Constitution §4).
+Audited every remaining not-yet-ported physical-substrate module
+(`world/hydrology.py`, `world/terrain_evolution.py`, `world/
+disasters.py`, `economy/farms.py`, `settlement/buildings.py`) looking
+for a fresh per-tick loop doing repeated scalar arithmetic — all five
+turned out already native-ported from prior R6/R7 passes (bounded
+random walk, farm grid tick, building/vehicle decay, wilt/flat-damage/
+roll-batch sweeps, climate drift, reclaim). `world/wildlife.py`'s
+`WildlifeGrid.tick` was the one remaining candidate: a per-tick loop
+over every live herd/pack, with the GRAZER branch (node-consumption +
+overgraze check + reproduce roll) being a self-contained per-herd scalar
+computation with no cross-herd dependency — unlike the PREDATOR branch,
+which needs a prey lookup across the herd dict and stays in Python.
+
+New `cpp/src/wildlife_step.cpp` exposes `grazer_tick_step`, bundling the
+three GRAZER-branch operations into one call; the reproduce roll is
+drawn by the caller (`rng.random()`) and passed in, preserving RNG draw
+order exactly, same discipline as `bounded_random_walk_step`'s jitter
+and `roll_passes_tick`'s pre-drawn rolls. `world/wildlife.py` gained the
+standard try/except-ImportError native-fast-path wiring with an
+identical pure-Python fallback; herd/dict iteration and movement
+(terrain-dependent candidate search) stay in Python either way.
+
+Verified: 300,000-case randomized equivalence test (0 mismatches);
+`scripts/verify_native_soak.py` full-state hash soak (2 seeds x 1500
+ticks) confirms byte-identical output with the native path on vs. off.
+
 ## [0.86.4] — Durable belief + secret history (extends v0.86.3)
 
 Direct extension of v0.86.3's `agent_memory_log`, per explicit user

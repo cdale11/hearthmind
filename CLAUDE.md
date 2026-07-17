@@ -520,6 +520,29 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.86.5)
+
+Continues the Constitution §4/§7 roadmap item flagged at the end of
+v0.86.0 ("§4/§7: more C++ porting + LLM-call efficiency"). Module 22 of
+the R6 opportunistic-port queue: `cpp/src/wildlife_step.cpp`'s
+`grazer_tick_step` ports `WildlifeGrid.tick`'s (world/wildlife.py)
+GRAZER-branch scalar math (node consumption + overgraze check +
+reproduce roll) — a self-contained per-herd computation, unlike the
+PREDATOR branch's cross-herd prey lookup, which stays in Python. Audited
+every other not-yet-ported physical-substrate module first
+(hydrology/terrain_evolution/disasters/farms/buildings decay) and found
+all five already native-ported from prior passes — this was the one
+remaining candidate with a genuine per-tick loop over un-ported scalar
+arithmetic. Verified via 300,000-case randomized equivalence (0
+mismatches) and `scripts/verify_native_soak.py` (2 seeds x 1500 ticks,
+byte-identical). Part B (LLM-call efficiency) audited in the same pass;
+see this file's next update for what was investigated and why no change
+was made there this round.
+
+This ran as a parallel background agent in an isolated worktree,
+concurrently with v0.86.4's belief/secret durable-history work — see
+that section immediately below for what shipped there.
+
 ## Current state (v0.86.4)
 
 Direct extension of v0.86.3, per explicit user request to keep pushing
@@ -538,8 +561,8 @@ pair) durably logs the correct resentment secret. Native soak
 byte-identical.
 
 A parallel background agent worked C++ porting (R6 queue) + LLM-call
-efficiency (§4/§7) concurrently in an isolated worktree — see its own
-commits/CHANGELOG entries for what it shipped.
+efficiency (§4/§7) concurrently in an isolated worktree — see the
+v0.86.5 section above for what it shipped.
 
 ## Current state (v0.86.3)
 

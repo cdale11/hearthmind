@@ -94,6 +94,8 @@ _NATIVE_TOGGLES = [
     # v0.86.1: road wear gain/decay scalar math (cpp/src/road_wear.cpp).
     (_roads, "_native_road_wear_gain_step"),
     (_roads, "_native_road_wear_decay_step"),
+    # v0.86.4: grazer-branch scalar math (cpp/src/wildlife_step.cpp).
+    (_wildlife, "_native_grazer_tick_step"),
 ]
 
 
