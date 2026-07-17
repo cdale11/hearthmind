@@ -494,6 +494,34 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.85.5)
+
+Direct follow-up to v0.85.4, per explicit request: "maybe we can cue an
+LLM job occasionally to summarise large prompts." Generalizes the
+`belief_digest` pattern to the settlement's accumulated culture/history
+(`traditions`/`inventions`/`festivals`/`records`), which — unlike
+beliefs — has no natural "revise the whole list" existing job to
+extend for free. New `llm/culture_digest.py` + `Settlement.
+culture_digest`, written by a genuinely new (but deliberately
+infrequent — quarterly, `season_end`, same cadence `narrative_
+direction` already uses) `SimulationEngine._maybe_schedule_culture_
+digest` job, round-robin `_job_target()`-scoped so volume stays flat
+regardless of settlement count. Input bounded by new `CULTURE_DIGEST_
+INPUT_MAX=30` so the job's own prompt can't itself grow unbounded.
+`chronicle.py`/`town_brain.py` both read the digest as one more
+grounding line alongside `belief_digest`. Fallback is a genuine no-op
+("no call -> no update this quarter") — `culture_digest` is only
+overwritten on a real answer, never fabricated.
+
+Verified: direct tests for `culture_digest.parse_digest`/`fallback_
+digest`/`build_prompt`; a real end-to-end engine test confirms the job
+fires on `season_end`, writes the digest from a real result, and that
+the digest reaches both a captured chronicle prompt and a captured
+town_brain prompt; a forced-failure follow-up confirms the digest is
+retained, not cleared. `culture_digest` round-trips through `to_dict`/
+`from_dict`/`summary()`, legacy snapshots default cleanly. A 3-seed x
+15,000-tick engine soak (LLM disabled) completes with zero crashes.
+
 ## Current state (v0.85.0)
 
 Batch response to several live requests in one turn: repopulation,

@@ -4,6 +4,59 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.85.5] — Culture digest: an occasional LLM job to summarise accumulated history
+
+Direct follow-up to v0.85.4, per explicit request: "maybe we can cue an
+LLM job occasionally to summarise large prompts." v0.85.4's
+`belief_digest` was free (it extended an existing monthly job) — but
+`Settlement.traditions`/`inventions`/`festivals`/`records` have no
+natural "revise the whole list" call to piggyback a digest onto, so
+this is the generalization: a genuinely new, deliberately infrequent
+job, on the same quarterly cadence `llm/narrative_direction.py`
+already established (`season_end` — a season already IS a real-
+calendar quarter, no new cadence machinery needed).
+
+### Added
+
+- New `llm/culture_digest.py`: one short LLM-authored sentence
+  condensing the overall shape of the settlement's accumulated
+  traditions/inventions/festivals/records — the `belief_digest`
+  treatment applied to culture and history. `fallback_digest()` is a
+  genuine no-op ("no call -> no update this quarter"), same discipline
+  as `llm/consciousness.py`; `Settlement.culture_digest` is only
+  overwritten on a real (non-fallback) answer, never fabricated by the
+  deterministic path.
+- New `Settlement.culture_digest: str`, wired through `__init__`,
+  property passthrough, `to_dict`/`from_dict`/`summary()` — same shape
+  as `belief_digest`; a legacy snapshot missing the field defaults
+  cleanly to `""`.
+- `SimulationEngine._maybe_schedule_culture_digest`, registered in
+  `_TICK_JOBS` right after `narrative_direction`: one call per season,
+  round-robin `_job_target()`-scoped so volume stays flat regardless of
+  settlement count. Input bounded by new `CULTURE_DIGEST_INPUT_MAX=30`
+  (newest N of each list) so this job's own prompt can't itself grow
+  unbounded on a very long-running world, even though it deliberately
+  sees more history than the `PROMPT_CULTURE_LIST_MAX=5` slice that
+  reaches `chronicle`/`town_brain` directly.
+- `chronicle.py`/`town_brain.py` both gained a `culture_digest`
+  parameter, read as one additional grounding line alongside the
+  existing `belief_digest` line — same "if it fits" treatment as
+  folklore/narrative_theme.
+
+### Verified
+
+Direct tests: `culture_digest.parse_digest`/`fallback_digest`/
+`build_prompt` validated directly; a real end-to-end engine test
+confirms the job fires on a synthetic `season_end` event, writes
+`Settlement.culture_digest` from a real (non-fallback) result, and that
+the digest reaches both a captured `chronicle` prompt and a captured
+`town_brain` prompt; a forced-failure follow-up call confirms the
+stored digest is retained unchanged rather than cleared or
+overwritten. `culture_digest` round-trips through `to_dict`/
+`from_dict`/`summary()`. A 3-seed x 15,000-tick engine soak (LLM
+disabled — this change is LLM-path-only, soak confirms no import/
+serialization regression) completes with zero crashes.
+
 ## [0.85.4] — Intelligent belief digest, replacing blind slicing
 
 Direct follow-up to v0.85.3's fix, per explicit request: "instead of

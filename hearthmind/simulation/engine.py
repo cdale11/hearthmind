@@ -48,9 +48,9 @@ from hearthmind.config import Config
 from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
-    faction, fission, beliefs, caravan, chronicle, consciousness, culture, dialogue, dispute, documentary, dream,
-    festival, folklore, founding, geography, invention, mind, naming, narrative_direction, omens, religion,
-    rumor_interpret, summary, town_brain,
+    faction, fission, beliefs, caravan, chronicle, consciousness, culture, culture_digest, dialogue, dispute,
+    documentary, dream, festival, folklore, founding, geography, invention, mind, naming, narrative_direction,
+    omens, religion, rumor_interpret, summary, town_brain,
 )
 from hearthmind.llm.client import build_llm_client
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
@@ -184,6 +184,15 @@ brain` sends TWO such lists — settlement and council) unsliced at
 the prompt alone, before the system prompt or the reserved `llm_num_
 predict` response budget. `Settlement.beliefs` still persists its full
 capped list; this only bounds what reaches the prompt itself."""
+
+CULTURE_DIGEST_INPUT_MAX = 30
+"""How many of the newest traditions/inventions/festivals/records reach
+the `llm/culture_digest.py` job's own prompt — larger than `PROMPT_
+CULTURE_LIST_MAX`/`PROMPT_SETTLEMENT_BELIEFS_MAX` (this job's whole
+purpose is to see meaningfully more history than what already reaches
+chronicle/town_brain directly), but far short of the 300-item storage
+cap (`CULTURE_LIST_MAX_STORED`), so this genuinely-new-call-volume job
+doesn't itself become an unbounded prompt on a long-running world."""
 
 INTERPRET_RUMOR_MAX_PER_DAY = 3
 """Phase K's InterpretRumor() (docs/VISION-2026-07.md, "Knowledge &
@@ -1013,6 +1022,7 @@ class SimulationEngine:
         ("_maybe_schedule_festival", _JOB_EVENTS),
         ("_maybe_schedule_religion", _JOB_EVENTS),
         ("_maybe_schedule_narrative_direction", _JOB_EVENTS),
+        ("_maybe_schedule_culture_digest", _JOB_EVENTS),
         ("_maybe_schedule_consciousness", _JOB_EVENTS),
         ("_maybe_schedule_caravan", _JOB_EVENTS),
         ("_maybe_schedule_town_brain", _JOB_EVENTS),
@@ -1533,6 +1543,7 @@ class SimulationEngine:
             traditions=settlement.traditions[-PROMPT_CULTURE_LIST_MAX:],
             beliefs=settlement.beliefs[-PROMPT_SETTLEMENT_BELIEFS_MAX:],
             belief_digest=settlement.belief_digest,
+            culture_digest=settlement.culture_digest,
             place_names=dict(settlement.place_names),
             folklore=list(settlement.folklore),
             narrative_theme=self._narrative_theme_bias(settlement),
@@ -1977,6 +1988,45 @@ class SimulationEngine:
 
         self._schedule_llm_job("narrative_direction", prompt, narrative_direction.SYSTEM_PROMPT, fallback, apply)
 
+    def _maybe_schedule_culture_digest(self, events: list[str]) -> None:
+        """Quarterly (season_end, same cadence as narrative_direction —
+        the cheapest real cadence available, no new cadence machinery
+        needed), one call: condenses the settlement's accumulated
+        traditions/inventions/festivals/records into one short digest
+        sentence, the `belief_digest` treatment applied to culture and
+        history instead of beliefs. Unlike beliefs, this history has no
+        natural "revise the whole list" existing job to extend for free
+        — this is genuinely new call volume, traded directly against
+        chronicle/town_brain needing an ever-larger raw slice of these
+        lists as history accumulates. See llm/culture_digest.py's module
+        docstring. Fallback is a genuine no-op (see `fallback_digest`) —
+        `Settlement.culture_digest` is only overwritten on a real
+        (non-fallback) answer, same discipline as `belief_digest`."""
+        target = self._job_target()
+        if "season_end" not in events or not target.name:
+            return
+        if self._settlement_job_backpressured():
+            return
+        prompt = culture_digest.build_prompt(
+            target.name,
+            target.traditions[-CULTURE_DIGEST_INPUT_MAX:],
+            target.inventions[-CULTURE_DIGEST_INPUT_MAX:],
+            target.festivals[-CULTURE_DIGEST_INPUT_MAX:],
+            target.records[-CULTURE_DIGEST_INPUT_MAX:],
+        )
+        fallback = culture_digest.fallback_digest()
+        target_id = target.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            if used_fallback:
+                return
+            digest = culture_digest.parse_digest(result)
+            if digest:
+                stl = self._settlement_by_id(target_id)
+                stl.culture_digest = digest
+
+        self._schedule_llm_job("culture_digest", prompt, culture_digest.SYSTEM_PROMPT, fallback, apply)
+
     @staticmethod
     def _narrative_theme_bias(stl: "Settlement") -> str:
         """The one short "current theme" line town_brain/omens/chronicle/
@@ -2241,6 +2291,7 @@ class SimulationEngine:
             settlement.name, recent, population_summary, settlement_summary, whispers_sent,
             beliefs=settlement.beliefs[-PROMPT_SETTLEMENT_BELIEFS_MAX:],
             belief_digest=settlement.belief_digest,
+            culture_digest=settlement.culture_digest,
             council_beliefs=council.beliefs[-PROMPT_BELIEFS_MAX:] if council else None,
             narrative_theme=self._narrative_theme_bias(settlement),
         )

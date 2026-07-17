@@ -25,7 +25,7 @@ def build_prompt(
     recent_events: list[dict], population_summary: dict, season: str, year: int,
     settlement_name: str = "", traditions: list[str] | None = None, beliefs: list[dict] | None = None,
     place_names: dict | None = None, folklore: list[dict] | None = None, narrative_theme: str = "",
-    belief_digest: str = "",
+    belief_digest: str = "", culture_digest: str = "",
 ) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened."
@@ -34,6 +34,14 @@ def build_prompt(
         culture = f"This is the village of {settlement_name}. "
         if traditions:
             culture += f"Its traditions: {'; '.join(traditions)}. "
+        # Same "digest for shape, a couple of specifics for grounding"
+        # treatment as belief_digest, but for the settlement's culture
+        # and history (traditions/inventions/festivals/records) rather
+        # than its beliefs — written by the genuinely new quarterly
+        # `llm/culture_digest.py` job (no existing job to piggyback on
+        # for free, unlike beliefs' own monthly revision call).
+        if culture_digest:
+            culture += f"Its own general sense of its history: {culture_digest} "
         # Intelligent summary (see llm.beliefs.parse_digest) over the
         # FULL current belief set, written by the same monthly job that
         # forms/revises individual beliefs — zero added call volume.

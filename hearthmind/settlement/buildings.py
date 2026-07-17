@@ -1455,6 +1455,18 @@ class SettlementCulture:
     digest" pass. Retained (not cleared) on a fallback call, same
     "never silently lose a queued value to a flaky LLM stretch"
     discipline `player_influence`/`omen_seed`/`dream_seed` already use."""
+    culture_digest: str = ""
+    """One short LLM-authored sentence condensing the overall shape of
+    `traditions`/`inventions`/`festivals`/`records` together — the
+    `belief_digest` treatment applied to the settlement's accumulated
+    culture and history, which (unlike beliefs) has no natural
+    "revise the whole list" call to piggyback a digest onto for free.
+    Written by a genuinely new quarterly job (`llm/culture_digest.py`,
+    `SimulationEngine._maybe_schedule_culture_digest`) — one real call
+    per season, traded against `chronicle`/`town_brain` needing an
+    ever-larger raw slice of these lists as history accumulates.
+    Retained (not cleared) on a fallback call, same discipline as
+    `belief_digest`."""
     place_names: dict = field(default_factory=dict)
     """Named geography (v0.64.0 audit-backlog item): feature key ->
     LLM-authored (or fallback) name, e.g. `{"river": "The Aldwash",
@@ -1603,7 +1615,7 @@ class Settlement:
         current_priority: str = "", priority_rationale: str = "",
         priority_history: list[dict] | None = None, player_influence: list[str] | None = None,
         era: str = "industrial", founding_scenario: str = "", llm_named: bool = False, temperament: float = 0.0,
-        beliefs: list[dict] | None = None, belief_digest: str = "",
+        beliefs: list[dict] | None = None, belief_digest: str = "", culture_digest: str = "",
         folklore: list[dict] | None = None, omen_history: list[dict] | None = None,
         player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
         institutions: list[Institution] | None = None, next_institution_id: int = 0,
@@ -1655,6 +1667,7 @@ class Settlement:
             festivals_held=festivals_held,
             beliefs=beliefs if beliefs is not None else [],
             belief_digest=belief_digest,
+            culture_digest=culture_digest,
             folklore=folklore if folklore is not None else [],
             place_names=place_names if place_names is not None else {},
             records=records if records is not None else [],
@@ -1863,6 +1876,14 @@ class Settlement:
     @belief_digest.setter
     def belief_digest(self, value: str) -> None:
         self.culture.belief_digest = value
+
+    @property
+    def culture_digest(self) -> str:
+        return self.culture.culture_digest
+
+    @culture_digest.setter
+    def culture_digest(self, value: str) -> None:
+        self.culture.culture_digest = value
 
     @property
     def folklore(self) -> list[dict]:
@@ -2351,6 +2372,7 @@ class Settlement:
             "llm_named": self.llm_named,
             "beliefs": list(self.beliefs),
             "belief_digest": self.belief_digest,
+            "culture_digest": self.culture_digest,
             "folklore": list(self.folklore),
             "temperament": round(self.temperament, 3),
             "mood": {k: round(v, 3) for k, v in self.mood.items()},
@@ -2465,6 +2487,7 @@ class Settlement:
             "llm_named": self.llm_named,
             "beliefs": list(self.beliefs),
             "belief_digest": self.belief_digest,
+            "culture_digest": self.culture_digest,
             "folklore": list(self.folklore),
             "temperament": round(self.temperament, 4),
             "mood": {k: round(v, 4) for k, v in self.mood.items()},
@@ -2515,6 +2538,7 @@ class Settlement:
             llm_named=data.get("llm_named", False),
             beliefs=list(data.get("beliefs", [])),
             belief_digest=data.get("belief_digest", ""),
+            culture_digest=data.get("culture_digest", ""),
             folklore=list(data.get("folklore", [])),
             temperament=data.get("temperament", 0.0),
             mood=dict(data.get("mood", {})),
