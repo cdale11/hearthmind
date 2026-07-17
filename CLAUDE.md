@@ -373,6 +373,37 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.85.4)
+
+Direct follow-up to v0.85.3, per explicit request to intelligently
+summarize rather than blindly slice: "instead of just slicing the
+prompts can we intelligently summarise it, without losing much of the
+context?" A recency slice (`PROMPT_BELIEFS_MAX`) bounds tokens but
+silently drops whatever falls out of the window — a real theory the
+village holds, just an older one, loses all representation.
+
+New `Settlement.belief_digest`: one LLM-authored sentence condensing
+the *entire* current belief set's overall shape, written by extending
+the existing monthly belief-forming/revising job with one extra field
+— zero added call volume, same discipline `Agent.semantic_memories`/
+`mind` already established for "distill instead of adding a call."
+`llm.beliefs.parse_digest` only overwrites the stored digest on a
+genuine LLM answer, retained (never fabricated) across a fallback
+stretch — same `player_influence`/`omen_seed`/`dream_seed` discipline.
+`chronicle`/`town_brain` now lead with the digest for overall shape,
+plus a much smaller raw-belief slice (`PROMPT_SETTLEMENT_BELIEFS_
+MAX=2`, down from 5) for concrete grounding — digest-plus-specifics,
+the same split `Agent.semantic_memories` has alongside raw `Agent.
+memories`. `town_brain`'s `council_beliefs` (no digest mechanism yet,
+a narrower per-institution list) keeps the plain 5-item slice.
+
+Verified: `parse_digest` validation; a real end-to-end engine test
+confirms the digest reaches captured chronicle/town_brain prompts; a
+forced fallback-only stretch after one real success leaves a
+previously-set digest exactly unchanged; round-trip + legacy-snapshot-
+defaults-cleanly tests; a 5-seed x 15,000-tick soak (LLM disabled, this
+change is LLM-path-only) confirms no regression.
+
 ## Current state (v0.85.3)
 
 Direct audit for an explicit request: "check for prompt growth over

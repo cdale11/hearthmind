@@ -27,7 +27,7 @@ SYSTEM_PROMPT = (
 def build_prompt(
     settlement_name: str, recent_events: list[dict], population_summary: dict,
     settlement_summary: dict, player_whispers: list[str], beliefs: list[dict] | None = None,
-    council_beliefs: list[dict] | None = None, narrative_theme: str = "",
+    council_beliefs: list[dict] | None = None, narrative_theme: str = "", belief_digest: str = "",
 ) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
@@ -35,8 +35,13 @@ def build_prompt(
         f"\nSome in the village have been murmuring: {'; '.join(player_whispers)}."
         if player_whispers else ""
     )
+    # Intelligent summary (llm.beliefs.parse_digest) over the village's
+    # FULL current belief set, same treatment as chronicle.py's — a
+    # digest reflects everything, where a raw recency slice (`beliefs`,
+    # now just the one or two newest) would silently drop the rest.
+    digest_text = f"\nThe village's general sense of itself: {belief_digest}" if belief_digest else ""
     beliefs_text = (
-        "\nThe village's own theories about itself so far: "
+        "\nSpecific recent theories: "
         + "; ".join(f"{b['subject']} ({b['belief']})" for b in beliefs)
         + "."
         if beliefs else ""
@@ -79,7 +84,7 @@ def build_prompt(
         f"{settlement_summary.get('standing', 0)} standing structures "
         f"({settlement_summary.get('hospitals', 0)} hospitals, {settlement_summary.get('schools', 0)} schools, "
         f"{settlement_summary.get('workshops', 0)} workshops).\n"
-        f"Recent history:\n{events_text}{whisper_text}{beliefs_text}{council_text}{standing_text}"
+        f"Recent history:\n{events_text}{whisper_text}{digest_text}{beliefs_text}{council_text}{standing_text}"
         # Phase M "Narrative Direction": ambient bias only, never a
         # directive — the theme colors how this decision is framed, it
         # never dictates it.

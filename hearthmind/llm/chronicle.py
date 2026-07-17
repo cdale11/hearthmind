@@ -25,6 +25,7 @@ def build_prompt(
     recent_events: list[dict], population_summary: dict, season: str, year: int,
     settlement_name: str = "", traditions: list[str] | None = None, beliefs: list[dict] | None = None,
     place_names: dict | None = None, folklore: list[dict] | None = None, narrative_theme: str = "",
+    belief_digest: str = "",
 ) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened."
@@ -33,9 +34,19 @@ def build_prompt(
         culture = f"This is the village of {settlement_name}. "
         if traditions:
             culture += f"Its traditions: {'; '.join(traditions)}. "
+        # Intelligent summary (see llm.beliefs.parse_digest) over the
+        # FULL current belief set, written by the same monthly job that
+        # forms/revises individual beliefs — zero added call volume.
+        # Preferred over dumping raw belief entries: a digest reflects
+        # everything the village currently believes, where a recency
+        # slice would silently drop whatever fell out of the window.
+        # `beliefs` (now just the one or two newest, see PROMPT_
+        # BELIEFS_MAX) still adds concrete grounding alongside it.
+        if belief_digest:
+            culture += f"Its own general sense of itself: {belief_digest} "
         if beliefs:
             culture += (
-                "Its own accumulated theories about itself: "
+                "Specific recent theories: "
                 + "; ".join(f"{b['subject']} ({b['belief']})" for b in beliefs) + ". "
             )
         if place_names:

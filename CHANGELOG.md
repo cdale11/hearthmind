@@ -4,6 +4,55 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.85.4] — Intelligent belief digest, replacing blind slicing
+
+Direct follow-up to v0.85.3's fix, per explicit request: "instead of
+just slicing the prompts can we intelligently summarise it, without
+losing much of the context?" v0.85.3's `PROMPT_BELIEFS_MAX` slice
+(newest N beliefs) bounded the token cost but silently drops whatever
+falls out of the recency window — a real theory the village holds,
+just an older one, loses all representation in `chronicle`/`town_
+brain` prompts.
+
+### Added
+
+- New `Settlement.belief_digest: str` — one short LLM-authored sentence
+  condensing the overall shape of the settlement's ENTIRE current
+  belief set (not just the newest few). Written by extending the
+  existing monthly belief-forming/revising job (`llm/beliefs.py`) with
+  one extra requested field — **zero added LLM call volume**, the same
+  "extend an existing job" discipline `Agent.semantic_memories`/
+  `Agent.mind` already established, rather than a separate
+  summarization call that would cost real budget just to shrink a
+  prompt.
+- `llm.beliefs.parse_digest` extracts/validates the field; only
+  overwrites `belief_digest` on a genuine (non-fallback) LLM answer —
+  retained across a flaky-LLM stretch, never fabricated by the
+  deterministic fallback, same discipline `player_influence`/`omen_
+  seed`/`dream_seed` already use (verified directly: a forced
+  fallback-only stretch leaves a previously-set digest untouched).
+- `chronicle.py`/`town_brain.py` now read `belief_digest` as the
+  primary "what does the village believe" line, alongside a much
+  smaller raw-belief slice (`PROMPT_SETTLEMENT_BELIEFS_MAX=2`, down
+  from `PROMPT_BELIEFS_MAX=5`) for concrete grounding — digest for
+  overall shape, a couple of specifics on top, the same split `Agent.
+  semantic_memories` already has alongside raw `Agent.memories`.
+  `town_brain`'s `council_beliefs` (a narrower per-institution list,
+  no digest mechanism) keeps the plain `PROMPT_BELIEFS_MAX` slice.
+
+### Verified
+
+Direct tests: `parse_digest` validates/truncates correctly; a real
+end-to-end engine test confirms the digest reaches both a captured
+chronicle prompt and a captured town_brain prompt once the belief job
+has run at least once; a forced fallback-only stretch after one real
+success leaves the stored digest exactly unchanged. `belief_digest`
+round-trips through `to_dict`/`from_dict`/`summary()`; a legacy
+snapshot missing the field defaults cleanly to `""`. A 5-seed x
+15,000-tick engine soak (LLM disabled — this change is LLM-path-only,
+soak confirms no import/serialization regression) completes with zero
+crashes.
+
 ## [0.85.3] — Audit: prompt growth over a long-running world
 
 Direct response to an explicit request: "check for prompt growth over

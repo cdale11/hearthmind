@@ -162,11 +162,18 @@ SYSTEM_PROMPT = (
     "with new evidence, or form one new theory if nothing existing fits. Theories "
     "are not guaranteed to be correct — they can be wrong, incomplete, or later "
     "revised, exactly like a person's beliefs about their own community. "
+    "Separately, looking at ALL of the theories you currently hold together (not "
+    "just the one you're forming or revising now), condense their overall shape "
+    "into one short digest sentence — the gist of what the village currently "
+    "believes about itself as a whole, the way you'd sum up someone's outlook in "
+    "one line rather than listing every opinion they hold. "
     'Respond with strict JSON only, no other text: {"subject": "short label, e.g. '
     'a person/family name, \'the harvests\', \'the newcomers\', \'the whispers '
     "from outside'\", \"belief\": \"one sentence, under 30 words, stated as the "
     'village\'s own belief, not narration", "confidence": 0.0-1.0, "revises": '
-    "integer index of an existing theory this replaces, or null for a new one}."
+    'integer index of an existing theory this replaces, or null for a new one, '
+    '"digest": "one sentence, under 25 words, summarizing the overall shape of '
+    'everything the village currently believes about itself"}.'
 )
 
 
@@ -314,6 +321,31 @@ def parse_belief(result: dict, fallback: dict, existing_count: int) -> dict:
         "confidence": round(confidence, 3),
         "revises": revises,
     }
+
+
+def parse_digest(result: dict) -> str:
+    """Extracts the settlement-level `digest` field the settlement
+    belief job's SYSTEM_PROMPT asks for (distinct from `parse_semantic_
+    memory`, which is the personal/agent-level job's own extra field).
+    Intelligent summarization instead of blind truncation: `chronicle`/
+    `town_brain` used to receive the newest few raw belief entries only
+    (`PROMPT_BELIEFS_MAX`), which loses whatever's in the older,
+    dropped-from-the-slice beliefs entirely. The digest is written by
+    the LLM looking at the FULL current belief set every time this job
+    runs (zero added call volume — same field-on-an-existing-call
+    discipline `semantic_memory`/`Agent.mind` already established), so
+    it can carry the gist of beliefs a raw recency slice would have
+    silently dropped. Returns "" (not a fallback string) on anything
+    malformed — `SimulationEngine._maybe_schedule_beliefs` only
+    overwrites `Settlement.belief_digest` when this is non-empty,
+    retaining the previous digest otherwise, same "never silently lose
+    a queued value to a flaky LLM stretch" discipline `player_
+    influence`/`omen_seed`/`dream_seed` already use — a genuine
+    digest earned by a real answer, never a fabricated fallback one."""
+    text = result.get("digest")
+    if not isinstance(text, str) or not text.strip():
+        return ""
+    return text.strip()[:180]
 
 
 def parse_semantic_memory(result: dict, fallback: dict) -> str:

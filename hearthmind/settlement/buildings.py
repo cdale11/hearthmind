@@ -1443,6 +1443,18 @@ class SettlementCulture:
     llm/beliefs.MAX_BELIEFS — the concrete expression of "cognition as
     continuous rather than stateless". Not guaranteed correct, exactly
     like a person's own beliefs about their community."""
+    belief_digest: str = ""
+    """One short LLM-authored sentence condensing the overall shape of
+    everything in `beliefs` together — written as an extra field on the
+    existing monthly belief-forming/revising call (zero added LLM
+    volume, same "extend an existing job" discipline `Agent.semantic_
+    memories` already established), not a separate summarization call.
+    Lets `chronicle`/`town_brain` ground their prompt in the *gist* of
+    the village's full accumulated self-theory instead of dumping many
+    raw belief entries — see docs/DECISIONS.md, "intelligent belief
+    digest" pass. Retained (not cleared) on a fallback call, same
+    "never silently lose a queued value to a flaky LLM stretch"
+    discipline `player_influence`/`omen_seed`/`dream_seed` already use."""
     place_names: dict = field(default_factory=dict)
     """Named geography (v0.64.0 audit-backlog item): feature key ->
     LLM-authored (or fallback) name, e.g. `{"river": "The Aldwash",
@@ -1591,7 +1603,8 @@ class Settlement:
         current_priority: str = "", priority_rationale: str = "",
         priority_history: list[dict] | None = None, player_influence: list[str] | None = None,
         era: str = "industrial", founding_scenario: str = "", llm_named: bool = False, temperament: float = 0.0,
-        beliefs: list[dict] | None = None, folklore: list[dict] | None = None, omen_history: list[dict] | None = None,
+        beliefs: list[dict] | None = None, belief_digest: str = "",
+        folklore: list[dict] | None = None, omen_history: list[dict] | None = None,
         player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
         institutions: list[Institution] | None = None, next_institution_id: int = 0,
         caravans_visited: int = 0, fish_caught: int = 0, market_prices: dict | None = None,
@@ -1641,6 +1654,7 @@ class Settlement:
             festivals=festivals if festivals is not None else [],
             festivals_held=festivals_held,
             beliefs=beliefs if beliefs is not None else [],
+            belief_digest=belief_digest,
             folklore=folklore if folklore is not None else [],
             place_names=place_names if place_names is not None else {},
             records=records if records is not None else [],
@@ -1841,6 +1855,14 @@ class Settlement:
     @beliefs.setter
     def beliefs(self, value: list[dict]) -> None:
         self.culture.beliefs = value
+
+    @property
+    def belief_digest(self) -> str:
+        return self.culture.belief_digest
+
+    @belief_digest.setter
+    def belief_digest(self, value: str) -> None:
+        self.culture.belief_digest = value
 
     @property
     def folklore(self) -> list[dict]:
@@ -2328,6 +2350,7 @@ class Settlement:
             "founding_scenario": self.founding_scenario,
             "llm_named": self.llm_named,
             "beliefs": list(self.beliefs),
+            "belief_digest": self.belief_digest,
             "folklore": list(self.folklore),
             "temperament": round(self.temperament, 3),
             "mood": {k: round(v, 3) for k, v in self.mood.items()},
@@ -2441,6 +2464,7 @@ class Settlement:
             "founding_scenario": self.founding_scenario,
             "llm_named": self.llm_named,
             "beliefs": list(self.beliefs),
+            "belief_digest": self.belief_digest,
             "folklore": list(self.folklore),
             "temperament": round(self.temperament, 4),
             "mood": {k: round(v, 4) for k, v in self.mood.items()},
@@ -2490,6 +2514,7 @@ class Settlement:
             founding_scenario=data.get("founding_scenario", ""),
             llm_named=data.get("llm_named", False),
             beliefs=list(data.get("beliefs", [])),
+            belief_digest=data.get("belief_digest", ""),
             folklore=list(data.get("folklore", [])),
             temperament=data.get("temperament", 0.0),
             mood=dict(data.get("mood", {})),

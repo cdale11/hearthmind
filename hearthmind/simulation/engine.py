@@ -158,22 +158,32 @@ grew forever on a multi-year world (July 2026 architecture review,
 "Tradition the 14th"-style names stay correct."""
 
 PROMPT_BELIEFS_MAX = 5
-"""How many of the newest settlement/council beliefs reach any single
-LLM prompt — same "bound the prompt, not the store" shape as
-`PROMPT_CULTURE_LIST_MAX`, added after a direct measurement (see
-docs/DECISIONS.md, "prompt growth audit") found `chronicle`/`town_
-brain` were the two prompts that actually grow with a long-running
-world: both previously sent the *entire* capped belief list
-(`llm.beliefs.MAX_BELIEFS=12`, and `town_brain` sends TWO such lists —
-settlement and council) unsliced, and a fully-saturated worst case
-(every capped culture/belief list at its ceiling, as any sufficiently
-long-running world eventually reaches) measured at ~1291/~1442 tokens
-respectively — more than half of `Config.llm_num_ctx=2560` on the
-prompt alone, before the system prompt or the reserved `llm_num_
-predict` response budget. `Settlement.beliefs`/`Institution.beliefs`
-still persist their full capped list; this only bounds what reaches
-the prompt itself, same non-lossy relationship `PROMPT_CULTURE_LIST_
-MAX` already has with the underlying store."""
+"""How many of the newest COUNCIL beliefs reach a `town_brain` prompt
+— same "bound the prompt, not the store" shape as `PROMPT_CULTURE_
+LIST_MAX`, added after a direct measurement (see docs/DECISIONS.md,
+"prompt growth audit") found `chronicle`/`town_brain` were the two
+prompts that actually grow with a long-running world. `Institution.
+beliefs` has no digest mechanism (see `PROMPT_SETTLEMENT_BELIEFS_MAX`
+below) — a plain-N-item institution is a much narrower thing than the
+whole settlement, so this stays a recency slice."""
+
+PROMPT_SETTLEMENT_BELIEFS_MAX = 2
+"""How many of the newest SETTLEMENT beliefs (as opposed to council
+beliefs, see `PROMPT_BELIEFS_MAX`) reach `chronicle`/`town_brain`
+alongside `Settlement.belief_digest` — deliberately smaller than
+`PROMPT_BELIEFS_MAX` now that the digest (see `llm.beliefs.parse_
+digest`) already carries the gist of the *entire* current belief set;
+these two are concrete grounding on top of it, not the only signal, the
+same "digest for shape, a couple of specifics for grounding" split
+`Agent.semantic_memories` established alongside raw `Agent.memories`.
+Direct measurement (docs/DECISIONS.md, "prompt growth audit", worst-
+case saturated state) found `chronicle`/`town_brain` sending the
+*entire* capped belief list (`llm.beliefs.MAX_BELIEFS=12`, and `town_
+brain` sends TWO such lists — settlement and council) unsliced at
+~1291/~1442 tokens — more than half of `Config.llm_num_ctx=2560` on
+the prompt alone, before the system prompt or the reserved `llm_num_
+predict` response budget. `Settlement.beliefs` still persists its full
+capped list; this only bounds what reaches the prompt itself."""
 
 INTERPRET_RUMOR_MAX_PER_DAY = 3
 """Phase K's InterpretRumor() (docs/VISION-2026-07.md, "Knowledge &
@@ -1521,7 +1531,8 @@ class SimulationEngine:
             # it whole would swell every monthly call's tokens forever
             # (July 2026 review, §3.7). The list itself still persists.
             traditions=settlement.traditions[-PROMPT_CULTURE_LIST_MAX:],
-            beliefs=settlement.beliefs[-PROMPT_BELIEFS_MAX:],
+            beliefs=settlement.beliefs[-PROMPT_SETTLEMENT_BELIEFS_MAX:],
+            belief_digest=settlement.belief_digest,
             place_names=dict(settlement.place_names),
             folklore=list(settlement.folklore),
             narrative_theme=self._narrative_theme_bias(settlement),
@@ -2228,7 +2239,8 @@ class SimulationEngine:
         council_disposition = self.world.population.council_disposition(council) if council else None
         prompt = town_brain.build_prompt(
             settlement.name, recent, population_summary, settlement_summary, whispers_sent,
-            beliefs=settlement.beliefs[-PROMPT_BELIEFS_MAX:],
+            beliefs=settlement.beliefs[-PROMPT_SETTLEMENT_BELIEFS_MAX:],
+            belief_digest=settlement.belief_digest,
             council_beliefs=council.beliefs[-PROMPT_BELIEFS_MAX:] if council else None,
             narrative_theme=self._narrative_theme_bias(settlement),
         )
@@ -2289,6 +2301,15 @@ class SimulationEngine:
             parsed = beliefs.parse_belief(result, fallback, existing_count)
             settlement = self._settlement_by_id(beliefs_target_id)
             tick = self.world.clock.tick_count
+            # Intelligent-summary digest (see llm.beliefs.parse_digest):
+            # only overwritten on a genuine LLM answer looking at the
+            # FULL current belief set, never fabricated by the
+            # deterministic fallback — retained otherwise, same
+            # discipline as player_influence/omen_seed/dream_seed.
+            if not used_fallback:
+                digest = beliefs.parse_digest(result)
+                if digest:
+                    settlement.belief_digest = digest
             # H8: the village's own current mood colors how starkly it
             # holds this theory — see temperament_confidence_bias.
             parsed["confidence"] = beliefs.temperament_confidence_bias(
