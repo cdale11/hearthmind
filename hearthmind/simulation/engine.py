@@ -157,6 +157,24 @@ grew forever on a multi-year world (July 2026 architecture review,
 §3.7). Fallback numbering still uses the full list's length, so
 "Tradition the 14th"-style names stay correct."""
 
+PROMPT_BELIEFS_MAX = 5
+"""How many of the newest settlement/council beliefs reach any single
+LLM prompt — same "bound the prompt, not the store" shape as
+`PROMPT_CULTURE_LIST_MAX`, added after a direct measurement (see
+docs/DECISIONS.md, "prompt growth audit") found `chronicle`/`town_
+brain` were the two prompts that actually grow with a long-running
+world: both previously sent the *entire* capped belief list
+(`llm.beliefs.MAX_BELIEFS=12`, and `town_brain` sends TWO such lists —
+settlement and council) unsliced, and a fully-saturated worst case
+(every capped culture/belief list at its ceiling, as any sufficiently
+long-running world eventually reaches) measured at ~1291/~1442 tokens
+respectively — more than half of `Config.llm_num_ctx=2560` on the
+prompt alone, before the system prompt or the reserved `llm_num_
+predict` response budget. `Settlement.beliefs`/`Institution.beliefs`
+still persist their full capped list; this only bounds what reaches
+the prompt itself, same non-lossy relationship `PROMPT_CULTURE_LIST_
+MAX` already has with the underlying store."""
+
 INTERPRET_RUMOR_MAX_PER_DAY = 3
 """Phase K's InterpretRumor() (docs/VISION-2026-07.md, "Knowledge &
 Story") fires per listening event, not once a month like every other
@@ -1503,7 +1521,7 @@ class SimulationEngine:
             # it whole would swell every monthly call's tokens forever
             # (July 2026 review, §3.7). The list itself still persists.
             traditions=settlement.traditions[-PROMPT_CULTURE_LIST_MAX:],
-            beliefs=list(settlement.beliefs),
+            beliefs=settlement.beliefs[-PROMPT_BELIEFS_MAX:],
             place_names=dict(settlement.place_names),
             folklore=list(settlement.folklore),
             narrative_theme=self._narrative_theme_bias(settlement),
@@ -1716,7 +1734,7 @@ class SimulationEngine:
         inventions = settlement.inventions
         prompt = invention.build_prompt(
             settlement.name, recent, inventions[-PROMPT_CULTURE_LIST_MAX:], settlement.tech_level,
-            beliefs=list(settlement.beliefs),
+            beliefs=settlement.beliefs[-PROMPT_BELIEFS_MAX:],
         )
         # tech_level already is a persistent, never-decremented count of
         # inventions established (one per invention) — reused directly
@@ -1779,7 +1797,7 @@ class SimulationEngine:
         festivals = festival_target.festivals
         prompt = festival.build_prompt(
             festival_target.name, recent, self.world.clock.season,
-            beliefs=list(festival_target.beliefs),
+            beliefs=festival_target.beliefs[-PROMPT_BELIEFS_MAX:],
         )
         # festivals_held (persistent, never-decremented) rather than
         # len(festivals) — same CULTURE_LIST_MAX_STORED-cap rationale as
@@ -2210,8 +2228,8 @@ class SimulationEngine:
         council_disposition = self.world.population.council_disposition(council) if council else None
         prompt = town_brain.build_prompt(
             settlement.name, recent, population_summary, settlement_summary, whispers_sent,
-            beliefs=list(settlement.beliefs),
-            council_beliefs=list(council.beliefs) if council else None,
+            beliefs=settlement.beliefs[-PROMPT_BELIEFS_MAX:],
+            council_beliefs=council.beliefs[-PROMPT_BELIEFS_MAX:] if council else None,
             narrative_theme=self._narrative_theme_bias(settlement),
         )
         fallback = town_brain.fallback_priority(population_summary, settlement_summary, council_disposition)

@@ -4,6 +4,79 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.85.3] — Audit: prompt growth over a long-running world
+
+Direct response to an explicit request: "check for prompt growth over
+multiple in-game decades, we should summarise large prompts and keep
+them bounded."
+
+### Audit method
+
+A real multi-decade simulated run isn't practical to wait out in a
+session (96 ticks/day * 365 = 35,040 ticks/year — even 200,000 ticks is
+only ~5.7 years). Instead, directly measured every settlement-scoped
+and per-agent `build_prompt` function against a *synthetically
+saturated* Settlement/Agent — every capped list (`Settlement.
+traditions`/`inventions`/`festivals` at `CULTURE_LIST_MAX_STORED=300`,
+`folklore` at `FOLKLORE_MAX_STORED=24`, `rituals` at `RITUAL_MAX_
+STORED=12`, `beliefs` at `llm.beliefs.MAX_BELIEFS=12`, `records` at
+`RECORDS_MAX_STORED=40`, `Agent.memories`/`semantic_memories`/`secrets`
+at their own caps) filled to its ceiling, the state any sufficiently
+long-running world eventually reaches and then stays at. This measures
+the actual steady-state plateau directly rather than waiting for RNG
+to reach it.
+
+### Findings
+
+Every collection this project's own prior memory-leak audits already
+capped in *storage* (traditions/inventions/festivals/folklore/rituals/
+beliefs/records/narrative_themes, plus per-agent memories/semantic
+memories/secrets) is in fact bounded — confirming those audits did
+their job. Most `build_prompt` callers already additionally slice down
+to a smaller *prompt* budget on top of the storage cap (`PROMPT_
+CULTURE_LIST_MAX=5` for traditions/inventions, internal `[-N:]` slices
+in `chronicle.py`/`narrative_direction.py`/`religion.py`/`omens.py` for
+folklore/omens). `Settlement.place_names` has no explicit cap but is
+naturally self-limiting (keyed by a fixed geographic feature per map:
+one river, one entry per lake — bounded by world generation, not
+runtime accumulation).
+
+**Two real gaps found**: `chronicle.py` and `town_brain.py` both
+received the *entire* capped `Settlement.beliefs` list unsliced (`town_
+brain` sends TWO such lists — settlement and council). At full
+saturation this measured ~1291 and ~1442 tokens respectively — more
+than half of `Config.llm_num_ctx=2560` on the prompt alone, before the
+system prompt (~100-130 tokens) or the reserved `llm_num_predict=448`
+response budget, on a prompt that will genuinely reach this size on any
+world that runs long enough for its belief list to fill up (not a
+hypothetical edge case).
+
+### Fixed
+
+New `SimulationEngine.PROMPT_BELIEFS_MAX=5`, same "bound the prompt,
+not the store" shape as the existing `PROMPT_CULTURE_LIST_MAX` — applied
+at all five belief-list-into-prompt call sites (`chronicle`,
+`invention`, `festival`, `town_brain`'s settlement beliefs, `town_
+brain`'s council beliefs). `Settlement.beliefs`/`Institution.beliefs`
+still persist their full capped list; this only bounds what reaches
+the prompt. `llm/beliefs.py`'s own belief-*revision* job prompt
+(`existing_beliefs`) was deliberately left unsliced — that job
+genuinely needs the current full belief set to correctly merge/revise
+without duplicating an existing belief, and it measured under budget
+(~1118 tokens) even unsliced.
+
+### Verified
+
+Re-measured every prompt against the same saturated worst case after
+the fix: `chronicle` ~1158 tokens (was ~1291), `town_brain` ~1176
+tokens (was ~1442) — both now comfortably under budget even summed
+with their system prompt and `llm_num_predict`. A direct end-to-end
+engine test (fake LLM client, settlement beliefs forced to the full
+`MAX_BELIEFS=12` with uniquely-markered text) confirms the real
+production code path — not just the standalone measurement script —
+sends exactly 5 beliefs to both a captured chronicle prompt and a
+captured town_brain prompt.
+
 ## [0.85.2] — Fix: NPCs weren't actually repairing buildings
 
 Direct response to a live report: "make sure NPCs actually repair/

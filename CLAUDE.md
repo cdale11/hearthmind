@@ -373,6 +373,46 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.85.3)
+
+Direct audit for an explicit request: "check for prompt growth over
+multiple in-game decades, we should summarise large prompts and keep
+them bounded." A real multi-decade run isn't practical to wait out
+(96 ticks/day; even 200k ticks is only ~5.7 years) — instead measured
+every settlement-scoped/per-agent `build_prompt` function against a
+*synthetically saturated* Settlement/Agent (every capped list filled to
+its ceiling), the steady-state plateau any long-running world
+eventually reaches and stays at.
+
+**Confirmed**: every collection this project's prior memory-leak audits
+capped in storage (traditions/inventions/festivals/folklore/rituals/
+beliefs/records/narrative_themes, per-agent memories/semantic
+memories/secrets) is genuinely bounded, and most prompts already slice
+further down on top of the storage cap (`PROMPT_CULTURE_LIST_MAX=5`,
+various internal `[-N:]` slices). `place_names` has no explicit cap but
+is naturally self-limiting by map geography (one river + one per lake).
+
+**Found two real gaps**: `chronicle.py`/`town_brain.py` both received
+the *entire* capped `Settlement.beliefs` list unsliced (`town_brain`
+sends TWO such lists). At full saturation this measured ~1291/~1442
+tokens — over half of `Config.llm_num_ctx=2560` on the prompt alone,
+before the system prompt or the reserved `llm_num_predict=448` — a
+real plateau any sufficiently long-running world reaches, not a
+hypothetical. Fixed via new `SimulationEngine.PROMPT_BELIEFS_MAX=5`
+(same "bound the prompt, not the store" shape as `PROMPT_CULTURE_
+LIST_MAX`), applied at all five belief-into-prompt call sites.
+`llm/beliefs.py`'s own belief-revision prompt was deliberately left
+unsliced — it genuinely needs the full current belief set to correctly
+merge/revise without duplicating an entry, and measured under budget
+(~1118 tokens) even unsliced.
+
+Verified: re-measured every prompt post-fix (chronicle ~1158 tokens,
+town_brain ~1176, both from ~1291/~1442); a direct end-to-end engine
+test (fake LLM client, settlement beliefs forced to the full cap with
+uniquely-markered text) confirms the real production code path sends
+exactly 5 beliefs to both a captured chronicle prompt and a captured
+town_brain prompt.
+
 ## Current state (v0.85.2)
 
 Direct fix for a live report: "NPCs actually repair/maintain
