@@ -520,6 +520,62 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.86.8)
+
+Explicit user directive: a UI polishing pass on `hearthmind/interface/
+static/` for the panels v0.86.3–v0.86.7 landed functionally but never
+gave a dedicated visual pass (`life_digest`/"Full life history" memory
+log, `belief_digest`/`culture_digest`, "Repairs & upkeep"/"Husbandry"
+stat tiles). CSS-only (`style.css`) — no backend files touched.
+
+Real inconsistency found: `belief_digest`/`culture_digest` sit right
+above `#beliefs-list`/`#traditions-list`, but only `#traditions-list`
+had ever been opted into the project's flat divider-list styling
+(shared with `#event-log`/`#infrastructure-list`) — `#beliefs-list`
+and, the same gap, `#folklore-list`/`#rituals-list`/`#inventions-list`/
+`#festivals-list`/`#records-list` were still on the browser's default
+bulleted `<ul>`, so the two new digest panels read inconsistently next
+to each other despite being twins in the code. Extended the flat-list
+selector group (and its `min-height: 200px` anti-panel-jump partner) to
+cover all of them; gave `#belief-digest`/`#culture-digest` their own
+block + bottom rule via `:not(.hidden)` (not a bare rule — would tie on
+specificity with `.hidden{display:none}` and silently defeat the
+toggle, the same landmine `.consciousness-indicator` hit in v0.82.0).
+
+NPC inspector's "Full life history" (`agent_memory_log`, v0.86.3) had
+inherited the generic `#npc-inspector-content ul li` 2px-padding rule
+shared by every other inspector list — read as a wall of text once
+entries (some over 100 words) accumulated. `.npc-memory-log` now gets
+its own divider styling, matching the flat-list convention rather than
+adding a third one. Verified live with an 18-entry seeded agent (mixed
+episodic/semantic/belief/secret kinds): the section's `max-height:
+220px; overflow-y: auto` genuinely scrolls (measured `scrollHeight
+1209` vs `clientHeight 220`) instead of blowing out the modal, and the
+long paragraph entry wraps with zero horizontal overflow.
+
+Minor items while in there: `.event-chip`/`.settlement-chip` had no
+`:hover` state — added, matching every other clickable chip/button's
+convention. `main`/`header` had no `flex-wrap`; a narrow viewport
+forced the sidebar to overlap the fixed-size map canvas instead of
+stacking — added `flex-wrap: wrap` to both. **Not fixed, flagged
+instead**: the map canvas itself renders at a fixed pixel size and
+isn't responsive — a narrow viewport still shows some horizontal
+scroll from the map. Making the canvas responsive is a real map-
+rendering redesign, out of scope for a polish pass.
+
+Repairs & upkeep / Husbandry stat tiles were already built correctly
+against the existing `.stat-tile` convention (audited, no change
+needed); map legend colors for pasture/hatchery were already present
+in `BUILDING_COLORS` (no separate on-map legend UI exists to update).
+
+Verified live: `python -m hearthmind.server --llm-disabled` against a
+throwaway DB seeded with rich state (nonzero digests, buildings/
+vehicles repaired, a standing PASTURE/HATCHERY, one agent with 18
+durable memory-log rows) + Playwright (pinned chromium): details panel,
+NPC inspector with the memory log loaded and scrolled, and a 480px-
+viewport pass — zero JS console errors beyond one pre-existing,
+unrelated `/favicon.ico` 404.
+
 ## Current state (v0.86.7)
 
 Four-part batch per explicit user direction (LLM learning, repair/

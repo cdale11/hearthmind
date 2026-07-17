@@ -4,6 +4,74 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.86.8] — UI polish pass on v0.86.3–v0.86.7's newer panels
+
+Explicit user directive: a dedicated frontend polish pass on the panels
+that landed functionally in v0.86.3–v0.86.7 (per-agent `life_digest` +
+"Full life history" memory log, `belief_digest`/`culture_digest`,
+"Repairs & upkeep" and "Husbandry" stat tiles) but never got their own
+visual-consistency pass. `hearthmind/interface/static/style.css` only —
+no backend/Python files touched.
+
+Found: `belief_digest`/`culture_digest` sat directly above `#beliefs-
+list`/`#traditions-list`, but only `#traditions-list` had ever been
+opted into the flat divider-list styling (`#traditions-list`/`#event-
+log`/`#infrastructure-list`) — `#beliefs-list` (and, same gap,
+`#folklore-list`/`#rituals-list`/`#inventions-list`/`#festivals-list`/
+`#records-list`) were still on the browser's default bulleted `<ul>`,
+so the two new digest panels read inconsistently right next to each
+other despite being twins in the code. Extended the existing flat-list
+selector group (and the matching `min-height: 200px` anti-jump rule) to
+cover all of them. Gave `#belief-digest`/`#culture-digest` their own
+block + bottom rule for breathing room above the now-zero-margin list
+— using `:not(.hidden)` rather than a bare rule so it can't tie on
+specificity with `.hidden{display:none}` and silently defeat the
+toggle (the same landmine `.consciousness-indicator` hit in v0.82.0).
+
+The NPC inspector's "Full life history" (`agent_memory_log`, v0.86.3)
+section — verified live with an 18-entry seeded agent (mixed episodic/
+semantic/belief/secret kinds, one 100+ word entry) — inherited the
+generic `#npc-inspector-content ul li { padding: 2px 0 }` rule shared
+by every other inspector list, which read as an undifferentiated wall
+of text once entries ran a full sentence or more. `.npc-memory-log`
+now gets its own divider styling matching the flat lists above instead
+of a third list convention; confirmed via Playwright that the section's
+own `max-height: 220px; overflow-y: auto` scrolls correctly (18 entries
+measured at `scrollHeight: 1209` against `clientHeight: 220`) rather
+than blowing out the modal, and that the long paragraph entry wraps
+without horizontal overflow.
+
+Minor accessibility/consistency items found while in there: `.event-
+chip`/`.settlement-chip` had no `:hover` state (state changed only on
+click via `.active`), added a subtle border/color hover cue matching
+every other clickable chip/button in the file. `main`/`header` had no
+`flex-wrap`, so a narrow viewport forced the sidebar to overlap the
+fixed-size map canvas rather than stacking; added `flex-wrap: wrap` to
+both — the sidebar now correctly wraps below the map at narrow widths.
+Not fixed (flagged, not attempted — genuinely out of scope for a polish
+pass, not a "new panel" issue): the map canvas itself renders at a
+fixed pixel size and isn't responsive, so a very narrow viewport still
+shows some horizontal scroll on the map itself; making the canvas
+responsive would be a real redesign of the map rendering path, not a
+CSS tweak.
+
+Repairs & upkeep / Husbandry stat tiles were already built correctly
+against the existing `.stat-tile` convention (same `title` tooltip,
+`.label`/`.value` structure as Granaries/Vehicles/etc.) — audited, no
+change needed. Map legend colors for `pasture`/`hatchery` were already
+present in `BUILDING_COLORS`; no separate on-map legend UI exists to
+update.
+
+Verified live: `python -m hearthmind.server --llm-disabled` against a
+throwaway DB seeded with rich state (nonzero `belief_digest`/`culture_
+digest`, `buildings_repaired`/`vehicles_repaired`, a standing PASTURE/
+HATCHERY, one agent with 18 durable `agent_memory_log` rows) +
+Playwright (pinned chromium): details panel, NPC inspector with the
+loaded memory log (scrolled through all entries), and a 480px-viewport
+pass — screenshotted each, zero JS console errors (one pre-existing
+404 for a missing `/favicon.ico`, unrelated to this change and present
+before it too).
+
 ## [0.86.7] — Personal life-digest, repair/upkeep tally, animal & fish husbandry, wider invention scope
 
 Four-part batch, explicit user direction: (1) "immediately start taking

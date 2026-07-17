@@ -29,6 +29,7 @@ header {
   padding: 12px 20px;
   border-bottom: 1px solid var(--border);
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 16px;
 }
@@ -39,6 +40,7 @@ h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing
 
 main {
   display: flex;
+  flex-wrap: wrap;
   gap: 16px;
   padding: 16px;
   align-items: flex-start;
@@ -106,27 +108,60 @@ main {
 }
 
 /* Fixed-height list regions whose item count grows slowly over a run
-   (beliefs/traditions/inventions/festivals/infrastructure) — without a
-   floor, a panel's box resizes every time an item is added/removed,
-   shoving every panel stacked below it up or down each tick ("tabs
-   jumping around"). Matches max-height above so the box is a stable
-   size from the first tick, not just once it happens to fill up.
-   Deliberately NOT applied to every `.panel` — compact ones (Town
-   brain, Recent events) already hold a naturally stable height and
-   forcing them to 260px would trade the jump for constant dead
-   whitespace, a worse regression. */
-#beliefs-list, #traditions-list, #inventions-list, #festivals-list, #infrastructure-list {
+   (beliefs/traditions/folklore/rituals/inventions/festivals/records/
+   infrastructure) — without a floor, a panel's box resizes every time
+   an item is added/removed, shoving every panel stacked below it up or
+   down each tick ("tabs jumping around"). Matches max-height above so
+   the box is a stable size from the first tick, not just once it
+   happens to fill up. Deliberately NOT applied to every `.panel` —
+   compact ones (Town brain, Recent events) already hold a naturally
+   stable height and forcing them to 260px would trade the jump for
+   constant dead whitespace, a worse regression. */
+#beliefs-list, #traditions-list, #folklore-list, #rituals-list,
+#inventions-list, #festivals-list, #records-list, #infrastructure-list {
   min-height: 200px;
 }
 
-#event-log, #traditions-list, #infrastructure-list { list-style: none; margin: 0; padding: 0; }
-#event-log li, #traditions-list li, #infrastructure-list li {
+/* Same flat divider-list treatment for every capped history/culture
+   list in the details panel (polish pass, v0.86.8): beliefs/folklore/
+   rituals/inventions/records/festivals had been left on the browser's
+   default bulleted <ul>, reading inconsistently next to sibling lists
+   (traditions/infrastructure) and, since belief_digest/culture_digest
+   were surfaced (v0.85.4/.5 computed, v0.86.3 rendered), right below
+   their own one-line digest summary. */
+#event-log, #traditions-list, #infrastructure-list,
+#beliefs-list, #folklore-list, #rituals-list,
+#inventions-list, #festivals-list, #records-list {
+  list-style: none; margin: 0; padding: 0;
+}
+#event-log li, #traditions-list li, #infrastructure-list li,
+#beliefs-list li, #folklore-list li, #rituals-list li,
+#inventions-list li, #festivals-list li, #records-list li {
   padding: 4px 0;
   border-bottom: 1px solid var(--border);
   font-size: 12.5px;
 }
-#event-log li:last-child, #traditions-list li:last-child, #infrastructure-list li:last-child { border-bottom: none; }
+#event-log li:last-child, #traditions-list li:last-child, #infrastructure-list li:last-child,
+#beliefs-list li:last-child, #folklore-list li:last-child, #rituals-list li:last-child,
+#inventions-list li:last-child, #festivals-list li:last-child, #records-list li:last-child {
+  border-bottom: none;
+}
 .event-tick { color: var(--muted); margin-right: 6px; }
+
+/* belief_digest / culture_digest (v0.85.4/.5, rendered v0.86.3) — a
+   one-sentence condensed summary sitting directly above its full list.
+   Give it its own block + bottom rule so it doesn't crowd the flat
+   zero-margin list right below it. `:not(.hidden)` rather than a bare
+   rule so this can't tie on specificity with the shared `.hidden
+   {display:none}` rule and silently defeat the toggle — same landmine
+   already documented above for `.consciousness-indicator`. */
+#belief-digest:not(.hidden), #culture-digest:not(.hidden) {
+  display: block;
+  margin: 0 0 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
 
 #town-brain-priority { font-size: 13px; margin-bottom: 8px; }
 #town-brain-priority b { color: var(--accent); text-transform: capitalize; }
@@ -261,7 +296,26 @@ main {
   cursor: pointer;
 }
 .npc-load-btn:hover { border-color: var(--accent); color: var(--accent); }
-.npc-memory-log { max-height: 220px; overflow-y: auto; }
+/* "Full life history" (v0.86.3) can hold dozens of entries once a long-
+   lived agent has accumulated them, some quite long (a distilled
+   self-theory or a durably-logged episodic memory can run a full
+   sentence or more) — the shared `#npc-inspector-content ul li` rule's
+   bare 2px vertical padding read as a wall of run-together text at that
+   length. Divider styling matches the flat lists above (event-log/
+   traditions-list) instead of introducing a third list convention. */
+.npc-memory-log {
+  max-height: 220px;
+  overflow-y: auto;
+  list-style: none;
+  padding-left: 0;
+  margin-top: 4px;
+}
+.npc-memory-log li {
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  line-height: 1.4;
+}
+.npc-memory-log li:last-child { border-bottom: none; }
 
 #relationship-graph-wrap { position: relative; }
 #relationship-canvas {
@@ -437,11 +491,13 @@ main {
   padding: 2px 10px;
   cursor: pointer;
 }
+.event-chip:hover { color: var(--text); border-color: var(--accent); }
 .event-chip.active {
   color: var(--bg);
   background: var(--accent);
   border-color: var(--accent);
 }
+.event-chip.active:hover { color: var(--bg); }
 .hidden-by-filter { display: none; }
 
 .npc-follow-btn {
@@ -471,6 +527,7 @@ main {
   font-size: 11px;
   padding: 3px 10px;
 }
+.settlement-chip:hover { border-color: rgba(217, 164, 65, 0.6); }
 .settlement-chip.active {
   background: rgba(217, 164, 65, 0.18);
   border-color: rgba(217, 164, 65, 0.6);
