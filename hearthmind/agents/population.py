@@ -96,6 +96,7 @@ from hearthmind.agents.agent import (
     MAX_LIFESPAN_TICKS,
     MEMORY_SALIENCE_BASELINE,
     MEMORY_SALIENCE_EMOTION_WEIGHT,
+    ROUTINE_MEMORY_SALIENCE_MULT,
     WORKING_MEMORY_MAX,
     MIN_LIFESPAN_TICKS,
     MOVE_CHANCE,
@@ -482,6 +483,17 @@ agents whose mutual affinity has crossed REPRODUCTION_AFFINITY_THRESHOLD
 — with only 1-3 survivors left, there may be nobody eligible to pair
 with at all."""
 
+MIGRANT_BELOW_CORE_CAST_CHANCE_MULT = 0.25
+"""Applied to `MIGRANT_CHECK_CHANCE_PER_TICK` when the population is
+below the LLM core cast target (`Config.llm_core_cast_size`) but still
+above `POPULATION_CRITICAL_THRESHOLD` — a gentler trickle than the
+near-extinction case below, since the settlement isn't in acute danger
+of a demographic dead end, just short of the roster the core-cast
+cognition/dialogue system was sized for. Explicit user request: a town
+whose population has fallen below its LLM-authored cast size should be
+able to draw newcomers from outside to rebuild toward it, not only once
+down to a handful of survivors."""
+
 MIGRANT_CHECK_CHANCE_PER_TICK = 0.003
 MIGRANT_TEMPERAMENT_INFLUENCE = 0.2
 """Fractional nudge to migrant-arrival chance from `Settlement.
@@ -746,7 +758,7 @@ def _memory_salience(agent: Agent) -> float:
     )
 
 
-def _remember(agent: Agent, text: str) -> None:
+def _remember(agent: Agent, text: str, routine: bool = False) -> None:
     """Append to an agent's short personal log (`memories`, episodic)
     AND its small strictly-FIFO `working_memory` — see WORKING_MEMORY_
     MAX's docstring. `memories` is capped at MAX_AGENT_MEMORIES but no
@@ -757,16 +769,27 @@ def _remember(agent: Agent, text: str) -> None:
     `memories` or `memory_salience` is ever mutated — see their
     docstrings on Agent for the index-alignment invariant this relies
     on. See docs/DECISIONS.md, relationship-memory pass + Phase I
-    "layered memory v1\" (v0.76.3)."""
+    "layered memory v1\" (v0.76.3).
+
+    `routine=True` (see ROUTINE_MEMORY_SALIENCE_MULT) is for high-
+    frequency, low-narrative-interest events — it discounts the
+    computed salience so the memory is evicted sooner, and — the bigger
+    effect — skips `working_memory` entirely, so it can never be the
+    "just now" line dialogue/cognition read. Still recorded in
+    `memories`, just deprioritized, never hidden."""
     agent.memories.append(text)
-    agent.memory_salience.append(_memory_salience(agent))
+    salience = _memory_salience(agent)
+    if routine:
+        salience *= ROUTINE_MEMORY_SALIENCE_MULT
+    agent.memory_salience.append(salience)
     if len(agent.memories) > MAX_AGENT_MEMORIES:
         evict_at = min(range(len(agent.memories)), key=lambda i: (agent.memory_salience[i], i))
         del agent.memories[evict_at]
         del agent.memory_salience[evict_at]
-    agent.working_memory.append(text)
-    if len(agent.working_memory) > WORKING_MEMORY_MAX:
-        agent.working_memory.pop(0)
+    if not routine:
+        agent.working_memory.append(text)
+        if len(agent.working_memory) > WORKING_MEMORY_MAX:
+            agent.working_memory.pop(0)
 
 
 def _trade_relationship_threshold(giver: Agent) -> float:
@@ -1171,6 +1194,7 @@ class Population:
         resources: ResourceGrid, settlements: list[Settlement], farms: FarmGrid, wildlife: WildlifeGrid,
         roads: RoadNetwork, weather: WeatherState, night_factor: float = 0.0,
         heatwave_active: bool = False, month_end: bool = False,
+        core_cast_target: int = POPULATION_CRITICAL_THRESHOLD,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -1430,7 +1454,7 @@ class Population:
             self._maybe_reproduce(by_position, rng, capacity_by_id, settlements, tick)
         )
         life_events.extend(self._apply_deaths(killed_by_predator, settlements, died_of_disease, tick=tick))
-        life_events.extend(self._maybe_welcome_migrant(rng, primary))
+        life_events.extend(self._maybe_welcome_migrant(rng, primary, core_cast_target))
         for stl in settlements:
             members = [a for a in self.agents if home_of(a).id == stl.id]
             life_events.extend(self._maybe_form_council(stl, tick, members))
@@ -3051,7 +3075,10 @@ class Population:
                 return inst
         return None
 
-    def _maybe_welcome_migrant(self, rng: random.Random, settlement: Settlement) -> list[tuple[str, str]]:
+    def _maybe_welcome_migrant(
+        self, rng: random.Random, settlement: Settlement,
+        core_cast_target: int = POPULATION_CRITICAL_THRESHOLD,
+    ) -> list[tuple[str, str]]:
         """The population equivalent of wildlife's `_maybe_recolonize` —
         a settlement crashed down to a handful of survivors (predation,
         starvation, disaster, or simply old age outpacing sparse births)
@@ -3062,11 +3089,29 @@ class Population:
         NOT fire at 0 population — a fully extinct settlement is a
         legitimate, permanent, readable-from-the-landscape ending (see
         CLAUDE.md's "settlements expand or collapse"), not something to
-        auto-revive."""
+        auto-revive.
+
+        `core_cast_target` (`Config.llm_core_cast_size`, passed down
+        from `World.tick()`) is the gate's ceiling, not just
+        `POPULATION_CRITICAL_THRESHOLD` — explicit user request: once
+        the world population falls below the LLM-authored cast size,
+        outsiders should be able to hear of the opening and settle,
+        same "drawn by word of its need" framing as the near-extinction
+        case, not only once down to a handful of survivors. The two
+        bands read differently: at/below `POPULATION_CRITICAL_THRESHOLD`
+        the full chance applies (a genuine demographic emergency); above
+        it but still below `core_cast_target` only a gentler trickle
+        does (`MIGRANT_BELOW_CORE_CAST_CHANCE_MULT`) — filling out a
+        thin roster is a much lower-stakes need than averting a dead
+        end, and shouldn't feel like a sudden influx the instant the
+        core cast comes up one short."""
         count = len(self.agents)
-        if count == 0 or count >= POPULATION_CRITICAL_THRESHOLD:
+        floor = max(1, core_cast_target)
+        if count == 0 or count >= floor:
             return []
         chance = MIGRANT_CHECK_CHANCE_PER_TICK * (1.0 + max(0.0, settlement.temperament) * MIGRANT_TEMPERAMENT_INFLUENCE)
+        if count >= POPULATION_CRITICAL_THRESHOLD:
+            chance *= MIGRANT_BELOW_CORE_CAST_CHANCE_MULT
         # H6 v4: the surviving remnant's own average openness nudges how
         # readily it welcomes a stranger — see TRAIT_OPENNESS_MIGRANT_
         # WELCOME_INFLUENCE.
@@ -3090,8 +3135,8 @@ class Population:
         self._adopt(migrant)
         self.agents.append(migrant)
         destination = settlement.name or "the dwindling settlement"
-        _remember(migrant, f"I came to {destination} looking for a new start.")
-        return [("migrant_arrived", f"{name} arrived at {destination}, drawn by word of its need.")]
+        _remember(migrant, f"I came to {destination} from a village elsewhere, looking for a new start.")
+        return [("migrant_arrived", f"{name} arrived at {destination} from outside, drawn by word of its need.")]
 
     def _unique_name(self, rng: random.Random, extra_taken: set[str] = frozenset()) -> str:
         """A name no *living* inhabitant currently bears. `generate_names`
@@ -3382,7 +3427,7 @@ class Population:
                     a.relationships[b.id] = clamp(a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST, -1.0, 1.0)
                     _nudge_trait(a, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
                 _record_debt(recipient, giver, amount)
-                _remember(recipient, f"{giver.name} shared food with me.")
+                _remember(recipient, f"{giver.name} shared food with me.", routine=True)
                 if giver.inventory.get("food", 0.0) <= 0.0:
                     givers.remove(giver)
                 trades += 1
@@ -3502,7 +3547,7 @@ class Population:
                     a.relationships[b.id] = clamp(a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST, -1.0, 1.0)
                     _nudge_trait(a, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
                 _record_debt(recipient, giver, amount)
-                _remember(recipient, f"{giver.name} shared tools with me.")
+                _remember(recipient, f"{giver.name} shared tools with me.", routine=True)
                 if giver.inventory.get("tools", 0.0) <= 0.0:
                     givers.remove(giver)
                 trades += 1
@@ -3580,7 +3625,7 @@ class Population:
                     a.relationships[b.id] = clamp(a.relationships.get(b.id, 0.0) + TRADE_RELATIONSHIP_BOOST, -1.0, 1.0)
                     _nudge_trait(a, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
                 _record_debt(recipient, giver, amount)
-                _remember(recipient, f"{giver.name} shared medicine with me.")
+                _remember(recipient, f"{giver.name} shared medicine with me.", routine=True)
                 if giver.inventory.get("medicine", 0.0) <= 0.0:
                     givers.remove(giver)
                 trades += 1

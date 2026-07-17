@@ -237,7 +237,7 @@ Useful flags on `server.py`:
   [Running the LLM (llama.cpp)](#running-the-llm-llamacpp).
   `--llm-llamacpp-host URL` (default `http://localhost:8080`) for the
   llama.cpp backend, `--llm-host URL` (default `http://localhost:11434`)
-  for the Ollama backend, `--llm-model NAME` (default `qwen3:4b-instruct`),
+  for the Ollama backend, `--llm-model NAME` (default `gemma-4-e2b-it`),
   `--llm-timeout SECONDS` (default 120, v0.81.0 — see `Config.llm_
   timeout_seconds`'s docstring for the live-latency data behind this),
   `--llm-max-concurrent INT` (default 2, v0.81.0 — every CLI default
@@ -270,12 +270,12 @@ unreachable, or times out.
   with an existing Ollama install. See
   [Alternative: Ollama backend](#alternative-ollama-backend).
 
-The default model tag/GGUF is `qwen3:4b-instruct` either way (set per a
-live user report — see "Model choice" below); `-instruct` means
-non-thinking by design, and this project always disables hybrid
-"thinking" output regardless (`"think": false` for Ollama, plus a
-defensive `<think>`-block strip applied by both clients) since every
-prompt here wants one strict-JSON answer.
+The default model tag/GGUF is `gemma-4-e2b-it` either way (set per a
+live user report — see "Model choice" below); `-it` means non-thinking
+by design, and this project always disables hybrid "thinking" output
+regardless (`"think": false` for Ollama, plus a defensive
+`<think>`-block strip applied by both clients) since every prompt here
+wants one strict-JSON answer.
 
 Any LLM failure (unreachable server, timeout, malformed response)
 transparently falls back to the same deterministic behavior used when
@@ -640,21 +640,18 @@ does occur despite the above.
 
 ### Model choice history
 
-The default model tag, `qwen3:4b-instruct`, was set in v0.65.2 per a
-live user report on real 8GB hardware: `qwen3.5:2b` (not a real
-released Qwen tag) showed memory-leak-like growth and swapping, while
-the larger, official `qwen3:4b-instruct` stayed under 4.5GB with no
-swapping — counter-intuitive on paper, but this project trusts a live
-environment report over training-data assumptions about model
-naming/behavior. If `system_memory` still shows pressure on
-`qwen3:4b-instruct` after every server-side lever above, try
-`qwen3:1.7b` before going smaller (`qwen3:0.6b` exists but noticeably
-degrades multi-field JSON decisions like town-brain/disputes/beliefs —
-last resort only). Dialogue quality is the output most sensitive to
-model size (`_is_sane_line`'s leakage/length rejection fires more on
-weaker models) — see `docs/DECISIONS.md` for the full v0.65.2/v0.66.0
-narrative if you're deciding whether to size down. Report back what you
-observe rather than silently switching, same standing policy as always.
+The default model tag is `gemma-4-e2b-it` as of v0.85.0, per a live
+user report that it "seems to be performing the best" on their
+hardware — trusted as-is, same standing policy this project has always
+applied to live model-naming/performance reports over training-data
+assumptions. It replaced `qwen3:4b-instruct` (the v0.65.2 default,
+itself chosen over `qwen3.5:2b` — not a real released Qwen tag — after
+a live memory-pressure report; see `docs/DECISIONS.md` for that
+narrative if useful history). No config knob (`llm_num_ctx`/`llm_num_
+predict`/`llm_max_concurrent`/`llm_temperature`) was re-tuned alongside
+this switch — report back actual `/diagnostics` numbers (latency,
+memory, fallback rate) if `gemma-4-e2b-it` needs its own adjustment,
+rather than guessing ahead of real data.
 
 ### Alternative: Ollama backend
 
@@ -663,7 +660,7 @@ Still fully supported for anyone with an existing Ollama setup — pass
 
 ```bash
 # 1. Install and start Ollama (see https://ollama.com), then pull a model:
-ollama pull qwen3:4b-instruct
+ollama pull gemma-4-e2b-it
 
 # 2. Run with the Ollama backend explicitly:
 python3 -m hearthmind.server --db world.sqlite3 --llm-backend ollama

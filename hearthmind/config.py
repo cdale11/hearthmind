@@ -145,25 +145,24 @@ class Config:
     llm_llamacpp_host: str = "http://localhost:8080"
     """`llama-server` URL — only consulted when `llm_backend="llamacpp"`
     (the default). 8080 is `llama-server`'s own default port."""
-    llm_model: str = "qwen3:4b-instruct"
-    """Changed from `qwen3.5:2b` in v0.65.2 per a live user report: on
-    their real 8GB machine, `qwen3.5:2b` showed memory-leak-like growth
-    and swapping over long runs, while `qwen3:4b-instruct` — a *larger*
-    model — stayed below 4.5GB with no swapping observed. Counter-
-    intuitive on paper (bigger model, less memory) but the project's own
-    standing rule is to trust the user's live environment over training-
-    data assumptions about model naming/behavior; `qwen3.5:2b` isn't a
-    real released Qwen tag, so whatever it resolved to on the user's
-    Ollama install was never a known-good quantization the way
-    `qwen3:4b-instruct` (an official released tag) is. `-instruct`
-    means non-thinking/non-hybrid by design, so `OllamaClient`'s
-    `"think": False` + `<think>` stripping becomes a defensive no-op
-    for this model rather than a load-bearing setting — left in place
-    since it's harmless and keeps the size-down path (below) working if
-    a future choice is a hybrid-thinking model again. If this model
-    proves too weak or too heavy on other hardware, report back rather
-    than silently reverting. See docs/DECISIONS.md, "model default:
-    qwen3:4b-instruct (v0.65.2)."""
+    llm_model: str = "gemma-4-e2b-it"
+    """Changed from `qwen3:4b-instruct` in v0.85.0 per a live user
+    report: `gemma-4-e2b-it` "seems to be performing the best" on their
+    real hardware — trusted as-is per this project's standing rule to
+    take the user's live environment over training-data assumptions
+    about model naming/availability (same precedent as the qwen3.5:2b
+    -> qwen3:4b-instruct switch in v0.65.2). `-it` (instruction-tuned)
+    is Gemma's non-thinking-by-design convention, the same role
+    `-instruct` played for the previous default: `OllamaClient`'s
+    `"think": False` + `<think>` stripping stays a harmless defensive
+    no-op for it, not load-bearing. No other tuning knob (`llm_num_ctx`/
+    `llm_num_predict`/`llm_max_concurrent`/`llm_temperature`) was
+    changed alongside this switch — none of those were sized around
+    Qwen specifically, and no live diagnostic accompanied this report to
+    justify a specific re-tune; report back actual numbers (latency,
+    memory, fallback rate) if this model needs its own adjustment,
+    rather than guessing ahead of real data, matching how every prior
+    model-default change in this project was handled."""
     llm_timeout_seconds: float = 120.0
     """A live diagnostic report on the user's own hardware running
     `qwen3.5:2b` showed p50 latency 17.4s, p95 19.7s, max 29.7s against

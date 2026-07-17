@@ -299,7 +299,7 @@ class World:
             terrain=self.terrain, resources=self.resources,
             settlements=self.settlements, farms=self.farms, wildlife=self.wildlife, roads=self.roads,
             weather=self.weather, night_factor=night, heatwave_active=self.disasters.heatwave_active,
-            month_end="month_end" in events,
+            month_end="month_end" in events, core_cast_target=self.config.llm_core_cast_size,
         )
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (

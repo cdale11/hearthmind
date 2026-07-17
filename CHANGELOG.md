@@ -4,6 +4,78 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.85.0] — Repopulation, model default, snow, dialogue variety, doc trim
+
+Batch response to several live requests in one turn.
+
+### Added
+
+- **Repopulation from outside**: `Population._maybe_welcome_migrant`'s
+  gate was previously only `POPULATION_CRITICAL_THRESHOLD=4` (a
+  near-extinction rescue). Now also fires, at a gentler trickle
+  (`MIGRANT_BELOW_CORE_CAST_CHANCE_MULT=0.25`), whenever world
+  population falls below `Config.llm_core_cast_size` (default 14) —
+  explicit request: a town short of its LLM-authored cast size should
+  be able to draw newcomers "from other villages... outside" to
+  rebuild toward it, not only once down to a handful of survivors.
+  Threaded through `Population.tick(core_cast_target=...)` and
+  `World.tick()`. Migrant flavor text updated to explicitly say
+  "from a village elsewhere" / "from outside".
+
+### Changed
+
+- **Default LLM model** `qwen3:4b-instruct` -> `gemma-4-e2b-it`, per a
+  live report that it performs best on the user's hardware — trusted
+  as-is per this project's standing policy on live model reports (see
+  `Config.llm_model`'s docstring). No other LLM tuning knob changed
+  alongside it; report back real `/diagnostics` numbers if it needs
+  its own re-tune.
+- **Snow probability in winter raised**: `SNOW_TEMPERATURE_THRESHOLD_C`
+  2.0 -> 3.5 (`world/weather.py`). Measured directly rather than
+  guessed: at 2.0C, winter's realized `is_snowing` frequency was only
+  ~1.6% of ticks (precipitation already clears its own threshold on
+  ~100% of winter ticks — the gate was purely temperature-bound); 3.5C
+  measures to ~16% of Dec/Jan/Feb ticks, near-zero in the shoulder
+  months, per a live "increase the probability of snow in winter more"
+  request.
+- **Docs trimmed**: `CLAUDE.md`'s ~40 oldest "Current state" version
+  sections (v0.65.2–v0.81.1) consolidated into one dense summary
+  section (2595 -> 1024 lines) — full detail for that range remains in
+  this file and `docs/DECISIONS.md`, nothing was lost, only
+  de-duplicated out of the context-injected file. `docs/ROADMAP.md`
+  (a now-fully-shipped phase checklist) trimmed to a status pointer
+  (955 -> ~35 lines).
+
+### Fixed
+
+- **NPC dialogue over-indexing on food-sharing**: root cause was
+  `_maybe_trade_food`/`_maybe_trade_tools`/`_maybe_trade_medicine`
+  planting a "X shared food with me"-style memory via `_remember` on
+  every successful barter (frequent — roughly once per hunger cycle
+  per agent leaning on neighbors), which very often ended up as the
+  single freshest entry in the strictly-FIFO `Agent.working_memory`
+  that dialogue/cognition's "just now" line reads unconditionally.
+  `_remember` gained a `routine: bool` parameter (new
+  `ROUTINE_MEMORY_SALIENCE_MULT=0.5`): a routine memory is still
+  recorded in episodic `memories` (nothing hidden) at a discounted
+  salience (evicted sooner from the capped list) but never enters
+  `working_memory` at all, so it can no longer crowd out whatever
+  else actually just happened. The three trade call sites now pass
+  `routine=True`.
+
+### Verified
+
+Direct unit tests: `_remember(..., routine=True)` skips working_memory
+and lowers salience; a built dialogue prompt with both a routine trade
+memory and a distinctive one correctly surfaces the distinctive one.
+Migration: direct engine runs confirm migrants arrive at the expected
+rate in both bands (near-extinction vs. below-core-cast) and not at
+all once at/above the core cast target; the near-extinction rate is
+unchanged from before this batch. Snow: direct 129,600-tick sample
+across Dec/Jan/Feb confirms ~16.2% realized frequency post-change. A
+5-seed x 15,000-tick engine soak (LLM disabled, mixed population sizes
+and geographies) confirms no crash across all of the above combined.
+
 ## [0.84.4] — Fix: settlements can go unnamed/buildingless forever on unlucky geography
 
 Direct response to a live report: a settlement stayed unnamed after

@@ -284,6 +284,24 @@ is more recent. This is the actual "layered" mechanism: memorable
 experiences genuinely outlast unremarkable ones, not just a FIFO queue
 with a fancier name."""
 
+ROUTINE_MEMORY_SALIENCE_MULT = 0.5
+"""Multiplier `_remember(..., routine=True)` applies to a memory's
+computed salience — used for high-frequency, low-narrative-interest
+events (today: `_maybe_trade_food`/`_maybe_trade_tools`/`_maybe_trade_
+medicine`'s "X shared food/tools/medicine with me", which can recur
+every hunger cycle for an agent leaning on neighbors, far more often
+than any other memory kind) so it's evicted from the salience-ranked
+`MAX_AGENT_MEMORIES` cap before a rarer, more distinctive memory is,
+and — the bigger effect — never occupies the strictly-FIFO `working_
+memory` slot at all (see WORKING_MEMORY_MAX below), so dialogue/
+cognition's "just now" line isn't dominated by routine barter instead
+of whatever's actually distinctive. Fixes a live report that NPC
+dialogue kept gravitating to food-sharing regardless of what else was
+happening: `just_now_text` always reads the single freshest working_
+memory entry, and food-sharing was frequent enough to usually BE that
+entry. A routine memory is still recorded (nothing is hidden), just
+deprioritized."""
+
 WORKING_MEMORY_MAX = 2
 """Cap on `Agent.working_memory` — a second, much smaller buffer written
 alongside `memories` at every `_remember` call, but strictly FIFO

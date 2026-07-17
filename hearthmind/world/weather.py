@@ -81,7 +81,7 @@ ticks and the label read as "always windy" (live user report). Retuned
 to the measured percentiles so each band gets a roughly even share."""
 
 SNOW_PRECIPITATION_THRESHOLD = 0.2
-SNOW_TEMPERATURE_THRESHOLD_C = 2.0
+SNOW_TEMPERATURE_THRESHOLD_C = 3.5
 """Real UK snow overwhelmingly falls in the 0-2C band, not exactly at or
 below freezing — precipitation phase depends on the whole air column,
 not just screen-height temperature. Previously gated at exactly <= 0.0C,
@@ -90,10 +90,20 @@ below — an EMA that damps single-tick jitter into a much narrower
 realized range than the raw uniform(-6, 6) draw) meant winter
 temperature essentially never actually reached 0 or below in practice
 (verified: 0 snow ticks across a simulated December at the default
-seed) — `is_snowing` was live code that could never fire. Raising the
-threshold to 2.0C is the fix, not a cosmetic tweak: it's within the
-smoothed range winter baselines actually reach, and still matches real
-UK meteorology."""
+seed) — `is_snowing` was live code that could never fire. Raised
+2.0 -> 3.5C (v0.85.0) per a live "increase the probability of snow in
+winter more" report: measured directly (200k+ tick sample across
+Dec/Jan/Feb at the default seed) that 2.0C's realized winter snow
+frequency was only ~1.6% of ticks (`precipitation` clears its own
+threshold on effectively 100% of winter ticks, so `is_snowing` was
+entirely temperature-gated) — snow read as a near-never event rather
+than a real winter feature. 3.5C measures out to ~16% of Dec/Jan/Feb
+ticks (near-zero in November/March, the shoulder months, since their
+milder baselines rarely reach even this threshold) — a real, noticeable
+increase while staying a genuine winter-only rarity, not "always
+snowing." Standing lesson (see CLAUDE.md): always re-verify a threshold
+against measured smoothed output, never just raise the roll chance
+blind."""
 
 
 @dataclass
