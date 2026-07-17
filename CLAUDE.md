@@ -373,6 +373,32 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.85.1)
+
+Direct fix for a live 60,000-tick report: `population_total: 0` with
+no path back — v0.85.0's below-core-cast migrant trickle had
+explicitly excluded `count == 0`, per the project's own prior standing
+rule that true extinction is a legitimate, permanent ending. The user
+asked for this fixed, which is a direct, explicit reversal of that
+rule (see "Diagnostic history index" below), not a bug fix within it.
+
+`Population._maybe_welcome_migrant` now fires at 0 population too
+(same chance formula as the near-extinction band, openness term
+skipped to avoid dividing by zero with no survivors). The live
+diagnostic's settlement had also lost every building
+(`building_completed`/`building_ruined`/`building_reclaimed` all equal
+at 3 — full decay-and-reclaim cycle with nobody left to repair
+anything), so there was no building or survivor position left to
+anchor a migrant's arrival on. New `Population._center_walkable_tile`
+scans outward from the map's geometric center for the nearest walkable
+tile as a neutral fallback anchor — `terrain` (already available in
+`Population.tick()`) threads through to `_maybe_welcome_migrant` for
+this. Verified via a real end-to-end `World.tick()` test that
+force-wipes population and buildings to reproduce the live scenario
+exactly, plus direct unit tests for the walkable-tile scan's edge
+cases (water at map center, fully unwalkable map) and a 5-seed
+engine soak with two forced mid-run extinctions.
+
 ## Current state (v0.85.0)
 
 Batch response to several live requests in one turn: repopulation,
@@ -1069,9 +1095,17 @@ remain in the decision log:
   legitimate Malthusian equilibrium; if live runs feel too grim, tighten
   `REPRODUCTION_WELLFED_HUNGER` or scale birth chance by hunger rather
   than lowering the cap.
-- **True extinction (0 population) is a legitimate permanent ending** —
-  migrants only arrive while 1-3 people remain; never auto-revive an
-  empty world.
+- **Reversed in v0.85.1**: 0 population is no longer a permanent dead
+  end — a live 60,000-tick report showed a world stuck at 0 population
+  with no path back, which the user asked to be fixed rather than kept
+  as a "legitimate ending." `_maybe_welcome_migrant` now also fires at
+  count==0 (`Population._center_walkable_tile` supplies a neutral
+  resettlement anchor once a settlement's buildings have also fully
+  decayed away — see "Current state (v0.85.1)"). Historical note: the
+  old rule ("migrants only arrive while 1-3 people remain, never
+  auto-revive an empty world") stood from early in the project through
+  v0.85.0; do not reintroduce it without a similarly explicit
+  instruction.
 - The full architecture review lives in `docs/REVIEW-2026-07.md`; its
   recommendations were implemented across v0.40.0–v0.41.0.
 

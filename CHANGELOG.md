@@ -4,6 +4,55 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.85.1] — Fix: population stuck at 0 never recovers
+
+Direct response to a live 60,000-tick diagnostic: `population_total: 0`
+with no path back, despite v0.85.0's below-core-cast migrant trickle —
+that trickle explicitly excluded `count == 0` ("a fully extinct
+settlement is a legitimate, permanent ending, not something to
+auto-revive" — the project's own prior standing rule). The user asked
+for this fixed rather than kept as a legitimate ending, so this is a
+direct reversal of that rule, not a bug in its implementation.
+
+### Fixed
+
+- `Population._maybe_welcome_migrant` now also fires at `count == 0`,
+  using the same chance formula as the near-extinction band (no
+  openness term — there are no survivors to have an opinion, avoids a
+  divide-by-zero).
+- New `Population._center_walkable_tile(terrain)`: a settlement that
+  has hit 0 population *and* had every building fully decay away and
+  get reclaimed (`settlement.buildings` empty — confirmed to be
+  exactly what happened in the live diagnostic: `building_completed`,
+  `building_ruined`, and `building_reclaimed` were all equal at 3) has
+  no building or survivor position to anchor a migrant's arrival on,
+  since settlements are never pre-placed. Scans outward ring-by-ring
+  from the map's geometric center for the nearest walkable tile — a
+  neutral, always-available resettlement anchor. `terrain` threaded
+  through `Population.tick()` (already available there) to this call
+  site; without it (legacy/test callers), a buildingless 0-population
+  resettlement is safely skipped rather than risking a migrant placed
+  in water.
+- `CLAUDE.md`'s prior standing rule ("true extinction is a legitimate
+  permanent ending... never auto-revive an empty world") updated to
+  record the reversal — do not reintroduce the old behavior without an
+  equally explicit instruction.
+
+### Verified
+
+Direct unit tests: `_center_walkable_tile` finds the correct nearest
+walkable tile when the map center itself is water, and correctly
+returns `None` on a fully unwalkable map (no crash, resettlement
+skipped that tick); `_maybe_welcome_migrant` with 0 population, 0
+buildings, and terrain supplied resettles within the expected number
+of ticks at the map center. A real end-to-end `World.tick()` test —
+population and buildings force-wiped to reproduce the live scenario
+exactly — confirms resettlement happens through the actual production
+code path, not just the isolated Population method. A 5-seed x
+12,000-tick engine soak, two of which force an extinction event
+mid-run (with and without remaining buildings), confirms no crash and
+recovery in both cases.
+
 ## [0.85.0] — Repopulation, model default, snow, dialogue variety, doc trim
 
 Batch response to several live requests in one turn.

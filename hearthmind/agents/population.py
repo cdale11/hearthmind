@@ -1454,7 +1454,7 @@ class Population:
             self._maybe_reproduce(by_position, rng, capacity_by_id, settlements, tick)
         )
         life_events.extend(self._apply_deaths(killed_by_predator, settlements, died_of_disease, tick=tick))
-        life_events.extend(self._maybe_welcome_migrant(rng, primary, core_cast_target))
+        life_events.extend(self._maybe_welcome_migrant(rng, primary, core_cast_target, terrain))
         for stl in settlements:
             members = [a for a in self.agents if home_of(a).id == stl.id]
             life_events.extend(self._maybe_form_council(stl, tick, members))
@@ -3078,6 +3078,7 @@ class Population:
     def _maybe_welcome_migrant(
         self, rng: random.Random, settlement: Settlement,
         core_cast_target: int = POPULATION_CRITICAL_THRESHOLD,
+        terrain: list[list[Tile]] | None = None,
     ) -> list[tuple[str, str]]:
         """The population equivalent of wildlife's `_maybe_recolonize` —
         a settlement crashed down to a handful of survivors (predation,
@@ -3085,11 +3086,25 @@ class Population:
         can otherwise sit at 1-3 people forever with no path back, since
         reproduction needs a compatible, colocated, mature, healthy pair.
         A rare newcomer arriving at the settlement (or, if unnamed, near
-        an existing survivor) breaks that dead end. Deliberately does
-        NOT fire at 0 population — a fully extinct settlement is a
-        legitimate, permanent, readable-from-the-landscape ending (see
-        CLAUDE.md's "settlements expand or collapse"), not something to
-        auto-revive.
+        an existing survivor) breaks that dead end.
+
+        **Also resettles from true 0 population** (v0.85.1 — direct
+        reversal of the prior "0 is a legitimate, permanent ending, never
+        auto-revive" rule, per a live 60,000-tick report of a world
+        stuck at 0 population with no path back). Uses the same chance
+        formula as the near-extinction band below (no openness nudge —
+        there's nobody left to have an opinion). A settlement whose
+        every building has also fully decayed and been reclaimed
+        (`settlement.buildings` empty — the case that actually happened
+        in the live report) has no building or survivor to anchor a
+        migrant's arrival position on, since settlements are never
+        pre-placed (see `World.create_new`); `_center_walkable_tile`
+        (deterministic, scans outward from the map's geometric center)
+        is the neutral fallback anchor for that case. `terrain` is
+        optional only for callers that can't supply it (legacy/test call
+        sites) — without it, resettlement from a buildingless 0
+        population can't find a safe tile and is skipped that tick
+        rather than risk placing a migrant in water.
 
         `core_cast_target` (`Config.llm_core_cast_size`, passed down
         from `World.tick()`) is the gate's ceiling, not just
@@ -3097,35 +3112,45 @@ class Population:
         the world population falls below the LLM-authored cast size,
         outsiders should be able to hear of the opening and settle,
         same "drawn by word of its need" framing as the near-extinction
-        case, not only once down to a handful of survivors. The two
-        bands read differently: at/below `POPULATION_CRITICAL_THRESHOLD`
-        the full chance applies (a genuine demographic emergency); above
-        it but still below `core_cast_target` only a gentler trickle
-        does (`MIGRANT_BELOW_CORE_CAST_CHANCE_MULT`) — filling out a
-        thin roster is a much lower-stakes need than averting a dead
-        end, and shouldn't feel like a sudden influx the instant the
-        core cast comes up one short."""
+        case, not only once down to a handful of survivors. The three
+        bands read differently: at 0, or at/below `POPULATION_CRITICAL_
+        THRESHOLD`, the full chance applies (a genuine demographic
+        emergency); above that but still below `core_cast_target` only a
+        gentler trickle does (`MIGRANT_BELOW_CORE_CAST_CHANCE_MULT`) —
+        filling out a thin roster is a much lower-stakes need than
+        averting a dead end, and shouldn't feel like a sudden influx the
+        instant the core cast comes up one short."""
         count = len(self.agents)
         floor = max(1, core_cast_target)
-        if count == 0 or count >= floor:
+        if count >= floor:
             return []
         chance = MIGRANT_CHECK_CHANCE_PER_TICK * (1.0 + max(0.0, settlement.temperament) * MIGRANT_TEMPERAMENT_INFLUENCE)
         if count >= POPULATION_CRITICAL_THRESHOLD:
             chance *= MIGRANT_BELOW_CORE_CAST_CHANCE_MULT
-        # H6 v4: the surviving remnant's own average openness nudges how
-        # readily it welcomes a stranger — see TRAIT_OPENNESS_MIGRANT_
-        # WELCOME_INFLUENCE.
-        avg_openness = sum(a.traits.get(TRAIT_OPENNESS, 0.0) for a in self.agents) / count
-        chance *= 1.0 + avg_openness * TRAIT_OPENNESS_MIGRANT_WELCOME_INFLUENCE
+        if count > 0:
+            # H6 v4: the surviving remnant's own average openness nudges
+            # how readily it welcomes a stranger — see TRAIT_OPENNESS_
+            # MIGRANT_WELCOME_INFLUENCE. No survivors at count==0 means
+            # no one left to have an opinion, so this term is skipped
+            # rather than dividing by zero.
+            avg_openness = sum(a.traits.get(TRAIT_OPENNESS, 0.0) for a in self.agents) / count
+            chance *= 1.0 + avg_openness * TRAIT_OPENNESS_MIGRANT_WELCOME_INFLUENCE
         chance = max(0.0, chance)
         if rng.random() >= chance:
             return []
         if settlement.buildings:
             building = settlement.buildings[rng.randrange(len(settlement.buildings))]
             x, y = building.x, building.y
-        else:
+        elif count > 0:
             anchor = self.agents[rng.randrange(count)]
             x, y = anchor.x, anchor.y
+        elif terrain is not None:
+            pos = self._center_walkable_tile(terrain)
+            if pos is None:
+                return []
+            x, y = pos
+        else:
+            return []
         name = self._unique_name(rng)
         migrant = Agent(
             id=self._next_id, name=name, x=x, y=y, age_ticks=MATURITY_TICKS,
@@ -3137,6 +3162,39 @@ class Population:
         destination = settlement.name or "the dwindling settlement"
         _remember(migrant, f"I came to {destination} from a village elsewhere, looking for a new start.")
         return [("migrant_arrived", f"{name} arrived at {destination} from outside, drawn by word of its need.")]
+
+    @staticmethod
+    def _center_walkable_tile(terrain: list[list[Tile]]) -> tuple[int, int] | None:
+        """Deterministic resettlement anchor for a settlement that has
+        lost every building and every inhabitant (`_maybe_welcome_
+        migrant`'s true-0-population case) — there's no "last known
+        location" to fall back on since settlements are never pre-placed
+        (see `World.create_new`'s "settlements emerge from population
+        behavior" comment). Scans outward ring by ring from the map's
+        geometric center for the nearest walkable tile — a neutral,
+        always-available anchor, not tied to any prior settlement's
+        history. Returns None only if the entire map is unwalkable (not
+        expected in practice)."""
+        height = len(terrain)
+        width = len(terrain[0]) if height else 0
+        if height == 0 or width == 0:
+            return None
+        cx, cy = width // 2, height // 2
+        max_radius = max(width, height)
+        for radius in range(0, max_radius + 1):
+            for dy in range(-radius, radius + 1):
+                y = cy + dy
+                if not (0 <= y < height):
+                    continue
+                for dx in range(-radius, radius + 1):
+                    if max(abs(dx), abs(dy)) != radius:
+                        continue
+                    x = cx + dx
+                    if not (0 <= x < width):
+                        continue
+                    if _is_walkable(terrain, x, y):
+                        return (x, y)
+        return None
 
     def _unique_name(self, rng: random.Random, extra_taken: set[str] = frozenset()) -> str:
         """A name no *living* inhabitant currently bears. `generate_names`
