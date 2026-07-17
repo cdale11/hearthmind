@@ -520,6 +520,15 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.86.1)
+
+Module 21 of the R6 opportunistic-port queue: `cpp/src/road_wear.cpp`
+ports `RoadNetwork.tick`'s (world/roads.py) per-tile gain/decay scalar
+math — same shape as module 20 (`relationship_step`). Sparse dict
+iteration/prune-on-fade stays Python. Verified via 400k-case randomized
+equivalence (0 mismatches) + native soak (2 seeds x 1500 ticks,
+byte-identical).
+
 ## Current state (v0.86.0)
 
 First implementation pass against the **Hearthmind Engineering

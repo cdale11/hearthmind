@@ -47,6 +47,7 @@ import hearthmind.time_system as _time_system  # noqa: E402
 import hearthmind.world.disasters as _disasters  # noqa: E402
 import hearthmind.world.hydrology as _hydrology  # noqa: E402
 import hearthmind.world.resources as _resources  # noqa: E402
+import hearthmind.world.roads as _roads  # noqa: E402
 import hearthmind.world.terrain as _terrain  # noqa: E402
 import hearthmind.world.terrain_evolution as _terrain_evolution  # noqa: E402
 import hearthmind.world.weather as _weather  # noqa: E402
@@ -90,6 +91,9 @@ _NATIVE_TOGGLES = [
     # (cpp/src/relationship_step.cpp).
     (_population, "_native_relationship_decay_step"),
     (_population, "_native_relationship_gain_step"),
+    # v0.86.1: road wear gain/decay scalar math (cpp/src/road_wear.cpp).
+    (_roads, "_native_road_wear_gain_step"),
+    (_roads, "_native_road_wear_decay_step"),
 ]
 
 

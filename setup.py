@@ -57,6 +57,7 @@ try:
                 "cpp/src/agent_table.cpp",
                 "cpp/src/emotion_decay.cpp",
                 "cpp/src/relationship_step.cpp",
+                "cpp/src/road_wear.cpp",
             ]),
             cxx_std=17,
             extra_compile_args=_EXTRA_COMPILE_ARGS,

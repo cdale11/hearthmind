@@ -4,6 +4,23 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.86.1] — Module 21: road-wear native port
+
+Continues the R6 "opportunistic pure-math port" queue (Constitution §4:
+"prefer C++ for performance-critical systems"). `RoadNetwork.tick`
+(world/roads.py) runs every tick over every occupied and every worn
+tile, doing scalar gain/decay arithmetic per tile — same shape as
+module 20's `relationship_step`. New `cpp/src/road_wear.cpp` exposes
+`road_wear_gain_step`/`road_wear_decay_step`; the sparse tile->wear
+dict iteration and prune-on-fade-to-zero deletion stay in Python (not a
+flat-array fit per the R8 scoping pass), only the per-tile arithmetic
+moves to C++. `world/roads.py` gained the standard try/except-ImportError
+native-fast-path wiring with an identical pure-Python fallback.
+
+Verified: 400,000-case randomized equivalence test (0 mismatches);
+`scripts/verify_native_soak.py` full-state hash soak (2 seeds x 1500
+ticks) confirms byte-identical output with the native path on vs. off.
+
 ## [0.86.0] — Critical cognition defers, never fabricates (Engineering Constitution §3/§7)
 
 First implementation pass against the new **Hearthmind Engineering

@@ -17,6 +17,18 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from hearthmind.world.weather import WeatherState
 
+try:
+    from hearthmind._native import road_wear_gain_step as _native_road_wear_gain_step
+    from hearthmind._native import road_wear_decay_step as _native_road_wear_decay_step
+except ImportError:
+    _native_road_wear_gain_step = None
+    _native_road_wear_decay_step = None
+"""Optional compiled fast path for RoadNetwork.tick's per-tile scalar
+wear math (see cpp/src/road_wear.cpp). The sparse tile->wear dict
+iteration and prune-on-fade-to-zero deletion stay in Python; only the
+per-tile gain/decay arithmetic moves. `None` when the extension wasn't
+built."""
+
 ROAD_WEAR_PER_TICK = 0.01
 """Wear gained by a qualifying tile each tick at least one awake agent
 stands on it — ~50 ticks of regular traffic to reach
@@ -87,6 +99,18 @@ class RoadNetwork:
         """`occupied_tiles` are walkable, building-free, farm-free tiles
         with at least one awake agent present this tick — see
         Population.tick for the filtering."""
+        if _native_road_wear_gain_step is not None:
+            for pos in occupied_tiles:
+                self.wear[pos] = _native_road_wear_gain_step(self.wear.get(pos, 0.0), ROAD_WEAR_PER_TICK)
+            for pos in list(self.wear):
+                if pos in occupied_tiles:
+                    continue
+                remaining = _native_road_wear_decay_step(self.wear[pos], ROAD_DECAY_PER_TICK)
+                if remaining <= 0:
+                    del self.wear[pos]
+                else:
+                    self.wear[pos] = remaining
+            return
         for pos in occupied_tiles:
             self.wear[pos] = min(1.0, self.wear.get(pos, 0.0) + ROAD_WEAR_PER_TICK)
         for pos in list(self.wear):
