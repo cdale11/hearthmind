@@ -1770,14 +1770,30 @@ class SimulationEngine:
         and asks the LLM to condense them into one enduring tale, or
         honestly say there's nothing worth telling yet — most months
         that's the real, expected answer, not every month needs to mint
-        a new legend. See llm/folklore.py."""
+        a new legend. See llm/folklore.py.
+
+        Constitution §7/§8 efficiency pass (v0.86.5): with zero rumor
+        events this month, a real LLM call is near-guaranteed to answer
+        "nothing worth telling" against a prompt that literally reads
+        "No rumors have been circulating lately" — `fallback_folklore`
+        already encodes this (it only ever proposes a tale when
+        `rumor_events` is non-empty). Skip the call entirely rather than
+        spend real LLM budget/latency to confirm what's already known —
+        same "skip a call whose precondition guarantees a trivial
+        result" discipline `_maybe_schedule_invention`'s prosperity gate
+        already uses. Still resolves the month (no folklore forms),
+        matching the expected common-case outcome exactly; a month with
+        real rumor material is completely unaffected."""
         target = self._job_target()
         if not self._monthly_gate(events, "folklore") or not target.name:
+            return
+        rumor_events = events_by_category(self.conn, "rumor", limit=20)
+        if not rumor_events:
+            self._mark_monthly_resolved("folklore")
             return
         if self._settlement_job_backpressured():
             return
         self._mark_monthly_resolved("folklore")
-        rumor_events = events_by_category(self.conn, "rumor", limit=20)
         existing_folklore = list(target.folklore)
         prompt = folklore.build_prompt(target.name, rumor_events, existing_folklore)
         fallback = folklore.fallback_folklore(target.name, rumor_events)

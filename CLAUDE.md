@@ -520,6 +520,24 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.86.6)
+
+Part B of the §4/§7 pass (Part A was v0.86.5's wildlife native port).
+Audited `llm/jobs.py`, `llm/client.py`, and the `cognition`/`dialogue`/
+`town_brain` prompt builders for redundant fields or oversized token
+budgets — all already tight from prior audits (v0.85.3/.4/.5's digest
+work, v0.86.0's critical-cognition deferral). Found one genuine wasted-
+call case: `_maybe_schedule_folklore` made a real LLM call every
+eligible month even with zero rumor events that month, though
+`fallback_folklore` already documents the answer is near-guaranteed to
+be "nothing worth telling" in that case. Now skips the call entirely
+when `rumor_events` is empty (still marks the month resolved, same
+observable outcome), unchanged when real rumor material exists — same
+pattern `_maybe_schedule_invention`'s prosperity gate already uses.
+Verified via a direct engine test with a call-counting fake LLM client
+(0 calls / month-resolved on empty rumors, exactly 1 call unchanged
+with real rumor material).
+
 ## Current state (v0.86.5)
 
 Continues the Constitution §4/§7 roadmap item flagged at the end of

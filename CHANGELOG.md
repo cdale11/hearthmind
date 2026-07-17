@@ -4,6 +4,36 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.86.6] — Skip wasted folklore LLM calls with no rumor material
+
+Constitution §7/§8 (LLM-call efficiency) pass. `_maybe_schedule_
+folklore` (hearthmind/simulation/engine.py) previously made a real LLM
+call every eligible month regardless of whether there was any rumor
+material to condense — `llm/folklore.py`'s own `fallback_folklore`
+already documents that it "only proposes a tale when there's real
+rumor material to draw from," so a call against a prompt reading "No
+rumors have been circulating lately" was near-guaranteed to spend real
+LLM budget/latency confirming an answer already known deterministically
+("most months that's the real, expected answer," per the function's own
+docstring).
+
+Now checks `rumor_events` before the backpressure check/LLM scheduling:
+empty rumor material skips the call entirely (still marks the month
+resolved, matching the existing observable "no folklore forms" outcome
+exactly), non-empty rumor material is completely unaffected — same
+"skip a call whose precondition guarantees a trivial result" discipline
+`_maybe_schedule_invention`'s prosperity gate already uses. Also
+audited `llm/jobs.py`, `llm/client.py`, `cognition.py`'s/`dialogue.py`'s/
+`town_brain.py`'s prompt builders for redundant fields or oversized
+token budgets — found nothing else concrete enough to change without
+guessing ahead of live diagnostic data.
+
+Verified: a direct engine test with a call-counting fake LLM client
+confirms zero calls with no rumor events (month still marked resolved)
+and exactly one real call once rumor material exists, unchanged from
+before. `scripts/verify_native_soak.py` (2 seeds x 1500 ticks)
+unaffected — LLM path disabled in that harness.
+
 ## [0.86.5] — Module 22: wildlife grazer-branch native port
 
 Continues the R6 "opportunistic pure-math port" queue (Constitution §4).
