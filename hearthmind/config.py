@@ -111,6 +111,19 @@ class Config:
     pruning (unbounded, opt-in), same convention as `event_log_
     retention`."""
 
+    consciousness_log_retention: int = 5_000
+    """Most-recent rows kept in the `consciousness_log` table (v0.86.2,
+    Engineering Constitution §6), pruned on the same snapshot-cadence
+    transaction as `event_log_retention`/`metrics_log_retention`. This
+    is the durable record behind `World.consciousness_memory`/
+    `consciousness_player_model`/`consciousness_objectives`/
+    `consciousness_intervention_log`, which stay small (capped 16/6/2/12)
+    for prompt-building and snapshot size — without this table, every
+    entry past those caps was silently and permanently forgotten. The
+    consciousness job fires at most once/month, so 5,000 rows across all
+    four kinds is centuries of real headroom; 0 disables pruning
+    (unbounded, opt-in), same convention as `event_log_retention`."""
+
     db_path: str = "world.sqlite3"
 
     # --- runtime: LLM (Ollama) cognition layer, off by default -----------------

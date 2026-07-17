@@ -45,6 +45,7 @@ def save_snapshot(conn: sqlite3.Connection, world: World) -> None:
     _prune_snapshots(conn)
     _prune_events(conn, world.config.event_log_retention)
     _prune_metrics(conn, world.config.metrics_log_retention)
+    _prune_consciousness_log(conn, world.config.consciousness_log_retention)
     conn.commit()
 
 
@@ -91,6 +92,69 @@ def _prune_metrics(conn: sqlite3.Connection, keep: int) -> None:
         """,
         (keep,),
     )
+
+
+def _prune_consciousness_log(conn: sqlite3.Connection, keep: int) -> None:
+    """Keep only the most-recent `keep` rows of `consciousness_log` —
+    same shape as `_prune_events`/`_prune_metrics`. `keep <= 0` disables
+    pruning (unbounded, opt-in). See database.py's schema docstring for
+    why this is a separate table from `events`."""
+    if keep <= 0:
+        return
+    conn.execute(
+        """
+        DELETE FROM consciousness_log WHERE id NOT IN (
+            SELECT id FROM consciousness_log ORDER BY id DESC LIMIT ?
+        )
+        """,
+        (keep,),
+    )
+
+
+def log_consciousness_entry(
+    conn: sqlite3.Connection, tick: int, kind: str, text: str, commit: bool = False,
+) -> None:
+    """Durable, much-larger-than-in-RAM record of one Town Consciousness
+    entry (`kind` in "memory"/"player_theory"/"objective"/"intervention")
+    — called from `SimulationEngine._maybe_schedule_consciousness`'s
+    `apply()` alongside (not instead of) the small capped in-RAM lists
+    (`World.consciousness_memory` etc.), which stay exactly as they were
+    for prompt-building/snapshot size. `commit=False` matches `_log`'s
+    per-tick batching convention — see its docstring."""
+    conn.execute(
+        "INSERT INTO consciousness_log (tick, logged_at, kind, text) VALUES (?, ?, ?, ?)",
+        (tick, time.time(), kind, text),
+    )
+    if commit:
+        conn.commit()
+
+
+def recent_consciousness_log(conn: sqlite3.Connection, kind: str | None = None, limit: int = 50) -> list[dict]:
+    """Newest-first `consciousness_log` rows, optionally filtered to one
+    `kind`. Developer-observatory-only reader (Phase G/N dev-console-only
+    discipline) — never consumed by any LLM prompt (see database.py's
+    schema docstring for why the durable log is a separate table)."""
+    limit = max(1, min(limit, QUERY_LIMIT_MAX))
+    if kind is not None:
+        rows = conn.execute(
+            "SELECT tick, logged_at, kind, text FROM consciousness_log WHERE kind = ? ORDER BY id DESC LIMIT ?",
+            (kind, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT tick, logged_at, kind, text FROM consciousness_log ORDER BY id DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [
+        {"tick": tick, "logged_at": logged_at, "kind": kind_, "text": text}
+        for tick, logged_at, kind_, text in rows
+    ]
+
+
+def consciousness_log_count(conn: sqlite3.Connection) -> int:
+    """Total retained `consciousness_log` rows — the diagnostics-panel
+    signal that the durable history is actually accumulating (compare
+    against the tiny in-RAM cap counts already shown alongside it)."""
+    return conn.execute("SELECT COUNT(*) FROM consciousness_log").fetchone()[0]
 
 
 def _prune_snapshots(conn: sqlite3.Connection) -> None:

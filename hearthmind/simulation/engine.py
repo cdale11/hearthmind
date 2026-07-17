@@ -56,8 +56,8 @@ from hearthmind.llm.client import build_llm_client
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import (
-    events_by_category, history_events, load_latest_snapshot, log_event, log_metrics,
-    recent_events, recent_events_diverse, save_snapshot,
+    consciousness_log_count, events_by_category, history_events, load_latest_snapshot, log_consciousness_entry,
+    log_event, log_metrics, recent_events, recent_events_diverse, save_snapshot,
 )
 from hearthmind.agents.population import (
     DISPUTE_COOLDOWN_TICKS,
@@ -2154,6 +2154,14 @@ class SimulationEngine:
                 self.world.consciousness_memory.append({"note": parsed["note"], "tick": tick})
                 if len(self.world.consciousness_memory) > CONSCIOUSNESS_MEMORY_MAX:
                     self.world.consciousness_memory = self.world.consciousness_memory[-CONSCIOUSNESS_MEMORY_MAX:]
+                # Durable full history (v0.86.2, Constitution §6): the
+                # in-RAM list above stays capped at CONSCIOUSNESS_MEMORY_
+                # MAX for prompt-building/snapshot size, but nothing the
+                # consciousness has ever noticed is lost past that cap —
+                # see database.py's consciousness_log schema docstring
+                # for why this is a separate table from `events` (must
+                # never leak into other jobs' recent_events prompts).
+                log_consciousness_entry(self.conn, tick, "memory", parsed["note"])
             if parsed["player_belief"]:
                 self.world.consciousness_player_model.append({
                     "belief": parsed["player_belief"], "confidence": 0.6,
@@ -2162,10 +2170,13 @@ class SimulationEngine:
                 if len(self.world.consciousness_player_model) > CONSCIOUSNESS_PLAYER_MODEL_MAX:
                     weakest = min(self.world.consciousness_player_model, key=lambda p: p["confidence"])
                     self.world.consciousness_player_model.remove(weakest)
+                log_consciousness_entry(self.conn, tick, "player_theory", parsed["player_belief"])
             if parsed["objectives"]:
                 self.world.consciousness_objectives = [
                     {"objective": o, "formed_tick": tick} for o in parsed["objectives"]
                 ]
+                for objective in parsed["objectives"]:
+                    log_consciousness_entry(self.conn, tick, "objective", objective)
             kind = parsed["intervention"]
             detail = parsed["intervention_detail"]
             self._apply_consciousness_intervention(kind, detail, target)
@@ -2175,6 +2186,7 @@ class SimulationEngine:
                     self.world.consciousness_intervention_log[-CONSCIOUSNESS_INTERVENTION_LOG_MAX:]
                 )
             if kind != "none":
+                log_consciousness_entry(self.conn, tick, "intervention", f"{kind}: {detail}")
                 self._log("consciousness_intervention", f"Something in {target.name} quietly shifted.")
 
         self._schedule_llm_job("consciousness", prompt, consciousness.SYSTEM_PROMPT, fallback, apply, critical=True)
@@ -3498,6 +3510,12 @@ class SimulationEngine:
                     self.world.consciousness_intervention_log[-1]
                     if self.world.consciousness_intervention_log else None
                 ),
+                # Durable full-history count (v0.86.2, Constitution §6) —
+                # everything the consciousness has ever noticed/theorized/
+                # intervened on, on disk, distinct from the tiny in-RAM
+                # caps above. See database.py's consciousness_log schema
+                # docstring.
+                "durable_log_count": consciousness_log_count(self.conn),
             },
             "relationship_graph": {
                 # A cheap live signal for the class of leak fixed in the

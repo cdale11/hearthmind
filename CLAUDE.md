@@ -520,6 +520,37 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.86.2)
+
+§6 follow-up to v0.86.0's Constitution sequencing ("cold information
+belongs on disk, not permanently in RAM"). Audited every capped in-RAM
+list first: `Settlement.traditions`/`inventions`/`festivals`/`folklore`/
+`rituals`/`records` are already durably logged in full via `_log()` →
+the `events` table (200k retention) despite their small in-RAM caps —
+§6 was already satisfied there. The real gap: `World.consciousness_*`
+(Phase N, capped 16/6/2/12) had NO durable record — evicted past the
+cap meant forgotten forever.
+
+New `consciousness_log` SQLite table (deliberately separate from
+`events` — the consciousness's private memory/theories must never leak
+into `recent_events_diverse`, which chronicle/town_brain/beliefs prompts
+read). `_maybe_schedule_consciousness`'s `apply()` now logs every entry
+there alongside the untouched in-RAM caps. New `Config.consciousness_
+log_retention=5000`, pruned on snapshot cadence. `full_diagnostics()`
+gained `consciousness.durable_log_count` (dev-console only).
+
+Verified: e2e engine test over ~30 in-game months confirms the RAM cap
+stays at 16, the durable count exceeds it, an evicted-from-RAM entry is
+still retrievable from disk, and zero consciousness content leaks into
+`recent_events_diverse()`.
+
+**Next**: per-agent memory durability (`Agent.memories`/`semantic_
+memories`/`secrets` also evict permanently past their caps) is a
+larger-scope, higher-volume version of the same gap — deliberately
+deferred as its own increment (touches the hot-path `_remember` call
+site used across the whole population, not a monthly settlement job).
+Then §4/§7: more C++ porting + LLM-call efficiency.
+
 ## Current state (v0.86.1)
 
 Module 21 of the R6 opportunistic-port queue: `cpp/src/road_wear.cpp`

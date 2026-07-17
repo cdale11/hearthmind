@@ -4,6 +4,57 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.86.2] — Durable Town Consciousness history to disk (Engineering Constitution §6)
+
+First slice of §6 ("efficient persistent storage... cold information
+belongs on disk, not permanently in RAM") from the sequenced follow-up
+to v0.86.0. Audited every capped in-RAM list against this rule first:
+`Settlement.traditions`/`inventions`/`festivals`/`folklore`/`rituals`/
+`records` are all capped small in RAM, but every formation is ALREADY
+durably logged via `SimulationEngine._log()` → the `events` table
+(200k-row retention) — so culture/history already satisfies §6. The one
+genuine gap: `World.consciousness_memory`/`consciousness_player_model`/
+`consciousness_objectives`/`consciousness_intervention_log` (Phase N,
+"Town Consciousness") are capped tiny (16/6/2/12) with **no durable
+record at all** — an entry past the cap was silently and permanently
+forgotten, unlike everything else.
+
+### Added
+
+- **New `consciousness_log` SQLite table** (`hearthmind/persistence/
+  database.py`), deliberately SEPARATE from `events` rather than a new
+  event category: the consciousness's private inner memory/theories/
+  objectives must never leak into `recent_events`/`recent_events_
+  diverse`, which every other settlement-scoped LLM prompt (chronicle,
+  town_brain, beliefs, ...) reads — mixing them would break the "hidden
+  intelligence... nudging through deniable channels" design.
+- `snapshot.log_consciousness_entry`/`recent_consciousness_log`/
+  `consciousness_log_count`/`_prune_consciousness_log`, same shape as
+  the existing `events`/`metrics` helpers. Pruned on the snapshot
+  cadence via new `Config.consciousness_log_retention` (default 5,000 —
+  centuries of headroom at the job's monthly cadence).
+- `SimulationEngine._maybe_schedule_consciousness`'s `apply()` now logs
+  every memory note/player-theory/objective/intervention to the durable
+  table ALONGSIDE (not instead of) the existing capped in-RAM lists,
+  which are untouched — this is additive, not a behavior change to
+  prompt-building or snapshot size.
+- `full_diagnostics()`'s `consciousness` dict gained `durable_log_count`
+  — dev-console-only, same Phase G/N ambiguity discipline as
+  `temperament`/the rest of that dict (no main-UI surfacing).
+
+### Verified
+
+- End-to-end engine test: ~30 in-game months with a client returning a
+  uniquely-marked consciousness result each call confirms (1) the
+  in-RAM `consciousness_memory` list stays capped at 16 exactly as
+  before, (2) the durable `consciousness_log` count exceeds 16, (3) the
+  earliest marker note — already evicted from RAM by then — is still
+  retrievable from the durable log (the actual fix, not just a
+  duplicate write), and (4) zero consciousness marker text appears in
+  `recent_events_diverse()`, confirming no leakage into other jobs'
+  prompts.
+- `scripts/verify_native_soak.py` unaffected — no native module touched.
+
 ## [0.86.1] — Module 21: road-wear native port
 
 Continues the R6 "opportunistic pure-math port" queue (Constitution §4:

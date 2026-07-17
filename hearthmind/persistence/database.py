@@ -18,6 +18,26 @@ Three tables:
   from `events` (which is narrative, irregular, and unbounded-ish) so
   research queries never scan the event log. See docs/DECISIONS.md,
   architecture-review implementation pass.
+- `consciousness_log` (v0.86.2, Engineering Constitution §6 "cold
+  information belongs on disk, not permanently in RAM"): the durable,
+  much-larger-than-in-RAM history behind `World.consciousness_memory`/
+  `consciousness_player_model`/`consciousness_objectives`/
+  `consciousness_intervention_log`, which are deliberately tiny
+  (capped 16/6/2/12) for prompt-building and snapshot size — without
+  this table, everything past those caps was silently and permanently
+  forgotten, unlike `Settlement.traditions`/`inventions`/etc., whose
+  full text already survives past their own caps via the `events`
+  table. Deliberately a SEPARATE table from `events` rather than a new
+  `events` category: the consciousness's private inner
+  memory/theories/objectives must never leak into `recent_events`/
+  `recent_events_diverse`, which every other settlement-scoped LLM
+  prompt (chronicle, town_brain, beliefs, ...) reads — the "hidden
+  intelligence... nudging through deniable channels" design (CLAUDE.md)
+  would break if its own private log fed other jobs' prompts. Pruned on
+  the snapshot cadence like `events`/`metrics` (see `Config.
+  consciousness_log_retention`); reachable only via the developer
+  observatory (`event_category_counts`-style query), same Phase G/N
+  dev-console-only discipline as `temperament`/`consciousness` itself.
 """
 from __future__ import annotations
 
@@ -60,6 +80,15 @@ CREATE TABLE IF NOT EXISTS metrics (
     metrics_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_metrics_tick ON metrics (tick);
+
+CREATE TABLE IF NOT EXISTS consciousness_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tick INTEGER NOT NULL,
+    logged_at REAL NOT NULL,
+    kind TEXT NOT NULL,
+    text TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_consciousness_log_kind ON consciousness_log (kind, id);
 """
 
 
