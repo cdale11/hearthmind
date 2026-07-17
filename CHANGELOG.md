@@ -4,6 +4,61 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.85.6] — Whisper routing fix, parallel g++ build, relationship-step native port
+
+Three-part batch: a real bug fix found while investigating a live "I've
+whispered to the town brain many times and it never visibly does
+anything" report, a build-speed request ("make g++ use all available
+threads"), and continued incremental C++ porting per the standing R6
+opportunistic-port queue.
+
+### Fixed
+
+- **Whisper/settlement-nudge routing bug.** `POST /intervene/town-brain`
+  and `POST /intervene/settlement` always applied to the FOUNDING
+  settlement (`world.settlement`) server-side, regardless of which
+  settlement the player had selected in the UI. In a single-settlement
+  world (the common case) this is invisible — but `_maybe_schedule_
+  town_brain`'s round-robin `_job_target()` only reads a given
+  settlement's `player_influence` on that settlement's own turn, so in
+  a post-fission multi-settlement world a whisper aimed at a
+  non-founding settlement could sit queued and unread for many months,
+  reading as "whispering does nothing." Fixed: both endpoints accept an
+  optional `settlement_id` (the whisper form now sends the UI's active
+  settlement); `SimulationEngine._apply_intervention` resolves the
+  target settlement via `_settlement_by_id`, falling back to the
+  founding settlement when omitted (old, still-correct behavior for a
+  single-settlement world). Verified via a direct test: a whisper with
+  `settlement_id` lands on that exact settlement and reaches its
+  `town_brain` prompt; a whisper without `settlement_id` still falls
+  back to the founding settlement; `settlement_resources` respects
+  `settlement_id` the same way.
+
+### Changed
+
+- **Parallel g++ compilation.** `setup.py`'s `BuildExtOptional` now
+  defaults `build_ext`'s stock `--parallel`/`-j` option to `os.cpu_
+  count()` instead of distutils' own default of 1 — a bare `pip install
+  -e .`/`python setup.py build_ext --inplace` (as `scripts/run.sh` runs
+  on every launch) previously compiled this extension's ~20 .cpp files
+  one at a time. Confirmed via a live rebuild: multiple `cc1plus`
+  processes now run concurrently instead of strictly one-at-a-time.
+
+### Added
+
+- **`cpp/src/relationship_step.cpp`** (module 20, continuing the R6
+  opportunistic-port queue): native fast path for the two scalar
+  operations inside `Population._update_relationships` — decay-toward-
+  zero and colocation-gain-capped-at-1.0. Same shape as module 12
+  (`bounded_random_walk.cpp`): the per-agent dict iteration,
+  `itertools.combinations` pairing, and prune-on-reach-zero bookkeeping
+  all stay in Python (variable-size per-agent dicts, not a fit for a
+  flat-array port per the R8 scoping pass); only the per-value
+  arithmetic moves to C++. Optional, pure-Python fallback identical.
+  Verified via a 200,000-case randomized equivalence test (native ==
+  pure-Python exactly, zero mismatches) and `scripts/verify_native_
+  soak.py`'s full-state hash comparison (new toggle entries added).
+
 ## [0.85.5] — Culture digest: an occasional LLM job to summarise accumulated history
 
 Direct follow-up to v0.85.4, per explicit request: "maybe we can cue an

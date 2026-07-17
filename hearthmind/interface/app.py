@@ -204,12 +204,18 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
     @app.post("/intervene/settlement")
     async def intervene_settlement(payload: dict) -> JSONResponse:
         """Nudge the settlement's shared stockpiles by a delta (positive
-        or negative), clamped to capacity/zero by the engine."""
-        broadcaster.enqueue_intervention({
+        or negative), clamped to capacity/zero by the engine. Optional
+        `settlement_id` targets a specific settlement (the UI's active
+        one) in a multi-settlement world; omitted/unknown falls back to
+        the founding settlement, the old single-settlement behavior."""
+        item = {
             "type": "settlement_resources",
             "materials": payload.get("materials", 0.0),
             "currency": payload.get("currency", 0.0),
-        })
+        }
+        if "settlement_id" in payload:
+            item["settlement_id"] = payload["settlement_id"]
+        broadcaster.enqueue_intervention(item)
         return JSONResponse({"queued": True})
 
     @app.post("/intervene/weather")
@@ -224,14 +230,23 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
     @app.post("/intervene/town-brain")
     async def intervene_town_brain(payload: dict) -> JSONResponse:
         """The deliberately subtle player-influence channel: a short
-        text "whisper" folded into the LLM brain's next seasonal
-        civic-priority decision as one input among the real settlement
-        stats/history — not a command it's forced to obey. See
-        docs/DECISIONS.md, "LLM-as-brain batch.\""""
+        text "whisper" folded into the LLM brain's next civic-priority
+        decision as one input among the real settlement stats/history —
+        not a command it's forced to obey. See docs/DECISIONS.md,
+        "LLM-as-brain batch." Optional `settlement_id` targets a
+        specific settlement (the UI's active one); omitted/unknown
+        falls back to the founding settlement — fixes a bug where a
+        whisper submitted while viewing a non-founding settlement always
+        landed on the founding one instead, so it could sit unread for
+        many months in a multi-settlement world (see docs/DECISIONS.md,
+        "whisper routing fix")."""
         text = str(payload.get("text", "")).strip()
         if not text:
             return JSONResponse({"error": "text is required"}, status_code=400)
-        broadcaster.enqueue_intervention({"type": "town_influence", "text": text})
+        item = {"type": "town_influence", "text": text}
+        if "settlement_id" in payload:
+            item["settlement_id"] = payload["settlement_id"]
+        broadcaster.enqueue_intervention(item)
         return JSONResponse({"queued": True})
 
     @app.get("/summary")

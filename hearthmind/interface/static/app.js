@@ -2313,7 +2313,7 @@ if (whisperForm) {
       const res = await fetch("/intervene/town-brain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, settlement_id: activeSettlementId }),
       });
       if (!res.ok) throw new Error(`${res.status}`);
       whisperInput.value = "";

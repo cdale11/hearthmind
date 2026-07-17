@@ -494,6 +494,43 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.85.6)
+
+Three-part batch per explicit user request: fix a live "whispering to
+the town brain never visibly does anything" report, make the g++ build
+use all available cores, and continue incremental C++ porting.
+
+**Found and fixed the whisper bug**: `POST /intervene/town-brain`/
+`POST /intervene/settlement` always wrote to the founding settlement
+server-side, ignoring which settlement the UI had selected —
+invisible with one settlement, but in a post-fission multi-settlement
+world `_maybe_schedule_town_brain`'s round-robin `_job_target()` only
+reads a given settlement's queued whisper on that settlement's own
+turn, so a whisper aimed elsewhere could sit unread for months. Both
+endpoints now accept `settlement_id` (the whisper form sends the UI's
+active settlement); `_apply_intervention` resolves the target via
+`_settlement_by_id`, falling back to the founding settlement when
+omitted. Note this is a real bug fix, not the whole explanation for
+every report of "whispering does nothing" — town_brain's whisper was
+always designed as "one input among the real stats, not a command"
+(CLAUDE.md, "LLM as the town's brain"), so even with correct routing
+the model may rationally still pick a priority the real stats point
+to; that part is working as designed.
+
+**g++ parallel build**: `setup.py`'s `BuildExtOptional` now defaults
+`build_ext`'s `--parallel` to `os.cpu_count()` — a bare `pip install
+-e .` (what `scripts/run.sh` runs on every launch) previously compiled
+this extension's ~20 .cpp files strictly one at a time. Confirmed via a
+live rebuild showing multiple concurrent `cc1plus` processes.
+
+**Module 20 (R6 opportunistic-port queue continues)**: `cpp/src/
+relationship_step.cpp` — native fast path for `Population._update_
+relationships`'s decay/colocation-gain scalar math, same shape as
+module 12 (`bounded_random_walk.cpp`); dict iteration and pairing stay
+in Python. Verified via 200,000-case randomized equivalence (0
+mismatches) and `scripts/verify_native_soak.py`'s full-state hash
+comparison.
+
 ## Current state (v0.85.5)
 
 Direct follow-up to v0.85.4, per explicit request: "maybe we can cue an

@@ -86,6 +86,10 @@ _NATIVE_TOGGLES = [
     # v0.76.2: Phase I's per-tick emotion decay (cpp/src/emotion_decay.cpp).
     (_agent, "_native_decay_emotions"),
     (_agent, "_NativeEmotionState"),
+    # v0.85.6: relationship decay/colocation-gain scalar math
+    # (cpp/src/relationship_step.cpp).
+    (_population, "_native_relationship_decay_step"),
+    (_population, "_native_relationship_gain_step"),
 ]
 
 

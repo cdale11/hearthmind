@@ -1391,7 +1391,7 @@ class SimulationEngine:
             self.world.population.apply_goal(agent.id, goal, reason)
             self._log("intervention", f"{agent.name} was nudged toward {goal.value} — {reason}")
         elif kind == "settlement_resources":
-            settlement = self.world.settlement
+            settlement = self._settlement_by_id(item.get("settlement_id", self.world.settlement.id))
             materials_delta = float(item.get("materials", 0.0))
             currency_delta = float(item.get("currency", 0.0))
             settlement.materials = max(0.0, min(MATERIALS_CAPACITY, settlement.materials + materials_delta))
@@ -1417,9 +1417,24 @@ class SimulationEngine:
         elif kind == "town_influence":
             text = str(item.get("text", "")).strip()[:200]
             if text:
-                self.world.settlement.player_influence.append(text)
-                self.world.settlement.player_influence = self.world.settlement.player_influence[-3:]
-                self._log("intervention", f"A whisper reached the village's ear: \"{text}\"")
+                # Bug fix (see docs/DECISIONS.md, "whisper routing fix"):
+                # this used to always land on the founding settlement
+                # regardless of which settlement the player had selected
+                # in the UI — in a multi-settlement (post-fission) world,
+                # `_maybe_schedule_town_brain`'s round-robin `_job_target()`
+                # only reads THIS settlement's `player_influence` on its
+                # own turn, so a whisper aimed at any other settlement
+                # could sit unread for many months, reading as "whispering
+                # never does anything." `settlement_id` (sent by the UI's
+                # whisper form as of this fix) targets whichever
+                # settlement is actually selected; missing/unknown falls
+                # back to the founding settlement (old behavior, and the
+                # only settlement that exists in a single-settlement world).
+                target = self._settlement_by_id(item.get("settlement_id", self.world.settlement.id))
+                target.player_influence.append(text)
+                target.player_influence = target.player_influence[-3:]
+                noun = target.name or "the village"
+                self._log("intervention", f"A whisper reached {noun}'s ear: \"{text}\"")
         elif kind == "request_summary":
             self._schedule_summary()
 

@@ -11,6 +11,7 @@ install failure.
 """
 from __future__ import annotations
 
+import os
 import sys
 
 from setuptools import setup
@@ -55,6 +56,7 @@ try:
                 "cpp/src/terrain_grid.cpp",
                 "cpp/src/agent_table.cpp",
                 "cpp/src/emotion_decay.cpp",
+                "cpp/src/relationship_step.cpp",
             ]),
             cxx_std=17,
             extra_compile_args=_EXTRA_COMPILE_ARGS,
@@ -68,7 +70,19 @@ class BuildExtOptional(_build_ext):
     """Same as build_ext, but a compile/link failure (missing compiler,
     missing pybind11 headers, unsupported platform, ...) is downgraded to
     a warning. hearthmind runs in pure Python without this extension —
-    it's a hot-path optimization, never a hard requirement."""
+    it's a hot-path optimization, never a hard requirement.
+
+    Also defaults `build_ext`'s stock `--parallel`/`-j` option to the
+    machine's full core count instead of its own default of 1 — g++
+    otherwise compiles this extension's ~19 .cpp files one at a time on
+    a plain `pip install -e .`. `-j` on the command line (or the
+    `parallel_compile` package_data hook) already lets a caller override
+    this; this only changes the *default* a bare install picks up."""
+
+    def finalize_options(self):
+        super().finalize_options()
+        if self.parallel is None:
+            self.parallel = os.cpu_count()
 
     def run(self):
         try:

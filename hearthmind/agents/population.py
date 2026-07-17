@@ -44,6 +44,18 @@ except ImportError:
     _native_update_needs = None
 
 try:
+    from hearthmind._native import relationship_decay_step as _native_relationship_decay_step
+    from hearthmind._native import relationship_gain_step as _native_relationship_gain_step
+except ImportError:
+    _native_relationship_decay_step = None
+    _native_relationship_gain_step = None
+"""Optional compiled fast path for the two scalar operations inside
+`_update_relationships` (see cpp/src/relationship_step.cpp). The dict
+iteration/`itertools.combinations` pairing/prune-on-reach-zero
+bookkeeping all stay in Python — only the per-value decay/gain
+arithmetic moves. `None` when the extension wasn't built."""
+
+try:
     from hearthmind._native import predator_kill_chance as _native_predator_kill_chance
 except ImportError:
     _native_predator_kill_chance = None
@@ -2499,7 +2511,9 @@ class Population:
             # leak: unpruned relationships" pass.
             for other_id in list(agent.relationships):
                 value = agent.relationships[other_id]
-                if value > 0.0:
+                if _native_relationship_decay_step is not None:
+                    value = _native_relationship_decay_step(value, RELATIONSHIP_DECAY_PER_TICK)
+                elif value > 0.0:
                     value = max(0.0, value - RELATIONSHIP_DECAY_PER_TICK)
                 elif value < 0.0:
                     value = min(0.0, value + RELATIONSHIP_DECAY_PER_TICK)
@@ -2511,12 +2525,20 @@ class Population:
             if len(group) < 2:
                 continue
             for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
-                a.relationships[b.id] = min(
-                    1.0, a.relationships.get(b.id, 0.0) + RELATIONSHIP_GAIN_PER_TICK_COLOCATED
-                )
-                b.relationships[a.id] = min(
-                    1.0, b.relationships.get(a.id, 0.0) + RELATIONSHIP_GAIN_PER_TICK_COLOCATED
-                )
+                if _native_relationship_gain_step is not None:
+                    a.relationships[b.id] = _native_relationship_gain_step(
+                        a.relationships.get(b.id, 0.0), RELATIONSHIP_GAIN_PER_TICK_COLOCATED, 1.0,
+                    )
+                    b.relationships[a.id] = _native_relationship_gain_step(
+                        b.relationships.get(a.id, 0.0), RELATIONSHIP_GAIN_PER_TICK_COLOCATED, 1.0,
+                    )
+                else:
+                    a.relationships[b.id] = min(
+                        1.0, a.relationships.get(b.id, 0.0) + RELATIONSHIP_GAIN_PER_TICK_COLOCATED
+                    )
+                    b.relationships[a.id] = min(
+                        1.0, b.relationships.get(a.id, 0.0) + RELATIONSHIP_GAIN_PER_TICK_COLOCATED
+                    )
 
     @staticmethod
     def _maybe_teach_skills(
