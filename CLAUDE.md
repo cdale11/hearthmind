@@ -520,6 +520,27 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.86.4)
+
+Direct extension of v0.86.3, per explicit user request to keep pushing
+engineered emergent learning further ("do both [belief/secret durable
+logging and C++/LLM-efficiency work] in parallel"). `agent_memory_log`
+gained `kind="belief"` (every personal belief ever formed/revised,
+logged unconditionally in `_maybe_schedule_personal_belief`'s apply())
+and `kind="secret"` (every secret ever held, logged at both write sites
+— the Reflect()-authored one and the dispute-feud-planted one in
+`_maybe_schedule_dispute`). NPC inspector's memory-log labels distinguish
+these from generic "memory" now. Verified via a direct engine test that
+exercises the real `_maybe_schedule_personal_belief`/`_maybe_schedule_
+dispute` methods (not a re-implementation) — 3 belief calls durably log
+3 beliefs + 3 secrets with correct text; a real feud (rivalry-seeded
+pair) durably logs the correct resentment secret. Native soak
+byte-identical.
+
+A parallel background agent worked C++ porting (R6 queue) + LLM-call
+efficiency (§4/§7) concurrently in an isolated worktree — see its own
+commits/CHANGELOG entries for what it shipped.
+
 ## Current state (v0.86.3)
 
 Explicit user directive, highest priority: **engineered emergent

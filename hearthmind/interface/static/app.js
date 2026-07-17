@@ -1738,8 +1738,9 @@ function renderMemoryLogSection(agentId) {
   if (!entries.length) {
     return `<div class="muted">nothing preserved on disk yet — a fuller history accumulates as their life goes on</div>`;
   }
+  const memoryLogLabels = { semantic: "self-theory", belief: "private belief", secret: "secret" };
   const items = entries.map((e) => {
-    const label = e.kind === "semantic" ? "self-theory" : "memory";
+    const label = memoryLogLabels[e.kind] || "memory";
     return `<li><span class="muted">[${label}, tick ${e.tick}]</span> ${e.text}</li>`;
   }).join("");
   return `

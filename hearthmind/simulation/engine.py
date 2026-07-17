@@ -2569,6 +2569,18 @@ class SimulationEngine:
                 if len(target.beliefs) > beliefs.MAX_PERSONAL_BELIEFS:
                     weakest = min(target.beliefs, key=lambda b: b["confidence"])
                     target.beliefs.remove(weakest)
+            # Durable record of every private belief this agent has ever
+            # formed or revised (v0.86.4, Constitution §6) — unlike
+            # Settlement.beliefs (already durably logged via `_log`'s
+            # "belief_formed"/"belief_revised" events on every formation,
+            # since it's a settlement-scoped job), a personal belief past
+            # MAX_PERSONAL_BELIEFS was previously evicted (weakest
+            # confidence) with no record anywhere. Logged unconditionally
+            # (not gated on `revises is None`) so a revision's new text
+            # is preserved too, not just the original.
+            log_agent_memory_entry(
+                self.conn, tick, target.id, "belief", f"(re: {parsed['subject']}) {parsed['belief']}",
+            )
             semantic_text = beliefs.parse_semantic_memory(result, fallback)
             beliefs.push_semantic_memory(target, semantic_text)
             if semantic_text:
@@ -2591,6 +2603,12 @@ class SimulationEngine:
                 secret_text = beliefs.parse_secret(result)
                 if secret_text:
                     push_secret(target, secret_text)
+                    # Durable record (v0.86.4, Constitution §6) — secrets
+                    # are FIFO-evicted at MAX_SECRETS=2, a very small
+                    # cap given how rarely one is planted at all; without
+                    # this, an agent's earlier secret vanishes the moment
+                    # a second one displaces it.
+                    log_agent_memory_entry(self.conn, tick, target.id, "secret", secret_text)
 
         self._schedule_llm_job("personal_belief", prompt, beliefs.PERSONAL_SYSTEM_PROMPT, fallback, apply, critical=True)
 
@@ -2935,10 +2953,15 @@ class SimulationEngine:
             if outcome == "feud":
                 core = self.world.population.core_agent_ids
                 a, b = applied[0], applied[1]
+                tick = self.world.clock.tick_count
                 if a.id in core:
-                    push_secret(a, f"I still resent {b.name} for what happened between us.")
+                    text = f"I still resent {b.name} for what happened between us."
+                    push_secret(a, text)
+                    log_agent_memory_entry(self.conn, tick, a.id, "secret", text)  # v0.86.4, Constitution §6
                 if b.id in core:
-                    push_secret(b, f"I still resent {a.name} for what happened between us.")
+                    text = f"I still resent {a.name} for what happened between us."
+                    push_secret(b, text)
+                    log_agent_memory_entry(self.conn, tick, b.id, "secret", text)
 
         self._schedule_llm_job("dispute", prompt, dispute.SYSTEM_PROMPT, fallback, apply)
 

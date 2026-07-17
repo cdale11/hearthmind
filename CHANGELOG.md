@@ -4,6 +4,43 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.86.4] — Durable belief + secret history (extends v0.86.3)
+
+Direct extension of v0.86.3's `agent_memory_log`, per explicit user
+request to keep pushing engineered emergent learning further. Two more
+gaps closed:
+
+### Added
+
+- **`kind="belief"` rows**: every private belief `Agent.beliefs` has
+  ever formed OR revised (logged unconditionally in `_maybe_schedule_
+  personal_belief`'s `apply()`, not gated on whether it was a new entry
+  vs. a revision) — the personal counterpart to `Settlement.beliefs`,
+  which was already durably logged via `_log`'s "belief_formed"/
+  "belief_revised" events since it's a settlement-scoped job. A personal
+  belief past `MAX_PERSONAL_BELIEFS` (weakest-confidence eviction) was
+  previously lost with zero record anywhere.
+- **`kind="secret"` rows**: every secret `Agent.secrets` has ever held,
+  at both write sites — the Reflect()-authored secret in `_maybe_
+  schedule_personal_belief`, and the deterministic dispute-feud-planted
+  secret in `_maybe_schedule_dispute`. `MAX_SECRETS=2` is a very small
+  FIFO cap, so a secret was easily displaced by a second one with no
+  trace.
+- Frontend: the NPC inspector's "Full life history" section now labels
+  these kinds distinctly ("private belief", "secret") instead of
+  falling back to the generic "memory" label.
+
+### Verified
+
+- Direct engine test exercising the REAL `_maybe_schedule_personal_
+  belief` and `_maybe_schedule_dispute` methods (not a re-implementation
+  of their logic): 3 belief-job calls durably log exactly 3 belief rows
+  and 3 secret rows with the correct marker text; a real feud outcome
+  (agents seeded with a mutually deeply-soured relationship so `due_
+  for_dispute` selects them) durably logs the correct resentment text.
+- Native soak (2 seeds x 800 ticks) byte-identical — no native module
+  touched.
+
 ## [0.86.3] — Emergent per-agent + town learning, disk-backed, main-UI visible
 
 Direct response to explicit user direction: highest priority is

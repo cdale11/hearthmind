@@ -47,7 +47,14 @@ Three tables:
   deliberately excluded to keep volume bounded to genuinely memorable
   moments, not noise. `kind="semantic"` rows are every distilled
   self-theory `Agent.semantic_memories` has ever held (capped at 3 in
-  RAM), giving a full "how this person's understanding of themselves
+  RAM). `kind="belief"` rows (v0.86.4) are every private belief `Agent.
+  beliefs` has ever formed or revised (capped at `MAX_PERSONAL_BELIEFS`,
+  weakest-confidence eviction) — the personal counterpart to
+  `Settlement.beliefs`, which was already durably logged via `_log`'s
+  "belief_formed"/"belief_revised" events since it's settlement-scoped.
+  `kind="secret"` rows (v0.86.4) are every secret `Agent.secrets` has
+  ever held (FIFO-evicted at the very small `MAX_SECRETS=2`). Together
+  these give a full "how this person's understanding of themselves
   evolved" arc on disk. This is the concrete "the world should appear
   to learn continuously... visible to the observer" mechanism: an NPC's
   full life history/self-understanding survives past its RAM caps and
