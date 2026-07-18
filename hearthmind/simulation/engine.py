@@ -1604,10 +1604,15 @@ class SimulationEngine:
                 other = self._settlement_by_id(agent_b.settlement_id)
                 other_settlement_name = other.name
                 cross_relation = local.relation_with(other.id)
+            lessons = (
+                self._matching_lesson(agent_a, self._current_situation_tag(agent_a)),
+                self._matching_lesson(agent_b, self._current_situation_tag(agent_b)),
+            )
             prompt = dialogue.build_prompt(
                 agent_a, agent_b, affinity, local.name, latest_tradition,
                 self.world.clock.season, self.world.weather.describe(), beliefs_about=beliefs_about,
                 other_settlement_name=other_settlement_name, cross_settlement_relation=cross_relation,
+                lessons=lessons,
             )
             fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
             self._reserved_this_tick += 1

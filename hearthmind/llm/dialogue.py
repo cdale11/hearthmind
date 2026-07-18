@@ -85,7 +85,13 @@ def build_prompt(
     agent_a: Agent, agent_b: Agent, affinity: float, settlement_name: str,
     latest_tradition: str, season: str, weather: str, beliefs_about: list[str] | None = None,
     other_settlement_name: str = "", cross_settlement_relation: float | None = None,
+    lessons: tuple[str, str] = ("", ""),
 ) -> str:
+    """`lessons` (v0.87.0): `(agent_a's matching lesson, agent_b's
+    matching lesson)`, each "" when no stored lesson matches that
+    speaker's current situation — computed at the call site via
+    `SimulationEngine._current_situation_tag`/`_matching_lesson`, the
+    same helpers `cognition.build_prompt` already uses."""
     is_parent_child = (
         (agent_a.parents is not None and agent_b.id in agent_a.parents)
         or (agent_b.parents is not None and agent_a.id in agent_b.parents)
@@ -144,8 +150,9 @@ def build_prompt(
     semantic_bits = []
     secret_bits = []
     mind_bits = []
-    for agent, label, other in (
-        (agent_a, agent_a.name, agent_b), (agent_b, agent_b.name, agent_a),
+    lesson_bits = []
+    for agent, label, other, lesson in (
+        (agent_a, agent_a.name, agent_b, lessons[0]), (agent_b, agent_b.name, agent_a, lessons[1]),
     ):
         recent = agent.memories[-DIALOGUE_MEMORY_IN_PROMPT:]
         if recent:
@@ -167,11 +174,19 @@ def build_prompt(
         # everyone else, so this is a no-op for a non-core exchange).
         if agent.mind:
             mind_bits.append(f"{label}, at their core: {agent.mind}")
+        # Lessons (v0.87.0, "learns like a human"): the one stored lesson
+        # (if any) matching THIS speaker's current situation — see
+        # Agent.lessons/SimulationEngine._current_situation_tag. Same
+        # "smarter recall" treatment cognition.build_prompt already gets;
+        # dialogue previously never read this layer at all.
+        if lesson:
+            lesson_bits.append(f"{label} has learned: {lesson}")
     memory_text = f" {'. '.join(memory_bits)}." if memory_bits else ""
     just_now_text = f" {'. '.join(just_now_bits)}." if just_now_bits else ""
     semantic_text = f" {'. '.join(semantic_bits)}." if semantic_bits else ""
     secret_text = f" {'. '.join(secret_bits)}." if secret_bits else ""
     mind_text = f" {'. '.join(mind_bits)}." if mind_bits else ""
+    lesson_text = f" {'. '.join(lesson_bits)}." if lesson_bits else ""
 
     def _activity(agent: Agent) -> str:
         # Grounds "currently X" in *why* when cognition set a reason
@@ -191,7 +206,7 @@ def build_prompt(
         f"{agent_b.hunger:.2f}, energy {agent_b.energy:.2f}, currently {_activity(agent_b)}). "
         f"They are {tie}. It is {season}, weather: {weather}."
         f"{culture}{beliefs_text}{personality_text}{emotion_text}{memory_text}{just_now_text}"
-        f"{semantic_text}{secret_text}{mind_text} "
+        f"{semantic_text}{secret_text}{mind_text}{lesson_text} "
         "Write their brief exchange."
     )
 

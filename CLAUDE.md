@@ -520,6 +520,28 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.87.1)
+
+Direct follow-up per explicit user direction: highest-priority
+deferred item from `docs/VISION-2026-07-LEARNING.md` first (dialogue
+consumption of lessons — `dialogue.build_prompt` now reads each
+speaker's situation-matched lesson via the same `_current_situation_
+tag`/`_matching_lesson` helpers cognition already used, zero added
+call volume), plus a fresh RAM-to-disk audit specifically for LLM-
+related memory growth. Audit found nothing new to move: `Agent.
+lessons`/`Settlement.pattern_signal_counts` are tiny fixed caps that
+exist to be read on every relevant prompt build (moving to disk-on-
+demand would add a SQLite round-trip to the hottest per-tick code
+paths for no real RAM benefit), and `Settlement.records`/`memorials`
+were confirmed to already have durable backing beyond their caps
+(`record_written`/`death` events) — the one genuinely un-backed detail
+(exact memorial grave-marker position past `MEMORIALS_MAX_STORED`) is
+intentional map-decoration fading, not a gap. Real LLM memory growth
+continues to be addressed at the llama-server-process level
+(`LLAMA_RESTART_HOURS`, v0.86.9) per this project's whole standing
+history that Python-side RAM has never been the actual source.
+`scripts/verify_native_soak.py` byte-identical.
+
 ## Current state (v0.87.0)
 
 Explicit user directive, highest priority: push "the LLM learns like a

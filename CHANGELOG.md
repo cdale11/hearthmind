@@ -4,6 +4,58 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.1] — Dialogue reads lessons too + a fresh RAM-to-disk audit
+
+Direct follow-up to v0.87.0, per explicit user direction: implement
+the highest-priority deferred item from `docs/VISION-2026-07-LEARNING.
+md` (dialogue consumption of lessons), and re-audit for any RAM state
+that could move to disk-backed on-demand retrieval to curb LLM-related
+memory growth.
+
+**Dialogue lessons** (`llm/dialogue.py`, `simulation/engine.py`):
+`dialogue.build_prompt` gained a `lessons: tuple[str, str]` parameter
+— each speaker's one lesson (if any) matching their current situation,
+folded in with the same per-agent loop shape memory/emotion/mind/
+secret bits already use. `_schedule_due_dialogue` computes both via
+the existing `_current_situation_tag`/`_matching_lesson` helpers
+(unchanged, already built for cognition in v0.87.0) — zero new state,
+zero added LLM call volume, purely a prompt-input extension. Closes
+item 1 of `docs/VISION-2026-07-LEARNING.md`'s deferred list.
+
+**RAM-to-disk audit (no code changes resulted — see rationale below)**:
+re-checked every candidate structure this project keeps in memory,
+specifically the state added since the last full audit (v0.86.9):
+`Agent.lessons` (cap 4), `Settlement.pattern_signal_counts` (2 keys),
+the `memory_drift` job's own transient prompt state. All are already
+either (a) tiny fixed-size caps that exist specifically to be read on
+every relevant prompt-build (moving them to disk would add a SQLite
+round-trip to the hottest code paths — per-tick cognition/dialogue
+scheduling — for zero real memory benefit, since the RAM cost of a
+4-entry list of short strings times population is negligible), or (b)
+already durably logged in full via existing mechanisms (`agent_memory_
+log`'s new `lesson`/`episodic_drifted` kinds, `events` table). Also
+re-confirmed two longstanding capped lists (`Settlement.records`/
+`memorials`) already have durable backing: every record's full text is
+logged via the `record_written` event on write (`_apply_record`), and
+every memorial's underlying death is logged via the `death` life
+event — only the map-decoration detail (exact grave-marker position)
+fades past `MEMORIALS_MAX_STORED=150`, which is intentional ("history
+becomes physically visible... over the long run," not "every death
+ever must remain visibly marked forever").
+
+**Where real LLM memory growth is actually addressed**: this project's
+whole history on this topic (see CLAUDE.md's "Diagnostic history
+index") is that Python-side RAM has never been the source — it's
+llama-server's own process heap over long real-time uptimes, fixed in
+v0.86.9 via `LLAMA_RESTART_HOURS`. This pass found nothing to add to
+that; the Python side remains genuinely bounded.
+
+Verified: a real `_schedule_due_dialogue`/direct `dialogue.build_
+prompt` call confirms a stored lesson matching a speaker's current
+situation reaches the built prompt text, and the non-matching speaker
+correctly gets no lesson line; `scripts/verify_native_soak.py` (2 seed
+runs) byte-identical.
+
 ## [0.87.0] — "Learns like a human": lessons, memory drift, trait consequences, pattern-beliefs, consciousness trend
 
 Explicit user directive: push emergent, persistent, disk-backed

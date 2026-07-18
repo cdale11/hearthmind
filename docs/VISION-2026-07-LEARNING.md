@@ -56,16 +56,23 @@ adding parallel ones, "maximize emergence per LLM call."
   `lesson`/`episodic_drifted` memory-log kind labels in "Full life
   history."
 
-## Deferred to a future increment (explicitly scoped out of v0.87.0)
+## Shipped in v0.87.1
 
-Ordered roughly by how directly it extends what just shipped:
+1. **Dialogue consumption of lessons** — `dialogue.build_prompt` now
+   reads each speaker's situation-matched lesson too, via the same
+   `_current_situation_tag`/`_matching_lesson` machinery `cognition.
+   build_prompt` already used, threaded through `_schedule_due_
+   dialogue`. Zero added call volume. Also included: a fresh audit for
+   RAM state that could move to disk-on-demand to curb LLM-related
+   memory growth — found nothing new to move (see CHANGELOG.md
+   v0.87.1 for the full rationale); `Settlement.records`/`memorials`
+   confirmed to already have durable backing beyond their in-RAM caps.
 
-1. **Dialogue consumption of lessons.** `cognition.build_prompt` now
-   reads the matching lesson; `dialogue.build_prompt` does not yet —
-   natural next step, same `_current_situation_tag`/`_matching_lesson`
-   machinery, just threaded through the dialogue call site too
-   (`_schedule_due_dialogue`/`_run_dialogue`).
-2. **Non-core-cast population-wide LESSONS/memory-drift** (as opposed
+## Deferred to a future increment (explicitly scoped out of v0.87.0/.1)
+
+Ordered roughly by how directly it extends what's shipped so far:
+
+1. **Non-core-cast population-wide LESSONS/memory-drift** (as opposed
    to the trait-nudge/skill-mastery mechanics, which already are
    population-wide since they're deterministic). Extending the LLM-
    authored `lessons`/memory-drift jobs beyond the core cast would
@@ -73,25 +80,25 @@ Ordered roughly by how directly it extends what just shipped:
    core-cast-gated" rule (CLAUDE.md) without an explicit override — a
    genuinely non-LLM, template-based lesson-formation path for the
    wider population is the shape this would need to take if pursued.
-3. **Smarter recall via real semantic similarity**, not the fixed
+2. **Smarter recall via real semantic similarity**, not the fixed
    5-tag `LESSON_SITUATIONS` vocabulary. An embedding-based retrieval
    layer (or even a cheap TF-IDF-style keyword overlap) would let a
    lesson/memory match a much wider range of "similar situations" than
    the five hardcoded tags — deliberately not attempted this pass
    (no vector DB/embeddings dependency exists in this project yet;
    adding one is a real new-dependency decision, not a small extension).
-4. **Cross-generational lesson inheritance.** H7 (inheritance on death)
+3. **Cross-generational lesson inheritance.** H7 (inheritance on death)
    already transfers land/goods/a skill bias to an heir — lessons
    aren't part of that transfer yet. "A parent's hard-won lesson passed
    down, imperfectly" is a natural, human, and currently-unbuilt piece.
-5. **Deeper settlement pattern-recognition.** v0.87.0's settlement
+4. **Deeper settlement pattern-recognition.** v0.87.0's settlement
    pattern-belief candidates cover exactly two patterns (feuds,
    starvation deaths) as a first slice — the same mechanism generalizes
    to any repeated event-category count (recurring disease outbreaks,
    repeated wildlife recolonization near one site, a run of successful
    festivals) if the settlement-scoped counters prove useful in
    practice.
-6. **Richer Town Consciousness narrative modeling.** v0.87.0 adds one
+5. **Richer Town Consciousness narrative modeling.** v0.87.0 adds one
    deterministic trend line (intervention frequency); the vision doc's
    fuller ambition (a longer-running theory of the player's actual
    *intentions*, not just their intervention rate) is a bigger, more
@@ -99,13 +106,13 @@ Ordered roughly by how directly it extends what just shipped:
    `player_model` entries already partially cover this, so the concrete
    next step (if wanted) is likely "read `player_model` back into the
    trend line" rather than a wholly new mechanism.
-7. **Gradual forgetting as a genuinely continuous fade**, not just the
+6. **Gradual forgetting as a genuinely continuous fade**, not just the
    existing salience-based hard eviction + the new occasional LLM-
    authored drift. A middle ground (a memory's salience decaying slowly
    over real elapsed time even without eviction, subtly changing how
    it's phrased when read back into a prompt) is a bigger mechanical
    change than this batch's scope.
-8. **Skill mastery narrated by the LLM**, not a deterministic
+7. **Skill mastery narrated by the LLM**, not a deterministic
    templated sentence. v0.87.0 keeps mastery narration zero-cost/
    deterministic (`"Became a master of X after years of practice"`); an
    LLM-authored version ("got better at healing after losing a
