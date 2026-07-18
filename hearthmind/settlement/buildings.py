@@ -297,6 +297,17 @@ a pattern. Deliberately small: this is free (no LLM call), so there's
 no call-budget reason to make it rare; it just needs to not fire on a
 single lucky festival."""
 
+PATTERN_SIGNAL_BELIEF_THRESHOLD = 3
+"""Same "one or two is coincidence, three is a pattern" bar as
+RITUAL_PROMOTION_THRESHOLD above, for `SettlementCulture.pattern_
+signal_counts` — once a settlement's running `dispute_feud`/
+`starvation_death` count reaches this, `SimulationEngine._maybe_
+schedule_beliefs` folds one extra plain-language "pattern noticed"
+sentence into the belief-forming prompt and resets that count (same
+consume-and-reset discipline `ritual_signal_counts` already uses), so
+the LLM gets a chance to notice and name a recurring hardship instead
+of only ever reacting to the single most-recent event."""
+
 RITUAL_MAX_STORED = 12
 """Cap on `SettlementCulture.rituals` — a village's genuinely distinct
 recurring practices are meant to read as a short, curated list (there
@@ -1594,6 +1605,19 @@ class SettlementCulture:
     `rituals` above — NOT itself surfaced as "the village's culture" (a
     count of 1 or 2 isn't a ritual yet). Cleared for a pattern once it's
     promoted, so a pattern can't re-promote a duplicate entry."""
+    pattern_signal_counts: dict = field(default_factory=dict)
+    """"the LLM (and the town) learns like a human" batch: `dispute_
+    feud`/`starvation_death` running occurrence counts, same shape and
+    discipline as `ritual_signal_counts` above (accumulate, threshold-
+    check, consume-and-reset — never itself surfaced directly). Read by
+    `SimulationEngine._maybe_schedule_beliefs` to fold one extra
+    deterministic, zero-LLM-cost "pattern noticed" grounding sentence
+    into the belief-forming prompt once a count crosses `PATTERN_
+    SIGNAL_BELIEF_THRESHOLD` — gives the settlement-wide belief job a
+    chance to notice and name a *recurring* hardship (several bitter
+    feuds, several starvation deaths) rather than only ever reacting to
+    whichever single event happens to be freshest in the recency-sliced
+    event window."""
     religion: dict | None = None
     """Phase M: `{"name": str, "tenets": list[str], "formed_tick": int,
     "schism_of": int | None}` once `_maybe_schedule_religion` (seasonal,
@@ -1718,6 +1742,7 @@ class Settlement:
         rituals: list[dict] | None = None, ritual_signal_counts: dict | None = None,
         religion: dict | None = None, narrative_themes: list[dict] | None = None,
         omen_seed: str = "", dream_seed: str = "",
+        pattern_signal_counts: dict | None = None,
     ):
         self.id = id
         """Stable settlement identity (multi-settlement pass, v0.65.0):
@@ -1766,6 +1791,7 @@ class Settlement:
             next_institution_id=next_institution_id,
             rituals=rituals if rituals is not None else [],
             ritual_signal_counts=ritual_signal_counts if ritual_signal_counts is not None else {},
+            pattern_signal_counts=pattern_signal_counts if pattern_signal_counts is not None else {},
             religion=religion,
             narrative_themes=narrative_themes if narrative_themes is not None else [],
         )
@@ -2031,6 +2057,14 @@ class Settlement:
     @ritual_signal_counts.setter
     def ritual_signal_counts(self, value: dict) -> None:
         self.culture.ritual_signal_counts = value
+
+    @property
+    def pattern_signal_counts(self) -> dict:
+        return self.culture.pattern_signal_counts
+
+    @pattern_signal_counts.setter
+    def pattern_signal_counts(self, value: dict) -> None:
+        self.culture.pattern_signal_counts = value
 
     @property
     def religion(self) -> dict | None:
@@ -2623,6 +2657,7 @@ class Settlement:
             "records": list(self.records),
             "rituals": list(self.rituals),
             "ritual_signal_counts": dict(self.ritual_signal_counts),
+            "pattern_signal_counts": dict(self.pattern_signal_counts),
             "religion": dict(self.religion) if self.religion is not None else None,
             "narrative_themes": list(self.narrative_themes),
             "omen_seed": self.omen_seed,
@@ -2678,6 +2713,7 @@ class Settlement:
             center_x=data.get("center_x", -1), center_y=data.get("center_y", -1),
             rituals=list(data.get("rituals", [])),
             ritual_signal_counts=dict(data.get("ritual_signal_counts", {})),
+            pattern_signal_counts=dict(data.get("pattern_signal_counts", {})),
             religion=dict(data["religion"]) if data.get("religion") is not None else None,
             narrative_themes=list(data.get("narrative_themes", [])),
             omen_seed=data.get("omen_seed", ""),

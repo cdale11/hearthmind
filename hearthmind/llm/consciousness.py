@@ -71,6 +71,7 @@ def build_prompt(
     settlement_name: str, personality: dict, memory: list[dict], objectives: list[dict],
     player_model: list[dict], mood: dict, temperament: float, narrative_theme: str,
     player_standing: float, recent_events: list[dict], recent_interventions: list[dict],
+    player_intervention_trend: str = "",
 ) -> str:
     personality_text = ", ".join(f"{k} {v:.2f}" for k, v in personality.items()) or "not yet settled"
     memory_text = "; ".join(m["note"] for m in memory[-6:]) or "Nothing remembered yet."
@@ -83,6 +84,15 @@ def build_prompt(
         or "Nothing done recently."
     )
     theme_line = f"\nThe recent theme of this place's life: {narrative_theme}." if narrative_theme else ""
+    # "the LLM (and the town) learns like a human" batch: a rough read on
+    # whether the outside hand has been reaching in more or less lately,
+    # distinct from player_standing's warm/cold *feeling* about it — this
+    # is a plain frequency trend, folded in only when there's enough
+    # history to say anything (see SimulationEngine._player_intervention_
+    # trend). Dev-console/raw-state only, same Phase G ambiguity
+    # discipline as everything else this prompt reads.
+    trend_line = f"\nHow often you've been nudged from outside lately: {player_intervention_trend}." \
+        if player_intervention_trend else ""
     return (
         f"You have been watching {settlement_name} for a long time. Your own settled nature: "
         f"{personality_text}.\n"
@@ -90,7 +100,7 @@ def build_prompt(
         f"Your current preoccupations: {objectives_text}\n"
         f"Your private read on the outside hand: {player_model_text}\n"
         f"How you currently feel about being nudged from outside at all: {player_standing:+.2f} "
-        "(-1 resentful, +1 grateful).\n"
+        f"(-1 resentful, +1 grateful).{trend_line}\n"
         f"This place's own temperament right now: {temperament:+.2f}, mood: {mood_text}.{theme_line}\n"
         f"What you've quietly done before: {interventions_text}\n"
         f"What's happened lately:\n{events_text}\n"

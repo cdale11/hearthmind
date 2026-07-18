@@ -159,6 +159,8 @@ from hearthmind.agents.agent import (
     TRAIT_AMBITION_FOUNDING_NUDGE,
     TRAIT_AMBITION_MASTERY_NUDGE,
     TRAIT_GRIEF_NUDGE,
+    TRAIT_RECONCILE_NUDGE,
+    TRAIT_RECOVERY_RESILIENCE_NUDGE,
     TRAIT_MEAN_REVERSION,
     TRAIT_NOTABLE_THRESHOLD,
     TRAIT_OPENNESS,
@@ -1407,7 +1409,7 @@ class Population:
                 self.last_triggered_agent_ids.add(agent.id)
             if critically_hungry and agent.state is AgentState.RESTING:
                 agent.state = AgentState.AWAKE  # emergency wake: starving beats sleeping
-            self._maybe_forage(agent, resources, farms, settlements, wildlife)  # can eat while resting, not just awake
+            self._maybe_forage(agent, resources, farms, settlements, wildlife, life_events)  # can eat while resting, not just awake
             if self._maybe_gather(agent, terrain, home, resources):
                 any_gather_occurred = True
             if agent.hunger >= STARVATION_HUNGER_THRESHOLD:
@@ -1744,6 +1746,10 @@ class Population:
                 agent.sick_ticks = 0
                 agent.immune_ticks = IMMUNITY_DURATION_TICKS
                 life_events.append(("recovery", f"{agent.name} has recovered from illness."))
+                # H6 extension: surviving a bout of illness is a hardship
+                # weathered, not just an emotional event — the missing
+                # positive counterpart to TRAIT_SUSTAINED_HUNGER_NUDGE.
+                _nudge_trait(agent, TRAIT_RESILIENCE, TRAIT_RECOVERY_RESILIENCE_NUDGE)
         for group in by_position.values():
             if len(group) < 2:
                 continue
@@ -1764,7 +1770,7 @@ class Population:
     @staticmethod
     def _maybe_forage(
         agent: Agent, resources: ResourceGrid, farms: FarmGrid, settlements: list[Settlement],
-        wildlife: WildlifeGrid,
+        wildlife: WildlifeGrid, life_events: "list[tuple[str, str]] | None" = None,
     ) -> None:
         if agent.hunger < FORAGE_HUNGER_THRESHOLD:
             return
@@ -1800,6 +1806,9 @@ class Population:
                     # H6 extension: first time this skill reaches mastery —
                     # a tangible achievement, not routine practice.
                     _nudge_trait(agent, TRAIT_AMBITION, TRAIT_AMBITION_MASTERY_NUDGE)
+                    _remember(agent, "Became a master of farming after years of practice.")
+                    if life_events is not None:
+                        life_events.append(("skill_mastered", f"{agent.name} became a true master of farming."))
                 return
 
         # A stocked granary, pasture, or hatchery is preferred over wild
@@ -3327,6 +3336,8 @@ class Population:
                 a.skills[SKILL_CONSTRUCTION] = after
                 if before < MASTERY_THRESHOLD <= after:
                     _nudge_trait(a, TRAIT_AMBITION, TRAIT_AMBITION_MASTERY_NUDGE)
+                    _remember(a, "Became a master of construction after years of practice.")
+                    life_events.append(("skill_mastered", f"{a.name} became a true master of construction."))
             if building.progress >= 1.0:
                 building.stage = BuildingStage.STANDING
                 building.condition = 1.0
@@ -4689,7 +4700,11 @@ class Population:
                 me.relationships[them.id] = DISPUTE_RECONCILE_RELATIONSHIP
                 me.trust[them.id] = clamp(me.trust.get(them.id, 0.0) + DISPUTE_TRUST_DELTA, -1.0, 1.0)
                 _remember(me, f"{them.name} and I made peace after our long feud.")
-                _nudge_trait(me, TRAIT_SOCIABILITY, TRAIT_SOCIAL_CONTACT_NUDGE)
+                # H6 extension: trusting someone again after a real feud and
+                # being right about it teaches you to keep trusting — a
+                # dedicated, slightly larger nudge than the routine trade-
+                # contact one. See TRAIT_RECONCILE_NUDGE.
+                _nudge_trait(me, TRAIT_SOCIABILITY, TRAIT_RECONCILE_NUDGE)
                 bump_emotion(me, EMOTION_JOY, EMOTION_RECONCILE_JOY_BUMP)
         elif outcome == "council_ruling":
             for me, them in pairs:

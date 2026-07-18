@@ -93,6 +93,7 @@ from hearthmind.settlement.buildings import (
     HUT_CAPACITY,
     NARRATIVE_THEMES_MAX_STORED,
     RITUAL_MAX_STORED,
+    PATTERN_SIGNAL_BELIEF_THRESHOLD,
     RITUAL_PROMOTION_THRESHOLD,
     SHRINE_OMEN_CHANCE_MULTIPLIER,
     TEMPERAMENT_INVENTION_INFLUENCE,
@@ -2019,6 +2020,15 @@ class SimulationEngine:
         below is the one place accumulated rituals get spent on a real
         model read."""
         had_death = any(category == "death" for category, _ in self.world.last_life_events)
+        # "the LLM (and the town) learns like a human" batch: same
+        # settlement-agnostic looseness as `had_death` above — a
+        # starvation death this tick counts against every named
+        # settlement's `pattern_signal_counts`, feeding
+        # `_maybe_schedule_beliefs`'s "pattern noticed" grounding line.
+        had_starvation_death = any(
+            category == "death" and "starvation" in description
+            for category, description in self.world.last_life_events
+        )
         for stl in self.world.settlements:
             if not stl.name:
                 continue
@@ -2026,6 +2036,9 @@ class SimulationEngine:
                 b.kind is BuildingKind.SHRINE and b.stage is BuildingStage.STANDING for b in stl.buildings
             ):
                 stl.ritual_signal_counts["shrine_mourning"] = stl.ritual_signal_counts.get("shrine_mourning", 0) + 1
+            if had_starvation_death:
+                counts = stl.pattern_signal_counts
+                counts["starvation_death"] = counts.get("starvation_death", 0) + 1
             self._maybe_promote_ritual(stl)
 
     def _maybe_promote_ritual(self, stl: "Settlement") -> None:
@@ -2193,6 +2206,37 @@ class SimulationEngine:
 
     # --- Phase N: Town Consciousness v2 ---------------------------------------
 
+    def _player_intervention_trend(self, window_days: int = 90) -> str:
+        """"the LLM (and the town) learns like a human" batch: a rough
+        increasing/decreasing/steady read on how often `/intervene/*`
+        has fired lately, from `World.consciousness_intervention_log`
+        (`{"kind", "detail", "tick"}` dicts — every logged intervention,
+        "none" included, counts as a real outside touch here, unlike
+        `interventions_text` in llm/consciousness.py's own prompt, which
+        deliberately skips "none" entries since those have nothing to
+        narrate). Compares the count in the most recent `window_days`
+        against the `window_days` before that — a plain frequency trend,
+        distinct from `player_standing`'s warm/cold *feeling* about it.
+        Returns "" (folded into nothing) until there's at least one full
+        window of history to compare, so an early-game world doesn't get
+        a meaningless read off a handful of data points. Dev-console/
+        raw-state only — Phase G ambiguity discipline (see CLAUDE.md)
+        keeps this out of the main UI, same as temperament/mood/player_
+        standing."""
+        log = self.world.consciousness_intervention_log
+        if not log:
+            return ""
+        ticks_per_day = self.world.config.minutes_per_day // self.world.config.sim_minutes_per_tick
+        window_ticks = window_days * ticks_per_day
+        now = self.world.clock.tick_count
+        if now < window_ticks * 2:
+            return ""
+        recent_count = sum(1 for e in log if now - window_ticks <= e.get("tick", 0) < now)
+        prior_count = sum(1 for e in log if now - window_ticks * 2 <= e.get("tick", 0) < now - window_ticks)
+        if recent_count == prior_count:
+            return "steady"
+        return "increasing" if recent_count > prior_count else "decreasing"
+
     def _maybe_schedule_consciousness(self, events: list[str]) -> None:
         """Monthly, one call, world-scoped (tied to the founding
         settlement, not round-robin — there is one consciousness, not
@@ -2218,6 +2262,7 @@ class SimulationEngine:
             self.world.consciousness_objectives, self.world.consciousness_player_model,
             dict(target.mood), target.temperament, self._narrative_theme_bias(target),
             target.player_standing, recent, self.world.consciousness_intervention_log,
+            self._player_intervention_trend(),
         )
         fallback = consciousness.fallback_consciousness()
 
@@ -2504,8 +2549,28 @@ class SimulationEngine:
         recent = recent_events_diverse(self.conn, limit=30)
         population_summary = self.world.population.summary()
         settlement_summary = settlement.summary()
+        # "the LLM (and the town) learns like a human" batch: a
+        # deterministic, zero-LLM-cost "pattern noticed" grounding
+        # sentence, additive on top of the existing recency-sliced event
+        # material (never a replacement) — see PATTERN_SIGNAL_BELIEF_
+        # THRESHOLD. Built as a *separate* list only for the prompt
+        # (`fallback_belief` below keeps reading the unmodified `recent`
+        # — its per-event `category` counting has no synthetic-sentence
+        # shape to match).
+        pattern_sentences: list[str] = []
+        counts = settlement.pattern_signal_counts
+        if counts.get("dispute_feud", 0) >= PATTERN_SIGNAL_BELIEF_THRESHOLD:
+            pattern_sentences.append("There have been several bitter feuds in the village this season.")
+            counts["dispute_feud"] = 0  # consumed — same reset discipline as ritual_signal_counts
+        if counts.get("starvation_death", 0) >= PATTERN_SIGNAL_BELIEF_THRESHOLD:
+            pattern_sentences.append("Several people have starved to death in the village this season.")
+            counts["starvation_death"] = 0
+        recent_for_prompt = (
+            [{"category": "pattern_noticed", "description": s} for s in pattern_sentences] + recent
+            if pattern_sentences else recent
+        )
         prompt = beliefs.build_prompt(
-            settlement.name, recent, list(settlement.beliefs), population_summary, settlement_summary,
+            settlement.name, recent_for_prompt, list(settlement.beliefs), population_summary, settlement_summary,
         )
         fallback = beliefs.fallback_belief(recent, list(settlement.beliefs), settlement_summary)
         existing_count = len(settlement.beliefs)
@@ -3100,6 +3165,13 @@ class SimulationEngine:
             # risk). Non-core agents don't get one: MAX_SECRETS is meant
             # to stay a small, load-bearing set (docs/agents/agent.py).
             if outcome == "feud":
+                # "the LLM (and the town) learns like a human" batch:
+                # deterministic pattern-noticing material for the beliefs
+                # job — see PATTERN_SIGNAL_BELIEF_THRESHOLD.
+                dispute_settlement = self._settlement_by_id(dispute_home_id)
+                if dispute_settlement is not None:
+                    counts = dispute_settlement.pattern_signal_counts
+                    counts["dispute_feud"] = counts.get("dispute_feud", 0) + 1
                 core = self.world.population.core_agent_ids
                 a, b = applied[0], applied[1]
                 tick = self.world.clock.tick_count

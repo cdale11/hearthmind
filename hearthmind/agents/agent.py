@@ -693,6 +693,22 @@ food or tools) — small and positive, the mirror of the resilience
 nudges above but the only trait axis with a routine upward pull, since
 ordinary friendly contact is common and grief/violence are not."""
 
+TRAIT_RECONCILE_NUDGE = 0.02
+"""Sociability nudge on a successful dispute reconciliation
+(`Population.apply_dispute`, `outcome == "reconcile"`) — trusting
+someone again and being right about it teaches you to keep trusting.
+Slightly larger than the routine TRAIT_SOCIAL_CONTACT_NUDGE since
+reconciling after a real feud is a rarer, more deliberate event than an
+ordinary trade, same "rarer -> bigger per-event nudge" discipline
+TRAIT_AMBITION's event nudges already use."""
+
+TRAIT_RECOVERY_RESILIENCE_NUDGE = 0.01
+"""Resilience nudge on recovering from illness (`Population._tick_
+disease`, the `"recovery"` life event) — surviving hardship makes you
+tougher. The missing positive counterpart to TRAIT_SUSTAINED_HUNGER_
+NUDGE, which only ever pushes resilience down at the onset of a hunger
+crisis; same small magnitude, mirrored in sign."""
+
 MASTERY_THRESHOLD = 0.95
 """A skill counts as "mastered" at or above this proficiency — the
 trigger for TRAIT_AMBITION_MASTERY_NUDGE (see Population._maybe_forage/
