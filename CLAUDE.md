@@ -413,6 +413,55 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.14)
+
+Implements docs/IDEAS-2026-07-EMERGENCE.md §7 items 1-2 ("adaptive
+retrieval layer" + "causal memory links"), explicit user direction.
+
+**Causal memory links**: new `Agent.memory_causes`, index-aligned with
+`memories`/`memory_salience` (same pad/truncate legacy-snapshot
+discipline). `Population._remember` gained an optional `because: str`,
+wired at every call site where the engine objectively knows the cause:
+death/inheritance grief (`because=f"{name} died"`) and all three
+dispute outcomes (`because=f"dispute with {them.name}"`). Deliberately
+NOT implemented this pass: Reflect() authoring *subjective* — possibly
+wrong — causal links ("the omen, then the flood") — flagged as the
+natural next increment, not silently dropped.
+
+**Adaptive retrieval layer**: new `retrieve_relevant_memories`
+(`hearthmind/agents/agent.py`) scores every stored memory by recency,
+salience, keyword-overlap relevance to the agent's current situation,
+and a small bonus for a known causal link — replaces `cognition.
+build_prompt`'s previously-fixed `memories[-3:]` slice with the SAME
+prompt-slot budget (`RECENT_MEMORIES_IN_PROMPT=3`), so a ten-year-old
+high-salience memory can now outrank a mundane recent one when it's
+actually relevant, with prompt size unchanged. `_overlap_tokens`
+(previously local to `simulation/engine.py`'s `_matching_lesson`
+fallback) moved to `agent.py` so the new function can share it without
+an engine->agent import inversion; `engine.py` now imports it instead
+of redefining it. Scoped to `cognition.build_prompt`'s memory
+selection only — `dialogue.py`/`beliefs.py`'s own fixed slices and
+non-memory stores (folklore/lessons) untouched this pass. A
+`because`-tagged memory shown in a prompt gets a "(because: ...)"
+suffix.
+
+New `retrieval_diagnostics()` (the idea doc's own explicit ask —
+"measured, not assumed") tracks call count and how often the scored
+top-k diverged from a plain recency slice, surfaced at `/diagnostics.
+memory_retrieval` (dev-console JSON dump only, same reachability as
+`llm_prompt_stats`).
+
+Verified: direct tests confirm relevance surfaces an older
+high-salience memory over a merely-recent one; round-trip + legacy-
+snapshot defaults for `memory_causes`; a real `Population._remember`
+eviction test confirms all three parallel lists (`memories`/
+`memory_salience`/`memory_causes`) stay aligned; a real
+`Population.apply_dispute` call confirms feud/reconcile outcomes tag
+`because` correctly; a real built `cognition.build_prompt` call
+confirms a `because` tag reaches the actual prompt text.
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+this batch touches no native module.
+
 ## Current state (v0.85.4)
 
 Direct follow-up to v0.85.3, per explicit request to intelligently

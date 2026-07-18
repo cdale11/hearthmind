@@ -834,7 +834,7 @@ def _memory_salience(agent: Agent) -> float:
     )
 
 
-def _remember(agent: Agent, text: str, routine: bool = False) -> None:
+def _remember(agent: Agent, text: str, routine: bool = False, because: str = "") -> None:
     """Append to an agent's short personal log (`memories`, episodic)
     AND its small strictly-FIFO `working_memory` — see WORKING_MEMORY_
     MAX's docstring. `memories` is capped at MAX_AGENT_MEMORIES but no
@@ -852,17 +852,27 @@ def _remember(agent: Agent, text: str, routine: bool = False) -> None:
     computed salience so the memory is evicted sooner, and — the bigger
     effect — skips `working_memory` entirely, so it can never be the
     "just now" line dialogue/cognition read. Still recorded in
-    `memories`, just deprioritized, never hidden."""
+    `memories`, just deprioritized, never hidden.
+
+    `because` (v0.87.14 "causal memory links," docs/IDEAS-2026-07-
+    EMERGENCE.md §7): an optional short cause description, stored
+    index-aligned in `agent.memory_causes` — "" (the default) means no
+    known cause. Only ever passed at call sites where the engine
+    OBJECTIVELY knows the cause (a death, a dispute outcome, an
+    inheritance) — never fabricated for an ordinary memory. See
+    `Agent.memory_causes`'s docstring."""
     agent.memories.append(text)
     salience = _memory_salience(agent)
     if routine:
         salience *= ROUTINE_MEMORY_SALIENCE_MULT
     agent.memory_salience.append(salience)
+    agent.memory_causes.append(because)
     if len(agent.memories) > MAX_AGENT_MEMORIES:
         evict_at = min(range(len(agent.memories)), key=lambda i: (agent.memory_salience[i], i))
         evicted_text = agent.memories[evict_at]
         del agent.memories[evict_at]
         del agent.memory_salience[evict_at]
+        del agent.memory_causes[evict_at]
         # Durable record of what would otherwise be permanently lost
         # (Constitution §6, v0.86.3) — deliberately gated on `not
         # routine` (this call's OWN significance, not the evicted
@@ -4485,7 +4495,7 @@ class Population:
 
         if not inherited:
             return []
-        _remember(heir, f"I inherited from {agent.name}: {', '.join(inherited)}.")
+        _remember(heir, f"I inherited from {agent.name}: {', '.join(inherited)}.", because=f"{agent.name} died")
         return [("inheritance", f"{heir.name} inherited from {agent.name}: {', '.join(inherited)}.")]
 
     def _apply_deaths(
@@ -4595,7 +4605,7 @@ class Population:
                     # The physical letter stays with the first grieving
                     # relative — memory that outlives the 8-entry cap,
                     # since the record itself persists on the settlement.
-                    _remember(other, f"I keep the letter {agent.name} left behind.")
+                    _remember(other, f"I keep the letter {agent.name} left behind.", because=f"{agent.name} died")
                     record_kept = True
                 if is_child or is_parent:
                     # Family grief lands regardless of the numeric
@@ -4605,7 +4615,7 @@ class Population:
                     # regardless. See docs/DECISIONS.md, family-memory
                     # pass.
                     label = "parent" if is_child else "child"
-                    _remember(other, f"My {label}, {agent.name}, died.")
+                    _remember(other, f"My {label}, {agent.name}, died.", because=f"{agent.name} died")
                     other.energy = max(0.0, other.energy - grief_penalty_for(other))
                     self.last_triggered_agent_ids.add(other.id)
                     _nudge_trait(other, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
@@ -4614,7 +4624,7 @@ class Population:
                         other.mourning_target = (agent.x, agent.y)
                         other.mourning_ticks_remaining = MOURNING_DURATION_TICKS
                 elif other.relationships.get(agent.id, 0.0) >= REPRODUCTION_AFFINITY_THRESHOLD:
-                    _remember(other, f"{agent.name} died. I miss them.")
+                    _remember(other, f"{agent.name} died. I miss them.", because=f"{agent.name} died")
                     other.energy = max(0.0, other.energy - grief_penalty_for(other))
                     self.last_triggered_agent_ids.add(other.id)
                     _nudge_trait(other, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
@@ -5153,7 +5163,7 @@ class Population:
             for me, them in pairs:
                 me.relationships[them.id] = DISPUTE_RECONCILE_RELATIONSHIP
                 me.trust[them.id] = clamp(me.trust.get(them.id, 0.0) + DISPUTE_TRUST_DELTA, -1.0, 1.0)
-                _remember(me, f"{them.name} and I made peace after our long feud.")
+                _remember(me, f"{them.name} and I made peace after our long feud.", because=f"dispute with {them.name}")
                 # H6 extension: trusting someone again after a real feud and
                 # being right about it teaches you to keep trusting — a
                 # dedicated, slightly larger nudge than the routine trade-
@@ -5169,14 +5179,14 @@ class Population:
                 # A ruling suppresses the feud without warming it — a
                 # cool, enforced truce, not a reconciliation.
                 me.relationships[them.id] = DISPUTE_TRUCE_RELATIONSHIP
-                _remember(me, f"The council ruled on my dispute with {them.name}; we keep our distance now.")
+                _remember(me, f"The council ruled on my dispute with {them.name}; we keep our distance now.", because=f"dispute with {them.name}")
         else:  # feud — the default/worst outcome
             for me, them in pairs:
                 me.relationships[them.id] = max(
                     -1.0, me.relationships.get(them.id, 0.0) + DISPUTE_FEUD_DEEPEN
                 )
                 me.trust[them.id] = clamp(me.trust.get(them.id, 0.0) - DISPUTE_TRUST_DELTA, -1.0, 1.0)
-                _remember(me, f"My feud with {them.name} has hardened for good.")
+                _remember(me, f"My feud with {them.name} has hardened for good.", because=f"dispute with {them.name}")
                 _nudge_trait(me, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
                 bump_emotion(me, EMOTION_ANGER, EMOTION_DISPUTE_ANGER_BUMP)
         return agent_a, agent_b

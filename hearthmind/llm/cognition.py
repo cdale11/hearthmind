@@ -22,6 +22,7 @@ from hearthmind.agents.agent import (
     describe_traits,
     faded_memory_text,
     just_now_text as _just_now_text,
+    retrieve_relevant_memories,
 )
 
 SYSTEM_PROMPT = (
@@ -48,11 +49,17 @@ SYSTEM_PROMPT = (
 
 
 RECENT_MEMORIES_IN_PROMPT = 3
-"""How many of the agent's most recent memories reach the cognition
-prompt. Was 1 (only `memories[-1]`) — the July 2026 architecture
-review's finding was that an agent's whole inner life at decision time
-was a single sentence; three keeps the prompt small for a 2B model
-while letting e.g. a grief memory survive one newer rumor."""
+"""How many memories reach the cognition prompt — the prompt-slot
+BUDGET, unchanged since the July 2026 architecture review (a 2B model
+needs the prompt small; three lets e.g. a grief memory survive one
+newer rumor). v0.87.14 (docs/IDEAS-2026-07-EMERGENCE.md §7 "Adaptive
+retrieval layer") changed WHICH three: `retrieve_relevant_memories`
+scores every stored memory by recency, salience, keyword-overlap
+relevance to what just happened, and a causal-link bonus, rather than
+always taking the blind `memories[-3:]` slice — so a ten-year-old
+high-salience memory can now outrank a mundane one from yesterday when
+it's actually the relevant one, with prompt size still bounded exactly
+as before."""
 
 
 def build_prompt(
@@ -156,14 +163,22 @@ def build_prompt(
         culture = f" You live in {settlement_name}."
         if latest_tradition:
             culture += f" The village keeps this tradition: {latest_tradition}."
-    recent = agent.memories[-RECENT_MEMORIES_IN_PROMPT:]
-    recent_salience = agent.memory_salience[-RECENT_MEMORIES_IN_PROMPT:]
+    # v0.87.14 adaptive retrieval: scored, not just the newest slice —
+    # see RECENT_MEMORIES_IN_PROMPT's docstring. `context` is what just
+    # happened (working_memory's freshest entry), the same signal
+    # `_just_now_text` below reads for its own duplicate check.
+    retrieval_context = agent.working_memory[-1] if agent.working_memory else ""
+    retrieved = retrieve_relevant_memories(agent, RECENT_MEMORIES_IN_PROMPT, context=retrieval_context)
+    recent = [t for t, _, _ in retrieved]
     # Deferred item 4 (docs/VISION-2026-07-LEARNING.md): a decayed
     # memory reads hazier here, not just in raw storage — see
     # Population.decay_memory_salience/faded_memory_text. `recent`
     # itself stays the exact stored text for `_just_now_text`'s
     # duplicate-detection below.
-    recent_display = [faded_memory_text(t, s) for t, s in zip(recent, recent_salience)]
+    recent_display = [
+        faded_memory_text(t, s) + (f" (because {c})" if c else "")
+        for t, s, c in retrieved
+    ]
     memory = f" You remember: {' | '.join(recent_display)}" if recent_display else ""
     just_now = _just_now_text(agent.working_memory, recent)
     just_now_text = f" Just now: {just_now}." if just_now else ""

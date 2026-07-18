@@ -320,7 +320,10 @@ still *selects* context by fixed slices and digests, acts only on the
 present tick, and remembers events as isolated strings. These items
 fix that.
 
-- [ ] **Adaptive retrieval layer.** Today every prompt is fixed
+- [x] **Adaptive retrieval layer.** Shipped v0.87.14 (scoped to
+  `Agent.memories` in `cognition.build_prompt` — beliefs/folklore/
+  lessons retrieval left to their own existing digest/matching
+  mechanisms). Today every prompt is fixed
   template + capped slices + digests — bounded, but blind: the three
   *most recent* memories reach cognition even when a ten-year-old
   high-salience memory is the relevant one. Add one shared retrieval
@@ -334,7 +337,11 @@ fix that.
   retrieval beat recency?" question is measured, not assumed.
   Fallback: current recency slices, unchanged.
 
-- [ ] **Causal memory links.** Memories are isolated strings; nothing
+- [x] **Causal memory links.** Shipped v0.87.14 (the deterministic
+  `because` tag half only — death/inheritance grief and dispute
+  outcomes; the LLM-subjective "Reflect() authors possibly-wrong
+  causal links" half is a flagged, not-yet-implemented next
+  increment). Memories are isolated strings; nothing
   records that the granary fire *caused* the hungry winter. At
   `_remember` call sites where the engine objectively knows the cause
   (disaster→damage, dispute→feud, death→grief), write an optional

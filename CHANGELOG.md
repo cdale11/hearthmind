@@ -4,6 +4,55 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.14] — Adaptive retrieval + causal memory links
+
+Implements docs/IDEAS-2026-07-EMERGENCE.md §7 items 1-2, per explicit
+user direction ("implement adaptive retrieval and causal memory
+links").
+
+**Causal memory links**: new `Agent.memory_causes` — an optional
+`because` tag, index-aligned with `memories`/`memory_salience` (same
+pad/truncate legacy-snapshot discipline), written only where
+`Population._remember` call sites objectively know the cause:
+inheritance/letter-keeping/kin-grief/bonded-grief memories at death
+(`because=f"{name} died"`) and all three dispute outcomes — reconcile,
+council_ruling, feud (`because=f"dispute with {them.name}"`). The
+LLM-subjective half of this item ("let Reflect() author *possibly
+wrong* causal links") is deliberately deferred, not implemented —
+flagged as a natural next increment, not silently dropped.
+
+**Adaptive retrieval layer**: new `retrieve_relevant_memories` (
+`hearthmind/agents/agent.py`) scores every stored memory by recency,
+salience, keyword-overlap relevance to the agent's current situation
+(`_overlap_tokens`, relocated here from `simulation/engine.py` so the
+new function can share it without an engine->agent import inversion),
+and a small bonus for a known causal link — replacing `cognition.
+build_prompt`'s previously-fixed `memories[-3:]` slice with the same
+prompt-slot BUDGET (`RECENT_MEMORIES_IN_PROMPT=3`) but content that
+earns its place. Scoped to `cognition.build_prompt`'s memory selection
+only this pass — `dialogue.py`/`beliefs.py`'s own fixed slices and
+non-memory stores (folklore/lessons) are untouched, left as a future
+increment if the pattern proves out. A `because`-tagged memory shown
+in a prompt gets a "(because: ...)" suffix.
+
+New `retrieval_diagnostics()` (the idea doc's explicit ask: "measured,
+not assumed") tracks call count and how often the scored top-k
+diverged from a plain recency slice, surfaced at `/diagnostics.
+memory_retrieval` (dev console only, same JSON-dump reachability as
+`llm_prompt_stats`).
+
+Verified: direct tests confirm relevance can surface an older
+high-salience memory over a merely-recent one; `because`/
+`memory_causes` round-trip through `to_dict`/`from_dict`, legacy
+snapshots default cleanly (pad-short/truncate-long both covered); a
+real `Population._remember` eviction test confirms all three parallel
+lists stay aligned; a real `Population.apply_dispute` call (not a
+re-implementation) confirms feud/reconcile outcomes correctly tag
+`because`; a real built `cognition.build_prompt` call confirms a
+`because` tag reaches the actual prompt text. `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical — this batch touches no
+native module.
+
 ## [0.87.13] — Weather as wear catalysts, slower baseline decay
 
 Direct fix for a live report: "everything wears down too quickly."

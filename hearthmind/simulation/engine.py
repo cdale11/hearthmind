@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 import sqlite3
 import time
 from collections import deque
@@ -44,9 +43,11 @@ from hearthmind.agents.agent import (
     SKILL_MEDICINE,
     TRIGGERED_COGNITION_COOLDOWN_TICKS,
     AgentGoal,
+    _overlap_tokens,
     describe_emotion,
     dominant_emotion,
     push_secret,
+    retrieval_diagnostics,
 )
 from hearthmind.config import Config
 from hearthmind.util import clamp, namespaced_rng, namespaced_roll
@@ -497,24 +498,11 @@ low speed multiplier) tick interval — see interface/api.py's
 WorldBroadcaster pause/speed fields and `_apply_intervention`'s note on
 why pause/speed bypass the usual queued-intervention seam."""
 
-_OVERLAP_STOPWORDS = frozenset({
-    "the", "a", "an", "i", "my", "me", "and", "to", "of", "in", "on", "at", "it",
-    "was", "is", "were", "for", "with", "that", "this", "after", "when", "we",
-    "us", "our", "they", "them", "their", "not", "but", "so", "as", "be", "been",
-})
-"""Tiny hardcoded stopword list for `_overlap_tokens` (deferred item 2,
-`SimulationEngine._matching_lesson`'s keyword-overlap fallback) — not
-meant to be linguistically complete, just enough to keep filler words
-from counting as a topical match."""
-
-
-def _overlap_tokens(text: str) -> set[str]:
-    """Lowercased, stopword-filtered, 3+ letter word set for a cheap
-    keyword-overlap comparison — deliberately not real NLP (no stemming/
-    lemmatization), matching this project's stdlib-first, no-new-
-    dependency posture (see `LESSON_KEYWORD_OVERLAP_MIN`'s docstring)."""
-    return {w for w in re.findall(r"[a-z']+", text.lower()) if len(w) > 2 and w not in _OVERLAP_STOPWORDS}
-
+# `_overlap_tokens` (keyword-overlap matching for `_matching_lesson`'s
+# fallback) moved to hearthmind.agents.agent in v0.87.14 so the new
+# `retrieve_relevant_memories` adaptive-retrieval function could share
+# it without an engine->agent import-direction inversion — imported
+# above instead of redefined here.
 
 def _proc_status_mb(pid: str) -> dict | None:
     """VmRSS/VmSwap (MB) for one pid from /proc/<pid>/status, or None if
@@ -4366,6 +4354,7 @@ class SimulationEngine:
             "oldest_pending_dialogue_ticks": oldest_pending_dialogue_ticks,
             "last_llm_calls": self._last_llm_calls,
             "llm_prompt_stats": self.llm_prompt_stats_summary(),
+            "memory_retrieval": retrieval_diagnostics(),
             "llama_server_metrics": self._llama_server_metrics,
             "pending_player_whispers": list(self.world.settlement.player_influence),
             "temperament": round(self.world.settlement.temperament, 3),

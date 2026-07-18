@@ -9,6 +9,7 @@ docs/DECISIONS.md, A1-A3).
 """
 from __future__ import annotations
 
+import re
 from enum import Enum
 
 try:
@@ -342,6 +343,126 @@ number nobody reads. Set below `MEMORY_SALIENCE_BASELINE` (0.2 is the
 starting salience for an emotionless "quiet day" memory) so a fresh
 mundane memory doesn't immediately read as faded; a memory needs
 several days of decay (or started already-low) to cross it."""
+
+
+_OVERLAP_STOPWORDS = frozenset({
+    "the", "a", "an", "i", "my", "me", "and", "to", "of", "in", "on", "at", "it",
+    "was", "is", "were", "for", "with", "that", "this", "after", "when", "we",
+    "us", "our", "they", "them", "their", "not", "but", "so", "as", "be", "been",
+})
+"""Tiny hardcoded stopword list for `_overlap_tokens` — not meant to be
+linguistically complete, just enough to keep filler words from
+counting as a topical match. Originally lived in simulation/engine.py
+(deferred item 2, `_matching_lesson`'s keyword-overlap fallback);
+moved here in v0.87.14 so `retrieve_relevant_memories` below can share
+the same tokenizer without an engine->agent import inversion."""
+
+
+def _overlap_tokens(text: str) -> set[str]:
+    """Lowercased, stopword-filtered, 3+ letter word set for a cheap
+    keyword-overlap comparison — deliberately not real NLP (no stemming/
+    lemmatization), matching this project's stdlib-first, no-new-
+    dependency posture."""
+    return {w for w in re.findall(r"[a-z']+", text.lower()) if len(w) > 2 and w not in _OVERLAP_STOPWORDS}
+
+
+MEMORY_RETRIEVAL_RECENCY_WEIGHT = 0.5
+MEMORY_RETRIEVAL_SALIENCE_WEIGHT = 0.3
+MEMORY_RETRIEVAL_RELEVANCE_WEIGHT = 0.5
+MEMORY_RETRIEVAL_CAUSAL_BONUS = 0.15
+"""v0.87.14 "adaptive retrieval layer" (docs/IDEAS-2026-07-EMERGENCE.md
+§7): weights for `retrieve_relevant_memories`'s scoring — recency and
+relevance are roughly equal top priorities (a fixed recency-only slice
+was the whole problem this item names: "the three most recent
+memories reach cognition even when a ten-year-old high-salience
+memory is the relevant one"), salience a real but smaller signal
+(already used for eviction, not meant to double-count too heavily
+here), and a modest bonus for a memory carrying a known causal tag
+(v0.87.14 "causal memory links," see `Agent.memory_causes`) — a memory
+that's part of a known cause-and-effect chain is a little more worth
+surfacing than an equally-scored isolated one. Deliberately no
+embeddings/new dependency — relevance is cheap keyword overlap via
+`_overlap_tokens`, same posture as `_matching_lesson`'s existing
+fallback."""
+
+
+def retrieve_relevant_memories(
+    agent: "Agent", k: int, context: str = "",
+) -> list[tuple[str, float, str]]:
+    """Adaptive retrieval (v0.87.14, docs/IDEAS-2026-07-EMERGENCE.md §7
+    "Adaptive retrieval layer"): scores every stored memory by recency,
+    salience, keyword-overlap relevance to `context` (typically the
+    agent's own freshest `working_memory` entry — "what just
+    happened"), and a small bonus for a known causal link, returning
+    the top `k` — same prompt-slot BUDGET as the old fixed `memories[
+    -k:]` slice (bounded prompt size is preserved), but the content now
+    earns its place instead of just being newest. Falls back to
+    returning everything (still capped at k by the `n <= k` early
+    return) when there are k or fewer memories, or scores purely on
+    recency+salience+causal-bonus when `context` is blank (no text to
+    compare relevance against) — never worse than the old behavior in
+    the degenerate case. Result order is restored to chronological
+    (oldest-of-the-selected first) for readability, matching what the
+    old slice already read like."""
+    n = len(agent.memories)
+    causes = agent.memory_causes
+    if n <= k:
+        return [
+            (agent.memories[i], agent.memory_salience[i] if i < len(agent.memory_salience) else 0.0,
+             causes[i] if i < len(causes) else "")
+            for i in range(n)
+        ]
+    context_tokens = _overlap_tokens(context) if context else set()
+    scored: list[tuple[float, int]] = []
+    for i in range(n):
+        text = agent.memories[i]
+        salience = agent.memory_salience[i] if i < len(agent.memory_salience) else 0.0
+        because = causes[i] if i < len(causes) else ""
+        recency = i / (n - 1)
+        relevance = 0.0
+        if context_tokens:
+            overlap = len(context_tokens & _overlap_tokens(text))
+            relevance = min(1.0, overlap / 2.0)
+        score = (
+            MEMORY_RETRIEVAL_RECENCY_WEIGHT * recency
+            + MEMORY_RETRIEVAL_SALIENCE_WEIGHT * salience
+            + MEMORY_RETRIEVAL_RELEVANCE_WEIGHT * relevance
+            + (MEMORY_RETRIEVAL_CAUSAL_BONUS if because else 0.0)
+        )
+        scored.append((score, i))
+    scored.sort(key=lambda t: (-t[0], -t[1]))
+    top_indices = sorted(i for _, i in scored[:k])
+    _retrieval_stats["calls"] += 1
+    naive_indices = set(range(n - k, n))
+    if set(top_indices) != naive_indices:
+        _retrieval_stats["diverged_from_recency"] += 1
+    return [
+        (agent.memories[i], agent.memory_salience[i] if i < len(agent.memory_salience) else 0.0,
+         causes[i] if i < len(causes) else "")
+        for i in top_indices
+    ]
+
+
+_retrieval_stats = {"calls": 0, "diverged_from_recency": 0}
+"""v0.87.14 retrieval-hit diagnostic (docs/IDEAS-2026-07-EMERGENCE.md
+§7 explicitly asked for this: "does retrieval beat recency? — measured,
+not assumed"). `diverged_from_recency` counts calls where the scored
+top-k picked at least one memory a plain `memories[-k:]` slice would
+NOT have — the only observable signal available without ground truth
+on which memory was "actually" more relevant. Read via
+`retrieval_diagnostics()`, surfaced at `/diagnostics`."""
+
+
+def retrieval_diagnostics() -> dict:
+    """Snapshot of `_retrieval_stats` plus the derived hit rate — 0 calls
+    reads as 0.0 rate, not a divide-by-zero."""
+    calls = _retrieval_stats["calls"]
+    diverged = _retrieval_stats["diverged_from_recency"]
+    return {
+        "calls": calls,
+        "diverged_from_recency": diverged,
+        "divergence_rate": round(diverged / calls, 4) if calls else 0.0,
+    }
 
 
 def faded_memory_text(text: str, salience: float) -> str:
@@ -1278,6 +1399,7 @@ class Agent:
         beliefs: list[dict] | None = None,
         emotions: dict[str, float] | None = None,
         memory_salience: list[float] | None = None,
+        memory_causes: list[str] | None = None,
         working_memory: list[str] | None = None,
         semantic_memories: list[str] | None = None,
         secrets: list[str] | None = None,
@@ -1345,6 +1467,16 @@ class Agent:
         # padded with the baseline in `from_dict` rather than trusted
         # raw, so an old snapshot never desyncs the two lists.
         self.memory_salience: list[float] = [] if memory_salience is None else memory_salience
+        # memory_causes: v0.87.14 "causal memory links" (docs/IDEAS-
+        # 2026-07-EMERGENCE.md §7) — index-aligned with `memories`
+        # exactly like `memory_salience`, "" meaning "no known cause."
+        # Written only at `_remember` call sites where the engine
+        # objectively knows the cause (a death, a dispute outcome, an
+        # inheritance) — never fabricated for an ordinary memory.
+        # Consumed by `retrieve_relevant_memories` (small scoring bonus)
+        # and surfaced in cognition prompts as "(because: ...)" — see
+        # llm/cognition.py's build_prompt.
+        self.memory_causes: list[str] = [] if memory_causes is None else memory_causes
         # working_memory: small, strictly-FIFO "what just happened"
         # buffer — see WORKING_MEMORY_MAX above.
         self.working_memory: list[str] = [] if working_memory is None else working_memory
@@ -1655,6 +1787,7 @@ class Agent:
             "goal_reason": self.goal_reason,
             "memories": list(self.memories),
             "memory_salience": [round(v, 4) for v in self.memory_salience],
+            "memory_causes": list(self.memory_causes),
             "working_memory": list(self.working_memory),
             "semantic_memories": list(self.semantic_memories),
             "secrets": list(self.secrets),
@@ -1690,6 +1823,13 @@ class Agent:
             memory_salience += [MEMORY_SALIENCE_BASELINE] * (len(memories) - len(memory_salience))
         elif len(memory_salience) > len(memories):
             memory_salience = memory_salience[:len(memories)]
+        # memory_causes: same index-alignment discipline as memory_
+        # salience above — "" (no known cause) is the safe pad value.
+        memory_causes = list(data.get("memory_causes", []))
+        if len(memory_causes) < len(memories):
+            memory_causes += [""] * (len(memories) - len(memory_causes))
+        elif len(memory_causes) > len(memories):
+            memory_causes = memory_causes[:len(memories)]
         return cls(
             id=data["id"],
             name=data["name"],
@@ -1712,6 +1852,7 @@ class Agent:
             goal_reason=data.get("goal_reason", ""),
             memories=memories,
             memory_salience=memory_salience,
+            memory_causes=memory_causes,
             working_memory=list(data.get("working_memory", [])),
             semantic_memories=list(data.get("semantic_memories", [])),
             secrets=list(data.get("secrets", [])),
