@@ -3798,10 +3798,13 @@ class SimulationEngine:
         dispute_home_id = dispute_home.id
 
         def apply(result: dict, used_fallback: bool) -> None:
-            outcome, narration = dispute.parse_dispute(
+            outcome, narration, ostracized = dispute.parse_dispute(
                 result, fallback, self._settlement_by_id(dispute_home_id).council() is not None,
             )
-            applied = self.world.population.apply_dispute(a_id, b_id, outcome, self.world.clock.tick_count)
+            ostracized_id = (a_id if ostracized == "a" else b_id) if outcome == "ostracism" else None
+            applied = self.world.population.apply_dispute(
+                a_id, b_id, outcome, self.world.clock.tick_count, ostracized_id,
+            )
             if applied is None:
                 return  # one of them died while the decision was in flight
             self._log("dispute", narration)

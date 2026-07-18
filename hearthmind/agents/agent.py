@@ -1465,6 +1465,7 @@ class Agent:
         plan: dict | None = None,
         core_memories: list[str] | None = None,
         core_memory_salience: list[float] | None = None,
+        standing_penalty: float = 0.0,
     ) -> None:
         self.id = id
         self.name = name
@@ -1598,6 +1599,15 @@ class Agent:
         # trust/relationships/emotions) so an old, small debt eventually
         # reads as forgiven rather than accumulating forever.
         self.debts: dict[int, float] = {} if debts is None else debts
+        # standing_penalty: §1 "deviance loop" (docs/IDEAS-2026-07-
+        # EMERGENCE.md) — a bounded 0..1 civic penalty applied by an
+        # "ostracism" dispute outcome (`Population.apply_dispute`),
+        # deterministically targeted at whichever party the town's own
+        # existing reputation() read already regards worse. Gates
+        # SOCIALIZE targeting (`_nearest_other_agent`) and council
+        # candidacy while it stands; decays monthly like a trait
+        # (`Population._tick_traits`), never reset abruptly.
+        self.standing_penalty: float = standing_penalty
         # stuck_ticks: consecutive ticks a goal-directed target has existed
         # but the greedy step in Population._dispatch_movement/_step_toward
         # failed to move the agent toward it (blocked by a concave water/
@@ -1886,6 +1896,7 @@ class Agent:
             "plan": dict(self.plan) if self.plan is not None else None,
             "core_memories": list(self.core_memories),
             "core_memory_salience": [round(v, 4) for v in self.core_memory_salience],
+            "standing_penalty": round(self.standing_penalty, 4),
         }
 
     @classmethod
@@ -1959,4 +1970,5 @@ class Agent:
             plan=data.get("plan"),
             core_memories=list(data.get("core_memories", [])),
             core_memory_salience=list(data.get("core_memory_salience", [])),
+            standing_penalty=data.get("standing_penalty", 0.0),
         )

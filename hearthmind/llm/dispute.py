@@ -11,17 +11,30 @@ from __future__ import annotations
 
 from hearthmind.agents.agent import TRAIT_SOCIABILITY, Agent, describe_traits
 
-_VALID_OUTCOMES = ("reconcile", "feud", "council_ruling")
+_VALID_OUTCOMES = ("reconcile", "feud", "council_ruling", "ostracism")
+
+OSTRACISM_REPUTATION_GAP = 0.6
+"""How lopsided the two parties' village standing (`reputation()`) must
+be before the deterministic fallback will impose ostracism on its own —
+deliberately steep so this stays the rare, severe-case outcome the
+prompt itself asks for, not a routine substitute for feud/council_
+ruling."""
 
 SYSTEM_PROMPT = (
     "Two villagers in a small simulated world have a long, genuinely "
     "soured feud, and it has come to a head. Given who they are, decide "
-    "how it breaks: they reconcile, the feud hardens for good, or — only "
-    "if the village has a council of elders — the council imposes a "
-    "ruling that forces a cold truce. There is no correct answer; choose "
-    "what these two specific people would plausibly do. "
+    "how it breaks: they reconcile, the feud hardens for good, the council "
+    "imposes a ruling that forces a cold truce (only if the village has a "
+    "council of elders), or — only for a genuinely severe case, one clearly "
+    "in the wrong (theft, betrayal, a wrong the village itself would "
+    "recognize) — the village ostracizes that one party for a time. "
+    "There is no correct answer; choose what these two specific people "
+    "would plausibly do; ostracism should be rare, reserved for real "
+    "wrongdoing, not an ordinary personal grudge. "
     'Respond with strict JSON only, no other text: {"outcome": '
-    '"reconcile" | "feud" | "council_ruling", "narration": "one sentence, '
+    '"reconcile" | "feud" | "council_ruling" | "ostracism", "ostracized": '
+    '"a" | "b" (only meaningful if outcome is "ostracism" — which of the '
+    'two, by their position below, is shunned), "narration": "one sentence, '
     'under 25 words, describing how it played out"}.'
 )
 
@@ -92,6 +105,7 @@ def build_prompt(
         if has_law_against_feuding else ""
     )
     return (
+        f"(\"a\" = {agent_a.name}, \"b\" = {agent_b.name}, for the ostracized field.) "
         f"{agent_a.name} and {agent_b.name}{place} have festered into open enmity "
         f"(their regard for each other stands at {relationship:.2f} on a -1..1 scale)."
         f"{personality}{council}{council_leaning_line}{reputation_line}{faction_line}{debt_line}{family_line}{law_line} How does it break?"
@@ -141,6 +155,17 @@ def fallback_dispute(
     # way or another — pushes away from an indefinite stalemate.
     if has_law_against_feuding:
         avg_sociability += 0.15
+    # §1 "deviance loop": ostracism is deliberately rare and reserved for
+    # a genuinely lopsided case (one party's village standing is far
+    # worse than the other's) with a council present to impose it —
+    # never the default outcome for an ordinary mutual grudge.
+    if has_council and abs(reputation_a - reputation_b) >= OSTRACISM_REPUTATION_GAP:
+        ostracized = "a" if reputation_a < reputation_b else "b"
+        shunned = agent_a if ostracized == "a" else agent_b
+        return {
+            "outcome": "ostracism", "ostracized": ostracized,
+            "narration": f"The village turned its back on {shunned.name} for what happened with {agent_a.name if shunned is agent_b else agent_b.name}.",
+        }
     if avg_sociability > 0.2:
         outcome = "reconcile"
         narration = f"{agent_a.name} and {agent_b.name} talked it through at last and set the feud down."
@@ -153,15 +178,25 @@ def fallback_dispute(
     return {"outcome": outcome, "narration": narration}
 
 
-def parse_dispute(result: dict, fallback: dict, has_council: bool) -> tuple[str, str]:
+def parse_dispute(result: dict, fallback: dict, has_council: bool) -> tuple[str, str, str]:
+    """Returns `(outcome, narration, ostracized)` — `ostracized` is
+    `"a"`/`"b"` (meaningful only when `outcome == "ostracism"`) or `""`
+    otherwise."""
     outcome = result.get("outcome")
     if not isinstance(outcome, str) or outcome.strip().lower() not in _VALID_OUTCOMES:
         outcome = fallback["outcome"]
     else:
         outcome = outcome.strip().lower()
-    if outcome == "council_ruling" and not has_council:
-        outcome = "feud"  # no council exists to rule — the model imagined one
+    if outcome in ("council_ruling", "ostracism") and not has_council:
+        outcome = "feud"  # no council exists to rule/ostracize — the model imagined one
     narration = result.get("narration")
     if not isinstance(narration, str) or not narration.strip():
         narration = fallback["narration"]
-    return outcome, narration.strip()[:200]
+    ostracized = ""
+    if outcome == "ostracism":
+        raw = result.get("ostracized")
+        if isinstance(raw, str) and raw.strip().lower() in ("a", "b"):
+            ostracized = raw.strip().lower()
+        else:
+            ostracized = fallback.get("ostracized", "a")
+    return outcome, narration.strip()[:200], ostracized

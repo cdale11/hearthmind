@@ -4,6 +4,66 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.18] — §1 close-out: deviance/justice loop completion, migration by choice
+
+Direct follow-up per explicit user request ("finish 1 of ideas.md") —
+closes docs/IDEAS-2026-07-EMERGENCE.md §1's two remaining unchecked
+items, the last ones in that section.
+
+**Deviance/justice loop completion.** v0.87.17's theft mechanic gets
+the two pieces the idea named but that batch deferred: theft now
+plants a real `Agent.secrets` entry on the thief (`push_secret`, not
+just a routine memory) via `THEFT_SECRET_TEXT_TEMPLATE`, and a third
+colocated agent has a `THEFT_WITNESS_RUMOR_CHANCE` chance to notice and
+remember it — the classic deviance → gossip seed. Dispute outcomes
+gain a fourth option beyond reconcile/feud/council_ruling:
+**ostracism** (`llm/dispute.py`, `_VALID_OUTCOMES`, only offered where
+a council exists, the prompt explicitly reserving it for a genuinely
+severe, clear-wrongdoing case). New `Agent.standing_penalty` (0..1,
+`Population.apply_dispute`'s new branch) gates SOCIALIZE targeting
+(`_nearest_other_agent` gained an `ostracized_ids` exclusion set) and
+council candidacy (`_council_seat_key` returns a sentinel below any
+real prominence while penalized), decaying monthly
+(`STANDING_PENALTY_DECAY_PER_MONTH`, `_tick_traits`) rather than
+standing forever. The deterministic fallback can also independently
+reach ostracism on a sufficiently lopsided `reputation()` gap
+(`OSTRACISM_REPUTATION_GAP`), same "legible rule, not a coin flip"
+discipline the rest of `fallback_dispute` already follows.
+
+**Migration by choice, not just fission** (`Population._maybe_
+migrate`, new). Individuals could previously only move settlements as
+part of a whole fission party. A rare, deterministic per-agent check
+against push/pull signals already tracked elsewhere: a bonded partner
+already living in another named settlement (highest-priority pull), a
+codified ostracism, family feud pressure (`Institution.feuds`), or
+genuine starvation next to a meaningfully better-fed sister settlement
+(`_granary_fill_ratio`, `MIGRATION_GRANARY_ADVANTAGE`). Reuses
+`depart_for_fission`'s exact shape at individual scale — settlement_id
+reassigned immediately, `travel_target` set so the agent physically
+walks there via the existing journey machinery — so a migrant carries
+their own memories/beliefs/secrets into a population that doesn't
+share them for free (nothing new needed touching those). `standing_
+penalty` resets on arrival — a fresh settlement doesn't know what the
+old one held against someone. New `migrant_departed` event (🎒).
+
+**UI**: new "Standing" NPC-inspector section (shown only while
+ostracized, fading penalty %); `theft`/`law_enacted`/`diplomacy_event`
+event icons from v0.87.17 unchanged; `migrant_departed` icon added.
+
+Verified: direct production-path tests for the theft secret/witness
+completion (deterministic-rng forced trigger), `apply_dispute`'s
+ostracism branch (asymmetric standing_penalty/relationship effects),
+`_council_seat_key`'s exclusion, monthly decay, `_nearest_other_agent`'s
+`ostracized_ids` exclusion (both with and without the native index
+path), and all three `_maybe_migrate` push/pull paths (bonded partner,
+starvation+granary, ostracism-with-reset) via synthetic two-settlement
+populations; a real end-to-end engine test (fake `generate_json`)
+confirming a forced ostracism dispute reaches the actual `Cognition
+Runner`/`apply_dispute` pipeline and produces the correct decayed
+`standing_penalty` after a month. `scripts/verify_native_soak.py`
+(2 seeds x 800 ticks) byte-identical; a 60,000-tick organic LLM-
+disabled soak completes with zero crashes.
+
 ## [0.87.17] — Items 8 & 9: crime & justice, inter-settlement diplomacy, laws & customs, non-core LLM nudges
 
 Direct follow-up per explicit user request ("complete my items 8 and 9

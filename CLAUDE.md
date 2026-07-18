@@ -413,6 +413,42 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.18)
+
+Direct follow-up per explicit user request ("finish 1 of ideas.md") —
+closes docs/IDEAS-2026-07-EMERGENCE.md §1's two remaining unchecked
+items.
+
+**Deviance/justice loop completion**: theft (v0.87.17) now plants a
+real `Agent.secrets` entry on the thief and, if a third colocated
+agent witnesses it, a rumor-flavored memory on the witness. Dispute
+outcomes gained a fourth option, **ostracism** (`llm/dispute.py`, only
+offered where a council exists, reserved for a genuinely severe case)
+— applies `Agent.standing_penalty` (0..1), which gates SOCIALIZE
+targeting and council candidacy while it stands, decaying monthly.
+
+**Migration by choice** (`Population._maybe_migrate`): individuals
+could previously only relocate as part of a whole fission party. A
+rare, deterministic per-agent push/pull check (bonded partner
+elsewhere, ostracism, family feud pressure, starvation next to a
+better-fed sister settlement) reuses `depart_for_fission`'s exact
+shape at individual scale — settlement_id reassigned immediately,
+`travel_target` set for the physical walk — so a migrant carries their
+memories/beliefs/secrets for free, the real information vector between
+settlements the idea named. `standing_penalty` resets on arrival.
+
+New UI: "Standing" NPC-inspector section (shown only while ostracized);
+`migrant_departed` event icon (🎒).
+
+Verified: direct production-path tests for every new mechanic (theft
+secret/witness completion, ostracism's standing_penalty/relationship
+effects, council-key exclusion, monthly decay, SOCIALIZE's ostracized_
+ids exclusion on both native and fallback paths, all three migration
+push/pull conditions); a real end-to-end engine test confirms a forced
+ostracism dispute reaches the actual scheduling pipeline. `scripts/
+verify_native_soak.py` (2 seeds x 800 ticks) byte-identical; a 60,000-
+tick organic soak completes with zero crashes.
+
 ## Current state (v0.87.17)
 
 Direct follow-up per explicit user request ("complete my items 8 and 9

@@ -644,6 +644,53 @@ THEFT_LAW_PENALTY_MULT = 1.6
 """When the settlement has codified a law/taboo against theft
 (`Settlement.laws`), a caught theft costs the thief more — laws having a
 real mechanical bite, not just flavor text. See `_theft_forbidden_by_law`."""
+
+THEFT_SECRET_TEXT_TEMPLATE = "I stole food from {name} out of desperation."
+"""§1 "deviance loop" completion: a theft now plants a real `Agent.
+secrets` entry on the thief (not just a memory) — secrets planted by
+theft join the same lifecycle (guarded in dialogue, released at death,
+distorted by rumor) disputes already established."""
+
+THEFT_WITNESS_RUMOR_CHANCE = 0.5
+"""If a third colocated agent is present at a theft, this is the chance
+they notice and the act seeds a real rumor via the existing rumor
+machinery (attributed to the witness) — same "deviance -> gossip"
+completion the idea doc names."""
+
+OSTRACISM_PENALTY = 0.5
+"""§1 "deviance loop": the bounded 0..1 civic penalty an "ostracism"
+dispute outcome applies to `Agent.standing_penalty` — see that field's
+docstring for what it gates. Deliberately not 1.0: ostracism should
+meaningfully cost someone standing, not permanently erase them from
+the settlement's social life."""
+
+STANDING_PENALTY_DECAY_PER_MONTH = 0.15
+"""How fast `Agent.standing_penalty` fades on its own each month
+(`Population._tick_traits`) — roughly a 3-4 month full recovery from a
+single ostracism, long enough to read as a real consequence, short
+enough that a settlement doesn't accumulate a permanent underclass."""
+
+MIGRATION_CHANCE_PER_TICK = 0.003
+"""§1 "migration by choice": once an agent clears a push condition
+(below), the per-tick roll before they actually act on it — keeps
+migration a rare, deliberate-feeling event rather than an instant
+snap the moment a threshold is crossed."""
+
+MIGRATION_STARVATION_HUNGER_THRESHOLD = 0.75
+"""Push condition: an agent this hungry, with a meaningfully better-fed
+sister settlement available, may choose to leave rather than starve —
+distinct from `THEFT_HUNGER_THRESHOLD`'s lower bar (theft is the first,
+easier resort; leaving everyone you know is the harder one)."""
+
+MIGRATION_GRANARY_ADVANTAGE = 0.3
+"""How much better a target settlement's granary fill ratio must be
+than the agent's own for hunger to count as a real pull, not just
+"somewhere else exists.\""""
+
+MIGRATION_BOND_THRESHOLD = 0.5
+"""Push/pull condition: a bonded partner (relationship at least this
+warm) already living in another named settlement is itself sufficient
+reason to migrate toward them, independent of hunger/standing."""
 DISPUTE_TRUST_DELTA = 0.1
 """Mechanical teeth for the three dispute outcomes (apply_dispute):
 reconciliation resets the pair to mildly-warm and rebuilds a little
@@ -1485,6 +1532,10 @@ class Population:
         killed_by_predator: set[int] = set()
         by_position: dict[tuple[int, int], list[Agent]] = {}
         any_gather_occurred = False
+        # §1 "deviance loop": computed once per tick (typically empty —
+        # ostracism is rare), reused by every SOCIALIZE-goal agent's
+        # movement dispatch below.
+        ostracized_ids = frozenset(a.id for a in self.agents if a.standing_penalty > 0.0)
         # --- multi-settlement partition (v0.65.0) ------------------------
         # One shared physical world, N home communities: spatial systems
         # (movement, colocation, trade, dialogue, disease spread) stay
@@ -1641,6 +1692,7 @@ class Population:
                     material_index=material_index,
                     agent_position_index=agent_position_index,
                     bridge_tiles=bridge_tiles,
+                    ostracized_ids=ostracized_ids,
                 )
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
@@ -1648,6 +1700,7 @@ class Population:
         self._update_relationships(by_position)
         self._maybe_teach_skills(by_position, rng, settlements)
         self._maybe_commit_theft(by_position, rng, settlements, life_events)
+        life_events.extend(self._maybe_migrate(rng, settlements))
         if month_end:
             self._tick_traits(rng)
         hospital_settlement_ids = {sid for sid, has in has_hospital_by_id.items() if has}
@@ -2208,6 +2261,7 @@ class Population:
         material_index: "object | None" = None,
         agent_position_index: "object | None" = None,
         bridge_tiles: frozenset[tuple[int, int]] = frozenset(),
+        ostracized_ids: frozenset[int] = frozenset(),
     ) -> None:
         """Goal-directed agents (FORAGE/SOCIALIZE) take a deliberate step
         toward a visible target when one exists; otherwise (including
@@ -2344,7 +2398,14 @@ class Population:
                 or cls._nearest_resource(agent, resources)
             )
         elif effective_goal is AgentGoal.SOCIALIZE:
-            target = cls._nearest_other_agent(agent, position_snapshot, agent_position_index)
+            # §1 "deviance loop": an ostracized villager isn't sought out
+            # as company (Agent.standing_penalty) — the native index has
+            # no exclusion-set support, so it's only bypassed on the rare
+            # ticks any ostracism is actually in effect.
+            if ostracized_ids and agent_position_index is not None:
+                target = cls._nearest_other_agent(agent, position_snapshot, None, ostracized_ids)
+            else:
+                target = cls._nearest_other_agent(agent, position_snapshot, agent_position_index, ostracized_ids)
         elif effective_goal is AgentGoal.SEEK_PERSON:
             # Unlike SOCIALIZE (nearest agent), this pathfinds toward a
             # SPECIFIC agent (`seek_target_id`) — re-looked-up from the
@@ -2632,6 +2693,7 @@ class Population:
     def _nearest_other_agent(
         agent: Agent, position_snapshot: list[tuple[int, int, int]],
         agent_position_index: "object | None" = None,
+        ostracized_ids: frozenset[int] = frozenset(),
     ) -> tuple[int, int] | None:
         """No distance cap, unlike _nearest_resource: an agent actively
         seeking company is assumed to know roughly where the (small)
@@ -2642,13 +2704,20 @@ class Population:
         Population.tick) — the highest-value native-port candidate of
         the three shipped so far, since this scan has no radius cap and
         so genuinely scales with population, not map size (module 4,
-        see cpp/src/agent_position_index.cpp)."""
+        see cpp/src/agent_position_index.cpp).
+
+        `ostracized_ids` (§1 "deviance loop") excludes agents currently
+        under an ostracism penalty from being sought out as company —
+        only meaningful on the Python fallback path; the native index
+        has no exclusion-set support, so a caller with a non-empty set
+        passes `agent_position_index=None` to force this path (rare:
+        ostracism itself is rare)."""
         if agent_position_index is not None:
             return agent_position_index.nearest(agent.id, agent.x, agent.y)
         best: tuple[int, int] | None = None
         best_dist: int | None = None
         for other_id, x, y in position_snapshot:
-            if other_id == agent.id:
+            if other_id == agent.id or other_id in ostracized_ids:
                 continue
             dist = abs(x - agent.x) + abs(y - agent.y)
             if best_dist is None or dist < best_dist:
@@ -3098,12 +3167,102 @@ class Population:
                     bump_emotion(victim, EMOTION_ANGER, EMOTION_DISPUTE_ANGER_BUMP)
                     _remember(victim, f"{thief.name} stole food from me while I wasn't looking.", because=f"{thief.name} stole from me")
                     _remember(thief, f"I took food from {victim.name} out of desperation.", routine=True)
+                    # §1 "deviance loop" completion: the act now plants a
+                    # real secret on the thief (not just a routine
+                    # memory) — joins the same secrets lifecycle disputes
+                    # already established (guarded, released at death,
+                    # distorted by rumor). If a third colocated agent
+                    # witnesses it, they remember it too — the classic
+                    # deviance -> gossip seed, reaching dialogue/beliefs
+                    # for free through the existing memory-grounded
+                    # prompts, without a bespoke broadcast.
+                    push_secret(thief, THEFT_SECRET_TEXT_TEMPLATE.format(name=victim.name))
+                    witnesses = [w for w in group if w.id not in (thief.id, victim.id)]
+                    if witnesses and rng.random() < THEFT_WITNESS_RUMOR_CHANCE:
+                        witness = witnesses[0]
+                        _remember(witness, f"I saw {thief.name} steal food from {victim.name}.", because=f"witnessed {thief.name} steal")
                     if home is not None:
                         home.thefts_committed += 1
                         counts = home.law_signal_counts
                         counts["theft"] = counts.get("theft", 0) + 1
                         life_events.append(("theft", f"{thief.name} took food from {victim.name}."))
                     break  # one theft resolution per pair per tick
+
+    @staticmethod
+    def _granary_fill_ratio(settlement: Settlement) -> float:
+        """0..1 how full a settlement's standing granaries run — the
+        deterministic "is life better over there" signal `_maybe_
+        migrate`'s hunger-driven pull reads, same underlying buildings
+        `_maybe_stock_granaries`/`_maybe_welcome_migrant` already use."""
+        granaries = [
+            b for b in settlement.buildings
+            if b.kind is BuildingKind.GRANARY and b.stage is BuildingStage.STANDING
+        ]
+        if not granaries:
+            return 0.0
+        capacity = len(granaries) * GRANARY_CAPACITY
+        return sum(b.stored_food for b in granaries) / capacity if capacity else 0.0
+
+    def _maybe_migrate(self, rng: random.Random, settlements: list[Settlement]) -> list[tuple[str, str]]:
+        """§1 "migration by choice, not just fission"
+        (docs/IDEAS-2026-07-EMERGENCE.md): individuals never moved
+        between settlements before this — only whole fission parties.
+        A rare, deterministic per-agent check against push/pull signals
+        already tracked elsewhere: ostracism (`standing_penalty`),
+        family feud pressure (`Institution.feuds`), genuine starvation
+        next to a meaningfully better-fed sister settlement, or a
+        bonded partner already living elsewhere. A migrant carries their
+        own memories/beliefs/secrets with them (nothing here touches
+        those — they're already per-agent state), which is exactly how
+        one settlement's folklore/rumors/religion can now actually
+        reach another, the gap the idea doc names (previously only the
+        omen-echo backchannel crossed settlement lines at all). Reuses
+        `depart_for_fission`'s exact shape (settlement_id reassigned
+        immediately, `travel_target` set so the agent physically walks
+        there via the existing journey machinery) at individual scale.
+        A fresh settlement doesn't know what the old one held against
+        someone, so `standing_penalty` resets on arrival — a genuine
+        second chance, not just a change of scenery."""
+        named = [s for s in settlements if s.name]
+        if len(named) < 2:
+            return []
+        by_id = {s.id: s for s in named}
+        life_events: list[tuple[str, str]] = []
+        for agent in self.agents:
+            home = by_id.get(agent.settlement_id)
+            if home is None or agent.travel_target is not None:
+                continue
+            alternatives = [s for s in named if s.id != home.id]
+            bonded_settlement = None
+            for other_id, value in agent.relationships.items():
+                if value < MIGRATION_BOND_THRESHOLD:
+                    continue
+                partner = self.get(other_id)
+                if partner is not None and partner.settlement_id in by_id and partner.settlement_id != home.id:
+                    bonded_settlement = by_id[partner.settlement_id]
+                    break
+            my_family = self.family_of(agent.id, home)
+            feud_pressure = my_family is not None and bool(my_family.feuds)
+            target: Settlement | None = None
+            if bonded_settlement is not None:
+                target = bonded_settlement
+            elif agent.hunger >= MIGRATION_STARVATION_HUNGER_THRESHOLD:
+                best = max(alternatives, key=self._granary_fill_ratio)
+                if self._granary_fill_ratio(best) - self._granary_fill_ratio(home) >= MIGRATION_GRANARY_ADVANTAGE:
+                    target = best
+            elif agent.standing_penalty > 0.0 or feud_pressure:
+                target = max(alternatives, key=self._granary_fill_ratio)
+            if target is None or rng.random() >= MIGRATION_CHANCE_PER_TICK:
+                continue
+            origin_name = home.name
+            agent.settlement_id = target.id
+            agent.standing_penalty = 0.0
+            center = target.center()
+            if center is not None:
+                agent.travel_target = center
+            _remember(agent, f"I left {origin_name} for {target.name}.", because=f"migrated to {target.name}")
+            life_events.append(("migrant_departed", f"{agent.name} left {origin_name} to make a life in {target.name}."))
+        return life_events
 
     def _tick_traits(self, rng: random.Random) -> None:
         """H6: a monthly bounded random walk on every living agent's
@@ -3121,6 +3280,10 @@ class Population:
                 current = agent.traits.get(trait, 0.0)
                 step = rng.uniform(-TRAIT_STEP_MAX, TRAIT_STEP_MAX)
                 agent.traits[trait] = clamp(current * TRAIT_MEAN_REVERSION + step, -1.0, 1.0)
+            # §1 "deviance loop": ostracism fades on its own over months
+            # rather than standing forever — see Agent.standing_penalty.
+            if agent.standing_penalty > 0.0:
+                agent.standing_penalty = max(0.0, agent.standing_penalty - STANDING_PENALTY_DECAY_PER_MONTH)
 
     def carrying_capacity(
         self, settlement: Settlement, housing_capacity: int, weather_harsh: bool, predator_pressure: bool,
@@ -3397,6 +3560,11 @@ class Population:
         criterion — a charismatic, skilled, well-connected young founder
         can outrank a socially isolated elder."""
         age_fraction = (agent.age_ticks / agent.max_age_ticks) if agent.max_age_ticks else 0.0
+        # §1 "deviance loop": an agent currently under an ostracism
+        # penalty is never council material — same "gates ... council
+        # eligibility" the idea doc names for standing_penalty.
+        if agent.standing_penalty > 0.0:
+            return (-1.0, age_fraction)
         return (self._prominence(agent), age_fraction)
 
     def _maybe_form_council(
@@ -5481,18 +5649,31 @@ class Population:
                 return agent, other
         return None
 
-    def apply_dispute(self, a_id: int, b_id: int, outcome: str, tick: int = 0) -> tuple[Agent, Agent] | None:
+    def apply_dispute(
+        self, a_id: int, b_id: int, outcome: str, tick: int = 0, ostracized_id: int | None = None,
+    ) -> tuple[Agent, Agent] | None:
         """Apply a resolved dispute outcome with real mechanical effects
         (see the DISPUTE_* constants) — a no-op returning None if either
         party has since died, same convention as apply_dialogue. `tick`
         (default 0 for legacy/test callers that don't pass one — only
         used as `Agent.lessons`' `formed_tick` metadata, never gates
-        behavior) backs the deterministic reconciliation lesson below."""
+        behavior) backs the deterministic reconciliation lesson below.
+        `ostracized_id` (§1 "deviance loop") is required when `outcome
+        == "ostracism"` — the caller resolves which of a_id/b_id via
+        `llm.dispute.parse_dispute`'s `ostracized` field."""
         agent_a, agent_b = self.get(a_id), self.get(b_id)
         if agent_a is None or agent_b is None:
             return None
         pairs = ((agent_a, agent_b), (agent_b, agent_a))
-        if outcome == "reconcile":
+        if outcome == "ostracism" and ostracized_id in (a_id, b_id):
+            shunned, other = (agent_a, agent_b) if ostracized_id == a_id else (agent_b, agent_a)
+            shunned.standing_penalty = min(1.0, shunned.standing_penalty + OSTRACISM_PENALTY)
+            shunned.relationships[other.id] = max(-1.0, shunned.relationships.get(other.id, 0.0) + DISPUTE_FEUD_DEEPEN)
+            other.relationships[shunned.id] = max(-1.0, other.relationships.get(shunned.id, 0.0) + DISPUTE_FEUD_DEEPEN)
+            _remember(shunned, "The village has turned its back on me.", because="ostracized by the village")
+            _remember(other, f"The village ostracized {shunned.name} over what happened between us.", because=f"dispute with {shunned.name}")
+            bump_emotion(shunned, EMOTION_GRIEF, EMOTION_DISPUTE_ANGER_BUMP)
+        elif outcome == "reconcile":
             for me, them in pairs:
                 me.relationships[them.id] = DISPUTE_RECONCILE_RELATIONSHIP
                 me.trust[them.id] = clamp(me.trust.get(them.id, 0.0) + DISPUTE_TRUST_DELTA, -1.0, 1.0)

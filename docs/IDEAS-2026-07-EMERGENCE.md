@@ -108,19 +108,37 @@ prompts and never reaches the map. These items widen the actuator.
   behavior at zero LLM cost. (The gathering primitive also becomes
   reusable: disputes, council sessions, festival grounds.)
 
-- [ ] **Deviance: a theft/taboo/justice loop.** Everyone is currently
-  prosocial; the black-market *flag* exists but no agent ever wrongs
-  another. Minimal version: a starving agent with low granary standing
-  may take from a stocked granary or another agent's inventory
-  (deterministic, need-gated, trait-gated by the existing axes); the
-  act plants a secret on the taker and, if witnessed (colocation), a
-  rumor on the witness. Council disputes gain a real caseload;
-  dispute outcomes gain one new option beyond
-  reconcile/feud/council_ruling: **restitution or ostracism** (a
-  bounded standing penalty that gates SOCIALIZE targets and council
-  eligibility, decaying over months). Deviance → gossip → reputation →
-  justice → resentment is the classic emergence engine this world is
-  missing, and every link already exists except the first and last.
+- [x] **Deviance: a theft/taboo/justice loop.** Shipped v0.87.18,
+  completing v0.87.17's theft mechanic and closing the loop the idea
+  named. Theft (`Population._maybe_commit_theft`) now plants a real
+  `Agent.secrets` entry on the taker (`push_secret`, not just a
+  routine memory) and, if a third colocated agent is present, a
+  `THEFT_WITNESS_RUMOR_CHANCE` roll seeds a rumor-flavored memory on
+  the witness. Dispute outcomes gained the named fourth option:
+  **ostracism** (`llm/dispute.py`, only offered where a council
+  exists, reserved for a genuinely lopsided case) applies a bounded
+  `Agent.standing_penalty` (`Population.apply_dispute`) that gates
+  SOCIALIZE targeting (`_nearest_other_agent`) and council candidacy
+  (`_council_seat_key`), decaying monthly (`_tick_traits`) rather than
+  standing forever — deviance → gossip → reputation → justice →
+  resentment, every link now real. "Restitution" specifically (a
+  goods-transfer counterpart) was not built — ostracism alone covers
+  the idea's core ask.
+
+- [x] **Migration by choice, not just fission.** Shipped v0.87.18.
+  `Population._maybe_migrate` — a rare, deterministic per-agent check
+  against push/pull signals already tracked elsewhere: ostracism
+  (`standing_penalty`), family feud pressure (`Institution.feuds`),
+  genuine starvation next to a meaningfully better-fed sister
+  settlement (`_granary_fill_ratio`), or a bonded partner already
+  living elsewhere (highest-priority pull). Reuses `depart_for_
+  fission`'s exact shape (settlement_id reassigned immediately,
+  `travel_target` set so the agent physically walks there via the
+  existing journey machinery) at individual scale — a migrant carries
+  their own memories/beliefs/secrets with them for free (nothing
+  needed touching), the actual information vector the idea named.
+  `standing_penalty` resets on arrival — a fresh settlement doesn't
+  know what the old one held against someone.
 
 - [x] **Generational feuds between FAMILY institutions.** Shipped v0.87.11. Feuds exist
   as pair-level dispute outcomes. Promote a repeated pattern (N feud

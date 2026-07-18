@@ -106,6 +106,7 @@ const CATEGORY_META = {
   lake_rose: { icon: "💧" },
   lake_receded: { icon: "🏖️" },
   migrant_arrived: { icon: "🚶" },
+  migrant_departed: { icon: "🎒" },
   inheritance: { icon: "🪦" },
   family_formed: { icon: "🏡" },
   council_formed: { icon: "⚖️" },
@@ -137,7 +138,7 @@ const CATEGORY_META = {
 // everything is still stored and still reaches /events untouched.
 const EVENT_GROUP_OF = {
   birth: "people", death: "people", dialogue_surfaced: "people", rumor: "people",
-  migrant_arrived: "people", inheritance: "people", dispute: "people",
+  migrant_arrived: "people", migrant_departed: "people", inheritance: "people", dispute: "people",
   record_written: "people", illness: "people", recovery: "people", predator_attack: "people",
   family_feud: "people", knowledge_lost: "people", theft: "people",
   construction_started: "town", building_completed: "town", building_ruined: "town",
@@ -1700,6 +1701,10 @@ function renderNpcInspector() {
       <h4>Current plan</h4>
       <div>${agent.plan.intent} <span class="muted">(${agent.plan.days_remaining} days left)</span></div>
       ${agent.plan.progress_note ? `<div class="npc-goal-reason">"${agent.plan.progress_note}"</div>` : ""}
+    </div>` : ""}
+    ${agent.standing_penalty > 0 ? `<div class="npc-section">
+      <h4>Standing</h4>
+      <div>🚫 Ostracized <span class="muted">(penalty ${(agent.standing_penalty * 100).toFixed(0)}%, fading over time)</span></div>
     </div>` : ""}
     <div class="npc-section">
       <h4>Feeling</h4>
