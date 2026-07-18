@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import sqlite3
 import time
 from collections import deque
@@ -53,7 +54,7 @@ from hearthmind.llm import (
     artifacts,
     faction, fission, beliefs, caravan, chronicle, consciousness, culture, culture_digest, dialogue, dispute,
     documentary, dream, festival, folklore, founding, geography, invention, memory_drift, mind, naming,
-    narrative_direction, omens, religion, rumor_interpret, summary, town_brain,
+    narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
 )
 from hearthmind.llm.client import build_llm_client
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
@@ -115,6 +116,7 @@ from hearthmind.world.state import (
     CONSCIOUSNESS_INTERVENTION_LOG_MAX,
     CONSCIOUSNESS_MEMORY_MAX,
     CONSCIOUSNESS_PLAYER_MODEL_MAX,
+    CONSCIOUSNESS_REVISION_CONFIDENCE_GAIN,
     TERRAIN_CHANGING_CATEGORIES,
     World,
 )
@@ -416,6 +418,25 @@ while paused, instead of sleeping for a full (possibly very long, at a
 low speed multiplier) tick interval — see interface/api.py's
 WorldBroadcaster pause/speed fields and `_apply_intervention`'s note on
 why pause/speed bypass the usual queued-intervention seam."""
+
+_OVERLAP_STOPWORDS = frozenset({
+    "the", "a", "an", "i", "my", "me", "and", "to", "of", "in", "on", "at", "it",
+    "was", "is", "were", "for", "with", "that", "this", "after", "when", "we",
+    "us", "our", "they", "them", "their", "not", "but", "so", "as", "be", "been",
+})
+"""Tiny hardcoded stopword list for `_overlap_tokens` (deferred item 2,
+`SimulationEngine._matching_lesson`'s keyword-overlap fallback) — not
+meant to be linguistically complete, just enough to keep filler words
+from counting as a topical match."""
+
+
+def _overlap_tokens(text: str) -> set[str]:
+    """Lowercased, stopword-filtered, 3+ letter word set for a cheap
+    keyword-overlap comparison — deliberately not real NLP (no stemming/
+    lemmatization), matching this project's stdlib-first, no-new-
+    dependency posture (see `LESSON_KEYWORD_OVERLAP_MIN`'s docstring)."""
+    return {w for w in re.findall(r"[a-z']+", text.lower()) if len(w) > 2 and w not in _OVERLAP_STOPWORDS}
+
 
 def _proc_status_mb(pid: str) -> dict | None:
     """VmRSS/VmSwap (MB) for one pid from /proc/<pid>/status, or None if
@@ -1180,10 +1201,16 @@ class SimulationEngine:
                 )
             _pending_memory_evictions.clear()
         self._detect_ritual_signals()
+        self._maybe_schedule_skill_mastery()
         if "day_end" in events:
             self._log_daily_metrics()
             self._llm_calls_today = 0  # reset the daily Ollama-call ceiling (v0.70.0)
             self._interpret_rumor_today = 0  # reset InterpretRumor()'s own daily ceiling (Phase K)
+            # Deferred item 4 (docs/VISION-2026-07-LEARNING.md), "gradual
+            # forgetting as a continuous fade": zero LLM cost, population-
+            # wide, so no core-cast gating applies — see Population.
+            # decay_memory_salience's docstring.
+            self.world.population.decay_memory_salience()
         if events:
             logger.info(
                 "Tick %s: %s | %s | %s",
@@ -1263,6 +1290,21 @@ class SimulationEngine:
     still feel like an open conflict right now," not "is a new dispute
     on cooldown." See v0.87.0, "learns like a human" — `Agent.lessons`."""
 
+    LESSON_KEYWORD_OVERLAP_MIN = 2
+    """Deferred item 2 (docs/VISION-2026-07-LEARNING.md), "smarter
+    recall via real semantic similarity": rather than adding an
+    embeddings/vector-DB dependency (a real new-dependency decision the
+    deferred-list entry deliberately declined to make unprompted), a
+    cheap stdlib keyword-overlap fallback widens `_matching_lesson`
+    beyond the fixed 5-tag `LESSON_SITUATIONS` vocabulary — when no
+    lesson shares the agent's current exact situation tag, the agent's
+    most recent `working_memory` entry is compared word-for-word
+    against every stored lesson's text, and the best-overlapping one
+    surfaces if it shares at least this many meaningful (non-stopword,
+    3+ letter) words. 2 is a deliberately conservative floor — a single
+    shared word ("village," "food") is too common to mean much; two
+    shared words is a real, if crude, topical match."""
+
     def _current_situation_tag(self, agent) -> str:
         """Deterministic classifier for `Agent.lessons`' situation match
         (v0.87.0) — cheap, stdlib, no embeddings: which of `beliefs.
@@ -1291,14 +1333,29 @@ class SimulationEngine:
 
     def _matching_lesson(self, agent, situation: str) -> str:
         """Returns the text of `agent.lessons`' freshest entry tagged
-        with `situation`, or "" if none matches / situation is "" —
-        thin lookup helper for `_schedule_due_cognition`/dialogue."""
+        with `situation`; if none share the exact tag, falls back to a
+        keyword-overlap match (deferred item 2) against the agent's most
+        recent `working_memory` entry — "" if situation is "" or nothing
+        clears either bar. Thin lookup helper for `_schedule_due_
+        cognition`/dialogue."""
         if not situation:
             return ""
         matches = [entry for entry in agent.lessons if entry.get("situation") == situation]
-        if not matches:
+        if matches:
+            return max(matches, key=lambda e: e.get("formed_tick", 0))["text"]
+        if not agent.lessons or not agent.working_memory:
             return ""
-        return max(matches, key=lambda e: e.get("formed_tick", 0))["text"]
+        context_tokens = _overlap_tokens(agent.working_memory[-1])
+        if not context_tokens:
+            return ""
+        best_entry, best_score = None, 0
+        for entry in agent.lessons:
+            score = len(context_tokens & _overlap_tokens(entry["text"]))
+            if score > best_score:
+                best_entry, best_score = entry, score
+        if best_entry is not None and best_score >= self.LESSON_KEYWORD_OVERLAP_MIN:
+            return best_entry["text"]
+        return ""
 
     def _schedule_due_cognition(self) -> None:
         """Fire-and-forget a goal-decision task for every agent whose
@@ -2401,13 +2458,33 @@ class SimulationEngine:
                 # never leak into other jobs' recent_events prompts).
                 log_consciousness_entry(self.conn, tick, "memory", parsed["note"])
             if parsed["player_belief"]:
-                self.world.consciousness_player_model.append({
-                    "belief": parsed["player_belief"], "confidence": 0.6,
-                    "formed_tick": tick, "revised_tick": tick, "revision_count": 0,
-                })
-                if len(self.world.consciousness_player_model) > CONSCIOUSNESS_PLAYER_MODEL_MAX:
-                    weakest = min(self.world.consciousness_player_model, key=lambda p: p["confidence"])
-                    self.world.consciousness_player_model.remove(weakest)
+                model = self.world.consciousness_player_model
+                leading = max(model, key=lambda p: p["confidence"]) if model else None
+                if parsed["revises_leading"] and leading is not None:
+                    # Deferred item 6 (docs/VISION-2026-07-LEARNING.md),
+                    # "consciousness player-theory revision, round 2":
+                    # `revision_count`/`revised_tick` existed since v0.84.0
+                    # but were dead weight — every prior write appended a
+                    # brand-new entry, so a genuine refinement of an
+                    # existing theory always read as a second, unrelated
+                    # one. When the model itself says this IS the same
+                    # theory sharpened by new evidence, update the
+                    # leading entry in place instead, nudging confidence
+                    # up (a theory that survives re-examination is held
+                    # more firmly) — capped at 1.0, same bound every
+                    # other confidence-shaped value in this project uses.
+                    leading["belief"] = parsed["player_belief"]
+                    leading["confidence"] = min(1.0, leading["confidence"] + CONSCIOUSNESS_REVISION_CONFIDENCE_GAIN)
+                    leading["revised_tick"] = tick
+                    leading["revision_count"] = leading.get("revision_count", 0) + 1
+                else:
+                    self.world.consciousness_player_model.append({
+                        "belief": parsed["player_belief"], "confidence": 0.6,
+                        "formed_tick": tick, "revised_tick": tick, "revision_count": 0,
+                    })
+                    if len(self.world.consciousness_player_model) > CONSCIOUSNESS_PLAYER_MODEL_MAX:
+                        weakest = min(self.world.consciousness_player_model, key=lambda p: p["confidence"])
+                        self.world.consciousness_player_model.remove(weakest)
                 log_consciousness_entry(self.conn, tick, "player_theory", parsed["player_belief"])
             if parsed["objectives"]:
                 self.world.consciousness_objectives = [
@@ -3000,6 +3077,59 @@ class SimulationEngine:
 
         self._schedule_llm_job("memory_drift", prompt, memory_drift.SYSTEM_PROMPT, fallback, apply, critical=False)
 
+    def _maybe_schedule_skill_mastery(self) -> None:
+        """Deferred item 5 (docs/VISION-2026-07-LEARNING.md), "LLM-
+        narrated skill mastery" — see llm/skill_mastery.py's module
+        docstring for the full rationale. Reactive, not cadence-gated:
+        fires the tick a core-cast agent's `skill_mastered` life event
+        actually happens (`Population.last_skill_masteries`, cleared
+        every tick), which is already naturally rare (crossing `MASTERY_
+        THRESHOLD` once per skill per agent, ever). Non-core agents keep
+        the deterministic template `_remember` already wrote — untouched
+        here, so behavior for the vast majority of `skill_mastered`
+        events is unchanged. Non-critical: the fallback is a genuine
+        no-op (the already-written template stands), never a fabricated
+        replacement."""
+        core_ids = self.world.population.core_agent_ids
+        for agent_id, skill in self.world.population.last_skill_masteries:
+            if agent_id not in core_ids:
+                continue
+            agent = self.world.population.get(agent_id)
+            if agent is None or not agent.memories:
+                continue
+            # `_remember`'s deterministic template was just appended this
+            # SAME tick (population.tick() runs before this is called) —
+            # it's the freshest entry, same "replace in place" shape
+            # memory_drift uses for an older one.
+            mastery_index = len(agent.memories) - 1
+            old_memory = agent.memories[mastery_index]
+            recent_memories = agent.memories[-4:-1]  # excludes the mastery line itself
+            prompt = skill_mastery.build_prompt(agent, skill, recent_memories)
+            fallback = skill_mastery.fallback_mastery()
+
+            def apply(
+                result: dict, used_fallback: bool, agent_id: int = agent_id,
+                mastery_index: int = mastery_index, old_memory: str = old_memory, fallback: dict = fallback,
+            ) -> None:
+                if used_fallback:
+                    return  # the deterministic template already stands — see fallback_mastery's docstring
+                target = self.world.population.get(agent_id)
+                if target is None:
+                    return
+                if mastery_index >= len(target.memories) or target.memories[mastery_index] != old_memory:
+                    return  # memory list shifted since scheduling — skip rather than overwrite the wrong entry
+                reflection = skill_mastery.parse_mastery(result, fallback)
+                if not reflection:
+                    return
+                target.memories[mastery_index] = reflection
+                log_agent_memory_entry(
+                    self.conn, self.world.clock.tick_count, target.id, "episodic_drifted", reflection,
+                )
+
+            self._schedule_llm_job(
+                "skill_mastery", prompt, skill_mastery.SYSTEM_PROMPT, fallback, apply, critical=False,
+            )
+
     # --- Phase G v1: temperament and omens (deliberately subtle) ---------------
 
     def _maybe_tick_temperament(self, events: list[str]) -> None:
@@ -3274,7 +3404,7 @@ class SimulationEngine:
             outcome, narration = dispute.parse_dispute(
                 result, fallback, self._settlement_by_id(dispute_home_id).council() is not None,
             )
-            applied = self.world.population.apply_dispute(a_id, b_id, outcome)
+            applied = self.world.population.apply_dispute(a_id, b_id, outcome, self.world.clock.tick_count)
             if applied is None:
                 return  # one of them died while the decision was in flight
             self._log("dispute", narration)

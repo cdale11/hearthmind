@@ -56,7 +56,11 @@ SYSTEM_PROMPT = (
     "resident could point to and say 'that could only have been magic.' "
     'Respond with strict JSON only, no other text: {"note": "one short sentence, or '
     'empty, of what you noticed this month", "player_belief": "one short sentence, '
-    'or empty, revising your private read on the outside hand", "objectives": '
+    'or empty, revising your private read on the outside hand", "revises_leading": '
+    'true or false — true if player_belief is a genuine refinement/correction of '
+    'your CURRENT leading theory (the same underlying idea, sharpened or '
+    'complicated by new evidence), false if it is a distinct, new theory sitting '
+    'alongside your old ones, "objectives": '
     '["at most 2 short standing preoccupations — omit or leave empty to keep your '
     'current ones unchanged"], "intervention": "one of none, weather_nudge, '
     'temperament_nudge, false_memory, omen_phrasing_seed, dream_symbol_seed, '
@@ -115,7 +119,10 @@ def fallback_consciousness() -> dict:
     direction`, which both derive a real deterministic answer). A
     persistent inner life earning that persistence from genuine model
     reasoning, never a scripted substitute, is the whole point here."""
-    return {"note": "", "player_belief": "", "objectives": [], "intervention": "none", "intervention_detail": ""}
+    return {
+        "note": "", "player_belief": "", "revises_leading": False, "objectives": [],
+        "intervention": "none", "intervention_detail": "",
+    }
 
 
 def parse_consciousness(result: dict, fallback: dict) -> dict:
@@ -123,6 +130,13 @@ def parse_consciousness(result: dict, fallback: dict) -> dict:
     note = note.strip()[:160] if isinstance(note, str) else ""
     player_belief = result.get("player_belief")
     player_belief = player_belief.strip()[:160] if isinstance(player_belief, str) else ""
+    # Deferred item 6 (docs/VISION-2026-07-LEARNING.md), "consciousness
+    # player-theory revision, round 2": `revises_leading` only means
+    # anything when there's an actual new `player_belief` to apply — a
+    # malformed/missing/non-bool value defaults to False (append a new,
+    # independent theory), never silently overwriting the existing
+    # leading one on bad input.
+    revises_leading = bool(result.get("revises_leading")) and bool(player_belief)
     objectives = result.get("objectives")
     clean_objectives = (
         [o.strip()[:80] for o in objectives if isinstance(o, str) and o.strip()][:2]
@@ -136,8 +150,8 @@ def parse_consciousness(result: dict, fallback: dict) -> dict:
     if intervention == "none":
         detail = ""
     return {
-        "note": note, "player_belief": player_belief, "objectives": clean_objectives,
-        "intervention": intervention, "intervention_detail": detail,
+        "note": note, "player_belief": player_belief, "revises_leading": revises_leading,
+        "objectives": clean_objectives, "intervention": intervention, "intervention_detail": detail,
     }
 
 

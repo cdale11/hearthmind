@@ -92,51 +92,66 @@ adding parallel ones, "maximize emergence per LLM call."
   simulation with UI/diagnostics visibility instead of relying on
   per-call fallback.
 
-## Deferred to a future increment (explicitly scoped out of v0.87.0/.1/.2/.3)
+## Shipped in v0.87.4
 
-Ordered roughly by how directly it extends what's shipped so far:
+Explicit user directive: implement all six remaining deferred items in
+one batch. All zero-added-LLM-cost except item 5 (a genuinely new,
+narrowly-scoped, core-cast-gated call, matching this batch's own
+approved small-call-volume budget).
 
-1. **Non-core-cast population-wide LESSONS/memory-drift** (as opposed
-   to the trait-nudge/skill-mastery mechanics, which already are
-   population-wide since they're deterministic). Extending the LLM-
-   authored `lessons`/memory-drift jobs beyond the core cast would
-   violate the standing "any new per-agent LLM decision must be
-   core-cast-gated" rule (CLAUDE.md) without an explicit override — a
-   genuinely non-LLM, template-based lesson-formation path for the
-   wider population is the shape this would need to take if pursued.
-2. **Smarter recall via real semantic similarity**, not the fixed
-   5-tag `LESSON_SITUATIONS` vocabulary. An embedding-based retrieval
-   layer (or even a cheap TF-IDF-style keyword overlap) would let a
-   lesson/memory match a much wider range of "similar situations" than
-   the five hardcoded tags — deliberately not attempted this pass
-   (no vector DB/embeddings dependency exists in this project yet;
-   adding one is a real new-dependency decision, not a small extension).
-3. **Cross-generational lesson inheritance.** H7 (inheritance on death)
-   already transfers land/goods/a skill bias to an heir — lessons
-   aren't part of that transfer yet. "A parent's hard-won lesson passed
-   down, imperfectly" is a natural, human, and currently-unbuilt piece.
-4. **Gradual forgetting as a genuinely continuous fade**, not just the
-   existing salience-based hard eviction + the new occasional LLM-
-   authored drift. A middle ground (a memory's salience decaying slowly
-   over real elapsed time even without eviction, subtly changing how
-   it's phrased when read back into a prompt) is a bigger mechanical
-   change than this batch's scope.
-5. **Skill mastery narrated by the LLM**, not a deterministic
-   templated sentence. v0.87.0 keeps mastery narration zero-cost/
-   deterministic (`"Became a master of X after years of practice"`); an
-   LLM-authored version ("got better at healing after losing a
-   patient," from the user's own original framing) would need to read
-   back the specific memories/events that led to mastery — a genuinely
-   new, small LLM job if pursued, similar in shape to memory_drift.
-6. **Deeper Town Consciousness narrative modeling, round 2.** v0.87.3
-   closes the "fold player_model into the trend line" step; the vision
-   doc's fuller ambition (a longer-running theory of the player's
-   actual *intentions*, synthesized narratively rather than as one
-   highest-confidence belief string) is still a bigger, more
-   speculative LLM-authored piece if pursued further.
+1. **Non-core-cast population-wide lesson formation** — deterministic,
+   template-based (`RECOVERY_LESSON_TEMPLATES`/`RECONCILE_LESSON_
+   TEMPLATES`, `agents/population.py`), triggered at two existing
+   deterministic events (illness recovery, dispute reconciliation) for
+   EVERY agent, not just the core cast — zero LLM cost, so the
+   standing core-cast-gating rule doesn't apply. Reuses `push_lesson`/
+   `MAX_LESSONS` unchanged.
+2. **Keyword-overlap fallback matching** (`SimulationEngine._matching_
+   lesson`) — when no lesson shares the agent's exact situation tag, a
+   cheap stdlib keyword-overlap comparison (`_overlap_tokens`, no
+   embeddings/vector DB) against the agent's most recent `working_
+   memory` entry surfaces the best-matching lesson if it clears
+   `LESSON_KEYWORD_OVERLAP_MIN` shared meaningful words. Exact-tag
+   matches still take priority.
+3. **Cross-generational lesson inheritance** (`Population._apply_
+   inheritance`) — the deceased's freshest lesson passes to their heir
+   `INHERITANCE_LESSON_CHANCE` of the time, attributed ("X used to
+   say: ...") rather than claimed as the heir's own — imperfect,
+   never guaranteed, matching a lesson's real chance of being lost
+   between generations.
+4. **Gradual continuous memory-salience fade** — new `Population.
+   decay_memory_salience()`, called once/sim-day (`day_end`),
+   multiplies every stored memory's salience by `MEMORY_FADE_DECAY_
+   PER_DAY` (floored at `MEMORY_FADE_FLOOR`) — a memory that's never
+   evicted or drifted still slowly reads as hazier. `faded_memory_
+   text` (agent.py) rewords a sufficiently-faded memory when it's read
+   into cognition/dialogue prompts ("I only vaguely recall: ...").
+5. **LLM-narrated skill mastery** (new `llm/skill_mastery.py`,
+   `SimulationEngine._maybe_schedule_skill_mastery`) — for core-cast
+   agents only, replaces the just-written deterministic mastery memory
+   with an LLM-authored reflection grounded in the agent's own recent
+   memories, in place (same index-identity-check pattern `memory_
+   drift.py` established). Non-core agents and the settlement-wide
+   event log are completely untouched — this is personal narration,
+   not public record. Genuine no-op fallback.
+6. **Consciousness player-theory revision, round 2**
+   (`llm/consciousness.py`, `SimulationEngine._maybe_schedule_
+   consciousness`) — new `revises_leading` JSON field lets the monthly
+   job say a fresh `player_belief` is a refinement of its existing
+   leading theory rather than an independent new one; when true, the
+   leading `consciousness_player_model` entry is updated IN PLACE
+   (confidence nudged up via `CONSCIOUSNESS_REVISION_CONFIDENCE_GAIN`,
+   `revision_count`/`revised_tick` incremented) instead of appending a
+   duplicate — closes a real gap where those two fields existed since
+   v0.84.0 but were never actually incremented by anything.
 
-None of these are blocking or half-built — v0.87.0 is a complete,
-mechanically real batch on its own; this list exists so "keep expanding
-this direction" has a concrete starting point next time, per the user's
-own instruction to scope deferred work into a roadmap doc rather than
-leave it implicit.
+Verified: direct tests against the real production code for all six
+(illness-recovery/reconciliation lesson formation, keyword-overlap
+fallback matching including exact-tag-still-wins, inheritance's
+imperfect-chance + freshest-lesson-wins + attribution, salience decay
++ faded-text wrapping, a real fake-LLM-client engine test confirming
+core-cast mastery narration replaces the memory in place while a
+non-core agent's deterministic template and event log are untouched,
+and consciousness revision-vs-append branching including the "no
+belief -> forced False" guard). `scripts/verify_native_soak.py`
+byte-identical.

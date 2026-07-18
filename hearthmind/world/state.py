@@ -55,6 +55,15 @@ is a private running theory, not a growing dossier."""
 CONSCIOUSNESS_INTERVENTION_LOG_MAX = 12
 """Cap on `World.consciousness_intervention_log`."""
 
+CONSCIOUSNESS_REVISION_CONFIDENCE_GAIN = 0.1
+"""Deferred item 6 (docs/VISION-2026-07-LEARNING.md), "consciousness
+player-theory revision, round 2": how much a `consciousness_player_
+model` entry's confidence rises each time the monthly job revises it
+in place (`parsed["revises_leading"]`, `llm/consciousness.py`) rather
+than appending an independent new theory — a theory that keeps holding
+up under fresh evidence is held more firmly, capped at 1.0 the same
+way every other confidence-shaped value in this project is."""
+
 TERRAIN_CHANGING_CATEGORIES = frozenset({
     "terrain_thinned", "terrain_reclaimed", "climate_drift",
     "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",

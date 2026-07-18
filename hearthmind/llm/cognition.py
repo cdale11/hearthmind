@@ -20,6 +20,7 @@ from hearthmind.agents.agent import (
     AgentGoal,
     describe_emotion,
     describe_traits,
+    faded_memory_text,
     just_now_text as _just_now_text,
 )
 
@@ -134,7 +135,14 @@ def build_prompt(
         if latest_tradition:
             culture += f" The village keeps this tradition: {latest_tradition}."
     recent = agent.memories[-RECENT_MEMORIES_IN_PROMPT:]
-    memory = f" You remember: {' | '.join(recent)}" if recent else ""
+    recent_salience = agent.memory_salience[-RECENT_MEMORIES_IN_PROMPT:]
+    # Deferred item 4 (docs/VISION-2026-07-LEARNING.md): a decayed
+    # memory reads hazier here, not just in raw storage — see
+    # Population.decay_memory_salience/faded_memory_text. `recent`
+    # itself stays the exact stored text for `_just_now_text`'s
+    # duplicate-detection below.
+    recent_display = [faded_memory_text(t, s) for t, s in zip(recent, recent_salience)]
+    memory = f" You remember: {' | '.join(recent_display)}" if recent_display else ""
     just_now = _just_now_text(agent.working_memory, recent)
     just_now_text = f" Just now: {just_now}." if just_now else ""
     personality = describe_traits(agent.traits)

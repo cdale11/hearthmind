@@ -13,6 +13,7 @@ from hearthmind.agents.agent import (
     Agent,
     describe_emotion,
     describe_traits,
+    faded_memory_text,
     just_now_text as _just_now_text,
 )
 
@@ -155,8 +156,10 @@ def build_prompt(
         (agent_a, agent_a.name, agent_b, lessons[0]), (agent_b, agent_b.name, agent_a, lessons[1]),
     ):
         recent = agent.memories[-DIALOGUE_MEMORY_IN_PROMPT:]
-        if recent:
-            memory_bits.append(f"{label} recently: {'; '.join(recent)}")
+        recent_salience = agent.memory_salience[-DIALOGUE_MEMORY_IN_PROMPT:]
+        recent_display = [faded_memory_text(t, s) for t, s in zip(recent, recent_salience)]
+        if recent_display:
+            memory_bits.append(f"{label} recently: {'; '.join(recent_display)}")
         just_now = _just_now_text(agent.working_memory, recent)
         if just_now:
             just_now_bits.append(f"{label} just now: {just_now}")

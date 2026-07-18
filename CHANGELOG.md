@@ -4,6 +4,109 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.4] — Close all remaining "learns like a human" deferred items
+
+Explicit user directive: implement all six items on docs/VISION-2026-07-
+LEARNING.md's deferred list in one batch. See that doc's "Shipped in
+v0.87.4" section for full detail; durable facts only here.
+
+**Item 1, non-core-cast population-wide lessons** (`agents/population.py`):
+new `RECOVERY_LESSON_TEMPLATES`/`RECONCILE_LESSON_TEMPLATES` constants,
+picked deterministically (`agent.id % len(...)`, no RNG) at the two
+existing deterministic trigger sites — illness recovery (`_tick_disease`,
+gained a `tick` parameter) and dispute reconciliation (`apply_dispute`,
+gained a `tick` parameter, threaded from `_apply_deaths`/engine.py's
+dispute apply()). Applies to EVERY agent, not just the core cast — zero
+LLM cost, so the standing per-agent-LLM-call gating rule doesn't apply.
+Reuses `llm.beliefs.push_lesson` (now imported directly into
+`population.py`; audited for circular imports, none exist).
+
+**Item 2, keyword-overlap fallback matching** (`simulation/engine.py`):
+new module-level `_overlap_tokens`/`_OVERLAP_STOPWORDS` (pure stdlib
+`re`, no embeddings/vector DB — a deliberate alternative to the
+deferred item's "real semantic similarity" ambition, which would have
+required a new dependency decision this batch didn't make unprompted).
+`_matching_lesson` now falls back to comparing the agent's most recent
+`working_memory` entry against every stored lesson's text when no
+exact situation-tag match exists, surfacing the best-overlapping one
+if it clears `LESSON_KEYWORD_OVERLAP_MIN=2` shared meaningful words.
+Exact-tag matches are checked first and still win.
+
+**Item 3, cross-generational lesson inheritance** (`agents/population.
+py`, `Population._apply_inheritance`): new `Config`-independent
+`Agent.INHERITANCE_LESSON_CHANCE=0.5` constant — the deceased's
+freshest lesson (by `formed_tick`) passes to the resolved heir that
+fraction of the time, reworded as attribution ("X used to say: ...")
+via `push_lesson`, never claimed as the heir's own experience. Threaded
+an `rng: random.Random | None` parameter through `_apply_deaths` ->
+`_apply_inheritance` (the population-tick-scoped namespaced RNG,
+matching this project's determinism discipline) — `None`-safe for any
+legacy/test caller that doesn't pass one.
+
+**Item 4, gradual continuous memory-salience fade** (`agents/agent.py`,
+`agents/population.py`): new `MEMORY_FADE_DECAY_PER_DAY=0.985`/
+`MEMORY_FADE_FLOOR=0.05`/`MEMORY_FADE_DISPLAY_THRESHOLD=0.25` constants
+and `faded_memory_text()` helper. New `Population.decay_memory_
+salience()`, called once/sim-day (`SimulationEngine._tick_once`'s
+existing `day_end` block) multiplies every agent's stored `memory_
+salience` values by the decay factor (floored, never truly zero) — a
+memory that's never evicted or LLM-drifted still slowly reads as
+hazier over real elapsed time, distinct from both mechanisms. `llm/
+cognition.py`/`llm/dialogue.py`'s "You remember"/"recently" lines now
+wrap a sufficiently-faded memory's text via `faded_memory_text` before
+it reaches a prompt ("I only vaguely recall: ...") — the underlying
+stored text is untouched, only the prompt-facing copy changes.
+
+**Item 5, LLM-narrated skill mastery** (new `llm/skill_mastery.py`,
+`simulation/engine.py`): the one genuinely new LLM call this batch
+adds (approved small-call-volume budget). New `Population.last_skill_
+masteries: list[tuple[int, str]]` (transient, reset every tick, same
+"consumed the same tick" shape as `last_written_records`) — populated
+at both existing `skill_mastered` sites (`_maybe_forage`'s farming
+branch, `_advance_construction`'s construction branch, both gained an
+optional `skill_masteries` output parameter). New `SimulationEngine.
+_maybe_schedule_skill_mastery` (called every tick, reactive rather than
+cadence-gated — mastery crossings are already naturally rare) only
+acts on core-cast agents: schedules a non-critical LLM job that
+replaces the memory `_remember` just wrote THIS SAME tick (in place,
+by index, with the same old-text-identity guard `memory_drift.py`
+established) with a reflection grounded in the agent's own recent
+memories. Non-core agents and the settlement-wide `skill_mastered`
+event log are completely untouched by this — personal narration only,
+never public record. Fallback is a genuine no-op.
+
+**Item 6, consciousness player-theory revision, round 2** (`llm/
+consciousness.py`, `simulation/engine.py`, `world/state.py`): new
+`revises_leading` JSON field (SYSTEM_PROMPT extended, `parse_
+consciousness` validates it — forces False whenever `player_belief`
+itself is empty, so a malformed response can never blank-overwrite the
+leading theory) lets the monthly job say a fresh `player_belief` is a
+refinement of its existing leading theory rather than an independent
+new one. When true, `consciousness_player_model`'s highest-confidence
+entry is updated IN PLACE (`belief` replaced, `confidence` nudged up by
+new `CONSCIOUSNESS_REVISION_CONFIDENCE_GAIN=0.1` capped at 1.0,
+`revision_count`/`revised_tick` incremented) instead of appending a
+duplicate entry — closes a real dead-schema gap: those two fields have
+existed since v0.84.0 but nothing ever incremented them, since every
+prior write unconditionally appended a brand-new dict with
+`revision_count=0`.
+
+Verified: direct production-code tests for all six pieces (illness-
+recovery/reconciliation lesson formation across both templates,
+keyword-overlap fallback matching including the exact-tag-still-wins
+case and the zero-overlap/no-lessons empty cases, inheritance's
+imperfect-chance + freshest-lesson-wins + attribution text + "no
+lessons -> never inherits" case, salience decay converging toward the
+floor + `faded_memory_text`'s threshold behavior, a real fake-LLM-
+client end-to-end engine test confirming core-cast mastery narration
+replaces the memory in place while a non-core agent's deterministic
+template is completely unchanged and no LLM job is scheduled for it,
+and consciousness revision-vs-append branching including the "no
+belief -> forced False" guard and the real in-place mutation of
+`confidence`/`revision_count`/`revised_tick`). `scripts/verify_native_
+soak.py` (3 seeds x 2000 ticks) byte-identical — this batch touches no
+native module.
+
 ## [0.87.3] — Parallel-build hardening, restart-aware pausing, consciousness trend theory, perf audit
 
 Five items from one user turn: the C++ build still not visibly

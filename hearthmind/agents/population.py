@@ -102,10 +102,13 @@ from hearthmind.agents.agent import (
     GRIEF_ENERGY_PENALTY,
     HUNGER_RATE,
     IMMUNITY_DURATION_TICKS,
+    INHERITANCE_LESSON_CHANCE,
     INSTITUTION_TEACHING_BONUS_MULTIPLIER,
     MATURITY_TICKS,
     MAX_AGENT_MEMORIES,
     MAX_LIFESPAN_TICKS,
+    MEMORY_FADE_DECAY_PER_DAY,
+    MEMORY_FADE_FLOOR,
     MEMORY_SALIENCE_BASELINE,
     MEMORY_SALIENCE_EMOTION_WEIGHT,
     ROUTINE_MEMORY_SALIENCE_MULT,
@@ -188,6 +191,7 @@ from hearthmind.agents.agent import (
     dominant_emotion,
 )
 from hearthmind.agents.names import _roman, generate_names
+from hearthmind.llm.beliefs import push_lesson
 from hearthmind.economy.farms import (
     FARM_TOOL_MATERIALS_COST,
     HARVEST_AMOUNT,
@@ -651,6 +655,27 @@ BUILD_SITE_DISTANCE_PENALTY = 0.15
 else equal they build where they stand (zero penalty), and a
 road/resource-adjacent tile (+0.5 or +1.0) is worth walking up to a
 few tiles for, but never the full radius for no gain."""
+
+RECOVERY_LESSON_TEMPLATES = (
+    "Illness nearly took me once; I don't take my health for granted anymore.",
+    "I remember how close I came to not recovering — I rest when I need to now.",
+    "Surviving that sickness taught me not to push myself past exhaustion.",
+)
+RECONCILE_LESSON_TEMPLATES = (
+    "Making peace was harder than staying angry, but it was worth it.",
+    "I learned that a feud costs more than it's worth, once I let mine go.",
+    "Forgiving them taught me that grudges only ever weigh me down.",
+)
+"""Deferred item 1 (docs/VISION-2026-07-LEARNING.md), "non-core-cast
+population-wide lessons": a genuinely non-LLM, template-based lesson-
+formation path for the WHOLE population, distinct from the LLM-authored
+`Agent.lessons` core-cast jobs (Reflect()/memory_drift, both still
+core-cast-gated per the standing per-agent-LLM-call rule — this costs
+no LLM budget at all, so the gate doesn't apply). Picked deterministically
+by `agent.id % len(...)` at the two call sites below (illness recovery,
+dispute reconciliation) rather than via RNG — small, fixed, and every
+agent who lives through the same kind of event gets *a* lesson, not
+necessarily the identical wording every time."""
 
 MAX_DIALOGUES_PER_TICK = 6
 """Caps how many dialogue exchanges are *selected* in a single tick
@@ -1144,6 +1169,16 @@ class Population:
     never serialized. The record's *existence* is objective (set here,
     synchronously); its text is interpretive, so the LLM (or fallback)
     authors it in the background."""
+    last_skill_masteries: list[tuple[int, str]] = field(default_factory=list, compare=False)
+    """`(agent_id, skill)` pairs for every `skill_mastered` life event
+    THIS tick, in the same order they're appended to `life_events` —
+    deferred item 5 (docs/VISION-2026-07-LEARNING.md), "LLM-narrated
+    skill mastery": `SimulationEngine`'s life-event log loop pairs each
+    `skill_mastered` category entry with the next one of these (by
+    position) to resolve which agent/skill it was, without changing the
+    project-wide `(category, description)` event-tuple shape. Computed
+    fresh every tick, never serialized, same "consumed the same tick"
+    shape as `last_written_records`/`last_triggered_agent_ids`."""
     last_triggered_agent_ids: set[int] = field(default_factory=set, compare=False)
     """Agent ids whose circumstances changed sharply enough *this tick*
     to warrant an immediate goal reevaluation rather than waiting for
@@ -1382,6 +1417,7 @@ class Population:
         bridge_tiles = _bridge_tiles_from_settlements(settlements)
         self.last_triggered_agent_ids = set()
         self.last_written_records = []
+        self.last_skill_masteries = []
         for agent in self.agents:
             home = home_of(agent)
             agent.age_ticks += 1
@@ -1409,7 +1445,10 @@ class Population:
                 self.last_triggered_agent_ids.add(agent.id)
             if critically_hungry and agent.state is AgentState.RESTING:
                 agent.state = AgentState.AWAKE  # emergency wake: starving beats sleeping
-            self._maybe_forage(agent, resources, farms, settlements, wildlife, life_events)  # can eat while resting, not just awake
+            self._maybe_forage(
+                agent, resources, farms, settlements, wildlife, life_events,
+                skill_masteries=self.last_skill_masteries,
+            )  # can eat while resting, not just awake
             if self._maybe_gather(agent, terrain, home, resources):
                 any_gather_occurred = True
             if agent.hunger >= STARVATION_HUNGER_THRESHOLD:
@@ -1456,7 +1495,7 @@ class Population:
             self._tick_traits(rng)
         hospital_settlement_ids = {sid for sid, has in has_hospital_by_id.items() if has}
         disease_events, died_of_disease = self._tick_disease(
-            self.agents, by_position, hospital_settlement_ids, primary.temperament, rng,
+            self.agents, by_position, hospital_settlement_ids, primary.temperament, rng, tick,
         )
         life_events.extend(disease_events)
         life_events.extend(self._maybe_outbreak(rng, crowded, roads))
@@ -1466,7 +1505,7 @@ class Population:
         # a visiting neighbor genuinely can help raise a wall or study
         # at the other village's school.
         for stl in settlements:
-            life_events.extend(self._advance_construction(by_position, stl))
+            life_events.extend(self._advance_construction(by_position, stl, self.last_skill_masteries))
             life_events.extend(self._maybe_repair(by_position, stl))
             self._maybe_stock_granaries(by_position, stl)
             self._maybe_run_husbandry(by_position, stl)
@@ -1503,7 +1542,7 @@ class Population:
         life_events.extend(
             self._maybe_reproduce(by_position, rng, capacity_by_id, settlements, tick)
         )
-        life_events.extend(self._apply_deaths(killed_by_predator, settlements, died_of_disease, tick=tick))
+        life_events.extend(self._apply_deaths(killed_by_predator, settlements, died_of_disease, tick=tick, rng=rng))
         life_events.extend(self._maybe_welcome_migrant(rng, primary, core_cast_target, terrain))
         for stl in settlements:
             members = [a for a in self.agents if home_of(a).id == stl.id]
@@ -1694,7 +1733,7 @@ class Population:
     @staticmethod
     def _tick_disease(
         agents: list[Agent], by_position: dict[tuple[int, int], list[Agent]],
-        hospital_settlement_ids: set[int], temperament: float, rng: random.Random,
+        hospital_settlement_ids: set[int], temperament: float, rng: random.Random, tick: int,
     ) -> tuple[list[tuple[str, str]], set[int]]:
         """Advances every currently-sick agent by one tick: a chance of
         death (reduced by a standing hospital, nudged by temperament —
@@ -1750,6 +1789,16 @@ class Population:
                 # weathered, not just an emotional event — the missing
                 # positive counterpart to TRAIT_SUSTAINED_HUNGER_NUDGE.
                 _nudge_trait(agent, TRAIT_RESILIENCE, TRAIT_RECOVERY_RESILIENCE_NUDGE)
+                # Deferred item 1 (docs/VISION-2026-07-LEARNING.md):
+                # deterministic, zero-LLM-cost lesson formation for the
+                # WHOLE population, not just the core cast — the LLM-
+                # authored `lessons`/memory-drift jobs stay core-cast-
+                # gated per the standing per-agent-LLM-call rule, but a
+                # fixed-template lesson costs no LLM budget at all, so
+                # every survivor gets to "learn" from surviving illness,
+                # not just the protagonists.
+                template = RECOVERY_LESSON_TEMPLATES[agent.id % len(RECOVERY_LESSON_TEMPLATES)]
+                push_lesson(agent, "danger", template, tick)
         for group in by_position.values():
             if len(group) < 2:
                 continue
@@ -1771,6 +1820,7 @@ class Population:
     def _maybe_forage(
         agent: Agent, resources: ResourceGrid, farms: FarmGrid, settlements: list[Settlement],
         wildlife: WildlifeGrid, life_events: "list[tuple[str, str]] | None" = None,
+        skill_masteries: "list[tuple[int, str]] | None" = None,
     ) -> None:
         if agent.hunger < FORAGE_HUNGER_THRESHOLD:
             return
@@ -1809,6 +1859,8 @@ class Population:
                     _remember(agent, "Became a master of farming after years of practice.")
                     if life_events is not None:
                         life_events.append(("skill_mastered", f"{agent.name} became a true master of farming."))
+                    if skill_masteries is not None:
+                        skill_masteries.append((agent.id, "farming"))
                 return
 
         # A stocked granary, pasture, or hatchery is preferred over wild
@@ -3306,7 +3358,8 @@ class Population:
 
     @staticmethod
     def _advance_construction(
-        by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement
+        by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement,
+        skill_masteries: "list[tuple[int, str]] | None" = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         for building in settlement.buildings:
@@ -3338,6 +3391,8 @@ class Population:
                     _nudge_trait(a, TRAIT_AMBITION, TRAIT_AMBITION_MASTERY_NUDGE)
                     _remember(a, "Became a master of construction after years of practice.")
                     life_events.append(("skill_mastered", f"{a.name} became a true master of construction."))
+                    if skill_masteries is not None:
+                        skill_masteries.append((a.id, "construction"))
             if building.progress >= 1.0:
                 building.stage = BuildingStage.STANDING
                 building.condition = 1.0
@@ -4064,7 +4119,8 @@ class Population:
         return life_events
 
     def _apply_inheritance(
-        self, agent: Agent, settlement: Settlement, dying_ids: set[int],
+        self, agent: Agent, settlement: Settlement, dying_ids: set[int], tick: int = 0,
+        rng: random.Random | None = None,
     ) -> list[tuple[str, str]]:
         """H7 (docs/ROADMAP.md "Phase H"): a death moves what a person
         had to a living heir instead of it simply vanishing — land
@@ -4125,6 +4181,23 @@ class Population:
                 )
                 inherited.append("a wariness of someone")
 
+        # Deferred item 3 (docs/VISION-2026-07-LEARNING.md), "cross-
+        # generational lesson inheritance": one of the deceased's
+        # lessons passes to the heir, IMPERFECTLY — attributed to the
+        # parent, not claimed as the heir's own hard-won experience, and
+        # not a guaranteed transfer (only INHERITANCE_LESSON_CHANCE of
+        # the time — a lesson is exactly the kind of thing that can get
+        # lost between generations). The freshest lesson is favored (the
+        # one the deceased was most recently living by), same "freshest
+        # wins" convention `_matching_lesson` already uses. Deterministic
+        # — no LLM call, matching item 1's discipline.
+        if agent.lessons and rng is not None and rng.random() < INHERITANCE_LESSON_CHANCE:
+            source = max(agent.lessons, key=lambda e: e.get("formed_tick", 0))
+            push_lesson(
+                heir, source["situation"], f"{agent.name} used to say: {source['text']}", tick,
+            )
+            inherited.append("a lesson")
+
         if not inherited:
             return []
         _remember(heir, f"I inherited from {agent.name}: {', '.join(inherited)}.")
@@ -4132,7 +4205,7 @@ class Population:
 
     def _apply_deaths(
         self, killed_by_predator: set[int] = frozenset(), settlements: list[Settlement] | None = None,
-        died_of_disease: set[int] = frozenset(), tick: int = 0,
+        died_of_disease: set[int] = frozenset(), tick: int = 0, rng: random.Random | None = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         settlements = settlements or []
@@ -4249,7 +4322,7 @@ class Population:
                     _nudge_trait(other, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
                     bump_emotion(other, EMOTION_GRIEF, EMOTION_DEATH_GRIEF_BUMP)
             if home is not None:
-                life_events.extend(self._apply_inheritance(agent, home, dying_ids))
+                life_events.extend(self._apply_inheritance(agent, home, dying_ids, tick, rng))
         self.agents = survivors
         if self._store is not None:
             # Drop the dead from the native store too, keeping it in
@@ -4377,6 +4450,21 @@ class Population:
         for agent in added:
             self.core_agent_ids.add(agent.id)
         return added
+
+    def decay_memory_salience(self) -> None:
+        """Deferred item 4 of docs/VISION-2026-07-LEARNING.md: called
+        once/sim-day (`day_end`) to apply `MEMORY_FADE_DECAY_PER_DAY` to
+        every living agent's `memory_salience` list — the deterministic
+        "gradual continuous fade" half of the batch (item 5's LLM-
+        authored skill-mastery narration is the one new call). Population-
+        wide, not core-cast-gated: this touches no LLM budget at all, so
+        the standing per-agent-LLM-decision gating rule doesn't apply.
+        Cheap — bounded by `population * MAX_AGENT_MEMORIES`, a few
+        thousand float multiplications even at `POPULATION_CAP`."""
+        for agent in self.agents:
+            salience = agent.memory_salience
+            for i in range(len(salience)):
+                salience[i] = max(MEMORY_FADE_FLOOR, salience[i] * MEMORY_FADE_DECAY_PER_DAY)
 
     # --- cognition (Phase B) --------------------------------------------------
 
@@ -4687,10 +4775,13 @@ class Population:
                 return agent, other
         return None
 
-    def apply_dispute(self, a_id: int, b_id: int, outcome: str) -> tuple[Agent, Agent] | None:
+    def apply_dispute(self, a_id: int, b_id: int, outcome: str, tick: int = 0) -> tuple[Agent, Agent] | None:
         """Apply a resolved dispute outcome with real mechanical effects
         (see the DISPUTE_* constants) — a no-op returning None if either
-        party has since died, same convention as apply_dialogue."""
+        party has since died, same convention as apply_dialogue. `tick`
+        (default 0 for legacy/test callers that don't pass one — only
+        used as `Agent.lessons`' `formed_tick` metadata, never gates
+        behavior) backs the deterministic reconciliation lesson below."""
         agent_a, agent_b = self.get(a_id), self.get(b_id)
         if agent_a is None or agent_b is None:
             return None
@@ -4706,6 +4797,10 @@ class Population:
                 # contact one. See TRAIT_RECONCILE_NUDGE.
                 _nudge_trait(me, TRAIT_SOCIABILITY, TRAIT_RECONCILE_NUDGE)
                 bump_emotion(me, EMOTION_JOY, EMOTION_RECONCILE_JOY_BUMP)
+                # Deferred item 1: deterministic, population-wide lesson
+                # formation — see RECOVERY_LESSON_TEMPLATES's docstring.
+                template = RECONCILE_LESSON_TEMPLATES[me.id % len(RECONCILE_LESSON_TEMPLATES)]
+                push_lesson(me, "conflict", template, tick)
         elif outcome == "council_ruling":
             for me, them in pairs:
                 # A ruling suppresses the feud without warming it — a

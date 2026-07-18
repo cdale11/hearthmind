@@ -284,6 +284,60 @@ is more recent. This is the actual "layered" mechanism: memorable
 experiences genuinely outlast unremarkable ones, not just a FIFO queue
 with a fancier name."""
 
+MEMORY_FADE_DECAY_PER_DAY = 0.985
+"""Deferred item 4 of docs/VISION-2026-07-LEARNING.md, "gradual
+forgetting as a genuinely continuous fade": once/sim-day (`day_end`,
+`Population.decay_memory_salience`), every entry in `Agent.memory_
+salience` is multiplied by this factor (floored at `MEMORY_FADE_
+FLOOR`). Distinct from the existing salience-ranked hard eviction at
+`MAX_AGENT_MEMORIES` and the occasional LLM-authored `memory_drift`
+(v0.87.0) — this is a third, purely deterministic mechanism: even a
+memory that never gets evicted or drifted still slowly reads as less
+sharp the longer it sits unrefreshed, the same way a real memory a
+person never actively revisits fades before one they keep retelling.
+0.985/day compounds to ~0.20 (an unremarkable salience-0.2 memory
+reaches `MEMORY_FADE_FLOOR`) after about 90 days and ~0.20 of a vivid
+salience-1.0 memory after roughly a year — slow enough that a genuinely
+distinctive memory stays vivid for a long time, fast enough that a
+routine memory that somehow survives eviction still visibly fades
+within a season. Chosen by feel (no live diagnostic drives this one,
+unlike most constants in this project) since there's no "correct"
+real-world forgetting curve to measure against; retune if a live run
+shows fading feels too fast/slow."""
+
+MEMORY_FADE_FLOOR = 0.05
+"""Floor `decay_memory_salience` never decays a memory's salience below
+— a memory that's still occupying a `memories` slot (hasn't been
+evicted) is still a real memory, just a hazy one; it should never read
+as literally zero-confidence."""
+
+MEMORY_FADE_DISPLAY_THRESHOLD = 0.25
+"""Below this salience, `faded_memory_text` wraps a memory's text with
+a hazier phrasing when it's read back into an LLM prompt (cognition/
+dialogue's "You remember: ..." line) — the fade is meant to be felt by
+the LLM (and therefore visible in NPC behavior/dialogue), not just a
+number nobody reads. Set below `MEMORY_SALIENCE_BASELINE` (0.2 is the
+starting salience for an emotionless "quiet day" memory) so a fresh
+mundane memory doesn't immediately read as faded; a memory needs
+several days of decay (or started already-low) to cross it."""
+
+
+def faded_memory_text(text: str, salience: float) -> str:
+    """Wraps `text` with a hazier framing once its salience has decayed
+    below `MEMORY_FADE_DISPLAY_THRESHOLD` — "I remember clearly" becomes
+    "I only vaguely recall," changing how the memory reads to the LLM
+    without altering the underlying stored text (the original stays
+    exact in `Agent.memories` for `memory_drift`/UI history — only the
+    prompt-facing copy is reworded). Deliberately not itself an LLM call
+    (deferred item 4 explicitly scopes this as the deterministic half of
+    "gradual forgetting"; item 5's LLM-authored skill-mastery narration
+    is the batch's one new call)."""
+    if salience >= MEMORY_FADE_DISPLAY_THRESHOLD:
+        return text
+    lowered = text[0].lower() + text[1:] if text else text
+    return f"I only vaguely recall: {lowered}"
+
+
 ROUTINE_MEMORY_SALIENCE_MULT = 0.5
 """Multiplier `_remember(..., routine=True)` applies to a memory's
 computed salience — used for high-frequency, low-narrative-interest
@@ -422,6 +476,19 @@ narration. Deliberately one-directional (only carries negative bias,
 not positive trust) — a family's caution about someone is the more
 mechanically interesting inheritance to model first; warm trust
 already has its own accrual path through the heir's own dialogue."""
+
+INHERITANCE_LESSON_CHANCE = 0.5
+"""Deferred item 3 (docs/VISION-2026-07-LEARNING.md), "cross-
+generational lesson inheritance": chance the deceased's freshest
+`Agent.lessons` entry passes to their heir on death (`Population.
+_apply_inheritance`), attributed ("X used to say: ...") rather than
+claimed as the heir's own. Deliberately not guaranteed — same "a lesson
+is exactly the kind of thing that can get lost between generations"
+imperfection this deferred item asked for, distinct from the
+unconditional home/goods transfer above it. A no-op when the deceased
+had no lessons to pass on (the common case for a non-core-cast agent,
+since `lessons` are currently only LLM-authored for the core cast plus
+the two deterministic template triggers from item 1)."""
 
 POPULATION_CAP = 400
 """A pure safety valve now, no longer the binding constraint it had

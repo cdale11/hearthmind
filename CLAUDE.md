@@ -520,6 +520,43 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.87.4)
+
+Explicit user directive: implement all six remaining items on
+docs/VISION-2026-07-LEARNING.md's deferred list in one batch. Full
+detail in CHANGELOG.md; durable facts only here.
+
+1. **Non-core-cast lessons**: deterministic templates
+   (`RECOVERY_LESSON_TEMPLATES`/`RECONCILE_LESSON_TEMPLATES`) fire at
+   illness recovery and dispute reconciliation for every agent, zero
+   LLM cost — the core-cast-gating rule only applies to LLM-authored
+   per-agent decisions.
+2. **Keyword-overlap lesson matching**: `_matching_lesson` falls back
+   to a stdlib keyword-overlap comparison (`_overlap_tokens`, no
+   embeddings) against `working_memory` when no exact situation tag
+   matches.
+3. **Cross-generational lesson inheritance**: `_apply_inheritance`
+   passes the deceased's freshest lesson to the heir
+   `INHERITANCE_LESSON_CHANCE=0.5` of the time, attributed, not
+   guaranteed.
+4. **Continuous memory-salience fade**: `Population.decay_memory_
+   salience()` (daily) + `faded_memory_text()` (agent.py) — a memory
+   that survives eviction still slowly reads hazier in prompts.
+5. **LLM-narrated skill mastery** (new `llm/skill_mastery.py`): the
+   one new LLM call this batch adds — core-cast only, replaces the
+   just-written deterministic mastery memory in place with a
+   reflection grounded in the agent's own recent memories. Non-core
+   agents and the settlement event log are untouched.
+6. **Consciousness player-theory revision**: new `revises_leading`
+   field lets the monthly consciousness job update its leading
+   `consciousness_player_model` entry in place (confidence/
+   revision_count/revised_tick, the last two previously dead schema
+   fields since v0.84.0) instead of always appending an independent
+   new theory.
+
+Verified: direct production-code tests for all six; `scripts/verify_
+native_soak.py` (3 seeds x 2000 ticks) byte-identical.
+
 ## Current state (v0.87.3)
 
 Five items from one user turn (parallel build still not visibly
