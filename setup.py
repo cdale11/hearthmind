@@ -31,8 +31,47 @@ from setuptools.command.build_ext import build_ext as _build_ext
 # MSVC uses different flag syntax entirely, so these are skipped there.
 _EXTRA_COMPILE_ARGS = [] if sys.platform == "win32" else ["-O3", "-march=native", "-mtune=native"]
 
+def _build_jobs() -> int:
+    """Usable core count for this build process — `os.sched_getaffinity(0)`
+    (Linux only) rather than `os.cpu_count()`: `cpu_count()` reports the
+    *machine's* total logical CPUs, ignoring any cgroup quota or
+    `taskset`/container CPU-affinity restriction the build is actually
+    confined to (v0.87.3 finding). Falls back to `os.cpu_count()` on
+    platforms without `sched_getaffinity` (e.g. macOS)."""
+    get_affinity = getattr(os, "sched_getaffinity", None)
+    return len(get_affinity(0)) if get_affinity is not None else (os.cpu_count() or 1)
+
+
 try:
-    from pybind11.setup_helpers import Pybind11Extension
+    from pybind11.setup_helpers import ParallelCompile, Pybind11Extension
+
+    # v0.87.8 root-cause fix: `build_ext`'s own `--parallel`/`self.parallel`
+    # (what `BuildExtOptional.finalize_options` below sets) only
+    # parallelizes ACROSS multiple `Extension` objects — internally,
+    # `_build_extensions_parallel` submits one `ThreadPoolExecutor` task
+    # PER EXTENSION, then each task calls the stock `CCompiler.compile()`,
+    # which loops over that extension's own source list strictly
+    # serially (verified directly against setuptools._distutils'
+    # `CCompiler.compile()`/`build_ext._build_extensions_parallel()`
+    # source — no source-file-level dispatch exists in either). This
+    # project declares exactly ONE `Pybind11Extension` (with ~21 .cpp
+    # files), so `self.parallel` — however many workers it's set to —
+    # only ever gets ONE task to hand out; every prior "fix" here
+    # (v0.85.6's initial `--parallel` default, v0.87.3's cgroup-aware
+    # core-count correction) tuned a lever that could never have had any
+    # effect on THIS single-extension build, which is why the build
+    # reportedly still isn't parallel. `ParallelCompile` (pybind11's own
+    # documented fix for exactly this shape of project) monkey-patches
+    # `CCompiler.compile()` itself to thread-pool over the individual
+    # source files of whichever extension is currently compiling — the
+    # only place per-file parallelism can actually be introduced.
+    # `HEARTHMIND_BUILD_JOBS` overrides the auto-detected (cgroup-aware)
+    # worker count if set; `max=_build_jobs()` caps the "0 = auto"
+    # default (which otherwise uses `multiprocessing.cpu_count()`,
+    # subject to the exact same overreporting `_build_jobs()` exists to
+    # avoid) at this same affinity-aware ceiling either way.
+    ParallelCompile("HEARTHMIND_BUILD_JOBS", default=0, max=_build_jobs()).install()
+
     ext_modules = [
         Pybind11Extension(
             "hearthmind._native",
@@ -75,29 +114,21 @@ class BuildExtOptional(_build_ext):
     it's a hot-path optimization, never a hard requirement.
 
     Also defaults `build_ext`'s stock `--parallel`/`-j` option to the
-    machine's usable core count instead of its own default of 1 — g++
-    otherwise compiles this extension's ~19 .cpp files one at a time on
-    a plain `pip install -e .`. `-j` on the command line (or the
-    `parallel_compile` package_data hook) already lets a caller override
-    this; this only changes the *default* a bare install picks up.
-
-    Uses `os.sched_getaffinity(0)` (Linux only) rather than `os.cpu_
-    count()` when available: `cpu_count()` reports the *machine's*
-    total logical CPUs, ignoring any cgroup quota or `taskset`/container
-    CPU-affinity restriction the build process is actually confined to
-    (v0.87.3 fix — a live report that the build "still isn't parallel"
-    despite this method existing since v0.85.6 traced to exactly this
-    class of environment: `cpu_count()` overreports, so a build
-    genuinely constrained to fewer schedulable cores than `cpu_count()`
-    claims could appear serial or barely-parallel in a process monitor).
-    Falls back to `os.cpu_count()` on platforms without `sched_
-    getaffinity` (e.g. macOS)."""
+    machine's usable core count (`_build_jobs()`) instead of its own
+    default of 1. **This alone does not parallelize this project's
+    build** — see the `ParallelCompile(...).install()` call above for
+    why (it only parallelizes across multiple `Extension` objects, and
+    this project has exactly one) and for the actual fix. Kept anyway
+    for correctness/forward-compatibility: if this extension is ever
+    split into multiple `Extension` objects, or a future pybind11
+    version changes `ParallelCompile`'s behavior, `self.parallel` being
+    set correctly here means build_ext's own extension-level
+    parallelism still does the right thing without further changes."""
 
     def finalize_options(self):
         super().finalize_options()
         if self.parallel is None:
-            get_affinity = getattr(os, "sched_getaffinity", None)
-            self.parallel = len(get_affinity(0)) if get_affinity is not None else os.cpu_count()
+            self.parallel = _build_jobs()
 
     def run(self):
         try:
