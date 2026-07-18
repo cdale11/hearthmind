@@ -4,6 +4,66 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.7] — First two items from docs/IDEAS-2026-07-EMERGENCE.md §1
+
+Direct follow-up to v0.87.6, per explicit user request to start
+implementing the filed backlog. Picked the two highest-leverage, zero-
+LLM-cost, self-contained items from §1 ("agents as protagonists" — the
+audit's own "single biggest structural finding"), each extending an
+existing mechanism rather than adding a parallel one.
+
+**Heritable temperament with mutation.** Audit corrected the item's
+own premise while implementing it: `Agent.traits` was never actually
+rolled randomly at spawn — every founder and every newborn started
+perfectly neutral (all four axes at 0.0), with a lifetime of event
+nudges (`_nudge_trait`) the only source of variance. So the real gap
+wasn't "replace a random roll with inheritance," it was "give newborns
+*any* inherited variance at all." New `Population._inherited_traits`
+(`hearthmind/agents/population.py`) blends each of the two parents'
+values for all four axes (average, so neither parent dominates) plus
+independent Gaussian mutation noise per axis (new `Agent.
+TRAIT_INHERITANCE_MUTATION_STDDEV = 0.15`), clamped back to -1..1 —
+wired into `_maybe_reproduce`'s `Agent(...)` construction as
+`traits=_inherited_traits(a, b, rng)`. Zero new LLM calls, zero new
+persisted fields (reuses the existing `traits` dict). Over many
+generations a family's statistical tendency ("the stubborn Aldertons")
+should now be a real, noticeable pattern the beliefs/folklore layer
+can independently notice and name — not scripted here, an emergent
+consequence of the mechanism.
+
+**Deathbed release of secrets.** `Agent.secrets` previously died with
+its holder — a real dead end for three otherwise-shipped systems
+(Reflect()/dispute-planted secrets, rumor distortion via
+InterpretRumor(), folklore condensation). `Population._apply_
+inheritance` (H7's existing on-death heir-resolution job — the same
+heir goods/skill/bias/lessons already transfer to) now also has a
+`DEATHBED_SECRET_HEIR_CHANCE = 0.3` chance
+to pass the deceased's freshest secret to that same heir, attributed
+to the deathbed rather than the original confidant ("X told me on
+their deathbed: ..."), and a further `DEATHBED_SECRET_RUMOR_CHANCE =
+0.4` chance it also leaks as a vague rumor via the existing
+`Population.spread_rumor` — deliberately never the secret's actual
+contents, just "on their deathbed, X spoke of something long kept
+quiet," heard by `DEATHBED_SECRET_RUMOR_LISTENER_COUNT = 2` nearby
+agents. Both constants live in `hearthmind/agents/agent.py` alongside
+`MAX_SECRETS`. Secrets now have the real lifecycle the audit doc
+named: planted (Reflect()/disputes) -> guarded in dialogue -> leaked
+at death -> distorted by InterpretRumor() -> maybe condensed into
+folklore a generation later. Zero new LLM calls, zero new persisted
+fields.
+
+Verified: direct tests against the real production code paths — 2000-
+sample `_inherited_traits` calls confirm the mean tracks the parent
+average (within noise) and stays clamped, confirmed via a genuine
+`SimulationEngine`/`_maybe_reproduce` tick loop that a real child born
+in-engine inherits a high-resilience tendency from high-resilience
+parents; a 400-trial direct `_apply_inheritance` test (real heir
+resolution via `Settlement.family_for`, forced max-affinity heir)
+confirms the deathbed-secret transfer rate lands at ~0.31 against the
+expected ~0.3. `scripts/verify_native_soak.py` (3 seeds x 2000 ticks)
+byte-identical — this batch touches no native module and reuses
+existing persisted fields, so no snapshot migration is needed.
+
 ## [0.87.6] — llama-server `/metrics` polling (v0.87.5's flagged next step) + emergence idea backlog
 
 Direct follow-up to v0.87.5, per explicit user request: implement its

@@ -406,6 +406,34 @@ never surfaced in the main UI (a "secret" spoiled in the NPC inspector
 defeats the point); reachable via the dev console/raw `/state` JSON
 like every other under-the-hood mechanism."""
 
+DEATHBED_SECRET_HEIR_CHANCE = 0.3
+"""v0.87.6, "deathbed release of secrets" (docs/IDEAS-2026-07-
+EMERGENCE.md §1): a kept secret currently just dies with its holder.
+On death, `Population._apply_inheritance` (the same heir-resolution
+H7 already does for goods/skill/bias) may pass the deceased's freshest
+secret to their chosen heir, attributed to the deathbed rather than
+the original confidant — the heir learns it was said, not who (if
+anyone) already knew. Not guaranteed: secrets are meant to stay mostly
+private, so this is a real chance, not every death. Zero LLM cost."""
+
+DEATHBED_SECRET_RUMOR_CHANCE = 0.4
+"""Given a deathbed secret already released to an heir (see
+DEATHBED_SECRET_HEIR_CHANCE), the further chance it also slips out as
+a vague rumor via the existing `Population.spread_rumor` machinery
+(no LLM call) — "on their deathbed, X spoke of something long kept
+quiet," never the secret's actual contents, so eavesdroppers gain
+intrigue without the secret itself becoming common knowledge. Secrets
+then have a real lifecycle: planted (Reflect()/disputes) -> guarded in
+dialogue -> leaked at death -> distorted by InterpretRumor() -> maybe
+condensed into folklore a generation later."""
+
+DEATHBED_SECRET_RUMOR_LISTENER_COUNT = 2
+"""How many nearby agents hear the vague deathbed rumor (see
+DEATHBED_SECRET_RUMOR_CHANCE) — deliberately small, matching the scale
+of an intimate deathbed moment rather than a settlement-wide
+announcement (contrast `caravan.CARAVAN_RUMOR_LISTENER_COUNT`, a
+public arrival)."""
+
 MAX_LESSONS = 4
 """Cap on `Agent.lessons` — v0.87.0, "learns like a human." A lesson is
 `{"situation": str, "text": str, "formed_tick": int}`: a short, tagged
@@ -718,6 +746,23 @@ tangible achievement (founding a building, first reaching mastery in a
 skill — see TRAIT_AMBITION_FOUNDING_NUDGE/TRAIT_AMBITION_MASTERY_NUDGE)
 rather than by hardship/social contact like resilience/sociability —
 ambition is earned, not suffered or given."""
+
+TRAIT_INHERITANCE_MUTATION_STDDEV = 0.15
+"""How far a newborn's inherited trait axis (see `Population._maybe_
+reproduce`'s call to `_inherited_traits`) is allowed to drift from the
+exact average of its two parents' values — v0.87.6, "heritable
+temperament with mutation" (docs/IDEAS-2026-07-EMERGENCE.md §1).
+Sampled via `rng.gauss(0.0, TRAIT_INHERITANCE_MUTATION_STDDEV)` per
+axis, then clamped back into -1..1 alongside the parent-average. Small
+enough that a family's character is a real, recognizable statistical
+tendency across generations (the beliefs/folklore layer can notice and
+name "the stubborn Aldertons") rather than pure noise, but not so small
+that lineages become deterministic clones of their founders — every
+prior founder started at a neutral 0.0 on all four axes (traits are
+never rolled at spawn, only earned via lifetime event nudges — see
+TRAIT_RESILIENCE/TRAIT_SOCIABILITY below), so this is the first source
+of inherited (rather than purely lived) trait variance in the
+simulation."""
 
 TRAIT_OPENNESS = "openness"
 """H6 v4 (docs/DECISIONS.md "continue expanding" pass): a fourth axis,

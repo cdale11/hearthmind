@@ -74,6 +74,9 @@ back to the equivalent pure-Python branching in that case."""
 from hearthmind.agents import agent_store
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
+    DEATHBED_SECRET_HEIR_CHANCE,
+    DEATHBED_SECRET_RUMOR_CHANCE,
+    DEATHBED_SECRET_RUMOR_LISTENER_COUNT,
     DEBT_PRUNE_THRESHOLD,
     DIALOGUE_SENTIMENT_DELTA,
     ELDER_AGE_FRACTION,
@@ -161,6 +164,7 @@ from hearthmind.agents.agent import (
     TRAIT_AMBITION_FOUNDER_SELECTION_WEIGHT,
     TRAIT_AMBITION_FOUNDING_NUDGE,
     TRAIT_AMBITION_MASTERY_NUDGE,
+    TRAIT_INHERITANCE_MUTATION_STDDEV,
     TRAIT_GRIEF_NUDGE,
     TRAIT_RECONCILE_NUDGE,
     TRAIT_RECOVERY_RESILIENCE_NUDGE,
@@ -189,6 +193,7 @@ from hearthmind.agents.agent import (
     decay_debts,
     decay_emotions,
     dominant_emotion,
+    push_secret,
 )
 from hearthmind.agents.names import _roman, generate_names
 from hearthmind.llm.beliefs import push_lesson
@@ -905,6 +910,27 @@ def _nudge_trait(agent: Agent, trait: str, delta: float) -> None:
     """H6: apply one event-driven nudge to a trait axis, clamped -1..1.
     See TRAIT_RESILIENCE/TRAIT_SOCIABILITY."""
     agent.traits[trait] = clamp(agent.traits.get(trait, 0.0) + delta, -1.0, 1.0)
+
+
+_INHERITABLE_TRAITS = (TRAIT_RESILIENCE, TRAIT_SOCIABILITY, TRAIT_AMBITION, TRAIT_OPENNESS)
+
+
+def _inherited_traits(a: Agent, b: Agent, rng: random.Random) -> dict[str, float]:
+    """v0.87.6, "heritable temperament with mutation" — a newborn's
+    trait vector blends its two parents' values (average, since neither
+    parent should dominate) plus independent Gaussian mutation noise per
+    axis (TRAIT_INHERITANCE_MUTATION_STDDEV), clamped back to -1..1. Any
+    axis absent on a parent reads as its neutral 0.0 default, same as
+    every other trait read in this module. Called once per birth in
+    `_maybe_reproduce`; zero LLM cost."""
+    return {
+        trait: clamp(
+            (a.traits.get(trait, 0.0) + b.traits.get(trait, 0.0)) / 2.0
+            + rng.gauss(0.0, TRAIT_INHERITANCE_MUTATION_STDDEV),
+            -1.0, 1.0,
+        )
+        for trait in _INHERITABLE_TRAITS
+    }
 
 
 def _prune_extinct_families(settlement: Settlement, living_ids: set[int]) -> None:
@@ -2895,6 +2921,7 @@ class Population:
                     max_age_ticks=rng.randint(MIN_LIFESPAN_TICKS, MAX_LIFESPAN_TICKS),
                     parents=(a.id, b.id),
                     settlement_id=home.id,
+                    traits=_inherited_traits(a, b, rng),
                 )
                 self._next_id += 1
                 newborns.append(child)
@@ -4197,6 +4224,24 @@ class Population:
                 heir, source["situation"], f"{agent.name} used to say: {source['text']}", tick,
             )
             inherited.append("a lesson")
+
+        # v0.87.6, "deathbed release of secrets" (docs/IDEAS-2026-07-
+        # EMERGENCE.md §1): a kept secret currently just dies with its
+        # holder. The heir already resolved above (the same person H7
+        # hands goods/skill/bias to) may learn the deceased's freshest
+        # secret, attributed to the deathbed rather than the original
+        # confidant. Rarer still, it also slips out as a vague rumor
+        # (never the secret's actual contents) via the existing
+        # spread_rumor machinery — zero LLM cost either way.
+        if agent.secrets and rng is not None and rng.random() < DEATHBED_SECRET_HEIR_CHANCE:
+            secret_text = agent.secrets[-1]
+            push_secret(heir, f"{agent.name} told me on their deathbed: {secret_text}")
+            inherited.append("a secret")
+            if rng.random() < DEATHBED_SECRET_RUMOR_CHANCE:
+                self.spread_rumor(
+                    f"On their deathbed, {agent.name} spoke of something long kept quiet.",
+                    DEATHBED_SECRET_RUMOR_LISTENER_COUNT, rng,
+                )
 
         if not inherited:
             return []

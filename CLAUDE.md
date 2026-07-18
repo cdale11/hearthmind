@@ -534,6 +534,38 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.87.7)
+
+Direct follow-up to v0.87.6, per explicit user request to start
+implementing docs/IDEAS-2026-07-EMERGENCE.md. Picked the two highest-
+leverage, zero-LLM-cost items from §1.
+
+**Heritable temperament with mutation**: `Population._inherited_
+traits(a, b, rng)` blends both parents' trait values (average) plus
+Gaussian mutation (`Agent.TRAIT_INHERITANCE_MUTATION_STDDEV=0.15`),
+clamped -1..1, wired into `_maybe_reproduce`'s newborn `Agent(...)`
+call. Correction to the item's own premise: traits were never actually
+rolled at spawn (every agent starts neutral, 0.0 on all four axes) —
+the real gap was newborns having zero inherited variance at all, now
+fixed.
+
+**Deathbed release of secrets**: `Population._apply_inheritance` (H7's
+existing heir-resolution job) may now also pass the deceased's
+freshest secret to the same heir goods/skill/bias already transfer to
+(`DEATHBED_SECRET_HEIR_CHANCE=0.3`), attributed to the deathbed; a
+further chance (`DEATHBED_SECRET_RUMOR_CHANCE=0.4`) it leaks as a
+vague rumor via `Population.spread_rumor` (never the secret's actual
+contents). Secrets now have the full lifecycle the audit doc named:
+planted -> guarded -> leaked at death -> distorted by
+InterpretRumor() -> maybe folklore.
+
+Verified: direct tests against real production paths (`_inherited_
+traits` mean/clamp over 2000 samples, a real in-engine birth
+inheriting a high-resilience tendency, a 400-trial `_apply_
+inheritance` test landing at the expected ~0.3 transfer rate).
+`scripts/verify_native_soak.py` byte-identical — no native module
+touched, no new persisted fields, no snapshot migration needed.
+
 ## Current state (v0.87.6)
 
 Direct follow-up to v0.87.5, per explicit user request: implement its
