@@ -4,6 +4,112 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.0] — "Learns like a human": lessons, memory drift, trait consequences, pattern-beliefs, consciousness trend
+
+Explicit user directive: push emergent, persistent, disk-backed
+learning as far as possible in one batch across every layer at once
+(individual minds, collective/settlement, Town Consciousness/player
+model, population-wide reach) and every mechanism discussed
+(consequence-driven behavior change, smarter recall, gradual
+forgetting/distortion, skill mastery through repetition) — small new
+LLM call volume explicitly approved, main UI surfacing wanted, rest
+scoped into a roadmap doc (`docs/VISION-2026-07-LEARNING.md`). Built as
+two parallel tracks (this session + one background agent in an
+isolated worktree) to cover the whole request in one pass.
+
+**Individual minds — `Agent.lessons`** (`agents/agent.py`, `llm/
+beliefs.py`, "smarter recall, not just storage"): new `MAX_LESSONS=4`
+list of situation-tagged takeaways (`hunger`/`conflict`/`grief`/
+`danger`/`social`, closed vocabulary — see `beliefs.LESSON_SITUATIONS`
+— cheap deterministic matching, no embeddings), written by extending
+the existing Reflect() job (zero added call volume; `beliefs.
+parse_lesson`/`push_lesson`, evicts the oldest entry sharing the same
+situation first). New `SimulationEngine._current_situation_tag`/
+`_matching_lesson` deterministically classify an agent's CURRENT
+situation and surface the one matching lesson into `cognition.
+build_prompt` — the agent's most RELEVANT past takeaway now reaches
+the prompt, not just whatever's newest regardless of relevance.
+
+**Individual minds — memory drift** (`llm/memory_drift.py`, new
+module, "gradual forgetting/distortion"): a deliberately NEW, rare LLM
+call (the one small approved budget increase) — monthly round-robin,
+core-cast only, gated to 20% chance
+(`SimulationEngine.MEMORY_DRIFT_CHANCE`) on top of that — reinterprets
+one of an agent's older memories in place (never the single freshest),
+same "distortion via the existing memory mechanism" scoping
+`InterpretRumor()` already established for rumors, applied instead to
+an agent's own memory some time after formation. Non-critical
+(`critical=False`): the fallback is a genuine no-op (leave the memory
+exactly as it was), so a spent budget or failed call just means no
+drift that month.
+
+**Population-wide, zero-LLM-cost — trait consequences & skill mastery**
+(`agents/population.py`, `agents/agent.py`): a successful dispute
+reconciliation now nudges sociability up (`TRAIT_RECONCILE_NUDGE`) and
+recovering from illness nudges resilience up
+(`TRAIT_RECOVERY_RESILIENCE_NUDGE`) — the missing positive
+counterparts to the existing negative-consequence nudges (feud ->
+resilience down, sustained hunger -> resilience down). Crossing
+`MASTERY_THRESHOLD` on any skill now also plants a durable memory
+("Became a master of farming/construction after years of practice")
+and logs a `skill_mastered` event, alongside the existing ambition
+nudge — mastery is now narrated, not just numerically tracked.
+
+**Collective/settlement — pattern-beliefs** (`settlement/buildings.py`,
+`simulation/engine.py`): new `Settlement.pattern_signal_counts`
+(`dispute_feud`/`starvation_death` running counts, same
+accumulate-threshold-reset shape as the existing `ritual_signal_
+counts`) — once a count crosses `PATTERN_SIGNAL_BELIEF_THRESHOLD=3`
+in a season, the monthly settlement-beliefs job gets one extra
+deterministic "pattern noticed" sentence folded into its prompt
+(zero added call volume), giving the town a chance to form a real
+belief about a RECURRING hardship instead of only ever reacting to
+whichever single event is freshest.
+
+**Town Consciousness — player-pattern trend** (`llm/consciousness.py`,
+`simulation/engine.py`): new `SimulationEngine._player_intervention_
+trend` computes a deterministic increasing/decreasing/steady read on
+`/intervene/*` frequency (90-day rolling comparison) from `World.
+consciousness_intervention_log`, folded into the existing monthly
+consciousness prompt as one more line — zero added call volume.
+Deliberately dev-console/raw-state only, NOT the main UI, per the
+Phase G ambiguity discipline's standing exception for consciousness/
+player_standing-adjacent state (CLAUDE.md) — this is the one piece of
+the batch that doesn't get main-UI surfacing, and why is spelled out in
+`docs/VISION-2026-07-LEARNING.md`.
+
+**UI**: new "Lessons learned" NPC-inspector section (between "Their
+own reflections" and "Full life history"); new `lesson`/
+`episodic_drifted` memory-log kind labels.
+
+**Docs**: `docs/VISION-2026-07-LEARNING.md` (new) records what shipped
+here and scopes 8 explicitly deferred next-increment items (dialogue
+consumption of lessons, non-core-cast learning, real semantic-
+similarity retrieval, cross-generational lesson inheritance, deeper
+pattern-recognition, richer consciousness narrative modeling,
+continuous memory fade, LLM-narrated mastery) per the user's own
+"scope the rest into a roadmap" instruction.
+
+Verified: direct tests exercising the real production code paths —
+`push_lesson`'s same-situation-first eviction; a real `_maybe_
+schedule_personal_belief` call confirms a lesson lands on `Agent.
+lessons` and `_current_situation_tag`/`_matching_lesson` correctly
+retrieve it; a real `_maybe_schedule_memory_drift` call confirms
+in-place replacement (list length unchanged, freshest memory never
+touched); `Agent.lessons` round-trips through `to_dict`/`from_dict`,
+legacy snapshots default cleanly to `[]`; `Population.apply_dispute`
+reconciliation confirmed to nudge sociability up; a real `_maybe_
+schedule_beliefs` call with the pattern counter forced past threshold
+confirms the extra sentence reaches a captured prompt and the counter
+resets; `_player_intervention_trend` confirmed empty pre-history and
+correctly reads "increasing" from synthetic log data.
+`scripts/verify_native_soak.py` (multiple seed runs, both the personal
+Reflect()-extension work and the deterministic trait/pattern work)
+byte-identical throughout — this batch's LLM-path changes don't touch
+per-tick deterministic state, and the deterministic pieces (trait
+nudges, skill-mastery narration, pattern counters) were soak-verified
+directly.
+
 ## [0.86.9] — Memory/swap re-audit for long runs + llama-server periodic restart
 
 Direct response to a live report: "LLM memory usage... still increasing

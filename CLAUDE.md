@@ -520,6 +520,67 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.87.0)
+
+Explicit user directive, highest priority: push "the LLM learns like a
+human" as far as possible in one batch, across every layer (individual
+minds, collective/settlement, Town Consciousness/player model,
+population-wide reach) and every mechanism (consequence-driven
+behavior change, smarter recall, gradual forgetting/distortion, skill
+mastery through repetition) — small new LLM call volume approved, main
+UI surfacing wanted, remainder scoped into a roadmap doc. Built as two
+parallel tracks (see `docs/VISION-2026-07-LEARNING.md` for the full
+list of what shipped vs. what's explicitly deferred next).
+
+**`Agent.lessons`** (`llm/beliefs.py`, "smarter recall"): situation-
+tagged takeaways (`hunger`/`conflict`/`grief`/`danger`/`social` — a
+closed vocabulary so matching stays a cheap deterministic string
+comparison, no embeddings), written by extending Reflect() (zero
+added call volume). `SimulationEngine._current_situation_tag`/
+`_matching_lesson` surface the one lesson matching an agent's CURRENT
+situation into `cognition.build_prompt` — the most relevant past
+takeaway, not just whatever's newest.
+
+**Memory drift** (`llm/memory_drift.py`, new module, "gradual
+forgetting"): the one deliberately new, rare LLM call this batch adds
+(core-cast, monthly round-robin, further gated to 20% chance) —
+reinterprets one of an agent's older memories in place, same
+distortion-via-existing-mechanism scoping `InterpretRumor()` already
+established for rumors. Non-critical; fallback is a genuine no-op
+(leave the memory untouched).
+
+**Trait consequences + skill-mastery narration** (population-wide,
+zero LLM cost): reconciliation nudges sociability up, illness recovery
+nudges resilience up — missing positive counterparts to existing
+negative nudges. Crossing `MASTERY_THRESHOLD` on any skill now plants
+a durable memory + `skill_mastered` event alongside the existing
+ambition nudge.
+
+**Settlement pattern-beliefs**: `Settlement.pattern_signal_counts`
+(`dispute_feud`/`starvation_death`, same accumulate-threshold-reset
+shape as `ritual_signal_counts`) feeds one deterministic "pattern
+noticed" sentence into the monthly beliefs job once a count crosses
+`PATTERN_SIGNAL_BELIEF_THRESHOLD=3` — the town can now form a belief
+about a RECURRING hardship, not just the freshest single event.
+
+**Consciousness player-pattern trend**: `_player_intervention_trend`
+(90-day rolling comparison) feeds one deterministic line into the
+monthly consciousness prompt. Dev-console/raw-state only — the one
+piece of this batch NOT in the main UI, per Phase G's standing
+ambiguity-discipline exception for consciousness/player_standing-
+adjacent state.
+
+**UI**: new "Lessons learned" NPC-inspector section; new `lesson`/
+`episodic_drifted` memory-log kind labels.
+
+Verified: direct tests against the real production code paths for
+every piece above (lesson formation/matching/eviction, memory-drift
+in-place replacement, reconciliation/recovery trait nudges, mastery
+narration, pattern-belief sentence injection + counter reset,
+consciousness trend computation); round-trip + legacy-snapshot
+defaults for `Agent.lessons`/`Settlement.pattern_signal_counts`;
+`scripts/verify_native_soak.py` byte-identical across multiple runs.
+
 ## Current state (v0.86.9)
 
 Direct response to a live report: "LLM memory usage... still increasing
