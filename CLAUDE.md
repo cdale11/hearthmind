@@ -534,6 +534,48 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.87.10)
+
+Two independent pieces per explicit user direction ("keep checking off
+incomplete things from the list. Try to minimize dropping completed
+LLM calls... instead make each LLM call count").
+
+**Season/year LLM job retry window**: `tradition`/`religion`/
+`narrative_direction`/`culture_digest` (season_end) and `documentary`
+(year_end) were still single-exact-tick gated, unlike the monthly jobs
+(`MONTHLY_JOBS_WITH_RETRY`, v0.81.1) — a backpressured boundary tick
+meant a full season/year of silent loss. New `SEASON_YEAR_JOBS_WITH_
+RETRY`/`SEASON_YEAR_JOB_RETRY_WINDOW_DAYS=5` + `SimulationEngine.
+_season_year_gate`/`_mark_season_year_resolved` mirror the monthly
+mechanism. `invention` deliberately excluded — it rolls its own
+per-tick RNG chance after the boundary gate (`INVENTION_CHANCE_PER_
+SEASON`), and widening its window would re-roll that chance across
+multiple days, inflating the tuned probability (same reason festival/
+caravan/omen stay excluded from the monthly version).
+
+**Wedding ceremonies** (docs/IDEAS-2026-07-EMERGENCE.md §1, the
+deferred half of v0.87.9's funerals item). Trigger: `_extend_family`
+already returns a `family_formed` event only the FIRST time two
+parents have a child together — exactly the once-per-couple "just
+bonded" signal a wedding needs, no new tracking required.
+`Population._maybe_reproduce` sets new `Agent.wedding_target`/
+`wedding_ticks_remaining` (`WEDDING_DURATION_TICKS=48`, half `MOURNING_
+DURATION_TICKS`) on the couple plus kin/bonded guests, anchored at the
+birth tile. `_dispatch_movement` gained a wedding override mirroring
+mourning's exactly (checked just after it); `Population._tick_
+weddings` (new) expires the gathering and bumps every guest's joy
+(`WEDDING_JOY_BUMP=0.25`). Zero LLM cost, zero new UI code — same
+"visible through existing map/agent rendering" shape as funerals;
+`family_formed` already has a main-feed icon.
+
+Verified: direct tests for both pieces against real production paths
+(gate open/close/expire/reopen; a real backpressure-forced-then-
+retried religion job; wedding invite/movement/hold/expiry/no-re-
+trigger-on-second-child). A real 30,000-tick organic engine run (LLM
+disabled) produced 845 ticks of active wedding gatherings with zero
+test-side scripting. Re-verified against the rebuilt native extension;
+`scripts/verify_native_soak.py` (3 seeds x 2000 ticks) byte-identical.
+
 ## Current state (v0.87.9)
 
 Continued §1 backlog implementation per explicit user direction

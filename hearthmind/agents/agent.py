@@ -986,6 +986,23 @@ modest easing (never full relief) distinct from ordinary passive
 emotion decay. Deliberately smaller than EMOTION_DEATH_GRIEF_BUMP
 (0.6) — the funeral softens grief, it doesn't erase the loss."""
 
+WEDDING_DURATION_TICKS = 48
+"""v0.87.10, "ceremonies agents attend: weddings" (docs/IDEAS-2026-07-
+EMERGENCE.md §1, the companion to funerals/MOURNING_DURATION_TICKS —
+"A wedding = the same shape on a reproduction-pair formation"). Half
+the mourning duration ("half a day," not "a day") — a wedding is a
+gathering to mark a joyful occasion already underway, not a grief
+process to work through; there's no equivalent reason for it to hold
+guests as long."""
+
+WEDDING_JOY_BUMP = 0.25
+"""Joy bump applied to every guest once the gathering concludes
+(WEDDING_DURATION_TICKS elapsed) — "the celebration lifted the whole
+gathering's spirits," on top of (not instead of) the couple's own
+existing EMOTION_BIRTH_JOY_BUMP from the triggering birth. Smaller than
+EMOTION_BIRTH_JOY_BUMP (0.4, the parents' own bump) since this is the
+secondhand lift onlookers get from attending, not the couple's own."""
+
 EMOTION_NOTABLE_THRESHOLD = 0.35
 """Floor above which an emotion is worth mentioning in a prompt or
 letting bias a deterministic fallback — mirrors `TRAIT_NOTABLE_
@@ -1236,6 +1253,8 @@ class Agent:
         seek_target_id: int | None = None,
         mourning_ticks_remaining: int = 0,
         mourning_target: tuple[int, int] | None = None,
+        wedding_ticks_remaining: int = 0,
+        wedding_target: tuple[int, int] | None = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -1381,6 +1400,18 @@ class Agent:
         # errand) rather than clearing itself the instant it arrives.
         self.mourning_ticks_remaining: int = mourning_ticks_remaining
         self.mourning_target: tuple[int, int] | None = mourning_target
+        # wedding_ticks_remaining/wedding_target: v0.87.10, the companion
+        # "ceremony" to mourning above — set on a newly-bonded couple
+        # plus their gathered kin/bonded well-wishers by Population.
+        # _maybe_reproduce (wedding_target = the position where the
+        # couple's first child was born, the same tile the new FAMILY
+        # institution forms at), counted down by Population._tick_
+        # weddings until it reaches 0, at which point every guest gets a
+        # joy bump (WEDDING_JOY_BUMP) and both fields reset. Same
+        # override-priority/gathering shape as mourning, just shorter
+        # (WEDDING_DURATION_TICKS) and joyful rather than grieving.
+        self.wedding_ticks_remaining: int = wedding_ticks_remaining
+        self.wedding_target: tuple[int, int] | None = wedding_target
 
     # --- native-store attach + scalar properties ---------------------------
 
@@ -1596,6 +1627,8 @@ class Agent:
             "seek_target_id": self.seek_target_id,
             "mourning_ticks_remaining": self.mourning_ticks_remaining,
             "mourning_target": list(self.mourning_target) if self.mourning_target is not None else None,
+            "wedding_ticks_remaining": self.wedding_ticks_remaining,
+            "wedding_target": list(self.wedding_target) if self.wedding_target is not None else None,
         }
 
     @classmethod
@@ -1652,5 +1685,9 @@ class Agent:
             mourning_ticks_remaining=data.get("mourning_ticks_remaining", 0),
             mourning_target=(
                 tuple(data["mourning_target"]) if data.get("mourning_target") is not None else None
+            ),
+            wedding_ticks_remaining=data.get("wedding_ticks_remaining", 0),
+            wedding_target=(
+                tuple(data["wedding_target"]) if data.get("wedding_target") is not None else None
             ),
         )

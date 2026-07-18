@@ -4,6 +4,77 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.10] — Wedding ceremonies + season/year LLM job retry window
+
+Two independent pieces per explicit user direction ("keep checking off
+incomplete things from the list. Try to minimize dropping completed
+LLM calls... instead make each LLM call count").
+
+**Season/year LLM job retry window (fewer wasted opportunities)**: a
+2026-07 audit found that `tradition`/`religion`/`narrative_direction`/
+`culture_digest` (season_end) and `documentary` (year_end) were all
+still gated on a single exact tick, unlike the monthly jobs
+(`MONTHLY_JOBS_WITH_RETRY`, v0.81.1) — a backpressured boundary tick
+meant a FULL SEASON or YEAR of silent loss, worse odds than the
+monthly case this pattern was built to fix. New `SimulationEngine.
+_season_year_gate`/`_mark_season_year_resolved` (`SEASON_YEAR_JOBS_
+WITH_RETRY`, `SEASON_YEAR_JOB_RETRY_WINDOW_DAYS=5`) mirror the monthly
+mechanism: a `SEASON_YEAR_JOB_RETRY_WINDOW_DAYS`-day window opens on
+the boundary tick and stays open until the job gets through backpressure
+once, closing the same "one unlucky tick costs a whole cadence" gap.
+`invention` is deliberately excluded — unlike the other five, it rolls
+its own per-tick RNG chance (`INVENTION_CHANCE_PER_SEASON`) after the
+boundary gate, and widening its window would re-roll that chance on
+every day of the window, inflating the effective per-season invention
+probability beyond what it was tuned for (the same reason festival/
+caravan/omen stay excluded from the monthly version).
+
+Verified: direct tests confirm the gate opens/closes/expires correctly
+and reopens for a fresh season/year ordinal; a real end-to-end engine
+test forces backpressure on a season_end tick (real `_maybe_schedule_
+religion`, fake LLM client) and confirms the job is dropped on the
+boundary tick but succeeds on the very next tick via the open retry
+window. `scripts/verify_native_soak.py` unaffected (Python-only
+scheduling logic, no native module touched).
+
+**Wedding ceremonies** (docs/IDEAS-2026-07-EMERGENCE.md §1, the
+deferred half of v0.87.9's "ceremonies agents attend" item — "A
+wedding = the same shape on a reproduction-pair formation"). The
+missing piece last pass flagged was a real "this couple just bonded"
+trigger; it already existed and was unused for this purpose: `_extend_
+family` returns a `family_formed` event only the FIRST time two
+parents have a child together (a second child to an already-bonded
+couple returns `None`) — exactly the once-per-couple signal a wedding
+needs, no new tracking required.
+
+`Population._maybe_reproduce`, on a genuine `family_formed` event, sets
+new `Agent.wedding_target`/`wedding_ticks_remaining` (`WEDDING_
+DURATION_TICKS=48`, half `MOURNING_DURATION_TICKS` — a celebration of
+what's already happened, not a grief process to work through) on the
+couple plus any kin/bonded guests (same is-kin/is-bonded test the
+funeral grief loop already established), all anchored at the birth
+tile. `Population._dispatch_movement` gained a wedding override block
+mirroring mourning's exactly (checked just after it, so an agent
+somehow both mourning and celebrating finishes the funeral first) —
+guests walk to the venue and hold there until `Population._tick_
+weddings` (new, same duration-counter shape as `_tick_mourning`)
+expires the gathering, at which point every guest gets a real joy bump
+(`WEDDING_JOY_BUMP=0.25`, smaller than the couple's own `EMOTION_
+BIRTH_JOY_BUMP` — the secondhand lift of attending, not the couple's
+own). Same "zero LLM cost, zero new UI code" shape as funerals — guests
+converging on the birth tile is visible through existing map/agent
+rendering, and `family_formed` already has a main-feed icon (🏡).
+
+Verified: direct tests against the real `_maybe_reproduce`/`_dispatch_
+movement`/`_tick_weddings` methods (couple + bonded onlooker invited,
+unrelated agent correctly not invited, guest walks to and holds at the
+venue, expiry bumps joy and clears state, a second child to the same
+couple does NOT re-trigger a wedding); round-trip. A real 30,000-tick
+organic engine run (LLM disabled, population 20) produced 845 ticks of
+active wedding gatherings with zero test-side scripting. Re-verified
+against the rebuilt native extension; `scripts/verify_native_soak.py`
+(3 seeds x 2000 ticks) byte-identical.
+
 ## [0.87.9] — Ceremonies agents attend: funerals
 
 Direct continuation of the docs/IDEAS-2026-07-EMERGENCE.md §1 backlog

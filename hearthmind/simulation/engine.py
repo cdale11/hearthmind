@@ -412,6 +412,41 @@ CHANCE_PER_MONTH`/`CARAVAN_CHANCE_PER_MONTH`/`omens.OMEN_CHANCE_BASE`
 were tuned for — those three keep their original single-tick-per-month
 shape unchanged. See docs/DECISIONS.md, "monthly job retry window"."""
 
+SEASON_YEAR_JOBS_WITH_RETRY = frozenset({
+    "tradition", "religion", "narrative_direction", "culture_digest", "documentary",
+})
+"""Same bug class as `MONTHLY_JOBS_WITH_RETRY`, found in a 2026-07 audit
+but never fixed for the season/year cadence tier: `tradition`/
+`religion`/`narrative_direction`/`culture_digest` (season_end) and
+`documentary` (year_end) were still gated on a single exact tick
+(`"season_end"/"year_end" in events`) with no retry window at all. A
+backpressured boundary tick meant a FULL SEASON or YEAR of silent
+loss — worse odds than the monthly jobs this pattern was originally
+built for, since season/year boundaries are rarer to begin with. None
+of these five have their own per-occurrence RNG "does this even
+happen" roll gating the decision to call the LLM (unlike festival/
+caravan/omen, which are deliberately excluded from the monthly
+version) — each already always calls once its boundary/backpressure/
+condition gates are met, so widening the window here doesn't inflate
+any tuned probability, exactly like the monthly jobs' rationale.
+**`invention` is deliberately excluded** despite being season_end-
+gated too: unlike the other five, it rolls its own per-tick RNG chance
+(`INVENTION_CHANCE_PER_SEASON` via `_namespaced_roll(..., "invention_
+roll")`, tick-seeded) AFTER the boundary/prosperity gate — the same
+shape as festival/caravan/omen's own exclusion from the monthly
+version. Widening its window would re-roll that chance on every day of
+the window, inflating the effective per-season invention probability
+beyond what `INVENTION_CHANCE_PER_SEASON` was tuned for. See
+`_season_year_gate`/`_mark_season_year_resolved`."""
+
+SEASON_YEAR_JOB_RETRY_WINDOW_DAYS = 5
+"""Retry window for `SEASON_YEAR_JOBS_WITH_RETRY` jobs, in days after
+their boundary tick — wider than `MONTHLY_JOB_RETRY_WINDOW_DAYS` (3)
+since a missed season/year opportunity is far more costly (the next
+one is months away, not days) and these jobs fire far less often in
+aggregate, so a few extra days of retry chances cost nothing on the
+daily LLM ceiling."""
+
 _TOKEN_CHARS_ESTIMATE = 4.0
 """Rough chars-per-token estimate for `llm_prompt_stats_summary`'s
 token-count fields (English text, common BPE tokenizers average
@@ -657,6 +692,18 @@ class SimulationEngine:
         scheduled day was backpressured, instead of silently waiting a
         full month. See MONTHLY_JOB_RETRY_WINDOW_DAYS and `_mark_monthly_
         resolved`."""
+        self._season_year_job_window: dict[str, tuple[int, int]] = {}
+        """job name -> (window_open_tick, ordinal) captured the instant
+        this job's boundary event (season_end/year_end) is crossed —
+        `ordinal` distinguishes which season/year the window belongs to
+        (so a job that got through in the first few days of the window
+        doesn't also fire again later in the same window), the tick
+        anchors `SEASON_YEAR_JOB_RETRY_WINDOW_DAYS`. See `_season_year_
+        gate`/SEASON_YEAR_JOBS_WITH_RETRY."""
+        self._season_year_job_scheduled_ordinal: dict[str, int] = {}
+        """job name -> ordinal it last got past its own backpressure
+        check — mirrors `_monthly_job_scheduled_month` for the season/
+        year cadence tier. Set by `_mark_season_year_resolved`."""
         self._llama_server_restarting = False
         """Tracks the last-seen state of `config.llm_restart_sentinel_
         path` so `run_forever` can detect the absent->present edge and
@@ -1033,6 +1080,47 @@ class SimulationEngine:
         clock = self.world.clock
         month_ordinal = clock.year * len(self.world.config.days_per_month) + clock.month_index
         self._monthly_job_scheduled_month[job] = month_ordinal
+
+    def _season_year_gate(self, events: list[str], job: str, boundary_event: str) -> bool:
+        """Season/year-cadence counterpart to `_monthly_gate` — see
+        SEASON_YEAR_JOBS_WITH_RETRY's docstring for the bug this fixes.
+        `boundary_event` is `"season_end"` or `"year_end"`. Jobs not in
+        SEASON_YEAR_JOBS_WITH_RETRY keep the original single-exact-tick
+        behavior unchanged (there are none currently, but this keeps the
+        helper generically correct if a future season/year job wants the
+        old shape). Opens (or re-opens, for a fresh season/year) a
+        `SEASON_YEAR_JOB_RETRY_WINDOW_DAYS`-day window the instant
+        `boundary_event` is crossed; stays True on every tick within that
+        window until `_mark_season_year_resolved` records this ordinal as
+        done."""
+        if job not in SEASON_YEAR_JOBS_WITH_RETRY:
+            return boundary_event in events
+        clock = self.world.clock
+        if boundary_event in events:
+            if boundary_event == "year_end":
+                ordinal = clock.year
+            else:
+                ordinal = clock.year * len(self.world.config.seasons_per_year) + clock.season_index
+            self._season_year_job_window[job] = (clock.tick_count, ordinal)
+        window = self._season_year_job_window.get(job)
+        if window is None:
+            return False
+        open_tick, ordinal = window
+        ticks_per_day = self.world.config.minutes_per_day // self.world.config.sim_minutes_per_tick
+        if clock.tick_count - open_tick >= SEASON_YEAR_JOB_RETRY_WINDOW_DAYS * ticks_per_day:
+            return False
+        return self._season_year_job_scheduled_ordinal.get(job) != ordinal
+
+    def _mark_season_year_resolved(self, job: str) -> None:
+        """Call the instant `job`'s own backpressure check clears — mirrors
+        `_mark_monthly_resolved` for the season/year cadence tier. Reads
+        the ordinal from the currently-open window (set by `_season_year_
+        gate`); a no-op if no window is open for this job (can't happen
+        in practice — a job only calls this from inside its own apply
+        path, which only runs after `_season_year_gate` returned True)."""
+        window = self._season_year_job_window.get(job)
+        if window is not None:
+            self._season_year_job_scheduled_ordinal[job] = window[1]
 
     def _settlement_by_id(self, settlement_id: int) -> "Settlement":
         """Resolve a settlement id captured in a job closure back to the
@@ -1946,10 +2034,11 @@ class SimulationEngine:
         window — a documentary looks back at what mattered, not routine
         noise. No documentary is scheduled before the settlement has a
         name (nothing yet to narrate)."""
-        if "year_end" not in events or not self.world.settlement.name:
+        if not self._season_year_gate(events, "documentary", "year_end") or not self.world.settlement.name:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_season_year_resolved("documentary")
         milestones = history_events(self.conn, limit=40)
         population_summary = self.world.population.summary()
         prompt = documentary.build_prompt(
@@ -2013,10 +2102,11 @@ class SimulationEngine:
         Unnamed settlements (no standing building yet) have no culture
         to speak of, so nothing is scheduled. See docs/DECISIONS.md, E1."""
         target = self._job_target()
-        if "season_end" not in events or not target.name:
+        if not self._season_year_gate(events, "tradition", "season_end") or not target.name:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_season_year_resolved("tradition")
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         traditions = target.traditions
         prompt = culture.build_prompt(
@@ -2115,7 +2205,7 @@ class SimulationEngine:
         notable event rather than a formality. See docs/DECISIONS.md,
         E3."""
         settlement = self._job_target()
-        if "season_end" not in events or not settlement.name:
+        if not self._season_year_gate(events, "invention", "season_end") or not settlement.name:
             return
         prosperous = (
             settlement.currency >= INVENTION_CURRENCY_THRESHOLD
@@ -2335,12 +2425,13 @@ class SimulationEngine:
         `llm/religion.py`'s fallback always means "not yet," never an
         invented placeholder faith — see its module docstring."""
         target = self._job_target()
-        if "season_end" not in events or not target.name:
+        if not self._season_year_gate(events, "religion", "season_end") or not target.name:
             return
         if target.religion is not None or len(target.rituals) < 1:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_season_year_resolved("religion")
         omen_history = list(target.omen_history)
         folklore_entries = list(target.folklore)
         prompt = religion.build_prompt(target.name, target.rituals, omen_history, folklore_entries)
@@ -2391,10 +2482,11 @@ class SimulationEngine:
         schedules or scripts anything on its own. See llm/narrative_
         direction.py's module docstring."""
         target = self._job_target()
-        if "season_end" not in events or not target.name:
+        if not self._season_year_gate(events, "narrative_direction", "season_end") or not target.name:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_season_year_resolved("narrative_direction")
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         mood = dict(target.mood)
         prompt = narrative_direction.build_prompt(target.name, recent, target.folklore, mood, target.narrative_themes)
@@ -2426,10 +2518,11 @@ class SimulationEngine:
         `Settlement.culture_digest` is only overwritten on a real
         (non-fallback) answer, same discipline as `belief_digest`."""
         target = self._job_target()
-        if "season_end" not in events or not target.name:
+        if not self._season_year_gate(events, "culture_digest", "season_end") or not target.name:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_season_year_resolved("culture_digest")
         prompt = culture_digest.build_prompt(
             target.name,
             target.traditions[-CULTURE_DIGEST_INPUT_MAX:],

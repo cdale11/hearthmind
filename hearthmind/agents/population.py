@@ -189,6 +189,8 @@ from hearthmind.agents.agent import (
     TRUST_DELTA,
     TRUST_SKEPTICISM_THRESHOLD,
     WAKE_THRESHOLD,
+    WEDDING_DURATION_TICKS,
+    WEDDING_JOY_BUMP,
     Agent,
     AgentGoal,
     AgentState,
@@ -1573,6 +1575,7 @@ class Population:
         )
         life_events.extend(self._apply_deaths(killed_by_predator, settlements, died_of_disease, tick=tick, rng=rng))
         self._tick_mourning()
+        self._tick_weddings()
         life_events.extend(self._maybe_welcome_migrant(rng, primary, core_cast_target, terrain))
         for stl in settlements:
             members = [a for a in self.agents if home_of(a).id == stl.id]
@@ -2167,6 +2170,27 @@ class Population:
                     return
                 step = cls._bfs_step(
                     terrain, (agent.x, agent.y), grave,
+                    mountain_unlocked=mountain_unlocked, bridge_tiles=bridge_tiles,
+                )
+                if step is not None:
+                    agent.x, agent.y = step
+            return
+
+        # Weddings (v0.87.10, companion to funerals above): the same
+        # gathering-and-hold shape, just shorter (WEDDING_DURATION_TICKS)
+        # and joyful. Checked after mourning so a guest who is somehow
+        # both mourning and celebrating (extremely rare — a death and a
+        # birth landing on the same agent's overlapping windows) finishes
+        # the funeral first; the wedding resumes on the very next tick
+        # once mourning's own override no longer applies.
+        if agent.wedding_ticks_remaining > 0 and not critically_hungry and agent.travel_target is None:
+            venue = agent.wedding_target
+            if venue is not None and (agent.x, agent.y) != venue:
+                if cls._step_toward(agent, venue, terrain, predator_tiles, mountain_unlocked, bridge_tiles):
+                    agent.stuck_ticks = 0
+                    return
+                step = cls._bfs_step(
+                    terrain, (agent.x, agent.y), venue,
                     mountain_unlocked=mountain_unlocked, bridge_tiles=bridge_tiles,
                 )
                 if step is not None:
@@ -3052,6 +3076,39 @@ class Population:
                 if family_event is not None:
                     life_events.append(family_event)
                     _prune_extinct_families(home, {a.id for a in self.agents})
+                    # v0.87.10, "ceremonies agents attend: weddings"
+                    # (docs/IDEAS-2026-07-EMERGENCE.md §1, the companion
+                    # to funerals): a NEW family forming is the cheapest,
+                    # most unambiguous "this couple just bonded" signal
+                    # this codebase has — first child together, exactly
+                    # the trigger the wedding item asked for. The couple
+                    # plus any kin/bonded onlookers gather at the birth
+                    # tile for WEDDING_DURATION_TICKS, same override-
+                    # priority movement bias `mourning_target` already
+                    # established for funerals. A second child born to
+                    # an already-bonded couple does NOT re-trigger this
+                    # (`family_event is None` in that case) — one
+                    # wedding per couple, not one per child.
+                    venue = (a.x, a.y)
+                    a.wedding_target = venue
+                    a.wedding_ticks_remaining = WEDDING_DURATION_TICKS
+                    b.wedding_target = venue
+                    b.wedding_ticks_remaining = WEDDING_DURATION_TICKS
+                    for guest in self.agents:
+                        if guest.id in (a.id, b.id):
+                            continue
+                        is_kin = (
+                            (guest.parents is not None and (a.id in guest.parents or b.id in guest.parents))
+                            or (a.parents is not None and guest.id in a.parents)
+                            or (b.parents is not None and guest.id in b.parents)
+                        )
+                        is_bonded = (
+                            guest.relationships.get(a.id, 0.0) >= REPRODUCTION_AFFINITY_THRESHOLD
+                            or guest.relationships.get(b.id, 0.0) >= REPRODUCTION_AFFINITY_THRESHOLD
+                        )
+                        if is_kin or is_bonded:
+                            guest.wedding_target = venue
+                            guest.wedding_ticks_remaining = WEDDING_DURATION_TICKS
 
         for nb in newborns:
             self._adopt(nb)
@@ -4545,6 +4602,23 @@ class Population:
                 agent.mourning_target = None
                 current = agent.emotions.get(EMOTION_GRIEF, 0.0)
                 agent.emotions[EMOTION_GRIEF] = max(0.0, current - MOURNING_GRIEF_EASE)
+
+    def _tick_weddings(self) -> None:
+        """v0.87.10, "ceremonies agents attend: weddings" — the joyful
+        companion to `_tick_mourning` above, same duration-counter shape.
+        Counts down every guest's `wedding_ticks_remaining` (set by
+        `_maybe_reproduce`); on reaching 0, every guest gets a real joy
+        bump (WEDDING_JOY_BUMP — the celebration itself, distinct from
+        the couple's own EMOTION_BIRTH_JOY_BUMP already applied at the
+        triggering birth) and both wedding fields reset, handing
+        movement back to the guest's normal goal."""
+        for agent in self.agents:
+            if agent.wedding_ticks_remaining <= 0:
+                continue
+            agent.wedding_ticks_remaining -= 1
+            if agent.wedding_ticks_remaining <= 0:
+                agent.wedding_target = None
+                bump_emotion(agent, EMOTION_JOY, WEDDING_JOY_BUMP)
 
     # --- LLM core cast (v0.70.0) ----------------------------------------------
 
