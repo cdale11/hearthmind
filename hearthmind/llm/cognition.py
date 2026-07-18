@@ -30,7 +30,11 @@ SYSTEM_PROMPT = (
     "'gather' means collecting wood and stone for the village's shared "
     "building supply. 'wander' means going about ordinary business near "
     "home — if you're told a building nearby needs repair, choosing "
-    "'wander' is how you'd go lend a hand with it. When nothing urgent "
+    "'wander' is how you'd go lend a hand with it. 'seek_person' means "
+    "deliberately going to find one specific person for a specific "
+    "reason (only offered when there genuinely is such a reason and "
+    "someone to seek) — choose it only when that reason feels pressing "
+    "enough to interrupt your ordinary business for. When nothing urgent "
     "(hunger, exhaustion) forces the choice, let personality tilt it: an "
     "ambitious or driven villager leans toward 'gather' (visible, "
     "effortful work), a sociable one leans toward 'socialize' — and if a "
@@ -38,7 +42,7 @@ SYSTEM_PROMPT = (
     "for, regardless of personality. Don't override real needs for any "
     "of this, just break ties toward it. "
     'Respond with strict JSON only, no other text: '
-    '{"goal": "forage" | "rest" | "socialize" | "wander" | "gather", '
+    '{"goal": "forage" | "rest" | "socialize" | "wander" | "gather" | "seek_person", '
     '"reason": "a short first-person reason, under 15 words"}.'
 )
 
@@ -57,7 +61,7 @@ def build_prompt(
     colocated_names: list[str] | None = None, nearest_food_steps: int | None = None,
     beliefs_about: list[str] | None = None, own_belief: str = "",
     semantic_memory: str = "", mind_text: str = "", needs_repair: bool = False,
-    life_digest: str = "", lesson: str = "",
+    life_digest: str = "", lesson: str = "", seek_candidate: tuple[str, str] | None = None,
 ) -> str:
     """`settlement_name`/`latest_tradition` are optional culture context
     (Phase E) — empty until the settlement is named/has a tradition, so
@@ -128,7 +132,17 @@ def build_prompt(
     not just storage": this surfaces the most RELEVANT past takeaway
     for right now, which may be older than every other memory/belief
     already in this prompt, rather than only ever reading the newest
-    entries regardless of relevance."""
+    entries regardless of relevance.
+
+    `seek_candidate` (v0.87.8, "directed intent" — docs/IDEAS-2026-07-
+    EMERGENCE.md §1): `(target_name, reason_text)`, computed
+    deterministically at the call site (`Population.
+    _seek_person_candidate`) from the agent's own trust/secrets/
+    emotions state — `None` most of the time (most agents most days
+    have no one specific to seek out). Only offered as a grounding
+    sentence when non-`None`; the model is never asked to invent a
+    target or a reason, only to decide whether the one real, existing
+    reason is worth interrupting ordinary business for."""
     culture = ""
     if settlement_name:
         culture = f" You live in {settlement_name}."
@@ -172,13 +186,17 @@ def build_prompt(
         " A building nearby has fallen into disrepair and could use a hand — 'wander' "
         "would take you there." if needs_repair else ""
     )
+    seek_text = (
+        f" You could go find {seek_candidate[0]} — {seek_candidate[1]}; 'seek_person' would take you to them."
+        if seek_candidate else ""
+    )
     return (
         f"You are {agent.name}. Hunger: {agent.hunger:.2f} (0=full, 1=starving). "
         f"Energy: {agent.energy:.2f} (0=exhausted, 1=fully rested). "
         f"Currently {agent.state.value}, focused on '{agent.goal.value}'."
         f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{just_now_text}"
         f"{personality_text}{emotion_text}{beliefs_text}{own_belief_text}{semantic_text}{mind_prompt_text}"
-        f"{life_digest_text}{lesson_text}{repair_text} "
+        f"{life_digest_text}{lesson_text}{repair_text}{seek_text} "
         "What should you focus on right now?"
     )
 

@@ -4,6 +4,91 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.8] — SEEK_PERSON directed intent + C++ build parallelism root-cause fix
+
+Explicit user directive: continue implementing the emergence backlog
+(LLM cost no longer a hard constraint), fix the C++ build still not
+compiling in parallel, and diagnose an optional gemma-4-e4b model
+error (blocked pending the actual startup log/error text).
+
+**C++ build parallelism, actual root cause found and fixed.** The
+"still not parallel" report was real — v0.85.6/v0.87.3 tuned
+`build_ext`'s own `--parallel`/`self.parallel`, but that mechanism
+only parallelizes ACROSS multiple `Extension` objects: verified
+directly against `setuptools._distutils` source that
+`build_ext._build_extensions_parallel()` submits one `ThreadPoolExecutor`
+task per `Extension`, and the base `CCompiler.compile()` loops over
+one extension's own source list strictly serially with zero per-file
+dispatch. This project declares exactly ONE `Pybind11Extension` (~21
+.cpp files), so neither prior fix could ever have had any effect on
+this build regardless of the worker count it computed. `setup.py` now
+installs pybind11's `ParallelCompile` (its own documented fix for
+exactly this shape of project), which monkey-patches
+`CCompiler.compile()` itself to thread-pool over individual source
+files within one extension — capped at the same cgroup-aware core
+count (`os.sched_getaffinity`) as before, overridable via
+`HEARTHMIND_BUILD_JOBS`. Verified live: a clean rebuild showed 5
+concurrent `cc1plus` processes (previously exactly 1), the extension
+loads and passes the native soak byte-identical.
+
+**SEEK_PERSON directed intent** (docs/IDEAS-2026-07-EMERGENCE.md §1,
+the audit's own "single biggest structural finding": rich inner life,
+but only five undirected movement-bias goals). New `AgentGoal.
+SEEK_PERSON` pathfinds to a SPECIFIC other agent (`Agent.
+seek_target_id`, re-resolved from the live per-tick position snapshot
+every call so it tracks a moving target) rather than SOCIALIZE's
+nearest-anyone. `Population._seek_person_candidate` deterministically
+picks at most one same-settlement candidate + intent from EXISTING
+state, zero new tracking: **console** (a bonded partner whose grief is
+notable), **confront** (someone named in one of the agent's own kept
+secrets whom they also distrust), **confide** (their most-trusted
+living partner, only offered when they hold a secret worth confiding).
+Deliberately does not implement "apologize" (the doc's fourth intent)
+— that needs real per-pair dispute-history tracking this codebase
+doesn't persist today.
+
+Core-cast-only in practice: SEEK_PERSON is only ever chosen by LLM
+cognition (`cognition.py`'s `SYSTEM_PROMPT` now offers it as a fifth
+goal, grounded by one new optional prompt line naming the real
+candidate + reason — the model is never asked to invent a target),
+never the deterministic fallback, so call volume stays bounded by
+`Config.llm_core_cast_size` automatically, same as every other
+core-cast-gated decision. On arrival (same tile as the target), the
+EXISTING colocated-dialogue mechanism (`Population.due_for_dialogue`)
+picks the pair up exactly like an ordinary SOCIALIZE-driven meeting —
+the intent reaches the dialogue prompt for free via `Agent.goal_reason`
+(`dialogue.py`'s `_activity` already surfaces it), so this adds zero
+new dialogue-scheduling logic and zero new LLM call volume beyond the
+existing cognition/dialogue slots it rides. UI surfacing is free too —
+the NPC inspector and map tooltips already render `agent.goal`/
+`goal_reason` generically for any goal string.
+
+New persisted field `Agent.seek_target_id` (int|None, round-trips
+through `to_dict`/`from_dict`, defaults `None` on legacy snapshots) and
+new `AgentGoal` enum member (code 5 in the native `AgentTable`'s int
+mapping — appended, not renumbered, per that mapping's own "never
+renumber an existing code" rule).
+
+**gemma-4-e4b**: not yet actionable — asked the user for the actual
+llama-server startup error/log text (confirmed to be a startup
+failure, not a hearthmind-side error) since nothing in this codebase
+hardcodes model-specific handling (the model name/GGUF path are plain
+config strings), so a real fix requires the actual failure mode, not a
+guess.
+
+Verified: direct tests for `_seek_person_candidate`'s three-intent
+priority order, `Agent.seek_target_id` round-trip, `cognition.
+build_prompt`'s new grounding line, `Population.apply_goal`'s set/clear
+discipline, movement toward a live (re-resolved) target position with
+correct arrival detection via direct `_dispatch_movement` calls; a full
+end-to-end engine test with a fake LLM client confirms the real
+`_schedule_due_cognition` -> `_run_cognition` -> `_apply_pending_
+cognition_results` pipeline correctly captures the candidate at
+scheduling time and applies it only when the model actually returns
+`seek_person`. All tests re-run against the rebuilt native extension
+(goal-code round-trip through `AgentTable`) with identical results.
+`scripts/verify_native_soak.py` (3 seeds x 2000 ticks) byte-identical.
+
 ## [0.87.7] — First two items from docs/IDEAS-2026-07-EMERGENCE.md §1
 
 Direct follow-up to v0.87.6, per explicit user request to start

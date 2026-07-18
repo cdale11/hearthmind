@@ -44,6 +44,22 @@ class AgentGoal(str, Enum):
     GATHER = "gather"
     """Added D8: collect building materials from forest/hills into the
     settlement's shared stockpile — see Population._maybe_gather."""
+    SEEK_PERSON = "seek_person"
+    """v0.87.8, "directed intent" (docs/IDEAS-2026-07-EMERGENCE.md §1) —
+    unlike SOCIALIZE (nearest agent, no particular reason), this
+    pathfinds to a SPECIFIC other agent (`Agent.seek_target_id`) for a
+    stored reason (confront/console/confide, see `Population.
+    _seek_person_candidate`) drawn from existing trust/secrets/emotion
+    state. Core-cast-only in practice — only reachable via LLM
+    cognition (`SimulationEngine._schedule_due_cognition`), never the
+    deterministic fallback, so it's automatically bounded by `Config.
+    llm_core_cast_size` the same way every other core-cast-gated
+    decision is. On arrival (same tile as the target), the EXISTING
+    colocated-dialogue mechanism (`Population.due_for_dialogue`) picks
+    the pair up exactly like a SOCIALIZE-driven meeting — the intent
+    reaches the dialogue prompt for free via `Agent.goal_reason`
+    (`dialogue.py`'s `_activity` already surfaces it), so this needs no
+    new dialogue-scheduling logic at all."""
 
 
 # --- enum <-> int code maps for the native AgentStore (v0.75.0) -------------
@@ -62,6 +78,7 @@ GOAL_TO_CODE: dict["AgentGoal", int] = {
     AgentGoal.SOCIALIZE: 2,
     AgentGoal.REST: 3,
     AgentGoal.GATHER: 4,
+    AgentGoal.SEEK_PERSON: 5,
 }
 CODE_TO_GOAL: dict[int, "AgentGoal"] = {v: k for k, v in GOAL_TO_CODE.items()}
 
@@ -1198,6 +1215,7 @@ class Agent:
         debts: dict[int, float] | None = None,
         stuck_ticks: int = 0,
         lessons: list[dict] | None = None,
+        seek_target_id: int | None = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -1323,6 +1341,13 @@ class Agent:
         # any successful greedy step or when there's no target. See
         # docs/DECISIONS.md, "movement: stuck-agent BFS escape" pass.
         self.stuck_ticks: int = stuck_ticks
+        # seek_target_id: the specific agent id a SEEK_PERSON goal is
+        # currently walking toward (v0.87.8) — None for every other
+        # goal. Cleared by Population._dispatch_movement on arrival
+        # (same tile as the target) or if the target no longer exists
+        # (death/settlement change), same "target becomes unreachable ->
+        # goal quietly lapses" shape `Agent.travel_target` already has.
+        self.seek_target_id: int | None = seek_target_id
 
     # --- native-store attach + scalar properties ---------------------------
 
@@ -1535,6 +1560,7 @@ class Agent:
             "emotions": {k: round(v, 4) for k, v in self.emotions.items()},
             "debts": {str(k): round(v, 4) for k, v in self.debts.items()},
             "stuck_ticks": self.stuck_ticks,
+            "seek_target_id": self.seek_target_id,
         }
 
     @classmethod
@@ -1587,4 +1613,5 @@ class Agent:
             ),
             emotions=dict(data.get("emotions", {})),
             stuck_ticks=data.get("stuck_ticks", 0),
+            seek_target_id=data.get("seek_target_id"),
         )

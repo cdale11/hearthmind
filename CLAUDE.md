@@ -534,6 +534,47 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.87.8)
+
+Continued backlog implementation per explicit user direction (LLM cost
+no longer a hard constraint), plus a real C++ build fix and a blocked
+gemma-4-e4b diagnosis.
+
+**C++ build parallelism, root cause found**: v0.85.6/v0.87.3 tuned
+`build_ext`'s `--parallel`, which only parallelizes across multiple
+`Extension` objects (verified directly against setuptools._distutils
+source) — this project has exactly ONE `Pybind11Extension`
+(~21 files), so that lever could never have done anything. `setup.py`
+now installs pybind11's `ParallelCompile` (the documented fix for this
+exact shape of project), which thread-pools over individual source
+files within one extension. Verified live: 5 concurrent `cc1plus`
+during a clean build (was 1), soak byte-identical.
+
+**SEEK_PERSON directed intent** (docs/IDEAS-2026-07-EMERGENCE.md §1's
+top item): new `AgentGoal.SEEK_PERSON` pathfinds to a SPECIFIC agent
+(`Agent.seek_target_id`) rather than SOCIALIZE's nearest-anyone.
+`Population._seek_person_candidate` deterministically picks one
+candidate+intent from existing trust/secrets/emotion state — console
+(bonded + grieving), confront (secret + distrust), confide (most
+trusted). Core-cast-only (LLM cognition offers it; deterministic
+fallback never does), so volume stays bounded automatically. Arrival
+rides the EXISTING colocated-dialogue mechanism with zero new
+scheduling logic — the intent reaches dialogue for free via
+`goal_reason`. UI surfacing is free (goal/goal_reason already render
+generically). Not implemented: "apologize" (needs per-pair dispute
+history this codebase doesn't track).
+
+**gemma-4-e4b**: blocked on the user providing the actual llama-server
+startup error/log — confirmed a startup failure, not a hearthmind-side
+bug, but nothing here hardcodes model-specific handling so a real fix
+needs the real error text.
+
+Verified: direct tests for candidate priority, round-trip, prompt
+grounding, apply_goal set/clear, movement+arrival; full end-to-end
+engine test with a fake LLM client confirms the real scheduling ->
+apply pipeline. Re-verified against the rebuilt native extension.
+Native soak (3 seeds x 2000 ticks) byte-identical.
+
 ## Current state (v0.87.7)
 
 Direct follow-up to v0.87.6, per explicit user request to start

@@ -687,10 +687,17 @@ class SimulationEngine:
         every other settlement job here), so it needs its own volume
         ceiling on top of the shared daily budget, same "per-agent/
         per-pair decision must be gated" rule as cognition/dialogue."""
-        self._pending_goal_results: dict[int, tuple[int, dict]] = {}
-        """agent_id -> (tick the job was scheduled on, result) — the tick
-        lets `_apply_pending_cognition_results` drop results that went
-        stale in a saturated queue (STALE_GOAL_RESULT_TICKS)."""
+        self._pending_goal_results: dict[int, tuple[int, dict, int | None]] = {}
+        """agent_id -> (tick the job was scheduled on, result, seek_
+        candidate_id) — the tick lets `_apply_pending_cognition_results`
+        drop results that went stale in a saturated queue (STALE_GOAL_
+        RESULT_TICKS). `seek_candidate_id` (v0.87.8) is the specific
+        agent id `Population._seek_person_candidate` identified AT
+        SCHEDULING TIME (captured in the same closure the prompt itself
+        was grounded from) — only consumed by `apply_goal` when the
+        parsed goal actually comes back as SEEK_PERSON; `None` for the
+        inline deterministic-fallback path, which never offers this
+        goal."""
         self._inflight_cognition_agent_ids: set[int] = set()
         self._pending_dialogue_results: list[tuple[int, int, int, dict, bool]] = []
         """(scheduled_tick, agent_a_id, agent_b_id, parsed) — same
@@ -1358,11 +1365,11 @@ class SimulationEngine:
         if not self._pending_goal_results:
             return
         now = self.world.clock.tick_count
-        for agent_id, (scheduled_tick, result) in self._pending_goal_results.items():
+        for agent_id, (scheduled_tick, result, seek_candidate_id) in self._pending_goal_results.items():
             if now - scheduled_tick > STALE_GOAL_RESULT_TICKS:
                 continue  # reasoned from a days-old snapshot — see STALE_GOAL_RESULT_TICKS
             goal, reason = parse_goal(result)
-            self.world.population.apply_goal(agent_id, goal, reason)
+            self.world.population.apply_goal(agent_id, goal, reason, seek_candidate_id)
         self._pending_goal_results.clear()
 
     @staticmethod
@@ -1509,6 +1516,7 @@ class SimulationEngine:
                 self._pending_goal_results[agent.id] = (
                     self.world.clock.tick_count,
                     fallback_goal(agent.hunger, agent.energy, agent.id, dict(agent.traits), dict(agent.emotions)),
+                    None,
                 )
                 continue
             # Backpressure (see BACKPRESSURE_BACKLOG_PER_SLOT): routine
@@ -1553,6 +1561,9 @@ class SimulationEngine:
             semantic_memory = agent.semantic_memories[-1] if agent.semantic_memories else ""
             needs_repair = bool(population.damaged_building_positions(home))
             lesson = self._matching_lesson(agent, self._current_situation_tag(agent))
+            seek_candidate = population._seek_person_candidate(agent, population.agents)
+            seek_candidate_id = seek_candidate[0] if seek_candidate is not None else None
+            seek_prompt_hint = (seek_candidate[1], seek_candidate[3]) if seek_candidate is not None else None
             prompt = build_prompt(
                 agent, self.world.clock.season, self.world.weather.describe(),
                 settlement_name=home.name, latest_tradition=latest_tradition,
@@ -1560,7 +1571,7 @@ class SimulationEngine:
                 beliefs_about=beliefs_about, own_belief=own_belief,
                 semantic_memory=semantic_memory, mind_text=agent.mind,
                 needs_repair=needs_repair, life_digest=agent.life_digest,
-                lesson=lesson,
+                lesson=lesson, seek_candidate=seek_prompt_hint,
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             traits_snapshot = dict(agent.traits)
@@ -1568,6 +1579,7 @@ class SimulationEngine:
             task = asyncio.create_task(
                 self._run_cognition(
                     agent.id, prompt, hunger_snapshot, energy_snapshot, traits_snapshot, emotions_snapshot,
+                    seek_candidate_id,
                 )
             )
             self._background_tasks.add(task)
@@ -1575,6 +1587,7 @@ class SimulationEngine:
 
     async def _run_cognition(
         self, agent_id: int, prompt: str, hunger: float, energy: float, traits: dict, emotions: dict,
+        seek_candidate_id: int | None = None,
     ) -> None:
         scheduled_tick = self.world.clock.tick_count
         call_start = time.perf_counter()
@@ -1598,7 +1611,7 @@ class SimulationEngine:
                 # goal is needed to keep the world live.
                 self._cognition_runner.calls_deferred_critical += 1
             else:
-                self._pending_goal_results[agent_id] = (scheduled_tick, result)
+                self._pending_goal_results[agent_id] = (scheduled_tick, result, seek_candidate_id)
             self._record_llm_call(used_fallback)
         finally:
             self._inflight_cognition_agent_ids.discard(agent_id)
@@ -4169,7 +4182,7 @@ class SimulationEngine:
         # resolved) worth telling apart when diagnosing staleness.
         now = self.world.clock.tick_count
         oldest_pending_goal_ticks = max(
-            (now - t for t, _ in self._pending_goal_results.values()), default=0,
+            (now - t for t, _, _ in self._pending_goal_results.values()), default=0,
         )
         oldest_pending_dialogue_ticks = max(
             (now - entry[0] for entry in self._pending_dialogue_results), default=0,

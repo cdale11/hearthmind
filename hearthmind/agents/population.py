@@ -89,6 +89,7 @@ from hearthmind.agents.agent import (
     EMOTION_GRIEF,
     EMOTION_ILLNESS_FEAR_BUMP,
     EMOTION_JOY,
+    EMOTION_NOTABLE_THRESHOLD,
     EMOTION_PREDATOR_FEAR_BUMP,
     EMOTION_RECONCILE_JOY_BUMP,
     EMOTION_STARVATION_FEAR_BUMP,
@@ -2166,6 +2167,28 @@ class Population:
             )
         elif effective_goal is AgentGoal.SOCIALIZE:
             target = cls._nearest_other_agent(agent, position_snapshot, agent_position_index)
+        elif effective_goal is AgentGoal.SEEK_PERSON:
+            # Unlike SOCIALIZE (nearest agent), this pathfinds toward a
+            # SPECIFIC agent (`seek_target_id`) — re-looked-up from the
+            # shared per-tick position_snapshot every call, so movement
+            # correctly tracks a moving target instead of chasing a
+            # stale position. Arrival (same tile) or the target no
+            # longer existing (death/settlement change) both clear the
+            # seek and fall through to a random walk this tick — the
+            # NEXT cognition cycle picks a fresh goal; no separate
+            # "arrived, now what" state is needed since the existing
+            # colocated-dialogue mechanism (due_for_dialogue) already
+            # picks up same-tile pairs every tick regardless of goal.
+            if agent.seek_target_id is not None:
+                for other_id, ox, oy in position_snapshot:
+                    if other_id == agent.seek_target_id:
+                        if (ox, oy) == (agent.x, agent.y):
+                            agent.seek_target_id = None
+                        else:
+                            target = (ox, oy)
+                        break
+                else:
+                    agent.seek_target_id = None
         elif effective_goal is AgentGoal.GATHER:
             target = cls._nearest_material_tile(agent, terrain, material_index)
             if target is None and agent.travel_target is None and terrain is not None:
@@ -2453,6 +2476,65 @@ class Population:
             if best_dist is None or dist < best_dist:
                 best, best_dist = (x, y), dist
         return best
+
+    @staticmethod
+    def _seek_person_candidate(agent: Agent, agents: list[Agent]) -> tuple[int, str, str, str] | None:
+        """v0.87.8, "directed intent" (docs/IDEAS-2026-07-EMERGENCE.md
+        §1) — deterministically picks at most one specific living,
+        same-settlement agent `agent` has a concrete reason to seek out,
+        drawn entirely from existing state (no new tracking added).
+        Returns `(target_id, target_name, intent_label, reason_text)`
+        or `None` when nothing qualifies (the common case — most agents
+        most of the time have no one to specifically confront/console/
+        confide in). Checked in a fixed priority order (most emotionally
+        urgent first) and returns the FIRST match, not a survey of all
+        candidates — this is meant to ground a single cognition-prompt
+        suggestion, not to fully rank the settlement.
+
+        - console: someone the agent has a real bond with
+          (relationships > 0) whose EMOTION_GRIEF is currently notable —
+          the most legible, sympathetic case.
+        - confront: someone named in one of the agent's own kept secrets
+          (the existing free-text substring convention `dialogue.py`'s
+          `_activity` already uses for "a secret about them") whom the
+          agent also distrusts (`trust < 0`) — the secret is presumably
+          ABOUT a grievance, not a fondly-kept confidence.
+        - confide: the agent's most-trusted living partner (`trust`
+          strictly positive, highest value), only offered when the
+          agent actually holds a secret worth confiding.
+
+        Deliberately does NOT implement "apologize" (the IDEAS doc's
+        fourth intent) — that needs real dispute-history tracking this
+        codebase doesn't persist per-pair today; flagged as a natural
+        follow-up once/if that state exists, not faked here."""
+        living = {a.id: a for a in agents if a.settlement_id == agent.settlement_id}
+        for other_id, other in living.items():
+            if other_id == agent.id:
+                continue
+            if agent.relationships.get(other_id, 0.0) <= 0.0:
+                continue
+            if other.emotions.get(EMOTION_GRIEF, 0.0) >= EMOTION_NOTABLE_THRESHOLD:
+                return (other_id, other.name, "console", f"{other.name} is grieving")
+        if agent.secrets:
+            for other_id, other in living.items():
+                if other_id == agent.id:
+                    continue
+                if agent.trust.get(other_id, 0.0) >= 0.0:
+                    continue
+                if any(other.name in secret for secret in agent.secrets):
+                    return (other_id, other.name, "confront", f"a secret concerning {other.name}")
+            best_confidant: tuple[int, Agent] | None = None
+            best_trust = 0.0
+            for other_id, other in living.items():
+                if other_id == agent.id:
+                    continue
+                trust = agent.trust.get(other_id, 0.0)
+                if trust > best_trust:
+                    best_trust, best_confidant = trust, (other_id, other)
+            if best_confidant is not None:
+                other_id, other = best_confidant
+                return (other_id, other.name, "confide", f"trusts {other.name} most")
+        return None
 
     @staticmethod
     def _step_toward(
@@ -4546,14 +4628,20 @@ class Population:
             return None
         return abs(target[0] - agent.x) + abs(target[1] - agent.y)
 
-    def apply_goal(self, agent_id: int, goal: AgentGoal, reason: str) -> None:
+    def apply_goal(self, agent_id: int, goal: AgentGoal, reason: str, seek_target_id: int | None = None) -> None:
         """Apply a resolved goal to an agent by id. A no-op if the agent
         has since died — cognition results can arrive on a later tick than
-        they were requested on (see SimulationEngine)."""
+        they were requested on (see SimulationEngine).
+
+        `seek_target_id` (v0.87.8) is only meaningful alongside
+        `AgentGoal.SEEK_PERSON` — always cleared for every other goal so
+        a stale target from a PREVIOUS seek never lingers once the
+        agent's goal moves on to something else."""
         for agent in self.agents:
             if agent.id == agent_id:
                 agent.goal = goal
                 agent.goal_reason = reason
+                agent.seek_target_id = seek_target_id if goal is AgentGoal.SEEK_PERSON else None
                 return
 
     def get(self, agent_id: int) -> Agent | None:
