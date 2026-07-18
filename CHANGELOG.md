@@ -4,6 +4,72 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.15] — §7 close-out: planning, leadership, knowledge lifecycle; survival-decision framing
+
+Closes three more docs/IDEAS-2026-07-EMERGENCE.md §7 items (bounded
+episodic planning, emergent leadership, knowledge lifecycle), plus a
+direct user-directed change to how survival decisions are posed to the
+LLM. §7's last item (laws/customs/taboos) is explicitly deferred, not
+attempted this pass — flagged, not silently dropped.
+
+**Survival-decision framing** (explicit user direction): past
+`SURVIVAL_HUNGER_THRESHOLD`/`SURVIVAL_ENERGY_THRESHOLD` (0.6/0.3, same
+values `fallback_goal` already hardcoded — now sourced from these
+constants), `cognition.build_prompt` no longer poses goal-setting as
+an open "what should you focus on" question — physical need has
+already decided it. The closing line becomes "your current priority
+is X — explain briefly, in character, how you go about it," narrowing
+the LLM's contribution to the "reason" field rather than the choice
+itself, mirroring the deterministic-reality/LLM-meaning split the
+critical-hunger movement override already enforces at the movement
+layer.
+
+**Bounded episodic planning**: new `Agent.plan` ({intent,
+horizon_days, days_remaining, progress_note, formed_tick}), authored/
+revised by the existing Reflect() job (zero added calls) via new
+`llm.beliefs.parse_plan`. Consumed as one cognition-prompt line and a
+small deterministic goal-bias in `fallback_goal` (keyword-matched
+against the plan's intent). `Population.tick_plans` (daily cadence)
+counts down and expires it.
+
+**Emergent leadership**: council seat selection/refill now ranks by
+`Population._prominence` (age as tiebreak only, not the sole
+criterion) instead of pure age. New throttled contest check
+(`COUNCIL_DISPLACEMENT_CHECK_INTERVAL_TICKS`, `COUNCIL_DISPLACEMENT_
+MARGIN`): a sufficiently more-prominent non-member can displace the
+council's weakest sitting member (`council_seat_contested` event). New
+`Population.council_faction_majority` biases dispute-outcome framing
+(`llm/dispute.py`'s `council_favors_a/b`) and town_brain framing
+(names the dominant faction) when a single FACTION holds a majority of
+living council seats.
+
+**Knowledge lifecycle**: new `Settlement.invention_knowledge` tracks
+knowers for the most recent `INVENTION_KNOWLEDGE_MAX_TRACKED=20`
+inventions (deliberately not the full 300-cap history — see its
+docstring for the scope boundary). An inventor is assigned at
+formation; `Population._maybe_teach_skills`'s existing colocation loop
+spreads it like a skill; `_apply_deaths` removes a dying knower and
+flips `dormant=True` once none remain (`knowledge_lost` event,
+"the craft behind X died with Y"); `_apply_inheritance` gives the heir
+a chance (`INVENTION_REDISCOVERY_CHANCE`) to rediscover it. UI marks a
+dormant invention "💤 dormant — no living knower" in the existing
+Inventions panel. Cross-settlement diffusion (migrant/caravan carrying
+knowledge to another settlement) is explicitly out of scope this pass.
+
+Verified: direct tests against real production paths for all four
+pieces — survival-framing prompt output at/below both thresholds; plan
+formation/continuation/progress-note update/expiry via `Population.
+tick_plans`; council contest via a real `_maybe_refresh_council` call
+(challenger with boosted skill/bonds displaces the weakest elder);
+`council_faction_majority` on a real Institution graph reaching both
+`dispute.build_prompt` and `town_brain.build_prompt`; knowledge death/
+dormancy/rediscovery over a 60-trial rng sweep (both outcomes
+observed) and diffusion via a real `_maybe_teach_skills` call. Round-
+trip + legacy-snapshot defaults confirmed for `Agent.plan` and
+`Settlement.invention_knowledge`. `scripts/verify_native_soak.py`
+(2 seeds x 800 ticks) byte-identical — this batch touches no native
+module.
+
 ## [0.87.14] — Adaptive retrieval + causal memory links
 
 Implements docs/IDEAS-2026-07-EMERGENCE.md §7 items 1-2, per explicit

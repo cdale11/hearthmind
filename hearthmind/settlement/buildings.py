@@ -422,6 +422,23 @@ otherwise corrupt) — see `SettlementCulture.traditions_established`/
 `festivals_held` below and `Settlement.tech_level` (inventions already
 had its own persistent counter, reused here rather than duplicated)."""
 
+INVENTION_KNOWLEDGE_MAX_TRACKED = 20
+"""v0.87.15, "knowledge lifecycle" (docs/IDEAS-2026-07-EMERGENCE.md
+§7): how many of the most recent `inventions` entries carry live
+`invention_knowledge` (knower-tracking, dormancy, rediscovery) — far
+below `CULTURE_LIST_MAX_STORED`, deliberately: this is meant to model
+FRAGILE, still-narrow knowledge, not the settlement's entire
+technological history (which would need every knower tracked forever
+for no real payoff — see `SettlementCulture.invention_knowledge`'s
+docstring for the scope boundary)."""
+
+INVENTION_REDISCOVERY_CHANCE = 0.35
+"""Chance an heir who inherits from the LAST knower of a now-dormant
+invention rediscovers it (via family papers/journals, same "heir
+memory already does this" mechanism H7 established) — see `Population.
+_apply_inheritance`. Below 0.5 so a lost invention staying lost is the
+more common, and more narratively interesting, outcome."""
+
 RUIN_REMOVAL_TICKS = 1200
 """Ticks a ruined building persists (still inspectable) before nature
 finishes reclaiming it and it's removed from the world entirely.
@@ -1585,6 +1602,24 @@ class SettlementCulture:
     persistent established-count (one per invention, never
     decremented), reused as the ordinal-naming source now that this
     list is capped in storage — no separate counter needed."""
+    invention_knowledge: dict = field(default_factory=dict)
+    """v0.87.15, "knowledge lifecycle: diffusion, loss, rediscovery"
+    (docs/IDEAS-2026-07-EMERGENCE.md §7) — invention text (matching an
+    `inventions` entry) -> `{"knowers": [agent ids], "dormant": bool}`.
+    Deliberately NOT tracked for every entry in the (up to 300-long)
+    `inventions` list — only the most recent `INVENTION_KNOWLEDGE_
+    MAX_TRACKED` inventions carry live knower tracking (oldest evicted
+    first, same shape `inventions` itself caps at). An invention that
+    ages out of tracking (or predates this feature on an old snapshot)
+    is treated as settled common knowledge, never dormant — this is a
+    deliberate scope boundary, not a bug: only RECENT, still-narrow
+    knowledge is fragile enough to plausibly die with one person.
+    `Population._maybe_teach_skills`'s existing colocation loop spreads
+    a tracked invention the same way it spreads skills; `_apply_deaths`
+    removes a knower and flips `dormant=True` once none remain
+    (`knowledge_lost` event); `_apply_inheritance` gives an heir a
+    chance to rediscover a dormant invention they inherit alongside
+    goods/skill/bias (H7)."""
     festivals: list[str] = field(default_factory=list)
     """Festivals held, same shape — wellbeing-gated, with a direct
     mechanical effect (FESTIVAL_RELATIONSHIP_BOOST). Capped in storage
@@ -1820,6 +1855,7 @@ class Settlement:
         omen_seed: str = "", dream_seed: str = "",
         pattern_signal_counts: dict | None = None,
         family_feud_counts: dict | None = None,
+        invention_knowledge: dict | None = None,
     ):
         self.id = id
         """Stable settlement identity (multi-settlement pass, v0.65.0):
@@ -1856,6 +1892,7 @@ class Settlement:
             traditions_established=traditions_established,
             culture_effects=culture_effects if culture_effects is not None else {},
             inventions=inventions if inventions is not None else [],
+            invention_knowledge=invention_knowledge if invention_knowledge is not None else {},
             festivals=festivals if festivals is not None else [],
             festivals_held=festivals_held,
             beliefs=beliefs if beliefs is not None else [],
@@ -2055,6 +2092,14 @@ class Settlement:
     @inventions.setter
     def inventions(self, value: list[str]) -> None:
         self.culture.inventions = value
+
+    @property
+    def invention_knowledge(self) -> dict:
+        return self.culture.invention_knowledge
+
+    @invention_knowledge.setter
+    def invention_knowledge(self, value: dict) -> None:
+        self.culture.invention_knowledge = value
 
     @property
     def festivals(self) -> list[str]:
@@ -2584,6 +2629,7 @@ class Settlement:
             "culture_effects": dict(self.culture_effects),
             "tech_level": self.tech_level,
             "inventions": list(self.inventions),
+            "invention_knowledge": self.invention_knowledge,
             "festivals": list(self.festivals),
             "vehicles": self._vehicle_summary(),
             "workshops": kind_counts["workshop"],
@@ -2714,6 +2760,7 @@ class Settlement:
             "culture_effects": dict(self.culture_effects),
             "tech_level": self.tech_level,
             "inventions": list(self.inventions),
+            "invention_knowledge": self.invention_knowledge,
             "festivals": list(self.festivals),
             "festivals_held": self.festivals_held,
             "vehicles": [v.to_dict() for v in self.vehicles],
@@ -2770,6 +2817,7 @@ class Settlement:
             traditions_established=data.get("traditions_established", len(data.get("traditions", []))),
             culture_effects=dict(data.get("culture_effects", {})),
             tech_level=data.get("tech_level", 0), inventions=list(data.get("inventions", [])),
+            invention_knowledge=dict(data.get("invention_knowledge", {})),
             festivals=list(data.get("festivals", [])),
             festivals_held=data.get("festivals_held", len(data.get("festivals", []))),
             vehicles=vehicles, _next_vehicle_id=data.get("next_vehicle_id", 0),

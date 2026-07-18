@@ -85,7 +85,9 @@ from hearthmind.settlement.buildings import (
     FOLKLORE_MAX_STORED,
     INVENTION_CHANCE_PER_SEASON,
     INVENTION_CURRENCY_THRESHOLD,
+    INVENTION_KNOWLEDGE_MAX_TRACKED,
     INVENTION_MATERIALS_FRACTION,
+    INVENTION_REDISCOVERY_CHANCE,
     MARKET_CARAVAN_CHANCE_MULTIPLIER,
     MARKET_CARAVAN_YIELD_MULTIPLIER,
     MATERIALS_CAPACITY,
@@ -1398,6 +1400,9 @@ class SimulationEngine:
             # wide, so no core-cast gating applies — see Population.
             # decay_memory_salience's docstring.
             self.world.population.decay_memory_salience()
+            # v0.87.15 "bounded episodic planning": same daily cadence,
+            # zero LLM cost — see Population.tick_plans's docstring.
+            self.world.population.tick_plans()
         if events:
             logger.info(
                 "Tick %s: %s | %s | %s",
@@ -1593,9 +1598,12 @@ class SimulationEngine:
                 and (is_triggered or self._is_significant_moment(agent))
             )
             if not use_llm:
+                plan_intent = agent.plan["intent"] if agent.plan else ""
                 self._pending_goal_results[agent.id] = (
                     self.world.clock.tick_count,
-                    fallback_goal(agent.hunger, agent.energy, agent.id, dict(agent.traits), dict(agent.emotions)),
+                    fallback_goal(
+                        agent.hunger, agent.energy, agent.id, dict(agent.traits), dict(agent.emotions), plan_intent,
+                    ),
                     None,
                 )
                 continue
@@ -1653,15 +1661,16 @@ class SimulationEngine:
                 semantic_memory=semantic_memory, mind_text=agent.mind,
                 needs_repair=needs_repair, life_digest=agent.life_digest,
                 lesson=lesson, seek_candidate=seek_prompt_hint,
-                institution_objective=institution_objective,
+                institution_objective=institution_objective, plan=agent.plan,
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             traits_snapshot = dict(agent.traits)
             emotions_snapshot = dict(agent.emotions)
+            plan_intent_snapshot = agent.plan["intent"] if agent.plan else ""
             task = asyncio.create_task(
                 self._run_cognition(
                     agent.id, prompt, hunger_snapshot, energy_snapshot, traits_snapshot, emotions_snapshot,
-                    seek_candidate_id,
+                    seek_candidate_id, plan_intent_snapshot,
                 )
             )
             self._background_tasks.add(task)
@@ -1669,14 +1678,14 @@ class SimulationEngine:
 
     async def _run_cognition(
         self, agent_id: int, prompt: str, hunger: float, energy: float, traits: dict, emotions: dict,
-        seek_candidate_id: int | None = None,
+        seek_candidate_id: int | None = None, plan_intent: str = "",
     ) -> None:
         scheduled_tick = self.world.clock.tick_count
         call_start = time.perf_counter()
         try:
             result, used_fallback = await self._cognition_runner.run(
                 prompt, SYSTEM_PROMPT,
-                fallback=lambda: fallback_goal(hunger, energy, agent_id, traits, emotions),
+                fallback=lambda: fallback_goal(hunger, energy, agent_id, traits, emotions, plan_intent),
             )
             self._record_llm_debug("cognition", prompt, result, used_fallback, (time.perf_counter() - call_start) * 1000)
             if used_fallback:
@@ -2257,6 +2266,20 @@ class SimulationEngine:
             settlement.tech_level += 1
             self._log("invention", f"{settlement.name or 'The village'} invented {entry}")
             self._maybe_advance_era(settlement)
+            # v0.87.15 "knowledge lifecycle" (docs/IDEAS-2026-07-
+            # EMERGENCE.md §7): the inventor becomes this invention's
+            # first (and initially only) knower — core cast preferred
+            # (a real, recognizable person), any living local otherwise.
+            local = [a for a in self.world.population.agents if a.settlement_id == settlement.id]
+            core_local = [a for a in local if a.id in self.world.population.core_agent_ids]
+            candidates = core_local or local
+            if candidates:
+                rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "invention_inventor")
+                inventor = rng.choice(candidates)
+                settlement.invention_knowledge[entry] = {"knowers": [inventor.id], "dormant": False}
+                if len(settlement.invention_knowledge) > INVENTION_KNOWLEDGE_MAX_TRACKED:
+                    oldest_key = next(iter(settlement.invention_knowledge))
+                    del settlement.invention_knowledge[oldest_key]
 
         self._schedule_llm_job("invention", prompt, invention.SYSTEM_PROMPT, fallback, apply)
 
@@ -2931,6 +2954,9 @@ class SimulationEngine:
         whispers_sent = list(settlement.player_influence)
         council = settlement.council()
         council_disposition = self.world.population.council_disposition(council) if council else None
+        # v0.87.15 "emergent leadership": name the council's own faction
+        # majority, if any — see Population.council_faction_majority.
+        council_majority = self.world.population.council_faction_majority(settlement)
         prompt = town_brain.build_prompt(
             settlement.name, recent, population_summary, settlement_summary, whispers_sent,
             beliefs=settlement.beliefs[-PROMPT_SETTLEMENT_BELIEFS_MAX:],
@@ -2938,6 +2964,7 @@ class SimulationEngine:
             culture_digest=settlement.culture_digest,
             council_beliefs=council.beliefs[-PROMPT_BELIEFS_MAX:] if council else None,
             narrative_theme=self._narrative_theme_bias(settlement),
+            council_faction_name=council_majority.name if council_majority else "",
         )
         fallback = town_brain.fallback_priority(population_summary, settlement_summary, council_disposition)
         brain_target_id = settlement.id
@@ -3113,7 +3140,8 @@ class SimulationEngine:
         existing = list(agent.beliefs)
         emotion_text = describe_emotion(agent.emotions)
         semantic = list(agent.semantic_memories)
-        prompt = beliefs.build_personal_prompt(agent.name, recent, existing, emotion_text, semantic)
+        current_plan = dict(agent.plan) if agent.plan is not None else None
+        prompt = beliefs.build_personal_prompt(agent.name, recent, existing, emotion_text, semantic, current_plan)
         fallback = beliefs.fallback_personal_belief(agent.name, recent)
         existing_count = len(existing)
 
@@ -3204,6 +3232,18 @@ class SimulationEngine:
                 log_agent_memory_entry(
                     self.conn, tick, target.id, "lesson", f"(re: {lesson_situation}) {lesson_text}",
                 )
+            # Bounded episodic planning (v0.87.15, docs/IDEAS-2026-07-
+            # EMERGENCE.md §7): rides this same critical=True job, zero
+            # added call volume. `used_fallback` already gates the whole
+            # `apply()` call for a critical job (see _schedule_llm_job),
+            # so a fabricated fallback never reaches here.
+            new_plan = beliefs.parse_plan(result, target.plan, tick)
+            if new_plan is not target.plan:
+                target.plan = new_plan
+                if new_plan is not None and new_plan.get("formed_tick") == tick:
+                    log_agent_memory_entry(
+                        self.conn, tick, target.id, "plan", f"New plan: {new_plan['intent']}",
+                    )
 
         self._schedule_llm_job("personal_belief", prompt, beliefs.PERSONAL_SYSTEM_PROMPT, fallback, apply, critical=True)
 
@@ -3643,13 +3683,19 @@ class SimulationEngine:
         rival_families = Population.families_feuding(family_a, family_b)
         debt_a_owes_b = agent_a.debts.get(agent_b.id, 0.0)
         debt_b_owes_a = agent_b.debts.get(agent_a.id, 0.0)
+        # v0.87.15 "emergent leadership": does the council's own faction
+        # majority (if any) align with either party's faction?
+        council_majority = self.world.population.council_faction_majority(dispute_home)
+        council_favors_a = council_majority is not None and faction_a is not None and council_majority.id == faction_a.id
+        council_favors_b = council_majority is not None and faction_b is not None and council_majority.id == faction_b.id
         prompt = dispute.build_prompt(
             agent_a, agent_b, relationship, dispute_home.name, has_council,
             reputation_a, reputation_b, rival_factions, debt_a_owes_b, debt_b_owes_a, rival_families,
+            council_favors_a, council_favors_b,
         )
         fallback = dispute.fallback_dispute(
             agent_a, agent_b, has_council, reputation_a, reputation_b, rival_factions,
-            debt_a_owes_b, debt_b_owes_a, rival_families,
+            debt_a_owes_b, debt_b_owes_a, rival_families, council_favors_a, council_favors_b,
         )
         a_id, b_id = agent_a.id, agent_b.id
         dispute_home_id = dispute_home.id

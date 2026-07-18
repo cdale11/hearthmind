@@ -96,6 +96,13 @@ PERSONAL_SYSTEM_PROMPT = (
     "conflict with someone, grieving a loss, facing danger, or a social situation — "
     "state that lesson plainly and name which one of those five categories it's "
     "about (leave both blank if nothing recent teaches a clear practical lesson). "
+    "Finally, and only rarely — most of the time leave this blank — if their "
+    "situation or an ambition suggests a real multi-day intent worth pursuing "
+    "(stockpiling food before winter, earning a council seat, mastering a craft, "
+    "making peace with someone), name it briefly and how many days it would "
+    "realistically take. If they already have a current plan, either continue it "
+    "unchanged (leave blank), replace it with a new one if it's been overtaken by "
+    "events, or note brief progress on it. "
     'Respond with strict JSON only, no other text: {"subject": "short label, e.g. '
     'a person\'s name, \'my place here\', \'the harvests\', \'what happened to '
     'them\'", "belief": "one sentence, under 30 words, stated as this villager\'s '
@@ -107,13 +114,17 @@ PERSONAL_SYSTEM_PROMPT = (
     '"life_digest": "one sentence, under 25 words, summarizing this person\'s overall '
     'outlook on their own life so far", "lesson_situation": "" or one of hunger/'
     'conflict/grief/danger/social, "lesson": "" or one sentence, under 20 words, '
-    'first-person, a practical takeaway for handling that situation again"}.'
+    'first-person, a practical takeaway for handling that situation again", '
+    '"plan_intent": "" (leave blank almost always) or a short first-person intent '
+    'under 12 words, "plan_horizon_days": 0 or an integer 3-30, "plan_progress_note": '
+    '"" or one short first-person note on progress toward an EXISTING plan}.'
 )
 
 
 def build_personal_prompt(
     agent_name: str, recent_memories: list[str], existing_beliefs: list[dict],
     emotion_text: str = "", semantic_memories: list[str] | None = None,
+    current_plan: dict | None = None,
 ) -> str:
     """Scoped to one agent's own `memories` (already a short personal
     log — bonds formed, rumors heard, a partner's death) rather than
@@ -139,6 +150,11 @@ def build_personal_prompt(
         lines.append(f"{agent_name} {emotion_text}")
     if semantic_memories:
         lines.append(f"Lasting thoughts {agent_name} already carries: {' | '.join(semantic_memories)}")
+    if current_plan:
+        lines.append(
+            f"{agent_name}'s current plan: {current_plan.get('intent', '')} "
+            f"({current_plan.get('days_remaining', 0)} days left)."
+        )
     lines.append(f"Theories {agent_name} already holds about their own life:\n{beliefs_text}")
     lines.append("Form or revise one theory, and distill one lasting thought.")
     return "\n".join(lines)
@@ -428,6 +444,46 @@ def parse_lesson(result: dict) -> tuple[str, str]:
     if situation not in LESSON_SITUATIONS or not text:
         return "", ""
     return situation, text[:150]
+
+
+PLAN_MIN_HORIZON_DAYS = 3
+PLAN_MAX_HORIZON_DAYS = 30
+"""Bounds for `plan_horizon_days` (v0.87.15, "bounded episodic
+planning") — a plan shorter than 3 days is just today's goal by another
+name (cognition already reevaluates daily); longer than 30 risks a
+stale arc nobody revisits since Reflect() only reconsiders this agent
+on its own significance-first monthly-round-robin cadence, not a fixed
+schedule."""
+
+
+def parse_plan(result: dict, existing_plan: dict | None, tick: int) -> dict | None:
+    """Extracts the optional `plan_intent`/`plan_horizon_days`/
+    `plan_progress_note` fields (v0.87.15). No fallback, same
+    "leave blank most calls, never fabricate" discipline as
+    `parse_secret`/`parse_lesson`. Three outcomes:
+    - `plan_intent` non-blank + valid horizon: a NEW plan replaces
+      whatever was active (the model chose to start or restart one).
+    - `plan_intent` blank but `existing_plan` is active: the plan
+      continues unchanged except an optional `plan_progress_note`
+      update — most calls land here once a plan exists, since the
+      system prompt asks for a note only "on progress toward an
+      EXISTING plan."
+    - Neither: returns `existing_plan` untouched (usually `None`)."""
+    intent = result.get("plan_intent")
+    horizon = result.get("plan_horizon_days")
+    if isinstance(intent, str) and intent.strip() and isinstance(horizon, (int, float)):
+        horizon_days = int(clamp(horizon, PLAN_MIN_HORIZON_DAYS, PLAN_MAX_HORIZON_DAYS))
+        return {
+            "intent": intent.strip()[:120], "horizon_days": horizon_days,
+            "days_remaining": horizon_days, "progress_note": "", "formed_tick": tick,
+        }
+    if existing_plan is not None:
+        note = result.get("plan_progress_note")
+        if isinstance(note, str) and note.strip():
+            updated = dict(existing_plan)
+            updated["progress_note"] = note.strip()[:150]
+            return updated
+    return existing_plan
 
 
 def push_lesson(agent, situation: str, text: str, tick: int) -> None:

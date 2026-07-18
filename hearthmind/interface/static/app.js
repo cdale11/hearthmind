@@ -110,6 +110,7 @@ const CATEGORY_META = {
   family_formed: { icon: "🏡" },
   council_formed: { icon: "⚖️" },
   council_seat_filled: { icon: "🪑" },
+  council_seat_contested: { icon: "👑" },
   guild_formed: { icon: "🔨" },
   guild_joined: { icon: "🔨" },
   faction_formed: { icon: "🚩" },
@@ -126,6 +127,7 @@ const CATEGORY_META = {
   narrative_direction: { icon: "📖" },
   consciousness_intervention: { icon: "🌫️" },
   family_feud: { icon: "⚔️" },
+  knowledge_lost: { icon: "📉" },
 };
 
 // Event-log filter chips (v0.64.0 UI backlog): coarse groups, display-only —
@@ -134,12 +136,12 @@ const EVENT_GROUP_OF = {
   birth: "people", death: "people", dialogue_surfaced: "people", rumor: "people",
   migrant_arrived: "people", inheritance: "people", dispute: "people",
   record_written: "people", illness: "people", recovery: "people", predator_attack: "people",
-  family_feud: "people",
+  family_feud: "people", knowledge_lost: "people",
   construction_started: "town", building_completed: "town", building_ruined: "town",
   building_reclaimed: "town", farm_planted: "town", vehicle_started: "town",
   vehicle_completed: "town", vehicle_broken: "town", era_advance: "town",
   settlement_named: "town", guild_formed: "town", guild_joined: "town", faction_formed: "town",
-  council_formed: "town", council_seat_filled: "town", family_formed: "town",
+  council_formed: "town", council_seat_filled: "town", council_seat_contested: "town", family_formed: "town",
   intervention: "town", town_brain: "town", caravan: "town", founding: "town", genesis: "town",
   terrain_thinned: "nature", terrain_reclaimed: "nature", climate_drift: "nature",
   wildlife_hunt: "nature", wildlife_extinct: "nature", wildlife_recolonized: "nature",
@@ -1683,6 +1685,11 @@ function renderNpcInspector() {
       <div>Pursuing <b>${agent.goal}</b></div>
       ${agent.goal_reason ? `<div class="npc-goal-reason">"${agent.goal_reason}"</div>` : ""}
     </div>
+    ${agent.plan ? `<div class="npc-section">
+      <h4>Current plan</h4>
+      <div>${agent.plan.intent} <span class="muted">(${agent.plan.days_remaining} days left)</span></div>
+      ${agent.plan.progress_note ? `<div class="npc-goal-reason">"${agent.plan.progress_note}"</div>` : ""}
+    </div>` : ""}
     <div class="npc-section">
       <h4>Feeling</h4>
       ${emotionsHtml}
@@ -1760,6 +1767,7 @@ function renderMemoryLogSection(agentId) {
   const memoryLogLabels = {
     semantic: "self-theory", belief: "private belief", secret: "secret",
     lesson: "lesson learned", episodic_drifted: "memory, as remembered now",
+    plan: "plan formed",
   };
   const items = entries.map((e) => {
     const label = memoryLogLabels[e.kind] || "memory";
@@ -2167,8 +2175,17 @@ function renderStats(summary) {
 
   const inventionsEl = document.getElementById("inventions-list");
   if (inventionsEl) {
+    // v0.87.15 "knowledge lifecycle": a tracked invention whose last
+    // knower died reads as dormant here — still remembered, no longer
+    // in effect, until a heir rediscovers it.
+    const knowledge = s.invention_knowledge || {};
     setInnerHTMLIfChanged(inventionsEl, s.inventions.length
-      ? s.inventions.map((t) => `<li>${t}</li>`).join("")
+      ? s.inventions.map((t) => {
+          const info = knowledge[t];
+          return info && info.dormant
+            ? `<li>${t} <span class="muted">💤 dormant — no living knower</span></li>`
+            : `<li>${t}</li>`;
+        }).join("")
       : "<li>none yet</li>");
   }
 

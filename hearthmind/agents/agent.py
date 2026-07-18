@@ -1414,6 +1414,7 @@ class Agent:
         mourning_target: tuple[int, int] | None = None,
         wedding_ticks_remaining: int = 0,
         wedding_target: tuple[int, int] | None = None,
+        plan: dict | None = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -1589,6 +1590,21 @@ class Agent:
         # (WEDDING_DURATION_TICKS) and joyful rather than grieving.
         self.wedding_ticks_remaining: int = wedding_ticks_remaining
         self.wedding_target: tuple[int, int] | None = wedding_target
+        # plan: v0.87.15, "bounded episodic planning — ambitions get
+        # teeth" (docs/IDEAS-2026-07-EMERGENCE.md §7). `None` until the
+        # Reflect() job (`SimulationEngine._maybe_schedule_personal_
+        # belief`) decides a situation warrants one; a dict of {"intent":
+        # str, "horizon_days": int, "days_remaining": int, "progress_
+        # note": str, "formed_tick": int} while active. Consumed as one
+        # cognition-prompt line (llm/cognition.build_prompt) and a small
+        # deterministic goal-bias in the fallback path (`fallback_goal`'s
+        # `plan_intent` param) — a multi-week arc that outlives any
+        # single day's goal reevaluation, unlike `goal`/`goal_reason`
+        # which reset every cognition cycle. Ticked down daily by
+        # `Population.tick_plans`, cleared (reverts to None) once
+        # `days_remaining` reaches 0 — "expiring," not "failing"; Reflect
+        # () may form a fresh one afterward if warranted.
+        self.plan: dict | None = plan
 
     # --- native-store attach + scalar properties ---------------------------
 
@@ -1808,6 +1824,7 @@ class Agent:
             "mourning_target": list(self.mourning_target) if self.mourning_target is not None else None,
             "wedding_ticks_remaining": self.wedding_ticks_remaining,
             "wedding_target": list(self.wedding_target) if self.wedding_target is not None else None,
+            "plan": dict(self.plan) if self.plan is not None else None,
         }
 
     @classmethod
@@ -1878,4 +1895,5 @@ class Agent:
             wedding_target=(
                 tuple(data["wedding_target"]) if data.get("wedding_target") is not None else None
             ),
+            plan=data.get("plan"),
         )

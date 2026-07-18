@@ -236,6 +236,7 @@ from hearthmind.settlement.buildings import (
     CURRENCY_PER_OVERFLOW_UNIT,
     EDUCATION_CAPACITY,
     ERA_UNLOCKS_AUTOMOBILE,
+    INVENTION_REDISCOVERY_CHANCE,
     ERA_UNLOCKS_MOUNTAIN_BUILDING,
     FACTORY_INCOME_PER_TICK,
     FESTIVAL_RELATIONSHIP_BOOST,
@@ -450,7 +451,33 @@ living agents at that moment (age_ticks fraction of their own
 max_age_ticks, eldest first), never refreshed afterward. Matches how
 FAMILY institutions already work (member_agent_ids only ever grows,
 never gets swapped out) rather than introducing a different, dynamic-
-membership shape for the second kind."""
+membership shape for the second kind. v0.87.15 ("emergent leadership")
+partly reverses "never gets swapped out": a living member's seat CAN
+now be contested and displaced (see `_maybe_refresh_council`'s
+displacement check) — membership still only ever grows in
+`Institution.member_agent_ids` itself (an institution outlives its
+members by design, unchanged), it's the council's SEAT roster read out
+of that pool that can now shift."""
+
+COUNCIL_DISPLACEMENT_MARGIN = 1.5
+"""v0.87.15, "emergent leadership" (docs/IDEAS-2026-07-EMERGENCE.md
+§7): a non-member challenger must out-`_prominence` the weakest sitting
+member by this multiple before a seat changes hands — well above 1.0
+so ordinary week-to-week prominence noise (age ticking up, a routine
+trade) never triggers a displacement; this is meant to fire only for a
+genuinely standout challenger (a young founder with real social/skill
+standing), not to churn the roster."""
+
+COUNCIL_DISPLACEMENT_CHECK_INTERVAL_TICKS = 2880
+"""How often `_maybe_refresh_council` evaluates a possible seat
+contest — roughly monthly at the default tick rate (not tied to the
+calendar's actual month boundary; a cheap tick-modulo gate is enough
+for "not every single tick," which is all this needs). Seat-FILLING
+(an open seat from a death) stays checked every tick, since that's
+already cheap and time-sensitive; only the CONTEST check (an already-
+full council) is throttled, since sorting the whole non-member pool by
+prominence every tick would be wasted work for a signal that moves
+slowly."""
 
 GUILD_SKILL_MASTERY_THRESHOLD = 0.6
 """A living agent counts as having "mastered" a trade (SKILL_FARMING/
@@ -1606,7 +1633,7 @@ class Population:
         for stl in settlements:
             members = [a for a in self.agents if home_of(a).id == stl.id]
             life_events.extend(self._maybe_form_council(stl, tick, members))
-            life_events.extend(self._maybe_refresh_council(stl, members))
+            life_events.extend(self._maybe_refresh_council(stl, tick, members))
             life_events.extend(self._maybe_form_guild(stl, tick, members))
             life_events.extend(self._maybe_refresh_guild(stl, members))
         return life_events
@@ -2858,6 +2885,7 @@ class Population:
             s.id: culture_effect_multiplier(s.culture_effects, "knowledge") for s in settlements
         }
         default_knowledge = knowledge_by_id[settlements[0].id]
+        settlements_by_id = {s.id: s for s in settlements}
         # Membership index built once per tick (audit perf pass): the
         # previous per-pair `any()` over the full institutions list was
         # O(colocated pairs x stored institutions) — with the stored
@@ -2915,6 +2943,28 @@ class Population:
                     learner.skills[skill] = min(
                         teacher.skills[skill], learner.skills.get(skill, 0.0) + SKILL_TEACHING_GAIN
                     )
+                # v0.87.15 "knowledge lifecycle" (docs/IDEAS-2026-07-
+                # EMERGENCE.md §7): a colocated pair sharing a settlement
+                # may pass along a tracked, non-dormant invention exactly
+                # like a skill — same chance/bonus shape, bounded to
+                # INVENTION_KNOWLEDGE_MAX_TRACKED entries so this never
+                # scales with the full 300-cap `inventions` history.
+                # Cross-settlement diffusion (a knower migrating, a
+                # caravan) is deliberately out of scope this pass.
+                if a.settlement_id == b.settlement_id:
+                    home = settlements_by_id.get(a.settlement_id)
+                    if home is not None and home.invention_knowledge:
+                        for entry, info in home.invention_knowledge.items():
+                            if info.get("dormant"):
+                                continue
+                            knowers = info.get("knowers", [])
+                            a_knows, b_knows = a.id in knowers, b.id in knowers
+                            if a_knows == b_knows:
+                                continue
+                            if rng.random() >= chance:
+                                continue
+                            learner = b if a_knows else a
+                            knowers.append(learner.id)
 
     def _tick_traits(self, rng: random.Random) -> None:
         """H6: a monthly bounded random walk on every living agent's
@@ -3196,29 +3246,39 @@ class Population:
         who = f"{parent_a_name} and {parent_b_name}" if names else "a new couple"
         return ("family_formed", f"A new family began with {who}.")
 
+    def _council_seat_key(self, agent: Agent) -> tuple[float, float]:
+        """v0.87.15, "emergent leadership" (docs/IDEAS-2026-07-EMERGENCE.
+        md §7): council seat selection/contest ranking — `_prominence`
+        (longevity + social centrality + skill + reputation) first,
+        fraction-of-lifespan-lived as a tiebreak only. Previously
+        "living elders by age" was the WHOLE rule (a clean, but
+        politically dead, "influence can't be earned, contested, or
+        lost" shape); age now only breaks a tie between two agents of
+        otherwise similar standing, rather than being the sole
+        criterion — a charismatic, skilled, well-connected young founder
+        can outrank a socially isolated elder."""
+        age_fraction = (agent.age_ticks / agent.max_age_ticks) if agent.max_age_ticks else 0.0
+        return (self._prominence(agent), age_fraction)
+
     def _maybe_form_council(
         self, settlement: Settlement, tick: int, members: "list[Agent] | None" = None,
     ) -> list[tuple[str, str]]:
         """H3 extension (docs/ROADMAP.md "Phase H"): a second
         institution kind, formed the first tick a named settlement's
         population reaches COUNCIL_FORMATION_POPULATION_THRESHOLD —
-        membership is the COUNCIL_SIZE oldest living agents at that
-        moment (elders, by fraction of their own lifespan lived), fixed
-        at formation and never refreshed, same "outlives its founding
-        moment" shape FAMILY institutions already use. Still fully
-        deterministic/automatic — no agent goal or LLM decision founds
-        one, matching how buildings/families are founded in this
-        project. A no-op every tick after the one where it fires."""
+        membership is the COUNCIL_SIZE most prominent living agents at
+        that moment (see `_council_seat_key`), fixed at formation and
+        never refreshed, same "outlives its founding moment" shape
+        FAMILY institutions already use. Still fully deterministic/
+        automatic — no agent goal or LLM decision founds one, matching
+        how buildings/families are founded in this project. A no-op
+        every tick after the one where it fires."""
         members = self.agents if members is None else members
         if not settlement.name or len(members) < COUNCIL_FORMATION_POPULATION_THRESHOLD:
             return []
         if any(inst.kind is InstitutionKind.COUNCIL for inst in settlement.institutions):
             return []
-        elders = sorted(
-            members,
-            key=lambda a: (a.age_ticks / a.max_age_ticks) if a.max_age_ticks else 0.0,
-            reverse=True,
-        )[:COUNCIL_SIZE]
+        elders = sorted(members, key=self._council_seat_key, reverse=True)[:COUNCIL_SIZE]
         council = Institution(
             id=settlement.next_institution_id,
             kind=InstitutionKind.COUNCIL,
@@ -3231,7 +3291,7 @@ class Population:
         return [("council_formed", f"A council of elders formed: {names}.")]
 
     def _maybe_refresh_council(
-        self, settlement: Settlement, members: "list[Agent] | None" = None,
+        self, settlement: Settlement, tick: int = 0, members: "list[Agent] | None" = None,
     ) -> list[tuple[str, str]]:
         """Integration-milestone fix: `_maybe_form_council` set
         `member_agent_ids` once at formation and nothing ever added to
@@ -3245,29 +3305,54 @@ class Population:
         institution outlives its members by design), but a council
         specifically needs a *living* quorum to have any governance
         meaning, so this tops the living membership back up to
-        COUNCIL_SIZE from the next-eldest non-member agent whenever a
-        seat opens, same elder-selection rule `_maybe_form_council`
-        already uses. A no-op most ticks (only fires the tick after a
-        sitting member's death, and only while enough living population
-        remains to fill the seat)."""
+        COUNCIL_SIZE from the highest-`_council_seat_key` non-member
+        agent whenever a seat opens. A no-op most ticks (only fires the
+        tick after a sitting member's death, and only while enough
+        living population remains to fill the seat).
+
+        v0.87.15 ("emergent leadership") adds a SECOND, throttled check
+        (`COUNCIL_DISPLACEMENT_CHECK_INTERVAL_TICKS`) even when no seat
+        is open: if the single most prominent non-member clears the
+        weakest sitting member's own prominence by `COUNCIL_
+        DISPLACEMENT_MARGIN`, that member is displaced — "a charismatic
+        young founder displacing an elder" (the idea doc's own example),
+        genuinely contested and lost influence rather than a fixed
+        tenure. The displaced member stays a FORMER council member in
+        every other sense (their own beliefs/objective history is
+        untouched; only `member_agent_ids` membership changes)."""
         members = self.agents if members is None else members
         council = next((i for i in settlement.institutions if i.kind is InstitutionKind.COUNCIL), None)
         if council is None:
             return []
         living_members = [a for a in members if a.id in council.member_agent_ids]
         seats_open = COUNCIL_SIZE - len(living_members)
-        if seats_open <= 0:
+        if seats_open > 0:
+            candidates = sorted(
+                (a for a in members if a.id not in council.member_agent_ids),
+                key=self._council_seat_key, reverse=True,
+            )[:seats_open]
+            if not candidates:
+                return []
+            council.member_agent_ids.update(a.id for a in candidates)
+            names = ", ".join(a.name for a in candidates)
+            return [("council_seat_filled", f"{names} joined the council of elders, filling an empty seat.")]
+        if tick % COUNCIL_DISPLACEMENT_CHECK_INTERVAL_TICKS != 0 or not living_members:
             return []
-        candidates = sorted(
-            (a for a in members if a.id not in council.member_agent_ids),
-            key=lambda a: (a.age_ticks / a.max_age_ticks) if a.max_age_ticks else 0.0,
-            reverse=True,
-        )[:seats_open]
-        if not candidates:
+        non_members = [a for a in members if a.id not in council.member_agent_ids]
+        if not non_members:
             return []
-        council.member_agent_ids.update(a.id for a in candidates)
-        names = ", ".join(a.name for a in candidates)
-        return [("council_seat_filled", f"{names} joined the council of elders, filling an empty seat.")]
+        challenger = max(non_members, key=self._council_seat_key)
+        weakest = min(living_members, key=self._council_seat_key)
+        challenger_score = self._council_seat_key(challenger)[0]
+        weakest_score = self._council_seat_key(weakest)[0]
+        if weakest_score <= 0 or challenger_score < weakest_score * COUNCIL_DISPLACEMENT_MARGIN:
+            return []
+        council.member_agent_ids.discard(weakest.id)
+        council.member_agent_ids.add(challenger.id)
+        return [(
+            "council_seat_contested",
+            f"{challenger.name} displaced {weakest.name} on the council of elders.",
+        )]
 
     def _maybe_form_guild(
         self, settlement: Settlement, tick: int, members: "list[Agent] | None" = None,
@@ -3435,6 +3520,37 @@ class Population:
             if inst.kind is InstitutionKind.FACTION and agent_id in inst.member_agent_ids:
                 return inst
         return None
+
+    def council_faction_majority(self, settlement: Settlement) -> "Institution | None":
+        """v0.87.15, "emergent leadership" (docs/IDEAS-2026-07-EMERGENCE.
+        md §7): the FACTION with the most living seats on `settlement`'s
+        COUNCIL, if any faction holds a strict majority of the LIVING
+        council membership — `None` if there's no council, no living
+        member belongs to any faction, or no single faction commands a
+        strict majority (a genuinely split council has no "majority,"
+        which is itself meaningful and left for the caller to read as
+        "no bias"). Consumed by dispute-outcome framing (`llm/
+        dispute.py`'s `council_faction` bias) and town_brain framing
+        (`fallback_priority`'s tiebreak) — "let a faction majority on
+        the council bias dispute rulings and town-brain framing," the
+        idea doc's own phrasing."""
+        council = next((i for i in settlement.institutions if i.kind is InstitutionKind.COUNCIL), None)
+        if council is None:
+            return None
+        living_members = [a for a in self.agents if a.id in council.member_agent_ids]
+        if not living_members:
+            return None
+        counts: dict[int, int] = {}
+        for member in living_members:
+            faction = self.faction_of(member.id, settlement)
+            if faction is not None:
+                counts[faction.id] = counts.get(faction.id, 0) + 1
+        if not counts:
+            return None
+        top_faction_id = max(counts, key=lambda fid: counts[fid])
+        if counts[top_faction_id] * 2 <= len(living_members):
+            return None
+        return next(i for i in settlement.institutions if i.id == top_faction_id)
 
     def institution_objective_for(self, agent_id: int, settlement: Settlement) -> str:
         """v0.87.12 "institution objectives" (docs/IDEAS-2026-07-
@@ -4493,6 +4609,24 @@ class Population:
                     DEATHBED_SECRET_RUMOR_LISTENER_COUNT, rng,
                 )
 
+        # v0.87.15 "knowledge lifecycle: diffusion, loss, rediscovery"
+        # (docs/IDEAS-2026-07-EMERGENCE.md §7): if the deceased was the
+        # LAST knower of a tracked invention (already dormant — see
+        # `_apply_deaths`'s knower-removal pass, which runs before this
+        # for the same death), the heir has one chance to rediscover it
+        # via family papers, same "heir memory already does this"
+        # mechanism as the lesson/secret transfers above.
+        if rng is not None:
+            for entry, info in settlement.invention_knowledge.items():
+                if info.get("dormant") and info.get("_dormant_since_id") == agent.id:
+                    if rng.random() < INVENTION_REDISCOVERY_CHANCE:
+                        info["knowers"] = [heir.id]
+                        info["dormant"] = False
+                        info.pop("_dormant_since_id", None)
+                        inherited.append(f"the rediscovered craft of {entry.split(':')[0]}")
+                    else:
+                        info.pop("_dormant_since_id", None)
+
         if not inherited:
             return []
         _remember(heir, f"I inherited from {agent.name}: {', '.join(inherited)}.", because=f"{agent.name} died")
@@ -4633,6 +4767,23 @@ class Population:
                         other.mourning_target = (agent.x, agent.y)
                         other.mourning_ticks_remaining = MOURNING_DURATION_TICKS
             if home is not None:
+                # v0.87.15 "knowledge lifecycle": remove the deceased as
+                # a knower of every tracked invention; if they were the
+                # LAST one, it goes dormant — "the old bridge-craft died
+                # with Maren" — tagged `_dormant_since_id` so the
+                # inheritance pass just below (same death) can offer the
+                # heir a chance to rediscover it via family papers.
+                for entry, info in home.invention_knowledge.items():
+                    knowers = info.get("knowers", [])
+                    if agent.id in knowers:
+                        knowers.remove(agent.id)
+                        if not knowers and not info.get("dormant"):
+                            info["dormant"] = True
+                            info["_dormant_since_id"] = agent.id
+                            life_events.append((
+                                "knowledge_lost",
+                                f"The craft behind {entry.split(':')[0]} died with {agent.name}.",
+                            ))
                 life_events.extend(self._apply_inheritance(agent, home, dying_ids, tick, rng))
         self.agents = survivors
         if self._store is not None:
@@ -4812,6 +4963,24 @@ class Population:
             salience = agent.memory_salience
             for i in range(len(salience)):
                 salience[i] = max(MEMORY_FADE_FLOOR, salience[i] * MEMORY_FADE_DECAY_PER_DAY)
+
+    def tick_plans(self) -> None:
+        """v0.87.15, "bounded episodic planning" (docs/IDEAS-2026-07-
+        EMERGENCE.md §7): called once/sim-day (`day_end`), same cadence
+        as `decay_memory_salience` above — decrements every living
+        agent's active `Agent.plan["days_remaining"]`, clearing it
+        (reverts to `None`) once it reaches 0. "Expiring," not
+        "failing": Reflect() (`SimulationEngine._maybe_schedule_
+        personal_belief`) may form a fresh plan afterward if the
+        agent's situation still warrants one. Population-wide, zero LLM
+        cost — bounded by population size, one dict-or-None check per
+        agent."""
+        for agent in self.agents:
+            if agent.plan is None:
+                continue
+            agent.plan["days_remaining"] -= 1
+            if agent.plan["days_remaining"] <= 0:
+                agent.plan = None
 
     # --- cognition (Phase B) --------------------------------------------------
 

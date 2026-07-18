@@ -30,6 +30,7 @@ def build_prompt(
     agent_a: Agent, agent_b: Agent, relationship: float, settlement_name: str, has_council: bool,
     reputation_a: float = 0.0, reputation_b: float = 0.0, rival_factions: bool = False,
     debt_a_owes_b: float = 0.0, debt_b_owes_a: float = 0.0, rival_families: bool = False,
+    council_favors_a: bool = False, council_favors_b: bool = False,
 ) -> str:
     personality_bits = []
     for agent in (agent_a, agent_b):
@@ -72,17 +73,27 @@ def build_prompt(
         f" Worse, {agent_a.name}'s and {agent_b.name}'s families have been feuding for generations."
         if rival_families else ""
     )
+    # v0.87.15 "emergent leadership" (docs/IDEAS-2026-07-EMERGENCE.md §7):
+    # the council is no longer a neutral appeal — if one faction holds a
+    # majority of its living seats, the OTHER party has real reason to
+    # doubt an impartial ruling, same "let a faction majority... bias
+    # dispute rulings" the idea doc names.
+    council_leaning_line = ""
+    if has_council and council_favors_a and not council_favors_b:
+        council_leaning_line = f" The council is dominated by {agent_a.name}'s own faction — {agent_b.name} may not trust it to rule fairly."
+    elif has_council and council_favors_b and not council_favors_a:
+        council_leaning_line = f" The council is dominated by {agent_b.name}'s own faction — {agent_a.name} may not trust it to rule fairly."
     return (
         f"{agent_a.name} and {agent_b.name}{place} have festered into open enmity "
         f"(their regard for each other stands at {relationship:.2f} on a -1..1 scale)."
-        f"{personality}{council}{reputation_line}{faction_line}{debt_line}{family_line} How does it break?"
+        f"{personality}{council}{council_leaning_line}{reputation_line}{faction_line}{debt_line}{family_line} How does it break?"
     )
 
 
 def fallback_dispute(
     agent_a: Agent, agent_b: Agent, has_council: bool, reputation_a: float = 0.0, reputation_b: float = 0.0,
     rival_factions: bool = False, debt_a_owes_b: float = 0.0, debt_b_owes_a: float = 0.0,
-    rival_families: bool = False,
+    rival_families: bool = False, council_favors_a: bool = False, council_favors_b: bool = False,
 ) -> dict:
     """Deterministic stand-in: a sociable pair finds its own way back; an
     unsociable one hardens; a council steps in for the in-between case.
@@ -111,6 +122,11 @@ def fallback_dispute(
         avg_sociability -= 0.2
     if max(debt_a_owes_b, debt_b_owes_a) >= 1.0:
         avg_sociability -= 0.1
+    # v0.87.15 "emergent leadership": a party who doesn't trust the
+    # council to be impartial won't accept a clean ruling — pushes away
+    # from the easy middle outcome, same direction as a rival faction.
+    if has_council and (council_favors_a != council_favors_b):
+        avg_sociability -= 0.15
     if avg_sociability > 0.2:
         outcome = "reconcile"
         narration = f"{agent_a.name} and {agent_b.name} talked it through at last and set the feud down."

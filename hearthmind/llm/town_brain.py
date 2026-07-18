@@ -28,7 +28,7 @@ def build_prompt(
     settlement_name: str, recent_events: list[dict], population_summary: dict,
     settlement_summary: dict, player_whispers: list[str], beliefs: list[dict] | None = None,
     council_beliefs: list[dict] | None = None, narrative_theme: str = "", belief_digest: str = "",
-    culture_digest: str = "",
+    culture_digest: str = "", council_faction_name: str = "",
 ) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
@@ -65,6 +65,16 @@ def build_prompt(
         + "."
         if council_beliefs else ""
     )
+    # v0.87.15 "emergent leadership" (docs/IDEAS-2026-07-EMERGENCE.md
+    # §7): a council no longer reads as one neutral civic voice once a
+    # single faction holds a majority of its living seats — ambient
+    # framing only, this never changes which `_VALID_PRIORITIES` value
+    # is available, just colors how "the council's own views" above
+    # should be read.
+    faction_leaning_text = (
+        f"\nThe council of elders is currently dominated by {council_faction_name}."
+        if council_faction_name else ""
+    )
     # player_standing (Settlement.player_standing) is one more quiet
     # input, same "folded in, never a command" treatment as whispers —
     # only mentioned at all once it's notably warm/cold, and even then
@@ -90,7 +100,7 @@ def build_prompt(
         f"{settlement_summary.get('standing', 0)} standing structures "
         f"({settlement_summary.get('hospitals', 0)} hospitals, {settlement_summary.get('schools', 0)} schools, "
         f"{settlement_summary.get('workshops', 0)} workshops).\n"
-        f"Recent history:\n{events_text}{whisper_text}{digest_text}{culture_digest_text}{beliefs_text}{council_text}{standing_text}"
+        f"Recent history:\n{events_text}{whisper_text}{digest_text}{culture_digest_text}{beliefs_text}{council_text}{faction_leaning_text}{standing_text}"
         # Phase M "Narrative Direction": ambient bias only, never a
         # directive — the theme colors how this decision is framed, it
         # never dictates it.

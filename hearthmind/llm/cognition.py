@@ -41,11 +41,32 @@ SYSTEM_PROMPT = (
     "effortful work), a sociable one leans toward 'socialize' — and if a "
     "building needs repair, that alone is worth leaning toward 'wander' "
     "for, regardless of personality. Don't override real needs for any "
-    "of this, just break ties toward it. "
+    "of this, just break ties toward it. Sometimes survival already "
+    "decides the priority for them (they're too hungry or too "
+    "exhausted to weigh anything else) — when told this is the case, "
+    "there is no real choice to make: give that same priority back as "
+    "'goal' and spend your one real contribution on 'reason', a short, "
+    "in-character account of how they go about it right now. "
     'Respond with strict JSON only, no other text: '
     '{"goal": "forage" | "rest" | "socialize" | "wander" | "gather" | "seek_person", '
     '"reason": "a short first-person reason, under 15 words"}.'
 )
+
+
+SURVIVAL_HUNGER_THRESHOLD = 0.6
+SURVIVAL_ENERGY_THRESHOLD = 0.3
+"""v0.87.15, explicit user direction: "remove objective survival
+decisions from the LLM... ask something like: 'your current priority
+is obtaining food, explain how you decide to pursue it' when a certain
+threshold has passed." Past either threshold, `build_prompt` no longer
+poses goal-setting as an open question — the physical need has already
+decided it (same deterministic-reality/LLM-meaning split the critical-
+hunger movement override already enforces at the movement layer, see
+CLAUDE.md's tick-loop rule) — the LLM's one real contribution becomes
+the in-character "reason," not the choice itself. Matches `fallback_
+goal`'s own long-standing hardcoded 0.6/0.3 checks (now sourced from
+these same constants instead of separate magic numbers) so the live-
+LLM and deterministic paths agree on where "survival forces it" begins."""
 
 
 RECENT_MEMORIES_IN_PROMPT = 3
@@ -69,7 +90,7 @@ def build_prompt(
     beliefs_about: list[str] | None = None, own_belief: str = "",
     semantic_memory: str = "", mind_text: str = "", needs_repair: bool = False,
     life_digest: str = "", lesson: str = "", seek_candidate: tuple[str, str] | None = None,
-    institution_objective: str = "",
+    institution_objective: str = "", plan: dict | None = None,
 ) -> str:
     """`settlement_name`/`latest_tradition` are optional culture context
     (Phase E) — empty until the settlement is named/has a tradition, so
@@ -157,7 +178,13 @@ def build_prompt(
     COUNCIL's slow-revised ambition (`Institution.objective`), if any —
     "" most of the time (an institution's objective starts blank and
     only forms once the monthly institution-belief job supplies one).
-    A real group ambition genuinely shaping a member's own choices."""
+    A real group ambition genuinely shaping a member's own choices.
+
+    `plan` (v0.87.15, "bounded episodic planning" — docs/IDEAS-2026-07-
+    EMERGENCE.md §7): `Agent.plan`, if any — a multi-day intent formed
+    by Reflect() that outlives any single day's goal reevaluation
+    ("stockpiling before winter," "earning a council seat"). `None`
+    most of the time (most agents most days have no active plan)."""
     culture = ""
     if settlement_name:
         culture = f" You live in {settlement_name}."
@@ -214,20 +241,49 @@ def build_prompt(
         if seek_candidate else ""
     )
     objective_text = f" Your household/guild/council wants: {institution_objective}." if institution_objective else ""
+    plan_text = (
+        f" Your plan: {plan['intent']} ({plan.get('days_remaining', 0)} days left)."
+        if plan else ""
+    )
+    # v0.87.15, explicit user direction: past a real survival threshold,
+    # the goal isn't a genuine choice — don't pose it as an open
+    # question (see SURVIVAL_HUNGER_THRESHOLD/SURVIVAL_ENERGY_THRESHOLD's
+    # docstring). The LLM's contribution narrows to the "reason" alone.
+    if agent.hunger > SURVIVAL_HUNGER_THRESHOLD:
+        closing = " Your current priority is obtaining food — there's no real choice about it. Explain briefly, in character, how you go about it."
+    elif agent.energy < SURVIVAL_ENERGY_THRESHOLD:
+        closing = " Your current priority is resting — there's no real choice about it. Explain briefly, in character, how you go about it."
+    else:
+        closing = " What should you focus on right now?"
     return (
         f"You are {agent.name}. Hunger: {agent.hunger:.2f} (0=full, 1=starving). "
         f"Energy: {agent.energy:.2f} (0=exhausted, 1=fully rested). "
         f"Currently {agent.state.value}, focused on '{agent.goal.value}'."
         f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{just_now_text}"
         f"{personality_text}{emotion_text}{beliefs_text}{own_belief_text}{semantic_text}{mind_prompt_text}"
-        f"{life_digest_text}{lesson_text}{repair_text}{seek_text}{objective_text} "
-        "What should you focus on right now?"
+        f"{life_digest_text}{lesson_text}{repair_text}{seek_text}{objective_text}{plan_text}"
+        f"{closing}"
     )
+
+
+PLAN_GOAL_BIAS_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "forage": ("stockpil", "food", "winter", "harvest", "hungry", "hunger"),
+    "gather": ("council", "guild", "seat", "lead", "skill", "master", "craft", "build", "materials", "prove"),
+    "socialize": ("peace", "friend", "reconcile", "trust", "bond", "marry", "court"),
+}
+"""v0.87.15, "bounded episodic planning" (docs/IDEAS-2026-07-
+EMERGENCE.md §7): a small keyword-overlap bias so `Agent.plan` shapes
+the DETERMINISTIC fallback goal too, not just the live-LLM prompt —
+same "real, if crude" discipline `fallback_goal`'s trait-standout bias
+already applies. Checked in this fixed order (forage/gather/socialize)
+so an ambiguous intent resolves consistently rather than by dict
+iteration order; deliberately never overrides hunger/energy/fear/grief
+above, which is why this constant is only consulted after those."""
 
 
 def fallback_goal(
     hunger: float, energy: float, agent_id: int = 0, traits: dict | None = None,
-    emotions: dict | None = None,
+    emotions: dict | None = None, plan_intent: str = "",
 ) -> dict:
     """Deterministic rule-based stand-in for the LLM's choice, used when
     Ollama is disabled, unreachable, or misbehaves. Mirrors the kind of
@@ -249,9 +305,9 @@ def fallback_goal(
     Neutral-personality agents (the common case) keep the exact old
     id%3 split unchanged. See docs/DECISIONS.md, "personality steers
     profession.\""""
-    if hunger > 0.6:
+    if hunger > SURVIVAL_HUNGER_THRESHOLD:
         return {"goal": AgentGoal.FORAGE.value, "reason": "hungry"}
-    if energy < 0.3:
+    if energy < SURVIVAL_ENERGY_THRESHOLD:
         return {"goal": AgentGoal.REST.value, "reason": "tired"}
     emotions = emotions or {}
     fear = emotions.get(EMOTION_FEAR, 0.0)
@@ -268,6 +324,11 @@ def fallback_goal(
         # sociability standout below, same "real feeling beats routine
         # tie-break" precedence fear gets above.
         return {"goal": AgentGoal.WANDER.value, "reason": "grieving, wants to be alone"}
+    if plan_intent:
+        lowered = plan_intent.lower()
+        for goal_name, keywords in PLAN_GOAL_BIAS_KEYWORDS.items():
+            if any(kw in lowered for kw in keywords):
+                return {"goal": AgentGoal(goal_name).value, "reason": f"working toward: {plan_intent}"}
     traits = traits or {}
     ambition = traits.get(TRAIT_AMBITION, 0.0)
     sociability = traits.get(TRAIT_SOCIABILITY, 0.0)

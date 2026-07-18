@@ -352,7 +352,8 @@ fix that.
   what it led to. Wrong causal links are a feature: superstition with
   mechanical substance.
 
-- [ ] **Bounded episodic planning — ambitions get teeth.** `mind`
+- [x] **Bounded episodic planning — ambitions get teeth.** Shipped
+  v0.87.15. `mind`
   stores LLM-authored ambitions that nothing ever reads mechanically;
   cognition reacts to the present tick only. Add a small persistent
   `Agent.plan` (intent + horizon in days + progress note, one per core
@@ -364,7 +365,7 @@ fix that.
   map-watcher can follow — pairs with §1's SEEK_PERSON for plans
   *about people*. Zero new calls; rides Reflect().
 
-- [ ] **Emergent leadership.** COUNCIL is "living elders by age" — a
+- [x] **Emergent leadership.** Shipped v0.87.15. COUNCIL is "living elders by age" — a
   clean rule, and a dead end for politics: influence can't be earned,
   contested, or lost. Weight seat selection by the existing
   `_prominence`/reputation aggregates (age as tiebreak), let a faction
@@ -382,7 +383,12 @@ fix that.
   before reading the name. Pairs with §2 dialect drift (settlement
   lexicon + personal voice compose in the same prompt line).
 
-- [ ] **Knowledge lifecycle: diffusion, loss, rediscovery.**
+- [x] **Knowledge lifecycle: diffusion, loss, rediscovery.** Shipped
+  v0.87.15 (scoped to the most recent `INVENTION_KNOWLEDGE_MAX_
+  TRACKED=20` inventions, not the full 300-cap history — see
+  `SettlementCulture.invention_knowledge`'s docstring). Cross-
+  settlement diffusion (a knower migrating, a caravan/letter) remains
+  unimplemented, flagged as a natural next increment.
   Inventions land once on a settlement list and sit there forever —
   knowledge without carriers. Tag each invention with living knowers
   (inventor + taught agents, riding the existing teaching mechanic);

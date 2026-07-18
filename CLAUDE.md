@@ -413,6 +413,45 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.15)
+
+Closes three more §7 items (bounded episodic planning, emergent
+leadership, knowledge lifecycle) plus a direct user-directed survival-
+decision framing change. §7's last item (laws/customs/taboos)
+explicitly deferred.
+
+**Survival-decision framing**: past `cognition.SURVIVAL_HUNGER_
+THRESHOLD`/`SURVIVAL_ENERGY_THRESHOLD` (0.6/0.3), `build_prompt` stops
+posing goal-setting as an open question — "your current priority is
+obtaining food/resting — explain how you go about it," narrowing the
+LLM's contribution to the reason, not the choice, once physical need
+has already decided it.
+
+**`Agent.plan`**: multi-day intent authored by Reflect() (zero added
+calls), ticked down daily by `Population.tick_plans`, consumed as a
+cognition-prompt line and a `fallback_goal` keyword bias.
+
+**Emergent leadership**: council seat selection ranks by `_prominence`
+(age tiebreak only); a throttled contest check lets a standout non-
+member displace the weakest sitting member (`council_seat_contested`).
+`Population.council_faction_majority` biases dispute/town_brain
+framing when one FACTION holds a council majority.
+
+**Knowledge lifecycle**: `Settlement.invention_knowledge` tracks
+knowers for the most recent 20 inventions — spreads via the existing
+skill-teaching colocation loop, goes dormant when the last knower dies
+(`knowledge_lost` event), may be rediscovered by an heir
+(`INVENTION_REDISCOVERY_CHANCE`). UI marks dormant entries "💤".
+
+Verified: direct production-path tests for all four pieces (prompt
+framing at/below thresholds, plan lifecycle, a real council contest via
+`_maybe_refresh_council`, `council_faction_majority` reaching both
+dispute/town_brain prompts, a 60-trial death/dormancy/rediscovery rng
+sweep, diffusion via a real `_maybe_teach_skills` call); round-trip +
+legacy-snapshot defaults for `Agent.plan`/`Settlement.invention_
+knowledge`. `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical — no native module touched.
+
 ## Current state (v0.87.14)
 
 Implements docs/IDEAS-2026-07-EMERGENCE.md §7 items 1-2 ("adaptive
