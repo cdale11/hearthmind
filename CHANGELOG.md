@@ -40,13 +40,46 @@ wishlist audit ("What's Still Missing," ~70 items across agent
 action-vocabulary gaps, inter-settlement dynamics, meaning-loop
 closure, observer-aware Town Consciousness, deep-time legibility,
 substrate gaps, and cognition-infrastructure items like adaptive
-retrieval/causal memory/episodic planning) was requested to be filed
-into `docs/`, tracked as backlog the same way `docs/VISION-2026-07*.md`
-is — pending confirmation on the exact filename, added as its own
-follow-up commit once confirmed. Status: idea checklist only, nothing
-implemented or green-lit.
+retrieval/causal memory/episodic planning) is now filed at
+`docs/IDEAS-2026-07-EMERGENCE.md`, tracked as backlog the same way
+`docs/VISION-2026-07*.md` is. Status: idea checklist only, nothing
+implemented or green-lit — worked from only on future explicit
+direction.
 
-Verified: direct tests for `fetch_llama_server_metrics` (Prometheus
+**LLM utilization upscale** (directed, per explicit user follow-up):
+a live report that `LLAMA_CACHE_RAM=0` (v0.87.5) resolved the swap/
+memory pressure driving several prior config pull-backs — in
+hindsight, that flag's stock 8GB reservation plausibly explains more
+of the historical swap history than the KV-cache/concurrency sizing
+those pull-backs targeted. Raised, all documented in `config.py` with
+the full reasoning and explicitly marked as directed increases pending
+live re-verification, not fresh measurements themselves:
+`llm_max_concurrent` 2 -> 3, `llm_num_ctx` 2560 -> 3072, `llm_num_
+predict` 448 -> 512, `llm_core_cast_size` 14 -> 18 (restoring the
+original v0.72.3 value), `llm_max_calls_per_day` 320 -> 480.
+`scripts/run.sh`'s `LLAMA_PARALLEL` (2 -> 3) and `LLAMA_CTX_SIZE`
+(5120 -> 9216 = `llm_num_ctx * LLAMA_PARALLEL`) kept in step per the
+existing "llama-server divides one shared `--ctx-size` across
+`--parallel` slots" rule. `server.py`'s CLI defaults reference these
+`Config` attributes directly (the standing rule from the v0.63.0
+audit), so they pick up the new numbers automatically — no separate
+server.py edit needed. **Deliberately not full restores** of the
+higher v0.72.3 peaks (4096 ctx / 640 predict / cast 18 was already
+restored) — a partial, verifiable step. Report back a live
+`/diagnostics.system_memory` + `llm_prompt_stats` + the new `llama_
+server_metrics` (this same release) reading after adopting these;
+re-lower any of the five together if pressure reappears. Model choice
+(the user is separately testing a q5_k_m quant of `gemma-4-e2b-it`)
+left untouched — no config change made on the strength of an
+in-progress test, per this project's standing "report back real
+numbers" model-change discipline.
+
+Verified: `Config()` constructs with the five new default values;
+`bash -n scripts/run.sh`; `scripts/verify_native_soak.py` (2 seeds x
+1200 ticks) byte-identical — this addendum touches no simulation
+logic, only tuning defaults.
+
+Verified (metrics polling): direct tests for `fetch_llama_server_metrics` (Prometheus
 parsing incl. label-stripping, unreachable-host → `None`, no
 exception) and for the engine's polling method against a real mock
 HTTP server end-to-end (poll fires once per window, stores the result,

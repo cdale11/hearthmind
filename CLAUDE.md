@@ -223,6 +223,20 @@ vision already exists in v1 form), budget arithmetic (whole roadmap ≈
 deniable-channels-only pending user override). **Nothing from this
 vision is implemented yet** (explicit instruction: design only).
 
+**`docs/IDEAS-2026-07-EMERGENCE.md`** (filed v0.87.6): an externally-
+submitted, checked-against-the-code "what's still missing" audit —
+idea checklist only, nothing implemented or green-lit, tracked the
+same way this vision doc is. Its own §0 audits which of an outside
+~50-item wishlist is already shipped vs. genuinely missing; §1-§6 are
+original ideas (agent action-vocabulary gaps, inter-settlement wants,
+meaning-loop closure, observer-aware consciousness, deep-time
+legibility, substrate); §7 is specifically the wishlist's real gaps
+(adaptive retrieval, causal memory, episodic planning, emergent
+leadership, per-agent voice, knowledge lifecycle, laws/customs,
+institution objectives, dialogue novelty memory — the llama-server
+`/slots`/`/metrics` item there shipped in v0.87.6, see below). Work
+from it only on future explicit direction, same as this vision doc.
+
 ## LLM as the town's brain
 
 The LLM isn't a flavor-text generator bolted onto deterministic
@@ -523,9 +537,10 @@ engine soak with two forced mid-run extinctions.
 ## Current state (v0.87.6)
 
 Direct follow-up to v0.87.5, per explicit user request: implement its
-own flagged-but-deferred next step, and file an externally-submitted
-emergence-ideas audit as tracked backlog (doc-file step pending
-confirmation — see CHANGELOG).
+own flagged-but-deferred next step, file an externally-submitted
+emergence-ideas audit as tracked backlog, and act on a follow-up
+directive to upscale LLM utilization now that swap pressure is
+reportedly resolved.
 
 `scripts/run.sh`'s new `LLAMA_METRICS_ENDPOINT` (default on) passes
 `--metrics` to llama-server; `llm.client.fetch_llama_server_metrics()`
@@ -536,14 +551,24 @@ real-time-gated (not tick-gated — keeps polling through any pause)
 background task, surfaced at `/diagnostics.llama_server_metrics`
 alongside (not replacing) the char-based `llm_prompt_stats` estimates.
 
-Also noted: user reports `LLAMA_CACHE_RAM=0` (v0.87.5) has resolved
-the swap/memory pressure driving several prior tuning passes, and is
-testing q5_k_m-quantized `gemma-4-e2b-it`. No config re-tune made yet
-— per this project's standing "measure before tuning" rule, wait for a
-live `/diagnostics` reading (system_memory + llm_prompt_stats + the
-new llama_server_metrics) under the new quant/cache-ram combination
-before touching `llm_num_ctx`/`llm_num_predict`/`llm_max_concurrent`/
-`llm_max_calls_per_day`.
+`docs/IDEAS-2026-07-EMERGENCE.md` filed — see "Long-term design
+vision" above for the pointer.
+
+**LLM utilization upscale, directed**: user reports `LLAMA_CACHE_
+RAM=0` (v0.87.5) resolved the swap/memory pressure that had driven
+several prior config pull-backs — its stock 8GB reservation plausibly
+explains more of that history than the KV-cache/concurrency sizing
+those pull-backs targeted. Raised (each documented in `config.py` as
+a directed increase, not a fresh measurement): `llm_max_concurrent`
+2->3, `llm_num_ctx` 2560->3072, `llm_num_predict` 448->512,
+`llm_core_cast_size` 14->18 (restoring the v0.72.3 value),
+`llm_max_calls_per_day` 320->480. `scripts/run.sh`'s `LLAMA_PARALLEL`
+(->3)/`LLAMA_CTX_SIZE` (->9216) kept in step. Deliberately a partial
+restore, not the full v0.72.3 ctx/predict peaks. Model choice (user
+testing q5_k_m `gemma-4-e2b-it`) left untouched pending a live report.
+Report back `/diagnostics.system_memory`+`llm_prompt_stats`+`llama_
+server_metrics` after adopting this; re-lower all five together if
+pressure reappears.
 
 ## Current state (v0.87.5)
 

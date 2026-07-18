@@ -30,18 +30,20 @@
 #   LLAMA_HOST           Host:port llama-server binds to (also passed to
 #                        hearthmind via --llm-llamacpp-host).
 #                        Default: http://localhost:8080
-#   LLAMA_PARALLEL       Default: 2 (v0.81.0, up from a hardcoded 1 —
+#   LLAMA_PARALLEL       Default: 3 (v0.87.6, up from 2 in v0.81.0 —
 #                        matches Config.llm_max_concurrent; see its
-#                        docstring for the live-diagnostics rationale:
-#                        the earlier swap crisis this hardcoded 1
-#                        responded to is resolved, and the live symptom
-#                        had shifted to a single-lane queue serializing
-#                        every job behind whatever's already running).
-#                        Keep this in sync with Config.llm_max_concurrent
-#                        — llama-server can't usefully run more concurrent
-#                        requests than the Python side will ever send.
-#   LLAMA_CTX_SIZE       Default: 5120 (v0.81.0) = Config.llm_num_ctx
-#                        (2560) * LLAMA_PARALLEL (2). llama-server's
+#                        docstring for the live-diagnostics rationale.
+#                        v0.87.6 is a directed increase per explicit user
+#                        direction now that LLAMA_CACHE_RAM=0 has
+#                        reportedly resolved the swap pressure prior
+#                        pull-backs on this knob responded to — pending
+#                        live re-verification, not itself a fresh
+#                        measurement). Keep this in sync with Config.
+#                        llm_max_concurrent — llama-server can't usefully
+#                        run more concurrent requests than the Python
+#                        side will ever send.
+#   LLAMA_CTX_SIZE       Default: 9216 (v0.87.6) = Config.llm_num_ctx
+#                        (3072) * LLAMA_PARALLEL (3). llama-server's
 #                        --ctx-size is a TOTAL, divided evenly across its
 #                        --parallel slots — raising LLAMA_PARALLEL without
 #                        raising this in step would silently HALVE the
@@ -273,8 +275,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 LLAMA_SERVER_BIN="${LLAMA_SERVER_BIN:-llama-server}"
 LLAMA_HOST="${LLAMA_HOST:-http://localhost:8080}"
-LLAMA_PARALLEL="${LLAMA_PARALLEL:-2}"
-LLAMA_CTX_SIZE="${LLAMA_CTX_SIZE:-5120}"
+LLAMA_PARALLEL="${LLAMA_PARALLEL:-3}"
+LLAMA_CTX_SIZE="${LLAMA_CTX_SIZE:-9216}"
 LLAMA_THREADS="${LLAMA_THREADS:-$(nproc 2>/dev/null || echo 4)}"
 LLAMA_N_GPU_LAYERS="${LLAMA_N_GPU_LAYERS:-auto}"
 LLAMA_FIT="${LLAMA_FIT-on}"

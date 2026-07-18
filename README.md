@@ -587,7 +587,7 @@ deliberate equilibrium, not a crash point; the `events`/`snapshots`/
 `Config.event_log_retention`/`metrics_log_retention` — so the database
 itself never grows without bound). **Population growth toward the cap
 does not scale the LLM's memory footprint**: only a fixed-size "core
-cast" (`Config.llm_core_cast_size`, default 14) ever gets LLM calls
+cast" (`Config.llm_core_cast_size`, default 18 as of v0.87.6) ever gets LLM calls
 regardless of how many agents exist, and the KV cache llama-server
 allocates is sized once at startup (`--ctx-size × --parallel`) and never
 grows with population or session length. If `/diagnostics.system_memory`
@@ -598,9 +598,12 @@ server process is.
 
 **Reducing swap** is the guidance throughout this section: lower
 `--ctx-size`/`--parallel`/`Config.llm_num_ctx`/`llm_num_predict`/
-`llm_max_concurrent` (defaults as of v0.81.0: ctx-size 5120 = num_ctx
-2560 × max_concurrent 2, num_predict 448 — see their docstrings for the
-live-diagnostic history), try `--cache-type-k/-v q4_0` for a further ~2×
+`llm_max_concurrent` (defaults as of v0.87.6: ctx-size 9216 = num_ctx
+3072 × max_concurrent 3, num_predict 512 — raised from the v0.81.0
+defaults per a live report that `LLAMA_CACHE_RAM=0` had resolved the
+swap pressure driving them down; see their docstrings for the full
+live-diagnostic history and re-lower if pressure reappears), try
+`--cache-type-k/-v q4_0` for a further ~2×
 KV-cache cut
 below the default `q8_0`, use `LLAMA_BATCH_SIZE`/`LLAMA_UBATCH_SIZE` to
 shrink the compute buffer, or size the model down (`qwen3:1.7b`, next

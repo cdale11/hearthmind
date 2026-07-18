@@ -253,7 +253,7 @@ class Config:
     toward 0.9 for more variety on a stronger model. Kept above 0 so a
     stuck pair doesn't get the identical deterministic-looking line every
     time."""
-    llm_max_concurrent: int = 2
+    llm_max_concurrent: int = 3
     """How many LLM requests may be in flight at once. History: 4 (E2) ->
     2 (v0.43.0) -> 1 (v0.43.1) -> 2 (v0.44.0, the "permanent floor") ->
     1 (v0.78.5, "make concurrent task = 1 if it reduces memory
@@ -261,29 +261,29 @@ class Config:
     llama-server's own `--parallel 1`, so a second Python-side in-flight
     request was pure dead weight, and the measured memory picture then
     (2GB of llama-server swap at population 301/13k ticks) genuinely
-    justified trading concurrency for headroom). **Raised back to 2 in
-    v0.81.0**, per a fresh live diagnostic showing that headroom no
-    longer needed spending: at population 231/13,006 ticks,
-    `system_memory` showed `swap_used_mb: 1` (effectively none) and
-    `mem_available_mb: 3321` of 7045 total with llama-server at 3050.8MB
-    RSS — the v0.78.x swap crisis this floor responded to is resolved,
-    and the live symptom had shifted to a *throughput* problem instead:
-    `calls_dropped_backpressure` at 616 against only 100 attempted,
-    `backlog` hitting 11 against a max_concurrent=1-derived limit of 3,
-    and p50/p95/max latency of 31.8s/69.8s/101.9s — a single-lane queue
-    serializing every job behind whatever's already running. `scripts/
-    run.sh`'s `--parallel` is now `LLAMA_PARALLEL` (default 2, matching
-    this) instead of a hardcoded 1, and `LLAMA_CTX_SIZE` is now sized as
-    `llm_num_ctx * llm_max_concurrent` so each of the 2 slots still gets
-    the full `llm_num_ctx` budget (llama-server divides one shared
+    justified trading concurrency for headroom) -> 2 (v0.81.0, per a
+    live diagnostic showing that swap crisis resolved and the live
+    symptom shifted to single-lane-queue throughput instead). **Raised
+    2 -> 3 in v0.87.6** per explicit user direction: a live report that
+    `LLAMA_CACHE_RAM=0` (v0.87.5) resolved the swap/memory pressure that
+    had driven every prior pull-back on this project's own tuning knobs
+    — that flag's stock default reserves 8192 MiB (8GB!) purely for a
+    host-RAM prompt-prefix cache this workload barely uses (see v0.87.5),
+    which in hindsight plausibly explains more of the historical swap
+    pressure than the KV-cache sizing these concurrency/context knobs
+    were repeatedly pulled back for. This is a **directed increase
+    pending live re-verification**, not itself a fresh measurement —
+    report back a `/diagnostics.system_memory` + `llama_server_metrics`
+    (v0.87.6) reading after adopting it; re-lower toward 2 or 1 if swap
+    or elevated latency reappears. `scripts/run.sh`'s `--parallel` is
+    `LLAMA_PARALLEL` (now default 3, matching this), with `LLAMA_CTX_
+    SIZE` sized as `llm_num_ctx * llm_max_concurrent` so each slot still
+    gets the full `llm_num_ctx` budget (llama-server divides one shared
     `--ctx-size` across its `--parallel` slots — raising parallel
     without raising ctx-size would silently halve each slot's context
-    instead of adding real throughput). Re-lower to 1 if a future
-    `system_memory` reading shows swap pressure again; this is a
-    best-measured default, not a floor either direction holds regardless
-    of measurement. See docs/DECISIONS.md, "LLM concurrency: 1 -> 2
-    (v0.81.0)"."""
-    llm_num_ctx: int = 2560
+    instead of adding real throughput). See docs/DECISIONS.md, "LLM
+    concurrency: 1 -> 2 (v0.81.0)" and CHANGELOG.md v0.87.6."""
+    llm_num_ctx: int = 3072
     """Explicit context-window cap sent with every Ollama request (and
     documented as the `--ctx-size` llama-server launch flag for the
     llama.cpp backend — see README). **This is the single most important
@@ -310,11 +310,19 @@ class Config:
     system-RAM headroom on that hardware). 2560 keeps real margin over
     the CPU-only-tuned 1280 floor while giving a long-running large-
     population world less fixed allocation to have swapped out from
-    under it. Lower further toward 1280 for CPU-only or genuinely tight
-    8GB hardware (see README's 8GB section); this is a live-diagnostics-
-    driven correction, not a guess — report back what a fresh
-    `/diagnostics.system_memory` reading shows after adopting it."""
-    llm_num_predict: int = 448
+    under it. **Raised 2560 -> 3072 in v0.87.6**, a directed partial
+    restore per explicit user direction now that `LLAMA_CACHE_RAM=0`
+    (v0.87.5) has reportedly resolved the swap pressure this knob was
+    twice pulled back for — see `llm_max_concurrent`'s docstring for the
+    full reasoning (that flag's 8GB stock default plausibly explains
+    more of the historical swap than this KV-cache sizing). Deliberately
+    NOT restored all the way to the v0.72.3 4096 peak — a partial,
+    verifiable step. Lower toward 1280 for CPU-only or genuinely tight
+    8GB hardware (see README's 8GB section); this is a directed
+    increase pending live re-verification, not a fresh measurement —
+    report back a `/diagnostics.system_memory` + `llama_server_metrics`
+    (v0.87.6) reading after adopting it."""
+    llm_num_predict: int = 512
     """Explicit cap on generated tokens per call. Every response here is a
     short, strict-JSON answer (a goal, a line of dialogue, a settlement
     decision) — this bounds the worst case where the model rambles
@@ -322,11 +330,12 @@ class Config:
     generated tokens also occupy the KV cache), the `llm_timeout_seconds`
     budget, and would be rejected by the JSON parse anyway. Raised
     384 -> 640 in the v0.72.3 GPU-offload pass, re-lowered 640 -> 512 in
-    v0.72.4, and **re-lowered again 512 -> 448 in v0.78.1** alongside
-    `llm_num_ctx`'s same live-diagnostics-driven pull-back (see its
-    docstring — a real 301-population/13k-tick game showed 2GB of
-    llama-server swap even at the v0.72.4 settings). Still real margin
-    over the original 384. Counts against `llm_num_ctx`'s budget, so
+    v0.72.4, and re-lowered again 512 -> 448 in v0.78.1 alongside
+    `llm_num_ctx`'s same live-diagnostics-driven pull-back (a real
+    301-population/13k-tick game showed 2GB of llama-server swap even
+    at the v0.72.4 settings). **Raised 448 -> 512 in v0.87.6**, the same
+    directed partial restore as `llm_num_ctx` — see its docstring and
+    `llm_max_concurrent`'s. Counts against `llm_num_ctx`'s budget, so
     keep the two in step."""
     llm_keep_alive: str = "3m"
     """How long Ollama keeps the model resident in memory after the last
@@ -391,7 +400,7 @@ class Config:
     leaving it unset, since "use every core available" is the right
     default for a dedicated box running one Ollama instance for one
     simulation."""
-    llm_core_cast_size: int = 14
+    llm_core_cast_size: int = 18
     """How many NPCs are the LLM-driven "core cast" (v0.70.0). Only these
     agents get LLM cognition (goal reasoning), and only a *pair* of them
     gets LLM-authored dialogue — every other agent, and every mixed/
@@ -419,11 +428,14 @@ class Config:
     larger cast is affordable at all), but a bigger cast still means more
     concurrent conversational/cognition state and more frequent calls,
     so 18 was sized against headroom this specific machine doesn't have.
-    14 keeps a real gain over the original 11 without assuming that
-    headroom. `llm_max_calls_per_day` scales with this (see below);
+    14 kept a real gain over the original 11 without assuming that
+    headroom. **Raised 14 -> 18 again in v0.87.6**, a directed restore
+    of the original v0.72.3 value per explicit user direction — see
+    `llm_max_concurrent`'s docstring for the full `LLAMA_CACHE_RAM=0`
+    reasoning. `llm_max_calls_per_day` scales with this (see below);
     re-lower both together if a live `system_memory`/latency reading
     ever shows pressure again."""
-    llm_max_calls_per_day: int = 320
+    llm_max_calls_per_day: int = 480
     """Belt-and-braces hard ceiling on total Ollama calls per sim-day
     (v0.70.0) — cognition, dialogue, AND settlement-level jobs all count
     against it; once hit, every further LLM decision that day resolves
@@ -433,13 +445,18 @@ class Config:
     even a future bug in cast selection or a new per-agent LLM job can
     never re-create the unbounded-throughput condition that caused the
     swap. Raised 200 -> 400 alongside the v0.72.3 core-cast-size bump
-    (11 -> 18), then **re-lowered 400 -> 320 in v0.72.4** alongside the
-    core-cast re-lowering (18 -> 14) — same ~6.5GB-usable-RAM correction.
-    Still keeps generous headroom above expected volume (~14
-    cognition/day + a bounded trickle of core-core dialogue + a few
-    settlement jobs) so it never rations a healthy run — lower both if a
-    live `system_memory`/latency reading ever shows pressure. See
-    docs/DECISIONS.md, "core cast + daily LLM ceiling" pass."""
+    (11 -> 18), re-lowered 400 -> 320 in v0.72.4 alongside the core-cast
+    re-lowering (18 -> 14). **Raised 320 -> 480 in v0.87.6**, alongside
+    `llm_core_cast_size`'s 14 -> 18 restore and `llm_max_concurrent`'s
+    2 -> 3 raise (a bigger cast at higher concurrency both push more
+    real volume through) — see `llm_max_concurrent`'s docstring for the
+    `LLAMA_CACHE_RAM=0` reasoning behind this whole directed batch. This
+    is a **directed increase pending live re-verification**, not a
+    fresh measurement — report back `/diagnostics.llm_prompt_stats` +
+    `llama_server_metrics` volume/latency after adopting it; lower all
+    three together if a live reading ever shows pressure. See
+    docs/DECISIONS.md, "core cast + daily LLM ceiling" pass, and
+    CHANGELOG.md v0.87.6."""
 
     # --- runtime: Phase G (subtle supernatural layer), on by default -----------
     phase_g_intensity: float = 1.0
