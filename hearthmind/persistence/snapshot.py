@@ -333,6 +333,46 @@ routine physical/calendar rows outnumbering social ones many-to-one over
 any real stretch of ticks)."""
 
 
+def _dedupe_rumor_topics(events: list[dict]) -> list[dict]:
+    """Prompt-token audit fix (2026-07): when a rumor spreads through
+    several pairs (a common, natural gossip pattern — `SimulationEngine.
+    _apply_pending_dialogue_results` logs a `rumor`-category row "X and
+    Y: <rumor text>" for every pair that shares it), each occurrence
+    left undeduped crowds an LLM prompt's event window with many
+    near-identical lines about the same single topic — a live-observed
+    saturated prompt showed the same rumor text 6 times in one chronicle
+    call, more than half its "recent events" list. Keeps only the
+    newest occurrence of each distinct rumor text (matched by the text
+    after the first ": ", so it's agent-name-agnostic), appending an
+    "echoed by N more pairs" count instead of dropping the fact that it
+    spread — a hierarchical summary rather than a raw list, per this
+    project's prompt-density audit. Every other category passes through
+    completely unchanged; this only touches the copy handed to `recent_
+    events_diverse`'s LLM-prompt callers, never the raw `events` table
+    or /events history."""
+    seen: dict[str, dict] = {}
+    result: list[dict] = []
+    for event in events:  # newest-first
+        if event["category"] != "rumor":
+            result.append(event)
+            continue
+        _, _, topic = event["description"].partition(": ")
+        topic_key = topic.strip().lower() or event["description"]
+        existing = seen.get(topic_key)
+        if existing is not None:
+            existing["_echo_count"] = existing.get("_echo_count", 1) + 1
+            continue
+        entry = dict(event)
+        seen[topic_key] = entry
+        result.append(entry)
+    for entry in result:
+        count = entry.pop("_echo_count", None)
+        if count:
+            plural = "s" if count - 1 != 1 else ""
+            entry["description"] = f"{entry['description']} (echoed by {count - 1} more pair{plural})"
+    return result
+
+
 def recent_events_diverse(conn: sqlite3.Connection, limit: int = 20, routine_cap: int | None = None) -> list[dict]:
     """Same shape/order as `recent_events` (newest-first list of dicts)
     but caps how many `ROUTINE_EVENT_CATEGORIES` rows can occupy the
@@ -352,6 +392,7 @@ def recent_events_diverse(conn: sqlite3.Connection, limit: int = 20, routine_cap
     if routine_cap is None:
         routine_cap = max(1, limit // 3)
     raw = recent_events(conn, limit=min(limit * 4, QUERY_LIMIT_MAX))
+    raw = _dedupe_rumor_topics(raw)
     kept: list[dict] = []
     routine_kept = 0
     for event in raw:  # newest-first

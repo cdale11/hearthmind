@@ -412,6 +412,37 @@ CHANCE_PER_MONTH`/`CARAVAN_CHANCE_PER_MONTH`/`omens.OMEN_CHANCE_BASE`
 were tuned for — those three keep their original single-tick-per-month
 shape unchanged. See docs/DECISIONS.md, "monthly job retry window"."""
 
+_TOKEN_CHARS_ESTIMATE = 4.0
+"""Rough chars-per-token estimate for `llm_prompt_stats_summary`'s
+token-count fields (English text, common BPE tokenizers average
+roughly this) — deliberately NOT a real tokenizer count: this project
+has no tokenizer dependency (llama.cpp's own is the source of truth,
+and adding one here just to count tokens for telemetry is a real new-
+dependency decision this pass didn't make unprompted). Good enough to
+compare prompt sizes across job types and catch a regression; not
+precise enough to size `llm_num_ctx` against exactly — use a live
+`/diagnostics` reading against llama-server's own reported usage for
+that (see LLM_PROMPT_STATS_WINDOW's docstring for the recommended next
+step, a real llama-server `/slots`/`/metrics` poll)."""
+
+LLM_PROMPT_STATS_WINDOW = 200
+"""Rolling sample count `_llm_prompt_stats` keeps per job name — 2026-07
+prompt-density audit. Bounded so this telemetry itself never becomes
+an unbounded-growth source; 200 recent calls is enough for a stable
+p95 read on any job that fires more than a handful of times per day.
+**Recommended next step, not implemented this pass**: llama-server
+itself exposes real KV-cache/context-utilization/prompt-cache-hit-rate
+numbers via its `/slots` and `/metrics` endpoints — polling those
+periodically (from `hearthmind.server`'s own event loop, a cheap local
+HTTP GET) would replace this module's char-based estimates with the
+real thing and add real KV-cache-usage/prompt-cache-hit-rate fields
+neither this project nor this estimate can provide. Scoped out of this
+pass because it's a genuinely new polling subsystem (needs its own
+interval, failure handling for an older llama-server without those
+endpoints, and a diagnostics-schema decision), not a small extension —
+flagged here as the concrete next step if deeper measurement is
+wanted."""
+
 PAUSED_POLL_SECONDS = 0.25
 """How often `run_forever`'s loop wakes up to re-check pause/stop state
 while paused, instead of sleeping for a full (possibly very long, at a
@@ -668,6 +699,22 @@ class SimulationEngine:
         per job is kept (bounded, not a growing history) — see
         `_record_llm_debug`. See docs/DECISIONS.md, "map/UI/ecology
         follow-up.\""""
+        self._llm_prompt_stats: dict[str, dict] = {}
+        """Rolling per-job-name prompt/completion size and latency
+        telemetry (2026-07 prompt-density audit) — the measurement half
+        of "treat prompt tokens as a scarce resource": every `_record_
+        llm_debug` call folds in prompt/completion character counts (a
+        cheap ~4-chars/token estimate, no tokenizer dependency added —
+        see its own docstring for why) and, when available, call
+        latency in ms, keyed by job name (`cognition`, `dialogue`,
+        `chronicle`, `town_brain`, ...). Bounded: each job name keeps
+        only a capped rolling deque of samples (`LLM_PROMPT_STATS_
+        WINDOW`), never a growing history. Surfaced via `full_
+        diagnostics()`'s `llm_prompt_stats` so a live run's actual
+        token spend by prompt TYPE is measurable, not guessed at — the
+        standing gap this audit found: `llm_stats.latency_ms_p50/p95`
+        was already aggregate-only, with no way to tell whether a slow
+        p95 traces to one verbose job type or all of them evenly."""
         self._naming_scheduled_ids: set[int] = set()
         """Settlement ids whose one-time background naming job has been
         scheduled (multi-settlement pass: was a single bool). The
@@ -1014,9 +1061,11 @@ class SimulationEngine:
             return
 
         async def _runner() -> None:
+            call_start = time.perf_counter()
             result, used_fallback = await self._cognition_runner.run(
                 prompt, system, fallback=lambda: fallback
             )
+            elapsed_ms = (time.perf_counter() - call_start) * 1000
             if critical and used_fallback:
                 # Crucial cognition: the real call failed, so leave state
                 # untouched and re-attempt next cadence rather than apply
@@ -1027,7 +1076,7 @@ class SimulationEngine:
                     apply(result, used_fallback)
                 except Exception:
                     logger.exception("Failed to apply %s LLM job result", name)
-            self._record_llm_debug(name, prompt, result, used_fallback)
+            self._record_llm_debug(name, prompt, result, used_fallback, elapsed_ms)
             self._record_llm_call(used_fallback)
 
         self._reserved_this_tick += 1  # see its docstring — counted the instant scheduling happens
@@ -1477,11 +1526,13 @@ class SimulationEngine:
         self, agent_id: int, prompt: str, hunger: float, energy: float, traits: dict, emotions: dict,
     ) -> None:
         scheduled_tick = self.world.clock.tick_count
+        call_start = time.perf_counter()
         try:
             result, used_fallback = await self._cognition_runner.run(
                 prompt, SYSTEM_PROMPT,
                 fallback=lambda: fallback_goal(hunger, energy, agent_id, traits, emotions),
             )
+            self._record_llm_debug("cognition", prompt, result, used_fallback, (time.perf_counter() - call_start) * 1000)
             if used_fallback:
                 # The real call failed (timeout/error). This path is only
                 # reached for a core-cast agent at a significant/triggered
@@ -1758,6 +1809,7 @@ class SimulationEngine:
 
     async def _run_dialogue(self, agent_a_id: int, agent_b_id: int, prompt: str, fallback: dict) -> None:
         scheduled_tick = self.world.clock.tick_count
+        call_start = time.perf_counter()
         result, used_fallback = await self._cognition_runner.run(
             prompt, dialogue.SYSTEM_PROMPT, fallback=lambda: fallback
         )
@@ -1770,7 +1822,7 @@ class SimulationEngine:
         self._pending_dialogue_results.append(
             (scheduled_tick, agent_a_id, agent_b_id, parsed, not used_fallback)
         )
-        self._record_llm_debug("dialogue", prompt, result, used_fallback)
+        self._record_llm_debug("dialogue", prompt, result, used_fallback, (time.perf_counter() - call_start) * 1000)
         self._record_llm_call(used_fallback)
 
     # --- Phase B: world chronicle --------------------------------------------
@@ -3801,13 +3853,86 @@ class SimulationEngine:
         if used_fallback:
             self.world.llm_fallback_total += 1
 
-    def _record_llm_debug(self, name: str, prompt: str, result: dict, used_fallback: bool) -> None:
+    def _record_llm_debug(
+        self, name: str, prompt: str, result: dict, used_fallback: bool, elapsed_ms: float | None = None,
+    ) -> None:
         """Records the most recent prompt/result for one named LLM job
-        — see `self._last_llm_calls`'s docstring."""
+        — see `self._last_llm_calls`'s docstring — and folds size/
+        latency into `_llm_prompt_stats` (see its own docstring). Called
+        for every real OR fallback resolution, so a job whose fallback
+        rate is high still shows up in the prompt-size telemetry (the
+        prompt was still built and sent, or would have been, even on a
+        deferred/budget-skipped critical job — the one exception is a
+        critical job's daily-budget-exhaustion path in `_schedule_llm_
+        job`, which already calls this with the fallback dict before
+        this method runs, same as every other fallback resolution)."""
         self._last_llm_calls[name] = {
             "tick": self.world.clock.tick_count, "prompt": prompt,
             "result": result, "used_fallback": used_fallback,
         }
+        stats = self._llm_prompt_stats.setdefault(name, {
+            "calls": 0, "fallback_calls": 0,
+            "prompt_chars": deque(maxlen=LLM_PROMPT_STATS_WINDOW),
+            "completion_chars": deque(maxlen=LLM_PROMPT_STATS_WINDOW),
+            "latency_ms": deque(maxlen=LLM_PROMPT_STATS_WINDOW),
+        })
+        stats["calls"] += 1
+        if used_fallback:
+            stats["fallback_calls"] += 1
+        stats["prompt_chars"].append(len(prompt))
+        # `result` is the parsed JSON dict (or the fallback dict on a
+        # fallback resolution) — its str() length is a rough proxy for
+        # completion size. Not a real token count (see LLM_PROMPT_
+        # STATS_WINDOW's docstring for why this project doesn't carry a
+        # tokenizer dependency), but consistent enough to compare across
+        # job types and spot a verbose one.
+        stats["completion_chars"].append(len(str(result)))
+        if elapsed_ms is not None:
+            stats["latency_ms"].append(elapsed_ms)
+
+    def llm_prompt_stats_summary(self) -> dict:
+        """Aggregates `_llm_prompt_stats`'s rolling per-job deques into
+        one dict of `{calls, fallback_calls, avg_prompt_tokens_est,
+        p95_prompt_tokens_est, avg_completion_tokens_est, avg_latency_
+        ms, p95_latency_ms}` per job name. `latency_ms` here is
+        wall-clock from scheduling to result (includes any
+        backpressure/semaphore queue wait), distinct from `llm_stats.
+        latency_ms_p50/p95` (`CognitionRunner`'s own aggregate, timed
+        purely inside the semaphore — pure inference time only);
+        comparing the two tells you whether a slow job type is
+        queue-bound or inference-bound. The token counts are a
+        ~4-chars/token estimate (`_TOKEN_CHARS_ESTIMATE`), clearly
+        labeled `_est` throughout so they're never mistaken for a real
+        tokenizer count. `full_diagnostics()`'s `llm_prompt_stats` key;
+        this is the concrete "measure before optimizing further" tool
+        the 2026-07 prompt-density audit built, kept live rather than
+        one-off so a future regression (a new job that grows an
+        unbounded prompt) is visible without re-running an ad-hoc
+        script."""
+        def pctl(values: list[float], p: float) -> float:
+            if not values:
+                return 0.0
+            s = sorted(values)
+            return s[min(len(s) - 1, int(len(s) * p))]
+
+        summary = {}
+        for name, stats in self._llm_prompt_stats.items():
+            prompt_chars = list(stats["prompt_chars"])
+            completion_chars = list(stats["completion_chars"])
+            latencies = list(stats["latency_ms"])
+            summary[name] = {
+                "calls": stats["calls"],
+                "fallback_calls": stats["fallback_calls"],
+                "avg_prompt_tokens_est": round(sum(prompt_chars) / len(prompt_chars) / _TOKEN_CHARS_ESTIMATE, 1)
+                if prompt_chars else 0.0,
+                "p95_prompt_tokens_est": round(pctl(prompt_chars, 0.95) / _TOKEN_CHARS_ESTIMATE, 1),
+                "avg_completion_tokens_est": round(
+                    sum(completion_chars) / len(completion_chars) / _TOKEN_CHARS_ESTIMATE, 1
+                ) if completion_chars else 0.0,
+                "avg_latency_ms": round(sum(latencies) / len(latencies), 1) if latencies else None,
+                "p95_latency_ms": round(pctl(latencies, 0.95), 1) if latencies else None,
+            }
+        return summary
 
     # --- Phase F: read-only WebSocket broadcast --------------------------------
 
@@ -4009,6 +4134,7 @@ class SimulationEngine:
             "oldest_pending_goal_ticks": oldest_pending_goal_ticks,
             "oldest_pending_dialogue_ticks": oldest_pending_dialogue_ticks,
             "last_llm_calls": self._last_llm_calls,
+            "llm_prompt_stats": self.llm_prompt_stats_summary(),
             "pending_player_whispers": list(self.world.settlement.player_influence),
             "temperament": round(self.world.settlement.temperament, 3),
             "consciousness": {

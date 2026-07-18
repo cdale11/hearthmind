@@ -672,6 +672,29 @@ Size/verify via `/diagnostics.system_memory` over a real multi-day run
 before and after, same "measure, don't guess" discipline as everything
 else in this section.
 
+**Host-RAM prompt cache disabled by default** (v0.87.5): llama-server's
+own `--cache-ram` flag defaults to 8192 MiB (8GB!) if never passed —
+a RAM pool for reusing repeated prompt PREFIXES across calls, genuinely
+useful for a shared-system-prompt/many-similar-prompts workload. This
+project's prompts are the opposite: every cognition/dialogue/
+chronicle/beliefs/... call is freshly built from that specific agent's
+or settlement's current state, so the realistic cache-hit rate is low
+and an 8GB ceiling buys little on hardware this project already treats
+as memory-scarce. `scripts/run.sh`'s `LLAMA_CACHE_RAM` defaults to `0`
+(disabled); set it to a positive MiB value (or `-1` for no limit) to
+re-enable if a live `/diagnostics.llm_prompt_stats` reading ever shows
+this workload's shape has changed.
+
+**Prompt density** (v0.87.5 audit): every LLM job's prompt is measured
+against real/synthetic saturated state — see CLAUDE.md's "Current
+state (v0.87.5)" for the full audit and CHANGELOG.md for per-job
+numbers. One real fix shipped (`persistence/snapshot.py:_dedupe_
+rumor_topics` — a repeated rumor no longer crowds an event-window
+prompt with near-duplicate lines); everything else was re-confirmed
+already tight from prior passes. `/diagnostics.llm_prompt_stats`
+(new) tracks prompt/completion size and latency BY JOB TYPE, not just
+in aggregate — use it before making further prompt changes.
+
 For genuinely unattended years-long operation, also consider: a process
 supervisor that restarts `scripts/run.sh` on crash/OOM-kill (systemd
 `Restart=on-failure` or equivalent — hearthmind's own snapshot/resume

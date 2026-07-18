@@ -4,6 +4,142 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.5] — Prompt-density audit + llama-server host-RAM cache disabled by default
+
+Explicit user directive: audit `--cache-ram` for memory savings, and
+perform an extensive audit of every LLM prompt in the project — treat
+prompt tokens as a scarce resource, prefer retrieval/hierarchical
+summaries over raw event dumps, add token/latency telemetry so future
+optimization is measurement-driven. This entry covers what shipped;
+see the live diagnostics reasoning inline for what was investigated
+and deliberately left alone.
+
+**`--cache-ram` researched and disabled by default** (`scripts/run.sh`,
+new `LLAMA_CACHE_RAM`, default `0`): llama-server's host-RAM prompt
+cache defaults to **8192 MiB (8GB)** when the flag is never passed at
+all — confirmed against the upstream `tools/server/README.md` (`-cram,
+--cache-ram N: set the maximum cache size in MiB (default: 8192, -1 no
+limit, 0 disable)`), not assumed. That default exists to skip
+recomputing a REPEATED prompt prefix across calls — genuinely valuable
+for a shared-system-prompt/many-similar-prompts workload, but this
+project's own prompts are the opposite: every cognition/dialogue/
+chronicle/beliefs/... call builds a fresh string from that specific
+agent's/settlement's current state (hunger, position, memories,
+relationships, recent events) — the only STRUCTURALLY repeated
+content across calls is each job's fixed `SYSTEM_PROMPT` string, a
+small fraction of total prompt tokens (see the token-count table
+below). An 8GB reservation ceiling for a low-hit-rate cache is a poor
+trade on hardware this project has treated as memory-scarce since
+v0.42.0. `LLAMA_CACHE_RAM=0` (disable) is now the default; documented
+as re-enable-if-measured (a real `-1`/positive-MiB override, guided by
+`/diagnostics.llm_prompt_stats`, is one env var away) rather than a
+permanent floor — same "best-measured default, not dogma" convention
+every other `scripts/run.sh` tunable in this project follows.
+
+**Prompt-density audit — one concrete fix shipped, most of the
+codebase re-confirmed already tight from prior passes.** Measured
+real prompt sizes (both live-diagnostic examples the user supplied and
+synthetic saturated-state reconstructions, same methodology as
+v0.85.3-.5's prior audits) across every LLM job:
+
+| job | prompt tokens (real example) | note |
+|---|---|---|
+| chronicle | ~776-926 | dominant cost; see fix below |
+| dialogue | ~251 | already tight (v0.85.0 routine-memory-salience fix) |
+| personal_belief | ~110 | tight |
+| mind | ~18 | one-time per agent, negligible |
+| dream | ~24 | negligible |
+
+**Found and fixed a real, measurable redundancy**: a rumor spreading
+through several pairs (a natural, common gossip pattern) logs one
+`rumor`-category event row per pair — `_apply_pending_dialogue_
+results` already did this correctly, but neither `rumor` nor
+`dialogue`/`dialogue_surfaced` are in `ROUTINE_EVENT_CATEGORIES`, so
+`recent_events_diverse` (feeding chronicle/town_brain/beliefs/
+documentary/personal_belief) never deduped them. The user's own
+supplied live diagnostic showed this exactly: a real chronicle prompt
+with 40 event lines, 13 of them (32.5%) the "X and Y: <rumor text>"
+shape, 9 of those the literal same rumor ("Thea's bread is
+enchanted."/variants) repeated across different pairs — over 1/3 of
+the fixed-size event window spent re-stating one fact.
+
+New `persistence/snapshot.py:_dedupe_rumor_topics` — a hierarchical-
+summary fix, not a truncation: keeps only the newest occurrence of
+each EXACTLY-matching rumor text (matched agent-name-agnostically, on
+the text after the first ": "), appending "(echoed by N more pairs)"
+to the kept line instead of silently dropping the fact that it spread.
+Slightly-reworded retellings (the deliberate `InterpretRumor()`
+distortion feature) are correctly NOT merged — only true duplicates
+are, so genuine narrative texture (a rumor mutating as it spreads) is
+preserved. Wired into `recent_events_diverse` as an extra pass before
+the routine-category cap, so it benefits every one of its five LLM-
+prompt callers (chronicle, town_brain, beliefs, documentary,
+personal_belief) at once. Net effect measured on a synthetic 30-day
+saturated run: rumor-category rows in a 40-event window dropped from
+14 (undeduped) to 3 (deduped to distinct topics) — freeing roughly a
+third of the window for genuinely new content instead of restating
+what's already been said, directly the "avoid redundancy while
+preserving reasoning quality" objective. `/events`/`/history` (the
+raw feed) are completely untouched — every occurrence is still
+logged and visible there; only the LLM-prompt-facing copy dedupes.
+
+**Everywhere else, re-audited and confirmed already tight** (this
+project's prior passes — v0.85.3 chronicle/town_brain belief-slicing,
+v0.85.4 `belief_digest`, v0.85.5 `culture_digest`, v0.86.6's
+folklore-call-skip, v0.87.1's dialogue-lesson audit — already did the
+bulk of this work): cognition (~9 grounding sentences, each one line,
+each individually gated on real state being present); dialogue
+(already salience/routine-aware); personal_belief, dream, mind
+(inherently short, no list to bound); dispute/invention/town_brain/
+beliefs (already sliced to small `PROMPT_*_MAX` constants from prior
+audits). No further raw-list-to-summary conversion found with a
+measurable token cost to justify one — the standing "measure before
+changing" rule applies here as much as to any other tuning knob.
+
+**New telemetry: prompt/completion size and latency BY JOB TYPE**
+(`simulation/engine.py`, new `_llm_prompt_stats`/`llm_prompt_stats_
+summary()`) — closes a real gap the audit found: `llm_stats.latency_
+ms_p50/p95` was aggregate-only, with no way to tell whether a slow
+p95 traces to one verbose job type or is spread evenly. Every
+`_record_llm_debug` call (the shared choke point `_schedule_llm_job`
+already routes every settlement/per-agent job through, now also
+called for `cognition`, which previously wasn't tracked in `last_llm_
+calls` at all — a real telemetry gap, not just a display omission)
+folds in prompt/completion character counts (a documented ~4-chars/
+token estimate, `_TOKEN_CHARS_ESTIMATE` — deliberately not a real
+tokenizer count; adding a tokenizer dependency just for telemetry is a
+new-dependency decision this pass didn't make unprompted) and,
+separately, wall-clock latency including any backpressure/queue wait
+(distinct from `CognitionRunner`'s own pure-inference aggregate,
+documented inline so the two aren't confused). Bounded rolling window
+per job name (`LLM_PROMPT_STATS_WINDOW=200`). Surfaced as `/diagnostics.
+llm_prompt_stats`, keyed by job name: `{calls, fallback_calls, avg_
+prompt_tokens_est, p95_prompt_tokens_est, avg_completion_tokens_est,
+avg_latency_ms, p95_latency_ms}`.
+
+**Recommended next step, not implemented this pass** (documented
+inline at `LLM_PROMPT_STATS_WINDOW`'s definition): llama-server itself
+exposes real KV-cache/context-utilization/prompt-cache-hit-rate
+numbers via its own `/slots`/`/metrics` endpoints. Polling those from
+`hearthmind.server` would replace this pass's char-based estimates
+with the real thing and add fields neither this project nor the
+estimate can provide (true token counts, KV-cache occupancy, real
+prompt-cache hit rate). Scoped out here because it's a genuinely new
+polling subsystem (own interval, failure handling for an older
+llama-server without those endpoints, a diagnostics-schema decision)
+— flagged as the concrete next increment if deeper measurement is
+wanted.
+
+Verified: direct tests for `_dedupe_rumor_topics` (exact-topic merge +
+echo-count text + singular/plural phrasing + non-rumor categories
+pass through unchanged + preserves newest-first order); a direct
+`_llm_prompt_stats`/`llm_prompt_stats_summary()` test against the real
+`_schedule_llm_job` production path (fake LLM client, confirms call
+counts, token estimates, and latency all populate correctly, and reach
+`full_diagnostics()`); `bash -n scripts/run.sh` syntax check.
+`scripts/verify_native_soak.py` (3 seeds x 2000 ticks) byte-identical
+— this batch touches no native module.
+
 ## [0.87.4] — Close all remaining "learns like a human" deferred items
 
 Explicit user directive: implement all six items on docs/VISION-2026-07-

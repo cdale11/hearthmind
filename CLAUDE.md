@@ -520,6 +520,48 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.87.5)
+
+Explicit user directive: audit `--cache-ram`, and audit every LLM
+prompt for token density — retrieval/summaries over raw dumps,
+measurement-driven optimization. Full detail in CHANGELOG.md.
+
+**`LLAMA_CACHE_RAM=0` now the default** (`scripts/run.sh`) —
+llama-server's host-RAM prompt cache defaults to 8192 MiB (8GB!) if
+never passed, sized for a shared-prefix/many-similar-prompts workload
+this project doesn't have (every prompt is freshly built per agent/
+settlement/tick). Confirmed against upstream docs, not assumed.
+Re-enable via a positive MiB value if `/diagnostics.llm_prompt_stats`
+ever shows this workload's shape has changed.
+
+**Prompt audit: one real fix, rest re-confirmed tight.** New
+`persistence/snapshot.py:_dedupe_rumor_topics` collapses exact-
+duplicate rumor-spread events (the same rumor text logged once per
+pair that shares it) into one line + an echo count, wired into
+`recent_events_diverse` (benefits chronicle/town_brain/beliefs/
+documentary/personal_belief at once) — a live-diagnostic example
+showed 9 of 40 chronicle event lines were the literal same rumor.
+Genuine retellings (`InterpretRumor()`'s deliberate distortion) are
+untouched since they don't exact-match. Everywhere else (cognition,
+dialogue, personal_belief, town_brain, beliefs, dispute, invention)
+re-measured and confirmed already tight from prior audits (v0.85.3-.5,
+v0.86.6, v0.87.1) — no further raw-list-to-summary conversion found
+with a measurable cost to justify one.
+
+**New telemetry**: `_llm_prompt_stats`/`llm_prompt_stats_summary()`
+tracks prompt/completion char-based token estimates and latency BY
+JOB NAME (not just the prior aggregate), surfaced at `/diagnostics.
+llm_prompt_stats`. Closed a real gap: `cognition` calls weren't
+recorded in `last_llm_calls`/stats at all before this. Recommended
+next step (not implemented): poll llama-server's own `/slots`/
+`/metrics` for real KV-cache/context-utilization/prompt-cache-hit-rate
+numbers instead of char-based estimates — flagged as a genuinely new
+polling subsystem, out of scope for this pass.
+
+Verified: direct tests for dedup + prompt-stats against the real
+`_schedule_llm_job` production path; `scripts/verify_native_soak.py`
+(3 seeds x 2000 ticks) byte-identical.
+
 ## Current state (v0.87.4)
 
 Explicit user directive: implement all six remaining items on

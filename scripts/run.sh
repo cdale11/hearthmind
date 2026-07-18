@@ -81,6 +81,26 @@
 #                        Empty omits the flag (older builds without it,
 #                        or if you'd rather rely on periodic restarts —
 #                        see LLAMA_RESTART_HOURS below).
+#   LLAMA_CACHE_RAM      Default: 0 (v0.87.5, 2026-07 prompt-density
+#                        audit). Passes --cache-ram, llama-server's
+#                        host-RAM prompt cache for reusing cross-call
+#                        shared prefixes (default 8192 MiB / 8GB if
+#                        this flag is never passed at all — a real
+#                        reservation ceiling on hardware this project
+#                        already treats as memory-scarce). Genuinely
+#                        useful for a shared-system-prompt/many-similar-
+#                        prompts workload; this project's prompts are
+#                        the opposite (every cognition/dialogue/
+#                        chronicle/... call is freshly built and largely
+#                        unique per agent/settlement/tick — see README's
+#                        "Prompt density" section), so the realistic
+#                        cache-hit rate is low and the 8GB default buys
+#                        little. Set to a positive MiB value (or -1 for
+#                        no limit) to re-enable if a live `/diagnostics.
+#                        llm_prompt_stats` reading ever shows this
+#                        workload's shape has changed; empty omits the
+#                        flag for an older llama-server build that
+#                        predates it.
 #   LLAMA_RESTART_HOURS  Default: 0 (disabled). v0.86.9 — --defrag-thold
 #                        only addresses KV-cache fragmentation; general
 #                        heap fragmentation in a llama-server process
@@ -249,6 +269,7 @@ LLAMA_REASONING="${LLAMA_REASONING-off}"
 LLAMA_BATCH_SIZE="${LLAMA_BATCH_SIZE-512}"
 LLAMA_UBATCH_SIZE="${LLAMA_UBATCH_SIZE-128}"
 LLAMA_DEFRAG_THOLD="${LLAMA_DEFRAG_THOLD-0.1}"
+LLAMA_CACHE_RAM="${LLAMA_CACHE_RAM-0}"
 LLAMA_MLOCK="${LLAMA_MLOCK-}"
 LLAMA_RESTART_HOURS="${LLAMA_RESTART_HOURS-0}"
 LLAMA_MALLOC_ARENA_MAX="${LLAMA_MALLOC_ARENA_MAX-}"
@@ -389,8 +410,24 @@ start_llama_server() {
   [[ "$LLAMA_MLOCK" == "1" ]] && mlock_str="--mlock"
   defrag_str=""
   [[ -n "$LLAMA_DEFRAG_THOLD" ]] && defrag_str="--defrag-thold $LLAMA_DEFRAG_THOLD"
-  echo "run.sh: starting llama-server on $LLAMA_HOST (ctx=$LLAMA_CTX_SIZE, parallel=$LLAMA_PARALLEL, threads=$LLAMA_THREADS, gpu-layers=$LLAMA_N_GPU_LAYERS, fit=${LLAMA_FIT:-off}/target=${LLAMA_FIT_TARGET:-default}, flash-attn=${LLAMA_FLASH_ATTN:-off}, reasoning=${LLAMA_REASONING:-model default}, kv=$LLAMA_CACHE_TYPE_K/$LLAMA_CACHE_TYPE_V, batch=${LLAMA_BATCH_SIZE:-default}/${LLAMA_UBATCH_SIZE:-default}, defrag=${LLAMA_DEFRAG_THOLD:-off}, mlock=${LLAMA_MLOCK:-off}, malloc-tuning=${malloc_env[*]:-off})..." >&2
-  # shellcheck disable=SC2086  # $fit_str/$fa_str/$reasoning_str/$batch_str/$ubatch_str/$mlock_str/$defrag_str/$LLAMA_EXTRA_ARGS are intentionally word-split
+  # --cache-ram (v0.87.5, 2026-07 prompt-density audit): llama-server's
+  # host-RAM prompt cache for cross-call prefix reuse, DEFAULTS TO 8192
+  # (8GB!) in stock llama-server if never passed — a huge reservation
+  # ceiling on hardware this project already treats as memory-scarce.
+  # Genuinely useful for a shared-system-prompt/many-similar-prompts
+  # workload; this project's prompts are the opposite (every cognition/
+  # dialogue/chronicle/... call is a freshly-built, largely-unique
+  # string per agent/settlement/tick — see README's prompt-density
+  # section) so the realistic cache-hit rate is low and the 8GB ceiling
+  # buys little. Default 0 disables it outright; set LLAMA_CACHE_RAM to
+  # a positive MiB value (or -1 for no limit) to re-enable if a live
+  # `/diagnostics.llm_prompt_stats` reading ever shows this workload's
+  # shape has changed. Empty string omits the flag for an older
+  # llama-server build that predates it.
+  cache_ram_str=""
+  [[ -n "$LLAMA_CACHE_RAM" ]] && cache_ram_str="--cache-ram $LLAMA_CACHE_RAM"
+  echo "run.sh: starting llama-server on $LLAMA_HOST (ctx=$LLAMA_CTX_SIZE, parallel=$LLAMA_PARALLEL, threads=$LLAMA_THREADS, gpu-layers=$LLAMA_N_GPU_LAYERS, fit=${LLAMA_FIT:-off}/target=${LLAMA_FIT_TARGET:-default}, flash-attn=${LLAMA_FLASH_ATTN:-off}, reasoning=${LLAMA_REASONING:-model default}, kv=$LLAMA_CACHE_TYPE_K/$LLAMA_CACHE_TYPE_V, batch=${LLAMA_BATCH_SIZE:-default}/${LLAMA_UBATCH_SIZE:-default}, defrag=${LLAMA_DEFRAG_THOLD:-off}, cache-ram=${LLAMA_CACHE_RAM:-server default}, mlock=${LLAMA_MLOCK:-off}, malloc-tuning=${malloc_env[*]:-off})..." >&2
+  # shellcheck disable=SC2086  # $fit_str/$fa_str/$reasoning_str/$batch_str/$ubatch_str/$mlock_str/$defrag_str/$cache_ram_str/$LLAMA_EXTRA_ARGS are intentionally word-split
   env "${malloc_env[@]}" "$LLAMA_SERVER_BIN" \
     --model "$MODEL_PATH" \
     --ctx-size "$LLAMA_CTX_SIZE" \
@@ -402,6 +439,7 @@ start_llama_server() {
     $batch_str \
     $ubatch_str \
     $defrag_str \
+    $cache_ram_str \
     $mlock_str \
     --no-mmproj \
     --port "$llama_port" \
