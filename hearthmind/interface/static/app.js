@@ -1189,19 +1189,20 @@ let weatherParticles = [];
 
 // Precipitation is an EMA-smoothed value that (per hearthmind/world/
 // weather.py's CLEAR_PRECIPITATION_THRESHOLD docstring) realistically
-// never drops much below ~0.11 or climbs much past ~0.67. RAIN_FLOOR is
+// never drops much below ~0.10 or climbs much past ~0.67. RAIN_FLOOR is
 // the precipitation at/below which NO rain particles are drawn — it must
-// match the backend's "it is actually raining" onset, which is
-// OVERCAST_PRECIPITATION_THRESHOLD (0.38, the light-rain cutoff in
-// weather.py's describe()), NOT the clear/overcast cutoff (0.27). The old
-// 0.27 value drew rain on every "overcast" tick too — and overcast is
-// ~40% of the year (measured) on top of the ~49% actually labelled rain,
-// so ~89% of ticks showed falling rain on the map even though the sky
-// label said otherwise: the "I only see rain" report. At 0.38 the map
-// shows rain exactly when the label reads "light/heavy rain"; "clear" and
-// "overcast" ticks (~51% of the year) are dry, overcast still just reads
-// darker via the WEATHER_DARKEN tint below.
-const RAIN_FLOOR = 0.38;
+// match the backend's "it is actually raining" onset. v0.87.12 retune
+// (live report: "reduce the amount of rain, there is no variety"):
+// weather.py split its old four sky bands into six (clear/partly_cloudy/
+// overcast/drizzle/light_rain/heavy_rain) and rebalanced them so real
+// rain (drizzle+light+heavy) is ~22% of ticks, down from ~47%. RAIN_
+// FLOOR now matches OVERCAST_PRECIPITATION_THRESHOLD (0.45, the drizzle
+// onset) rather than the old light-rain cutoff — the map shows (light)
+// particles starting exactly when the sky label first mentions any
+// precipitation ("drizzling"), scaling up through "light rain" to
+// "heavy rain"; "clear", "partly cloudy", and "overcast" ticks stay dry,
+// overcast still just reading darker via the WEATHER_DARKEN tint below.
+const RAIN_FLOOR = 0.45;
 const RAIN_CEILING = 0.65;
 
 function currentWeatherDetail() {

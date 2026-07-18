@@ -97,6 +97,22 @@ class Institution:
     council's business is civic theories, not household gossip).
     Consumed by dialogue (family) and town_brain (council) — see
     `llm/town_brain.build_prompt`'s `council_beliefs` param."""
+    objective: str = ""
+    """v0.87.12, "institution objectives" (docs/IDEAS-2026-07-EMERGENCE.
+    md §7): one slow-revised line of what this institution WANTS (a
+    guild securing materials, a family angling for a council seat, a
+    council keeping the peace) — institutions previously held beliefs/
+    dispositions but wanted nothing. Authored/revised by the existing
+    monthly `_maybe_schedule_institution_belief` job (`llm/beliefs.py`'s
+    `INSTITUTION_SYSTEM_PROMPT` widened with one optional field, zero
+    added LLM call volume) — only overwritten when the model actually
+    supplies a new one (empty answers leave the prior objective
+    unchanged, same "retained across a fallback stretch" discipline
+    every other digest field in this project follows). Consumed as
+    prompt bias for members' cognition/dialogue and dispute framing —
+    cross-institution objective collisions (two families both angling
+    for the same council seat) are faction politics arriving
+    bottom-up, never scripted."""
     feuds: list[dict] = field(default_factory=list)
     """v0.87.11, "generational feuds between FAMILY institutions"
     (docs/IDEAS-2026-07-EMERGENCE.md §1). FAMILY-only in practice (no
@@ -124,6 +140,7 @@ class Institution:
             "member_agent_ids": sorted(self.member_agent_ids),
             "name": self.name,
             "beliefs": list(self.beliefs),
+            "objective": self.objective,
             "feuds": list(self.feuds),
         }
 
@@ -136,6 +153,7 @@ class Institution:
             member_agent_ids=set(data.get("member_agent_ids", [])),
             name=data.get("name", ""),
             beliefs=list(data.get("beliefs", [])),
+            objective=data.get("objective", ""),
             feuds=list(data.get("feuds", [])),
         )
 

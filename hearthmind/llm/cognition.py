@@ -62,6 +62,7 @@ def build_prompt(
     beliefs_about: list[str] | None = None, own_belief: str = "",
     semantic_memory: str = "", mind_text: str = "", needs_repair: bool = False,
     life_digest: str = "", lesson: str = "", seek_candidate: tuple[str, str] | None = None,
+    institution_objective: str = "",
 ) -> str:
     """`settlement_name`/`latest_tradition` are optional culture context
     (Phase E) — empty until the settlement is named/has a tradition, so
@@ -142,7 +143,14 @@ def build_prompt(
     have no one specific to seek out). Only offered as a grounding
     sentence when non-`None`; the model is never asked to invent a
     target or a reason, only to decide whether the one real, existing
-    reason is worth interrupting ordinary business for."""
+    reason is worth interrupting ordinary business for.
+
+    `institution_objective` (v0.87.12, "institution objectives" —
+    docs/IDEAS-2026-07-EMERGENCE.md §7): the agent's own FAMILY/GUILD/
+    COUNCIL's slow-revised ambition (`Institution.objective`), if any —
+    "" most of the time (an institution's objective starts blank and
+    only forms once the monthly institution-belief job supplies one).
+    A real group ambition genuinely shaping a member's own choices."""
     culture = ""
     if settlement_name:
         culture = f" You live in {settlement_name}."
@@ -190,13 +198,14 @@ def build_prompt(
         f" You could go find {seek_candidate[0]} — {seek_candidate[1]}; 'seek_person' would take you to them."
         if seek_candidate else ""
     )
+    objective_text = f" Your household/guild/council wants: {institution_objective}." if institution_objective else ""
     return (
         f"You are {agent.name}. Hunger: {agent.hunger:.2f} (0=full, 1=starving). "
         f"Energy: {agent.energy:.2f} (0=exhausted, 1=fully rested). "
         f"Currently {agent.state.value}, focused on '{agent.goal.value}'."
         f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{just_now_text}"
         f"{personality_text}{emotion_text}{beliefs_text}{own_belief_text}{semantic_text}{mind_prompt_text}"
-        f"{life_digest_text}{lesson_text}{repair_text}{seek_text} "
+        f"{life_digest_text}{lesson_text}{repair_text}{seek_text}{objective_text} "
         "What should you focus on right now?"
     )
 

@@ -49,23 +49,33 @@ _MONTH_BASELINES: dict[str, tuple[float, float, float]] = {
 }
 
 
-CLEAR_PRECIPITATION_THRESHOLD = 0.27
-OVERCAST_PRECIPITATION_THRESHOLD = 0.38
-HEAVY_RAIN_PRECIPITATION_THRESHOLD = 0.50
-"""`describe()`'s sky-band cutoffs, retuned against measured realized
-output (v0.43.0) — the same class of bug already diagnosed for
-`SNOW_TEMPERATURE_THRESHOLD_C` below: the old cutoffs (clear <=0.08,
-overcast <=0.25, heavy >0.6) were chosen against the raw per-tick
-`uniform(-0.25, 0.25)` jitter, but `compute_weather`'s smoothing=0.7 EMA
-damps that into a much narrower realized band. A 200k-tick measurement
-across all twelve months found realized precipitation essentially never
-below ~0.11 or above ~0.67, with a p10/p50/p90 of 0.27/0.38/0.50 — so
-"clear" was live code that could never fire (0th percentile), and "heavy
-rain" only reachable in the tail of winter months, meaning a live run
-saw rain almost every tick regardless of season (a user-reported
-"I only see rain" symptom, confirmed by measurement, not "just weather
-variance"). Retuned to the actual measured percentiles so each band
-gets a real, roughly-even share of ticks instead of one dominating."""
+CLEAR_PRECIPITATION_THRESHOLD = 0.33
+PARTLY_CLOUDY_PRECIPITATION_THRESHOLD = 0.39
+OVERCAST_PRECIPITATION_THRESHOLD = 0.45
+DRIZZLE_PRECIPITATION_THRESHOLD = 0.50
+LIGHT_RAIN_PRECIPITATION_THRESHOLD = 0.55
+"""`describe()`'s sky-band cutoffs (v0.87.12 retune, live report:
+"reduce the amount of rain, there is no variety"). The v0.43.0 cutoffs
+(clear <=0.27, overcast <=0.38, heavy >0.50, with only those two real
+bands plus "light rain" in between) were correctly retuned against
+measured realized output at the time, but landed on a roughly 50/50
+split between "dry" (clear+overcast, ~48%) and "raining" (light+heavy
+rain, ~47%, measured directly against a 100k-tick sample across all
+twelve months at the default seed) — mathematically balanced, but only
+FOUR distinct sky labels, and "raining" reads as roughly one glance in
+two regardless of which one. Retuned again, this time against
+percentiles measured at finer granularity (p30=0.33, p55=0.39, p75=
+0.45, p88=0.50, p96=0.55 precipitation) and split into SIX bands
+instead of four — inserting `partly_cloudy` (between clear and
+overcast) and `drizzle` (between overcast and the old light-rain
+cutoff) purely for variety, while also shrinking the combined "it is
+actually raining" share: measured post-retune distribution is clear
+29%/partly_cloudy 24%/overcast 21%/drizzle 12%/light_rain 7%/heavy_rain
+3%/snow 4% — dry sky (clear+partly_cloudy+overcast) now ~74% of ticks,
+real rain (drizzle+light+heavy) ~22%, down from ~47%, while adding two
+new distinct sky states rather than just narrowing the old four. See
+CLAUDE.md's standing "unreachable threshold" lesson — always re-verify
+against measured smoothed output, never retune blind."""
 
 CALM_WIND_THRESHOLD = 0.24
 BREEZY_WIND_THRESHOLD = 0.38
@@ -133,15 +143,37 @@ class WeatherState:
     def describe(self) -> str:
         if self.is_snowing:
             sky = "snowing"
-        elif self.precipitation > HEAVY_RAIN_PRECIPITATION_THRESHOLD:
+        elif self.precipitation > LIGHT_RAIN_PRECIPITATION_THRESHOLD:
             sky = "heavy rain"
-        elif self.precipitation > OVERCAST_PRECIPITATION_THRESHOLD:
+        elif self.precipitation > DRIZZLE_PRECIPITATION_THRESHOLD:
             sky = "light rain"
-        elif self.precipitation > CLEAR_PRECIPITATION_THRESHOLD:
+        elif self.precipitation > OVERCAST_PRECIPITATION_THRESHOLD:
+            sky = "drizzling"
+        elif self.precipitation > PARTLY_CLOUDY_PRECIPITATION_THRESHOLD:
             sky = "overcast"
+        elif self.precipitation > CLEAR_PRECIPITATION_THRESHOLD:
+            sky = "partly cloudy"
         else:
             sky = "clear"
         return f"{sky}, {self.temperature_c:.1f}\u00b0C, {self.wind_label()} wind"
+
+    def sky(self) -> str:
+        """Machine-readable sky-band key (snake_case), same bands as
+        `describe()`'s free-text prefix \u2014 for consumers (frontend) that
+        want to branch on the band rather than parse the sentence."""
+        if self.is_snowing:
+            return "snowing"
+        if self.precipitation > LIGHT_RAIN_PRECIPITATION_THRESHOLD:
+            return "heavy_rain"
+        if self.precipitation > DRIZZLE_PRECIPITATION_THRESHOLD:
+            return "light_rain"
+        if self.precipitation > OVERCAST_PRECIPITATION_THRESHOLD:
+            return "drizzle"
+        if self.precipitation > PARTLY_CLOUDY_PRECIPITATION_THRESHOLD:
+            return "overcast"
+        if self.precipitation > CLEAR_PRECIPITATION_THRESHOLD:
+            return "partly_cloudy"
+        return "clear"
 
     def wind_label(self) -> str:
         if self.wind < CALM_WIND_THRESHOLD:

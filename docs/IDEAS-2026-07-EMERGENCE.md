@@ -73,7 +73,7 @@ into **five movement-bias goals** (forage / rest / socialize / wander /
 gather). Rich state with a narrow actuator means drama stays in the
 prompts and never reaches the map. These items widen the actuator.
 
-- [ ] **Directed intent: `SEEK_PERSON(target, intent)`.** One new goal
+- [x] **Directed intent: `SEEK_PERSON(target, intent)`.** Shipped v0.87.8. One new goal
   that pathfinds to a *specific* agent with a stored intent drawn from
   existing state — confront (low trust + secret about them), apologize
   (post-dispute, high fondness), court (existing affinity mechanics),
@@ -86,7 +86,7 @@ prompts and never reaches the map. These items widen the actuator.
   grudges, and grief produce *visible plots* a map-watcher can follow.
   Est. cost: zero new calls (rides cognition + dialogue slots).
 
-- [ ] **Deathbed release of secrets.** `Agent.secrets` currently dies
+- [x] **Deathbed release of secrets.** Shipped v0.87.7. `Agent.secrets` currently dies
   with the agent. On a core-cast death with living kin colocated or
   nearby, a small chance the secret transfers — as a rumor seeded into
   the existing rumor machinery, attributed to the deathbed. Secrets
@@ -96,7 +96,7 @@ prompts and never reaches the map. These items widen the actuator.
   systems with ~no new state. Fallback: nothing happens (today's
   behavior).
 
-- [ ] **Ceremonies agents attend: funerals and weddings.** Festivals
+- [x] **Ceremonies agents attend: funerals and weddings.** Shipped v0.87.9 (funerals) + v0.87.10 (weddings). Festivals
   exist as settlement-level text; nothing gathers *specific* agents at
   a *specific* place for a *specific* reason. A funeral = short-lived
   gathering point at the memorial/grave (memorials exist) that biases
@@ -122,7 +122,7 @@ prompts and never reaches the map. These items widen the actuator.
   justice → resentment is the classic emergence engine this world is
   missing, and every link already exists except the first and last.
 
-- [ ] **Generational feuds between FAMILY institutions.** Feuds exist
+- [x] **Generational feuds between FAMILY institutions.** Shipped v0.87.11. Feuds exist
   as pair-level dispute outcomes. Promote a repeated pattern (N feud
   outcomes across members of two families within a window —
   deterministic detection, same shape as the ritual detector) into an
@@ -132,7 +132,7 @@ prompts and never reaches the map. These items widen the actuator.
   scripted — it falls out of affinity mechanics colliding with the
   feud gate. Rides institution mirroring; capped like everything else.
 
-- [ ] **Heritable temperament with mutation.** Inheritance covers
+- [x] **Heritable temperament with mutation.** Shipped v0.87.7. Inheritance covers
   goods/skill/bias; traits are rolled fresh. Blend child traits from
   parents ± noise and family *character* emerges over generations —
   "the stubborn Aldertons" becomes a real statistical fact the beliefs/
@@ -366,7 +366,7 @@ fix that.
   A charismatic young founder displacing an elder — and the elder's
   family resenting it (§1 feuds) — is politics nobody scripted.
 
-- [ ] **Per-agent voice.** Dialogue prompts carry traits and mind but
+- [x] **Per-agent voice.** Shipped v0.87.12. Dialogue prompts carry traits and mind but
   no *manner of speaking*, so everyone samples from the same register.
   One line in `mind`, authored at the existing core-cast-entry genesis
   call (zero added calls): cadence, favorite figure of speech, verbal
@@ -397,7 +397,7 @@ fix that.
   diverge in *law* the way they already diverge in belief — and
   migrants (§1) get to be foreigners who don't know the rules.
 
-- [ ] **Institution objectives.** Institutions hold beliefs and
+- [x] **Institution objectives.** Shipped v0.87.12 (cognition-prompt consumption only — not yet wired into dispute framing). Institutions hold beliefs and
   dispositions but want nothing. One slow-revised objective line per
   institution (guild: secure materials; family: a council seat; the
   belief-system institution: a shrine in the new settlement), authored
@@ -405,7 +405,7 @@ fix that.
   members' cognition and dispute framing. Cross-institution objective
   collisions are faction politics arriving bottom-up.
 
-- [ ] **Dialogue novelty memory.** The live-LLM path can still
+- [x] **Dialogue novelty memory.** Shipped v0.87.12. The live-LLM path can still
   converge on the same topics pair after pair. Keep a tiny per-pair
   ring of the last N topics (subject strings already parsed from
   exchanges) and one prompt line: "you have lately talked about X, Y —

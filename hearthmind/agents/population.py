@@ -79,6 +79,7 @@ from hearthmind.agents.agent import (
     DEATHBED_SECRET_RUMOR_LISTENER_COUNT,
     DEBT_PRUNE_THRESHOLD,
     DIALOGUE_SENTIMENT_DELTA,
+    DIALOGUE_TOPICS_RING_MAX,
     ELDER_AGE_FRACTION,
     EMOTION_ANGER,
     EMOTION_BIRTH_JOY_BUMP,
@@ -1191,6 +1192,17 @@ class Population:
     """(agent_id, agent_id) sorted pair -> tick of their last dispute-
     resolution moment — same shape/pruning as dialogue_cooldowns. See
     due_for_dispute."""
+    dialogue_topics: dict[tuple[int, int], list[str]] = field(default_factory=dict)
+    """v0.87.12 "dialogue novelty memory" (docs/IDEAS-2026-07-EMERGENCE.
+    md §7): (agent_id, agent_id) sorted pair -> small ring (capped
+    DIALOGUE_TOPICS_RING_MAX) of the last few topics an LLM-authored
+    exchange between them actually covered (`dialogue.parse_dialogue`'s
+    new `topic` field). Same key space/pruning as `dialogue_cooldowns`
+    (pruned alongside it in `due_for_dialogue`) — read back into the
+    NEXT exchange between the same pair as one grounding line ("you two
+    have lately talked about X, Y — find something new or go deeper"),
+    so the live-LLM path doesn't keep converging on the same subject
+    pair after pair."""
     last_fission_tick: int = -1_000_000
     """Tick of the most recent settlement fission (world-wide) — gates
     FISSION_COOLDOWN_TICKS. Persisted; the far-negative default means a
@@ -3414,6 +3426,23 @@ class Population:
                 return inst
         return None
 
+    def institution_objective_for(self, agent_id: int, settlement: Settlement) -> str:
+        """v0.87.12 "institution objectives" (docs/IDEAS-2026-07-
+        EMERGENCE.md §7): the first non-blank `Institution.objective`
+        among every institution (FAMILY/GUILD/COUNCIL/FACTION)
+        `agent_id` belongs to in `settlement` — "" if none, or if every
+        institution's objective is still blank (the common early-game
+        case before the monthly institution-belief job has ever
+        supplied one). Deterministic first-match by `settlement.
+        institutions`'s own order; an agent belonging to more than one
+        institution with a real objective just reads the first — this
+        is prompt-bias garnish, not a resolution mechanism that needs
+        to be exhaustive."""
+        for inst in settlement.institutions:
+            if agent_id in inst.member_agent_ids and inst.objective:
+                return inst.objective
+        return ""
+
     def family_of(self, agent_id: int, settlement: Settlement) -> "Institution | None":
         """The FAMILY `agent_id` belongs to, if any — same shape as
         `faction_of` but checked against `member_agent_ids` directly
@@ -4902,6 +4931,7 @@ class Population:
         ]
         for key in stale_keys:
             del self.dialogue_cooldowns[key]
+            self.dialogue_topics.pop(key, None)
 
         by_position: dict[tuple[int, int], list[Agent]] = {}
         for agent in self.agents:
@@ -4939,6 +4969,25 @@ class Population:
         for a, b in llm_pairs + fallback_pairs:
             self.dialogue_cooldowns[(a.id, b.id)] = tick
         return llm_pairs, fallback_pairs
+
+    def recent_dialogue_topics(self, a_id: int, b_id: int) -> list[str]:
+        """The stored `dialogue_topics` ring for this pair, if any —
+        v0.87.12 "dialogue novelty memory". Read at the call site right
+        before building a fresh LLM dialogue prompt for the pair."""
+        key = (a_id, b_id) if a_id < b_id else (b_id, a_id)
+        return self.dialogue_topics.get(key, [])
+
+    def record_dialogue_topic(self, a_id: int, b_id: int, topic: str) -> None:
+        """Append `topic` to this pair's ring, capped at DIALOGUE_TOPICS_
+        RING_MAX (oldest dropped first) — called once a real LLM-
+        authored exchange supplies a non-blank topic."""
+        if not topic:
+            return
+        key = (a_id, b_id) if a_id < b_id else (b_id, a_id)
+        ring = self.dialogue_topics.setdefault(key, [])
+        ring.append(topic)
+        if len(ring) > DIALOGUE_TOPICS_RING_MAX:
+            del ring[: len(ring) - DIALOGUE_TOPICS_RING_MAX]
 
     def apply_dialogue(
         self, a_id: int, b_id: int, sentiment: str, rumor: str = "", line_a: str = "", line_b: str = "",
@@ -5465,6 +5514,9 @@ class Population:
             "dialogue_cooldowns": {
                 f"{a_id}:{b_id}": tick for (a_id, b_id), tick in self.dialogue_cooldowns.items()
             },
+            "dialogue_topics": {
+                f"{a_id}:{b_id}": list(topics) for (a_id, b_id), topics in self.dialogue_topics.items()
+            },
             "dispute_cooldowns": {
                 f"{a_id}:{b_id}": tick for (a_id, b_id), tick in self.dispute_cooldowns.items()
             },
@@ -5480,6 +5532,10 @@ class Population:
         for key, tick in data.get("dialogue_cooldowns", {}).items():
             a_id, b_id = key.split(":")
             dialogue_cooldowns[(int(a_id), int(b_id))] = tick
+        dialogue_topics = {}
+        for key, topics in data.get("dialogue_topics", {}).items():
+            a_id, b_id = key.split(":")
+            dialogue_topics[(int(a_id), int(b_id))] = list(topics)
         dispute_cooldowns = {}
         for key, tick in data.get("dispute_cooldowns", {}).items():
             a_id, b_id = key.split(":")
@@ -5497,6 +5553,7 @@ class Population:
             rumors_seeded_total=data.get("rumors_seeded_total", 0),
             rumor_listener_exposures_total=data.get("rumor_listener_exposures_total", 0),
             dialogue_cooldowns=dialogue_cooldowns,
+            dialogue_topics=dialogue_topics,
             dispute_cooldowns=dispute_cooldowns,
             cognition_trigger_cooldowns=cognition_trigger_cooldowns,
             core_agent_ids=set(data.get("core_agent_ids", [])),

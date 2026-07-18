@@ -534,6 +534,43 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.87.12)
+
+Two independent pieces per explicit user direction ("try closing
+point 7 first" = docs/IDEAS-2026-07-EMERGENCE.md §7's 9 items;
+"reduce the amount of rain, there is no variety").
+
+**Weather retune**: measured realized sky-band distribution directly
+(100k ticks, default seed) — old cutoffs were balanced (~48%/47%
+dry/rain) but only 4 labels, "raining" read as a coin flip. Split into
+6 bands (`clear`/`partly_cloudy`/`overcast`/`drizzle`/`light_rain`/
+`heavy_rain`, new `WeatherState.sky()` accessor) retuned against finer
+percentiles — real rain now ~22% of ticks (down from ~47%), dry ~74%,
+snow unchanged ~4%. Frontend `RAIN_FLOOR` moved to match the new
+drizzle onset (0.45). Zero effect on persisted state (`describe()`/
+`sky()` are derived-only; `compute_weather`'s blend math untouched).
+
+**§7 items 5/8/9 of 9** (see docs/IDEAS-2026-07-EMERGENCE.md for full
+status of all 9 — items 1/2/3/4/6/7 remain unimplemented):
+- **Per-agent voice**: `Agent.voice`, authored at the existing
+  genesis `mind` call (zero added LLM volume, `llm/mind.py` schema
+  widened), consumed in dialogue prompts.
+- **Institution objectives**: `Institution.objective`, authored by the
+  existing monthly institution-belief job, consumed in cognition
+  prompts via `Population.institution_objective_for` — not yet wired
+  into dispute framing.
+- **Dialogue novelty memory**: `Population.dialogue_topics` per-pair
+  ring (cap 3), fed from a new `topic` field in the dialogue LLM
+  schema (never fabricated for the fallback), read back as a "find
+  something new" steering line on the pair's next exchange.
+
+Verified: direct tests against real production paths for all three
+(genesis call, institution-belief job, dialogue schedule/apply cycle
+— fake LLM clients through the actual engine methods); round-trip +
+legacy-snapshot defaults; weather-distribution measurement confirming
+all six bands fire with the intended rain-share reduction. Re-verified
+against the rebuilt native extension; native soak byte-identical.
+
 ## Current state (v0.87.11)
 
 Continued docs/IDEAS-2026-07-EMERGENCE.md §1 backlog ("generational

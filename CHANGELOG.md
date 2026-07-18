@@ -4,6 +4,70 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.12] — Weather retune + three §7 cognition-infrastructure items
+
+Two independent pieces per explicit user direction ("try closing point
+7 first" = docs/IDEAS-2026-07-EMERGENCE.md §7 "Cognition
+infrastructure," all 9 items; "reduce the amount of rain, there is no
+variety").
+
+**Weather retune** (`hearthmind/world/weather.py`): measured the
+realized sky-band distribution directly (100k-tick sample, default
+seed, across all twelve months) — the v0.43.0 cutoffs were
+mathematically balanced (~48% dry, ~47% rain) but only four distinct
+labels, so "raining" read as roughly a coin flip regardless of season.
+Retuned against finer percentiles and split into SIX bands (`clear`/
+`partly_cloudy`/`overcast`/`drizzle`/`light_rain`/`heavy_rain`,
+new `WeatherState.sky()` machine-readable accessor alongside
+`describe()`) — measured post-retune: dry (clear+partly_cloudy+
+overcast) ~74%, real rain (drizzle+light+heavy) ~22% (down from ~47%),
+snow ~4% unchanged. Frontend `RAIN_FLOOR` moved from the old light-rain
+cutoff (0.38) to the new drizzle onset (0.45) so map particles start
+exactly when the sky label first mentions precipitation. Zero effect on
+persisted/soaked state — `describe()`/`sky()` are derived display-only
+properties, `compute_weather`'s underlying blend math is untouched.
+
+**§7 items shipped this pass** (3 of 9 — see docs/IDEAS-2026-07-
+EMERGENCE.md for the other 6, now explicitly ticked/unticked to track
+status):
+
+- **Per-agent voice**: `Agent.voice` (`MAX_VOICE_TEXT_CHARS=100`),
+  authored at the same one-time genesis `mind`-authoring call
+  (`llm/mind.py`'s `SYSTEM_PROMPT` widened with one more JSON field,
+  zero added LLM volume), deterministic fallback keyed by agent id
+  (`describe_voice_fallback`, 8 templates) so a fallback-only run still
+  gives every core-cast member a distinct-sounding tag. Consumed in
+  `llm/dialogue.py`'s prompt alongside `mind`.
+- **Institution objectives**: `Institution.objective` (one slow-revised
+  line of what a FAMILY/GUILD/COUNCIL wants), authored by the existing
+  monthly `_maybe_schedule_institution_belief` job (`beliefs.py`'s
+  `INSTITUTION_SYSTEM_PROMPT` widened, `parse_institution_objective`
+  only overwrites on a genuine non-blank answer — retained across a
+  blank/fallback stretch, same discipline as `belief_digest`). New
+  `Population.institution_objective_for` consumed in `cognition.
+  build_prompt` as one grounding line. Not yet wired into dispute
+  framing — flagged, not faked.
+- **Dialogue novelty memory**: `Population.dialogue_topics` (per-pair
+  ring, `DIALOGUE_TOPICS_RING_MAX=3`, same key/prune shape as
+  `dialogue_cooldowns`) — `llm/dialogue.py`'s schema gained a `topic`
+  field (never fabricated for the deterministic fallback, only a real
+  LLM answer ever populates it), fed back into the SAME pair's next
+  exchange as a "you've lately talked about X, Y — find something new"
+  steering line.
+
+Verified: direct tests for all three against real production paths
+(genesis call sets voice via a fake LLM client and `_author_minds`;
+institution-belief job sets objective via a fake client and `_maybe_
+schedule_institution_belief`; dialogue schedule/apply cycle records and
+reads back a topic via `_schedule_due_dialogue`/`_apply_pending_
+dialogue_results`); round-trip + legacy-snapshot defaults for
+`Agent.voice`/`Institution.objective`/`Population.dialogue_topics`; a
+direct weather-distribution measurement confirming all six new bands
+fire and the rain share dropped as intended. Re-verified against the
+rebuilt native extension; `scripts/verify_native_soak.py` (3 seeds x
+2000 ticks) byte-identical (weather change touches no persisted field;
+the three §7 items touch no native module).
+
 ## [0.87.11] — Generational feuds between FAMILY institutions
 
 Continued docs/IDEAS-2026-07-EMERGENCE.md §1 backlog per explicit user

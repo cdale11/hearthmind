@@ -45,20 +45,22 @@ SYSTEM_PROMPT = (
     "or after it, no explanation.\n"
     "Examples of the exact shape expected:\n"
     '{"line_a": "You look worn out, friend.", "line_b": "Long day in the '
-    'fields.", "sentiment": "warm", "rumor": ""}\n'
+    'fields.", "sentiment": "warm", "rumor": "", "topic": "work"}\n'
     '{"line_a": "Still nothing to say to me?", "line_b": "Not today.", '
-    '"sentiment": "tense", "rumor": ""}\n'
+    '"sentiment": "tense", "rumor": "", "topic": "silence"}\n'
     '{"line_a": "Cold one, isn\'t it.", "line_b": "Heard the miller\'s '
     'roof is leaking.", "sentiment": "neutral", "rumor": "The miller\'s '
-    'roof is leaking."}\n'
+    'roof is leaking.", "topic": "weather"}\n'
     '{"line_a": "You still sore about the fence?", "line_b": "Wasn\'t '
-    'talking about the fence.", "sentiment": "tense", "rumor": ""}\n'
+    'talking about the fence.", "sentiment": "tense", "rumor": "", '
+    '"topic": "the fence"}\n'
     '{"line_a": "Hungry work today.", "line_b": "Isn\'t it always with '
-    'you.", "sentiment": "warm", "rumor": ""}\n'
+    'you.", "sentiment": "warm", "rumor": "", "topic": "hunger"}\n'
     'Now respond with strict JSON only, in that exact shape: {"line_a": '
     '"under 14 words, said by the first villager", "line_b": "under 14 '
     'words, said by the second", "sentiment": "warm" | "tense" | '
-    '"neutral", "rumor": "" or a short rumor under 15 words}.'
+    '"neutral", "rumor": "" or a short rumor under 15 words, "topic": '
+    '"1-3 words naming what this exchange was actually about"}.'
 )
 
 
@@ -86,13 +88,21 @@ def build_prompt(
     agent_a: Agent, agent_b: Agent, affinity: float, settlement_name: str,
     latest_tradition: str, season: str, weather: str, beliefs_about: list[str] | None = None,
     other_settlement_name: str = "", cross_settlement_relation: float | None = None,
-    lessons: tuple[str, str] = ("", ""),
+    lessons: tuple[str, str] = ("", ""), recent_topics: list[str] | None = None,
 ) -> str:
     """`lessons` (v0.87.0): `(agent_a's matching lesson, agent_b's
     matching lesson)`, each "" when no stored lesson matches that
     speaker's current situation — computed at the call site via
     `SimulationEngine._current_situation_tag`/`_matching_lesson`, the
-    same helpers `cognition.build_prompt` already uses."""
+    same helpers `cognition.build_prompt` already uses.
+
+    `recent_topics` (v0.87.12, "dialogue novelty memory" — docs/IDEAS-
+    2026-07-EMERGENCE.md §7): this pair's small stored ring of topics
+    their last few LLM-authored exchanges actually covered
+    (`Population.recent_dialogue_topics`) — empty most of the time (a
+    pair's first exchange, or one whose past exchanges never supplied a
+    parseable topic). Only offered as a steering line when non-empty;
+    never fabricated."""
     is_parent_child = (
         (agent_a.parents is not None and agent_b.id in agent_a.parents)
         or (agent_b.parents is not None and agent_a.id in agent_b.parents)
@@ -151,6 +161,7 @@ def build_prompt(
     semantic_bits = []
     secret_bits = []
     mind_bits = []
+    voice_bits = []
     lesson_bits = []
     for agent, label, other, lesson in (
         (agent_a, agent_a.name, agent_b, lessons[0]), (agent_b, agent_b.name, agent_a, lessons[1]),
@@ -177,6 +188,11 @@ def build_prompt(
         # everyone else, so this is a no-op for a non-core exchange).
         if agent.mind:
             mind_bits.append(f"{label}, at their core: {agent.mind}")
+        # Per-agent voice (v0.87.12, docs/IDEAS-2026-07-EMERGENCE.md
+        # §7): a manner-of-speaking garnish, same core-cast-only scope
+        # as `mind` (empty "" for everyone else — no-op here).
+        if agent.voice:
+            voice_bits.append(f"{label} {agent.voice}")
         # Lessons (v0.87.0, "learns like a human"): the one stored lesson
         # (if any) matching THIS speaker's current situation — see
         # Agent.lessons/SimulationEngine._current_situation_tag. Same
@@ -189,7 +205,12 @@ def build_prompt(
     semantic_text = f" {'. '.join(semantic_bits)}." if semantic_bits else ""
     secret_text = f" {'. '.join(secret_bits)}." if secret_bits else ""
     mind_text = f" {'. '.join(mind_bits)}." if mind_bits else ""
+    voice_text = f" {'. '.join(voice_bits)}." if voice_bits else ""
     lesson_text = f" {'. '.join(lesson_bits)}." if lesson_bits else ""
+    topics_text = (
+        f" You two have lately talked about: {', '.join(recent_topics)} — find something new or go deeper."
+        if recent_topics else ""
+    )
 
     def _activity(agent: Agent) -> str:
         # Grounds "currently X" in *why* when cognition set a reason
@@ -209,7 +230,7 @@ def build_prompt(
         f"{agent_b.hunger:.2f}, energy {agent_b.energy:.2f}, currently {_activity(agent_b)}). "
         f"They are {tie}. It is {season}, weather: {weather}."
         f"{culture}{beliefs_text}{personality_text}{emotion_text}{memory_text}{just_now_text}"
-        f"{semantic_text}{secret_text}{mind_text}{lesson_text} "
+        f"{semantic_text}{secret_text}{mind_text}{voice_text}{lesson_text}{topics_text} "
         "Write their brief exchange."
     )
 
@@ -392,9 +413,19 @@ def parse_dialogue(result: dict, fallback: dict) -> dict:
     rumor = result.get("rumor")
     if not isinstance(rumor, str):
         rumor = ""
+    # v0.87.12 "dialogue novelty memory" (docs/IDEAS-2026-07-EMERGENCE.md
+    # §7): unlike every other field here, a missing/blank topic degrades
+    # to "" rather than the fallback's — the fallback dict has no
+    # "topic" key at all, and a fabricated topic for deterministic
+    # chatter would be noise in `Population.dialogue_topics`, which only
+    # wants genuine LLM-observed subjects.
+    topic = result.get("topic")
+    if not isinstance(topic, str):
+        topic = ""
     return {
         "line_a": line_a.strip()[:120],
         "line_b": line_b.strip()[:120],
         "sentiment": sentiment,
         "rumor": rumor.strip()[:150],
+        "topic": topic.strip()[:40],
     }

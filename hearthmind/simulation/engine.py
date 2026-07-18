@@ -1656,6 +1656,7 @@ class SimulationEngine:
             seek_candidate = population._seek_person_candidate(agent, population.agents)
             seek_candidate_id = seek_candidate[0] if seek_candidate is not None else None
             seek_prompt_hint = (seek_candidate[1], seek_candidate[3]) if seek_candidate is not None else None
+            institution_objective = population.institution_objective_for(agent.id, home)
             prompt = build_prompt(
                 agent, self.world.clock.season, self.world.weather.describe(),
                 settlement_name=home.name, latest_tradition=latest_tradition,
@@ -1664,6 +1665,7 @@ class SimulationEngine:
                 semantic_memory=semantic_memory, mind_text=agent.mind,
                 needs_repair=needs_repair, life_digest=agent.life_digest,
                 lesson=lesson, seek_candidate=seek_prompt_hint,
+                institution_objective=institution_objective,
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             traits_snapshot = dict(agent.traits)
@@ -1743,6 +1745,11 @@ class SimulationEngine:
                 self._log(
                     category, f'{agent_a.name}: "{parsed["line_a"]}" — {agent_b.name}: "{parsed["line_b"]}"',
                 )
+                # v0.87.12 "dialogue novelty memory": only a genuine LLM
+                # answer ever supplies a real topic (parse_dialogue never
+                # fabricates one for the deterministic fallback).
+                if parsed["topic"]:
+                    self.world.population.record_dialogue_topic(agent_a.id, agent_b.id, parsed["topic"])
             self.world.dialogue_total += 1
             if parsed["rumor"]:
                 self._log("rumor", f"{agent_a.name} and {agent_b.name}: {parsed['rumor']}")
@@ -1933,11 +1940,12 @@ class SimulationEngine:
                 self._matching_lesson(agent_a, self._current_situation_tag(agent_a)),
                 self._matching_lesson(agent_b, self._current_situation_tag(agent_b)),
             )
+            recent_topics = self.world.population.recent_dialogue_topics(agent_a.id, agent_b.id)
             prompt = dialogue.build_prompt(
                 agent_a, agent_b, affinity, local.name, latest_tradition,
                 self.world.clock.season, self.world.weather.describe(), beliefs_about=beliefs_about,
                 other_settlement_name=other_settlement_name, cross_settlement_relation=cross_relation,
-                lessons=lessons,
+                lessons=lessons, recent_topics=recent_topics,
             )
             fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
             self._reserved_this_tick += 1
@@ -3605,6 +3613,10 @@ class SimulationEngine:
         for agent in agents:
             fallback = mind.fallback_mind(agent)
             agent.mind = fallback["mind"]
+            # v0.87.12 "per-agent voice" (docs/IDEAS-2026-07-EMERGENCE.md
+            # §7): rides this same one-time genesis call/schema, zero
+            # added LLM volume — see llm/mind.py's widened SYSTEM_PROMPT.
+            agent.voice = fallback["voice"]
             if self._settlement_job_backpressured():
                 continue
             agent_id = agent.id
@@ -3615,6 +3627,7 @@ class SimulationEngine:
                 if target is None:
                     return  # died before the answer arrived
                 target.mind = mind.parse_mind(result, fallback)
+                target.voice = mind.parse_voice(result, fallback)
 
             self._schedule_llm_job("mind", prompt, mind.SYSTEM_PROMPT, fallback, apply)
 
@@ -3820,6 +3833,12 @@ class SimulationEngine:
                 return  # pruned while the job was in flight
             parsed = beliefs.parse_belief(result, fallback, existing_count)
             verb = beliefs.apply_institution_belief(target, parsed, self.world.clock.tick_count)
+            # v0.87.12 "institution objectives": rides this same call,
+            # zero added volume — only overwritten on a genuine new
+            # answer, retained across a fallback/blank stretch.
+            objective = beliefs.parse_institution_objective(result)
+            if objective is not None:
+                target.objective = objective
             self._log(
                 "institution_belief",
                 f"The {label} {'revised its view' if verb == 'revised' else 'came to believe something'}"

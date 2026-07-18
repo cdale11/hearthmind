@@ -487,11 +487,17 @@ INSTITUTION_SYSTEM_PROMPT = (
     "group's own narrow point of view (its members, its trade, its "
     "standing, its worries). Group theories are not guaranteed correct "
     "and may contradict what the wider village believes — that is "
-    "expected, not an error. "
+    "expected, not an error. Also say what the group WANTS right now — a "
+    "guild wanting to secure materials, a family wanting a council seat, "
+    "a council wanting to keep the peace — one slow-changing ambition, "
+    "not a reaction to today. Leave it blank if nothing has genuinely "
+    "changed since last time. "
     'Respond with strict JSON only, no other text: {"subject": "short '
     'label", "belief": "one sentence, under 30 words, stated as the '
     'group\'s own belief", "confidence": 0.0-1.0, "revises": integer '
-    "index of an existing theory this replaces, or null for a new one}."
+    'index of an existing theory this replaces, or null for a new one, '
+    '"objective": "under 15 words, what the group wants, or empty string '
+    'if unchanged"}.'
 )
 """Institutions Stage 3 (v0.64.0 audit-backlog item): institutions now
 *form* beliefs of their own, not only receive mirrored copies of
@@ -545,6 +551,23 @@ def fallback_institution_belief(kind_label: str, recent_events: list[dict]) -> d
         subject = "the quiet"
         belief = f"The {kind_label} expects the current quiet to hold."
     return {"subject": subject, "belief": belief, "confidence": 0.4, "revises": None}
+
+
+def parse_institution_objective(result: dict) -> str | None:
+    """v0.87.12 "institution objectives" (docs/IDEAS-2026-07-EMERGENCE.md
+    §7): pulled from the SAME institution-belief JSON result `parse_
+    belief` already parses for subject/belief/confidence — a separate
+    accessor since a blank/missing objective means "nothing changed,"
+    not "clear the existing one" (unlike belief, which always writes).
+    Returns None on a blank/missing/non-string answer so the caller can
+    leave `Institution.objective` untouched — the fallback path (a
+    templated belief with no real objective opinion) never fabricates
+    one either, since `fallback_institution_belief` has no "objective"
+    key at all and this only ever reads a genuine LLM `result`."""
+    text = result.get("objective")
+    if not isinstance(text, str) or not text.strip():
+        return None
+    return text.strip()[:150]
 
 
 def apply_institution_belief(institution: Institution, parsed: dict, tick: int) -> str:

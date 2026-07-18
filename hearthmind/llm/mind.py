@@ -8,7 +8,7 @@ uses — never revised afterward, unlike beliefs/semantic memories.
 """
 from __future__ import annotations
 
-from hearthmind.agents.agent import Agent, describe_traits
+from hearthmind.agents.agent import MAX_VOICE_TEXT_CHARS, Agent, describe_traits
 
 SYSTEM_PROMPT = (
     "You are naming the permanent, unchanging core of one villager in a small "
@@ -16,10 +16,13 @@ SYSTEM_PROMPT = (
     "fundamentally are: what they value, what they fear, what they want out of "
     "life, how they see their place in the world. This is written once and "
     "never revisited, so write it as a lasting truth about them, not a "
-    "reaction to anything happening right now. "
+    "reaction to anything happening right now. Also give them a distinct "
+    "manner of speaking — a cadence, a favorite figure of speech, a verbal "
+    "habit — so a reader could recognize their voice without seeing their name. "
     'Respond with strict JSON only, no other text: {"mind": "one to two '
     'sentences, under 35 words, third person, this villager\'s permanent '
-    'inner character"}.'
+    'inner character", "voice": "under 12 words, third person, one concrete '
+    'habit of speech"}.'
 )
 
 
@@ -30,8 +33,11 @@ def build_prompt(agent: Agent) -> str:
 
 
 def fallback_mind(agent: Agent) -> dict:
-    from hearthmind.agents.agent import describe_mind_fallback
-    return {"mind": describe_mind_fallback(agent.name, agent.traits)}
+    from hearthmind.agents.agent import describe_mind_fallback, describe_voice_fallback
+    return {
+        "mind": describe_mind_fallback(agent.name, agent.traits),
+        "voice": describe_voice_fallback(agent.name, agent.id),
+    }
 
 
 def parse_mind(result: dict, fallback: dict) -> str:
@@ -39,3 +45,10 @@ def parse_mind(result: dict, fallback: dict) -> str:
     if not isinstance(text, str) or not text.strip():
         text = fallback["mind"]
     return text.strip()[:220]
+
+
+def parse_voice(result: dict, fallback: dict) -> str:
+    text = result.get("voice")
+    if not isinstance(text, str) or not text.strip():
+        text = fallback["voice"]
+    return text.strip()[:MAX_VOICE_TEXT_CHARS]

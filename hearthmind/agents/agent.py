@@ -169,6 +169,11 @@ exchange — keeps a stable pair that's colocated for a long stretch from
 generating a new exchange (and LLM call) every tick. See
 docs/DECISIONS.md, E2."""
 
+DIALOGUE_TOPICS_RING_MAX = 3
+"""Cap on `Population.dialogue_topics`'s per-pair ring — v0.87.12
+"dialogue novelty memory" (docs/IDEAS-2026-07-EMERGENCE.md §7). Small
+on purpose: this is "what did we just talk about," not a transcript."""
+
 TRIGGERED_COGNITION_COOLDOWN_TICKS = 200
 """Minimum ticks between two event-triggered (not staggered-daily)
 cognition calls for the same agent — a hunger emergency or fresh grief
@@ -497,6 +502,14 @@ distinct parallel state for those would duplicate existing mechanisms
 and, for "slow," imply a new *recurring* LLM job — real added call
 volume this project is explicitly trying to hold flat. Revisit only on
 a fresh, explicit ask."""
+
+MAX_VOICE_TEXT_CHARS = 100
+"""Length cap on `Agent.voice` — v0.87.12 "per-agent voice" (docs/
+IDEAS-2026-07-EMERGENCE.md §7). Much shorter than `MAX_MIND_TEXT_CHARS`
+on purpose: this is a single manner-of-speaking tag (cadence, a
+favorite figure of speech, a verbal habit), not a paragraph. Authored
+once, at the same genesis moment as `mind` (`llm/mind.py`'s widened
+schema), never revised — same one-time-permanent shape as `mind`."""
 
 GRIEF_ENERGY_PENALTY = 0.2
 """Energy lost when a close bond (affinity >= REPRODUCTION_AFFINITY_THRESHOLD)
@@ -1190,6 +1203,29 @@ def describe_mind_fallback(name: str, traits: dict) -> str:
     return f"{name} has never put much thought into who they are — they just live."
 
 
+_VOICE_FALLBACK_TEMPLATES = (
+    "speaks in short, plain sentences",
+    "trails off mid-thought and rarely finishes a sentence",
+    "answers most things with another question",
+    "leans on old sayings and proverbs when they talk",
+    "talks fast and often interrupts themself",
+    "chooses words carefully and speaks slowly",
+    "has a habit of repeating the last thing they said, for emphasis",
+    "rarely speaks unless spoken to first",
+)
+
+
+def describe_voice_fallback(name: str, agent_id: int) -> str:
+    """Deterministic stand-in for `Agent.voice` — same "instant
+    placeholder, LLM silently improves it later" shape as `describe_
+    mind_fallback`, just a shorter manner-of-speaking tag instead of a
+    full identity paragraph. Keyed by `agent_id` (not traits, unlike
+    `describe_mind_fallback`) purely to give every fallback-only agent
+    a genuinely different-sounding tag rather than clustering on
+    whichever trait combination happens to be common."""
+    return _VOICE_FALLBACK_TEMPLATES[agent_id % len(_VOICE_FALLBACK_TEMPLATES)]
+
+
 class Agent:
     """A single inhabitant.
 
@@ -1247,6 +1283,7 @@ class Agent:
         secrets: list[str] | None = None,
         life_digest: str = "",
         mind: str = "",
+        voice: str = "",
         debts: dict[int, float] | None = None,
         stuck_ticks: int = 0,
         lessons: list[dict] | None = None,
@@ -1342,6 +1379,14 @@ class Agent:
         # mind: one-time-authored permanent identity paragraph, core
         # cast only, "" until they join — see MAX_MIND_TEXT_CHARS above.
         self.mind: str = mind
+        # voice: v0.87.12, "per-agent voice" (docs/IDEAS-2026-07-
+        # EMERGENCE.md §7) — one short line of manner-of-speaking
+        # (cadence, a favorite figure of speech, a verbal habit),
+        # authored at the same one-time genesis call as `mind` (zero
+        # added LLM volume — see llm/mind.py's widened schema). Garnish
+        # for dialogue/letters, never mechanically consumed — the point
+        # is a reader recognizing who's talking before the name.
+        self.voice: str = voice
         # skills: procedural teachable know-how, name -> proficiency 0..1
         # (SKILL_FARMING/CONSTRUCTION/MEDICINE) — distinct from beliefs.
         self.skills: dict[str, float] = {} if skills is None else skills
@@ -1616,6 +1661,7 @@ class Agent:
             "life_digest": self.life_digest,
             "lessons": list(self.lessons),
             "mind": self.mind,
+            "voice": self.voice,
             "skills": {k: round(v, 4) for k, v in self.skills.items()},
             "traits": {k: round(v, 4) for k, v in self.traits.items()},
             "beliefs": list(self.beliefs),
@@ -1672,6 +1718,7 @@ class Agent:
             life_digest=data.get("life_digest", ""),
             lessons=list(data.get("lessons", [])),
             mind=data.get("mind", ""),
+            voice=data.get("voice", ""),
             skills=dict(data.get("skills", {})),
             traits=dict(data.get("traits", {})),
             beliefs=list(data.get("beliefs", [])),
