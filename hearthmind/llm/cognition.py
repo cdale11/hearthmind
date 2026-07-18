@@ -56,7 +56,7 @@ def build_prompt(
     colocated_names: list[str] | None = None, nearest_food_steps: int | None = None,
     beliefs_about: list[str] | None = None, own_belief: str = "",
     semantic_memory: str = "", mind_text: str = "", needs_repair: bool = False,
-    life_digest: str = "",
+    life_digest: str = "", lesson: str = "",
 ) -> str:
     """`settlement_name`/`latest_tradition` are optional culture context
     (Phase E) — empty until the settlement is named/has a tradition, so
@@ -118,7 +118,16 @@ def build_prompt(
     `semantic_memory` already show — same "digest alongside specifics"
     shape `chronicle`/`town_brain` already use for `Settlement.
     belief_digest`, applied at the individual scale. Empty until the
-    Reflect() job has run at least once for this agent."""
+    Reflect() job has run at least once for this agent.
+
+    `lesson` (v0.87.0, "learns like a human" — see `Agent.lessons`):
+    the one stored lesson, if any, whose `situation` tag matches the
+    agent's CURRENT situation (computed deterministically at the call
+    site, `SimulationEngine._current_situation_tag`) — "smarter recall,
+    not just storage": this surfaces the most RELEVANT past takeaway
+    for right now, which may be older than every other memory/belief
+    already in this prompt, rather than only ever reading the newest
+    entries regardless of relevance."""
     culture = ""
     if settlement_name:
         culture = f" You live in {settlement_name}."
@@ -140,6 +149,7 @@ def build_prompt(
     semantic_text = f" You've come to feel: {semantic_memory}" if semantic_memory else ""
     mind_prompt_text = f" At your core: {mind_text}" if mind_text else ""
     life_digest_text = f" Your outlook on your own life so far: {life_digest}" if life_digest else ""
+    lesson_text = f" Something you've learned: {lesson}" if lesson else ""
     company = (
         f" With you right now: {', '.join(colocated_names)}."
         if colocated_names else " Nobody else is here right now."
@@ -160,7 +170,7 @@ def build_prompt(
         f"Currently {agent.state.value}, focused on '{agent.goal.value}'."
         f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{just_now_text}"
         f"{personality_text}{emotion_text}{beliefs_text}{own_belief_text}{semantic_text}{mind_prompt_text}"
-        f"{life_digest_text}{repair_text} "
+        f"{life_digest_text}{lesson_text}{repair_text} "
         "What should you focus on right now?"
     )
 

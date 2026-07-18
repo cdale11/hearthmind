@@ -352,6 +352,25 @@ never surfaced in the main UI (a "secret" spoiled in the NPC inspector
 defeats the point); reachable via the dev console/raw `/state` JSON
 like every other under-the-hood mechanism."""
 
+MAX_LESSONS = 4
+"""Cap on `Agent.lessons` — v0.87.0, "learns like a human." A lesson is
+`{"situation": str, "text": str, "formed_tick": int}`: a short, tagged
+takeaway the agent draws from a specific kind of lived experience
+("hunger", "conflict", "grief", "danger", "social"), distinct from
+`semantic_memories` (a general self-theory) and `beliefs` (a theory
+about someone/something else) — a lesson is specifically indexed by
+*when it applies*, so cognition/dialogue can surface the one lesson
+that matches the agent's CURRENT situation instead of only ever
+reading the newest memory regardless of relevance ("smarter recall,
+not just storage"). Written by extending the existing Reflect() job
+(`SimulationEngine._maybe_schedule_personal_belief`) — zero added LLM
+call volume, same discipline `semantic_memories`/`life_digest` already
+established. Small and capped: evicts the oldest entry sharing the
+*same* situation tag first (a fresher lesson about hunger supersedes an
+older one about hunger), falling back to the globally oldest only if no
+same-situation entry exists — so the cap doesn't let one situation
+crowd out all the others."""
+
 MAX_MIND_TEXT_CHARS = 220
 """Length cap on `Agent.mind` — Phase J's "persistent mind schema"
 (docs/VISION-2026-07.md, "Deeper Minds"), scoped down to its
@@ -1050,6 +1069,7 @@ class Agent:
         mind: str = "",
         debts: dict[int, float] | None = None,
         stuck_ticks: int = 0,
+        lessons: list[dict] | None = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -1130,6 +1150,10 @@ class Agent:
         # is the concrete "read persistent memory back into the LLM"
         # loop closing at the personal scale.
         self.life_digest: str = life_digest
+        # lessons: situation-tagged takeaways from lived experience, cap
+        # MAX_LESSONS (see above) — written by Reflect(), consumed by
+        # cognition/dialogue when the current situation matches.
+        self.lessons: list[dict] = [] if lessons is None else lessons
         # mind: one-time-authored permanent identity paragraph, core
         # cast only, "" until they join — see MAX_MIND_TEXT_CHARS above.
         self.mind: str = mind
@@ -1373,6 +1397,7 @@ class Agent:
             "semantic_memories": list(self.semantic_memories),
             "secrets": list(self.secrets),
             "life_digest": self.life_digest,
+            "lessons": list(self.lessons),
             "mind": self.mind,
             "skills": {k: round(v, 4) for k, v in self.skills.items()},
             "traits": {k: round(v, 4) for k, v in self.traits.items()},
@@ -1423,6 +1448,7 @@ class Agent:
             semantic_memories=list(data.get("semantic_memories", [])),
             secrets=list(data.get("secrets", [])),
             life_digest=data.get("life_digest", ""),
+            lessons=list(data.get("lessons", [])),
             mind=data.get("mind", ""),
             skills=dict(data.get("skills", {})),
             traits=dict(data.get("traits", {})),

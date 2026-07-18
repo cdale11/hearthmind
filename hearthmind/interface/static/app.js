@@ -1608,6 +1608,16 @@ function renderNpcInspector() {
   const reflectionsHtml = (ownBeliefs.length || semanticMemories.length || agent.life_digest)
     ? `${lifeDigestHtml}<ul>${semanticMemories.map((m) => `<li>${m}</li>`).join("")}${ownBeliefs.map((b) => `<li><span class="muted">(re: ${b.subject})</span> ${b.belief}</li>`).join("")}</ul>`
     : `<div class="muted">no private theories yet</div>`;
+  // Lessons (v0.87.0, "learns like a human"): situation-tagged
+  // takeaways from lived experience — see Agent.lessons, written by the
+  // same Reflect() job as "Their own reflections" above but distinct
+  // from it: a lesson is indexed by WHEN it applies (hunger/conflict/
+  // grief/danger/social), surfaced back into this agent's own cognition
+  // prompt the next time that situation recurs.
+  const lessons = (agent.lessons || []).slice().reverse();
+  const lessonsHtml = lessons.length
+    ? `<ul>${lessons.map((l) => `<li><span class="muted">(${l.situation})</span> ${l.text}</li>`).join("")}</ul>`
+    : `<div class="muted">no lessons learned yet</div>`;
   const traits = agent.traits || {};
   const traitLabel = (value) => {
     const v = value || 0;
@@ -1695,6 +1705,10 @@ function renderNpcInspector() {
       ${reflectionsHtml}
     </div>
     <div class="npc-section">
+      <h4>Lessons learned</h4>
+      ${lessonsHtml}
+    </div>
+    <div class="npc-section">
       <h4>Full life history</h4>
       ${renderMemoryLogSection(agent.id)}
     </div>
@@ -1740,7 +1754,10 @@ function renderMemoryLogSection(agentId) {
   if (!entries.length) {
     return `<div class="muted">nothing preserved on disk yet — a fuller history accumulates as their life goes on</div>`;
   }
-  const memoryLogLabels = { semantic: "self-theory", belief: "private belief", secret: "secret" };
+  const memoryLogLabels = {
+    semantic: "self-theory", belief: "private belief", secret: "secret",
+    lesson: "lesson learned", episodic_drifted: "memory, as remembered now",
+  };
   const items = entries.map((e) => {
     const label = memoryLogLabels[e.kind] || "memory";
     return `<li><span class="muted">[${label}, tick ${e.tick}]</span> ${e.text}</li>`;

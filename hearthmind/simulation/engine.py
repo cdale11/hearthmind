@@ -32,6 +32,9 @@ except ImportError:  # pragma: no cover — this project's target hardware is Li
 from hearthmind.agents.agent import (
     DIALOGUE_COOLDOWN_TICKS,
     DIALOGUE_SENTIMENT_DELTA,
+    EMOTION_FEAR,
+    EMOTION_GRIEF,
+    FORAGE_HUNGER_THRESHOLD,
     PERSONAL_FOOD_CAPACITY,
     RIVALRY_THRESHOLD,
     SKILL_CONSTRUCTION,
@@ -49,8 +52,8 @@ from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
     faction, fission, beliefs, caravan, chronicle, consciousness, culture, culture_digest, dialogue, dispute,
-    documentary, dream, festival, folklore, founding, geography, invention, mind, naming, narrative_direction,
-    omens, religion, rumor_interpret, summary, town_brain,
+    documentary, dream, festival, folklore, founding, geography, invention, memory_drift, mind, naming,
+    narrative_direction, omens, religion, rumor_interpret, summary, town_brain,
 )
 from hearthmind.llm.client import build_llm_client
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
@@ -341,7 +344,7 @@ MONTHLY_JOB_DAY = {
     "chronicle": 1, "festival": 4, "caravan": 7, "fission": 8, "town_brain": 10,
     "beliefs": 13, "personal_belief": 16, "guild_founding": 19,
     "institution_belief": 22, "geography": 25, "folklore": 20, "dream": 23, "omen": 27, "faction": 26,
-    "consciousness": 24,
+    "consciousness": 24, "memory_drift": 21,
 }
 """Day-of-month (0-based; every value <= 27 so it exists even in
 February) on which each monthly LLM job fires — the memory-pressure
@@ -366,7 +369,7 @@ monthly ~10."""
 MONTHLY_JOBS_WITH_RETRY = frozenset({
     "chronicle", "folklore", "town_brain", "beliefs", "personal_belief",
     "dream", "faction", "guild_founding", "institution_belief", "fission",
-    "geography", "consciousness",
+    "geography", "consciousness", "memory_drift",
 })
 """Job names `_monthly_gate` grants a `MONTHLY_JOB_RETRY_WINDOW_DAYS`-day
 window instead of one exact day — every monthly job EXCEPT festival/
@@ -1065,6 +1068,7 @@ class SimulationEngine:
         ("_maybe_schedule_beliefs", _JOB_EVENTS),
         ("_maybe_schedule_personal_belief", _JOB_EVENTS),
         ("_maybe_schedule_dream", _JOB_EVENTS),
+        ("_maybe_schedule_memory_drift", _JOB_EVENTS),
         ("_maybe_tick_temperament", _JOB_EVENTS),
         ("_maybe_schedule_omen", _JOB_EVENTS),
         ("_maybe_tick_market_prices", _JOB_EVENTS),
@@ -1189,6 +1193,51 @@ class SimulationEngine:
             return True
         return any(v <= RIVALRY_THRESHOLD for v in agent.relationships.values())
 
+    LESSON_RECENT_DISPUTE_TICKS = 500
+    """How recent a dispute-cooldown entry must be for `_current_
+    situation_tag` to read the agent as currently "in conflict" —
+    deliberately much shorter than `DISPUTE_COOLDOWN_TICKS` (which just
+    gates re-triggering a NEW dispute) since this is asking "does this
+    still feel like an open conflict right now," not "is a new dispute
+    on cooldown." See v0.87.0, "learns like a human" — `Agent.lessons`."""
+
+    def _current_situation_tag(self, agent) -> str:
+        """Deterministic classifier for `Agent.lessons`' situation match
+        (v0.87.0) — cheap, stdlib, no embeddings: which of `beliefs.
+        LESSON_SITUATIONS` best describes what this agent is dealing
+        with RIGHT NOW. Priority order favors the more acute situation
+        when more than one applies (a hungry agent mid-feud reads as
+        "conflict" first, since that's usually the more decision-
+        relevant lesson to recall) — "" when nothing notable applies,
+        which correctly means no lesson gets surfaced this call."""
+        dominant = dominant_emotion(agent.emotions)
+        dominant_key = dominant[0] if dominant is not None else None
+        if dominant_key == EMOTION_FEAR:
+            return "danger"
+        tick = self.world.clock.tick_count
+        cooldowns = self.world.population.dispute_cooldowns
+        if any(
+            agent.id in pair and tick - last_tick <= self.LESSON_RECENT_DISPUTE_TICKS
+            for pair, last_tick in cooldowns.items()
+        ):
+            return "conflict"
+        if dominant_key == EMOTION_GRIEF:
+            return "grief"
+        if agent.hunger >= FORAGE_HUNGER_THRESHOLD:
+            return "hunger"
+        return ""
+
+    def _matching_lesson(self, agent, situation: str) -> str:
+        """Returns the text of `agent.lessons`' freshest entry tagged
+        with `situation`, or "" if none matches / situation is "" —
+        thin lookup helper for `_schedule_due_cognition`/dialogue."""
+        if not situation:
+            return ""
+        matches = [entry for entry in agent.lessons if entry.get("situation") == situation]
+        if not matches:
+            return ""
+        return max(matches, key=lambda e: e.get("formed_tick", 0))["text"]
+
     def _schedule_due_cognition(self) -> None:
         """Fire-and-forget a goal-decision task for every agent whose
         staggered daily slot is this tick. Scheduled unconditionally
@@ -1284,6 +1333,7 @@ class SimulationEngine:
             own_belief = max(agent.beliefs, key=lambda b: b["confidence"])["belief"] if agent.beliefs else ""
             semantic_memory = agent.semantic_memories[-1] if agent.semantic_memories else ""
             needs_repair = bool(population.damaged_building_positions(home))
+            lesson = self._matching_lesson(agent, self._current_situation_tag(agent))
             prompt = build_prompt(
                 agent, self.world.clock.season, self.world.weather.describe(),
                 settlement_name=home.name, latest_tradition=latest_tradition,
@@ -1291,6 +1341,7 @@ class SimulationEngine:
                 beliefs_about=beliefs_about, own_belief=own_belief,
                 semantic_memory=semantic_memory, mind_text=agent.mind,
                 needs_repair=needs_repair, life_digest=agent.life_digest,
+                lesson=lesson,
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             traits_snapshot = dict(agent.traits)
@@ -2635,6 +2686,17 @@ class SimulationEngine:
                     # this, an agent's earlier secret vanishes the moment
                     # a second one displaces it.
                     log_agent_memory_entry(self.conn, tick, target.id, "secret", secret_text)
+            # Lessons (v0.87.0, "learns like a human" — situation-tagged
+            # takeaways, see Agent.lessons/beliefs.push_lesson): the LLM's
+            # own optional field, left blank most calls (parse_lesson has
+            # no fallback path, same discipline as parse_secret — a
+            # fabricated fallback should never invent a lesson).
+            lesson_situation, lesson_text = beliefs.parse_lesson(result)
+            if lesson_text:
+                beliefs.push_lesson(target, lesson_situation, lesson_text, tick)
+                log_agent_memory_entry(
+                    self.conn, tick, target.id, "lesson", f"(re: {lesson_situation}) {lesson_text}",
+                )
 
         self._schedule_llm_job("personal_belief", prompt, beliefs.PERSONAL_SYSTEM_PROMPT, fallback, apply, critical=True)
 
@@ -2692,6 +2754,67 @@ class SimulationEngine:
                 self.world.settlement.dream_seed = ""
 
         self._schedule_llm_job("dream", prompt, dream.SYSTEM_PROMPT, fallback, apply, critical=True)
+
+    MEMORY_DRIFT_CHANCE = 0.2
+    """Per-eligible-agent chance `_maybe_schedule_memory_drift` actually
+    fires this month, on top of the monthly round-robin pick — keeps
+    this genuinely new call (see llm/memory_drift.py's docstring: this
+    is the one deliberately-not-zero-cost job in the v0.87.0 "learns
+    like a human" batch) rare texture rather than a routine monthly
+    rewrite of every core-cast agent's memories in turn."""
+
+    def _maybe_schedule_memory_drift(self, events: list[str]) -> None:
+        """Memory drift/reinterpretation (v0.87.0, "learns like a
+        human" — "gradual forgetting/distortion"; see llm/memory_
+        drift.py's module docstring for the full rationale). Monthly
+        round-robin over core-cast agents with 2+ memories (same shape
+        as `_maybe_schedule_dream`), additionally gated by `MEMORY_
+        DRIFT_CHANCE` so most months nothing drifts at all. Picks one
+        of the agent's OLDER memories (not the single freshest, which
+        `just_now_text`/dialogue's "just now" line still reads
+        verbatim) and asks the LLM how they'd actually remember it now
+        — replaces that memory's text IN PLACE (same list position,
+        same salience entry untouched), never adds or removes an entry,
+        so `MAX_AGENT_MEMORIES`/salience-eviction behavior is
+        completely unaffected. Non-critical (`critical=False`): unlike
+        belief/semantic-memory formation, this has a genuinely sensible
+        fallback (leave the memory exactly as it was — ambient texture,
+        not crucial cognition), so a spent budget or failed call simply
+        means no drift this month, same as every other ambient job."""
+        if not self._monthly_gate(events, "memory_drift"):
+            return
+        core_ids = list(self.world.population.core_agent_ids)
+        candidates = [a for a in self.world.population.agents if a.id in core_ids and len(a.memories) >= 2]
+        if not candidates:
+            return
+        if self._settlement_job_backpressured():
+            return
+        self._mark_monthly_resolved("memory_drift")
+        rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "memory_drift")
+        if rng.random() >= self.MEMORY_DRIFT_CHANCE:
+            return
+        agent = rng.choice(candidates)
+        agent_id = agent.id
+        drift_index = rng.randrange(0, len(agent.memories) - 1)  # never the single freshest entry
+        old_memory = agent.memories[drift_index]
+        prompt = memory_drift.build_prompt(agent, old_memory)
+        fallback = memory_drift.fallback_drift(old_memory)
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            if used_fallback:
+                return  # unchanged text — see llm/memory_drift.fallback_drift's docstring
+            target = self.world.population.get(agent_id)
+            if target is None:
+                return  # died between scheduling and resolution
+            if drift_index >= len(target.memories) or target.memories[drift_index] != old_memory:
+                return  # memory list shifted (new arrival/eviction) since scheduling — skip rather than drift the wrong entry
+            drifted_text = memory_drift.parse_drift(result, fallback)
+            target.memories[drift_index] = drifted_text
+            log_agent_memory_entry(
+                self.conn, self.world.clock.tick_count, target.id, "episodic_drifted", drifted_text,
+            )
+
+        self._schedule_llm_job("memory_drift", prompt, memory_drift.SYSTEM_PROMPT, fallback, apply, critical=False)
 
     # --- Phase G v1: temperament and omens (deliberately subtle) ---------------
 

@@ -62,6 +62,17 @@ MAX_BELIEFS: a person's own running theories about their life are a
 narrower thing than a whole village's accumulated understanding of
 itself."""
 
+LESSON_SITUATIONS = ("hunger", "conflict", "grief", "danger", "social")
+"""Fixed small vocabulary for `Agent.lessons`' `situation` tag (v0.87.0,
+"learns like a human" — the `lessons` mechanism). Deliberately closed
+and tiny rather than freeform: the whole point is `SimulationEngine`
+can cheaply compute "what situation is this agent in right now" with a
+plain deterministic classifier (hunger level, active dispute cooldown,
+recent grief/danger emotion) and match it against a stored lesson's
+tag with a simple string equality — no embeddings/similarity search,
+matching this project's stdlib-first, no-vector-DB posture. An open
+vocabulary would make that match unreliable."""
+
 PERSONAL_SYSTEM_PROMPT = (
     "You are the private, evolving self-understanding of one villager in a small "
     "simulated world — not an outside narrator, but their own quiet running theory "
@@ -80,7 +91,11 @@ PERSONAL_SYSTEM_PROMPT = (
     "Also, looking at the whole picture of everything they believe about themselves "
     "so far (not just the one theory you're forming or revising now), condense it "
     "into one short sentence — how you'd sum up their outlook on their own life in "
-    "one line. "
+    "one line. Finally, if their recent experience teaches a practical lesson about "
+    "handling ONE specific kind of situation again in future — being hungry, being in "
+    "conflict with someone, grieving a loss, facing danger, or a social situation — "
+    "state that lesson plainly and name which one of those five categories it's "
+    "about (leave both blank if nothing recent teaches a clear practical lesson). "
     'Respond with strict JSON only, no other text: {"subject": "short label, e.g. '
     'a person\'s name, \'my place here\', \'the harvests\', \'what happened to '
     'them\'", "belief": "one sentence, under 30 words, stated as this villager\'s '
@@ -90,7 +105,9 @@ PERSONAL_SYSTEM_PROMPT = (
     'under 25 words, first-person, the lasting thought described above", "secret": '
     '"" (leave blank almost always) or a private secret under 20 words, first-person, '
     '"life_digest": "one sentence, under 25 words, summarizing this person\'s overall '
-    'outlook on their own life so far"}.'
+    'outlook on their own life so far", "lesson_situation": "" or one of hunger/'
+    'conflict/grief/danger/social, "lesson": "" or one sentence, under 20 words, '
+    'first-person, a practical takeaway for handling that situation again"}.'
 )
 
 
@@ -393,6 +410,44 @@ def parse_secret(result: dict) -> str:
     if not isinstance(text, str):
         return ""
     return text.strip()[:150]
+
+
+def parse_lesson(result: dict) -> tuple[str, str]:
+    """Extracts the optional `lesson_situation`/`lesson` pair (v0.87.0).
+    No fallback, same discipline as `parse_secret` — a deterministic
+    fallback answer should never invent a lesson, and leaving both
+    blank most calls is the expected common case, not an error. Returns
+    `("", "")` on anything malformed or when `lesson_situation` isn't
+    one of `LESSON_SITUATIONS`."""
+    situation = result.get("lesson_situation")
+    text = result.get("lesson")
+    if not isinstance(situation, str) or not isinstance(text, str):
+        return "", ""
+    situation = situation.strip().lower()
+    text = text.strip()
+    if situation not in LESSON_SITUATIONS or not text:
+        return "", ""
+    return situation, text[:150]
+
+
+def push_lesson(agent, situation: str, text: str, tick: int) -> None:
+    """Appends one situation-tagged lesson to `Agent.lessons`, capped at
+    MAX_LESSONS (agents/agent.py). Evicts the oldest entry sharing the
+    SAME `situation` first (a fresher hunger lesson supersedes an older
+    hunger lesson) so the small cap doesn't let one recurring situation
+    crowd out the others; falls back to evicting the globally oldest
+    entry only once every situation slot is already distinct. No-op on
+    an empty situation/text (the common "nothing to report" case)."""
+    if not situation or not text:
+        return
+    from hearthmind.agents.agent import MAX_LESSONS
+    agent.lessons.append({"situation": situation, "text": text, "formed_tick": tick})
+    if len(agent.lessons) <= MAX_LESSONS:
+        return
+    same_situation_idx = next(
+        (i for i, entry in enumerate(agent.lessons[:-1]) if entry["situation"] == situation), None,
+    )
+    del agent.lessons[same_situation_idx if same_situation_idx is not None else 0]
 
 
 def push_semantic_memory(agent, text: str) -> None:
