@@ -96,17 +96,19 @@
 #                        cadence — a clean process restart is the
 #                        reliable way to reclaim heap fragmentation that
 #                        --defrag-thold can't touch. hearthmind.server
-#                        keeps running through the ~1-10s restart window;
-#                        any LLM call attempted during it fails over to
-#                        the existing deterministic fallback/defer path
-#                        (see CLAUDE.md, "Tick loop... LLM calls are
-#                        fire-and-forget async and must never block a
-#                        tick") exactly as it already does for a
-#                        timed-out or errored call, so a restart is never
-#                        visible as more than a few skipped LLM answers
-#                        that month. Model reload time (seconds) scales
-#                        with model size and disk speed, not with how
-#                        long the previous instance had been running.
+#                        PAUSES ticking outright for the ~1-10s restart
+#                        window (v0.87.3, via a sentinel file this
+#                        script's restart supervisor touches/removes
+#                        around the restart — see Config.llm_restart_
+#                        sentinel_path) rather than leaving it to every
+#                        individual LLM call to fall back on its own —
+#                        the browser UI shows a "llama-server
+#                        restarting" indicator while paused, and
+#                        `/diagnostics.llama_server_restarts_total`
+#                        counts how many restarts have happened this
+#                        session. Model reload time (seconds) scales with
+#                        model size and disk speed, not with how long the
+#                        previous instance had been running.
 #   LLAMA_MALLOC_ARENA_MAX / LLAMA_MALLOC_MMAP_THRESHOLD_KB /
 #   LLAMA_MALLOC_TRIM_THRESHOLD_KB
 #                        All default empty/unset (glibc's own defaults,
@@ -292,6 +294,16 @@ llama_pidfile="$(mktemp)"
 write_llama_pid() { echo "$1" > "$llama_pidfile"; }
 read_llama_pid() { cat "$llama_pidfile" 2>/dev/null || true; }
 
+# Sentinel file for hearthmind.server (v0.87.3, see Config.llm_restart_
+# sentinel_path's docstring): only created when LLAMA_RESTART_HOURS is
+# actually enabled below, so the default path adds zero overhead (the
+# Python side's check is skipped entirely when the sentinel path is
+# never passed). Deliberately a `mktemp -u` (a fresh, not-yet-existing
+# path) rather than `mktemp` itself, since the signal IS the file's
+# existence — creating it up front would read as "already restarting"
+# before the first restart ever happens.
+llama_restart_sentinel="$(mktemp -u)"
+
 # Registered once, up front, so it correctly cleans up whichever
 # process(es) are alive regardless of where in the script a signal or
 # early exit happens — pids are read at call time (llama's via the
@@ -311,7 +323,7 @@ cleanup() {
     kill -TERM "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
   fi
-  rm -f "$llama_pidfile" 2>/dev/null || true
+  rm -f "$llama_pidfile" "$llama_restart_sentinel" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -453,6 +465,15 @@ if [[ "$llm_disabled" == false ]]; then
         sleep "$((LLAMA_RESTART_HOURS * 3600))"
         old_pid="$(read_llama_pid)"
         echo "run.sh: periodic llama-server restart (LLAMA_RESTART_HOURS=$LLAMA_RESTART_HOURS) — reclaiming any long-run heap fragmentation..." >&2
+        # Sentinel file (Config.llm_restart_sentinel_path, v0.87.3):
+        # hearthmind.server polls this path's existence and pauses
+        # ticking outright while it's there, instead of relying on
+        # every individual LLM call that happens to land during the
+        # ~1-10s restart window to fall back/defer on its own. Created
+        # BEFORE killing the old process (the town should pause for the
+        # whole outage, not just the relaunch), removed only once the
+        # replacement genuinely answers /health.
+        touch "$llama_restart_sentinel"
         if [[ -n "$old_pid" ]] && kill -0 "$old_pid" 2>/dev/null; then
           kill -TERM "$old_pid" 2>/dev/null || true
           wait "$old_pid" 2>/dev/null || true
@@ -463,8 +484,10 @@ if [[ "$llm_disabled" == false ]]; then
           echo "run.sh: llama-server restarted (pid $new_pid)." >&2
         else
           echo "run.sh: llama-server failed to come back up after a periodic restart — giving up on further restarts." >&2
+          rm -f "$llama_restart_sentinel"
           break
         fi
+        rm -f "$llama_restart_sentinel"
       done
     ) &
     restart_supervisor_pid=$!
@@ -473,10 +496,18 @@ fi
 
 echo "run.sh: starting hearthmind.server..." >&2
 cd "$REPO_ROOT"
+# Only passed when the restart supervisor above is actually active — a
+# sentinel path with no supervisor touching it would just be a
+# permanently-false check, so there's no reason to pay even that (tiny)
+# per-loop os.path.exists() cost otherwise.
+restart_sentinel_args=()
+if [[ -n "$restart_supervisor_pid" ]]; then
+  restart_sentinel_args=(--llm-restart-sentinel "$llama_restart_sentinel")
+fi
 if [[ "$llm_disabled" == false ]]; then
-  python -m hearthmind.server --llm-backend llamacpp --llm-llamacpp-host "$LLAMA_HOST" "$@" &
+  python -m hearthmind.server --llm-backend llamacpp --llm-llamacpp-host "$LLAMA_HOST" "${restart_sentinel_args[@]}" "$@" &
 else
-  python -m hearthmind.server "$@" &
+  python -m hearthmind.server "${restart_sentinel_args[@]}" "$@" &
 fi
 hearthmind_pid=$!
 wait "$hearthmind_pid"

@@ -520,6 +520,60 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.87.3)
+
+Five items from one user turn (parallel build still not visibly
+working, reconsider sim-size defaults for speed/memory, where repair
+counters show in the UI, continue deferred item 4 of the "learns like
+a human" doc, and make `LLAMA_RESTART_HOURS` restarts pause the sim and
+show in the UI/diagnostics). Full detail in CHANGELOG.md; durable facts
+only here.
+
+**Parallel build**: `setup.py`'s `BuildExtOptional.finalize_options`
+now sizes `--parallel` from `os.sched_getaffinity(0)` (cgroup/taskset-
+aware) rather than `os.cpu_count()` (machine-total, ignores affinity
+restrictions) — the likely root cause of a live "still not parallel"
+report on a constrained host, since the v0.85.6 fix used `cpu_count()`.
+
+**Sim-size defaults: audited, not changed.** A real headless soak
+(LLM disabled, default 64x64/pop-12) measured tick cost staying under
+1% of the 1000ms tick budget even as population grows toward
+`POPULATION_CAP=400` (6.2ms/tick at pop~12, 9.8ms/tick at pop 83,
+extrapolates to ~2-3% of budget at the cap). The tick loop is not the
+smoothness bottleneck at any current-default population/map size — the
+real lever remains LLM call throughput/config (already tuned from live
+hardware reports, see "Hardware target" above), not `width`/`height`/
+`POPULATION_CAP`/`tick_seconds`. Changing those without a measured
+problem would violate this project's own "measure before tuning" rule
+— if population/map size are ever raised well past current defaults,
+finish R8 (port `Population`'s remaining per-agent tick logic to the
+C++ store) first.
+
+**Repairs & upkeep**: already in the main UI as its own stat tile
+(v0.86.7) — no gap, just a pointer.
+
+**Town Consciousness trend + theory**: `_player_intervention_trend`
+now folds the consciousness's own leading `consciousness_player_model`
+belief into the frequency-trend sentence (`_leading_player_theory`,
+new helper) instead of the two facts sitting unconnected in the
+prompt. Zero added LLM call volume — closes deferred item 4 of
+docs/VISION-2026-07-LEARNING.md.
+
+**`LLAMA_RESTART_HOURS` now pauses the simulation, not just the LLM
+calls.** New `Config.llm_restart_sentinel_path`: `scripts/run.sh`'s
+restart supervisor touches/removes a file around the restart;
+`SimulationEngine.llama_server_restarting()` polls it the same way
+`llm_pressure_paused()` is polled, and `run_forever` pauses ticking
+outright while it's set (same `PAUSED_POLL_SECONDS` cadence as every
+other pause reason) instead of leaving every individual LLM call to
+fall back/defer independently during the outage. Tracks
+`_llama_server_restarts` (edge-counted) and forces an out-of-band
+broadcast on the transition so the UI's new "🔁 llama-server
+restarting" banner and `/diagnostics.llama_server_restarts_total`/
+`llama_server_restarting` update promptly rather than only after
+ticking resumes. Zero cost when no sentinel path is configured (the
+default — `run.sh` only passes one when `LLAMA_RESTART_HOURS>0`).
+
 ## Current state (v0.87.2)
 
 Two independent pieces per explicit user direction: continue item 2

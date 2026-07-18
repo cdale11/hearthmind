@@ -169,6 +169,21 @@ class Config:
     llm_llamacpp_host: str = "http://localhost:8080"
     """`llama-server` URL — only consulted when `llm_backend="llamacpp"`
     (the default). 8080 is `llama-server`'s own default port."""
+    llm_restart_sentinel_path: str | None = None
+    """Path to a file `scripts/run.sh`'s `LLAMA_RESTART_HOURS` supervisor
+    touches right before killing the old `llama-server` process and
+    removes once the replacement answers `/health` (v0.87.3). `None`
+    (the default — set only when `run.sh` launches with
+    `LLAMA_RESTART_HOURS>0`) means the check is skipped entirely, zero
+    added cost. When set, `SimulationEngine.run_forever` polls the
+    file's existence the same way it already polls `llm_pressure_
+    paused()` — a restarting llama-server pauses ticking outright
+    (same `PAUSED_POLL_SECONDS` cadence) rather than relying on every
+    in-flight LLM call individually timing out/falling back during the
+    ~1-10s restart window. Two separate processes (this bash script and
+    `hearthmind.server`) with no shared memory, so a plain file's
+    existence is the simplest correct signal — matches this project's
+    stdlib-first, no-new-dependency posture."""
     llm_model: str = "gemma-4-e2b-it"
     """Changed from `qwen3:4b-instruct` in v0.85.0 per a live user
     report: `gemma-4-e2b-it` "seems to be performing the best" on their

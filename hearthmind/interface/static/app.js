@@ -2325,6 +2325,7 @@ function applyPayload(payload) {
   renderInfrastructure(payload.infrastructure);
   if (payload.diagnostics && payload.diagnostics.sim_pacing) renderSimPacing(payload.diagnostics.sim_pacing);
   if (payload.diagnostics) renderConsciousnessIndicator(payload.diagnostics);
+  if (payload.diagnostics) renderLlamaRestartIndicator(payload.diagnostics);
   if (inspectedAgentId !== null) renderNpcInspector();
   if (inspectedTarget !== null) renderTargetInspector();
   updateAgentAnimTargets(payload.agents || []);
@@ -2377,6 +2378,18 @@ function renderConsciousnessIndicator(diagnostics) {
   consciousnessLabelEl.textContent = paused
     ? "the town is deep in thought…"
     : "the town is thinking…";
+}
+
+// llama-server restart indicator (LLAMA_RESTART_HOURS, v0.87.3): a
+// planned, scripts/run.sh-driven restart pauses the simulation outright
+// (see engine.py's llama_server_restarting()) — surfaced the same way
+// as the pressure indicator above rather than leaving the town to read
+// as an unexplained freeze.
+const llamaRestartEl = document.getElementById("llama-restart-indicator");
+
+function renderLlamaRestartIndicator(diagnostics) {
+  if (!llamaRestartEl) return;
+  llamaRestartEl.classList.toggle("hidden", !diagnostics.llama_server_restarting);
 }
 
 async function postSimSpeed(body) {

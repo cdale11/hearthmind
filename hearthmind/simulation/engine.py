@@ -597,6 +597,22 @@ class SimulationEngine:
         scheduled day was backpressured, instead of silently waiting a
         full month. See MONTHLY_JOB_RETRY_WINDOW_DAYS and `_mark_monthly_
         resolved`."""
+        self._llama_server_restarting = False
+        """Tracks the last-seen state of `config.llm_restart_sentinel_
+        path` so `run_forever` can detect the absent->present edge and
+        count a real restart (see `_llama_server_restarts`), rather than
+        counting once per polling cycle the sentinel happens to still be
+        there. See `llama_server_restarting()`."""
+        self._llama_server_restarts = 0
+        """How many times `scripts/run.sh`'s `LLAMA_RESTART_HOURS`
+        supervisor has restarted llama-server since this process
+        started (v0.87.3) — counted from the sentinel-file absent-
+        >present edge, not persisted across a `hearthmind.server`
+        restart itself, same "session stat" convention as `snapshots_
+        saved`/`calls_dropped_backpressure`. Surfaced via `/diagnostics`
+        and the live broadcast so "why did the town stop moving for a
+        few seconds" has a real answer instead of reading as an
+        unexplained stall."""
         self._llm_calls_today = 0
         """Ollama calls scheduled so far this sim-day (all kinds:
         cognition, dialogue, settlement jobs). Reset to 0 on `day_end`
@@ -778,6 +794,45 @@ class SimulationEngine:
             return 1.0
         progress = min(1.0, (ratio - LLM_PRESSURE_SLOWDOWN_START_RATIO) / span)
         return 1.0 + progress * (LLM_PRESSURE_MAX_SLOWDOWN - 1.0)
+
+    def llama_server_restarting(self) -> bool:
+        """True while `config.llm_restart_sentinel_path` exists on disk —
+        `scripts/run.sh`'s `LLAMA_RESTART_HOURS` supervisor (a separate
+        bash process) touches this file right before killing the old
+        llama-server process and removes it once the replacement answers
+        `/health` again. `run_forever` pauses ticking outright while this
+        is True, the same way it already pauses on `llm_pressure_
+        paused()` — a crucial-cognition job deferring individually on a
+        failed/timed-out call is correct for an occasional bad call, but
+        a *planned* multi-second outage is better handled by pausing the
+        whole town rather than manufacturing a wave of failed calls
+        across every agent whose cognition/dialogue happens to come due
+        during the restart window. Also updates `_llama_server_restarts`
+        on the absent->present edge and logs a real `llama_server_
+        restart` event on both edges, so the UI/History tab can show it
+        rather than the town silently freezing for a few seconds with no
+        visible cause. Returns False immediately (no stat) when no
+        sentinel path is configured — the default, zero-cost path for
+        anyone not running `LLAMA_RESTART_HOURS>0`."""
+        path = self.config.llm_restart_sentinel_path
+        if not path:
+            return False
+        restarting = os.path.exists(path)
+        if restarting != self._llama_server_restarting:
+            if restarting:
+                self._llama_server_restarts += 1
+                self._log("llama_server_restart", "llama-server is restarting to reclaim memory — the town pauses briefly.")
+            else:
+                self._log("llama_server_restart", "llama-server is back — the town resumes.")
+            self._llama_server_restarting = restarting
+            # `_tick_once()` is fully skipped for the whole pause window
+            # (see run_forever), so nothing would otherwise push this
+            # transition to connected clients until ticking resumes —
+            # broadcast it directly on the edge so the UI's indicator
+            # (and the event itself) show up promptly instead of only
+            # after the restart has already finished.
+            self._maybe_broadcast()
+        return restarting
 
     def _settlement_job_backpressured(self) -> bool:
         """Backpressure check for the settlement-level jobs (chronicle,
@@ -1017,15 +1072,21 @@ class SimulationEngine:
                 # iteration so it reacts live as backlog drains, not just at
                 # the top of a tick.
                 llm_paused = self.llm_pressure_paused()
-                if not paused and not llm_paused:
+                # A planned llama-server restart (LLAMA_RESTART_HOURS)
+                # pauses the same way — see llama_server_restarting()'s
+                # docstring for why this is a real pause rather than
+                # leaving it to per-call fallback/defer.
+                restarting = self.llama_server_restarting()
+                if not paused and not llm_paused and not restarting:
                     self._tick_once()
                 speed = self._broadcaster.get_speed_multiplier() if self._broadcaster is not None else 1.0
-                # While paused (user-requested or LLM-pressure-triggered),
-                # poll at a short fixed interval rather than the (possibly
-                # very long, at a low speed multiplier) tick interval, so a
-                # resume/stop request — or backlog draining back down — is
-                # picked up promptly.
-                if paused or llm_paused:
+                # While paused (user-requested, LLM-pressure-triggered, or
+                # a llama-server restart in progress), poll at a short
+                # fixed interval rather than the (possibly very long, at a
+                # low speed multiplier) tick interval, so a resume/stop
+                # request — or the backlog/restart clearing — is picked up
+                # promptly.
+                if paused or llm_paused or restarting:
                     interval = PAUSED_POLL_SECONDS
                 else:
                     interval = max(
@@ -2259,8 +2320,35 @@ class SimulationEngine:
         recent_count = sum(1 for e in log if now - window_ticks <= e.get("tick", 0) < now)
         prior_count = sum(1 for e in log if now - window_ticks * 2 <= e.get("tick", 0) < now - window_ticks)
         if recent_count == prior_count:
-            return "steady"
-        return "increasing" if recent_count > prior_count else "decreasing"
+            direction = "steady"
+        else:
+            direction = "increasing" if recent_count > prior_count else "decreasing"
+        theory = self._leading_player_theory()
+        if not theory:
+            return direction
+        # Richer Town Consciousness narrative modeling (deferred item 4,
+        # docs/VISION-2026-07-LEARNING.md): the frequency trend and the
+        # consciousness's own standing theory about the player used to
+        # sit in the prompt as two unconnected facts (this trend line
+        # plus `player_model_text` in llm/consciousness.py's build_
+        # prompt). Folding the leading theory directly into the trend
+        # sentence lets the model reason about whether fresh behavior
+        # confirms or complicates what it already believes, rather than
+        # re-deriving the connection itself from two separate lines —
+        # zero added LLM call volume, same "distill instead of adding a
+        # call" discipline as every other digest in this project.
+        return f'{direction} (your leading theory: "{theory}")'
+
+    def _leading_player_theory(self) -> str:
+        """The highest-confidence entry currently in `consciousness_
+        player_model`, or "" if the consciousness has never formed one
+        yet. Small helper split out so `_player_intervention_trend` can
+        fold it in without duplicating the confidence-max logic `apply()`
+        already uses for eviction (see `_maybe_schedule_consciousness`)."""
+        model = self.world.consciousness_player_model
+        if not model:
+            return ""
+        return max(model, key=lambda p: p["confidence"])["belief"]
 
     def _maybe_schedule_consciousness(self, events: list[str]) -> None:
         """Monthly, one call, world-scoped (tied to the founding
@@ -3723,6 +3811,8 @@ class SimulationEngine:
             # counts.
             "llm_pressure_ratio": round(self.llm_pressure_ratio(), 3),
             "llm_pressure_paused": self.llm_pressure_paused(),
+            "llama_server_restarting": self._llama_server_restarting,
+            "llama_server_restarts_total": self._llama_server_restarts,
             "llm_calls_today": self._llm_calls_today,
             "llm_max_calls_per_day": self.config.llm_max_calls_per_day,
             "llm_core_cast_size": self.config.llm_core_cast_size,

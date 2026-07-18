@@ -640,14 +640,19 @@ the KV cache specifically — general heap fragmentation from many
 different prompt/response allocation sizes over days or weeks of
 uptime is a separate, well-known long-lived-C++-process pattern that no
 in-request flag reclaims. `LLAMA_RESTART_HOURS` (e.g. `12` or `24`) has
-`scripts/run.sh` restart llama-server on that cadence to reclaim it —
-hearthmind.server keeps running through the brief restart window; any
-LLM call attempted during it fails over to the existing deterministic
-fallback/defer path exactly as it already does for a timed-out call, so
-a restart is invisible beyond a few skipped LLM answers that cycle.
-Disabled by default (`LLAMA_RESTART_HOURS=0`); turn it on if
-`/diagnostics.system_memory` shows llama-server's RSS climbing over a
-multi-day session even after sizing/`--defrag-thold` are already tuned.
+`scripts/run.sh` restart llama-server on that cadence to reclaim it.
+**hearthmind.server pauses ticking outright for the brief restart
+window** (v0.87.3) rather than leaving it to every individual LLM call
+to fall back on its own — a sentinel file the restart supervisor
+touches/removes signals `SimulationEngine.run_forever` to pause the
+same way it already pauses under LLM backlog pressure; the browser UI
+shows a "🔁 llama-server restarting — the town pauses…" banner while
+paused, and `/diagnostics.llama_server_restarts_total` counts how many
+restarts have happened this session (`llama_server_restarting` is the
+live boolean). Disabled by default (`LLAMA_RESTART_HOURS=0`); turn it
+on if `/diagnostics.system_memory` shows llama-server's RSS climbing
+over a multi-day session even after sizing/`--defrag-thold` are already
+tuned.
 
 **Reducing fragmentation without restarting** (v0.87.2): restart
 reclaims fragmentation after the fact; three glibc malloc-tuning env

@@ -80,7 +80,19 @@ adding parallel ones, "maximize emergence per LLM call."
    v0.87.1 for the full rationale); `Settlement.records`/`memorials`
    confirmed to already have durable backing beyond their in-RAM caps.
 
-## Deferred to a future increment (explicitly scoped out of v0.87.0/.1/.2)
+## Shipped in v0.87.3
+
+- **Richer Town Consciousness narrative modeling** — closes item 4
+  (below). `_player_intervention_trend` now folds the consciousness's
+  own leading `player_model` theory into the frequency-trend sentence
+  instead of the two facts sitting unconnected in the prompt. Zero
+  added LLM call volume. Also included, unrelated to learning: parallel-
+  build hardening, a sim-defaults performance audit (no change — see
+  CHANGELOG.md v0.87.3), and `LLAMA_RESTART_HOURS` now pausing the
+  simulation with UI/diagnostics visibility instead of relying on
+  per-call fallback.
+
+## Deferred to a future increment (explicitly scoped out of v0.87.0/.1/.2/.3)
 
 Ordered roughly by how directly it extends what's shipped so far:
 
@@ -103,27 +115,25 @@ Ordered roughly by how directly it extends what's shipped so far:
    already transfers land/goods/a skill bias to an heir — lessons
    aren't part of that transfer yet. "A parent's hard-won lesson passed
    down, imperfectly" is a natural, human, and currently-unbuilt piece.
-4. **Richer Town Consciousness narrative modeling.** v0.87.0 adds one
-   deterministic trend line (intervention frequency); the vision doc's
-   fuller ambition (a longer-running theory of the player's actual
-   *intentions*, not just their intervention rate) is a bigger, more
-   speculative LLM-authored piece — the consciousness's own monthly
-   `player_model` entries already partially cover this, so the concrete
-   next step (if wanted) is likely "read `player_model` back into the
-   trend line" rather than a wholly new mechanism.
-5. **Gradual forgetting as a genuinely continuous fade**, not just the
+4. **Gradual forgetting as a genuinely continuous fade**, not just the
    existing salience-based hard eviction + the new occasional LLM-
    authored drift. A middle ground (a memory's salience decaying slowly
    over real elapsed time even without eviction, subtly changing how
    it's phrased when read back into a prompt) is a bigger mechanical
    change than this batch's scope.
-6. **Skill mastery narrated by the LLM**, not a deterministic
+5. **Skill mastery narrated by the LLM**, not a deterministic
    templated sentence. v0.87.0 keeps mastery narration zero-cost/
    deterministic (`"Became a master of X after years of practice"`); an
    LLM-authored version ("got better at healing after losing a
    patient," from the user's own original framing) would need to read
    back the specific memories/events that led to mastery — a genuinely
    new, small LLM job if pursued, similar in shape to memory_drift.
+6. **Deeper Town Consciousness narrative modeling, round 2.** v0.87.3
+   closes the "fold player_model into the trend line" step; the vision
+   doc's fuller ambition (a longer-running theory of the player's
+   actual *intentions*, synthesized narratively rather than as one
+   highest-confidence belief string) is still a bigger, more
+   speculative LLM-authored piece if pursued further.
 
 None of these are blocking or half-built — v0.87.0 is a complete,
 mechanically real batch on its own; this list exists so "keep expanding

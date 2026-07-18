@@ -4,6 +4,100 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.3] — Parallel-build hardening, restart-aware pausing, consciousness trend theory, perf audit
+
+Five items from one user turn: the C++ build still not visibly
+parallelizing, a request to reconsider simulation-size defaults for
+speed/memory/smoothness, where repair/upkeep counters show in the UI,
+continuing deferred item 4 of `docs/VISION-2026-07-LEARNING.md`
+(richer Town Consciousness narrative modeling), and making
+`LLAMA_RESTART_HOURS` restarts pause the simulation and show in the UI/
+diagnostics instead of relying on per-call fallback.
+
+**Parallel build hardening** (`setup.py`): `BuildExtOptional.finalize_
+options` now sizes its `--parallel` default from `os.sched_getaffinity(0)`
+(falling back to `os.cpu_count()` on platforms without it, e.g. macOS)
+instead of `os.cpu_count()` alone. `cpu_count()` reports the machine's
+total logical CPUs, ignoring any cgroup quota/`taskset` affinity
+restriction the build process is actually confined to — a live report
+that the build "still isn't parallel" despite this defaulting mechanism
+existing since v0.85.6 is consistent with exactly that gap on a
+constrained host. Verified locally (a 4-core sandbox): a clean `python
+setup.py build_ext --inplace` now runs 4 concurrent `cc1plus` processes
+throughout the build (previously observed to still complete correctly
+but the fix's actual robustness against affinity-restricted hosts was
+unverified) and the extension imports and builds byte-identical output.
+
+**Simulation-defaults audit** (map size/population/tick pacing): ran a
+real headless soak (`SimulationEngine._tick_once` in a tight loop, LLM
+disabled, default 64x64/pop-12 config) instead of guessing at new
+defaults — measured tick cost genuinely rises with population (6.2ms/
+tick at pop 12-14, 9.8ms/tick at pop 83) but stays under 1% of the
+1000ms `tick_seconds` budget even at that rate; extrapolated to
+`POPULATION_CAP=400` it would still leave over 95% of the tick budget
+free. Peak RSS stayed at 37MB. Conclusion: the deterministic tick loop
+is not, and does not become, the bottleneck at any population within
+the current cap — this project's own repeated live-diagnostic history
+(CLAUDE.md) already establishes the actual "speed/smoothness"
+constraint is LLM call throughput/config, not map size, population cap,
+or tick pacing, and those knobs are already tuned from real hardware
+reports. No default changed here — changing `width`/`height`/
+`POPULATION_CAP`/`tick_seconds` without a measured problem they'd
+solve would violate this project's own "measure before tuning"
+discipline. If population/map size are ever raised well past current
+defaults, the real future lever is finishing R8 (porting `Population`'s
+remaining per-agent tick logic to the C++ store, see CLAUDE.md).
+
+**Repair/upkeep UI location**: no code change — this already exists as
+the "Repairs & upkeep" stat tile (v0.86.7, `buildings_repaired`/
+`vehicles_repaired`), visible under the main UI's stat tiles.
+
+**Richer Town Consciousness narrative modeling** (`simulation/
+engine.py`, deferred item 4): `_player_intervention_trend` now folds
+the consciousness's own highest-confidence `consciousness_player_model`
+entry (`_leading_player_theory`, new helper) directly into the
+frequency-trend sentence instead of leaving the two facts to sit
+unconnected in the prompt (trend line vs. `player_model_text`, both
+already present separately since v0.87.0) — e.g. `"increasing (your
+leading theory: \"...\")"`. Zero added LLM call volume; the monthly
+consciousness job's prompt shape is otherwise unchanged.
+
+**LLAMA_RESTART_HOURS now pauses the simulation** (`config.py`,
+`simulation/engine.py`, `server.py`, `scripts/run.sh`, frontend): new
+`Config.llm_restart_sentinel_path` — a file path `scripts/run.sh`'s
+restart supervisor subshell touches right before killing the old
+llama-server process and removes once the replacement answers
+`/health`. `SimulationEngine.llama_server_restarting()` polls the
+path's existence the same way `llm_pressure_paused()` is already
+polled; `run_forever`'s loop treats a restart exactly like the existing
+LLM-pressure pause (ticking fully skipped, `PAUSED_POLL_SECONDS`
+polling cadence) rather than leaving every individual LLM call to
+independently fall back/defer during the ~1-10s outage. Tracks
+`_llama_server_restarts` (counted on the absent->present edge, not
+per-poll) and logs a real `llama_server_restart` event on both edges,
+forcing an out-of-band `_maybe_broadcast()` on the edge so connected
+UI clients see the transition promptly rather than only after ticking
+resumes (ticking itself is what normally drives a broadcast). Surfaced
+as `llama_server_restarting`/`llama_server_restarts_total` in
+`/diagnostics` and the live broadcast; new header banner ("🔁
+llama-server restarting — the town pauses…", reusing the existing
+`.consciousness-indicator`/`.consciousness-paused` CSS convention).
+`scripts/run.sh` creates a fresh (not-yet-existing) sentinel path via
+`mktemp -u`, passes `--llm-restart-sentinel` to `hearthmind.server`
+only when the restart supervisor is actually active (LLAMA_RESTART_
+HOURS>0 — zero added cost otherwise), and cleans it up on exit
+alongside the existing pidfile.
+
+Verified: direct tests against the real `SimulationEngine` production
+code confirm `llama_server_restarting()`'s absent->present->absent edge
+transitions increment the restart counter exactly once per cycle (not
+per poll), correctly skip `_tick_once()` for the whole window, surface
+both new diagnostics fields, and stay a permanent zero-cost no-op when
+no sentinel path is configured; a second test confirms `_player_
+intervention_trend`'s theory-folding reaches a real `consciousness.
+build_prompt` call. `scripts/verify_native_soak.py` (2 seeds x 2000
+ticks) byte-identical — this batch touches no native module.
+
 ## [0.87.2] — Deeper settlement pattern-recognition + llama-server heap tuning without restart
 
 Two independent pieces per explicit user direction: continue item 2 of

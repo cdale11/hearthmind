@@ -60,6 +60,11 @@ def parse_args(argv: list[str] | None = None) -> Config:
     parser.add_argument("--llm-host", default=Config.llm_host, help="Ollama server URL (only used with --llm-backend=ollama).")
     parser.add_argument("--llm-llamacpp-host", default=Config.llm_llamacpp_host,
                          help="llama-server URL (only used with --llm-backend=llamacpp, the default).")
+    parser.add_argument("--llm-restart-sentinel", default=Config.llm_restart_sentinel_path,
+                         help="Path scripts/run.sh's LLAMA_RESTART_HOURS supervisor touches while restarting "
+                              "llama-server; while it exists, ticking pauses outright instead of relying on "
+                              "individual LLM calls to fall back during the outage. Set automatically by "
+                              "run.sh when LLAMA_RESTART_HOURS>0 — not meant to be passed by hand.")
     parser.add_argument("--llm-model", default=Config.llm_model,
                          help="Model name/tag. For --llm-backend=ollama this must already be `ollama pull`ed; "
                               "for llamacpp it's informational only (llama-server loads one GGUF file at "
@@ -132,6 +137,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         llm_backend=args.llm_backend,
         llm_host=args.llm_host,
         llm_llamacpp_host=args.llm_llamacpp_host,
+        llm_restart_sentinel_path=args.llm_restart_sentinel,
         llm_model=args.llm_model,
         llm_timeout_seconds=args.llm_timeout,
         llm_num_ctx=args.llm_num_ctx,
