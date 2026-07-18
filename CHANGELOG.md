@@ -4,6 +4,79 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.17] — Items 8 & 9: crime & justice, inter-settlement diplomacy, laws & customs, non-core LLM nudges
+
+Direct follow-up per explicit user request ("complete my items 8 and 9
+first"), closing out the two items deferred by the user's own
+sequencing choice at the end of v0.87.16.
+
+**Item 8a — Crime & theft** (`Population._maybe_commit_theft`,
+`agents/population.py`): entirely deterministic, zero LLM cost — a
+desperate, distrustful colocated agent may take some of another's
+personal food stock. Consequences land asymmetrically on the victim's
+read of the thief (trust/relationship penalty, same "easy to lose,
+hard to earn" shape as dialogue's own nudges); a `Settlement.
+thefts_committed` counter and `law_signal_counts["theft"]` accumulator
+feed forward into item 8c.
+
+**Item 8b — Inter-settlement diplomacy** (`llm/diplomacy.py`,
+`SimulationEngine._maybe_schedule_diplomacy`): the underlying affinity
+mechanism (`Settlement.relations`) has been fully deterministic since
+v0.67.0 (seeded at fission, nudged by cross-settlement dialogue, felt
+in market prices) but was never LLM-narrated or shown in the main UI.
+This adds the occasional named moment on top (an envoy, a trade pact,
+a border dispute) — round-robin over settlement PAIRS so volume stays
+flat regardless of settlement count, and a genuine no-op with fewer
+than two named settlements (the common case). Fallback is a genuine
+no-op, never a fabricated event.
+
+**Item 8c / §7 item 7 — Laws, customs, taboos** (`llm/laws.py`,
+`Settlement.laws`/`law_signal_counts`, `SimulationEngine._maybe_
+schedule_laws`): folded together since both closed the same "the
+village should accumulate real norms from lived history" gap. Gated on
+`law_signal_counts`/`pattern_signal_counts` crossing a threshold (theft
+or dispute-feud recurrence) — same "spend the call only once real
+texture exists" discipline `_maybe_schedule_religion` established;
+fallback is a genuine "not yet," never an invented norm. A formed
+law/custom/taboo has real mechanical bite: `dispute.py`'s prompt and
+fallback both read a norm against feuding as social pressure toward
+resolution, and `_theft_forbidden_by_law` sharpens theft's trust
+penalty (`THEFT_LAW_PENALTY_MULT`) — laws interacting with the systems
+they were written in response to, not an isolated mechanic.
+
+**Item 9 — Occasional LLM nudges for non-core-cast agents**
+(`llm/noncore_nudge.py`, `SimulationEngine._maybe_schedule_noncore_
+nudge`): the user's own framing — "not fully LLM authored but
+partially and occasionally." Exactly one call a month for the ENTIRE
+world (round-robin `_job_target`, one random non-core agent per
+firing), never per-agent-scaled like core-cast cognition. A genuine
+answer nudges one trait by a small bounded amount
+(`NUDGE_TRAIT_STEP=0.12`) and plants one durable reflective memory;
+fallback is a real no-op — an "occasional" nudge that doesn't happen
+most months is correct, not a failure.
+
+New job slots added to the existing staggered-monthly-job calendar
+(`MONTHLY_JOB_DAY`): diplomacy=2, laws=5, noncore_nudge=9 — all three
+get the standard `MONTHLY_JOB_RETRY_WINDOW_DAYS` retry window.
+
+**UI**: new "Laws & customs" panel (mirrors Faith & Rituals' flat-list
+styling); new "Crime & justice" stat tile (thefts committed, norms
+codified); new "Diplomacy" stat tile (per-sister-settlement relation
+tone, shown only once a second named settlement exists); new event
+icons (`theft` 🕵️, `law_enacted` 📜, `diplomacy_event` 🤝).
+
+Verified: direct production-path tests for the theft mechanic
+(condition gating, law-penalty multiplier, trust/relationship math,
+counter increments) via synthetic colocated pairs; all three new LLM
+job parse functions (`laws.parse_laws`, `diplomacy.parse_diplomacy`,
+`noncore_nudge.parse_nudge`) against forms/no-forms/malformed inputs;
+real end-to-end engine tests (fake `generate_json` through the actual
+`CognitionRunner`) confirming all three new monthly jobs fire through
+the real gate/backpressure/scheduling pipeline and correctly mutate
+`Settlement.laws`/`relations`/agent traits — not a reimplementation.
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+no native module touched.
+
 ## [0.87.16] — Cognition-quality cluster: diversity, memory weighting, competing beliefs, historical identity
 
 Explicit user direction: the cultural/cognitive simulation was

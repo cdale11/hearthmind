@@ -400,15 +400,20 @@ fix that.
   the civilizational texture the wishlist asked for, and ruins mode
   (§5) inherits it for free.
 
-- [ ] **Laws, customs, taboos.** Council rulings resolve one dispute
-  and evaporate; nothing accumulates into "how we do things here."
-  Promote repeated same-kind rulings (deterministic detector, ritual
-  pattern) into a small capped `customs` list with a mechanical rider
-  from a fixed menu (culture-rider pattern: granary-first winters,
-  no-building on memorial ground, restitution-over-ostracism). Taboo
-  violations feed §1's deviance loop as aggravators. Settlements
-  diverge in *law* the way they already diverge in belief — and
-  migrants (§1) get to be foreigners who don't know the rules.
+- [x] **Laws, customs, taboos.** Shipped v0.87.17, folded together with
+  item 8's "politics" ask (`llm/laws.py`, `Settlement.laws`/`law_signal_
+  counts`, `SimulationEngine._maybe_schedule_laws`). Gated on real
+  accumulated hardship (theft or dispute-feud counts crossing a
+  threshold, same shape as ritual->religion crystallization) — an LLM
+  call only fires once genuine texture exists, and the fallback is a
+  genuine no-op, never a fabricated norm. A formed law/custom/taboo
+  feeds back into `dispute.py` (a norm against feuding pushes toward
+  resolution) and `Population._maybe_commit_theft` (a norm against
+  theft sharpens the trust penalty) — real mechanical bite, not flavor
+  text. Scoped to two detectable patterns (theft, dispute_feud) this
+  pass; the full deterministic-ritual-detector/culture-rider-menu
+  design above was not built as specified — a smaller, LLM-authored
+  version covers the same ground with less new machinery.
 
 - [x] **Institution objectives.** Shipped v0.87.12 (cognition-prompt consumption only — not yet wired into dispute framing). Institutions hold beliefs and
   dispositions but want nothing. One slow-revised objective line per

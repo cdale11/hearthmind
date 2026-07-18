@@ -607,6 +607,43 @@ fester again) before the question can reopen."""
 DISPUTE_RECONCILE_RELATIONSHIP = 0.1
 DISPUTE_TRUCE_RELATIONSHIP = -0.1
 DISPUTE_FEUD_DEEPEN = -0.2
+
+THEFT_HUNGER_THRESHOLD = 0.65
+"""Item 8a ("crime & theft"): a colocated agent this desperate — past
+`cognition.SURVIVAL_HUNGER_THRESHOLD`'s own 0.6 — with meaningfully less
+personal food than a nearby settlement-mate may resort to taking it,
+same "physical desperation, not malice, drives the deterministic layer"
+shape as the critical-hunger movement override (D5)."""
+
+THEFT_TRUST_THRESHOLD = 0.1
+"""Theft is only physically plausible against someone the thief doesn't
+already trust enough to simply ask — a close, trusted colocated pair
+never triggers this regardless of hunger gap."""
+
+THEFT_FOOD_MARGIN = 0.15
+"""Minimum food-inventory gap (victim - thief) before a theft is even
+considered — a starving pair with equally little food has nothing worth
+stealing."""
+
+THEFT_CHANCE_PER_TICK = 0.015
+"""Per-tick roll once every other condition is met — deliberately small;
+this is a rare, notable act, not routine behavior."""
+
+THEFT_FOOD_FRACTION = 0.4
+"""Fraction of the victim's current personal food stock taken in one
+theft."""
+
+THEFT_TRUST_PENALTY = -0.45
+THEFT_RELATIONSHIP_PENALTY = -0.3
+"""Asymmetric, victim-side-only nudges — same "distrust is easy to lose,
+hard to earn" shape as dialogue's trust nudges (agent.py). The thief's
+own trust/relationship toward the victim is untouched; only the victim's
+read of the thief changes."""
+
+THEFT_LAW_PENALTY_MULT = 1.6
+"""When the settlement has codified a law/taboo against theft
+(`Settlement.laws`), a caught theft costs the thief more — laws having a
+real mechanical bite, not just flavor text. See `_theft_forbidden_by_law`."""
 DISPUTE_TRUST_DELTA = 0.1
 """Mechanical teeth for the three dispute outcomes (apply_dispute):
 reconciliation resets the pair to mildly-warm and rebuilds a little
@@ -1610,6 +1647,7 @@ class Population:
         self._update_roads(by_position, settlements, farms, roads)
         self._update_relationships(by_position)
         self._maybe_teach_skills(by_position, rng, settlements)
+        self._maybe_commit_theft(by_position, rng, settlements, life_events)
         if month_end:
             self._tick_traits(rng)
         hospital_settlement_ids = {sid for sid, has in has_hospital_by_id.items() if has}
@@ -3000,6 +3038,72 @@ class Population:
                                 continue
                             learner = b if a_knows else a
                             knowers.append(learner.id)
+
+    @staticmethod
+    def _theft_forbidden_by_law(settlement: "Settlement") -> bool:
+        """Item 8c ("laws & customs"): does this settlement have a
+        codified norm against theft? Cheap substring check over a
+        LAWS_MAX_STORED-capped list — never a hot-path concern."""
+        return any(
+            "theft" in entry.get("text", "").lower() or "steal" in entry.get("text", "").lower()
+            for entry in settlement.laws
+        )
+
+    @staticmethod
+    def _maybe_commit_theft(
+        by_position: dict[tuple[int, int], list[Agent]], rng: random.Random,
+        settlements: list[Settlement], life_events: list,
+    ) -> None:
+        """Item 8a ("crime & theft", docs/IDEAS-2026-07-EMERGENCE.md
+        item 8 follow-up) — entirely deterministic, zero LLM cost: this
+        is a physical act (who has food, who doesn't), not an act of
+        interpretation. Reuses the same colocation loop `_maybe_teach_
+        skills` already walks per tick rather than a second O(agents^2)
+        pass. A desperate, distrustful agent colocated with someone
+        holding meaningfully more personal food may take some of it —
+        the deterministic engine modeling `Population._maybe_reproduce`/
+        `_maybe_trade_food`'s existing personal-food-inventory mechanic
+        finally has a coercive counterpart to its voluntary one.
+        Consequences land only on the victim's read of the thief
+        (asymmetric distrust, same shape dialogue/dispute use), and a
+        `family_feud`-style law-signal counter feeds `_maybe_schedule_
+        laws` — repeated theft is the raw material a settlement can
+        eventually codify a real taboo against, which then sharpens this
+        very mechanic's own penalty (`_theft_forbidden_by_law`)."""
+        settlements_by_id = {s.id: s for s in settlements}
+        for group in by_position.values():
+            if len(group) < 2:
+                continue
+            for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
+                for thief, victim in ((a, b), (b, a)):
+                    if thief.hunger < THEFT_HUNGER_THRESHOLD:
+                        continue
+                    if thief.trust.get(victim.id, 0.0) >= THEFT_TRUST_THRESHOLD:
+                        continue
+                    thief_food = thief.inventory.get("food", 0.0)
+                    victim_food = victim.inventory.get("food", 0.0)
+                    if victim_food - thief_food < THEFT_FOOD_MARGIN:
+                        continue
+                    if rng.random() >= THEFT_CHANCE_PER_TICK:
+                        continue
+                    amount = victim_food * THEFT_FOOD_FRACTION
+                    victim.inventory["food"] = victim_food - amount
+                    thief.inventory["food"] = min(PERSONAL_FOOD_CAPACITY, thief_food + amount)
+                    home = settlements_by_id.get(victim.settlement_id)
+                    law_penalty = THEFT_LAW_PENALTY_MULT if home is not None and Population._theft_forbidden_by_law(home) else 1.0
+                    victim.trust[thief.id] = max(-1.0, victim.trust.get(thief.id, 0.0) + THEFT_TRUST_PENALTY * law_penalty)
+                    victim.relationships[thief.id] = max(
+                        -1.0, victim.relationships.get(thief.id, 0.0) + THEFT_RELATIONSHIP_PENALTY * law_penalty
+                    )
+                    bump_emotion(victim, EMOTION_ANGER, EMOTION_DISPUTE_ANGER_BUMP)
+                    _remember(victim, f"{thief.name} stole food from me while I wasn't looking.", because=f"{thief.name} stole from me")
+                    _remember(thief, f"I took food from {victim.name} out of desperation.", routine=True)
+                    if home is not None:
+                        home.thefts_committed += 1
+                        counts = home.law_signal_counts
+                        counts["theft"] = counts.get("theft", 0) + 1
+                        life_events.append(("theft", f"{thief.name} took food from {victim.name}."))
+                    break  # one theft resolution per pair per tick
 
     def _tick_traits(self, rng: random.Random) -> None:
         """H6: a monthly bounded random walk on every living agent's

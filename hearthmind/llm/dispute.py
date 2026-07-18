@@ -31,6 +31,7 @@ def build_prompt(
     reputation_a: float = 0.0, reputation_b: float = 0.0, rival_factions: bool = False,
     debt_a_owes_b: float = 0.0, debt_b_owes_a: float = 0.0, rival_families: bool = False,
     council_favors_a: bool = False, council_favors_b: bool = False,
+    has_law_against_feuding: bool = False,
 ) -> str:
     personality_bits = []
     for agent in (agent_a, agent_b):
@@ -83,10 +84,17 @@ def build_prompt(
         council_leaning_line = f" The council is dominated by {agent_a.name}'s own faction — {agent_b.name} may not trust it to rule fairly."
     elif has_council and council_favors_b and not council_favors_a:
         council_leaning_line = f" The council is dominated by {agent_b.name}'s own faction — {agent_a.name} may not trust it to rule fairly."
+    # Item 8c ("laws & customs"): a codified norm against feuding gives
+    # the village a real stake in HOW this breaks, not just the two
+    # people involved.
+    law_line = (
+        " The village holds a norm against letting feuds fester unresolved."
+        if has_law_against_feuding else ""
+    )
     return (
         f"{agent_a.name} and {agent_b.name}{place} have festered into open enmity "
         f"(their regard for each other stands at {relationship:.2f} on a -1..1 scale)."
-        f"{personality}{council}{council_leaning_line}{reputation_line}{faction_line}{debt_line}{family_line} How does it break?"
+        f"{personality}{council}{council_leaning_line}{reputation_line}{faction_line}{debt_line}{family_line}{law_line} How does it break?"
     )
 
 
@@ -94,6 +102,7 @@ def fallback_dispute(
     agent_a: Agent, agent_b: Agent, has_council: bool, reputation_a: float = 0.0, reputation_b: float = 0.0,
     rival_factions: bool = False, debt_a_owes_b: float = 0.0, debt_b_owes_a: float = 0.0,
     rival_families: bool = False, council_favors_a: bool = False, council_favors_b: bool = False,
+    has_law_against_feuding: bool = False,
 ) -> dict:
     """Deterministic stand-in: a sociable pair finds its own way back; an
     unsociable one hardens; a council steps in for the in-between case.
@@ -127,6 +136,11 @@ def fallback_dispute(
     # from the easy middle outcome, same direction as a rival faction.
     if has_council and (council_favors_a != council_favors_b):
         avg_sociability -= 0.15
+    # Item 8c: a village that has codified a norm against unresolved
+    # feuds exerts real social pressure toward settling this one, one
+    # way or another — pushes away from an indefinite stalemate.
+    if has_law_against_feuding:
+        avg_sociability += 0.15
     if avg_sociability > 0.2:
         outcome = "reconcile"
         narration = f"{agent_a.name} and {agent_b.name} talked it through at last and set the feud down."

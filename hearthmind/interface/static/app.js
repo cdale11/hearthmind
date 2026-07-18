@@ -128,6 +128,9 @@ const CATEGORY_META = {
   consciousness_intervention: { icon: "🌫️" },
   family_feud: { icon: "⚔️" },
   knowledge_lost: { icon: "📉" },
+  theft: { icon: "🕵️" },
+  law_enacted: { icon: "📜" },
+  diplomacy_event: { icon: "🤝" },
 };
 
 // Event-log filter chips (v0.64.0 UI backlog): coarse groups, display-only —
@@ -136,13 +139,14 @@ const EVENT_GROUP_OF = {
   birth: "people", death: "people", dialogue_surfaced: "people", rumor: "people",
   migrant_arrived: "people", inheritance: "people", dispute: "people",
   record_written: "people", illness: "people", recovery: "people", predator_attack: "people",
-  family_feud: "people", knowledge_lost: "people",
+  family_feud: "people", knowledge_lost: "people", theft: "people",
   construction_started: "town", building_completed: "town", building_ruined: "town",
   building_reclaimed: "town", farm_planted: "town", vehicle_started: "town",
   vehicle_completed: "town", vehicle_broken: "town", era_advance: "town",
   settlement_named: "town", guild_formed: "town", guild_joined: "town", faction_formed: "town",
   council_formed: "town", council_seat_filled: "town", council_seat_contested: "town", family_formed: "town",
   intervention: "town", town_brain: "town", caravan: "town", founding: "town", genesis: "town",
+  law_enacted: "town", diplomacy_event: "town",
   terrain_thinned: "nature", terrain_reclaimed: "nature", climate_drift: "nature",
   wildlife_hunt: "nature", wildlife_extinct: "nature", wildlife_recolonized: "nature",
   wildlife_migrated: "nature", disaster_flood: "nature", disaster_wildfire: "nature",
@@ -2065,6 +2069,10 @@ function renderStats(summary) {
       "Deliberately raised animals/fish, distinct from wild grazer hunting or opportunistic fishing — a standing pasture/hatchery produces food on its own, faster when tended.",
     ],
     [
+      "Crime & justice", `${s.thefts_committed || 0} theft${(s.thefts_committed || 0) === 1 ? "" : "s"} · ${(s.laws || []).length} norm${(s.laws || []).length === 1 ? "" : "s"} codified`,
+      "All-time count of desperate theft between colocated villagers (a genuinely physical act, not an LLM decision), and how many laws/customs/taboos the village has settled on in response — see Laws & customs below.",
+    ],
+    [
       "Materials", `${s.materials.toFixed(1)} / ${s.materials_capacity.toFixed(1)}`,
       "Settlement-wide wood/stone stockpile, gathered by GATHER-goal agents from forest/hills. Spent on faster construction and tool-boosted farm plots.",
     ],
@@ -2113,6 +2121,24 @@ function renderStats(summary) {
         : "no market yet (flat 1.00x)",
       "While a MARKET stands, per-good price multipliers re-derive monthly from real scarcity (empty stores -> " +
       "up to 2.0x, full stores -> down to 0.5x). Overflow sales earn the current price; emergency rations cost it.",
+    ],
+    [
+      "Diplomacy",
+      (() => {
+        const relations = s.relations || {};
+        const ids = Object.keys(relations);
+        if (!ids.length) return "no sister settlements yet";
+        const byId = {};
+        (summary.settlements || []).forEach((other) => { byId[other.id] = other.name; });
+        return ids.map((id) => {
+          const name = byId[id] || `settlement ${id}`;
+          const v = relations[id];
+          const tone = v > 0.3 ? "warm" : v < -0.3 ? "cold" : "neutral";
+          return `${name}: ${tone} (${v.toFixed(2)})`;
+        }).join(", ");
+      })(),
+      "Standing with sister settlements sharing this map — seeded warm at fission, nudged by cross-settlement " +
+      "dialogue and occasional named diplomatic moments (envoys, trade pacts, border disputes). Felt in market prices.",
     ],
     [
       "Disasters",
@@ -2174,6 +2200,15 @@ function renderStats(summary) {
     setInnerHTMLIfChanged(ritualsEl, rituals.length
       ? rituals.map((r) => `<li>${r.description}</li>`).join("")
       : "<li>nothing repeats often enough to be a ritual yet</li>");
+  }
+
+  const lawsEl = document.getElementById("laws-list");
+  if (lawsEl) {
+    const laws = (s.laws || []).slice().reverse(); // newest first
+    const kindLabel = { law: "⚖️ law", custom: "🤝 custom", taboo: "🚫 taboo" };
+    setInnerHTMLIfChanged(lawsEl, laws.length
+      ? laws.map((l) => `<li><span class="muted">${kindLabel[l.kind] || l.kind}</span> — ${l.text}</li>`).join("")
+      : "<li>none codified yet</li>");
   }
 
   const narrativeThemeEl = document.getElementById("narrative-theme");

@@ -17,6 +17,7 @@ docs/DECISIONS.md, B1/B2/B3.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import os
 import sqlite3
@@ -41,6 +42,9 @@ from hearthmind.agents.agent import (
     SKILL_FARMING,
     SKILL_INVENTION_BONUS_WEIGHT,
     SKILL_MEDICINE,
+    TRAIT_AMBITION,
+    TRAIT_RESILIENCE,
+    TRAIT_SOCIABILITY,
     TRIGGERED_COGNITION_COOLDOWN_TICKS,
     AgentGoal,
     _overlap_tokens,
@@ -57,6 +61,7 @@ from hearthmind.llm import (
     faction, fission, beliefs, caravan, chronicle, consciousness, culture, culture_digest, dialogue, dispute,
     documentary, dream, festival, folklore, founding, geography, invention, memory_drift, mind, naming,
     narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
+    diplomacy, laws, noncore_nudge,
 )
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
@@ -73,6 +78,7 @@ from hearthmind.agents.population import (
     MAX_SETTLEMENTS,
     Population,
     _bridge_tiles_from_settlements,
+    _nudge_trait,
     _pending_memory_evictions,
     _remember,
     _walkable_tiles,
@@ -89,6 +95,8 @@ from hearthmind.settlement.buildings import (
     INVENTION_KNOWLEDGE_MAX_TRACKED,
     INVENTION_MATERIALS_FRACTION,
     INVENTION_REDISCOVERY_CHANCE,
+    LAWS_MAX_STORED,
+    LAW_SIGNAL_THRESHOLD,
     MARKET_CARAVAN_CHANCE_MULTIPLIER,
     MARKET_CARAVAN_YIELD_MULTIPLIER,
     MATERIALS_CAPACITY,
@@ -358,10 +366,10 @@ client reloads history via GET /events), so trimming the oldest
 buffered entries loses nothing durable."""
 
 MONTHLY_JOB_DAY = {
-    "chronicle": 1, "festival": 4, "caravan": 7, "fission": 8, "town_brain": 10,
+    "chronicle": 1, "diplomacy": 2, "festival": 4, "laws": 5, "caravan": 7, "fission": 8, "town_brain": 10,
     "beliefs": 13, "personal_belief": 16, "guild_founding": 19,
     "institution_belief": 22, "geography": 25, "folklore": 20, "dream": 23, "omen": 27, "faction": 26,
-    "consciousness": 24, "memory_drift": 21,
+    "consciousness": 24, "memory_drift": 21, "noncore_nudge": 9,
 }
 """Day-of-month (0-based; every value <= 27 so it exists even in
 February) on which each monthly LLM job fires — the memory-pressure
@@ -386,7 +394,7 @@ monthly ~10."""
 MONTHLY_JOBS_WITH_RETRY = frozenset({
     "chronicle", "folklore", "town_brain", "beliefs", "personal_belief",
     "dream", "faction", "guild_founding", "institution_belief", "fission",
-    "geography", "consciousness", "memory_drift",
+    "geography", "consciousness", "memory_drift", "diplomacy", "laws", "noncore_nudge",
 })
 """Job names `_monthly_gate` grants a `MONTHLY_JOB_RETRY_WINDOW_DAYS`-day
 window instead of one exact day — every monthly job EXCEPT festival/
@@ -1358,6 +1366,9 @@ class SimulationEngine:
         ("_maybe_schedule_institution_belief", _JOB_EVENTS),
         ("_maybe_schedule_geography", _JOB_EVENTS),
         ("_maybe_schedule_fission", _JOB_EVENTS),
+        ("_maybe_schedule_diplomacy", _JOB_EVENTS),
+        ("_maybe_schedule_laws", _JOB_EVENTS),
+        ("_maybe_schedule_noncore_nudge", _JOB_EVENTS),
         ("_schedule_due_cognition", _JOB_NO_ARGS),
         ("_schedule_due_dialogue", _JOB_NO_ARGS),
     )
@@ -3766,14 +3777,22 @@ class SimulationEngine:
         council_majority = self.world.population.council_faction_majority(dispute_home)
         council_favors_a = council_majority is not None and faction_a is not None and council_majority.id == faction_a.id
         council_favors_b = council_majority is not None and faction_b is not None and council_majority.id == faction_b.id
+        # Item 8c ("laws & customs"): a codified norm against unresolved
+        # feuding gives laws real mechanical bite on this outcome too,
+        # not just on theft.
+        has_law_against_feuding = any(
+            "feud" in law.get("text", "").lower() or "dispute" in law.get("text", "").lower()
+            for law in dispute_home.laws
+        )
         prompt = dispute.build_prompt(
             agent_a, agent_b, relationship, dispute_home.name, has_council,
             reputation_a, reputation_b, rival_factions, debt_a_owes_b, debt_b_owes_a, rival_families,
-            council_favors_a, council_favors_b,
+            council_favors_a, council_favors_b, has_law_against_feuding,
         )
         fallback = dispute.fallback_dispute(
             agent_a, agent_b, has_council, reputation_a, reputation_b, rival_factions,
             debt_a_owes_b, debt_b_owes_a, rival_families, council_favors_a, council_favors_b,
+            has_law_against_feuding,
         )
         a_id, b_id = agent_a.id, agent_b.id
         dispute_home_id = dispute_home.id
@@ -3958,6 +3977,163 @@ class SimulationEngine:
             )
 
         self._schedule_llm_job("institution_belief", prompt, beliefs.INSTITUTION_SYSTEM_PROMPT, fallback, apply)
+
+    # --- item 8b: inter-settlement diplomacy ------------------------------------
+
+    def _diplomacy_pair_target(self) -> tuple[Settlement, Settlement] | None:
+        """Month-indexed round-robin over settlement PAIRS, same "flat
+        volume regardless of settlement count" shape as `_job_target` —
+        with fewer than two named settlements (the common case) this
+        returns None and `_maybe_schedule_diplomacy` never fires a call,
+        exactly matching every other settlement job's single-settlement
+        behavior."""
+        named = sorted((s for s in self.world.settlements if s.name), key=lambda s: s.id)
+        if len(named) < 2:
+            return None
+        pairs = list(itertools.combinations(named, 2))
+        clock = self.world.clock
+        month_ordinal = clock.year * len(self.world.config.days_per_month) + clock.month_index
+        return pairs[month_ordinal % len(pairs)]
+
+    def _maybe_schedule_diplomacy(self, events: list[str]) -> None:
+        """Item 8b ("inter-settlement relationships/diplomacy"): the
+        underlying affinity (`Settlement.relations`) is already fully
+        deterministic (seeded at fission, nudged by cross-settlement
+        dialogue) — see settlement/buildings.py's "cross-settlement
+        relations" section. This adds the occasional LLM-authored named
+        moment on top; fallback is a genuine no-op (see llm/diplomacy.
+        py's module docstring)."""
+        pair = self._diplomacy_pair_target()
+        if not self._monthly_gate(events, "diplomacy") or pair is None:
+            return
+        if self._settlement_job_backpressured():
+            return
+        self._mark_monthly_resolved("diplomacy")
+        a, b = pair
+        relation = a.relations.get(b.id, 0.0)
+        prompt = diplomacy.build_prompt(a.name, b.name, relation, a.current_priority, b.current_priority)
+        fallback = diplomacy.fallback_diplomacy()
+        a_id, b_id = a.id, b.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            parsed = diplomacy.parse_diplomacy(result, fallback)
+            if parsed is None:
+                return  # nothing notable this season — a real, expected outcome
+            narration, delta = parsed
+            stl_a, stl_b = self._settlement_by_id(a_id), self._settlement_by_id(b_id)
+            if stl_a is None or stl_b is None:
+                return
+            new_relation = max(-1.0, min(1.0, stl_a.relations.get(b_id, 0.0) + delta))
+            stl_a.relations[b_id] = new_relation
+            stl_b.relations[a_id] = new_relation
+            self._log("diplomacy_event", f"Between {stl_a.name} and {stl_b.name}: {narration}")
+
+        self._schedule_llm_job("diplomacy", prompt, diplomacy.SYSTEM_PROMPT, fallback, apply)
+
+    # --- item 8c / §7 item 7: laws, customs, taboos -----------------------------
+
+    _LAW_PATTERN_TEXT = {
+        "theft": "repeated theft among its own people",
+        "dispute_feud": "repeated bitter disputes boiling into feuds",
+    }
+
+    def _maybe_schedule_laws(self, events: list[str]) -> None:
+        """§7 item 7 / item 8's "politics" ask, folded together (see
+        llm/laws.py's module docstring). Gated on real accumulated
+        hardship — `Settlement.law_signal_counts`/`pattern_signal_
+        counts` — same "spend the call only once texture exists"
+        discipline `_maybe_schedule_religion` established. A formed
+        law/custom/taboo then feeds back into `dispute.py` (harsher
+        outcome bias) and `Population._maybe_commit_theft`
+        (`_theft_forbidden_by_law`, sharper penalty) — systems
+        interacting, not an isolated mechanic."""
+        target = self._job_target()
+        if not self._monthly_gate(events, "laws") or not target.name:
+            return
+        if len(target.laws) >= LAWS_MAX_STORED:
+            return
+        candidates = {
+            "theft": target.law_signal_counts.get("theft", 0),
+            "dispute_feud": target.pattern_signal_counts.get("dispute_feud", 0),
+        }
+        pattern_key = max(candidates, key=candidates.get)
+        occurrences = candidates[pattern_key]
+        if occurrences < LAW_SIGNAL_THRESHOLD:
+            return
+        if self._settlement_job_backpressured():
+            return
+        self._mark_monthly_resolved("laws")
+        pattern_text = self._LAW_PATTERN_TEXT.get(pattern_key, pattern_key)
+        prompt = laws.build_prompt(target.name, pattern_text, occurrences, target.laws)
+        fallback = laws.fallback_laws()
+        target_id = target.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            parsed = laws.parse_laws(result, fallback)
+            if parsed is None:
+                return  # not yet — a real, expected outcome, see module docstring
+            stl = self._settlement_by_id(target_id)
+            if stl is None or len(stl.laws) >= LAWS_MAX_STORED:
+                return
+            tick = self.world.clock.tick_count
+            stl.laws.append({"text": parsed["text"], "kind": parsed["kind"], "formed_tick": tick})
+            # Reset the signal that triggered this so it doesn't
+            # immediately re-fire on the very next eligible month.
+            if pattern_key == "theft":
+                stl.law_signal_counts["theft"] = 0
+            else:
+                stl.pattern_signal_counts["dispute_feud"] = 0
+            self._log("law_enacted", f"{stl.name} has come to hold a {parsed['kind']}: {parsed['text']}")
+
+        self._schedule_llm_job("laws", prompt, laws.SYSTEM_PROMPT, fallback, apply)
+
+    # --- item 9: occasional LLM nudges for non-core-cast agents -----------------
+
+    def _maybe_schedule_noncore_nudge(self, events: list[str]) -> None:
+        """Item 9 (user's own framing: "not fully LLM authored but "
+        "partially and occasionally"). See llm/noncore_nudge.py's module
+        docstring — exactly one call a month for the entire world
+        (round-robin `_job_target`, one random non-core agent), never
+        per-agent-scaled. Non-critical: the fallback is a genuine no-op,
+        same discipline as memory_drift."""
+        target = self._job_target()
+        if not self._monthly_gate(events, "noncore_nudge") or not target.name:
+            return
+        core_ids = self.world.population.core_agent_ids
+        candidates = [
+            a for a in self.world.population.agents
+            if a.settlement_id == target.id and a.id not in core_ids
+        ]
+        if not candidates:
+            return
+        if self._settlement_job_backpressured():
+            return
+        self._mark_monthly_resolved("noncore_nudge")
+        rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "noncore_nudge")
+        agent = rng.choice(candidates)
+        agent_id = agent.id
+        occupation = self._occupation_for(agent)
+        recent = list(agent.memories[-3:])
+        prompt = noncore_nudge.build_prompt(agent, occupation, recent)
+        fallback = noncore_nudge.fallback_nudge()
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            parsed = noncore_nudge.parse_nudge(result, fallback)
+            if parsed is None:
+                return  # nothing shifts — the common, expected case
+            trait_name, delta, reflection = parsed
+            target_agent = self.world.population.get(agent_id)
+            if target_agent is None:
+                return  # died between scheduling and resolution
+            trait_key = {
+                "resilience": TRAIT_RESILIENCE, "sociability": TRAIT_SOCIABILITY, "ambition": TRAIT_AMBITION,
+            }[trait_name]
+            _nudge_trait(target_agent, trait_key, delta)
+            tick = self.world.clock.tick_count
+            _remember(target_agent, reflection, because="a quiet personal realization")
+            log_agent_memory_entry(self.conn, tick, agent_id, "episodic", reflection)
+
+        self._schedule_llm_job("noncore_nudge", prompt, noncore_nudge.SYSTEM_PROMPT, fallback, apply)
 
     def _choose_fission_site(self, origin: tuple[int, int] | None = None) -> tuple[int, int] | None:
         """The best walkable tile at least FISSION_MIN_DISTANCE from

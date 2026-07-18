@@ -413,6 +413,58 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.17)
+
+Direct follow-up per explicit user request ("complete my items 8 and 9
+first") — closes the two items deferred by the user's own sequencing
+choice at the end of v0.87.16 (broad deterministic-sim expansion +
+periodic LLM nudges for non-core agents), scoped to four coherent
+pieces rather than the full named laundry list (economy/inheritance/
+trade/disease/migration/tech were already substantially built; crime,
+diplomacy narration, and codified norms were the genuine gaps).
+
+**Crime & theft** (`Population._maybe_commit_theft`): deterministic,
+zero LLM cost — a desperate (`THEFT_HUNGER_THRESHOLD`), distrustful
+colocated agent may take a fraction of another's personal food stock.
+Consequences land asymmetrically on the victim's trust/relationship
+read of the thief. `Settlement.thefts_committed` counter + `law_
+signal_counts["theft"]` accumulator feed the laws job below.
+
+**Inter-settlement diplomacy** (`llm/diplomacy.py`): the underlying
+affinity (`Settlement.relations`) has been deterministic since v0.67.0
+but was never LLM-narrated or shown in the main UI — this adds an
+occasional named moment (envoy/trade pact/border dispute) on top,
+round-robin over settlement pairs, genuine no-op fallback, correctly
+inert with fewer than two named settlements.
+
+**Laws, customs, taboos** (`llm/laws.py`, `Settlement.laws`) — closes
+§7's last open item, folded together with item 8 since both wanted the
+same "codify real lived history" mechanic. Gated on `law_signal_
+counts`/`pattern_signal_counts` crossing a threshold (theft or
+dispute-feud recurrence), same "spend the call only once texture
+exists" discipline as `_maybe_schedule_religion`. Real mechanical
+bite: a norm against feuding pushes `dispute.py` toward resolution; a
+norm against theft sharpens `_maybe_commit_theft`'s trust penalty
+(`THEFT_LAW_PENALTY_MULT`).
+
+**Occasional non-core-cast LLM nudges** (`llm/noncore_nudge.py`) — the
+user's own framing, "not fully LLM authored but partially and
+occasionally." Exactly one call a month for the entire world
+(round-robin, one random non-core agent), never per-agent-scaled;
+nudges one trait by a small bounded amount and plants one reflective
+memory on a genuine answer, real no-op fallback otherwise.
+
+New monthly job slots: diplomacy=2, laws=5, noncore_nudge=9 (all three
+in `MONTHLY_JOBS_WITH_RETRY`). New UI: "Laws & customs" panel, "Crime
+& justice"/"Diplomacy" stat tiles, three new event icons.
+
+Verified: direct tests for the theft mechanic and all three new LLM
+job parse functions; real end-to-end engine tests (fake `generate_
+json` through the actual `CognitionRunner`) confirming all three new
+jobs fire through the real scheduling pipeline and mutate settlement/
+agent state correctly — not a reimplementation. `scripts/verify_
+native_soak.py` (2 seeds x 800 ticks) byte-identical.
+
 ## Current state (v0.87.16)
 
 "Cognition-quality cluster" per explicit user direction, responding to

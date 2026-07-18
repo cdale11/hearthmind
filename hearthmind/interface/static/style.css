@@ -118,7 +118,7 @@ main {
    stable height and forcing them to 260px would trade the jump for
    constant dead whitespace, a worse regression. */
 #beliefs-list, #traditions-list, #folklore-list, #rituals-list,
-#inventions-list, #festivals-list, #records-list, #infrastructure-list {
+#inventions-list, #festivals-list, #records-list, #infrastructure-list, #laws-list {
   min-height: 200px;
 }
 
@@ -131,19 +131,20 @@ main {
    their own one-line digest summary. */
 #event-log, #traditions-list, #infrastructure-list,
 #beliefs-list, #folklore-list, #rituals-list,
-#inventions-list, #festivals-list, #records-list {
+#inventions-list, #festivals-list, #records-list, #laws-list {
   list-style: none; margin: 0; padding: 0;
 }
 #event-log li, #traditions-list li, #infrastructure-list li,
 #beliefs-list li, #folklore-list li, #rituals-list li,
-#inventions-list li, #festivals-list li, #records-list li {
+#inventions-list li, #festivals-list li, #records-list li, #laws-list li {
   padding: 4px 0;
   border-bottom: 1px solid var(--border);
   font-size: 12.5px;
 }
 #event-log li:last-child, #traditions-list li:last-child, #infrastructure-list li:last-child,
 #beliefs-list li:last-child, #folklore-list li:last-child, #rituals-list li:last-child,
-#inventions-list li:last-child, #festivals-list li:last-child, #records-list li:last-child {
+#inventions-list li:last-child, #festivals-list li:last-child, #records-list li:last-child,
+#laws-list li:last-child {
   border-bottom: none;
 }
 .event-tick { color: var(--muted); margin-right: 6px; }

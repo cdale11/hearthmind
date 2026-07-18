@@ -370,6 +370,18 @@ consume-and-reset discipline `ritual_signal_counts` already uses), so
 the LLM gets a chance to notice and name a recurring hardship instead
 of only ever reacting to the single most-recent event."""
 
+LAWS_MAX_STORED = 6
+"""Cap on `SettlementCulture.laws` — a village's codified norms are
+meant to read as a short, memorable handful (see `laws` docstring),
+not an accumulating legal code."""
+
+LAW_SIGNAL_THRESHOLD = 3
+"""Occurrence count (in `SettlementCulture.law_signal_counts`) a pattern
+must cross before `SimulationEngine._maybe_schedule_laws` will spend a
+real LLM call considering whether to codify it — same "recurring, not
+a single bad afternoon" discipline as RITUAL_PROMOTION_THRESHOLD/
+FAMILY_FEUD_PROMOTION_THRESHOLD."""
+
 RITUAL_MAX_STORED = 12
 """Cap on `SettlementCulture.rituals` — a village's genuinely distinct
 recurring practices are meant to read as a short, curated list (there
@@ -1548,6 +1560,11 @@ class SettlementEconomy:
     repair_vehicles` — counts a vehicle's `BROKEN -> READY` transition
     (the vehicle system's own existing "repair completed" signal), not
     the routine READY-but-below-threshold top-up case."""
+    thefts_committed: int = 0
+    """Persistent, never-decremented count of `Population._maybe_
+    commit_theft` events (item 8a, "crime & theft") — same visibility
+    shape as `fish_caught`/`buildings_repaired`, surfaced as a stat
+    tile rather than a per-theft event-log entry."""
 
 
 @dataclass
@@ -1749,6 +1766,23 @@ class SettlementCulture:
     bias — town_brain/omens/chronicle/dream read `narrative_themes[-1]`
     for a "current theme" line — never schedules or scripts an event on
     its own. Capped at NARRATIVE_THEMES_MAX_STORED."""
+    laws: list[dict] = field(default_factory=list)
+    """§7 item 7 ("Laws, customs, taboos") + item 8's "politics" ask:
+    `{"text": str, "kind": str, "formed_tick": int}` (kind is one of
+    "law"/"custom"/"taboo"). `SimulationEngine._maybe_schedule_laws`
+    (seasonal, gated on accumulated `pattern_signal_counts`/`family_
+    feud_counts` texture — the same "spend the call only once real
+    material exists" discipline as `religion`) may codify a norm in
+    direct response to a recurring hardship the village has actually
+    lived through. Never fabricated by the fallback (a genuine no-op,
+    same as `religion`'s "not yet"). Consumed by `dispute.py` (a
+    matching law biases the outcome harsher) and `Population._maybe_
+    commit_theft` (a law against theft sharpens the trust penalty).
+    Capped at LAWS_MAX_STORED."""
+    law_signal_counts: dict = field(default_factory=dict)
+    """Working accumulator behind `laws` above, same accumulate/
+    threshold/consume-and-reset shape as `pattern_signal_counts` —
+    currently keyed by `"theft"`/`"feud"`."""
 
 
 @dataclass
@@ -1856,6 +1890,8 @@ class Settlement:
         pattern_signal_counts: dict | None = None,
         family_feud_counts: dict | None = None,
         invention_knowledge: dict | None = None,
+        laws: list[dict] | None = None, law_signal_counts: dict | None = None,
+        thefts_committed: int = 0,
     ):
         self.id = id
         """Stable settlement identity (multi-settlement pass, v0.65.0):
@@ -1885,6 +1921,7 @@ class Settlement:
             caravans_visited=caravans_visited, fish_caught=fish_caught,
             buildings_repaired=buildings_repaired, vehicles_repaired=vehicles_repaired,
             market_prices=market_prices if market_prices is not None else {},
+            thefts_committed=thefts_committed,
         )
         self.culture = SettlementCulture(
             name=name, founding_scenario=founding_scenario, llm_named=llm_named, era=era, tech_level=tech_level,
@@ -1909,6 +1946,8 @@ class Settlement:
             family_feud_counts=family_feud_counts if family_feud_counts is not None else {},
             religion=religion,
             narrative_themes=narrative_themes if narrative_themes is not None else [],
+            laws=laws if laws is not None else [],
+            law_signal_counts=law_signal_counts if law_signal_counts is not None else {},
         )
         self.disposition = SettlementDisposition(
             temperament=temperament,
@@ -2196,6 +2235,30 @@ class Settlement:
     @family_feud_counts.setter
     def family_feud_counts(self, value: dict) -> None:
         self.culture.family_feud_counts = value
+
+    @property
+    def laws(self) -> list[dict]:
+        return self.culture.laws
+
+    @laws.setter
+    def laws(self, value: list[dict]) -> None:
+        self.culture.laws = value
+
+    @property
+    def law_signal_counts(self) -> dict:
+        return self.culture.law_signal_counts
+
+    @law_signal_counts.setter
+    def law_signal_counts(self, value: dict) -> None:
+        self.culture.law_signal_counts = value
+
+    @property
+    def thefts_committed(self) -> int:
+        return self.economy.thefts_committed
+
+    @thefts_committed.setter
+    def thefts_committed(self, value: int) -> None:
+        self.economy.thefts_committed = value
 
     @property
     def religion(self) -> dict | None:
@@ -2678,6 +2741,8 @@ class Settlement:
             "narrative_themes": list(self.narrative_themes),
             "omen_seed": self.omen_seed,
             "dream_seed": self.dream_seed,
+            "laws": list(self.laws),
+            "thefts_committed": self.thefts_committed,
         }
 
     def infrastructure_report(self) -> list[dict]:
@@ -2800,6 +2865,9 @@ class Settlement:
             "narrative_themes": list(self.narrative_themes),
             "omen_seed": self.omen_seed,
             "dream_seed": self.dream_seed,
+            "laws": list(self.laws),
+            "law_signal_counts": dict(self.law_signal_counts),
+            "thefts_committed": self.thefts_committed,
         }
 
     @classmethod
@@ -2858,4 +2926,7 @@ class Settlement:
             narrative_themes=list(data.get("narrative_themes", [])),
             omen_seed=data.get("omen_seed", ""),
             dream_seed=data.get("dream_seed", ""),
+            laws=list(data.get("laws", [])),
+            law_signal_counts=dict(data.get("law_signal_counts", {})),
+            thefts_committed=data.get("thefts_committed", 0),
         )
