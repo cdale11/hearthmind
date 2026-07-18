@@ -534,6 +534,30 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.87.9)
+
+Continued §1 backlog implementation per explicit user direction
+("continue... from vision," gemma-4-e4b dropped). Third §1 item:
+"ceremonies agents attend" — funerals only (weddings need a real
+"couple formed" trigger this codebase doesn't have yet, flagged not
+faked).
+
+`Population._apply_deaths`'s existing kin/bonded grief loop now also
+sets `Agent.mourning_target` (the grave position, same tile `add_
+memorial` records) and `mourning_ticks_remaining` (`MOURNING_DURATION_
+TICKS=96`, ~a day). `_dispatch_movement` biases mourners toward the
+grave and HOLDS them there (unlike `travel_target`, doesn't clear on
+arrival — a gathering, not an errand) until `Population._tick_mourning`
+(new, same tick-down-to-revert shape as `sick_ticks`/`immune_ticks`)
+expires it, easing (never erasing) grief by `MOURNING_GRIEF_EASE=0.15`.
+Zero LLM cost, zero new UI code — mourners converging on a grave marker
+is visible through existing map/agent rendering alone.
+
+Verified: direct tests against real `_apply_deaths`/`_dispatch_
+movement`/`_tick_mourning`; a real 30,000-tick run organically produced
+13 deaths / 1,204 ticks with active mourning, no test scripting.
+Native soak byte-identical, re-verified against the rebuilt extension.
+
 ## Current state (v0.87.8)
 
 Continued backlog implementation per explicit user direction (LLM cost

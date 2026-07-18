@@ -4,6 +4,61 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.9] — Ceremonies agents attend: funerals
+
+Direct continuation of the docs/IDEAS-2026-07-EMERGENCE.md §1 backlog
+per explicit user direction ("continue with the things still left to
+implement from vision"). Third item from §1: "ceremonies agents attend
+— funerals and weddings." Funerals only this pass (weddings need more
+design work — see "Not implemented" below).
+
+**Mechanic**: `Population._apply_deaths` already identifies which
+survivors are kin (`is_child`/`is_parent`) or bonded
+(`relationships >= REPRODUCTION_AFFINITY_THRESHOLD`) to the deceased,
+for the existing grief-bump loop — that same loop now also sets two
+new `Agent` fields on each of those survivors: `mourning_target` (the
+grave position, the same tile `Settlement.add_memorial` already
+records) and `mourning_ticks_remaining` (`Agent.MOURNING_DURATION_
+TICKS = 96`, matching a default-config day's tick count — "biases
+their movement for a day," per the idea doc). `Population._dispatch_
+movement` treats a nonzero `mourning_ticks_remaining` as an override
+between `travel_target` (long journeys, higher priority) and the
+agent's normal goal: the mourner walks to the grave and then, unlike
+`travel_target`, HOLDS there rather than resuming normal movement —
+a funeral is a gathering, not a one-shot errand. `Population._tick_
+mourning` (new, called once per `Population.tick()` right after
+`_apply_deaths`, same "duration counter ticks down to a revert" shape
+`sick_ticks`/`immune_ticks` already establish) decrements the counter
+every tick and, on expiry, eases (never erases) the survivor's grief
+by `Agent.MOURNING_GRIEF_EASE = 0.15` and clears both fields, handing
+movement back to the agent's normal goal.
+
+Zero LLM cost, zero new scheduling machinery: the observer sees
+mourners physically converge on and linger at a fresh grave marker
+using purely existing map/agent rendering (memorials already render as
+persistent map marks; agent positions already render as dots) — no new
+UI code needed to make the gathering visible.
+
+**Not implemented**: weddings (the idea doc's other ceremony) — unlike
+a death, this codebase has no single "a couple formed" event to hook a
+gathering onto (reproduction can recur between the same pair, and
+there's no existing "first bonded" marker); flagged as a natural
+follow-up once/if that state exists, not faked here with a shakier
+trigger.
+
+Verified: direct tests against the real `_apply_deaths`/`_dispatch_
+movement`/`_tick_mourning` production methods — mourning state
+correctly set on both kin and bonded survivors at the real memorial
+position; movement walks a mourner to the grave and holds there
+(doesn't wander off) while mourning is active; expiry eases grief by
+exactly `MOURNING_GRIEF_EASE` and correctly resumes normal goal-
+directed movement; `Agent.mourning_target`/`mourning_ticks_remaining`
+round-trip through `to_dict`/`from_dict`. A real 30,000-tick engine run
+(no test-side scripting) organically produced 13 deaths and 1,204
+ticks with at least one agent actively mourning. All tests re-run
+against the rebuilt native extension with identical results.
+`scripts/verify_native_soak.py` (3 seeds x 2000 ticks) byte-identical.
+
 ## [0.87.8] — SEEK_PERSON directed intent + C++ build parallelism root-cause fix
 
 Explicit user directive: continue implementing the emergence backlog

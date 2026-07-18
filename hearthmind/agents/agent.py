@@ -968,6 +968,24 @@ a death in the family) reads as a real spike against the 0..1 range,
 not a rounding error; see the call sites in `agents/population.py` for
 exactly which event fires which bump."""
 
+MOURNING_DURATION_TICKS = 96
+"""v0.87.9, "ceremonies agents attend: funerals" (docs/IDEAS-2026-07-
+EMERGENCE.md §1). How long a bereaved kin/bonded survivor's movement is
+biased toward the deceased's grave (the memorial `Population._apply_
+deaths` already creates at the death tile) — "for a day," matching a
+default-config day's tick count (`minutes_per_day // sim_minutes_per_
+tick` = 1440//15 = 96) rather than a config-derived value, since this
+is a behavioral constant of the mourning model itself (see MIN_
+LIFESPAN_TICKS/MATURITY_TICKS above for the same "tuned constant, not
+a config field" convention)."""
+
+MOURNING_GRIEF_EASE = 0.15
+"""Grief reduction applied once mourning completes (MOURNING_DURATION_
+TICKS elapsed) — "attending the funeral helped process it," a real,
+modest easing (never full relief) distinct from ordinary passive
+emotion decay. Deliberately smaller than EMOTION_DEATH_GRIEF_BUMP
+(0.6) — the funeral softens grief, it doesn't erase the loss."""
+
 EMOTION_NOTABLE_THRESHOLD = 0.35
 """Floor above which an emotion is worth mentioning in a prompt or
 letting bias a deterministic fallback — mirrors `TRAIT_NOTABLE_
@@ -1216,6 +1234,8 @@ class Agent:
         stuck_ticks: int = 0,
         lessons: list[dict] | None = None,
         seek_target_id: int | None = None,
+        mourning_ticks_remaining: int = 0,
+        mourning_target: tuple[int, int] | None = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -1348,6 +1368,19 @@ class Agent:
         # (death/settlement change), same "target becomes unreachable ->
         # goal quietly lapses" shape `Agent.travel_target` already has.
         self.seek_target_id: int | None = seek_target_id
+        # mourning_ticks_remaining/mourning_target: v0.87.9, "ceremonies
+        # agents attend: funerals" — set on a kin/bonded survivor by
+        # Population._apply_deaths (mourning_target = the deceased's
+        # grave position, same tile `add_memorial` records), counted
+        # down by Population._tick_mourning until it reaches 0, at
+        # which point grief eases (MOURNING_GRIEF_EASE) and both fields
+        # reset. While nonzero, Population._dispatch_movement biases
+        # this agent's movement toward the grave instead of their
+        # normal goal — same override-priority shape as `travel_target`
+        # but persists at the destination (a gathering, not a one-shot
+        # errand) rather than clearing itself the instant it arrives.
+        self.mourning_ticks_remaining: int = mourning_ticks_remaining
+        self.mourning_target: tuple[int, int] | None = mourning_target
 
     # --- native-store attach + scalar properties ---------------------------
 
@@ -1561,6 +1594,8 @@ class Agent:
             "debts": {str(k): round(v, 4) for k, v in self.debts.items()},
             "stuck_ticks": self.stuck_ticks,
             "seek_target_id": self.seek_target_id,
+            "mourning_ticks_remaining": self.mourning_ticks_remaining,
+            "mourning_target": list(self.mourning_target) if self.mourning_target is not None else None,
         }
 
     @classmethod
@@ -1614,4 +1649,8 @@ class Agent:
             emotions=dict(data.get("emotions", {})),
             stuck_ticks=data.get("stuck_ticks", 0),
             seek_target_id=data.get("seek_target_id"),
+            mourning_ticks_remaining=data.get("mourning_ticks_remaining", 0),
+            mourning_target=(
+                tuple(data["mourning_target"]) if data.get("mourning_target") is not None else None
+            ),
         )

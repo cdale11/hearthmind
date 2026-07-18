@@ -118,6 +118,8 @@ from hearthmind.agents.agent import (
     ROUTINE_MEMORY_SALIENCE_MULT,
     WORKING_MEMORY_MAX,
     MIN_LIFESPAN_TICKS,
+    MOURNING_DURATION_TICKS,
+    MOURNING_GRIEF_EASE,
     MOVE_CHANCE,
     OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK,
     OUTBREAK_CROWDING_MULTIPLIER,
@@ -1570,6 +1572,7 @@ class Population:
             self._maybe_reproduce(by_position, rng, capacity_by_id, settlements, tick)
         )
         life_events.extend(self._apply_deaths(killed_by_predator, settlements, died_of_disease, tick=tick, rng=rng))
+        self._tick_mourning()
         life_events.extend(self._maybe_welcome_migrant(rng, primary, core_cast_target, terrain))
         for stl in settlements:
             members = [a for a in self.agents if home_of(a).id == stl.id]
@@ -2144,6 +2147,31 @@ class Population:
                     agent.travel_target = None
                 if moved:
                     return
+
+        # Mourning (v0.87.9, "ceremonies agents attend: funerals"):
+        # biases movement toward the deceased's grave for the survivor's
+        # mourning duration — lower priority than a long-range journey
+        # (travel_target, above) or a hunger emergency, but overrides
+        # the agent's normal goal for its duration. Unlike travel_target
+        # this does NOT clear itself on arrival — a funeral is a
+        # gathering, not a one-shot errand; `Population._tick_mourning`
+        # is the only thing that ends it (duration expiry). Once
+        # arrived, the agent simply holds still at the grave rather than
+        # random-walking away — a legible "the mourners gathered and
+        # stayed" cue on the map.
+        if agent.mourning_ticks_remaining > 0 and not critically_hungry and agent.travel_target is None:
+            grave = agent.mourning_target
+            if grave is not None and (agent.x, agent.y) != grave:
+                if cls._step_toward(agent, grave, terrain, predator_tiles, mountain_unlocked, bridge_tiles):
+                    agent.stuck_ticks = 0
+                    return
+                step = cls._bfs_step(
+                    terrain, (agent.x, agent.y), grave,
+                    mountain_unlocked=mountain_unlocked, bridge_tiles=bridge_tiles,
+                )
+                if step is not None:
+                    agent.x, agent.y = step
+            return
 
         effective_goal = AgentGoal.FORAGE if critically_hungry else agent.goal
         target = None
@@ -4417,6 +4445,16 @@ class Population:
             # Grief: a survivor bonded to the dying agent remembers them
             # and pays a real cost, not just a log line. See
             # docs/DECISIONS.md, relationship-memory pass.
+            #
+            # v0.87.9, "ceremonies agents attend: funerals" (docs/IDEAS-
+            # 2026-07-EMERGENCE.md §1): the same kin/bonded survivors
+            # this loop already identifies also have their movement
+            # biased toward the grave just created above
+            # (`mourning_target`/`mourning_ticks_remaining`, consumed by
+            # `_dispatch_movement`/`_tick_mourning`) — mourning as a
+            # real, visible gathering, not just an internal emotion
+            # bump. Gated on `home is not None` since a memorial (the
+            # grave to gather at) is only ever created in that case.
             record_kept = False
             for other in self.agents:
                 if other.id == agent.id or other.id in dying_ids:
@@ -4442,12 +4480,18 @@ class Population:
                     self.last_triggered_agent_ids.add(other.id)
                     _nudge_trait(other, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
                     bump_emotion(other, EMOTION_GRIEF, EMOTION_DEATH_GRIEF_BUMP)
+                    if home is not None:
+                        other.mourning_target = (agent.x, agent.y)
+                        other.mourning_ticks_remaining = MOURNING_DURATION_TICKS
                 elif other.relationships.get(agent.id, 0.0) >= REPRODUCTION_AFFINITY_THRESHOLD:
                     _remember(other, f"{agent.name} died. I miss them.")
                     other.energy = max(0.0, other.energy - grief_penalty_for(other))
                     self.last_triggered_agent_ids.add(other.id)
                     _nudge_trait(other, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
                     bump_emotion(other, EMOTION_GRIEF, EMOTION_DEATH_GRIEF_BUMP)
+                    if home is not None:
+                        other.mourning_target = (agent.x, agent.y)
+                        other.mourning_ticks_remaining = MOURNING_DURATION_TICKS
             if home is not None:
                 life_events.extend(self._apply_inheritance(agent, home, dying_ids, tick, rng))
         self.agents = survivors
@@ -4482,6 +4526,25 @@ class Population:
                     if vehicle.assigned_agent_id in dying_ids:
                         vehicle.assigned_agent_id = None
         return life_events
+
+    def _tick_mourning(self) -> None:
+        """v0.87.9, "ceremonies agents attend: funerals" — counts down
+        every mourner's `mourning_ticks_remaining` (set by `_apply_
+        deaths`, above), same "duration counter ticking down to a
+        revert" shape as `sick_ticks`/`immune_ticks` (see `_tick_
+        disease`). On reaching 0, grief eases (MOURNING_GRIEF_EASE —
+        never to 0, the loss isn't erased) and both mourning fields
+        reset, handing movement back to the agent's normal goal. Cheap:
+        a flat scan of `self.agents`, only agents with a nonzero counter
+        do any real work."""
+        for agent in self.agents:
+            if agent.mourning_ticks_remaining <= 0:
+                continue
+            agent.mourning_ticks_remaining -= 1
+            if agent.mourning_ticks_remaining <= 0:
+                agent.mourning_target = None
+                current = agent.emotions.get(EMOTION_GRIEF, 0.0)
+                agent.emotions[EMOTION_GRIEF] = max(0.0, current - MOURNING_GRIEF_EASE)
 
     # --- LLM core cast (v0.70.0) ----------------------------------------------
 
