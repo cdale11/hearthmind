@@ -4,6 +4,70 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.13] — Weather as wear catalysts, slower baseline decay
+
+Direct fix for a live report: "everything wears down too quickly."
+Root cause: `Settlement.tick`'s building/vehicle decay used one binary
+"harsh weather" gate (`precipitation > 0.4 or wind > 0.5 or
+is_snowing`) that flipped a flat 3.0x (buildings) / 2.0x (vehicles)
+multiplier on or off — measured against the real weather distribution,
+that gate fired across a large share of all ticks, so the EFFECTIVE
+average decay rate was much faster than the base constants alone
+suggested, and every kind of "bad weather" produced the identical
+generic penalty regardless of what was actually happening.
+
+**Halved the baseline rates**: `buildings.DECAY_PER_TICK_BASE`
+0.0004 -> 0.00022, `vehicles.VEHICLE_DECAY_PER_TICK_BASE` 0.0003 ->
+0.00016 — full decay from perfect condition in fair weather now takes
+~4500 ticks instead of ~2500. C3's standing principle (docs/
+DECISIONS.md: "decay is never zero even in perfect weather") is
+preserved — this is a rate change, not a new gate.
+
+**Replaced the binary gate with `buildings._weather_decay_catalyst`**:
+four independent, continuously-scaled catalysts instead of one flat
+switch — damp/rot (scales with precipitation), dry-heat/cracking
+(scales with high temperature, only relevant when NOT damp), frost/
+freeze-thaw (scales as temperature approaches freezing, full strength
+while snowing), and wind/structural stress (scales with wind past the
+calm threshold). Each adds its own share on top of 1.0 rather than
+multiplying, so a single "bad" reading (e.g. just windy) is a mild
+bump, while a genuinely miserable day (cold, wet, and windy at once)
+compounds several real catalysts — measured against a 30,000-tick
+realistic weather sample, the new effective average full-decay time is
+~3059 ticks, well above the old best case. Vehicles read the same
+catalyst scaled to 2/3 strength (`VEHICLE_DECAY_CATALYST_SCALE=0.67`,
+preserving the old 2.0-vs-3.0 ratio between vehicle and building
+weather sensitivity) — a vehicle isn't a fixed structure exposed to
+the elements the same way.
+
+`SEASON_DECAY_MULTIPLIER`'s range narrowed ({1.4, 1.15, 1.0, 0.85} ->
+{1.15, 1.05, 1.0, 0.95}) — its old wide swing existed to approximate
+winter's freeze-thaw/damp as a coarse seasonal average; that's now
+captured far more precisely by the real per-tick frost/damp catalysts
+themselves (which naturally run harder in winter simply because winter
+has more cold/wet ticks — an emergent, not hardcoded, seasonal skew),
+so the season table now only covers the small genuinely-season-
+specific residual.
+
+Both native fast paths (`_native_building_decay_tick`/`_native_
+vehicle_decay_tick`) take precomputed scalar decay values, not weather
+directly — this change is entirely Python-side (the catalyst math runs
+before the native call either way), so no C++ changes were needed.
+
+Verified: direct tests confirm the catalyst function is always >= 1.0,
+orders weather severity correctly (clear < overcast < heavy rain,
+clear < gale, clear < frost, and a compound "miserable" day exceeds
+any single factor), and the measured 30k-tick effective average decay
+rate is meaningfully slower than the old worst-case baseline; a real
+`Settlement.tick` integration test confirms buildings decay faster
+than vehicles under identical weather (proportional to the 0.67 scale)
+and both decay faster in a winter storm than in clear summer weather.
+Re-verified against the rebuilt native extension (byte-identical
+native-vs-Python at the new rates); `scripts/verify_native_soak.py`
+(3 seeds x 2000 ticks) confirms native and pure-Python paths match
+exactly at the new rates (not byte-identical to the OLD snapshot
+baseline, since this is a deliberate rate/behavior change).
+
 ## [0.87.12] — Weather retune + three §7 cognition-infrastructure items
 
 Two independent pieces per explicit user direction ("try closing point

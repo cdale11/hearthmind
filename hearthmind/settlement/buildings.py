@@ -16,8 +16,8 @@ from hearthmind.util import clamp
 from hearthmind.agents.agent import EMOTION_ANGER, EMOTION_FEAR, EMOTION_GRIEF, EMOTION_JOY
 from hearthmind.settlement.institutions import Institution, InstitutionKind
 from hearthmind.settlement.vehicles import (
+    VEHICLE_DECAY_CATALYST_SCALE,
     VEHICLE_DECAY_PER_TICK_BASE,
-    VEHICLE_DECAY_WEATHER_MULTIPLIER,
     Vehicle,
     VehicleKind,
     VehicleStage,
@@ -193,23 +193,85 @@ def _condition_label(condition: float) -> str:
         return "worn"
     return "critical"
 
-DECAY_PER_TICK_BASE = 0.0004
-"""Baseline condition lost per tick for a standing building — roughly a
-full decay from perfect condition over ~2500 ticks (~26 sim-days at
-default pacing) with no weather effect and no repair."""
+DECAY_PER_TICK_BASE = 0.00022
+"""Baseline condition lost per tick for a standing building in fair
+weather — roughly a full decay from perfect condition over ~4500 ticks
+(~47 sim-days at default pacing) with no repair. Halved from the
+original 0.0004 (v0.87.13, live report: "everything wears down too
+quickly") — the old binary `DECAY_WEATHER_MULTIPLIER=3.0` gate fired
+on any of three loose conditions (`precipitation > 0.4 or wind > 0.5
+or is_snowing`), which — measured against the real weather distribution
+(see world/weather.py's v0.87.12 retune) — covered close to half of
+all ticks at full 3x severity, so the EFFECTIVE average decay rate was
+much faster than this base number alone suggested. Replaced by
+`_weather_decay_catalyst` below: real wear now differentiates by
+CAUSE (damp/rot, dry heat/cracking, frost/freeze-thaw, wind/structural)
+scaled continuously by actual weather intensity, instead of one flat
+multiplier gated on/off. C3's standing principle (docs/DECISIONS.md:
+"decay is never zero even in perfect weather") is preserved — this
+base rate alone still erodes a building over time with zero weather
+input."""
 
-DECAY_WEATHER_MULTIPLIER = 3.0
-"""Multiplier applied to decay during precipitation or high wind — storms
-wear structures down faster than fair weather."""
+RAIN_ROT_DECAY_WEIGHT = 0.9
+DRY_HEAT_CRACK_DECAY_WEIGHT = 0.4
+FROST_DECAY_WEIGHT = 0.7
+WIND_STRUCTURAL_DECAY_WEIGHT = 0.6
+"""v0.87.13 "weather as wear catalysts" (live report: decay was too
+fast AND too undifferentiated — every tick applied the same flat
+multiplier regardless of what kind of weather was actually happening).
+Each weight is the MAXIMUM extra multiplier that catalyst can add at
+its most extreme reading (see `_weather_decay_catalyst`) — persistent
+damp is the single worst offender for timber/thatch (rot), a real
+freeze-thaw cycle close behind (masonry cracking as trapped water
+expands), gale-force wind a real but lesser structural stressor, and
+dry heat the mildest (only relevant at all in the rare hot-and-dry
+band this climate model produces). Deliberately NOT stacked to a
+single old-style flat multiplier — a genuinely miserable day (cold,
+wet, windy all at once) now compounds several real catalysts rather
+than tripping one binary switch, while an ordinary overcast or breezy
+day (the majority of ticks under the v0.87.12 weather retune) adds
+only a small fraction of any of these, not the old flat 3x."""
 
-SEASON_DECAY_MULTIPLIER = {"winter": 1.4, "autumn": 1.15, "spring": 1.0, "summer": 0.85}
-"""Applied on top of DECAY_WEATHER_MULTIPLIER, not instead of it — real
-building wear isn't just "is it raining right now," it's also the
-season: winter's freeze-thaw cycles (water expanding in cracks) and
-persistent damp are genuinely harder on masonry/timber than a dry
-summer, independent of any single tick's weather. A season absent from
-this table (shouldn't happen — all four exist) defaults to 1.0. See
-docs/DECISIONS.md, "map/UI/ecology follow-up.\""""
+SEASON_DECAY_MULTIPLIER = {"winter": 1.15, "autumn": 1.05, "spring": 1.0, "summer": 0.95}
+"""Applied on top of `_weather_decay_catalyst`, not instead of it —
+narrowed from {1.4, 1.15, 1.0, 0.85} in v0.87.13: the old wide swing
+existed specifically to represent "winter's freeze-thaw cycles and
+persistent winter damp" as a coarse seasonal AVERAGE, but that's now
+captured far more precisely by the real per-tick frost/damp catalysts
+above (which already run harder in winter simply because winter
+actually has more cold/wet ticks — an emergent, not hardcoded,
+seasonal skew). This table now only covers the residual, genuinely
+season-specific effect (shorter freeze-thaw-favorable temperature
+swings in winter, drier structural timber in summer) that isn't
+already priced in by the weather catalysts themselves. A season absent
+from this table (shouldn't happen — all four exist) defaults to 1.0.
+See docs/DECISIONS.md, "map/UI/ecology follow-up.\""""
+
+
+def _weather_decay_catalyst(weather: WeatherState) -> float:
+    """v0.87.13 "weather as wear catalysts": returns a >=1.0 multiplier
+    built from FOUR independent, continuously-scaled failure modes
+    instead of one binary "harsh weather" gate — see the *_DECAY_
+    WEIGHT constants above for the reasoning behind each weight.
+    Diminishing, not multiplicative: each catalyst adds its own share
+    on top of 1.0, so a day that's simultaneously wet AND windy
+    compounds two real effects rather than double-multiplying into an
+    unrealistic spike."""
+    from hearthmind.world.weather import (
+        CALM_WIND_THRESHOLD, CLEAR_PRECIPITATION_THRESHOLD, LIGHT_RAIN_PRECIPITATION_THRESHOLD,
+    )
+    span = max(1e-6, LIGHT_RAIN_PRECIPITATION_THRESHOLD - CLEAR_PRECIPITATION_THRESHOLD)
+    damp = min(1.0, max(0.0, (weather.precipitation - CLEAR_PRECIPITATION_THRESHOLD) / span))
+    dry_heat = min(1.0, max(0.0, (weather.temperature_c - 18.0) / 12.0)) * (1.0 - damp)
+    frost = 1.0 if weather.is_snowing else min(1.0, max(0.0, (2.0 - weather.temperature_c) / 8.0))
+    gale = min(1.0, max(0.0, (weather.wind - CALM_WIND_THRESHOLD) / max(1e-6, 1.0 - CALM_WIND_THRESHOLD)))
+    return (
+        1.0
+        + RAIN_ROT_DECAY_WEIGHT * damp
+        + DRY_HEAT_CRACK_DECAY_WEIGHT * dry_heat
+        + FROST_DECAY_WEIGHT * frost
+        + WIND_STRUCTURAL_DECAY_WEIGHT * gale
+    )
 
 SETTLE_CHANCE_PER_TICK = 0.01
 """Rolled only for mature, healthy, colocated (2+) agents standing on a
@@ -2354,9 +2416,9 @@ class Settlement:
         events: list[tuple[str, str]] = []
         survivors: list[Building] = []
 
-        weather_harsh = weather.precipitation > 0.4 or weather.wind > 0.5 or weather.is_snowing
+        weather_catalyst = _weather_decay_catalyst(weather)
         decay = (
-            DECAY_PER_TICK_BASE * (DECAY_WEATHER_MULTIPLIER if weather_harsh else 1.0)
+            DECAY_PER_TICK_BASE * weather_catalyst
             * SEASON_DECAY_MULTIPLIER.get(season, 1.0)
         )
 
@@ -2432,8 +2494,12 @@ class Settlement:
             self._position_index = None  # a ruin was reclaimed — see at()'s cache
         self.buildings = survivors
 
+        # Vehicles get the same catalysts as buildings, scaled down —
+        # same ratio the old flat multipliers had (2.0 vs 3.0: vehicles
+        # feel 2/3 of a building's excess weather wear, not all of it).
+        vehicle_weather_catalyst = 1.0 + (weather_catalyst - 1.0) * VEHICLE_DECAY_CATALYST_SCALE
         vehicle_decay = (
-            VEHICLE_DECAY_PER_TICK_BASE * (VEHICLE_DECAY_WEATHER_MULTIPLIER if weather_harsh else 1.0)
+            VEHICLE_DECAY_PER_TICK_BASE * vehicle_weather_catalyst
             * SEASON_DECAY_MULTIPLIER.get(season, 1.0)
         )
         if _native_vehicle_decay_tick is not None:

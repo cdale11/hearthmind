@@ -77,10 +77,17 @@ later refinement."""
 VEHICLE_REPAIR_THRESHOLD = 0.5
 VEHICLE_REPAIR_WORK_PER_TICK = 0.03
 
-VEHICLE_DECAY_PER_TICK_BASE = 0.0003
-VEHICLE_DECAY_WEATHER_MULTIPLIER = 2.0
-"""Milder than a building's DECAY_WEATHER_MULTIPLIER (3.0) — a vehicle
-isn't a fixed structure exposed to the elements the same way."""
+VEHICLE_DECAY_PER_TICK_BASE = 0.00016
+"""Halved from 0.0003 (v0.87.13, live report: "everything wears down
+too quickly" — same rebalance as `buildings.DECAY_PER_TICK_BASE`, see
+its docstring for the measured-effective-rate reasoning)."""
+
+VEHICLE_DECAY_CATALYST_SCALE = 0.67
+"""How much of `buildings._weather_decay_catalyst`'s excess (the part
+above 1.0) a vehicle actually feels — same ratio the old flat
+multipliers had (vehicle 2.0 vs building 3.0): a vehicle isn't a fixed
+structure exposed to the elements the same way, so weather catalysts
+apply at roughly 2/3 strength. See `Settlement.tick`."""
 
 MOUNT_USE_DECAY = 0.002
 """Extra condition lost on a tick a mount actually carries its rider an

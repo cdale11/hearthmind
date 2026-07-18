@@ -534,6 +534,40 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.87.13)
+
+Direct fix for a live report: "everything wears down too quickly."
+Root cause: building/vehicle decay used one binary "harsh weather"
+gate (any of precipitation/wind/snow past a threshold) flipping a flat
+3.0x/2.0x multiplier — measured against the real weather distribution,
+this fired often enough that the effective average decay was much
+faster than the base rate suggested, with zero differentiation between
+kinds of bad weather.
+
+Halved the baseline rates (`buildings.DECAY_PER_TICK_BASE` 0.0004 ->
+0.00022, `vehicles.VEHICLE_DECAY_PER_TICK_BASE` 0.0003 -> 0.00016; C3's
+"decay is never zero" principle preserved). Replaced the binary gate
+with `buildings._weather_decay_catalyst`: four continuously-scaled,
+additive catalysts — damp/rot, dry-heat/cracking, frost/freeze-thaw,
+wind/structural — each contributing its own share rather than one flat
+switch, so a single bad reading is a mild bump while a genuinely
+miserable compound day (cold+wet+windy) stacks several real effects.
+Vehicles read the same catalyst at 2/3 strength (preserving the old
+2.0-vs-3.0 building/vehicle ratio). `SEASON_DECAY_MULTIPLIER`'s range
+narrowed ({1.4,1.15,1.0,0.85} -> {1.15,1.05,1.0,0.95}) since winter's
+freeze-thaw/damp is now captured directly by the per-tick catalysts
+rather than a coarse seasonal average. Measured effective average
+full-decay time: ~3059 ticks (30k-tick realistic sample), up from the
+old worst-case baseline. Entirely Python-side — native fast paths take
+precomputed scalars, no C++ changes needed.
+
+Verified: direct tests for catalyst monotonicity/ordering/compounding,
+a real `Settlement.tick` integration test confirming buildings decay
+faster than vehicles under identical weather and both decay faster in
+a winter storm than clear summer weather. Re-verified against the
+rebuilt native extension; native soak confirms native/Python paths
+match exactly at the new rates.
+
 ## Current state (v0.87.12)
 
 Two independent pieces per explicit user direction ("try closing
