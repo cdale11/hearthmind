@@ -4,6 +4,67 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.6] — llama-server `/metrics` polling (v0.87.5's flagged next step) + emergence idea backlog
+
+Direct follow-up to v0.87.5, per explicit user request: implement its
+own recommended-but-deferred next step (poll llama-server's real
+server-side diagnostics instead of only char-based prompt estimates)
+and file the externally-submitted "What's Still Missing" emergence
+audit as tracked backlog.
+
+**`/metrics` polling**: `scripts/run.sh` gained `LLAMA_METRICS_ENDPOINT`
+(default `1`) passing `--metrics` to `llama-server`, exposing its
+Prometheus-format `/metrics` endpoint (KV-cache occupancy, queue depth,
+prompt/predicted-token throughput counters — no prompt content).
+Deliberately does NOT pass `--slots`: that endpoint echoes live prompt
+text back to the caller for cache inspection, a real privacy exposure
+this project doesn't need to take on for aggregate numbers `/metrics`
+already provides. New `llm.client.fetch_llama_server_metrics()` does a
+plain stdlib `urllib` GET and parses the Prometheus text format (line
+regex, no new dependency), returning `None` on any failure (server not
+running `--metrics`, unreachable, wrong backend) — pure diagnostics,
+never allowed to affect the tick loop or LLM call path.
+`SimulationEngine` polls it every `LLAMA_METRICS_POLL_SECONDS=30` from
+`run_forever`'s loop as a fire-and-forget background task (same
+discipline as every LLM job) — real-time gated, not tick-gated, so
+polling continues even while ticking is paused (LLM pressure, a
+llama-server restart, or the user's own pause button). A no-op on the
+`ollama` backend (no equivalent endpoint) or when the LLM is disabled.
+Result surfaced at `/diagnostics.llama_server_metrics`, alongside the
+existing char-based `llm_prompt_stats` estimates rather than replacing
+them (the estimates still let you compare prompt sizes on paper before
+a server is even running).
+
+**Idea backlog**: an externally-submitted, checked-against-the-code
+wishlist audit ("What's Still Missing," ~70 items across agent
+action-vocabulary gaps, inter-settlement dynamics, meaning-loop
+closure, observer-aware Town Consciousness, deep-time legibility,
+substrate gaps, and cognition-infrastructure items like adaptive
+retrieval/causal memory/episodic planning) was requested to be filed
+into `docs/`, tracked as backlog the same way `docs/VISION-2026-07*.md`
+is — pending confirmation on the exact filename, added as its own
+follow-up commit once confirmed. Status: idea checklist only, nothing
+implemented or green-lit.
+
+Verified: direct tests for `fetch_llama_server_metrics` (Prometheus
+parsing incl. label-stripping, unreachable-host → `None`, no
+exception) and for the engine's polling method against a real mock
+HTTP server end-to-end (poll fires once per window, stores the result,
+reaches `full_diagnostics()`, correctly skips a repoll within the
+30s window, correctly no-ops on the `ollama` backend). `bash -n
+scripts/run.sh` syntax check. `scripts/verify_native_soak.py` (2 seeds
+x 1500 ticks) byte-identical — this batch touches no native module.
+
+**Also discussed this pass, not yet acted on**: user reports
+`LLAMA_CACHE_RAM=0` (v0.87.5) resolved the swap/memory pressure that
+had driven several prior tuning passes, and is trying a q5_k_m
+quantization of `gemma-4-e2b-it` — no config change made yet pending a
+live diagnostic under the new quant/cache-ram combination, per this
+project's standing "measure before tuning" rule; re-tune `llm_num_ctx`/
+`llm_num_predict`/`llm_max_concurrent`/`llm_max_calls_per_day` from a
+fresh `/diagnostics.system_memory`+`llm_prompt_stats`+`llama_server_
+metrics` reading once one exists, rather than upscaling ahead of data.
+
 ## [0.87.5] — Prompt-density audit + llama-server host-RAM cache disabled by default
 
 Explicit user directive: audit `--cache-ram` for memory savings, and

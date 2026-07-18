@@ -101,6 +101,23 @@
 #                        workload's shape has changed; empty omits the
 #                        flag for an older llama-server build that
 #                        predates it.
+#   LLAMA_METRICS_ENDPOINT Default: 1 (enabled, v0.87.6). Passes --metrics,
+#                        exposing llama-server's own Prometheus `/metrics`
+#                        endpoint (KV-cache occupancy, queue depth,
+#                        prompt/predicted-token throughput) — the "poll
+#                        llama-server's own /slots|/metrics" step v0.87.5
+#                        flagged as recommended-but-deferred.
+#                        `SimulationEngine` polls it every 30s (real
+#                        server-side numbers, not the char-based
+#                        estimates `llm_prompt_stats` uses) and surfaces
+#                        it at `/diagnostics.llama_server_metrics`.
+#                        Deliberately does NOT pass --slots (that
+#                        endpoint echoes live prompt content back for
+#                        prompt-cache inspection — a real privacy
+#                        exposure this project doesn't need to take on
+#                        for aggregate numbers /metrics already
+#                        provides). Set to 0/empty to omit the flag for
+#                        an older llama-server build that predates it.
 #   LLAMA_RESTART_HOURS  Default: 0 (disabled). v0.86.9 — --defrag-thold
 #                        only addresses KV-cache fragmentation; general
 #                        heap fragmentation in a llama-server process
@@ -270,6 +287,7 @@ LLAMA_BATCH_SIZE="${LLAMA_BATCH_SIZE-512}"
 LLAMA_UBATCH_SIZE="${LLAMA_UBATCH_SIZE-128}"
 LLAMA_DEFRAG_THOLD="${LLAMA_DEFRAG_THOLD-0.1}"
 LLAMA_CACHE_RAM="${LLAMA_CACHE_RAM-0}"
+LLAMA_METRICS_ENDPOINT="${LLAMA_METRICS_ENDPOINT-1}"
 LLAMA_MLOCK="${LLAMA_MLOCK-}"
 LLAMA_RESTART_HOURS="${LLAMA_RESTART_HOURS-0}"
 LLAMA_MALLOC_ARENA_MAX="${LLAMA_MALLOC_ARENA_MAX-}"
@@ -426,8 +444,14 @@ start_llama_server() {
   # llama-server build that predates it.
   cache_ram_str=""
   [[ -n "$LLAMA_CACHE_RAM" ]] && cache_ram_str="--cache-ram $LLAMA_CACHE_RAM"
-  echo "run.sh: starting llama-server on $LLAMA_HOST (ctx=$LLAMA_CTX_SIZE, parallel=$LLAMA_PARALLEL, threads=$LLAMA_THREADS, gpu-layers=$LLAMA_N_GPU_LAYERS, fit=${LLAMA_FIT:-off}/target=${LLAMA_FIT_TARGET:-default}, flash-attn=${LLAMA_FLASH_ATTN:-off}, reasoning=${LLAMA_REASONING:-model default}, kv=$LLAMA_CACHE_TYPE_K/$LLAMA_CACHE_TYPE_V, batch=${LLAMA_BATCH_SIZE:-default}/${LLAMA_UBATCH_SIZE:-default}, defrag=${LLAMA_DEFRAG_THOLD:-off}, cache-ram=${LLAMA_CACHE_RAM:-server default}, mlock=${LLAMA_MLOCK:-off}, malloc-tuning=${malloc_env[*]:-off})..." >&2
-  # shellcheck disable=SC2086  # $fit_str/$fa_str/$reasoning_str/$batch_str/$ubatch_str/$mlock_str/$defrag_str/$cache_ram_str/$LLAMA_EXTRA_ARGS are intentionally word-split
+  # --metrics (v0.87.6): exposes /metrics (Prometheus text, KV-cache
+  # occupancy + queue depth + throughput counters, no prompt content) so
+  # SimulationEngine can poll real server-side numbers instead of its own
+  # char-based estimates — see the LLAMA_METRICS_ENDPOINT doc block above.
+  metrics_str=""
+  [[ "$LLAMA_METRICS_ENDPOINT" == "1" ]] && metrics_str="--metrics"
+  echo "run.sh: starting llama-server on $LLAMA_HOST (ctx=$LLAMA_CTX_SIZE, parallel=$LLAMA_PARALLEL, threads=$LLAMA_THREADS, gpu-layers=$LLAMA_N_GPU_LAYERS, fit=${LLAMA_FIT:-off}/target=${LLAMA_FIT_TARGET:-default}, flash-attn=${LLAMA_FLASH_ATTN:-off}, reasoning=${LLAMA_REASONING:-model default}, kv=$LLAMA_CACHE_TYPE_K/$LLAMA_CACHE_TYPE_V, batch=${LLAMA_BATCH_SIZE:-default}/${LLAMA_UBATCH_SIZE:-default}, defrag=${LLAMA_DEFRAG_THOLD:-off}, cache-ram=${LLAMA_CACHE_RAM:-server default}, metrics=${LLAMA_METRICS_ENDPOINT:-off}, mlock=${LLAMA_MLOCK:-off}, malloc-tuning=${malloc_env[*]:-off})..." >&2
+  # shellcheck disable=SC2086  # $fit_str/$fa_str/$reasoning_str/$batch_str/$ubatch_str/$mlock_str/$defrag_str/$cache_ram_str/$metrics_str/$LLAMA_EXTRA_ARGS are intentionally word-split
   env "${malloc_env[@]}" "$LLAMA_SERVER_BIN" \
     --model "$MODEL_PATH" \
     --ctx-size "$LLAMA_CTX_SIZE" \
@@ -439,6 +463,7 @@ start_llama_server() {
     $batch_str \
     $ubatch_str \
     $defrag_str \
+    $metrics_str \
     $cache_ram_str \
     $mlock_str \
     --no-mmproj \

@@ -226,6 +226,53 @@ class LlamaCppClient:
             raise LLMUnavailable(f"llama.cpp returned non-JSON content: {raw_response!r}") from exc
 
 
+_METRICS_LINE_RE = re.compile(r"^(llamacpp:[a-zA-Z_]+)(?:\{[^}]*\})?\s+([0-9eE.+-]+)\s*$")
+"""Matches one Prometheus text-format line from llama-server's `/metrics`
+endpoint, e.g. `llamacpp:kv_cache_usage_ratio 0.312` or
+`llamacpp:requests_processing{...} 2` — label blocks (if any) are
+discarded, this project only wants the bare gauge/counter value per
+metric name. Comment lines (`# HELP`/`# TYPE`) and blank lines simply
+don't match and are skipped."""
+
+
+def fetch_llama_server_metrics(host: str, timeout: float = 5.0) -> dict[str, float] | None:
+    """Poll `llama-server`'s own `/metrics` endpoint (Prometheus text
+    format, only present when the server was launched with `--metrics`
+    — see `scripts/run.sh`'s `LLAMA_METRICS_ENDPOINT`) for real
+    KV-cache/queue occupancy instead of this project's char-based
+    prompt-size estimates (`SimulationEngine.llm_prompt_stats_summary`).
+    v0.87.5 flagged this as a recommended-but-deferred next step;
+    implemented here as a small, best-effort GET — returns `None` on
+    any failure (server not running `--metrics`, unreachable, wrong
+    backend, malformed response) rather than raising, since this is
+    pure diagnostics and must never affect the tick loop or LLM call
+    path. Deliberately does NOT poll `/slots` — that endpoint echoes
+    live prompt content back to the caller for prompt-cache
+    inspection, which is a real (if remote) privacy exposure this
+    project's own local-only diagnostics don't need to take on for a
+    handful of aggregate KV-cache numbers `/metrics` already provides
+    (`llamacpp:kv_cache_usage_ratio`, `llamacpp:kv_cache_tokens`,
+    `llamacpp:requests_processing`, `llamacpp:requests_deferred`, and
+    the running prompt/predicted token/second counters)."""
+    request = urllib.request.Request(f"{host.rstrip('/')}/metrics", method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = response.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return None
+    metrics: dict[str, float] = {}
+    for line in body.splitlines():
+        match = _METRICS_LINE_RE.match(line.strip())
+        if not match:
+            continue
+        name, value = match.group(1), match.group(2)
+        try:
+            metrics[name] = float(value)
+        except ValueError:
+            continue
+    return metrics or None
+
+
 def build_llm_client(config) -> "OllamaClient | LlamaCppClient":
     """Factory used by both `SimulationEngine` and `server.py` so the two
     call sites can't drift on which fields each backend actually

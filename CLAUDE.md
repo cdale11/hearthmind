@@ -520,6 +520,31 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.87.6)
+
+Direct follow-up to v0.87.5, per explicit user request: implement its
+own flagged-but-deferred next step, and file an externally-submitted
+emergence-ideas audit as tracked backlog (doc-file step pending
+confirmation — see CHANGELOG).
+
+`scripts/run.sh`'s new `LLAMA_METRICS_ENDPOINT` (default on) passes
+`--metrics` to llama-server; `llm.client.fetch_llama_server_metrics()`
+polls its Prometheus `/metrics` endpoint (KV-cache occupancy, queue
+depth, throughput — no prompt content, deliberately not `/slots`).
+`SimulationEngine` polls it every `LLAMA_METRICS_POLL_SECONDS=30` as a
+real-time-gated (not tick-gated — keeps polling through any pause)
+background task, surfaced at `/diagnostics.llama_server_metrics`
+alongside (not replacing) the char-based `llm_prompt_stats` estimates.
+
+Also noted: user reports `LLAMA_CACHE_RAM=0` (v0.87.5) has resolved
+the swap/memory pressure driving several prior tuning passes, and is
+testing q5_k_m-quantized `gemma-4-e2b-it`. No config re-tune made yet
+— per this project's standing "measure before tuning" rule, wait for a
+live `/diagnostics` reading (system_memory + llm_prompt_stats + the
+new llama_server_metrics) under the new quant/cache-ram combination
+before touching `llm_num_ctx`/`llm_num_predict`/`llm_max_concurrent`/
+`llm_max_calls_per_day`.
+
 ## Current state (v0.87.5)
 
 Explicit user directive: audit `--cache-ram`, and audit every LLM

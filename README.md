@@ -695,6 +695,18 @@ already tight from prior passes. `/diagnostics.llm_prompt_stats`
 (new) tracks prompt/completion size and latency BY JOB TYPE, not just
 in aggregate — use it before making further prompt changes.
 
+**Real server-side diagnostics** (v0.87.6): `LLAMA_METRICS_ENDPOINT`
+(default on) passes `--metrics` to llama-server, exposing its own
+Prometheus `/metrics` endpoint (KV-cache occupancy, queue depth,
+prompt/predicted-token throughput — no prompt content). `Simulation
+Engine` polls it every 30s and surfaces it at `/diagnostics.llama_
+server_metrics`, alongside (not replacing) the char-based `llm_prompt_
+stats` estimates above — the real numbers `llm_prompt_stats`'s own
+docstring had flagged as a recommended-but-deferred next step.
+Deliberately does not pass `--slots` (echoes live prompt content back
+for cache inspection — a privacy exposure not worth taking on for
+these aggregate numbers).
+
 For genuinely unattended years-long operation, also consider: a process
 supervisor that restarts `scripts/run.sh` on crash/OOM-kill (systemd
 `Restart=on-failure` or equivalent — hearthmind's own snapshot/resume

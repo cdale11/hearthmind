@@ -56,7 +56,7 @@ from hearthmind.llm import (
     documentary, dream, festival, folklore, founding, geography, invention, memory_drift, mind, naming,
     narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
 )
-from hearthmind.llm.client import build_llm_client
+from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import (
@@ -430,18 +430,26 @@ LLM_PROMPT_STATS_WINDOW = 200
 prompt-density audit. Bounded so this telemetry itself never becomes
 an unbounded-growth source; 200 recent calls is enough for a stable
 p95 read on any job that fires more than a handful of times per day.
-**Recommended next step, not implemented this pass**: llama-server
-itself exposes real KV-cache/context-utilization/prompt-cache-hit-rate
-numbers via its `/slots` and `/metrics` endpoints — polling those
-periodically (from `hearthmind.server`'s own event loop, a cheap local
-HTTP GET) would replace this module's char-based estimates with the
-real thing and add real KV-cache-usage/prompt-cache-hit-rate fields
-neither this project nor this estimate can provide. Scoped out of this
-pass because it's a genuinely new polling subsystem (needs its own
-interval, failure handling for an older llama-server without those
-endpoints, and a diagnostics-schema decision), not a small extension —
-flagged here as the concrete next step if deeper measurement is
-wanted."""
+These remain char-based estimates, not a real tokenizer count — as of
+v0.87.6, real server-side KV-cache/queue numbers are available
+alongside these estimates via `_llama_server_metrics` (see
+`LLAMA_METRICS_POLL_SECONDS`/`_maybe_poll_llama_server_metrics`),
+which polls `llama-server`'s own `/metrics` endpoint rather than
+inferring from prompt/completion char counts. Deliberately does not
+poll `/slots` (echoes live prompt content back — see `llm.client.
+fetch_llama_server_metrics`'s docstring)."""
+
+LLAMA_METRICS_POLL_SECONDS = 30.0
+"""How often `run_forever` polls `llama-server`'s `/metrics` endpoint
+(v0.87.6, the "poll /slots|/metrics" step v0.87.5 flagged as its
+recommended next step) — a cheap local HTTP GET returning real
+KV-cache/queue numbers (see `llm.client.fetch_llama_server_metrics`),
+not the char-based estimates `llm_prompt_stats` uses. 30s is far
+coarser than the tick loop; these numbers move slowly (KV-cache
+occupancy tracks call volume, not individual ticks) and this is pure
+diagnostics, so there is no liveness reason to poll more often. Only
+polled when `config.llm_backend == "llamacpp"`; a no-op (`None`
+stored) for the Ollama backend, which has no equivalent endpoint."""
 
 PAUSED_POLL_SECONDS = 0.25
 """How often `run_forever`'s loop wakes up to re-check pause/stop state
@@ -699,6 +707,19 @@ class SimulationEngine:
         per job is kept (bounded, not a growing history) — see
         `_record_llm_debug`. See docs/DECISIONS.md, "map/UI/ecology
         follow-up.\""""
+        self._llama_server_metrics: dict[str, float] | None = None
+        """Most recent successful `/metrics` poll of `llama-server`
+        (v0.87.6, see `LLAMA_METRICS_POLL_SECONDS`/`_maybe_poll_llama_
+        server_metrics`) — real server-side KV-cache/queue numbers,
+        `None` until the first successful poll (or permanently, on the
+        Ollama backend / an older llama-server without `--metrics`).
+        Surfaced via `full_diagnostics()`; never blocks a tick, same
+        fire-and-forget-background-task discipline as every LLM job."""
+        self._llama_server_metrics_poll_started_at: float = 0.0
+        """`time.monotonic()` timestamp the last metrics-poll task was
+        started, real-time-gated (not tick-gated — this must keep
+        polling even while `run_forever` is paused) by `_maybe_poll_
+        llama_server_metrics`."""
         self._llm_prompt_stats: dict[str, dict] = {}
         """Rolling per-job-name prompt/completion size and latency
         telemetry (2026-07 prompt-density audit) — the measurement half
@@ -901,6 +922,33 @@ class SimulationEngine:
             # after the restart has already finished.
             self._maybe_broadcast()
         return restarting
+
+    def _maybe_poll_llama_server_metrics(self) -> None:
+        """Fire a background `/metrics` poll (v0.87.6) if
+        `LLAMA_METRICS_POLL_SECONDS` has elapsed since the last one
+        started — called every `run_forever` loop iteration (real-time
+        gated, like the interval check itself, not tick-gated) so
+        polling keeps happening even while ticking is paused. A no-op
+        on the Ollama backend (no equivalent endpoint) or when the LLM
+        is disabled entirely. Uses `asyncio.to_thread` for the blocking
+        HTTP GET, same as every other LLM call, and is added to
+        `_background_tasks` so a shutdown mid-poll is still cancelled
+        cleanly."""
+        if self.config.llm_backend != "llamacpp" or not self.config.llm_enabled:
+            return
+        now = time.monotonic()
+        if now - self._llama_server_metrics_poll_started_at < LLAMA_METRICS_POLL_SECONDS:
+            return
+        self._llama_server_metrics_poll_started_at = now
+
+        async def _poll() -> None:
+            result = await asyncio.to_thread(fetch_llama_server_metrics, self.config.llm_llamacpp_host)
+            if result is not None:
+                self._llama_server_metrics = result
+
+        task = asyncio.create_task(_poll())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     def _settlement_job_backpressured(self) -> bool:
         """Backpressure check for the settlement-level jobs (chronicle,
@@ -1147,6 +1195,9 @@ class SimulationEngine:
                 # docstring for why this is a real pause rather than
                 # leaving it to per-call fallback/defer.
                 restarting = self.llama_server_restarting()
+                # Real-time gated (not tick-gated) so this keeps polling
+                # even during a pause — see LLAMA_METRICS_POLL_SECONDS.
+                self._maybe_poll_llama_server_metrics()
                 if not paused and not llm_paused and not restarting:
                     self._tick_once()
                 speed = self._broadcaster.get_speed_multiplier() if self._broadcaster is not None else 1.0
@@ -4135,6 +4186,7 @@ class SimulationEngine:
             "oldest_pending_dialogue_ticks": oldest_pending_dialogue_ticks,
             "last_llm_calls": self._last_llm_calls,
             "llm_prompt_stats": self.llm_prompt_stats_summary(),
+            "llama_server_metrics": self._llama_server_metrics,
             "pending_player_whispers": list(self.world.settlement.player_influence),
             "temperament": round(self.world.settlement.temperament, 3),
             "consciousness": {
