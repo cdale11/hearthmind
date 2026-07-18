@@ -79,7 +79,18 @@ PERSONAL_SYSTEM_PROMPT = (
     "about their life, the people around them, and their place in the village. "
     "Given what they've recently experienced and the theories they already hold, "
     "either sharpen/revise one existing theory with new evidence, or form one new "
-    "theory if nothing existing fits. Theories are not guaranteed to be correct — "
+    "theory if nothing existing fits — or, if their own outlook or trade would "
+    "genuinely read this differently than a theory they already hold, let a "
+    "second, competing theory about the same subject stand rather than forcing "
+    "one to replace the other; real people hold contradictory beliefs at once. "
+    "Let who they are color HOW they interpret it: their daily work if it's "
+    "given (a farmer notices crops and soil, a builder notices foundations, a "
+    "healer notices illness, a hunter notices wildlife) and their temperament "
+    "(a practical or skeptical person doubts convenient explanations, an open "
+    "or anxious one reads more into coincidence, a resilient person looks for "
+    "the steadying angle, a fragile one braces for the worst) — stay consistent "
+    "with who they already are rather than reinterpreting the same way every "
+    "time. Theories are not guaranteed to be correct — "
     "they can be wrong, one-sided, or later revised, exactly like a real person's "
     "beliefs about their own life. Separately, condense what they've been through "
     "lately into one lasting thought they now carry with them — a distilled "
@@ -124,7 +135,8 @@ PERSONAL_SYSTEM_PROMPT = (
 def build_personal_prompt(
     agent_name: str, recent_memories: list[str], existing_beliefs: list[dict],
     emotion_text: str = "", semantic_memories: list[str] | None = None,
-    current_plan: dict | None = None,
+    current_plan: dict | None = None, personality_text: str = "", occupation: str = "",
+    core_memories: list[str] | None = None,
 ) -> str:
     """Scoped to one agent's own `memories` (already a short personal
     log — bonds formed, rumors heard, a partner's death) rather than
@@ -136,7 +148,25 @@ def build_personal_prompt(
     them (see `SimulationEngine._maybe_schedule_personal_belief`'s
     significance-first candidate pick), naming the feeling and any
     standing self-theories already held grounds the reflection in more
-    than the bare memory list."""
+    than the bare memory list.
+
+    `personality_text`/`occupation` (v0.87.16, "persistent personalities
+    + occupation-shaped beliefs" — user direction): previously this
+    prompt never told the model WHO is interpreting, despite `agent.
+    traits` already existing and being fed into cognition/dialogue
+    prompts — the same event landed in this job with zero personality
+    grounding, so nothing stopped every agent's private theory reading
+    identically. `occupation` reads the agent's dominant skill (farmer/
+    builder/healer/villager), `personality_text` reuses `describe_
+    traits` exactly as cognition.build_prompt does.
+
+    `core_memories` (v0.87.16, "deepen long-term historical identity"):
+    the small `Agent.core_memories` list — genuinely major memories
+    (a flood, a death, a settlement split) that graduated out of the
+    ordinary 8-slot recency window months or years ago — given here
+    unfiltered (unlike cognition's single keyword-matched pick) since
+    Reflect() is exactly the job meant to weigh someone's WHOLE
+    accumulated life, not just what's freshest."""
     memories_text = " | ".join(recent_memories) if recent_memories else "Nothing notable has happened to them lately."
     if existing_beliefs:
         beliefs_text = "\n".join(
@@ -146,6 +176,15 @@ def build_personal_prompt(
     else:
         beliefs_text = "  (none yet — this would be their first private theory)"
     lines = [f"{agent_name}'s recent experiences: {memories_text}"]
+    if personality_text or occupation:
+        who = f"{agent_name} is"
+        if occupation:
+            who += f" a {occupation}"
+        if occupation and personality_text:
+            who += ","
+        if personality_text:
+            who += f" {personality_text}"
+        lines.append(who + ".")
     if emotion_text:
         lines.append(f"{agent_name} {emotion_text}")
     if semantic_memories:
@@ -155,6 +194,8 @@ def build_personal_prompt(
             f"{agent_name}'s current plan: {current_plan.get('intent', '')} "
             f"({current_plan.get('days_remaining', 0)} days left)."
         )
+    if core_memories:
+        lines.append(f"Things {agent_name} has never forgotten: {' | '.join(core_memories)}")
     lines.append(f"Theories {agent_name} already holds about their own life:\n{beliefs_text}")
     lines.append("Form or revise one theory, and distill one lasting thought.")
     return "\n".join(lines)
@@ -198,9 +239,15 @@ SYSTEM_PROMPT = (
     "theory of its people, families, traditions, politics, economy, recurring "
     "patterns, and any outside influence it has noticed. Given recent history and "
     "the theories you already hold, either sharpen/revise one existing theory "
-    "with new evidence, or form one new theory if nothing existing fits. Theories "
-    "are not guaranteed to be correct — they can be wrong, incomplete, or later "
-    "revised, exactly like a person's beliefs about their own community. "
+    "with new evidence, or form one new theory if nothing existing fits. A real "
+    "village rarely thinks with one voice — if the honest answer is that "
+    "different people would read this differently (a builder, a farmer, an "
+    "elder, a skeptic), it is fine and often truer to form a SECOND, competing "
+    "theory about the same subject rather than folding it into the existing "
+    "one; villages hold contradictory beliefs about the same thing all the "
+    "time. Theories are not guaranteed to be correct — they can be wrong, "
+    "incomplete, or later revised, exactly like a person's beliefs about their "
+    "own community. "
     "Separately, looking at ALL of the theories you currently hold together (not "
     "just the one you're forming or revising now), condense their overall shape "
     "into one short digest sentence — the gist of what the village currently "
@@ -321,21 +368,46 @@ def resolve_family_agent_ids(subject_agent_id: int | None, agents) -> list[int]:
     return sorted(family)
 
 
-def find_belief_index_by_subject(subject: str, existing_beliefs: list[dict]) -> int | None:
-    """Index of the existing belief whose subject matches (exact,
-    case-insensitive), or None. Used by the engine when the LLM returns
-    a new-belief answer (`revises: null`) whose subject the village
-    already holds a theory about — a 2B model frequently re-forms
-    instead of revising (or points `revises` at the wrong index), and
-    subject identity is a far more reliable signal than a small model's
-    integer indexing into the prompt's enumeration (July 2026
-    architecture review, §3.3). Ambiguity is impossible: subjects are
-    unique under this same merge rule."""
+MAX_COMPETING_BELIEFS_PER_SUBJECT = 2
+"""v0.87.16, "support multiple competing beliefs" (explicit user
+direction): how many DISTINCT belief entries may share the same
+subject before `find_belief_index_by_subject`'s safety-net merge
+kicks back in. Previously any subject-text match force-merged a
+`revises: null` answer into the existing entry unconditionally — a
+real, if unintentional, convergence engine: two people (or the same
+job on two different months) forming genuinely different theories
+about the same subject always collapsed into one. Below this cap, a
+same-subject `revises: null` answer is now trusted and stands as a
+second, competing theory; the cap still exists so a small model that
+keeps re-forming instead of revising the SAME thing over and over
+doesn't spam the list with near-duplicates forever."""
+
+
+def find_belief_index_by_subject(
+    subject: str, existing_beliefs: list[dict], max_competing: int = 1,
+) -> int | None:
+    """Index of an existing belief whose subject matches (exact,
+    case-insensitive) to merge into, or None to let a new entry stand.
+    Used by the engine when the LLM returns a new-belief answer
+    (`revises: null`) whose subject the village already holds a theory
+    about — a 2B model frequently re-forms instead of revising (or
+    points `revises` at the wrong index), and subject identity is a
+    far more reliable signal than a small model's integer indexing
+    into the prompt's enumeration (July 2026 architecture review,
+    §3.3). `max_competing` (v0.87.16) lets up to that many entries
+    share a subject before this auto-merge fires — see
+    MAX_COMPETING_BELIEFS_PER_SUBJECT's docstring; the default (1)
+    preserves the original always-merge behavior for callers that
+    don't opt in (the deterministic-fallback path, which should never
+    let a dumb template spam subject duplicates)."""
     subject_lower = subject.strip().lower()
-    for i, belief in enumerate(existing_beliefs):
-        if belief.get("subject", "").strip().lower() == subject_lower:
-            return i
-    return None
+    matches = [
+        i for i, belief in enumerate(existing_beliefs)
+        if belief.get("subject", "").strip().lower() == subject_lower
+    ]
+    if len(matches) < max_competing:
+        return None
+    return matches[-1] if matches else None
 
 
 def parse_belief(result: dict, fallback: dict, existing_count: int) -> dict:

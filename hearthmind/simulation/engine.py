@@ -45,6 +45,7 @@ from hearthmind.agents.agent import (
     AgentGoal,
     _overlap_tokens,
     describe_emotion,
+    describe_traits,
     dominant_emotion,
     push_secret,
     retrieval_diagnostics,
@@ -171,6 +172,12 @@ history); this only bounds the *token* cost per call, which otherwise
 grew forever on a multi-year world (July 2026 architecture review,
 §3.7). Fallback numbering still uses the full list's length, so
 "Tradition the 14th"-style names stay correct."""
+
+OCCUPATION_MIN_SKILL = 0.25
+"""v0.87.16, "occupation-shaped beliefs": how practiced a skill must be
+before `SimulationEngine._occupation_for` names it as this agent's
+trade — below SKILL_TEACHING_MIN_GAP's own 0.15 floor would call a
+barely-dabbling agent "a farmer"; this sits comfortably above it."""
 
 PROMPT_BELIEFS_MAX = 5
 """How many of the newest COUNCIL beliefs reach a `town_brain` prompt
@@ -1497,6 +1504,53 @@ class SimulationEngine:
     shared word ("village," "food") is too common to mean much; two
     shared words is a real, if crude, topical match."""
 
+    OCCUPATION_BY_SKILL = {
+        SKILL_FARMING: "farmer", SKILL_CONSTRUCTION: "builder", SKILL_MEDICINE: "healer",
+    }
+    """v0.87.16, "occupation-shaped beliefs" (explicit user direction):
+    an agent's dominant skill read back as a plain-language trade label
+    — the cheapest possible "occupation" concept given this codebase has
+    no separate profession system, reusing the existing SKILL_* axes
+    rather than inventing a parallel one."""
+
+    def _pick_core_memory(self, agent) -> str:
+        """v0.87.16, "deepen long-term historical identity": the one
+        `Agent.core_memories` entry to surface this prompt, keyword-
+        overlap-matched against the agent's current situation
+        (`working_memory`'s freshest entry, same signal `retrieve_
+        relevant_memories` uses) — "" (the common case) when nothing
+        currently echoes any stored core memory, same "only offered
+        when it's genuinely relevant, never fabricated/forced" texture
+        discipline every other optional prompt-grounding field here
+        follows."""
+        if not agent.core_memories:
+            return ""
+        context = agent.working_memory[-1] if agent.working_memory else ""
+        if not context:
+            return ""
+        context_tokens = _overlap_tokens(context)
+        if not context_tokens:
+            return ""
+        best_i, best_score = None, 0
+        for i, text in enumerate(agent.core_memories):
+            score = len(context_tokens & _overlap_tokens(text))
+            if score > best_score:
+                best_i, best_score = i, score
+        return agent.core_memories[best_i] if best_i is not None else ""
+
+    def _occupation_for(self, agent) -> str:
+        """"" (no notable trade) unless one skill clears OCCUPATION_
+        MIN_SKILL — an agent with only a trace of farming skill isn't
+        meaningfully "a farmer" yet, and a bare "" lets consumers (e.g.
+        `build_personal_prompt`) skip the occupation clause entirely
+        rather than always naming a barely-practiced trade."""
+        best_skill, best_level = None, OCCUPATION_MIN_SKILL
+        for skill, label in self.OCCUPATION_BY_SKILL.items():
+            level = agent.skills.get(skill, 0.0)
+            if level >= best_level:
+                best_skill, best_level = label, level
+        return best_skill or ""
+
     def _current_situation_tag(self, agent) -> str:
         """Deterministic classifier for `Agent.lessons`' situation match
         (v0.87.0) — cheap, stdlib, no embeddings: which of `beliefs.
@@ -1662,6 +1716,7 @@ class SimulationEngine:
                 needs_repair=needs_repair, life_digest=agent.life_digest,
                 lesson=lesson, seek_candidate=seek_prompt_hint,
                 institution_objective=institution_objective, plan=agent.plan,
+                core_memory=self._pick_core_memory(agent),
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             traits_snapshot = dict(agent.traits)
@@ -1938,11 +1993,19 @@ class SimulationEngine:
                 self._matching_lesson(agent_b, self._current_situation_tag(agent_b)),
             )
             recent_topics = self.world.population.recent_dialogue_topics(agent_a.id, agent_b.id)
+            # v0.87.16 "reduce conversational convergence": weather only
+            # actually reaches the prompt text when it's genuinely
+            # notable — see dialogue.build_prompt's weather_notable
+            # docstring.
+            weather_notable = (
+                self.world.weather.sky() not in ("clear", "partly_cloudy", "overcast")
+                or self.world.weather.wind_label() == "gale"
+            )
             prompt = dialogue.build_prompt(
                 agent_a, agent_b, affinity, local.name, latest_tradition,
                 self.world.clock.season, self.world.weather.describe(), beliefs_about=beliefs_about,
                 other_settlement_name=other_settlement_name, cross_settlement_relation=cross_relation,
-                lessons=lessons, recent_topics=recent_topics,
+                lessons=lessons, recent_topics=recent_topics, weather_notable=weather_notable,
             )
             fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
             self._reserved_this_tick += 1
@@ -3068,11 +3131,17 @@ class SimulationEngine:
             revises = parsed["revises"]
             if revises is None:
                 # Subject identity beats a small model's integer indexing:
-                # if the village already holds a theory about this exact
-                # subject, treat the answer as a revision of it rather
-                # than piling up duplicate theories. See
+                # if the village already holds MAX_COMPETING_BELIEFS_
+                # PER_SUBJECT-or-more theories about this exact subject,
+                # treat the answer as a revision of the newest one
+                # rather than piling up duplicates; below that cap, a
+                # same-subject `revises: null` answer stands as a real
+                # competing theory (v0.87.16, "support multiple
+                # competing beliefs" — explicit user direction). See
                 # beliefs.find_belief_index_by_subject.
-                revises = beliefs.find_belief_index_by_subject(parsed["subject"], settlement.beliefs)
+                revises = beliefs.find_belief_index_by_subject(
+                    parsed["subject"], settlement.beliefs, beliefs.MAX_COMPETING_BELIEFS_PER_SUBJECT,
+                )
             if revises is not None and revises < len(settlement.beliefs):
                 entry = settlement.beliefs[revises]
                 beliefs.push_belief_history(entry, tick)  # H2: keep what it used to think, not just overwrite
@@ -3141,7 +3210,12 @@ class SimulationEngine:
         emotion_text = describe_emotion(agent.emotions)
         semantic = list(agent.semantic_memories)
         current_plan = dict(agent.plan) if agent.plan is not None else None
-        prompt = beliefs.build_personal_prompt(agent.name, recent, existing, emotion_text, semantic, current_plan)
+        personality_text = describe_traits(agent.traits)
+        occupation = self._occupation_for(agent)
+        prompt = beliefs.build_personal_prompt(
+            agent.name, recent, existing, emotion_text, semantic, current_plan,
+            personality_text, occupation, list(agent.core_memories),
+        )
         fallback = beliefs.fallback_personal_belief(agent.name, recent)
         existing_count = len(existing)
 
@@ -3153,7 +3227,11 @@ class SimulationEngine:
             tick = self.world.clock.tick_count
             revises = parsed["revises"]
             if revises is None:
-                revises = beliefs.find_belief_index_by_subject(parsed["subject"], target.beliefs)
+                # v0.87.16: same competing-theories relaxation as the
+                # settlement job above.
+                revises = beliefs.find_belief_index_by_subject(
+                    parsed["subject"], target.beliefs, beliefs.MAX_COMPETING_BELIEFS_PER_SUBJECT,
+                )
             if revises is not None and revises < len(target.beliefs):
                 entry = target.beliefs[revises]
                 beliefs.push_belief_history(entry, tick)

@@ -1605,6 +1605,13 @@ function renderNpcInspector() {
   const memoriesHtml = memories.length
     ? `<ul>${memories.map((m) => `<li>${m}</li>`).join("")}</ul>`
     : `<div class="muted">nothing memorable yet</div>`;
+  // v0.87.16 "deepen long-term historical identity": memories major
+  // enough to have graduated out of the ordinary recency window —
+  // still remembered years later, not just recently.
+  const coreMemories = agent.core_memories || [];
+  const coreMemoriesHtml = coreMemories.length
+    ? `<ul>${coreMemories.map((m) => `<li>${m}</li>`).join("")}</ul>`
+    : `<div class="muted">nothing has marked them for life yet</div>`;
   // Phase J (v0.78.0): their own private theories + distilled semantic
   // memories, distinct from "What the village believes about them"
   // above (settlement-wide theory) — this is what THEY privately think,
@@ -1709,6 +1716,10 @@ function renderNpcInspector() {
     <div class="npc-section">
       <h4>Recent memories</h4>
       ${memoriesHtml}
+    </div>
+    <div class="npc-section">
+      <h4>Never forgotten</h4>
+      ${coreMemoriesHtml}
     </div>
     <div class="npc-section">
       <h4>Their own reflections</h4>

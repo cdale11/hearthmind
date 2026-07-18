@@ -74,6 +74,9 @@ back to the equivalent pure-Python branching in that case."""
 from hearthmind.agents import agent_store
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
+    MEMORY_REPETITION_DAMPING,
+    MEMORY_REPETITION_OVERLAP_THRESHOLD,
+    _overlap_tokens,
     DEATHBED_SECRET_HEIR_CHANCE,
     DEATHBED_SECRET_RUMOR_CHANCE,
     DEATHBED_SECRET_RUMOR_LISTENER_COUNT,
@@ -114,6 +117,9 @@ from hearthmind.agents.agent import (
     MAX_LIFESPAN_TICKS,
     MEMORY_FADE_DECAY_PER_DAY,
     MEMORY_FADE_FLOOR,
+    MEMORY_MAJOR_EVENT_DECAY_PER_DAY,
+    MAX_CORE_MEMORIES,
+    MEMORY_MAJOR_EVENT_SALIENCE_THRESHOLD,
     MEMORY_SALIENCE_BASELINE,
     MEMORY_SALIENCE_EMOTION_WEIGHT,
     ROUTINE_MEMORY_SALIENCE_MULT,
@@ -888,8 +894,18 @@ def _remember(agent: Agent, text: str, routine: bool = False, because: str = "")
     OBJECTIVELY knows the cause (a death, a dispute outcome, an
     inheritance) — never fabricated for an ordinary memory. See
     `Agent.memory_causes`'s docstring."""
-    agent.memories.append(text)
     salience = _memory_salience(agent)
+    # v0.87.16 "improve memory weighting" (explicit user direction):
+    # repetition dampening — checked against the memories ALREADY
+    # stored, before this one is appended. See MEMORY_REPETITION_
+    # DAMPING's docstring.
+    new_tokens = _overlap_tokens(text)
+    if new_tokens and any(
+        len(new_tokens & _overlap_tokens(existing)) >= MEMORY_REPETITION_OVERLAP_THRESHOLD
+        for existing in agent.memories
+    ):
+        salience *= MEMORY_REPETITION_DAMPING
+    agent.memories.append(text)
     if routine:
         salience *= ROUTINE_MEMORY_SALIENCE_MULT
     agent.memory_salience.append(salience)
@@ -897,9 +913,28 @@ def _remember(agent: Agent, text: str, routine: bool = False, because: str = "")
     if len(agent.memories) > MAX_AGENT_MEMORIES:
         evict_at = min(range(len(agent.memories)), key=lambda i: (agent.memory_salience[i], i))
         evicted_text = agent.memories[evict_at]
+        evicted_salience = agent.memory_salience[evict_at]
+        evicted_because = agent.memory_causes[evict_at]
         del agent.memories[evict_at]
         del agent.memory_salience[evict_at]
         del agent.memory_causes[evict_at]
+        # v0.87.16 "deepen long-term historical identity": a genuinely
+        # major evicted memory (already causally tagged, or vivid
+        # enough to clear MEMORY_MAJOR_EVENT_SALIENCE_THRESHOLD)
+        # graduates into the small permanent `core_memories` tier
+        # instead of just disappearing into the disk-only durable log
+        # below — see MAX_CORE_MEMORIES's docstring. Bounded by its own
+        # small cap: the weakest core memory yields when a new one
+        # qualifies and the tier is already full.
+        if evicted_because or evicted_salience >= MEMORY_MAJOR_EVENT_SALIENCE_THRESHOLD:
+            agent.core_memories.append(evicted_text)
+            agent.core_memory_salience.append(evicted_salience)
+            if len(agent.core_memories) > MAX_CORE_MEMORIES:
+                weakest = min(
+                    range(len(agent.core_memories)), key=lambda i: agent.core_memory_salience[i],
+                )
+                del agent.core_memories[weakest]
+                del agent.core_memory_salience[weakest]
         # Durable record of what would otherwise be permanently lost
         # (Constitution §6, v0.86.3) — deliberately gated on `not
         # routine` (this call's OWN significance, not the evicted
@@ -4961,8 +4996,33 @@ class Population:
         thousand float multiplications even at `POPULATION_CAP`."""
         for agent in self.agents:
             salience = agent.memory_salience
+            causes = agent.memory_causes
             for i in range(len(salience)):
-                salience[i] = max(MEMORY_FADE_FLOOR, salience[i] * MEMORY_FADE_DECAY_PER_DAY)
+                # v0.87.16 "improve memory weighting — major life
+                # events should remain influential for years": a memory
+                # tagged with a KNOWN objective cause (`memory_causes`
+                # — a death, a dispute outcome, an inheritance; see
+                # v0.87.14 "causal memory links") always decays at the
+                # much slower MEMORY_MAJOR_EVENT_DECAY_PER_DAY rate,
+                # permanently — checking `because` rather than the
+                # CURRENT (already-decaying) salience avoids a subtle
+                # trap: a threshold check against the decayed value
+                # would let a memory slip below the slow-rate cutoff
+                # partway through, switch to the fast rate for its
+                # remaining life, and still converge to the floor
+                # within about a year regardless of how significant it
+                # started — defeating the whole point. An UNTAGGED
+                # memory (no known cause, just emotionally vivid at
+                # formation) still gets the slow rate WHILE its current
+                # salience remains high, a lighter-weight bonus without
+                # the same permanence guarantee.
+                if causes[i] if i < len(causes) else False:
+                    rate = MEMORY_MAJOR_EVENT_DECAY_PER_DAY
+                elif salience[i] >= MEMORY_MAJOR_EVENT_SALIENCE_THRESHOLD:
+                    rate = MEMORY_MAJOR_EVENT_DECAY_PER_DAY
+                else:
+                    rate = MEMORY_FADE_DECAY_PER_DAY
+                salience[i] = max(MEMORY_FADE_FLOOR, salience[i] * rate)
 
     def tick_plans(self) -> None:
         """v0.87.15, "bounded episodic planning" (docs/IDEAS-2026-07-

@@ -413,6 +413,57 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.16)
+
+"Cognition-quality cluster" per explicit user direction, responding to
+a live report that the cultural simulation converges too strongly on
+one dominant narrative and a narrow topic set. Items 8 (broad
+deterministic-sim expansion) and 9 (periodic LLM nudges for non-core
+agents) explicitly deferred to a follow-up per user sequencing choice.
+
+**Occupation + personality-consistent interpretation**: `Simulation
+Engine._occupation_for` reads dominant skill as a trade label (farmer/
+builder/healer); `PERSONAL_SYSTEM_PROMPT` now instructs the model to
+let occupation/temperament color interpretation and stay consistent
+with who the agent already is — previously this job never received
+trait grounding at all, unlike cognition/dialogue.
+
+**Support multiple competing beliefs**: `find_belief_index_by_subject`
+gained `max_competing` — a same-subject `revises: null` answer no
+longer force-merges unconditionally; up to `MAX_COMPETING_BELIEFS_
+PER_SUBJECT=2` distinct theories about one subject may now coexist.
+Both belief system prompts explicitly invite a genuine second theory
+when interpretations would honestly differ.
+
+**Reduce conversational convergence**: dialogue's weather clause is
+now conditional on `weather_notable` (a real storm/rain/snow, not
+routine clear/partly-cloudy/overcast) instead of unconditional in
+every exchange; the system prompt explicitly broadens allowed subject
+matter and de-prioritizes weather as filler.
+
+**Improve memory weighting**: `_remember` dampens near-duplicate
+memories (`MEMORY_REPETITION_DAMPING`); `decay_memory_salience` uses a
+permanently slower rate for any causally-tagged (`memory_causes`)
+memory rather than a current-salience threshold check (which measured
+to still converge to the same floor within a year regardless of
+starting significance — rejected in favor of the tag-based check).
+
+**Historical identity**: new `Agent.core_memories` (cap 5) — a memory
+evicted from the ordinary 8-slot window graduates here when causally-
+tagged or highly salient, consumed in cognition (keyword-matched) and
+personal-belief prompts (given in full). New "Never forgotten" NPC-
+inspector section.
+
+Deliberately deferred, flagged not dropped: caravan/migrant-introduced
+competing ideas, generational drift in tradition interpretation.
+
+Verified: direct production-path tests for every piece (occupation
+labeling, competing-theory cap behavior, weather-notable gating,
+repetition dampening, because-tagged decay measured over a simulated
+year, core-memory graduation on forced eviction, round-trip + legacy-
+snapshot defaults). `scripts/verify_native_soak.py` (2 seeds x 800
+ticks) byte-identical — no native module touched.
+
 ## Current state (v0.87.15)
 
 Closes three more §7 items (bounded episodic planning, emergent

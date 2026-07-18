@@ -4,6 +4,89 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.16] — Cognition-quality cluster: diversity, memory weighting, competing beliefs, historical identity
+
+Explicit user direction: the cultural/cognitive simulation was
+converging too strongly on a single dominant narrative and a narrow
+set of conversation topics. This batch is the "cognition-quality
+cluster" half of that request (items 2-7 of the original ask); item 8
+(broad deterministic-sim expansion: economy/politics/crime/diplomacy/
+tech) and item 9 (periodic LLM nudges for non-core agents) are
+explicitly deferred to a follow-up batch, per direct user sequencing
+choice.
+
+**Occupation-shaped, personality-consistent interpretation** (items 2,
+6): `SimulationEngine._occupation_for` reads an agent's dominant skill
+(farmer/builder/healer) back as a plain-language trade; `describe_
+traits`, previously never reaching the personal-belief (Reflect())
+job at all, now does. `PERSONAL_SYSTEM_PROMPT` explicitly instructs
+the model to let occupation and temperament color HOW an event is
+interpreted and to stay consistent with who the agent already is,
+rather than reinterpreting identically every time.
+
+**Support multiple competing beliefs** (item 5): `find_belief_index_
+by_subject` gained `max_competing` — previously ANY same-subject
+match force-merged a `revises: null` answer unconditionally, a real
+convergence engine. Both settlement (`_maybe_schedule_beliefs`) and
+personal (`_maybe_schedule_personal_belief`) jobs now allow up to
+`MAX_COMPETING_BELIEFS_PER_SUBJECT=2` distinct theories about the same
+subject to coexist before the safety-net merge kicks back in; both
+system prompts (settlement + personal) now explicitly invite a second,
+competing theory when a genuinely different interpretation is
+warranted, rather than always converging.
+
+**Reduce conversational convergence** (item 3): dialogue's weather
+clause is no longer unconditional — `weather_notable` (computed from
+`WeatherState.sky()`/`wind_label()`) gates it to genuinely notable
+weather only; an ordinary clear/partly-cloudy/overcast day contributes
+nothing. `SYSTEM_PROMPT` now explicitly lists the breadth of real
+subject matter (family, guild/trade, ambitions, births/deaths, debts/
+trade, festivals, animals, buildings, personal goals) and de-prioritizes
+weather as filler; the weather-flavored few-shot example was swapped
+for a family one.
+
+**Improve memory weighting** (item 4): `_remember` now dampens a new
+memory's salience (`MEMORY_REPETITION_DAMPING`) when its text shares
+`MEMORY_REPETITION_OVERLAP_THRESHOLD`+ meaningful words with anything
+already stored — repeated near-identical events fade faster.
+`decay_memory_salience` now uses a permanently slower rate
+(`MEMORY_MAJOR_EVENT_DECAY_PER_DAY`, ~0.999/day) for any memory
+carrying a known causal tag (`memory_causes`, v0.87.14) — checked by
+tag rather than current (already-decaying) salience, since a threshold
+check against the decayed value would let a memory slip below the
+slow-rate cutoff partway through and still converge to the floor
+within about a year regardless of how significant it started.
+
+**Deepen long-term historical identity** (item 7): new `Agent.
+core_memories`/`core_memory_salience` — a small (`MAX_CORE_MEMORIES=5`)
+permanent tier a memory graduates INTO on eviction from the ordinary
+8-slot `memories` window when it's causally-tagged or cleared
+`MEMORY_MAJOR_EVENT_SALIENCE_THRESHOLD`. Consumed in cognition prompts
+(keyword-matched against the agent's current situation, "" when
+nothing echoes it) and personal-belief/Reflect() prompts (given
+unfiltered, since that job weighs someone's whole life). New "Never
+forgotten" NPC-inspector section.
+
+**Deliberately not attempted this pass** (flagged, not silently
+dropped): item 2's caravan/migrant-introduces-competing-ideas ask and
+generational drift (younger agents reinterpreting/forgetting
+traditions differently from elders) — both real, scoped-out follow-up
+increments, not covered by anything above.
+
+Verified: direct production-path tests for every piece — occupation
+labeling from real skill levels, competing-theory threshold behavior
+(below cap lets a new entry stand, at cap merges), weather-notable
+gating (silent on an ordinary day, mentioned on a real storm),
+repetition dampening on a near-duplicate memory, because-tagged
+major-event decay measured over a simulated year (stays >3x an
+ordinary memory's salience) vs. the original salience-threshold
+design (which was measured to converge to the same floor within a
+year and rejected), core-memory graduation on eviction (forced via a
+deliberately-oldest-tied setup) capped correctly, round-trip +
+legacy-snapshot defaults for both new `Agent` fields. `scripts/verify_
+native_soak.py` (2 seeds x 800 ticks) byte-identical after each of the
+four sub-batches — this pass touches no native module.
+
 ## [0.87.15] — §7 close-out: planning, leadership, knowledge lifecycle; survival-decision framing
 
 Closes three more docs/IDEAS-2026-07-EMERGENCE.md §7 items (bounded

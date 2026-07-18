@@ -90,7 +90,7 @@ def build_prompt(
     beliefs_about: list[str] | None = None, own_belief: str = "",
     semantic_memory: str = "", mind_text: str = "", needs_repair: bool = False,
     life_digest: str = "", lesson: str = "", seek_candidate: tuple[str, str] | None = None,
-    institution_objective: str = "", plan: dict | None = None,
+    institution_objective: str = "", plan: dict | None = None, core_memory: str = "",
 ) -> str:
     """`settlement_name`/`latest_tradition` are optional culture context
     (Phase E) — empty until the settlement is named/has a tradition, so
@@ -184,7 +184,15 @@ def build_prompt(
     EMERGENCE.md §7): `Agent.plan`, if any — a multi-day intent formed
     by Reflect() that outlives any single day's goal reevaluation
     ("stockpiling before winter," "earning a council seat"). `None`
-    most of the time (most agents most days have no active plan)."""
+    most of the time (most agents most days have no active plan).
+
+    `core_memory` (v0.87.16, "deepen long-term historical identity" —
+    explicit user direction): the single most relevant entry from
+    `Agent.core_memories`, if any — a genuinely major memory (a flood,
+    a death, a settlement split) that graduated out of the ordinary
+    8-slot recency window months or years ago, computed at the call
+    site. "" most of the time (an agent with no core memories yet, or
+    none relevant right now)."""
     culture = ""
     if settlement_name:
         culture = f" You live in {settlement_name}."
@@ -245,6 +253,7 @@ def build_prompt(
         f" Your plan: {plan['intent']} ({plan.get('days_remaining', 0)} days left)."
         if plan else ""
     )
+    core_memory_text = f" You still remember well: {core_memory}" if core_memory else ""
     # v0.87.15, explicit user direction: past a real survival threshold,
     # the goal isn't a genuine choice — don't pose it as an open
     # question (see SURVIVAL_HUNGER_THRESHOLD/SURVIVAL_ENERGY_THRESHOLD's
@@ -262,7 +271,7 @@ def build_prompt(
         f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{just_now_text}"
         f"{personality_text}{emotion_text}{beliefs_text}{own_belief_text}{semantic_text}{mind_prompt_text}"
         f"{life_digest_text}{lesson_text}{repair_text}{seek_text}{objective_text}{plan_text}"
-        f"{closing}"
+        f"{core_memory_text}{closing}"
     )
 
 

@@ -21,10 +21,16 @@ SYSTEM_PROMPT = (
     "You are writing a brief, natural exchange between two villagers who "
     "just crossed paths in a simulated world. Ground it in the specific "
     "facts you're given (their hunger/energy, what each is currently "
-    "doing and WHY if a reason is given, the weather, their relationship, "
-    "and especially anything listed as something one of them recently "
+    "doing and WHY if a reason is given, their relationship, and "
+    "especially anything listed as something one of them recently "
     "remembers or believes) — prefer talking about that over generic "
-    "small talk, never invent unrelated topics, and never mention that "
+    "small talk. Real village conversation is mostly about people and "
+    "life, not the sky: family, a guild or trade, an ambition, a birth "
+    "or death, a debt or trade, a coming festival, an animal, a building "
+    "going up, or something one of them is working toward. Weather is "
+    "only worth mentioning when it's actually notable (you'll be told "
+    "when it is) — never bring it up as generic filler on an ordinary "
+    "day. Never invent unrelated topics, and never mention that "
     "this is a game, a simulation, or that you are an AI. Write like two "
     "real people, not a script: it is fine for a line to be a half-"
     "finished thought, a single word, a grunt of agreement, or a joke, "
@@ -48,9 +54,9 @@ SYSTEM_PROMPT = (
     'fields.", "sentiment": "warm", "rumor": "", "topic": "work"}\n'
     '{"line_a": "Still nothing to say to me?", "line_b": "Not today.", '
     '"sentiment": "tense", "rumor": "", "topic": "silence"}\n'
-    '{"line_a": "Cold one, isn\'t it.", "line_b": "Heard the miller\'s '
-    'roof is leaking.", "sentiment": "neutral", "rumor": "The miller\'s '
-    'roof is leaking.", "topic": "weather"}\n'
+    '{"line_a": "How\'s the little one settling in?", "line_b": "Barely '
+    'sleeps, honestly.", "sentiment": "warm", "rumor": "", "topic": '
+    '"the new baby"}\n'
     '{"line_a": "You still sore about the fence?", "line_b": "Wasn\'t '
     'talking about the fence.", "sentiment": "tense", "rumor": "", '
     '"topic": "the fence"}\n'
@@ -89,6 +95,7 @@ def build_prompt(
     latest_tradition: str, season: str, weather: str, beliefs_about: list[str] | None = None,
     other_settlement_name: str = "", cross_settlement_relation: float | None = None,
     lessons: tuple[str, str] = ("", ""), recent_topics: list[str] | None = None,
+    weather_notable: bool = False,
 ) -> str:
     """`lessons` (v0.87.0): `(agent_a's matching lesson, agent_b's
     matching lesson)`, each "" when no stored lesson matches that
@@ -102,7 +109,16 @@ def build_prompt(
     (`Population.recent_dialogue_topics`) — empty most of the time (a
     pair's first exchange, or one whose past exchanges never supplied a
     parseable topic). Only offered as a steering line when non-empty;
-    never fabricated."""
+    never fabricated.
+
+    `weather_notable` (v0.87.16, "reduce conversational convergence" —
+    explicit user direction): `weather` is only actually STATED in the
+    prompt when this is true (a real storm/heavy rain/snow, computed at
+    the call site from `WeatherState.sky()`/`wind_label()`) — an
+    ordinary clear/partly-cloudy/overcast day contributes nothing here
+    at all, closing the gap where weather was previously named as an
+    unconditional grounding fact in literally every exchange regardless
+    of whether anything about it was actually noteworthy."""
     is_parent_child = (
         (agent_a.parents is not None and agent_b.id in agent_a.parents)
         or (agent_b.parents is not None and agent_a.id in agent_b.parents)
@@ -224,11 +240,12 @@ def build_prompt(
             return f'{agent.goal.value} ("{agent.goal_reason.strip()[:80]}")'
         return agent.goal.value
 
+    weather_text = f" It's currently {weather} — worth mentioning if it fits." if weather_notable else ""
     return (
         f"{agent_a.name} (hunger {agent_a.hunger:.2f}, energy {agent_a.energy:.2f}, "
         f"currently {_activity(agent_a)}) meets {agent_b.name} (hunger "
         f"{agent_b.hunger:.2f}, energy {agent_b.energy:.2f}, currently {_activity(agent_b)}). "
-        f"They are {tie}. It is {season}, weather: {weather}."
+        f"They are {tie}. It is {season}.{weather_text}"
         f"{culture}{beliefs_text}{personality_text}{emotion_text}{memory_text}{just_now_text}"
         f"{semantic_text}{secret_text}{mind_text}{voice_text}{lesson_text}{topics_text} "
         "Write their brief exchange."

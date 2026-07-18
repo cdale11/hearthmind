@@ -283,6 +283,21 @@ July 2026 architecture review flagged the missing decline). Recovery
 rather than drain so a sheltered, cared-for elder still gets by —
 they're slower, not doomed. See Population._update_needs."""
 
+MAX_CORE_MEMORIES = 5
+"""v0.87.16, "deepen long-term historical identity" (explicit user
+direction): a small, separate tier a memory graduates INTO when it's
+evicted from the churning `memories` list but was genuinely major (see
+`Population._remember`'s eviction branch) — a flood, a famine, an old
+leader, a settlement split, a death — instead of just vanishing into
+the durable disk-only log nothing ever reads back. Distinct from
+`semantic_memories` (an LLM-DISTILLED lasting theory, "I don't trust
+the river since the flood") — this is the concrete EVENT text itself,
+still first-person and specific, meant to resurface verbatim years
+later ("the flood of that spring") the way `agent_memory_log` already
+preserves durably but never fed back into a prompt until now. Kept
+small — this is "a handful of things that mattered," not a second
+memory store to manage."""
+
 MAX_AGENT_MEMORIES = 8
 """Cap on Agent.memories — a short-term personal log (bond formed, rumor
 heard, a bonded partner's death), not a full diary. See docs/
@@ -307,6 +322,22 @@ is more recent. This is the actual "layered" mechanism: memorable
 experiences genuinely outlast unremarkable ones, not just a FIFO queue
 with a fancier name."""
 
+MEMORY_REPETITION_DAMPING = 0.6
+MEMORY_REPETITION_OVERLAP_THRESHOLD = 3
+"""v0.87.16, "improve memory weighting" (explicit user direction): a
+newly-formed memory whose text shares at least `MEMORY_REPETITION_
+OVERLAP_THRESHOLD` meaningful (`_overlap_tokens`) words with ANY of
+the agent's current `memories` is treated as a repeat of something
+already lived through, not a fresh experience — its computed salience
+is multiplied by `MEMORY_REPETITION_DAMPING` before storage. This is
+the concrete "novelty/repetition" half of the ask: a routine event
+that keeps recurring in near-identical phrasing (the same kind of
+weather-flavored small talk, the same trade-thanks line) now fades
+faster than something that happened once and stands out. Checked
+against the FULL current `memories` list (not just the newest few) so
+a repeated pattern spread across the whole 8-slot window still gets
+caught, not only back-to-back repeats."""
+
 MEMORY_FADE_DECAY_PER_DAY = 0.985
 """Deferred item 4 of docs/VISION-2026-07-LEARNING.md, "gradual
 forgetting as a genuinely continuous fade": once/sim-day (`day_end`,
@@ -327,6 +358,23 @@ within a season. Chosen by feel (no live diagnostic drives this one,
 unlike most constants in this project) since there's no "correct"
 real-world forgetting curve to measure against; retune if a live run
 shows fading feels too fast/slow."""
+
+MEMORY_MAJOR_EVENT_SALIENCE_THRESHOLD = 0.75
+MEMORY_MAJOR_EVENT_DECAY_PER_DAY = 0.999
+"""v0.87.16, "improve memory weighting — major life events should
+remain influential for years" (explicit user direction): a memory
+already at or above `MEMORY_MAJOR_EVENT_SALIENCE_THRESHOLD` when a
+day's decay applies uses this much slower rate instead of the
+ordinary `MEMORY_FADE_DECAY_PER_DAY` — 0.999/day compounds to ~0.69
+after a full year (365 days) vs. ~0.004 for an ordinary vivid memory
+at the standard rate, a genuinely multi-year difference rather than
+everything converging to the same few-month fade. A memory decays
+using WHICHEVER rate its CURRENT salience qualifies for each day
+(checked fresh every call, not locked in at formation) — so a memory
+that started merely vivid but never dropped below the threshold keeps
+the slow rate, while one that fades below it partway through switches
+to the ordinary rate for its remaining life, same "graceful
+degradation" shape the rest of this system uses."""
 
 MEMORY_FADE_FLOOR = 0.05
 """Floor `decay_memory_salience` never decays a memory's salience below
@@ -1415,6 +1463,8 @@ class Agent:
         wedding_ticks_remaining: int = 0,
         wedding_target: tuple[int, int] | None = None,
         plan: dict | None = None,
+        core_memories: list[str] | None = None,
+        core_memory_salience: list[float] | None = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -1605,6 +1655,15 @@ class Agent:
         # `days_remaining` reaches 0 — "expiring," not "failing"; Reflect
         # () may form a fresh one afterward if warranted.
         self.plan: dict | None = plan
+        # core_memories/core_memory_salience: v0.87.16, "deepen long-
+        # term historical identity" — see MAX_CORE_MEMORIES's docstring.
+        # Index-aligned pair, same discipline as memories/memory_
+        # salience; written only by Population._remember's eviction
+        # branch, never truncated except by its own small cap.
+        self.core_memories: list[str] = [] if core_memories is None else core_memories
+        self.core_memory_salience: list[float] = (
+            [] if core_memory_salience is None else core_memory_salience
+        )
 
     # --- native-store attach + scalar properties ---------------------------
 
@@ -1825,6 +1884,8 @@ class Agent:
             "wedding_ticks_remaining": self.wedding_ticks_remaining,
             "wedding_target": list(self.wedding_target) if self.wedding_target is not None else None,
             "plan": dict(self.plan) if self.plan is not None else None,
+            "core_memories": list(self.core_memories),
+            "core_memory_salience": [round(v, 4) for v in self.core_memory_salience],
         }
 
     @classmethod
@@ -1896,4 +1957,6 @@ class Agent:
                 tuple(data["wedding_target"]) if data.get("wedding_target") is not None else None
             ),
             plan=data.get("plan"),
+            core_memories=list(data.get("core_memories", [])),
+            core_memory_salience=list(data.get("core_memory_salience", [])),
         )
