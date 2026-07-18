@@ -649,6 +649,24 @@ Disabled by default (`LLAMA_RESTART_HOURS=0`); turn it on if
 `/diagnostics.system_memory` shows llama-server's RSS climbing over a
 multi-day session even after sizing/`--defrag-thold` are already tuned.
 
+**Reducing fragmentation without restarting** (v0.87.2): restart
+reclaims fragmentation after the fact; three glibc malloc-tuning env
+vars can reduce the RATE it accumulates in the first place, tried
+alongside (not instead of) `LLAMA_RESTART_HOURS` — `LLAMA_MALLOC_
+ARENA_MAX` (try matching `LLAMA_PARALLEL`, e.g. `2`) caps per-thread
+malloc arenas; `LLAMA_MALLOC_MMAP_THRESHOLD_KB` (try `128`) forces
+allocations at or above that size through mmap, which returns cleanly
+to the OS on free instead of sitting in the sbrk'd heap, and disables
+glibc's own dynamic threshold growth (itself a contributor to long-run
+bloat); `LLAMA_MALLOC_TRIM_THRESHOLD_KB` (try `4096`) lowers how much
+free heap space glibc holds onto before giving it back. All three
+default unset (glibc's own defaults, unchanged behavior) and apply
+only to the llama-server child process, never to hearthmind.server
+itself — see `scripts/run.sh`'s own docstring for the full mechanism.
+Size/verify via `/diagnostics.system_memory` over a real multi-day run
+before and after, same "measure, don't guess" discipline as everything
+else in this section.
+
 For genuinely unattended years-long operation, also consider: a process
 supervisor that restarts `scripts/run.sh` on crash/OOM-kill (systemd
 `Restart=on-failure` or equivalent — hearthmind's own snapshot/resume

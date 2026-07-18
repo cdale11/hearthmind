@@ -2034,6 +2034,20 @@ class SimulationEngine:
             category == "death" and "starvation" in description
             for category, description in self.world.last_life_events
         )
+        # v0.87.2 (deeper settlement pattern-recognition, item 4 of
+        # docs/VISION-2026-07-LEARNING.md's deferred list): a genuinely
+        # NEW outbreak origin, matched on "fallen ill" (Population.
+        # _maybe_outbreak's index-case text) rather than the "illness"
+        # category alone, which also covers person-to-person spread
+        # ("caught the illness from...") — that's the disease already
+        # noticed, not a new one starting.
+        had_new_outbreak = any(
+            category == "illness" and "fallen ill" in description
+            for category, description in self.world.last_life_events
+        )
+        had_wildlife_recolonization = any(
+            category == "wildlife_recolonized" for category, _ in self.world.last_life_events
+        )
         for stl in self.world.settlements:
             if not stl.name:
                 continue
@@ -2044,6 +2058,12 @@ class SimulationEngine:
             if had_starvation_death:
                 counts = stl.pattern_signal_counts
                 counts["starvation_death"] = counts.get("starvation_death", 0) + 1
+            if had_new_outbreak:
+                counts = stl.pattern_signal_counts
+                counts["disease_outbreak"] = counts.get("disease_outbreak", 0) + 1
+            if had_wildlife_recolonization:
+                counts = stl.pattern_signal_counts
+                counts["wildlife_recolonization"] = counts.get("wildlife_recolonization", 0) + 1
             self._maybe_promote_ritual(stl)
 
     def _maybe_promote_ritual(self, stl: "Settlement") -> None:
@@ -2570,6 +2590,12 @@ class SimulationEngine:
         if counts.get("starvation_death", 0) >= PATTERN_SIGNAL_BELIEF_THRESHOLD:
             pattern_sentences.append("Several people have starved to death in the village this season.")
             counts["starvation_death"] = 0
+        if counts.get("disease_outbreak", 0) >= PATTERN_SIGNAL_BELIEF_THRESHOLD:
+            pattern_sentences.append("Illness keeps returning to the village this season.")
+            counts["disease_outbreak"] = 0
+        if counts.get("wildlife_recolonization", 0) >= PATTERN_SIGNAL_BELIEF_THRESHOLD:
+            pattern_sentences.append("Wild animals keep reclaiming the land around the village.")
+            counts["wildlife_recolonization"] = 0
         recent_for_prompt = (
             [{"category": "pattern_noticed", "description": s} for s in pattern_sentences] + recent
             if pattern_sentences else recent

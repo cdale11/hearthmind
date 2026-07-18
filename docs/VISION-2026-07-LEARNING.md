@@ -56,6 +56,18 @@ adding parallel ones, "maximize emergence per LLM call."
   `lesson`/`episodic_drifted` memory-log kind labels in "Full life
   history."
 
+## Shipped in v0.87.2
+
+- **Deeper settlement pattern-recognition** — `pattern_signal_counts`
+  now tracks `disease_outbreak` and `wildlife_recolonization` alongside
+  the original `starvation_death`/`dispute_feud` pair; `_maybe_
+  schedule_beliefs` folds in the two new "pattern noticed" sentences
+  the same additive way as the original two. Closes item 4 (was item
+  5) of this doc's deferred list. Also included, unrelated to learning:
+  llama-server glibc malloc-tuning env vars in `scripts/run.sh`
+  (`LLAMA_MALLOC_ARENA_MAX`/`_MMAP_THRESHOLD_KB`/`_TRIM_THRESHOLD_KB`)
+  as a complement to `LLAMA_RESTART_HOURS` — see CHANGELOG.md v0.87.2.
+
 ## Shipped in v0.87.1
 
 1. **Dialogue consumption of lessons** — `dialogue.build_prompt` now
@@ -68,7 +80,7 @@ adding parallel ones, "maximize emergence per LLM call."
    v0.87.1 for the full rationale); `Settlement.records`/`memorials`
    confirmed to already have durable backing beyond their in-RAM caps.
 
-## Deferred to a future increment (explicitly scoped out of v0.87.0/.1)
+## Deferred to a future increment (explicitly scoped out of v0.87.0/.1/.2)
 
 Ordered roughly by how directly it extends what's shipped so far:
 
@@ -91,14 +103,7 @@ Ordered roughly by how directly it extends what's shipped so far:
    already transfers land/goods/a skill bias to an heir — lessons
    aren't part of that transfer yet. "A parent's hard-won lesson passed
    down, imperfectly" is a natural, human, and currently-unbuilt piece.
-4. **Deeper settlement pattern-recognition.** v0.87.0's settlement
-   pattern-belief candidates cover exactly two patterns (feuds,
-   starvation deaths) as a first slice — the same mechanism generalizes
-   to any repeated event-category count (recurring disease outbreaks,
-   repeated wildlife recolonization near one site, a run of successful
-   festivals) if the settlement-scoped counters prove useful in
-   practice.
-5. **Richer Town Consciousness narrative modeling.** v0.87.0 adds one
+4. **Richer Town Consciousness narrative modeling.** v0.87.0 adds one
    deterministic trend line (intervention frequency); the vision doc's
    fuller ambition (a longer-running theory of the player's actual
    *intentions*, not just their intervention rate) is a bigger, more
@@ -106,13 +111,13 @@ Ordered roughly by how directly it extends what's shipped so far:
    `player_model` entries already partially cover this, so the concrete
    next step (if wanted) is likely "read `player_model` back into the
    trend line" rather than a wholly new mechanism.
-6. **Gradual forgetting as a genuinely continuous fade**, not just the
+5. **Gradual forgetting as a genuinely continuous fade**, not just the
    existing salience-based hard eviction + the new occasional LLM-
    authored drift. A middle ground (a memory's salience decaying slowly
    over real elapsed time even without eviction, subtly changing how
    it's phrased when read back into a prompt) is a bigger mechanical
    change than this batch's scope.
-7. **Skill mastery narrated by the LLM**, not a deterministic
+6. **Skill mastery narrated by the LLM**, not a deterministic
    templated sentence. v0.87.0 keeps mastery narration zero-cost/
    deterministic (`"Became a master of X after years of practice"`); an
    LLM-authored version ("got better at healing after losing a

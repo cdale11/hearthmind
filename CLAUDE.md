@@ -520,6 +520,35 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.87.2)
+
+Two independent pieces per explicit user direction: continue item 2
+of `docs/VISION-2026-07-LEARNING.md`'s deferred list (deeper
+settlement pattern-recognition), and reduce llama-server heap growth
+without relying on `LLAMA_RESTART_HOURS`.
+
+`_detect_ritual_signals`'s `pattern_signal_counts` gained
+`disease_outbreak` (matched specifically on `_maybe_outbreak`'s
+"fallen ill" index-case text, not person-to-person spread) and
+`wildlife_recolonization` (the existing `wildlife_recolonized` event
+category) alongside the existing `starvation_death`/`dispute_feud`
+pair — `_maybe_schedule_beliefs` now has four possible "pattern
+noticed" grounding sentences instead of two, zero added call volume.
+
+`scripts/run.sh` gained `LLAMA_MALLOC_ARENA_MAX`/`LLAMA_MALLOC_MMAP_
+THRESHOLD_KB`/`LLAMA_MALLOC_TRIM_THRESHOLD_KB` (all default unset) —
+glibc malloc tunables exported only into the llama-server child
+process via an `env` prefix, a complement to `LLAMA_RESTART_HOURS`
+that reduces the RATE heap fragmentation accumulates rather than
+periodically reclaiming it. Verified end-to-end against a mock
+llama-server that the converted byte values reach only the child
+process and the default (unset) path is unchanged.
+
+Verified: direct tests confirm the two new pattern counters increment
+correctly (outbreak-origin vs. person-to-person illness correctly
+distinguished) and the sentences reach a captured beliefs prompt;
+`scripts/verify_native_soak.py` byte-identical.
+
 ## Current state (v0.87.1)
 
 Direct follow-up per explicit user direction: highest-priority

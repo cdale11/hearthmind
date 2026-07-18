@@ -107,6 +107,61 @@
 #                        that month. Model reload time (seconds) scales
 #                        with model size and disk speed, not with how
 #                        long the previous instance had been running.
+#   LLAMA_MALLOC_ARENA_MAX / LLAMA_MALLOC_MMAP_THRESHOLD_KB /
+#   LLAMA_MALLOC_TRIM_THRESHOLD_KB
+#                        All default empty/unset (glibc's own defaults,
+#                        unchanged behavior). v0.87.2 — a complement to
+#                        LLAMA_RESTART_HOURS that reduces the RATE
+#                        general heap fragmentation accumulates, instead
+#                        of periodically reclaiming it via restart (the
+#                        two are not mutually exclusive; try tuning
+#                        first, keep restart as the reliable backstop).
+#                        glibc's default allocator behavior for a
+#                        multi-threaded, long-lived process handling many
+#                        different allocation sizes (llama-server's own
+#                        shape: KV-cache slots, compute buffers, and
+#                        many different prompt/response string lengths
+#                        across --parallel worker threads) is a
+#                        well-documented fragmentation source, tunable
+#                        via three glibc-recognized env vars (`man
+#                        mallopt`), exported ONLY into the llama-server
+#                        child process, never into hearthmind.server or
+#                        this script itself:
+#                        - LLAMA_MALLOC_ARENA_MAX -> MALLOC_ARENA_MAX:
+#                          caps the number of per-thread malloc arenas.
+#                          glibc's default (roughly 8x core count) lets
+#                          each thread fragment its own arena
+#                          independently; capping this (try matching
+#                          LLAMA_PARALLEL, e.g. 2) trades a little lock
+#                          contention for materially less fragmentation
+#                          on a many-core box.
+#                        - LLAMA_MALLOC_MMAP_THRESHOLD_KB ->
+#                          MALLOC_MMAP_THRESHOLD_ (converted to bytes):
+#                          allocations at or above this size go through
+#                          mmap (returned to the OS immediately on free)
+#                          instead of the sbrk'd heap (which glibc can
+#                          hold onto indefinitely once fragmented). glibc
+#                          normally raises this threshold dynamically
+#                          over a process's lifetime, which is itself a
+#                          known contributor to long-run heap bloat;
+#                          pinning it (try 128, i.e. 128KB) disables that
+#                          dynamic adjustment. Try a value a bit below
+#                          your typical KV-cache-slot/compute-buffer
+#                          allocation size so those consistently round-
+#                          trip through mmap.
+#                        - LLAMA_MALLOC_TRIM_THRESHOLD_KB ->
+#                          MALLOC_TRIM_THRESHOLD_ (converted to bytes):
+#                          how much contiguous free space at the top of
+#                          the heap glibc keeps before returning it to
+#                          the OS. Lowering this (try 4096, i.e. 4MB)
+#                          makes glibc give memory back sooner after a
+#                          burst of large short-lived allocations,
+#                          trading a few more syscalls for a lower
+#                          resident-but-unused floor.
+#                        These are measured trade-offs, not free wins —
+#                        size/verify via /diagnostics.system_memory over
+#                        a real multi-day run before and after, same
+#                        "size first" discipline as LLAMA_MLOCK below.
 #   LLAMA_MLOCK          Default: unset (off). Set to 1 to pass --mlock,
 #                        which pins llama-server's memory in RAM and
 #                        refuses to let the OS swap it. This does NOT
@@ -194,6 +249,9 @@ LLAMA_UBATCH_SIZE="${LLAMA_UBATCH_SIZE-128}"
 LLAMA_DEFRAG_THOLD="${LLAMA_DEFRAG_THOLD-0.1}"
 LLAMA_MLOCK="${LLAMA_MLOCK-}"
 LLAMA_RESTART_HOURS="${LLAMA_RESTART_HOURS-0}"
+LLAMA_MALLOC_ARENA_MAX="${LLAMA_MALLOC_ARENA_MAX-}"
+LLAMA_MALLOC_MMAP_THRESHOLD_KB="${LLAMA_MALLOC_MMAP_THRESHOLD_KB-}"
+LLAMA_MALLOC_TRIM_THRESHOLD_KB="${LLAMA_MALLOC_TRIM_THRESHOLD_KB-}"
 SKIP_NATIVE_BUILD="${SKIP_NATIVE_BUILD:-0}"
 LLAMA_EXTRA_ARGS="${LLAMA_EXTRA_ARGS:-}"
 
@@ -264,7 +322,25 @@ trap cleanup EXIT INT TERM
 # flag is re-read from the same env vars each call.
 start_llama_server() {
   local llama_port fit_str fa_str reasoning_str batch_str ubatch_str mlock_str defrag_str pid
+  local -a malloc_env
   llama_port="${LLAMA_HOST##*:}"
+  # glibc malloc tuning (v0.87.2) — see LLAMA_MALLOC_ARENA_MAX/LLAMA_
+  # MALLOC_MMAP_THRESHOLD_KB/LLAMA_MALLOC_TRIM_THRESHOLD_KB docstrings
+  # above for the full rationale: a complement to LLAMA_RESTART_HOURS
+  # that reduces the RATE of heap fragmentation instead of periodically
+  # reclaiming it via restart. All three default empty/unset (glibc's
+  # own defaults, unchanged behavior) — opt in only after a live
+  # /diagnostics.system_memory reading shows llama-server RSS climbing
+  # over a multi-day session. Built as an `env` prefix (not exported
+  # into this script's own environment) so it applies only to the
+  # llama-server child process, never to hearthmind.server or this
+  # script itself.
+  malloc_env=()
+  [[ -n "$LLAMA_MALLOC_ARENA_MAX" ]] && malloc_env+=("MALLOC_ARENA_MAX=$LLAMA_MALLOC_ARENA_MAX")
+  [[ -n "$LLAMA_MALLOC_MMAP_THRESHOLD_KB" ]] && \
+    malloc_env+=("MALLOC_MMAP_THRESHOLD_=$((LLAMA_MALLOC_MMAP_THRESHOLD_KB * 1024))")
+  [[ -n "$LLAMA_MALLOC_TRIM_THRESHOLD_KB" ]] && \
+    malloc_env+=("MALLOC_TRIM_THRESHOLD_=$((LLAMA_MALLOC_TRIM_THRESHOLD_KB * 1024))")
   # Build the optional --fit args: only passed when LLAMA_FIT is non-empty,
   # so an older llama-server that predates the flag can omit it with
   # LLAMA_FIT=. --fit lets llama.cpp dynamically size the offload to
@@ -301,9 +377,9 @@ start_llama_server() {
   [[ "$LLAMA_MLOCK" == "1" ]] && mlock_str="--mlock"
   defrag_str=""
   [[ -n "$LLAMA_DEFRAG_THOLD" ]] && defrag_str="--defrag-thold $LLAMA_DEFRAG_THOLD"
-  echo "run.sh: starting llama-server on $LLAMA_HOST (ctx=$LLAMA_CTX_SIZE, parallel=$LLAMA_PARALLEL, threads=$LLAMA_THREADS, gpu-layers=$LLAMA_N_GPU_LAYERS, fit=${LLAMA_FIT:-off}/target=${LLAMA_FIT_TARGET:-default}, flash-attn=${LLAMA_FLASH_ATTN:-off}, reasoning=${LLAMA_REASONING:-model default}, kv=$LLAMA_CACHE_TYPE_K/$LLAMA_CACHE_TYPE_V, batch=${LLAMA_BATCH_SIZE:-default}/${LLAMA_UBATCH_SIZE:-default}, defrag=${LLAMA_DEFRAG_THOLD:-off}, mlock=${LLAMA_MLOCK:-off})..." >&2
+  echo "run.sh: starting llama-server on $LLAMA_HOST (ctx=$LLAMA_CTX_SIZE, parallel=$LLAMA_PARALLEL, threads=$LLAMA_THREADS, gpu-layers=$LLAMA_N_GPU_LAYERS, fit=${LLAMA_FIT:-off}/target=${LLAMA_FIT_TARGET:-default}, flash-attn=${LLAMA_FLASH_ATTN:-off}, reasoning=${LLAMA_REASONING:-model default}, kv=$LLAMA_CACHE_TYPE_K/$LLAMA_CACHE_TYPE_V, batch=${LLAMA_BATCH_SIZE:-default}/${LLAMA_UBATCH_SIZE:-default}, defrag=${LLAMA_DEFRAG_THOLD:-off}, mlock=${LLAMA_MLOCK:-off}, malloc-tuning=${malloc_env[*]:-off})..." >&2
   # shellcheck disable=SC2086  # $fit_str/$fa_str/$reasoning_str/$batch_str/$ubatch_str/$mlock_str/$defrag_str/$LLAMA_EXTRA_ARGS are intentionally word-split
-  "$LLAMA_SERVER_BIN" \
+  env "${malloc_env[@]}" "$LLAMA_SERVER_BIN" \
     --model "$MODEL_PATH" \
     --ctx-size "$LLAMA_CTX_SIZE" \
     --parallel "$LLAMA_PARALLEL" \

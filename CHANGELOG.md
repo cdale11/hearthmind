@@ -4,6 +4,55 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.2] — Deeper settlement pattern-recognition + llama-server heap tuning without restart
+
+Two independent pieces per explicit user direction: continue item 2 of
+`docs/VISION-2026-07-LEARNING.md`'s deferred list (deeper settlement
+pattern-recognition), and investigate reducing llama-server heap
+growth without relying on `LLAMA_RESTART_HOURS` (v0.86.9).
+
+**Settlement pattern-recognition** (`simulation/engine.py`):
+`_detect_ritual_signals` (runs every tick, already the home of the
+`starvation_death`/`dispute_feud` counters) gained two more
+`pattern_signal_counts` categories: `disease_outbreak` (matched on
+`Population._maybe_outbreak`'s "fallen ill" index-case text
+specifically, NOT the "illness" category alone, which also covers
+person-to-person spread — that's the same disease already noticed, not
+a new one starting) and `wildlife_recolonization` (the existing
+`wildlife_recolonized` event category, already flowing through
+`World.last_life_events`). `_maybe_schedule_beliefs` gained the two
+matching "pattern noticed" grounding sentences, same additive-not-
+replacing treatment the original two categories established — the
+settlement-wide beliefs job can now notice a recurring disease problem
+or repeated wildlife pressure, not just recurring feuds/starvation.
+Zero added LLM call volume (same existing monthly beliefs call).
+
+**llama-server heap tuning** (`scripts/run.sh`): three new optional
+glibc malloc-tuning env vars — `LLAMA_MALLOC_ARENA_MAX`,
+`LLAMA_MALLOC_MMAP_THRESHOLD_KB`, `LLAMA_MALLOC_TRIM_THRESHOLD_KB` —
+exported (via an `env` prefix, scoped to only the llama-server child
+process) as glibc's `MALLOC_ARENA_MAX`/`MALLOC_MMAP_THRESHOLD_`/
+`MALLOC_TRIM_THRESHOLD_`. All default empty/unset (glibc's own
+defaults, verified unchanged behavior). This is a complement to
+`LLAMA_RESTART_HOURS`, not a replacement — it reduces the RATE general
+heap fragmentation accumulates (capping per-thread arena fragmentation,
+forcing large/varying allocations through mmap instead of the sbrk'd
+heap so they return to the OS on free, and lowering how much free space
+glibc holds onto before returning it) rather than periodically
+reclaiming it via restart; the two are meant to be tried together, with
+restart as the reliable backstop if tuning alone doesn't hold.
+
+Verified: direct tests against the real production code paths confirm
+the new counters increment correctly (an outbreak-origin illness event
+increments `disease_outbreak`, a person-to-person "caught the illness
+from" event does NOT), the pattern sentences reach a captured beliefs
+prompt, and counters reset after being consumed; `scripts/verify_
+native_soak.py` byte-identical. The malloc-tuning env vars were
+verified end-to-end against a mock llama-server binary confirming the
+converted byte values reach only the llama-server child process
+(never hearthmind.server or run.sh itself) and that the default
+(all three unset) path is unchanged from before this change.
+
 ## [0.87.1] — Dialogue reads lessons too + a fresh RAM-to-disk audit
 
 Direct follow-up to v0.87.0, per explicit user direction: implement
