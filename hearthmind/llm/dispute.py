@@ -29,7 +29,7 @@ SYSTEM_PROMPT = (
 def build_prompt(
     agent_a: Agent, agent_b: Agent, relationship: float, settlement_name: str, has_council: bool,
     reputation_a: float = 0.0, reputation_b: float = 0.0, rival_factions: bool = False,
-    debt_a_owes_b: float = 0.0, debt_b_owes_a: float = 0.0,
+    debt_a_owes_b: float = 0.0, debt_b_owes_a: float = 0.0, rival_families: bool = False,
 ) -> str:
     personality_bits = []
     for agent in (agent_a, agent_b):
@@ -64,16 +64,25 @@ def build_prompt(
     if debt_a_owes_b >= 1.0 or debt_b_owes_a >= 1.0:
         debtor, creditor = (agent_a, agent_b) if debt_a_owes_b >= debt_b_owes_a else (agent_b, agent_a)
         debt_line = f" {debtor.name} still owes {creditor.name} for past help never repaid."
+    # v0.87.11 "generational feuds": their own two households are
+    # already at odds — a fresh spat between members of two rival
+    # families is generational, not personal, and is that much harder
+    # to simply talk through.
+    family_line = (
+        f" Worse, {agent_a.name}'s and {agent_b.name}'s families have been feuding for generations."
+        if rival_families else ""
+    )
     return (
         f"{agent_a.name} and {agent_b.name}{place} have festered into open enmity "
         f"(their regard for each other stands at {relationship:.2f} on a -1..1 scale)."
-        f"{personality}{council}{reputation_line}{faction_line}{debt_line} How does it break?"
+        f"{personality}{council}{reputation_line}{faction_line}{debt_line}{family_line} How does it break?"
     )
 
 
 def fallback_dispute(
     agent_a: Agent, agent_b: Agent, has_council: bool, reputation_a: float = 0.0, reputation_b: float = 0.0,
     rival_factions: bool = False, debt_a_owes_b: float = 0.0, debt_b_owes_a: float = 0.0,
+    rival_families: bool = False,
 ) -> dict:
     """Deterministic stand-in: a sociable pair finds its own way back; an
     unsociable one hardens; a council steps in for the in-between case.
@@ -85,7 +94,9 @@ def fallback_dispute(
     two people whose factions are already opposed is harder to set
     down. An unrepaid debt on either side pushes the same way — being
     owed (or owing) something concrete is friction reconciliation has
-    to overcome."""
+    to overcome. v0.87.11: a durable inter-family feud pushes the same
+    direction as rival factions — harder still, since it's generational
+    rather than personal."""
     avg_sociability = (
         agent_a.traits.get(TRAIT_SOCIABILITY, 0.0) + agent_b.traits.get(TRAIT_SOCIABILITY, 0.0)
     ) / 2.0
@@ -95,6 +106,8 @@ def fallback_dispute(
     elif avg_reputation <= -0.3:
         avg_sociability -= 0.15
     if rival_factions:
+        avg_sociability -= 0.2
+    if rival_families:
         avg_sociability -= 0.2
     if max(debt_a_owes_b, debt_b_owes_a) >= 1.0:
         avg_sociability -= 0.1

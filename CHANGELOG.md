@@ -4,6 +4,60 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.11] — Generational feuds between FAMILY institutions
+
+Continued docs/IDEAS-2026-07-EMERGENCE.md §1 backlog per explicit user
+direction ("continue... yes please"). "Generational feuds between
+FAMILY institutions": promote a repeated pattern of pair-level `dispute`
+`outcome == "feud"` results between members of two different FAMILY
+institutions into a durable, institution-level feud — households
+carrying a grudge, not just two individuals.
+
+New `Institution.feuds: list[dict]` (`{"family_id", "formed_tick"}`,
+capped `FAMILY_FEUD_MAX_STORED=4`) and `Settlement.family_feud_counts`
+(pattern-count working state, same accumulate/threshold/consume-and-
+reset discipline as `ritual_signal_counts`/`pattern_signal_counts`,
+keyed by sorted family-id pair). New `Population.family_of`/
+`families_feuding` helpers (mirroring the existing `faction_of`).
+`SimulationEngine._maybe_promote_family_feud` (event-driven, called
+directly from `_maybe_schedule_dispute`'s apply() on a real feud
+outcome, not a per-tick scan) writes the feud symmetrically onto both
+families once `FAMILY_FEUD_PROMOTION_THRESHOLD=3` real feud outcomes
+land between them. Inheritance is free: `Institution.member_agent_ids`
+already outlives individual members (H7's anchor point), so a feud
+naturally covers descendants without any new mechanism.
+
+**Consequences, reusing only existing mechanics**: dispute framing
+gained a `rival_families` parameter (same shape as the existing
+`rival_factions`) — both `llm/dispute.py`'s prompt and its deterministic
+fallback treat a cross-feud-line dispute as harder to reconcile.
+`Population._maybe_reproduce`'s affinity gate now demands
+`REPRODUCTION_AFFINITY_THRESHOLD + FAMILY_FEUD_AFFINITY_PENALTY` (not
+an outright block) for a pair from two feuding families — a real cost
+that a strong enough bond can still overcome, the emergent "Romeo and
+Juliet" the idea doc names, falling out of existing affinity mechanics
+colliding with this one gate rather than any scripted event. A birth
+that clears the higher bar gets its own distinctive event text noting
+the union crossed the feud line.
+
+**UI**: new `family_feud` event (⚔️, grouped under the "people" filter
+chip alongside `dispute`) — zero new UI code beyond the icon/grouping
+entries, the main feed already renders any logged category generically.
+
+Verified: direct tests for `family_of`/`families_feuding`, promotion
+threshold/symmetry/no-double-promotion, round-trip (`Institution.feuds`
++ `Settlement.family_feud_counts`, including legacy-snapshot defaults),
+dispute prompt/fallback wiring, and the reproduction affinity gate
+(ordinary threshold correctly rejected across a feud line, a stronger
+bond correctly overcomes it, a non-feuding control pair is unaffected).
+A real end-to-end test drives the actual `_maybe_schedule_dispute`
+production path (fake LLM client always returning "feud") across
+`FAMILY_FEUD_PROMOTION_THRESHOLD` real dispute cycles between two
+synthetic families and confirms the symmetric institution-level feud
+forms through the genuine scheduling pipeline. Re-verified against the
+rebuilt native extension; `scripts/verify_native_soak.py` (3 seeds x
+2000 ticks) byte-identical.
+
 ## [0.87.10] — Wedding ceremonies + season/year LLM job retry window
 
 Two independent pieces per explicit user direction ("keep checking off

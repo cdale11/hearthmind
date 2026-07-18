@@ -97,6 +97,24 @@ class Institution:
     council's business is civic theories, not household gossip).
     Consumed by dialogue (family) and town_brain (council) — see
     `llm/town_brain.build_prompt`'s `council_beliefs` param."""
+    feuds: list[dict] = field(default_factory=list)
+    """v0.87.11, "generational feuds between FAMILY institutions"
+    (docs/IDEAS-2026-07-EMERGENCE.md §1). FAMILY-only in practice (no
+    consumer reads this for other kinds): `{"family_id": int,
+    "formed_tick": int}` — a rival family this institution is feuding
+    with, promoted (both directions, symmetric) by `SimulationEngine.
+    _maybe_promote_family_feud` once `Settlement.family_feud_counts`
+    crosses `FAMILY_FEUD_PROMOTION_THRESHOLD` real `outcome == "feud"`
+    dispute results between the two families' members — a repeated
+    PATTERN of conflict, not one bad afternoon. Inherited automatically
+    since `member_agent_ids` already outlives individual members (H7's
+    anchor point) — a feud doesn't need its own inheritance mechanic,
+    membership in the feuding family is enough. Capped at FAMILY_FEUD_
+    MAX_STORED (a household plausibly has a handful of real rivals, not
+    dozens). Consumed by dispute framing (`rival_families`, same shape
+    as the existing `rival_factions`) and `Population._maybe_
+    reproduce`'s affinity gate (a stricter bar for a cross-feud-line
+    pair — the emergent "Romeo and Juliet" the idea doc names)."""
 
     def to_dict(self) -> dict:
         return {
@@ -106,6 +124,7 @@ class Institution:
             "member_agent_ids": sorted(self.member_agent_ids),
             "name": self.name,
             "beliefs": list(self.beliefs),
+            "feuds": list(self.feuds),
         }
 
     @classmethod
@@ -117,4 +136,28 @@ class Institution:
             member_agent_ids=set(data.get("member_agent_ids", [])),
             name=data.get("name", ""),
             beliefs=list(data.get("beliefs", [])),
+            feuds=list(data.get("feuds", [])),
         )
+
+
+FAMILY_FEUD_PROMOTION_THRESHOLD = 3
+"""v0.87.11: how many real `outcome == "feud"` dispute results between
+two different FAMILY institutions' members it takes to promote a
+`Settlement.family_feud_counts` entry into a durable `Institution.
+feuds` entry on both families — same threshold value and "repeated
+pattern, not one bad afternoon" rationale as `RITUAL_PROMOTION_
+THRESHOLD`."""
+
+FAMILY_FEUD_MAX_STORED = 4
+"""Cap on `Institution.feuds` — a household plausibly holds a handful
+of real generational rivalries, not dozens; oldest dropped first (same
+FIFO-by-append-order discipline as every other capped list here)."""
+
+FAMILY_FEUD_AFFINITY_PENALTY = 0.25
+"""Extra affinity `Population._maybe_reproduce` demands, on top of the
+ordinary `REPRODUCTION_AFFINITY_THRESHOLD`, before a pair from two
+feuding families forms a couple — courtship across the feud line is
+harder, not impossible: a pair whose bond clears the higher bar is the
+emergent "Romeo and Juliet" the idea doc names, falling out of
+existing affinity mechanics colliding with this one gate rather than
+any scripted event."""

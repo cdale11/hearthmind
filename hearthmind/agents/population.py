@@ -290,7 +290,11 @@ from hearthmind.settlement.buildings import (
     choose_building_kind,
     culture_effect_multiplier,
 )
-from hearthmind.settlement.institutions import Institution, InstitutionKind
+from hearthmind.settlement.institutions import (
+    FAMILY_FEUD_AFFINITY_PENALTY,
+    Institution,
+    InstitutionKind,
+)
 from hearthmind.settlement.vehicles import (
     AUTOMOBILE_MATERIALS_COST,
     CART_BONUS_CAP,
@@ -3027,7 +3031,17 @@ class Population:
                     continue
                 if not (self._is_healthy(a) and self._is_healthy(b)):
                     continue
-                if a.relationships.get(b.id, 0.0) < REPRODUCTION_AFFINITY_THRESHOLD:
+                affinity_needed = REPRODUCTION_AFFINITY_THRESHOLD
+                romeo_and_juliet = self.families_feuding(
+                    self.family_of(a.id, home), self.family_of(b.id, home),
+                )
+                if romeo_and_juliet:
+                    # v0.87.11 "generational feuds": a real cost, not a
+                    # hard block — courtship across the feud line just
+                    # needs a stronger bond to overcome it. See
+                    # FAMILY_FEUD_AFFINITY_PENALTY's docstring.
+                    affinity_needed += FAMILY_FEUD_AFFINITY_PENALTY
+                if a.relationships.get(b.id, 0.0) < affinity_needed:
                     continue
                 # Surplus gate (carrying-capacity rework, July 2026
                 # review): children follow surplus — either parent has
@@ -3060,7 +3074,14 @@ class Population:
                 self._next_id += 1
                 newborns.append(child)
                 home_counts[home.id] += 1
-                life_events.append(("birth", f"{child.name} was born to {a.name} and {b.name}."))
+                if romeo_and_juliet:
+                    life_events.append((
+                        "birth",
+                        f"{child.name} was born to {a.name} and {b.name} — a union across "
+                        "their families' long feud.",
+                    ))
+                else:
+                    life_events.append(("birth", f"{child.name} was born to {a.name} and {b.name}."))
                 # Generational memory: a newborn "knows" its parents from
                 # birth (looked up by id later — parent names can change
                 # by nothing here, but this fixes the names at the
@@ -3392,6 +3413,29 @@ class Population:
             if inst.kind is InstitutionKind.FACTION and agent_id in inst.member_agent_ids:
                 return inst
         return None
+
+    def family_of(self, agent_id: int, settlement: Settlement) -> "Institution | None":
+        """The FAMILY `agent_id` belongs to, if any — same shape as
+        `faction_of` but checked against `member_agent_ids` directly
+        (never pruned on death, so this also resolves a deceased
+        member's family — feud membership is meant to outlive the
+        individual, same as the institution itself). Consumed by
+        dispute rivalry framing (`rival_families`) and `_maybe_
+        reproduce`'s cross-feud-line affinity gate (v0.87.11)."""
+        for inst in settlement.institutions:
+            if inst.kind is InstitutionKind.FAMILY and agent_id in inst.member_agent_ids:
+                return inst
+        return None
+
+    @staticmethod
+    def families_feuding(family_a: "Institution | None", family_b: "Institution | None") -> bool:
+        """True when two different FAMILY institutions have a durable
+        feud entry naming each other (`Institution.feuds`) — not just a
+        raw id mismatch (every pair of different families would trivially
+        satisfy that); a real promoted feud is required."""
+        if family_a is None or family_b is None or family_a.id == family_b.id:
+            return False
+        return any(f["family_id"] == family_b.id for f in family_a.feuds)
 
     def _maybe_welcome_migrant(
         self, rng: random.Random, settlement: Settlement,

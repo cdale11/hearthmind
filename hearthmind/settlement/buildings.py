@@ -1618,6 +1618,20 @@ class SettlementCulture:
     feuds, several starvation deaths) rather than only ever reacting to
     whichever single event happens to be freshest in the recency-sliced
     event window."""
+    family_feud_counts: dict = field(default_factory=dict)
+    """v0.87.11, "generational feuds between FAMILY institutions"
+    (docs/IDEAS-2026-07-EMERGENCE.md §1). Same accumulate/threshold/
+    consume-and-reset discipline as `ritual_signal_counts`/`pattern_
+    signal_counts` above, but keyed by rival family-institution-id pair
+    (`"{min_id}_{max_id}"`, string for JSON round-trip) instead of a
+    single pattern name — a running count of `outcome == "feud"`
+    dispute results between members of two different FAMILY
+    institutions. `SimulationEngine._maybe_schedule_dispute`'s apply()
+    increments the relevant pair's count on every feud outcome and
+    promotes it into a real `Institution.feuds` entry on both families
+    (mirroring `_maybe_promote_ritual`'s shape) once it crosses
+    `FAMILY_FEUD_PROMOTION_THRESHOLD` — a repeated PATTERN of conflict
+    between two households, not one bad afternoon."""
     religion: dict | None = None
     """Phase M: `{"name": str, "tenets": list[str], "formed_tick": int,
     "schism_of": int | None}` once `_maybe_schedule_religion` (seasonal,
@@ -1743,6 +1757,7 @@ class Settlement:
         religion: dict | None = None, narrative_themes: list[dict] | None = None,
         omen_seed: str = "", dream_seed: str = "",
         pattern_signal_counts: dict | None = None,
+        family_feud_counts: dict | None = None,
     ):
         self.id = id
         """Stable settlement identity (multi-settlement pass, v0.65.0):
@@ -1792,6 +1807,7 @@ class Settlement:
             rituals=rituals if rituals is not None else [],
             ritual_signal_counts=ritual_signal_counts if ritual_signal_counts is not None else {},
             pattern_signal_counts=pattern_signal_counts if pattern_signal_counts is not None else {},
+            family_feud_counts=family_feud_counts if family_feud_counts is not None else {},
             religion=religion,
             narrative_themes=narrative_themes if narrative_themes is not None else [],
         )
@@ -2065,6 +2081,14 @@ class Settlement:
     @pattern_signal_counts.setter
     def pattern_signal_counts(self, value: dict) -> None:
         self.culture.pattern_signal_counts = value
+
+    @property
+    def family_feud_counts(self) -> dict:
+        return self.culture.family_feud_counts
+
+    @family_feud_counts.setter
+    def family_feud_counts(self, value: dict) -> None:
+        self.culture.family_feud_counts = value
 
     @property
     def religion(self) -> dict | None:
@@ -2658,6 +2682,7 @@ class Settlement:
             "rituals": list(self.rituals),
             "ritual_signal_counts": dict(self.ritual_signal_counts),
             "pattern_signal_counts": dict(self.pattern_signal_counts),
+            "family_feud_counts": dict(self.family_feud_counts),
             "religion": dict(self.religion) if self.religion is not None else None,
             "narrative_themes": list(self.narrative_themes),
             "omen_seed": self.omen_seed,
@@ -2714,6 +2739,7 @@ class Settlement:
             rituals=list(data.get("rituals", [])),
             ritual_signal_counts=dict(data.get("ritual_signal_counts", {})),
             pattern_signal_counts=dict(data.get("pattern_signal_counts", {})),
+            family_feud_counts=dict(data.get("family_feud_counts", {})),
             religion=dict(data["religion"]) if data.get("religion") is not None else None,
             narrative_themes=list(data.get("narrative_themes", [])),
             omen_seed=data.get("omen_seed", ""),

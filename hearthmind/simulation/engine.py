@@ -111,7 +111,11 @@ from hearthmind.settlement.buildings import (
     tick_relation,
     tick_temperament,
 )
-from hearthmind.settlement.institutions import InstitutionKind
+from hearthmind.settlement.institutions import (
+    FAMILY_FEUD_MAX_STORED,
+    FAMILY_FEUD_PROMOTION_THRESHOLD,
+    InstitutionKind,
+)
 from hearthmind.world.state import (
     CONSCIOUSNESS_INTERVENTION_LOG_MAX,
     CONSCIOUSNESS_MEMORY_MAX,
@@ -2416,6 +2420,43 @@ class SimulationEngine:
             stl.ritual_signal_counts["shrine_mourning"] = 0  # consumed — don't re-promote a duplicate
             self._log("ritual_formed", f"{stl.name} has taken to mourning its dead at the shrine.")
 
+    def _maybe_promote_family_feud(
+        self, settlement: "Settlement", family_a: "Institution", family_b: "Institution",
+    ) -> None:
+        """v0.87.11, "generational feuds between FAMILY institutions"
+        (docs/IDEAS-2026-07-EMERGENCE.md §1) — the event-driven
+        counterpart to `_maybe_promote_ritual` above: rather than
+        scanning every tick, this is called directly from `_maybe_
+        schedule_dispute`'s apply() the instant a real `outcome ==
+        "feud"` result lands between two different families' members.
+        Accumulates `Settlement.family_feud_counts` keyed by the sorted
+        family-id pair; once `FAMILY_FEUD_PROMOTION_THRESHOLD` real
+        feud outcomes have landed between the same two families, writes
+        a durable, symmetric `Institution.feuds` entry on BOTH families
+        (a feud isn't one-sided) and resets the counter — a repeated
+        pattern promoted once, not re-promoted on every subsequent spat
+        between an already-feuding pair."""
+        if Population.families_feuding(family_a, family_b):
+            return  # already a durable feud — nothing new to promote
+        key = "_".join(str(i) for i in sorted((family_a.id, family_b.id)))
+        counts = settlement.family_feud_counts
+        counts[key] = counts.get(key, 0) + 1
+        if counts[key] < FAMILY_FEUD_PROMOTION_THRESHOLD:
+            return
+        tick = self.world.clock.tick_count
+        family_a.feuds.append({"family_id": family_b.id, "formed_tick": tick})
+        if len(family_a.feuds) > FAMILY_FEUD_MAX_STORED:
+            family_a.feuds = family_a.feuds[-FAMILY_FEUD_MAX_STORED:]
+        family_b.feuds.append({"family_id": family_a.id, "formed_tick": tick})
+        if len(family_b.feuds) > FAMILY_FEUD_MAX_STORED:
+            family_b.feuds = family_b.feuds[-FAMILY_FEUD_MAX_STORED:]
+        counts[key] = 0
+        self._log(
+            "family_feud",
+            f"{family_a.name or 'A family'} and {family_b.name or 'another family'} "
+            f"in {settlement.name or 'the village'} have become bitter rivals.",
+        )
+
     def _maybe_schedule_religion(self, events: list[str]) -> None:
         """Seasonal, one call, gated on having enough accumulated
         `rituals` — the actual crystallization step. Deliberately never
@@ -3596,15 +3637,18 @@ class SimulationEngine:
         faction_a = self.world.population.faction_of(agent_a.id, dispute_home)
         faction_b = self.world.population.faction_of(agent_b.id, dispute_home)
         rival_factions = faction_a is not None and faction_b is not None and faction_a.id != faction_b.id
+        family_a = self.world.population.family_of(agent_a.id, dispute_home)
+        family_b = self.world.population.family_of(agent_b.id, dispute_home)
+        rival_families = Population.families_feuding(family_a, family_b)
         debt_a_owes_b = agent_a.debts.get(agent_b.id, 0.0)
         debt_b_owes_a = agent_b.debts.get(agent_a.id, 0.0)
         prompt = dispute.build_prompt(
             agent_a, agent_b, relationship, dispute_home.name, has_council,
-            reputation_a, reputation_b, rival_factions, debt_a_owes_b, debt_b_owes_a,
+            reputation_a, reputation_b, rival_factions, debt_a_owes_b, debt_b_owes_a, rival_families,
         )
         fallback = dispute.fallback_dispute(
             agent_a, agent_b, has_council, reputation_a, reputation_b, rival_factions,
-            debt_a_owes_b, debt_b_owes_a,
+            debt_a_owes_b, debt_b_owes_a, rival_families,
         )
         a_id, b_id = agent_a.id, agent_b.id
         dispute_home_id = dispute_home.id
@@ -3630,6 +3674,17 @@ class SimulationEngine:
                 if dispute_settlement is not None:
                     counts = dispute_settlement.pattern_signal_counts
                     counts["dispute_feud"] = counts.get("dispute_feud", 0) + 1
+                    # v0.87.11 "generational feuds between FAMILY
+                    # institutions": a real feud outcome between members
+                    # of two different families is the raw material this
+                    # promotes into a durable institution-level feud.
+                    a_family = self.world.population.family_of(a_id, dispute_settlement)
+                    b_family = self.world.population.family_of(b_id, dispute_settlement)
+                    if (
+                        a_family is not None and b_family is not None
+                        and a_family.id != b_family.id
+                    ):
+                        self._maybe_promote_family_feud(dispute_settlement, a_family, b_family)
                 core = self.world.population.core_agent_ids
                 a, b = applied[0], applied[1]
                 tick = self.world.clock.tick_count

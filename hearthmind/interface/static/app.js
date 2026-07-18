@@ -125,6 +125,7 @@ const CATEGORY_META = {
   religion_formed: { icon: "⛩️" },
   narrative_direction: { icon: "📖" },
   consciousness_intervention: { icon: "🌫️" },
+  family_feud: { icon: "⚔️" },
 };
 
 // Event-log filter chips (v0.64.0 UI backlog): coarse groups, display-only —
@@ -133,6 +134,7 @@ const EVENT_GROUP_OF = {
   birth: "people", death: "people", dialogue_surfaced: "people", rumor: "people",
   migrant_arrived: "people", inheritance: "people", dispute: "people",
   record_written: "people", illness: "people", recovery: "people", predator_attack: "people",
+  family_feud: "people",
   construction_started: "town", building_completed: "town", building_ruined: "town",
   building_reclaimed: "town", farm_planted: "town", vehicle_started: "town",
   vehicle_completed: "town", vehicle_broken: "town", era_advance: "town",

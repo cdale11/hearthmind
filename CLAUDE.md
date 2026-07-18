@@ -534,6 +534,41 @@ exactly, plus direct unit tests for the walkable-tile scan's edge
 cases (water at map center, fully unwalkable map) and a 5-seed
 engine soak with two forced mid-run extinctions.
 
+## Current state (v0.87.11)
+
+Continued docs/IDEAS-2026-07-EMERGENCE.md §1 backlog ("generational
+feuds between FAMILY institutions"). Promotes a repeated pattern of
+pair-level `dispute` `outcome == "feud"` results between two different
+FAMILY institutions' members into a durable, symmetric `Institution.
+feuds` entry (`FAMILY_FEUD_PROMOTION_THRESHOLD=3`, working counter on
+`Settlement.family_feud_counts`, same accumulate/threshold/consume-
+and-reset shape as `ritual_signal_counts`) — event-driven from `_maybe_
+schedule_dispute`'s apply(), not a per-tick scan. New `Population.
+family_of`/`families_feuding` helpers (mirror `faction_of`).
+Inheritance is free: `Institution.member_agent_ids` already outlives
+individual members, so a feud covers descendants with no new
+mechanism.
+
+**Real consequences, existing mechanics only**: `llm/dispute.py`
+gained `rival_families` (mirrors `rival_factions`) biasing both the
+prompt and deterministic fallback toward a harder-to-reconcile
+outcome. `Population._maybe_reproduce`'s affinity gate demands
+`REPRODUCTION_AFFINITY_THRESHOLD + FAMILY_FEUD_AFFINITY_PENALTY` (not
+a hard block) for a cross-feud-line pair — the emergent "Romeo and
+Juliet" the idea doc names, falling out of existing affinity mechanics
+colliding with the feud gate. New `family_feud` event (⚔️, "people"
+filter group) — zero new UI code otherwise.
+
+Verified: direct tests for the promotion mechanism (threshold,
+symmetry, no-double-promotion), round-trip + legacy-snapshot defaults,
+dispute framing wiring, and the affinity gate (ordinary threshold
+rejected across a feud line, stronger bond overcomes it, non-feuding
+control unaffected). A real end-to-end test drives the actual
+`_maybe_schedule_dispute` path (fake LLM client) across the threshold
+and confirms the symmetric feud forms through genuine scheduling.
+Re-verified against the rebuilt native extension; native soak
+byte-identical.
+
 ## Current state (v0.87.10)
 
 Two independent pieces per explicit user direction ("keep checking off
