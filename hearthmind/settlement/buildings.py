@@ -1063,12 +1063,25 @@ see CHANGELOG.md v0.87.24 for the confirming re-run's numbers once
 posted — if a future soak still shows a crash of this shape, tighten
 further rather than treating these as final."""
 
-CARRYING_CAPACITY_MIN_MULTIPLIER = 0.5
+CARRYING_CAPACITY_MIN_MULTIPLIER = 0.3
 CARRYING_CAPACITY_MAX_MULTIPLIER = 1.5
 """Bounds on the composed multiplier above — a settlement in crisis
-(plague, siege, famine) can still support down to half its housing-based
-capacity, and a thriving one can stretch to 1.5x it, but neither factor
-set can send the ceiling to zero or unbounded growth on its own."""
+(plague, siege, famine) can still support down to this floor times its
+housing-based capacity, and a thriving one can stretch to 1.5x it, but
+neither factor set can send the ceiling to zero or unbounded growth on
+its own. MIN lowered from 0.5 (v0.87.24 starvation-collapse fix,
+follow-up to CARRYING_CAPACITY_HUNGER_WEIGHT): a 40,000-tick soak
+(seed 23) showed the hunger term alone couldn't stop a runaway crash
+even at its full strength, because HOUSING capacity (huts x HUT_
+CAPACITY) is driven by construction — materials + builder labor — with
+no food gate of its own, so a settlement that got ahead on building
+during a good stretch keeps a high housing floor no famine term can
+touch below 0.5x. Lowering the floor gives a severe famine (hunger_term
+near its own -0.55 ceiling) real teeth against that decoupling. The
+housing/food decoupling itself is a deeper structural gap this pass
+doesn't close — flagged, not fixed: a future pass could gate hut
+construction's own pace on settlement food security, the same way
+`_maybe_plant` already requires a food-focused colocated agent."""
 
 SHELTER_NEGATES_WEATHER = True
 """An AWAKE agent standing on any STANDING building's tile is treated

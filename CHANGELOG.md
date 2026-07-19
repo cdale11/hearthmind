@@ -58,11 +58,24 @@ a low of 8 before partially recovering to 44, with starvation (72) still
 dominant over old age (8) — better than the unfixed baseline (no crash
 to 2, real recovery) but not the reversal the report asked for. Second
 pass tightened the same three constants (`_WEIGHT` 0.4 -> 0.55, `_COMFORT`
-0.35 -> 0.28, `REPRODUCTION_SETTLEMENT_HUNGER_CEILING` 0.55 -> 0.45) —
-these are the values now in the tree; a confirming re-run on seed 23 is
-in progress as of this entry (see the next changelog entry for its
-result once posted, or docs/DECISIONS.md if this file wasn't updated
-again before it landed).
+0.35 -> 0.28, `REPRODUCTION_SETTLEMENT_HUNGER_CEILING` 0.55 -> 0.45).
+Re-run on seed 23: STILL crashed (overshot to 92, dropped to a low of
+13, starvation 46 vs old age 19) — tighter, but not fixed. Root cause of
+the tightening's limited effect: `carrying_capacity`'s hunger term can
+only ever pull the multiplier down to `CARRYING_CAPACITY_MIN_MULTIPLIER`
+(0.5) times HOUSING capacity, and housing (huts) is driven by
+construction — materials + builder labor — with no food gate of its
+own, so a settlement that got ahead on building during a good stretch
+keeps a high floor no famine term could touch. Confirmed directly (not
+just inferred): at housing=300, even average hunger 1.0 only pulled
+capacity down to 150. Third change: `CARRYING_CAPACITY_MIN_MULTIPLIER`
+0.5 -> 0.3, giving a severe famine term more room to actually suppress
+capacity against oversized housing. The deeper structural gap — housing
+capacity itself isn't food-gated — is flagged, not closed, this pass; a
+natural follow-up is gating hut construction's own pace on settlement
+food security the way `_maybe_plant` already gates planting on a
+food-focused colocated agent. A confirming re-run on seed 23 against
+this third change is in progress as of this entry.
 
 **UI declutter** (stats/panels preserved, none removed): the header's
 12 always-visible toggle buttons collapsed into 4 controls — `details`

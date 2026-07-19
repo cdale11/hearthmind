@@ -456,9 +456,21 @@ below ~20, old age (24) overtook starvation (13) for the first time)
 but seed 23 showed it was still too loose (overshot to 62, crashed to a
 low of 8, starvation (72) still dominant — better than baseline's crash
 to 2, not the reversal asked for). Second pass tightened further
-(weight -> 0.55, comfort -> 0.28, ceiling -> 0.45) — these are the
-values now in the tree; see CHANGELOG.md v0.87.24 for the confirming
-seed-23 re-run once it lands.
+(weight -> 0.55, comfort -> 0.28, ceiling -> 0.45) — seed 23 STILL
+crashed (overshot to 92, dropped to 13, starvation 46 vs old age 19).
+Root-caused why tightening alone couldn't fully fix it: the hunger term
+can only pull `carrying_capacity`'s multiplier down to `CARRYING_
+CAPACITY_MIN_MULTIPLIER` (0.5) times HOUSING capacity, and housing
+(huts) is driven by construction — materials + labor — with no food
+gate of its own, so a settlement that got ahead on building keeps a
+high floor no famine term can touch (confirmed directly: housing=300,
+avg hunger 1.0 still only pulled capacity to 150). Third change:
+`CARRYING_CAPACITY_MIN_MULTIPLIER` 0.5 -> 0.3. The housing/food
+decoupling itself is flagged, not closed, this pass — a natural
+follow-up is gating hut construction's own pace on settlement food
+security, the same way `_maybe_plant` already gates planting on a
+food-focused colocated agent. See CHANGELOG.md v0.87.24 for the
+confirming seed-23 re-run's result once it lands.
 
 **UI declutter, stats preserved**: the header's 12 always-visible
 toggle buttons collapsed into 4 (`details` stays top-level; `🔭
