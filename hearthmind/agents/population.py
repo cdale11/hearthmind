@@ -691,6 +691,24 @@ MIGRATION_BOND_THRESHOLD = 0.5
 """Push/pull condition: a bonded partner (relationship at least this
 warm) already living in another named settlement is itself sufficient
 reason to migrate toward them, independent of hunger/standing."""
+
+MIGRATION_HOUSING_PRESSURE_THRESHOLD = 1.3
+"""§2 "refugees after disasters": `_housing_pressure` (population /
+housing capacity) must clear this before overcrowding counts as a real
+migration push — genuinely over capacity, not merely at it (crowding
+past 1.0 is already tolerated day-to-day via CAMP_TOLERANCE/energy
+penalties elsewhere; this is the harder "actually can't house everyone
+here anymore" bar)."""
+
+RELATION_MIGRATION_NUDGE = 0.05
+"""§2 "settlement-level stance (proto-diplomacy)": a successful
+migration is itself a "migrant treatment" signal feeding `Settlement.
+relations` — increased contact between two communities (whatever the
+individual's own reason) reads as modest warming between them, the
+same direction dialogue contact already nudges relations, just a
+smaller per-event step since migration is far rarer than colocated
+dialogue."""
+
 DISPUTE_TRUST_DELTA = 0.1
 """Mechanical teeth for the three dispute outcomes (apply_dispute):
 reconciliation resets the pair to mildly-warm and rebuilds a little
@@ -3203,6 +3221,24 @@ class Population:
         capacity = len(granaries) * GRANARY_CAPACITY
         return sum(b.stored_food for b in granaries) / capacity if capacity else 0.0
 
+    def _housing_pressure(self, settlement: Settlement) -> float:
+        """population / housing-capacity — >1.0 means the settlement is
+        genuinely overcrowded for its standing huts. §2 "refugees after
+        disasters" (docs/IDEAS-2026-07-EMERGENCE.md) reads this as
+        `_maybe_migrate`'s disaster-driven push signal: a disaster that
+        ruins huts drops capacity here directly (no separate disaster-
+        detection needed), the same causal chain the idea names, just
+        reached through the housing math that's already computed
+        elsewhere (`tick`'s own `crowded_by_id`) rather than duplicated
+        state. `float('inf')` for a settlement with no standing huts and
+        a living population — maximally overcrowded, not a division
+        error."""
+        capacity = CAMP_TOLERANCE + HUT_CAPACITY * sum(
+            1 for b in settlement.buildings if b.kind is BuildingKind.HUT and b.stage is BuildingStage.STANDING
+        )
+        population = settlement.living_member_count(self.agents)
+        return population / capacity if capacity else float("inf")
+
     def _maybe_migrate(self, rng: random.Random, settlements: list[Settlement]) -> list[tuple[str, str]]:
         """§1 "migration by choice, not just fission"
         (docs/IDEAS-2026-07-EMERGENCE.md): individuals never moved
@@ -3210,19 +3246,21 @@ class Population:
         A rare, deterministic per-agent check against push/pull signals
         already tracked elsewhere: ostracism (`standing_penalty`),
         family feud pressure (`Institution.feuds`), genuine starvation
-        next to a meaningfully better-fed sister settlement, or a
-        bonded partner already living elsewhere. A migrant carries their
-        own memories/beliefs/secrets with them (nothing here touches
-        those — they're already per-agent state), which is exactly how
-        one settlement's folklore/rumors/religion can now actually
-        reach another, the gap the idea doc names (previously only the
-        omen-echo backchannel crossed settlement lines at all). Reuses
-        `depart_for_fission`'s exact shape (settlement_id reassigned
-        immediately, `travel_target` set so the agent physically walks
-        there via the existing journey machinery) at individual scale.
-        A fresh settlement doesn't know what the old one held against
-        someone, so `standing_penalty` resets on arrival — a genuine
-        second chance, not just a change of scenery."""
+        next to a meaningfully better-fed sister settlement, real
+        overcrowding (§2 "refugees after disasters" — see `_housing_
+        pressure`), or a bonded partner already living elsewhere. A
+        migrant carries their own memories/beliefs/secrets with them
+        (nothing here touches those — they're already per-agent state),
+        which is exactly how one settlement's folklore/rumors/religion
+        can now actually reach another, the gap the idea doc names
+        (previously only the omen-echo backchannel crossed settlement
+        lines at all). Reuses `depart_for_fission`'s exact shape
+        (settlement_id reassigned immediately, `travel_target` set so
+        the agent physically walks there via the existing journey
+        machinery) at individual scale. A fresh settlement doesn't know
+        what the old one held against someone, so `standing_penalty`
+        resets on arrival — a genuine second chance, not just a change
+        of scenery."""
         named = [s for s in settlements if s.name]
         if len(named) < 2:
             return []
@@ -3250,6 +3288,10 @@ class Population:
                 best = max(alternatives, key=self._granary_fill_ratio)
                 if self._granary_fill_ratio(best) - self._granary_fill_ratio(home) >= MIGRATION_GRANARY_ADVANTAGE:
                     target = best
+            elif self._housing_pressure(home) >= MIGRATION_HOUSING_PRESSURE_THRESHOLD:
+                best = min(alternatives, key=self._housing_pressure)
+                if self._housing_pressure(best) < self._housing_pressure(home):
+                    target = best
             elif agent.standing_penalty > 0.0 or feud_pressure:
                 target = max(alternatives, key=self._granary_fill_ratio)
             if target is None or rng.random() >= MIGRATION_CHANCE_PER_TICK:
@@ -3262,6 +3304,11 @@ class Population:
                 agent.travel_target = center
             _remember(agent, f"I left {origin_name} for {target.name}.", because=f"migrated to {target.name}")
             life_events.append(("migrant_departed", f"{agent.name} left {origin_name} to make a life in {target.name}."))
+            # §2 "settlement-level stance": increased contact between
+            # the two communities reads as modest warming, symmetric.
+            new_relation = min(1.0, home.relations.get(target.id, 0.0) + RELATION_MIGRATION_NUDGE)
+            home.relations[target.id] = new_relation
+            target.relations[home.id] = new_relation
         return life_events
 
     def _tick_traits(self, rng: random.Random) -> None:

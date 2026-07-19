@@ -4,6 +4,72 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.19] — §2 close-out: a world, not parallel towns
+
+Direct follow-up per explicit user request ("finish 2 of ideas.md")
+— closes docs/IDEAS-2026-07-EMERGENCE.md §2's four items, all
+previously unchecked. Also caught and removed a leftover duplicate,
+already-superseded "Migration by choice" line that had survived at
+the bottom of §1 from the v0.87.18 edit (the real entry was correctly
+checked off higher up in the same section — a doc-editing mistake, not
+a functionality gap).
+
+**Letters carried by caravans** (`llm/letters.py`, `Settlement.
+pending_letters`, new): monthly, core-cast-only, round-robin —
+finds a core-cast agent with a real bond (`MIGRATION_BOND_THRESHOLD`,
+same threshold `_maybe_migrate` uses) to a living agent in another
+named settlement, writes one small grounded LLM letter, and queues it
+on the RECIPIENT's settlement with a real multi-day travel delay
+(`LETTER_TRAVEL_TICKS=400`). `SimulationEngine._deliver_letters`
+(day_end) resolves delivery: a genuine memory (+ `LETTER_RUMOR_
+CHANCE` seeded rumor) if the recipient survived the wait, or a
+`letter_arrived_too_late` event if they didn't — latency is the
+feature, not a dropped edge case.
+
+**Settlement-level stance (proto-diplomacy)**: the underlying
+mechanism (`Settlement.relations`) and its LLM-narrated layer
+(diplomacy, v0.87.17) already existed; this closes the two missing
+pieces the idea specifically named. `caravan_relation_factor`
+(`settlement/buildings.py`, same shape as `market_relation_factor`) is
+the deterministic caravan-frequency lever — a region on warm terms
+with its sister settlements draws more outside trade traffic, cold
+terms less. A successful individual migration now nudges both
+settlements' relation warmer (`RELATION_MIGRATION_NUDGE`) — the
+"migrant treatment" feed input. "Disaster aid" was not built (no
+aid-transfer mechanic exists yet to feed from) — flagged, not
+silently dropped.
+
+**Refugees after disasters**: reuses `_maybe_migrate` (§1, v0.87.18)
+rather than a parallel mechanism — `Population._housing_pressure`
+(population / standing-hut capacity) is exactly the causal chain the
+idea names, since a disaster ruining huts drops capacity directly with
+no separate disaster-detection needed. Past `MIGRATION_HOUSING_
+PRESSURE_THRESHOLD=1.3`, individuals push toward the named alternative
+with the most housing headroom — same physically-walking, memory-
+carrying migration every other push condition already uses.
+
+**Dialect drift**: rides `narrative_direction`'s existing quarterly
+call for zero added LLM volume — new optional `coined_term`/`coined_
+meaning` schema fields, populated only when one event has genuinely
+dominated a settlement's recent life enough to earn a name (most
+quarters, nothing does). `Settlement.lexicon` (capped) feeds back into
+`dialogue.py` as a light steering line ("locally, people sometimes
+say...") — two settlements descended from one fission slowly stop
+sounding alike.
+
+New UI: "Local terms" line in the Town Brain panel; new event icons
+(`dialect_coined` 🗣️, `letter_delivered` ✉️, `letter_arrived_too_late`
+📭).
+
+Verified: direct production-path tests for `_housing_pressure`/the
+refugee push condition (synthetic overcrowded-vs-spacious settlement
+pair), the full letters lifecycle (queued via a forced job call
+through the real `CognitionRunner`, delivered with correct memory
+text, and the "recipient died in transit" branch logging the correct
+event) — not a reimplementation. `scripts/verify_native_soak.py`
+(2 seeds x 800 ticks) byte-identical; a 20,000-tick organic
+LLM-disabled soak completes with zero crashes.
+
 ## [0.87.18] — §1 close-out: deviance/justice loop completion, migration by choice
 
 Direct follow-up per explicit user request ("finish 1 of ideas.md") —

@@ -61,7 +61,7 @@ from hearthmind.llm import (
     faction, fission, beliefs, caravan, chronicle, consciousness, culture, culture_digest, dialogue, dispute,
     documentary, dream, festival, folklore, founding, geography, invention, memory_drift, mind, naming,
     narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
-    diplomacy, laws, noncore_nudge,
+    diplomacy, laws, letters, noncore_nudge,
 )
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
@@ -76,6 +76,7 @@ from hearthmind.agents.population import (
     FISSION_MATERIALS_SHARE,
     FISSION_MIN_DISTANCE,
     MAX_SETTLEMENTS,
+    MIGRATION_BOND_THRESHOLD,
     Population,
     _bridge_tiles_from_settlements,
     _nudge_trait,
@@ -97,6 +98,7 @@ from hearthmind.settlement.buildings import (
     INVENTION_REDISCOVERY_CHANCE,
     LAWS_MAX_STORED,
     LAW_SIGNAL_THRESHOLD,
+    LEXICON_MAX_STORED,
     MARKET_CARAVAN_CHANCE_MULTIPLIER,
     MARKET_CARAVAN_YIELD_MULTIPLIER,
     MATERIALS_CAPACITY,
@@ -116,6 +118,7 @@ from hearthmind.settlement.buildings import (
     education_invention_bonus,
     era_for_tech_level,
     RELATION_DIALOGUE_NUDGE_SCALE,
+    caravan_relation_factor,
     seed_relation,
     tick_market_prices,
     tick_mood,
@@ -366,7 +369,8 @@ client reloads history via GET /events), so trimming the oldest
 buffered entries loses nothing durable."""
 
 MONTHLY_JOB_DAY = {
-    "chronicle": 1, "diplomacy": 2, "festival": 4, "laws": 5, "caravan": 7, "fission": 8, "town_brain": 10,
+    "chronicle": 1, "diplomacy": 2, "festival": 4, "laws": 5, "letter": 6, "caravan": 7, "fission": 8,
+    "town_brain": 10,
     "beliefs": 13, "personal_belief": 16, "guild_founding": 19,
     "institution_belief": 22, "geography": 25, "folklore": 20, "dream": 23, "omen": 27, "faction": 26,
     "consciousness": 24, "memory_drift": 21, "noncore_nudge": 9,
@@ -394,7 +398,7 @@ monthly ~10."""
 MONTHLY_JOBS_WITH_RETRY = frozenset({
     "chronicle", "folklore", "town_brain", "beliefs", "personal_belief",
     "dream", "faction", "guild_founding", "institution_belief", "fission",
-    "geography", "consciousness", "memory_drift", "diplomacy", "laws", "noncore_nudge",
+    "geography", "consciousness", "memory_drift", "diplomacy", "laws", "noncore_nudge", "letter",
 })
 """Job names `_monthly_gate` grants a `MONTHLY_JOB_RETRY_WINDOW_DAYS`-day
 window instead of one exact day — every monthly job EXCEPT festival/
@@ -1369,6 +1373,7 @@ class SimulationEngine:
         ("_maybe_schedule_diplomacy", _JOB_EVENTS),
         ("_maybe_schedule_laws", _JOB_EVENTS),
         ("_maybe_schedule_noncore_nudge", _JOB_EVENTS),
+        ("_maybe_schedule_letter", _JOB_EVENTS),
         ("_schedule_due_cognition", _JOB_NO_ARGS),
         ("_schedule_due_dialogue", _JOB_NO_ARGS),
     )
@@ -1421,6 +1426,11 @@ class SimulationEngine:
             # v0.87.15 "bounded episodic planning": same daily cadence,
             # zero LLM cost — see Population.tick_plans's docstring.
             self.world.population.tick_plans()
+            # §2 "letters carried by caravans": zero LLM cost at
+            # delivery time (the LLM call already happened when the
+            # letter was written) — daily is plenty granular against
+            # LETTER_TRAVEL_TICKS' multi-day delay.
+            self._deliver_letters()
         if events:
             logger.info(
                 "Tick %s: %s | %s | %s",
@@ -2017,6 +2027,7 @@ class SimulationEngine:
                 self.world.clock.season, self.world.weather.describe(), beliefs_about=beliefs_about,
                 other_settlement_name=other_settlement_name, cross_settlement_relation=cross_relation,
                 lessons=lessons, recent_topics=recent_topics, weather_notable=weather_notable,
+                lexicon=local.lexicon,
             )
             fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
             self._reserved_this_tick += 1
@@ -2623,7 +2634,9 @@ class SimulationEngine:
         self._mark_season_year_resolved("narrative_direction")
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         mood = dict(target.mood)
-        prompt = narrative_direction.build_prompt(target.name, recent, target.folklore, mood, target.narrative_themes)
+        prompt = narrative_direction.build_prompt(
+            target.name, recent, target.folklore, mood, target.narrative_themes, target.lexicon,
+        )
         fallback = narrative_direction.fallback_direction(mood)
         target_id = target.id
 
@@ -2634,6 +2647,17 @@ class SimulationEngine:
             if len(stl.narrative_themes) > NARRATIVE_THEMES_MAX_STORED:
                 stl.narrative_themes = stl.narrative_themes[-NARRATIVE_THEMES_MAX_STORED:]
             self._log("narrative_direction", f"{stl.name}'s recent life reads as: {', '.join(themes)}.")
+            # §2 "dialect drift": a real answer only, never fabricated by
+            # the fallback (fallback_direction has no coined_term field
+            # at all) — rides this call for zero added LLM volume.
+            if not used_fallback:
+                coined = narrative_direction.parse_coined_term(result)
+                if coined is not None:
+                    term, meaning = coined
+                    stl.lexicon.append({"term": term, "meaning": meaning, "formed_tick": self.world.clock.tick_count})
+                    if len(stl.lexicon) > LEXICON_MAX_STORED:
+                        stl.lexicon = stl.lexicon[-LEXICON_MAX_STORED:]
+                    self._log("dialect_coined", f"{stl.name} has started calling it \"{term}\" — {meaning}")
 
         self._schedule_llm_job("narrative_direction", prompt, narrative_direction.SYSTEM_PROMPT, fallback, apply)
 
@@ -2954,6 +2978,12 @@ class SimulationEngine:
         chance = caravan.CARAVAN_CHANCE_PER_MONTH
         if settlement.has_market():
             chance = min(1.0, chance * MARKET_CARAVAN_CHANCE_MULTIPLIER)
+        # §2 "settlement-level stance (proto-diplomacy)": a region on
+        # generally warm terms with its sister settlements draws more
+        # outside trade traffic through it than one surrounded by cold
+        # neighbors — the deterministic caravan-frequency lever the idea
+        # names, riding the existing relations mechanism.
+        chance = min(1.0, chance * caravan_relation_factor(settlement))
         if _namespaced_roll(
             self.world.config.seed, self.world.clock.tick_count, "caravan_roll",
         ) >= chance:
@@ -4137,6 +4167,98 @@ class SimulationEngine:
             log_agent_memory_entry(self.conn, tick, agent_id, "episodic", reflection)
 
         self._schedule_llm_job("noncore_nudge", prompt, noncore_nudge.SYSTEM_PROMPT, fallback, apply)
+
+    # --- §2: letters carried by caravans ----------------------------------------
+
+    def _maybe_schedule_letter(self, events: list[str]) -> None:
+        """§2 "letters carried by caravans" (docs/IDEAS-2026-07-
+        EMERGENCE.md) — see llm/letters.py's module docstring. Monthly
+        round-robin `_job_target`, core-cast-only (bounded volume, same
+        gating every other per-agent LLM decision uses): finds the
+        first core-cast agent in the target settlement with a real bond
+        (`MIGRATION_BOND_THRESHOLD`, same threshold `_maybe_migrate`
+        uses) to a living agent in another NAMED settlement. Genuine
+        no-op when no such pair exists this month — most months, most
+        settlements."""
+        target = self._job_target()
+        if not self._monthly_gate(events, "letter") or not target.name:
+            return
+        core_ids = self.world.population.core_agent_ids
+        sender, recipient = None, None
+        for agent in self.world.population.agents:
+            if agent.settlement_id != target.id or agent.id not in core_ids:
+                continue
+            for other_id, value in agent.relationships.items():
+                if value < MIGRATION_BOND_THRESHOLD:
+                    continue
+                other = self.world.population.get(other_id)
+                if other is None or other.settlement_id == target.id:
+                    continue
+                other_settlement = self._settlement_by_id(other.settlement_id)
+                if other_settlement is not None and other_settlement.name:
+                    sender, recipient = agent, other
+                    break
+            if sender is not None:
+                break
+        if sender is None:
+            return
+        if self._settlement_job_backpressured():
+            return
+        self._mark_monthly_resolved("letter")
+        recipient_settlement = self._settlement_by_id(recipient.settlement_id)
+        prompt = letters.build_prompt(sender, recipient.name, target.name, recipient_settlement.name)
+        fallback = letters.fallback_letter(sender, recipient.name)
+        sender_id, sender_name, sender_settlement_name = sender.id, sender.name, target.name
+        recipient_id, recipient_name, recipient_settlement_id = recipient.id, recipient.name, recipient_settlement.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            text = letters.parse_letter(result, fallback)
+            stl = self._settlement_by_id(recipient_settlement_id)
+            if stl is None:
+                return
+            stl.pending_letters.append({
+                "from_id": sender_id, "from_name": sender_name, "from_settlement": sender_settlement_name,
+                "to_id": recipient_id, "to_name": recipient_name,
+                "text": text, "deliver_tick": self.world.clock.tick_count + letters.LETTER_TRAVEL_TICKS,
+            })
+
+        self._schedule_llm_job("letter", prompt, letters.SYSTEM_PROMPT, fallback, apply)
+
+    def _deliver_letters(self) -> None:
+        """Daily check (day_end): delivers any queued letter whose
+        travel delay has passed. Zero LLM cost — the letter's content
+        was already authored when it was written; this only resolves
+        whether the recipient is still there to read it. "Latency is
+        the feature" (module docstring): a letter can genuinely arrive
+        after its recipient has died in the interim, which reads as a
+        real, poignant moment rather than being silently dropped."""
+        tick = self.world.clock.tick_count
+        for stl in self.world.settlements:
+            if not stl.pending_letters:
+                continue
+            remaining = []
+            for letter in stl.pending_letters:
+                if letter["deliver_tick"] > tick:
+                    remaining.append(letter)
+                    continue
+                recipient = self.world.population.get(letter["to_id"])
+                if recipient is None:
+                    self._log(
+                        "letter_arrived_too_late",
+                        f"A letter from {letter['from_name']} arrives for {letter['to_name']} — "
+                        "too late; they are gone.",
+                    )
+                    continue
+                _remember(recipient, f"A letter from {letter['from_name']}: {letter['text']}", because=f"letter from {letter['from_name']}")
+                self._log("letter_delivered", f"{letter['to_name']} receives a letter from {letter['from_name']}.")
+                if _namespaced_roll(
+                    self.world.config.seed, tick, f"letter_rumor_{letter['from_id']}_{letter['to_id']}",
+                ) < letters.LETTER_RUMOR_CHANCE:
+                    rumor_rng = _namespaced_rng(self.world.config.seed, tick, "letter_rumor")
+                    self.world.population.spread_rumor(
+                        f"word from {letter['from_settlement']}: {letter['text']}", 2, rumor_rng,
+                    )
+            stl.pending_letters = remaining
 
     def _choose_fission_site(self, origin: tuple[int, int] | None = None) -> tuple[int, int] | None:
         """The best walkable tile at least FISSION_MIN_DISTANCE from

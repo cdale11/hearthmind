@@ -132,6 +132,9 @@ const CATEGORY_META = {
   theft: { icon: "🕵️" },
   law_enacted: { icon: "📜" },
   diplomacy_event: { icon: "🤝" },
+  dialect_coined: { icon: "🗣️" },
+  letter_delivered: { icon: "✉️" },
+  letter_arrived_too_late: { icon: "📭" },
 };
 
 // Event-log filter chips (v0.64.0 UI backlog): coarse groups, display-only —
@@ -141,6 +144,7 @@ const EVENT_GROUP_OF = {
   migrant_arrived: "people", migrant_departed: "people", inheritance: "people", dispute: "people",
   record_written: "people", illness: "people", recovery: "people", predator_attack: "people",
   family_feud: "people", knowledge_lost: "people", theft: "people",
+  letter_delivered: "people", letter_arrived_too_late: "people",
   construction_started: "town", building_completed: "town", building_ruined: "town",
   building_reclaimed: "town", farm_planted: "town", vehicle_started: "town",
   vehicle_completed: "town", vehicle_broken: "town", era_advance: "town",
@@ -157,7 +161,7 @@ const EVENT_GROUP_OF = {
   chronicle: "mind", documentary: "mind", sim_summary: "mind", tradition: "mind", invention: "mind",
   festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind",
   institution_belief: "mind", ritual_formed: "mind", religion_formed: "mind",
-  narrative_direction: "mind", consciousness_intervention: "mind",
+  narrative_direction: "mind", consciousness_intervention: "mind", dialect_coined: "mind",
 };
 let activeEventGroup = "all";
 
@@ -2222,6 +2226,15 @@ function renderStats(summary) {
     const latest = themes.length ? themes[themes.length - 1] : null;
     narrativeThemeEl.classList.toggle("hidden", !latest);
     if (latest) narrativeThemeEl.textContent = `The recent theme of village life: ${latest.themes.join(", ")}`;
+  }
+
+  const lexiconEl = document.getElementById("settlement-lexicon");
+  if (lexiconEl) {
+    const lexicon = s.lexicon || [];
+    lexiconEl.classList.toggle("hidden", !lexicon.length);
+    if (lexicon.length) {
+      lexiconEl.textContent = "Local terms: " + lexicon.map((e) => `"${e.term}" (${e.meaning})`).join("; ");
+    }
   }
 
   const inventionsEl = document.getElementById("inventions-list");

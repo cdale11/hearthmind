@@ -413,11 +413,44 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
-## Current state (v0.87.18)
+## Current state (v0.87.19)
 
-Direct follow-up per explicit user request ("finish 1 of ideas.md") —
-closes docs/IDEAS-2026-07-EMERGENCE.md §1's two remaining unchecked
-items.
+Direct follow-up per explicit user request ("finish 2 of ideas.md") —
+closes docs/IDEAS-2026-07-EMERGENCE.md §2's four items (all previously
+unchecked); also fixed a leftover duplicate line in §1 from the prior
+edit.
+
+**Letters carried by caravans** (`llm/letters.py`, `Settlement.
+pending_letters`): monthly, core-cast-only, bonded cross-settlement
+pairs only. A real multi-day travel delay (`LETTER_TRAVEL_TICKS`)
+before `SimulationEngine._deliver_letters` (day_end) resolves it — a
+memory (+ maybe a rumor) if the recipient survived the wait, or a
+`letter_arrived_too_late` event if they didn't. Latency is the
+feature, not a dropped edge case.
+
+**Settlement-level stance**: closed the two feed/lever gaps on top of
+the pre-existing `Settlement.relations`/diplomacy mechanism —
+`caravan_relation_factor` (warm regional relations draw more outside
+trade) and a migration-triggered relation nudge (`RELATION_MIGRATION_
+NUDGE`, the "migrant treatment" signal). "Disaster aid" flagged as
+deferred (no aid-transfer mechanic exists yet).
+
+**Refugees after disasters**: extends `_maybe_migrate` (v0.87.18) with
+a `Population._housing_pressure` push condition — a disaster ruining
+huts drops housing capacity directly, no separate disaster-detection
+needed; overcrowded individuals push toward the best-housed named
+alternative via the same physically-walking migration mechanism.
+
+**Dialect drift**: rides `narrative_direction`'s existing quarterly
+call for zero added LLM volume (`coined_term`/`coined_meaning`
+optional fields) — `Settlement.lexicon` feeds back into dialogue as a
+light steering line, so settlements slowly stop sounding alike.
+
+Verified: direct tests for the housing-pressure refugee push and the
+full letters lifecycle (queue → deliver → both the alive and died-in-
+transit branches) against real production code paths. `scripts/
+verify_native_soak.py` (2 seeds x 800 ticks) byte-identical; a
+20,000-tick organic soak completes with zero crashes.
 
 **Deviance/justice loop completion**: theft (v0.87.17) now plants a
 real `Agent.secrets` entry on the thief and, if a third colocated

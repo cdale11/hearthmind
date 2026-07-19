@@ -30,7 +30,9 @@ SYSTEM_PROMPT = (
     "going up, or something one of them is working toward. Weather is "
     "only worth mentioning when it's actually notable (you'll be told "
     "when it is) — never bring it up as generic filler on an ordinary "
-    "day. Never invent unrelated topics, and never mention that "
+    "day. If the village has local terms of its own listed below, feel "
+    "free to use one where it naturally fits — never forced. Never "
+    "invent unrelated topics, and never mention that "
     "this is a game, a simulation, or that you are an AI. Write like two "
     "real people, not a script: it is fine for a line to be a half-"
     "finished thought, a single word, a grunt of agreement, or a joke, "
@@ -95,7 +97,7 @@ def build_prompt(
     latest_tradition: str, season: str, weather: str, beliefs_about: list[str] | None = None,
     other_settlement_name: str = "", cross_settlement_relation: float | None = None,
     lessons: tuple[str, str] = ("", ""), recent_topics: list[str] | None = None,
-    weather_notable: bool = False,
+    weather_notable: bool = False, lexicon: list[dict] | None = None,
 ) -> str:
     """`lessons` (v0.87.0): `(agent_a's matching lesson, agent_b's
     matching lesson)`, each "" when no stored lesson matches that
@@ -141,6 +143,11 @@ def build_prompt(
     culture = f" They live in {settlement_name}." if settlement_name else ""
     if settlement_name and latest_tradition:
         culture += f" The village keeps this tradition: {latest_tradition}."
+    # §2 "dialect drift": a settlement's own coined terms, offered as a
+    # light steering line — feel free to use them, never a requirement.
+    if lexicon:
+        terms = ", ".join(f"\"{e['term']}\" ({e['meaning']})" for e in lexicon[-3:])
+        culture += f" Locally, people sometimes say: {terms}."
     if other_settlement_name and other_settlement_name != settlement_name:
         # Cross-settlement relationships (v0.67.0): a colocated pair from
         # two different named settlements — rare, since each settlement's

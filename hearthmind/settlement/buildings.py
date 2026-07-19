@@ -370,6 +370,10 @@ consume-and-reset discipline `ritual_signal_counts` already uses), so
 the LLM gets a chance to notice and name a recurring hardship instead
 of only ever reacting to the single most-recent event."""
 
+LEXICON_MAX_STORED = 6
+"""Cap on `SettlementCulture.lexicon` — a village's coined terms are
+meant to read as a short, memorable handful, same shape as `laws`."""
+
 LAWS_MAX_STORED = 6
 """Cap on `SettlementCulture.laws` — a village's codified norms are
 meant to read as a short, memorable handful (see `laws` docstring),
@@ -1318,6 +1322,27 @@ def market_relation_factor(settlement: "Settlement") -> float:
     avg = sum(values) / len(values)
     return 1.0 + avg * RELATION_MARKET_INFLUENCE
 
+
+RELATION_CARAVAN_INFLUENCE = 0.25
+"""Max swing `caravan_relation_factor` applies to caravan visit chance
+at a fully warm (+1.0) or fully cold (-1.0) average relation — §2
+"settlement-level stance (proto-diplomacy)"'s named deterministic
+lever: a region on good terms with itself draws more outside trade
+traffic through it, a region full of cold neighbors draws less.
+Deliberately larger than `RELATION_MARKET_INFLUENCE` (0.1) since this
+gates whether contact happens at all, not just its terms."""
+
+
+def caravan_relation_factor(settlement: "Settlement") -> float:
+    """Same shape as `market_relation_factor`, applied to caravan visit
+    *chance* instead of price — see RELATION_CARAVAN_INFLUENCE. Returns
+    1.0 (no effect) for a settlement with no recorded relations yet."""
+    values = list(settlement.relations.values())
+    if not values:
+        return 1.0
+    avg = sum(values) / len(values)
+    return 1.0 + avg * RELATION_CARAVAN_INFLUENCE
+
 # --- Phase E3: inventions (tech-tier unlocks) -------------------------------
 
 TECH_BONUS_PER_LEVEL = 0.15
@@ -1505,6 +1530,18 @@ class SettlementInfrastructure:
     as small persistent map marks with hover text; capped at
     MEMORIALS_MAX_STORED (oldest graves fade from living memory first,
     the same bounded-memory discipline as every other list here)."""
+    pending_letters: list[dict] = field(default_factory=list)
+    """§2 "letters carried by caravans" (docs/IDEAS-2026-07-EMERGENCE.
+    md): in-transit mail, queued on the RECIPIENT's settlement —
+    `{from_id, from_name, to_id, to_name, text, deliver_tick}`. Written
+    by `SimulationEngine._maybe_schedule_letter` (monthly, core-cast
+    bonded cross-settlement pairs only); delivered by `_deliver_
+    letters` (day_end) once `deliver_tick` passes — as a memory on the
+    recipient if still alive, or a `letter_arrived_too_late` event
+    otherwise (the sender or recipient may have died in transit; see
+    module docstring, "latency is the feature"). Bounded naturally by
+    `LETTER_MAX_PENDING` (delivery/expiry keeps this small; letters
+    aren't accumulated indefinitely)."""
 
 
 @dataclass
@@ -1783,6 +1820,16 @@ class SettlementCulture:
     """Working accumulator behind `laws` above, same accumulate/
     threshold/consume-and-reset shape as `pattern_signal_counts` —
     currently keyed by `"theft"`/`"feud"`."""
+    lexicon: list[dict] = field(default_factory=list)
+    """§2 "dialect drift" (docs/IDEAS-2026-07-EMERGENCE.md): `{"term":
+    str, "meaning": str, "formed_tick": int}` — rides `narrative_
+    direction`'s existing quarterly call (zero added LLM volume) via
+    its optional `coined_term`/`coined_meaning` fields, only populated
+    when one event has genuinely dominated a settlement's recent life
+    enough to earn its own name. Consumed by `dialogue.py` as grounding
+    so a settlement's own conversations gradually prefer its own words
+    — two settlements descended from one fission slowly stop sounding
+    alike. Capped at LEXICON_MAX_STORED."""
 
 
 @dataclass
@@ -1892,6 +1939,8 @@ class Settlement:
         invention_knowledge: dict | None = None,
         laws: list[dict] | None = None, law_signal_counts: dict | None = None,
         thefts_committed: int = 0,
+        lexicon: list[dict] | None = None,
+        pending_letters: list[dict] | None = None,
     ):
         self.id = id
         """Stable settlement identity (multi-settlement pass, v0.65.0):
@@ -1915,6 +1964,7 @@ class Settlement:
             vehicles=vehicles if vehicles is not None else [],
             next_vehicle_id=_next_vehicle_id,
             memorials=memorials if memorials is not None else [],
+            pending_letters=pending_letters if pending_letters is not None else [],
         )
         self.economy = SettlementEconomy(
             materials=materials, currency=currency, education_level=education_level,
@@ -1948,6 +1998,7 @@ class Settlement:
             narrative_themes=narrative_themes if narrative_themes is not None else [],
             laws=laws if laws is not None else [],
             law_signal_counts=law_signal_counts if law_signal_counts is not None else {},
+            lexicon=lexicon if lexicon is not None else [],
         )
         self.disposition = SettlementDisposition(
             temperament=temperament,
@@ -2261,6 +2312,14 @@ class Settlement:
         self.economy.thefts_committed = value
 
     @property
+    def lexicon(self) -> list[dict]:
+        return self.culture.lexicon
+
+    @lexicon.setter
+    def lexicon(self, value: list[dict]) -> None:
+        self.culture.lexicon = value
+
+    @property
     def religion(self) -> dict | None:
         return self.culture.religion
 
@@ -2283,6 +2342,14 @@ class Settlement:
     @memorials.setter
     def memorials(self, value: list[dict]) -> None:
         self.infrastructure.memorials = value
+
+    @property
+    def pending_letters(self) -> list[dict]:
+        return self.infrastructure.pending_letters
+
+    @pending_letters.setter
+    def pending_letters(self, value: list[dict]) -> None:
+        self.infrastructure.pending_letters = value
 
     @property
     def place_names(self) -> dict:
@@ -2743,6 +2810,7 @@ class Settlement:
             "dream_seed": self.dream_seed,
             "laws": list(self.laws),
             "thefts_committed": self.thefts_committed,
+            "lexicon": list(self.lexicon),
         }
 
     def infrastructure_report(self) -> list[dict]:
@@ -2868,6 +2936,8 @@ class Settlement:
             "laws": list(self.laws),
             "law_signal_counts": dict(self.law_signal_counts),
             "thefts_committed": self.thefts_committed,
+            "lexicon": list(self.lexicon),
+            "pending_letters": list(self.pending_letters),
         }
 
     @classmethod
@@ -2929,4 +2999,6 @@ class Settlement:
             laws=list(data.get("laws", [])),
             law_signal_counts=dict(data.get("law_signal_counts", {})),
             thefts_committed=data.get("thefts_committed", 0),
+            lexicon=list(data.get("lexicon", [])),
+            pending_letters=list(data.get("pending_letters", [])),
         )

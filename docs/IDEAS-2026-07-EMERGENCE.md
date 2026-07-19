@@ -157,52 +157,52 @@ prompts and never reaches the map. These items widen the actuator.
   folklore layer can then notice and name. One function, zero calls,
   and it makes deep time visible in people rather than buildings.
 
-- [ ] **Migration by choice, not just fission.** Individuals never
-  move between settlements. Push/pull rules from existing state
-  (ostracized, feud pressure, starving while another settlement's
-  granary is full, bonded partner lives there) let one agent relocate
-  occasionally — carrying their memories, beliefs, and secrets into a
-  population that doesn't share them. A migrant is an information
-  vector: their arrival is how settlement A's folklore, rumors, and
-  religion *actually spread* to settlement B, which currently only
-  happens through the omen-echo backchannel.
-
 ## 2. Between settlements (a world, not parallel towns)
 
 Multiple settlements exist (fission, cross-settlement relationships,
 caravans, omen echoes) but they don't *want* anything from each other.
 
-- [ ] **Letters carried by caravans.** Core-cast agents with a
-  cross-settlement bond occasionally write a letter (one small LLM call
-  or even template + memory splice); it travels at caravan speed and is
-  delivered as a memory + possible rumor. Latency is the feature: a
-  letter can arrive after its sender has died — the kind of moment
-  observers screenshot. Rides caravan scheduling + records machinery.
+- [x] **Letters carried by caravans.** Shipped v0.87.19 (`llm/
+  letters.py`, `Settlement.pending_letters`). Monthly, core-cast-only,
+  round-robin `_job_target` — finds the first core-cast agent with a
+  real bond (`MIGRATION_BOND_THRESHOLD`) to a living agent in another
+  named settlement, writes one small grounded LLM letter, queues it on
+  the RECIPIENT's settlement with a real multi-day travel delay
+  (`LETTER_TRAVEL_TICKS`). `SimulationEngine._deliver_letters` (daily)
+  resolves delivery: a real memory (+ `LETTER_RUMOR_CHANCE` seeded
+  rumor) if the recipient is still alive, or a genuine `letter_
+  arrived_too_late` event if they died in transit — latency is the
+  feature, exactly as the idea asks, not silently dropped.
 
-- [ ] **Settlement-level stance (proto-diplomacy).** A per-pair
-  settlement disposition scalar (bounded walk + event nudges — the
-  temperament pattern, aimed outward) fed by trade balance, migrant
-  treatment, feud spillover, disaster aid. Consumed as prompt bias for
-  town brain / chronicle / caravan framing and one deterministic
-  lever: caravan frequency. No war mechanic needed — coldness that an
-  observer can trace to a decade-old grievance is more in-register
-  than armies.
+- [x] **Settlement-level stance (proto-diplomacy).** Substantially
+  pre-existing (`Settlement.relations`, deterministic since v0.67.0;
+  the LLM-authored envoy/trade-pact/border-dispute layer shipped
+  v0.87.17). v0.87.19 closes the remaining named feed inputs and the
+  lever: a successful individual migration (`_maybe_migrate`) now
+  nudges both settlements' relation warmer (`RELATION_MIGRATION_
+  NUDGE`, the "migrant treatment" signal); `caravan_relation_factor`
+  is the named deterministic lever — a region on warm terms with its
+  sister settlements draws more caravan traffic, cold terms less.
+  "Disaster aid" specifically was not built — no aid-transfer mechanic
+  exists to feed from yet, flagged not silently dropped.
 
-- [ ] **Refugees after disasters.** A settlement losing housing or
-  granary below thresholds emits migrants toward the nearest viable
-  settlement (reuses the migrant-arrival path from v0.85.x). The host's
-  mood/beliefs react through existing channels. Disasters stop being
-  local damage events and start rearranging the world's population —
-  emergence from systems that all already exist.
+- [x] **Refugees after disasters.** Shipped v0.87.19, reusing `_maybe_
+  migrate` (§1) rather than a parallel mechanism: `Population.
+  _housing_pressure` (population / standing-hut capacity) is exactly
+  the causal chain the idea names — a disaster that ruins huts drops
+  capacity directly, no separate disaster-detection needed. Past
+  `MIGRATION_HOUSING_PRESSURE_THRESHOLD`, individuals push toward the
+  named alternative with the most housing headroom, same physically-
+  walking/memory-carrying mechanism as every other migration push.
 
-- [ ] **Dialect drift.** Rare monthly-job rider: a settlement coins a
-  term for a thing that dominated its recent events ("the white month"
-  for a brutal winter), stored in a small capped lexicon, and
-  subsequent prompts for *that settlement* are asked to prefer its
-  lexicon. Two settlements descended from one fission slowly stop
-  sounding alike; migrants and letters carry words across. Deep-time
-  culture made audible in every LLM output for the price of one prompt
-  line.
+- [x] **Dialect drift.** Shipped v0.87.19. Rides `narrative_
+  direction`'s existing quarterly call for zero added LLM volume — new
+  optional `coined_term`/`coined_meaning` schema fields, only
+  populated when one event has genuinely dominated a settlement's
+  recent life enough to earn a name. `Settlement.lexicon` (capped)
+  feeds back into `dialogue.py` as a light steering line ("locally,
+  people sometimes say...") — two settlements descended from one
+  fission slowly stop sounding alike, exactly as the idea names.
 
 ## 3. Closing meaning loops (belief that changes the world)
 
