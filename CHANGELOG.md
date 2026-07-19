@@ -4,6 +4,46 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.43] — Era-scaled infrastructure: paved roads, denser housing
+
+Phase 3 of the multi-part live-report batch (see v0.87.41): "improve
+building/road/infrastructure types with era." Confirmed gap: only
+FACTORY/POWER_PLANT (electrical+) and the AUTOMOBILE vehicle (modern+)
+were era-gated — every other building kind and the entire road system
+was identical from tick 1 through `digital`.
+
+New `world/roads.py` paved-road tier: `ROAD_PAVED_WEAR = 0.85` (above
+the existing `ROAD_ESTABLISHED_WEAR = 0.5`) — a tile under SUSTAINED
+heavy traffic, not just enough to count as established, becomes paved
+once `RoadNetwork.paving_unlocked` is True (any settlement in the world
+has reached `modern`+ — roads are shared physical infrastructure, not
+settlement-private, same shape BRIDGE already has). Paved tiles get a
+better weather-band speed multiplier throughout (`ROAD_PAVED_SPEED_
+MULTIPLIER = 1.7` dry vs. 1.4, plus paved muddy/snowy/icy bands each
+better than their dirt-road counterparts). `RoadNetwork.tick` gained a
+`paving_unlocked` parameter, computed each tick in `Population._update_
+roads` from `any(s.era in ERA_UNLOCKS_AUTOMOBILE for s in settlements)`.
+
+New `buildings.ERA_HUT_CAPACITY_MULTIPLIER`/`hut_capacity_multiplier`:
+each HUT houses more people once a settlement's own era reaches
+`modern` (1.3x) or `digital` (1.6x) — denser housing techniques, not
+just "more of the same," without a new persisted schema field (derived
+live from `era` at every read site: `carrying_capacity`'s housing term,
+`_housing_pressure`, and the fission-eligibility housing check).
+
+UI surfacing: paved road tiles render a distinct cool-grey instead of
+dirt-path amber on the map; the "Roads" stat tile and bare-tile
+inspector both report paved status once unlocked; the "Carrying
+capacity" tooltip explains the era housing multiplier.
+
+Verified: direct smoke tests (`hut_capacity_multiplier` per era,
+`RoadNetwork.is_paved` gating on both wear AND world-unlock), a
+12,000-tick engine soak (era stayed `industrial` the whole run per the
+already-documented multi-year pacing, confirming paving correctly
+stays locked — the gating logic itself verified via the direct unit
+test above), `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical — no native module touched.
+
 ## [0.87.42] — Water infrastructure: real boats, docks, oil rigs
 
 Phase 2 of the multi-part live-report batch (see v0.87.41): "water is

@@ -68,22 +68,56 @@ ROAD_ICE_TEMPERATURE_C = -3.0
 """Snowing at or below this temperature counts as icy rather than just
 snowy — see `road_condition_multiplier`."""
 
+ROAD_PAVED_WEAR = 0.85
+"""v0.87.43 era-scaled-infrastructure batch (live report: "improve
+building/road/infrastructure types with era"): a second, higher wear
+threshold above ROAD_ESTABLISHED_WEAR (0.5) — a well-worn path that
+sees SUSTAINED heavy traffic (not just enough to count as "established")
+can pave into a real road, gated by `paving_unlocked` (see
+`RoadNetwork.tick`). Roads are shared physical infrastructure, not
+settlement-private (same "anyone can use it" shape BRIDGE already has),
+so paving is a world-wide capability, not per-settlement."""
 
-def road_condition_multiplier(weather: "WeatherState") -> float:
+ROAD_PAVED_SPEED_MULTIPLIER = 1.7
+"""Better than ROAD_SPEED_MULTIPLIER's dry-weather 1.4 — a genuinely
+paved surface, the concrete payoff for era progression this batch adds
+(mirrors AUTOMOBILE_SPEED_MULTIPLIER > MOUNT_SPEED_MULTIPLIER's shape:
+era-appropriate infrastructure measurably beats the earlier tier, not
+just reads as a label change)."""
+
+ROAD_PAVED_MUDDY_MULTIPLIER = 1.5
+ROAD_PAVED_SNOWY_MULTIPLIER = 1.1
+ROAD_PAVED_ICY_MULTIPLIER = 0.9
+"""Paved-road weather bands, each better than its dirt-road counterpart
+by the same proportional margin ROAD_PAVED_SPEED_MULTIPLIER has over
+ROAD_SPEED_MULTIPLIER in dry weather — a paved surface is more weather-
+resistant, not immune to it."""
+
+
+def road_condition_multiplier(weather: "WeatherState", paved: bool = False) -> float:
     """Weather affects infrastructure, not just people/crops: an
     established road's speed bonus depends on current conditions rather
     than being a flat constant. See docs/DECISIONS.md, "LLM-as-brain
-    batch.\""""
+    batch." `paved` (v0.87.43): a tile at/above ROAD_PAVED_WEAR while
+    paving is world-unlocked reads the paved band instead."""
     if weather.is_snowing:
-        return ROAD_ICY_MULTIPLIER if weather.temperature_c <= ROAD_ICE_TEMPERATURE_C else ROAD_SNOWY_MULTIPLIER
+        if weather.temperature_c <= ROAD_ICE_TEMPERATURE_C:
+            return ROAD_PAVED_ICY_MULTIPLIER if paved else ROAD_ICY_MULTIPLIER
+        return ROAD_PAVED_SNOWY_MULTIPLIER if paved else ROAD_SNOWY_MULTIPLIER
     if weather.precipitation > 0.4:
-        return ROAD_MUDDY_MULTIPLIER
-    return ROAD_SPEED_MULTIPLIER
+        return ROAD_PAVED_MUDDY_MULTIPLIER if paved else ROAD_MUDDY_MULTIPLIER
+    return ROAD_PAVED_SPEED_MULTIPLIER if paved else ROAD_SPEED_MULTIPLIER
 
 
 @dataclass
 class RoadNetwork:
     wear: dict[tuple[int, int], float] = field(default_factory=dict)
+    paving_unlocked: bool = False
+    """v0.87.43: True once any settlement in the world has reached era
+    `modern` or `digital` — set each tick by `tick()`'s new parameter,
+    not persisted-meaningful on its own (recomputed from live settlement
+    state every tick the same way `mountain_unlocked` is, so a stale
+    value on load is immediately overwritten before it's ever read)."""
 
     # --- queries -------------------------------------------------------------
 
@@ -93,12 +127,21 @@ class RoadNetwork:
     def is_road(self, x: int, y: int) -> bool:
         return self.wear_at(x, y) >= ROAD_ESTABLISHED_WEAR
 
+    def is_paved(self, x: int, y: int) -> bool:
+        """v0.87.43: a genuinely paved road tile — ROAD_PAVED_WEAR of
+        sustained traffic AND the world has unlocked paving (any
+        settlement at `modern`+). See `road_condition_multiplier`."""
+        return self.paving_unlocked and self.wear_at(x, y) >= ROAD_PAVED_WEAR
+
     # --- tick ------------------------------------------------------------------
 
-    def tick(self, occupied_tiles: set[tuple[int, int]]) -> None:
+    def tick(self, occupied_tiles: set[tuple[int, int]], paving_unlocked: bool = False) -> None:
         """`occupied_tiles` are walkable, building-free, farm-free tiles
         with at least one awake agent present this tick — see
-        Population.tick for the filtering."""
+        Population.tick for the filtering. `paving_unlocked` (v0.87.43):
+        whether any settlement has reached the era that unlocks the
+        paved road tier — see `Population._update_roads`."""
+        self.paving_unlocked = paving_unlocked
         if _native_road_wear_gain_step is not None:
             for pos in occupied_tiles:
                 self.wear[pos] = _native_road_wear_gain_step(self.wear.get(pos, 0.0), ROAD_WEAR_PER_TICK)
@@ -126,7 +169,11 @@ class RoadNetwork:
 
     def summary(self, weather: "WeatherState | None" = None) -> dict:
         established = sum(1 for w in self.wear.values() if w >= ROAD_ESTABLISHED_WEAR)
-        result = {"worn_tiles": len(self.wear), "established_roads": established}
+        paved = sum(1 for w in self.wear.values() if w >= ROAD_PAVED_WEAR) if self.paving_unlocked else 0
+        result = {
+            "worn_tiles": len(self.wear), "established_roads": established,
+            "paved_roads": paved, "paving_unlocked": self.paving_unlocked,
+        }
         if weather is not None:
             multiplier = road_condition_multiplier(weather)
             if multiplier >= ROAD_SPEED_MULTIPLIER:

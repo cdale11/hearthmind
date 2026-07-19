@@ -409,6 +409,21 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.43)
+
+Phase 3 of the multi-part live-report batch (see v0.87.41's plan):
+era-scaled infrastructure. Confirmed gap: only FACTORY/POWER_PLANT/
+AUTOMOBILE were era-gated; roads and every other building kind never
+changed with era. New paved-road tier in `world/roads.py`
+(`ROAD_PAVED_WEAR=0.85`, better speed multiplier throughout, unlocked
+world-wide once any settlement reaches `modern`+ — roads are shared
+infrastructure, not settlement-private) and `buildings.hut_capacity_
+multiplier` (each HUT houses 1.3x/1.6x more at modern/digital,
+computed live from era, no new schema field). Full UI pass: paved
+tiles get a distinct map color, stat tiles/inspector report paved
+status. Verified via direct smoke tests, a 12,000-tick soak, and
+`scripts/verify_native_soak.py` byte-identical.
+
 ## Current state (v0.87.42)
 
 Phase 2 of the multi-part live-report batch (see v0.87.41's plan):

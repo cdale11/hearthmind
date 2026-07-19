@@ -215,6 +215,10 @@ function categoryMeta(category) {
 
 let terrain = null;
 let latest = null; // last full payload: {summary, life_events, agents, buildings, farms, wildlife, roads, diagnostics}
+
+function pavingUnlockedFlag() {
+  return !!(latest && latest.summary && latest.summary.roads && latest.summary.roads.paving_unlocked);
+}
 let staticCanvas = null; // offscreen: biome grid, drawn once
 
 // --- zoom/pan view state (v0.64.0 UI backlog) -------------------------------
@@ -1177,9 +1181,18 @@ function drawFrame() {
   // buildings/agents sit on top. The old pure `wear * 0.6` scaling made
   // anything below "established" (wear >= 0.5) nearly invisible
   // (alpha ~0.06 at wear 0.1), which read as "roads aren't showing up."
+  // Paved tiles (v0.87.43, era-scaled infrastructure: wear >= 0.85 once
+  // any settlement has reached `modern`+, see RoadNetwork.is_paved) get
+  // a distinct cool grey instead of the dirt-path amber — a genuinely
+  // different surface, not just "more worn."
+  const pavingUnlocked = pavingUnlockedFlag();
   for (const [x, y, wear] of latest.roads || []) {
-    const alpha = wear >= 0.5 ? 0.75 : Math.max(0.35, wear * 1.2);
-    ctx.fillStyle = `rgba(196, 148, 58, ${alpha})`;
+    if (pavingUnlocked && wear >= 0.85) {
+      ctx.fillStyle = "rgba(150, 156, 168, 0.85)";
+    } else {
+      const alpha = wear >= 0.5 ? 0.75 : Math.max(0.35, wear * 1.2);
+      ctx.fillStyle = `rgba(196, 148, 58, ${alpha})`;
+    }
     ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
   }
 
@@ -2355,7 +2368,11 @@ function renderTargetInspector() {
   if (node) bits.push(`<div class="npc-section"><h4>Wild resource</h4><div>${node.kind}, ${Math.round(node.amount * 100) / 100} remaining</div></div>`);
   if (mineral) bits.push(`<div class="npc-section"><h4>Mineral vein</h4><div>${mineral.kind}, ${Math.round(mineral.amount * 100) / 100} remaining</div></div>`);
   if (farm) bits.push(`<div class="npc-section"><h4>Field</h4><div>${farm.stage}${farm.stage === "growing" ? `, ${Math.round(farm.growth * 100)}% grown` : `, ${farm.amount.toFixed(1)} to harvest`}</div></div>`);
-  if (roadEntry) bits.push(`<div class="npc-section"><h4>Path</h4><div>worn ${Math.round(roadEntry[2] * 100)}%${roadEntry[2] >= 0.5 ? " — an established road" : ""}</div></div>`);
+  if (roadEntry) {
+    const paved = pavingUnlockedFlag() && roadEntry[2] >= 0.85;
+    const label = paved ? " — a paved road" : roadEntry[2] >= 0.5 ? " — an established road" : "";
+    bits.push(`<div class="npc-section"><h4>Path</h4><div>worn ${Math.round(roadEntry[2] * 100)}%${label}</div></div>`);
+  }
   if (graves.length) {
     bits.push(`<div class="npc-section"><h4>Resting here</h4><ul>${graves.map((m) => `<li>✝ ${m.name} — ${m.cause} (tick ${m.tick})</li>`).join("")}</ul></div>`);
   }
@@ -2546,7 +2563,8 @@ function renderStats(summary) {
       "Carrying capacity", `${p.total} / ${p.carrying_capacity != null ? p.carrying_capacity.toFixed(0) : "?"}`,
       "A dynamic ceiling on population, not a flat cap: composed from housing (huts), granary fill, sickness/predator " +
       "pressure, the fraction of mature/healthy agents, and current weather. Recomputed every tick; growth slows as " +
-      "population approaches it.",
+      "population approaches it. Each hut houses more people once the settlement's era reaches modern (1.3x) or " +
+      "digital (1.6x) — denser housing, not just more of it.",
     ],
     [
       "Institutions",
@@ -2693,8 +2711,9 @@ function renderStats(summary) {
       "Grazer herds roam grassland/forest and can be hunted for food; predator packs roam forest/hills and hunt grazers, starving without a kill.",
     ],
     [
-      "Roads", `${rd.established_roads} established (${rd.worn_tiles} worn)`,
-      "Tiles worn by sustained foot traffic. An established road (wear ≥ 0.5) gives agents standing on it a 1.4x random-walk move-chance bonus.",
+      "Roads", `${rd.established_roads} established (${rd.worn_tiles} worn)` + (rd.paving_unlocked ? `, ${rd.paved_roads} paved` : ""),
+      "Tiles worn by sustained foot traffic. An established road (wear ≥ 0.5) gives agents standing on it a 1.4x random-walk move-chance bonus. " +
+      "Once any settlement reaches the modern era, sustained heavy traffic (wear ≥ 0.85) can pave a road into a faster, more weather-resistant surface (1.7x dry).",
     ],
     ["__section__", "AI, trade & diplomacy"],
     ["LLM calls", `${llm.calls_total} (${fmtPct(llm.fallback_rate)} fallback)`, null],

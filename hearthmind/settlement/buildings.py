@@ -621,6 +621,31 @@ ERA_DESCRIPTIONS: dict[str, str] = {
     "digital": "computing woven into daily civic life",
 }
 
+ERA_HUT_CAPACITY_MULTIPLIER: dict[str, float] = {
+    "industrial": 1.0, "electrical": 1.0, "modern": 1.3, "digital": 1.6,
+}
+"""v0.87.43 era-scaled-infrastructure batch (live report: "improve
+building/road/infrastructure types with era"): a settlement's own huts
+house more people as tech advances — denser building techniques
+(multi-story housing, better materials) without needing a new
+persisted BuildingKind/schema field, the same "derive from era, don't
+store a duplicate flag" shape `era_condition_multiplier`-style helpers
+elsewhere use. `modern`/`digital` read as genuinely denser housing
+(row houses/apartment blocks) versus `industrial`/`electrical`'s
+single-family-cottage baseline (no bonus — matches the FACTORY/
+AUTOMOBILE precedent of "real change happens at electrical+/modern+,
+not from day one"). See `hut_capacity_multiplier`, `Population.
+carrying_capacity`'s housing term, `_housing_pressure`, and the
+fission-eligibility housing check — all three read this the same way
+CAMP_TOLERANCE/HUT_CAPACITY already are."""
+
+
+def hut_capacity_multiplier(era: str) -> float:
+    """`ERA_HUT_CAPACITY_MULTIPLIER` lookup with a safe default for an
+    unrecognized/legacy era string (1.0, the industrial-era baseline)."""
+    return ERA_HUT_CAPACITY_MULTIPLIER.get(era, 1.0)
+
+
 _ERA_UNLOCKS_ELECTRICAL = frozenset({"electrical", "modern", "digital"})
 """FACTORY and POWER_PLANT are foundable from `electrical` onward, not
 `industrial` — the settlement starts industrial with only the earlier

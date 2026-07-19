@@ -307,6 +307,7 @@ from hearthmind.settlement.buildings import (
     Settlement,
     choose_building_kind,
     culture_effect_multiplier,
+    hut_capacity_multiplier,
 )
 from hearthmind.settlement.institutions import (
     FAMILY_FEUD_AFFINITY_PENALTY,
@@ -345,7 +346,12 @@ from hearthmind.world.resources import (
     ResourceKind,
     is_adjacent_to_water,
 )
-from hearthmind.world.roads import ROAD_SPEED_MULTIPLIER, RoadNetwork, road_condition_multiplier
+from hearthmind.world.roads import (
+    ROAD_PAVED_SPEED_MULTIPLIER,
+    ROAD_SPEED_MULTIPLIER,
+    RoadNetwork,
+    road_condition_multiplier,
+)
 from hearthmind.world.terrain import Biome, Tile
 from hearthmind.world.weather import WeatherState
 from hearthmind.world.wildlife import (
@@ -1684,7 +1690,7 @@ class Population:
             for s in settlements
         }
         housing_by_id = {
-            s.id: CAMP_TOLERANCE + HUT_CAPACITY * sum(
+            s.id: CAMP_TOLERANCE + HUT_CAPACITY * hut_capacity_multiplier(s.era) * sum(
                 1 for b in s.buildings
                 if b.kind is BuildingKind.HUT and b.stage is BuildingStage.STANDING
             )
@@ -3156,8 +3162,13 @@ class Population:
             # established road's bonus shrinks (mud) or can even go
             # negative (snow/ice) depending on current conditions. See
             # world/roads.py's road_condition_multiplier, docs/DECISIONS.md,
-            # "LLM-as-brain batch."
-            road_multiplier = road_condition_multiplier(weather) if weather is not None else ROAD_SPEED_MULTIPLIER
+            # "LLM-as-brain batch." `paved` (v0.87.43): a genuinely paved
+            # tile reads a better weather-band multiplier throughout.
+            paved = roads.is_paved(agent.x, agent.y)
+            road_multiplier = (
+                road_condition_multiplier(weather, paved) if weather is not None
+                else (ROAD_PAVED_SPEED_MULTIPLIER if paved else ROAD_SPEED_MULTIPLIER)
+            )
             move_chance = min(1.0, move_chance * road_multiplier)
         if speed_multiplier != 1.0:
             move_chance = min(1.0, move_chance * speed_multiplier)
@@ -3208,7 +3219,12 @@ class Population:
             if any(a.state is AgentState.AWAKE for a in group)
             and all(s.at(x, y) is None for s in settlements) and farms.get(x, y) is None
         }
-        roads.tick(occupied)
+        # v0.87.43: paving is a world-wide capability once ANY settlement
+        # has reached `modern`+ — roads are shared physical
+        # infrastructure, not settlement-private (same shape BRIDGE
+        # already has), so no single settlement's era alone gates it.
+        paving_unlocked = any(s.era in ERA_UNLOCKS_AUTOMOBILE for s in settlements)
+        roads.tick(occupied, paving_unlocked)
 
     @staticmethod
     def _update_relationships(by_position: dict[tuple[int, int], list[Agent]]) -> None:
@@ -3478,7 +3494,7 @@ class Population:
         state. `float('inf')` for a settlement with no standing huts and
         a living population — maximally overcrowded, not a division
         error."""
-        capacity = CAMP_TOLERANCE + HUT_CAPACITY * sum(
+        capacity = CAMP_TOLERANCE + HUT_CAPACITY * hut_capacity_multiplier(settlement.era) * sum(
             1 for b in settlement.buildings if b.kind is BuildingKind.HUT and b.stage is BuildingStage.STANDING
         )
         population = settlement.living_member_count(self.agents)
@@ -6194,7 +6210,7 @@ class Population:
         for stl in settlements:
             if not stl.name or counts[stl.id] < FISSION_MIN_POPULATION:
                 continue
-            housing = CAMP_TOLERANCE + HUT_CAPACITY * sum(
+            housing = CAMP_TOLERANCE + HUT_CAPACITY * hut_capacity_multiplier(stl.era) * sum(
                 1 for b in stl.buildings
                 if b.kind is BuildingKind.HUT and b.stage is BuildingStage.STANDING
             )
