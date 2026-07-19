@@ -235,6 +235,41 @@ const devConsoleContent = document.getElementById("dev-console-content");
 const devFullReportBtn = document.getElementById("dev-full-report");
 const devReportStatus = document.getElementById("dev-report-status");
 
+// Header decluttering (v0.87.24): "explore" and "view" dropdowns each
+// collapse a cluster of header buttons behind one trigger. Every button
+// inside keeps its original id/listener — this only changes whether it's
+// always visible or one click away.
+[
+  ["explore-menu-trigger", "explore-menu-list"],
+  ["view-menu-trigger", "view-menu-list"],
+].forEach(([triggerId, listId]) => {
+  const trigger = document.getElementById(triggerId);
+  const list = document.getElementById(listId);
+  if (!trigger || !list) return;
+  trigger.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    const opening = list.classList.contains("hidden");
+    document.querySelectorAll(".header-menu-list").forEach((el) => el.classList.add("hidden"));
+    document.querySelectorAll(".header-menu-trigger").forEach((el) => el.classList.remove("active"));
+    if (opening) {
+      list.classList.remove("hidden");
+      trigger.classList.add("active");
+    }
+  });
+  list.addEventListener("click", (ev) => {
+    // A button inside the dropdown was clicked — close the menu after
+    // its own listener (already wired to the same button id) has run.
+    if (ev.target.closest("button")) {
+      list.classList.add("hidden");
+      trigger.classList.remove("active");
+    }
+  });
+});
+document.addEventListener("click", () => {
+  document.querySelectorAll(".header-menu-list").forEach((el) => el.classList.add("hidden"));
+  document.querySelectorAll(".header-menu-trigger").forEach((el) => el.classList.remove("active"));
+});
+
 function legacyCopy(text) {
   // navigator.clipboard requires a secure context (https, or localhost) —
   // accessing the server over plain http on a LAN IP (the common case for
@@ -2305,6 +2340,7 @@ function renderStats(summary) {
   const f = summary.farms, llm = summary.llm, w = summary.wildlife, rd = summary.roads;
   const c = summary.climate;
   const tiles = [
+    ["__section__", "Time & weather"],
     ["Tick", summary.tick, null],
     ["Date", `${summary.date} (${summary.clock})`, null],
     ["Weather", summary.weather, null],
@@ -2324,6 +2360,7 @@ function renderStats(summary) {
       "positive drying shrinks water and expands grassland's reach into forest. Drives gradual, map-wide biome drift " +
       "— distinct from the tick-by-tick local deforestation/reclamation you'll see in the event log.",
     ],
+    ["__section__", "Population & society"],
     ["Population", `${p.total} (${p.awake} awake, ${p.resting} resting)`, null],
     ["Avg hunger / energy", `${p.avg_hunger.toFixed(2)} / ${p.avg_energy.toFixed(2)}`, null],
     [
@@ -2369,6 +2406,7 @@ function renderStats(summary) {
       "agent founds a building or first masters a skill; openness rises on direct contact with outside news (a " +
       "caravan's rumor). All four drift back toward neutral over time.",
     ],
+    ["__section__", "Settlement & infrastructure"],
     ["Buildings", `${s.total} (${s.standing} standing, ${s.under_construction} building, ${s.ruined} ruined)`, null],
     [
       "Civic buildings",
@@ -2426,6 +2464,7 @@ function renderStats(summary) {
       "Crime & justice", `${s.thefts_committed || 0} theft${(s.thefts_committed || 0) === 1 ? "" : "s"} · ${(s.laws || []).length} norm${(s.laws || []).length === 1 ? "" : "s"} codified`,
       "All-time count of desperate theft between colocated villagers (a genuinely physical act, not an LLM decision), and how many laws/customs/taboos the village has settled on in response — see Laws & customs below.",
     ],
+    ["__section__", "Economy"],
     [
       "Materials", `${s.materials.toFixed(1)} / ${s.materials_capacity.toFixed(1)}`,
       "Settlement-wide wood/stone stockpile, gathered by GATHER-goal agents from forest/hills. Spent on faster construction and tool-boosted farm plots.",
@@ -2438,6 +2477,7 @@ function renderStats(summary) {
       "Tech level", `${s.tech_level} invention${s.tech_level === 1 ? "" : "s"}`,
       "Each invention permanently boosts construction/repair speed and cultivated-food yield (farm harvest, granary stock/withdraw) by 15% — wild foraging is unaffected. Rare: gated by settlement prosperity, rolled once a year.",
     ],
+    ["__section__", "World & environment"],
     ["Farms", `${f.total} (${f.growing} growing, ${f.ready} ready)`, null],
     [
       "Wild resources", `${r.total_nodes} nodes (${r.depleted} depleted, ${r.fish_nodes || 0} fishing spots, ${s.fish_caught || 0} caught)`,
@@ -2451,6 +2491,7 @@ function renderStats(summary) {
       "Roads", `${rd.established_roads} established (${rd.worn_tiles} worn)`,
       "Tiles worn by sustained foot traffic. An established road (wear ≥ 0.5) gives agents standing on it a 1.4x random-walk move-chance bonus.",
     ],
+    ["__section__", "AI, trade & diplomacy"],
     ["LLM calls", `${llm.calls_total} (${fmtPct(llm.fallback_rate)} fallback)`, null],
     ["NPC dialogue", `${llm.dialogue_total} exchanges, ${llm.rumor_total} rumors`, null],
     [
@@ -2510,7 +2551,9 @@ function renderStats(summary) {
   ];
   setInnerHTMLIfChanged(document.getElementById("stat-grid"), tiles
     .map(([label, value, title]) =>
-      `<div class="stat-tile"${title ? ` title="${title}"` : ""}><div class="label">${label}</div><div class="value">${value}</div></div>`
+      label === "__section__"
+        ? `<div class="stat-section-label">${value}</div>`
+        : `<div class="stat-tile"${title ? ` title="${title}"` : ""}><div class="label">${label}</div><div class="value">${value}</div></div>`
     )
     .join(""));
 

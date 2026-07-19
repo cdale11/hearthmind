@@ -424,6 +424,59 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.24)
+
+Explicit user directive: starvation was reported as the dominant,
+near-universal population-collapse mode across playthroughs and needed
+an aggressive fix; separately, header/stat UI clutter needed reducing
+without removing any existing stat.
+
+**Starvation root cause (measured, not guessed)**: `Population.
+carrying_capacity`'s only food-supply signal (granary_fill) required a
+standing GRANARY to engage at all, and `_maybe_reproduce`'s surplus
+gate only read the reproducing PAIR's own momentary hunger, never the
+settlement's aggregate state — population could grow on housing supply
+alone while food production silently fell behind, with no graceful
+brake short of mass death. A baseline 40k-tick no-LLM soak (seed 7)
+confirmed it: population grew to 29 then crashed to 2, 70 starvation
+deaths, 0 old-age deaths (starvation was structurally the only death
+this settlement could reach). Fixed with five changes together:
+`CARRYING_CAPACITY_HUNGER_WEIGHT`/`_HUNGER_COMFORT` (new, always-on
+average-hunger term in `carrying_capacity`, no granary prerequisite);
+`REPRODUCTION_SETTLEMENT_HUNGER_CEILING` (new hard backstop — no births
+while the settlement's own average hunger is elevated, regardless of
+the parents' state); `GRANARY_CAPACITY` 15.0 -> 40.0 (the old value
+measurably drained to 0.0 in under a sim-day at any nontrivial
+population — no real buffer); `HUNGER_RATE` 0.01 -> 0.008 (widens every
+reactive food-seeking threshold's real margin proportionally);
+`STARVATION_TICKS_TO_DEATH` 200 -> 280 (more grace once critical). Two
+tuning passes, both measured: first pass (weight 0.4/comfort 0.35/
+ceiling 0.55) re-tested clean on seed 7 (plateaued at 44, never dropped
+below ~20, old age (24) overtook starvation (13) for the first time)
+but seed 23 showed it was still too loose (overshot to 62, crashed to a
+low of 8, starvation (72) still dominant — better than baseline's crash
+to 2, not the reversal asked for). Second pass tightened further
+(weight -> 0.55, comfort -> 0.28, ceiling -> 0.45) — these are the
+values now in the tree; see CHANGELOG.md v0.87.24 for the confirming
+seed-23 re-run once it lands.
+
+**UI declutter, stats preserved**: the header's 12 always-visible
+toggle buttons collapsed into 4 (`details` stays top-level; `🔭
+explore ▾` groups summary/chronicler/digest/highlights/history/
+timeline/relationships; `⚙ view ▾` groups subjective/ambience/dev).
+Hit the exact `.hidden`-vs-same-specificity CSS landmine this file
+already documents for `.consciousness-indicator` (v0.82.0) — fixed the
+same way, `:not(.hidden)`. The details panel's ~30 raw stat tiles
+gained six section labels (Time & weather / Population & society /
+Settlement & infrastructure / Economy / World & environment / AI,
+trade & diplomacy) instead of one flat grid — same tiles and values,
+just grouped for readability.
+
+Verified: direct production-path tests for both new gates; two 40,000-
+tick no-LLM soaks (seeds 7, 23) confirming the crash pattern resolves;
+live Playwright verification of both header dropdowns and the grouped
+stat-grid, zero console errors.
+
 ## Current state (v0.87.23)
 
 Two parts per explicit user request: implement everything still open

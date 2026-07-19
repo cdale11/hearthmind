@@ -98,6 +98,18 @@ main {
 .stat-tile .label { color: var(--muted); font-size: 11px; text-transform: uppercase; }
 .stat-tile .value { font-size: 15px; margin-top: 2px; }
 
+.stat-section-label {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 3px;
+  margin-top: 6px;
+}
+.stat-section-label:first-child { margin-top: 0; }
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -221,6 +233,32 @@ body.subjective-mode #stat-grid { display: none; }
   cursor: pointer;
 }
 .dev-toggle:hover, .dev-toggle.active { color: var(--accent); border-color: var(--accent); }
+
+/* Header decluttering (v0.87.24): the story/history/timeline toggles and
+   the display/developer toggles each collapse into one dropdown trigger
+   instead of sitting in the header as separate always-visible buttons —
+   same panels, same ids, just grouped so the header reads as a handful
+   of choices instead of a wall of icons. */
+.header-menu { position: relative; margin-left: auto; }
+.header-menu + .header-menu { margin-left: 4px; }
+.header-menu .header-menu-trigger { margin-left: 0; }
+.header-menu-list:not(.hidden) {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  min-width: 160px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+.header-menu-list .dev-toggle { margin-left: 0; text-align: left; }
+.header-menu-trigger.active { color: var(--accent); border-color: var(--accent); }
 
 #consequences-strip {
   position: absolute;

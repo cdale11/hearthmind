@@ -138,6 +138,7 @@ from hearthmind.agents.agent import (
     REPRODUCTION_CHANCE_PER_TICK,
     RELATIONSHIP_DECAY_PER_TICK,
     RELATIONSHIP_GAIN_PER_TICK_COLOCATED,
+    REPRODUCTION_SETTLEMENT_HUNGER_CEILING,
     REPRODUCTION_WELLFED_HUNGER,
     REST_THRESHOLD,
     RIVALRY_THRESHOLD,
@@ -225,6 +226,8 @@ from hearthmind.settlement.buildings import (
     CARRYING_CAPACITY_COORDINATION_WEIGHT,
     CARRYING_CAPACITY_ECONOMY_WEIGHT,
     CARRYING_CAPACITY_ENVIRONMENT_WEIGHT,
+    CARRYING_CAPACITY_HUNGER_COMFORT,
+    CARRYING_CAPACITY_HUNGER_WEIGHT,
     CARRYING_CAPACITY_INFRASTRUCTURE_WEIGHT,
     CARRYING_CAPACITY_KNOWLEDGE_WEIGHT,
     CARRYING_CAPACITY_POWER_PLANT_BONUS,
@@ -3409,6 +3412,15 @@ class Population:
             # time to build infrastructure it wouldn't need at this scale.
             economy_term = 0.0
 
+        # Direct food-security signal (v0.87.24) — always scored, no
+        # granary prerequisite. See CARRYING_CAPACITY_HUNGER_WEIGHT's
+        # docstring for why this closes the real starvation-collapse gap:
+        # economy_term above only engages once a granary exists (and even
+        # then can be swamped by a fixed-size granary against a grown
+        # population); this reads the community's actual lived hunger.
+        avg_member_hunger = (sum(a.hunger for a in members) / total) if total else 0.0
+        hunger_term = -max(0.0, avg_member_hunger - CARRYING_CAPACITY_HUNGER_COMFORT) * CARRYING_CAPACITY_HUNGER_WEIGHT / (1.0 - CARRYING_CAPACITY_HUNGER_COMFORT)
+
         sick_fraction = (sum(1 for a in members if a.sick_ticks > 0) / total) if total else 0.0
         security_term = -(
             sick_fraction * 2.0 + (0.3 if predator_pressure else 0.0)
@@ -3454,7 +3466,7 @@ class Population:
             infrastructure_term += CARRYING_CAPACITY_POWER_PLANT_BONUS
 
         multiplier = (
-            1.0 + economy_term + security_term + labor_term + environment_term
+            1.0 + hunger_term + economy_term + security_term + labor_term + environment_term
             + coordination_term + knowledge_term + infrastructure_term
         )
         multiplier = max(CARRYING_CAPACITY_MIN_MULTIPLIER, min(CARRYING_CAPACITY_MAX_MULTIPLIER, multiplier))
@@ -3471,8 +3483,23 @@ class Population:
         settlements_by_id = {s.id: s for s in settlements}
         primary = settlements[0]
         home_counts: dict[int, int] = {s.id: 0 for s in settlements}
+        hunger_sum_by_id: dict[int, float] = {s.id: 0.0 for s in settlements}
         for member in self.agents:
-            home_counts[member.settlement_id if member.settlement_id in settlements_by_id else primary.id] += 1
+            home_id = member.settlement_id if member.settlement_id in settlements_by_id else primary.id
+            home_counts[home_id] += 1
+            hunger_sum_by_id[home_id] += member.hunger
+        # Settlement-wide hunger ceiling (v0.87.24 starvation-collapse
+        # fix): a hard backstop alongside carrying_capacity's softer
+        # hunger_term throttle — the capacity term reacts smoothly and
+        # bounds new HEADROOM, but a couple whose slot was already open
+        # before that throttle caught up could otherwise still slip a
+        # birth through into a settlement that is visibly, communally
+        # starving. This blocks that regardless of the two parents' own
+        # (possibly still-fine) personal state.
+        avg_hunger_by_id = {
+            s.id: (hunger_sum_by_id[s.id] / home_counts[s.id]) if home_counts[s.id] else 0.0
+            for s in settlements
+        }
 
         newborns: list[Agent] = []
         newborn_names: set[str] = set()
@@ -3504,6 +3531,8 @@ class Population:
                     # FAMILY_FEUD_AFFINITY_PENALTY's docstring.
                     affinity_needed += FAMILY_FEUD_AFFINITY_PENALTY
                 if a.relationships.get(b.id, 0.0) < affinity_needed:
+                    continue
+                if avg_hunger_by_id.get(home.id, 0.0) >= REPRODUCTION_SETTLEMENT_HUNGER_CEILING:
                     continue
                 # Surplus gate (carrying-capacity rework, July 2026
                 # review): children follow surplus — either parent has

@@ -30,17 +30,29 @@
       <button id="sim-speed-up" title="Double simulation speed">+</button>
       <button id="sim-speed-reset" title="Reset to default speed">reset</button>
     </div>
-    <button id="summary-toggle" class="dev-toggle" title="LLM-generated summary of the simulation, on demand">🧭 summary</button>
-    <button id="chronicler-toggle" class="dev-toggle" title="Ask the village chronicler a question, in character">📖 chronicler</button>
-    <button id="digest-toggle" class="dev-toggle" title="A recap of what happened since you last looked">🕯 digest</button>
-    <button id="highlights-toggle" class="dev-toggle" title="The simulation's own log of its most notable emergent moments">✨ highlights</button>
-    <button id="history-toggle" class="dev-toggle" title="Summarized town history">📜 history</button>
-    <button id="timeline-toggle" class="dev-toggle" title="Scrub through past snapshots">🕰 timeline</button>
-    <button id="relationship-toggle" class="dev-toggle" title="Interactive relationship graph">🕸 relationships</button>
     <button id="details-toggle" class="dev-toggle" title="Raw stats, culture, and infrastructure detail">📊 details</button>
-    <button id="subjective-map-toggle" class="dev-toggle" title="View the map through the village's own eyes — folk names, reputation, folklore">👁 subjective</button>
-    <button id="dev-toggle" class="dev-toggle" title="Developer console: raw diagnostics/telemetry">⚙ dev</button>
-    <button id="ambient-audio-toggle" class="dev-toggle" title="Generative ambience keyed to weather, daylight, and the town's hidden state — off by default">🔊 ambience</button>
+
+    <div class="header-menu" id="explore-menu">
+      <button class="dev-toggle header-menu-trigger" id="explore-menu-trigger" title="Ways to look into the town's story, past, and people">🔭 explore ▾</button>
+      <div class="header-menu-list hidden" id="explore-menu-list">
+        <button id="summary-toggle" class="dev-toggle" title="LLM-generated summary of the simulation, on demand">🧭 summary</button>
+        <button id="chronicler-toggle" class="dev-toggle" title="Ask the village chronicler a question, in character">📖 chronicler</button>
+        <button id="digest-toggle" class="dev-toggle" title="A recap of what happened since you last looked">🕯 digest</button>
+        <button id="highlights-toggle" class="dev-toggle" title="The simulation's own log of its most notable emergent moments">✨ highlights</button>
+        <button id="history-toggle" class="dev-toggle" title="Summarized town history">📜 history</button>
+        <button id="timeline-toggle" class="dev-toggle" title="Scrub through past snapshots">🕰 timeline</button>
+        <button id="relationship-toggle" class="dev-toggle" title="Interactive relationship graph">🕸 relationships</button>
+      </div>
+    </div>
+
+    <div class="header-menu" id="view-menu">
+      <button class="dev-toggle header-menu-trigger" id="view-menu-trigger" title="Display and developer options">⚙ view ▾</button>
+      <div class="header-menu-list hidden" id="view-menu-list">
+        <button id="subjective-map-toggle" class="dev-toggle" title="View the map through the village's own eyes — folk names, reputation, folklore">👁 subjective</button>
+        <button id="ambient-audio-toggle" class="dev-toggle" title="Generative ambience keyed to weather, daylight, and the town's hidden state — off by default">🔊 ambience</button>
+        <button id="dev-toggle" class="dev-toggle" title="Developer console: raw diagnostics/telemetry">⚙ dev</button>
+      </div>
+    </div>
   </header>
 
   <main>

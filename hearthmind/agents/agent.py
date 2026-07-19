@@ -88,8 +88,21 @@ CODE_TO_GOAL: dict[int, "AgentGoal"] = {v: k for k, v in GOAL_TO_CODE.items()}
 # these are behavioral parameters of the agent model itself, not world-shape
 # parameters a deployer chooses at creation time. Revisit if that stops
 # being true (e.g. once difficulty/pacing knobs are wanted).
-HUNGER_RATE = 0.01
-"""Hunger gained per tick, always (no food source yet to offset it)."""
+HUNGER_RATE = 0.008
+"""Hunger gained per tick, always (no food source yet to offset it).
+Lowered from 0.01 (v0.87.24 starvation-collapse fix) — a live-diagnostic-
+style soak showed population booming during a good stretch then
+crashing hard (29 -> 2) once a food shortfall hit, largely because the
+reactive food-seeking chain (FORAGE_HUNGER_THRESHOLD 0.4 for passive
+tile-checking, SURVIVAL_HUNGER_THRESHOLD 0.6 for the deterministic
+forced-FORAGE goal override, CRITICAL_HUNGER_THRESHOLD 0.9 for the
+emergency wake) has little real-time margin at 0.01/tick — the gap
+between "starting to worry" and "starving" is under 60 ticks. The 20%
+slowdown widens every one of those reaction windows proportionally
+without changing any threshold's meaning, giving the settlement-level
+throttles (see CARRYING_CAPACITY_HUNGER_WEIGHT, REPRODUCTION_SETTLEMENT_
+HUNGER_CEILING) and the granary buffer (GRANARY_CAPACITY) more real time
+to actually engage before a bad patch compounds into a crash."""
 
 ENERGY_DRAIN_AWAKE = 0.015
 """Energy lost per tick while awake (whether moving or not)."""
@@ -132,8 +145,15 @@ MAX_LIFESPAN_TICKS = 40_000
 rather than literal years — tunable, see docs/DECISIONS.md, A2."""
 
 STARVATION_HUNGER_THRESHOLD = 0.95
-STARVATION_TICKS_TO_DEATH = 200
-"""Consecutive ticks at/above STARVATION_HUNGER_THRESHOLD before death."""
+STARVATION_TICKS_TO_DEATH = 280
+"""Consecutive ticks at/above STARVATION_HUNGER_THRESHOLD before death.
+Raised from 200 (v0.87.24 starvation-collapse fix, alongside HUNGER_
+RATE's slowdown above) — more grace period for a genuinely desperate
+agent to reach a food source (or for a settlement-wide famine to
+resolve) before death becomes irreversible, without weakening
+starvation as a real consequence: a resilient agent (TRAIT_RESILIENCE_
+STARVATION_TOLERANCE_INFLUENCE) can already stretch this further, this
+just raises the base everyone gets."""
 
 MATURITY_TICKS = 4_000
 """Age at which an agent becomes eligible to reproduce."""
@@ -160,6 +180,20 @@ coupled to the food economy instead of only to a hard population cap.
 Kept as an OR with the personal-food arm so a brand-new world (nobody
 has saved food yet — the inventory skim needs farms/granaries to
 exist first) can still grow off a good foraging stretch."""
+
+REPRODUCTION_SETTLEMENT_HUNGER_CEILING = 0.45
+"""Hard birth-rate backstop (v0.87.24 starvation-collapse fix): no
+reproduction at all while the settlement's own average member hunger
+is at/above this, regardless of the reproducing pair's own state. The
+pre-existing surplus gate above only reads the two parents — a couple
+that happened to just eat could still add a mouth to feed to a
+settlement that is, in aggregate, already visibly starving. Set above
+REPRODUCTION_WELLFED_HUNGER (0.35, a per-couple bar) since this is a
+community-wide crisis threshold, not an individual one — see
+Population.carrying_capacity's CARRYING_CAPACITY_HUNGER_WEIGHT for the
+softer, continuous throttle this backstops. Tightened from an initial
+0.55 (measurably too loose — see that constant's docstring) to 0.45."""
+
 RIVALRY_THRESHOLD = -0.4
 """Relationship value at or below which a pair is considered rivals for
 prompt-context/diagnostic purposes — see hearthmind/llm/dialogue.py."""

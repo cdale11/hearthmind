@@ -677,10 +677,19 @@ def choose_building_kind(
     return BuildingKind.HUT  # unreachable in practice; keeps the function total
 
 
-GRANARY_CAPACITY = 15.0
-"""Max food a standing granary can hold — several farm harvests' worth
-(MAX_FARM_YIELD is 3.0), enough to matter as a buffer without trivializing
-scarcity."""
+GRANARY_CAPACITY = 40.0
+"""Max food a standing granary can hold. Raised from 15.0 (v0.87.24
+starvation-collapse fix) — measured directly against a live-diagnostic-
+style soak: at the old value, `granary_food` repeatedly hit exactly 0.0
+under any settlement past ~15-20 population (GRANARY_WITHDRAW_AMOUNT
+0.25 x one withdrawal per hungry agent roughly every 40 ticks drains a
+15.0 granary in well under a day of sim-time), meaning the granary
+functioned as almost no buffer at all against a bad stretch (a hard
+winter, a rotted harvest) — exactly the kind of dip this building
+exists to smooth over. 40.0 gives a settlement of ~30 several real days
+of runway from a single granary before it empties, matching how the
+mechanic reads in its own summary/description ("a communal food
+buffer"), not just a token store."""
 
 GRANARY_WELLFED_HUNGER_THRESHOLD = 0.3
 """An awake agent at or below this hunger, present at a standing granary,
@@ -1021,6 +1030,38 @@ term maxes out (see CARRYING_CAPACITY_INFRASTRUCTURE_WEIGHT) — roughly
 one worn road tile per ~7 people comfortably saturates the term; more
 roads past that point are still useful (site selection, contact rate)
 but stop adding further capacity headroom on their own."""
+
+CARRYING_CAPACITY_HUNGER_WEIGHT = 0.55
+CARRYING_CAPACITY_HUNGER_COMFORT = 0.28
+"""Direct, always-on food-security term (v0.87.24 starvation-collapse
+fix) — unlike ECONOMY_WEIGHT's granary_fill term, which docstring-
+documents its own gap ("only scored once a granary exists, so a
+founding party ... isn't penalized"), this reads the settlement's own
+real average member hunger every tick, with no infrastructure
+prerequisite. Root cause of "starvation is the dominant collapse
+mode in almost every playthrough": before a granary exists (or once
+one exists but is too small to buffer a grown population —
+GRANARY_CAPACITY is a flat per-building constant, not scaled to
+population), `carrying_capacity` had ZERO food-supply signal — capacity
+was driven purely by housing (huts) and the `_maybe_reproduce` per-
+couple `has_surplus` check, which only reads the reproducing PAIR's own
+momentary hunger, not the community's. That let population keep
+growing on housing supply alone while food production silently fell
+behind, and the only feedback loop that could ever catch the mismatch
+was mass starvation deaths themselves — never a graceful birth-rate
+slowdown. `hunger_term` closes this: once a settlement's average
+member hunger rises past COMFORT (deliberately the same bar
+`REPRODUCTION_WELLFED_HUNGER`-adjacent state already treats as "not
+truly fed"), capacity contracts smoothly and reproduction throttles
+BEFORE the community is in a visible crisis, not after. Weighted well
+above ECONOMY (0.55 vs 0.25) since this is the direct signal food
+scarcity actually is, not a proxy for it. COMFORT tightened 0.35 -> 0.28
+and WEIGHT raised 0.4 -> 0.55 after a first-pass version (still
+measurably too permissive — a 40,000-tick soak still saw population
+overshoot to 62 then crash to 8 before recovering) proved too loose;
+see CHANGELOG.md v0.87.24 for the confirming re-run's numbers once
+posted — if a future soak still shows a crash of this shape, tighten
+further rather than treating these as final."""
 
 CARRYING_CAPACITY_MIN_MULTIPLIER = 0.5
 CARRYING_CAPACITY_MAX_MULTIPLIER = 1.5

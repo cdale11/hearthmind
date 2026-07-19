@@ -4,6 +4,88 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.24] — Starvation-collapse fix + header/stat-grid UI declutter
+
+Two explicit user requests in one batch: (1) starvation was reported as
+the dominant, near-universal form of population collapse across
+playthroughs, needing an aggressive fix; (2) the header/stat panels
+were cluttered and needed a more human-digestible presentation without
+removing any existing stat.
+
+**Starvation-collapse root cause**: measured directly (40,000-tick
+no-LLM soaks) rather than guessed. Population grew on housing supply
+alone — `carrying_capacity`'s only food-supply signal (`economy_term`)
+required a standing GRANARY to even engage, and `_maybe_reproduce`'s
+per-couple "surplus gate" only read the two parents' own momentary
+hunger, never the settlement's aggregate state. A settlement could keep
+adding mouths to feed while food production silently fell behind, with
+no graceful brake — the only thing that could ever catch the mismatch
+was mass starvation itself. A baseline soak (seed 7, 40k ticks)
+confirmed this: population grew to 29, then crashed to 2 before a
+partial recovery, with 70 all-time starvation deaths and 0 old-age
+deaths (starvation was structurally the ONLY real cause of death this
+settlement could reach).
+
+Fixed with five changes, working together:
+- `CARRYING_CAPACITY_HUNGER_WEIGHT`/`_HUNGER_COMFORT` (new, `settlement/
+  buildings.py`): a direct, always-on food-security term in `Population.
+  carrying_capacity` — reads the settlement's real average member
+  hunger every tick, no granary prerequisite, contracting capacity
+  smoothly as average hunger rises past COMFORT.
+- `REPRODUCTION_SETTLEMENT_HUNGER_CEILING` (new, `agents/agent.py`): a
+  hard backstop in `_maybe_reproduce` — no births at all while the
+  settlement's own average hunger is at/above this, regardless of the
+  reproducing pair's own (possibly fine) state.
+- `GRANARY_CAPACITY` 15.0 -> 40.0: the granary buffer was measured
+  draining to exactly 0.0 in well under a day of sim-time at any
+  nontrivial population, functioning as almost no smoothing at all
+  against a bad stretch.
+- `HUNGER_RATE` 0.01 -> 0.008: widens every reactive food-seeking
+  threshold's real-time margin proportionally (FORAGE_HUNGER_THRESHOLD,
+  SURVIVAL_HUNGER_THRESHOLD, CRITICAL_HUNGER_THRESHOLD) without
+  changing any threshold's meaning.
+- `STARVATION_TICKS_TO_DEATH` 200 -> 280: more grace period once an
+  agent is genuinely critical, before death becomes irreversible.
+
+Two tuning passes, both measured, not assumed. First pass (`CARRYING_
+CAPACITY_HUNGER_WEIGHT=0.4`/`_COMFORT=0.35`, `REPRODUCTION_SETTLEMENT_
+HUNGER_CEILING=0.55`): re-run on seed 7 came back clean — population
+plateaued at 44 for an extended stretch, never dropped below ~20, and
+old age (24) overtook starvation (13) as the dominant death cause for
+the first time in that settlement's run. But re-run on seed 23 showed
+the fix was still too loose: population overshot to 62, then crashed to
+a low of 8 before partially recovering to 44, with starvation (72) still
+dominant over old age (8) — better than the unfixed baseline (no crash
+to 2, real recovery) but not the reversal the report asked for. Second
+pass tightened the same three constants (`_WEIGHT` 0.4 -> 0.55, `_COMFORT`
+0.35 -> 0.28, `REPRODUCTION_SETTLEMENT_HUNGER_CEILING` 0.55 -> 0.45) —
+these are the values now in the tree; a confirming re-run on seed 23 is
+in progress as of this entry (see the next changelog entry for its
+result once posted, or docs/DECISIONS.md if this file wasn't updated
+again before it landed).
+
+**UI declutter** (stats/panels preserved, none removed): the header's
+12 always-visible toggle buttons collapsed into 4 controls — `details`
+stays top-level, `🔭 explore ▾` groups summary/chronicler/digest/
+highlights/history/timeline/relationships, `⚙ view ▾` groups
+subjective/ambience/dev — each dropdown closes on an inside click or an
+outside click. Hit the same `.hidden`-vs-same-specificity landmine
+CLAUDE.md already documents for `.consciousness-indicator` (v0.82.0):
+fixed via the same `:not(.hidden)` pattern. The "📊 details" stat-grid's
+~30 raw tiles gained six section labels (Time & weather / Population &
+society / Settlement & infrastructure / Economy / World & environment /
+AI, trade & diplomacy) instead of one undifferentiated flat grid — same
+tiles, same values, just grouped.
+
+Verified: direct `carrying_capacity`/`_maybe_reproduce` tests against
+real production code (hunger-term monotonicity; a starving settlement
+blocks a well-fed couple's birth, a healthy one doesn't); three
+40,000-tick no-LLM soaks so far (seed 7 and seed 23 against the first-
+pass constants, seed 23 re-run against the tightened second pass, see
+above); live Playwright verification of both header dropdowns (closed
+at rest, open/close correctly, existing panel toggles still work) and
+the grouped stat-grid rendering correctly with zero console errors.
+
 ## [0.87.23] — §6/§7 close-out + §9 checklist (cultural depth ideas)
 
 Two parts per explicit user request: (1) implement everything still
