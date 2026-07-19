@@ -51,8 +51,10 @@ from hearthmind.agents.agent import (
     describe_emotion,
     describe_traits,
     dominant_emotion,
+    faded_memory_text,
     push_secret,
     retrieval_diagnostics,
+    retrieve_relevant_memories,
 )
 from hearthmind import __version__
 from hearthmind.config import Config
@@ -65,7 +67,9 @@ from hearthmind.llm import (
     diplomacy, laws, letters, noncore_nudge, institution_culture,
 )
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
-from hearthmind.llm.cognition import SURVIVAL_HUNGER_THRESHOLD, SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
+from hearthmind.llm.cognition import (
+    RECENT_MEMORIES_IN_PROMPT, SURVIVAL_HUNGER_THRESHOLD, SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal,
+)
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.llm.recorder import TrainingRecorder
 from hearthmind.persistence.snapshot import (
@@ -3966,7 +3970,17 @@ class SimulationEngine:
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "personal_belief")
         agent = rng.choice(candidates)
         agent_id = agent.id
-        recent = agent.memories[-3:]
+        # v0.87.35 context-selection audit: was a blind `memories[-3:]`
+        # slice — the one job whose entire purpose is judging "what
+        # matters" about this agent's life was, unlike cognition, never
+        # given cognition's own adaptive-retrieval scoring (recency +
+        # salience + relevance-to-"what just happened" + causal-link
+        # bonus). Same prompt-slot budget (RECENT_MEMORIES_IN_PROMPT),
+        # same faded-salience display, for the same "content earns its
+        # place instead of just being newest" reason.
+        retrieval_context = agent.working_memory[-1] if agent.working_memory else ""
+        retrieved = retrieve_relevant_memories(agent, RECENT_MEMORIES_IN_PROMPT, context=retrieval_context)
+        recent = [faded_memory_text(t, s) for t, s, _c in retrieved]
         existing = list(agent.beliefs)
         emotion_text = describe_emotion(agent.emotions)
         semantic = list(agent.semantic_memories)

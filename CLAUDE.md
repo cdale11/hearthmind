@@ -409,6 +409,33 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.36)
+
+Follow-up to v0.87.35's item 3: extends the context-selection audit to
+cognition and personal_belief. Full detail: CHANGELOG.md.
+
+`cognition.build_prompt` no longer shows `own_belief`/`semantic_
+memory` alongside `life_digest` once a real digest exists — the digest
+is itself authored FROM those two fields (see its docstring), so
+showing all three was redundant, not merely low-relevance; falls back
+to the two specific fields only while no digest has formed yet.
+`_maybe_schedule_personal_belief` (engine.py) now selects its `recent`
+memories via the same adaptive `retrieve_relevant_memories`/`faded_
+memory_text` cognition already uses, replacing a blind `memories
+[-3:]` slice — the one job whose purpose is judging "what matters"
+about an agent's life previously used the least relevance-aware
+selection of any LLM task in the codebase. `beliefs.build_personal_
+prompt`'s other fields (semantic/core memories, existing beliefs) were
+left as deliberate whole-picture context per their own docstrings —
+Reflect() is meant to weigh an agent's WHOLE recent self-theory, not
+just the freshest slice.
+
+Verified: direct smoke tests for both changes (digest supersession,
+adaptive-retrieval memory selection); a 3000-tick LLM-disabled engine
+soak (prompt-building code runs on every call regardless of LLM
+enablement); `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical.
+
 ## Current state (v0.87.35)
 
 Explicit four-part live request: review-pack diagnostics, prompt-

@@ -4,6 +4,60 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.36] — Extend the context-selection audit to cognition + personal_belief
+
+Explicit follow-up to v0.87.35's item 3 ("dynamically choose the most
+relevant context for each task... over long lists of loosely related
+memories"), scoped this pass to the two named tasks: cognition
+(per-agent goal-setting) and personal_belief (Reflect()).
+
+**cognition.build_prompt: removed a genuine redundancy, not an
+arbitrary trim.** `life_digest` (v0.86.7) is itself an LLM-authored
+digest of `own_belief` + `semantic_memory` "taken together" (see its
+own docstring) — the prompt was showing the synthesis AND both of the
+specific facts it was synthesized from, every call, once a core-cast
+agent had been reflected on at least once. That's exactly the "long
+list of loosely related facts" pattern item 3 flags, except here two
+of the three facts are strictly redundant with the third rather than
+merely low-relevance. `build_prompt` now shows only `life_digest` once
+one exists, falling back to the two specific fields only while
+`life_digest` is still empty (agent not yet reflected on, or not core
+cast) — never a loss of information, since the digest is derived FROM
+those two fields. `mind_text` (permanent identity) and `lesson`/
+`core_memory` (already relevance-selected at the call site) were left
+untouched — each is genuinely distinct information, not a duplicate
+of anything else in the prompt.
+
+**personal_belief (`_maybe_schedule_personal_belief`, engine.py): now
+uses the same adaptive memory retrieval cognition already has.**
+Previously took a blind `agent.memories[-3:]` slice — the one job
+whose entire purpose is judging "what matters" about an agent's life
+was, unlike cognition, never given cognition's own scored retrieval
+(recency + salience + relevance-to-what-just-happened + causal-link
+bonus, `retrieve_relevant_memories`). Now calls the identical function
+with the identical prompt-slot budget (`cognition.RECENT_MEMORIES_IN_
+PROMPT`) and the identical salience-faded display (`faded_memory_
+text`), so a highly salient older memory can now surface in a
+self-reflection the same way it already could in a goal decision —
+closes an inconsistency between the two jobs rather than changing
+either one's prompt shape. `beliefs.build_personal_prompt`'s other
+optional fields (`semantic_memories` capped at 3, `core_memories`
+capped at 5, `existing_beliefs` capped at 4) were left as deliberate
+whole-picture context per their existing docstrings — Reflect() is the
+job meant to weigh an agent's WHOLE recent self-theory/history, not
+just the freshest slice, so capping those further would cut against
+the job's own purpose rather than removing redundancy.
+
+Verified: direct smoke tests confirming (a) `life_digest` suppresses
+`own_belief`/`semantic_memory` in the prompt text while `mind_text`
+stays independent, (b) the fields reappear when `life_digest` is
+empty, (c) `personal_belief`'s new retrieval surfaces a high-salience
+memory that a blind last-3 slice would have missed. A 3000-tick
+engine soak (LLM disabled, so `build_prompt`/`build_personal_prompt`
+still run on every call site) — zero crashes.
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+no native module touched.
+
 ## [0.87.35] — Review-pack diagnostics + dialogue conversation-opportunity selector
 
 Explicit four-part live request: (1) automatic diagnostics report on

@@ -153,7 +153,12 @@ def build_prompt(
     `semantic_memory` already show — same "digest alongside specifics"
     shape `chronicle`/`town_brain` already use for `Settlement.
     belief_digest`, applied at the individual scale. Empty until the
-    Reflect() job has run at least once for this agent.
+    Reflect() job has run at least once for this agent. v0.87.35
+    context-selection audit: since a real `life_digest` already
+    synthesizes `own_belief`/`semantic_memory`, `build_prompt` shows
+    only the digest once one exists and drops the two specific fields
+    it was built from — showing all three together was redundant
+    "loosely related" texture, not three genuinely distinct facts.
 
     `lesson` (v0.87.0, "learns like a human" — see `Agent.lessons`):
     the one stored lesson, if any, whose `situation` tag matches the
@@ -236,10 +241,25 @@ def build_prompt(
         f" What the village has come to believe about you: {'; '.join(beliefs_about)}."
         if beliefs_about else ""
     )
-    own_belief_text = f" Your own private theory: {own_belief}" if own_belief else ""
-    semantic_text = f" You've come to feel: {semantic_memory}" if semantic_memory else ""
+    # `life_digest` is itself authored FROM `own_belief` + `semantic_
+    # memory` taken together (see its docstring: "condensing this
+    # agent's ENTIRE accumulated self-understanding... not just the
+    # single freshest entry"). Showing all three at once is exactly the
+    # "long list of loosely related facts" item 3 (docs/DECISIONS.md,
+    # v0.87.35 context-selection audit) warns against — two of them are
+    # redundant with the third. Prefer the synthesis once Reflect() has
+    # produced one; fall back to the two specific pieces only while
+    # `life_digest` is still empty (this agent hasn't been reflected on
+    # yet, or isn't core cast).
+    if life_digest:
+        life_digest_text = f" Your outlook on your own life so far: {life_digest}"
+        own_belief_text = ""
+        semantic_text = ""
+    else:
+        life_digest_text = ""
+        own_belief_text = f" Your own private theory: {own_belief}" if own_belief else ""
+        semantic_text = f" You've come to feel: {semantic_memory}" if semantic_memory else ""
     mind_prompt_text = f" At your core: {mind_text}" if mind_text else ""
-    life_digest_text = f" Your outlook on your own life so far: {life_digest}" if life_digest else ""
     lesson_text = f" Something you've learned: {lesson}" if lesson else ""
     company = (
         f" With you right now: {', '.join(colocated_names)}."
