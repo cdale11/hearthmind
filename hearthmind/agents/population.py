@@ -218,6 +218,27 @@ from hearthmind.economy.farms import (
     FarmGrid,
     FarmStage,
 )
+from hearthmind.agents.occupations import (
+    ALL_OCCUPATIONS,
+    BANKER_INCOME_PER_TICK,
+    BUILDER_WORK_BONUS,
+    FARMER_HARVEST_BONUS,
+    FISHERMAN_FORAGE_BONUS,
+    MAYOR_REPUTATION_NUDGE,
+    OCCUPATION_BAKER,
+    OCCUPATION_BANKER,
+    OCCUPATION_BUILDER,
+    OCCUPATION_BUSINESSMAN,
+    OCCUPATION_FARMER,
+    OCCUPATION_FISHERMAN,
+    OCCUPATION_MAYOR,
+    OCCUPATION_PRIEST,
+    OCCUPATION_SHOPKEEPER,
+    OCCUPATION_TEACHER,
+    OCCUPATION_WORKPLACES,
+    PRIEST_RITUAL_BOOST_MULTIPLIER,
+    occupation_staff_weight,
+)
 from hearthmind.settlement.buildings import (
     BRIDGE_CHANCE_PER_TICK,
     BRIDGE_MATERIALS_COST_PER_SPAN_TILE,
@@ -1845,7 +1866,11 @@ class Population:
         # worked/stocked/crafted-at by whoever is physically present —
         # a visiting neighbor genuinely can help raise a wall or study
         # at the other village's school.
+        members_by_settlement: dict[int, list[Agent]] = {s.id: [] for s in settlements}
+        for a in self.agents:
+            members_by_settlement.get(home_of(a).id, members_by_settlement[primary.id]).append(a)
         for stl in settlements:
+            self._maybe_assign_occupations(stl, members_by_settlement[stl.id])
             life_events.extend(self._advance_construction(by_position, stl, self.last_skill_masteries))
             life_events.extend(self._maybe_repair(by_position, stl))
             self._maybe_stock_granaries(by_position, stl)
@@ -1856,6 +1881,7 @@ class Population:
             self._maybe_run_factories(by_position, stl)
             self._maybe_run_docks(by_position, stl)
             self._maybe_run_oil_rigs(by_position, stl)
+            self._maybe_run_market_workers(by_position, stl)
             self._maybe_run_schools(by_position, stl)
             life_events.extend(self._maybe_upgrade_university(by_position, stl, rng))
             life_events.extend(self._advance_vehicle_construction(by_position, stl))
@@ -2178,7 +2204,10 @@ class Population:
         # and it's the deliberate incentive for cultivating one at all.
         plot = farms.get(agent.x, agent.y)
         if plot is not None and plot.stage is FarmStage.READY:
-            consumed = farms.harvest(agent.x, agent.y, HARVEST_AMOUNT)
+            # FARMER (v0.87.44): a real occupation-based harvest bonus,
+            # on top of (not instead of) SKILL_FARMING below.
+            harvest_amount = HARVEST_AMOUNT * (FARMER_HARVEST_BONUS if agent.occupation == OCCUPATION_FARMER else 1.0)
+            consumed = farms.harvest(agent.x, agent.y, harvest_amount)
             if consumed > 0:
                 # Harvest-minded traditions stretch what a harvest gives —
                 # culture with a real lever, see culture_effect_multiplier.
@@ -2264,7 +2293,10 @@ class Population:
             resources.mark_regenerating(agent.x, agent.y)
             relief = FORAGE_HUNGER_RELIEF * (consumed / FORAGE_AMOUNT)
             if node.kind is ResourceKind.FISH:
-                relief *= FISH_HUNGER_RELIEF_MULTIPLIER * _raft_factor(home)
+                # FISHERMAN (v0.87.44): occupation-based catch bonus, on
+                # top of the settlement-wide RAFT bonus.
+                fisherman_bonus = FISHERMAN_FORAGE_BONUS if agent.occupation == OCCUPATION_FISHERMAN else 1.0
+                relief *= FISH_HUNGER_RELIEF_MULTIPLIER * _raft_factor(home) * fisherman_bonus
                 home.fish_caught += 1
                 Population._wear_rafts(home)
             agent.hunger = max(0.0, agent.hunger - relief)
@@ -3657,6 +3689,12 @@ class Population:
             # practice, but this stays correct even in the gap tick
             # before a refresh fills an opened seat.
             governance_quality = (disposition["avg_ambition"] + disposition["avg_resilience"]) / 2.0 + 0.5
+            # MAYOR (v0.87.44): a living mayor is real dedicated
+            # leadership on top of the council's own disposition — a
+            # small, bounded governance-quality nudge, not a
+            # replacement for council composition mattering.
+            if any(a.occupation == OCCUPATION_MAYOR for a in members):
+                governance_quality += MAYOR_REPUTATION_NUDGE
             coordination_term = (
                 governance_quality * CARRYING_CAPACITY_COORDINATION_WEIGHT if disposition["size"] else 0.0
             )
@@ -4409,8 +4447,13 @@ class Population:
             # same "practiced yield bonus" shape SKILL_FARMING already
             # established. See SKILL_CONSTRUCTION_SPEED_BONUS.
             avg_skill = sum(a.skills.get(SKILL_CONSTRUCTION, 0.0) for a in workers) / len(workers)
+            # BUILDER (v0.87.44): a builder's own presence contributes
+            # BUILDER_WORK_BONUS worth of ordinary labor instead of 1.
+            weighted_workers = sum(
+                BUILDER_WORK_BONUS if a.occupation == OCCUPATION_BUILDER else 1.0 for a in workers
+            )
             work = (
-                CONSTRUCTION_WORK_PER_TICK * len(workers) * _tech_factor(settlement)
+                CONSTRUCTION_WORK_PER_TICK * weighted_workers * _tech_factor(settlement)
                 * (1.0 + avg_skill * SKILL_CONSTRUCTION_SPEED_BONUS)
             )
             if settlement.materials >= MATERIALS_PER_CONSTRUCTION_TICK:
@@ -4440,12 +4483,17 @@ class Population:
         for building in settlement.buildings:
             if building.stage is not BuildingStage.STANDING or building.condition >= REPAIR_THRESHOLD:
                 continue
-            workers = sum(
-                1 for a in by_position.get((building.x, building.y), []) if a.state is AgentState.AWAKE
-            )
-            if workers == 0:
+            present = [a for a in by_position.get((building.x, building.y), []) if a.state is AgentState.AWAKE]
+            if not present:
                 continue
-            repair = REPAIR_WORK_PER_TICK * min(workers, MAX_WORKERS) * _tech_factor(settlement)
+            # BUILDER (v0.87.44): counted at BUILDER_WORK_BONUS, same
+            # shape as _advance_construction, capped alongside everyone
+            # else at MAX_WORKERS worth of total weighted labor.
+            workers = min(
+                sum(BUILDER_WORK_BONUS if a.occupation == OCCUPATION_BUILDER else 1.0 for a in present),
+                float(MAX_WORKERS),
+            )
+            repair = REPAIR_WORK_PER_TICK * workers * _tech_factor(settlement)
             building.condition = min(1.0, building.condition + repair)
             if building.condition >= REPAIR_THRESHOLD:
                 # Discrete "repair completed" count (v0.86.7) — how many
@@ -4673,12 +4721,15 @@ class Population:
         contribute surplus each tick — presence-driven like every other
         mechanic here, not a hauling/inventory system. See
         docs/DECISIONS.md, D7. A full granary sells the surplus instead of
-        wasting it (D10)."""
+        wasting it (D10). v0.87.44: a present BAKER counts as
+        `OCCUPATION_STAFF_BONUS` contributors instead of 1 (see
+        `occupation_staff_weight`)."""
         for building in settlement.buildings:
             if building.kind is not BuildingKind.GRANARY or building.stage is not BuildingStage.STANDING:
                 continue
             contributors = sum(
-                1 for a in by_position.get((building.x, building.y), [])
+                occupation_staff_weight(a, OCCUPATION_BAKER, True)
+                for a in by_position.get((building.x, building.y), [])
                 if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
             )
             if contributors == 0:
@@ -4718,8 +4769,13 @@ class Population:
                 continue
             if building.stored_food >= capacity:
                 continue
+            # FISHERMAN (v0.87.44) staff-weights only at HATCHERY, not
+            # PASTURE — a fisherman's occupation applies to fish stocks,
+            # not herded livestock.
+            matching_occupation = OCCUPATION_FISHERMAN if building.kind is BuildingKind.HATCHERY else None
             tenders = sum(
-                1 for a in by_position.get((building.x, building.y), [])
+                occupation_staff_weight(a, matching_occupation, True) if matching_occupation else 1.0
+                for a in by_position.get((building.x, building.y), [])
                 if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
             )
             yield_amount = (passive + tended * min(tenders, MAX_WORKERS)) * _tech_factor(settlement)
@@ -4734,7 +4790,8 @@ class Population:
             if building.kind is not BuildingKind.WORKSHOP or building.stage is not BuildingStage.STANDING:
                 continue
             staff = sum(
-                1 for a in by_position.get((building.x, building.y), [])
+                occupation_staff_weight(a, OCCUPATION_BUSINESSMAN, True)
+                for a in by_position.get((building.x, building.y), [])
                 if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
             )
             if staff == 0:
@@ -4911,7 +4968,8 @@ class Population:
             if building.kind is not BuildingKind.FACTORY or building.stage is not BuildingStage.STANDING:
                 continue
             staff = sum(
-                1 for a in by_position.get((building.x, building.y), [])
+                occupation_staff_weight(a, OCCUPATION_BUSINESSMAN, True)
+                for a in by_position.get((building.x, building.y), [])
                 if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
             )
             if staff == 0:
@@ -4929,7 +4987,8 @@ class Population:
             if building.kind is not BuildingKind.DOCK or building.stage is not BuildingStage.STANDING:
                 continue
             staff = sum(
-                1 for a in by_position.get((building.x, building.y), [])
+                occupation_staff_weight(a, OCCUPATION_BUSINESSMAN, True)
+                for a in by_position.get((building.x, building.y), [])
                 if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
             )
             if staff == 0:
@@ -4946,7 +5005,8 @@ class Population:
             if building.kind is not BuildingKind.OIL_RIG or building.stage is not BuildingStage.STANDING:
                 continue
             staff = sum(
-                1 for a in by_position.get((building.x, building.y), [])
+                occupation_staff_weight(a, OCCUPATION_BUSINESSMAN, True)
+                for a in by_position.get((building.x, building.y), [])
                 if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
             )
             if staff == 0:
@@ -4954,6 +5014,60 @@ class Population:
             income = OIL_RIG_INCOME_PER_TICK * staff * _tech_factor(settlement)
             if settlement.has_power_plant():
                 income *= POWER_GRID_INDUSTRY_MULTIPLIER
+            settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
+
+    @classmethod
+    def _maybe_assign_occupations(cls, settlement: Settlement, members: list[Agent]) -> None:
+        """v0.87.44 jobs/economy batch: every mature, healthy, still-
+        occupationless member of `settlement` gets assigned whichever
+        occupation the settlement currently has the fewest of (MAYOR
+        capped at one living holder) — deterministic, not LLM-authored
+        (see occupations.py's module docstring for why: an LLM call per
+        assignment would blow the per-agent LLM-volume budget). Keeps a
+        town's occupation mix roughly proportionate as it grows, rather
+        than every newly-mature agent independently rolling the same
+        occupation. Cheap in the common case (a settlement with nobody
+        newly eligible this tick does one list comprehension and
+        returns) — the full count/assign pass only runs once a real
+        candidate exists."""
+        eligible = [
+            a for a in members
+            if not a.occupation and cls._is_mature(a) and cls._is_healthy(a)
+        ]
+        if not eligible:
+            return
+        counts = {occ: 0 for occ in ALL_OCCUPATIONS}
+        for a in members:
+            if a.occupation in counts:
+                counts[a.occupation] += 1
+        for a in eligible:
+            candidates = [
+                occ for occ in ALL_OCCUPATIONS
+                if occ != OCCUPATION_MAYOR or counts[OCCUPATION_MAYOR] == 0
+            ]
+            chosen = min(candidates, key=lambda o: counts[o])
+            a.occupation = chosen
+            counts[chosen] += 1
+
+    @staticmethod
+    def _maybe_run_market_workers(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:
+        """A BANKER present at a standing MARKET generates currency
+        directly (BANKER_INCOME_PER_TICK per banker) — distinct from
+        SHOPKEEPER, who instead negotiates a better caravan-trade bonus
+        (see `_maybe_schedule_caravan`'s call site in engine.py, since
+        that's a monthly event-time effect, not a per-tick one). Same
+        presence-driven shape as `_maybe_run_workshops`."""
+        for building in settlement.buildings:
+            if building.kind is not BuildingKind.MARKET or building.stage is not BuildingStage.STANDING:
+                continue
+            bankers = sum(
+                1 for a in by_position.get((building.x, building.y), [])
+                if a.occupation == OCCUPATION_BANKER
+                and a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
+            )
+            if bankers == 0:
+                continue
+            income = BANKER_INCOME_PER_TICK * bankers * _tech_factor(settlement)
             settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
 
     @staticmethod
@@ -4969,7 +5083,10 @@ class Population:
                 continue
             if building.stage is not BuildingStage.STANDING:
                 continue
-            staff = sum(1 for a in by_position.get((building.x, building.y), []) if a.state is AgentState.AWAKE)
+            staff = sum(
+                occupation_staff_weight(a, OCCUPATION_TEACHER, True)
+                for a in by_position.get((building.x, building.y), []) if a.state is AgentState.AWAKE
+            )
             if staff == 0:
                 continue
             multiplier = UNIVERSITY_EDUCATION_MULTIPLIER if building.kind is BuildingKind.UNIVERSITY else 1.0
@@ -6327,6 +6444,11 @@ class Population:
                     and shrine.stage is BuildingStage.STANDING
                 ):
                     boost *= SHRINE_FESTIVAL_BOOST_MULTIPLIER
+                    # PRIEST (v0.87.44): a priest presiding over a shrine
+                    # gathering deepens it further — occupation-based,
+                    # stacks with the shrine's own flat boost.
+                    if any(a.occupation == OCCUPATION_PRIEST for a in group):
+                        boost *= PRIEST_RITUAL_BOOST_MULTIPLIER
             for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
                 a.relationships[b.id] = clamp(a.relationships.get(b.id, 0.0) + boost, -1.0, 1.0)
                 b.relationships[a.id] = clamp(b.relationships.get(a.id, 0.0) + boost, -1.0, 1.0)
@@ -6394,6 +6516,10 @@ class Population:
         )
         sick_count = sum(1 for a in self.agents if a.sick_ticks > 0)
         immune_count = sum(1 for a in self.agents if a.immune_ticks > 0)
+        occupation_counts: dict[str, int] = {}
+        for a in self.agents:
+            if a.occupation:
+                occupation_counts[a.occupation] = occupation_counts.get(a.occupation, 0) + 1
 
         return {
             "total": total,
@@ -6412,6 +6538,7 @@ class Population:
             "avg_personal_food": round(avg_personal_food, 3),
             "sick_count": sick_count,
             "immune_count": immune_count,
+            "occupation_counts": occupation_counts,
             "carrying_capacity": round(self.last_carrying_capacity, 1),
             "avg_farming_skill": round(
                 sum(a.skills.get(SKILL_FARMING, 0.0) for a in self.agents) / total, 3

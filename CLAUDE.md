@@ -409,6 +409,28 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.44)
+
+Phase 4 of the multi-part live-report batch (see v0.87.41's plan): a
+real jobs/occupations system, deep per explicit user decision
+(occupation gates mechanical behavior, not a label). New `agents/
+occupations.py`: `Agent.occupation` (plain string field, not native-
+store-backed) plus ten named occupations (baker/builder/banker/
+teacher/priest/mayor/fisherman/farmer/shopkeeper/businessman).
+Deterministic assignment (`Population._maybe_assign_occupations`) —
+every mature, healthy, occupationless agent gets whichever occupation
+the settlement has fewest of, MAYOR capped at one — not LLM-authored
+(would blow the per-agent LLM-volume budget). Each occupation reuses
+an existing presence-driven building mechanic: staff-weighted
+production bonus at a matching building (baker/teacher/fisherman/
+businessman), a new MARKET currency-income job (banker) and caravan-
+trade bonus (shopkeeper), a direct work-rate bonus (builder) or yield
+bonus (farmer/fisherman), a festival-boost stack (priest), and a
+`carrying_capacity` coordination nudge (mayor). Full UI pass: NPC
+inspector subtitle + new "Occupations" stat tile. Verified via a
+direct smoke test, a 12,000-tick soak, `scripts/verify_native_soak.py`
+byte-identical.
+
 ## Current state (v0.87.43)
 
 Phase 3 of the multi-part live-report batch (see v0.87.41's plan):

@@ -4,6 +4,59 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.44] — Occupations: real jobs that drive the economy
+
+Phase 4 of the multi-part live-report batch (see v0.87.41): "add proper
+jobs that npcs can take up and drive economy like baker, builder,
+banker, teacher, priests, mayor, fisherman, farmer, shopkeeper,
+businessman." Chosen depth (explicit user decision): occupation gates
+real mechanical behavior, not a cosmetic label.
+
+New `agents/occupations.py`: `Agent.occupation` (a new plain string
+field, added the same way `mind`/`voice` were — not one of the 12
+native-store-backed scalars, so no C++ port coordination needed), all
+ten named occupations, and a shared `occupation_staff_weight` helper.
+Deliberately deterministic assignment (`Population._maybe_assign_
+occupations`), not LLM-authored: an LLM call per assignment would
+violate the project's core-cast LLM-volume budget (this fires for
+every mature agent, not just the core cast). Every mature, healthy,
+still-occupationless agent gets whichever occupation their settlement
+currently has fewest of — MAYOR capped at one living holder — keeping
+the mix roughly proportionate as a town grows.
+
+Each occupation reuses an EXISTING presence-driven building mechanic
+rather than inventing ten bespoke systems:
+- BAKER: staff-weighted at GRANARY deposits (OCCUPATION_STAFF_BONUS).
+- TEACHER: staff-weighted at SCHOOL/UNIVERSITY education gain.
+- FISHERMAN: staff-weighted at HATCHERY tending, plus a direct wild-fish
+  catch bonus in `_maybe_forage`.
+- BUSINESSMAN: staff-weighted at WORKSHOP/FACTORY/DOCK/OIL_RIG income.
+- BANKER: new `_maybe_run_market_workers` — direct currency income at a
+  standing MARKET (financial work, distinct from SHOPKEEPER).
+- SHOPKEEPER: a real caravan-trade-yield bonus when present at MARKET
+  during a caravan visit (`_maybe_schedule_caravan`'s call site,
+  engine.py) — stacks with MARKET's own flat multiplier.
+- BUILDER: a direct work-rate bonus (not staff-weighted headcount) in
+  both `_advance_construction` and `_maybe_repair`.
+- FARMER: a direct harvest-yield bonus in `_maybe_forage`, additive to
+  the existing SKILL_FARMING skill bonus.
+- PRIEST: deepens a SHRINE festival gathering's relationship boost when
+  presiding (`Population.hold_festival`).
+- MAYOR: a small, bounded boost to `carrying_capacity`'s coordination
+  term (real dedicated leadership on top of whatever COUNCIL's own
+  composition provides).
+
+UI surfacing: NPC inspector subtitle shows occupation; new "Occupations"
+settlement-wide stat tile (distribution + tooltip explaining the
+mechanic).
+
+Verified: direct smoke test for `_maybe_assign_occupations` (proportional
+distribution, mayor capped at 1), a 12,000-tick engine soak (confirmed
+occupations assign and stay balanced as population grew 12->48, no
+crashes), `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical — no native module touched (occupation lives entirely in
+plain Python attributes/logic).
+
 ## [0.87.43] — Era-scaled infrastructure: paved roads, denser housing
 
 Phase 3 of the multi-part live-report batch (see v0.87.41): "improve

@@ -1502,6 +1502,7 @@ class Agent:
         core_memories: list[str] | None = None,
         core_memory_salience: list[float] | None = None,
         standing_penalty: float = 0.0,
+        occupation: str = "",
     ) -> None:
         self.id = id
         self.name = name
@@ -1607,6 +1608,14 @@ class Agent:
         # for dialogue/letters, never mechanically consumed — the point
         # is a reader recognizing who's talking before the name.
         self.voice: str = voice
+        # occupation: v0.87.44 jobs/economy batch — a real profession
+        # (baker/builder/banker/teacher/priest/mayor/fisherman/farmer/
+        # shopkeeper/businessman, see agents/occupations.py) that gates
+        # actual mechanical bonuses at the matching building, not a
+        # cosmetic label. "" until deterministically assigned (see
+        # Population._maybe_assign_occupation) — a newborn/migrant is
+        # occupationless until old enough and a settlement need exists.
+        self.occupation: str = occupation
         # skills: procedural teachable know-how, name -> proficiency 0..1
         # (SKILL_FARMING/CONSTRUCTION/MEDICINE) — distinct from beliefs.
         self.skills: dict[str, float] = {} if skills is None else skills
@@ -1931,6 +1940,7 @@ class Agent:
             "lessons": list(self.lessons),
             "mind": self.mind,
             "voice": self.voice,
+            "occupation": self.occupation,
             "skills": {k: round(v, 4) for k, v in self.skills.items()},
             "traits": {k: round(v, 4) for k, v in self.traits.items()},
             "beliefs": list(self.beliefs),
@@ -2002,6 +2012,7 @@ class Agent:
             lessons=list(data.get("lessons", [])),
             mind=data.get("mind", ""),
             voice=data.get("voice", ""),
+            occupation=data.get("occupation", ""),
             skills=dict(data.get("skills", {})),
             traits=dict(data.get("traits", {})),
             beliefs=list(data.get("beliefs", [])),

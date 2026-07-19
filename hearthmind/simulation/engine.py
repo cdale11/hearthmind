@@ -47,6 +47,7 @@ from hearthmind.agents.agent import (
     TRAIT_SOCIABILITY,
     TRIGGERED_COGNITION_COOLDOWN_TICKS,
     AgentGoal,
+    AgentState,
     _overlap_tokens,
     describe_emotion,
     describe_traits,
@@ -90,6 +91,10 @@ from hearthmind.agents.population import (
     _pending_memory_evictions,
     _remember,
     _walkable_tiles,
+)
+from hearthmind.agents.occupations import (
+    OCCUPATION_SHOPKEEPER,
+    SHOPKEEPER_CARAVAN_YIELD_BONUS,
 )
 from hearthmind.settlement.buildings import (
     CULTURE_LIST_MAX_STORED,
@@ -3687,10 +3692,24 @@ class SimulationEngine:
         currency_fraction = (currency_delta - currency_lo) / (currency_hi - currency_lo)
         materials_delta = hi - currency_fraction * (hi - lo)
         # A standing MARKET gets better terms on both sides of the trade
-        # — the direct payoff for having built one.
+        # — the direct payoff for having built one. A SHOPKEEPER
+        # physically present there when the caravan visits negotiates a
+        # further real bonus (v0.87.44 occupations batch) — occupation-
+        # based, stacks with the market's own flat multiplier.
         if settlement.has_market():
             currency_delta *= MARKET_CARAVAN_YIELD_MULTIPLIER
             materials_delta *= MARKET_CARAVAN_YIELD_MULTIPLIER
+            market = next(
+                (b for b in settlement.buildings if b.kind is BuildingKind.MARKET and b.stage is BuildingStage.STANDING),
+                None,
+            )
+            if market is not None and any(
+                a.occupation == OCCUPATION_SHOPKEEPER and a.x == market.x and a.y == market.y
+                and a.state is AgentState.AWAKE
+                for a in self.world.population.agents
+            ):
+                currency_delta *= 1.0 + SHOPKEEPER_CARAVAN_YIELD_BONUS
+                materials_delta *= 1.0 + SHOPKEEPER_CARAVAN_YIELD_BONUS
         settlement.currency = max(0.0, min(CURRENCY_CAPACITY, settlement.currency + currency_delta))
         settlement.materials = max(0.0, min(MATERIALS_CAPACITY, settlement.materials + materials_delta))
 

@@ -2204,7 +2204,7 @@ function renderNpcInspector() {
 
   npcContent.innerHTML = `
     <h3>${agent.name}${agent.is_core ? ' <span class="core-badge" title="LLM core cast: goals and dialogue are model-authored, not the deterministic fallback">▲ core</span>' : ""}</h3>
-    <div class="npc-subtitle">${agent.state}, age ${agent.age_ticks}</div>
+    <div class="npc-subtitle">${agent.state}, age ${agent.age_ticks}${agent.occupation ? ` · ${agent.occupation.charAt(0).toUpperCase() + agent.occupation.slice(1)}` : ""}</div>
     <button class="npc-follow-btn" data-follow="${agent.id}" data-follow-name="${agent.name}">⌖ follow on map</button>
     ${agent.mind ? `<div class="npc-section"><h4>At their core</h4><div class="npc-goal-reason">${agent.mind}</div></div>` : ""}
     <div class="npc-section">
@@ -2550,6 +2550,19 @@ function renderStats(summary) {
     ["__section__", "Population & society"],
     ["Population", `${p.total} (${p.awake} awake, ${p.resting} resting)`, null],
     ["Avg hunger / energy", `${p.avg_hunger.toFixed(2)} / ${p.avg_energy.toFixed(2)}`, null],
+    [
+      "Occupations",
+      (() => {
+        const oc = p.occupation_counts || {};
+        const entries = Object.entries(oc).sort((a, b) => b[1] - a[1]);
+        return entries.length
+          ? entries.map(([occ, n]) => `${n} ${occ}${n === 1 ? "" : "s"}`).join(", ")
+          : "none assigned yet";
+      })(),
+      "Real professions (baker/builder/banker/teacher/priest/mayor/fisherman/farmer/shopkeeper/businessman) — a mature, " +
+      "healthy villager without one is assigned whichever the settlement currently has fewest of (mayor capped at one). " +
+      "Each gates a real mechanical bonus at their matching building (staffing weight, extra income, or a direct yield boost).",
+    ],
     [
       "Deaths", `${p.deaths_starvation} starvation, ${p.deaths_old_age} old age, ${p.deaths_predator || 0} predator`,
       null,
