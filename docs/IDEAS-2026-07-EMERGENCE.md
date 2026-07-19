@@ -495,6 +495,81 @@ fix that.
   retrieval-hit stats to `/diagnostics`. The measurement substrate
   every §7 item above should be judged by.
 
+## 8. Explicit user-flagged ideas (2026-07-19) — not scoped, not started
+
+Recorded verbatim-in-spirit per explicit user request ("add as an
+action item for later") — none of this has been designed in detail,
+scoped against existing machinery, or green-lit for implementation.
+Filed the same way the vision doc's own deferred items are: tracked,
+not forgotten, acted on only with future explicit direction.
+
+- [ ] **Fine-tune the local model on Hearthmind's own generated data
+  (LoRA/QLoRA).** `gemma-4-e2b-it` (or whatever `Config.llm_model`
+  currently is) is a small general-purpose model; every prompt/
+  response pair this project has ever sent it is already latent in
+  `llm_prompt_stats`-adjacent telemetry but not durably stored for
+  this purpose. Idea: persist a training corpus of real (prompt,
+  completion) pairs generated during actual play, optionally paired
+  with a stronger reference model's (Claude/GPT) completion for the
+  *same* prompt as a quality target, then run a parameter-efficient
+  fine-tune (LoRA/QLoRA — cheap enough to redo per-model-version)
+  specifically toward Hearthmind's own prompt shapes (strict-JSON
+  cognition/dialogue/belief schemas, this project's specific system
+  prompts) rather than a generic instruction-tune. **Human-supervised
+  curation** as the explicit quality gate: a reviewer inspects the
+  top 5% (by some quality proxy — a reference model's own judged
+  score, or downstream signal like "did this fallback ever trigger"),
+  the worst 5% (to find and fix systematic failure modes, not just
+  reward good answers), and a random 1% (an unbiased spot-check the
+  other two bands can't provide) before any batch enters a training
+  run — never a fully automated pipeline. Genuinely open questions
+  before this could be scoped: where the corpus lives (a new SQLite
+  table? a separate export?), retention/size, whether a "reference
+  model" pass is itself worth its own cost, and how a fine-tuned
+  checkpoint gets validated against a regression suite before
+  replacing the live model. Ties into the whole "cognition
+  infrastructure" theme of §7 but is a training-pipeline concern, not
+  a runtime one — doesn't touch `SimulationEngine` at all.
+
+- [ ] **NPC activity and environment reshape geography, further than
+  today.** CLAUDE.md's own standing design priority already says
+  "history should become physically visible; NPC activity should
+  reshape the world over the long run," and `world/terrain_
+  evolution.py` already has deforestation/reclaim mechanics — this is
+  an explicit ask to go further: mining should visibly pit/scar hills
+  over time (not just deplete an invisible `ResourceNode.amount`),
+  sustained heavy settlement activity should measurably alter local
+  terrain (worn paths already exist via `world/roads.py`; extend the
+  same idea to quarrying, deforestation scars, riverbank erosion from
+  traffic), and disasters/climate should interact with NPC-caused
+  scarring (a mined-out hillside floods differently than an intact
+  one). Pairs directly with §6's "spatial weather" and "soil
+  fertility" items — same substrate, same R7 C++-first discipline —
+  and with §5's ruins mode (a mined-out predecessor settlement's scars
+  are exactly the kind of "findable" history that mode is designed to
+  leave behind).
+
+- [ ] **Expanded mineral/material economy — gold, iron, diamonds,
+  silicon, etc. (Minecraft-like depth).** Today `ResourceKind.ORE`
+  (`world/resources.py`) is a single undifferentiated mineral feeding
+  `Settlement.materials` via the GATHER goal — real depth (distinct
+  ore types with different rarity/biome affinity/tech-tier gating,
+  feeding distinct crafted-good chains the way H4's tools/medicine
+  supply chain already works) is unbuilt. The explicit framing given:
+  **NPCs should believe they are living in a real world**, not a
+  thin resource sim — richer materials existing, being sought after,
+  fought over, and hoarded is in service of that belief, not just
+  more numbers. Whatever shape this takes should extend the existing
+  `ResourceGrid`/`Settlement.materials`/H4 supply-chain machinery
+  (new `ResourceKind` values, new biome affinities, new crafted-good
+  recipes) rather than building a parallel system — same "extend,
+  don't duplicate" discipline as everything else in this doc. Also
+  genuinely open: how deep the crafting tree should go before it
+  competes with LLM-call budget for attention, and whether rarer
+  materials should get their own belief/dispute/theft hooks (a
+  diamond vein is a much more interesting thing to fight over than
+  undifferentiated "materials").
+
 ---
 
 ## Standing tests (unchanged, applied to all of the above)

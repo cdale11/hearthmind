@@ -234,8 +234,19 @@ legibility, substrate); §7 is specifically the wishlist's real gaps
 (adaptive retrieval, causal memory, episodic planning, emergent
 leadership, per-agent voice, knowledge lifecycle, laws/customs,
 institution objectives, dialogue novelty memory — the llama-server
-`/slots`/`/metrics` item there shipped in v0.87.6, see below). Work
-from it only on future explicit direction, same as this vision doc.
+`/slots`/`/metrics` item there shipped in v0.87.6, see below); §8
+(added v0.87.22, explicit user request) tracks three not-yet-scoped
+ideas outside the doc's original outside-review shape: fine-tuning the
+local model (LoRA/QLoRA) on Hearthmind's own generated prompt/
+completion data with human-supervised top-5%/worst-5%/random-1%
+curation before any training batch; NPC/environment activity
+reshaping geography further (visible mining scars, quarrying,
+settlement-driven terrain change beyond the existing deforestation/
+road-wear mechanics); and an expanded mineral/material economy (gold,
+iron, diamonds, silicon, etc., extending the single undifferentiated
+`ResourceKind.ORE`) explicitly in service of NPCs believing they live
+in a real world, not just more numbers. Work from it only on future
+explicit direction, same as this vision doc.
 
 ## LLM as the town's brain
 
