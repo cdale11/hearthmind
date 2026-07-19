@@ -182,6 +182,39 @@ class World:
     NPCs — this is the consciousness's model of the OUTSIDE hand, not a
     village belief about anything in-world. Capped at
     CONSCIOUSNESS_PLAYER_MODEL_MAX."""
+    observer_attention: dict = field(default_factory=dict)
+    """§4 "Observer attention as a signal into the Town Consciousness"
+    (docs/IDEAS-2026-07-EMERGENCE.md): `{"agent_view_counts":
+    {agent_id: count}, "last_agent_id": int|None, "last_seen_tick":
+    int}` — a small, bounded record of which agents the observer has
+    actually inspected in the UI (`POST /observer/attention`, fired
+    from the NPC inspector on open), never anything about the observer
+    themselves. `agent_view_counts` is capped at `OBSERVER_ATTENTION_
+    MAX_TRACKED` entries (least-viewed evicted) so this can never grow
+    with session length. Read (never written) by the monthly
+    consciousness job as one more grounding fact, and by the omen/
+    false-memory intervention mechanisms as a bias toward the
+    observer's own favorite/most-recently-inspected agent — the
+    existing intervention menu gaining a genuinely observer-aware
+    target, still always with a mundane explanation available.
+    Privacy note: entirely local, stored only in this world's own save
+    file, never transmitted anywhere else."""
+    consciousness_grudge_ledger: float = 0.0
+    """§4 "The consciousness keeps a grudge ledger about interventions"
+    (docs/IDEAS-2026-07-EMERGENCE.md): -1..1, nudged (never randomly
+    walked — driven entirely by real intervention timing) each time a
+    genuine player `/intervene/*` call lands, based on whether the
+    settlement was visibly struggling at that moment (`_apply_
+    intervention`'s `_intervention_hardship_context` check) — a nudge
+    landing during real hardship reads as help and drifts this warm;
+    one landing during calm/plenty reads as meddling without cause and
+    drifts it cold. Distinct from `Settlement.player_standing` (Phase
+    G's own separate bounded random walk, a settlement-level "feeling
+    nudged" signal) — this is the CONSCIOUSNESS's own private ledger,
+    world-scoped, folded into its monthly prompt as one more grounding
+    fact so its own intervention choices may organically drift warmer
+    or colder toward the player across months, legible only through
+    pattern, never stated outright."""
     consciousness_intervention_log: list[dict] = field(default_factory=list)
     """Rolling log of what the monthly job has actually done
     (`{"kind": str, "detail": str, "tick": int}`, "none" entries included
@@ -499,6 +532,12 @@ class World:
                 "objectives": list(self.consciousness_objectives),
                 "player_model": list(self.consciousness_player_model),
                 "interventions": list(self.consciousness_intervention_log),
+                "grudge_ledger": round(self.consciousness_grudge_ledger, 3),
+            },
+            "observer_attention": {
+                "tracked_agents": len(self.observer_attention.get("agent_view_counts", {})),
+                "last_agent_id": self.observer_attention.get("last_agent_id"),
+                "last_seen_tick": self.observer_attention.get("last_seen_tick", -1),
             },
         }
 
@@ -547,6 +586,12 @@ class World:
             "chronicler_answer_tick": self.chronicler_answer_tick,
             # chronicler_pending: same not-persisted reasoning as
             # sim_summary_pending above.
+            "observer_attention": {
+                "agent_view_counts": {str(k): v for k, v in self.observer_attention.get("agent_view_counts", {}).items()},
+                "last_agent_id": self.observer_attention.get("last_agent_id"),
+                "last_seen_tick": self.observer_attention.get("last_seen_tick", -1),
+            },
+            "consciousness_grudge_ledger": self.consciousness_grudge_ledger,
             "consciousness_memory": list(self.consciousness_memory),
             "consciousness_personality": dict(self.consciousness_personality),
             "consciousness_objectives": list(self.consciousness_objectives),
@@ -686,6 +731,15 @@ class World:
             chronicler_question=data.get("chronicler_question", ""),
             chronicler_answer=data.get("chronicler_answer", ""),
             chronicler_answer_tick=data.get("chronicler_answer_tick", -1),
+            observer_attention=(
+                {
+                    "agent_view_counts": {int(k): v for k, v in data["observer_attention"].get("agent_view_counts", {}).items()},
+                    "last_agent_id": data["observer_attention"].get("last_agent_id"),
+                    "last_seen_tick": data["observer_attention"].get("last_seen_tick", -1),
+                }
+                if data.get("observer_attention") else {}
+            ),
+            consciousness_grudge_ledger=data.get("consciousness_grudge_ledger", 0.0),
             consciousness_memory=list(data.get("consciousness_memory", [])),
             consciousness_personality=dict(data.get("consciousness_personality", {})),
             consciousness_objectives=list(data.get("consciousness_objectives", [])),

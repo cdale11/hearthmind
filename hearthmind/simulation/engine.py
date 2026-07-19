@@ -64,7 +64,7 @@ from hearthmind.llm import (
     diplomacy, laws, letters, noncore_nudge,
 )
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
-from hearthmind.llm.cognition import SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
+from hearthmind.llm.cognition import SURVIVAL_HUNGER_THRESHOLD, SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import (
     agent_memory_log_count, consciousness_log_count, events_by_category, history_events, load_latest_snapshot,
@@ -261,6 +261,25 @@ less deniable story. A genuinely mechanical intervention (real
 inventory quantities move, capped by the recipient's own capacity),
 not narration-only — matching the deterministic-engine-provides-
 reality design priority even for a Phase G-tier nudge."""
+
+OBSERVER_ATTENTION_MAX_TRACKED = 25
+"""§4 "observer attention as a signal into the Town Consciousness"
+(docs/IDEAS-2026-07-EMERGENCE.md): cap on `World.observer_attention`'s
+`agent_view_counts` dict — bounds it regardless of how many distinct
+agents get inspected over a long session; the least-viewed entry is
+evicted to make room for a newly-inspected agent once full."""
+
+CONSCIOUSNESS_GRUDGE_HARDSHIP_DELTA = 0.08
+CONSCIOUSNESS_GRUDGE_CALM_DELTA = 0.04
+"""§4 "the consciousness keeps a grudge ledger" — how far each real
+player intervention nudges `World.consciousness_grudge_ledger`
+(-1..1). Landing during a hardship context reads as help and moves it
+warm by the larger delta; landing during a calm/plenty context reads
+as meddling without cause and moves it cold by the smaller delta —
+asymmetric on purpose (helping when it counts should register more
+than being merely intrusive), same "easier to lose than earn" shape
+`Agent.trust` already uses elsewhere in this project. See
+`SimulationEngine._intervention_hardship_context`."""
 
 PROMPT_RECENT_EVENTS = 40
 """How many recent events reach a settlement-level LLM prompt
@@ -1950,6 +1969,7 @@ class SimulationEngine:
             # §3 "the observer enters the theology": see the settlement_
             # resources branch below for why this is recorded.
             self._settlement_by_id(agent.settlement_id).last_intervention_tick = self.world.clock.tick_count
+            self._nudge_consciousness_grudge()
         elif kind == "settlement_resources":
             settlement = self._settlement_by_id(item.get("settlement_id", self.world.settlement.id))
             materials_delta = float(item.get("materials", 0.0))
@@ -1971,6 +1991,7 @@ class SimulationEngine:
             # (`weather_nudge`/`temperament_nudge`/`false_memory`,
             # llm/consciousness.py) — only genuine `/intervene/*` calls.
             settlement.last_intervention_tick = self.world.clock.tick_count
+            self._nudge_consciousness_grudge()
         elif kind == "weather":
             weather = self.world.weather
             if "temperature_c" in item:
@@ -1985,6 +2006,7 @@ class SimulationEngine:
                 "intervention", f"The weather shifted unnaturally — an outside hand nudged it to {weather.describe()}.",
             )
             self.world.settlement.last_intervention_tick = self.world.clock.tick_count
+            self._nudge_consciousness_grudge()
         elif kind == "town_influence":
             text = str(item.get("text", "")).strip()[:200]
             if text:
@@ -2007,10 +2029,98 @@ class SimulationEngine:
                 noun = target.name or "the village"
                 self._log("intervention", f"A whisper reached {noun}'s ear: \"{text}\"")
                 target.last_intervention_tick = self.world.clock.tick_count
+                self._nudge_consciousness_grudge()
         elif kind == "request_summary":
             self._schedule_summary()
         elif kind == "ask_chronicler":
             self._schedule_chronicler_answer(str(item.get("question", "")), item.get("settlement_id"))
+        elif kind == "observer_attention":
+            self._record_observer_attention(item.get("agent_id"))
+
+    def _record_observer_attention(self, agent_id) -> None:
+        """§4 "observer attention as a signal into the Town
+        Consciousness" (docs/IDEAS-2026-07-EMERGENCE.md): applied from
+        `POST /observer/attention`, fired by the frontend's NPC
+        inspector on open — zero LLM cost, a plain state update through
+        the same enqueue-now/apply-next-tick seam every other
+        intervention uses. `agent_id` need not currently resolve to a
+        living agent (a since-departed agent can still legitimately be
+        "the observer's favorite" historically); only the increment/
+        eviction bookkeeping happens here."""
+        try:
+            agent_id = int(agent_id)
+        except (TypeError, ValueError):
+            return
+        attention = self.world.observer_attention
+        if not attention:
+            attention = {"agent_view_counts": {}, "last_agent_id": None, "last_seen_tick": -1}
+        counts = attention.setdefault("agent_view_counts", {})
+        counts[agent_id] = counts.get(agent_id, 0) + 1
+        if len(counts) > OBSERVER_ATTENTION_MAX_TRACKED:
+            least_viewed = min(counts, key=lambda aid: counts[aid])
+            if least_viewed != agent_id:
+                del counts[least_viewed]
+        attention["last_agent_id"] = agent_id
+        attention["last_seen_tick"] = self.world.clock.tick_count
+        self.world.observer_attention = attention
+
+    def _observer_favorite_agent(self) -> "Agent | None":
+        """Most-inspected agent who is both still alive and still a
+        core-cast member (only core-cast agents are LLM-authored
+        subjects of omens/false-memory interventions in the first
+        place) — or None if the observer has never inspected anyone,
+        or their favorite(s) have all since died/aged out of the core
+        cast. Falls back to the most-RECENTLY inspected living core
+        agent if the top-count one no longer qualifies, so a long-lived
+        favorite doesn't permanently lock out a fresher one."""
+        attention = self.world.observer_attention
+        counts = attention.get("agent_view_counts", {}) if attention else {}
+        if not counts:
+            return None
+        core_ids = self.world.population.core_agent_ids
+        by_id = {a.id: a for a in self.world.population.agents}
+        ranked = sorted(counts, key=lambda aid: counts[aid], reverse=True)
+        for aid in ranked:
+            agent = by_id.get(aid)
+            if agent is not None and aid in core_ids:
+                return agent
+        last_id = attention.get("last_agent_id")
+        agent = by_id.get(last_id) if last_id is not None else None
+        return agent if agent is not None and last_id in core_ids else None
+
+    def _intervention_hardship_context(self) -> bool:
+        """§4 "the consciousness keeps a grudge ledger" — a cheap,
+        deterministic read of whether the settlement is visibly
+        struggling RIGHT NOW: meaningfully hungry population, or a
+        death/illness/disaster this very tick (`World.last_life_events`,
+        already computed for the tick's own event log — no extra
+        scan). Reuses `SURVIVAL_HUNGER_THRESHOLD`'s existing "genuinely
+        struggling" bar rather than inventing a second hunger cutoff."""
+        population = self.world.population
+        if population.agents:
+            avg_hunger = sum(a.hunger for a in population.agents) / len(population.agents)
+            if avg_hunger > SURVIVAL_HUNGER_THRESHOLD:
+                return True
+        hardship_categories = {"death", "illness"} | _PROPHECY_HARDSHIP_CATEGORIES
+        return any(category in hardship_categories for category, _ in self.world.last_life_events)
+
+    def _nudge_consciousness_grudge(self) -> None:
+        """§4 "the consciousness keeps a grudge ledger about
+        interventions" (docs/IDEAS-2026-07-EMERGENCE.md): called from
+        every genuine player-originated `/intervene/*` branch (never a
+        consciousness-authored intervention, which would be the
+        consciousness grading its own homework). A nudge landing during
+        real hardship reads as help and drifts `World.consciousness_
+        grudge_ledger` warm; one landing during calm/plenty reads as
+        meddling without cause and drifts it cold — see the two deltas'
+        docstrings for the asymmetric magnitudes."""
+        delta = (
+            CONSCIOUSNESS_GRUDGE_HARDSHIP_DELTA if self._intervention_hardship_context()
+            else -CONSCIOUSNESS_GRUDGE_CALM_DELTA
+        )
+        self.world.consciousness_grudge_ledger = clamp(
+            self.world.consciousness_grudge_ledger + delta, -1.0, 1.0,
+        )
 
     def _schedule_due_dialogue(self) -> None:
         """Route this tick's due dialogue pairs (v0.70.0). `due_for_
@@ -2927,12 +3037,21 @@ class SimulationEngine:
         if not self.world.consciousness_personality:
             self.world.consciousness_personality = consciousness.seed_personality(self.world.config.seed)
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
+        favorite = self._observer_favorite_agent()
+        ledger = self.world.consciousness_grudge_ledger
+        grudge_text = (
+            "helpful, arriving when it was needed" if ledger > 0.3
+            else "intrusive, arriving without any real cause" if ledger < -0.3
+            else "hard to read either way"
+        )
         prompt = consciousness.build_prompt(
             target.name, self.world.consciousness_personality, self.world.consciousness_memory,
             self.world.consciousness_objectives, self.world.consciousness_player_model,
             dict(target.mood), target.temperament, self._narrative_theme_bias(target),
             target.player_standing, recent, self.world.consciousness_intervention_log,
             self._player_intervention_trend(),
+            observer_favorite_name=favorite.name if favorite is not None else "",
+            grudge_text=grudge_text,
         )
         fallback = consciousness.fallback_consciousness()
 
@@ -3034,7 +3153,16 @@ class SimulationEngine:
             ]
             if not core_ids:
                 return
-            primary = core_ids[rng.randrange(len(core_ids))]
+            # §4 "observer attention gains teeth": a real, if partial,
+            # bias toward whoever the observer watches most — only when
+            # that favorite is actually a candidate here (right
+            # settlement, still core cast); otherwise falls back to the
+            # prior uniform-random pick unchanged.
+            favorite = self._observer_favorite_agent()
+            if favorite is not None and favorite in core_ids:
+                primary = favorite
+            else:
+                primary = core_ids[rng.randrange(len(core_ids))]
             text = detail if detail else "A memory that doesn't quite fit anything that really happened."
             _remember(primary, text)
             # Emotional contagion (vision doc): the same fabricated
@@ -3786,6 +3914,15 @@ class SimulationEngine:
         council = omen_target.council()
         if council is not None and council.beliefs:
             subject_candidates.append("the council of elders")
+        # §4 "observer attention gains teeth" (docs/IDEAS-2026-07-
+        # EMERGENCE.md): the observer's favorite agent (if any, and if
+        # they belong to this settlement) is one more candidate in the
+        # same pool, participating in the existing 50%-chance/uniform-
+        # pick logic below — a real bias toward what the player
+        # actually watches, never a guaranteed override.
+        favorite = self._observer_favorite_agent()
+        if favorite is not None and favorite.settlement_id == omen_target.id and favorite.name not in subject_candidates:
+            subject_candidates.append(favorite.name)
         if subject_candidates and _namespaced_roll(
             self.world.config.seed, self.world.clock.tick_count, "omen_subject_roll",
         ) < 0.5:

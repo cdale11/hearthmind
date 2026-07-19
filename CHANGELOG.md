@@ -4,6 +4,48 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.21] — §4 close-out: the watcher watched
+
+Direct follow-up per explicit user request ("Build item 4 ... stale
+tasks") — closes docs/IDEAS-2026-07-EMERGENCE.md §4's two items (Phase
+G, turned around). Also fixed a stale internal task-tracker entry
+(§7 item 7, laws/customs/taboos, marked pending despite having shipped
+in v0.87.17).
+
+**Observer attention as a signal into the Town Consciousness**: new
+`World.observer_attention` (bounded, `OBSERVER_ATTENTION_MAX_TRACKED
+=25`), fed by a new `POST /observer/attention` beacon fired from the
+frontend's NPC inspector on open — zero LLM cost, applied through the
+existing intervention seam. `SimulationEngine._observer_favorite_
+agent` resolves the most-inspected living core-cast agent, folded into
+the monthly consciousness prompt as one plain fact. Real teeth: the
+favorite agent joins `_maybe_schedule_omen`'s existing subject-pick
+pool, and `false_memory`'s target preferentially resolves to the
+favorite when eligible — scoped to these two of the idea's three named
+examples (dream-symbol/misplaced-object targeting flagged as a
+trivial next increment via the same helper, not silently dropped).
+
+**The consciousness keeps a grudge ledger**: new `World.consciousness_
+grudge_ledger` (-1..1, distinct from `Settlement.player_standing`),
+nudged warm/cold by `_nudge_consciousness_grudge` on every genuine
+player intervention depending on whether the settlement was visibly
+struggling at that moment (`_intervention_hardship_context`) —
+asymmetric deltas, help registers more than mere intrusion. Folded
+into the monthly consciousness prompt as one private banded line; the
+model's own free choice of intervention/tone then organically
+reflects it.
+
+Verified: direct production-path tests against real `_apply_
+intervention` calls (attention counter increments, bounded eviction,
+favorite-agent core-cast-only resolution, round-trip + legacy-snapshot
+defaults, grudge-ledger warm/cold nudging under forced hardship/calm
+context); a real `_maybe_schedule_consciousness` call (fake LLM
+client) confirms both new lines reach an actual built prompt.
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+no native module touched. A 20,000-tick organic engine soak (LLM
+disabled), exercising a real `observer_attention` intervention mid-run,
+completes with zero crashes.
+
 ## [0.87.20] — §3 close-out: closing meaning loops
 
 Direct follow-up per explicit user request ("Complete the item 3 of

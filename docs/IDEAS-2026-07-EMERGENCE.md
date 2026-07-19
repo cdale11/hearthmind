@@ -261,25 +261,45 @@ mostly *interpretive* — belief rarely feeds back into behavior.
 
 ## 4. The watcher watched (Phase G, turned around)
 
-- [ ] **Observer attention as a signal into the Town Consciousness.**
-  The interface already knows what the observer does: which agent is
-  inspected, which panels open, how long the tab stays connected.
-  Fold a tiny bounded summary (attention counts, favorite agent, last
-  seen) into the consciousness job's player model. Then the shipped
-  intervention menu gains teeth it already owns: omens that cluster
-  near the agent you watch most; a dream symbol seeded to *your*
-  favorite; misplaced objects where you were looking yesterday. Every
-  piece has a mundane explanation; only a returning observer would ever
-  feel it. This is the single highest-surprise-per-line item on this
-  list, and it is Phase G's thesis completed: the town isn't just a
-  character — it has noticed *you*. Privacy note: all local, all
-  in-save, document it plainly.
+- [x] **Observer attention as a signal into the Town Consciousness.**
+  Shipped v0.87.21. New `World.observer_attention`
+  (`{agent_view_counts, last_agent_id, last_seen_tick}`, capped at
+  `OBSERVER_ATTENTION_MAX_TRACKED=25`), fed by `POST /observer/
+  attention` — fired by the frontend's NPC inspector on open, applied
+  through the existing enqueue-now/apply-next-tick intervention seam,
+  zero LLM cost. `SimulationEngine._observer_favorite_agent` resolves
+  the most-inspected still-living CORE-CAST agent (falling back to the
+  most recently inspected one). Folded into the monthly consciousness
+  prompt as one plain fact ("the outside hand seems to watch X most
+  closely"). **Teeth**: the favorite agent is added as one more
+  candidate in `_maybe_schedule_omen`'s existing subject-pick pool
+  (participates in the same 50%-chance/uniform-pick logic, never a
+  guaranteed override), and `false_memory`'s core-cast target
+  preferentially resolves to the favorite when they qualify. Scoped to
+  these two of the three named examples (dream-symbol seeding and
+  misplaced-object targeting toward the favorite are natural next
+  increments, flagged not silently dropped — the mechanism generalizes
+  trivially via the same `_observer_favorite_agent()` helper). Privacy:
+  entirely local, stored only in the world's own save file, documented
+  in the field's own docstring.
 
-- [ ] **The consciousness keeps a grudge ledger about interventions.**
-  Its memory exists; give whispers/weather-meddling a valence in it
-  (helped during famine vs. toyed with during grief), so its
-  intervention choices drift warm or cold toward the player across
-  months. Player-legible only through pattern, never stated.
+- [x] **The consciousness keeps a grudge ledger about interventions.**
+  Shipped v0.87.21. New `World.consciousness_grudge_ledger` (-1..1,
+  distinct from `Settlement.player_standing`), nudged by
+  `SimulationEngine._nudge_consciousness_grudge` on every genuine
+  player `/intervene/*` call (never a consciousness-authored one) —
+  warm (`CONSCIOUSNESS_GRUDGE_HARDSHIP_DELTA`) if the settlement was
+  visibly struggling at that moment (`_intervention_hardship_context`:
+  meaningfully hungry population, or a death/illness/disaster event
+  this very tick), cold by a smaller `CONSCIOUSNESS_GRUDGE_CALM_DELTA`
+  otherwise (asymmetric — help should register more than mere
+  intrusion). Folded into the monthly consciousness prompt as one
+  private grounding line, banded into a plain-language read (helpful /
+  hard to read / intrusive) — the model's own free choice of
+  intervention/tone then organically reflects it, no separate
+  mechanism needed to make it "drift" the consciousness's behavior.
+  Player-legible only through pattern (dev-console/raw-state only, same
+  Phase G ambiguity discipline as temperament/mood/player_standing).
 
 ## 5. Making deep time legible (the always-on world's real problem)
 

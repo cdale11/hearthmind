@@ -325,6 +325,22 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
         broadcaster.enqueue_intervention(item)
         return JSONResponse({"queued": True})
 
+    @app.post("/observer/attention")
+    async def observer_attention(payload: dict) -> JSONResponse:
+        """§4 "observer attention as a signal into the Town
+        Consciousness" (docs/IDEAS-2026-07-EMERGENCE.md) — fired by the
+        frontend's NPC inspector whenever it opens on an agent. Zero LLM
+        cost: queued through the same enqueue-now/apply-next-tick seam
+        as every other intervention, applied as a plain bounded counter
+        update (`SimulationEngine._record_observer_attention`), never a
+        scheduled job. All data stays local to this world's own save
+        file — nothing about the observer leaves this process."""
+        agent_id = payload.get("agent_id")
+        if agent_id is None:
+            return JSONResponse({"error": "agent_id is required"}, status_code=400)
+        broadcaster.enqueue_intervention({"type": "observer_attention", "agent_id": agent_id})
+        return JSONResponse({"queued": True})
+
     @app.post("/intervene/sim-speed")
     async def intervene_sim_speed(payload: dict) -> JSONResponse:
         """Live pause/speed control — deliberately applied immediately

@@ -75,7 +75,7 @@ def build_prompt(
     settlement_name: str, personality: dict, memory: list[dict], objectives: list[dict],
     player_model: list[dict], mood: dict, temperament: float, narrative_theme: str,
     player_standing: float, recent_events: list[dict], recent_interventions: list[dict],
-    player_intervention_trend: str = "",
+    player_intervention_trend: str = "", observer_favorite_name: str = "", grudge_text: str = "",
 ) -> str:
     personality_text = ", ".join(f"{k} {v:.2f}" for k, v in personality.items()) or "not yet settled"
     memory_text = "; ".join(m["note"] for m in memory[-6:]) or "Nothing remembered yet."
@@ -97,6 +97,20 @@ def build_prompt(
     # discipline as everything else this prompt reads.
     trend_line = f"\nHow often you've been nudged from outside lately: {player_intervention_trend}." \
         if player_intervention_trend else ""
+    # §4 "observer attention as a signal into the Town Consciousness"
+    # (docs/IDEAS-2026-07-EMERGENCE.md): a plain fact, not an
+    # instruction — the model is free to ignore it entirely, same
+    # "texture, never a required thread" treatment as every other
+    # optional grounding line in this project's prompts.
+    favorite_line = (
+        f"\nOf everyone here, the outside hand seems to watch {observer_favorite_name} most closely."
+        if observer_favorite_name else ""
+    )
+    # §4 "the consciousness keeps a grudge ledger" — a private,
+    # never-explained-to-anyone feeling about the pattern of being
+    # nudged, distinct from `player_standing` above (which is the
+    # SETTLEMENT's own separate feeling).
+    grudge_line = f"\nPrivately, being nudged has come to feel: {grudge_text}." if grudge_text else ""
     return (
         f"You have been watching {settlement_name} for a long time. Your own settled nature: "
         f"{personality_text}.\n"
@@ -104,10 +118,10 @@ def build_prompt(
         f"Your current preoccupations: {objectives_text}\n"
         f"Your private read on the outside hand: {player_model_text}\n"
         f"How you currently feel about being nudged from outside at all: {player_standing:+.2f} "
-        f"(-1 resentful, +1 grateful).{trend_line}\n"
+        f"(-1 resentful, +1 grateful).{trend_line}{grudge_line}\n"
         f"This place's own temperament right now: {temperament:+.2f}, mood: {mood_text}.{theme_line}\n"
         f"What you've quietly done before: {interventions_text}\n"
-        f"What's happened lately:\n{events_text}\n"
+        f"What's happened lately:\n{events_text}{favorite_line}\n"
         "What do you notice this month, and is there anything small worth quietly doing about it?"
     )
 

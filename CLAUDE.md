@@ -413,6 +413,55 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.21)
+
+Direct follow-up per explicit user request ("Build item 4 and item 7
+stale tasks") — closes docs/IDEAS-2026-07-EMERGENCE.md §4's two items
+("the watcher watched," Phase G turned around) and fixes a stale
+internal task-tracker entry (§7 item 7, laws/customs/taboos, was
+marked pending despite shipping in v0.87.17).
+
+**Observer attention as a signal into the Town Consciousness**: new
+`World.observer_attention` (bounded, `OBSERVER_ATTENTION_MAX_TRACKED
+=25`), fed by `POST /observer/attention` — a zero-LLM-cost beacon the
+frontend's NPC inspector fires on open, applied through the existing
+enqueue-now/apply-next-tick intervention seam.
+`SimulationEngine._observer_favorite_agent` resolves the most-
+inspected still-living core-cast agent (falling back to most-recently-
+inspected). Folded into the monthly consciousness prompt as one plain
+fact. Real teeth on the existing intervention menu: the favorite
+agent joins `_maybe_schedule_omen`'s existing subject-pick pool
+(participates in the same 50%-chance/uniform-pick logic, never a
+guaranteed override), and `false_memory`'s core-cast target
+preferentially resolves to the favorite when eligible — scoped to two
+of the idea's three named examples; dream-symbol/misplaced-object
+targeting toward the favorite is a flagged, trivial next increment via
+the same helper. Privacy: entirely local, stays in the world's own
+save file.
+
+**The consciousness keeps a grudge ledger about interventions**: new
+`World.consciousness_grudge_ledger` (-1..1, distinct from `Settlement.
+player_standing`), nudged by `_nudge_consciousness_grudge` on every
+genuine player `/intervene/*` call — warm if the settlement was
+visibly struggling at that moment (`_intervention_hardship_context`:
+meaningfully hungry population, or a death/illness/disaster event this
+tick), cold by a smaller delta otherwise (asymmetric — help registers
+more than mere intrusion, same "easier to lose than earn" shape
+`Agent.trust` already uses). Folded into the monthly consciousness
+prompt as one private banded line; the model's own free choice of
+intervention/tone then organically reflects it.
+
+Verified: direct production-path tests against real `_apply_
+intervention` calls (attention counter increments, bounded eviction,
+favorite-agent core-cast-only resolution, round-trip + legacy-snapshot
+defaults, grudge-ledger warm/cold nudging under forced hardship/calm
+context); a real `_maybe_schedule_consciousness` call (fake LLM
+client) confirms both new lines reach an actual built prompt.
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical
+— no native module touched. A 20,000-tick organic engine soak (LLM
+disabled), exercising a real `observer_attention` intervention
+mid-run, completes with zero crashes.
+
 ## Current state (v0.87.20)
 
 Direct follow-up per explicit user request ("Complete the item 3 of

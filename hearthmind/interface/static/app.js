@@ -1624,6 +1624,13 @@ function openNpcInspector(agentId) {
   }
   npcBackdrop.classList.remove("hidden");
   renderNpcInspector();
+  // §4 "observer attention as a signal into the Town Consciousness"
+  // (docs/IDEAS-2026-07-EMERGENCE.md) — a lightweight fire-and-forget
+  // beacon, no UI feedback needed; failure is silently non-fatal (the
+  // inspector itself doesn't depend on it).
+  fetch("/observer/attention", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent_id: agentId }),
+  }).catch(() => {});
 }
 
 async function loadNpcMemoryLog(agentId) {
