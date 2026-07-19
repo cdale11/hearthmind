@@ -222,6 +222,8 @@ from hearthmind.agents.occupations import (
     ALL_OCCUPATIONS,
     BANKER_INCOME_PER_TICK,
     BUILDER_WORK_BONUS,
+    EXPLORATION_FINDINGS_MAX,
+    EXPLORATION_VISION_RADIUS,
     FARMER_HARVEST_BONUS,
     FISHERMAN_FORAGE_BONUS,
     MAYOR_REPUTATION_NUDGE,
@@ -234,6 +236,7 @@ from hearthmind.agents.occupations import (
     OCCUPATION_MAYOR,
     OCCUPATION_PRIEST,
     OCCUPATION_SHOPKEEPER,
+    OCCUPATION_SURVEYOR,
     OCCUPATION_TEACHER,
     OCCUPATION_WORKPLACES,
     PRIEST_RITUAL_BOOST_MULTIPLIER,
@@ -1846,6 +1849,8 @@ class Population:
                     bridge_tiles=bridge_tiles,
                     ostracized_ids=ostracized_ids,
                 )
+                if agent.occupation == OCCUPATION_SURVEYOR:
+                    life_events.extend(self._mark_explored(agent, home, terrain, resources, minerals, settlements, tick))
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
         self._update_roads(by_position, settlements, farms, roads)
@@ -2583,9 +2588,29 @@ class Population:
                     agent.x, agent.y = step
             return
 
-        effective_goal = AgentGoal.FORAGE if critically_hungry else agent.goal
+        effective_goal = (
+            AgentGoal.FORAGE if critically_hungry
+            else AgentGoal.EXPLORE if agent.occupation == OCCUPATION_SURVEYOR
+            else agent.goal
+        )
         target = None
-        if effective_goal is AgentGoal.FORAGE:
+        if effective_goal is AgentGoal.EXPLORE:
+            # v0.87.45: a surveyor always explores, overriding whatever
+            # goal cognition/the deterministic fallback last assigned —
+            # same "forced regardless of assigned goal" shape critically_
+            # hungry uses for FORAGE. No travel_target yet this leg?
+            # Pick one via bounded random sampling (never a full-map
+            # flood fill — see `_choose_explore_target`'s docstring for
+            # why) and let the existing travel_target journey machinery
+            # (checked at the top of this function, highest priority)
+            # carry the surveyor there over the following ticks.
+            if agent.travel_target is None:
+                agent.travel_target = cls._choose_explore_target(agent, terrain, settlement.explored_tiles, rng)
+            if agent.travel_target is None:
+                pass  # fully explored (or unlucky sampling) — fall through to ordinary wander below
+            else:
+                return
+        elif effective_goal is AgentGoal.FORAGE:
             # `food_positions` (ready farms, worth-the-walk granaries) is
             # precomputed once per tick by `tick()` and shared by every
             # food-seeking agent, instead of each agent re-walking the
@@ -2717,6 +2742,32 @@ class Population:
         )
         if mount is not None:
             mount.condition = max(0.0, mount.condition - PERSONAL_VEHICLE_USE_DECAY[mount.kind])
+
+    @staticmethod
+    def _choose_explore_target(
+        agent: Agent, terrain: list[list[Tile]], explored_tiles: set, rng: random.Random,
+        attempts: int = 40,
+    ) -> tuple[int, int] | None:
+        """v0.87.45: bounded random sampling for the nearest not-yet-
+        explored walkable tile — deliberately NOT a full-map flood fill
+        (`_reachable_tiles` has no node cap and would recompute the
+        entire connected component every tick a surveyor needs a new
+        target). `attempts` random in-bounds samples, keep the closest
+        unexplored walkable hit; returns None once nothing new turns up
+        (map effectively fully explored, or an unlucky sampling run —
+        the caller just retries next tick)."""
+        height = len(terrain)
+        width = len(terrain[0]) if height else 0
+        best: tuple[int, int] | None = None
+        best_dist: int | None = None
+        for _ in range(attempts):
+            x, y = rng.randrange(width), rng.randrange(height)
+            if (x, y) in explored_tiles or not _is_walkable(terrain, x, y):
+                continue
+            dist = abs(x - agent.x) + abs(y - agent.y)
+            if best_dist is None or dist < best_dist:
+                best, best_dist = (x, y), dist
+        return best
 
     @staticmethod
     def ready_farm_positions(farms: FarmGrid) -> list[tuple[int, int]]:
@@ -5048,6 +5099,58 @@ class Population:
             chosen = min(candidates, key=lambda o: counts[o])
             a.occupation = chosen
             counts[chosen] += 1
+
+    @staticmethod
+    def _mark_explored(
+        agent: Agent, home: Settlement, terrain: list[list[Tile]],
+        resources: ResourceGrid, minerals: "MineralGrid | None", settlements: list[Settlement], tick: int,
+    ) -> list[tuple[str, str]]:
+        """v0.87.45 exploration/surveyor batch: a SURVEYOR-occupation
+        agent (only — see the call site, `Population.tick`) reveals a
+        small radius (`EXPLORATION_VISION_RADIUS`) of tiles around their
+        own position into `home.explored_tiles` every tick they're
+        awake, and records a capped finding (`home.exploration_
+        findings`) for anything notable a newly-revealed tile turns up:
+        a mineral vein, a rich wild-food/fish site, or another
+        settlement's structures. Scoped to surveyors specifically
+        (not every agent) so this stays a bounded per-surveyor cost,
+        not an O(population) one — most agents never leave their
+        settlement's already-explored neighborhood anyway."""
+        height = len(terrain)
+        width = len(terrain[0]) if height else 0
+        new_tiles: list[tuple[int, int]] = []
+        for dx in range(-EXPLORATION_VISION_RADIUS, EXPLORATION_VISION_RADIUS + 1):
+            for dy in range(-EXPLORATION_VISION_RADIUS, EXPLORATION_VISION_RADIUS + 1):
+                x, y = agent.x + dx, agent.y + dy
+                if not (0 <= x < width and 0 <= y < height):
+                    continue
+                pos = (x, y)
+                if pos in home.explored_tiles:
+                    continue
+                home.explored_tiles.add(pos)
+                new_tiles.append(pos)
+        if not new_tiles:
+            return []
+        life_events: list[tuple[str, str]] = []
+        for x, y in new_tiles:
+            finding: tuple[str, str] | None = None
+            mineral = minerals.get(x, y) if minerals is not None else None
+            if mineral is not None:
+                finding = ("mineral", f"{agent.name} charted a {mineral.kind.value} vein at ({x}, {y}).")
+            else:
+                node = resources.get(x, y)
+                if node is not None and node.kind in (ResourceKind.FOOD, ResourceKind.FISH):
+                    finding = ("resource", f"{agent.name} charted a rich {node.kind.value.lower()} site at ({x}, {y}).")
+                elif any(s.id != home.id and s.at(x, y) is not None for s in settlements):
+                    finding = ("settlement", f"{agent.name} sighted another settlement's structures at ({x}, {y}).")
+            if finding is None:
+                continue
+            kind, description = finding
+            home.exploration_findings.append({"tick": tick, "x": x, "y": y, "kind": kind, "description": description})
+            if len(home.exploration_findings) > EXPLORATION_FINDINGS_MAX:
+                home.exploration_findings = home.exploration_findings[-EXPLORATION_FINDINGS_MAX:]
+            life_events.append(("surveyor_finding", description))
+        return life_events
 
     @staticmethod
     def _maybe_run_market_workers(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:

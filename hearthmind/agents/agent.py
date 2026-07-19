@@ -61,6 +61,14 @@ class AgentGoal(str, Enum):
     reaches the dialogue prompt for free via `Agent.goal_reason`
     (`dialogue.py`'s `_activity` already surfaces it), so this needs no
     new dialogue-scheduling logic at all."""
+    EXPLORE = "explore"
+    """v0.87.45 exploration/surveyor batch: forced (like FORAGE for
+    critical hunger) for any agent whose `occupation` is SURVEYOR,
+    regardless of their assigned goal — see `Population._dispatch_
+    movement`. Paths toward the nearest tile outside `Settlement.
+    explored_tiles`, marking tiles explored (and recording notable
+    findings) as the agent moves, whether walking this specific goal or
+    not — see `Population._mark_explored`."""
 
 
 # --- enum <-> int code maps for the native AgentStore (v0.75.0) -------------
@@ -80,6 +88,7 @@ GOAL_TO_CODE: dict["AgentGoal", int] = {
     AgentGoal.REST: 3,
     AgentGoal.GATHER: 4,
     AgentGoal.SEEK_PERSON: 5,
+    AgentGoal.EXPLORE: 6,
 }
 CODE_TO_GOAL: dict[int, "AgentGoal"] = {v: k for k, v in GOAL_TO_CODE.items()}
 

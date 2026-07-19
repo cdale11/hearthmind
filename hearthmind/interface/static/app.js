@@ -2636,6 +2636,17 @@ function renderStats(summary) {
       "1.0 + education_level.",
     ],
     [
+      "Exploration",
+      `${s.explored_tile_count || 0} tiles charted` + (
+        (s.exploration_findings && s.exploration_findings.length)
+          ? ` · latest: ${s.exploration_findings[s.exploration_findings.length - 1].description}`
+          : ""
+      ),
+      "Surveyors reveal ground around themselves as they roam beyond the settlement's already-known territory, " +
+      "logging notable finds (mineral veins, rich wild-food sites, other settlements) — fed back into where the " +
+      "town chooses to expand when it fissions.",
+    ],
+    [
       "Vehicles",
       `${s.vehicles.carts_ready} cart${s.vehicles.carts_ready === 1 ? "" : "s"}, ` +
       `${s.vehicles.mounts_ready} mount${s.vehicles.mounts_ready === 1 ? "" : "s"} ` +

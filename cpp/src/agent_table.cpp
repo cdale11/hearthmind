@@ -18,7 +18,7 @@
 // id (int64), x/y (int32), hunger/energy (double), state (int32 enum
 // code: 0=AWAKE, 1=RESTING), age_ticks/max_age_ticks/starving_ticks/
 // sick_ticks/immune_ticks (int64), goal (int32 enum code: 0=WANDER,
-// 1=FORAGE, 2=SOCIALIZE, 3=REST, 4=GATHER, 5=SEEK_PERSON),
+// 1=FORAGE, 2=SOCIALIZE, 3=REST, 4=GATHER, 5=SEEK_PERSON, 6=EXPLORE),
 // settlement_id (int32).
 // True parallel-array layout (one vector per field, not one vector of
 // structs) — genuine SoA, not just "a C++ class holding the data."

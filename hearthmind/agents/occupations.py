@@ -38,11 +38,19 @@ OCCUPATION_FISHERMAN = "fisherman"
 OCCUPATION_FARMER = "farmer"
 OCCUPATION_SHOPKEEPER = "shopkeeper"
 OCCUPATION_BUSINESSMAN = "businessman"
+OCCUPATION_SURVEYOR = "surveyor"
+"""v0.87.45 exploration batch (live request, same message as the
+original ten: "expand-surveyor"): a roaming, not building-tied,
+occupation — a surveyor's AgentGoal is forced to EXPLORE (see
+`Population._dispatch_movement`), pathing toward the settlement's own
+`Settlement.explored_tiles` frontier and recording findings rather than
+producing at any fixed workplace. Absent from `OCCUPATION_WORKPLACES`
+for exactly that reason."""
 
 ALL_OCCUPATIONS: tuple[str, ...] = (
     OCCUPATION_BAKER, OCCUPATION_BUILDER, OCCUPATION_BANKER, OCCUPATION_TEACHER,
     OCCUPATION_PRIEST, OCCUPATION_MAYOR, OCCUPATION_FISHERMAN, OCCUPATION_FARMER,
-    OCCUPATION_SHOPKEEPER, OCCUPATION_BUSINESSMAN,
+    OCCUPATION_SHOPKEEPER, OCCUPATION_BUSINESSMAN, OCCUPATION_SURVEYOR,
 )
 
 OCCUPATION_WORKPLACES: dict[str, tuple[BuildingKind, ...]] = {
@@ -109,6 +117,18 @@ MAYOR_REPUTATION_NUDGE = 0.01
 (see `Population.carrying_capacity`) — a mayor's presence is real
 dedicated leadership on top of whatever the COUNCIL's own composition
 already provides, not a single building's output."""
+
+
+EXPLORATION_VISION_RADIUS = 3
+"""How far around an agent's own tile counts as "explored" each tick
+they're awake — small enough that covering genuinely new ground still
+takes real sim-time (see `Population._mark_explored`), matching the
+project's other radius-bounded scans (GATHER_SEARCH_RADIUS etc.)."""
+
+EXPLORATION_FINDINGS_MAX = 60
+"""Cap on `Settlement.exploration_findings`, same capped-list discipline
+every other unbounded-growth-risk list in this project uses (omen_
+history, priority_history, etc.)."""
 
 
 def occupation_staff_weight(agent, occupation: str, awake_wellfed: bool) -> float:

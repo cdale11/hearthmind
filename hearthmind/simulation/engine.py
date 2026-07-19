@@ -5067,19 +5067,41 @@ class SimulationEngine:
                     )
             stl.pending_letters = remaining
 
-    def _choose_fission_site(self, origin: tuple[int, int] | None = None) -> tuple[int, int] | None:
+    def _choose_fission_site(
+        self, origin: tuple[int, int] | None = None, home: "Settlement | None" = None,
+    ) -> tuple[int, int] | None:
         """The best walkable tile at least FISSION_MIN_DISTANCE from
         every existing settlement's center, scored by nearby wild-food
         supply — the same criterion the original founders' spawn used
         (Population._best_founding_site), because a founding party faces
         the same first problem: eating before infrastructure exists.
         None when the map has no qualifying tile (fission then lapses
-        this month)."""
+        this month).
+
+        v0.87.45 exploration/surveyor batch: when `home` is given and
+        its surveyors have logged real resource/mineral findings
+        (`Settlement.exploration_findings`), candidate spots near one of
+        those findings are preferred over the blind local search below —
+        the concrete "surveyor knowledge helps the town expand" payoff.
+        Falls back to the unfiltered candidate list when no surveyed
+        site qualifies (still gated by FISSION_MIN_DISTANCE), so this
+        never blocks fission, only steers it toward known-good ground."""
         centers = [c for c in (s.center() for s in self.world.settlements) if c is not None]
         spots = [
             (x, y) for (x, y) in _walkable_tiles(self.world.terrain)
             if all(max(abs(x - cx), abs(y - cy)) >= FISSION_MIN_DISTANCE for cx, cy in centers)
         ]
+        if home is not None and spots:
+            surveyed = [
+                (f["x"], f["y"]) for f in home.exploration_findings if f.get("kind") in ("resource", "mineral")
+            ]
+            if surveyed:
+                near_surveyed = [
+                    pos for pos in spots
+                    if any(abs(pos[0] - fx) + abs(pos[1] - fy) <= 5 for fx, fy in surveyed)
+                ]
+                if near_surveyed:
+                    spots = near_surveyed
         if origin is not None and spots:
             # Never point the party at land it can't walk to — rivers/
             # lakes genuinely disconnect regions on this generator.
@@ -5143,7 +5165,7 @@ class SimulationEngine:
             party = population.fission_party(leader, home)
             if party is None:
                 return  # no viable party could be assembled after all
-            site = self._choose_fission_site(origin=(leader.x, leader.y))
+            site = self._choose_fission_site(origin=(leader.x, leader.y), home=home)
             if site is None:
                 return  # no qualifying land far enough from everyone
             new_id = max(s.id for s in self.world.settlements) + 1

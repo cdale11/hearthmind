@@ -409,6 +409,26 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.45)
+
+Phase 5 of the multi-part live-report batch (see v0.87.41's plan):
+exploration/surveyor role. New 11th occupation SURVEYOR + new
+`AgentGoal.EXPLORE` (goal-code 6, native `agent_table.cpp` comment
+updated, no functional change needed — codes are unvalidated int32s).
+A surveyor's goal is forced to EXPLORE every tick. New `Settlement.
+explored_tiles`/`exploration_findings` (capped 60): a surveyor reveals
+a small radius around themself each tick, recording findings for
+mineral veins/rich wild-food sites/other settlements — scoped to
+surveyors only (not O(population)). Target selection is bounded random
+sampling, never a full-map flood fill, feeding `Agent.travel_target`
+so the existing journey machinery carries them there. The "feed back
+to town" payoff: fission site search now prefers a surveyor-discovered
+good site over blind local search. UI: new "Exploration" stat tile
+(tile count + latest finding) — deliberately no full map overlay
+(broadcast-bandwidth cost judged not worth it, same caution as the
+standing WebSocket-delta deferral). Verified via direct smoke tests, a
+12,000-tick soak, `scripts/verify_native_soak.py` byte-identical.
+
 ## Current state (v0.87.44)
 
 Phase 4 of the multi-part live-report batch (see v0.87.41's plan): a

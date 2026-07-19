@@ -4,6 +4,60 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.45] — Exploration/surveyor role, collective map knowledge
+
+Phase 5 of the multi-part live-report batch (see v0.87.41): "some npcs
+should take up the job of exploration and explore the whole map and
+report their findings and feed it back to town and collective NPC
+knowledge so that they can expand-surveyor."
+
+New 11th occupation `OCCUPATION_SURVEYOR` (added to v0.87.44's set),
+new `AgentGoal.EXPLORE` (goal-code 6, appended per the existing "never
+renumber" convention, `agent_table.cpp`'s comment updated to match —
+no functional native change needed, goal codes are stored as raw
+int32s with no range-validating switch). A surveyor's effective goal is
+forced to EXPLORE every tick, the same "override whatever cognition
+assigned" shape `critically_hungry` already uses for FORAGE.
+
+New `Settlement.explored_tiles` (a set of `(x, y)` pairs, serialized as
+sorted `[x, y]` lists) and `Settlement.exploration_findings` (capped at
+`EXPLORATION_FINDINGS_MAX=60`): a surveyor reveals `EXPLORATION_VISION_
+RADIUS=3` around themself every tick they're awake (`Population._mark_
+explored`), recording a finding whenever a newly-revealed tile turns up
+a mineral vein, a rich wild-food/fish site, or another settlement's
+structures. Deliberately scoped to surveyors only, not every agent —
+an O(population) per-tick vision scan wasn't worth it when most agents
+never leave already-known territory anyway.
+
+Target selection (`Population._choose_explore_target`) is bounded
+random sampling toward the nearest not-yet-explored walkable tile,
+explicitly NOT a full-map flood fill (`_reachable_tiles` has no node
+cap and would recompute the whole connected component every tick a
+surveyor needs a new target) — sets `Agent.travel_target` once, then
+the existing travel-target journey machinery carries them there over
+following ticks, same pattern GATHER's whole-map fallback already
+established.
+
+The "feed findings back to town... expand" payoff:
+`SimulationEngine._choose_fission_site` now accepts the leaving
+settlement and prefers a candidate site near a surveyor-logged
+resource/mineral finding over the previous blind local search, falling
+back to the old behavior when no surveyed site qualifies.
+
+UI: new "Exploration" settlement stat tile (tiles charted + latest
+finding). Deliberately NOT a full explored-tile map overlay — broadcasting
+potentially thousands of tiles every tick was judged not worth the
+bandwidth cost (the same caution behind the project's standing
+WebSocket-delta-payloads deferral); the stat tile's summary counts are
+cheap to send every tick instead.
+
+Verified: direct smoke tests (`_mark_explored`'s reveal + finding
+detection, `_choose_explore_target`'s nearest-unexplored selection), a
+12,000-tick engine soak (surveyors assigned via the existing
+occupation system, explored-tile count and findings grew and capped
+correctly, no crashes), `scripts/verify_native_soak.py` (2 seeds x 800
+ticks) byte-identical.
+
 ## [0.87.44] — Occupations: real jobs that drive the economy
 
 Phase 4 of the multi-part live-report batch (see v0.87.41): "add proper

@@ -2016,6 +2016,24 @@ class SettlementCulture:
     documentary prompt and left as a memory with the heir — the memory-
     beyond-the-8-entry-cap mechanism the roadmap asked for. Capped at
     RECORDS_MAX_STORED."""
+    explored_tiles: set = field(default_factory=set)
+    """v0.87.45 exploration/surveyor batch: every `(x, y)` any awake
+    agent has come within `EXPLORATION_VISION_RADIUS` of — the
+    settlement's own accumulated "we've been there" knowledge, written
+    by `Population._mark_explored` (every awake agent contributes, not
+    only SURVEYOR-occupation agents, but a surveyor's forced EXPLORE
+    goal deliberately biases toward the frontier rather than re-walking
+    already-known ground near home). Never shrinks. Serialized as a
+    sorted list of `[x, y]` pairs (see `to_dict`/`from_dict`) since JSON
+    has no native set/tuple type."""
+    exploration_findings: list[dict] = field(default_factory=list)
+    """Capped (EXPLORATION_FINDINGS_MAX) log of notable content a
+    surveyor's exploration turned up — `{tick, x, y, kind, description}`
+    — a mineral vein, a wild resource node, another settlement, or a
+    good farmland site, discovered outside the settlement's own already-
+    known territory. The concrete "feed findings back to town" payoff:
+    fission site search (`Population.fission_candidate`) prefers a
+    surveyed-good site over blind local search when one exists."""
     institutions: list["Institution"] = field(default_factory=list)
     """Persistent entities the population organizes into — v1 only
     forms FAMILY institutions, automatically, on a child's birth (H3,
@@ -2294,6 +2312,8 @@ class Settlement:
         prophecy: dict | None = None, last_intervention_tick: int = -1,
         predecessor_id: int | None = None,
         minerals: dict | None = None,
+        explored_tiles: set | list | None = None,
+        exploration_findings: list[dict] | None = None,
     ):
         self.id = id
         """Stable settlement identity (multi-settlement pass, v0.65.0):
@@ -2354,6 +2374,8 @@ class Settlement:
             law_signal_counts=law_signal_counts if law_signal_counts is not None else {},
             lexicon=lexicon if lexicon is not None else [],
             recent_topics=recent_topics if recent_topics is not None else [],
+            explored_tiles=set(tuple(t) for t in explored_tiles) if explored_tiles is not None else set(),
+            exploration_findings=exploration_findings if exploration_findings is not None else [],
         )
         self.disposition = SettlementDisposition(
             temperament=temperament,
@@ -2737,6 +2759,22 @@ class Settlement:
     @records.setter
     def records(self, value: list[dict]) -> None:
         self.culture.records = value
+
+    @property
+    def explored_tiles(self) -> set:
+        return self.culture.explored_tiles
+
+    @explored_tiles.setter
+    def explored_tiles(self, value: set) -> None:
+        self.culture.explored_tiles = value
+
+    @property
+    def exploration_findings(self) -> list[dict]:
+        return self.culture.exploration_findings
+
+    @exploration_findings.setter
+    def exploration_findings(self, value: list[dict]) -> None:
+        self.culture.exploration_findings = value
 
     @property
     def market_prices(self) -> dict:
@@ -3210,6 +3248,8 @@ class Settlement:
             "minerals": {k: round(v, 3) for k, v in self.minerals.items()},
             "place_names": dict(self.place_names),
             "records": list(self.records),
+            "explored_tile_count": len(self.explored_tiles),
+            "exploration_findings": list(self.exploration_findings[-8:]),
             "education_level": round(self.education_level, 3),
             "education_capacity": EDUCATION_CAPACITY,
             "current_priority": self.current_priority,
@@ -3370,6 +3410,8 @@ class Settlement:
             "memorials": list(self.memorials),
             "place_names": dict(self.place_names),
             "records": list(self.records),
+            "explored_tiles": sorted([x, y] for x, y in self.explored_tiles),
+            "exploration_findings": list(self.exploration_findings),
             "rituals": list(self.rituals),
             "ritual_signal_counts": dict(self.ritual_signal_counts),
             "pattern_signal_counts": dict(self.pattern_signal_counts),
@@ -3435,6 +3477,8 @@ class Settlement:
             minerals=dict(data.get("minerals", {})),
             memorials=list(data.get("memorials", [])),
             place_names=dict(data.get("place_names", {})),
+            explored_tiles=data.get("explored_tiles", []),
+            exploration_findings=list(data.get("exploration_findings", [])),
             records=list(data.get("records", [])),
             id=data.get("id", 0),
             center_x=data.get("center_x", -1), center_y=data.get("center_y", -1),
