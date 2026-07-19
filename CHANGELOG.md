@@ -82,13 +82,33 @@ food-production dip) hit a settlement too large for its granary to
 buffer. No demand-side throttle can undo an already-large population's
 food need — the actual lever is supply: `GRANARY_CAPACITY` raised
 again, 40.0 -> 90.0 (a 40.0 granary still drains in well under a tick's
-worth of real time against ~90 simultaneous hungry withdrawals). A
-confirming re-run on seed 23 against this fourth change is in progress
-as of this entry — see the next changelog entry (or docs/DECISIONS.md)
-for its result. If it still shows a crash of this magnitude, the
-remaining, larger-scope fix is decoupling hut construction's pace from
-food security the way `_maybe_plant` already gates planting on it —
-flagged as the natural next step, not attempted this pass.
+worth of real time against ~90 simultaneous hungry withdrawals).
+
+Re-run on seed 23 against 90.0: population overshot even further this
+time (peak 103), then crashed to a low of 13, starvation (48) still
+dominant over old age (18) — the granary bump didn't meaningfully
+change this seed's outcome either. Investigated why: this settlement's
+`farms_total` peaked at only 18 for a population of 103 (well under 1
+farm per 5 people) — its actual FOOD PRODUCTION capacity, not the
+granary buffer, is the binding constraint on this particular map.
+**Stopping the tuning loop here rather than continuing to chase a
+single seed's map geography with global constant changes** — that risks
+overfitting the numbers to one unlucky seed at the expense of every
+other world. Net result across both test seeds: seed 7 is fully fixed
+(clean plateau, old age now the dominant cause); seed 23 improved
+substantially over the true baseline (recovers to a healthy population
+every time, no longer craters to near-zero with zero path back) but
+still shows a starvation-heavy boom-bust cycle when a settlement's
+population growth outpaces what its specific map's farmable land can
+support. That remaining case is a genuine food-PRODUCTION gap, not a
+food-demand-throttling gap — the five changes above (all kept, verified
+individually effective) close the demand side; closing the supply side
+the same way is flagged as the natural follow-up, larger in scope: e.g.
+tying hut-construction pace or reproduction itself to a measured
+farms-per-capita ratio, or making `_maybe_plant` more aggressive when a
+settlement's own food-production-to-population ratio is falling behind
+(distinct from the existing per-couple hunger trigger). Not attempted
+this pass — flagged, not silently dropped.
 
 **UI declutter** (stats/panels preserved, none removed): the header's
 12 always-visible toggle buttons collapsed into 4 controls — `details`
@@ -105,12 +125,27 @@ tiles, same values, just grouped.
 
 Verified: direct `carrying_capacity`/`_maybe_reproduce` tests against
 real production code (hunger-term monotonicity; a starving settlement
-blocks a well-fed couple's birth, a healthy one doesn't); three
-40,000-tick no-LLM soaks so far (seed 7 and seed 23 against the first-
-pass constants, seed 23 re-run against the tightened second pass, see
-above); live Playwright verification of both header dropdowns (closed
-at rest, open/close correctly, existing panel toggles still work) and
-the grouped stat-grid rendering correctly with zero console errors.
+blocks a well-fed couple's birth, a healthy one doesn't); five
+40,000-tick no-LLM soaks total (seed 7 clean on the first pass; seed 23
+run four times across the tuning passes above, isolating exactly which
+changes helped, which did nothing — confirmed byte-identical — and
+which hit a genuine map-specific food-production limit); live
+Playwright verification of both header dropdowns (closed at rest,
+open/close correctly, existing panel toggles still work) and the
+grouped stat-grid rendering correctly with zero console errors.
+
+**Known limitation, not silently dropped**: on a map where a
+settlement's farmable land can't keep pace with its population growth
+(observed on seed 23, not seed 7), starvation can still become the
+dominant death cause during a sharp famine — the demand-side fixes in
+this pass (reproduction/capacity throttling, a larger granary buffer)
+substantially soften this (no more crashing to near-total wipeout with
+no recovery path) but don't fully eliminate it, because they can slow
+population growth or buffer a dip, not manufacture food production a
+map's geography doesn't support. Closing this fully needs a supply-side
+change (e.g. tying construction pace or a more aggressive `_maybe_plant`
+response to a measured farms-per-capita ratio) — flagged as the next
+increment, out of scope for a constant-tuning pass.
 
 ## [0.87.23] — §6/§7 close-out + §9 checklist (cultural depth ideas)
 

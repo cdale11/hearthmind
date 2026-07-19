@@ -469,13 +469,25 @@ blocked every new birth once average hunger crossed 0.45, so the crash
 (avg hunger 0.35 -> 0.72 in ~4,000 ticks, a seasonal/weather-driven
 food dip) hit a settlement too large for its granary to buffer — no
 demand-side throttle can undo an already-large population's food need.
-Fourth change, the actual lever: `GRANARY_CAPACITY` 40.0 -> 90.0 (a
-40.0 granary still drains in well under a tick's real-time worth
-against ~90 simultaneous withdrawals). See CHANGELOG.md v0.87.24 for
-the confirming seed-23 re-run once it lands; if a crash this size
-still recurs, the larger-scope fix is decoupling hut construction's
-pace from food security (`_maybe_plant` already does this for
-planting) — flagged as the natural next step, not attempted this pass.
+Fourth change: `GRANARY_CAPACITY` 40.0 -> 90.0. Re-run on seed 23: STILL
+crashed (peak 103, low 13, starvation 48 vs old age 18) — the granary
+bump didn't meaningfully change this seed's outcome either.
+Investigated why: this settlement's `farms_total` peaked at only 18 for
+a population of 103 — its actual FOOD PRODUCTION capacity, not the
+granary buffer, is the binding constraint on this particular map.
+**Stopped tuning here** rather than keep chasing one seed's map
+geography with global constants (risks overfitting at every other
+world's expense). Net result: seed 7 fully fixed (clean plateau, old
+age now dominant); seed 23 substantially improved over the true
+baseline (recovers to a healthy population every run, never craters to
+near-zero with no path back) but still shows a starvation-heavy
+boom-bust cycle when growth outpaces that map's farmable land — a
+genuine food-PRODUCTION gap distinct from the food-DEMAND gap this pass
+closes. All five demand-side changes are kept (individually verified
+effective); closing the supply-side gap the same way — e.g. tying
+construction pace or a more aggressive `_maybe_plant` response to a
+measured farms-per-capita ratio — is flagged as the natural next
+increment, not attempted this pass.
 
 **UI declutter, stats preserved**: the header's 12 always-visible
 toggle buttons collapsed into 4 (`details` stays top-level; `🔭
@@ -489,10 +501,11 @@ Settlement & infrastructure / Economy / World & environment / AI,
 trade & diplomacy) instead of one flat grid — same tiles and values,
 just grouped for readability.
 
-Verified: direct production-path tests for both new gates; two 40,000-
-tick no-LLM soaks (seeds 7, 23) confirming the crash pattern resolves;
-live Playwright verification of both header dropdowns and the grouped
-stat-grid, zero console errors.
+Verified: direct production-path tests for both new gates; five
+40,000-tick no-LLM soaks total isolating exactly which tuning changes
+helped, which did nothing (confirmed byte-identical), and which hit a
+genuine map-specific limit; live Playwright verification of both header
+dropdowns and the grouped stat-grid, zero console errors.
 
 ## Current state (v0.87.23)
 
