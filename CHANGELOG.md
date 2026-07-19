@@ -4,6 +4,40 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.1.0] — Core-cast rotation
+
+Post-v1 follow-up (explicit user ask: "anything else that might
+benefit Hearthmind" -> chose the convergence audit's top still-open
+finding). `Population.core_agent_ids` — the fixed ~14-agent set that
+gets all LLM-driven cognition/dialogue/belief authorship — was
+permanent: a living member was never swapped out, and the seat-refill
+ranking (`_prominence`, longevity-weighted) tended to hand a vacated
+seat straight to a founder's already-old child. In a 50,000-tick
+world, this meant every emergent storyline funneled through the same
+handful of characters forever, with no rotation path at all.
+
+New `Population._maybe_rotate_core_cast`, called once a month
+alongside the existing reputation refresh (deterministic, no LLM call,
+no added volume): finds the weakest core member and strongest non-core
+candidate by `_prominence`; if the outsider clears `CORE_CAST_
+ROTATION_MARGIN` (1.5x) AND a `CORE_CAST_ROTATION_CHANCE_PER_MONTH`
+(0.15) roll hits, swaps them. Deliberately a rare, bounded exception to
+`maintain_core_cast`'s "never demoted while alive" rule, not a repeal
+of it — the margin keeps the cast sticky against anyone merely
+comparable. The outgoing member keeps every bit of accumulated history
+(memories, mind, secrets, relationships, life_digest all live on the
+plain `Agent`, untouched by rotation) — they simply stop being the
+target of new core-cast-gated jobs going forward, so their story pauses
+rather than erasing. A real swap logs a `core_cast_rotation` event
+("X has stepped back from prominence in the town's story; Y has come
+to the fore.").
+
+Verified: direct smoke tests (a clearly-more-prominent outsider swaps
+in within a bounded number of monthly rolls; a comparable-but-not-
+1.5x outsider never swaps across 200 rolls), `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical — no native module
+touched, and a 9,000-tick end-to-end engine run confirming no crash.
+
 ## [1.0.0] — v1: deep audit, era overhaul, C++ ports, first major-version bump
 
 The first v1 bump, per explicit user request. Closes a five-phase

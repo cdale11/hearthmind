@@ -4404,6 +4404,15 @@ class SimulationEngine:
         # no LLM call — rides the same free monthly cadence as
         # temperament/mood above rather than its own scheduled job.
         self.world.population._refresh_reputation()
+        # Post-v1 convergence-audit follow-up: same free monthly cadence,
+        # deterministic (no LLM call, no added volume) — see CORE_CAST_
+        # ROTATION_MARGIN's docstring for why this exists.
+        rotation_rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "core_cast_rotation")
+        swap = self.world.population._maybe_rotate_core_cast(rotation_rng)
+        if swap is not None:
+            outgoing, incoming = swap
+            detail = f"{outgoing.name} has stepped back from prominence in the town's story; {incoming.name} has come to the fore."
+            self._log("core_cast_rotation", detail)
 
     def _maybe_schedule_omen(self, events: list[str]) -> None:
         """Rare, ambiguous flavor event — see llm/omens.py's module

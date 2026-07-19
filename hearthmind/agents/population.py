@@ -933,6 +933,30 @@ is the full per-point swing; a widely well-regarded agent is a natural
 protagonist candidate independent of how many *specific* bonds they've
 formed (the existing bond term)."""
 
+CORE_CAST_ROTATION_MARGIN = 1.5
+"""Post-v1 convergence-audit follow-up: `maintain_core_cast`'s own
+docstring frames the cast as deliberately sticky and "never demoted
+while alive" — correct for keeping a young cast stable, but with no
+counterpart at all across a long run it becomes a structural
+convergence bug: the same handful of characters carry every LLM-
+authored storyline for as long as they happen to live, and a vacated
+seat's own refill ranking (`_prominence`, longevity-weighted) tends to
+hand it straight to a founder's already-old child. `_maybe_rotate_
+core_cast` closes this without touching cast size or LLM call volume —
+a rare, bounded exception to "never demoted," not a repeal of it. A
+non-core candidate must out-rank the WEAKEST current core member by
+this multiplicative margin on `_prominence` before a swap is even
+considered — the cast stays sticky against anyone merely comparable,
+only a genuinely more prominent rising figure can displace a quiet
+incumbent."""
+
+CORE_CAST_ROTATION_CHANCE_PER_MONTH = 0.15
+"""Even once the margin above is cleared, a swap only happens with this
+probability per month-end check — keeps rotation feeling like an
+organic narrative beat (a quiet elder finally stepping back as someone
+else's story rises) rather than a mechanical eviction the instant a
+threshold trips."""
+
 REPUTATION_MIN_SOURCES = 2
 """Below this many living agents holding *any* trust opinion of someone,
 `reputation()` reads as neutral (0.0) rather than a noisy 1-source
@@ -5942,6 +5966,40 @@ class Population:
         for agent in added:
             self.core_agent_ids.add(agent.id)
         return added
+
+    def _maybe_rotate_core_cast(self, rng: random.Random) -> tuple[Agent, Agent] | None:
+        """Called once a month (see CORE_CAST_ROTATION_MARGIN's
+        docstring for why this exists). At most one swap per call: finds
+        the weakest living core member and the strongest living
+        non-member by `_prominence`; if the outsider clears the margin
+        AND the monthly roll hits, swaps them — the incumbent keeps
+        every bit of their accumulated history (memories, mind, secrets,
+        relationships, life_digest all live on the plain `Agent`, never
+        cleared here), they simply stop being the target of new core-
+        cast-gated LLM cognition/dialogue/belief jobs going forward.
+        Returns (outgoing, incoming) on a real swap, else None — the
+        caller can turn a real swap into a life event."""
+        core_members = [a for a in self.agents if a.id in self.core_agent_ids]
+        if not core_members:
+            return None
+        outgoing = min(core_members, key=lambda a: (self._prominence(a), -a.id))
+        non_members = [a for a in self.agents if a.id not in self.core_agent_ids]
+        if not non_members:
+            return None
+        incoming = max(non_members, key=lambda a: (self._prominence(a), -a.id))
+        weakest_score = self._prominence(outgoing)
+        strongest_score = self._prominence(incoming)
+        # A non-positive weakest score has no meaningful multiplicative
+        # margin to clear against — fall back to requiring the outsider
+        # be positive at all (a real, if modest, protagonist claim).
+        required = weakest_score * CORE_CAST_ROTATION_MARGIN if weakest_score > 0 else 0.0
+        if strongest_score <= required:
+            return None
+        if rng.random() >= CORE_CAST_ROTATION_CHANCE_PER_MONTH:
+            return None
+        self.core_agent_ids.discard(outgoing.id)
+        self.core_agent_ids.add(incoming.id)
+        return outgoing, incoming
 
     def decay_memory_salience(self) -> None:
         """Deferred item 4 of docs/VISION-2026-07-LEARNING.md: called

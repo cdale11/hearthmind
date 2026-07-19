@@ -416,6 +416,21 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.1.0)
+
+Post-v1 follow-up, explicit user request after the batch shipped:
+core-cast rotation, the convergence audit's top still-open finding.
+`Population.core_agent_ids` (the fixed LLM-authorship cast) was
+permanent — no living member was ever demoted, so every emergent
+storyline funneled through the same ~14 characters forever. New
+`_maybe_rotate_core_cast` (monthly, deterministic, zero added LLM
+volume): swaps the weakest core member for a clearly more prominent
+outsider (`CORE_CAST_ROTATION_MARGIN=1.5x`) with a bounded monthly
+chance (0.15). Deliberately rare/sticky, not a repeal of "never
+demoted while alive" — a real exception to it. Outgoing members keep
+their full history; they just stop getting new core-cast-gated jobs.
+Logs a `core_cast_rotation` event. Full detail: CHANGELOG.md.
+
 ## Current state (v1.0.0) — first major-version bump
 
 Closes the five-phase v1 batch (v0.88.0-v0.91.0, this file's four
