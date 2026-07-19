@@ -1676,7 +1676,10 @@ class Population:
         farm_positions = self.ready_farm_positions(farms)
         granary_positions_by_id = {s.id: self.stocked_granary_positions(s) for s in settlements}
         work_positions_by_id = {
-            s.id: self.damaged_building_positions(s) + self.under_construction_positions(s)
+            s.id: (
+                self.damaged_building_positions(s) + self.under_construction_positions(s)
+                + self.husbandry_positions(s)
+            )
             for s in settlements
         }
         # Every STANDING bridge's spanned water tiles, pooled once per
@@ -2585,14 +2588,25 @@ class Population:
 
     @staticmethod
     def stocked_granary_positions(settlement: Settlement) -> list[tuple[int, int]]:
-        """Worth-the-walk granaries: stocked, or empty but the settlement
-        can afford emergency rations (D10) — a built granary is a known
-        community landmark (D7), so no distance cap when targeted."""
+        """Worth-the-walk stocked food buildings: a GRANARY (stocked, or
+        empty but the settlement can afford emergency rations, D10), or a
+        standing PASTURE/HATCHERY with real stored_food. v0.87.25
+        (explicit user direction — "actively seek out ways to get food
+        like husbandries, hatcheries"): PASTURE/HATCHERY already accepted
+        withdrawals once an agent happened to stand there
+        (`_maybe_forage`), but nothing ever pathed a hungry FORAGE-goal
+        agent toward one deliberately — same D6/D7 "known community
+        landmark" logic GRANARY already gets, extended to the other two
+        built food sources. Empty pastures/hatcheries aren't included
+        (no emergency-ration equivalent for them) — a hungry agent only
+        detours there when there's actually something to eat."""
         can_buy_rations = settlement.currency >= CURRENCY_EMERGENCY_RATION_COST * settlement.market_price("food")
         return [
             (b.x, b.y) for b in settlement.buildings
-            if b.kind is BuildingKind.GRANARY and b.stage is BuildingStage.STANDING
-            and (b.stored_food > 0 or can_buy_rations)
+            if b.stage is BuildingStage.STANDING and (
+                (b.kind is BuildingKind.GRANARY and (b.stored_food > 0 or can_buy_rations))
+                or (b.kind in (BuildingKind.PASTURE, BuildingKind.HATCHERY) and b.stored_food > 0)
+            )
         ]
 
     @staticmethod
@@ -2605,6 +2619,23 @@ class Population:
         return [
             (b.x, b.y) for b in settlement.buildings
             if b.stage is BuildingStage.STANDING and b.condition < REPAIR_THRESHOLD
+        ]
+
+    @staticmethod
+    def husbandry_positions(settlement: Settlement) -> list[tuple[int, int]]:
+        """Standing PASTURE/HATCHERY tiles not yet at capacity — a WANDER-
+        goal attractor (v0.87.25, folded into `work_positions` alongside
+        damaged/under-construction buildings) so a well-fed, idle agent
+        is deliberately drawn to go TEND husbandry, not just eat from it
+        by lucky colocation. `_maybe_run_husbandry`'s own tending bonus
+        was always real; nothing before this made an agent seek out the
+        chance to earn it. Below-capacity only — no reason to attract
+        idle labor to a building that's already full."""
+        return [
+            (b.x, b.y) for b in settlement.buildings
+            if b.stage is BuildingStage.STANDING
+            and b.kind in (BuildingKind.PASTURE, BuildingKind.HATCHERY)
+            and b.stored_food < (PASTURE_CAPACITY if b.kind is BuildingKind.PASTURE else HATCHERY_CAPACITY)
         ]
 
     @staticmethod

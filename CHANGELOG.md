@@ -4,6 +4,41 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.25] — Husbandry becomes an actively-sought food source
+
+Direct follow-up to v0.87.24's starvation work, per explicit user
+request mid-batch: "the starvation fix shouldn't just come from
+granaries and agriculture, they should actively seek out new ways to
+get food like husbandries (milk, eggs, meat), hatcheries (fish),
+foraging for wild food and other sources."
+
+Audited what already existed: PASTURE/HATCHERY (v0.86.7) already
+produced food into their own `stored_food`, withdrawable exactly like
+a granary once an agent happened to stand there, and wild foraging
+(FOOD/FISH resource nodes, grazer hunting) was already the last-resort
+fallback in `_maybe_forage`. The real gap: nothing ever deliberately
+PATHED a hungry agent toward a pasture/hatchery, or an idle well-fed
+agent toward TENDING one — both only ever worked by lucky colocation,
+unlike farms/granaries which have had deliberate FORAGE-goal pathing
+since D6/D7.
+
+Two fixes, both movement-layer, no new state: `stocked_granary_
+positions` widened to include standing PASTURE/HATCHERY with real
+`stored_food` (a hungry FORAGE-goal agent can now walk to one, same
+no-distance-cap "known community landmark" treatment GRANARY already
+gets); new `husbandry_positions` (standing PASTURE/HATCHERY below
+capacity) folded into `work_positions`, the same WANDER-goal attractor
+list that already draws idle agents to damaged/under-construction
+buildings — a well-fed idle agent is now deliberately drawn to go tend
+a pasture/hatchery and earn its existing (but previously-unsought)
+tending bonus.
+
+Verified: direct test against real `Population.stocked_granary_
+positions`/`husbandry_positions` confirming a stocked pasture and
+granary both appear as food targets, an empty hatchery correctly
+doesn't, and both husbandry buildings appear as work targets while
+below capacity.
+
 ## [0.87.24] — Starvation-collapse fix + header/stat-grid UI declutter
 
 Two explicit user requests in one batch: (1) starvation was reported as
