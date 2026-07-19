@@ -771,25 +771,36 @@ call's worth of concurrent KV cache the way raising
 
 ## World genesis (LLM-chosen seed) and calendar
 
-Omit `--seed` and a brand-new world runs a one-time "genesis" LLM call
-before generating terrain/weather: the LLM writes a short founding-
-scenario sentence ("Rolling grassland meets old forest along a slow
-river, unclaimed and quiet."), and the hash of that sentence becomes the
-world's seed — the same deterministic terrain/weather generation then
-runs exactly as it would with an explicit `--seed`. If the LLM is
-disabled or unreachable, a rotating pool of fallback scenarios stands in
-(mixed with wall-clock entropy so it isn't the same handful of worlds
-every time). Passing `--seed` explicitly always skips genesis. The
-scenario text is shown once in the event log and in the settlement
-summary (`founding_scenario`).
+Omit `--seed` and a brand-new world runs a one-time "genesis" LLM call:
+a preview terrain is generated from real entropy first, then the LLM
+writes a short founding-scenario sentence ("Rolling grassland meets old
+forest along a slow river, unclaimed and quiet.") grounded in what's
+actually near the map's center (coastline, hills, forest, ...), plus a
+loose sense of who the first inhabitants are or what brought them here.
+That same entropy becomes the world's seed, so the terrain the world
+actually generates is guaranteed to match what genesis described — the
+same deterministic terrain/weather generation then runs exactly as it
+would with an explicit `--seed`. If the LLM is disabled or unreachable,
+a rotating pool of fallback scenarios stands in (mixed with wall-clock
+entropy so it isn't the same handful of worlds every time). Passing
+`--seed` explicitly always skips genesis. The scenario text is shown
+once in the event log and in the settlement summary
+(`founding_scenario`).
 
 The world clock runs a real 365-day, 12-month calendar with UK-style
 maritime weather baselines by month (mild wet winters, cool damp
 summers, rain fairly even year-round) — `season` (spring/summer/autumn/
 winter) is still derived from the month for anything that already used
-it. A settlement starts in the `industrial` era and can advance
-(electrical -> modern -> digital) as it accumulates inventions,
-unlocking the FACTORY building kind past `industrial`.
+it. A settlement starts in the `stone_age` era and advances through a
+full ten-era ladder (bronze_age -> iron_age -> classical -> medieval ->
+renaissance -> industrial -> electrical -> modern -> digital) as it
+accumulates inventions and builds each era's real infrastructure,
+unlocking new building kinds along the way (FORGE past stone_age,
+LIBRARY past iron_age, FACTORY/POWER_PLANT past industrial, AUTOMOBILE
+past modern). Each era advance, an LLM job also leans the settlement
+toward one of a few named character branches (industrious, scholarly,
+devout, mercantile, agrarian) that nudges its future building odds —
+real emergent divergence between settlements on the same tech path.
 
 ## Browser interface (Phase F)
 
