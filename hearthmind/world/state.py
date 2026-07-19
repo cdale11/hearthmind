@@ -55,6 +55,11 @@ is a private running theory, not a growing dossier."""
 CONSCIOUSNESS_INTERVENTION_LOG_MAX = 12
 """Cap on `World.consciousness_intervention_log`."""
 
+HIGHLIGHTS_MAX_STORED = 30
+"""Cap on `World.highlights` — a small, bounded log of self-flagged
+emergent moments, not a growing archive (the full narrative record
+already lives durably in the `events` table)."""
+
 CONSCIOUSNESS_REVISION_CONFIDENCE_GAIN = 0.1
 """Deferred item 6 (docs/VISION-2026-07-LEARNING.md), "consciousness
 player-theory revision, round 2": how much a `consciousness_player_
@@ -152,6 +157,31 @@ class World:
     the moment a `ask_chronicler` intervention is applied until its
     `_schedule_llm_job` callback resolves. Persisted like sim_summary_*
     so a page refresh still shows the last answer."""
+    away_digest_text: str = ""
+    away_digest_tick: int = -1
+    away_digest_since_tick: int = -1
+    away_digest_pending: bool = False
+    """§5 "While you were away" digest (docs/IDEAS-2026-07-EMERGENCE.md):
+    on-demand, mirrors `sim_summary_*`/`chronicler_*` exactly.
+    `away_digest_since_tick` is the tick the PREVIOUS digest was
+    generated at (or -1, meaning "since world start") — each new digest
+    request covers events after that tick, then `away_digest_tick`
+    becomes the new boundary for the NEXT request, so repeated requests
+    never re-cover the same ground. Persisted like sim_summary_* so a
+    page refresh still shows the last digest and the boundary survives
+    a restart."""
+    highlights: list[dict] = field(default_factory=list)
+    """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md): the
+    simulation's own bounded record of moments it judged notable
+    (`{"kind": str, "detail": str, "tick": int}`), capped at
+    HIGHLIGHTS_MAX_STORED (oldest evicted). Populated by
+    `SimulationEngine._append_highlight` — some entries from hand-picked
+    triggers at existing event-logging call sites (first religion,
+    extinction near-miss, feud formation, first ritual/schism), others
+    from a cheap rolling z-score over `metrics` rows (population/hunger
+    swings) computed in `_log_daily_metrics`. Zero LLM cost by design —
+    the doc's own framing: "if the highlight log is boring, the
+    emergence isn't real yet.\""""
     consciousness_memory: list[dict] = field(default_factory=list)
     """Phase N "Town Consciousness v2" (docs/VISION-2026-07.md, "The Town
     Awake"): bounded log of what the town's persistent inner awareness
@@ -526,6 +556,12 @@ class World:
                 "tick": self.chronicler_answer_tick,
                 "pending": self.chronicler_pending,
             },
+            "away_digest": {
+                "text": self.away_digest_text,
+                "tick": self.away_digest_tick,
+                "since_tick": self.away_digest_since_tick,
+                "pending": self.away_digest_pending,
+            },
             "consciousness": {
                 "personality": dict(self.consciousness_personality),
                 "memory": list(self.consciousness_memory),
@@ -539,6 +575,7 @@ class World:
                 "last_agent_id": self.observer_attention.get("last_agent_id"),
                 "last_seen_tick": self.observer_attention.get("last_seen_tick", -1),
             },
+            "highlights": list(self.highlights),
         }
 
     # --- (de)serialization --------------------------------------------------
@@ -586,6 +623,12 @@ class World:
             "chronicler_answer_tick": self.chronicler_answer_tick,
             # chronicler_pending: same not-persisted reasoning as
             # sim_summary_pending above.
+            "away_digest_text": self.away_digest_text,
+            "away_digest_tick": self.away_digest_tick,
+            "away_digest_since_tick": self.away_digest_since_tick,
+            # away_digest_pending: same not-persisted reasoning as
+            # sim_summary_pending above.
+            "highlights": list(self.highlights),
             "observer_attention": {
                 "agent_view_counts": {str(k): v for k, v in self.observer_attention.get("agent_view_counts", {}).items()},
                 "last_agent_id": self.observer_attention.get("last_agent_id"),
@@ -731,6 +774,10 @@ class World:
             chronicler_question=data.get("chronicler_question", ""),
             chronicler_answer=data.get("chronicler_answer", ""),
             chronicler_answer_tick=data.get("chronicler_answer_tick", -1),
+            away_digest_text=data.get("away_digest_text", ""),
+            away_digest_tick=data.get("away_digest_tick", -1),
+            away_digest_since_tick=data.get("away_digest_since_tick", -1),
+            highlights=list(data.get("highlights", [])),
             observer_attention=(
                 {
                     "agent_view_counts": {int(k): v for k, v in data["observer_attention"].get("agent_view_counts", {}).items()},

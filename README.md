@@ -801,7 +801,13 @@ event log (icons, color-coded by category), traditions, inventions,
 festivals, a relationship graph, an NPC "mind-first" inspector, a
 history tab, an on-demand "🧭 summary" tab (`POST /summary/request`
 generates a fresh LLM-authored summary of where the simulation stands
-right now), a scrub-through-time timeline, live pause/speed controls,
+right now), a "while you were away" digest tab (`POST /digest/
+request`, headlined by anything involving agents you've inspected), a
+"highlights" tab (the sim's own self-flagged notable moments — first
+religion, near-extinctions, feuds, statistical population anomalies —
+zero LLM cost), a scrub-through-time timeline (with an "export year
+reel" button that records the replay to a downloadable video), live
+pause/speed controls,
 and a `⚙ dev` toggle exposing raw engine telemetry (tick timing,
 background task counts, connected clients, LLM latency) plus a
 "Full diagnostic report" button (`GET /diagnostics`) for debugging an

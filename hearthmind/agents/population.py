@@ -1469,6 +1469,47 @@ class Population:
             agents.append(Agent(id=i, name=names[i], x=x, y=y, max_age_ticks=max_age))
         return cls(agents=agents, _next_id=count)
 
+    def spawn_successor_founders(
+        self, seed: int, tick: int, count: int, terrain: list[list[Tile]],
+        resources: "ResourceGrid | None", settlement_id: int,
+    ) -> list["Agent"]:
+        """§5 "Ruins mode / successor worlds" (docs/IDEAS-2026-07-
+        EMERGENCE.md): `spawn_initial`'s exact site-selection logic
+        (cluster near the best local food supply), but appending INTO
+        this already-existing (and, at the moment this is called,
+        completely extinct) `Population` rather than returning a fresh
+        one — preserves cumulative history (`_next_id`, `deaths_*`
+        counters, everything) instead of discarding it the way
+        `spawn_initial` would. New agents get consecutive ids starting
+        at `self._next_id` (so they never collide with a departed
+        agent's historical id still referenced in the durable `agent_
+        memory_log`/`consciousness_log` tables) and `settlement_id` set
+        to the new successor settlement, not the default 0."""
+        rng = _namespaced_rng(seed, tick=tick, namespace="successor_founding")
+        spots = _walkable_tiles(terrain)
+        names = generate_names(count, rng)
+        if resources is not None and resources.nodes:
+            anchor = self._best_founding_site(spots, resources, rng)
+            near = [
+                (x, y) for (x, y) in spots
+                if max(abs(x - anchor[0]), abs(y - anchor[1])) <= FOUNDING_CLUSTER_RADIUS
+            ]
+            if near:
+                spots = near
+        founders: list[Agent] = []
+        for i in range(count):
+            x, y = rng.choice(spots)
+            max_age = rng.randint(MIN_LIFESPAN_TICKS, MAX_LIFESPAN_TICKS)
+            agent = Agent(
+                id=self._next_id, name=names[i], x=x, y=y,
+                max_age_ticks=max_age, settlement_id=settlement_id,
+            )
+            self._next_id += 1
+            self._adopt(agent)
+            self.agents.append(agent)
+            founders.append(agent)
+        return founders
+
     @staticmethod
     def _best_founding_site(
         spots: list[tuple[int, int]], resources: "ResourceGrid", rng: random.Random,

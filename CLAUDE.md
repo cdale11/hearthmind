@@ -413,6 +413,75 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.22)
+
+Direct follow-up per explicit user request ("continue" after a
+routine/trigger-scheduling attempt for §5/§6 hit a tool-approval
+error) — closes all five items of docs/IDEAS-2026-07-EMERGENCE.md §5
+("Making deep time legible"), observer-side and mostly zero-LLM.
+
+**"While you were away" digest** (new `llm/digest.py`, `World.away_
+digest_*`, `GET /digest`/`POST /digest/request`): on-demand, same
+enqueue-now/apply-next-tick seam as `sim_summary`/`chronicler`. New
+`persistence/snapshot.py:events_since_tick` windows by TICK RANGE
+(not row count) since the previous digest's boundary, headlined by
+whatever touches agents the observer has actually inspected
+(`SimulationEngine._watched_agent_names`, reusing v0.87.21's `World.
+observer_attention`).
+
+**Anomaly/highlight log** (`World.highlights`, capped
+`HIGHLIGHTS_MAX_STORED=30`, `GET /highlights`): `_append_highlight`
+fires from hand-picked triggers (first religion, first ritual, feud
+formation) and a rolling z-score over daily population riding the
+existing `_log_daily_metrics` cadence, plus a genuine extinction-
+near-miss edge. Not shipped: "belief flipping true to false" — no
+truth-value field exists on beliefs yet, flagged as a follow-up.
+
+**Year-reel export** (client-side only): "🎬 export year reel" button
+drives the existing timeline replay loop while recording the map
+canvas via `MediaRecorder`, downloads a `.webm` — zero backend
+changes.
+
+**Ruins mode / successor worlds** (`SimulationEngine._found_
+successor_world`, `POST /world/found-successor`): scoped to "true
+extinction" (population 0) only — "or by choice" while alive flagged
+as a follow-up (needs a living-relocation mechanism this doesn't
+build). Founds a genuinely new `Settlement` on the SAME terrain/roads/
+wildlife/farms; the defunct settlement is KEPT (never discarded — same
+"the settlements list never shrinks" stance already documented above),
+so its ruins/memorials/records/place_names/religion simply keep
+existing. New `Settlement.predecessor_id`; `llm/beliefs.py` folds in
+one optional grounding line quoting the predecessor's newest written
+record (or "no one knows why it fell silent" if none survive) — the
+new population may honestly misread it. New `Population.spawn_
+successor_founders` (mirrors `spawn_initial`'s site-selection, but
+appends into the existing extinct `Population` so cumulative history/
+`_next_id` isn't discarded — new founders' ids never collide with a
+departed agent's id still referenced in the durable memory-log
+tables). New "💀 the world is empty" banner + "🏚 found a successor
+settlement" button, population-0-gated.
+
+**Era-styled cartography** (client-side only): the map's rendering
+style ages with the era system — a deterministic stipple overlay for
+industrial/electrical eras, a clean surveyed grid line overlay for
+modern/digital. Repainted in place on `era_advance` events.
+
+Verified: direct production-path tests for all five pieces (tick-range
+event windowing; a real `_schedule_away_digest` call resolving through
+its actual fallback path; highlight append + forced extinction-near-
+miss detection; a real `_found_successor_world` call confirming new-
+settlement/predecessor_id/founder-settlement_id/refusal-when-not-
+extinct against actual production code; a forced `_maybe_schedule_
+beliefs` call with a fake LLM client confirming the ancestor-ruins
+line reaches a real built prompt; round-trip serialization).
+`scripts/verify_native_soak.py` (3 seeds x 3000 ticks) byte-identical
+— no native module touched. A 2-seed x 20,000-tick organic engine
+soak (LLM disabled) completes with zero crashes across both seeds.
+
+**Not yet started**: §6 ("Substrate" — spatial weather, soil fertility,
+ambient audio), the last unimplemented section of docs/IDEAS-2026-07-
+EMERGENCE.md.
+
 ## Current state (v0.87.21)
 
 Direct follow-up per explicit user request ("Build item 4 and item 7

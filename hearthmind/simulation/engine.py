@@ -59,17 +59,17 @@ from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
     faction, fission, beliefs, caravan, chronicle, chronicler, consciousness, culture, culture_digest, dialogue,
-    dispute, documentary, dream, festival, folklore, founding, geography, invention, memory_drift, mind, naming,
-    narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
+    digest, dispute, documentary, dream, festival, folklore, founding, geography, invention, memory_drift, mind,
+    naming, narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
     diplomacy, laws, letters, noncore_nudge,
 )
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.cognition import SURVIVAL_HUNGER_THRESHOLD, SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.persistence.snapshot import (
-    agent_memory_log_count, consciousness_log_count, events_by_category, history_events, load_latest_snapshot,
-    log_agent_memory_entry, log_consciousness_entry, log_event, log_metrics, recent_agent_memory_log,
-    recent_events, recent_events_diverse, save_snapshot,
+    agent_memory_log_count, consciousness_log_count, events_by_category, events_since_tick, history_events,
+    load_latest_snapshot, log_agent_memory_entry, log_consciousness_entry, log_event, log_metrics,
+    recent_agent_memory_log, recent_events, recent_events_diverse, recent_metrics, save_snapshot,
 )
 from hearthmind.agents.population import (
     DISPUTE_COOLDOWN_TICKS,
@@ -77,6 +77,7 @@ from hearthmind.agents.population import (
     FISSION_MIN_DISTANCE,
     MAX_SETTLEMENTS,
     MIGRATION_BOND_THRESHOLD,
+    POPULATION_CRITICAL_THRESHOLD,
     Population,
     _bridge_tiles_from_settlements,
     _nudge_trait,
@@ -136,6 +137,7 @@ from hearthmind.world.state import (
     CONSCIOUSNESS_MEMORY_MAX,
     CONSCIOUSNESS_PLAYER_MODEL_MAX,
     CONSCIOUSNESS_REVISION_CONFIDENCE_GAIN,
+    HIGHLIGHTS_MAX_STORED,
     TERRAIN_CHANGING_CATEGORIES,
     World,
 )
@@ -268,6 +270,20 @@ OBSERVER_ATTENTION_MAX_TRACKED = 25
 `agent_view_counts` dict — bounds it regardless of how many distinct
 agents get inspected over a long session; the least-viewed entry is
 evicted to make room for a newly-inspected agent once full."""
+
+HIGHLIGHT_ZSCORE_WINDOW = 31
+"""§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md): how many
+recent daily `metrics` rows (including today's) `_detect_metric_
+highlights` pulls to compute a rolling population mean/stdev — roughly a
+sim-month, long enough for a meaningful baseline without smoothing out a
+genuinely fast multi-day swing."""
+
+HIGHLIGHT_POPULATION_Z_THRESHOLD = 2.5
+"""How many standard deviations from its own recent mean a day's
+population must swing to count as a highlight-worthy anomaly — high
+enough that ordinary day-to-day noise (a birth or two, a death) doesn't
+spam the log, per the idea doc's own "if the highlight log is boring,
+the emergence isn't real yet" honesty test."""
 
 CONSCIOUSNESS_GRUDGE_HARDSHIP_DELTA = 0.08
 CONSCIOUSNESS_GRUDGE_CALM_DELTA = 0.04
@@ -746,6 +762,14 @@ class SimulationEngine:
         two calls ago this same tick is visible to the next check, closing
         the staleness window to zero. See docs/DECISIONS.md, "backpressure
         reservation gap" pass."""
+        self._prev_population_total: int | None = None
+        """§5 "Anomaly/highlight log": population from the PREVIOUS
+        `_log_daily_metrics` call, used only to detect a fresh crossing
+        below `POPULATION_CRITICAL_THRESHOLD` (an extinction near-miss)
+        rather than re-flagging every day the population stays low.
+        Never persisted — a restart simply re-baselines from the first
+        post-restart reading, which is fine since this only needs to
+        catch a genuine fresh crossing, not survive a restart mid-crisis."""
         self._monthly_job_scheduled_month: dict[str, int] = {}
         """job name -> absolute month ordinal (year * months_per_year +
         month_index) it last got past its own backpressure check — lets
@@ -2036,6 +2060,10 @@ class SimulationEngine:
             self._schedule_chronicler_answer(str(item.get("question", "")), item.get("settlement_id"))
         elif kind == "observer_attention":
             self._record_observer_attention(item.get("agent_id"))
+        elif kind == "request_digest":
+            self._schedule_away_digest()
+        elif kind == "found_successor_world":
+            self._found_successor_world()
 
     def _record_observer_attention(self, agent_id) -> None:
         """§4 "observer attention as a signal into the Town
@@ -2087,6 +2115,25 @@ class SimulationEngine:
         last_id = attention.get("last_agent_id")
         agent = by_id.get(last_id) if last_id is not None else None
         return agent if agent is not None and last_id in core_ids else None
+
+    def _watched_agent_names(self, limit: int = 5) -> list[str]:
+        """§5 "While you were away" digest: names of the agents the
+        observer has most inspected (`World.observer_attention`),
+        newest-count-first — used to headline the digest by whatever
+        happened to people the observer actually cares about. Includes
+        agents who have since died (a death IS exactly the kind of
+        thing this digest exists to surface), unlike `_observer_
+        favorite_agent` which deliberately excludes them since that
+        helper feeds interventions that need a currently-actionable
+        target."""
+        attention = self.world.observer_attention
+        counts = attention.get("agent_view_counts", {}) if attention else {}
+        if not counts:
+            return []
+        by_id = {a.id: a for a in self.world.population.agents}
+        ranked = sorted(counts, key=lambda aid: counts[aid], reverse=True)[:limit]
+        names = [by_id[aid].name for aid in ranked if aid in by_id]
+        return names
 
     def _intervention_hardship_context(self) -> bool:
         """§4 "the consciousness keeps a grudge ledger" — a cheap,
@@ -2378,6 +2425,37 @@ class SimulationEngine:
             self._log("chronicler_answer", f"Asked of the chronicler: \"{question}\" — {self.world.chronicler_answer}")
 
         self._schedule_llm_job("chronicler", prompt, chronicler.SYSTEM_PROMPT, fallback, apply)
+
+    # --- §5 "While you were away" digest (on-demand) ---------------------------
+
+    def _schedule_away_digest(self) -> None:
+        """Applied the tick after `POST /digest/request` enqueues a
+        `request_digest` intervention — same enqueue-now/apply-next-tick
+        seam as `_schedule_summary`/`_schedule_chronicler_answer`,
+        deliberately NOT backpressure-gated for the same reason (a
+        single user-triggered request isn't part of the coincident
+        monthly job cluster that gate exists to smooth). Covers events
+        since the PREVIOUS digest's tick (or world start, -1, the first
+        time), headlined by whatever touches agents the observer has
+        actually inspected (`_watched_agent_names`) — see docs/IDEAS-
+        2026-07-EMERGENCE.md §5."""
+        since_tick = self.world.away_digest_tick
+        current_tick = self.world.clock.tick_count
+        events = events_since_tick(self.conn, since_tick, limit=200)
+        watched_names = self._watched_agent_names()
+        settlement = self._job_target()
+        prompt = digest.build_prompt(settlement.name, since_tick, current_tick, events, watched_names)
+        fallback = digest.fallback_digest(events, watched_names)
+        self.world.away_digest_pending = True
+        self.world.away_digest_since_tick = since_tick
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            self.world.away_digest_text = digest.parse_digest(result, fallback)
+            self.world.away_digest_tick = current_tick
+            self.world.away_digest_pending = False
+            self._log("away_digest", self.world.away_digest_text)
+
+        self._schedule_llm_job("away_digest", prompt, digest.SYSTEM_PROMPT, fallback, apply)
 
     # --- Phase E: village culture (traditions) --------------------------------
 
@@ -2706,7 +2784,10 @@ class SimulationEngine:
             })
             if len(stl.rituals) > RITUAL_MAX_STORED:
                 stl.rituals = stl.rituals[-RITUAL_MAX_STORED:]
-            self._log("ritual_formed", f"{stl.name} has begun to treat its festivals as something more than celebration.")
+            detail = f"{stl.name} has begun to treat its festivals as something more than celebration."
+            self._log("ritual_formed", detail)
+            if sum(len(s.rituals) for s in self.world.settlements) == 1:
+                self._append_highlight("first_ritual", f"The first ritual in this world took shape: {detail}")
         mourning = stl.ritual_signal_counts.get("shrine_mourning", 0)
         if mourning >= RITUAL_PROMOTION_THRESHOLD and "shrine_mourning" not in existing_patterns:
             stl.rituals.append({
@@ -2798,11 +2879,12 @@ class SimulationEngine:
         if len(family_b.feuds) > FAMILY_FEUD_MAX_STORED:
             family_b.feuds = family_b.feuds[-FAMILY_FEUD_MAX_STORED:]
         counts[key] = 0
-        self._log(
-            "family_feud",
+        detail = (
             f"{family_a.name or 'A family'} and {family_b.name or 'another family'} "
-            f"in {settlement.name or 'the village'} have become bitter rivals.",
+            f"in {settlement.name or 'the village'} have become bitter rivals."
         )
+        self._log("family_feud", detail)
+        self._append_highlight("family_feud", detail)
 
     def _maybe_schedule_religion(self, events: list[str]) -> None:
         """Seasonal, one call, gated on having enough accumulated
@@ -2859,6 +2941,11 @@ class SimulationEngine:
                 "religion_formed",
                 f"{stl.name} has come to share a belief it calls {parsed['name']}.",
             )
+            if sum(1 for s in self.world.settlements if s.religion is not None) == 1:
+                self._append_highlight(
+                    "first_religion",
+                    f"The first faith in this world took root: {stl.name} now shares a belief called {parsed['name']}.",
+                )
 
         self._schedule_llm_job("religion", prompt, religion.SYSTEM_PROMPT, fallback, apply)
 
@@ -3400,6 +3487,26 @@ class SimulationEngine:
         if counts.get("wildlife_recolonization", 0) >= PATTERN_SIGNAL_BELIEF_THRESHOLD:
             pattern_sentences.append("Wild animals keep reclaiming the land around the village.")
             counts["wildlife_recolonization"] = 0
+        # §5 "Ruins mode / successor worlds": a settlement founded via
+        # `_found_successor_world` gets one optional grounding line
+        # about the ruins/records it was founded amid — the predecessor
+        # settlement's OWN history, which this new population never
+        # lived through and may honestly get wrong. Read (never
+        # written) here, same "queued grounding fact" shape as the
+        # pattern_sentences above.
+        if settlement.predecessor_id is not None:
+            predecessor = self._settlement_by_id(settlement.predecessor_id)
+            if predecessor.records:
+                sample = predecessor.records[-1]["text"]
+                pattern_sentences.append(
+                    f"The village was founded amid the ruins of {predecessor.name or 'a forgotten place'}, "
+                    f"where a fragment of old writing survives: \"{sample}\""
+                )
+            elif predecessor.memorials or predecessor.name:
+                pattern_sentences.append(
+                    f"The village was founded amid the ruins of {predecessor.name or 'a forgotten place'} — "
+                    "no one now living knows why it fell silent."
+                )
         recent_for_prompt = (
             [{"category": "pattern_noticed", "description": s} for s in pattern_sentences] + recent
             if pattern_sentences else recent
@@ -4689,6 +4796,53 @@ class SimulationEngine:
 
         self._schedule_llm_job("fission", prompt, fission.SYSTEM_PROMPT, fallback, apply)
 
+    # --- §5 "Ruins mode / successor worlds" (docs/IDEAS-2026-07-EMERGENCE.md) --
+
+    def _found_successor_world(self) -> None:
+        """Applied the tick after `POST /world/found-successor` enqueues
+        a `found_successor_world` intervention (same enqueue-now/apply-
+        next-tick seam as every other intervention — this mutates
+        `World.settlements`/`World.population`, which must only ever
+        happen from inside the single-writer tick loop). Gated on true
+        extinction (`self.world.population.agents` empty — the doc's
+        "on true extinction" case; "or by choice" while a population is
+        still alive is a documented scope trim, since relocating a LIVING
+        population is a materially different, larger mechanism). Founds
+        a genuinely NEW settlement on the SAME terrain/roads/wildlife/
+        farms — nothing about the physical world resets — while every
+        defunct settlement's ruins/memorials/records/place_names/
+        religion/folklore are left exactly as they decayed to, still
+        addressable via `_settlement_by_id`. The new settlement's
+        `predecessor_id` points at whichever defunct settlement holds
+        the richest history (most records+memorials+rituals+beliefs),
+        so `llm/beliefs.py` can invite the new population to form a
+        theory about the old ruins/records it may honestly misread —
+        "deep time, archaeology, and 'they got the old stories wrong.'\""""
+        if self.world.population.agents:
+            self._log("successor_founding_refused", "A successor world was requested, but the population is not yet extinct.")
+            return
+        if len(self.world.settlements) >= MAX_SETTLEMENTS:
+            self._log("successor_founding_refused", "A successor world was requested, but the world is already at its settlement limit.")
+            return
+        predecessor = max(
+            self.world.settlements,
+            key=lambda s: len(s.records) + len(s.memorials) + len(s.rituals) + len(s.beliefs),
+        )
+        new_settlement = Settlement(id=max(s.id for s in self.world.settlements) + 1)
+        new_settlement.predecessor_id = predecessor.id
+        self.world.settlements.append(new_settlement)
+        founders = self.world.population.spawn_successor_founders(
+            seed=self.config.seed, tick=self.world.clock.tick_count,
+            count=self.config.initial_population, terrain=self.world.terrain,
+            resources=self.world.resources, settlement_id=new_settlement.id,
+        )
+        detail = (
+            f"{len(founders)} newcomers have settled amid the ruins once called "
+            f"{predecessor.name or 'a forgotten place'}, to build something new."
+        )
+        self._log("successor_founded", detail)
+        self._append_highlight("successor_founded", detail)
+
     def _maybe_schedule_geography(self, events: list[str]) -> None:
         """Named geography: one unnamed feature (the river first, then
         each lake) earns a permanent name per month once the settlement
@@ -4740,6 +4894,21 @@ class SimulationEngine:
         log_event(self.conn, tick=self.world.clock.tick_count, category=category, description=description, commit=False)
         self._pending_broadcast_events.append({"category": category, "description": description})
 
+    def _append_highlight(self, kind: str, detail: str) -> None:
+        """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md):
+        appends to `World.highlights`, capped at HIGHLIGHTS_MAX_STORED
+        (oldest evicted) — a small, bounded, zero-LLM-cost self-flagged
+        record distinct from the full `events` table this project
+        already durably logs everything to. Called from hand-picked
+        trigger sites (first religion, extinction near-miss, feud
+        formation, first ritual) and from `_log_daily_metrics`'s rolling
+        z-score anomaly check."""
+        self.world.highlights.append({
+            "kind": kind, "detail": detail, "tick": self.world.clock.tick_count,
+        })
+        if len(self.world.highlights) > HIGHLIGHTS_MAX_STORED:
+            self.world.highlights = self.world.highlights[-HIGHLIGHTS_MAX_STORED:]
+
     def _log_daily_metrics(self) -> None:
         """One compact time-series row per sim-day (see database.py's
         `metrics` table, `GET /metrics`) — the instrumentation layer the
@@ -4785,6 +4954,48 @@ class SimulationEngine:
             "llm_fallback_total": self.world.llm_fallback_total,
         }
         log_metrics(self.conn, tick=self.world.clock.tick_count, metrics=metrics, commit=False)
+        self._detect_metric_highlights(pop_summary["total"])
+
+    def _detect_metric_highlights(self, population_total: int) -> None:
+        """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md):
+        two cheap, deterministic checks riding the existing once-per-
+        sim-day `_log_daily_metrics` cadence — no separate polling loop.
+
+        (1) Extinction near-miss: population freshly crosses below
+        `POPULATION_CRITICAL_THRESHOLD` from at or above it — a genuine
+        edge (`_prev_population_total` tracks the last reading) so a
+        settlement that STAYS critically low for a long stretch is
+        flagged once, not every single day.
+
+        (2) Rolling z-score: population swinging more than
+        `HIGHLIGHT_POPULATION_Z_THRESHOLD` standard deviations from its
+        own recent mean (`HIGHLIGHT_ZSCORE_WINDOW` prior days) — a
+        plain statistical surprise detector, the doc's own suggested
+        mechanism, requiring at least a few days of history to have a
+        meaningful mean/stdev at all."""
+        prev = self._prev_population_total
+        if prev is not None and prev >= POPULATION_CRITICAL_THRESHOLD and population_total < POPULATION_CRITICAL_THRESHOLD:
+            self._append_highlight(
+                "extinction_near_miss",
+                f"The population fell to {population_total} — the brink of extinction.",
+            )
+        self._prev_population_total = population_total
+
+        history = recent_metrics(self.conn, limit=HIGHLIGHT_ZSCORE_WINDOW)
+        prior = [row["population"] for row in history[:-1] if "population" in row]
+        if len(prior) >= 5:
+            mean = sum(prior) / len(prior)
+            variance = sum((v - mean) ** 2 for v in prior) / len(prior)
+            stdev = variance ** 0.5
+            if stdev >= 1.0:
+                z = (population_total - mean) / stdev
+                if abs(z) >= HIGHLIGHT_POPULATION_Z_THRESHOLD:
+                    direction = "surged" if z > 0 else "dropped"
+                    self._append_highlight(
+                        "population_anomaly",
+                        f"Population {direction} to {population_total} — well outside its recent trend "
+                        f"(~{mean:.0f} average).",
+                    )
 
     def _record_llm_call(self, used_fallback: bool) -> None:
         """Cumulative counters persisted on `World`, for diagnosing LLM

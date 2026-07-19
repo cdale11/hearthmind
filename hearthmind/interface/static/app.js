@@ -441,6 +441,90 @@ chroniclerForm.addEventListener("submit", async (e) => {
   }
 });
 
+// --- §5 "While you were away" digest (docs/IDEAS-2026-07-EMERGENCE.md) -----
+// Same on-demand request/poll shape as the simulation summary above.
+
+const digestPanel = document.getElementById("digest-panel");
+const digestToggle = document.getElementById("digest-toggle");
+const digestGenerateBtn = document.getElementById("digest-generate");
+const digestStatus = document.getElementById("digest-status");
+const digestText = document.getElementById("digest-text");
+let digestPollTimer = null;
+
+function renderDigest(data) {
+  if (data.pending) {
+    digestStatus.textContent = "catching you up…";
+    digestGenerateBtn.disabled = true;
+  } else {
+    digestStatus.textContent = data.tick >= 0 ? `as of tick ${data.tick}` : "";
+    digestGenerateBtn.disabled = false;
+  }
+  if (data.text) digestText.textContent = data.text;
+}
+
+async function loadDigest() {
+  try {
+    renderDigest(await fetchJSON("/digest"));
+  } catch (e) {
+    digestStatus.textContent = `failed to load: ${e.message}`;
+  }
+}
+
+function pollDigestUntilDone() {
+  if (digestPollTimer) clearInterval(digestPollTimer);
+  digestPollTimer = setInterval(async () => {
+    try {
+      const data = await fetchJSON("/digest");
+      renderDigest(data);
+      if (!data.pending) clearInterval(digestPollTimer);
+    } catch (e) {
+      clearInterval(digestPollTimer);
+    }
+  }, 2000);
+}
+
+digestToggle.addEventListener("click", () => {
+  digestPanel.classList.toggle("hidden");
+  digestToggle.classList.toggle("active");
+  if (!digestPanel.classList.contains("hidden")) loadDigest();
+});
+
+digestGenerateBtn.addEventListener("click", async () => {
+  digestGenerateBtn.disabled = true;
+  digestStatus.textContent = "catching you up…";
+  try {
+    await fetch("/digest/request", { method: "POST" });
+    pollDigestUntilDone();
+  } catch (e) {
+    digestStatus.textContent = `failed: ${e.message}`;
+    digestGenerateBtn.disabled = false;
+  }
+});
+
+// --- §5 anomaly/highlight log (docs/IDEAS-2026-07-EMERGENCE.md) ------------
+
+const highlightsPanel = document.getElementById("highlights-panel");
+const highlightsToggle = document.getElementById("highlights-toggle");
+const highlightsList = document.getElementById("highlights-list");
+
+async function loadHighlights() {
+  highlightsList.innerHTML = "<li>loading…</li>";
+  try {
+    const rows = await fetchJSON("/highlights");
+    highlightsList.innerHTML = rows.length
+      ? rows.map((r) => `<li>✨ <span class="muted">tick ${r.tick}</span> ${r.detail}</li>`).join("")
+      : "<li>nothing flagged yet</li>";
+  } catch (e) {
+    highlightsList.innerHTML = `<li>failed to load: ${e.message}</li>`;
+  }
+}
+
+highlightsToggle.addEventListener("click", () => {
+  highlightsPanel.classList.toggle("hidden");
+  highlightsToggle.classList.toggle("active");
+  if (!highlightsPanel.classList.contains("hidden")) loadHighlights();
+});
+
 // Observatory UI depth pass: a read-only scrub-through-time view over
 // whatever snapshot ticks are still on file (see docs/ROADMAP.md's
 // flagged "a true scrub-through-time replay view" gap, and
@@ -556,6 +640,68 @@ if (timelinePlayBtn) {
     timelinePlayBtn.textContent = "⏸ pause";
     const fps = Number((timelineSpeedSel && timelineSpeedSel.value) || 2);
     replayTimer = setTimeout(replayStep, Math.max(120, 1000 / fps));
+  });
+}
+
+// --- §5 "Year-reel export" (docs/IDEAS-2026-07-EMERGENCE.md) ---------------
+// Purely client-side: drives the same replay step loop as the ▶ replay
+// button above, but records the map canvas via MediaRecorder/
+// captureStream instead of (or alongside) drawing to screen, then
+// downloads the result as a .webm — no backend involvement, snapshot
+// keyframes + chronicle already exist to stitch into a scrubbed replay.
+
+const timelineExportBtn = document.getElementById("timeline-export");
+const timelineExportStatus = document.getElementById("timeline-export-status");
+let exportRecorder = null;
+
+async function exportYearReel() {
+  if (!timelineTicks.length) return;
+  if (typeof MediaRecorder === "undefined" || !canvas.captureStream) {
+    timelineExportStatus.textContent = "recording isn't supported in this browser";
+    return;
+  }
+  stopReplay();
+  timelineExportBtn.disabled = true;
+  const startIdx = Number(timelineSlider.value);
+  const chunks = [];
+  const stream = canvas.captureStream(0); // manual frame capture below
+  const track = stream.getVideoTracks()[0];
+  const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+    ? "video/webm;codecs=vp9" : "video/webm";
+  exportRecorder = new MediaRecorder(stream, { mimeType });
+  exportRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+  const done = new Promise((resolve) => { exportRecorder.onstop = resolve; });
+  exportRecorder.start();
+
+  const fps = Number((timelineSpeedSel && timelineSpeedSel.value) || 2);
+  for (let idx = startIdx; idx < timelineTicks.length; idx++) {
+    timelineSlider.value = String(idx);
+    await loadTimelineTick(timelineTicks[idx]);
+    timelineExportStatus.textContent = `recording… frame ${idx - startIdx + 1}/${timelineTicks.length - startIdx}`;
+    if (track && track.requestFrame) track.requestFrame();
+    await new Promise((r) => setTimeout(r, Math.max(120, 1000 / fps)));
+  }
+  exportRecorder.stop();
+  await done;
+  const blob = new Blob(chunks, { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `hearthmind-year-reel-tick${timelineTicks[startIdx]}.webm`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  timelineExportStatus.textContent = "downloaded.";
+  timelineExportBtn.disabled = false;
+}
+
+if (timelineExportBtn) {
+  timelineExportBtn.addEventListener("click", () => {
+    exportYearReel().catch((e) => {
+      timelineExportStatus.textContent = `export failed: ${e.message}`;
+      timelineExportBtn.disabled = false;
+    });
   });
 }
 
@@ -764,6 +910,63 @@ async function fetchJSON(path) {
   return res.json();
 }
 
+// --- §5 "Era-styled cartography" (docs/IDEAS-2026-07-EMERGENCE.md) ---------
+// Pure client polish: the map's rendering style ages with the era system —
+// rough hand-drawn early (industrial), surveyed clean lines later (digital).
+// Progress felt on the map itself, not just read off a stat tile.
+
+const ERA_TIER = { industrial: 0, electrical: 1, modern: 2, digital: 3 };
+
+function currentEraTier() {
+  const settlements = latest && latest.summary && latest.summary.settlements;
+  if (!settlements || !settlements.length) return 0;
+  let best = 0;
+  for (const s of settlements) {
+    const tier = ERA_TIER[s.era] || 0;
+    if (tier > best) best = tier;
+  }
+  return best;
+}
+
+// Deterministic per-tile pseudo-random (no Math.random — the overlay must
+// stay stable across redraws until the next terrain refresh, not flicker).
+function tileNoise(x, y) {
+  const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return n - Math.floor(n);
+}
+
+function paintEraOverlay(sctx, tier) {
+  if (tier >= ERA_TIER.modern) {
+    // Surveyed: a faint clean grid over the whole map — progress read as
+    // precision, not decoration.
+    sctx.strokeStyle = tier >= ERA_TIER.digital ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.05)";
+    sctx.lineWidth = 1;
+    const step = tier >= ERA_TIER.digital ? CELL * 4 : CELL * 8;
+    for (let x = 0; x <= staticCanvas.width; x += step) {
+      sctx.beginPath(); sctx.moveTo(x, 0); sctx.lineTo(x, staticCanvas.height); sctx.stroke();
+    }
+    for (let y = 0; y <= staticCanvas.height; y += step) {
+      sctx.beginPath(); sctx.moveTo(0, y); sctx.lineTo(staticCanvas.width, y); sctx.stroke();
+    }
+    return;
+  }
+  // Rough hand-drawn: scattered stipple dots over land tiles, density
+  // fading as the era advances from industrial to electrical.
+  const density = tier === ERA_TIER.industrial ? 0.35 : 0.15;
+  sctx.fillStyle = "rgba(0,0,0,0.10)";
+  for (let y = 0; y < terrain.height; y++) {
+    for (let x = 0; x < terrain.width; x++) {
+      const biome = terrain.biomes[y][x];
+      if (biome === "ocean" || biome === "river" || biome === "lake") continue;
+      if (tileNoise(x, y) >= density) continue;
+      const jx = tileNoise(x + 0.37, y) * CELL, jy = tileNoise(x, y + 0.61) * CELL;
+      sctx.beginPath();
+      sctx.arc(x * CELL + jx, y * CELL + jy, Math.max(1, CELL * 0.06), 0, Math.PI * 2);
+      sctx.fill();
+    }
+  }
+}
+
 function drawStaticTerrain() {
   staticCanvas = document.createElement("canvas");
   staticCanvas.width = terrain.width * CELL;
@@ -775,6 +978,7 @@ function drawStaticTerrain() {
       sctx.fillRect(x * CELL, y * CELL, CELL, CELL);
     }
   }
+  paintEraOverlay(sctx, currentEraTier());
   canvas.width = staticCanvas.width;
   canvas.height = staticCanvas.height;
   weatherCanvas.width = staticCanvas.width;
@@ -2542,10 +2746,32 @@ async function refreshTerrainIfChanged(events) {
   }
 }
 
+// --- §5 "Ruins mode / successor worlds" (docs/IDEAS-2026-07-EMERGENCE.md) --
+
+const extinctionBanner = document.getElementById("extinction-banner");
+const foundSuccessorBtn = document.getElementById("found-successor-btn");
+
+function renderExtinctionBanner(summary) {
+  const total = summary.population ? summary.population.total : 0;
+  extinctionBanner.classList.toggle("hidden", total > 0);
+}
+
+if (foundSuccessorBtn) {
+  foundSuccessorBtn.addEventListener("click", async () => {
+    foundSuccessorBtn.disabled = true;
+    try {
+      await fetch("/world/found-successor", { method: "POST" });
+    } finally {
+      setTimeout(() => { foundSuccessorBtn.disabled = false; }, 3000);
+    }
+  });
+}
+
 function applyPayload(payload) {
   latest = payload;
   renderSettlementChips(payload);
   renderStats(payload.summary);
+  renderExtinctionBanner(payload.summary);
   renderConsequences(payload.summary);
   renderInfrastructure(payload.infrastructure);
   if (payload.diagnostics && payload.diagnostics.sim_pacing) renderSimPacing(payload.diagnostics.sim_pacing);
@@ -2559,6 +2785,12 @@ function applyPayload(payload) {
     prependEvents(payload.life_events.map((e) => ({ ...e, tick: payload.summary.tick })));
     refreshTerrainIfChanged(payload.life_events);
     registerThoughtFlashes(payload.life_events, payload.agents);
+    // §5 "Era-styled cartography": an era advance changes the map's
+    // rendering style even though the terrain itself hasn't changed —
+    // repaint the static layer in place (no /terrain refetch needed).
+    if (staticCanvas && payload.life_events.some((e) => e.category === "era_advance")) {
+      drawStaticTerrain();
+    }
   }
 }
 

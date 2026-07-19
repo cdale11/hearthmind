@@ -306,7 +306,7 @@ mostly *interpretive* — belief rarely feeds back into behavior.
 An unattended world is mostly unwatched — the most interesting things
 happen to nobody. These are observer-side, mostly zero-LLM.
 
-- [ ] **"While you were away" digest.** DECISIONS.md itself flags
+- [x] **"While you were away" digest.** DECISIONS.md itself flags
   "what happened while I was gone" as the interesting question. On
   client reconnect after a gap, one on-demand summary call (the
   summary tab machinery exists) over the event log since last-seen,
@@ -314,30 +314,40 @@ happen to nobody. These are observer-side, mostly zero-LLM.
   agents the observer previously inspected. Turns every return visit
   into an episode recap.
 
-- [ ] **Anomaly/highlight log.** The metrics harness exists; nothing
+- [x] **Anomaly/highlight log.** The metrics harness exists; nothing
   watches it. A cheap detector (rolling z-score per metric, plus
   hand-picked triggers: first religion, extinction near-miss, feud
   formation, belief flipping from true to false) appends to a bounded
   `highlights` list surfaced in the UI. The sim flags its own emergent
   moments so they stop being lost to an empty room. Also the honest
   test of the project's thesis: if the highlight log is boring, the
-  emergence isn't real yet.
+  emergence isn't real yet. Shipped: population z-score anomalies,
+  extinction near-miss, first religion, first ritual, feud formation.
+  Not shipped: "belief flipping from true to false" — beliefs have no
+  boolean truth-value field to flip (see §3's prophecy `status` for
+  the closest existing precedent); flagged as a natural follow-up if a
+  belief-truth-tracking schema is ever added, not silently dropped.
 
-- [ ] **Year-reel export.** Snapshot keyframes + chronicle lines
+- [x] **Year-reel export.** Snapshot keyframes + chronicle lines
   already exist; stitch a scrubbed year into a shareable replay
   (client-side canvas capture is enough). Observers evangelize worlds
   they can show.
 
-- [ ] **Ruins mode / successor worlds.** On true extinction (or by
+- [x] **Ruins mode / successor worlds.** On true extinction (or by
   choice), found a *new* world on the same map: terrain, ruins, roads,
   memorials persist; the old civilization's records/artifacts survive
   as findable text the new one's beliefs/folklore jobs may misread.
   Records machinery already writes exactly the right substrate. Deep
   time, archaeology, and "they got the old stories wrong" — maximum
   emergence per call, because the *content* was generated for free by a
-  previous run.
+  previous run. Shipped scoped to "on true extinction" only (population
+  0) — "or by choice" while a population is still alive would need a
+  materially different living-relocation mechanism, flagged as a
+  follow-up, not silently dropped. The defunct settlement is kept, not
+  discarded, so its ruins/memorials/records/place_names/religion decay
+  exactly as they already do — no new preservation mechanism needed.
 
-- [ ] **Era-styled cartography.** The map's rendering style ages with
+- [x] **Era-styled cartography.** The map's rendering style ages with
   the era system (rough hand-drawn early, surveyed lines later). Pure
   client polish that makes progress felt rather than read.
 

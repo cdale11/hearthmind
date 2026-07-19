@@ -4,6 +4,92 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.22] — §5 close-out: making deep time legible
+
+Direct follow-up per explicit user request ("continue" after §4's
+routine-scheduling attempt hit a tool-approval error) — closes all
+five items of docs/IDEAS-2026-07-EMERGENCE.md §5, observer-side and
+mostly zero-LLM per the doc's own framing.
+
+**"While you were away" digest** (new `llm/digest.py`, `GET /digest` /
+`POST /digest/request`): on-demand, mirrors `POST /summary/request`'s
+enqueue-now/apply-next-tick seam. New `persistence/snapshot.py:
+events_since_tick` windows by TICK RANGE (not row count) since the
+previous digest's boundary (`World.away_digest_since_tick`), filtered
+through the existing `ROUTINE_EVENT_CATEGORIES` cap. Headlined by
+whatever touches agents the observer has actually inspected
+(`SimulationEngine._watched_agent_names`, reusing `World.observer_
+attention` from §4 — includes since-departed agents, unlike `_observer_
+favorite_agent`, since a death is exactly what this digest exists to
+surface).
+
+**Anomaly/highlight log** (`World.highlights`, capped `HIGHLIGHTS_MAX_
+STORED=30`, `GET /highlights`): `SimulationEngine._append_highlight`
+appends from two mechanisms, both zero LLM cost. Hand-picked triggers
+at existing event sites: first religion formed in the world, first
+ritual formed, family-feud formation. A rolling z-score
+(`_detect_metric_highlights`, riding the existing once-per-sim-day
+`_log_daily_metrics` cadence) flags population swinging >2.5σ from its
+own trailing-31-day mean, plus a genuine extinction-near-miss edge
+(population freshly crosses below `POPULATION_CRITICAL_THRESHOLD`,
+flagged once per crossing via `_prev_population_total`, not every day
+it stays low). Not shipped: "belief flipping true to false" — beliefs
+have no boolean truth-value field, flagged as a follow-up if that
+schema is ever added.
+
+**Year-reel export** (client-side only, `app.js`): a new "🎬 export
+year reel" button drives the existing replay step loop while recording
+the map canvas via `canvas.captureStream()`/`MediaRecorder`, then
+downloads the result as a `.webm` — no backend changes, snapshot
+keyframes already provide the frames.
+
+**Ruins mode / successor worlds** (`SimulationEngine._found_successor_
+world`, `POST /world/found-successor`): scoped to "on true extinction"
+only (population 0) — "or by choice" while alive would need a
+materially different living-population-relocation mechanism, flagged
+not dropped. Founds a genuinely NEW `Settlement` on the SAME terrain/
+roads/wildlife/farms; the defunct settlement is kept in `World.
+settlements` (never discarded — same "the list never shrinks" stance
+this project already holds), so its ruins/memorials/records/place_
+names/religion simply keep existing and decaying exactly as before.
+New `Settlement.predecessor_id` (via `SettlementDisposition`, same
+composition pattern as `last_intervention_tick`) points at whichever
+defunct settlement holds the richest history; `llm/beliefs.py` folds
+in one optional grounding line quoting the predecessor's newest
+written record (or a bare "no one knows why it fell silent" if none
+survive) — the new population may honestly misread it. New
+`Population.spawn_successor_founders` mirrors `spawn_initial`'s
+founding-site-selection logic but appends into the existing (extinct)
+`Population` rather than discarding its cumulative history/`_next_id`
+— new founders get consecutive ids continuing from where the last
+civilization left off, so they never collide with a departed agent's
+id still referenced in the durable `agent_memory_log`/`consciousness_
+log` tables. New "💀 the world is empty" header banner + "🏚 found a
+successor settlement" button, shown only at population 0.
+
+**Era-styled cartography** (client-side only, `app.js`): the map's
+rendering style now ages with the era system — a deterministic
+per-tile stipple overlay (density fading industrial → electrical) for
+early eras, a clean surveyed grid line overlay for modern/digital.
+Repainted in place on `era_advance` events (no terrain refetch
+needed) via the existing `refreshTerrainIfChanged` seam's sibling
+check.
+
+Verified: direct production-path tests (events_since_tick tick-range
+windowing; a real `_schedule_away_digest` call resolving through the
+actual fallback path; `_append_highlight`/`_detect_metric_highlights`
+including a forced extinction-near-miss; a real `_found_successor_
+world` call — new settlement/predecessor_id/founder settlement_id/
+refusal-when-not-extinct, all against actual production code; a
+forced `_maybe_schedule_beliefs` call with a fake LLM client confirming
+the ancestor-ruins grounding line reaches a real built prompt; round-
+trip serialization for `away_digest_*`/`highlights`/`predecessor_id`).
+`scripts/verify_native_soak.py` (3 seeds x 3000 ticks) byte-identical —
+this batch touches no native module. A 2-seed x 20,000-tick organic
+engine soak (LLM disabled) completes with zero crashes across both
+seeds (final populations 34 and 63, both with real starvation deaths
+exercising the daily metrics/highlight-detection path throughout).
+
 ## [0.87.21] — §4 close-out: the watcher watched
 
 Direct follow-up per explicit user request ("Build item 4 ... stale

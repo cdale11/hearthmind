@@ -1919,6 +1919,17 @@ class SettlementDisposition:
     beliefs job to optionally attribute it to a nameless something
     ("the Quiet Neighbor"), worded so it could equally be superstition.
     -1 (never intervened) is the common case for most worlds."""
+    predecessor_id: int | None = None
+    """§5 "Ruins mode / successor worlds" (docs/IDEAS-2026-07-EMERGENCE.
+    md): set only on a settlement founded via `SimulationEngine._found_
+    successor_world` — the id of the defunct settlement (population 0,
+    its ruins/memorials/records/place_names left exactly as they were)
+    this settlement was founded to succeed, on the SAME map. Read (never
+    written elsewhere) by `llm/beliefs.py` to fold in one optional
+    grounding line inviting a theory about the old ruins/records that
+    may misread them — "they got the old stories wrong" is a feature of
+    the new settlement's imperfect knowledge, not a bug. None for every
+    ordinary settlement (founding or fission-born)."""
 
 
 class Settlement:
@@ -1966,6 +1977,7 @@ class Settlement:
         lexicon: list[dict] | None = None,
         pending_letters: list[dict] | None = None,
         prophecy: dict | None = None, last_intervention_tick: int = -1,
+        predecessor_id: int | None = None,
     ):
         self.id = id
         """Stable settlement identity (multi-settlement pass, v0.65.0):
@@ -2036,6 +2048,7 @@ class Settlement:
             mood=mood if mood is not None else {},
             omen_seed=omen_seed, dream_seed=dream_seed,
             prophecy=prophecy, last_intervention_tick=last_intervention_tick,
+            predecessor_id=predecessor_id,
         )
         self._position_index: dict | None = None
         """(x, y) -> Building cache behind `at()` — never serialized,
@@ -2547,6 +2560,14 @@ class Settlement:
         self.disposition.last_intervention_tick = value
 
     @property
+    def predecessor_id(self) -> int | None:
+        return self.disposition.predecessor_id
+
+    @predecessor_id.setter
+    def predecessor_id(self, value: int | None) -> None:
+        self.disposition.predecessor_id = value
+
+    @property
     def current_priority(self) -> str:
         return self.disposition.current_priority
 
@@ -2854,6 +2875,7 @@ class Settlement:
             "thefts_committed": self.thefts_committed,
             "lexicon": list(self.lexicon),
             "prophecy": dict(self.prophecy) if self.prophecy is not None else None,
+            "predecessor_id": self.predecessor_id,
         }
 
     def infrastructure_report(self) -> list[dict]:
@@ -2983,6 +3005,7 @@ class Settlement:
             "pending_letters": list(self.pending_letters),
             "prophecy": dict(self.prophecy) if self.prophecy is not None else None,
             "last_intervention_tick": self.last_intervention_tick,
+            "predecessor_id": self.predecessor_id,
         }
 
     @classmethod
@@ -3048,4 +3071,5 @@ class Settlement:
             pending_letters=list(data.get("pending_letters", [])),
             prophecy=dict(data["prophecy"]) if data.get("prophecy") is not None else None,
             last_intervention_tick=data.get("last_intervention_tick", -1),
+            predecessor_id=data.get("predecessor_id"),
         )

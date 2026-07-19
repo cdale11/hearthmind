@@ -423,6 +423,43 @@ def events_by_category(conn: sqlite3.Connection, category: str, limit: int = 20)
     ]
 
 
+def events_since_tick(
+    conn: sqlite3.Connection, since_tick: int, limit: int = 200, routine_cap: int | None = None,
+) -> list[dict]:
+    """§5 "While you were away" digest (docs/IDEAS-2026-07-EMERGENCE.md):
+    newest-first events with `tick > since_tick`, filtered the same way
+    `recent_events_diverse` bounds routine noise — a gap of many days
+    away could otherwise be dominated by `day_end`/farm-planting rows.
+    Unlike `recent_events_diverse` (which windows by row COUNT), this
+    windows by TICK RANGE first so a short absence doesn't pull in
+    unrelated older history and a long one doesn't silently truncate to
+    only the last `limit` routine-heavy rows without at least trying to
+    keep the non-routine ones from the whole gap."""
+    limit = max(1, min(limit, QUERY_LIMIT_MAX))
+    if routine_cap is None:
+        routine_cap = max(1, limit // 3)
+    rows = conn.execute(
+        "SELECT tick, logged_at, category, description FROM events WHERE tick > ? ORDER BY id DESC LIMIT ?",
+        (since_tick, min(limit * 4, QUERY_LIMIT_MAX)),
+    ).fetchall()
+    raw = [
+        {"tick": tick, "logged_at": logged_at, "category": category, "description": description}
+        for tick, logged_at, category, description in rows
+    ]
+    raw = _dedupe_rumor_topics(raw)
+    kept: list[dict] = []
+    routine_kept = 0
+    for event in raw:  # newest-first
+        if event["category"] in ROUTINE_EVENT_CATEGORIES:
+            if routine_kept >= routine_cap:
+                continue
+            routine_kept += 1
+        kept.append(event)
+        if len(kept) >= limit:
+            break
+    return kept
+
+
 HISTORY_CATEGORIES = (
     "founding", "genesis", "settlement_named", "era_advance", "chronicle",
     "tradition", "invention", "festival", "belief_formed", "belief_revised",

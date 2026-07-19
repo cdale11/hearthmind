@@ -18,6 +18,11 @@
       <span class="consciousness-dot"></span>
       <span>🔁 llama-server restarting — the town pauses…</span>
     </div>
+    <div id="extinction-banner" class="consciousness-indicator consciousness-paused hidden" title="The population has fallen to zero. Terrain, roads, ruins, and records all remain — a new people may settle amid them.">
+      <span class="consciousness-dot"></span>
+      <span>💀 the world is empty</span>
+      <button id="found-successor-btn">🏚 found a successor settlement</button>
+    </div>
     <div id="sim-speed-controls" class="sim-speed-controls">
       <button id="sim-pause-toggle" title="Pause/resume the simulation">⏸ pause</button>
       <button id="sim-speed-down" title="Halve simulation speed">−</button>
@@ -27,6 +32,8 @@
     </div>
     <button id="summary-toggle" class="dev-toggle" title="LLM-generated summary of the simulation, on demand">🧭 summary</button>
     <button id="chronicler-toggle" class="dev-toggle" title="Ask the village chronicler a question, in character">📖 chronicler</button>
+    <button id="digest-toggle" class="dev-toggle" title="A recap of what happened since you last looked">🕯 digest</button>
+    <button id="highlights-toggle" class="dev-toggle" title="The simulation's own log of its most notable emergent moments">✨ highlights</button>
     <button id="history-toggle" class="dev-toggle" title="Summarized town history">📜 history</button>
     <button id="timeline-toggle" class="dev-toggle" title="Scrub through past snapshots">🕰 timeline</button>
     <button id="relationship-toggle" class="dev-toggle" title="Interactive relationship graph">🕸 relationships</button>
@@ -115,6 +122,27 @@
         <p id="chronicler-answer" class="muted">no question asked yet</p>
       </div>
 
+      <div class="panel hidden" id="digest-panel">
+        <h2>While you were away</h2>
+        <div class="muted" style="font-size:11px; margin-bottom:6px;">
+          A recap of what's happened since the last time you asked — headlined by anything involving people
+          you've been watching.
+        </div>
+        <button id="digest-generate">Catch me up</button>
+        <span id="digest-status" class="muted"></span>
+        <p id="digest-text" class="muted">no digest generated yet</p>
+      </div>
+
+      <div class="panel hidden" id="highlights-panel">
+        <h2>Highlights</h2>
+        <div class="muted" style="font-size:11px; margin-bottom:6px;">
+          The simulation's own log of moments it judged notable — a religion forming, a near-extinction, a
+          feud, an anomaly in its own numbers. Zero LLM cost; this is the honest test of whether the
+          emergence is real.
+        </div>
+        <ul id="highlights-list" class="muted"><li>none yet</li></ul>
+      </div>
+
       <div class="panel hidden" id="history-panel">
         <h2>Town history</h2>
         <ul id="history-list" class="muted"><li>loading…</li></ul>
@@ -134,6 +162,10 @@
             <option value="4">4 fps</option>
           </select>
           <div id="timeline-label" class="muted" style="font-size:11px;">no snapshots yet</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px; margin:4px 0;">
+          <button id="timeline-export" class="dev-toggle" title="Record the replay from here to the end as a downloadable video">🎬 export year reel</button>
+          <span id="timeline-export-status" class="muted" style="font-size:11px;"></span>
         </div>
         <ul id="timeline-summary" class="muted"><li>select a point on the slider</li></ul>
       </div>

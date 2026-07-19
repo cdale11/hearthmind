@@ -325,6 +325,56 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
         broadcaster.enqueue_intervention(item)
         return JSONResponse({"queued": True})
 
+    @app.get("/digest")
+    async def away_digest() -> JSONResponse:
+        """§5 "While you were away" digest (docs/IDEAS-2026-07-
+        EMERGENCE.md) — reads `World.away_digest_*` off the same
+        broadcast payload `/summary`/`/chronicler` already read their
+        own on-demand state from. `pending=True` while a requested
+        digest is in flight; the UI polls this until it clears."""
+        payload = broadcaster.get_state()
+        if payload is None:
+            return JSONResponse({"error": "no tick has completed yet"}, status_code=503)
+        return JSONResponse(
+            payload.get("summary", {}).get(
+                "away_digest", {"text": "", "tick": -1, "since_tick": -1, "pending": False},
+            )
+        )
+
+    @app.get("/highlights")
+    async def highlights() -> JSONResponse:
+        """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md)
+        — the simulation's own bounded self-flagged log of notable
+        moments (`World.highlights`), newest-last off the same
+        broadcast payload every other summary field reads from."""
+        payload = broadcaster.get_state()
+        if payload is None:
+            return JSONResponse({"error": "no tick has completed yet"}, status_code=503)
+        rows = payload.get("summary", {}).get("highlights", [])
+        return JSONResponse(list(reversed(rows)))
+
+    @app.post("/digest/request")
+    async def request_digest() -> JSONResponse:
+        """Queue an on-demand "while you were away" recap covering
+        events since the previous digest (or world start, the first
+        time) — same enqueue-now/apply-next-tick seam as `POST /summary/
+        request`. See SimulationEngine._schedule_away_digest."""
+        broadcaster.enqueue_intervention({"type": "request_digest"})
+        return JSONResponse({"queued": True})
+
+    @app.post("/world/found-successor")
+    async def found_successor_world() -> JSONResponse:
+        """§5 "Ruins mode / successor worlds" (docs/IDEAS-2026-07-
+        EMERGENCE.md) — queues a `found_successor_world` intervention,
+        applied the engine's next tick (same enqueue-now/apply-next-tick
+        seam as every other intervention). Only takes effect if the
+        population is currently truly extinct (SimulationEngine._found_
+        successor_world checks and logs a `successor_founding_refused`
+        event otherwise, since a `POST` response here can't reflect a
+        result that hasn't been computed yet)."""
+        broadcaster.enqueue_intervention({"type": "found_successor_world"})
+        return JSONResponse({"queued": True})
+
     @app.post("/observer/attention")
     async def observer_attention(payload: dict) -> JSONResponse:
         """§4 "observer attention as a signal into the Town
