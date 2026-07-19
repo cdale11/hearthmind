@@ -409,6 +409,26 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.46)
+
+Phase 6, final, of the multi-part live-report batch (see v0.87.41):
+"audit the whole code for unnecessary convergence," extended to
+folklore and rumor/gossip propagation per the explicit request.
+Audited, no bug found — each already has a real bound: folklore logs
+its own tales under a `"folklore"` event category (never `"rumor"`),
+so a tale can never become next month's own raw material; `spread_
+rumor` samples uniformly; gossip contagion (`_apply_gossip_contagion`)
+is a clamped, capped, proportional relaxation toward the speaker's
+view, gated by trust and unambiguous single-subject naming;
+InterpretRumor's distorted retelling lands only in the listener's own
+memory, never re-injected settlement-wide, and is capped per day;
+every deterministic pattern-signal counter (ritual/family-feud/
+dispute/law) resets to zero on crossing its promotion threshold rather
+than accumulating indefinitely. This closes the six-phase batch
+(v0.87.41-.46): food-storage/repair fixes, water infrastructure,
+era-scaled infrastructure, occupations, exploration/surveyor, and this
+audit.
+
 ## Current state (v0.87.45)
 
 Phase 5 of the multi-part live-report batch (see v0.87.41's plan):

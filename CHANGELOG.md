@@ -4,6 +4,49 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.46] — Convergence audit: folklore + rumor/gossip propagation
+
+Phase 6 (final) of the multi-part live-report batch (see v0.87.41):
+"audit the whole code for unnecessary convergence." The two already-
+known/already-fixed instances (town_brain's granary-fill food-priority
+loop, dialogue topic selection) were the starting reference; this pass
+extends the same scrutiny to folklore and rumor/gossip propagation,
+the two systems named explicitly.
+
+Audited, no bug found — each mechanism already has a real, deliberate
+bound against runaway self-reinforcement:
+
+- `llm/folklore.py`/`_maybe_schedule_folklore`: reads the literal
+  monthly rumor-event stream (`events_by_category(.., "rumor", ..)`,
+  by design — folklore wants raw material, not the diversity-adjusted
+  digest other prompts use). Crucially, a formed tale is logged under
+  its OWN `"folklore"` event category, never `"rumor"` — so a tale
+  never becomes next month's own raw material. No feedback loop.
+- `Population.spread_rumor` (caravan-seeded outside news): `rng.sample`
+  over all living agents, no repeat-target bias.
+- `Population.apply_dialogue`/`_apply_gossip_contagion`: gossip pulls a
+  listener's opinion toward the speaker's via a clamped, capped,
+  proportional step (`GOSSIP_OPINION_CONTAGION`/`_MAX_STEP`) — genuine
+  bounded exponential relaxation, not unbounded drift; requires an
+  unambiguous single named third party (skipped otherwise) and a
+  trust-skepticism gate.
+- `_maybe_interpret_rumor` (Phase K's InterpretRumor): a core-cast
+  listener's distorted retelling lands only in THEIR OWN memory
+  (`_remember`), never re-injected into the settlement-wide rumor
+  event stream other prompts read — so distortion can compound within
+  one agent's own later recollection, but never snowballs across the
+  whole town. Tightly capped per day (`INTERPRET_RUMOR_MAX_PER_DAY`).
+- Deterministic pattern-signal counters (`ritual_signal_counts`,
+  `pattern_signal_counts` for family feuds/disputes, `law_signal_
+  counts`) all follow a consistent detect-then-reset-to-zero discipline
+  on crossing their promotion threshold — never accumulate past the
+  triggering event, so none can runaway-reinforce a single dominant
+  signal indefinitely.
+
+This closes the six-phase live-report batch started at v0.87.41: food-
+storage/repair fixes, water infrastructure, era-scaled infrastructure,
+occupations, exploration/surveyor, and this convergence audit.
+
 ## [0.87.45] — Exploration/surveyor role, collective map knowledge
 
 Phase 5 of the multi-part live-report batch (see v0.87.41): "some npcs
