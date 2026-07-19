@@ -49,7 +49,10 @@ to a HILLS tile) confirming scars accumulate through the actual tick
 loop and round-trip through to_dict/from_dict; live Playwright
 verification against an organically-run server (scars appeared without
 any test-side forcing, `/terrain` payload correctly carries them, the
-new stat tile renders, zero console errors).
+new stat tile renders, zero console errors); a 20,000-tick x 2-seed
+soak (seeds 7/23, LLM disabled) completed with output byte-identical to
+the pre-mining-scars mineral-economy soak — confirming scars are truly
+cosmetic and introduce zero behavioral/balance change, as designed.
 
 ## [0.87.26] — Expanded mineral economy: iron and gold
 
