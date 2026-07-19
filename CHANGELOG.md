@@ -4,6 +4,64 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.37] — Audit town_brain/chronicle prompts, improve world-genesis variety, surface seed
+
+Explicit follow-up request: extend the context-selection audit to
+town_brain and chronicle, improve world-genesis prompting, and show
+the current seed in the dev console.
+
+**town_brain/chronicle audit: reviewed, no change needed.** Both
+prompts pair a full-belief-set digest (`belief_digest`/`culture_
+digest`) with the one or two freshest specific theories (`beliefs`,
+capped at `PROMPT_SETTLEMENT_BELIEFS_MAX`/`PROMPT_BELIEFS_MAX`) — this
+looked at first like cognition's fixed redundancy (v0.87.36: `life_
+digest` literally synthesized `own_belief`+`semantic_memory`, so
+showing all three was pure duplication), but it isn't: the digest here
+condenses the FULL belief/culture history, while the specific entries
+add concrete recent detail a coarse digest can't carry (an exact
+subject/text a reviewer or the model itself might want to reference by
+name). The two are complementary, not duplicative, and this shape was
+already deliberately documented at each site from an earlier pass —
+confirmed rather than changed. The shared `recent_events_diverse`
+event window (`PROMPT_RECENT_EVENTS=40`, used by both jobs and 8 other
+call sites) was also re-checked: it already dedupes repeated rumor
+text, caps how much of the window routine categories (`day_end`,
+`farm_planted`, etc.) can occupy, and reprioritizes rarer social/
+dramatic events — a real curated top-N, not a raw dump — so left
+unchanged; re-tuning a constant shared across 10 call sites without
+evidence any of them is actually over-stuffed would be a blast-radius
+change chasing a problem this pass didn't find.
+
+**world_genesis.build_prompt: the actual gap.** Previously took zero
+arguments and returned the exact same literal string on every call —
+across every brand-new world, the ONLY variety in the founding-scenario
+LLM call came from sampling temperature, while real per-world entropy
+(`_resolve_genesis_seed`'s `fallback_hint`, drawn from `random.
+SystemRandom()` before the call) sat unused, spent only on the
+fallback pool and the final seed XOR. `build_prompt` now takes an
+optional `flavor_hint` and, when given one, picks one of ten terrain-
+flavor cues (`_TERRAIN_FLAVOR_HINTS`: river valley, coastline, moor,
+etc.) as an explicit "loose starting point, but make it your own" lean
+— variety by construction, not by hoping temperature alone prevents
+convergent openings. `server.py`'s `_resolve_genesis_seed` now passes
+its own `fallback_hint` through to the live-LLM prompt (previously
+only used for the fallback pool/XOR). The old zero-argument call shape
+still works unchanged (`flavor_hint=None` omits the lean entirely).
+
+**Dev console: current seed.** `_diagnostics_snapshot()` (engine.py)
+gained a `seed` field reading `Config.seed` — the dev console already
+dumps the full diagnostics payload as raw JSON (`renderDevConsole` in
+app.js), so this reaches the UI with zero frontend changes.
+
+Verified: direct smoke tests confirming `build_prompt`'s hint-driven
+variety (10 distinct outputs across the flavor pool, deterministic per
+hint, old zero-arg shape unchanged) and an end-to-end `_resolve_
+genesis_seed` test with a fake LLM client confirming the real entropy
+now reaches the prompt text; a direct check that `_diagnostics_
+snapshot()['seed']` matches `Config.seed`. `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical — no native module
+touched.
+
 ## [0.87.36] — Extend the context-selection audit to cognition + personal_belief
 
 Explicit follow-up to v0.87.35's item 3 ("dynamically choose the most

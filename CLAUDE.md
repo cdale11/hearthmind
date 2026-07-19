@@ -409,6 +409,43 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.37)
+
+Follow-up request: extend the context-selection audit to town_brain/
+chronicle, improve world-genesis prompting, surface the seed in the
+dev console. Full detail: CHANGELOG.md.
+
+town_brain/chronicle: audited, no change — both pair a full-belief-set
+digest with a couple of freshest specific theories, which looked like
+v0.87.36's cognition redundancy at first glance but isn't: the digest
+condenses everything, the specifics add concrete detail the digest
+can't carry. Complementary, not duplicative, already deliberately
+documented from an earlier pass. The shared `PROMPT_RECENT_EVENTS`
+event window (`recent_events_diverse`, used by 10 call sites) was
+re-checked too — already dedupes repeated rumor text and caps routine-
+category crowding, a real curated selection, not a raw dump. Left
+unchanged.
+
+`world_genesis.build_prompt` was the actual gap: previously zero-
+argument, byte-identical on every call — every brand-new world's
+founding-scenario variety came from sampling temperature alone, while
+real per-world entropy (`_resolve_genesis_seed`'s `fallback_hint`) sat
+unused except for the fallback pool/seed XOR. Now takes an optional
+`flavor_hint` that leans the prompt toward one of ten terrain flavors
+("a river valley", "highland moor", ...) as a loose starting point;
+`server.py` passes its own `fallback_hint` through. Old zero-arg call
+shape still works unchanged.
+
+`_diagnostics_snapshot()` gained a `seed` field — the dev console
+already dumps the full diagnostics payload as raw JSON, so this reaches
+the UI with zero frontend changes.
+
+Verified: direct smoke tests (hint-driven prompt variety, an end-to-
+end `_resolve_genesis_seed` test with a fake LLM client confirming the
+real entropy reaches the prompt, `_diagnostics_snapshot()['seed']`
+matching `Config.seed`). `scripts/verify_native_soak.py` (2 seeds x
+800 ticks) byte-identical.
+
 ## Current state (v0.87.36)
 
 Follow-up to v0.87.35's item 3: extends the context-selection audit to

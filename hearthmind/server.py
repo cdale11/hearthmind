@@ -170,7 +170,9 @@ async def _resolve_genesis_seed(config: Config) -> tuple[int, str]:
         try:
             client = build_llm_client(config)
             result = await asyncio.wait_for(
-                asyncio.to_thread(client.generate_json, world_genesis.build_prompt(), world_genesis.SYSTEM_PROMPT),
+                asyncio.to_thread(
+                    client.generate_json, world_genesis.build_prompt(fallback_hint), world_genesis.SYSTEM_PROMPT,
+                ),
                 timeout=config.llm_timeout_seconds + 5.0,
             )
             scenario = world_genesis.parse_scenario(result, world_genesis.fallback_scenario(fallback_hint))

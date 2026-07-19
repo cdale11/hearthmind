@@ -5628,6 +5628,7 @@ class SimulationEngine:
         durations = sorted(self._tick_durations_ms)
         p95 = durations[min(len(durations) - 1, int(len(durations) * 0.95))] if durations else 0.0
         return {
+            "seed": self.config.seed,
             "tick_duration_ms": round(self._last_tick_duration_ms, 2),
             "tick_duration_ms_p95": round(p95, 2),
             "background_tasks": len(self._background_tasks),
