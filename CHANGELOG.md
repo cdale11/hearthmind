@@ -4,6 +4,74 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.29] — Training recorder enhancement pass (backward compatible)
+
+Direct, explicitly-scoped follow-up to v0.87.28's recorder: "extend it
+in a fully backward-compatible manner by adding new optional fields
+and metadata... not a redesign." `SCHEMA_VERSION` stays 1 (nothing
+existing removed/retyped, only additive fields — see `llm/recorder.py`'s
+module docstring); `RECORDER_VERSION` bumps to 1.1.0. Every field
+present in a v1.0.0 archive line is unchanged in the same place; a
+reader written against the old shape keeps working unmodified.
+
+New per-example fields: **`generation_config`** (actual sampling/
+context knobs the call used — temperature/max_tokens/context_length
+plus backend-specific fields, from a new `SimulationEngine._generation_
+config_snapshot` helper); **`prompt_metadata`** (`template_name`
+default to task name, `template_version`, and an auto-derived
+`system_prompt_version` — a short hash of the system prompt text, so it
+changes the instant a prompt author edits that text, no manual
+versioning needed); **`prompt_hash`**/**`structured_input_hash`**
+(SHA-256, for duplicate/repeated-scenario detection without diffing
+long strings); **`session`** (`{name, tags}` — new optional free-text
+tags settable at `/recorder/start`, editable in the dev-console panel's
+new tags input before recording begins); **`outcome`** (`{status, ...}`
+— "executed"/"fallback_used"/"deferred_critical"/
+"queued_pending_apply"/"target_gone" plus `apply_failed`, all derived
+from information the engine already has synchronously at record time —
+no new gameplay instrumentation, per the pass's own explicit scope
+limit); **`dataset`** (`{schema_version, simulation_version,
+archive_version}`, new `ARCHIVE_VERSION` constant).
+
+**Recorder statistics, incremental per the pass's explicit "do not scan
+the archive on every request" requirement**: `status()` gained
+`examples_per_task`/`total_examples`/`oldest_example_ts`/
+`newest_example_ts`, seeded via ONE real archive scan at `start()` time
+(reading existing JSONL lines once — not a per-request cost) and
+maintained afterward with an O(1) update per write from the writer
+thread. `status()` itself now does zero filesystem I/O — the old
+per-request `_archive_size_bytes()` directory walk is gone, replaced by
+a cached counter incremented alongside the other stats.
+
+**Review pack `manifest.json`** (`llm/review_pack.py`) gained
+`task_distribution`, `model` (models seen), `prompt_versions`
+(system-prompt-version hashes seen), `recording_session` (session id/
+name/tags for every session represented), and `date_range` — computed
+from the already-collected in-memory example list during export, no
+extra archive scan. `REVIEW_PACK_FIELDS` extended with the new
+per-example fields, all `.get(...)`-safe so an older archive line
+yields `None` for them rather than erroring.
+
+Full schema reference: docs/TRAINING_RECORDER.md's new "v1.1.0
+Recorder Enhancement Pass" section.
+
+Verified: a direct smoke test seeded a pre-existing v1.0.0-shaped
+archive line (no new fields) alongside newly-recorded v1.1.0 lines,
+confirmed `start()`'s stats-seeding scan correctly counted the old
+line, `validate_archive`/`archive_stats`/`export_review_pack` all
+handle the mixed old/new archive without error, and the exported old
+example's new fields read `None` (not a crash) while new examples carry
+real `generation_config`/`prompt_hash`/`session.tags`/`outcome`/
+`dataset` values; a real 400-tick `SimulationEngine` run (LLM disabled)
+confirmed `outcome`/`generation_config` land correctly through the
+actual production `_schedule_llm_job` path with zero write errors; a
+1000-tick run at the OFF default confirmed zero examples/zero overhead
+unchanged from v0.87.28; live Playwright verification of the new
+session-tags input rendering in the dev-console panel and reaching a
+real recording session end-to-end. `scripts/verify_native_soak.py` (2
+seeds x 1500 ticks) byte-identical — this pass touches no native module
+and no persisted `World`/`Settlement`/`Agent` field.
+
 ## [0.87.28] — Permanent LLM training recorder & dataset pipeline
 
 Direct follow-up to §8's mineral-economy/geography-reshaping pair

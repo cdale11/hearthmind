@@ -296,6 +296,7 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
             "policy": payload.get("policy", "all_tasks"),
             "selected_tasks": payload.get("selected_tasks"),
             "sample_rate": payload.get("sample_rate", 0.1),
+            "tags": payload.get("tags"),
         }
         broadcaster.enqueue_intervention(item)
         return JSONResponse({"queued": True})

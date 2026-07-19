@@ -22,12 +22,19 @@ from typing import Iterator
 # metadata... exclude unrelated diagnostics." Deliberately narrower than
 # the full archive record (drops queue-wait/latency-adjacent fields that
 # belong to this project's own operational diagnostics, not a training
-# example).
+# example). `.get(...)` on every field below (see `_to_review_example`)
+# means an OLDER archive line that predates the v1.1.0 recorder-
+# enhancement fields simply yields `None` for those keys — no error, no
+# special-casing needed to stay backward compatible.
 REVIEW_PACK_FIELDS = (
     "example_id", "task", "timestamp", "simulation_tick", "settlement", "npc_ids",
     "model_name", "fallback_used", "parse_repaired",
     "layer1_structured_input", "layer2_prompt", "layer2_system_prompt",
     "layer3_raw_completion", "layer4_parsed_output",
+    # v1.1.0 "Recorder Enhancement Pass" additions — all optional/`None`
+    # on older archive lines, never required.
+    "generation_config", "prompt_metadata", "prompt_hash", "structured_input_hash",
+    "session", "outcome", "dataset",
 )
 
 
@@ -70,6 +77,50 @@ def _to_review_example(example: dict) -> dict:
     return {k: example.get(k) for k in REVIEW_PACK_FIELDS}
 
 
+def _dataset_manifest_summary(raw_examples: list[dict]) -> dict:
+    """§8 recorder-enhancement item 8 "Review Pack Metadata": lets a
+    reviewing LLM understand the pack's shape before reading every
+    example. Computed from the already-collected raw example dicts —
+    no extra archive scan. Every field here is derived from what's
+    already present on each example (`.get(...)`-safe), so a pack built
+    from a mix of pre- and post-v1.1.0 archive lines degrades
+    gracefully (missing `generation_config`/`session` just don't
+    contribute to `models`/`recording_sessions`)."""
+    task_distribution: dict[str, int] = {}
+    models: set[str] = set()
+    prompt_versions: set[str] = set()
+    sessions: dict[str, dict] = {}
+    timestamps: list[float] = []
+    for ex in raw_examples:
+        task = ex.get("task")
+        if task:
+            task_distribution[task] = task_distribution.get(task, 0) + 1
+        model = ex.get("model_name")
+        if model:
+            models.add(model)
+        version = (ex.get("prompt_metadata") or {}).get("system_prompt_version")
+        if version:
+            prompt_versions.add(version)
+        session = ex.get("session")
+        session_id = ex.get("session_id")
+        if session_id and session_id not in sessions:
+            sessions[session_id] = {
+                "session_id": session_id,
+                "name": (session or {}).get("name") or ex.get("session_name"),
+                "tags": (session or {}).get("tags", []),
+            }
+        ts = ex.get("timestamp")
+        if isinstance(ts, (int, float)):
+            timestamps.append(ts)
+    return {
+        "task_distribution": task_distribution,
+        "model": sorted(models),
+        "prompt_versions": sorted(prompt_versions),
+        "recording_session": list(sessions.values()),
+        "date_range": {"from": min(timestamps), "to": max(timestamps)} if timestamps else None,
+    }
+
+
 def _write_zip(examples: list[dict], manifest: dict, out_dir: Path, markdown: bool) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d_%H%M%S", time.gmtime())
@@ -88,6 +139,11 @@ def _to_markdown(examples: list[dict]) -> str:
         lines.append(f"## {ex.get('example_id')} — {ex.get('task')}")
         lines.append(f"- tick: {ex.get('simulation_tick')}  settlement: {ex.get('settlement')}")
         lines.append(f"- model: {ex.get('model_name')}  fallback_used: {ex.get('fallback_used')}")
+        session = ex.get("session") or {}
+        if session.get("tags"):
+            lines.append(f"- session: {session.get('name')}  tags: {', '.join(session['tags'])}")
+        if ex.get("outcome"):
+            lines.append(f"- outcome: {ex['outcome']}")
         lines.append("")
         lines.append("**Structured input**")
         lines.append("```json")
@@ -119,15 +175,17 @@ def export_review_pack(
     example is self-contained per the spec ("Each example must be
     self-contained")."""
     root = Path(archive_dir)
-    examples = []
+    raw_examples = []
     for example in iter_examples(root, task=task, date_from=date_from, date_to=date_to):
-        examples.append(_to_review_example(example))
-        if len(examples) >= limit:
+        raw_examples.append(example)
+        if len(raw_examples) >= limit:
             break
+    examples = [_to_review_example(e) for e in raw_examples]
     manifest = {
         "generated_at": time.time(),
         "filters": {"task": task, "date_from": date_from, "date_to": date_to, "limit": limit},
         "example_count": len(examples),
+        **_dataset_manifest_summary(raw_examples),
     }
     return _write_zip(examples, manifest, Path(out_dir) if out_dir else root / "exports", markdown)
 
@@ -137,13 +195,15 @@ def export_random_subset(
     out_dir: str | Path | None = None, markdown: bool = False,
 ) -> Path:
     root = Path(archive_dir)
-    all_examples = [_to_review_example(e) for e in iter_examples(root, task=task)]
+    all_raw = list(iter_examples(root, task=task))
     rng = random.Random(seed)
-    sample = all_examples if len(all_examples) <= count else rng.sample(all_examples, count)
+    raw_sample = all_raw if len(all_raw) <= count else rng.sample(all_raw, count)
+    sample = [_to_review_example(e) for e in raw_sample]
     manifest = {
         "generated_at": time.time(), "kind": "random_subset",
         "filters": {"task": task, "count": count, "seed": seed},
-        "example_count": len(sample), "population_count": len(all_examples),
+        "example_count": len(sample), "population_count": len(all_raw),
+        **_dataset_manifest_summary(raw_sample),
     }
     return _write_zip(sample, manifest, Path(out_dir) if out_dir else root / "exports", markdown)
 

@@ -424,6 +424,45 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.29)
+
+Backward-compatible enhancement pass on v0.87.28's training recorder
+per explicit user spec ("not a redesign... only extend it"). Full
+detail: docs/TRAINING_RECORDER.md's "v1.1.0 Recorder Enhancement Pass"
+section. `SCHEMA_VERSION` stays 1; `RECORDER_VERSION` -> 1.1.0.
+
+New per-example fields, all additive: `generation_config` (temperature/
+max_tokens/context_length/backend knobs, from `SimulationEngine.
+_generation_config_snapshot`), `prompt_metadata` (`template_name`
+defaults to task, `system_prompt_version` auto-derived as a hash of the
+system prompt text), `prompt_hash`/`structured_input_hash` (SHA-256,
+for duplicate detection), `session` (`{name, tags}` — tags settable at
+`/recorder/start` and in the dev-console panel's new tags input),
+`outcome` (`{status, apply_failed}` — executed/fallback_used/
+deferred_critical/queued_pending_apply/target_gone, derived from
+information already at hand synchronously, no new instrumentation),
+`dataset` (`{schema_version, simulation_version, archive_version}`).
+
+Recorder statistics are now genuinely incremental per the spec's "do
+not scan the archive on every request": `status()` gained
+`examples_per_task`/`total_examples`/`oldest_example_ts`/
+`newest_example_ts`, seeded by ONE real scan at `start()` time, then
+maintained O(1) per write — `status()` itself does zero filesystem I/O
+now (the old per-call directory walk is gone). Review-pack
+`manifest.json` gained `task_distribution`/`model`/`prompt_versions`/
+`recording_session`/`date_range`, computed from the already-collected
+export list.
+
+Verified: a mixed-archive smoke test (a hand-seeded v1.0.0-shaped line
+alongside new v1.1.0 lines) confirms the stats-seeding scan, validate/
+stats/export all handle old lines without error, and old examples'
+new fields read `None` rather than crashing; a real 400-tick engine
+run confirms the new fields land through the actual production path
+with zero write errors; a 1000-tick OFF-default run confirms zero
+overhead unchanged; live Playwright verification of the new tags
+input. `scripts/verify_native_soak.py` (2 seeds x 1500 ticks)
+byte-identical — no native module or persisted field touched.
+
 ## Current state (v0.87.28)
 
 §8's third item (LoRA/QLoRA fine-tuning, docs/IDEAS-2026-07-

@@ -41,11 +41,33 @@ field ARE captured for every real LLM task automatically, since every
 task already funnels through the one `_record_llm_debug` hook — a
 brand-new future job type needs zero recorder-specific code to start
 being recorded.
+
+## v1.1.0 "Recorder Enhancement Pass" (backward compatible)
+
+Adds `generation_config`/`prompt_metadata`/`prompt_hash`/
+`structured_input_hash`/`session` (name+tags)/`outcome`/`dataset` as
+NEW, purely-additive fields — every field present in v1.0.0's JSONL
+line still appears, unchanged, in the same place. `SCHEMA_VERSION`
+deliberately stays 1 (its own docstring: "never bumped for a
+value-only change... only a field added/removed/retyped" — this pass
+only ADDS fields, nothing existing is removed or retyped, so schema_
+version 1 remains accurate); `RECORDER_VERSION` bumps to reflect the
+module's own change. A reader written against v1.0.0's shape keeps
+working unmodified; a reader that wants the new fields checks for
+their presence (all `dict.get`-safe, never required). Recorder
+statistics (`status()`'s new `examples_per_task`/`total_examples`/
+`oldest_example_ts`/`newest_example_ts`) are seeded ONCE per `start()`
+call (a real archive scan, but a one-time cost, not per-request) and
+maintained incrementally by the writer thread afterward — `status()`
+itself does zero filesystem I/O, per the pass's explicit "do not scan
+the archive on every request" requirement.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import os
 import queue
 import random
 import threading
@@ -62,12 +84,20 @@ SCHEMA_VERSION = 1
 """Bumped whenever `TrainingExample`'s field set changes shape — lets a
 future dataset-pipeline consumer detect and handle older archive lines
 without guessing. Never bumped for a value-only change (new task name,
-larger structured_input), only a field added/removed/retyped."""
+larger structured_input), only a field added/removed/retyped. Stays 1
+through the v1.1.0 enhancement pass — see module docstring."""
 
-RECORDER_VERSION = "1.0.0"
+RECORDER_VERSION = "1.1.0"
 """This module's own version, independent of `hearthmind.__version__` —
 distinguishes "the simulation changed" from "the recorder's own record
 shape changed," since either could explain a dataset discontinuity."""
+
+ARCHIVE_VERSION = "1.0.0"
+"""Identifies the on-disk archive LAYOUT (directory structure, file
+naming/rotation scheme) — distinct from `RECORDER_VERSION` (the Python
+code's own version) and `SCHEMA_VERSION` (the per-line JSON shape).
+Only bump this if the storage layout itself changes (e.g. a different
+rotation scheme); a value or field addition doesn't touch it."""
 
 ARCHIVE_ROTATE_MAX_BYTES = 100 * 1024 * 1024
 """Spec: "Rotate daily or at approximately 100 MB." A task's archive
@@ -98,10 +128,18 @@ class RecordingPolicy(str, Enum):
     what that distinction should mechanically do yet."""
 
 
+def _sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 @dataclass
 class TrainingExample:
     """One four-layer record. `to_dict()` is the exact JSONL line shape
-    — see docs/TRAINING_RECORDER.md for the full schema reference."""
+    — see docs/TRAINING_RECORDER.md for the full schema reference.
+
+    Fields below the `parsed_output` line are the v1.1.0 enhancement
+    pass's additions — all optional, all defaulted, all purely
+    additive (see module docstring)."""
 
     example_id: str
     schema_version: int
@@ -126,6 +164,13 @@ class TrainingExample:
     system_prompt: str | None
     raw_completion: str | None
     parsed_output: dict
+    generation_config: dict = field(default_factory=dict)
+    prompt_metadata: dict = field(default_factory=dict)
+    prompt_hash: str | None = None
+    structured_input_hash: str | None = None
+    session_tags: list = field(default_factory=list)
+    outcome: dict = field(default_factory=dict)
+    dataset: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -152,6 +197,14 @@ class TrainingExample:
             "layer2_system_prompt": self.system_prompt,
             "layer3_raw_completion": self.raw_completion,
             "layer4_parsed_output": self.parsed_output,
+            # --- v1.1.0 additions (all new keys, nothing above changed) ---
+            "generation_config": self.generation_config,
+            "prompt_metadata": self.prompt_metadata,
+            "prompt_hash": self.prompt_hash,
+            "structured_input_hash": self.structured_input_hash,
+            "session": {"name": self.session_name, "tags": self.session_tags},
+            "outcome": self.outcome,
+            "dataset": self.dataset,
         }
 
 
@@ -169,6 +222,7 @@ class TrainingRecorder:
         model_name_provider,
         hearthmind_version_provider,
         seed_provider=None,
+        generation_config_provider=None,
     ) -> None:
         self._archive_dir = Path(archive_dir)
         self._policy = RecordingPolicy.OFF
@@ -176,6 +230,7 @@ class TrainingRecorder:
         self._sample_rate = 0.1
         self._session_id: str | None = None
         self._session_name: str | None = None
+        self._session_tags: list[str] = []
         self._examples_this_session = 0
         self._queue: "queue.Queue[dict | None]" = queue.Queue(maxsize=QUEUE_MAX)
         self._writer_thread: threading.Thread | None = None
@@ -184,7 +239,18 @@ class TrainingRecorder:
         self._model_name_provider = model_name_provider
         self._hearthmind_version_provider = hearthmind_version_provider
         self._seed_provider = seed_provider
+        self._generation_config_provider = generation_config_provider
         self._lock = threading.Lock()
+        # Incremental archive statistics (v1.1.0, item 7 "Recorder
+        # Statistics") — seeded once per `start()` via a real one-time
+        # scan (`_seed_stats_from_disk`), then updated O(1) per write
+        # by the writer thread. `status()` reads these directly with
+        # zero filesystem I/O, matching the explicit "do not scan the
+        # archive on every request" requirement.
+        self._archive_size_bytes_cached = 0
+        self._examples_per_task: dict[str, int] = {}
+        self._oldest_example_ts: float | None = None
+        self._newest_example_ts: float | None = None
 
     @property
     def enabled(self) -> bool:
@@ -198,6 +264,7 @@ class TrainingRecorder:
         policy: str = "all_tasks",
         selected_tasks: list[str] | None = None,
         sample_rate: float = 0.1,
+        tags: list[str] | None = None,
     ) -> dict:
         try:
             policy_enum = RecordingPolicy(policy)
@@ -205,12 +272,14 @@ class TrainingRecorder:
             policy_enum = RecordingPolicy.ALL_TASKS
         if policy_enum == RecordingPolicy.OFF:
             policy_enum = RecordingPolicy.ALL_TASKS
+        self._seed_stats_from_disk()
         with self._lock:
             self._policy = policy_enum
             self._selected_tasks = set(selected_tasks or [])
             self._sample_rate = max(0.0, min(1.0, sample_rate))
             self._session_id = uuid.uuid4().hex[:12]
             self._session_name = session_name or f"session-{self._session_id}"
+            self._session_tags = [str(t) for t in (tags or [])]
             self._examples_this_session = 0
             self._dropped = 0
             self._write_errors = 0
@@ -220,8 +289,8 @@ class TrainingRecorder:
                 )
                 self._writer_thread.start()
         logger.info(
-            "Training recorder started: session=%s (%s) policy=%s",
-            self._session_id, self._session_name, policy_enum.value,
+            "Training recorder started: session=%s (%s) policy=%s tags=%s",
+            self._session_id, self._session_name, policy_enum.value, self._session_tags,
         )
         return self.status()
 
@@ -240,15 +309,72 @@ class TrainingRecorder:
             "recording": self.enabled,
             "session_id": self._session_id,
             "session_name": self._session_name,
+            "session_tags": list(self._session_tags),
             "examples_collected": self._examples_this_session,
-            "archive_size_bytes": self._archive_size_bytes(),
+            "archive_size_bytes": self._archive_size_bytes_cached,
             "queue_depth": self._queue.qsize(),
             "dropped": self._dropped,
             "write_errors": self._write_errors,
             "selected_tasks": sorted(self._selected_tasks),
             "sample_rate": self._sample_rate,
             "archive_dir": str(self._archive_dir),
+            # v1.1.0 item 7 "Recorder Statistics" — all incremental, see
+            # this class's own docstring note above `__init__`.
+            "examples_per_task": dict(self._examples_per_task),
+            "total_examples": sum(self._examples_per_task.values()),
+            "oldest_example_ts": self._oldest_example_ts,
+            "newest_example_ts": self._newest_example_ts,
+            "dataset": {
+                "schema_version": SCHEMA_VERSION,
+                "recorder_version": RECORDER_VERSION,
+                "archive_version": ARCHIVE_VERSION,
+                "hearthmind_version": self._hearthmind_version_provider(),
+            },
         }
+
+    def _seed_stats_from_disk(self) -> None:
+        """One-time real scan of the archive, run only from `start()`
+        (i.e. only when a human explicitly clicks "start recording" —
+        not a hot-path or per-request cost). Reads every existing JSONL
+        line once to seed exact per-task counts and the oldest/newest
+        timestamps; from then on `_write_one` maintains these fields
+        incrementally with zero re-scanning."""
+        total_bytes = 0
+        per_task: dict[str, int] = {}
+        oldest: float | None = None
+        newest: float | None = None
+        if self._archive_dir.exists():
+            for task_dir in self._archive_dir.iterdir():
+                if not task_dir.is_dir() or task_dir.name == "exports":
+                    continue
+                count = 0
+                for jsonl_path in task_dir.glob("*.jsonl"):
+                    try:
+                        total_bytes += jsonl_path.stat().st_size
+                    except OSError:
+                        continue
+                    try:
+                        with open(jsonl_path, "r", encoding="utf-8") as fh:
+                            for line in fh:
+                                line = line.strip()
+                                if not line:
+                                    continue
+                                count += 1
+                                try:
+                                    ts = json.loads(line).get("timestamp")
+                                except json.JSONDecodeError:
+                                    continue
+                                if isinstance(ts, (int, float)):
+                                    oldest = ts if oldest is None else min(oldest, ts)
+                                    newest = ts if newest is None else max(newest, ts)
+                    except OSError:
+                        continue
+                if count:
+                    per_task[task_dir.name] = count
+        self._archive_size_bytes_cached = total_bytes
+        self._examples_per_task = per_task
+        self._oldest_example_ts = oldest
+        self._newest_example_ts = newest
 
     # --- recording (called from the tick loop's own thread) -------------------
 
@@ -277,16 +403,36 @@ class TrainingRecorder:
         npc_ids: list | None = None,
         settlement: str | None = None,
         parse_repaired: bool = False,
+        template_name: str | None = None,
+        template_version: str | None = None,
+        outcome: dict | None = None,
     ) -> None:
         """Called from `SimulationEngine._record_llm_debug` for EVERY
         resolved LLM task (real or fallback) — the policy check above is
         the only cost paid when recording is off. Never raises: a
         malformed example must never surface as a simulation error (spec:
         "if recording fails: gameplay continues, log failures, never
-        block simulation")."""
+        block simulation").
+
+        `template_name`/`template_version` (v1.1.0 item 2): optional —
+        default `template_name` to the task name itself (always
+        available, always meaningful) when the caller doesn't supply a
+        more specific one. `system_prompt_version` is derived
+        automatically as a short hash of the system prompt text, so it
+        changes the moment a prompt author edits that text without
+        needing a manually-maintained version string anywhere."""
         if not self._should_record(task):
             return
         try:
+            structured_input = structured_input or {}
+            prompt_hash = _sha256(prompt)
+            structured_input_hash = _sha256(json.dumps(structured_input, sort_keys=True, default=str))
+            prompt_metadata = {
+                "template_name": template_name or task,
+                "template_version": template_version,
+                "system_prompt_version": _sha256(system_prompt)[:12] if system_prompt else None,
+            }
+            generation_config = self._generation_config_provider() if self._generation_config_provider else {}
             example = TrainingExample(
                 example_id=str(uuid.uuid4()),
                 schema_version=SCHEMA_VERSION,
@@ -306,11 +452,22 @@ class TrainingRecorder:
                 parse_repaired=parse_repaired,
                 fallback_used=used_fallback,
                 deterministic_seed=self._seed_provider() if self._seed_provider else None,
-                structured_input=structured_input or {},
+                structured_input=structured_input,
                 prompt=prompt,
                 system_prompt=system_prompt,
                 raw_completion=raw_completion,
                 parsed_output=result,
+                generation_config=dict(generation_config or {}),
+                prompt_metadata=prompt_metadata,
+                prompt_hash=prompt_hash,
+                structured_input_hash=structured_input_hash,
+                session_tags=list(self._session_tags),
+                outcome=dict(outcome or {}),
+                dataset={
+                    "schema_version": SCHEMA_VERSION,
+                    "simulation_version": self._hearthmind_version_provider(),
+                    "archive_version": ARCHIVE_VERSION,
+                },
             )
             payload = example.to_dict()
         except Exception:
@@ -341,17 +498,26 @@ class TrainingRecorder:
             path = self._archive_path_for(task)
             path.parent.mkdir(parents=True, exist_ok=True)
             line = json.dumps(item, ensure_ascii=False)
+            encoded = (line + "\n").encode("utf-8")
             with open(path, "a", encoding="utf-8") as fh:
                 fh.write(line + "\n")
                 fh.flush()
                 try:
-                    import os
                     os.fsync(fh.fileno())
                 except OSError:
                     pass  # best-effort durability; never fatal
         except Exception:
             self._write_errors += 1
             logger.exception("Failed to write training example to archive (task=%s)", task)
+            return
+        # Incremental stats update (v1.1.0 item 7) — cheap, O(1), no I/O
+        # beyond the write that already just happened.
+        self._archive_size_bytes_cached += len(encoded)
+        self._examples_per_task[task] = self._examples_per_task.get(task, 0) + 1
+        ts = item.get("timestamp")
+        if isinstance(ts, (int, float)):
+            self._oldest_example_ts = ts if self._oldest_example_ts is None else min(self._oldest_example_ts, ts)
+            self._newest_example_ts = ts if self._newest_example_ts is None else max(self._newest_example_ts, ts)
 
     def _archive_path_for(self, task: str) -> Path:
         """`<archive_dir>/<task>/<date>.jsonl`, rolling to `<date>_2.jsonl`
@@ -369,16 +535,6 @@ class TrainingRecorder:
             if not candidate.exists() or candidate.stat().st_size < ARCHIVE_ROTATE_MAX_BYTES:
                 return candidate
             ordinal += 1
-
-    def _archive_size_bytes(self) -> int:
-        total = 0
-        if self._archive_dir.exists():
-            for p in self._archive_dir.rglob("*.jsonl"):
-                try:
-                    total += p.stat().st_size
-                except OSError:
-                    continue
-        return total
 
 
 def _safe_task_name(task: str) -> str:

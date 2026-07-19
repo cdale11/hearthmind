@@ -82,6 +82,62 @@ and falls back), so it is currently always `false`.
 `llm_prompt_stats_summary` already uses — no tokenizer dependency),
 `parse_repaired`, `fallback_used`, `deterministic_seed`.
 
+## v1.1.0 "Recorder Enhancement Pass" (backward compatible)
+
+Purely additive — every v1.0.0 field/behavior above is unchanged;
+`SCHEMA_VERSION` stays 1 (see `recorder.py`'s module docstring for why
+a field-only addition doesn't bump it). Each JSONL line gained:
+
+- **`generation_config`**: the actual sampling/context knobs the call
+  was made with (`temperature`, `max_tokens`, `context_length`,
+  backend-specific fields like `num_gpu`/`use_mmap` for Ollama) —
+  distinguishes "the model changed behavior" from "the config changed."
+  Supplied by `SimulationEngine._generation_config_snapshot`; only
+  includes knobs this project actually sets (no invented `top_p`/
+  `top_k`/`repeat_penalty` — neither client sends those).
+- **`prompt_metadata`**: `{template_name, template_version,
+  system_prompt_version}`. `template_name` defaults to the task name
+  when not explicitly supplied; `system_prompt_version` is a short hash
+  of the system prompt text itself, so it changes automatically the
+  moment a prompt author edits that text — no manual version bump
+  needed anywhere.
+- **`prompt_hash`** / **`structured_input_hash`**: SHA-256 of the
+  rendered prompt / of the structured input (JSON-canonicalized via
+  `sort_keys=True`) — enables duplicate/repeated-scenario detection
+  without diffing long strings.
+- **`session`**: `{name, tags}` — a nested view of the same session
+  info `session_id`/`session_name` already carried (kept unchanged),
+  plus new free-text `tags` set at `start()` time (`POST /recorder/
+  start`'s `tags` field, or the dev-console panel's tags input, comma-
+  separated, editable before recording begins).
+- **`outcome`**: `{status, ...}` — what actually happened with the
+  model's answer, using information the engine already has synchronously
+  at record time (no new instrumentation): `"executed"` (a non-critical
+  job's `apply()` ran against a genuine LLM answer), `"fallback_used"`,
+  `"deferred_critical"` (Constitution §3/§7 jobs that defer rather than
+  fabricate), `"queued_pending_apply"` (cognition/dialogue, whose real
+  apply happens on a later tick via the pending-results queues),
+  `"target_gone"` (rumor_interpret, listener no longer alive), plus an
+  `apply_failed: bool` where relevant. Designed to accept richer values
+  later without a shape change — deliberately not wired into every
+  gameplay system this pass.
+- **`dataset`**: `{schema_version, simulation_version, archive_version}`
+  — lets a reviewer compare two archives produced months apart.
+
+**Recorder statistics** (`status()`'s new `examples_per_task`/
+`total_examples`/`oldest_example_ts`/`newest_example_ts`): seeded via
+one real archive scan at `start()` time (not on every `/recorder/
+status` poll — that call now does zero filesystem I/O), then maintained
+incrementally by the writer thread as an O(1) update per write.
+
+**Review pack `manifest.json`** gained `task_distribution`, `model`
+(models seen), `prompt_versions` (system-prompt-version hashes seen),
+`recording_session` (session id/name/tags for every session
+represented in the pack), and `date_range` — computed from the already-
+collected in-memory example list, no extra archive scan. `REVIEW_PACK_
+FIELDS` gained the new per-example fields too (all `.get(...)`-safe —
+an older archive line simply yields `None` for them).
+
 ## Recording policies
 
 `RecordingPolicy`: `OFF` (default) / `ALL_TASKS` / `SELECTED_TASKS`

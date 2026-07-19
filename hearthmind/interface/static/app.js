@@ -327,6 +327,7 @@ devToggle.addEventListener("click", () => {
 // (see renderDevConsole below), same cadence as every other dev-console field.
 const recorderStatusEl = document.getElementById("recorder-status");
 const recorderSessionNameInput = document.getElementById("recorder-session-name");
+const recorderSessionTagsInput = document.getElementById("recorder-session-tags");
 const recorderStartBtn = document.getElementById("recorder-start-btn");
 const recorderStopBtn = document.getElementById("recorder-stop-btn");
 const recorderExportBtn = document.getElementById("recorder-export-btn");
@@ -334,9 +335,11 @@ const recorderExportBtn = document.getElementById("recorder-export-btn");
 function renderRecorderStatus(recorder) {
   if (!recorderStatusEl || !recorder) return;
   if (recorder.recording) {
+    const tagsSuffix = recorder.session_tags && recorder.session_tags.length
+      ? ` [${recorder.session_tags.join(", ")}]` : "";
     recorderStatusEl.textContent =
-      `RECORDING — session "${recorder.session_name}" — ${recorder.examples_collected} examples collected ` +
-      `— archive ${(recorder.archive_size_bytes / 1_000_000).toFixed(2)} MB` +
+      `RECORDING — session "${recorder.session_name}"${tagsSuffix} — ${recorder.examples_collected} examples this session ` +
+      `(${recorder.total_examples || 0} total) — archive ${(recorder.archive_size_bytes / 1_000_000).toFixed(2)} MB` +
       (recorder.dropped ? ` — ${recorder.dropped} dropped (queue full)` : "");
   } else {
     recorderStatusEl.textContent = "off";
@@ -345,9 +348,13 @@ function renderRecorderStatus(recorder) {
 
 recorderStartBtn?.addEventListener("click", async () => {
   const sessionName = recorderSessionNameInput.value.trim() || undefined;
+  // Session tags (§8 recorder-enhancement item 5): free-text comma-
+  // separated field, edited before recording begins per the spec's
+  // own explicit ask — sent as a plain array, empty entries dropped.
+  const tags = recorderSessionTagsInput.value.split(",").map((t) => t.trim()).filter(Boolean);
   await fetch("/recorder/start", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_name: sessionName, policy: "all_tasks" }),
+    body: JSON.stringify({ session_name: sessionName, policy: "all_tasks", tags }),
   });
   recorderStatusEl.textContent = "starting…";
 });

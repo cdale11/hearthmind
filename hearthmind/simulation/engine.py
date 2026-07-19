@@ -703,6 +703,29 @@ _MIGRATIONS = {
 }
 
 
+def _generation_config_snapshot(config: Config) -> dict:
+    """Training recorder's `generation_config` field (llm/recorder.py,
+    v1.1.0 item 1) — the actual sampling/context knobs a call was made
+    with, distinct from just the model name, so a future reviewer can
+    tell "the model changed behavior" apart from "the config changed."
+    Only includes knobs this project actually sets (no invented top_p/
+    top_k/repeat_penalty — neither client sends those; see llm/
+    client.py) plus the backend-specific fields that differ between
+    Ollama and llama.cpp."""
+    cfg: dict = {"backend": config.llm_backend, "temperature": config.llm_temperature}
+    if config.llm_num_predict is not None:
+        cfg["max_tokens"] = config.llm_num_predict
+    if config.llm_num_ctx is not None:
+        cfg["context_length"] = config.llm_num_ctx
+    if config.llm_backend == "ollama":
+        if config.llm_num_gpu is not None:
+            cfg["num_gpu"] = config.llm_num_gpu
+        if config.llm_num_thread is not None:
+            cfg["num_thread"] = config.llm_num_thread
+        cfg["use_mmap"] = config.llm_use_mmap
+    return cfg
+
+
 class SimulationEngine:
     def __init__(
         self, conn: sqlite3.Connection, config: Config, world: World,
@@ -747,6 +770,7 @@ class SimulationEngine:
             model_name_provider=lambda: config.llm_model,
             hearthmind_version_provider=lambda: __version__,
             seed_provider=lambda: config.seed,
+            generation_config_provider=lambda: _generation_config_snapshot(config),
         )
         """Permanent LLM training recorder (llm/recorder.py, §8) — OFF by
         default (see `RecordingPolicy.OFF`), started/stopped only via
@@ -1299,15 +1323,19 @@ class SimulationEngine:
                 self._record_llm_debug(
                     name, prompt, fallback, True,
                     structured_input=structured_input, npc_ids=npc_ids, settlement=settlement,
+                    outcome={"status": "deferred_critical", "apply_failed": False},
                 )
                 return
+            apply_failed = False
             try:
                 apply(fallback, True)
             except Exception:
                 logger.exception("Failed to apply %s fallback job result", name)
+                apply_failed = True
             self._record_llm_debug(
                 name, prompt, fallback, True,
                 structured_input=structured_input, npc_ids=npc_ids, settlement=settlement,
+                outcome={"status": "fallback_used", "apply_failed": apply_failed},
             )
             return
 
@@ -1317,20 +1345,25 @@ class SimulationEngine:
                 prompt, system, fallback=lambda: fallback
             )
             elapsed_ms = (time.perf_counter() - call_start) * 1000
+            apply_failed = False
             if critical and used_fallback:
                 # Crucial cognition: the real call failed, so leave state
                 # untouched and re-attempt next cadence rather than apply
                 # a fabricated belief/priority/dream (Constitution §3/§7).
                 self._cognition_runner.calls_deferred_critical += 1
+                outcome_status = "deferred_critical"
             else:
                 try:
                     apply(result, used_fallback)
                 except Exception:
                     logger.exception("Failed to apply %s LLM job result", name)
+                    apply_failed = True
+                outcome_status = "fallback_used" if used_fallback else "executed"
             self._record_llm_debug(
                 name, prompt, result, used_fallback, elapsed_ms, system_prompt=system,
                 raw_completion=raw_completion, structured_input=structured_input,
                 npc_ids=npc_ids, settlement=settlement,
+                outcome={"status": outcome_status, "apply_failed": apply_failed},
             )
             self._record_llm_call(used_fallback)
 
@@ -1875,6 +1908,10 @@ class SimulationEngine:
                     "traits": traits, "emotions": emotions,
                     "seek_candidate_id": seek_candidate_id, "plan_intent": plan_intent,
                 },
+                # Cognition never applies a fabricated goal on fallback
+                # (Constitution §3/§7) — see the used_fallback branch just
+                # below, which is where "deferred_critical" is decided.
+                outcome={"status": "deferred_critical" if used_fallback else "queued_pending_apply"},
             )
             if used_fallback:
                 # The real call failed (timeout/error). This path is only
@@ -1990,13 +2027,16 @@ class SimulationEngine:
                 prompt, rumor_interpret.SYSTEM_PROMPT, fallback=lambda: fallback,
             )
             target = self.world.population.get(listener_id)
+            applied = False
             if target is not None:
                 retelling = rumor_interpret.parse_interpretation(result, fallback)
                 _remember(target, retelling)
+                applied = True
             self._record_llm_debug(
                 "rumor_interpret", prompt, result, used_fallback,
                 system_prompt=rumor_interpret.SYSTEM_PROMPT, raw_completion=raw_completion,
                 npc_ids=[listener_id], structured_input={"rumor": rumor, "traits": dict(listener.traits)},
+                outcome={"status": "executed" if applied else "target_gone"},
             )
             self._record_llm_call(used_fallback)
 
@@ -2113,6 +2153,7 @@ class SimulationEngine:
                 policy=item.get("policy", "all_tasks"),
                 selected_tasks=item.get("selected_tasks"),
                 sample_rate=float(item.get("sample_rate", 0.1)),
+                tags=item.get("tags"),
             )
         elif kind == "recorder_stop":
             self.stop_training_recording()
@@ -2342,6 +2383,7 @@ class SimulationEngine:
             "dialogue", prompt, result, used_fallback, (time.perf_counter() - call_start) * 1000,
             system_prompt=dialogue.SYSTEM_PROMPT, raw_completion=raw_completion,
             structured_input=structured_input, npc_ids=[agent_a_id, agent_b_id], settlement=settlement,
+            outcome={"status": "queued_pending_apply"},
         )
         self._record_llm_call(used_fallback)
 
@@ -5104,6 +5146,7 @@ class SimulationEngine:
         self, name: str, prompt: str, result: dict, used_fallback: bool, elapsed_ms: float | None = None,
         system_prompt: str | None = None, raw_completion: str | None = None,
         structured_input: dict | None = None, npc_ids: list | None = None, settlement: str | None = None,
+        outcome: dict | None = None,
     ) -> None:
         """Records the most recent prompt/result for one named LLM job
         — see `self._last_llm_calls`'s docstring — and folds size/
@@ -5134,6 +5177,7 @@ class SimulationEngine:
             used_fallback=used_fallback, raw_completion=raw_completion,
             elapsed_ms=elapsed_ms, tick=self.world.clock.tick_count,
             structured_input=structured_input, npc_ids=npc_ids, settlement=settlement,
+            outcome=outcome,
         )
         stats = self._llm_prompt_stats.setdefault(name, {
             "calls": 0, "fallback_calls": 0,
@@ -5163,8 +5207,9 @@ class SimulationEngine:
     def start_training_recording(
         self, session_name: str | None = None, policy: str = "all_tasks",
         selected_tasks: list[str] | None = None, sample_rate: float = 0.1,
+        tags: list[str] | None = None,
     ) -> dict:
-        return self._training_recorder.start(session_name, policy, selected_tasks, sample_rate)
+        return self._training_recorder.start(session_name, policy, selected_tasks, sample_rate, tags)
 
     def stop_training_recording(self) -> dict:
         return self._training_recorder.stop()
