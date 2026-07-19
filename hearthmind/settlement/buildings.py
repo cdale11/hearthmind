@@ -677,19 +677,24 @@ def choose_building_kind(
     return BuildingKind.HUT  # unreachable in practice; keeps the function total
 
 
-GRANARY_CAPACITY = 40.0
-"""Max food a standing granary can hold. Raised from 15.0 (v0.87.24
-starvation-collapse fix) — measured directly against a live-diagnostic-
-style soak: at the old value, `granary_food` repeatedly hit exactly 0.0
-under any settlement past ~15-20 population (GRANARY_WITHDRAW_AMOUNT
-0.25 x one withdrawal per hungry agent roughly every 40 ticks drains a
-15.0 granary in well under a day of sim-time), meaning the granary
-functioned as almost no buffer at all against a bad stretch (a hard
-winter, a rotted harvest) — exactly the kind of dip this building
-exists to smooth over. 40.0 gives a settlement of ~30 several real days
-of runway from a single granary before it empties, matching how the
-mechanic reads in its own summary/description ("a communal food
-buffer"), not just a token store."""
+GRANARY_CAPACITY = 90.0
+"""Max food a standing granary can hold. Raised from 15.0 -> 40.0 -> 90.0
+across two rounds within v0.87.24's starvation-collapse fix. First
+round (15 -> 40) was measured directly: at 15.0, `granary_food`
+repeatedly hit exactly 0.0 under any settlement past ~15-20 population
+(GRANARY_WITHDRAW_AMOUNT 0.25 x one withdrawal per hungry agent roughly
+every 40 ticks drains a 15.0 granary in well under a day of sim-time) —
+almost no real buffer at all. Second round (40 -> 90) responds to a
+follow-up finding: `CARRYING_CAPACITY_MIN_MULTIPLIER`'s docstring
+narrates a 40,000-tick soak (seed 23) where a settlement grew to ~92
+before a sudden hunger spike (0.35 -> 0.72 in ~4,000 ticks) triggered
+mass starvation — with `REPRODUCTION_SETTLEMENT_HUNGER_CEILING`
+already blocking every new birth by then, the crash was pure existing-
+population starvation, and even a 40.0 granary drains in well under a
+tick's worth of real time against ~90 hungry withdrawals. 90.0 is sized
+to actually matter at that scale; still a single settlement can build
+more than one granary for proportionally more buffer, this just raises
+the floor one granary alone provides."""
 
 GRANARY_WELLFED_HUNGER_THRESHOLD = 0.3
 """An awake agent at or below this hunger, present at a standing granary,
@@ -1063,25 +1068,28 @@ see CHANGELOG.md v0.87.24 for the confirming re-run's numbers once
 posted — if a future soak still shows a crash of this shape, tighten
 further rather than treating these as final."""
 
-CARRYING_CAPACITY_MIN_MULTIPLIER = 0.3
+CARRYING_CAPACITY_MIN_MULTIPLIER = 0.5
 CARRYING_CAPACITY_MAX_MULTIPLIER = 1.5
 """Bounds on the composed multiplier above — a settlement in crisis
-(plague, siege, famine) can still support down to this floor times its
-housing-based capacity, and a thriving one can stretch to 1.5x it, but
-neither factor set can send the ceiling to zero or unbounded growth on
-its own. MIN lowered from 0.5 (v0.87.24 starvation-collapse fix,
-follow-up to CARRYING_CAPACITY_HUNGER_WEIGHT): a 40,000-tick soak
-(seed 23) showed the hunger term alone couldn't stop a runaway crash
-even at its full strength, because HOUSING capacity (huts x HUT_
-CAPACITY) is driven by construction — materials + builder labor — with
-no food gate of its own, so a settlement that got ahead on building
-during a good stretch keeps a high housing floor no famine term can
-touch below 0.5x. Lowering the floor gives a severe famine (hunger_term
-near its own -0.55 ceiling) real teeth against that decoupling. The
-housing/food decoupling itself is a deeper structural gap this pass
-doesn't close — flagged, not fixed: a future pass could gate hut
-construction's own pace on settlement food security, the same way
-`_maybe_plant` already requires a food-focused colocated agent."""
+(plague, siege, famine) can still support down to half its housing-based
+capacity, and a thriving one can stretch to 1.5x it, but neither factor
+set can send the ceiling to zero or unbounded growth on its own.
+v0.87.24 starvation-collapse fix, investigated then reverted: a
+40,000-tick soak (seed 23) tried lowering MIN to 0.3 to give the
+hunger term more room against a settlement that had already built
+ahead of its food supply — the resulting soak was BYTE-IDENTICAL to
+the 0.5 run, proving `carrying_capacity`'s floor was never the binding
+constraint in this crash at all. `REPRODUCTION_SETTLEMENT_HUNGER_
+CEILING` had already blocked every new birth once average hunger
+crossed 0.45; the crash that followed (population 92 -> 13, mostly
+starvation) was entirely EXISTING population dying once a sudden
+hunger spike (0.35 -> 0.72 in ~4,000 ticks — a real seasonal/weather-
+driven food-production shock) hit a settlement too large for its
+granary buffer to smooth over. No demand-side throttle (reproduction
+gating, capacity contraction) can undo an already-large population's
+food need — see GRANARY_CAPACITY's docstring for the supply-side lever
+actually aimed at this failure mode, and CHANGELOG.md v0.87.24 for the
+full investigation."""
 
 SHELTER_NEGATES_WEATHER = True
 """An AWAKE agent standing on any STANDING building's tile is treated

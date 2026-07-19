@@ -68,14 +68,27 @@ construction — materials + builder labor — with no food gate of its
 own, so a settlement that got ahead on building during a good stretch
 keeps a high floor no famine term could touch. Confirmed directly (not
 just inferred): at housing=300, even average hunger 1.0 only pulled
-capacity down to 150. Third change: `CARRYING_CAPACITY_MIN_MULTIPLIER`
-0.5 -> 0.3, giving a severe famine term more room to actually suppress
-capacity against oversized housing. The deeper structural gap — housing
-capacity itself isn't food-gated — is flagged, not closed, this pass; a
-natural follow-up is gating hut construction's own pace on settlement
-food security the way `_maybe_plant` already gates planting on a
-food-focused colocated agent. A confirming re-run on seed 23 against
-this third change is in progress as of this entry.
+capacity down to 150. Third attempt: `CARRYING_CAPACITY_MIN_MULTIPLIER`
+0.5 -> 0.3 to give a severe famine term more room against oversized
+housing — re-run on seed 23 came back **byte-identical** to the 0.5
+run, proving the capacity floor was never the actual binding constraint
+in this crash. Reverted (0.3 -> 0.5) once that was clear — an
+unjustified severity change with zero measured benefit. Real diagnosis:
+`REPRODUCTION_SETTLEMENT_HUNGER_CEILING` had already blocked every new
+birth once average hunger crossed 0.45, so the crash (92 -> 13) was
+entirely EXISTING population starving once a sudden shock (average
+hunger 0.35 -> 0.72 in ~4,000 ticks — a real seasonal/weather-driven
+food-production dip) hit a settlement too large for its granary to
+buffer. No demand-side throttle can undo an already-large population's
+food need — the actual lever is supply: `GRANARY_CAPACITY` raised
+again, 40.0 -> 90.0 (a 40.0 granary still drains in well under a tick's
+worth of real time against ~90 simultaneous hungry withdrawals). A
+confirming re-run on seed 23 against this fourth change is in progress
+as of this entry — see the next changelog entry (or docs/DECISIONS.md)
+for its result. If it still shows a crash of this magnitude, the
+remaining, larger-scope fix is decoupling hut construction's pace from
+food security the way `_maybe_plant` already gates planting on it —
+flagged as the natural next step, not attempted this pass.
 
 **UI declutter** (stats/panels preserved, none removed): the header's
 12 always-visible toggle buttons collapsed into 4 controls — `details`

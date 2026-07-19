@@ -458,19 +458,24 @@ low of 8, starvation (72) still dominant — better than baseline's crash
 to 2, not the reversal asked for). Second pass tightened further
 (weight -> 0.55, comfort -> 0.28, ceiling -> 0.45) — seed 23 STILL
 crashed (overshot to 92, dropped to 13, starvation 46 vs old age 19).
-Root-caused why tightening alone couldn't fully fix it: the hunger term
-can only pull `carrying_capacity`'s multiplier down to `CARRYING_
-CAPACITY_MIN_MULTIPLIER` (0.5) times HOUSING capacity, and housing
-(huts) is driven by construction — materials + labor — with no food
-gate of its own, so a settlement that got ahead on building keeps a
-high floor no famine term can touch (confirmed directly: housing=300,
-avg hunger 1.0 still only pulled capacity to 150). Third change:
-`CARRYING_CAPACITY_MIN_MULTIPLIER` 0.5 -> 0.3. The housing/food
-decoupling itself is flagged, not closed, this pass — a natural
-follow-up is gating hut construction's own pace on settlement food
-security, the same way `_maybe_plant` already gates planting on a
-food-focused colocated agent. See CHANGELOG.md v0.87.24 for the
-confirming seed-23 re-run's result once it lands.
+Investigated whether the hunger term's own floor was the limiter:
+lowered `CARRYING_CAPACITY_MIN_MULTIPLIER` 0.5 -> 0.3 to give it more
+room against a settlement that had already out-built its food supply —
+the re-run came back BYTE-IDENTICAL to the 0.5 run, proving the
+capacity floor was never actually binding in this crash. Reverted.
+Real diagnosis: `REPRODUCTION_SETTLEMENT_HUNGER_CEILING` had already
+blocked every new birth once average hunger crossed 0.45, so the crash
+(92 -> 13) was pure EXISTING population starving once a sudden shock
+(avg hunger 0.35 -> 0.72 in ~4,000 ticks, a seasonal/weather-driven
+food dip) hit a settlement too large for its granary to buffer — no
+demand-side throttle can undo an already-large population's food need.
+Fourth change, the actual lever: `GRANARY_CAPACITY` 40.0 -> 90.0 (a
+40.0 granary still drains in well under a tick's real-time worth
+against ~90 simultaneous withdrawals). See CHANGELOG.md v0.87.24 for
+the confirming seed-23 re-run once it lands; if a crash this size
+still recurs, the larger-scope fix is decoupling hut construction's
+pace from food security (`_maybe_plant` already does this for
+planting) — flagged as the natural next step, not attempted this pass.
 
 **UI declutter, stats preserved**: the header's 12 always-visible
 toggle buttons collapsed into 4 (`details` stays top-level; `🔭
