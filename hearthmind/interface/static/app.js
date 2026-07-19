@@ -33,6 +33,35 @@ function setInnerHTMLIfChanged(el, html) {
   el.innerHTML = html;
 }
 
+function escapeHtmlAttr(text) {
+  return String(text).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+// --- stat-grid hover tooltip -------------------------------------------------
+// Delegated on the stable `#stat-grid` container (not the tiles inside it,
+// which get replaced wholesale on nearly every broadcast — see the
+// `data-tooltip` comment above) so hover keeps working regardless of how
+// often the grid's own DOM churns underneath the cursor.
+{
+  const statGrid = document.getElementById("stat-grid");
+  const statTooltip = document.getElementById("stat-tooltip");
+  if (statGrid && statTooltip) {
+    statTooltip.style.position = "fixed";
+    statGrid.addEventListener("mousemove", (ev) => {
+      const tile = ev.target.closest(".stat-tile[data-tooltip]");
+      if (!tile) {
+        statTooltip.classList.add("hidden");
+        return;
+      }
+      statTooltip.textContent = tile.dataset.tooltip;
+      statTooltip.style.left = `${ev.clientX + 14}px`;
+      statTooltip.style.top = `${ev.clientY + 14}px`;
+      statTooltip.classList.remove("hidden");
+    });
+    statGrid.addEventListener("mouseleave", () => statTooltip.classList.add("hidden"));
+  }
+}
+
 const BIOME_COLORS = {
   deep_water: "#1c3f6e",
   shallow_water: "#2e6ea6",
@@ -1180,6 +1209,31 @@ function drawFrame() {
     ctx.fillStyle = RESOURCE_NODE_COLOR[n.kind] || "#7fbf5a";
     ctx.arc(cx, cy, n.kind === "ore" ? 2.2 : 1.6, 0, Math.PI * 2);
     ctx.fill();
+    ctx.globalAlpha = 1.0;
+  }
+
+  // Mineral veins (v0.87.26, world/minerals.py): distinct from the
+  // wild-resource dots above — a small diamond marker (iron/gold have
+  // their own colors) so a hills tile holding a real ore deposit reads
+  // differently from a plain stone/wood gather node. Dims as the vein
+  // depletes, same fullness treatment as wild resources.
+  const MINERAL_MAX_AMOUNT = { iron: 1.5, gold: 0.8 };
+  const MINERAL_COLOR = { iron: "#c97b4a", gold: "#e8c445" };
+  for (const m of latest.minerals || []) {
+    const cx = m.x * CELL + CELL / 2, cy = m.y * CELL + CELL / 2;
+    const fullness = Math.max(0.2, m.amount / (MINERAL_MAX_AMOUNT[m.kind] || 1.0));
+    ctx.globalAlpha = 0.5 + fullness * 0.5;
+    ctx.fillStyle = MINERAL_COLOR[m.kind] || "#c9a24a";
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 2.6);
+    ctx.lineTo(cx + 2.2, cy);
+    ctx.lineTo(cx, cy + 2.6);
+    ctx.lineTo(cx - 2.2, cy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.35)";
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
     ctx.globalAlpha = 1.0;
   }
 
@@ -2691,7 +2745,17 @@ function renderStats(summary) {
     .map(([label, value, title]) =>
       label === "__section__"
         ? `<div class="stat-section-label">${value}</div>`
-        : `<div class="stat-tile"${title ? ` title="${title}"` : ""}><div class="label">${label}</div><div class="value">${value}</div></div>`
+        // `data-tooltip` (not the native `title` attribute) + the
+        // delegated hover handler below (see "stat-grid hover
+        // tooltip"): `setInnerHTMLIfChanged` replaces this whole grid's
+        // DOM nodes on essentially every broadcast (the tick number
+        // alone changes the diffed string every time), which resets a
+        // native title tooltip's hover timer before it ever has a
+        // chance to show — a real regression a live report caught
+        // ("hover interactions over details tiles have gone"). A
+        // listener on the stable `#stat-grid` container itself doesn't
+        // care that the child nodes underneath it keep getting swapped.
+        : `<div class="stat-tile"${title ? ` data-tooltip="${escapeHtmlAttr(title)}"` : ""}><div class="label">${label}</div><div class="value">${value}</div></div>`
     )
     .join(""));
 
@@ -3014,7 +3078,12 @@ function updateAmbientAudio(summary) {
   const cutoff = 300 + (1 - precipitation) * 900 + wind * 200;
   filter.frequency.linearRampToValueAtTime(cutoff, now + RAMP);
 
-  const targetGain = ambientAudioEnabled ? 0.035 : 0;
+  // 0.035 (original) read as "unable to hear anything" in a live
+  // report — this is meant to stay a subtle ambient pad, not a loud
+  // soundtrack, but 0.035 was quiet enough on typical speakers to be
+  // indistinguishable from silence. Raised to 0.07, still clearly
+  // ambient-not-foreground.
+  const targetGain = ambientAudioEnabled ? 0.07 : 0;
   gain.gain.linearRampToValueAtTime(targetGain, now + RAMP);
 }
 
@@ -3027,6 +3096,13 @@ if (ambientAudioToggle) {
     if (ambientAudioEnabled) {
       const a = ensureAmbientAudio();
       if (a && a.ctx.state === "suspended") a.ctx.resume();
+      if (a) {
+        // The very first enable gets a short, snappy fade-in (not
+        // updateAmbientAudio's usual 4s drift) so clicking the toggle
+        // has an audible, immediate effect instead of reading as "I
+        // clicked it and nothing happened" for several seconds.
+        a.gain.gain.linearRampToValueAtTime(0.07, a.ctx.currentTime + 0.6);
+      }
       if (latest) updateAmbientAudio(latest.summary);
     } else if (ambientAudio) {
       ambientAudio.gain.gain.linearRampToValueAtTime(0, ambientAudio.ctx.currentTime + 4.0);

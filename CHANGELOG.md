@@ -4,6 +4,89 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.34] — Batch of live-report fixes: map rendering, movement, UI, non-core NPC intent
+
+Direct response to several live reports in one turn.
+
+**Mineral veins never actually drew on the map** — the tile-click
+inspector (v0.87.32) could show a deposit once clicked, but nothing
+ever painted one on the canvas itself, so a real iron/gold vein was
+invisible until you happened to click the exact right tile. Added a
+small diamond marker (iron/gold colored, dimming as the vein depletes)
+to the same draw pass as wild resource nodes.
+
+**Idle wandering visibly paced back and forth** ("goes up-down one
+tile or left-right one tile"): `_maybe_move`'s random walk only has 4
+candidate directions (no diagonals), so a uniform random choice
+reverses the agent's own last step 1-in-4 times — with only 4 options
+that reversal rate reads as pacing in place rather than wandering
+anywhere. New `Agent.last_move_dx`/`last_move_dy` (random-walk-only,
+untouched by goal-directed movement) let `_maybe_move` deprioritize
+stepping straight back the way it just came, falling back to it only
+when it's the sole walkable option. Verified: reversal rate 0.0 in
+open terrain over 2000 steps (previously ~25%).
+
+**Hover tooltips on the details stat tiles had stopped appearing** —
+`setInnerHTMLIfChanged` replaces the whole `#stat-grid` DOM on
+essentially every broadcast (the tick number alone changes the diffed
+string), which resets a native `title` attribute's hover timer before
+it ever completes. Replaced with `data-tooltip` + a tooltip element
+positioned via a `mousemove` listener delegated on the stable
+`#stat-grid` container, immune to how often its children get replaced.
+
+**Header buttons visibly jumped position on wind/weather changes** —
+the header was one shared `flex-wrap` row, so `#clock-line`'s
+variable-length weather text reshuffled where every button after it
+landed as its width changed. Split into two independent flex-wrap
+rows (`.header-info` for text/indicators, `.header-controls` for every
+button), so a stat's width can never move a control again.
+
+**Ambient sound was effectively inaudible** — the "🔊 ambience" toggle
+was buried three levels deep in the "⚙ view" dropdown, its gain
+(0.035) was quiet enough on typical speakers to read as silence, and
+the first-ever enable used the same 4-second drift ramp as routine
+parameter updates, so clicking it produced no immediately-noticeable
+change. Promoted to a first-class header button ("🔊 sound"), gain
+raised to 0.07, and the very first enable now gets a snappy 0.6s
+fade-in.
+
+**Non-core NPCs now occasionally take up real economic work.**
+`llm/noncore_nudge.py`'s existing "occasional, one call a month for
+the entire world" job (v0.87.17) now may ALSO set a short `Agent.plan`
+on its target — reusing `llm/beliefs.py`'s existing bounded-episodic-
+planning machinery (§7, v0.87.15) completely unchanged, zero added
+call volume. This matters specifically because it's a non-core agent:
+`cognition.fallback_goal` (the ONLY goal source a non-core agent ever
+gets, every day, fully deterministic) already reads `plan_intent` and
+biases toward GATHER/FORAGE/SOCIALIZE by keyword — so one grounded
+LLM sentence can now steer several real days of an ordinary villager's
+behavior toward genuinely useful work. New `SimulationEngine.
+_settlement_economic_need` grounds the suggestion in the settlement's
+own real shortfall (low materials, or whichever of the next era's
+infrastructure counts is furthest from its requirement) rather than
+generic flavor text.
+
+**Highlights log widened** — a live report noted it "has only
+highlighted population growth": the original two triggers
+(`_detect_metric_highlights`) fire far more often in practice than the
+rarer milestone hooks (first_ritual/family_feud/successor_founded).
+Added `era_advance` (every real advance, not just the settlement's
+first — there are only a handful ever) and `first_invention` as
+additional highlight triggers.
+
+Verified: direct tests for the anti-reversal movement bias (0%
+reversal rate over 2000 open-terrain steps), `_settlement_economic_
+need`'s shortfall detection, `noncore_nudge.fallback_nudge`/
+`beliefs.parse_plan` round-trip, and `cognition.fallback_goal` actually
+picking up the resulting plan's GATHER bias; a real end-to-end engine
+test drives `_maybe_schedule_noncore_nudge` through the actual
+production scheduling pipeline with a fake LLM client, confirming a
+non-core agent's `plan` is set from a genuine (non-fabricated) answer;
+a real `_maybe_advance_era` call (synthetic infrastructure) confirms
+the new highlight fires correctly. `scripts/verify_native_soak.py`
+(2 seeds x 800 ticks) byte-identical — this batch touches no native
+module.
+
 ## [0.87.33] — Docs cleanup: stale status claims fixed, CLAUDE.md consolidated
 
 Explicit user request ("Clean up stale docs and stale items and clean

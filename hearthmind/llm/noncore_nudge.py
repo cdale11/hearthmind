@@ -17,6 +17,27 @@ fallback is a real no-op (the agent's personality holds exactly as it
 was) — an "occasional" nudge that never happens is correct, not a
 failure, same discipline `memory_drift.py` established for its own
 rare/gated call.
+
+Widened per a live user request: "improve the intelligence of non-core
+NPCs and they should take up jobs that help grow the town/village
+economy, infrastructure etc. Occasional LLM nudging can be made to do
+that." Every other non-core-agent decision stays deliberately
+deterministic (the whole point of core-cast gating, v0.70.0) — this
+job's own existing "occasional" shape is the one sanctioned channel,
+now doing double duty: the same call may ALSO set a short `Agent.plan`
+(reusing `llm/beliefs.py`'s `parse_plan`/`PLAN_GOAL_BIAS_KEYWORDS`
+machinery bounded-episodic-planning already built, §7 v0.87.15) —
+zero new mechanism, zero added call volume. A plan set here is what
+actually makes the nudge "take" on a non-core agent's day-to-day
+behavior: `cognition.fallback_goal` (the ONLY goal source a non-core
+agent ever gets, every single day, fully deterministic) already reads
+`plan_intent` and biases toward GATHER/FORAGE/SOCIALIZE by keyword —
+so one grounded LLM sentence here can steer several real days of an
+ordinary villager's deterministic behavior toward genuinely useful
+work, not just a private trait wobble nobody else ever sees. The
+prompt is grounded in real settlement need (current era's infra
+shortfall) so a suggested plan is a real answer to a real gap, not
+generic flavor text.
 """
 from __future__ import annotations
 
@@ -29,24 +50,46 @@ SYSTEM_PROMPT = (
     "genuinely, if slightly, reshape who they are — and if so, which single "
     "trait shifts and in which direction. Most of the time nothing rises to "
     "that level, and that is the correct answer. Keep any shift small. "
+    "Separately, if the village genuinely needs something and this villager "
+    "could plausibly help, they may quietly resolve to spend the next few "
+    "days on it — real, useful work (gathering materials, helping build, "
+    "tending crops, learning a trade), grounded in what's actually needed, "
+    "never invented busywork. Most of the time they already have enough "
+    "going on and this should be left blank. "
     'Respond with strict JSON only, no other text: {"shifts": true or false, '
     '"trait": "resilience", "sociability", or "ambition", "direction": '
     '"up" or "down", "reflection": "one short first-person sentence, under 20 '
-    'words"}. If shifts is false, trait/direction/reflection may be empty.'
+    'words", "plan_intent": "" or a short first-person resolve under 15 words, '
+    '"plan_horizon_days": 0 or an integer 1-7 if plan_intent is set}. If '
+    "shifts is false, trait/direction/reflection may be empty."
 )
 
 
-def build_prompt(agent: Agent, occupation: str, recent_memories: list[str]) -> str:
+def build_prompt(
+    agent: Agent, occupation: str, recent_memories: list[str], settlement_need: str = "",
+) -> str:
+    """`settlement_need` (economy/infrastructure nudge, see module
+    docstring): one plain-language sentence naming what the settlement's
+    own real state (era-infrastructure shortfall, low materials) could
+    use more of — grounds a suggested `plan_intent` in an actual gap
+    rather than generic flavor text. Empty when nothing stands out."""
     personality = describe_traits(agent.traits)
     personality_text = f" You are {personality}." if personality else ""
     occupation_text = f" You work as a {occupation}." if occupation else ""
     memory_text = f" Recently: {' | '.join(recent_memories)}." if recent_memories else " Nothing notable has happened to you lately."
-    return f"You are {agent.name}, an ordinary villager.{occupation_text}{personality_text}{memory_text} Has anything changed in you?"
+    need_text = f" The village could use more {settlement_need}." if settlement_need else ""
+    return (
+        f"You are {agent.name}, an ordinary villager.{occupation_text}{personality_text}"
+        f"{memory_text}{need_text} Has anything changed in you? Is there something worth turning your hands to?"
+    )
 
 
 def fallback_nudge() -> dict:
     """Genuine no-op — see module docstring."""
-    return {"shifts": False, "trait": "", "direction": "", "reflection": ""}
+    return {
+        "shifts": False, "trait": "", "direction": "", "reflection": "",
+        "plan_intent": "", "plan_horizon_days": 0,
+    }
 
 
 NUDGE_TRAIT_STEP = 0.12

@@ -29,6 +29,15 @@ header {
   padding: 12px 20px;
   border-bottom: 1px solid var(--border);
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Two independent flex-wrap rows (see the header comment in index.html):
+   variable-length text in .header-info can never shift a button in
+   .header-controls, since the two never share a wrap context. */
+.header-info, .header-controls {
+  display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 16px;
@@ -462,7 +471,7 @@ body.subjective-mode #stat-grid { display: none; }
 .event-category-year_end,
 .event-category-chronicle { color: var(--muted); font-style: italic; }
 
-.stat-tile[title] { cursor: help; }
+.stat-tile[data-tooltip] { cursor: help; }
 
 .tooltip {
   position: absolute;

@@ -2769,7 +2769,10 @@ class SimulationEngine:
             if len(settlement.inventions) > CULTURE_LIST_MAX_STORED:
                 settlement.inventions = settlement.inventions[-CULTURE_LIST_MAX_STORED:]
             settlement.tech_level += 1
-            self._log("invention", f"{settlement.name or 'The village'} invented {entry}")
+            invention_detail = f"{settlement.name or 'The village'} invented {entry}"
+            self._log("invention", invention_detail)
+            if sum(s.tech_level for s in self.world.settlements) == 1:
+                self._append_highlight("first_invention", f"The world's first invention: {invention_detail}")
             self._maybe_advance_era(settlement)
             # v0.87.15 "knowledge lifecycle" (docs/IDEAS-2026-07-
             # EMERGENCE.md §7): the inventor becomes this invention's
@@ -2813,6 +2816,35 @@ class SimulationEngine:
         established_roads = self.world.roads.summary()["established_roads"]
         return huts, established_roads, schools, carts
 
+    def _settlement_economic_need(self, settlement) -> str:
+        """Plain-language name of whatever this settlement's own real
+        state is shortest on right now — used only as grounding texture
+        for `noncore_nudge`'s occasional plan suggestion (see that
+        module's docstring), never anything mechanical. Materials
+        (measured against MATERIALS_CAPACITY) is checked first since
+        it's the most immediate, universally-relevant lever; otherwise
+        whichever of the next era's own infrastructure counts has the
+        lowest fraction of its requirement met. Empty string when
+        nothing stands out (materials plentiful, infra requirement
+        already met, or already at the final era)."""
+        if settlement.materials < MATERIALS_CAPACITY * 0.3:
+            return "materials"
+        next_era_index = ERA_ORDER.index(settlement.era) + 1 if settlement.era in ERA_ORDER else len(ERA_ORDER)
+        if next_era_index >= len(ERA_ORDER):
+            return ""
+        requirement = ERA_INFRASTRUCTURE_REQUIREMENTS.get(ERA_ORDER[next_era_index])
+        if not requirement:
+            return ""
+        huts, roads, schools, carts = self._infra_counts(settlement)
+        current = {"huts": huts, "roads": roads, "schools": schools, "carts": carts}
+        shortfalls = {
+            k: (current[k] / requirement[k]) for k in requirement if requirement[k] and current[k] < requirement[k]
+        }
+        if not shortfalls:
+            return ""
+        worst = min(shortfalls, key=shortfalls.get)
+        return {"huts": "housing", "roads": "roads", "schools": "a school", "carts": "carts"}[worst]
+
     def _maybe_advance_era(self, settlement=None) -> None:
         """A settlement starts in the industrial era (see
         `Settlement.era`) and moves forward as inventions accumulate —
@@ -2839,10 +2871,19 @@ class SimulationEngine:
         if new_era == settlement.era:
             return
         settlement.era = new_era
-        self._log(
-            "era_advance",
-            f"{settlement.name or 'The village'} has entered the {new_era} era — {ERA_DESCRIPTIONS[new_era]}.",
-        )
+        detail = f"{settlement.name or 'The village'} has entered the {new_era} era — {ERA_DESCRIPTIONS[new_era]}."
+        self._log("era_advance", detail)
+        # §5 "Anomaly/highlight log" widened per a live report ("highlights
+        # has only highlighted population growth") — the original two
+        # metric-only checks (_detect_metric_highlights) fire often
+        # relative to the rarer milestone hooks (first_ritual/family_feud/
+        # successor_founded), so a typical run's highlight log skewed
+        # entirely toward population swings. Era advances are exactly the
+        # kind of rare, genuinely notable civilizational milestone this
+        # log was meant to surface — every real advance, not just the
+        # settlement's first (there are only a handful per settlement
+        # ever, unlike rituals/feuds which can recur).
+        self._append_highlight("era_advance", detail)
 
     # --- collective behaviour: festivals ----------------------------------------
 
@@ -4828,24 +4869,37 @@ class SimulationEngine:
         agent_id = agent.id
         occupation = self._occupation_for(agent)
         recent = list(agent.memories[-3:])
-        prompt = noncore_nudge.build_prompt(agent, occupation, recent)
+        settlement_need = self._settlement_economic_need(target)
+        prompt = noncore_nudge.build_prompt(agent, occupation, recent, settlement_need)
         fallback = noncore_nudge.fallback_nudge()
 
         def apply(result: dict, used_fallback: bool) -> None:
-            parsed = noncore_nudge.parse_nudge(result, fallback)
-            if parsed is None:
-                return  # nothing shifts — the common, expected case
-            trait_name, delta, reflection = parsed
             target_agent = self.world.population.get(agent_id)
             if target_agent is None:
                 return  # died between scheduling and resolution
-            trait_key = {
-                "resilience": TRAIT_RESILIENCE, "sociability": TRAIT_SOCIABILITY, "ambition": TRAIT_AMBITION,
-            }[trait_name]
-            _nudge_trait(target_agent, trait_key, delta)
             tick = self.world.clock.tick_count
-            _remember(target_agent, reflection, because="a quiet personal realization")
-            log_agent_memory_entry(self.conn, tick, agent_id, "episodic", reflection)
+            parsed = noncore_nudge.parse_nudge(result, fallback)
+            if parsed is not None:
+                trait_name, delta, reflection = parsed
+                trait_key = {
+                    "resilience": TRAIT_RESILIENCE, "sociability": TRAIT_SOCIABILITY, "ambition": TRAIT_AMBITION,
+                }[trait_name]
+                _nudge_trait(target_agent, trait_key, delta)
+                _remember(target_agent, reflection, because="a quiet personal realization")
+                log_agent_memory_entry(self.conn, tick, agent_id, "episodic", reflection)
+            # Bounded episodic planning (§7 v0.87.15), extended to the
+            # non-core cast here for the first time (see module
+            # docstring) — reuses `beliefs.parse_plan` unchanged, the
+            # exact machinery Reflect() already uses for the core cast,
+            # so `cognition.fallback_goal`'s existing plan_intent bias
+            # picks this up for free on the agent's very next tick.
+            new_plan = beliefs.parse_plan(result, target_agent.plan, tick)
+            if new_plan is not target_agent.plan:
+                target_agent.plan = new_plan
+                if new_plan is not None and new_plan.get("formed_tick") == tick:
+                    log_agent_memory_entry(
+                        self.conn, tick, agent_id, "plan", f"New plan: {new_plan['intent']}",
+                    )
 
         self._schedule_llm_job("noncore_nudge", prompt, noncore_nudge.SYSTEM_PROMPT, fallback, apply)
 

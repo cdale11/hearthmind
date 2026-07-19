@@ -1490,6 +1490,8 @@ class Agent:
         voice: str = "",
         debts: dict[int, float] | None = None,
         stuck_ticks: int = 0,
+        last_move_dx: int = 0,
+        last_move_dy: int = 0,
         lessons: list[dict] | None = None,
         seek_target_id: int | None = None,
         mourning_ticks_remaining: int = 0,
@@ -1652,6 +1654,21 @@ class Agent:
         # any successful greedy step or when there's no target. See
         # docs/DECISIONS.md, "movement: stuck-agent BFS escape" pass.
         self.stuck_ticks: int = stuck_ticks
+        # last_move_dx/dy: the (dx, dy) of this agent's most recent
+        # random-walk step (Population._maybe_move only — goal-directed
+        # greedy/BFS steps don't touch this). Live report: undirected
+        # wandering visibly paces back and forth ("goes up-down one tile
+        # or left-right one tile") because _NEIGHBOR_OFFSETS only has 4
+        # cardinal directions, so a uniform-random walk reverses its own
+        # last step 1-in-4 times — noticeable specifically because there
+        # are only 4 choices, not 8. _maybe_move deprioritizes stepping
+        # straight back the way it came (falls back to it only if no
+        # other walkable candidate exists), which is enough to make
+        # idle wandering read as actually going somewhere instead of
+        # oscillating in place. (0, 0) means "no recent random-walk step
+        # yet" (fresh agent, or its last move was goal-directed)."""
+        self.last_move_dx: int = last_move_dx
+        self.last_move_dy: int = last_move_dy
         # seek_target_id: the specific agent id a SEEK_PERSON goal is
         # currently walking toward (v0.87.8) — None for every other
         # goal. Cleared by Population._dispatch_movement on arrival
@@ -1922,6 +1939,8 @@ class Agent:
             "emotions": {k: round(v, 4) for k, v in self.emotions.items()},
             "debts": {str(k): round(v, 4) for k, v in self.debts.items()},
             "stuck_ticks": self.stuck_ticks,
+            "last_move_dx": self.last_move_dx,
+            "last_move_dy": self.last_move_dy,
             "seek_target_id": self.seek_target_id,
             "mourning_ticks_remaining": self.mourning_ticks_remaining,
             "mourning_target": list(self.mourning_target) if self.mourning_target is not None else None,
@@ -1992,6 +2011,8 @@ class Agent:
             ),
             emotions=dict(data.get("emotions", {})),
             stuck_ticks=data.get("stuck_ticks", 0),
+            last_move_dx=data.get("last_move_dx", 0),
+            last_move_dy=data.get("last_move_dy", 0),
             seek_target_id=data.get("seek_target_id"),
             mourning_ticks_remaining=data.get("mourning_ticks_remaining", 0),
             mourning_target=(

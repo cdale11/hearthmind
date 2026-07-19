@@ -409,6 +409,41 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.34)
+
+Batch of live-report fixes, no single theme. Full detail: CHANGELOG.md.
+
+Mineral veins (v0.87.26) never actually drew on the map — the tile
+inspector could show one on click but nothing painted a marker; fixed.
+Idle wandering visibly paced back and forth (`_maybe_move` only has 4
+cardinal candidates, so a uniform random walk reverses its own last
+step 1-in-4 times) — new `Agent.last_move_dx`/`last_move_dy`
+deprioritize stepping straight back, verified 0% reversal in open
+terrain (was ~25%). Hover tooltips on the details stat tiles had
+silently broken — `setInnerHTMLIfChanged` replaces the whole grid's
+DOM on nearly every broadcast, resetting a native `title` attribute's
+hover timer before it could ever fire; replaced with `data-tooltip` +
+a delegated `mousemove` listener on the stable container. Header
+buttons visibly jumped position whenever the weather/wind text changed
+width, since everything shared one `flex-wrap` row — split into
+`.header-info`/`.header-controls`, two independent wrap contexts.
+Ambient sound was effectively inaudible (buried in a nested dropdown,
+too quiet, first-enable used the same slow ramp as routine updates) —
+promoted to a first-class header button, gain raised, fast first-enable
+fade-in.
+
+Non-core NPCs now occasionally take up real economic work:
+`noncore_nudge`'s existing one-call-a-month job may also set a short
+`Agent.plan` (reusing §7's bounded-episodic-planning machinery
+unchanged) grounded in the settlement's own real shortfall (new
+`SimulationEngine._settlement_economic_need`) — `cognition.
+fallback_goal`, the only goal source a non-core agent ever gets, every
+day, already reads `plan_intent` and biases toward GATHER/FORAGE/
+SOCIALIZE by keyword, so one grounded LLM sentence steers several real
+days of an ordinary villager's deterministic behavior. Highlights log
+widened (era_advance + first_invention) after a live report it "has
+only highlighted population growth."
+
 ## Current state (v0.87.33)
 
 Docs cleanup per explicit user request ("Clean up stale docs and

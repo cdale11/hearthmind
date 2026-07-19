@@ -3088,8 +3088,24 @@ class Population:
         safe_candidates = [c for c in candidates if c not in predator_tiles]
         if safe_candidates:
             candidates = safe_candidates
+        # Live report: idle wandering visibly paces back and forth
+        # ("goes up-down one tile or left-right one tile") — with only
+        # 4 candidate directions (_NEIGHBOR_OFFSETS has no diagonals), a
+        # uniform random walk reverses its own last step 1-in-4 times,
+        # which reads as pacing in place rather than actually going
+        # anywhere. Deprioritize stepping straight back the way the
+        # agent just came, falling back to it only if it's the sole
+        # walkable option (a dead-end corridor). See Agent.last_move_dx/
+        # dy's docstring.
+        if agent.last_move_dx or agent.last_move_dy:
+            reverse = (agent.x - agent.last_move_dx, agent.y - agent.last_move_dy)
+            non_reverse = [c for c in candidates if c != reverse]
+            if non_reverse:
+                candidates = non_reverse
         if candidates:
-            agent.x, agent.y = rng.choice(candidates)
+            nx, ny = rng.choice(candidates)
+            agent.last_move_dx, agent.last_move_dy = nx - agent.x, ny - agent.y
+            agent.x, agent.y = nx, ny
 
     @staticmethod
     def _update_roads(
