@@ -139,6 +139,24 @@ class BuildingKind(str, Enum):
     invested food source a settlement chooses to build, not an
     opportunistic wild catch. See HATCHERY_CAPACITY/HATCHERY_PASSIVE_
     YIELD_PER_TICK/HATCHERY_TENDED_YIELD_PER_TICK."""
+    DOCK = "dock"
+    """v0.87.42 water-infrastructure batch (live report: "water is an
+    untapped resource"): a real trade port, not a decorative waterside
+    building — staffed presence generates settlement currency the same
+    "presence-driven production" shape WORKSHOP already uses (see
+    DOCK_INCOME_PER_TICK), and it's the site BOAT vehicles are founded
+    from (`Population._maybe_start_vehicle`). Only enters the foundable
+    pool at a water-adjacent site, same `water_adjacent` gate RAFT/
+    BRIDGE/HATCHERY already use."""
+    OIL_RIG = "oil_rig"
+    """Same water-infrastructure batch: offshore extraction, the
+    genuinely industrial-scale water-based income building (double
+    DOCK's rate, same ratio FACTORY has over WORKSHOP — see OIL_RIG_
+    INCOME_PER_TICK). Only enters the foundable pool once BOTH the site
+    is water-adjacent AND the settlement's era has advanced past
+    `industrial` (`_ERA_UNLOCKS_ELECTRICAL`, the same gate FACTORY/
+    POWER_PLANT use) — offshore rigs are a real industrial-tech
+    concept, not a founding-day structure."""
     BRIDGE = "bridge"
     """The true-water-transport gap CLAUDE.md flagged as needing "its
     own pathing-system pass, not a bolt-on": unlike RAFT (a passive
@@ -499,6 +517,12 @@ HATCHERY_MATERIALS_COST = 6.0
 """Slightly above PASTURE — founding is also gated by a real site
 constraint (water adjacency), reflecting the extra effort of building
 at a waterside location."""
+DOCK_MATERIALS_COST = 6.0
+"""Same as HATCHERY — another water-adjacent-gated civic building."""
+OIL_RIG_MATERIALS_COST = 16.0
+"""Costlier than FACTORY (14.0) — offshore extraction infrastructure is
+a bigger commitment than a land-based factory, matching its higher
+income rate."""
 BRIDGE_MATERIALS_COST_PER_SPAN_TILE = 2.5
 """Bridges cost scales with how much water they actually cross
 (`len(Building.bridge_span)`) rather than a flat price like every other
@@ -542,12 +566,14 @@ MATERIALS_COST_BY_KIND: dict[BuildingKind, float] = {
     BuildingKind.MARKET: MARKET_MATERIALS_COST,
     BuildingKind.PASTURE: PASTURE_MATERIALS_COST,
     BuildingKind.HATCHERY: HATCHERY_MATERIALS_COST,
+    BuildingKind.DOCK: DOCK_MATERIALS_COST,
+    BuildingKind.OIL_RIG: OIL_RIG_MATERIALS_COST,
 }
 
 BUILDING_KIND_BASE_WEIGHTS: dict[str, float] = {
     "hut": 0.42, "granary": 0.23, "workshop": 0.15, "school": 0.12, "hospital": 0.08,
     "factory": 0.10, "shrine": 0.07, "power_plant": 0.06, "market": 0.07,
-    "pasture": 0.14, "hatchery": 0.10,
+    "pasture": 0.14, "hatchery": 0.10, "dock": 0.09, "oil_rig": 0.07,
 }
 """Baseline odds a new civic building is each kind, before
 `Settlement.current_priority` (the seasonal "town brain" LLM
@@ -748,11 +774,13 @@ def choose_building_kind(
     `industrial`, SHRINE excluded until the settlement has established
     at least one tradition (`has_tradition`), MARKET excluded until
     at least MARKET_CARAVAN_VISIT_REQUIREMENT caravans have ever
-    reached the settlement (`caravans_visited`), and HATCHERY excluded
-    unless the chosen construction site is water-adjacent (`water_
-    adjacent`, v0.86.7 — same "physical siting constraint" shape RAFT/
-    BRIDGE already require, since a fish hatchery genuinely needs water
-    access). Falls back to the unweighted base odds for an unrecognized/
+    reached the settlement (`caravans_visited`), and HATCHERY/DOCK/
+    OIL_RIG excluded unless the chosen construction site is water-
+    adjacent (`water_adjacent`, v0.86.7/v0.87.42 — same "physical
+    siting constraint" shape RAFT/BRIDGE already require), OIL_RIG
+    additionally excluded until era has advanced past `industrial`
+    (same era gate as FACTORY/POWER_PLANT). Falls back to the
+    unweighted base odds for an unrecognized/
     empty priority (e.g. before the first town-brain decision has ever
     run). See docs/DECISIONS.md, "LLM-as-brain batch\", the real-
     calendar/genesis-seed follow-up, "culture-specific building types,\"
@@ -762,12 +790,15 @@ def choose_building_kind(
     if era not in _ERA_UNLOCKS_ELECTRICAL:
         weights.pop("factory", None)
         weights.pop("power_plant", None)
+        weights.pop("oil_rig", None)
     if not has_tradition:
         weights.pop("shrine", None)
     if caravans_visited < MARKET_CARAVAN_VISIT_REQUIREMENT:
         weights.pop("market", None)
     if not water_adjacent:
         weights.pop("hatchery", None)
+        weights.pop("dock", None)
+        weights.pop("oil_rig", None)
     boosted = _PRIORITY_TO_KIND.get(current_priority)
     if boosted in weights:
         weights[boosted] *= PRIORITY_KIND_BOOST
@@ -919,13 +950,26 @@ factory is the settlement's industrial-era-or-later economic upgrade,
 foundable only once `Settlement.era` has advanced past `industrial`
 (see `_ERA_UNLOCKS_ELECTRICAL`)."""
 
+DOCK_INCOME_PER_TICK = 0.03
+"""Same shape/rate as WORKSHOP_INCOME_PER_TICK — a trade port is a
+water-adjacent business, not a differently-themed passive bonus like
+RAFT. See BuildingKind.DOCK."""
+
+OIL_RIG_INCOME_PER_TICK = 0.06
+"""Same shape as FACTORY_INCOME_PER_TICK (double DOCK's rate) — offshore
+extraction is the water-infrastructure batch's industrial-scale income
+building. See BuildingKind.OIL_RIG."""
+
 POWER_GRID_INDUSTRY_MULTIPLIER = 1.3
-"""Multiplies WORKSHOP_INCOME_PER_TICK/FACTORY_INCOME_PER_TICK
-settlement-wide while a standing POWER_PLANT exists (`Population.
-_maybe_run_workshops`/`_maybe_run_factories`) — electrified industry
-produces more, the concrete payoff for `electrical` era being more
-than a label. Applied once per settlement (not per powered building —
-there's no per-building grid-connection concept, matching every other
+"""Multiplies WORKSHOP_INCOME_PER_TICK/FACTORY_INCOME_PER_TICK/OIL_RIG_
+INCOME_PER_TICK settlement-wide while a standing POWER_PLANT exists
+(`Population._maybe_run_workshops`/`_maybe_run_factories`/`_maybe_run_
+oil_rigs`) — electrified industry produces more, the concrete payoff
+for `electrical` era being more than a label. Not applied to DOCK_
+INCOME_PER_TICK — a trade port's income is commerce, not electrified
+industrial output, same reasoning WORKSHOP gets it and MARKET doesn't.
+Applied once per settlement (not per powered building — there's no
+per-building grid-connection concept, matching every other
 building-effect's settlement-wide scope in this project)."""
 
 CARRYING_CAPACITY_POWER_PLANT_BONUS = 0.03
@@ -3070,6 +3114,7 @@ class Settlement:
                 BuildingKind.WORKSHOP, BuildingKind.SCHOOL, BuildingKind.HOSPITAL,
                 BuildingKind.UNIVERSITY, BuildingKind.FACTORY, BuildingKind.SHRINE,
                 BuildingKind.POWER_PLANT, BuildingKind.MARKET,
+                BuildingKind.DOCK, BuildingKind.OIL_RIG,
             )
         }
         vehicle_summary = self._vehicle_summary()
@@ -3130,6 +3175,8 @@ class Settlement:
             "shrines": kind_counts["shrine"],
             "power_plants": kind_counts["power_plant"],
             "markets": kind_counts["market"],
+            "docks": kind_counts["dock"],
+            "oil_rigs": kind_counts["oil_rig"],
             "caravans_visited": self.caravans_visited,
             "fish_caught": self.fish_caught,
             "buildings_repaired": self.buildings_repaired,
@@ -3216,10 +3263,12 @@ class Settlement:
         mounts = [v for v in self.vehicles if v.kind is VehicleKind.MOUNT]
         automobiles = [v for v in self.vehicles if v.kind is VehicleKind.AUTOMOBILE]
         rafts = [v for v in self.vehicles if v.kind is VehicleKind.RAFT]
+        boats = [v for v in self.vehicles if v.kind is VehicleKind.BOAT]
         ready_carts = [v for v in carts if v.stage is VehicleStage.READY]
         ready_mounts = [v for v in mounts if v.stage is VehicleStage.READY]
         ready_automobiles = [v for v in automobiles if v.stage is VehicleStage.READY]
         ready_rafts = [v for v in rafts if v.stage is VehicleStage.READY]
+        ready_boats = [v for v in boats if v.stage is VehicleStage.READY]
         return {
             "carts_total": len(carts),
             "carts_ready": len(ready_carts),
@@ -3239,6 +3288,11 @@ class Settlement:
             "rafts_ready": len(ready_rafts),
             "rafts_building": sum(1 for v in rafts if v.stage is VehicleStage.BUILDING),
             "rafts_broken": sum(1 for v in rafts if v.stage is VehicleStage.BROKEN),
+            "boats_total": len(boats),
+            "boats_ready": len(ready_boats),
+            "boats_building": sum(1 for v in boats if v.stage is VehicleStage.BUILDING),
+            "boats_broken": sum(1 for v in boats if v.stage is VehicleStage.BROKEN),
+            "boats_claimed": sum(1 for v in ready_boats if v.assigned_agent_id is not None),
         }
 
     # --- (de)serialization -----------------------------------------------------

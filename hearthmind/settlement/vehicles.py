@@ -43,6 +43,19 @@ class VehicleKind(str, Enum):
     move across WALKABLE_BIOMES); it's the concrete "make fishing a
     real investment, not just an incidental catch" lever. See
     docs/DECISIONS.md, "boats/rafts.\""""
+    BOAT = "boat"
+    """v0.87.42 water-infrastructure batch: the real water-crossing
+    vehicle RAFT's own docstring explicitly deferred ("doesn't grant
+    actual water crossing/pathing"). Personal, same claim/ride mechanic
+    as MOUNT/AUTOMOBILE (`PERSONAL_VEHICLE_KINDS`) — while an agent
+    rides a READY boat, `Population._is_walkable`'s new `water_capable`
+    parameter lets them path across SHALLOW_WATER/DEEP_WATER/RIVER
+    tiles the same way a STANDING BRIDGE's span does for anyone on
+    foot, closing the actual transport gap BRIDGE alone doesn't (a
+    bridge only crosses where one was deliberately built; a boat lets
+    its rider go wherever open water actually is). Only enters the
+    foundable roll at a water-adjacent build site, same gate RAFT
+    uses."""
 
 
 class VehicleStage(str, Enum):
@@ -115,6 +128,23 @@ RAFT_USE_DECAY = 0.0015
 """Same magnitude as CART_USE_DECAY — wear spread across all ready
 rafts on any tick at least one raft's catch bonus was actually applied."""
 
+BOAT_MATERIALS_COST = 8.0
+"""Between a mount (6.0) and an automobile (12.0) — a real watercraft is
+a bigger investment than a land mount (open water is less forgiving),
+but doesn't need an advanced era the way an automobile does."""
+
+BOAT_SPEED_MULTIPLIER = 1.4
+"""Below MOUNT_SPEED_MULTIPLIER (1.6), applied the same uniform way
+every tick a boat-mounted agent moves (same mechanism as MOUNT/
+AUTOMOBILE, no on-water/off-water distinction) — a boat's real payoff
+is the water-crossing capability itself (see `water_capable` in
+Population._is_walkable), so its speed bonus alone doesn't need to
+match a land mount's."""
+
+BOAT_USE_DECAY = 0.0022
+"""Slightly above MOUNT_USE_DECAY (0.002) — open water is harder on a
+hull than a trail is on a horse."""
+
 MOUNT_SPEED_MULTIPLIER = 1.6
 """Slightly better than ROAD_SPEED_MULTIPLIER (1.4, world/roads.py) and
 stacks with it — a mounted agent on a road is faster still."""
@@ -131,17 +161,21 @@ AUTOMOBILE_SPEED_MULTIPLIER = 2.2
 """Noticeably faster than a mount (1.6) — the mechanically real payoff
 for era-appropriate transport, not just a reskin."""
 
-PERSONAL_VEHICLE_KINDS = (VehicleKind.MOUNT, VehicleKind.AUTOMOBILE)
-"""Both are "claim it, ride it, it speeds your own movement" vehicles,
-as opposed to CART's settlement-wide passive haul bonus."""
+PERSONAL_VEHICLE_KINDS = (VehicleKind.MOUNT, VehicleKind.AUTOMOBILE, VehicleKind.BOAT)
+"""All three are "claim it, ride it, it speeds your own movement"
+vehicles, as opposed to CART/RAFT's settlement-wide passive bonuses.
+BOAT additionally grants its rider water-crossing capability — see
+`Population._is_walkable`'s `water_capable` parameter."""
 
 PERSONAL_VEHICLE_SPEED_MULTIPLIER: dict[VehicleKind, float] = {
     VehicleKind.MOUNT: MOUNT_SPEED_MULTIPLIER,
     VehicleKind.AUTOMOBILE: AUTOMOBILE_SPEED_MULTIPLIER,
+    VehicleKind.BOAT: BOAT_SPEED_MULTIPLIER,
 }
 PERSONAL_VEHICLE_USE_DECAY: dict[VehicleKind, float] = {
     VehicleKind.MOUNT: MOUNT_USE_DECAY,
     VehicleKind.AUTOMOBILE: AUTOMOBILE_USE_DECAY,
+    VehicleKind.BOAT: BOAT_USE_DECAY,
 }
 
 

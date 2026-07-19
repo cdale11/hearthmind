@@ -247,6 +247,8 @@ from hearthmind.settlement.buildings import (
     ERA_UNLOCKS_AUTOMOBILE,
     INVENTION_REDISCOVERY_CHANCE,
     ERA_UNLOCKS_MOUNTAIN_BUILDING,
+    DOCK_INCOME_PER_TICK,
+    OIL_RIG_INCOME_PER_TICK,
     FACTORY_INCOME_PER_TICK,
     FESTIVAL_RELATIONSHIP_BOOST,
     GRANARY_CAPACITY,
@@ -313,6 +315,7 @@ from hearthmind.settlement.institutions import (
 )
 from hearthmind.settlement.vehicles import (
     AUTOMOBILE_MATERIALS_COST,
+    BOAT_MATERIALS_COST,
     CART_BONUS_CAP,
     CART_HAUL_BONUS_PER_CART,
     CART_MATERIALS_COST,
@@ -358,6 +361,9 @@ from hearthmind.world.wildlife import (
 
 WALKABLE_BIOMES = frozenset({Biome.GRASSLAND, Biome.FOREST, Biome.HILLS, Biome.BEACH})
 MOUNTAIN_WALKABLE_BIOMES = WALKABLE_BIOMES | frozenset({Biome.MOUNTAIN})
+WATER_CROSSABLE_BIOMES = frozenset({Biome.SHALLOW_WATER, Biome.DEEP_WATER, Biome.RIVER})
+"""Every open-water biome a BOAT-mounted agent can cross (v0.87.42) —
+see `_is_walkable`'s `water_capable` parameter."""
 """Once a settlement's era reaches ERA_UNLOCKS_MOUNTAIN_BUILDING, its
 own pathing (_dispatch_movement's travel/goal steps, and build-site
 staking) treats MOUNTAIN as walkable too — SNOWCAP stays a hard barrier
@@ -1211,10 +1217,17 @@ future bridge from a different shore point) offers a narrower gap."""
 
 def _is_walkable(
     terrain: list[list[Tile]], x: int, y: int, mountain_unlocked: bool = False,
-    bridge_tiles: frozenset[tuple[int, int]] = frozenset(),
+    bridge_tiles: frozenset[tuple[int, int]] = frozenset(), water_capable: bool = False,
 ) -> bool:
     biomes = MOUNTAIN_WALKABLE_BIOMES if mountain_unlocked else WALKABLE_BIOMES
     if terrain[y][x].biome in biomes:
+        return True
+    # A boat-mounted agent (v0.87.42, VehicleKind.BOAT) can cross open
+    # water anywhere, not just a deliberately-built BRIDGE span — the
+    # real transport gap RAFT's own docstring flagged as deferred.
+    # Checked before the bridge-span check since it's the cheaper/more
+    # common water-crossing path once any boats exist.
+    if water_capable and terrain[y][x].biome in WATER_CROSSABLE_BIOMES:
         return True
     # A STANDING bridge's spanned water tiles are the one deliberate
     # exception to "biome determines passability" — see BuildingKind.
@@ -1835,6 +1848,8 @@ class Population:
             self._maybe_craft_tools(by_position, stl)
             self._maybe_craft_medicine(by_position, stl)
             self._maybe_run_factories(by_position, stl)
+            self._maybe_run_docks(by_position, stl)
+            self._maybe_run_oil_rigs(by_position, stl)
             self._maybe_run_schools(by_position, stl)
             life_events.extend(self._maybe_upgrade_university(by_position, stl, rng))
             life_events.extend(self._advance_vehicle_construction(by_position, stl))
@@ -2432,6 +2447,17 @@ class Population:
         # stays impassable at every era.
         mountain_unlocked = settlement.era in ERA_UNLOCKS_MOUNTAIN_BUILDING
 
+        # v0.87.42: computed once, up front, so every _step_toward call
+        # below (travel journeys, mourning/wedding venues, ordinary
+        # goal-directed movement) consistently grants water-crossing
+        # capability to a boat-mounted agent — see `_is_walkable`'s
+        # `water_capable` parameter. `_bfs_step`'s stuck-pocket escape
+        # path deliberately isn't extended this pass (a documented scope
+        # trim, not an oversight): it's a rare fallback, not the primary
+        # transport mechanism.
+        early_mount = _agent_mount(settlement, agent.id)
+        water_capable = early_mount is not None and early_mount.kind is VehicleKind.BOAT
+
         # A long-range journey (today: a fission party walking to its
         # new settlement's site) overrides goal-directed movement — but
         # never a hunger emergency: a starving traveler detours for food
@@ -2441,13 +2467,15 @@ class Population:
             if (agent.x, agent.y) == agent.travel_target:
                 agent.travel_target = None
             else:
-                journey_mount = _agent_mount(settlement, agent.id)
+                journey_mount = early_mount
                 moved = cls._step_toward(
                     agent, agent.travel_target, terrain, predator_tiles, mountain_unlocked, bridge_tiles,
+                    water_capable,
                 )
                 if moved and journey_mount is not None and agent.travel_target is not None:
                     if cls._step_toward(
                         agent, agent.travel_target, terrain, predator_tiles, mountain_unlocked, bridge_tiles,
+                        water_capable,
                     ):
                         journey_mount.condition = max(
                             0.0, journey_mount.condition - PERSONAL_VEHICLE_USE_DECAY[journey_mount.kind]
@@ -2485,7 +2513,7 @@ class Population:
         if agent.mourning_ticks_remaining > 0 and not critically_hungry and agent.travel_target is None:
             grave = agent.mourning_target
             if grave is not None and (agent.x, agent.y) != grave:
-                if cls._step_toward(agent, grave, terrain, predator_tiles, mountain_unlocked, bridge_tiles):
+                if cls._step_toward(agent, grave, terrain, predator_tiles, mountain_unlocked, bridge_tiles, water_capable):
                     agent.stuck_ticks = 0
                     return
                 step = cls._bfs_step(
@@ -2506,7 +2534,7 @@ class Population:
         if agent.wedding_ticks_remaining > 0 and not critically_hungry and agent.travel_target is None:
             venue = agent.wedding_target
             if venue is not None and (agent.x, agent.y) != venue:
-                if cls._step_toward(agent, venue, terrain, predator_tiles, mountain_unlocked, bridge_tiles):
+                if cls._step_toward(agent, venue, terrain, predator_tiles, mountain_unlocked, bridge_tiles, water_capable):
                     agent.stuck_ticks = 0
                     return
                 step = cls._bfs_step(
@@ -2610,12 +2638,12 @@ class Population:
             # of agent-pathed construction.
             target = cls._nearest_position(agent, work_positions)
 
-        mount = _agent_mount(settlement, agent.id)
+        mount = early_mount
         if target is not None:
-            if cls._step_toward(agent, target, terrain, predator_tiles, mountain_unlocked, bridge_tiles):
+            if cls._step_toward(agent, target, terrain, predator_tiles, mountain_unlocked, bridge_tiles, water_capable):
                 agent.stuck_ticks = 0
                 if mount is not None and cls._step_toward(
-                    agent, target, terrain, predator_tiles, mountain_unlocked, bridge_tiles,
+                    agent, target, terrain, predator_tiles, mountain_unlocked, bridge_tiles, water_capable,
                 ):
                     # A ready personal vehicle (mount or the era-gated
                     # automobile upgrade) covers ground twice as fast toward
@@ -3003,7 +3031,7 @@ class Population:
     def _step_toward(
         agent: Agent, target: tuple[int, int], terrain: list[list[Tile]],
         predator_tiles: set[tuple[int, int]] = frozenset(), mountain_unlocked: bool = False,
-        bridge_tiles: frozenset[tuple[int, int]] = frozenset(),
+        bridge_tiles: frozenset[tuple[int, int]] = frozenset(), water_capable: bool = False,
     ) -> bool:
         """Take one greedy step toward `target`. Returns False (and leaves
         `agent` unmoved) if already there or if both preferred directions
@@ -3012,7 +3040,10 @@ class Population:
         Avoids stepping onto a live predator's tile when an alternative
         exists — an agent still walks into danger if that's the only way
         forward (e.g. the target itself is past a predator), it just
-        doesn't prefer to. See docs/DECISIONS.md, danger pass."""
+        doesn't prefer to. See docs/DECISIONS.md, danger pass.
+
+        `water_capable` (v0.87.42): True for an agent currently mounted
+        on a READY BOAT — see `_is_walkable`'s matching parameter."""
         tx, ty = target
         if (tx, ty) == (agent.x, agent.y):
             return False
@@ -3030,7 +3061,7 @@ class Population:
             nx, ny = agent.x + cdx, agent.y + cdy
             if not (
                 0 <= nx < width and 0 <= ny < height
-                and _is_walkable(terrain, nx, ny, mountain_unlocked, bridge_tiles)
+                and _is_walkable(terrain, nx, ny, mountain_unlocked, bridge_tiles, water_capable)
             ):
                 continue
             if (nx, ny) in predator_tiles:
@@ -4875,6 +4906,41 @@ class Population:
             settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
 
     @staticmethod
+    def _maybe_run_docks(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:
+        """Same shape as `_maybe_run_workshops`, at DOCK_INCOME_PER_TICK
+        — a water-adjacent trade port. See BuildingKind.DOCK."""
+        for building in settlement.buildings:
+            if building.kind is not BuildingKind.DOCK or building.stage is not BuildingStage.STANDING:
+                continue
+            staff = sum(
+                1 for a in by_position.get((building.x, building.y), [])
+                if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
+            )
+            if staff == 0:
+                continue
+            income = DOCK_INCOME_PER_TICK * staff * _tech_factor(settlement)
+            settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
+
+    @staticmethod
+    def _maybe_run_oil_rigs(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:
+        """Same shape as `_maybe_run_factories`, at OIL_RIG_INCOME_PER_
+        TICK — offshore extraction, the water-infrastructure batch's
+        industrial-scale income building. See BuildingKind.OIL_RIG."""
+        for building in settlement.buildings:
+            if building.kind is not BuildingKind.OIL_RIG or building.stage is not BuildingStage.STANDING:
+                continue
+            staff = sum(
+                1 for a in by_position.get((building.x, building.y), [])
+                if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
+            )
+            if staff == 0:
+                continue
+            income = OIL_RIG_INCOME_PER_TICK * staff * _tech_factor(settlement)
+            if settlement.has_power_plant():
+                income *= POWER_GRID_INDUSTRY_MULTIPLIER
+            settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
+
+    @staticmethod
     def _maybe_run_schools(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:
         """Staffed presence at a standing school (or its university
         upgrade) slowly raises settlement-wide education, which boosts
@@ -5042,22 +5108,29 @@ class Population:
             # roll at a build site actually adjacent to water — same
             # gating idea as FISH resource nodes (world/resources.py's
             # is_adjacent_to_water) — a raft built inland makes no sense.
+            # BOAT (v0.87.42) joins the same water-adjacent-only slice of
+            # the roll, alongside RAFT.
             water_adjacent = terrain is not None and is_adjacent_to_water(terrain, x, y)
             roll = rng.random()
             if water_adjacent:
                 if settlement.era in ERA_UNLOCKS_AUTOMOBILE:
                     kind = (
-                        VehicleKind.CART if roll < 0.3 else VehicleKind.MOUNT if roll < 0.55
-                        else VehicleKind.AUTOMOBILE if roll < 0.75 else VehicleKind.RAFT
+                        VehicleKind.CART if roll < 0.25 else VehicleKind.MOUNT if roll < 0.45
+                        else VehicleKind.AUTOMOBILE if roll < 0.6 else VehicleKind.RAFT if roll < 0.8
+                        else VehicleKind.BOAT
                     )
                 else:
-                    kind = VehicleKind.MOUNT if roll < 0.35 else VehicleKind.CART if roll < 0.7 else VehicleKind.RAFT
+                    kind = (
+                        VehicleKind.MOUNT if roll < 0.3 else VehicleKind.CART if roll < 0.55
+                        else VehicleKind.RAFT if roll < 0.75 else VehicleKind.BOAT
+                    )
             elif settlement.era in ERA_UNLOCKS_AUTOMOBILE:
                 kind = VehicleKind.CART if roll < 0.4 else VehicleKind.MOUNT if roll < 0.7 else VehicleKind.AUTOMOBILE
             else:
                 kind = VehicleKind.MOUNT if roll < 0.5 else VehicleKind.CART
             cost = {
                 VehicleKind.MOUNT: MOUNT_MATERIALS_COST, VehicleKind.CART: CART_MATERIALS_COST,
+                VehicleKind.BOAT: BOAT_MATERIALS_COST,
                 VehicleKind.AUTOMOBILE: AUTOMOBILE_MATERIALS_COST, VehicleKind.RAFT: RAFT_MATERIALS_COST,
             }[kind]
             if settlement.materials < cost:

@@ -4,6 +4,60 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.42] — Water infrastructure: real boats, docks, oil rigs
+
+Phase 2 of the multi-part live-report batch (see v0.87.41): "water is
+an untapped resource and wastes the map."
+
+Root gap: `RAFT`'s own docstring already flagged it — "doesn't grant
+actual water crossing/pathing... make fishing a real investment, not
+just an incidental catch." A STANDING `BRIDGE` closed this only where
+one was deliberately built; open water elsewhere on the map stayed
+permanently unusable.
+
+New `VehicleKind.BOAT` (`settlement/vehicles.py`): a personal vehicle
+(claim/ride mechanic, `PERSONAL_VEHICLE_KINDS`) like MOUNT/AUTOMOBILE,
+founded only at a water-adjacent site like RAFT. While an agent rides
+a READY boat, `Population._is_walkable` gained a `water_capable`
+parameter that opens SHALLOW_WATER/DEEP_WATER/RIVER tiles to that
+agent — the actual water-crossing capability. Threaded through
+`_step_toward` (every deliberate goal-directed movement: travel
+journeys, mourning/wedding venues, FORAGE/GATHER/WORK/SOCIALIZE
+targets) via a single `water_capable` flag computed once per agent per
+tick in `_dispatch_movement`. Deliberately NOT threaded into
+`_bfs_step` (the rare stuck-pocket escape) or `_reachable_tiles`
+(settlement-wide reachability scans, e.g. fission siting) — a flagged
+scope trim, not an oversight: those are edge-case/settlement-scope
+paths, not the primary transport mechanic this batch targets.
+
+New `BuildingKind.DOCK` (water-adjacent gated, same as HATCHERY/RAFT):
+a real trade port — staffed presence generates settlement currency the
+same "presence-driven production" shape WORKSHOP already uses
+(`DOCK_INCOME_PER_TICK`, new `Population._maybe_run_docks`), and it's
+where BOAT vehicles are founded from.
+
+New `BuildingKind.OIL_RIG` (water-adjacent AND era past `industrial`,
+same gate as FACTORY/POWER_PLANT): offshore extraction, double DOCK's
+income rate — the water-infrastructure batch's industrial-scale
+building (`OIL_RIG_INCOME_PER_TICK`, new `Population._maybe_run_oil_
+rigs`, boosted by a standing POWER_PLANT like FACTORY is).
+
+UI surfacing (same batch, per standing workflow rule): boats get a
+distinct aqua map-marker diamond (vs. mount's violet/automobile's
+steel-blue); docks/oil rigs get building-tile colors and a new "Water
+infrastructure" stat tile; the "Vehicles" stat tile's tooltip covers
+boats; fixed a pre-existing building-inspector label bug in passing
+(underscored kind names like `power_plant`/`oil_rig` rendered
+literally instead of as "Power plant"/"Oil rig").
+
+Verified: direct smoke tests (`_is_walkable`'s `water_capable` gate,
+`_step_toward` actually crossing a water tile with a boat vs. blocked
+without one, `_maybe_run_docks`/`_maybe_run_oil_rigs` income,
+`choose_building_kind` reaching dock/oil_rig, the vehicle-founding roll
+reaching boat), a 12,000-tick engine soak (LLM disabled, confirmed no
+crashes across the new code paths), `scripts/verify_native_soak.py`
+(2 seeds x 800 ticks) byte-identical — no native module touched.
+
 ## [0.87.41] — Fix granary stocking and repair-labor pileup
 
 Live report: "NPCs aren't storing food in granaries, and wear of

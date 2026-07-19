@@ -78,7 +78,7 @@ const BUILDING_COLORS = {
   hut: "#c98a3c", granary: "#d9a441", workshop: "#8a7fd6", school: "#4fa3c9",
   hospital: "#e0473c", university: "#2f7fc9", factory: "#5c5c66", shrine: "#c9a3e0",
   power_plant: "#e0c93c", market: "#3ccf9e", bridge: "#b08968",
-  pasture: "#8fbf5e", hatchery: "#4ab5cf",
+  pasture: "#8fbf5e", hatchery: "#4ab5cf", dock: "#5c9ead", oil_rig: "#3c3c46",
 };
 const FARM_COLORS = { growing: "#7fae4a", ready: "#e0c34a" };
 
@@ -1267,10 +1267,11 @@ function drawFrame() {
   // Vehicles: a small icon-like mark at their build/home tile — carts as
   // an amber square and rafts as a teal square (both settlement-wide
   // passive bonuses, not personally claimed, so neither uses the
-  // claimed/unclaimed diamond below), mounts/automobiles as a diamond
-  // (personal, claimed/unclaimed shown via color; automobile gets a
-  // distinct steel-blue hue from mount's violet, so era-driven
-  // transport progress is visible on the map, not just in stat tiles).
+  // claimed/unclaimed diamond below), mounts/automobiles/boats as a
+  // diamond (personal, claimed/unclaimed shown via color; automobile
+  // gets a distinct steel-blue hue and boat a distinct aqua hue from
+  // mount's violet, so era-driven/water transport progress is visible
+  // on the map, not just in stat tiles).
   for (const v of latest.vehicles || []) {
     const cx = v.x * CELL + CELL / 2, cy = v.y * CELL + CELL / 2;
     ctx.globalAlpha = v.stage === "building" ? 0.4 : v.stage === "broken" ? 0.3 : 1.0;
@@ -1282,8 +1283,9 @@ function drawFrame() {
       ctx.fillRect(cx - CELL / 4, cy - CELL / 4, CELL / 2, CELL / 2);
     } else {
       const isAutomobile = v.kind === "automobile";
-      const claimedColor = isAutomobile ? "#5b9bd6" : "#a679d6";
-      const unclaimedColor = isAutomobile ? "#33546e" : "#6b5580";
+      const isBoat = v.kind === "boat";
+      const claimedColor = isAutomobile ? "#5b9bd6" : isBoat ? "#3cc9d6" : "#a679d6";
+      const unclaimedColor = isAutomobile ? "#33546e" : isBoat ? "#1f6d75" : "#6b5580";
       ctx.beginPath();
       ctx.fillStyle = v.assigned_agent_id != null ? claimedColor : unclaimedColor;
       ctx.moveTo(cx, cy - CELL / 2.2);
@@ -2325,7 +2327,8 @@ function renderTargetInspector() {
     const owner = b.owner_agent_id != null
       ? ((byId.get(b.owner_agent_id) || {}).name || "someone no longer living")
       : "the village (commons)";
-    const label = b.kind.charAt(0).toUpperCase() + b.kind.slice(1);
+    const kindSpaced = b.kind.replace(/_/g, " ");
+    const label = kindSpaced.charAt(0).toUpperCase() + kindSpaced.slice(1);
     const conditionPct = Math.round((b.condition || 0) * 100);
     const occupants = (latest.agents || []).filter((a) => a.x === x && a.y === y).map((a) => a.name);
     npcContent.innerHTML = `
@@ -2611,16 +2614,26 @@ function renderStats(summary) {
         : "") +
       (s.vehicles.rafts_total
         ? `, ${s.vehicles.rafts_ready} raft${s.vehicles.rafts_ready === 1 ? "" : "s"}`
+        : "") +
+      (s.vehicles.boats_total
+        ? `, ${s.vehicles.boats_ready} boat${s.vehicles.boats_ready === 1 ? "" : "s"} (${s.vehicles.boats_claimed} claimed)`
         : ""),
       "Carts: each ready cart adds 25% to gathered-material haul yield (up to 3 stacked). " +
       "Mounts: an awake agent standing with an unclaimed ready mount claims it and moves ~1.6x faster " +
       "for as long as it stays repaired. Automobiles (era: modern+) work the same way, faster still (~2.2x). " +
       "Rafts: only built at a waterside site, each adds 30% to a fish catch's hunger relief (up to 2 stacked). " +
+      "Boats: claimed like a mount, and let their rider actually cross open water — the real water-crossing " +
+      "vehicle, unlike a raft's passive fishing bonus. " +
       "All wear with use and weather, and break down if neglected.",
     ],
     [
       "Granaries", `${s.granaries} (${s.granary_food.toFixed(1)} / ${s.granary_capacity.toFixed(1)} food)`,
       "Communal food buffer: well-fed agents present at a standing granary deposit surplus; hungry agents withdraw from it before resorting to wild foraging.",
+    ],
+    [
+      "Water infrastructure", `${s.docks || 0} dock${(s.docks || 0) === 1 ? "" : "s"}, ${s.oil_rigs || 0} oil rig${(s.oil_rigs || 0) === 1 ? "" : "s"}`,
+      "Docks: a water-adjacent trade port, staffed presence generates currency like a workshop, and it's where boats are founded. " +
+      "Oil rigs: offshore extraction (era: electrical+), double a dock's income rate — the water-infrastructure batch's industrial-scale building.",
     ],
     [
       "Repairs & upkeep", `${s.buildings_repaired || 0} buildings, ${s.vehicles_repaired || 0} vehicles`,

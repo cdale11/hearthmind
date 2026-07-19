@@ -409,6 +409,26 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.42)
+
+Phase 2 of the multi-part live-report batch (see v0.87.41's plan):
+water infrastructure. `RAFT`'s own docstring already flagged the gap
+("doesn't grant actual water crossing/pathing"). New `VehicleKind.
+BOAT` (personal, claim/ride like MOUNT/AUTOMOBILE, water-adjacent
+founding like RAFT) grants its rider real water-crossing capability —
+`Population._is_walkable` gained a `water_capable` parameter opening
+SHALLOW_WATER/DEEP_WATER/RIVER tiles, threaded through `_step_toward`
+(deliberate goal-directed movement) via a flag computed once per agent
+per tick. Deliberately not threaded into `_bfs_step`/`_reachable_tiles`
+(stuck-escape and settlement-wide reachability scans) — flagged scope
+trim. New `BuildingKind.DOCK` (water-adjacent trade port, WORKSHOP-
+shaped currency income, where boats are founded) and `BuildingKind.
+OIL_RIG` (water-adjacent + era past `industrial`, FACTORY-shaped
+income at double DOCK's rate). Full UI surfacing pass in the same
+batch (map markers, stat tile, building colors) per the standing
+workflow rule. Verified via direct smoke tests, a 12,000-tick soak,
+`scripts/verify_native_soak.py` byte-identical.
+
 ## Current state (v0.87.41)
 
 Live report batch, explicit multi-part request: NPCs not storing food
