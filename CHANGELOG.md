@@ -4,6 +4,78 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.88.0] — v1 batch, Phase 1: deep audit bug fixes
+
+Phase 1 of a large multi-part v1 batch (explicit user request: "audit the
+code again very carefully and in depth... this will be the first v1
+bump"). Four parallel research passes (CA/deterministic systems, LLM
+prompts, era/invention progression, convergence/emergence) surfaced a
+concrete bug list; this phase fixes the ones with clear, contained
+fixes. Later phases (genesis prompt, full historical era ladder, LLM
+branching influence on era progression) land as separate commits.
+
+**Flood pressure saturation** (`world/disasters.py`): `FLOOD_HEAVY_RAIN_
+PRECIPITATION` was 0.4 — independently documented elsewhere
+(`population.py`'s `WEATHER_HARSH_PRECIPITATION`) as clearing ~40-50% of
+all ticks. At the old `FLOOD_PRESSURE_GAIN=0.05`/`DECAY=0.02`, that duty
+cycle drove `flood_pressure` to ratchet to its 2.0 cap and stay there —
+flooding read as a near-constant background event, not the "rare,
+consequential" framing the module's own docstring claims. Same
+"unreachable threshold" bug class already fixed for snow/wind/storm,
+just inverted (too easily/permanently reachable, not too rarely).
+Raised the threshold to 0.65 (genuinely heavy rain, above `weather.py`'s
+own `LIGHT_RAIN_PRECIPITATION_THRESHOLD=0.55`) and rebalanced gain/decay
+(0.05/0.02 -> 0.04/0.03), raising the never-ratchet duty-cycle ceiling
+from ~28.6% to ~42.9%. Verified via a 3,000-tick direct simulation at a
+realistic ~15%-heavy/~45%-any-rain duty cycle: pressure now settles to
+0.0 instead of pinning near the cap.
+
+**Surveyor cognition waste** (`simulation/engine.py`, `agents/
+population.py`): a surveyor's goal was always force-overridden to
+`AgentGoal.EXPLORE` at movement-dispatch time regardless of what
+cognition decided — so `_schedule_due_cognition` was spending a real
+core-cast LLM call (or the deterministic fallback) choosing between
+forage/rest/socialize/wander/gather/seek_person every time a surveyor's
+daily slot came up, and the answer was discarded every single time.
+Worse, `agent.goal`/`agent.goal_reason` (what dialogue/inspector text
+actually reads) kept showing the discarded, stale reason — a surveyor
+could read as "currently gathering ('trying to build up stock')" while
+mechanically walking off to explore, a believable-causality bug.
+Surveyors now skip cognition scheduling entirely and get `AgentGoal.
+EXPLORE` written directly with an honest reason — frees a scarce
+core-cast LLM slot for a job whose answer isn't thrown away every tick.
+
+**Trait homogenization** (`agents/agent.py`, `agents/population.py`):
+`TRAIT_SOCIABILITY`/`TRAIT_AMBITION`/`TRAIT_OPENNESS` had zero negative
+event-nudge sources anywhere in the codebase — only `TRAIT_RESILIENCE`
+was genuinely bidirectional (grief/violence/hunger nudge down, recovery
+nudges up). Meanwhile `TRAIT_SOCIAL_CONTACT_NUDGE` (+0.015) fires on
+every routine trade, a frequent event in a populous settlement, with no
+matching downward force — a real long-run homogenization risk toward
+"everyone eventually becomes sociable," against the project's own
+psychological-realism priority. Fixed with real negative triggers for
+sociability (a feud hardening for good, being ostracized, being the
+victim of theft — all existing mechanics, same "harsher event -> bigger
+magnitude" discipline as their positive counterparts) and a faster
+monthly mean-reversion pull (0.99 -> 0.965) specifically for ambition/
+openness, which lack a natural frequent negative trigger worth
+fabricating one for.
+
+**Two unflagged R7 native-port gaps closed**: `economy/farms.py`'s
+`FarmGrid._tick_soil_fertility` and `world/terrain_evolution.py`'s
+`apply_mining_scars`/`decay_mining_scars` were genuine per-tick,
+population/tile-count-scaled hot loops sitting unported right next to
+already-native siblings, with no in-source R7-deviation justification
+(CLAUDE.md claimed mining scars were "flagged" but the flag never
+existed in the actual file). Ported the per-tile scalar step of each
+to C++ (`cpp/src/soil_fertility.cpp`, `cpp/src/mining_scars.cpp`, same
+"dict iteration + event bookkeeping stays Python, only the scalar
+arithmetic moves to C++" shape as `road_wear.cpp`), pure-Python fallback
+preserved. Verified via `scripts/verify_native_soak.py` with the native
+extension actually built this session (2 seeds x 800 ticks,
+byte-identical) — prior sessions only ever verified the fallback path
+since the extension wasn't compiled in this environment before now.
+
 ## [0.87.46] — Convergence audit: folklore + rumor/gossip propagation
 
 Phase 6 (final) of the multi-part live-report batch (see v0.87.41):

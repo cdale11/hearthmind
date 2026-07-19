@@ -37,6 +37,21 @@ except ImportError:
     _native_climate_drift_batch = None
 
 try:
+    from hearthmind._native import (
+        mining_scar_decay_step as _native_mining_scar_decay_step,
+        mining_scar_gain_step as _native_mining_scar_gain_step,
+    )
+except ImportError:
+    _native_mining_scar_gain_step = None
+    _native_mining_scar_decay_step = None
+"""Optional compiled fast path for apply_mining_scars/decay_mining_scars'
+per-tile scalar step — v1 audit fix, see cpp/src/mining_scars.cpp. Same
+"dict iteration + event bookkeeping stays Python, only the scalar step
+moves to C++" shape as road_wear.py/farms.py's native pairs. `None`
+when the extension wasn't built — falls back to equivalent pure-Python
+arithmetic in that case."""
+
+try:
     from hearthmind._native import maybe_reclaim_tick as _native_maybe_reclaim_tick
 except ImportError:
     _native_maybe_reclaim_tick = None
@@ -133,7 +148,11 @@ def apply_mining_scars(
     events: list[tuple[str, str]] = []
     for pos in active_mining_tiles:
         before = scars.get(pos, 0.0)
-        after = min(1.0, before + MINING_SCAR_GAIN_PER_TICK)
+        after = (
+            _native_mining_scar_gain_step(before, MINING_SCAR_GAIN_PER_TICK)
+            if _native_mining_scar_gain_step is not None
+            else min(1.0, before + MINING_SCAR_GAIN_PER_TICK)
+        )
         scars[pos] = after
         if before < MINING_SCAR_VISIBLE_THRESHOLD <= after:
             events.append(("mining_scarred", f"A hillside at {pos} bears the visible marks of sustained mining."))
@@ -146,7 +165,11 @@ def decay_mining_scars(scars: dict[tuple[int, int], float]) -> None:
     same "don't track what's no longer true" discipline `terrain_
     activity`'s own heat-decay-to-removal already uses."""
     for pos in list(scars.keys()):
-        scars[pos] -= MINING_SCAR_DECAY_PER_WEEK
+        scars[pos] = (
+            _native_mining_scar_decay_step(scars[pos], MINING_SCAR_DECAY_PER_WEEK)
+            if _native_mining_scar_decay_step is not None
+            else scars[pos] - MINING_SCAR_DECAY_PER_WEEK
+        )
         if scars[pos] <= 0.0:
             del scars[pos]
 

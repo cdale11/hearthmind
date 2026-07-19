@@ -176,7 +176,11 @@ from hearthmind.agents.agent import (
     TRAIT_AMBITION_FOUNDING_NUDGE,
     TRAIT_AMBITION_MASTERY_NUDGE,
     TRAIT_INHERITANCE_MUTATION_STDDEV,
+    TRAIT_FEUD_SOCIABILITY_NUDGE,
     TRAIT_GRIEF_NUDGE,
+    TRAIT_MEAN_REVERSION_AMBITION,
+    TRAIT_MEAN_REVERSION_OPENNESS,
+    TRAIT_OSTRACISM_SOCIABILITY_NUDGE,
     TRAIT_RECONCILE_NUDGE,
     TRAIT_RECOVERY_RESILIENCE_NUDGE,
     TRAIT_MEAN_REVERSION,
@@ -193,6 +197,7 @@ from hearthmind.agents.agent import (
     TRAIT_SOCIAL_CONTACT_NUDGE,
     TRAIT_STEP_MAX,
     TRAIT_SUSTAINED_HUNGER_NUDGE,
+    TRAIT_THEFT_VICTIM_SOCIABILITY_NUDGE,
     TRAIT_VIOLENCE_NUDGE,
     TRUST_DELTA,
     TRUST_SKEPTICISM_THRESHOLD,
@@ -1156,6 +1161,17 @@ def _nudge_trait(agent: Agent, trait: str, delta: float) -> None:
     """H6: apply one event-driven nudge to a trait axis, clamped -1..1.
     See TRAIT_RESILIENCE/TRAIT_SOCIABILITY."""
     agent.traits[trait] = clamp(agent.traits.get(trait, 0.0) + delta, -1.0, 1.0)
+
+
+_TRAIT_MEAN_REVERSION_BY_TRAIT = {
+    TRAIT_AMBITION: TRAIT_MEAN_REVERSION_AMBITION,
+    TRAIT_OPENNESS: TRAIT_MEAN_REVERSION_OPENNESS,
+}
+"""v1 audit fix: per-trait override for `Population._tick_traits`'s
+monthly reversion strength — see TRAIT_MEAN_REVERSION_AMBITION's
+docstring. Resilience/sociability aren't listed here and fall back to
+the shared TRAIT_MEAN_REVERSION, since both now have real, frequent
+bidirectional event nudges and don't need a faster artificial pull."""
 
 
 _INHERITABLE_TRAITS = (TRAIT_RESILIENCE, TRAIT_SOCIABILITY, TRAIT_AMBITION, TRAIT_OPENNESS)
@@ -3527,6 +3543,7 @@ class Population:
                         -1.0, victim.relationships.get(thief.id, 0.0) + THEFT_RELATIONSHIP_PENALTY * law_penalty
                     )
                     bump_emotion(victim, EMOTION_ANGER, EMOTION_DISPUTE_ANGER_BUMP)
+                    _nudge_trait(victim, TRAIT_SOCIABILITY, TRAIT_THEFT_VICTIM_SOCIABILITY_NUDGE)
                     _remember(victim, f"{thief.name} stole food from me while I wasn't looking.", because=f"{thief.name} stole from me")
                     _remember(thief, f"I took food from {victim.name} out of desperation.", routine=True)
                     # §1 "deviance loop" completion: the act now plants a
@@ -3670,7 +3687,8 @@ class Population:
             for trait in (TRAIT_RESILIENCE, TRAIT_SOCIABILITY, TRAIT_AMBITION, TRAIT_OPENNESS):
                 current = agent.traits.get(trait, 0.0)
                 step = rng.uniform(-TRAIT_STEP_MAX, TRAIT_STEP_MAX)
-                agent.traits[trait] = clamp(current * TRAIT_MEAN_REVERSION + step, -1.0, 1.0)
+                reversion = _TRAIT_MEAN_REVERSION_BY_TRAIT.get(trait, TRAIT_MEAN_REVERSION)
+                agent.traits[trait] = clamp(current * reversion + step, -1.0, 1.0)
             # §1 "deviance loop": ostracism fades on its own over months
             # rather than standing forever — see Agent.standing_penalty.
             if agent.standing_penalty > 0.0:
@@ -6311,6 +6329,7 @@ class Population:
             shunned.standing_penalty = min(1.0, shunned.standing_penalty + OSTRACISM_PENALTY)
             shunned.relationships[other.id] = max(-1.0, shunned.relationships.get(other.id, 0.0) + DISPUTE_FEUD_DEEPEN)
             other.relationships[shunned.id] = max(-1.0, other.relationships.get(shunned.id, 0.0) + DISPUTE_FEUD_DEEPEN)
+            _nudge_trait(shunned, TRAIT_SOCIABILITY, TRAIT_OSTRACISM_SOCIABILITY_NUDGE)
             _remember(shunned, "The village has turned its back on me.", because="ostracized by the village")
             _remember(other, f"The village ostracized {shunned.name} over what happened between us.", because=f"dispute with {shunned.name}")
             bump_emotion(shunned, EMOTION_GRIEF, EMOTION_DISPUTE_ANGER_BUMP)
@@ -6343,6 +6362,7 @@ class Population:
                 me.trust[them.id] = clamp(me.trust.get(them.id, 0.0) - DISPUTE_TRUST_DELTA, -1.0, 1.0)
                 _remember(me, f"My feud with {them.name} has hardened for good.", because=f"dispute with {them.name}")
                 _nudge_trait(me, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
+                _nudge_trait(me, TRAIT_SOCIABILITY, TRAIT_FEUD_SOCIABILITY_NUDGE)
                 bump_emotion(me, EMOTION_ANGER, EMOTION_DISPUTE_ANGER_BUMP)
         return agent_a, agent_b
 

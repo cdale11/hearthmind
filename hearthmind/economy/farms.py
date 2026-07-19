@@ -29,6 +29,22 @@ module — see cpp/src/farm_grid.cpp, docs/DECISIONS.md "Native extension
 port"). `None` when the extension wasn't built — falls back to the
 equivalent pure-Python per-plot loop in that case."""
 
+try:
+    from hearthmind._native import (
+        soil_fertility_deplete_step as _native_soil_fertility_deplete_step,
+        soil_fertility_recover_step as _native_soil_fertility_recover_step,
+    )
+except ImportError:
+    _native_soil_fertility_deplete_step = None
+    _native_soil_fertility_recover_step = None
+"""Optional compiled fast path for `FarmGrid._tick_soil_fertility` (v1
+audit fix — see cpp/src/soil_fertility.cpp; this was a genuine per-tick
+hot loop sitting unported next to its native sibling farm_grid_tick
+above, with no R7-deviation justification). Same "dict iteration stays
+Python, only the scalar step moves to C++" shape as road_wear.py's
+native pair. `None` when the extension wasn't built — falls back to the
+equivalent pure-Python arithmetic in that case."""
+
 FARMABLE_BIOMES = frozenset({Biome.GRASSLAND})
 """Deliberately narrower than WALKABLE_BIOMES/FORAGEABLE_BIOMES — open
 grassland only, not forest/hills, matching the "cleared field" image."""
@@ -222,7 +238,21 @@ class FarmGrid:
         tracked-but-currently-fallow tile — a plain Python loop bounded
         by `len(soil_fertility)` (distinct ever-farmed tiles), run
         alongside (not inside) the native fast path below since it's an
-        orthogonal per-tile float, not part of `FarmPlot`'s own state."""
+        orthogonal per-tile float, not part of `FarmPlot`'s own state.
+        The scalar step itself (not the dict iteration) has an optional
+        native fast path — see cpp/src/soil_fertility.cpp."""
+        if _native_soil_fertility_deplete_step is not None:
+            for pos in self.plots:
+                self.soil_fertility[pos] = _native_soil_fertility_deplete_step(
+                    self.fertility_at(*pos), SOIL_FERTILITY_DEPLETION_PER_TICK, SOIL_FERTILITY_MIN,
+                )
+            for pos in list(self.soil_fertility):
+                if pos in self.plots:
+                    continue
+                self.soil_fertility[pos] = _native_soil_fertility_recover_step(
+                    self.fertility_at(*pos), SOIL_FERTILITY_RECOVERY_PER_TICK,
+                )
+            return
         for pos in self.plots:
             self.soil_fertility[pos] = max(
                 SOIL_FERTILITY_MIN, self.fertility_at(*pos) - SOIL_FERTILITY_DEPLETION_PER_TICK,

@@ -94,6 +94,7 @@ from hearthmind.agents.population import (
 )
 from hearthmind.agents.occupations import (
     OCCUPATION_SHOPKEEPER,
+    OCCUPATION_SURVEYOR,
     SHOPKEEPER_CARAVAN_YIELD_BONUS,
 )
 from hearthmind.settlement.buildings import (
@@ -1800,6 +1801,22 @@ class SimulationEngine:
         population = self.world.population
         for agent in due:
             if agent.id in self._inflight_cognition_agent_ids:
+                continue
+            # v1 audit fix: a surveyor's goal is unconditionally force-
+            # overridden to AgentGoal.EXPLORE at movement-dispatch time
+            # (Population._dispatch_movement's effective_goal), regardless
+            # of what cognition decides — so scheduling a real LLM call
+            # (or even the deterministic fallback_goal path) here was
+            # pure waste: the answer is discarded every single time, and
+            # meanwhile agent.goal/goal_reason (what dialogue/inspector
+            # text actually reads) showed a stale "gathering"/"resting"
+            # reason that never matched what the agent was really doing.
+            # Skip cognition entirely for surveyors and write the goal
+            # directly — frees a core-cast slot for a job whose answer
+            # isn't thrown away, and keeps the agent's stated reason
+            # honest about what it's doing.
+            if agent.occupation == OCCUPATION_SURVEYOR:
+                population.apply_goal(agent.id, AgentGoal.EXPLORE, "surveying the unmapped land")
                 continue
             # Core-cast gate (v0.70.0): only core-cast agents spend an
             # Ollama call on goal reasoning. Everyone else — and everyone,

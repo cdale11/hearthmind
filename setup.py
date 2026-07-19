@@ -98,6 +98,8 @@ try:
                 "cpp/src/relationship_step.cpp",
                 "cpp/src/road_wear.cpp",
                 "cpp/src/wildlife_step.cpp",
+                "cpp/src/soil_fertility.cpp",
+                "cpp/src/mining_scars.cpp",
             ]),
             cxx_std=17,
             extra_compile_args=_EXTRA_COMPILE_ARGS,

@@ -1139,6 +1139,45 @@ register accordingly per occurrence, same "rarer, more deliberate ->
 bigger per-event nudge" discipline TRAIT_AMBITION's event nudges
 already use."""
 
+TRAIT_FEUD_SOCIABILITY_NUDGE = -0.02
+TRAIT_OSTRACISM_SOCIABILITY_NUDGE = -0.04
+TRAIT_THEFT_VICTIM_SOCIABILITY_NUDGE = -0.02
+"""v1 audit fix: sociability, ambition, and openness previously had
+*zero* negative event-nudge sources anywhere in the codebase — only
+TRAIT_RESILIENCE was genuinely bidirectional (grief/violence/hunger
+nudges down, recovery nudges up). Meanwhile TRAIT_SOCIAL_CONTACT_NUDGE
+(+0.015) fires on every routine food/tools/medicine trade, a frequent
+event in a populous settlement, with no matching downward force —
+plausible long-run homogenization toward "everyone eventually becomes
+sociable," working against the psychological-realism/per-agent-
+diversity priority. These three close the gap with real negative
+triggers, same "rarer/harsher event -> bigger magnitude" discipline as
+their positive counterparts: a feud hardening for good
+(`Population.apply_dispute`, outcome=="feud") makes both parties
+somewhat more withdrawn; being ostracized is a harsher, more isolating
+blow than an ordinary feud; being the victim of theft (a colocated
+agent, not a stranger) sours routine trust in others generally, not
+just in the thief. All three land on `TRAIT_SOCIABILITY`, mirroring
+the existing positive nudges' own axis."""
+
+TRAIT_MEAN_REVERSION_AMBITION = 0.965
+TRAIT_MEAN_REVERSION_OPENNESS = 0.965
+"""v1 audit fix, companion to the sociability nudges above: ambition
+and openness genuinely lack a natural, frequent negative-trigger event
+in this simulation the way sociability now has (feud/ostracism/theft)
+and resilience always had (grief/violence/hunger) — a plausible
+in-fiction negative ambition event (a failed venture, a stalled
+career) or negative openness event (a bad encounter with an outsider)
+isn't backed by any existing mechanic worth bending out of shape just
+to manufacture a trigger. Rather than force one, these two axes get a
+faster monthly mean-reversion pull back toward neutral (0.965 vs. the
+shared TRAIT_MEAN_REVERSION=0.99) so their existing rare positive
+nudges (mastery/founding for ambition, caravan contact for openness)
+don't accumulate into a population-wide upward drift the way the old
+uniform 0.99 allowed — same fix direction the audit itself flagged as
+an acceptable alternative to a fabricated negative trigger. See
+Population._tick_traits."""
+
 TRAIT_OPENNESS_MIGRANT_WELCOME_INFLUENCE = 0.3
 """Fractional nudge on `_maybe_welcome_migrant`'s roll chance from the
 surviving population's average `TRAIT_OPENNESS` — a village whose

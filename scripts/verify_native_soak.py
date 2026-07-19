@@ -96,6 +96,14 @@ _NATIVE_TOGGLES = [
     (_roads, "_native_road_wear_decay_step"),
     # v0.86.4: grazer-branch scalar math (cpp/src/wildlife_step.cpp).
     (_wildlife, "_native_grazer_tick_step"),
+    # v0.88.0 (v1 audit fix): soil fertility deplete/recover scalar math
+    # (cpp/src/soil_fertility.cpp).
+    (_farms, "_native_soil_fertility_deplete_step"),
+    (_farms, "_native_soil_fertility_recover_step"),
+    # v0.88.0 (v1 audit fix): mining scar gain/decay scalar math
+    # (cpp/src/mining_scars.cpp).
+    (_terrain_evolution, "_native_mining_scar_gain_step"),
+    (_terrain_evolution, "_native_mining_scar_decay_step"),
 ]
 
 

@@ -409,6 +409,47 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.88.0) — v1 batch, Phase 1
+
+First phase of a large multi-part v1 batch (explicit user request: deep
+audit incl. convergence/bugs/emergence, CA/deterministic-system fixes,
+prompt audit incl. genesis, C++ porting, era-progression rework with a
+full historical ladder and LLM-steered branching — "this will be the
+first v1 bump"). Four parallel research passes preceded this phase
+(CA systems, LLM prompts, era/invention math, convergence/emergence);
+this phase lands the bugs with clean, contained fixes. Full detail:
+CHANGELOG.md.
+
+Fixed: flood pressure saturation (`FLOOD_HEAVY_RAIN_PRECIPITATION`
+0.4->0.65, gain/decay rebalanced — was ratcheting to its cap under a
+realistic rain duty cycle, the "unreachable threshold" bug class
+inverted); surveyor agents wasting a core-cast LLM cognition call every
+due-slot on a goal decision unconditionally discarded in favor of a
+forced `AgentGoal.EXPLORE` (now skip cognition entirely, write the goal
+directly); `TRAIT_SOCIABILITY`/`TRAIT_AMBITION`/`TRAIT_OPENNESS` having
+zero negative event-nudge sources anywhere (only resilience was
+bidirectional) — real long-run population-psychology homogenization
+risk, fixed with negative sociability triggers (feud hardening,
+ostracism, theft-victimization) and faster mean-reversion for ambition/
+openness specifically.
+
+Two native-port gaps closed: `FarmGrid._tick_soil_fertility` and
+`apply_mining_scars`/`decay_mining_scars` were genuine per-tick hot
+loops sitting unported next to already-native siblings with zero
+in-source R7-deviation justification (CLAUDE.md previously claimed
+mining scars were "flagged" — the flag never existed in the file).
+Ported to `cpp/src/soil_fertility.cpp`/`cpp/src/mining_scars.cpp`, both
+new toggles added to `scripts/verify_native_soak.py`'s `_NATIVE_
+TOGGLES` list (a fixed enumeration — a new native function needs an
+explicit entry to actually be exercised native-vs-fallback by the
+soak, not just built). Verified via `scripts/verify_native_soak.py`
+with the native extension actually compiled this session (2 seeds x
+800 ticks, byte-identical) — this is the first session in this
+environment where the extension was built at all, so this run also
+re-verified every pre-existing already-toggled native module against
+its Python fallback for the first time under a real compiled binary,
+not just this phase's two new ones; no divergence found.
+
 ## Current state (v0.87.46)
 
 Phase 6, final, of the multi-part live-report batch (see v0.87.41):

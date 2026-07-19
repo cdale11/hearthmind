@@ -76,17 +76,31 @@ tile conversion draws no RNG at all, so it stays a separate, ordinary
 Python pass before the roll batch. `None` when the extension wasn't
 built — falls back to the equivalent pure-Python loop."""
 
-FLOOD_PRESSURE_GAIN = 0.05
-FLOOD_PRESSURE_DECAY = 0.02
+FLOOD_PRESSURE_GAIN = 0.04
+FLOOD_PRESSURE_DECAY = 0.03
 FLOOD_PRESSURE_THRESHOLD = 1.0
 FLOOD_CHANCE_PER_TICK = 0.015
 FLOOD_DURATION_TICKS = 40
 FLOOD_DAMAGE = 0.35
-FLOOD_HEAVY_RAIN_PRECIPITATION = 0.4
-"""Sustained heavy rain (precipitation above the existing "harsh
-weather" threshold — see population.py's WEATHER_HARSH_PRECIPITATION)
-builds flood pressure each tick it persists, decaying otherwise. Once
-pressure clears the threshold, each tick rolls a small chance to submerge
+FLOOD_HEAVY_RAIN_PRECIPITATION = 0.65
+"""v1 audit fix: was 0.4, the exact same value documented elsewhere
+(population.py's WEATHER_HARSH_PRECIPITATION) as clearing ~40-50% of
+all ticks — the same duty cycle that forced DECAY_PER_TICK_BASE down in
+buildings.py's own history. At that duty cycle, with the old
+GAIN=0.05/DECAY=0.02, expected per-tick pressure drift was strongly
+positive (p*GAIN - (1-p)*DECAY > 0 once p exceeds DECAY/(GAIN+DECAY) =
+~28.6%), so flood_pressure ratcheted to its 2.0 cap and stayed there —
+flooding read as a near-constant background event rather than the
+"rare, consequential" framing this module's docstring claims (the
+inverse of the usual "unreachable threshold" bug class: this one was
+too *easily* and *permanently* reachable). Raised to 0.65 — genuinely
+heavy rain, above weather.py's own LIGHT_RAIN_PRECIPITATION_THRESHOLD
+(0.55), not just "any measurable rain" — and GAIN/DECAY rebalanced
+(0.05/0.02 -> 0.04/0.03) so the never-ratchet duty-cycle ceiling rises
+to ~42.9%, a comfortable margin above the much rarer real frequency of
+genuinely heavy rain. Builds flood pressure each tick precipitation
+clears this bar, decaying otherwise. Once pressure clears
+FLOOD_PRESSURE_THRESHOLD, each tick rolls a small chance to submerge
 low ground bordering an existing river/lake tile for FLOOD_DURATION_TICKS,
 knocking FLOOD_DAMAGE off any building/vehicle caught in it and
 destroying any farm plot there — real damage, not narration."""
