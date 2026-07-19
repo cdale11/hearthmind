@@ -58,9 +58,11 @@ a deposit, respecting its own depletion/regen and the settlement cap;
 overflow-to-currency conversion at capacity, confirmed hitting both
 caps over 2000 forced-gather ticks); a real 3,000-tick `World.tick()`
 integration run (deposit generation, no crashes, round-trip
-serialization); two 20,000-tick organic no-LLM soaks (seeds 7, 23) in
-progress as of this entry to confirm no regression in the broader tick
-loop.
+serialization); two 20,000-tick organic no-LLM soaks (seeds 7, 23)
+completed cleanly — both settlements' population/hunger trajectories
+matched their known pre-existing shape from the v0.87.24 starvation
+investigation (seed 7 stable, seed 23's harder food-production geography
+still visible), confirming this batch introduced no new instability.
 
 ## [0.87.25] — Husbandry becomes an actively-sought food source
 
