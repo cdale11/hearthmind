@@ -1592,6 +1592,15 @@ class Population:
         # search (SOCIALIZE) sees a consistent picture rather than a mix of
         # this-tick-already-moved and not-yet-moved agents.
         position_snapshot = [(a.id, a.x, a.y) for a in self.agents]
+        # Start-of-tick occupancy, keyed like `by_position` (populated
+        # fresh, post-move, later in this same method) but available
+        # early enough for `damaged_building_positions`' staffing filter
+        # below — one tick stale, same acceptable staleness every other
+        # once-per-tick attractor list here already has.
+        agents_by_id = {a.id: a for a in self.agents}
+        start_of_tick_by_position: dict[tuple[int, int], list[Agent]] = {}
+        for agent_id, x, y in position_snapshot:
+            start_of_tick_by_position.setdefault((x, y), []).append(agents_by_id[agent_id])
         # Native fast path for SOCIALIZE's _nearest_other_agent (module 4,
         # cpp/src/agent_position_index.cpp): built once from the same
         # snapshot/order the pure-Python scan uses, so tie-breaking stays
@@ -1715,8 +1724,8 @@ class Population:
         granary_positions_by_id = {s.id: self.stocked_granary_positions(s) for s in settlements}
         work_positions_by_id = {
             s.id: (
-                self.damaged_building_positions(s) + self.under_construction_positions(s)
-                + self.husbandry_positions(s)
+                self.damaged_building_positions(s, start_of_tick_by_position) + self.under_construction_positions(s)
+                + self.husbandry_positions(s) + self.granary_positions(s)
             )
             for s in settlements
         }
@@ -2676,16 +2685,44 @@ class Population:
         ]
 
     @staticmethod
-    def damaged_building_positions(settlement: Settlement) -> list[tuple[int, int]]:
+    def damaged_building_positions(
+        settlement: Settlement, by_position: dict[tuple[int, int], list[Agent]] | None = None,
+    ) -> list[tuple[int, int]]:
         """Standing buildings at or below REPAIR_THRESHOLD — the WANDER-
         goal repair attractor (v0.43.2 follow-up, see _dispatch_movement).
         No distance cap when targeted, same rationale as farm/granary
         positions: a settlement's own buildings are known landmarks to
-        its residents, not something they have to stumble across."""
-        return [
-            (b.x, b.y) for b in settlement.buildings
-            if b.stage is BuildingStage.STANDING and b.condition < REPAIR_THRESHOLD
-        ]
+        its residents, not something they have to stumble across.
+
+        v0.87.41: excludes a damaged building already staffed to
+        MAX_WORKERS awake agents when `by_position` is supplied — every
+        idle agent previously targeted the single NEAREST damaged
+        building independently via `_nearest_position`, so in a populous
+        settlement they piled onto one site past the point of any real
+        repair benefit (extra workers beyond MAX_WORKERS don't speed
+        `_maybe_repair`) while every other damaged building sat untouched.
+        This is the same "single-target magnetism" bug class the mining/
+        food-priority feedback loops were, applied to labor allocation —
+        a live report of decay outrunning repair at scale traced to this.
+        Sorted worst-condition-first so the newly-freed-up idle agents
+        prioritize the most urgent site among the reachable remainder."""
+        candidates = sorted(
+            (
+                b for b in settlement.buildings
+                if b.stage is BuildingStage.STANDING and b.condition < REPAIR_THRESHOLD
+            ),
+            key=lambda b: b.condition,
+        )
+        if by_position is None:
+            return [(b.x, b.y) for b in candidates]
+        result = []
+        for b in candidates:
+            workers = sum(
+                1 for a in by_position.get((b.x, b.y), []) if a.state is AgentState.AWAKE
+            )
+            if workers < MAX_WORKERS:
+                result.append((b.x, b.y))
+        return result
 
     @staticmethod
     def husbandry_positions(settlement: Settlement) -> list[tuple[int, int]]:
@@ -2702,6 +2739,26 @@ class Population:
             if b.stage is BuildingStage.STANDING
             and b.kind in (BuildingKind.PASTURE, BuildingKind.HATCHERY)
             and b.stored_food < (PASTURE_CAPACITY if b.kind is BuildingKind.PASTURE else HATCHERY_CAPACITY)
+        ]
+
+    @staticmethod
+    def granary_positions(settlement: Settlement) -> list[tuple[int, int]]:
+        """Standing GRANARY tiles not yet at capacity — a WANDER-goal
+        attractor, the same fix `husbandry_positions` (v0.87.25) gave
+        PASTURE/HATCHERY but GRANARY itself never received. v0.87.41:
+        `_maybe_stock_granaries` has always been real (well-fed agents
+        present deposit surplus) but nothing before this deliberately
+        drew an idle, well-fed agent TOWARD a granary to do it — deposits
+        only happened by lucky colocation (an agent already there for
+        some other reason), the exact gap husbandry_positions closed for
+        its two younger sibling buildings. This is the direct fix for
+        "NPCs aren't storing food in granaries." Below-capacity only, same
+        rationale as husbandry_positions."""
+        return [
+            (b.x, b.y) for b in settlement.buildings
+            if b.stage is BuildingStage.STANDING
+            and b.kind is BuildingKind.GRANARY
+            and b.stored_food < GRANARY_CAPACITY
         ]
 
     @staticmethod

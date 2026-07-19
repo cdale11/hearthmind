@@ -4,6 +4,57 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.41] — Fix granary stocking and repair-labor pileup
+
+Live report: "NPCs aren't storing food in granaries, and wear of
+infrastructure is happening faster than NPCs can handle." First of a
+multi-phase batch (food/decay tuning, water infrastructure, era-scaled
+infra, jobs system, exploration role, convergence audit — see
+CLAUDE.md's "Current state" for the full plan); this phase fixes the
+two reported bugs directly.
+
+Root cause 1 (granaries): `_maybe_stock_granaries` was always real —
+a well-fed awake agent present at a standing GRANARY deposits surplus
+each tick — but nothing ever deliberately drew an idle agent TOWARD a
+granary to do it. `husbandry_positions` (v0.87.25) gave PASTURE/
+HATCHERY exactly this WANDER-goal attractor treatment ("so a well-fed,
+idle agent is deliberately drawn to go TEND husbandry, not just eat
+from it by lucky colocation") but GRANARY itself, the original and
+most important of the three, never got it — deposits only happened
+when an agent already stood there for some unrelated reason. New
+`Population.granary_positions` (mirrors `husbandry_positions`,
+below-capacity standing GRANARY tiles) added to `work_positions_by_id`
+in `Population.tick`. Verified via a 12,000-tick soak (seed 2, LLM
+disabled): granary `stored_food` rose from 0 to ~78/90 by tick 9,000
+and held near capacity as population grew to 79, versus staying
+empty the entire run before this fix.
+
+Root cause 2 (decay outrunning repair): `damaged_building_positions`
+(the WANDER-goal repair attractor, v0.43.2) returned every standing
+building below `REPAIR_THRESHOLD`, and every idle agent independently
+targeted the single NEAREST one via `_nearest_position` — in a
+populous settlement, agents piled onto one damaged building past
+`MAX_WORKERS` (repair progress caps at 3 workers; a 4th+ contributes
+nothing) while every other damaged building sat completely untouched.
+Same "single-target magnetism" bug class as the mining/food-priority
+feedback loops fixed in earlier passes, here applied to labor
+allocation rather than LLM prompt content. Fixed: `damaged_building_
+positions` now accepts an optional `by_position` snapshot and excludes
+buildings already staffed to `MAX_WORKERS` awake agents, and sorts the
+remainder worst-condition-first so freed-up idle agents prioritize the
+most urgent reachable site. `Population.tick` passes a new `start_of_
+tick_by_position` dict (built from the existing pre-move `position_
+snapshot`, since the real `by_position` isn't populated until later in
+the same tick loop — one-tick-stale, same acceptable staleness every
+other once-per-tick attractor list already has).
+
+Verified: two direct unit-style smoke tests (`granary_positions`
+excludes a full granary; `damaged_building_positions` excludes an
+overstaffed building and sorts worst-first), the 12,000-tick soak
+above, and `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical — no native module touched, both changes are pure
+Python attractor-list construction.
+
 ## [0.87.40] — Re-audit caravan + letters call sites, find one more real gap
 
 Explicit follow-up: "extend the audit to caravan and letters call

@@ -409,6 +409,49 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.41)
+
+Live report batch, explicit multi-part request: NPCs not storing food
+in granaries, decay outrunning repair, water as an untapped resource
+(no boats/oil rigs), no exploration/surveyor role, no real jobs/
+occupations system driving the economy, plus "audit the whole code for
+unnecessary convergence" and (mid-batch addition) "improve building/
+road/infrastructure types with era." Scoped into six phases, each its
+own commit batch: (1) food-storage/repair bug fixes — this version,
+(2) water infrastructure (boats, oil rigs, docks), (3) era-scaled
+building/road types, (4) deep occupations system (`Agent.occupation`
+gates real behavior — baker/builder/banker/teacher/priest/mayor/
+fisherman/farmer/shopkeeper/businessman), (5) exploration/surveyor
+role feeding collective map knowledge, (6) convergence audit on
+`folklore.py`/rumor-gossip propagation (town_brain's granary-fill
+food-priority loop and dialogue topic selection were already fixed in
+earlier passes — this extends that same audit).
+
+This version: the two reported bugs. Granary stocking was always real
+(`_maybe_stock_granaries`) but had no WANDER-goal attractor pulling
+idle well-fed agents toward it — `husbandry_positions` (v0.87.25) gave
+PASTURE/HATCHERY this exact treatment but GRANARY itself never got it.
+New `Population.granary_positions` closes the gap; verified via a
+12,000-tick soak, granary food rose from 0 to ~78/90 and held there as
+population grew to 79 (was permanently empty before). Repair-labor
+piled onto the single nearest damaged building past `MAX_WORKERS`
+(extra workers there don't speed repair) while other damaged buildings
+sat untouched — `damaged_building_positions` now excludes overstaffed
+buildings and sorts worst-condition-first among the rest.
+
+Era answer (also asked this batch): settlements start at `industrial`
+(no tribal stage), advance through `electrical` (tech_level 3) ->
+`modern` (7) -> `digital` (12) one step at a time, gated by both an
+invention-driven tech_level AND real infrastructure minimums per era.
+Invention rolls once per season (~91 days) at a 20% base chance
+(modified by prosperity/education/infra-progress/skill/temperament) —
+expect roughly 1 invention per ~5 seasons once prosperous, so `digital`
+is a genuine multi-year milestone, not a fast unlock. Confirmed gap:
+today only `FACTORY`/`POWER_PLANT` (electrical+) and the `AUTOMOBILE`
+vehicle (modern+) are era-gated — every other building kind and the
+entire road system are identical from tick 1 through `digital`. Phase 3
+addresses this directly.
+
 ## Current state (v0.87.40)
 
 Follow-up: "extend the audit to caravan and letters call sites too and
