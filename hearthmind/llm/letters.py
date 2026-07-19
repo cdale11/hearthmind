@@ -12,7 +12,7 @@ pathfinding.
 """
 from __future__ import annotations
 
-from hearthmind.agents.agent import Agent, describe_traits
+from hearthmind.agents.agent import Agent, describe_traits, faded_memory_text, retrieve_relevant_memories
 
 LETTER_TRAVEL_TICKS = 400
 """How long a letter takes to arrive — a real multi-day delay (at
@@ -36,9 +36,19 @@ SYSTEM_PROMPT = (
 
 
 def build_prompt(sender: Agent, recipient_name: str, sender_settlement: str, recipient_settlement: str) -> str:
+    """v0.87.40 context-selection audit: was a blind `sender.memories
+    [-2:]` slice — the one job whose entire premise is "ground it in
+    what you actually know and feel right now" (SYSTEM_PROMPT's own
+    words) was, unlike cognition/personal_belief, never given their
+    adaptive-retrieval scoring (recency + salience + relevance-to-
+    what-just-happened + causal-link bonus). Same fix shape as
+    `_maybe_schedule_personal_belief` (v0.87.36): `retrieve_relevant_
+    memories` + `faded_memory_text`, same 2-slot budget as before."""
     personality = describe_traits(sender.traits)
     personality_text = f" You are {personality}." if personality else ""
-    recent = sender.memories[-2:]
+    retrieval_context = sender.working_memory[-1] if sender.working_memory else ""
+    retrieved = retrieve_relevant_memories(sender, 2, context=retrieval_context)
+    recent = [faded_memory_text(t, s) for t, s, _c in retrieved]
     memory_text = f" On your mind lately: {' | '.join(recent)}." if recent else ""
     return (
         f"You are {sender.name}, living in {sender_settlement}.{personality_text} "

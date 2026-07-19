@@ -4,6 +4,45 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.40] — Re-audit caravan + letters call sites, find one more real gap
+
+Explicit follow-up: "extend the audit to caravan and letters call
+sites too and every other prompt that was missed." Re-verified: all
+33 `llm/build_prompt` modules were already read across the five prior
+audit passes (v0.87.35-.39) — cross-checked against every `SYSTEM_
+PROMPT =` occurrence in `hearthmind/llm/`, confirming no module was
+missed. `caravan.py`'s own content was already sound (`SYSTEM_PROMPT`'s
+claims matched `build_prompt` exactly); this pass instead looked one
+level up, at how the ENGINE actually calls each one.
+
+**`llm/letters.py` had a real gap — the same class as personal_belief's
+(v0.87.36).** `SYSTEM_PROMPT` says to "ground it in what you actually
+know and feel right now," but `build_prompt` read a blind `sender.
+memories[-2:]` slice rather than the adaptive relevance-scored
+retrieval cognition/personal_belief already use — a letter genuinely
+worth writing about (a recent grief, a real turning point) could lose
+out to two mundane chores just because they happened more recently.
+Fixed with the same `retrieve_relevant_memories`/`faded_memory_text`
+pattern (recency + salience + relevance-to-what-just-happened +
+causal-link bonus), same 2-slot budget as before.
+
+**`_maybe_schedule_caravan`'s call site had a bare, undocumented `20`**
+where the equivalent settlement-wide jobs all reference a named,
+docstring'd constant (`PROMPT_RECENT_EVENTS`) — a real (if minor)
+violation of this project's own standing rule ("constants... with a
+one-line docstring explaining why the number," CLAUDE.md's Workflow
+rules). Added `caravan.CARAVAN_RECENT_EVENTS = 20` with a docstring
+explaining why a caravan visit deliberately uses a narrower window
+than chronicle/town_brain (one brief, self-contained exchange, not a
+month's civic arc) — the value itself is unchanged, only now named and
+justified rather than a silent literal.
+
+Verified: a direct smoke test confirming a high-salience older memory
+now survives into a letter's prompt over two recent-but-mundane ones
+(previously impossible with the blind slice); a 3000-tick LLM-disabled
+engine soak; `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical.
+
 ## [0.87.39] — Extend the context-selection audit to every remaining LLM prompt
 
 Explicit request: "extend the audit to all prompts in the code."

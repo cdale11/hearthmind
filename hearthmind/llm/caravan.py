@@ -51,6 +51,19 @@ colocated with each other) hear a caravan's rumor firsthand — a small
 seed, not an instant settlement-wide broadcast; if it spreads further,
 that's the existing gossip system doing the spreading, not this one."""
 
+CARAVAN_RECENT_EVENTS = 20
+"""v0.87.40 context-selection audit: the event-window size `_maybe_
+schedule_caravan` passes to `recent_events_diverse` — was a bare
+literal `20` inline at the call site with no name or rationale
+(violates this project's own "constants get a one-line docstring"
+convention). Deliberately narrower than `SimulationEngine.PROMPT_
+RECENT_EVENTS` (40, used by settlement-wide jobs like chronicle/
+town_brain that summarize a whole month across the town): a caravan
+narrates one brief, self-contained exchange plus at most one piece of
+outside news, not the settlement's broader arc — it doesn't need
+town-history depth, and a smaller window here is a deliberate,
+correct restraint, not an oversight."""
+
 SYSTEM_PROMPT = (
     "You are narrating a rare traveling caravan's visit to a small simulated "
     "village — traders from beyond it, passing through. Given the village's "

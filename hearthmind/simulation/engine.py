@@ -3700,7 +3700,7 @@ class SimulationEngine:
         # materials exchange in effect, just undescribed this month.
         if self._settlement_job_backpressured():
             return
-        recent = recent_events_diverse(self.conn, limit=20)
+        recent = recent_events_diverse(self.conn, limit=caravan.CARAVAN_RECENT_EVENTS)
         prompt = caravan.build_prompt(settlement.name, recent)
         fallback = caravan.fallback_caravan(self.world.clock.tick_count)
 

@@ -409,6 +409,32 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.40)
+
+Follow-up: "extend the audit to caravan and letters call sites too and
+every other prompt that was missed." Re-confirmed all 33 `llm/build_
+prompt` modules were already read (cross-checked against every
+`SYSTEM_PROMPT =` in the package — none missed); this pass looked at
+how the engine actually calls each one, not just each module's own
+content.
+
+`llm/letters.py` had a real gap: `SYSTEM_PROMPT` says to ground the
+letter in "what you actually know and feel right now," but `build_
+prompt` read a blind `sender.memories[-2:]` slice instead of the
+adaptive relevance-scored retrieval cognition/personal_belief already
+use (v0.87.36) — fixed with the same `retrieve_relevant_memories`/
+`faded_memory_text` pattern, same 2-slot budget.
+
+`_maybe_schedule_caravan`'s call site had a bare, undocumented `20`
+where sibling jobs reference a named constant — added `caravan.
+CARAVAN_RECENT_EVENTS = 20` with a docstring (value unchanged, now
+named per the project's own constants-need-a-docstring rule).
+
+Verified: direct smoke test (high-salience memory now survives into a
+letter over mundane-but-recent ones), a 3000-tick LLM-disabled engine
+soak, `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical.
+
 ## Current state (v0.87.39)
 
 Explicit request: "extend the audit to all prompts in the code." Read
