@@ -5467,6 +5467,13 @@ class SimulationEngine:
             "vehicles": [v.to_dict() for s in settlements for v in s.vehicles],
             "farms": [p.to_dict() for p in self.world.farms.plots.values()],
             "resources": [n.to_dict() for n in self.world.resources.nodes.values()],
+            # Mineral veins (v0.87.26, world/minerals.py) were tracked and
+            # persisted from the start but never actually reached the live
+            # broadcast payload — the tile inspector had no data to show,
+            # which is why a mined-hills tile read as bare "land" despite
+            # a real deposit sitting under it. Same to_dict() shape as
+            # `resources` above.
+            "minerals": [d.to_dict() for d in self.world.minerals.deposits.values()],
             "wildlife": [h.to_dict() for h in self.world.wildlife.herds.values()],
             "roads": self.world.roads.to_dict()["wear"],
             "diagnostics": self._diagnostics_snapshot(),

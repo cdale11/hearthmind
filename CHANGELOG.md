@@ -4,6 +4,34 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.32] — Fix: mineral veins never reached the live map/tile inspector
+
+Direct fix for a live report: "Tiles containing ores, minerals should
+show that when clicked. Now they show nothing but land itself."
+
+Root cause: `World.minerals` (`MineralGrid`, v0.87.26) was generated,
+ticked, and persisted from the start, but `SimulationEngine`'s live
+broadcast payload never included it — unlike `resources`/`farms`/
+`wildlife`, which are all sent every tick, mineral deposits existed
+only in server-side state and the save file, invisible to the
+frontend entirely. The tile inspector's "nothing but the land itself"
+fallback was therefore always hit for a mined-hills tile, regardless
+of whether a real iron/gold vein sat under it.
+
+Fix: broadcast payload gained a `minerals` key (`d.to_dict()` per
+deposit, same shape as `resources`); the bare-tile click inspector
+(`renderTargetInspector`) now looks up a deposit at the clicked
+position and shows a "Mineral vein" section (kind + remaining amount),
+alongside the existing "Wild resource" section rather than replacing
+it — a hills tile can hold both a worked stone quarry and a distinct
+ore vein.
+
+Verified: a real `SimulationEngine.load_or_create` instance confirms
+deposits generate and `to_dict()` produces the expected shape;
+`scripts/verify_native_soak.py` (seed 7, 500 ticks) byte-identical —
+this fix touches no simulation state, only what's already-computed
+data reaches the broadcast.
+
 ## [0.87.31] — §9 complete: all nine remaining cultural-depth items
 
 Explicit user request ("Complete all the items of 9") — implements

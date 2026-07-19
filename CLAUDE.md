@@ -424,6 +424,17 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.32)
+
+Direct fix for a live report: mineral-vein tiles (iron/gold, v0.87.26)
+showed nothing when clicked. Root cause: `World.minerals` was ticked
+and persisted from the start but never included in the engine's live
+broadcast payload — `resources`/`farms`/`wildlife` all reach the
+frontend every tick, `minerals` never did. Fixed by adding a
+`minerals` key to the broadcast (same `to_dict()`-per-deposit shape
+as `resources`) and a "Mineral vein" section in the bare-tile click
+inspector. Full detail: CHANGELOG.md.
+
 ## Current state (v0.87.31)
 
 Explicit user request ("Complete all the items of 9") — implements

@@ -2290,11 +2290,13 @@ function renderTargetInspector() {
   // Bare tile: biome, whatever sits on it, and whoever rests beneath it.
   const biome = terrain && terrain.biomes[y] ? terrain.biomes[y][x] : "?";
   const node = (latest.resources || []).find((n) => n.x === x && n.y === y);
+  const mineral = (latest.minerals || []).find((m) => m.x === x && m.y === y);
   const farm = (latest.farms || []).find((f) => f.x === x && f.y === y);
   const roadEntry = (latest.roads || []).find(([rx, ry]) => rx === x && ry === y);
   const graves = memorialsAt(x, y);
   const bits = [];
   if (node) bits.push(`<div class="npc-section"><h4>Wild resource</h4><div>${node.kind}, ${Math.round(node.amount * 100) / 100} remaining</div></div>`);
+  if (mineral) bits.push(`<div class="npc-section"><h4>Mineral vein</h4><div>${mineral.kind}, ${Math.round(mineral.amount * 100) / 100} remaining</div></div>`);
   if (farm) bits.push(`<div class="npc-section"><h4>Field</h4><div>${farm.stage}${farm.stage === "growing" ? `, ${Math.round(farm.growth * 100)}% grown` : `, ${farm.amount.toFixed(1)} to harvest`}</div></div>`);
   if (roadEntry) bits.push(`<div class="npc-section"><h4>Path</h4><div>worn ${Math.round(roadEntry[2] * 100)}%${roadEntry[2] >= 0.5 ? " — an established road" : ""}</div></div>`);
   if (graves.length) {
