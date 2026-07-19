@@ -742,6 +742,42 @@ with early industry for decades); an automobile represents the
 settlement's transport actually modernizing, not just its buildings."""
 
 
+ERA_BRANCH_KIND_WEIGHTS: dict[str, dict[str, float]] = {
+    "industrious": {"workshop": 1.4, "factory": 1.4, "forge": 1.4, "oil_rig": 1.3},
+    "scholarly": {"school": 1.4, "library": 1.4},
+    "devout": {"shrine": 1.5},
+    "mercantile": {"market": 1.5, "dock": 1.3},
+    "agrarian": {"granary": 1.3, "pasture": 1.3, "hatchery": 1.3},
+}
+"""v1 audit fix (explicit user request: "let emergence/LLM steer its
+own course of era progression by inventing new eras" — scoped, per the
+AskUserQuestion decision, to LLM branching influence over a settlement's
+OWN technological/cultural character rather than forking the shared
+`ERA_ORDER` ladder itself, which every building/vehicle unlock is keyed
+to and would need per-branch duplication to fork safely). A settlement
+picks (or is assigned, deterministic fallback) one named branch each
+time it advances era (`Settlement.era_branch`, sticky until the next
+advance) — `choose_building_kind`'s `branch` param nudges civic-building
+odds toward that character, same multiplicative-boost shape `PRIORITY_
+KIND_BOOST` already uses for `current_priority`, just smaller (a real
+lean, never dominant — a settlement can still found any kind). Two
+settlements reaching the same era via the same tech path can end up
+with visibly different building mixes depending on which branch each
+one settled into — genuine emergent divergence, bounded to existing,
+mechanically-supported BuildingKinds rather than the LLM inventing
+unsupported new ones. See llm/era_branch.py, SimulationEngine._maybe_
+advance_era."""
+
+ERA_BRANCH_NAMES: tuple[str, ...] = tuple(ERA_BRANCH_KIND_WEIGHTS.keys())
+
+ERA_BRANCH_BOOST = 1.35
+"""Multiplier applied to each of a branch's favored kinds' weights in
+`choose_building_kind` — smaller than `PRIORITY_KIND_BOOST` (2.5) since
+a branch is a slow-forming background character trait, not the
+settlement's active seasonal priority; the two stack multiplicatively
+when they happen to favor the same kind."""
+
+
 def era_for_tech_level(tech_level: int) -> str:
     era = ERA_ORDER[0]
     for name in ERA_ORDER:
@@ -871,7 +907,7 @@ long-running world."""
 
 def choose_building_kind(
     rng, current_priority: str, era: str = "stone_age", has_tradition: bool = False,
-    caravans_visited: int = 0, water_adjacent: bool = False,
+    caravans_visited: int = 0, water_adjacent: bool = False, branch: str = "",
 ) -> "BuildingKind":
     """Weighted pick among the foundable civic kinds (not UNIVERSITY,
     which upgrades an existing school instead) — base odds nudged
@@ -912,6 +948,9 @@ def choose_building_kind(
     boosted = _PRIORITY_TO_KIND.get(current_priority)
     if boosted in weights:
         weights[boosted] *= PRIORITY_KIND_BOOST
+    for kind_value in ERA_BRANCH_KIND_WEIGHTS.get(branch, {}):
+        if kind_value in weights:
+            weights[kind_value] *= ERA_BRANCH_BOOST
     total = sum(weights.values())
     roll = rng.random() * total
     upto = 0.0
@@ -2007,6 +2046,13 @@ class SettlementCulture:
     era: str = "stone_age"
     """One of ERA_ORDER — advances purely as `tech_level` grows (see
     `era_for_tech_level`); gates FACTORY and (via vehicles) AUTOMOBILE."""
+    era_branch: str = ""
+    """v1 audit fix: one of ERA_BRANCH_NAMES, chosen (LLM-authored, or
+    deterministic fallback) each time `era` advances — see llm/
+    era_branch.py, SimulationEngine._maybe_advance_era. Empty until the
+    first era advance. Sticky between advances, re-chosen (not
+    accumulated) on each new one — a settlement's character can shift
+    over its history, it doesn't layer indefinitely."""
     tech_level: int = 0
     """Count of inventions established — see TECH_BONUS_PER_LEVEL, E3."""
     traditions: list[str] = field(default_factory=list)
@@ -2378,7 +2424,8 @@ class Settlement:
         _next_vehicle_id: int = 0, education_level: float = 0.0,
         current_priority: str = "", priority_rationale: str = "",
         priority_history: list[dict] | None = None, player_influence: list[str] | None = None,
-        era: str = "stone_age", founding_scenario: str = "", llm_named: bool = False, temperament: float = 0.0,
+        era: str = "stone_age", era_branch: str = "",
+        founding_scenario: str = "", llm_named: bool = False, temperament: float = 0.0,
         beliefs: list[dict] | None = None, belief_digest: str = "", culture_digest: str = "",
         folklore: list[dict] | None = None, omen_history: list[dict] | None = None,
         player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
@@ -2440,7 +2487,8 @@ class Settlement:
             minerals=minerals if minerals is not None else {},
         )
         self.culture = SettlementCulture(
-            name=name, founding_scenario=founding_scenario, llm_named=llm_named, era=era, tech_level=tech_level,
+            name=name, founding_scenario=founding_scenario, llm_named=llm_named, era=era, era_branch=era_branch,
+            tech_level=tech_level,
             traditions=traditions if traditions is not None else [],
             traditions_established=traditions_established,
             culture_effects=culture_effects if culture_effects is not None else {},
@@ -2613,6 +2661,14 @@ class Settlement:
     @era.setter
     def era(self, value: str) -> None:
         self.culture.era = value
+
+    @property
+    def era_branch(self) -> str:
+        return self.culture.era_branch
+
+    @era_branch.setter
+    def era_branch(self, value: str) -> None:
+        self.culture.era_branch = value
 
     @property
     def tech_level(self) -> int:
@@ -3353,6 +3409,7 @@ class Settlement:
             "pending_player_whispers": list(self.player_influence),
             "era": self.era,
             "era_description": ERA_DESCRIPTIONS.get(self.era, ""),
+            "era_branch": self.era_branch,
             "era_infrastructure": era_infrastructure,
             "founding_scenario": self.founding_scenario,
             "llm_named": self.llm_named,
@@ -3483,6 +3540,7 @@ class Settlement:
             "priority_history": list(self.priority_history),
             "player_influence": list(self.player_influence),
             "era": self.era,
+            "era_branch": self.era_branch,
             "founding_scenario": self.founding_scenario,
             "llm_named": self.llm_named,
             "beliefs": list(self.beliefs),
@@ -3551,6 +3609,7 @@ class Settlement:
             priority_history=list(data.get("priority_history", [])),
             player_influence=list(data.get("player_influence", [])),
             era=data.get("era", "stone_age"),
+            era_branch=data.get("era_branch", ""),
             founding_scenario=data.get("founding_scenario", ""),
             llm_named=data.get("llm_named", False),
             beliefs=list(data.get("beliefs", [])),

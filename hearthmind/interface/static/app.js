@@ -96,6 +96,7 @@ const CATEGORY_META = {
   season_end: { icon: "🍂" },
   year_end: { icon: "🎆" },
   era_advance: { icon: "🏭" },
+  era_branch: { icon: "🧭" },
   settlement_named: { icon: "🏘️" },
   construction_started: { icon: "🔨" },
   building_completed: { icon: "🏠" },
@@ -2625,11 +2626,15 @@ function renderStats(summary) {
       `more often. ${s.caravans_visited || 0} caravan${(s.caravans_visited || 0) === 1 ? " has" : "s have"} visited so far.`,
     ],
     [
-      "Era", `${s.era} — ${s.era_description}` + eraInfrastructureSuffix(s.era_infrastructure),
+      "Era", `${s.era} — ${s.era_description}` + (s.era_branch ? ` (leaning ${s.era_branch})` : "") + eraInfrastructureSuffix(s.era_infrastructure),
       "Advances with tech level (inventions) AND real infrastructure — see docs/IDEAS-2026-07-EMERGENCE.md §9: " +
       "a settlement can no longer skip straight to a late era on a lucky invention-roll streak with none of that " +
-      "era's own huts/roads/schools/carts standing. industrial -> electrical -> modern -> digital, one step at a " +
-      "time. Building toward the next era's requirement also raises invention chance directly.",
+      "era's own huts/roads/schools/carts standing. Ten-era ladder: stone_age -> bronze_age -> iron_age -> " +
+      "classical -> medieval -> renaissance -> industrial -> electrical -> modern -> digital, one step at a time. " +
+      "Building toward the next era's requirement also raises invention chance directly. Each era advance, an LLM " +
+      "job leans the settlement toward one of a few named branches (industrious, scholarly, devout, mercantile, " +
+      "agrarian) that nudges future building odds — two settlements on the same tech path can end up visibly " +
+      "different depending on which branch each settled into.",
     ],
     [
       "Education", `${s.education_level.toFixed(2)} / ${s.education_capacity.toFixed(2)}`,

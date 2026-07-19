@@ -416,6 +416,19 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.91.0) — v1 batch, Phase 4
+
+Explicit user ask: let emergence/LLM steer its own course of era
+progression. Scoped to branching influence, not literal LLM-invented
+eras — `ERA_ORDER`/thresholds stay fully deterministic; a new `llm/
+era_branch.py` job fires once per era advance and picks one of five
+named branches (industrious/scholarly/devout/mercantile/agrarian) from
+a closed list, biasing `choose_building_kind`'s odds toward that
+character (`ERA_BRANCH_BOOST=1.35x`, smaller than the seasonal
+priority boost). Two settlements on the same tech path can now diverge
+visibly in building mix. `Settlement.era_branch` persisted, surfaced
+inline on the Era stat tile. Full detail: CHANGELOG.md.
+
 ## Current state (v0.90.0) — v1 batch, Phase 3
 
 Explicit user ask: more intermediate eras following human history +

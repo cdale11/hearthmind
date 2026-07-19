@@ -4,6 +4,50 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.91.0] — v1 batch, Phase 4: LLM branching influence on era progression
+
+Phase 4 of the v1 batch. Explicit user ask: "let emergence/LLM steer
+its own course of era progression as well by inventing new eras" —
+scoped per the AskUserQuestion decision to "branching influence," not
+literal LLM-invented eras: the shared `ERA_ORDER` ladder every
+building/vehicle unlock is keyed to stays fully deterministic
+scaffolding (the LLM never decides IF or WHEN an era advances), but
+each time a settlement DOES advance, a new LLM job picks which of a
+small, fixed set of named branches (`ERA_BRANCH_NAMES` — industrious,
+scholarly, devout, mercantile, agrarian) the settlement leans toward,
+biasing its own future civic-building odds. Two settlements reaching
+the same era via the same tech path can now end up with visibly
+different building mixes depending on which branch each one settled
+into — genuine emergent divergence, bounded to existing, mechanically-
+supported BuildingKinds so the LLM can never propose an unsupported
+outcome (the exact caution the era-progression audit flagged as the
+real risk of true branching).
+
+New `llm/era_branch.py`: closed-choice prompt (the model must return
+one of the exact listed branch names), fires exactly once per era
+advance (`SimulationEngine._maybe_schedule_era_branch`, hooked into
+`_maybe_advance_era`) — a handful of times per settlement's whole life,
+needing no round-robin day slot, trivially inside the LLM-volume
+budget. Deterministic fallback (`fallback_branch`) picks a real branch
+via namespaced RNG rather than a genuine no-op, since `choose_building_
+kind` needs SOME value once a settlement enters a new era. New
+`Settlement.era_branch` (persisted, sticky between advances), new
+`ERA_BRANCH_KIND_WEIGHTS`/`ERA_BRANCH_BOOST` (1.35x, deliberately
+smaller than `PRIORITY_KIND_BOOST`'s 2.5x — a background character
+trait, not the settlement's active seasonal priority) consumed by
+`choose_building_kind`'s new `branch` param.
+
+UI: Era stat tile shows the current lean inline ("bronze_age — smelted
+bronze... (leaning industrious)"), tooltip explains the mechanism, new
+`era_branch` event-log icon.
+
+Verified: direct smoke tests (`_maybe_schedule_era_branch` end-to-end
+through the real async job path assigns a valid branch and measurably
+shifts `choose_building_kind`'s output distribution toward the branch's
+favored kinds over 3,000 draws), `scripts/verify_native_soak.py` (2
+seeds x 800 ticks) byte-identical — no native module touched, and
+`node --check` on app.js.
+
 ## [0.90.0] — v1 batch, Phase 3: full historical era ladder
 
 Phase 3 of the v1 batch. Explicit user ask: "introduce more

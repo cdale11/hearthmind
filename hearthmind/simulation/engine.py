@@ -63,7 +63,8 @@ from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
     faction, fission, beliefs, caravan, chronicle, chronicler, consciousness, culture, culture_digest, dialogue,
-    digest, dispute, documentary, dream, festival, folklore, founding, geography, invention, memory_drift, mind,
+    digest, dispute, documentary, dream, era_branch, festival, folklore, founding, geography, invention,
+    memory_drift, mind,
     naming, narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
     diplomacy, laws, letters, noncore_nudge, institution_culture,
 )
@@ -2935,6 +2936,7 @@ class SimulationEngine:
         settlement.era = new_era
         detail = f"{settlement.name or 'The village'} has entered the {new_era} era — {ERA_DESCRIPTIONS[new_era]}."
         self._log("era_advance", detail)
+        self._maybe_schedule_era_branch(settlement, new_era)
         # §5 "Anomaly/highlight log" widened per a live report ("highlights
         # has only highlighted population growth") — the original two
         # metric-only checks (_detect_metric_highlights) fire often
@@ -2946,6 +2948,37 @@ class SimulationEngine:
         # settlement's first (there are only a handful per settlement
         # ever, unlike rituals/feuds which can recur).
         self._append_highlight("era_advance", detail)
+
+    def _maybe_schedule_era_branch(self, settlement, new_era: str) -> None:
+        """v1 audit fix ("let emergence/LLM steer its own course of era
+        progression"): fires exactly once, right after `_maybe_advance_
+        era` moves a settlement into a new era — never periodically, so
+        it needs no round-robin day slot and stays trivially within the
+        LLM-volume budget (a handful of calls per settlement's whole
+        life). Chooses one of `ERA_BRANCH_NAMES` (see llm/era_branch.py)
+        to lean the settlement's own future `choose_building_kind` odds
+        toward — real, bounded emergent divergence between settlements
+        reaching the same era via the same tech path, never an
+        unsupported invented outcome."""
+        rng = namespaced_rng(self.world.config.seed, self.world.clock.tick_count, f"era_branch_{settlement.id}")
+        fallback = era_branch.fallback_branch(rng)
+        recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
+        prompt = era_branch.build_prompt(settlement.name, new_era, recent, settlement.era_branch)
+        branch_target_id = settlement.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            branch, reason = era_branch.parse_branch(result, fallback)
+            target = self._settlement_by_id(branch_target_id)
+            if target is None:
+                return
+            target.era_branch = branch
+            if reason:
+                self._log("era_branch", f"{target.name or 'The village'} is leaning {branch} — {reason}")
+
+        self._schedule_llm_job(
+            "era_branch", prompt, era_branch.SYSTEM_PROMPT, fallback, apply,
+            settlement=settlement.name,
+        )
 
     # --- collective behaviour: festivals ----------------------------------------
 

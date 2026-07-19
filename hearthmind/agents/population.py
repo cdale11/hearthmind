@@ -4637,6 +4637,7 @@ class Population:
                 rng, settlement.current_priority, settlement.era, has_tradition=bool(settlement.traditions),
                 caravans_visited=settlement.caravans_visited,
                 water_adjacent=terrain is not None and is_adjacent_to_water(terrain, bx, by),
+                branch=settlement.era_branch,
             )
             cost = MATERIALS_COST_BY_KIND[kind]
             if settlement.materials < cost:
