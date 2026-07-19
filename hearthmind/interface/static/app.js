@@ -79,6 +79,7 @@ const BUILDING_COLORS = {
   hospital: "#e0473c", university: "#2f7fc9", factory: "#5c5c66", shrine: "#c9a3e0",
   power_plant: "#e0c93c", market: "#3ccf9e", bridge: "#b08968",
   pasture: "#8fbf5e", hatchery: "#4ab5cf", dock: "#5c9ead", oil_rig: "#3c3c46",
+  forge: "#b5651d", library: "#7a5c3e",
 };
 const FARM_COLORS = { growing: "#7fae4a", ready: "#e0c34a" };
 
@@ -2676,6 +2677,11 @@ function renderStats(summary) {
       "Water infrastructure", `${s.docks || 0} dock${(s.docks || 0) === 1 ? "" : "s"}, ${s.oil_rigs || 0} oil rig${(s.oil_rigs || 0) === 1 ? "" : "s"}`,
       "Docks: a water-adjacent trade port, staffed presence generates currency like a workshop, and it's where boats are founded. " +
       "Oil rigs: offshore extraction (era: electrical+), double a dock's income rate — the water-infrastructure batch's industrial-scale building.",
+    ],
+    [
+      "Historical infrastructure", `${s.forges || 0} forge${(s.forges || 0) === 1 ? "" : "s"}, ${s.libraries || 0} librar${(s.libraries || 0) === 1 ? "y" : "ies"}`,
+      "Forges: the bronze_age+ economic building, this era's business before workshop/factory exist. " +
+      "Libraries: the classical+ knowledge building, boosts settlement education exactly like a school.",
     ],
     [
       "Repairs & upkeep", `${s.buildings_repaired || 0} buildings, ${s.vehicles_repaired || 0} vehicles`,

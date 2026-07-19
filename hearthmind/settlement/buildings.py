@@ -179,6 +179,21 @@ class BuildingKind(str, Enum):
     structure anyone can use" shape roads already have. See
     docs/DECISIONS.md, "bridges/water-crossing pathing."
     """
+    FORGE = "forge"
+    """v1 audit fix (full historical era ladder): the bronze_age+ economic
+    building, same "staffed presence converts into settlement currency"
+    shape WORKSHOP already established — a smithy is this era's business,
+    not yet the industrial-scale WORKSHOP/FACTORY. Foundable once the
+    settlement's era has advanced past `stone_age` (see `_ERA_UNLOCKS_
+    BRONZE`). Staffed preferentially by the new BLACKSMITH occupation.
+    See FORGE_INCOME_PER_TICK, `Population._maybe_run_forges`."""
+    LIBRARY = "library"
+    """v1 audit fix: the classical+ knowledge building, folded into the
+    same education-boost mechanic SCHOOL/UNIVERSITY already use
+    (`Population._maybe_run_schools`) rather than a parallel one — a
+    library IS this era's schoolhouse, mechanically. Foundable once the
+    settlement's era has advanced past `iron_age` (see `_ERA_UNLOCKS_
+    CLASSICAL`). Staffed preferentially by the new SCRIBE occupation."""
 
 
 CONSTRUCTION_WORK_PER_TICK = 0.05
@@ -523,6 +538,13 @@ OIL_RIG_MATERIALS_COST = 16.0
 """Costlier than FACTORY (14.0) — offshore extraction infrastructure is
 a bigger commitment than a land-based factory, matching its higher
 income rate."""
+FORGE_MATERIALS_COST = 3.5
+"""Between HUT (3.0) and WORKSHOP (4.0) — a bronze_age settlement's
+first real economic building, cheaper than the industrial-era WORKSHOP
+it eventually stands alongside."""
+LIBRARY_MATERIALS_COST = 5.5
+"""Between GRANARY/SHRINE (5.0) and SCHOOL (6.0) — a classical-era
+knowledge building, mechanically SCHOOL's peer."""
 BRIDGE_MATERIALS_COST_PER_SPAN_TILE = 2.5
 """Bridges cost scales with how much water they actually cross
 (`len(Building.bridge_span)`) rather than a flat price like every other
@@ -568,12 +590,15 @@ MATERIALS_COST_BY_KIND: dict[BuildingKind, float] = {
     BuildingKind.HATCHERY: HATCHERY_MATERIALS_COST,
     BuildingKind.DOCK: DOCK_MATERIALS_COST,
     BuildingKind.OIL_RIG: OIL_RIG_MATERIALS_COST,
+    BuildingKind.FORGE: FORGE_MATERIALS_COST,
+    BuildingKind.LIBRARY: LIBRARY_MATERIALS_COST,
 }
 
 BUILDING_KIND_BASE_WEIGHTS: dict[str, float] = {
     "hut": 0.42, "granary": 0.23, "workshop": 0.15, "school": 0.12, "hospital": 0.08,
     "factory": 0.10, "shrine": 0.07, "power_plant": 0.06, "market": 0.07,
     "pasture": 0.14, "hatchery": 0.10, "dock": 0.09, "oil_rig": 0.07,
+    "forge": 0.13, "library": 0.10,
 }
 """Baseline odds a new civic building is each kind, before
 `Settlement.current_priority` (the seasonal "town brain" LLM
@@ -605,16 +630,47 @@ boosts GRANARY specifically (storage) rather than PASTURE/HATCHERY
 boost would need a second civic-priority value this project doesn't
 have yet."""
 
-# --- eras: the town starts industrial and advances as it invents -----------
+# --- eras: the town starts in the stone age and advances as it invents -----
 
-ERA_ORDER = ("industrial", "electrical", "modern", "digital")
-ERA_TECH_THRESHOLDS: dict[str, int] = {"industrial": 0, "electrical": 3, "modern": 7, "digital": 12}
-"""A settlement's era is purely a function of accumulated `tech_level`
-(established inventions, see llm/invention.py) — no separate era-only
-mechanic to keep in sync. Thresholds are deliberately steep:
-inventions are already rare (INVENTION_CHANCE_PER_SEASON), so reaching
-`digital` is a long-run milestone, not a fast unlock."""
+ERA_ORDER = (
+    "stone_age", "bronze_age", "iron_age", "classical", "medieval",
+    "renaissance", "industrial", "electrical", "modern", "digital",
+)
+"""v1 audit fix (explicit user request: "introduce more intermediate
+eras following human history closely" + "make progression to new eras
+a bit less harder"): previously four eras (`industrial` through
+`digital`), with settlements starting industrial and CLAUDE.md
+explicitly noting "no tribal stage." Extended to a full ten-era ladder
+spanning a settlement's whole realistic technological history, six new
+eras ahead of the original four. `era_for_tech_level_gated` already
+walks `ERA_ORDER` generically one step at a time regardless of its
+length — no logic change needed there, just a longer tuple."""
+
+ERA_TECH_THRESHOLDS: dict[str, int] = {
+    "stone_age": 0, "bronze_age": 1, "iron_age": 2, "classical": 4,
+    "medieval": 6, "renaissance": 9, "industrial": 12, "electrical": 15,
+    "modern": 19, "digital": 24,
+}
+"""Cumulative `tech_level` (established inventions) required for each
+era — deliberately front-loaded with small, cheap early steps (a young
+settlement improvising its first tools/smelting/ironwork should feel
+fast and legible) and progressively larger later gaps, same overall
+shape as the old 0/3/7/12 spacing but spread across six more rungs so
+real progress is visible far more often per the "less harsh" request:
+a settlement now reaches SOME new era every ~1-3 inventions on average
+across the whole ladder, versus the old scheme's 3-5-invention gaps
+with only four milestones total to look forward to. `digital` (24) is
+higher in raw count than the old `digital` (12) since it's now the
+FINAL rung of ten rather than the fourth of four, but per-era pacing
+is faster throughout — see docs/DECISIONS.md for the full worked
+before/after comparison this reset was checked against."""
 ERA_DESCRIPTIONS: dict[str, str] = {
+    "stone_age": "flaked stone tools and a first fire kept alive",
+    "bronze_age": "smelted bronze, the first real metal tools",
+    "iron_age": "iron tools and weapons, harder-wearing than bronze",
+    "classical": "organized civic life, roads, and written record-keeping",
+    "medieval": "stone keeps, guilds, and settled feudal order",
+    "renaissance": "renewed learning, art, and scientific curiosity",
     "industrial": "smokestacks and hand tools",
     "electrical": "the first wired lights and machinery",
     "modern": "motorised tools and mass production",
@@ -622,7 +678,9 @@ ERA_DESCRIPTIONS: dict[str, str] = {
 }
 
 ERA_HUT_CAPACITY_MULTIPLIER: dict[str, float] = {
-    "industrial": 1.0, "electrical": 1.0, "modern": 1.3, "digital": 1.6,
+    "stone_age": 1.0, "bronze_age": 1.0, "iron_age": 1.0, "classical": 1.05,
+    "medieval": 1.1, "renaissance": 1.15, "industrial": 1.0, "electrical": 1.0,
+    "modern": 1.3, "digital": 1.6,
 }
 """v0.87.43 era-scaled-infrastructure batch (live report: "improve
 building/road/infrastructure types with era"): a settlement's own huts
@@ -645,6 +703,16 @@ def hut_capacity_multiplier(era: str) -> float:
     unrecognized/legacy era string (1.0, the industrial-era baseline)."""
     return ERA_HUT_CAPACITY_MULTIPLIER.get(era, 1.0)
 
+
+_ERA_UNLOCKS_BRONZE = frozenset(ERA_ORDER[ERA_ORDER.index("bronze_age"):])
+"""FORGE is foundable from `bronze_age` onward — computed as a slice of
+`ERA_ORDER` (not a hardcoded era-name set like the electrical-era gates
+below, which predate this ladder) so it never needs updating if the
+ladder is extended again."""
+
+_ERA_UNLOCKS_CLASSICAL = frozenset(ERA_ORDER[ERA_ORDER.index("classical"):])
+"""LIBRARY is foundable from `classical` onward — same slice-of-ERA_
+ORDER shape as `_ERA_UNLOCKS_BRONZE`."""
 
 _ERA_UNLOCKS_ELECTRICAL = frozenset({"electrical", "modern", "digital"})
 """FACTORY and POWER_PLANT are foundable from `electrical` onward, not
@@ -683,10 +751,23 @@ def era_for_tech_level(tech_level: int) -> str:
 
 
 ERA_INFRASTRUCTURE_REQUIREMENTS: dict[str, dict[str, int]] = {
+    "bronze_age": {"huts": 2, "roads": 2, "schools": 0, "carts": 0},
+    "iron_age": {"huts": 3, "roads": 4, "schools": 0, "carts": 1},
+    "classical": {"huts": 4, "roads": 6, "schools": 1, "carts": 1},
+    "medieval": {"huts": 5, "roads": 9, "schools": 1, "carts": 1},
+    "renaissance": {"huts": 5, "roads": 12, "schools": 1, "carts": 2},
     "electrical": {"huts": 6, "roads": 15, "schools": 1, "carts": 2},
     "modern": {"huts": 10, "roads": 30, "schools": 2, "carts": 4},
     "digital": {"huts": 15, "roads": 50, "schools": 3, "carts": 6},
 }
+"""Extended (v1 audit fix) to cover the new pre-industrial eras — kept
+genuinely light for the earliest rungs (a scrappy stone-age camp
+should clear bronze_age/iron_age's bars almost incidentally through
+ordinary early growth) and scaling up gradually toward the original
+`electrical`/`modern`/`digital` bars, which are unchanged. `industrial`
+still has no entry (the same "nothing gates re-entering a once-earlier
+starting era" rule, now just no longer literally the first era) and
+`stone_age` (the actual new starting era) likewise has none."""
 """docs/IDEAS-2026-07-EMERGENCE.md §9's last item: root-caused a live
 "civilization doesn't progress after 50,000 ticks" report to
 `era_for_tech_level` gating purely on `tech_level`, itself incremented
@@ -789,7 +870,7 @@ long-running world."""
 
 
 def choose_building_kind(
-    rng, current_priority: str, era: str = "industrial", has_tradition: bool = False,
+    rng, current_priority: str, era: str = "stone_age", has_tradition: bool = False,
     caravans_visited: int = 0, water_adjacent: bool = False,
 ) -> "BuildingKind":
     """Weighted pick among the foundable civic kinds (not UNIVERSITY,
@@ -812,6 +893,10 @@ def choose_building_kind(
     "Integration milestone: water/power/irrigation," and "animal/fish
     husbandry.\""""
     weights = dict(BUILDING_KIND_BASE_WEIGHTS)
+    if era not in _ERA_UNLOCKS_BRONZE:
+        weights.pop("forge", None)
+    if era not in _ERA_UNLOCKS_CLASSICAL:
+        weights.pop("library", None)
     if era not in _ERA_UNLOCKS_ELECTRICAL:
         weights.pop("factory", None)
         weights.pop("power_plant", None)
@@ -984,6 +1069,13 @@ OIL_RIG_INCOME_PER_TICK = 0.06
 """Same shape as FACTORY_INCOME_PER_TICK (double DOCK's rate) — offshore
 extraction is the water-infrastructure batch's industrial-scale income
 building. See BuildingKind.OIL_RIG."""
+
+FORGE_INCOME_PER_TICK = 0.02
+"""Same shape as WORKSHOP_INCOME_PER_TICK, at a lower rate — a
+bronze_age smithy is this era's business, but a genuinely smaller-scale
+one than an industrial-era WORKSHOP. Not multiplied by POWER_GRID_
+INDUSTRY_MULTIPLIER (no electricity yet). See BuildingKind.FORGE,
+Population._maybe_run_forges."""
 
 POWER_GRID_INDUSTRY_MULTIPLIER = 1.3
 """Multiplies WORKSHOP_INCOME_PER_TICK/FACTORY_INCOME_PER_TICK/OIL_RIG_
@@ -1912,7 +2004,7 @@ class SettlementCulture:
     (v0.68.0 fix for a live "village never named" report). Persisted so
     a resumed world can tell "never scheduled" apart from "already
     proposed a real name"."""
-    era: str = "industrial"
+    era: str = "stone_age"
     """One of ERA_ORDER — advances purely as `tech_level` grows (see
     `era_for_tech_level`); gates FACTORY and (via vehicles) AUTOMOBILE."""
     tech_level: int = 0
@@ -2286,7 +2378,7 @@ class Settlement:
         _next_vehicle_id: int = 0, education_level: float = 0.0,
         current_priority: str = "", priority_rationale: str = "",
         priority_history: list[dict] | None = None, player_influence: list[str] | None = None,
-        era: str = "industrial", founding_scenario: str = "", llm_named: bool = False, temperament: float = 0.0,
+        era: str = "stone_age", founding_scenario: str = "", llm_named: bool = False, temperament: float = 0.0,
         beliefs: list[dict] | None = None, belief_digest: str = "", culture_digest: str = "",
         folklore: list[dict] | None = None, omen_history: list[dict] | None = None,
         player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
@@ -3178,6 +3270,7 @@ class Settlement:
                 BuildingKind.UNIVERSITY, BuildingKind.FACTORY, BuildingKind.SHRINE,
                 BuildingKind.POWER_PLANT, BuildingKind.MARKET,
                 BuildingKind.DOCK, BuildingKind.OIL_RIG,
+                BuildingKind.FORGE, BuildingKind.LIBRARY,
             )
         }
         vehicle_summary = self._vehicle_summary()
@@ -3240,6 +3333,8 @@ class Settlement:
             "markets": kind_counts["market"],
             "docks": kind_counts["dock"],
             "oil_rigs": kind_counts["oil_rig"],
+            "forges": kind_counts["forge"],
+            "libraries": kind_counts["library"],
             "caravans_visited": self.caravans_visited,
             "fish_caught": self.fish_caught,
             "buildings_repaired": self.buildings_repaired,
@@ -3455,7 +3550,7 @@ class Settlement:
             priority_rationale=data.get("priority_rationale", ""),
             priority_history=list(data.get("priority_history", [])),
             player_influence=list(data.get("player_influence", [])),
-            era=data.get("era", "industrial"),
+            era=data.get("era", "stone_age"),
             founding_scenario=data.get("founding_scenario", ""),
             llm_named=data.get("llm_named", False),
             beliefs=list(data.get("beliefs", [])),

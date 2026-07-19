@@ -47,10 +47,20 @@ occupation — a surveyor's AgentGoal is forced to EXPLORE (see
 producing at any fixed workplace. Absent from `OCCUPATION_WORKPLACES`
 for exactly that reason."""
 
+OCCUPATION_BLACKSMITH = "blacksmith"
+OCCUPATION_SCRIBE = "scribe"
+"""v1 audit fix (full historical era ladder): occupations matching the
+two new era-gated buildings (FORGE/LIBRARY), same shape as every
+building-tied occupation above — a blacksmith staffs a FORGE the way a
+businessman staffs a WORKSHOP, a scribe staffs a LIBRARY the way a
+teacher staffs a SCHOOL. See `Population._maybe_run_forges`/`_maybe_
+run_schools`."""
+
 ALL_OCCUPATIONS: tuple[str, ...] = (
     OCCUPATION_BAKER, OCCUPATION_BUILDER, OCCUPATION_BANKER, OCCUPATION_TEACHER,
     OCCUPATION_PRIEST, OCCUPATION_MAYOR, OCCUPATION_FISHERMAN, OCCUPATION_FARMER,
     OCCUPATION_SHOPKEEPER, OCCUPATION_BUSINESSMAN, OCCUPATION_SURVEYOR,
+    OCCUPATION_BLACKSMITH, OCCUPATION_SCRIBE,
 )
 
 OCCUPATION_WORKPLACES: dict[str, tuple[BuildingKind, ...]] = {
@@ -61,6 +71,8 @@ OCCUPATION_WORKPLACES: dict[str, tuple[BuildingKind, ...]] = {
     OCCUPATION_BUSINESSMAN: (BuildingKind.WORKSHOP, BuildingKind.FACTORY, BuildingKind.DOCK, BuildingKind.OIL_RIG),
     OCCUPATION_BANKER: (BuildingKind.MARKET,),
     OCCUPATION_SHOPKEEPER: (BuildingKind.MARKET,),
+    OCCUPATION_BLACKSMITH: (BuildingKind.FORGE,),
+    OCCUPATION_SCRIBE: (BuildingKind.LIBRARY,),
 }
 """Which BuildingKind(s) each occupation's staff-weighting bonus applies
 at (see `occupation_staff_weight`). BUILDER (construction/repair sites,

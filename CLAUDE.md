@@ -325,11 +325,18 @@ migration path). Terrain evolution runs on fixed week/month cadences,
 deliberately decoupled from season/year boundaries — if the map
 "doesn't seem to be evolving" live, shorten cadences or boost roll
 chances; don't revert to season/year triggers. Eras advance purely from
-`tech_level` (industrial -> electrical -> modern -> digital), each a
-real unlock (FACTORY/POWER_PLANT past industrial, AUTOMOBILE past
-modern); carts/mounts stay foundable at every era. A new world's seed
-comes from a one-time genesis LLM call when `--seed` is omitted
-(explicit `--seed` skips it; resumed worlds never re-run it).
+`tech_level` (ten-era ladder as of v0.90.0: `stone_age -> bronze_age ->
+iron_age -> classical -> medieval -> renaissance -> industrial ->
+electrical -> modern -> digital`, settlements now start `stone_age`),
+each a real unlock (FORGE past stone_age, LIBRARY past iron_age,
+FACTORY/POWER_PLANT past industrial, AUTOMOBILE past modern); carts/
+mounts stay foundable at every era. World genesis (v0.89.0): a preview
+terrain is generated from real entropy before the one-time genesis LLM
+call (when `--seed` is omitted; explicit `--seed` skips it, resumed
+worlds never re-run it), so the founding scenario is grounded in what's
+actually near spawn and that same entropy becomes the final world
+seed — the narrated land and the generated map are now guaranteed to
+match, not just independently varied.
 Settlement naming: instant deterministic placeholder inside
 `World.tick()`, LLM proposes a better name in the background and
 silently replaces it.
@@ -408,6 +415,20 @@ Single-writer tick loop + queued interventions; fallback-on-every-LLM-
 call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
+
+## Current state (v0.90.0) — v1 batch, Phase 3
+
+Explicit user ask: more intermediate eras following human history +
+less harsh progression. `ERA_ORDER` extended from 4 to 10 eras
+(`stone_age -> bronze_age -> iron_age -> classical -> medieval ->
+renaissance -> industrial -> electrical -> modern -> digital`);
+settlements now start `stone_age`, not `industrial`. Thresholds
+rebalanced so a new era arrives roughly every 1-3 inventions across the
+whole ladder rather than the old 4-era scheme's sparser milestones.
+Two new buildings (FORGE bronze_age+, LIBRARY classical+) and two new
+occupations (BLACKSMITH, SCRIBE) reuse the existing WORKSHOP/SCHOOL
+production-bonus shapes exactly — zero new mechanism types. Full
+detail: CHANGELOG.md.
 
 ## Current state (v0.89.0) — v1 batch, Phase 2
 

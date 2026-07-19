@@ -4,6 +4,56 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.90.0] — v1 batch, Phase 3: full historical era ladder
+
+Phase 3 of the v1 batch. Explicit user ask: "introduce more
+intermediate eras following human history closely" + "make progression
+to new eras a bit less harder." The era audit found `ERA_ORDER` was
+only four eras (`industrial` -> `digital`), settlements started at
+`industrial` with CLAUDE.md explicitly noting "no tribal stage," and
+`digital` took ~9-15 real game-years, dominated by tech_level
+thresholds (12 successes needed) rather than the per-roll invention
+chance.
+
+**Ten-era ladder**: `stone_age -> bronze_age -> iron_age -> classical
+-> medieval -> renaissance -> industrial -> electrical -> modern ->
+digital`. Settlements now start at `stone_age`. `ERA_TECH_THRESHOLDS`
+rebalanced with small, cheap early steps (bronze_age at 1, iron_age at
+2, ...) and progressively larger later gaps — visible progress now
+happens roughly every 1-3 inventions across the whole ladder instead of
+the old scheme's 3-5-invention gaps with only four milestones total.
+`era_for_tech_level_gated` needed zero logic changes — it already
+walked `ERA_ORDER` generically. `ERA_INFRASTRUCTURE_REQUIREMENTS`/
+`ERA_HUT_CAPACITY_MULTIPLIER`/`ERA_DESCRIPTIONS` extended across the
+six new eras, early bars kept deliberately light (a scrappy early
+settlement clears bronze_age/iron_age's requirements almost
+incidentally through ordinary growth).
+
+**Two new buildings, deep unlocks per the explicit "occupation gates
+real behavior" precedent**: `BuildingKind.FORGE` (bronze_age+,
+WORKSHOP-shaped currency income before WORKSHOP/FACTORY exist) and
+`BuildingKind.LIBRARY` (classical+, folded into the existing SCHOOL/
+UNIVERSITY education-boost mechanic rather than a parallel one — a
+library IS this era's schoolhouse, mechanically). Two new occupations,
+`OCCUPATION_BLACKSMITH`/`OCCUPATION_SCRIBE`, staff them via the
+existing `occupation_staff_weight` pattern — zero new mechanism shape,
+same reuse discipline as the original ten occupations.
+
+**UI**: FORGE/LIBRARY map colors, new "Historical infrastructure" stat
+tile (forge/library counts + explanatory tooltip) alongside the
+existing water-infrastructure tile. Era description, era-infrastructure
+progress suffix, and occupation-counts stat tile were already fully
+generic (era-name/occupation-name agnostic) from prior phases — zero
+frontend changes needed for those to pick up the new eras/occupations.
+
+Verified: direct smoke tests (gated-era walk from stone_age to digital
+with infra maxed, `choose_building_kind` gating at bronze_age/
+classical/stone_age, FORGE currency income + LIBRARY education gain via
+direct mechanic calls), a 6,000-tick engine smoke run confirming the
+new starting era/buildings/occupations integrate without error,
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+no native module touched, and `node --check` on app.js.
+
 ## [0.89.0] — v1 batch, Phase 2: genesis prompt overhaul
 
 Phase 2 of the v1 batch. Explicit user ask: "improved genesis prompt."

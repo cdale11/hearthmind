@@ -234,12 +234,14 @@ from hearthmind.agents.occupations import (
     MAYOR_REPUTATION_NUDGE,
     OCCUPATION_BAKER,
     OCCUPATION_BANKER,
+    OCCUPATION_BLACKSMITH,
     OCCUPATION_BUILDER,
     OCCUPATION_BUSINESSMAN,
     OCCUPATION_FARMER,
     OCCUPATION_FISHERMAN,
     OCCUPATION_MAYOR,
     OCCUPATION_PRIEST,
+    OCCUPATION_SCRIBE,
     OCCUPATION_SHOPKEEPER,
     OCCUPATION_SURVEYOR,
     OCCUPATION_TEACHER,
@@ -277,6 +279,7 @@ from hearthmind.settlement.buildings import (
     INVENTION_REDISCOVERY_CHANCE,
     ERA_UNLOCKS_MOUNTAIN_BUILDING,
     DOCK_INCOME_PER_TICK,
+    FORGE_INCOME_PER_TICK,
     OIL_RIG_INCOME_PER_TICK,
     FACTORY_INCOME_PER_TICK,
     FESTIVAL_RELATIONSHIP_BOOST,
@@ -1902,6 +1905,7 @@ class Population:
             self._maybe_run_factories(by_position, stl)
             self._maybe_run_docks(by_position, stl)
             self._maybe_run_oil_rigs(by_position, stl)
+            self._maybe_run_forges(by_position, stl)
             self._maybe_run_market_workers(by_position, stl)
             self._maybe_run_schools(by_position, stl)
             life_events.extend(self._maybe_upgrade_university(by_position, stl, rng))
@@ -5171,6 +5175,25 @@ class Population:
         return life_events
 
     @staticmethod
+    def _maybe_run_forges(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:
+        """Same shape as `_maybe_run_workshops`, at FORGE_INCOME_PER_TICK
+        — a bronze_age+ smithy, this era's economic building before
+        WORKSHOP/FACTORY exist. No POWER_GRID_INDUSTRY_MULTIPLIER (no
+        electricity this early). See BuildingKind.FORGE."""
+        for building in settlement.buildings:
+            if building.kind is not BuildingKind.FORGE or building.stage is not BuildingStage.STANDING:
+                continue
+            staff = sum(
+                occupation_staff_weight(a, OCCUPATION_BLACKSMITH, True)
+                for a in by_position.get((building.x, building.y), [])
+                if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
+            )
+            if staff == 0:
+                continue
+            income = FORGE_INCOME_PER_TICK * staff * _tech_factor(settlement)
+            settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
+
+    @staticmethod
     def _maybe_run_market_workers(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:
         """A BANKER present at a standing MARKET generates currency
         directly (BANKER_INCOME_PER_TICK per banker) — distinct from
@@ -5200,12 +5223,16 @@ class Population:
         if settlement.education_level >= EDUCATION_CAPACITY:
             return
         for building in settlement.buildings:
-            if building.kind not in (BuildingKind.SCHOOL, BuildingKind.UNIVERSITY):
+            if building.kind not in (BuildingKind.SCHOOL, BuildingKind.UNIVERSITY, BuildingKind.LIBRARY):
                 continue
             if building.stage is not BuildingStage.STANDING:
                 continue
+            # LIBRARY is staffed preferentially by SCRIBE, SCHOOL/UNIVERSITY
+            # by TEACHER — same education-boost mechanic either way (v1
+            # audit fix, full historical era ladder).
+            matching_occupation = OCCUPATION_SCRIBE if building.kind is BuildingKind.LIBRARY else OCCUPATION_TEACHER
             staff = sum(
-                occupation_staff_weight(a, OCCUPATION_TEACHER, True)
+                occupation_staff_weight(a, matching_occupation, True)
                 for a in by_position.get((building.x, building.y), []) if a.state is AgentState.AWAKE
             )
             if staff == 0:
