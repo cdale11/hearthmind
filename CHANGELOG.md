@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.27] — NPC activity reshapes geography: mining scars
+
+§8's geography-reshaping idea (docs/IDEAS-2026-07-EMERGENCE.md — the
+second item in the user's explicit sequencing "minerals first, then
+geography reshaping, LoRA left recorded-only"). Scoped to mining scars
+this pass — the idea doc's other named examples (riverbank erosion from
+traffic, quarrying as distinct from mining) are flagged as follow-ups,
+not attempted.
+
+New `world/terrain_evolution.py` functions (`apply_mining_scars`/
+`decay_mining_scars`): a HILLS tile worked by sustained GATHER-goal
+mining accumulates visible scar intensity (0..1), decaying back to
+nothing over weeks if abandoned — same "sustained pressure, not a
+single-tick trigger" shape deforestation's own heat mechanic already
+uses. Deliberately cosmetic-only state, not a biome change: mining a
+hill doesn't turn it into a different terrain type in this project's
+model, it stays HILLS, walkable and re-minable. New `World.mining_scars`
+field, ticked every tick (accumulation) and weekly (decay, reusing the
+existing week_end gate `maybe_reclaim` already uses).
+
+A tile crossing `MINING_SCAR_VISIBLE_THRESHOLD` fires a new
+`mining_scarred` life event, added to `TERRAIN_CHANGING_CATEGORIES` —
+reuses the EXACT existing terrain-resync broadcast mechanism
+(`WorldBroadcaster.set_terrain`, previously biome-grid-only) rather
+than building a second live-data channel, widened to also carry a
+sparse `mining_scars` dict. The frontend's own `TERRAIN_CHANGING_
+CATEGORIES` mirror gained the same category so `/terrain` re-fetches
+on a genuine new scar, not just biome changes.
+
+New map rendering (`paintMiningScars`): a scarred hillside darkens and
+gains intensity-scaled pit marks, drawn as part of the existing static-
+terrain layer alongside the era-styled overlay — the Observatory UI
+direction's stated preference (map overlay over sidebar panel) for
+exactly this kind of "history becomes physically visible" feature. New
+"Mining scars" stat tile (World & environment section) as the
+secondary, textual surfacing.
+
+Verified: direct tests against real production code (`apply_mining_
+scars` accumulates correctly, fires the threshold event exactly once,
+`decay_mining_scars` weathers a tile back to removed-from-dict); a real
+`World.tick()` integration test (400 ticks, forced GATHER agent pinned
+to a HILLS tile) confirming scars accumulate through the actual tick
+loop and round-trip through to_dict/from_dict; live Playwright
+verification against an organically-run server (scars appeared without
+any test-side forcing, `/terrain` payload correctly carries them, the
+new stat tile renders, zero console errors).
+
 ## [0.87.26] — Expanded mineral economy: iron and gold
 
 §8's mineral-economy idea (docs/IDEAS-2026-07-EMERGENCE.md — explicit

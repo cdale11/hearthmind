@@ -23,6 +23,8 @@ from hearthmind.world.terrain_evolution import (
     ClimateState,
     apply_climate_drift,
     apply_local_activity,
+    apply_mining_scars,
+    decay_mining_scars,
     maybe_reclaim,
     tick_climate,
 )
@@ -89,6 +91,7 @@ way every other confidence-shaped value in this project is."""
 TERRAIN_CHANGING_CATEGORIES = frozenset({
     "terrain_thinned", "terrain_reclaimed", "climate_drift",
     "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
+    "mining_scarred",
 })
 """Life-event categories that mean at least one tile's biome changed
 this tick. Canonical home for this set (it used to live only in
@@ -142,6 +145,14 @@ class World:
     world/terrain_evolution.py. Small and self-pruning (entries are
     deleted once heat decays to 0 or the tile changes biome), so it's
     fine to keep in memory/snapshot alongside everything else."""
+    mining_scars: dict[tuple[int, int], float] = field(default_factory=dict)
+    """§8 "NPC activity reshapes geography" (v0.87.27, docs/IDEAS-2026-
+    07-EMERGENCE.md): per-tile visible pit/scar intensity (0..1) on
+    hills tiles worked by GATHER-goal mining, distinct from
+    `terrain_activity` (which drives an actual biome change) — mining
+    stays cosmetic-only state, HILLS never stops being HILLS. Small and
+    self-pruning like `terrain_activity`. See world/terrain_evolution.py
+    `apply_mining_scars`/`decay_mining_scars`, `World._tick_terrain`."""
     llm_calls_total: int = 0
     llm_fallback_total: int = 0
     """Cumulative counts of every LLM-backed decision (cognition +
@@ -521,14 +532,21 @@ class World:
             if a.state is AgentState.AWAKE and a.goal is AgentGoal.GATHER
             and self.terrain[a.y][a.x].biome is Biome.FOREST
         }
+        active_mining_tiles = {
+            (a.x, a.y) for a in self.population.agents
+            if a.state is AgentState.AWAKE and a.goal is AgentGoal.GATHER
+            and self.terrain[a.y][a.x].biome is Biome.HILLS
+        }
         rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "terrain_activity")
         events = apply_local_activity(self.terrain, active_forest_tiles, self.terrain_activity, rng)
+        events += apply_mining_scars(active_mining_tiles, self.mining_scars)
 
         if "week_end" in calendar_events:
             reclaim_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "terrain_reclaim")
             events += maybe_reclaim(
                 self.terrain, self.terrain_activity, self.settlements, self.farms, occupied_tiles, reclaim_rng,
             )
+            decay_mining_scars(self.mining_scars)
 
         if "month_end" in calendar_events:
             climate_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "climate_drift")
@@ -586,6 +604,13 @@ class World:
             "population": self.population.summary(),
             "resources": self.resources.summary(),
             "minerals": self.minerals.summary(),
+            "mining_scars": {
+                "scarred_tiles": len(self.mining_scars),
+                "avg_intensity": (
+                    round(sum(self.mining_scars.values()) / len(self.mining_scars), 3)
+                    if self.mining_scars else 0.0
+                ),
+            },
             "settlement": self.settlement.summary(),
             "settlements": [
                 {
@@ -684,6 +709,7 @@ class World:
             "lakes": [lake.to_dict() for lake in self.lakes],
             "disasters": self.disasters.to_dict(),
             "terrain_activity": {f"{x}:{y}": v for (x, y), v in self.terrain_activity.items()},
+            "mining_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.mining_scars.items()},
             "llm_calls_total": self.llm_calls_total,
             "llm_fallback_total": self.llm_fallback_total,
             "dialogue_total": self.dialogue_total,
@@ -849,6 +875,11 @@ class World:
             x_str, y_str = key.split(":")
             terrain_activity[(int(x_str), int(y_str))] = value
 
+        mining_scars: dict[tuple[int, int], float] = {}
+        for key, value in data.get("mining_scars", {}).items():
+            x_str, y_str = key.split(":")
+            mining_scars[(int(x_str), int(y_str))] = value
+
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             weather_regions=weather_regions,
@@ -856,6 +887,7 @@ class World:
             wildlife=wildlife, roads=roads, climate=climate, lakes=lakes, disasters=disasters,
             minerals=minerals,
             terrain_activity=terrain_activity,
+            mining_scars=mining_scars,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),
             dialogue_total=data.get("dialogue_total", 0),

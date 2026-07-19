@@ -62,17 +62,28 @@ class WorldBroadcaster:
 
     # --- called by SimulationEngine (writer side) -----------------------------
 
-    def set_terrain(self, terrain, width: int, height: int) -> None:
+    def set_terrain(self, terrain, width: int, height: int, mining_scars: dict | None = None) -> None:
         """Called when the engine starts, and again on any tick where
         terrain evolution changed a tile's biome (see
         `SimulationEngine._maybe_broadcast`) — terrain changes rarely
         enough that it's not worth including in the per-tick payload,
         but it isn't truly static anymore. See docs/DECISIONS.md,
-        terrain-evolution pass."""
+        terrain-evolution pass.
+
+        `mining_scars` (v0.87.27, §8 "NPC activity reshapes geography")
+        rides this same resync — it doesn't change `biomes` but shares
+        the exact rarity profile (a tile crossing MINING_SCAR_VISIBLE_
+        THRESHOLD is now in `TERRAIN_CHANGING_CATEGORIES`), so reusing
+        this one payload avoids a second broadcast channel. Sparse —
+        only genuinely visible scars, not the full grid."""
         self._terrain_payload = {
             "width": width,
             "height": height,
             "biomes": [[tile.biome.value for tile in row] for row in terrain],
+            "mining_scars": (
+                {f"{x}:{y}": round(v, 3) for (x, y), v in mining_scars.items()}
+                if mining_scars else {}
+            ),
         }
 
     def set_diagnostics_provider(self, provider: Callable[[], dict]) -> None:

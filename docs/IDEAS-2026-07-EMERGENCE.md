@@ -561,23 +561,25 @@ not forgotten, acted on only with future explicit direction.
   infrastructure" theme of §7 but is a training-pipeline concern, not
   a runtime one — doesn't touch `SimulationEngine` at all.
 
-- [ ] **NPC activity and environment reshape geography, further than
-  today.** CLAUDE.md's own standing design priority already says
-  "history should become physically visible; NPC activity should
-  reshape the world over the long run," and `world/terrain_
-  evolution.py` already has deforestation/reclaim mechanics — this is
-  an explicit ask to go further: mining should visibly pit/scar hills
-  over time (not just deplete an invisible `ResourceNode.amount`),
-  sustained heavy settlement activity should measurably alter local
-  terrain (worn paths already exist via `world/roads.py`; extend the
-  same idea to quarrying, deforestation scars, riverbank erosion from
-  traffic), and disasters/climate should interact with NPC-caused
-  scarring (a mined-out hillside floods differently than an intact
-  one). Pairs directly with §6's "spatial weather" and "soil
-  fertility" items — same substrate, same R7 C++-first discipline —
-  and with §5's ruins mode (a mined-out predecessor settlement's scars
-  are exactly the kind of "findable" history that mode is designed to
-  leave behind).
+- [x] **NPC activity and environment reshape geography, further than
+  today.** MINING SCARS shipped v0.87.27: sustained GATHER-goal mining
+  on a HILLS tile now accumulates a visible pit/scar intensity (new
+  `world/terrain_evolution.py` `apply_mining_scars`/`decay_mining_
+  scars`, `World.mining_scars`), weathering back to nothing over weeks
+  if abandoned. Deliberately cosmetic-only state (no biome change —
+  scarred HILLS stays HILLS, walkable and re-minable), and deliberately
+  Python not C++ despite R7's discipline (a flagged deviation, same
+  shape as v0.87.23's spatial weather — low-density tile lookups, not
+  a hot per-agent loop, didn't justify the native-port cost this pass).
+  Rendered as a real map overlay (darkened, intensity-scaled pit
+  marks) reusing the existing terrain-resync broadcast channel, plus a
+  "Mining scars" stat tile. **Explicitly NOT done, flagged as
+  follow-ups**: quarrying as a mechanic distinct from mining,
+  sustained-settlement-activity terrain alteration beyond mining
+  (worn paths already exist via `world/roads.py` — extending that
+  same idea further wasn't attempted), riverbank erosion from traffic,
+  and disaster/climate interaction with NPC-caused scarring (a
+  mined-out hillside flooding differently than an intact one).
 
 - [x] **Expanded mineral/material economy — gold, iron, diamonds,
   silicon, etc. (Minecraft-like depth).** IRON and GOLD shipped

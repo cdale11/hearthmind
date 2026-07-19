@@ -139,6 +139,7 @@ const CATEGORY_META = {
   prophecy_confirmed: { icon: "🔮" },
   prophecy_forgotten: { icon: "🔮" },
   chronicler_answer: { icon: "📖" },
+  mining_scarred: { icon: "⛏️" },
 };
 
 // Event-log filter chips (v0.64.0 UI backlog): coarse groups, display-only —
@@ -161,7 +162,7 @@ const EVENT_GROUP_OF = {
   wildlife_migrated: "nature", disaster_flood: "nature", disaster_wildfire: "nature",
   disaster_storm: "nature", disaster_heatwave: "nature", disaster_frost: "nature",
   lake_rose: "nature", lake_receded: "nature", season_end: "nature", year_end: "nature",
-  place_named: "nature",
+  place_named: "nature", mining_scarred: "nature",
   chronicle: "mind", documentary: "mind", sim_summary: "mind", tradition: "mind", invention: "mind",
   festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind",
   institution_belief: "mind", ritual_formed: "mind", religion_formed: "mind",
@@ -177,6 +178,7 @@ let activeEventGroup = "all";
 const TERRAIN_CHANGING_CATEGORIES = new Set([
   "terrain_thinned", "terrain_reclaimed", "climate_drift",
   "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
+  "mining_scarred",
 ]);
 function categoryMeta(category) {
   return CATEGORY_META[category] || (category.endsWith("_migration") ? { icon: "🔧" } : { icon: "•" });
@@ -1002,6 +1004,31 @@ function paintEraOverlay(sctx, tier) {
   }
 }
 
+// §8 "NPC activity reshapes geography" (v0.87.27): a hillside worked by
+// sustained mining darkens and pits, intensity-scaled — the visible
+// counterpart to the deterministic invisible-until-now ResourceNode
+// depletion this idea explicitly asked to make legible on the map.
+function paintMiningScars(sctx, scars) {
+  if (!scars) return;
+  for (const key in scars) {
+    const intensity = scars[key];
+    if (!(intensity > 0)) continue;
+    const [xs, ys] = key.split(":");
+    const x = parseInt(xs, 10), y = parseInt(ys, 10);
+    sctx.fillStyle = `rgba(40,30,20,${(0.15 + intensity * 0.35).toFixed(3)})`;
+    sctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    const pits = Math.max(1, Math.round(intensity * 4));
+    sctx.fillStyle = "rgba(0,0,0,0.35)";
+    for (let i = 0; i < pits; i++) {
+      const jx = tileNoise(x + 0.19 * (i + 1), y) * CELL;
+      const jy = tileNoise(x, y + 0.29 * (i + 1)) * CELL;
+      sctx.beginPath();
+      sctx.arc(x * CELL + jx, y * CELL + jy, Math.max(1, CELL * 0.1), 0, Math.PI * 2);
+      sctx.fill();
+    }
+  }
+}
+
 function drawStaticTerrain() {
   staticCanvas = document.createElement("canvas");
   staticCanvas.width = terrain.width * CELL;
@@ -1014,6 +1041,7 @@ function drawStaticTerrain() {
     }
   }
   paintEraOverlay(sctx, currentEraTier());
+  paintMiningScars(sctx, terrain.mining_scars);
   canvas.width = staticCanvas.width;
   canvas.height = staticCanvas.height;
   weatherCanvas.width = staticCanvas.width;
@@ -2489,6 +2517,14 @@ function renderStats(summary) {
     [
       "Wild resources", `${r.total_nodes} nodes (${r.depleted} depleted, ${r.fish_nodes || 0} fishing spots, ${s.fish_caught || 0} caught)`,
       "Wild forageable nodes (berries, fishing spots along water, ore veins) — the last-resort food source, behind farms, granaries, and hunting. Fishing spots yield a richer catch and replenish faster than a bush. \"Caught\" is the settlement's all-time count of meals relieved from a fishing spot specifically.",
+    ],
+    [
+      "Mining scars",
+      (() => {
+        const ms = summary.mining_scars || {};
+        return ms.scarred_tiles ? `${ms.scarred_tiles} hillsides (avg ${ms.avg_intensity.toFixed(2)})` : "none yet";
+      })(),
+      "Sustained mining visibly pits and darkens a worked hillside over time (see the map itself for the actual scarring) — weathers back to nothing if abandoned. Cosmetic, not a biome change: a scarred hill stays walkable and re-minable.",
     ],
     [
       "Wildlife", `${w.grazer_total} grazers (${w.grazer_herds} herds), ${w.predator_total} predators (${w.predator_packs} packs)`,

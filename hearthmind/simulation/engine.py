@@ -889,7 +889,9 @@ class SimulationEngine:
         if self._broadcaster is not None:
             # Terrain never changes after creation — set once, not part
             # of the per-tick payload. See docs/DECISIONS.md, F2.
-            self._broadcaster.set_terrain(world.terrain, world.config.width, world.config.height)
+            self._broadcaster.set_terrain(
+                world.terrain, world.config.width, world.config.height, mining_scars=world.mining_scars,
+            )
             self._broadcaster.set_diagnostics_provider(self.full_diagnostics)
 
     @property
@@ -5103,7 +5105,10 @@ class SimulationEngine:
             self._pending_broadcast_events = []  # nobody will ever read this buffer — don't let it grow unbounded
             return
         if any(category in TERRAIN_CHANGING_CATEGORIES for category, _ in self.world.last_life_events):
-            self._broadcaster.set_terrain(self.world.terrain, self.world.config.width, self.world.config.height)
+            self._broadcaster.set_terrain(
+                self.world.terrain, self.world.config.width, self.world.config.height,
+                mining_scars=self.world.mining_scars,
+            )
         tick_events = [
             {"category": category, "description": description}
             for category, description in self.world.last_life_events

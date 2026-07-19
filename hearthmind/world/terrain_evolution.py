@@ -97,6 +97,59 @@ DEFOREST_HEAT_THRESHOLD = 1.0
 roughly 100 ticks of continuous single-agent gathering at the gain rate
 above, longer if intermittent (decay eats into it between visits)."""
 
+MINING_SCAR_GAIN_PER_TICK = 0.006
+"""Scar intensity (0..1) added to a HILLS tile per tick a GATHER-goal
+agent works an ORE/mineral node there — v0.87.27, docs/IDEAS-2026-07-
+EMERGENCE.md §8 ("mining should visibly pit/scar hills over time, not
+just deplete an invisible ResourceNode.amount"). Deliberately visual/
+cosmetic state, not a biome change: unlike deforestation, mining a
+hill doesn't turn it into a different terrain type in this project's
+model — it stays HILLS, walkable and re-minable, just visibly worked.
+~165 ticks of continuous single-agent mining to reach full (1.0) scar."""
+
+MINING_SCAR_DECAY_PER_WEEK = 0.05
+"""Scar intensity lost per week-boundary tick a tile isn't actively
+being mined — a worked-out, abandoned quarry slowly weathers/overgrows
+rather than staying a permanent eyesore forever, same "nature recovers
+if left alone" shape `maybe_reclaim` already gives deforestation."""
+
+MINING_SCAR_VISIBLE_THRESHOLD = 0.35
+"""Intensity at which a scar is judged worth a client-visible terrain
+resync (see `apply_mining_scars`'s returned events / `TERRAIN_CHANGING_
+CATEGORIES`) — below this a tile is "recently worked," not yet a real
+visible scar; fired once per tile, not on every threshold-crossing
+tick, so a single settlement's sustained mining doesn't spam events."""
+
+
+def apply_mining_scars(
+    active_mining_tiles: set[tuple[int, int]], scars: dict[tuple[int, int], float],
+) -> list[tuple[str, str]]:
+    """Called every tick alongside `apply_local_activity`. Mutates
+    `scars` in place; returns a life event the first time a tile's scar
+    crosses MINING_SCAR_VISIBLE_THRESHOLD (never fired again for that
+    tile while it stays scarred — see `_scarred_announced` handling by
+    the caller). No terrain/biome mutation — see MINING_SCAR_GAIN_PER_
+    TICK's docstring for why this is deliberately cosmetic-only state."""
+    events: list[tuple[str, str]] = []
+    for pos in active_mining_tiles:
+        before = scars.get(pos, 0.0)
+        after = min(1.0, before + MINING_SCAR_GAIN_PER_TICK)
+        scars[pos] = after
+        if before < MINING_SCAR_VISIBLE_THRESHOLD <= after:
+            events.append(("mining_scarred", f"A hillside at {pos} bears the visible marks of sustained mining."))
+    return events
+
+
+def decay_mining_scars(scars: dict[tuple[int, int], float]) -> None:
+    """Called once per week (`World._tick_terrain`'s existing week_end
+    gate). A tile fully weathered back to 0 is dropped from the dict —
+    same "don't track what's no longer true" discipline `terrain_
+    activity`'s own heat-decay-to-removal already uses."""
+    for pos in list(scars.keys()):
+        scars[pos] -= MINING_SCAR_DECAY_PER_WEEK
+        if scars[pos] <= 0.0:
+            del scars[pos]
+
 DEFOREST_CHANCE_PER_TICK = 0.02
 """Rolled only once a tile's heat clears the threshold — deforestation
 isn't instant even under sustained pressure."""

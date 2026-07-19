@@ -424,6 +424,27 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.27)
+
+§8's geography-reshaping idea, per the same explicit sequencing as
+v0.87.26 ("minerals first, then geography reshaping, LoRA left
+recorded-only"). Scoped to mining scars this pass — riverbank erosion,
+quarrying-as-distinct-from-mining, and disaster/climate interaction
+with scarring are flagged follow-ups, not attempted. New `World.
+mining_scars` (`world/terrain_evolution.py` `apply_mining_scars`/
+`decay_mining_scars`): sustained GATHER-goal mining on a HILLS tile
+accumulates visible scar intensity, weathering back to nothing over
+weeks if abandoned — deliberately cosmetic-only (no biome change,
+HILLS stays HILLS/walkable/re-minable). A flagged R7 deviation
+(Python not C++, same shape as v0.87.23's spatial weather — low-
+density tile lookups don't justify a native port yet). Reuses the
+EXISTING terrain-resync broadcast (`WorldBroadcaster.set_terrain`,
+previously biome-only) rather than a new channel — a tile crossing
+`MINING_SCAR_VISIBLE_THRESHOLD` fires a `mining_scarred` event, added
+to `TERRAIN_CHANGING_CATEGORIES` on both the Python and JS sides.
+Rendered as a real map overlay (the Observatory UI direction's stated
+preference over a sidebar panel) plus a "Mining scars" stat tile.
+
 ## Current state (v0.87.26)
 
 §8's mineral economy (docs/IDEAS-2026-07-EMERGENCE.md, explicit user
