@@ -113,6 +113,20 @@ class Institution:
     cross-institution objective collisions (two families both angling
     for the same council seat) are faction politics arriving
     bottom-up, never scripted."""
+    culture_digest: str = ""
+    """§9 "institutions get their own persistent memory" + "multi-layer
+    culture" (docs/IDEAS-2026-07-EMERGENCE.md): one short, INDEPENDENTLY-
+    AUTHORED sentence capturing this specific institution's own
+    character, distinct from `beliefs` (a filtered mirror of settlement-
+    wide beliefs, see that field's docstring) and from `Settlement.
+    culture_digest` (the whole village's shape). Written by `llm/
+    institution_culture.py`'s round-robin quarterly job
+    (`SimulationEngine._maybe_schedule_institution_culture`) — one call
+    per season for the whole world, flat regardless of institution
+    count, same "spend the call only once real material exists"
+    (beliefs/objective/feud history) discipline as `culture_digest`'s
+    own fallback. Never fabricated: a genuine no-op fallback retains
+    the prior digest across a flaky stretch."""
     feuds: list[dict] = field(default_factory=list)
     """v0.87.11, "generational feuds between FAMILY institutions"
     (docs/IDEAS-2026-07-EMERGENCE.md §1). FAMILY-only in practice (no
@@ -141,6 +155,7 @@ class Institution:
             "name": self.name,
             "beliefs": list(self.beliefs),
             "objective": self.objective,
+            "culture_digest": self.culture_digest,
             "feuds": list(self.feuds),
         }
 
@@ -154,6 +169,7 @@ class Institution:
             name=data.get("name", ""),
             beliefs=list(data.get("beliefs", [])),
             objective=data.get("objective", ""),
+            culture_digest=data.get("culture_digest", ""),
             feuds=list(data.get("feuds", [])),
         )
 

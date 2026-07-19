@@ -62,7 +62,7 @@ from hearthmind.llm import (
     faction, fission, beliefs, caravan, chronicle, chronicler, consciousness, culture, culture_digest, dialogue,
     digest, dispute, documentary, dream, festival, folklore, founding, geography, invention, memory_drift, mind,
     naming, narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
-    diplomacy, laws, letters, noncore_nudge,
+    diplomacy, laws, letters, noncore_nudge, institution_culture,
 )
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.cognition import SURVIVAL_HUNGER_THRESHOLD, SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
@@ -91,6 +91,7 @@ from hearthmind.settlement.buildings import (
     CULTURE_LIST_MAX_STORED,
     CURRENCY_CAPACITY,
     ERA_DESCRIPTIONS,
+    FAMILY_FEUD_FESTIVAL_PENALTY,
     FESTIVAL_CHANCE_PER_MONTH,
     FESTIVAL_HUNGER_GATE,
     FOLKLORE_MAX_STORED,
@@ -511,6 +512,7 @@ shape unchanged. See docs/DECISIONS.md, "monthly job retry window"."""
 
 SEASON_YEAR_JOBS_WITH_RETRY = frozenset({
     "tradition", "religion", "narrative_direction", "culture_digest", "documentary",
+    "institution_culture",
 })
 """Same bug class as `MONTHLY_JOBS_WITH_RETRY`, found in a 2026-07 audit
 but never fixed for the season/year cadence tier: `tradition`/
@@ -1514,6 +1516,7 @@ class SimulationEngine:
         ("_maybe_schedule_laws", _JOB_EVENTS),
         ("_maybe_schedule_noncore_nudge", _JOB_EVENTS),
         ("_maybe_schedule_letter", _JOB_EVENTS),
+        ("_maybe_schedule_institution_culture", _JOB_EVENTS),
         ("_schedule_due_cognition", _JOB_NO_ARGS),
         ("_schedule_due_dialogue", _JOB_NO_ARGS),
     )
@@ -1977,6 +1980,15 @@ class SimulationEngine:
                 # fabricates one for the deterministic fallback).
                 if parsed["topic"]:
                     self.world.population.record_dialogue_topic(agent_a.id, agent_b.id, parsed["topic"])
+                    # §9 "diversify cultural topics" + "competing
+                    # narratives" (docs/IDEAS-2026-07-EMERGENCE.md): the
+                    # same LLM-authored topic also feeds a settlement-wide
+                    # ring so `top_topics()` reads as a genuine "what's
+                    # the village actually talking about lately" signal,
+                    # zero added LLM call volume.
+                    home = self._settlement_by_id(agent_a.settlement_id)
+                    if home is not None:
+                        home.record_topic(parsed["topic"])
             self.world.dialogue_total += 1
             if parsed["rumor"]:
                 self._log("rumor", f"{agent_a.name} and {agent_b.name}: {parsed['rumor']}")
@@ -2325,12 +2337,15 @@ class SimulationEngine:
                 self.world.weather.sky() not in ("clear", "partly_cloudy", "overcast")
                 or self.world.weather.wind_label() == "gale"
             )
+            grounded_recent = recent_events_diverse(self.conn, limit=5)
+            grounded_event = grounded_recent[0]["description"] if grounded_recent else ""
             prompt = dialogue.build_prompt(
                 agent_a, agent_b, affinity, local.name, latest_tradition,
                 self.world.clock.season, self.world.weather.describe(), beliefs_about=beliefs_about,
                 other_settlement_name=other_settlement_name, cross_settlement_relation=cross_relation,
                 lessons=lessons, recent_topics=recent_topics, weather_notable=weather_notable,
-                lexicon=local.lexicon,
+                lexicon=local.lexicon, settlement_topics=[t for t, _count in local.top_topics()],
+                place_names=list(local.place_names.values()), grounded_event=grounded_event,
             )
             fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
             self._reserved_this_tick += 1
@@ -2844,7 +2859,15 @@ class SimulationEngine:
             return
         if self.world.population.avg_hunger() > FESTIVAL_HUNGER_GATE:
             return
-        if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "festival_roll") >= FESTIVAL_CHANCE_PER_MONTH:
+        # §9 "more cross-system interactions": a standing family feud
+        # dampens the village's mood, not just the two households
+        # involved — real discord makes a celebration less likely.
+        festival_chance = FESTIVAL_CHANCE_PER_MONTH
+        if any(
+            i.feuds for i in festival_target.institutions if i.kind is InstitutionKind.FAMILY
+        ):
+            festival_chance *= 1.0 - FAMILY_FEUD_FESTIVAL_PENALTY
+        if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "festival_roll") >= festival_chance:
             return
         if self._settlement_job_backpressured():
             return
@@ -3201,6 +3224,67 @@ class SimulationEngine:
                 stl.culture_digest = digest
 
         self._schedule_llm_job("culture_digest", prompt, culture_digest.SYSTEM_PROMPT, fallback, apply)
+
+    def _institution_job_target(self) -> "tuple[Settlement, object] | None":
+        """§9 "institutions get their own persistent memory" (docs/IDEAS-
+        2026-07-EMERGENCE.md): a month-indexed round-robin over every
+        (settlement, institution) pair with at least one living member
+        — same "flat call volume regardless of count" shape `_job_
+        target`/`_diplomacy_pair_target` already give settlement-scoped
+        jobs, generalized one level deeper since institutions can
+        genuinely outnumber settlements. `None` once no settlement has
+        any institution yet (a fresh/small world)."""
+        pairs = [
+            (s, i) for s in self.world.settlements if s.name
+            for i in s.institutions if i.member_agent_ids
+        ]
+        if not pairs:
+            return None
+        clock = self.world.clock
+        month_ordinal = clock.year * len(self.world.config.days_per_month) + clock.month_index
+        return pairs[month_ordinal % len(pairs)]
+
+    def _maybe_schedule_institution_culture(self, events: list[str]) -> None:
+        """§9 "institutions get their own persistent memory" + "multi-
+        layer culture" (docs/IDEAS-2026-07-EMERGENCE.md): condenses ONE
+        institution's own beliefs/objective/feud history into a short,
+        independently-authored digest — see llm/institution_culture.py's
+        module docstring for how this differs from `Institution.beliefs`
+        (a filtered mirror) and `Settlement.culture_digest` (the whole
+        village). Quarterly, one call for the entire world regardless of
+        institution count (`_institution_job_target`'s round-robin).
+        Fallback is a genuine no-op — `Institution.culture_digest` is
+        only overwritten on a real answer, same discipline as
+        `Settlement.culture_digest`."""
+        target = self._institution_job_target()
+        if not self._season_year_gate(events, "institution_culture", "season_end") or target is None:
+            return
+        settlement, institution = target
+        if self._settlement_job_backpressured():
+            return
+        self._mark_season_year_resolved("institution_culture")
+        prompt = institution_culture.build_prompt(
+            institution.kind.value, institution.name, settlement.name,
+            institution.beliefs[-PROMPT_BELIEFS_MAX:], institution.objective, len(institution.feuds),
+        )
+        fallback = institution_culture.fallback_digest()
+        settlement_id, institution_id = settlement.id, institution.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            if used_fallback:
+                return
+            digest = institution_culture.parse_digest(result)
+            if not digest:
+                return
+            stl = self._settlement_by_id(settlement_id)
+            inst = next((i for i in stl.institutions if i.id == institution_id), None)
+            if inst is not None:
+                inst.culture_digest = digest
+
+        self._schedule_llm_job(
+            "institution_culture", prompt, institution_culture.SYSTEM_PROMPT, fallback, apply,
+            settlement=settlement.name,
+        )
 
     @staticmethod
     def _narrative_theme_bias(stl: "Settlement") -> str:
@@ -5367,7 +5451,14 @@ class SimulationEngine:
             # inhabitants are the LLM-driven protagonists — Observatory
             # UI direction: read at a glance, not buried in a stat.
             "agents": [
-                {**a.to_dict(), "is_core": self.world.population.is_core(a.id)}
+                {
+                    **a.to_dict(), "is_core": self.world.population.is_core(a.id),
+                    # §9 "long-term reputation and family legacy": plain
+                    # -1..1 aggregate trust reading, same reachability as
+                    # any other agent stat — not under Phase G's
+                    # ambiguity discipline (unlike temperament/mood).
+                    "reputation": self.world.population.reputation(a.id),
+                }
                 for a in self.world.population.agents
             ],
             # Physical layers merge across every settlement — the map

@@ -374,6 +374,12 @@ LEXICON_MAX_STORED = 6
 """Cap on `SettlementCulture.lexicon` — a village's coined terms are
 meant to read as a short, memorable handful, same shape as `laws`."""
 
+RECENT_TOPICS_MAX_STORED = 40
+"""Cap on `SettlementCulture.recent_topics` — a rolling window wide
+enough for `top_topics()` to read as a genuine "what's been talked
+about lately" signal (roughly the last several days of core-cast
+dialogue) without growing unbounded across a long-running world."""
+
 LAWS_MAX_STORED = 6
 """Cap on `SettlementCulture.laws` — a village's codified norms are
 meant to read as a short, memorable handful (see `laws` docstring),
@@ -1596,6 +1602,15 @@ a named, well-fed settlement. 0.13 was chosen so three independent
 monthly rolls reproduce roughly the original seasonal rate
 (1-(1-0.13)^3 ~= 0.34 ~= the old 0.35)."""
 
+FAMILY_FEUD_FESTIVAL_PENALTY = 0.4
+"""§9 'more cross-system interactions' (docs/IDEAS-2026-07-EMERGENCE.md)
+— its own named example ("tax -> guild unrest -> canceled festival")
+built the same ad hoc way: a settlement with at least one standing
+`Institution.feuds` entry among its FAMILY institutions has its real,
+lived discord dampen the mood, multiplying FESTIVAL_CHANCE_PER_MONTH
+by (1 - this) rather than blocking festivals outright — a rift in the
+community makes a celebration less likely, not impossible."""
+
 FESTIVAL_RELATIONSHIP_BOOST = 0.1
 """One-time relationship nudge applied to every currently-colocated pair
 of awake agents when a festival is held — the mechanical payoff of
@@ -2029,6 +2044,37 @@ class SettlementCulture:
     so a settlement's own conversations gradually prefer its own words
     — two settlements descended from one fission slowly stop sounding
     alike. Capped at LEXICON_MAX_STORED."""
+    recent_topics: list[str] = field(default_factory=list)
+    """§9 "diversify cultural topics" + "competing narratives"
+    (docs/IDEAS-2026-07-EMERGENCE.md): a settlement-WIDE ring of every
+    genuine LLM-authored dialogue topic (`Population.dialogue_topics`
+    is per-PAIR only — this generalizes the same signal to settlement
+    scope, zero added LLM volume). Appended by `SimulationEngine.
+    _apply_pending_dialogue_results` alongside the existing per-pair
+    `record_dialogue_topic` call, capped at RECENT_TOPICS_MAX_STORED.
+    `top_topics()` derives frequency counts from this on demand — no
+    separate counter dict to keep in sync."""
+
+    def record_topic(self, topic: str) -> None:
+        if not topic:
+            return
+        self.recent_topics.append(topic)
+        if len(self.recent_topics) > RECENT_TOPICS_MAX_STORED:
+            del self.recent_topics[: len(self.recent_topics) - RECENT_TOPICS_MAX_STORED]
+
+    def top_topics(self, n: int = 3) -> list[tuple[str, int]]:
+        """The `n` most frequent entries in `recent_topics`, most-common
+        first (ties broken by first-seen order) — "what the village has
+        lately been talking about," consumed as a dialogue steering
+        line (item 1) and surfaced directly in the main UI as the
+        settlement's "currently running storylines" (item 6) without
+        needing a second, parallel tracking structure."""
+        if not self.recent_topics:
+            return []
+        counts: dict[str, int] = {}
+        for topic in self.recent_topics:
+            counts[topic] = counts.get(topic, 0) + 1
+        return sorted(counts.items(), key=lambda kv: (-kv[1], self.recent_topics.index(kv[0])))[:n]
 
 
 @dataclass
@@ -2174,6 +2220,7 @@ class Settlement:
         laws: list[dict] | None = None, law_signal_counts: dict | None = None,
         thefts_committed: int = 0,
         lexicon: list[dict] | None = None,
+        recent_topics: list[str] | None = None,
         pending_letters: list[dict] | None = None,
         prophecy: dict | None = None, last_intervention_tick: int = -1,
         predecessor_id: int | None = None,
@@ -2237,6 +2284,7 @@ class Settlement:
             laws=laws if laws is not None else [],
             law_signal_counts=law_signal_counts if law_signal_counts is not None else {},
             lexicon=lexicon if lexicon is not None else [],
+            recent_topics=recent_topics if recent_topics is not None else [],
         )
         self.disposition = SettlementDisposition(
             temperament=temperament,
@@ -2558,6 +2606,20 @@ class Settlement:
     @lexicon.setter
     def lexicon(self, value: list[dict]) -> None:
         self.culture.lexicon = value
+
+    @property
+    def recent_topics(self) -> list[str]:
+        return self.culture.recent_topics
+
+    @recent_topics.setter
+    def recent_topics(self, value: list[str]) -> None:
+        self.culture.recent_topics = value
+
+    def record_topic(self, topic: str) -> None:
+        self.culture.record_topic(topic)
+
+    def top_topics(self, n: int = 3) -> list[tuple[str, int]]:
+        return self.culture.top_topics(n)
 
     @property
     def religion(self) -> dict | None:
@@ -3111,6 +3173,7 @@ class Settlement:
             "laws": list(self.laws),
             "thefts_committed": self.thefts_committed,
             "lexicon": list(self.lexicon),
+            "top_topics": self.top_topics(),
             "prophecy": dict(self.prophecy) if self.prophecy is not None else None,
             "predecessor_id": self.predecessor_id,
         }
@@ -3240,6 +3303,7 @@ class Settlement:
             "law_signal_counts": dict(self.law_signal_counts),
             "thefts_committed": self.thefts_committed,
             "lexicon": list(self.lexicon),
+            "recent_topics": list(self.recent_topics),
             "pending_letters": list(self.pending_letters),
             "prophecy": dict(self.prophecy) if self.prophecy is not None else None,
             "last_intervention_tick": self.last_intervention_tick,
@@ -3307,6 +3371,7 @@ class Settlement:
             law_signal_counts=dict(data.get("law_signal_counts", {})),
             thefts_committed=data.get("thefts_committed", 0),
             lexicon=list(data.get("lexicon", [])),
+            recent_topics=list(data.get("recent_topics", [])),
             pending_letters=list(data.get("pending_letters", [])),
             prophecy=dict(data["prophecy"]) if data.get("prophecy") is not None else None,
             last_intervention_tick=data.get("last_intervention_tick", -1),

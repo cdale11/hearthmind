@@ -424,6 +424,52 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.31)
+
+Explicit user request ("Complete all the items of 9") — implements
+every remaining unchecked item in docs/IDEAS-2026-07-EMERGENCE.md §9
+(9 of 12; the other 3 were already shipped/confirmed under other
+names). Full detail: CHANGELOG.md.
+
+Two items shared one new mechanism each rather than four separate
+ones, since the doc's own text showed they named the same underlying
+gap: (1) "diversify cultural topics" + "competing narratives" ->
+`SettlementCulture.recent_topics`/`top_topics()`, a settlement-wide
+generalization of the existing per-pair `Population.dialogue_topics`
+ring, zero added LLM call volume (reuses dialogue's existing `topic`
+field), consumed as a `dialogue.build_prompt` steering line and the
+new "Village storylines" stat tile. (2) "institutions get their own
+persistent memory" + "multi-layer culture" -> new `Institution.
+culture_digest` + `llm/institution_culture.py`, a quarterly round-robin
+job (`SimulationEngine._institution_job_target`, flat call volume
+regardless of institution count) that independently authors one
+institution's own character — distinct from `Institution.beliefs`
+(a filtered mirror of settlement-wide beliefs).
+
+Reputation now survives death: `Population._deceased_reputation_
+legacy` snapshots a dying agent's last reputation reading instead of
+dropping it, fades it monthly, prunes past a floor (same decay-to-
+zero-then-delete discipline the relationship-leak fix established);
+new `family_legacy_reputation()` aggregates a FAMILY institution's
+standing across every member it ever had, living or dead. One new
+concrete cross-system cascade: a standing family feud now measurably
+lowers festival chance (`FAMILY_FEUD_FESTIVAL_PENALTY`). `dialogue.
+build_prompt` gained `place_names`/`grounded_event` parameters closing
+the "geography as culture" and "conversation grounded in simulation
+events" gaps. "Long-term societal evolution across generations" closed
+as an audit conclusion (no further gap found beyond what earlier
+passes already shipped) rather than new code.
+
+Verified: direct production-path tests for every mechanism (including
+a real label-casing bug caught and fixed in `institution_culture.
+build_prompt`); a real end-to-end engine test drives the new
+institution job through actual production scheduling with a fake LLM
+client; an 18,000-tick organic soak (fake instant-responding LLM
+client) confirms topics/institution digests form organically with zero
+crashes; a 20,000-tick LLM-disabled soak confirms no regression.
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+no native module touched.
+
 ## Current state (v0.87.30)
 
 §9's last item (docs/IDEAS-2026-07-EMERGENCE.md, "stalled era

@@ -98,6 +98,8 @@ def build_prompt(
     other_settlement_name: str = "", cross_settlement_relation: float | None = None,
     lessons: tuple[str, str] = ("", ""), recent_topics: list[str] | None = None,
     weather_notable: bool = False, lexicon: list[dict] | None = None,
+    settlement_topics: list[str] | None = None, place_names: list[str] | None = None,
+    grounded_event: str = "",
 ) -> str:
     """`lessons` (v0.87.0): `(agent_a's matching lesson, agent_b's
     matching lesson)`, each "" when no stored lesson matches that
@@ -120,7 +122,27 @@ def build_prompt(
     ordinary clear/partly-cloudy/overcast day contributes nothing here
     at all, closing the gap where weather was previously named as an
     unconditional grounding fact in literally every exchange regardless
-    of whether anything about it was actually noteworthy."""
+    of whether anything about it was actually noteworthy.
+
+    `settlement_topics` (§9 "diversify cultural topics" + "competing
+    narratives", docs/IDEAS-2026-07-EMERGENCE.md): the whole village's
+    most-talked-about subjects right now (`Settlement.top_topics()`),
+    distinct from `recent_topics` above (this PAIR's own small history)
+    — offered as one more optional steering line naming what's
+    currently a live storyline in the village at large, never a
+    requirement to follow it.
+
+    `place_names` (§9 "geography as culture"): a couple of the
+    settlement's own named landmarks (`Settlement.place_names`), so a
+    villager can occasionally ground small talk in an actual place
+    ("out past the {landmark}") instead of only abstract subjects.
+
+    `grounded_event` (§9 "conversation grounded in simulation events"):
+    one short, recent, non-routine thing that genuinely happened in the
+    settlement (a filtered `recent_events_diverse` slice, same source
+    `town_brain`/`chronicle` already read), offered as something either
+    speaker might plausibly bring up — empty most of the time when
+    nothing notable happened lately."""
     is_parent_child = (
         (agent_a.parents is not None and agent_b.id in agent_a.parents)
         or (agent_b.parents is not None and agent_a.id in agent_b.parents)
@@ -234,6 +256,15 @@ def build_prompt(
         f" You two have lately talked about: {', '.join(recent_topics)} — find something new or go deeper."
         if recent_topics else ""
     )
+    settlement_topics_text = (
+        f" Lately the whole village has been talking about: {', '.join(settlement_topics)}."
+        if settlement_topics else ""
+    )
+    place_names_text = (
+        f" The village knows this place by name: {', '.join(place_names[-2:])}."
+        if place_names else ""
+    )
+    grounded_event_text = f" Something that actually happened recently: {grounded_event}." if grounded_event else ""
 
     def _activity(agent: Agent) -> str:
         # Grounds "currently X" in *why* when cognition set a reason
@@ -254,7 +285,8 @@ def build_prompt(
         f"{agent_b.hunger:.2f}, energy {agent_b.energy:.2f}, currently {_activity(agent_b)}). "
         f"They are {tie}. It is {season}.{weather_text}"
         f"{culture}{beliefs_text}{personality_text}{emotion_text}{memory_text}{just_now_text}"
-        f"{semantic_text}{secret_text}{mind_text}{voice_text}{lesson_text}{topics_text} "
+        f"{semantic_text}{secret_text}{mind_text}{voice_text}{lesson_text}{topics_text}"
+        f"{settlement_topics_text}{place_names_text}{grounded_event_text} "
         "Write their brief exchange."
     )
 

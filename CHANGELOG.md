@@ -4,6 +4,83 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.31] — §9 complete: all nine remaining cultural-depth items
+
+Explicit user request ("Complete all the items of 9") — implements
+every item in docs/IDEAS-2026-07-EMERGENCE.md §9 that was still
+unchecked (9 of 12; the other 3 were already shipped or confirmed
+under other names in earlier passes).
+
+**Diversify cultural topics + competing narratives** (one mechanism
+covers both): new `SettlementCulture.recent_topics` (capped
+`RECENT_TOPICS_MAX_STORED=40`) generalizes the existing per-pair
+`Population.dialogue_topics` ring to settlement scope — the same LLM-
+authored `topic` field dialogue already produces is now also recorded
+settlement-wide in `_apply_pending_dialogue_results`, zero added LLM
+call volume. `SettlementCulture.top_topics(n)` derives frequency-
+ranked "what's actually being talked about" on demand; consumed as a
+new `settlement_topics` steering line in `llm/dialogue.py`'s
+`build_prompt` and surfaced as the "Village storylines" main-UI stat
+tile — several distinct subjects can genuinely coexist, contrasting
+`narrative_direction.py`'s deliberate 1-2-theme quarterly framing.
+
+**Institutions get their own persistent memory + multi-layer culture**
+(one job covers both — they named the same underlying gap): new
+`Institution.culture_digest` + `llm/institution_culture.py` — a
+quarterly, round-robin (`SimulationEngine._institution_job_target`,
+flat call volume regardless of institution count) LLM job condenses
+ONE institution's own beliefs/objective/feud history into a short,
+INDEPENDENTLY-authored sentence, distinct from `Institution.beliefs`
+(a filtered mirror of settlement-wide beliefs). Genuine no-op fallback.
+Surfaced in the NPC inspector's Institutions section.
+
+**Long-term reputation and family legacy**: new `Population.
+_deceased_reputation_legacy` — `_refresh_reputation` now snapshots a
+dying agent's last cached reputation instead of dropping it outright,
+fading it monthly (`LEGACY_REPUTATION_DECAY=0.03`) and pruning past
+`LEGACY_REPUTATION_FLOOR=0.02` (bounded, same decay-to-zero-then-
+delete discipline as the historical relationship-leak fix).
+`reputation()` reads this as a fallback once an id is no longer alive;
+new `family_legacy_reputation(member_agent_ids)` aggregates a FAMILY
+institution's standing across every member it ever had. Reputation is
+now also surfaced per-agent in the main UI (Vitals row).
+
+**More cross-system interactions**: new `FAMILY_FEUD_FESTIVAL_
+PENALTY=0.4` — a settlement with a standing generational family feud
+has its monthly festival chance multiplied down, real household
+discord dampening the whole village's mood. One more ad hoc gate-then-
+mechanical-rider addition, same shape as the existing laws->disputes/
+schools->invention/tradition->festival links (confirmed no generic
+"cascade" abstraction is warranted).
+
+**Geography as culture + conversation grounded in simulation events**:
+`dialogue.build_prompt` gained `place_names` (fed `Settlement.
+place_names.values()`) and `grounded_event` (fed the newest
+`recent_events_diverse` row) parameters — both the exact "extend the
+existing optional-line pattern, zero new state" plans the doc itself
+specified.
+
+**Long-term societal evolution across generations**: audited, no
+further gap found — traditions/folklore drift/dialect drift/knowledge
+lifecycle/laws-customs/ruins-mode historical reinterpretation already
+cover this, and this batch's own new work (institution culture layers,
+competing storylines, reputation surviving death) is itself more of
+the same texture. Closed as an audit conclusion, not new code.
+
+Verified: direct production-path tests for every mechanism (topic
+recording/ranking/cap/round-trip, institution_culture prompt/parse/
+fallback including a real label-casing bug fix, reputation legacy
+snapshot/decay/prune/family-aggregate, dialogue prompt wiring); a real
+end-to-end engine test drives `_maybe_schedule_institution_culture`
+through the actual `_institution_job_target`/`_schedule_llm_job`
+pipeline with a fake LLM client, confirming a real digest lands on the
+correct institution; an 18,000-tick organic engine soak (fake instant-
+responding LLM client) confirms topics/institution digests form
+through genuine production scheduling with zero crashes; a 20,000-tick
+LLM-disabled soak confirms no regression on the deterministic path.
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+this batch touches no native module.
+
 ## [0.87.30] — Era progression gated by real infrastructure, not just a roll
 
 §9's last remaining item (docs/IDEAS-2026-07-EMERGENCE.md), per

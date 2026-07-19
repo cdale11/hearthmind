@@ -895,6 +895,23 @@ REPUTATION_MIN_SOURCES = 2
 average — mirrors the same 'don't let a thin sample masquerade as a
 real signal' discipline `_prominence` already applies via weighting."""
 
+LEGACY_REPUTATION_DECAY = 0.03
+"""§9 'long-term reputation and family legacy' (docs/IDEAS-2026-07-
+EMERGENCE.md): monthly fade rate applied to `Population.
+_deceased_reputation_legacy` — a dead agent's final standing doesn't
+vanish the instant `_refresh_reputation`'s alive-only filter drops
+them (the confirmed real gap the idea doc named), it lingers and
+slowly fades, the same 'a notable villager's reputation outlives them
+for a while, memory of it eventually fades too' shape `memorials`/
+`decay_memory_salience` already apply to other kinds of legacy."""
+
+LEGACY_REPUTATION_FLOOR = 0.02
+"""Once a deceased agent's faded legacy reputation's magnitude drops
+below this, it's pruned from `_deceased_reputation_legacy` entirely —
+bounds the structure's growth across a long-running world with many
+deaths, same 'decay to zero, then delete' discipline the relationship-
+leak fix already established."""
+
 
 # `_namespaced_rng` is the shared helper (see hearthmind/util.py) — kept
 # under its historical private name here so the many call sites in this
@@ -1362,6 +1379,20 @@ class Population:
     view over `Agent.trust`, cheap to rebuild, and (like `last_carrying_
     capacity`) would just go stale between a save and a reload if it
     were."""
+    _deceased_reputation_legacy: dict[int, float] = field(default_factory=dict)
+    """§9 'long-term reputation and family legacy' (docs/IDEAS-2026-07-
+    EMERGENCE.md): a dead agent's final `_reputation_cache` reading,
+    snapshotted the month they drop out of the alive-only cache instead
+    of vanishing outright, then faded monthly by LEGACY_REPUTATION_
+    DECAY and pruned once its magnitude crosses LEGACY_REPUTATION_
+    FLOOR — bounded the same 'decay to zero, then delete' way the
+    relationship-leak fix already established. Deliberately NOT
+    persisted, same rationale as `_reputation_cache` itself (derived,
+    cheap to approximate-rebuild from `Agent.trust`, and it's a slow-
+    fading texture value, not durable history — `Institution.feuds`/
+    `memorials`/`Settlement.records` remain the actually-persisted
+    legacy mechanisms). Consumed by `reputation()` (falls back to this
+    once an id is no longer alive) and `family_legacy_reputation()`."""
     last_carrying_capacity: float = float(POPULATION_CAP)
     """Recomputed every tick by `carrying_capacity()` — the dynamic ceiling
     that now actually gates reproduction/growth (H1, docs/ROADMAP.md Phase
@@ -5387,8 +5418,28 @@ class Population:
         REPUTATION_MIN_SOURCES agents. Refreshed monthly by
         `_refresh_reputation` — a live-tick value would need an O(agents)
         rescan on every call, and reputation is exactly the kind of slow-
-        moving social signal that doesn't need tick-fresh precision."""
-        return self._reputation_cache.get(agent_id, 0.0)
+        moving social signal that doesn't need tick-fresh precision.
+
+        §9 'long-term reputation and family legacy': a dead agent isn't
+        simply neutral — their last known standing lingers, fading, in
+        `_deceased_reputation_legacy` (see that field's docstring)."""
+        if agent_id in self._reputation_cache:
+            return self._reputation_cache[agent_id]
+        return self._deceased_reputation_legacy.get(agent_id, 0.0)
+
+    def family_legacy_reputation(self, member_agent_ids: set[int]) -> float:
+        """§9 'long-term reputation and family legacy': an institution's
+        (typically FAMILY's) standing across ALL members it ever had,
+        living or dead — `member_agent_ids` never shrinks on death (see
+        `Institution.member_agent_ids`'s docstring), so this is a real
+        aggregate of a household's reputation across generations, not
+        just its currently-living members. Reads 0.0 for an institution
+        with no member ever crossing REPUTATION_MIN_SOURCES."""
+        values = [
+            self.reputation(agent_id) for agent_id in member_agent_ids
+            if agent_id in self._reputation_cache or agent_id in self._deceased_reputation_legacy
+        ]
+        return sum(values) / len(values) if values else 0.0
 
     def _refresh_reputation(self) -> None:
         """Monthly rebuild of `_reputation_cache` — one O(agents) pass
@@ -5396,7 +5447,15 @@ class Population:
         truster's side, attributed to the trusted party), then averaged.
         Called from the engine's existing month_end temperament tick
         (see `_maybe_tick_temperament`) — same cheap, no-LLM cadence,
-        not its own scheduled job."""
+        not its own scheduled job.
+
+        §9 'long-term reputation and family legacy': before dropping an
+        id that's no longer alive, snapshot its last cached reputation
+        into `_deceased_reputation_legacy` (only the first time — a
+        second death-adjacent month must not re-snapshot and undo any
+        fade already applied), then fade every already-tracked legacy
+        entry by LEGACY_REPUTATION_DECAY, pruning past LEGACY_
+        REPUTATION_FLOOR."""
         sums: dict[int, float] = {}
         counts: dict[int, int] = {}
         for agent in self.agents:
@@ -5404,11 +5463,21 @@ class Population:
                 sums[target_id] = sums.get(target_id, 0.0) + value
                 counts[target_id] = counts.get(target_id, 0) + 1
         alive_ids = {a.id for a in self.agents}
-        self._reputation_cache = {
+        new_cache = {
             target_id: sums[target_id] / counts[target_id]
             for target_id in sums
             if target_id in alive_ids and counts[target_id] >= REPUTATION_MIN_SOURCES
         }
+        for target_id, value in self._reputation_cache.items():
+            if target_id not in new_cache and target_id not in self._deceased_reputation_legacy:
+                self._deceased_reputation_legacy[target_id] = value
+        self._reputation_cache = new_cache
+        faded: dict[int, float] = {}
+        for target_id, value in self._deceased_reputation_legacy.items():
+            value *= 1.0 - LEGACY_REPUTATION_DECAY
+            if abs(value) >= LEGACY_REPUTATION_FLOOR:
+                faded[target_id] = value
+        self._deceased_reputation_legacy = faded
 
     def maintain_core_cast(self, cast_size: int) -> list[Agent]:
         """Keep `core_agent_ids` at `cast_size` living members. Called once

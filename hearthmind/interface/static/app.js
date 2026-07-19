@@ -2123,8 +2123,14 @@ function renderNpcInspector() {
     if (inst.kind === "faction") return `Part of ${inst.name || "a faction"}`;
     return inst.kind;
   };
+  // §9 "institutions get their own persistent memory": culture_digest is
+  // an independently-authored line distinct from the institution's
+  // mirrored beliefs — shown as a quiet sub-line under its membership
+  // entry when one has been formed.
   const institutionsHtml = myInstitutions.length
-    ? `<ul>${myInstitutions.map((i) => `<li>${institutionLabel(i)}</li>`).join("")}</ul>`
+    ? `<ul>${myInstitutions.map((i) => `<li>${institutionLabel(i)}${
+        i.culture_digest ? `<div class="npc-goal-reason">"${i.culture_digest}"</div>` : ""
+      }</li>`).join("")}</ul>`
     : `<div class="muted">no institution ties yet</div>`;
 
   npcContent.innerHTML = `
@@ -2201,6 +2207,9 @@ function renderNpcInspector() {
         <span>energy ${agent.energy.toFixed(2)}</span>
         <span>position (${agent.x}, ${agent.y})</span>
         <span>${healthLabel(agent)}</span>
+        ${typeof agent.reputation === "number" && agent.reputation !== 0
+          ? `<span title="mean village trust toward them">reputation ${agent.reputation >= 0 ? "+" : ""}${agent.reputation.toFixed(2)}</span>`
+          : ""}
       </div>
     </div>
   `;
@@ -2568,6 +2577,13 @@ function renderStats(summary) {
     [
       "Crime & justice", `${s.thefts_committed || 0} theft${(s.thefts_committed || 0) === 1 ? "" : "s"} · ${(s.laws || []).length} norm${(s.laws || []).length === 1 ? "" : "s"} codified`,
       "All-time count of desperate theft between colocated villagers (a genuinely physical act, not an LLM decision), and how many laws/customs/taboos the village has settled on in response — see Laws & customs below.",
+    ],
+    [
+      "Village storylines",
+      (s.top_topics && s.top_topics.length)
+        ? s.top_topics.map(([topic]) => topic).join(", ")
+        : "nothing dominant yet",
+      "What real NPC-to-NPC conversation has actually been about lately, most-talked-about first — several may run at once rather than one unifying theme, distinct from the quarterly narrative theme below.",
     ],
     ["__section__", "Economy"],
     [

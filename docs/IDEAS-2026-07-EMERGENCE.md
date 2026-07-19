@@ -604,50 +604,50 @@ not forgotten, acted on only with future explicit direction.
   flagged, not dropped.
 
 ## 9. Cultural depth & societal-evolution ideas (2026-07-19, explicit
-   user request) — checklist only, not scoped, not started
+   user request) — all items closed v0.87.31 ("Complete all the items
+   of 9")
 
 Recorded per explicit user request ("scope these as checklist don't
-implement yet"). Checked against the current code first, same
-discipline as every other section — several of these turned out to be
-partially or fully shipped already; marked accordingly rather than
-re-listed as if missing.
+implement yet"), then a later explicit request ("Complete all the
+items of 9") implemented every remaining unchecked item in one batch.
+Checked against the current code first, same discipline as every other
+section — several of these turned out to be partially or fully shipped
+already; marked accordingly rather than re-listed as if missing.
 
-- [ ] **Diversify cultural topics and rumors.** Partially covered
-  today: `persistence/snapshot.py`'s `recent_events_diverse`/
-  `_dedupe_rumor_topics` keep routine/duplicate rumor rows from
-  crowding LLM prompts, and `Population.dialogue_topics` (§7,
-  shipped) gives each PAIR a novelty ring nudging them off a repeated
-  subject. Neither enforces genuinely concurrent SETTLEMENT-WIDE
-  streams (economy/politics/families/religion/ecology/trade/
-  festivals/crime/migration) an NPC chooses among — `narrative_
-  direction.py` actively does the opposite (names 1-2 unifying
-  themes quarterly). Would extend `dialogue_topics`' per-pair ring
-  generalized to a settlement-wide category counter feeding
-  `llm/dialogue.py`'s steering line, not a new subsystem.
+- [x] **Diversify cultural topics and rumors — shipped v0.87.31.** New
+  `SettlementCulture.recent_topics` (capped `RECENT_TOPICS_MAX_STORED
+  =40`) generalizes `Population.dialogue_topics`' per-pair ring to
+  settlement scope, zero added LLM call volume — the same LLM-authored
+  `topic` field dialogue already produces is now also recorded
+  settlement-wide in `_apply_pending_dialogue_results`. `top_topics(n)`
+  derives frequency-ranked "what's actually being talked about"
+  on demand; consumed as a new `settlement_topics` steering line in
+  `dialogue.build_prompt` (distinct from the existing per-pair
+  `recent_topics` param) and surfaced as the "Village storylines" main-
+  UI stat tile.
 
-- [ ] **Institutions get their own persistent memory.** Partially
-  shipped, and clarifies what already exists rather than naming a
-  gap: `Institution.beliefs` (`settlement/institutions.py`) already
-  holds each institution's own belief list, kept in sync by `llm/
-  beliefs.py`'s `sync_family_/council_/guild_beliefs` — but this is a
-  FILTERED MIRROR of settlement-wide beliefs (resolves to that
-  institution's members), not independently-generated institutional
-  history. No institution has its own traditions/festivals/records
-  list distinct from `Settlement.traditions`/`records`. Would extend
-  `Institution.beliefs` + `Institution.objective` (§7, shipped) with
-  an institution-scoped version of `llm/culture_digest.py`'s job.
+- [x] **Institutions get their own persistent memory — shipped
+  v0.87.31.** New `Institution.culture_digest` + `llm/institution_
+  culture.py`: a quarterly, round-robin (`SimulationEngine.
+  _institution_job_target`, flat call volume regardless of institution
+  count, same shape as `_diplomacy_pair_target`) LLM job condenses ONE
+  institution's own beliefs/objective/feud history into a short,
+  INDEPENDENTLY-authored sentence — distinct from `Institution.beliefs`
+  (a filtered mirror of settlement-wide beliefs). Genuine no-op
+  fallback, same discipline as `Settlement.culture_digest`. Surfaced in
+  the NPC inspector's Institutions section as a quoted sub-line.
 
-- [ ] **Long-term reputation and family legacy.** Partially shipped —
-  more exists than the ask implies, but the specific piece named
-  (reputation surviving death) is confirmed genuinely absent:
-  `Population._refresh_reputation` explicitly filters to `alive_ids`
-  only, dropping a dead agent's reputation from the cache entirely.
-  Real legacy machinery that DOES persist past death already: H7
-  inheritance (goods/skill/bias/heir-memory/grudge), `Institution.
-  feuds` (generational, outlives individual members), `memorials`,
-  and `Settlement.records` (a notable villager's writings surviving
-  them). Would extend the reputation cache's alive-only filter or add
-  a records-consuming legacy-reputation term — not a new subsystem.
+- [x] **Long-term reputation and family legacy — shipped v0.87.31.**
+  New `Population._deceased_reputation_legacy`: `_refresh_reputation`
+  now snapshots a dying agent's last cached reputation instead of
+  dropping it outright, fading it monthly (`LEGACY_REPUTATION_DECAY
+  =0.03`) and pruning past `LEGACY_REPUTATION_FLOOR` — bounded, same
+  "decay to zero, then delete" discipline as the relationship-leak fix.
+  `reputation()` now reads this as a fallback for a no-longer-alive id;
+  new `family_legacy_reputation(member_agent_ids)` aggregates a FAMILY
+  institution's standing across every member it ever had (living or
+  dead — `member_agent_ids` never shrinks). Reputation is now also
+  surfaced per-agent in the main UI (Vitals row), not just internally.
 
 - [x] **Emotional/importance-based memory retrieval — already fully
   shipped**, v0.87.14. `Agent.retrieve_relevant_memories` scores every
@@ -657,17 +657,17 @@ re-listed as if missing.
   "adaptive retrieval layer" item under a different name. No new work
   needed; flagged here only so it isn't re-proposed.
 
-- [ ] **More cross-system interactions (politics/economy/religion/
-  ecology/families).** Partially shipped, ad hoc rather than a general
-  framework: laws feed disputes/theft penalties, schools feed
-  invention chance (`education_invention_bonus`), tradition effects
-  bias festival/harvest/grief/teaching mechanically
-  (`culture.TRADITION_INFLUENCES`). No shared "cascade" abstraction
-  exists to build a new interaction against — each existing example is
-  its own small gate-then-mechanical-rider addition, and any new
-  cross-link (the doc's own "tax -> guild unrest -> canceled festival
-  -> folklore change" example) would be built the same ad hoc way,
-  not as a new generic system.
+- [x] **More cross-system interactions (politics/economy/religion/
+  ecology/families) — one new cascade shipped v0.87.31, same ad hoc
+  shape as every existing example.** New `FAMILY_FEUD_FESTIVAL_
+  PENALTY=0.4`: a settlement with at least one standing `Institution.
+  feuds` entry among its FAMILY institutions has `_maybe_schedule_
+  festival`'s monthly chance multiplied down — real household discord
+  measurably dampens the whole village's mood, not just the two
+  families involved. Confirms the doc's own framing: no generic
+  "cascade" abstraction was built (still not warranted), this is one
+  more small gate-then-mechanical-rider addition alongside laws->
+  disputes, schools->invention, tradition->festival/harvest/grief.
 
 - [x] **Prune/compress inactive relationships — already fully
   shipped.** `Population`'s relationship-decay path deletes an entry
@@ -679,48 +679,45 @@ re-listed as if missing.
   ones" tier, but the underlying growth problem is not open. Flagged
   here only so it isn't re-proposed as missing.
 
-- [ ] **Multi-layer culture** (village/family/guild/religion/
-  neighborhood). Not shipped as layers — `Settlement.culture_digest`/
-  `belief_digest` are single settlement-wide digests; `Institution.
-  beliefs` (item 2 above) is a filtered subset of the same settlement
-  list, not an independently-authored layer. Would extend `llm/
-  culture_digest.py`'s job pattern, scoped per-institution, same
-  shape as item 2's ask.
+- [x] **Multi-layer culture** (village/family/guild/religion/
+  neighborhood) **— shipped v0.87.31**, via the same `llm/institution_
+  culture.py` job as item 2 above (an institution-scoped, independently
+  -authored digest IS the "layer" this item asked for — one job closes
+  both items, they named the same underlying gap).
 
-- [ ] **Competing narratives** (several major storylines coexisting).
-  Partially covered by `dialogue_topics`' per-pair novelty and
-  `recent_events_diverse`'s routine-category cap (item 1's
-  machinery) — no settlement-wide "N storylines currently running"
-  tracker exists. Would promote the same two existing mechanisms to
-  settlement scope rather than building new tracking.
+- [x] **Competing narratives** (several major storylines coexisting)
+  **— shipped v0.87.31**, via the same `SettlementCulture.recent_
+  topics`/`top_topics()` machinery as item 1 above — several distinct,
+  currently-live subjects rank concurrently rather than one unifying
+  theme (contrast `narrative_direction.py`'s deliberate 1-2-theme
+  quarterly framing, which stays as-is for its own different purpose).
+  Surfaced as the "Village storylines" stat tile, genuinely showing
+  more than one topic when the village has more than one going.
 
-- [ ] **Geography as culture** (NPCs referencing named landmarks in
-  conversation). Confirmed genuinely missing for dialogue
-  specifically — `llm/geography.py` names river/lake features into
-  `Settlement.place_names`, consumed today by `llm/chronicle.py`'s
-  prompt, but a direct grep of `llm/dialogue.py` for `place_names`/
-  geography finds zero matches; dialogue never references named
-  terrain. Would extend `dialogue.build_prompt`'s existing optional-
-  line pattern (same slot shape as its topic-novelty line) with a
-  `Settlement.place_names` reference, zero new state needed.
+- [x] **Geography as culture** (NPCs referencing named landmarks in
+  conversation) **— shipped v0.87.31.** `dialogue.build_prompt` gained
+  a `place_names` parameter (fed `Settlement.place_names.values()` at
+  the call site) — the exact "extend the existing optional-line
+  pattern, zero new state" plan this item itself specified.
 
-- [ ] **Conversation grounded in simulation events.** Partially
-  shipped — `dialogue.build_prompt` already carries lessons/mind/
-  secrets/topics, and `recent_events_diverse` biases which events
-  reach `town_brain`/`chronicle` prompts generally, but dialogue's own
-  prompt does not currently pull a recent-objective-events slice the
-  way `town_brain.py` does. Would pipe a filtered `recent_events_
-  diverse` slice into `dialogue.build_prompt`, reusing the exact
-  mechanism `town_brain` already consumes.
+- [x] **Conversation grounded in simulation events — shipped v0.87.31.**
+  `dialogue.build_prompt` gained a `grounded_event` parameter, fed the
+  newest `recent_events_diverse` row at the call site — the exact "pipe
+  a filtered slice in, reuse the mechanism `town_brain` already
+  consumes" plan this item itself specified.
 
-- [ ] **Long-term societal evolution across generations.** Largely
-  already shipped under other names — traditions, folklore drift,
-  dialect drift (v0.87.19), knowledge lifecycle (v0.87.15), laws/
-  customs (v0.87.17), and ruins-mode successor worlds misreading old
-  records (§5, "historical reinterpretation") all exist. What
-  specifically remains open, if anything, needs a fresh audit against
-  whichever concrete sub-behavior is meant beyond what's listed above
-  — flagged as needing scoping, not assumed to be a real gap.
+- [x] **Long-term societal evolution across generations — audited
+  v0.87.31, no further gap found.** Re-confirmed the pre-existing
+  shipped list (traditions, folklore drift, dialect drift, knowledge
+  lifecycle, laws/customs, ruins-mode successor worlds/historical
+  reinterpretation) genuinely covers cross-generational cultural
+  change; this batch's own new work (institution culture layers,
+  settlement-wide competing storylines, reputation/family legacy
+  surviving death) is itself additional generational-evolution texture
+  on top. No concrete, currently-unbuilt sub-behavior was identified
+  beyond what's listed across this document — closing as an audit
+  conclusion rather than new code, matching this item's own explicit
+  "needs a fresh audit... not assumed to be a real gap" framing.
 
 - [x] **Investigate stalled era progression + gate it by infrastructure
   counts, not just a chance roll.** Shipped v0.87.30. Root cause was
