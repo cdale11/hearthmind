@@ -424,6 +424,66 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.23)
+
+Two parts per explicit user request: implement everything still open
+in docs/IDEAS-2026-07-EMERGENCE.md's original outside-review sections
+(§6 "Substrate" + the last piece of §7), and record 12 new culture/
+institution/reputation/era-progression ideas as an unimplemented
+checklist (§9).
+
+**Spatial weather**: `World.weather_regions` (3x3 coarse grid,
+`WEATHER_REGION_GRID`), each region computed via the same `compute_
+weather` with its own deterministic seed offset. Deliberately Python,
+not C++ — a documented, flagged deviation from R7's "new code in this
+domain is C++ from the start" default given this batch's multi-item
+scope; native-porting under R6 is a flagged follow-up if it proves
+worth it. `World.weather_at(pos)` resolves a settlement's own region;
+`Settlement.tick`'s building-decay catalyst now reads it (two
+settlements genuinely decay at different rates), surfaced as
+`local_weather` per settlement in `/state`. Farms/wildlife/disasters
+stay on the single global `World.weather` — documented scope trim.
+
+**Soil fertility**: `FarmGrid.soil_fertility` (per-tile 0..1, floor
+0.4, tracked only for ever-farmed tiles — bounded). Depletes under an
+active plot, recovers (2x rate) fallow, read at `plant()` to scale the
+new plot's `max_yield` — continuous re-planting now yields measurably
+less than resting a tile.
+
+**Ambient audio**: client-side only, off by default ("🔊 ambience"
+header toggle). Two detuned oscillators + lowpass filter, all
+parameters smoothly ramped from `night_factor`/`weather_detail`
+(already public) and settlement `temperament` (Phase G — read, never
+surfaced as a number/word, same discipline the map already applies).
+
+**Queue-wait-per-job diagnostic**: `CognitionRunner.stats()`'s new
+`queue_wait_ms_p50`/`_p95` closes §7's llama-server-diagnostics item
+(`/metrics` polling + `retrieval_diagnostics()` shipped earlier;
+`/slots` stays a deliberate non-goal, can leak prompt content).
+Distinguishes "semaphore-starved" from "model/server is slow."
+
+**§9 checklist** (docs/IDEAS-2026-07-EMERGENCE.md, NOT implemented):
+12 items — topic/rumor diversity, institutions' own persistent memory,
+deceased-agent/family reputation legacy, multi-layer culture,
+competing narratives, geography-in-dialogue, sim-grounded dialogue,
+cross-system cascades, long-term societal evolution, and a root-caused
+(not just proposed) diagnosis of stalled era progression: `era_for_
+tech_level` gates purely on `tech_level`, incremented only by a rare
+seasonal invention roll with zero infrastructure-count floor — a
+settlement can sit at `industrial` forever regardless of huts/roads/
+schools/carts built. Two items (emotional/importance-based memory
+retrieval, relationship pruning) were found already fully shipped
+(v0.87.14; decay-to-zero relationship fix) and flagged as such rather
+than re-listed.
+
+Verified: direct production-path tests for all four implemented
+pieces (regional weather distinctness/round-trip/fallback; soil
+fertility depletion+recovery against floor/ceiling; queue-wait under
+real concurrent contention). `scripts/verify_native_soak.py` (3 seeds
+x 3000 ticks) byte-identical — no native module touched. A 2-seed x
+20,000-tick organic engine soak (LLM disabled) completes with zero
+crashes across both seeds.
+
 ## Current state (v0.87.22)
 
 Direct follow-up per explicit user request ("continue" after a

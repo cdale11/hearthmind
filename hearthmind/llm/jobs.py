@@ -75,6 +75,17 @@ class CognitionRunner:
         alone can't distinguish them. See docs/DECISIONS.md,
         diagnostics pass."""
         self._latencies_ms: deque[float] = deque(maxlen=_LATENCY_WINDOW)
+        self._queue_wait_ms: deque[float] = deque(maxlen=_LATENCY_WINDOW)
+        """§7 "llama-server-side diagnostics," the one remaining piece
+        (docs/IDEAS-2026-07-EMERGENCE.md — `/slots`/`/metrics` polling
+        and retrieval-hit stats shipped earlier): how long each job
+        actually waited for a concurrency-semaphore slot to open, as
+        opposed to `latency_ms` (time the LLM itself took once running).
+        A rising queue-wait alongside flat `latency_ms` means the
+        bottleneck is `Config.llm_max_concurrent` being too low for the
+        current call volume, not the model/server being slow — a
+        distinction `backlog`/`calls_dropped_backpressure` alone
+        couldn't make."""
 
     @property
     def enabled(self) -> bool:
@@ -102,7 +113,17 @@ class CognitionRunner:
             "latency_ms_p50": percentile(0.5),
             "latency_ms_p95": percentile(0.95),
             "latency_ms_max": round(latencies[-1], 1) if latencies else 0.0,
+            "queue_wait_ms_p50": self._percentile(self._queue_wait_ms, 0.5),
+            "queue_wait_ms_p95": self._percentile(self._queue_wait_ms, 0.95),
         }
+
+    @staticmethod
+    def _percentile(values: "deque[float]", p: float) -> float:
+        sorted_values = sorted(values)
+        if not sorted_values:
+            return 0.0
+        idx = min(len(sorted_values) - 1, int(len(sorted_values) * p))
+        return round(sorted_values[idx], 1)
 
     async def run(
         self, prompt: str, system: str | None, fallback: Callable[[], dict]
@@ -126,7 +147,9 @@ class CognitionRunner:
     async def _run_gated(
         self, prompt: str, system: str | None, fallback: Callable[[], dict]
     ) -> tuple[dict, bool]:
+        queue_entered = time.perf_counter()
         async with self._semaphore:
+            self._queue_wait_ms.append((time.perf_counter() - queue_entered) * 1000)
             self.calls_attempted += 1
             start = time.perf_counter()
             try:

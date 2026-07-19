@@ -353,22 +353,46 @@ happen to nobody. These are observer-side, mostly zero-LLM.
 
 ## 6. Substrate (small physical gaps that feed everything above)
 
-- [ ] **Spatial weather.** Still uniform per-tick across the map
+- [x] **Spatial weather.** Still uniform per-tick across the map
   (flagged in the 2026-07 review, unaddressed). Even a coarse 2–4 cell
   gradient gives geography consequences: the wet valley, the frost
   hollow, why settlement B's harvests differ — which the beliefs layer
   will then *theorize about*, rightly or wrongly. R7 territory,
-  C++-first.
+  C++-first. Shipped as `World.weather_regions`, a `WEATHER_REGION_
+  GRID x WEATHER_REGION_GRID` (3x3) coarse grid — deliberately NOT a
+  per-tile field (that's the genuinely larger R7 undertaking) and
+  deliberately Python, not C++ (a documented deviation from R7's
+  "new code in this domain is C++ from the start" default, given this
+  pass's batch scope — flagged as a native-porting candidate under R6
+  if it proves worth the cost). Consumed today by `Settlement.tick`'s
+  building-decay catalyst via `World.weather_at(settlement.center())`
+  (each settlement can now decay at a genuinely different rate) and
+  surfaced per-settlement as `local_weather` in `/state`; farms/
+  wildlife/disasters stay on the single global `World.weather` reading
+  — a documented scope trim, not an oversight.
 
-- [ ] **Soil fertility as a real field** (vision doc's own noted gap,
+- [x] **Soil fertility as a real field** (vision doc's own noted gap,
   still implicit in biome/farm state). Depletes under repeat farming,
   recovers fallow; makes rotation, ruin, and "the old fields" emerge.
+  Shipped as `FarmGrid.soil_fertility` (per-tile 0..1, floor 0.4,
+  tracked only for ever-farmed tiles so it stays bounded) — depletes
+  while a tile has an active plot, recovers (at 2x the depletion rate)
+  while fallow, read at `plant()` time to scale the new plot's
+  `max_yield`. Continuously re-planting the instant a plot is
+  harvested now yields measurably less than resting the tile between
+  plantings.
 
-- [ ] **Ambient audio keyed to hidden state.** Generative ambience
+- [x] **Ambient audio keyed to hidden state.** Generative ambience
   (weather + daylight + a *mood/temperament-tinted* pad) in the client.
   The observer's ear notices the world darkening before their eye
   does — sensory foreshadowing of state the UI deliberately never
-  labels. WebAudio, no assets, off by default.
+  labels. WebAudio, no assets, off by default. Shipped: two detuned
+  oscillators through a lowpass filter, all parameters smoothly ramped
+  (never recreated, no clicks) from `night_factor`/`weather_detail`
+  (both already public) and settlement `temperament` (Phase G — read
+  exactly like the map already reads it for small nudges, never
+  surfaced as a number or word). A "🔊 ambience" header toggle, off by
+  default.
 
 ## 7. Cognition infrastructure (the wishlist's real gaps)
 
@@ -488,12 +512,18 @@ fix that.
   find something new or go deeper." Cheap, bounded, measurable in the
   surfaced-conversation feed.
 
-- [ ] **llama-server-side diagnostics.** v0.87.5's own flagged next
+- [x] **llama-server-side diagnostics.** v0.87.5's own flagged next
   step: poll `/slots`/`/metrics` for real KV-cache occupancy, context
   utilization, and prompt-cache hit rate instead of char-based
   estimates; add queue-wait-per-job and (once retrieval ships)
   retrieval-hit stats to `/diagnostics`. The measurement substrate
-  every §7 item above should be judged by.
+  every §7 item above should be judged by. `/metrics` polling and
+  `retrieval_diagnostics()` shipped earlier (v0.87.6/v0.87.14); the
+  remaining piece — `CognitionRunner.stats()`'s new `queue_wait_ms_
+  p50`/`_p95` (distinct from `latency_ms_*`, which only measures time
+  once a call is actually running) — closes this out. `/slots` itself
+  was deliberately never polled (v0.87.6's own docstring: it can leak
+  prompt content, unlike `/metrics`) — not a gap, a standing choice.
 
 ## 8. Explicit user-flagged ideas (2026-07-19) — not scoped, not started
 
@@ -569,6 +599,144 @@ not forgotten, acted on only with future explicit direction.
   materials should get their own belief/dispute/theft hooks (a
   diamond vein is a much more interesting thing to fight over than
   undifferentiated "materials").
+
+## 9. Cultural depth & societal-evolution ideas (2026-07-19, explicit
+   user request) — checklist only, not scoped, not started
+
+Recorded per explicit user request ("scope these as checklist don't
+implement yet"). Checked against the current code first, same
+discipline as every other section — several of these turned out to be
+partially or fully shipped already; marked accordingly rather than
+re-listed as if missing.
+
+- [ ] **Diversify cultural topics and rumors.** Partially covered
+  today: `persistence/snapshot.py`'s `recent_events_diverse`/
+  `_dedupe_rumor_topics` keep routine/duplicate rumor rows from
+  crowding LLM prompts, and `Population.dialogue_topics` (§7,
+  shipped) gives each PAIR a novelty ring nudging them off a repeated
+  subject. Neither enforces genuinely concurrent SETTLEMENT-WIDE
+  streams (economy/politics/families/religion/ecology/trade/
+  festivals/crime/migration) an NPC chooses among — `narrative_
+  direction.py` actively does the opposite (names 1-2 unifying
+  themes quarterly). Would extend `dialogue_topics`' per-pair ring
+  generalized to a settlement-wide category counter feeding
+  `llm/dialogue.py`'s steering line, not a new subsystem.
+
+- [ ] **Institutions get their own persistent memory.** Partially
+  shipped, and clarifies what already exists rather than naming a
+  gap: `Institution.beliefs` (`settlement/institutions.py`) already
+  holds each institution's own belief list, kept in sync by `llm/
+  beliefs.py`'s `sync_family_/council_/guild_beliefs` — but this is a
+  FILTERED MIRROR of settlement-wide beliefs (resolves to that
+  institution's members), not independently-generated institutional
+  history. No institution has its own traditions/festivals/records
+  list distinct from `Settlement.traditions`/`records`. Would extend
+  `Institution.beliefs` + `Institution.objective` (§7, shipped) with
+  an institution-scoped version of `llm/culture_digest.py`'s job.
+
+- [ ] **Long-term reputation and family legacy.** Partially shipped —
+  more exists than the ask implies, but the specific piece named
+  (reputation surviving death) is confirmed genuinely absent:
+  `Population._refresh_reputation` explicitly filters to `alive_ids`
+  only, dropping a dead agent's reputation from the cache entirely.
+  Real legacy machinery that DOES persist past death already: H7
+  inheritance (goods/skill/bias/heir-memory/grudge), `Institution.
+  feuds` (generational, outlives individual members), `memorials`,
+  and `Settlement.records` (a notable villager's writings surviving
+  them). Would extend the reputation cache's alive-only filter or add
+  a records-consuming legacy-reputation term — not a new subsystem.
+
+- [x] **Emotional/importance-based memory retrieval — already fully
+  shipped**, v0.87.14. `Agent.retrieve_relevant_memories` scores every
+  candidate memory by recency, salience, keyword-overlap relevance to
+  the current situation, and a causal-link bonus, with its own
+  `retrieval_diagnostics()` measuring hit rate — this was §7's
+  "adaptive retrieval layer" item under a different name. No new work
+  needed; flagged here only so it isn't re-proposed.
+
+- [ ] **More cross-system interactions (politics/economy/religion/
+  ecology/families).** Partially shipped, ad hoc rather than a general
+  framework: laws feed disputes/theft penalties, schools feed
+  invention chance (`education_invention_bonus`), tradition effects
+  bias festival/harvest/grief/teaching mechanically
+  (`culture.TRADITION_INFLUENCES`). No shared "cascade" abstraction
+  exists to build a new interaction against — each existing example is
+  its own small gate-then-mechanical-rider addition, and any new
+  cross-link (the doc's own "tax -> guild unrest -> canceled festival
+  -> folklore change" example) would be built the same ad hoc way,
+  not as a new generic system.
+
+- [x] **Prune/compress inactive relationships — already fully
+  shipped.** `Population`'s relationship-decay path deletes an entry
+  from `agent.relationships` once it decays to zero (the fix for a
+  measured "~94 relationship entries per agent after only 5,000
+  ticks" memory-leak finding, see docs/DECISIONS.md). This already
+  solves the named O(N²) growth concern via decay-to-zero-then-delete;
+  there is no separate "summarize but keep detail for significant
+  ones" tier, but the underlying growth problem is not open. Flagged
+  here only so it isn't re-proposed as missing.
+
+- [ ] **Multi-layer culture** (village/family/guild/religion/
+  neighborhood). Not shipped as layers — `Settlement.culture_digest`/
+  `belief_digest` are single settlement-wide digests; `Institution.
+  beliefs` (item 2 above) is a filtered subset of the same settlement
+  list, not an independently-authored layer. Would extend `llm/
+  culture_digest.py`'s job pattern, scoped per-institution, same
+  shape as item 2's ask.
+
+- [ ] **Competing narratives** (several major storylines coexisting).
+  Partially covered by `dialogue_topics`' per-pair novelty and
+  `recent_events_diverse`'s routine-category cap (item 1's
+  machinery) — no settlement-wide "N storylines currently running"
+  tracker exists. Would promote the same two existing mechanisms to
+  settlement scope rather than building new tracking.
+
+- [ ] **Geography as culture** (NPCs referencing named landmarks in
+  conversation). Confirmed genuinely missing for dialogue
+  specifically — `llm/geography.py` names river/lake features into
+  `Settlement.place_names`, consumed today by `llm/chronicle.py`'s
+  prompt, but a direct grep of `llm/dialogue.py` for `place_names`/
+  geography finds zero matches; dialogue never references named
+  terrain. Would extend `dialogue.build_prompt`'s existing optional-
+  line pattern (same slot shape as its topic-novelty line) with a
+  `Settlement.place_names` reference, zero new state needed.
+
+- [ ] **Conversation grounded in simulation events.** Partially
+  shipped — `dialogue.build_prompt` already carries lessons/mind/
+  secrets/topics, and `recent_events_diverse` biases which events
+  reach `town_brain`/`chronicle` prompts generally, but dialogue's own
+  prompt does not currently pull a recent-objective-events slice the
+  way `town_brain.py` does. Would pipe a filtered `recent_events_
+  diverse` slice into `dialogue.build_prompt`, reusing the exact
+  mechanism `town_brain` already consumes.
+
+- [ ] **Long-term societal evolution across generations.** Largely
+  already shipped under other names — traditions, folklore drift,
+  dialect drift (v0.87.19), knowledge lifecycle (v0.87.15), laws/
+  customs (v0.87.17), and ruins-mode successor worlds misreading old
+  records (§5, "historical reinterpretation") all exist. What
+  specifically remains open, if anything, needs a fresh audit against
+  whichever concrete sub-behavior is meant beyond what's listed above
+  — flagged as needing scoping, not assumed to be a real gap.
+
+- [ ] **Investigate stalled era progression + gate it by infrastructure
+  counts, not just a chance roll.** Confirmed genuinely missing, and
+  the root cause of "civilization doesn't progress after 50,000
+  ticks" is now understood, not just suspected: `era_for_tech_level`
+  (`settlement/buildings.py`) gates era purely on `tech_level`, which
+  is incremented ONLY by `llm/invention.py`'s rare seasonal roll
+  (`INVENTION_CHANCE_PER_SEASON = 0.2`, itself gated on a currency/
+  materials surplus + education bonus) — a dice roll with no
+  infrastructure-count floor at all. A settlement can sit at
+  `industrial` forever if the roll simply doesn't land, regardless of
+  how many huts/roads/schools/carts it has built. Would extend `_maybe_
+  schedule_invention`'s existing gate-then-roll pattern with concrete
+  infra-count preconditions (a minimum count of standing HUTs/roads/
+  SCHOOLs/carts before the NEXT era's threshold becomes reachable at
+  all) alongside the currency/materials check already there — small,
+  legible, era-by-era steps rather than a steep jump, matching the
+  user's explicit framing ("many progression steps... each step to
+  next era unlocks new buildings, infra and other options").
 
 ---
 

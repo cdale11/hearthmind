@@ -85,6 +85,28 @@ farming"). A season name absent from this table (a custom Config's
 `.get(season, 1.0)` in `FarmGrid.tick`. See docs/DECISIONS.md, scarcity
 pass."""
 
+SOIL_FERTILITY_MIN = 0.4
+"""§6 "Soil fertility as a real field" (docs/IDEAS-2026-07-EMERGENCE.md):
+floor on `FarmGrid.soil_fertility` — exhausted land still yields
+something (a floor, not a dead end you can never farm again), just
+noticeably less than fresh/rested land. Never reaches 0."""
+
+SOIL_FERTILITY_DEPLETION_PER_TICK = 0.00015
+"""Fertility lost per tick a tile has an active plot (GROWING or READY)
+on it — continuous cultivation without rest exhausts the soil. At this
+rate a plot worked continuously for ~4000 ticks (about the time several
+GROWTH_PER_TICK cycles take) drops from 1.0 fertility to the floor,
+rewarding rotation (letting a tile sit fallow between plantings) over
+permanently re-planting the same spot the instant it's harvested."""
+
+SOIL_FERTILITY_RECOVERY_PER_TICK = 0.0003
+"""Fertility regained per tick a previously-farmed tile has NO active
+plot (fallow) — twice the depletion rate, so a tile that's rested for
+a while recovers meaningfully faster than it was worn down, matching
+real crop-rotation practice (a season fallow undoes much more than a
+season of continuous cropping cost)."""
+
+
 IRRIGATION_GROWTH_MULTIPLIER = 1.35
 """Integration milestone ("infrastructure networks"): a plot adjacent
 to water (`world/resources.is_adjacent_to_water` — the same helper H-
@@ -159,11 +181,27 @@ class FarmPlot:
 @dataclass
 class FarmGrid:
     plots: dict[tuple[int, int], FarmPlot] = field(default_factory=dict)
+    soil_fertility: dict[tuple[int, int], float] = field(default_factory=dict)
+    """§6 "Soil fertility as a real field": per-tile 0..1 multiplier,
+    only tracked for tiles that have EVER been planted (bounded by
+    distinct farmed-tile count, not the whole map — self-limiting the
+    same way `World.terrain_activity` is) — absent means "never farmed,
+    full fertility" (1.0). Depletes while a tile has an active plot,
+    recovers while fallow (present in this dict but not in `plots`).
+    Read (not consumed) at `plant()` time to scale the new plot's
+    `max_yield` — repeatedly re-planting the same worn-out spot the
+    instant it's harvested yields less than resting it between
+    plantings, making crop rotation and "the old fields" (an
+    exhausted-then-abandoned patch) real emergent behavior rather than
+    implicit in biome/farm state."""
 
     # --- queries -------------------------------------------------------------
 
     def get(self, x: int, y: int) -> FarmPlot | None:
         return self.plots.get((x, y))
+
+    def fertility_at(self, x: int, y: int) -> float:
+        return self.soil_fertility.get((x, y), 1.0)
 
     @staticmethod
     def is_farmable(terrain: list[list[Tile]], x: int, y: int) -> bool:
@@ -172,10 +210,29 @@ class FarmGrid:
     # --- planting ------------------------------------------------------------
 
     def plant(self, x: int, y: int, tooled: bool = False) -> FarmPlot:
-        max_yield = MAX_FARM_YIELD * FARM_TOOL_YIELD_MULTIPLIER if tooled else MAX_FARM_YIELD
-        plot = FarmPlot(x=x, y=y, max_yield=max_yield)
+        base_max_yield = MAX_FARM_YIELD * FARM_TOOL_YIELD_MULTIPLIER if tooled else MAX_FARM_YIELD
+        fertility = self.fertility_at(x, y)
+        plot = FarmPlot(x=x, y=y, max_yield=base_max_yield * fertility)
         self.plots[(x, y)] = plot
+        self.soil_fertility.setdefault((x, y), fertility)
         return plot
+
+    def _tick_soil_fertility(self) -> None:
+        """Deplete every tile with an active plot, recover every
+        tracked-but-currently-fallow tile — a plain Python loop bounded
+        by `len(soil_fertility)` (distinct ever-farmed tiles), run
+        alongside (not inside) the native fast path below since it's an
+        orthogonal per-tile float, not part of `FarmPlot`'s own state."""
+        for pos in self.plots:
+            self.soil_fertility[pos] = max(
+                SOIL_FERTILITY_MIN, self.fertility_at(*pos) - SOIL_FERTILITY_DEPLETION_PER_TICK,
+            )
+        for pos in list(self.soil_fertility):
+            if pos in self.plots:
+                continue
+            self.soil_fertility[pos] = min(
+                1.0, self.fertility_at(*pos) + SOIL_FERTILITY_RECOVERY_PER_TICK,
+            )
 
     def harvest(self, x: int, y: int, amount: float) -> float:
         """Consume up to `amount` from the ready plot at (x, y), removing
@@ -195,6 +252,7 @@ class FarmGrid:
 
     def tick(self, season: str = "summer", terrain: list[list[Tile]] | None = None) -> None:
         base_growth_rate = GROWTH_PER_TICK * SEASON_GROWTH_MULTIPLIER.get(season, 1.0)
+        self._tick_soil_fertility()
 
         if _native_farm_grid_tick is not None:
             # Native fast path (module 8): irrigation adjacency is a
@@ -251,12 +309,19 @@ class FarmGrid:
     def summary(self) -> dict:
         growing = sum(1 for p in self.plots.values() if p.stage is FarmStage.GROWING)
         ready = sum(1 for p in self.plots.values() if p.stage is FarmStage.READY)
-        return {"total": len(self.plots), "growing": growing, "ready": ready}
+        avg_fertility = (
+            round(sum(self.soil_fertility.values()) / len(self.soil_fertility), 3)
+            if self.soil_fertility else 1.0
+        )
+        return {"total": len(self.plots), "growing": growing, "ready": ready, "avg_soil_fertility": avg_fertility}
 
     # --- (de)serialization -----------------------------------------------------
 
     def to_dict(self) -> dict:
-        return {"plots": [p.to_dict() for p in self.plots.values()]}
+        return {
+            "plots": [p.to_dict() for p in self.plots.values()],
+            "soil_fertility": {f"{x}:{y}": v for (x, y), v in self.soil_fertility.items()},
+        }
 
     @classmethod
     def from_dict(cls, data: dict) -> "FarmGrid":
@@ -264,4 +329,8 @@ class FarmGrid:
         for plot_data in data["plots"]:
             plot = FarmPlot.from_dict(plot_data)
             plots[(plot.x, plot.y)] = plot
-        return cls(plots=plots)
+        soil_fertility: dict[tuple[int, int], float] = {}
+        for key, value in data.get("soil_fertility", {}).items():
+            x_str, y_str = key.split(":")
+            soil_fertility[(int(x_str), int(y_str))] = value
+        return cls(plots=plots, soil_fertility=soil_fertility)

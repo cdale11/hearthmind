@@ -55,6 +55,22 @@ is a private running theory, not a growing dossier."""
 CONSCIOUSNESS_INTERVENTION_LOG_MAX = 12
 """Cap on `World.consciousness_intervention_log`."""
 
+WEATHER_REGION_GRID = 3
+"""§6 "Spatial weather" (docs/IDEAS-2026-07-EMERGENCE.md): the map is
+divided into a `WEATHER_REGION_GRID` x `WEATHER_REGION_GRID` coarse
+grid (9 regions by default) rather than one uniform reading — "even a
+coarse 2-4 cell gradient gives geography consequences." Deliberately
+NOT a per-tile field (that's a genuinely larger R7/C++-first
+undertaking the doc itself flags) — this is the smallest real step
+that gives two settlements on the same map a chance to experience
+different weather at the same tick. Each region's `WeatherState` is
+computed by the same `compute_weather` function as the global
+reading, seeded with its own region id so regions drift independently
+rather than all mirroring `World.weather`. Currently consumed only by
+`Settlement.tick`'s building-decay catalyst (via `World.weather_at`)
+— farms/wildlife/disasters stay on the single global `World.weather`
+reading, a documented scope trim, not an oversight."""
+
 HIGHLIGHTS_MAX_STORED = 30
 """Cap on `World.highlights` — a small, bounded log of self-flagged
 emergent moments, not a growing archive (the full narrative record
@@ -170,6 +186,14 @@ class World:
     never re-cover the same ground. Persisted like sim_summary_* so a
     page refresh still shows the last digest and the boundary survives
     a restart."""
+    weather_regions: dict[tuple[int, int], WeatherState] = field(default_factory=dict)
+    """§6 "Spatial weather": `(region_x, region_y) -> WeatherState`, one
+    entry per cell of the `WEATHER_REGION_GRID` x `WEATHER_REGION_GRID`
+    coarse grid — see `WEATHER_REGION_GRID`'s docstring and `World.
+    weather_at`. Recomputed every tick in `World.tick()` alongside the
+    global `weather` reading; empty only before the first tick (never
+    persisted across that gap, same as `weather` itself needing at
+    least one tick to exist meaningfully)."""
     highlights: list[dict] = field(default_factory=list)
     """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md): the
     simulation's own bounded record of moments it judged notable
@@ -297,6 +321,20 @@ class World:
         world-level geography names) read naturally."""
         return self.settlements[0]
 
+    def weather_at(self, pos: tuple[int, int] | None) -> WeatherState:
+        """§6 "Spatial weather": the regional `WeatherState` covering
+        `pos` (a settlement's `center()`), falling back to the single
+        global `weather` reading when `pos` is None (a brand-new
+        settlement with no buildings yet to infer a center from) or
+        before the first tick has populated `weather_regions`."""
+        if pos is None or not self.weather_regions:
+            return self.weather
+        width = max(1, self.config.width)
+        height = max(1, self.config.height)
+        rx = min(WEATHER_REGION_GRID - 1, pos[0] * WEATHER_REGION_GRID // width)
+        ry = min(WEATHER_REGION_GRID - 1, pos[1] * WEATHER_REGION_GRID // height)
+        return self.weather_regions.get((rx, ry), self.weather)
+
     # --- construction ----------------------------------------------------
 
     @classmethod
@@ -349,6 +387,23 @@ class World:
             month=self.clock.month_name.lower(),
             previous=self.weather,
         )
+        month_name = self.clock.month_name.lower()
+        new_regions: dict[tuple[int, int], WeatherState] = {}
+        for rx in range(WEATHER_REGION_GRID):
+            for ry in range(WEATHER_REGION_GRID):
+                # A cheap deterministic per-region seed offset (not a
+                # full namespaced_rng draw — this runs every tick, and
+                # all `compute_weather` needs is a distinct seed per
+                # region so they drift independently rather than
+                # mirroring the global reading tick-for-tick).
+                region_seed = self.config.seed + rx * 1009 + ry * 31
+                new_regions[(rx, ry)] = compute_weather(
+                    seed=region_seed,
+                    tick=self.clock.tick_count,
+                    month=month_name,
+                    previous=self.weather_regions.get((rx, ry)),
+                )
+        self.weather_regions = new_regions
         self.resources.tick(season=self.clock.season)
         self.farms.tick(season=self.clock.season, terrain=self.terrain)
         wildlife_events = self.wildlife.tick(
@@ -358,7 +413,7 @@ class World:
         settlement_events: list[tuple[str, str]] = []
         self.newly_named_settlement_ids = []
         for stl in self.settlements:
-            settlement_events += stl.tick(weather=self.weather, season=self.clock.season)
+            settlement_events += stl.tick(weather=self.weather_at(stl.center()), season=self.clock.season)
             has_standing_building = any(b.stage is BuildingStage.STANDING for b in stl.buildings)
             if not stl.name and has_standing_building:
                 rng = _namespaced_rng(
@@ -529,6 +584,12 @@ class World:
                     "members": stl.living_member_count(self.population.agents),
                     "standing": sum(1 for b in stl.buildings if b.stage is BuildingStage.STANDING),
                     "era": stl.era,
+                    # §6 "Spatial weather" (docs/IDEAS-2026-07-EMERGENCE.md):
+                    # this settlement's own regional reading, which can
+                    # genuinely differ from the global `weather` key above
+                    # once settlements are far enough apart to land in
+                    # different WEATHER_REGION_GRID cells.
+                    "local_weather": self.weather_at(stl.center()).describe(),
                 }
                 for stl in self.settlements
             ],
@@ -598,6 +659,9 @@ class World:
             "clock": self.clock.to_dict(),
             "terrain": [[tile.to_dict() for tile in row] for row in self.terrain],
             "weather": self.weather.to_dict(),
+            "weather_regions": {
+                f"{rx}:{ry}": ws.to_dict() for (rx, ry), ws in self.weather_regions.items()
+            },
             "population": self.population.to_dict(),
             "resources": self.resources.to_dict(),
             "settlements": [stl.to_dict() for stl in self.settlements],
@@ -694,6 +758,10 @@ class World:
             [[Tile.from_dict(t) for t in row] for row in data["terrain"]]
         )
         weather = WeatherState.from_dict(data["weather"])
+        weather_regions: dict[tuple[int, int], WeatherState] = {}
+        for key, ws_data in data.get("weather_regions", {}).items():
+            rx_str, ry_str = key.split(":")
+            weather_regions[(int(rx_str), int(ry_str))] = WeatherState.from_dict(ws_data)
 
         migrated_subsystems: list[str] = []
 
@@ -762,6 +830,7 @@ class World:
 
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
+            weather_regions=weather_regions,
             population=population, resources=resources, settlements=settlements, farms=farms,
             wildlife=wildlife, roads=roads, climate=climate, lakes=lakes, disasters=disasters,
             terrain_activity=terrain_activity,

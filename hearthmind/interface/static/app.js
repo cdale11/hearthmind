@@ -2767,11 +2767,97 @@ if (foundSuccessorBtn) {
   });
 }
 
+// --- §6 "Ambient audio keyed to hidden state" (docs/IDEAS-2026-07-EMERGENCE.md) --
+// Generative WebAudio ambience — off by default, no assets. Two detuned
+// oscillators through a lowpass filter stand in for a wind/drone pad;
+// parameters are smoothly ramped (never recreated) from real broadcast
+// state each payload: night_factor/weather_detail (both already public,
+// unlabeled), and settlement temperament (Phase G — read here exactly
+// like the map already reads it for small nudges, never surfaced as a
+// number or a word; the ear notices the world darkening before the eye
+// does, the doc's own framing). Nothing here is a "mood" label — it's
+// one more silent consumer of state this project already keeps
+// deliberately ambiguous everywhere else.
+
+let ambientAudio = null; // { ctx, osc1, osc2, filter, gain } once started
+
+function ensureAmbientAudio() {
+  if (ambientAudio) return ambientAudio;
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return null;
+  const ctx = new AudioCtx();
+  const osc1 = ctx.createOscillator();
+  const osc2 = ctx.createOscillator();
+  osc1.type = "sine";
+  osc2.type = "sine";
+  osc1.frequency.value = 110;
+  osc2.frequency.value = 110;
+  osc2.detune.value = 6;
+  const filter = ctx.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 800;
+  const gain = ctx.createGain();
+  gain.gain.value = 0; // fade in on start, never a hard click
+  osc1.connect(filter);
+  osc2.connect(filter);
+  filter.connect(gain);
+  gain.connect(ctx.destination);
+  osc1.start();
+  osc2.start();
+  ambientAudio = { ctx, osc1, osc2, filter, gain };
+  return ambientAudio;
+}
+
+function updateAmbientAudio(summary) {
+  if (!ambientAudio || !summary) return;
+  const { ctx, osc1, osc2, filter, gain } = ambientAudio;
+  const now = ctx.currentTime;
+  const RAMP = 4.0; // seconds — slow drift, not a jump cut on every tick payload
+  const w = summary.weather_detail || {};
+  const nightFactor = summary.night_factor != null ? summary.night_factor : 0;
+  const precipitation = w.precipitation != null ? w.precipitation : 0;
+  const wind = w.wind != null ? w.wind : 0;
+  const temperament = (summary.settlement && summary.settlement.temperament) || 0;
+
+  // Base pitch drops at night, warms (rises) with positive temperament —
+  // a small, never-dominant nudge, same magnitude discipline Phase G
+  // applies everywhere else it touches a number.
+  const baseFreq = 90 + (1 - nightFactor) * 40 + temperament * 15;
+  osc1.frequency.linearRampToValueAtTime(baseFreq, now + RAMP);
+  osc2.frequency.linearRampToValueAtTime(baseFreq, now + RAMP);
+  osc2.detune.linearRampToValueAtTime(6 + wind * 30, now + RAMP);
+
+  // Rain/overcast muffles the pad (lower filter cutoff); clear skies
+  // brighten it. Wind adds a little extra openness on top.
+  const cutoff = 300 + (1 - precipitation) * 900 + wind * 200;
+  filter.frequency.linearRampToValueAtTime(cutoff, now + RAMP);
+
+  const targetGain = ambientAudioEnabled ? 0.035 : 0;
+  gain.gain.linearRampToValueAtTime(targetGain, now + RAMP);
+}
+
+let ambientAudioEnabled = false;
+const ambientAudioToggle = document.getElementById("ambient-audio-toggle");
+if (ambientAudioToggle) {
+  ambientAudioToggle.addEventListener("click", () => {
+    ambientAudioEnabled = !ambientAudioEnabled;
+    ambientAudioToggle.classList.toggle("active", ambientAudioEnabled);
+    if (ambientAudioEnabled) {
+      const a = ensureAmbientAudio();
+      if (a && a.ctx.state === "suspended") a.ctx.resume();
+      if (latest) updateAmbientAudio(latest.summary);
+    } else if (ambientAudio) {
+      ambientAudio.gain.gain.linearRampToValueAtTime(0, ambientAudio.ctx.currentTime + 4.0);
+    }
+  });
+}
+
 function applyPayload(payload) {
   latest = payload;
   renderSettlementChips(payload);
   renderStats(payload.summary);
   renderExtinctionBanner(payload.summary);
+  if (ambientAudioEnabled) updateAmbientAudio(payload.summary);
   renderConsequences(payload.summary);
   renderInfrastructure(payload.infrastructure);
   if (payload.diagnostics && payload.diagnostics.sim_pacing) renderSimPacing(payload.diagnostics.sim_pacing);

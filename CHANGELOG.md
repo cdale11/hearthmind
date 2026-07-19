@@ -4,6 +4,79 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.23] — §6/§7 close-out + §9 checklist (cultural depth ideas)
+
+Two parts per explicit user request: (1) implement everything still
+open in docs/IDEAS-2026-07-EMERGENCE.md's original outside-review
+sections (§6 "Substrate" — spatial weather, soil fertility, ambient
+audio — plus the last piece of §7's llama-server diagnostics item);
+(2) record 12 new culture/institution/reputation/era-progression ideas
+as a checklist (§9) without implementing them.
+
+**Spatial weather** (`World.weather_regions`, `weather_at`): a
+`WEATHER_REGION_GRID x WEATHER_REGION_GRID` (3x3) coarse grid instead
+of one uniform reading — deliberately not a per-tile field (the
+doc's own larger R7 undertaking) and deliberately Python, not C++ (a
+documented, flagged deviation from R7's "new code in this domain is
+C++ from the start" default, given this pass's multi-item batch
+scope). Each region computed via the same `compute_weather` function
+with its own deterministic seed offset so regions drift independently.
+Consumed today by `Settlement.tick`'s building-decay catalyst (two
+settlements can now genuinely decay at different rates) and surfaced
+per-settlement as `local_weather` in `/state`; farms/wildlife/
+disasters stay on the single global reading — a documented scope
+trim.
+
+**Soil fertility** (`FarmGrid.soil_fertility`): per-tile 0..1
+multiplier, tracked only for ever-farmed tiles (bounded, self-
+limiting). Depletes while a tile has an active plot, recovers (2x the
+depletion rate) while fallow, read at `plant()` time to scale the new
+plot's `max_yield`. Continuously re-planting the instant a plot is
+harvested now yields measurably less than resting the tile — crop
+rotation is a real emergent incentive, not implicit in biome state.
+
+**Ambient audio** (client-side only, `app.js`): two detuned
+oscillators through a lowpass filter, off by default behind a new
+"🔊 ambience" header toggle. All parameters smoothly ramped (never
+recreated — no clicks) from `night_factor`/`weather_detail` (both
+already public) and settlement `temperament` (Phase G — read exactly
+like the map already reads it for small nudges, never surfaced as a
+number or word anywhere in the UI).
+
+**Queue-wait-per-job diagnostic** (`CognitionRunner.stats()`'s new
+`queue_wait_ms_p50`/`_p95`): closes the last open piece of §7's
+llama-server-diagnostics item (`/metrics` polling and `retrieval_
+diagnostics()` shipped earlier, v0.87.6/v0.87.14; `/slots` was always
+a deliberate non-goal — it can leak prompt content). Measures time
+spent waiting for a concurrency-semaphore slot, distinct from
+`latency_ms_*` (time once a call is actually running) — a rising
+queue-wait with flat latency now legibly points at `Config.llm_max_
+concurrent` being too low for current call volume, not a slow model.
+
+**§9 checklist** (docs/IDEAS-2026-07-EMERGENCE.md, not implemented):
+12 new ideas recorded per explicit user request — topic/rumor
+diversity, institutions' own persistent memory, deceased-agent/family
+reputation legacy, multi-layer culture, competing narratives,
+geography-in-dialogue, sim-grounded dialogue, cross-system cascades,
+long-term societal evolution, and (root-caused, not just proposed) why
+era progression stalls: `era_for_tech_level` gates purely on
+`tech_level`, incremented only by a rare seasonal invention roll with
+no infrastructure-count floor at all — a settlement can sit at
+`industrial` forever regardless of how many huts/roads/schools/carts
+it has built. Two items (emotional/importance-based memory retrieval,
+relationship pruning) turned out to be already fully shipped
+(v0.87.14, and the decay-to-zero relationship fix respectively) —
+flagged as such rather than re-listed as gaps.
+
+Verified: direct production-path tests (regional weather distinctness
++ round-trip + settlement-center fallback; soil fertility depletion
+under continuous farming and recovery under rest, verified numerically
+against the floor/ceiling; queue-wait measured under real concurrent
+contention). `scripts/verify_native_soak.py` (3 seeds x 3000 ticks)
+byte-identical — this batch touches no native module. A 2-seed x
+20,000-tick organic engine soak (LLM disabled) completes with zero
+crashes across both seeds.
+
 ## [0.87.22] — §5 close-out: making deep time legible
 
 Direct follow-up per explicit user request ("continue" after §4's
