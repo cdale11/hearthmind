@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.33] — Docs cleanup: stale status claims fixed, CLAUDE.md consolidated
+
+Explicit user request ("Clean up stale docs and stale items and clean
+all documents"). Pure documentation pass, no code/behavior changes.
+
+**Real staleness found and fixed** (not just size): `docs/VISION-
+2026-07.md` still opened with "Status: design only — nothing in this
+document is implemented yet," and CLAUDE.md's "Long-term design
+vision" section still said "**Nothing from this vision is implemented
+yet**" — both false since v0.84.4 (all six phases, I-N, have been
+shipped for a long time). CLAUDE.md's `docs/IDEAS-2026-07-EMERGENCE.md`
+summary similarly still described §8 as "three not-yet-scoped ideas...
+work from it only on future explicit direction" — false since v0.87.26
+-.28 (two of three shipped, the third correctly data-collection-only).
+Both corrected to reflect actual shipped status.
+
+**Fully-shipped roadmap docs trimmed to status pointers** — same
+treatment `docs/ROADMAP.md` already got for the original Phase A-H
+backlog: `docs/VISION-2026-07.md` (326 -> 66 lines: phase-shipping
+table + the two flagged conflicts' resolutions, full original audit
+text superseded by what actually shipped) and `docs/VISION-2026-07-
+LEARNING.md` (157 -> 38 lines: what shipped by layer, all six of its
+own deferred items closed by v0.87.4). Nothing lost — CHANGELOG.md and
+CLAUDE.md's "Current state" history remain the full record.
+
+**CLAUDE.md consolidated** (3013 -> ~1040 lines, same periodic
+maintenance this file has had at v0.63.0 and v0.85.0): kept the 6 most
+recent "Current state" sections in full (v0.87.27–.32), folded
+everything from v0.87.26 back through v0.82.0 into a new dense,
+themed summary merged into the existing "Consolidated history"
+section (now spanning v0.65.2–v0.87.26 as one block) — durable facts
+only (mechanisms still active, constants still in force), full
+narrative detail remains in CHANGELOG.md and, for IDEAS-doc items,
+that document's own per-item writeup. Two now-dangling internal
+cross-references (to `"Current state (v0.86.0)"` and `"Current state
+(v0.85.1)"`, both folded into prose by this pass) repointed to the
+Consolidated history section.
+
+`docs/IDEAS-2026-07-EMERGENCE.md` audited and left as-is — every
+checklist item across §0-§9 is already accurately marked shipped/
+resolved (confirmed during this pass, not assumed), so it's a correct
+historical record already, same status as `docs/DECISIONS.md`.
+`docs/REFACTOR-2026-07.md`/`docs/REVIEW-2026-07.md`/`docs/DECISIONS.md`
+also audited and left untouched — genuinely still-referenced historical/
+governing documents (R7's discipline, the full architecture review),
+not stale backlogs.
+
 ## [0.87.32] — Fix: mineral veins never reached the live map/tile inspector
 
 Direct fix for a live report: "Tiles containing ores, minerals should
