@@ -409,6 +409,22 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.89.0) — v1 batch, Phase 2
+
+Explicit user ask: "improved genesis prompt." Root cause of the real
+weakness: the LLM's scenario text used to be hashed into the world's
+RNG seed, meaning it was always written before any terrain existed —
+so a narrated "river valley" had no guarantee of a real river nearby.
+`server.py` now generates a real preview terrain from its own entropy
+first, describes what's actually near spawn (`world_genesis.detect_
+terrain_features`), feeds that into the prompt, and returns that same
+entropy as the final seed — the terrain the real world gets is now
+mathematically guaranteed to be the terrain genesis described.
+`seed_from_scenario` removed (no longer called). New `_SETTLER_
+CIRCUMSTANCE_HINTS` axis (independent of the terrain lean) gives the
+model something to say about who the founders are, not just the land.
+Full detail: CHANGELOG.md.
+
 ## Current state (v0.88.0) — v1 batch, Phase 1
 
 First phase of a large multi-part v1 batch (explicit user request: deep

@@ -4,6 +4,51 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.89.0] — v1 batch, Phase 2: genesis prompt overhaul
+
+Phase 2 of the v1 batch. Explicit user ask: "improved genesis prompt."
+The prompt-audit pass found the genesis mechanism's real weakness
+wasn't prompt wording — it was a structural disconnect between the
+narrated founding scenario and the actual generated map.
+
+**Terrain/narrative correspondence, now guaranteed.** Previously the
+LLM's own scenario text was hashed into the world's RNG seed ("literal
+rather than cosmetic" per the old docstring) — but that meant the
+scenario was always written *before* any terrain existed to describe,
+so "a river valley" could easily narrate a map with no river anywhere
+near spawn. `server.py`'s `_resolve_genesis_seed` now generates a real
+preview terrain from its own entropy (`generate_terrain(fallback_hint,
+...)`) FIRST, describes what's actually near the map's center via new
+`world_genesis.detect_terrain_features` (a bounded window scan, not a
+full-map pass — coastline/hills/forest/grassland by tile-count ratio),
+and feeds that into the prompt as the lean. The returned seed is now
+`fallback_hint` itself (dropping `seed_from_scenario`, removed — no
+longer called anywhere), so the terrain `state.py` actually generates
+for the real world is mathematically guaranteed identical to the
+preview the genesis text was grounded in. Verified directly: same seed
+through `generate_terrain` twice produces byte-identical biomes, and an
+end-to-end `_resolve_genesis_seed` call's returned seed reproduces the
+same `detect_terrain_features` result as the preview.
+
+**Settler-circumstance variety, new.** `_TERRAIN_FLAVOR_HINTS` only
+ever varied landscape aesthetics, never who the founders are or why
+they've come — a real underused lever given genesis seeds every
+downstream culture/belief/naming/record. New `_SETTLER_CIRCUMSTANCE_
+HINTS` (fleeing hardship, religious dissenters, opportunists, a
+displaced offshoot, refugees, ...), drawn from the same entropy via an
+independent modulus so it doesn't just track the terrain pick, offered
+alongside the terrain lean as an equally-optional "or invent your own."
+`SYSTEM_PROMPT` updated to ask for "something of who these first
+inhabitants are or what brought them here," not just the land.
+
+Verified: direct smoke tests (terrain-feature detection across 200
+random seeds — feature distribution checked and one threshold retuned
+after coastline initially dominated at ~51%, now ~42%/~1 in 3-4 other
+outcomes), `_resolve_genesis_seed`'s LLM-disabled fallback path, and
+the terrain-correspondence guarantee above. `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical — no native module or
+persisted schema touched.
+
 ## [0.88.0] — v1 batch, Phase 1: deep audit bug fixes
 
 Phase 1 of a large multi-part v1 batch (explicit user request: "audit the

@@ -19,6 +19,7 @@ from hearthmind.llm import world_genesis
 from hearthmind.llm.client import build_llm_client
 from hearthmind.persistence.database import is_fresh, open_db, write_world_meta
 from hearthmind.simulation.engine import SimulationEngine
+from hearthmind.world.terrain import generate_terrain
 
 logger = logging.getLogger("hearthmind.server")
 
@@ -158,29 +159,33 @@ def parse_args(argv: list[str] | None = None) -> Config:
 
 
 async def _resolve_genesis_seed(config: Config) -> tuple[int, str]:
-    """Turn "no --seed given" into a concrete seed for a brand-new world:
-    an LLM-authored founding scenario, hashed into a seed (see
-    hearthmind.llm.world_genesis), or a wall-clock-derived fallback if
-    the LLM is disabled/unreachable. Blocking-but-once: this only ever
+    """Turn "no --seed given" into a concrete seed for a brand-new
+    world: `fallback_hint` (real entropy) both seeds the actual terrain
+    AND is used to generate a throwaway preview of that same terrain
+    up front, so the LLM-authored founding scenario (see
+    hearthmind.llm.world_genesis) can be grounded in what's actually
+    near spawn instead of an arbitrary flavor label — see world_genesis'
+    module docstring, "v1 audit fix". Blocking-but-once: this only ever
     runs a single time, before the tick loop starts, so a multi-second
     LLM call here is an acceptable one-time startup cost, not a
     liveness risk like a per-tick call would be."""
     fallback_hint = random.SystemRandom().randrange(1, 2**31 - 1)
+    preview_terrain = generate_terrain(fallback_hint, config.width, config.height)
+    detected_features = world_genesis.detect_terrain_features(preview_terrain)
     if config.llm_enabled:
         try:
             client = build_llm_client(config)
+            prompt = world_genesis.build_prompt(fallback_hint, detected_features)
             result = await asyncio.wait_for(
-                asyncio.to_thread(
-                    client.generate_json, world_genesis.build_prompt(fallback_hint), world_genesis.SYSTEM_PROMPT,
-                ),
+                asyncio.to_thread(client.generate_json, prompt, world_genesis.SYSTEM_PROMPT),
                 timeout=config.llm_timeout_seconds + 5.0,
             )
             scenario = world_genesis.parse_scenario(result, world_genesis.fallback_scenario(fallback_hint))
-            return world_genesis.seed_from_scenario(scenario), scenario
+            return fallback_hint, scenario
         except Exception as exc:  # LLM failure must never block world creation
             logger.warning("World-genesis LLM call failed, using a deterministic fallback scenario: %s", exc)
     scenario = world_genesis.fallback_scenario(fallback_hint)["scenario"]
-    return world_genesis.seed_from_scenario(scenario) ^ fallback_hint, scenario
+    return fallback_hint, scenario
 
 
 async def _main_async(config: Config) -> None:
