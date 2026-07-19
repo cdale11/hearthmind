@@ -419,6 +419,21 @@ body.subjective-mode #stat-grid { display: none; }
 #sim-speed-label { font-size: 11px; min-width: 2.5em; text-align: center; }
 
 #dev-console.hidden { display: none; }
+#recorder-panel {
+  border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin-bottom: 10px;
+}
+#recorder-panel h3 { margin: 0 0 4px 0; font-size: 12px; }
+#recorder-status { margin: 0 0 6px 0; font-size: 11px; }
+#recorder-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#recorder-controls input {
+  background: none; border: 1px solid var(--border); color: var(--text);
+  border-radius: 4px; padding: 3px 6px; font-family: inherit; font-size: 11px;
+}
+#recorder-controls button {
+  background: none; border: 1px solid var(--border); color: var(--text);
+  border-radius: 4px; padding: 4px 8px; font-family: inherit; font-size: 11px; cursor: pointer;
+}
+#recorder-controls button:hover { border-color: var(--accent); }
 #dev-full-report {
   background: none; border: 1px solid var(--border); color: var(--text);
   border-radius: 4px; padding: 4px 8px; font-family: inherit; font-size: 11px; cursor: pointer;

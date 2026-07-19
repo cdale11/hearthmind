@@ -114,6 +114,9 @@ def parse_args(argv: list[str] | None = None) -> Config:
                               "run without them installed and this is disabled automatically with a warning).")
     parser.add_argument("--api-host", default=Config.api_host, help="Browser API bind host.")
     parser.add_argument("--api-port", type=int, default=Config.api_port, help="Browser API port.")
+    parser.add_argument("--recorder-archive-dir", default=Config.recorder_archive_dir,
+                         help="Where the LLM training recorder writes its JSONL archive (recording is OFF "
+                              "by default regardless of this path — see /recorder/start).")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug-level logging.")
     args = parser.parse_args(argv)
 
@@ -150,6 +153,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         api_enabled=not args.api_disabled,
         api_host=args.api_host,
         api_port=args.api_port,
+        recorder_archive_dir=args.recorder_archive_dir,
     )
 
 

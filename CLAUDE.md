@@ -424,6 +424,45 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.28)
+
+§8's third item (LoRA/QLoRA fine-tuning, docs/IDEAS-2026-07-
+EMERGENCE.md) per explicit user request, implementing a user-supplied
+"Permanent LLM Training Recorder & Dataset Pipeline Specification" —
+the data-collection prerequisite only; **no fine-tuning run itself is
+implemented**. Full detail: docs/TRAINING_RECORDER.md.
+
+New `hearthmind/llm/recorder.py` (`TrainingRecorder`): OFF by default,
+plain `queue.Queue` + daemon writer thread (never asyncio-integrated —
+recording can't stall a tick). Every LLM task already funnels through
+`SimulationEngine._record_llm_debug`, now the recorder's one call
+site, so prompt/parsed-output/metadata are captured for every task,
+present and future, with zero per-task code. Raw completion text
+(Layer 3) needed real plumbing: `generate_json` (both clients) gained
+an optional per-call `capture` dict; `CognitionRunner.run` now returns
+a 3-tuple including raw text. Structured input (Layer 1) is fully
+wired for every task the spec names (cognition, dialogue, beliefs,
+dreams, chronicles, diplomacy, consciousness, naming, folklore,
+caravans, town brain) plus `rumor_interpret`; other jobs default to
+`{}` — flagged scope trim, one-line extension per job via
+`_schedule_llm_job`'s new `structured_input` kwarg.
+
+Storage: `<archive_dir>/<task>/<date>.jsonl`, daily + ~100MB rotation,
+flush+fsync'd. New `llm/review_pack.py` (self-contained ZIP export,
+`/recorder/export-review-pack` + `/recorder/download`) and
+`scripts/recorder_tools.py` (validate/stats/export CLI, same
+standalone-script convention as `verify_native_soak.py`). Control via
+`/recorder/start`/`/stop` (routed through the existing `/intervene/*`
+queued seam) + `/recorder/status`; new "⚙ dev" console panel.
+
+Verified: recorder-module smoke test (off-by-default no-op, full
+record/write/validate/export lifecycle); a real 400-tick engine run
+(LLM disabled) confirms fallback jobs recorded through the actual
+production scheduling path with zero write errors; a separate 1000-
+tick run at the OFF default confirms 0 examples collected.
+`scripts/verify_native_soak.py` (2 seeds x 1500 ticks) byte-identical
+— no native module or persisted field touched.
+
 ## Current state (v0.87.27)
 
 §8's geography-reshaping idea, per the same explicit sequencing as

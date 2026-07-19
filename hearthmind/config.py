@@ -481,5 +481,14 @@ class Config:
     api_host: str = "0.0.0.0"
     api_port: int = 8765
 
+    recorder_archive_dir: str = "training_archive"
+    """Where the permanent LLM training recorder (llm/recorder.py, §8 —
+    docs/IDEAS-2026-07-EMERGENCE.md's LoRA/QLoRA data-collection
+    prerequisite) writes its JSONL archive, one subdirectory per LLM
+    task. Recording itself is OFF by default and only ever starts via an
+    explicit `/recorder/start` call or the browser UI's Recorder panel —
+    this path just says WHERE it would write if started; setting it
+    doesn't turn recording on."""
+
     def days_per_year(self) -> int:
         return sum(self.days_per_month)

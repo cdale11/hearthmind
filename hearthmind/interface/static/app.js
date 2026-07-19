@@ -321,6 +321,60 @@ devToggle.addEventListener("click", () => {
   if (!devConsole.classList.contains("hidden") && latest) renderDevConsole(latest);
 });
 
+// LLM training recorder (§8, hearthmind/llm/recorder.py) — OFF by default;
+// this panel is the only way to turn it on from the browser. Status reads
+// straight off the live broadcast payload's diagnostics.training_recorder
+// (see renderDevConsole below), same cadence as every other dev-console field.
+const recorderStatusEl = document.getElementById("recorder-status");
+const recorderSessionNameInput = document.getElementById("recorder-session-name");
+const recorderStartBtn = document.getElementById("recorder-start-btn");
+const recorderStopBtn = document.getElementById("recorder-stop-btn");
+const recorderExportBtn = document.getElementById("recorder-export-btn");
+
+function renderRecorderStatus(recorder) {
+  if (!recorderStatusEl || !recorder) return;
+  if (recorder.recording) {
+    recorderStatusEl.textContent =
+      `RECORDING — session "${recorder.session_name}" — ${recorder.examples_collected} examples collected ` +
+      `— archive ${(recorder.archive_size_bytes / 1_000_000).toFixed(2)} MB` +
+      (recorder.dropped ? ` — ${recorder.dropped} dropped (queue full)` : "");
+  } else {
+    recorderStatusEl.textContent = "off";
+  }
+}
+
+recorderStartBtn?.addEventListener("click", async () => {
+  const sessionName = recorderSessionNameInput.value.trim() || undefined;
+  await fetch("/recorder/start", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_name: sessionName, policy: "all_tasks" }),
+  });
+  recorderStatusEl.textContent = "starting…";
+});
+
+recorderStopBtn?.addEventListener("click", async () => {
+  await fetch("/recorder/stop", { method: "POST" });
+  recorderStatusEl.textContent = "stopping…";
+});
+
+recorderExportBtn?.addEventListener("click", async () => {
+  recorderStatusEl.textContent = "exporting review pack…";
+  try {
+    const resp = await fetch("/recorder/export-review-pack", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+    });
+    const result = await resp.json();
+    if (result.error) {
+      recorderStatusEl.textContent = `export failed: ${result.error}`;
+      return;
+    }
+    window.location.href = `/recorder/download?path=${encodeURIComponent(result.path)}`;
+    recorderStatusEl.textContent = `exported ${result.filename}`;
+  } catch (e) {
+    recorderStatusEl.textContent = `export failed: ${e.message}`;
+  }
+});
+
 const historyPanel = document.getElementById("history-panel");
 const historyToggle = document.getElementById("history-toggle");
 const historyList = document.getElementById("history-list");
@@ -2773,6 +2827,7 @@ function renderInfrastructure(rows) {
 
 function renderDevConsole(payload) {
   if (devConsole.classList.contains("hidden")) return;
+  renderRecorderStatus(payload.diagnostics && payload.diagnostics.training_recorder);
   // Phase N: the town consciousness's persistent inner state is
   // deliberately absent from the main UI (same ambiguity discipline as
   // temperament/mood/player_standing) but belongs squarely in the

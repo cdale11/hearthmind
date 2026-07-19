@@ -275,6 +275,18 @@
 
       <div class="panel hidden" id="dev-console">
         <h2>Developer console</h2>
+
+        <div id="recorder-panel">
+          <h3>LLM training recorder</h3>
+          <p class="muted" id="recorder-status">off</p>
+          <div id="recorder-controls">
+            <input id="recorder-session-name" type="text" placeholder="session name (optional)" />
+            <button id="recorder-start-btn">Start recording</button>
+            <button id="recorder-stop-btn">Stop recording</button>
+            <button id="recorder-export-btn">Export review pack</button>
+          </div>
+        </div>
+
         <button id="dev-full-report">Full diagnostic report</button>
         <span id="dev-report-status" class="muted"></span>
         <pre id="dev-console-content"></pre>

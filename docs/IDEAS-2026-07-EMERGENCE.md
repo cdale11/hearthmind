@@ -533,33 +533,29 @@ scoped against existing machinery, or green-lit for implementation.
 Filed the same way the vision doc's own deferred items are: tracked,
 not forgotten, acted on only with future explicit direction.
 
-- [ ] **Fine-tune the local model on Hearthmind's own generated data
-  (LoRA/QLoRA).** `gemma-4-e2b-it` (or whatever `Config.llm_model`
-  currently is) is a small general-purpose model; every prompt/
-  response pair this project has ever sent it is already latent in
-  `llm_prompt_stats`-adjacent telemetry but not durably stored for
-  this purpose. Idea: persist a training corpus of real (prompt,
-  completion) pairs generated during actual play, optionally paired
-  with a stronger reference model's (Claude/GPT) completion for the
-  *same* prompt as a quality target, then run a parameter-efficient
-  fine-tune (LoRA/QLoRA — cheap enough to redo per-model-version)
-  specifically toward Hearthmind's own prompt shapes (strict-JSON
-  cognition/dialogue/belief schemas, this project's specific system
-  prompts) rather than a generic instruction-tune. **Human-supervised
-  curation** as the explicit quality gate: a reviewer inspects the
-  top 5% (by some quality proxy — a reference model's own judged
-  score, or downstream signal like "did this fallback ever trigger"),
-  the worst 5% (to find and fix systematic failure modes, not just
-  reward good answers), and a random 1% (an unbiased spot-check the
-  other two bands can't provide) before any batch enters a training
-  run — never a fully automated pipeline. Genuinely open questions
-  before this could be scoped: where the corpus lives (a new SQLite
-  table? a separate export?), retention/size, whether a "reference
-  model" pass is itself worth its own cost, and how a fine-tuned
-  checkpoint gets validated against a regression suite before
-  replacing the live model. Ties into the whole "cognition
-  infrastructure" theme of §7 but is a training-pipeline concern, not
-  a runtime one — doesn't touch `SimulationEngine` at all.
+- [~] **Fine-tune the local model on Hearthmind's own generated data
+  (LoRA/QLoRA) — data-collection half shipped v0.87.28, the fine-tune
+  itself NOT implemented.** New `hearthmind/llm/recorder.py`
+  (`TrainingRecorder`, OFF by default) durably records every real LLM
+  task's four-layer record (structured input / prompt / raw completion
+  / parsed output) plus full metadata (schema_version/model_name/task/
+  tick/settlement/npc_ids/latency/token estimates/fallback_used/seed)
+  to a JSONL archive (`<archive_dir>/<task>/<date>.jsonl`, daily +
+  ~100MB rotation), controlled via `/recorder/start`/`/stop`/`/status`
+  and a new dev-console panel. `llm/review_pack.py` + `scripts/
+  recorder_tools.py` answer this item's own "genuinely open questions"
+  in part: the corpus lives on disk as JSONL (not a new SQLite table —
+  simpler append-only writes, no schema migration risk for a fast-
+  evolving record shape), retention is manual (daily-rotated files, no
+  auto-pruning yet), and self-contained review-pack ZIPs are exportable
+  for human-supervised curation (the spec's own top-5%/worst-5%/
+  random-1% review). See docs/TRAINING_RECORDER.md for the full
+  writeup. Genuinely still open, unattempted this pass: a "reference
+  model" (Claude/GPT) completion pass for quality targets, the actual
+  LoRA/QLoRA training run, and validating a fine-tuned checkpoint
+  against a regression suite before ever replacing the live model —
+  this remains a training-pipeline concern outside `SimulationEngine`,
+  not scoped further here.
 
 - [x] **NPC activity and environment reshape geography, further than
   today.** MINING SCARS shipped v0.87.27: sustained GATHER-goal mining

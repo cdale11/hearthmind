@@ -4,6 +4,105 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.28] — Permanent LLM training recorder & dataset pipeline
+
+Direct follow-up to §8's mineral-economy/geography-reshaping pair
+(v0.87.26/.27) — the third and final §8 item, LoRA/QLoRA fine-tuning
+(docs/IDEAS-2026-07-EMERGENCE.md), per explicit user request. Implements
+a user-supplied "Hearthmind Permanent LLM Training Recorder & Dataset
+Pipeline Specification": the data-collection prerequisite for that
+idea. **The LoRA training run itself is NOT implemented** — only the
+recorder, review-pack exporter, and validation tooling that a future
+fine-tuning pass would consume. See docs/TRAINING_RECORDER.md for the
+full architecture/schema/workflow writeup.
+
+**OFF by default**, per spec — new `hearthmind/llm/recorder.py`
+(`TrainingRecorder`, `RecordingPolicy`): a plain `queue.Queue` +
+daemon `threading.Thread` writer, deliberately NOT asyncio-integrated —
+recording never touches the simulation's event loop, so a stalled disk
+can never stall a tick ("gameplay must never wait for disk I/O," the
+spec's own architecture diagram). Confirmed live: with recording off
+(the default), `maybe_record`'s only cost is one enum comparison per
+LLM call; a 1000-tick engine run with recording untouched collected 0
+examples and showed no behavioral change.
+
+**Four-layer record** (structured input / rendered prompt / raw
+completion / parsed output) captured per example. Layers 2/4 plus every
+metadata field (`schema_version`/`recorder_version`/`hearthmind_
+version`/`session_id`/`task`/`timestamp`/`simulation_tick`/`settlement`/
+`npc_ids`/`model_name`/`latency_ms`/token estimates/`fallback_used`/
+`deterministic_seed`) are captured automatically for EVERY LLM task,
+present and future — every task already funnels through
+`SimulationEngine._record_llm_debug`, the recorder's one call site, so
+a brand-new job type needs zero recorder-specific code. Layer 3 (raw
+completion) required a real plumbing change: `OllamaClient`/
+`LlamaCppClient.generate_json` gained an optional `capture: dict`
+side-channel (a fresh dict per call, never shared/instance state — safe
+under `Config.llm_max_concurrent` > 1) filled with the exact raw text
+before JSON parsing is attempted; `CognitionRunner.run`/`_run_gated`
+now return a 3-tuple `(result, used_fallback, raw_completion)` instead
+of 2 — all 4 call sites in `engine.py` updated. Layer 1 (structured
+input) is fully wired for every task the spec's own "Scope" section
+names by name (cognition, dialogue, beliefs, dreams, chronicles,
+diplomacy, consciousness, naming, folklore, caravans, town brain) plus
+`rumor_interpret`; other settlement jobs default to `{}` — a flagged,
+documented scope trim (30+ `_schedule_llm_job` call sites exist;
+wiring bespoke structured input at every one was out of scope for this
+pass), not silently faked. `_schedule_llm_job`/`_record_llm_debug`
+both gained optional `structured_input`/`npc_ids`/`settlement` kwargs
+so extending coverage to any remaining job is a one-line addition at
+its own call site.
+
+**Storage**: `<archive_dir>/<task>/<date>.jsonl`, one subdirectory per
+task, rotating to `_2`/`_3`/... within a day past `ARCHIVE_ROTATE_
+MAX_BYTES` (~100MB) — matches the spec's "rotate daily or at
+approximately 100MB." Every write is flushed + `fsync`'d for
+crash-safety; a truncated last line is silently skipped by every
+reader (`llm/review_pack.py`), never treated as corrupting a sibling
+line.
+
+**Review packs** (new `llm/review_pack.py`, `POST /recorder/export-
+review-pack`, `GET /recorder/download`): self-contained ZIP
+(`review_pack.json` + `manifest.json`, optional `review_pack.md`)
+filterable by task/date-range/limit — deliberately narrower than the
+full archive record (drops latency/queue-wait diagnostics per the
+spec's "exclude unrelated diagnostics"). New `scripts/recorder_
+tools.py` CLI (`validate`/`stats`/`export-review-pack`/`export-
+random`) — standalone script per this project's standing "no automated
+test suite" convention, same shape as `scripts/verify_native_soak.py`.
+`validate` walks every JSONL line and reports invalid JSON or a
+missing required field by file+line number, exiting non-zero on any
+finding.
+
+**Control surface**: `POST /recorder/start`/`/stop` route through the
+existing `/intervene/*` queued-intervention seam (`_apply_
+intervention`'s new `recorder_start`/`recorder_stop` branches) so the
+engine's tick loop stays the only thing that mutates simulation-
+adjacent state; `GET /recorder/status` reads the same `training_
+recorder` key now carried on every tick's broadcast payload
+(`_diagnostics_snapshot`), so polling status is cheap. New browser UI:
+"⚙ dev" console gained an "LLM training recorder" panel (status line,
+session-name field, start/stop/export buttons) — session name,
+examples collected, and archive size all update live off the existing
+broadcast payload, no new polling loop.
+
+New `Config.recorder_archive_dir` (default `training_archive`) +
+`server.py --recorder-archive-dir` CLI flag, referencing the Config
+attribute per this project's standing CLI-default rule.
+
+Verified: direct recorder-module smoke test (off-by-default no-op,
+start/record/stop lifecycle, background-writer drain, archive stats,
+validation, review-pack export — all against the real `TrainingRecorder`
+class, not a reimplementation); a real `SimulationEngine` test driving
+400 actual ticks (LLM disabled) through `start_training_recording()`
+confirmed real fallback-path jobs (`mind`, `chronicle`) were recorded
+through the production `_schedule_llm_job`/`_record_llm_debug` path
+with zero write errors; a separate 1000-tick run with recording left at
+its OFF default confirmed 0 examples collected. `scripts/verify_
+native_soak.py` (2 seeds x 1500 ticks) byte-identical — this batch
+touches no native module and no persisted `World`/`Settlement`/`Agent`
+field.
+
 ## [0.87.27] — NPC activity reshapes geography: mining scars
 
 §8's geography-reshaping idea (docs/IDEAS-2026-07-EMERGENCE.md — the

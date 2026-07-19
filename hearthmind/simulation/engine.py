@@ -54,6 +54,7 @@ from hearthmind.agents.agent import (
     push_secret,
     retrieval_diagnostics,
 )
+from hearthmind import __version__
 from hearthmind.config import Config
 from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
@@ -66,6 +67,7 @@ from hearthmind.llm import (
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.cognition import SURVIVAL_HUNGER_THRESHOLD, SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal
 from hearthmind.llm.jobs import CognitionRunner
+from hearthmind.llm.recorder import TrainingRecorder
 from hearthmind.persistence.snapshot import (
     agent_memory_log_count, consciousness_log_count, events_by_category, events_since_tick, history_events,
     load_latest_snapshot, log_agent_memory_entry, log_consciousness_entry, log_event, log_metrics,
@@ -740,6 +742,18 @@ class SimulationEngine:
         if config.llm_enabled:
             client = build_llm_client(config)
         self._cognition_runner = CognitionRunner(client=client, max_concurrent=config.llm_max_concurrent)
+        self._training_recorder = TrainingRecorder(
+            archive_dir=config.recorder_archive_dir,
+            model_name_provider=lambda: config.llm_model,
+            hearthmind_version_provider=lambda: __version__,
+            seed_provider=lambda: config.seed,
+        )
+        """Permanent LLM training recorder (llm/recorder.py, §8) — OFF by
+        default (see `RecordingPolicy.OFF`), started/stopped only via
+        `/recorder/start`/`/recorder/stop` (interface/app.py) or the
+        browser UI's Recorder panel. Every named LLM task funnels
+        through `_record_llm_debug`, which is the recorder's one call
+        site — see that method's docstring."""
         self._backpressure_limit = config.llm_max_concurrent * BACKPRESSURE_BACKLOG_PER_SLOT
         self._reserved_this_tick = 0
         """Jobs actually scheduled (a task created) so far THIS tick,
@@ -1237,6 +1251,7 @@ class SimulationEngine:
 
     def _schedule_llm_job(
         self, name: str, prompt: str, system: str, fallback: dict, apply, critical: bool = False,
+        structured_input: dict | None = None, npc_ids: list | None = None, settlement: str | None = None,
     ) -> None:
         """Fire-and-forget one settlement-level LLM job (chronicle,
         tradition, town_brain, beliefs, omen, ...): run through the
@@ -1281,18 +1296,24 @@ class SimulationEngine:
         if not self._consume_llm_budget():
             if critical:
                 self._cognition_runner.calls_deferred_critical += 1
-                self._record_llm_debug(name, prompt, fallback, True)
+                self._record_llm_debug(
+                    name, prompt, fallback, True,
+                    structured_input=structured_input, npc_ids=npc_ids, settlement=settlement,
+                )
                 return
             try:
                 apply(fallback, True)
             except Exception:
                 logger.exception("Failed to apply %s fallback job result", name)
-            self._record_llm_debug(name, prompt, fallback, True)
+            self._record_llm_debug(
+                name, prompt, fallback, True,
+                structured_input=structured_input, npc_ids=npc_ids, settlement=settlement,
+            )
             return
 
         async def _runner() -> None:
             call_start = time.perf_counter()
-            result, used_fallback = await self._cognition_runner.run(
+            result, used_fallback, raw_completion = await self._cognition_runner.run(
                 prompt, system, fallback=lambda: fallback
             )
             elapsed_ms = (time.perf_counter() - call_start) * 1000
@@ -1306,7 +1327,11 @@ class SimulationEngine:
                     apply(result, used_fallback)
                 except Exception:
                     logger.exception("Failed to apply %s LLM job result", name)
-            self._record_llm_debug(name, prompt, result, used_fallback, elapsed_ms)
+            self._record_llm_debug(
+                name, prompt, result, used_fallback, elapsed_ms, system_prompt=system,
+                raw_completion=raw_completion, structured_input=structured_input,
+                npc_ids=npc_ids, settlement=settlement,
+            )
             self._record_llm_call(used_fallback)
 
         self._reserved_this_tick += 1  # see its docstring — counted the instant scheduling happens
@@ -1354,7 +1379,10 @@ class SimulationEngine:
                     noun = "The village" if sid == 0 else "The settlement"
                     self._log("settlement_named", f"{noun} came to be known as {new_name}.")
 
-            self._schedule_llm_job("naming", prompt, naming.SYSTEM_PROMPT, fallback, apply)
+            self._schedule_llm_job(
+                "naming", prompt, naming.SYSTEM_PROMPT, fallback, apply,
+                structured_input={"founding_scenario": settlement.founding_scenario, "top_biome": top_biome, "era": settlement.era},
+            )
 
     async def run_forever(self) -> None:
         logger.info(
@@ -1835,11 +1863,19 @@ class SimulationEngine:
         scheduled_tick = self.world.clock.tick_count
         call_start = time.perf_counter()
         try:
-            result, used_fallback = await self._cognition_runner.run(
+            result, used_fallback, raw_completion = await self._cognition_runner.run(
                 prompt, SYSTEM_PROMPT,
                 fallback=lambda: fallback_goal(hunger, energy, agent_id, traits, emotions, plan_intent),
             )
-            self._record_llm_debug("cognition", prompt, result, used_fallback, (time.perf_counter() - call_start) * 1000)
+            self._record_llm_debug(
+                "cognition", prompt, result, used_fallback, (time.perf_counter() - call_start) * 1000,
+                system_prompt=SYSTEM_PROMPT, raw_completion=raw_completion, npc_ids=[agent_id],
+                structured_input={
+                    "agent_id": agent_id, "hunger": hunger, "energy": energy,
+                    "traits": traits, "emotions": emotions,
+                    "seek_candidate_id": seek_candidate_id, "plan_intent": plan_intent,
+                },
+            )
             if used_fallback:
                 # The real call failed (timeout/error). This path is only
                 # reached for a core-cast agent at a significant/triggered
@@ -1950,13 +1986,18 @@ class SimulationEngine:
         listener_id = listener.id
 
         async def _runner() -> None:
-            result, used_fallback = await self._cognition_runner.run(
+            result, used_fallback, raw_completion = await self._cognition_runner.run(
                 prompt, rumor_interpret.SYSTEM_PROMPT, fallback=lambda: fallback,
             )
             target = self.world.population.get(listener_id)
             if target is not None:
                 retelling = rumor_interpret.parse_interpretation(result, fallback)
                 _remember(target, retelling)
+            self._record_llm_debug(
+                "rumor_interpret", prompt, result, used_fallback,
+                system_prompt=rumor_interpret.SYSTEM_PROMPT, raw_completion=raw_completion,
+                npc_ids=[listener_id], structured_input={"rumor": rumor, "traits": dict(listener.traits)},
+            )
             self._record_llm_call(used_fallback)
 
         self._reserved_this_tick += 1
@@ -2066,6 +2107,15 @@ class SimulationEngine:
             self._schedule_away_digest()
         elif kind == "found_successor_world":
             self._found_successor_world()
+        elif kind == "recorder_start":
+            self.start_training_recording(
+                session_name=item.get("session_name"),
+                policy=item.get("policy", "all_tasks"),
+                selected_tasks=item.get("selected_tasks"),
+                sample_rate=float(item.get("sample_rate", 0.1)),
+            )
+        elif kind == "recorder_stop":
+            self.stop_training_recording()
 
     def _record_observer_attention(self, agent_id) -> None:
         """§4 "observer attention as a signal into the Town
@@ -2238,7 +2288,17 @@ class SimulationEngine:
             )
             fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
             self._reserved_this_tick += 1
-            task = asyncio.create_task(self._run_dialogue(agent_a.id, agent_b.id, prompt, fallback))
+            task = asyncio.create_task(
+                self._run_dialogue(
+                    agent_a.id, agent_b.id, prompt, fallback,
+                    structured_input={
+                        "affinity": affinity, "settlement": local.name,
+                        "other_settlement_name": other_settlement_name,
+                        "weather_notable": weather_notable, "recent_topics": recent_topics,
+                    },
+                    settlement=local.name,
+                )
+            )
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
@@ -2260,10 +2320,13 @@ class SimulationEngine:
             (self.world.clock.tick_count, agent_a.id, agent_b.id, parsed, False)
         )
 
-    async def _run_dialogue(self, agent_a_id: int, agent_b_id: int, prompt: str, fallback: dict) -> None:
+    async def _run_dialogue(
+        self, agent_a_id: int, agent_b_id: int, prompt: str, fallback: dict,
+        structured_input: dict | None = None, settlement: str | None = None,
+    ) -> None:
         scheduled_tick = self.world.clock.tick_count
         call_start = time.perf_counter()
-        result, used_fallback = await self._cognition_runner.run(
+        result, used_fallback, raw_completion = await self._cognition_runner.run(
             prompt, dialogue.SYSTEM_PROMPT, fallback=lambda: fallback
         )
         parsed = dialogue.parse_dialogue(result, fallback)
@@ -2275,7 +2338,11 @@ class SimulationEngine:
         self._pending_dialogue_results.append(
             (scheduled_tick, agent_a_id, agent_b_id, parsed, not used_fallback)
         )
-        self._record_llm_debug("dialogue", prompt, result, used_fallback, (time.perf_counter() - call_start) * 1000)
+        self._record_llm_debug(
+            "dialogue", prompt, result, used_fallback, (time.perf_counter() - call_start) * 1000,
+            system_prompt=dialogue.SYSTEM_PROMPT, raw_completion=raw_completion,
+            structured_input=structured_input, npc_ids=[agent_a_id, agent_b_id], settlement=settlement,
+        )
         self._record_llm_call(used_fallback)
 
     # --- Phase B: world chronicle --------------------------------------------
@@ -2320,7 +2387,9 @@ class SimulationEngine:
         def apply(result: dict, used_fallback: bool) -> None:
             self._log("chronicle", chronicle.parse_summary(result, fallback))
 
-        self._schedule_llm_job("chronicle", prompt, chronicle.SYSTEM_PROMPT, fallback, apply)
+        self._schedule_llm_job(
+            "chronicle", prompt, chronicle.SYSTEM_PROMPT, fallback, apply, settlement=settlement.name,
+        )
 
     # --- documentary mode: a yearly narrated look-back --------------------------
 
@@ -2560,7 +2629,9 @@ class SimulationEngine:
                 settlement.folklore = settlement.folklore[-FOLKLORE_MAX_STORED:]
             self._log("folklore", f"{settlement.name or 'The village'} now tells a new tale — {entry['tale']}")
 
-        self._schedule_llm_job("folklore", prompt, folklore.SYSTEM_PROMPT, fallback, apply)
+        self._schedule_llm_job(
+            "folklore", prompt, folklore.SYSTEM_PROMPT, fallback, apply, settlement=target.name,
+        )
 
     # --- Phase E3: inventions (tech-tier unlocks) -----------------------------
 
@@ -3212,7 +3283,10 @@ class SimulationEngine:
                 log_consciousness_entry(self.conn, tick, "intervention", f"{kind}: {detail}")
                 self._log("consciousness_intervention", f"Something in {target.name} quietly shifted.")
 
-        self._schedule_llm_job("consciousness", prompt, consciousness.SYSTEM_PROMPT, fallback, apply, critical=True)
+        self._schedule_llm_job(
+            "consciousness", prompt, consciousness.SYSTEM_PROMPT, fallback, apply, critical=True,
+            settlement=target.name,
+        )
 
     def _apply_consciousness_intervention(self, kind: str, detail: str, target: "Settlement") -> None:
         """Executes exactly one of the bounded menu (see
@@ -3376,7 +3450,9 @@ class SimulationEngine:
                 listener_rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "caravan_rumor")
                 self.world.population.spread_rumor(rumor, caravan.CARAVAN_RUMOR_LISTENER_COUNT, listener_rng)
 
-        self._schedule_llm_job("caravan", prompt, caravan.SYSTEM_PROMPT, fallback, apply)
+        self._schedule_llm_job(
+            "caravan", prompt, caravan.SYSTEM_PROMPT, fallback, apply, settlement=settlement.name,
+        )
 
     # --- the "town brain": monthly civic-priority LLM decision -----------------
 
@@ -3442,7 +3518,14 @@ class SimulationEngine:
             target.record_priority(self.world.clock.tick_count, priority, rationale)
             self._log("town_brain", f"{target.name or 'The village'}'s priority is now {priority} — {rationale}")
 
-        self._schedule_llm_job("town_brain", prompt, town_brain.SYSTEM_PROMPT, fallback, apply, critical=True)
+        self._schedule_llm_job(
+            "town_brain", prompt, town_brain.SYSTEM_PROMPT, fallback, apply, critical=True,
+            settlement=settlement.name,
+            structured_input={
+                "settlement_id": settlement.id, "population_summary": population_summary,
+                "settlement_summary": settlement_summary,
+            },
+        )
 
     # --- the town's own evolving theory of itself (continuous cognition) -------
 
@@ -3586,7 +3669,10 @@ class SimulationEngine:
             beliefs.sync_council_beliefs(entry, settlement.institutions)  # integration milestone
             beliefs.sync_guild_beliefs(entry, settlement.institutions)  # continue expanding, round three
 
-        self._schedule_llm_job("beliefs", prompt, beliefs.SYSTEM_PROMPT, fallback, apply, critical=True)
+        self._schedule_llm_job(
+            "beliefs", prompt, beliefs.SYSTEM_PROMPT, fallback, apply, critical=True,
+            settlement=settlement.name,
+        )
 
     def _maybe_schedule_personal_belief(self, events: list[str]) -> None:
         """H2 extension (docs/ROADMAP.md "Phase H" stage 2), extended
@@ -3795,7 +3881,11 @@ class SimulationEngine:
             if not used_fallback and self.world.settlement.dream_seed == symbol_seed:
                 self.world.settlement.dream_seed = ""
 
-        self._schedule_llm_job("dream", prompt, dream.SYSTEM_PROMPT, fallback, apply, critical=True)
+        self._schedule_llm_job(
+            "dream", prompt, dream.SYSTEM_PROMPT, fallback, apply, critical=True,
+            settlement=home.name, npc_ids=[agent_id],
+            structured_input={"emotions": dict(agent.emotions), "goal_reason": agent.goal_reason},
+        )
 
     MEMORY_DRIFT_CHANCE = 0.2
     """Per-eligible-agent chance `_maybe_schedule_memory_drift` actually
@@ -4467,7 +4557,10 @@ class SimulationEngine:
             stl_b.relations[a_id] = new_relation
             self._log("diplomacy_event", f"Between {stl_a.name} and {stl_b.name}: {narration}")
 
-        self._schedule_llm_job("diplomacy", prompt, diplomacy.SYSTEM_PROMPT, fallback, apply)
+        self._schedule_llm_job(
+            "diplomacy", prompt, diplomacy.SYSTEM_PROMPT, fallback, apply,
+            settlement=a.name, structured_input={"relation": relation, "other_settlement": b.name},
+        )
 
     # --- item 8c / §7 item 7: laws, customs, taboos -----------------------------
 
@@ -5009,6 +5102,8 @@ class SimulationEngine:
 
     def _record_llm_debug(
         self, name: str, prompt: str, result: dict, used_fallback: bool, elapsed_ms: float | None = None,
+        system_prompt: str | None = None, raw_completion: str | None = None,
+        structured_input: dict | None = None, npc_ids: list | None = None, settlement: str | None = None,
     ) -> None:
         """Records the most recent prompt/result for one named LLM job
         — see `self._last_llm_calls`'s docstring — and folds size/
@@ -5019,11 +5114,27 @@ class SimulationEngine:
         deferred/budget-skipped critical job — the one exception is a
         critical job's daily-budget-exhaustion path in `_schedule_llm_
         job`, which already calls this with the fallback dict before
-        this method runs, same as every other fallback resolution)."""
+        this method runs, same as every other fallback resolution).
+
+        Also the single hook point for the permanent LLM training
+        recorder (llm/recorder.py, §8 — OFF by default, zero-cost when
+        so): every named LLM task in the codebase funnels through here,
+        so a brand-new future job type is automatically recordable with
+        no recorder-specific code of its own. `system_prompt`/
+        `raw_completion`/`structured_input`/`npc_ids`/`settlement` are
+        all optional — see recorder.py's own docstring for which task
+        types currently supply real `structured_input` versus the `{}`
+        default."""
         self._last_llm_calls[name] = {
             "tick": self.world.clock.tick_count, "prompt": prompt,
             "result": result, "used_fallback": used_fallback,
         }
+        self._training_recorder.maybe_record(
+            task=name, prompt=prompt, system_prompt=system_prompt, result=result,
+            used_fallback=used_fallback, raw_completion=raw_completion,
+            elapsed_ms=elapsed_ms, tick=self.world.clock.tick_count,
+            structured_input=structured_input, npc_ids=npc_ids, settlement=settlement,
+        )
         stats = self._llm_prompt_stats.setdefault(name, {
             "calls": 0, "fallback_calls": 0,
             "prompt_chars": deque(maxlen=LLM_PROMPT_STATS_WINDOW),
@@ -5043,6 +5154,20 @@ class SimulationEngine:
         stats["completion_chars"].append(len(str(result)))
         if elapsed_ms is not None:
             stats["latency_ms"].append(elapsed_ms)
+
+    # --- permanent LLM training recorder (§8, llm/recorder.py) ----------------
+
+    def training_recorder_status(self) -> dict:
+        return self._training_recorder.status()
+
+    def start_training_recording(
+        self, session_name: str | None = None, policy: str = "all_tasks",
+        selected_tasks: list[str] | None = None, sample_rate: float = 0.1,
+    ) -> dict:
+        return self._training_recorder.start(session_name, policy, selected_tasks, sample_rate)
+
+    def stop_training_recording(self) -> dict:
+        return self._training_recorder.stop()
 
     def llm_prompt_stats_summary(self) -> dict:
         """Aggregates `_llm_prompt_stats`'s rolling per-job deques into
@@ -5223,6 +5348,7 @@ class SimulationEngine:
             # counts.
             "llm_pressure_ratio": round(self.llm_pressure_ratio(), 3),
             "llm_pressure_paused": self.llm_pressure_paused(),
+            "training_recorder": self.training_recorder_status(),
             "llama_server_restarting": self._llama_server_restarting,
             "llama_server_restarts_total": self._llama_server_restarts,
             "llm_calls_today": self._llm_calls_today,

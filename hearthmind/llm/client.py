@@ -81,11 +81,22 @@ class OllamaClient:
     way raising `llm_max_concurrent` would. `None` (the default) omits
     it, leaving Ollama's own heuristic in charge."""
 
-    def generate_json(self, prompt: str, system: str | None = None) -> dict:
+    def generate_json(self, prompt: str, system: str | None = None, capture: dict | None = None) -> dict:
         """Blocking call — issue one generate request and parse the
         response as JSON. Callers running inside the event loop must wrap
         this in `asyncio.to_thread` (see hearthmind/llm/jobs.py); this
-        method itself does no async work."""
+        method itself does no async work.
+
+        `capture` (optional): if given a dict, this call fills in
+        `capture["raw"]` with the exact raw completion text (Layer 3 of
+        the training recorder, see llm/recorder.py) BEFORE attempting to
+        parse it as JSON — so a malformed-JSON response still leaves the
+        raw text recoverable for review, even though the call still
+        raises `LLMUnavailable` for the caller's own fallback path. A
+        fresh dict per call (never a shared/instance attribute) — this
+        method may run concurrently across threads under
+        `Config.llm_max_concurrent` > 1, and a shared attribute would be
+        a data race."""
         options = {}
         if self.num_ctx is not None:
             options["num_ctx"] = self.num_ctx
@@ -126,6 +137,8 @@ class OllamaClient:
             raise LLMUnavailable(f"Ollama request failed: {exc}") from exc
 
         raw_response = _THINK_BLOCK_RE.sub("", body.get("response", "")).strip()
+        if capture is not None:
+            capture["raw"] = raw_response
         try:
             return json.loads(raw_response)
         except json.JSONDecodeError as exc:
@@ -174,7 +187,7 @@ class LlamaCppClient:
     default). Lower values curb the rambling/off-shape output small
     models emit under the JSON grammar constraint."""
 
-    def generate_json(self, prompt: str, system: str | None = None) -> dict:
+    def generate_json(self, prompt: str, system: str | None = None, capture: dict | None = None) -> dict:
         """Blocking call — issue one `/v1/chat/completions` request and
         parse the response as JSON. Callers running inside the event loop
         must wrap this in `asyncio.to_thread` (see hearthmind/llm/jobs.py);
@@ -182,7 +195,10 @@ class LlamaCppClient:
         chat endpoint (not llama.cpp's raw `/completion`) so the server's
         own chat template handles system/user role formatting correctly
         per-model, matching how `OllamaClient` separates `system`/`prompt`
-        without this project needing to know each model's prompt format."""
+        without this project needing to know each model's prompt format.
+
+        `capture`: see `OllamaClient.generate_json`'s docstring — same
+        contract (fresh dict per call, filled with `capture["raw"]`)."""
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -220,6 +236,8 @@ class LlamaCppClient:
             raise LLMUnavailable(f"llama.cpp returned an unexpected response shape: {body!r}") from exc
 
         raw_response = _THINK_BLOCK_RE.sub("", raw_response or "").strip()
+        if capture is not None:
+            capture["raw"] = raw_response
         try:
             return json.loads(raw_response)
         except json.JSONDecodeError as exc:

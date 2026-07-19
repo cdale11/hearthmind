@@ -127,16 +127,20 @@ class CognitionRunner:
 
     async def run(
         self, prompt: str, system: str | None, fallback: Callable[[], dict]
-    ) -> tuple[dict, bool]:
-        """Return `(result, used_fallback)`: a parsed JSON dict from the
-        LLM with `used_fallback=False`, or `(fallback(), True)` if the LLM
-        is disabled, unreachable, times out, or misbehaves. Never raises —
+    ) -> tuple[dict, bool, str | None]:
+        """Return `(result, used_fallback, raw_completion)`: a parsed
+        JSON dict from the LLM with `used_fallback=False` and the exact
+        raw completion text, or `(fallback(), True, None)` if the LLM is
+        disabled, unreachable, times out, or misbehaves. Never raises —
         this is the boundary where LLM failures get absorbed. The
         `used_fallback` flag lets the caller track a fallback rate for
         diagnosis (see docs/DECISIONS.md, D5) — it's otherwise invisible
-        from a saved snapshot."""
+        from a saved snapshot. `raw_completion` (added for the training
+        recorder, llm/recorder.py — Layer 3) is the model's exact text
+        before JSON parsing; `None` on any fallback path since no real
+        completion exists to record."""
         if self.client is None:
-            return fallback(), True
+            return fallback(), True, None
 
         self.backlog += 1
         try:
@@ -146,33 +150,34 @@ class CognitionRunner:
 
     async def _run_gated(
         self, prompt: str, system: str | None, fallback: Callable[[], dict]
-    ) -> tuple[dict, bool]:
+    ) -> tuple[dict, bool, str | None]:
         queue_entered = time.perf_counter()
         async with self._semaphore:
             self._queue_wait_ms.append((time.perf_counter() - queue_entered) * 1000)
             self.calls_attempted += 1
             start = time.perf_counter()
+            capture: dict = {}
             try:
                 # `generate_json` is a blocking network call; run it off
                 # the event loop so it can't stall other ticks/tasks, and
                 # wrap it in a hard wait_for as defense in depth beyond
                 # the client's own socket timeout.
                 result = await asyncio.wait_for(
-                    asyncio.to_thread(self.client.generate_json, prompt, system),
+                    asyncio.to_thread(self.client.generate_json, prompt, system, capture),
                     timeout=self.client.timeout_seconds + 5.0,
                 )
                 self._latencies_ms.append((time.perf_counter() - start) * 1000)
                 self.calls_succeeded += 1
-                return result, False
+                return result, False, capture.get("raw")
             except asyncio.TimeoutError as exc:
                 self.calls_timed_out += 1
                 logger.warning("LLM call timed out, using deterministic fallback: %s", exc)
-                return fallback(), True
+                return fallback(), True, None
             except LLMUnavailable as exc:
                 self.calls_errored += 1
                 logger.warning("LLM call failed, using deterministic fallback: %s", exc)
-                return fallback(), True
+                return fallback(), True, None
             except Exception as exc:  # defense in depth: LLM failure must never propagate
                 self.calls_errored += 1
                 logger.warning("Unexpected LLM error, using deterministic fallback: %s", exc)
-                return fallback(), True
+                return fallback(), True, None

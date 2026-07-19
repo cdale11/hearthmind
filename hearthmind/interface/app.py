@@ -269,6 +269,81 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
         broadcaster.enqueue_intervention(item)
         return JSONResponse({"queued": True})
 
+    @app.get("/recorder/status")
+    async def recorder_status() -> JSONResponse:
+        """Permanent LLM training recorder status (llm/recorder.py, §8) —
+        reads the same `training_recorder` key already carried on every
+        tick's broadcast payload (`SimulationEngine._diagnostics_
+        snapshot`), so this is a cheap poll, not a fresh computation."""
+        payload = broadcaster.get_state()
+        recorder = (payload or {}).get("diagnostics", {}).get("training_recorder")
+        if recorder is None:
+            return JSONResponse({"error": "no tick has completed yet"}, status_code=503)
+        return JSONResponse(recorder)
+
+    @app.post("/recorder/start")
+    async def recorder_start(payload: dict) -> JSONResponse:
+        """OFF by default (spec: "Recording MUST be OFF by default") —
+        only starts recording when this is explicitly called, from the
+        UI's Recorder panel or a direct API call. Queued through the
+        same intervention seam every other `/intervene/*` endpoint uses
+        (`_apply_intervention`'s `recorder_start` branch) so the engine's
+        tick loop remains the only thing that mutates simulation-adjacent
+        state — recording state included."""
+        item = {
+            "type": "recorder_start",
+            "session_name": payload.get("session_name"),
+            "policy": payload.get("policy", "all_tasks"),
+            "selected_tasks": payload.get("selected_tasks"),
+            "sample_rate": payload.get("sample_rate", 0.1),
+        }
+        broadcaster.enqueue_intervention(item)
+        return JSONResponse({"queued": True})
+
+    @app.post("/recorder/stop")
+    async def recorder_stop() -> JSONResponse:
+        broadcaster.enqueue_intervention({"type": "recorder_stop"})
+        return JSONResponse({"queued": True})
+
+    @app.post("/recorder/export-review-pack")
+    async def recorder_export_review_pack(payload: dict) -> JSONResponse:
+        """Builds a self-contained review-pack ZIP on demand (spec:
+        "Implement lightweight exports for AI review") from the on-disk
+        JSONL archive — reads directly off disk, not through the engine,
+        since this is a read-only export over already-written data.
+        Filters: task, date range (from/to, ISO date strings), limit."""
+        from hearthmind.llm.review_pack import export_review_pack
+
+        archive_dir = config.recorder_archive_dir
+        try:
+            zip_path = export_review_pack(
+                archive_dir,
+                task=payload.get("task"),
+                date_from=payload.get("date_from"),
+                date_to=payload.get("date_to"),
+                limit=int(payload.get("limit", 500)),
+                markdown=bool(payload.get("markdown", False)),
+            )
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        return JSONResponse({"path": str(zip_path), "filename": Path(zip_path).name})
+
+    @app.get("/recorder/download")
+    async def recorder_download(path: str):
+        """Serves a previously-exported review pack ZIP by path (must
+        live under `config.recorder_archive_dir` — path-traversal guard
+        below) so the browser UI's export button can trigger a real
+        file download rather than just returning a server-side path."""
+        from fastapi.responses import FileResponse
+
+        archive_root = Path(config.recorder_archive_dir).resolve()
+        candidate = Path(path).resolve()
+        if archive_root not in candidate.parents and candidate != archive_root:
+            return JSONResponse({"error": "invalid path"}, status_code=400)
+        if not candidate.exists():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return FileResponse(candidate, filename=candidate.name)
+
     @app.get("/summary")
     async def summary() -> JSONResponse:
         """The most recent on-demand LLM-authored simulation summary
