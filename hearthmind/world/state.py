@@ -611,7 +611,7 @@ class World:
                     if self.mining_scars else 0.0
                 ),
             },
-            "settlement": self.settlement.summary(),
+            "settlement": self.settlement.summary(established_roads=self.roads.summary()["established_roads"]),
             "settlements": [
                 {
                     "id": stl.id,

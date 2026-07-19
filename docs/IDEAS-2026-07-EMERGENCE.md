@@ -722,24 +722,31 @@ re-listed as if missing.
   whichever concrete sub-behavior is meant beyond what's listed above
   — flagged as needing scoping, not assumed to be a real gap.
 
-- [ ] **Investigate stalled era progression + gate it by infrastructure
-  counts, not just a chance roll.** Confirmed genuinely missing, and
-  the root cause of "civilization doesn't progress after 50,000
-  ticks" is now understood, not just suspected: `era_for_tech_level`
-  (`settlement/buildings.py`) gates era purely on `tech_level`, which
-  is incremented ONLY by `llm/invention.py`'s rare seasonal roll
-  (`INVENTION_CHANCE_PER_SEASON = 0.2`, itself gated on a currency/
-  materials surplus + education bonus) — a dice roll with no
-  infrastructure-count floor at all. A settlement can sit at
-  `industrial` forever if the roll simply doesn't land, regardless of
-  how many huts/roads/schools/carts it has built. Would extend `_maybe_
-  schedule_invention`'s existing gate-then-roll pattern with concrete
-  infra-count preconditions (a minimum count of standing HUTs/roads/
-  SCHOOLs/carts before the NEXT era's threshold becomes reachable at
-  all) alongside the currency/materials check already there — small,
-  legible, era-by-era steps rather than a steep jump, matching the
-  user's explicit framing ("many progression steps... each step to
-  next era unlocks new buildings, infra and other options").
+- [x] **Investigate stalled era progression + gate it by infrastructure
+  counts, not just a chance roll.** Shipped v0.87.30. Root cause was
+  confirmed exactly as diagnosed: `era_for_tech_level` (`settlement/
+  buildings.py`) gated era purely on `tech_level`, incremented ONLY by
+  `llm/invention.py`'s rare seasonal roll — a settlement could sit at
+  `industrial` forever regardless of how many huts/roads/schools/carts
+  it had built, with zero correlation between visible development and
+  actual progression. Fixed with two complementary, mutually-
+  reinforcing pieces (neither alone would have both un-stalled
+  progression AND kept it legible): new `ERA_INFRASTRUCTURE_
+  REQUIREMENTS` (huts/roads/schools/carts per era) backs (1) `era_for_
+  tech_level_gated` — `_maybe_advance_era` no longer lets `tech_level`
+  alone vault a settlement past an era whose own infrastructure isn't
+  standing yet, walking `ERA_ORDER` forward one legible step at a time
+  and never demoting an existing save; (2) `_maybe_schedule_invention`
+  reads `era_infrastructure_progress` toward the SAME next-era
+  requirement as a genuine, deterministic invention-chance bonus (new
+  `INFRASTRUCTURE_INVENTION_BONUS_WEIGHT`) — a settlement that has
+  already built what the next era needs invents measurably more
+  readily, so infrastructure investment is a real, controllable lever
+  toward progression rather than window dressing while waiting on the
+  RNG. New `Settlement.summary()`'s `era_infrastructure` key (`next_
+  era`/`requirement`/`current`/`progress`) surfaces this in the main
+  UI's existing "Era" stat tile as a plain-language "needs N/M huts,
+  roads, ..." line — no new panel needed.
 
 ---
 

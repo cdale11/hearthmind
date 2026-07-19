@@ -4,6 +4,78 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.30] — Era progression gated by real infrastructure, not just a roll
+
+§9's last remaining item (docs/IDEAS-2026-07-EMERGENCE.md), per
+explicit user request. Confirmed root cause: `era_for_tech_level`
+(`settlement/buildings.py`) gated era purely on `tech_level`,
+incremented ONLY by `llm/invention.py`'s rare seasonal roll
+(`INVENTION_CHANCE_PER_SEASON=0.2`) — a settlement could sit at
+`industrial` forever regardless of how many huts/roads/schools/carts
+it had built, with zero correlation between visible development and
+actual progression ("civilization doesn't progress after 50,000
+ticks").
+
+Fixed with two deliberately complementary pieces — either alone would
+have made things worse (a pure precondition just adds a second thing
+that can stall; a pure chance-bonus doesn't stop a lucky roll streak
+skipping straight to `digital` with none of that era's own buildings
+standing):
+
+New `ERA_INFRASTRUCTURE_REQUIREMENTS` (`settlement/buildings.py`):
+per-era minimum standing huts/established roads/standing schools/
+ready carts (electrical: 6/15/1/2, modern: 10/30/2/4, digital:
+15/50/3/6 — modest relative to `POPULATION_CAP=400`-scale
+settlements, meant to be cleared by ordinary growth, not a second
+grind). `era_infrastructure_progress`/`era_infrastructure_met`/
+`era_for_tech_level_gated` (new pure functions, `era_for_tech_level`
+kept unchanged as the underlying primitive):
+
+1. **`_maybe_advance_era`** now calls `era_for_tech_level_gated`
+   instead of `era_for_tech_level` — walks `ERA_ORDER` forward ONE
+   step at a time from the settlement's current era, stopping at the
+   first era whose infrastructure requirement isn't met even if
+   `tech_level` alone would qualify for a much later one. Never
+   demotes an existing save (a settlement already ahead of what
+   tech_level/infra would newly justify is left untouched).
+2. **`_maybe_schedule_invention`**'s chance calculation gained a new
+   multiplicative term reading `era_infrastructure_progress` toward
+   the SAME next-era requirement (new `INFRASTRUCTURE_INVENTION_
+   BONUS_WEIGHT=0.5`, same stacking shape as the existing education/
+   skill/temperament bonuses) — a settlement that has already built
+   what the next era needs invents measurably more readily, so
+   infrastructure investment is a real, controllable lever toward
+   progression, not window dressing while waiting on the RNG.
+
+New `SimulationEngine._infra_counts(settlement)` reads standing HUT/
+SCHOOL counts and ready CART count from the settlement, plus world-
+wide `World.roads.summary()["established_roads"]` (roads aren't
+settlement-scoped in this codebase).
+
+**UI surfacing**: `Settlement.summary()` gained an optional
+`established_roads` param (threaded from `World.summary()` and
+`SimulationEngine`'s `settlement_summaries` broadcast, both of which
+have `World.roads` access `Settlement` itself doesn't) and a new
+`era_infrastructure` key (`next_era`/`requirement`/`current`/
+`progress`, `None` once already at `digital`). The main UI's existing
+"Era" stat tile now appends a plain-language suffix — e.g. "— next:
+electrical (needs 0/6 huts, 0/15 roads, 0/1 schools, 0/2 carts)" —
+computed client-side from the new field, no new panel needed.
+
+Verified: direct tests against the real production functions
+(`era_for_tech_level_gated`'s zero-infra cap, exact-requirement single-
+step advance, full-infra multi-step advance, and never-demotes cases;
+`era_infrastructure_progress`'s partial-credit math); a real
+`SimulationEngine` test driving `_maybe_advance_era` through actual
+`Settlement.start_construction`/`start_vehicle` calls and `World.
+roads.wear` confirms a settlement with `tech_level=150` and zero infra
+stays `industrial`, then advances to `electrical` the moment matching
+infrastructure is built — the real production code path, not a
+reimplementation; live Playwright verification of the rendered "Era"
+stat tile showing the new progress suffix against a running server.
+`scripts/verify_native_soak.py` (2 seeds x 1500 ticks) byte-identical
+— this batch touches no native module.
+
 ## [0.87.29] — Training recorder enhancement pass (backward compatible)
 
 Direct, explicitly-scoped follow-up to v0.87.28's recorder: "extend it

@@ -424,6 +424,34 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.30)
+
+§9's last item (docs/IDEAS-2026-07-EMERGENCE.md, "stalled era
+progression"), explicit user request. Confirmed root cause: era
+advanced purely from `tech_level`, itself incremented only by a rare
+seasonal invention roll — a settlement could sit at `industrial`
+forever regardless of built infrastructure, zero correlation between
+visible development and progression. Full detail: CHANGELOG.md.
+
+New `ERA_INFRASTRUCTURE_REQUIREMENTS` (`settlement/buildings.py`,
+per-era huts/roads/schools/carts) backs two complementary fixes:
+`_maybe_advance_era` now uses `era_for_tech_level_gated` (walks
+`ERA_ORDER` one legible step at a time, never skips an era whose own
+infra isn't built, never demotes an existing save); `_maybe_schedule_
+invention`'s chance calc gained an `era_infrastructure_progress`-based
+bonus (new `INFRASTRUCTURE_INVENTION_BONUS_WEIGHT`) — building toward
+the next era's requirement now measurably raises invention odds, so
+infra investment is a real lever, not window dressing. New
+`Settlement.summary()`'s `era_infrastructure` key surfaces this as a
+plain-language suffix on the existing "Era" stat tile.
+
+Verified: direct tests for the gated-era-advance function (zero-infra
+cap, single/multi-step advance, never-demotes) and progress math; a
+real engine test drives `_maybe_advance_era` through actual
+`start_construction`/`start_vehicle`/`world.roads.wear` calls; live
+Playwright verification of the rendered stat tile.
+`scripts/verify_native_soak.py` (2 seeds x 1500 ticks) byte-identical.
+
 ## Current state (v0.87.29)
 
 Backward-compatible enhancement pass on v0.87.28's training recorder

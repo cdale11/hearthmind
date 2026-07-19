@@ -625,6 +625,104 @@ def era_for_tech_level(tech_level: int) -> str:
     return era
 
 
+ERA_INFRASTRUCTURE_REQUIREMENTS: dict[str, dict[str, int]] = {
+    "electrical": {"huts": 6, "roads": 15, "schools": 1, "carts": 2},
+    "modern": {"huts": 10, "roads": 30, "schools": 2, "carts": 4},
+    "digital": {"huts": 15, "roads": 50, "schools": 3, "carts": 6},
+}
+"""docs/IDEAS-2026-07-EMERGENCE.md §9's last item: root-caused a live
+"civilization doesn't progress after 50,000 ticks" report to
+`era_for_tech_level` gating purely on `tech_level`, itself incremented
+ONLY by `llm/invention.py`'s rare seasonal roll — a settlement could
+have built dozens of huts/roads/schools/carts and still sit at
+`industrial` forever if the roll simply never landed, with zero
+correlation between visible development and actual progression. Fixed
+by making these two things mutually reinforcing rather than gating one
+behind the other in isolation: (1) `era_for_tech_level_gated` below
+won't let `tech_level` alone vault a settlement past an era whose real
+infrastructure hasn't been built yet — "small, legible, era-by-era
+steps... each step unlocks new buildings/infra" (explicit user
+framing), not a lucky invention roll suddenly unlocking FACTORY with
+zero factories'-worth of civic development behind it; (2)
+`_maybe_schedule_invention`'s chance calculation (simulation/engine.py)
+reads `era_infrastructure_progress` toward the SAME requirement as a
+genuine, deterministic bonus — a settlement that has already built
+what the next era needs invents measurably more readily, so investing
+in visible infrastructure is a real, controllable lever toward
+progression rather than window dressing while waiting on the RNG.
+`industrial` (the starting era) has no entry — nothing gates entering
+the era every settlement already starts in. Counts are deliberately
+modest relative to `POPULATION_CAP=400`-scale settlements (a handful
+of huts/roads/one school/two carts unlocks `electrical`) — the goal is
+a settlement's own real growth naturally clearing each bar in due
+course, not a second grind layered on top of the invention roll."""
+
+INFRASTRUCTURE_INVENTION_BONUS_WEIGHT = 0.5
+"""How much `era_infrastructure_progress` toward the NEXT era's
+requirement can boost `_maybe_schedule_invention`'s chance (same
+multiplicative-stacking shape as `education_invention_bonus`/
+`SKILL_INVENTION_BONUS_WEIGHT`/`TEMPERAMENT_INVENTION_INFLUENCE`) — at
+full progress (1.0, infra requirement already met) this roughly
+doubles the base chance*education*skill product; at zero progress it's
+a no-op. Deliberately smaller than education's bonus (education_
+invention_bonus can exceed 2x on its own) since infrastructure is a
+secondary, supporting lever here, not the primary "did you invest in
+learning" signal."""
+
+
+def era_infrastructure_progress(era: str, huts: int, roads: int, schools: int, carts: int) -> float:
+    """Fraction (0..1) of `era`'s `ERA_INFRASTRUCTURE_REQUIREMENTS` met
+    by the given counts — 1.0 for an era with no requirement entry
+    (`industrial`, or an unrecognized name). Each of the four counts
+    contributes an equal quarter-share, individually capped at 1.0 (a
+    surplus of huts doesn't compensate for zero roads) — matches the
+    "many small, legible steps" framing rather than one aggregate score
+    a settlement could game by overbuilding a single kind."""
+    requirement = ERA_INFRASTRUCTURE_REQUIREMENTS.get(era)
+    if not requirement:
+        return 1.0
+    shares = [
+        min(1.0, huts / requirement["huts"]) if requirement["huts"] else 1.0,
+        min(1.0, roads / requirement["roads"]) if requirement["roads"] else 1.0,
+        min(1.0, schools / requirement["schools"]) if requirement["schools"] else 1.0,
+        min(1.0, carts / requirement["carts"]) if requirement["carts"] else 1.0,
+    ]
+    return sum(shares) / len(shares)
+
+
+def era_infrastructure_met(era: str, huts: int, roads: int, schools: int, carts: int) -> bool:
+    requirement = ERA_INFRASTRUCTURE_REQUIREMENTS.get(era)
+    if not requirement:
+        return True
+    return (
+        huts >= requirement["huts"] and roads >= requirement["roads"]
+        and schools >= requirement["schools"] and carts >= requirement["carts"]
+    )
+
+
+def era_for_tech_level_gated(tech_level: int, current_era: str, huts: int, roads: int, schools: int, carts: int) -> str:
+    """Like `era_for_tech_level`, but never advances past an era whose
+    own `ERA_INFRASTRUCTURE_REQUIREMENTS` aren't yet met — walks
+    `ERA_ORDER` forward ONE step at a time from `current_era`, stopping
+    at the first era that fails either the tech-level threshold or the
+    infrastructure requirement, so a settlement can never skip a visible
+    development step even if `tech_level` alone would qualify it for a
+    much later era. Never demotes: if `current_era` is already ahead of
+    what `tech_level`/infrastructure would newly justify (e.g. an older
+    save from before this gate existed), this simply returns
+    `current_era` unchanged rather than pulling it backward."""
+    start_index = ERA_ORDER.index(current_era) if current_era in ERA_ORDER else 0
+    era = current_era if current_era in ERA_ORDER else ERA_ORDER[0]
+    for index in range(start_index + 1, len(ERA_ORDER)):
+        name = ERA_ORDER[index]
+        if tech_level < ERA_TECH_THRESHOLDS[name]:
+            break
+        if not era_infrastructure_met(name, huts, roads, schools, carts):
+            break
+        era = name
+    return era
+
+
 PRIORITY_HISTORY_MAX = 6
 OMEN_HISTORY_MAX = 6
 """How many past town-brain decisions `Settlement.priority_history`
@@ -2887,7 +2985,15 @@ class Settlement:
 
     # --- summary -------------------------------------------------------------
 
-    def summary(self) -> dict:
+    def summary(self, established_roads: int = 0) -> dict:
+        """`established_roads` (v9's "stalled era progression" fix): the
+        caller's own world-wide `RoadNetwork.summary()["established_
+        roads"]` count, threaded in since `Settlement` has no reference
+        to `World.roads` (roads aren't settlement-scoped) — see
+        `World.summary()`/`SimulationEngine`'s `settlement_summaries`
+        call sites. Omitting it (the default) just reads as "no roads
+        yet" for `era_infrastructure` below; every real call site
+        supplies the actual count."""
         under_construction = sum(1 for b in self.buildings if b.stage is BuildingStage.UNDER_CONSTRUCTION)
         standing = [b for b in self.buildings if b.stage is BuildingStage.STANDING]
         ruined = sum(1 for b in self.buildings if b.stage is BuildingStage.RUINED)
@@ -2895,6 +3001,7 @@ class Settlement:
         granaries = [b for b in standing if b.kind is BuildingKind.GRANARY]
         pastures = [b for b in standing if b.kind is BuildingKind.PASTURE]
         hatcheries = [b for b in standing if b.kind is BuildingKind.HATCHERY]
+        huts_standing = sum(1 for b in standing if b.kind is BuildingKind.HUT)
         kind_counts = {
             kind.value: sum(1 for b in standing if b.kind is kind)
             for kind in (
@@ -2903,6 +3010,27 @@ class Settlement:
                 BuildingKind.POWER_PLANT, BuildingKind.MARKET,
             )
         }
+        vehicle_summary = self._vehicle_summary()
+        next_era_index = ERA_ORDER.index(self.era) + 1 if self.era in ERA_ORDER else len(ERA_ORDER)
+        if next_era_index < len(ERA_ORDER):
+            next_era = ERA_ORDER[next_era_index]
+            requirement = ERA_INFRASTRUCTURE_REQUIREMENTS.get(next_era, {})
+            era_infrastructure = {
+                "next_era": next_era,
+                "requirement": dict(requirement),
+                "current": {
+                    "huts": huts_standing, "roads": established_roads,
+                    "schools": kind_counts["school"], "carts": vehicle_summary["carts_ready"],
+                },
+                "progress": round(
+                    era_infrastructure_progress(
+                        next_era, huts_standing, established_roads, kind_counts["school"],
+                        vehicle_summary["carts_ready"],
+                    ), 3,
+                ),
+            }
+        else:
+            era_infrastructure = None  # already at the last era — nothing further to work toward
         return {
             "id": self.id,
             "center": self.center(),
@@ -2931,7 +3059,7 @@ class Settlement:
             "inventions": list(self.inventions),
             "invention_knowledge": self.invention_knowledge,
             "festivals": list(self.festivals),
-            "vehicles": self._vehicle_summary(),
+            "vehicles": vehicle_summary,
             "workshops": kind_counts["workshop"],
             "schools": kind_counts["school"],
             "hospitals": kind_counts["hospital"],
@@ -2956,6 +3084,7 @@ class Settlement:
             "pending_player_whispers": list(self.player_influence),
             "era": self.era,
             "era_description": ERA_DESCRIPTIONS.get(self.era, ""),
+            "era_infrastructure": era_infrastructure,
             "founding_scenario": self.founding_scenario,
             "llm_named": self.llm_named,
             "beliefs": list(self.beliefs),

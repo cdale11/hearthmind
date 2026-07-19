@@ -2422,6 +2422,19 @@ subjectiveMapToggle.addEventListener("click", () => {
   if (latest && latest.summary) renderSubjectiveSummary(activeSettlementSummary(latest.summary));
 });
 
+function eraInfrastructureSuffix(eraInfrastructure) {
+  // §9 "stalled era progression" fix: a plain-language "what's still
+  // needed for the next step" line, since the raw counts alone
+  // (huts/roads/schools/carts) read as internal accounting otherwise.
+  if (!eraInfrastructure) return "";
+  const { next_era: nextEra, requirement: req, current: cur } = eraInfrastructure;
+  const missing = ["huts", "roads", "schools", "carts"]
+    .filter((k) => cur[k] < req[k])
+    .map((k) => `${cur[k]}/${req[k]} ${k}`);
+  if (!missing.length) return ` — ready to advance to ${nextEra}`;
+  return ` — next: ${nextEra} (needs ${missing.join(", ")})`;
+}
+
 function renderStats(summary) {
   const p = summary.population, r = summary.resources;
   const s = activeSettlementSummary(summary);
@@ -2512,8 +2525,11 @@ function renderStats(summary) {
       `more often. ${s.caravans_visited || 0} caravan${(s.caravans_visited || 0) === 1 ? " has" : "s have"} visited so far.`,
     ],
     [
-      "Era", `${s.era} — ${s.era_description}`,
-      "Advances with tech level (inventions): industrial -> electrical -> modern -> digital. Unlocks the FACTORY building kind past 'industrial'.",
+      "Era", `${s.era} — ${s.era_description}` + eraInfrastructureSuffix(s.era_infrastructure),
+      "Advances with tech level (inventions) AND real infrastructure — see docs/IDEAS-2026-07-EMERGENCE.md §9: " +
+      "a settlement can no longer skip straight to a late era on a lucky invention-roll streak with none of that " +
+      "era's own huts/roads/schools/carts standing. industrial -> electrical -> modern -> digital, one step at a " +
+      "time. Building toward the next era's requirement also raises invention chance directly.",
     ],
     [
       "Education", `${s.education_level.toFixed(2)} / ${s.education_capacity.toFixed(2)}`,

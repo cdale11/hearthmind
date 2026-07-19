@@ -117,9 +117,13 @@ from hearthmind.settlement.buildings import (
     TEMPERAMENT_INVENTION_INFLUENCE,
     BuildingKind,
     BuildingStage,
+    ERA_INFRASTRUCTURE_REQUIREMENTS,
+    ERA_ORDER,
+    INFRASTRUCTURE_INVENTION_BONUS_WEIGHT,
     Settlement,
     education_invention_bonus,
-    era_for_tech_level,
+    era_for_tech_level_gated,
+    era_infrastructure_progress,
     RELATION_DIALOGUE_NUDGE_SCALE,
     caravan_relation_factor,
     seed_relation,
@@ -134,6 +138,7 @@ from hearthmind.settlement.institutions import (
     FAMILY_FEUD_PROMOTION_THRESHOLD,
     InstitutionKind,
 )
+from hearthmind.settlement.vehicles import VehicleKind, VehicleStage
 from hearthmind.world.state import (
     CONSCIOUSNESS_INTERVENTION_LOG_MAX,
     CONSCIOUSNESS_MEMORY_MAX,
@@ -2702,6 +2707,18 @@ class SimulationEngine:
         # buildings.education_invention_bonus, docs/DECISIONS.md,
         # "LLM-as-brain batch."
         chance = min(1.0, INVENTION_CHANCE_PER_SEASON * education_invention_bonus(settlement.education_level))
+        # docs/IDEAS-2026-07-EMERGENCE.md §9 "stalled era progression":
+        # a settlement that has already built what the NEXT era needs
+        # (see ERA_INFRASTRUCTURE_REQUIREMENTS) invents measurably more
+        # readily — visible civic development is now a real, controllable
+        # lever toward progression, not just window dressing while
+        # waiting on the invention roll. No-op (progress=1.0, since
+        # `industrial` has no requirement entry) once past `digital`.
+        next_era_index = ERA_ORDER.index(settlement.era) + 1 if settlement.era in ERA_ORDER else len(ERA_ORDER)
+        if next_era_index < len(ERA_ORDER):
+            huts, roads, schools, carts = self._infra_counts(settlement)
+            infra_progress = era_infrastructure_progress(ERA_ORDER[next_era_index], huts, roads, schools, carts)
+            chance = min(1.0, chance * (1.0 + infra_progress * INFRASTRUCTURE_INVENTION_BONUS_WEIGHT))
         # H5 extension: a skilled population invents somewhat more
         # readily too, on top of (not instead of) education — see
         # SKILL_INVENTION_BONUS_WEIGHT.
@@ -2756,15 +2773,54 @@ class SimulationEngine:
 
         self._schedule_llm_job("invention", prompt, invention.SYSTEM_PROMPT, fallback, apply)
 
+    def _infra_counts(self, settlement) -> tuple[int, int, int, int]:
+        """`(huts, established_roads, schools, ready_carts)` — the four
+        infrastructure counts `ERA_INFRASTRUCTURE_REQUIREMENTS` gates
+        era progression on (docs/IDEAS-2026-07-EMERGENCE.md §9). Roads
+        are genuinely world-wide, not per-settlement (`World.roads` has
+        no settlement scoping), so they're read as-is; huts/schools/
+        carts are this settlement's own. Cheap — bounded by this one
+        settlement's building/vehicle counts, called at most once per
+        season per settlement (from `_maybe_schedule_invention`) plus
+        once per invention application (`_maybe_advance_era`)."""
+        huts = sum(
+            1 for b in settlement.buildings
+            if b.kind is BuildingKind.HUT and b.stage is BuildingStage.STANDING
+        )
+        schools = sum(
+            1 for b in settlement.buildings
+            if b.kind is BuildingKind.SCHOOL and b.stage is BuildingStage.STANDING
+        )
+        carts = sum(
+            1 for v in settlement.vehicles
+            if v.kind is VehicleKind.CART and v.stage is VehicleStage.READY
+        )
+        established_roads = self.world.roads.summary()["established_roads"]
+        return huts, established_roads, schools, carts
+
     def _maybe_advance_era(self, settlement=None) -> None:
         """A settlement starts in the industrial era (see
         `Settlement.era`) and moves forward as inventions accumulate —
         each new era is a mechanically real unlock (see
-        `buildings.era_for_tech_level`, the FACTORY building kind), not
-        just a label. See docs/DECISIONS.md, real-calendar/genesis-seed
-        follow-up."""
+        `buildings.era_for_tech_level_gated`, the FACTORY building
+        kind), not just a label. See docs/DECISIONS.md, real-calendar/
+        genesis-seed follow-up.
+
+        docs/IDEAS-2026-07-EMERGENCE.md §9 "stalled era progression":
+        `tech_level` alone can no longer vault a settlement past an era
+        whose own `ERA_INFRASTRUCTURE_REQUIREMENTS` haven't been built
+        yet — see `era_for_tech_level_gated`'s docstring. This is
+        strictly additive to the fix above (`_maybe_schedule_
+        invention`'s infra-driven invention-chance bonus) — a
+        well-developed settlement clears both bars readily; one that
+        never builds huts/roads/schools/carts stays capped at a lower
+        era even with a very high `tech_level`, which is the intended
+        "earned, legible" progression, not a regression (a settlement
+        could previously reach `digital` on a lucky roll streak with
+        zero of the era's own infrastructure standing)."""
         settlement = settlement if settlement is not None else self.world.settlement
-        new_era = era_for_tech_level(settlement.tech_level)
+        huts, roads, schools, carts = self._infra_counts(settlement)
+        new_era = era_for_tech_level_gated(settlement.tech_level, settlement.era, huts, roads, schools, carts)
         if new_era == settlement.era:
             return
         settlement.era = new_era
@@ -5342,7 +5398,7 @@ class SimulationEngine:
             # settlement for anything predating the switcher.
             "settlement_summaries": [
                 {
-                    **s.summary(),
+                    **s.summary(established_roads=self.world.roads.summary()["established_roads"]),
                     "members": s.living_member_count(self.world.population.agents),
                 }
                 for s in settlements
