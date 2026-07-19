@@ -2339,13 +2339,29 @@ class SimulationEngine:
             )
             grounded_recent = recent_events_diverse(self.conn, limit=5)
             grounded_event = grounded_recent[0]["description"] if grounded_recent else ""
+            is_family_pair = (
+                (agent_a.parents is not None and agent_b.id in agent_a.parents)
+                or (agent_b.parents is not None and agent_a.id in agent_b.parents)
+            )
+            opportunity_rng = _namespaced_rng(
+                self.world.config.seed, self.world.clock.tick_count,
+                f"dialogue_opportunity_{agent_a.id}_{agent_b.id}",
+            )
+            settlement_topics = [t for t, _count in local.top_topics()]
+            opportunity_candidates = dialogue.build_opportunity_candidates(
+                agent_a, agent_b, is_family_pair, recent_topics, settlement_topics,
+                list(local.place_names.values()), grounded_event, weather_notable,
+                self.world.weather.describe(),
+            )
+            opportunities = dialogue.select_opportunities(opportunity_candidates, opportunity_rng)
             prompt = dialogue.build_prompt(
                 agent_a, agent_b, affinity, local.name, latest_tradition,
                 self.world.clock.season, self.world.weather.describe(), beliefs_about=beliefs_about,
                 other_settlement_name=other_settlement_name, cross_settlement_relation=cross_relation,
                 lessons=lessons, recent_topics=recent_topics, weather_notable=weather_notable,
-                lexicon=local.lexicon, settlement_topics=[t for t, _count in local.top_topics()],
+                lexicon=local.lexicon, settlement_topics=settlement_topics,
                 place_names=list(local.place_names.values()), grounded_event=grounded_event,
+                opportunities=opportunities,
             )
             fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
             self._reserved_this_tick += 1
@@ -2356,6 +2372,25 @@ class SimulationEngine:
                         "affinity": affinity, "settlement": local.name,
                         "other_settlement_name": other_settlement_name,
                         "weather_notable": weather_notable, "recent_topics": recent_topics,
+                        # "Improve context selection instead of context
+                        # quantity" + review-pack diagnostics (explicit
+                        # live request): which opportunity category(ies)
+                        # actually got surfaced this call, plus which
+                        # optional context fields were genuinely
+                        # available — lets `llm/review_diagnostics.py`
+                        # measure topic diversity and context usage
+                        # directly from the archive instead of re-parsing
+                        # prompt text.
+                        "opportunities": [category for category, _text in opportunities],
+                        "context_available": {
+                            "pair_history": bool(recent_topics),
+                            "settlement_topic": bool(settlement_topics),
+                            "place": bool(local.place_names),
+                            "village_event": bool(grounded_event),
+                            "family": is_family_pair,
+                            "beliefs": bool(beliefs_about),
+                            "lexicon": bool(local.lexicon),
+                        },
                     },
                     settlement=local.name,
                 )

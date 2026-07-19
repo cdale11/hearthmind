@@ -409,6 +409,62 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.35)
+
+Explicit four-part live request: review-pack diagnostics, prompt-
+content relevance audit, smarter context selection, and diversified
+conversation opportunities (the "spring rhythm keeps coming up"
+complaint). Full detail: CHANGELOG.md.
+
+Root cause of the dominant-narrative complaint: `Settlement.
+top_topics()` was fed into every dialogue prompt as an unconditional
+"the village has been talking about X" invitation, and the model's own
+resulting topic output fed back into `top_topics()`'s own ranking —
+whichever topic became dominant first got reinforced every exchange,
+a feedback loop introduced by an earlier §9 session's own work.
+
+New `dialogue.build_opportunity_candidates`/`select_opportunities`
+(`llm/dialogue.py`): a weighted-random-without-replacement selector
+(`OPPORTUNITY_MAX_PICKS=2`) over seven steering categories —
+`pair_history` (3.0, highest), `family` (2.5), `future_plan` (2.5, new
+— reads `Agent.plan`), `village_event` (1.8), `place` (1.5), `weather`
+(1.3), `settlement_topic` (0.8, lowest, reworded from an invitation to
+"common knowledge" framing) — replacing the old unconditional
+concatenation of all four steering fields every call.
+`SimulationEngine._schedule_due_dialogue` builds the candidates and
+selects once via a namespaced RNG (`dialogue_opportunity_{a.id}_
+{b.id}`), feeding the same result into both the prompt and
+`structured_input` (for the new diagnostics below) — one selection,
+never double-consumed. Verified via a 2000-iteration distribution
+test: `pair_history` 933/2000 vs. `settlement_topic` 310/2000 with all
+seven categories present every call. This addresses items 3 and 4 of
+the request together — dynamic context selection IS the diversity
+mechanism here, not two separate systems. Item 2 (broader prompt-
+content audit) found nothing further worth trimming this pass — every
+remaining unconditional dialogue field already earns its slot.
+
+New `llm/review_diagnostics.py` (`compute_diagnostics`/`diagnostics_
+to_markdown`): stdlib-only, operates on the same `raw_examples` list
+`review_pack.py` already collects, no second archive scan. Reports
+task distribution, prompt/completion length, latency, fallback/parse-
+repair rates, prompt/structured-input duplicate rates, per-task
+context-usage rates (new `structured_input["context_available"]`
+field), dialogue topic diversity (dominant-topic share — the direct
+regression signal for the "spring rhythm" class of bug), dialogue
+opportunity-category balance, NPC/personality diversity, and a
+day-by-day historical-trends table. `review_pack.export_review_pack`/
+`export_random_subset` now always write `diagnostics.json` +
+`diagnostics.md` into every exported ZIP — `scripts/recorder_tools.py`
+and `POST /recorder/export-review-pack` pick this up automatically,
+zero changes needed there.
+
+Verified: direct smoke tests for `review_diagnostics` (synthetic
+multi-task/mixed-vintage examples, empty-input degradation) and a real
+end-to-end test building an on-disk archive and calling the actual
+export functions, confirming the ZIP's `diagnostics.json`/`.md`
+content. `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical — no native module touched.
+
 ## Current state (v0.87.34)
 
 Batch of live-report fixes, no single theme. Full detail: CHANGELOG.md.

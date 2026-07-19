@@ -169,14 +169,50 @@ crash time) is simply skipped by every reader in this module.
 
 `POST /recorder/export-review-pack` (payload: optional `task`,
 `date_from`/`date_to` ISO dates, `limit`, `markdown`) builds a
-self-contained ZIP (`review_pack.json` + `manifest.json`, optionally
-`review_pack.md`) under `<archive_dir>/exports/` and returns its path;
-`GET /recorder/download?path=...` serves it (path-traversal-guarded to
-stay under `archive_dir`). Each example in `review_pack.json` carries
-only the fields meant for AI review (all four layers, stable ID,
-essential metadata) — diagnostics like `latency_ms`/queue-wait are
+self-contained ZIP (`review_pack.json` + `manifest.json` +
+`diagnostics.json` + `diagnostics.md`, optionally `review_pack.md`)
+under `<archive_dir>/exports/` and returns its path; `GET
+/recorder/download?path=...` serves it (path-traversal-guarded to stay
+under `archive_dir`). Each example in `review_pack.json` carries only
+the fields meant for AI review (all four layers, stable ID, essential
+metadata) — per-example diagnostics like `latency_ms`/queue-wait are
 deliberately excluded, matching the spec's "exclude unrelated
-diagnostics."
+diagnostics" — but see below for the *aggregate* diagnostics report
+every export now carries alongside it. `export_random_subset` (`POST
+.../export-random`) produces the same four/five files.
+
+### Automatic diagnostics report (`llm/review_diagnostics.py`)
+
+Explicit live request: "Every exported review pack should include an
+automatic diagnostics report... to objectively identify simulator
+regressions and improvements before manual review." Computed from the
+SAME `raw_examples` list `review_pack.py` already collected for the
+export (no second archive scan, pure/read-only, stdlib-only — no
+numpy, matching this project's `llm_prompt_stats_summary` char-based-
+estimate convention). Every field degrades to `None`/omitted rather
+than a misleading zero when the underlying metadata predates a given
+archive line (mixed-vintage archives are expected, never special-cased
+by the caller).
+
+`diagnostics.json` covers: task distribution; prompt/completion length
+(estimated tokens + prompt chars, avg/median/p95/max); latency overall
+and per-task; fallback rate overall and per-task; parse-repaired rate;
+prompt/structured-input duplicate rates (via the existing `prompt_
+hash`/`structured_input_hash` fields); per-task context-usage rates
+(fraction of examples that had each optional context field present,
+read from `structured_input["context_available"]`); dialogue topic
+diversity (unique-topic ratio, dominant topic + its share of all
+exchanges — the direct "is one narrative like 'spring rhythm'
+dominating" signal); dialogue conversation-opportunity balance (which
+`dialogue.build_opportunity_candidates` categories actually got
+selected, from `structured_input["opportunities"]`); a coarse NPC/
+personality diversity ratio (unique NPCs touched vs. total NPC
+appearances); and a day-by-day historical-trends table (example count,
+fallback rate, avg prompt tokens, avg latency, dialogue topic
+diversity) so a reviewer can see whether a config/prompt change moved
+these numbers over time, not just their all-time average.
+`diagnostics.md` is the same data rendered for a human reviewer to
+skim before opening any individual example.
 
 ## Validation utility
 

@@ -17,6 +17,8 @@ import zipfile
 from pathlib import Path
 from typing import Iterator
 
+from hearthmind.llm import review_diagnostics
+
 # Fields carried into a review-pack example — spec: "structured input,
 # prompt, raw completion, parsed output, stable example ID, essential
 # metadata... exclude unrelated diagnostics." Deliberately narrower than
@@ -121,7 +123,17 @@ def _dataset_manifest_summary(raw_examples: list[dict]) -> dict:
     }
 
 
-def _write_zip(examples: list[dict], manifest: dict, out_dir: Path, markdown: bool) -> Path:
+def _write_zip(
+    examples: list[dict], manifest: dict, out_dir: Path, markdown: bool,
+    diagnostics: dict | None = None,
+) -> Path:
+    """Explicit live request: "Every exported review pack should include
+    an automatic diagnostics report (diagnostics.json + diagnostics.md)
+    ... to objectively identify simulator regressions and improvements
+    before manual review." `diagnostics` is always written when supplied
+    (both `export_review_pack`/`export_random_subset` below always
+    supply one — `diagnostics=None` only exists for callers that
+    deliberately want a bare pack, none currently do)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d_%H%M%S", time.gmtime())
     zip_path = out_dir / f"review_pack_{stamp}.zip"
@@ -130,6 +142,9 @@ def _write_zip(examples: list[dict], manifest: dict, out_dir: Path, markdown: bo
         zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         if markdown:
             zf.writestr("review_pack.md", _to_markdown(examples))
+        if diagnostics is not None:
+            zf.writestr("diagnostics.json", json.dumps(diagnostics, ensure_ascii=False, indent=2))
+            zf.writestr("diagnostics.md", review_diagnostics.diagnostics_to_markdown(diagnostics))
     return zip_path
 
 
@@ -187,7 +202,11 @@ def export_review_pack(
         "example_count": len(examples),
         **_dataset_manifest_summary(raw_examples),
     }
-    return _write_zip(examples, manifest, Path(out_dir) if out_dir else root / "exports", markdown)
+    diagnostics = review_diagnostics.compute_diagnostics(raw_examples)
+    return _write_zip(
+        examples, manifest, Path(out_dir) if out_dir else root / "exports", markdown,
+        diagnostics=diagnostics,
+    )
 
 
 def export_random_subset(
@@ -205,7 +224,11 @@ def export_random_subset(
         "example_count": len(sample), "population_count": len(all_raw),
         **_dataset_manifest_summary(raw_sample),
     }
-    return _write_zip(sample, manifest, Path(out_dir) if out_dir else root / "exports", markdown)
+    diagnostics = review_diagnostics.compute_diagnostics(raw_sample)
+    return _write_zip(
+        sample, manifest, Path(out_dir) if out_dir else root / "exports", markdown,
+        diagnostics=diagnostics,
+    )
 
 
 def archive_stats(archive_dir: str | Path) -> dict:

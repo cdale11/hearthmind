@@ -4,6 +4,96 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.35] — Review-pack diagnostics + dialogue conversation-opportunity selector
+
+Explicit four-part live request: (1) automatic diagnostics report on
+every review-pack export, (2) continue auditing prompt content for
+relevance over raw size, (3) select context per-task instead of
+dumping every available fact, (4) stop conversations converging on one
+dominant village-wide narrative ("recurring themes such as spring
+rhythm"). Items 3/4 were addressed together for dialogue via one new
+mechanism; item 1 landed as a new standalone module; item 2 was
+audited but found nothing further worth trimming beyond what item 3/4
+already changes (every remaining unconditional dialogue field —
+memory/personality/emotion/beliefs/mind/voice/lesson — earns its slot
+per the project's existing per-field justification).
+
+**Root cause of item 4** ("spring rhythm" dominance): `Settlement.
+top_topics()` (added in an earlier §9 pass) was fed into every dialogue
+prompt unconditionally as "the village has been talking about X" —
+phrased as an invitation, which the model's own topic output then fed
+back into `top_topics()`'s own frequency ranking. Whichever topic
+became dominant first got reinforced every subsequent exchange — a
+feedback loop this project's own prior session introduced.
+
+**New: `dialogue.build_opportunity_candidates`/`select_opportunities`**
+(`llm/dialogue.py`) — replaces the old unconditional concatenation of
+pair-history/settlement-topic/place/village-event/weather text with a
+weighted-random-without-replacement selector (`OPPORTUNITY_MAX_
+PICKS=2`) over seven candidate categories: `pair_history` (3.0,
+highest — actual shared history between these two agents),
+`family` (2.5), `future_plan` (2.5, new — reads the speaker's own
+`Agent.plan`), `village_event` (1.8), `place` (1.5), `weather` (1.3),
+`settlement_topic` (0.8, lowest — and reworded from an invitation to
+"common knowledge, no need to bring it up" framing). `Simulation
+Engine._schedule_due_dialogue` builds the candidate list and calls the
+selector once per exchange via a namespaced deterministic RNG stream
+(`dialogue_opportunity_{a.id}_{b.id}`), passing the result into both
+`dialogue.build_prompt` and the call's `structured_input` (for the new
+diagnostics below) — one selection, reused, never double-consumed.
+Verified via a 2000-iteration distribution test: `pair_history` picked
+933/2000 vs. `settlement_topic`'s 310/2000 with all seven categories
+present every call — the dominant-narrative category is now
+structurally de-emphasized, not merely reworded.
+
+**New: `llm/review_diagnostics.py`** (`compute_diagnostics`/
+`diagnostics_to_markdown`) — pure, read-only, stdlib-only (no numpy,
+same convention as `llm_prompt_stats_summary`'s char-based estimate),
+operating on the same `raw_examples` list `review_pack.py` already
+collects for an export (no second archive scan). Reports: task
+distribution; prompt/completion length (estimated tokens + chars,
+avg/median/p95/max); latency overall and per-task; fallback rate
+overall and per-task; parse-repaired rate; prompt/structured-input
+duplicate rates (via existing hash fields); per-task context-usage
+rates (from the new `structured_input["context_available"]` field,
+below); dialogue topic diversity (unique-topic ratio + dominant-topic
+share — the direct regression signal for item 4); dialogue
+opportunity-category balance (from `structured_input["opportunities"]`
+— confirms the selector itself stays well-balanced in a live archive,
+not just in a synthetic distribution test); NPC/personality diversity
+(unique NPCs touched vs. total appearances); and a day-by-day
+historical-trends table so a reviewer can see whether a config/prompt
+change moved these numbers, not just their all-time average. Every
+field degrades to `None`/omitted (never a misleading zero) on
+mixed-vintage archive lines that predate a given metadata field.
+
+`review_pack.export_review_pack`/`export_random_subset` now always
+compute diagnostics from the raw examples they already collected and
+`_write_zip` writes `diagnostics.json` + `diagnostics.md` into every
+exported ZIP alongside the existing `review_pack.json`/`manifest.json`
+(+ optional `review_pack.md`) — `scripts/recorder_tools.py`'s existing
+`export-review-pack`/`export-random` CLI commands and the `POST
+/recorder/export-review-pack` endpoint pick this up with zero changes
+of their own, since both route through the same two functions.
+
+`SimulationEngine._schedule_due_dialogue`'s `structured_input` also
+gained `context_available` (which optional context fields existed for
+this exchange: pair_history/settlement_topic/place/village_event/
+family/beliefs/lexicon) — the raw signal the new per-task context-
+usage diagnostic reads.
+
+Verified: direct smoke tests against `review_diagnostics.
+compute_diagnostics`/`diagnostics_to_markdown` with synthetic
+multi-task/multi-vintage example lists (including empty-input and
+missing-field cases); a real end-to-end test building an on-disk JSONL
+archive and calling the actual `export_review_pack`/
+`export_random_subset` functions, confirming the produced ZIP contains
+correct `diagnostics.json`/`diagnostics.md` with the expected dominant-
+topic detection. `dialogue.py`/`engine.py` changes verified via a
+real 3000-tick engine soak with a fake LLM client (zero crashes) and
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks, byte-identical —
+this batch touches no native module).
+
 ## [0.87.34] — Batch of live-report fixes: map rendering, movement, UI, non-core NPC intent
 
 Direct response to several live reports in one turn.

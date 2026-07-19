@@ -8,6 +8,8 @@ docs/DECISIONS.md, E2.
 """
 from __future__ import annotations
 
+import random
+
 from hearthmind.agents.agent import (
     RIVALRY_THRESHOLD,
     Agent,
@@ -72,6 +74,110 @@ SYSTEM_PROMPT = (
 )
 
 
+OPPORTUNITY_MAX_PICKS = 2
+"""Live request ("diversify conversation opportunities... prevent
+conversations from repeatedly revolving around dominant village-wide
+narratives... give greater weight to each NPC's immediate
+circumstances"): the prompt used to unconditionally concatenate EVERY
+available steering line (this pair's own topic history, the whole
+village's top topic, named places, a grounded recent event) every
+single call. That's not "diverse," it's "maximal" — and it actively
+reinforces whatever settlement-wide topic is already dominant, since
+`Settlement.top_topics()` naming it as "what the village has been
+talking about" is itself an invitation to talk about it more, which
+then keeps it dominant (the mechanism designed for the OPPOSITE effect
+in v0.87.31 backfired without an actual selection step). This constant
+caps how many of the candidate "opportunities" below actually reach
+the prompt each call — usually 1, sometimes 2 (see `_select_
+opportunities`), weighted-random rather than exhaustive."""
+
+_OPPORTUNITY_SECOND_PICK_CHANCE = 0.4
+"""Chance `select_opportunities` takes a second candidate on top of
+its first — most exchanges read as more natural steered toward ONE
+concrete thing, not a checklist of everything available."""
+
+
+def select_opportunities(
+    candidates: list[tuple[str, float, str]], rng: "random.Random",
+) -> list[tuple[str, str]]:
+    """Weighted-random selection WITHOUT replacement, up to
+    `OPPORTUNITY_MAX_PICKS`. `candidates` is `(category, weight, text)`
+    — weight is relative likelihood, not a hard priority order, so a
+    low-weight category (the settlement-wide topic) can still surface
+    sometimes, just less often than a personal one. Returns `(category,
+    text)` pairs in the order picked. Public (not `_`-prefixed): the
+    engine calls this directly, once, so it can log which categories
+    were actually chosen (`structured_input["opportunities"]`, feeds
+    the review-pack diagnostics' context/topic-diversity report) without
+    re-deriving the selection a second time or double-consuming the
+    RNG."""
+    pool = list(candidates)
+    picks: list[tuple[str, str]] = []
+    while pool and len(picks) < OPPORTUNITY_MAX_PICKS:
+        if picks and rng.random() >= _OPPORTUNITY_SECOND_PICK_CHANCE:
+            break
+        weights = [w for _, w, _ in pool]
+        idx = rng.choices(range(len(pool)), weights=weights, k=1)[0]
+        category, _weight, text = pool.pop(idx)
+        picks.append((category, text))
+    return picks
+
+
+def build_opportunity_candidates(
+    agent_a: Agent, agent_b: Agent, is_family: bool, recent_topics: list[str] | None,
+    settlement_topics: list[str] | None, place_names: list[str] | None, grounded_event: str,
+    weather_notable: bool, weather: str,
+) -> list[tuple[str, float, str]]:
+    """§9 follow-up, "diversify conversation opportunities" (explicit
+    live request): candidate steering lines this specific exchange could
+    draw on, each tagged with a relative weight. Personal-scope signals
+    (this pair's own history, either speaker's own near-term plan,
+    family) weigh more than village-scope ones (a named place, a
+    grounded event) which in turn weigh more than the settlement-wide
+    dominant topic — deliberately the LOWEST weight and reframed as
+    "common knowledge, no need to repeat" rather than an invitation, so
+    it can still surface sometimes without becoming the thing every
+    exchange gravitates toward. See `select_opportunities`/
+    `OPPORTUNITY_MAX_PICKS`."""
+    candidates: list[tuple[str, float, str]] = []
+    if recent_topics:
+        candidates.append((
+            "pair_history", 3.0,
+            f"You two have lately talked about: {', '.join(recent_topics)} — find something new or go deeper.",
+        ))
+    if is_family:
+        candidates.append((
+            "family", 2.5,
+            "They are family — a sibling, a parent, a child, a chore at home, are natural things to bring up.",
+        ))
+    for agent, label in ((agent_a, agent_a.name), (agent_b, agent_b.name)):
+        plan = agent.plan
+        if plan and plan.get("intent"):
+            candidates.append((
+                "future_plan", 2.5, f"{label} has quietly resolved to: {plan['intent']}.",
+            ))
+    if grounded_event:
+        candidates.append((
+            "village_event", 1.8, f"Something that actually happened recently: {grounded_event}.",
+        ))
+    if place_names:
+        candidates.append((
+            "place", 1.5,
+            f"The village knows this place by name: {', '.join(place_names[-2:])}.",
+        ))
+    if weather_notable:
+        candidates.append((
+            "weather", 1.3, f"It's currently {weather} — worth mentioning if it fits.",
+        ))
+    if settlement_topics:
+        candidates.append((
+            "settlement_topic", 0.8,
+            f"Lately the whole village has been talking about: {', '.join(settlement_topics)} — "
+            "common knowledge, no need to bring it up yourself unless it genuinely fits.",
+        ))
+    return candidates
+
+
 DIALOGUE_MEMORY_IN_PROMPT = 2
 """How many of each speaker's most recent memories reach the dialogue
 prompt. Raised 1 -> 2 in the v0.72.3 GPU-offload pass: 1 was deliberately
@@ -99,7 +205,8 @@ def build_prompt(
     lessons: tuple[str, str] = ("", ""), recent_topics: list[str] | None = None,
     weather_notable: bool = False, lexicon: list[dict] | None = None,
     settlement_topics: list[str] | None = None, place_names: list[str] | None = None,
-    grounded_event: str = "",
+    grounded_event: str = "", opportunity_rng: "random.Random | None" = None,
+    opportunities: list[tuple[str, str]] | None = None,
 ) -> str:
     """`lessons` (v0.87.0): `(agent_a's matching lesson, agent_b's
     matching lesson)`, each "" when no stored lesson matches that
@@ -142,7 +249,22 @@ def build_prompt(
     settlement (a filtered `recent_events_diverse` slice, same source
     `town_brain`/`chronicle` already read), offered as something either
     speaker might plausibly bring up — empty most of the time when
-    nothing notable happened lately."""
+    nothing notable happened lately.
+
+    `opportunity_rng`/`opportunities` ("diversify conversation
+    opportunities", explicit live request): `recent_topics`/
+    `settlement_topics`/`place_names`/`grounded_event`/notable-weather
+    no longer ALL reach the prompt together every call —
+    `build_opportunity_candidates`/`select_opportunities` weigh each one
+    (personal signals over village-wide ones, the dominant settlement
+    topic weighted lowest of all so naming it doesn't keep reinforcing
+    it) and pick 1-2 per exchange. Pass a pre-computed `opportunities`
+    list (the engine's own call site does this, so it can log which
+    categories were chosen without re-deriving them) to skip the
+    internal selection entirely; otherwise `opportunity_rng` (a seeded
+    `random.Random` for reproducible tests, defaulting to a fresh one —
+    this project's determinism-not-required convention) drives a fresh
+    selection here."""
     is_parent_child = (
         (agent_a.parents is not None and agent_b.id in agent_a.parents)
         or (agent_b.parents is not None and agent_a.id in agent_b.parents)
@@ -252,19 +374,21 @@ def build_prompt(
     mind_text = f" {'. '.join(mind_bits)}." if mind_bits else ""
     voice_text = f" {'. '.join(voice_bits)}." if voice_bits else ""
     lesson_text = f" {'. '.join(lesson_bits)}." if lesson_bits else ""
-    topics_text = (
-        f" You two have lately talked about: {', '.join(recent_topics)} — find something new or go deeper."
-        if recent_topics else ""
-    )
-    settlement_topics_text = (
-        f" Lately the whole village has been talking about: {', '.join(settlement_topics)}."
-        if settlement_topics else ""
-    )
-    place_names_text = (
-        f" The village knows this place by name: {', '.join(place_names[-2:])}."
-        if place_names else ""
-    )
-    grounded_event_text = f" Something that actually happened recently: {grounded_event}." if grounded_event else ""
+
+    # "Diversify conversation opportunities" (explicit live request):
+    # weighted-select 1-2 of the available steering candidates instead
+    # of unconditionally naming all of them — see
+    # `build_opportunity_candidates`/`select_opportunities`. Use the
+    # caller's pre-computed picks when given (the engine's call site
+    # does this so it can log the chosen categories); otherwise select
+    # fresh here.
+    if opportunities is None:
+        opportunity_candidates = build_opportunity_candidates(
+            agent_a, agent_b, is_parent_child, recent_topics, settlement_topics,
+            place_names, grounded_event, weather_notable, weather,
+        )
+        opportunities = select_opportunities(opportunity_candidates, opportunity_rng or random.Random())
+    opportunity_text = "".join(f" {text}" for _category, text in opportunities)
 
     def _activity(agent: Agent) -> str:
         # Grounds "currently X" in *why* when cognition set a reason
@@ -278,15 +402,13 @@ def build_prompt(
             return f'{agent.goal.value} ("{agent.goal_reason.strip()[:80]}")'
         return agent.goal.value
 
-    weather_text = f" It's currently {weather} — worth mentioning if it fits." if weather_notable else ""
     return (
         f"{agent_a.name} (hunger {agent_a.hunger:.2f}, energy {agent_a.energy:.2f}, "
         f"currently {_activity(agent_a)}) meets {agent_b.name} (hunger "
         f"{agent_b.hunger:.2f}, energy {agent_b.energy:.2f}, currently {_activity(agent_b)}). "
-        f"They are {tie}. It is {season}.{weather_text}"
+        f"They are {tie}. It is {season}."
         f"{culture}{beliefs_text}{personality_text}{emotion_text}{memory_text}{just_now_text}"
-        f"{semantic_text}{secret_text}{mind_text}{voice_text}{lesson_text}{topics_text}"
-        f"{settlement_topics_text}{place_names_text}{grounded_event_text} "
+        f"{semantic_text}{secret_text}{mind_text}{voice_text}{lesson_text}{opportunity_text} "
         "Write their brief exchange."
     )
 
