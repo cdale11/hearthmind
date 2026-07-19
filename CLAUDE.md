@@ -409,6 +409,30 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.38)
+
+Follow-up request: extend the context-selection audit to dispute and
+diplomacy. Full detail: CHANGELOG.md.
+
+`llm/dispute.py`: audited, no change — every optional grounding line
+(reputation gap, faction rivalry, debt, family feud, council leaning,
+local law) is already threshold-gated and carries genuinely distinct
+information.
+
+`llm/diplomacy.py`: found a real gap. `SYSTEM_PROMPT` asks the model to
+reason from "what each [settlement] has recently lived through," but
+`build_prompt` only ever supplied the bare `current_priority` label —
+never anything a settlement had actually lived through. Fixed by
+threading each settlement's `priority_rationale` (town-brain's own
+one-sentence grounded reason, already-computed state) through
+`diplomacy.build_prompt`'s new `rationale_a`/`rationale_b` params, via
+`_maybe_schedule_diplomacy`. Falls back to the bare label when a
+settlement has no town-brain decision yet.
+
+Verified: direct smoke tests (rationale present/absent), a 3000-tick
+LLM-disabled engine soak, `scripts/verify_native_soak.py` (2 seeds x
+800 ticks) byte-identical.
+
 ## Current state (v0.87.37)
 
 Follow-up request: extend the context-selection audit to town_brain/

@@ -4,6 +4,37 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.38] — Extend the context-selection audit to dispute + diplomacy
+
+Explicit follow-up request. `llm/dispute.py` (feud resolution):
+audited, no change — every optional grounding line (reputation gap,
+faction rivalry, debt, family feud, council leaning, local law) is
+already gated on a real threshold and each carries genuinely distinct
+information; nothing here duplicates anything else in the prompt.
+
+**`llm/diplomacy.py` (inter-settlement relations): found and fixed a
+real prompt-content gap.** `SYSTEM_PROMPT` explicitly asks the model
+to reason "given their current mutual standing and what each has
+recently lived through" — but `build_prompt` never actually supplied
+anything about what either settlement had lived through, only the bare
+`current_priority` LABEL ("food", "defense", ...). The one piece of
+context the system prompt itself promised was never actually there.
+Fixed by adding `rationale_a`/`rationale_b` parameters reading each
+settlement's own `priority_rationale` (the town-brain job's one-
+sentence grounded reason for that priority — already-computed state,
+zero new plumbing, zero added LLM call volume) — `SimulationEngine.
+_maybe_schedule_diplomacy` now passes both through. Falls back to the
+bare label alone when a settlement hasn't had a town-brain decision
+yet (rationale still empty), so nothing breaks for a fresh world.
+
+Verified: direct smoke tests confirming the rationale reaches the
+prompt text when present and the old label-only shape is preserved
+when absent (no rationale yet, or no priority yet at all — reads
+"unclear" exactly as before). A 3000-tick LLM-disabled engine soak
+(prompt-building code runs on every call site regardless of LLM
+enablement) — zero crashes. `scripts/verify_native_soak.py` (2 seeds
+x 800 ticks) byte-identical — no native module touched.
+
 ## [0.87.37] — Audit town_brain/chronicle prompts, improve world-genesis variety, surface seed
 
 Explicit follow-up request: extend the context-selection audit to

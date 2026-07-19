@@ -27,13 +27,31 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_prompt(name_a: str, name_b: str, relation: float, priority_a: str, priority_b: str) -> str:
+def build_prompt(
+    name_a: str, name_b: str, relation: float, priority_a: str, priority_b: str,
+    rationale_a: str = "", rationale_b: str = "",
+) -> str:
+    """`rationale_a`/`rationale_b` (v0.87.38 context-selection audit):
+    `Settlement.priority_rationale`, the town-brain job's own one-
+    sentence grounded reason for that settlement's `current_priority`
+    — free to include (already-computed state, no new plumbing) and
+    closes a real gap: SYSTEM_PROMPT explicitly asks the model to
+    reason from "what each has recently lived through," but until this
+    pass `build_prompt` only ever supplied the bare priority LABEL
+    ("food", "defense", ...), never anything a settlement had actually
+    lived through — the one piece of context the system prompt itself
+    promised was never actually there. Falls back to the label alone
+    when a settlement hasn't had a town-brain decision yet (rationale
+    still empty)."""
     tone = "warm" if relation > 0.3 else "cold" if relation < -0.3 else "neutral"
+    a_line = f"{name_a}'s current priority: {priority_a or 'unclear'}"
+    a_line += f" ({rationale_a})" if rationale_a else ""
+    b_line = f"{name_b}'s current priority: {priority_b or 'unclear'}"
+    b_line += f" ({rationale_b})" if rationale_b else ""
     return (
         f"{name_a} and {name_b} are two settlements sharing the same land. "
         f"Their current standing is {tone} ({relation:+.2f} on a -1..1 scale). "
-        f"{name_a}'s current priority: {priority_a or 'unclear'}. "
-        f"{name_b}'s current priority: {priority_b or 'unclear'}. "
+        f"{a_line}. {b_line}. "
         "Does anything notable pass between them this season?"
     )
 

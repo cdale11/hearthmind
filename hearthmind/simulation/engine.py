@@ -4812,7 +4812,10 @@ class SimulationEngine:
         self._mark_monthly_resolved("diplomacy")
         a, b = pair
         relation = a.relations.get(b.id, 0.0)
-        prompt = diplomacy.build_prompt(a.name, b.name, relation, a.current_priority, b.current_priority)
+        prompt = diplomacy.build_prompt(
+            a.name, b.name, relation, a.current_priority, b.current_priority,
+            rationale_a=a.priority_rationale, rationale_b=b.priority_rationale,
+        )
         fallback = diplomacy.fallback_diplomacy()
         a_id, b_id = a.id, b.id
 
