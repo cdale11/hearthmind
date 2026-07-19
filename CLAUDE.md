@@ -409,6 +409,30 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.39)
+
+Explicit request: "extend the audit to all prompts in the code." Read
+every remaining `build_prompt` in `hearthmind/llm/` not already
+covered (25 modules — artifacts through world_genesis; see
+CHANGELOG.md for the full list). 24 were already sound (every optional
+field threshold-gated, no duplication, every `SYSTEM_PROMPT` claim
+matched what `build_prompt` actually supplied).
+
+One real gap, same class as diplomacy's (v0.87.38): `llm/summary.py`'s
+`SYSTEM_PROMPT` has always promised "the town's current mood" but
+`build_prompt` never had a `mood` parameter — `Settlement.mood` sat
+unused. Fixed with an optional `mood` param (formatted like narrative_
+direction/consciousness already do), wired via `SimulationEngine.
+_schedule_summary`.
+
+Verified: direct smoke test (mood line present/absent),
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical.
+
+This closes the context-selection audit across every LLM prompt in the
+codebase — the four-part v0.87.35 request plus its five follow-ups
+(cognition/personal_belief, town_brain/chronicle/world_genesis,
+dispute/diplomacy, and now everything else) is complete.
+
 ## Current state (v0.87.38)
 
 Follow-up request: extend the context-selection audit to dispute and

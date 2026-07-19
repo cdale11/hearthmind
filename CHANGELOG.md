@@ -4,6 +4,45 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.39] — Extend the context-selection audit to every remaining LLM prompt
+
+Explicit request: "extend the audit to all prompts in the code."
+Read every `build_prompt` in `hearthmind/llm/` not already covered by
+the prior four audit passes (dialogue, cognition, personal_belief,
+town_brain, chronicle, world_genesis, dispute, diplomacy) — 25
+modules: artifacts, caravan, chronicler, consciousness, culture,
+culture_digest, digest, documentary, dream, faction, festival,
+fission, folklore, founding, geography, institution_culture,
+invention, laws, letters, memory_drift, mind, naming,
+narrative_direction, noncore_nudge, omens, religion, rumor_interpret,
+skill_mastery, summary.
+
+24 of the 25 were already sound: every optional field is conditionally
+gated on real state (a threshold, a non-empty list, a genuine signal),
+nothing duplicates anything else in the same prompt, and every
+`SYSTEM_PROMPT` claim about what context the model would be given
+matched what `build_prompt` actually supplied.
+
+**`llm/summary.py` (on-demand `/summary/request`) was the one
+exception — the same class of gap `diplomacy.py` had in v0.87.38.**
+`SYSTEM_PROMPT` has always told the model it's given "recent history,
+current population/settlement stats, and the town's current mood," but
+`build_prompt` never had a `mood` parameter at all — `Settlement.mood`
+(Phase I's collective-psychology hope/fear/grief/suspicion vector) sat
+right there, unused, despite the system prompt promising it. Fixed by
+adding an optional `mood` parameter, rendered the same way `narrative_
+direction.py`/`consciousness.py` already format it (`"hope +0.40, fear
+-0.10"`); `SimulationEngine._schedule_summary` now passes `settlement.
+mood` through. Omitted from the text entirely when not given, so an
+old call site keeps working unchanged.
+
+Verified: a direct smoke test confirming the mood line appears when
+supplied and is fully absent otherwise; `scripts/verify_native_soak.py`
+(2 seeds x 800 ticks) byte-identical — no native module touched, no
+simulation-state field affected (this pass only ever added an already-
+computed optional prompt field, never changed anything's schedule,
+gating, or persisted shape).
+
 ## [0.87.38] — Extend the context-selection audit to dispute + diplomacy
 
 Explicit follow-up request. `llm/dispute.py` (feud resolution):

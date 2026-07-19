@@ -2549,6 +2549,7 @@ class SimulationEngine:
         prompt = summary.build_prompt(
             settlement.name, settlement.era, year, recent,
             population_summary, settlement_summary, settlement.current_priority,
+            mood=dict(settlement.mood),
         )
         fallback = summary.fallback_summary(settlement.name, year, recent, population_summary)
         self.world.sim_summary_pending = True
