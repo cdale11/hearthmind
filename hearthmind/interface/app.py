@@ -292,6 +292,39 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
         broadcaster.enqueue_intervention({"type": "request_summary"})
         return JSONResponse({"queued": True})
 
+    @app.get("/chronicler")
+    async def chronicler_state() -> JSONResponse:
+        """The most recent Ask-the-Chronicler question/answer (§3
+        "Closing meaning loops," docs/IDEAS-2026-07-EMERGENCE.md) —
+        reads `World.chronicler_*` off the same broadcast payload
+        `/summary` already reads `sim_summary_*` from. `pending=True`
+        while a requested answer is in flight; the UI polls this until
+        it clears."""
+        payload = broadcaster.get_state()
+        if payload is None:
+            return JSONResponse({"error": "no tick has completed yet"}, status_code=503)
+        return JSONResponse(
+            payload.get("summary", {}).get(
+                "chronicler", {"question": "", "answer": "", "tick": -1, "pending": False},
+            )
+        )
+
+    @app.post("/ask-chronicler")
+    async def ask_chronicler(payload: dict) -> JSONResponse:
+        """Queue an on-demand, subjective in-fiction answer from the
+        settlement's chronicler — same enqueue-now/apply-next-tick seam
+        as `POST /summary/request`. See SimulationEngine._schedule_
+        chronicler_answer for why the answer is built only from the
+        village's own narrative material, never ground-truth stats."""
+        question = str(payload.get("question", "")).strip()
+        if not question:
+            return JSONResponse({"error": "question is required"}, status_code=400)
+        item = {"type": "ask_chronicler", "question": question}
+        if "settlement_id" in payload:
+            item["settlement_id"] = payload["settlement_id"]
+        broadcaster.enqueue_intervention(item)
+        return JSONResponse({"queued": True})
+
     @app.post("/intervene/sim-speed")
     async def intervene_sim_speed(payload: dict) -> JSONResponse:
         """Live pause/speed control — deliberately applied immediately

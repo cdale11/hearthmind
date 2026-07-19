@@ -1895,6 +1895,30 @@ class SettlementDisposition:
     `Agent.emotions` in the vision's hierarchy. Biases prompts and small
     deterministic rates the same non-dominant way temperament does;
     never labeled "mood" in the UI (same ambiguity discipline)."""
+    prophecy: dict | None = None
+    """§3 "self-fulfilling prophecy" (docs/IDEAS-2026-07-EMERGENCE.md):
+    `{"text": str, "tone": "ominous"|"hopeful", "formed_tick": int,
+    "resolve_tick": int, "status": "pending"|"confirmed"|"forgotten"}`
+    — a rare, vague forward-looking line riding `llm/omens.py`'s
+    existing monthly call (`PROPHECY_CHANCE`). While `status ==
+    "pending"`, it's folded into cognition/town_brain as one more
+    grounding input (a fearful reading biases toward stockpiling, a
+    hopeful one toward building) — nothing in the engine ever makes it
+    true; if the village *acts* on it, that's the villagers' own doing
+    manufacturing the confirming evidence. Resolved deterministically
+    at `resolve_tick` (`SimulationEngine._maybe_resolve_prophecy`) by
+    checking whether a matching hardship/prosperity event actually
+    occurred in the settlement's own event record during the window —
+    confirmed or forgotten either way, then cleared so at most one
+    prophecy is ever live at a time."""
+    last_intervention_tick: int = -1
+    """§3 "the observer enters the theology": the last tick a queued
+    `/intervene/*` item actually applied to this settlement — read
+    (never written) by `_maybe_schedule_beliefs` to decide whether a
+    recent event is close enough to a real player nudge to invite the
+    beliefs job to optionally attribute it to a nameless something
+    ("the Quiet Neighbor"), worded so it could equally be superstition.
+    -1 (never intervened) is the common case for most worlds."""
 
 
 class Settlement:
@@ -1941,6 +1965,7 @@ class Settlement:
         thefts_committed: int = 0,
         lexicon: list[dict] | None = None,
         pending_letters: list[dict] | None = None,
+        prophecy: dict | None = None, last_intervention_tick: int = -1,
     ):
         self.id = id
         """Stable settlement identity (multi-settlement pass, v0.65.0):
@@ -2010,6 +2035,7 @@ class Settlement:
             relations=relations if relations is not None else {},
             mood=mood if mood is not None else {},
             omen_seed=omen_seed, dream_seed=dream_seed,
+            prophecy=prophecy, last_intervention_tick=last_intervention_tick,
         )
         self._position_index: dict | None = None
         """(x, y) -> Building cache behind `at()` — never serialized,
@@ -2505,6 +2531,22 @@ class Settlement:
         self.disposition.dream_seed = value
 
     @property
+    def prophecy(self) -> dict | None:
+        return self.disposition.prophecy
+
+    @prophecy.setter
+    def prophecy(self, value: dict | None) -> None:
+        self.disposition.prophecy = value
+
+    @property
+    def last_intervention_tick(self) -> int:
+        return self.disposition.last_intervention_tick
+
+    @last_intervention_tick.setter
+    def last_intervention_tick(self, value: int) -> None:
+        self.disposition.last_intervention_tick = value
+
+    @property
     def current_priority(self) -> str:
         return self.disposition.current_priority
 
@@ -2811,6 +2853,7 @@ class Settlement:
             "laws": list(self.laws),
             "thefts_committed": self.thefts_committed,
             "lexicon": list(self.lexicon),
+            "prophecy": dict(self.prophecy) if self.prophecy is not None else None,
         }
 
     def infrastructure_report(self) -> list[dict]:
@@ -2938,6 +2981,8 @@ class Settlement:
             "thefts_committed": self.thefts_committed,
             "lexicon": list(self.lexicon),
             "pending_letters": list(self.pending_letters),
+            "prophecy": dict(self.prophecy) if self.prophecy is not None else None,
+            "last_intervention_tick": self.last_intervention_tick,
         }
 
     @classmethod
@@ -3001,4 +3046,6 @@ class Settlement:
             thefts_committed=data.get("thefts_committed", 0),
             lexicon=list(data.get("lexicon", [])),
             pending_letters=list(data.get("pending_letters", [])),
+            prophecy=dict(data["prophecy"]) if data.get("prophecy") is not None else None,
+            last_intervention_tick=data.get("last_intervention_tick", -1),
         )

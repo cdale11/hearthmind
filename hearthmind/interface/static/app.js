@@ -135,6 +135,10 @@ const CATEGORY_META = {
   dialect_coined: { icon: "🗣️" },
   letter_delivered: { icon: "✉️" },
   letter_arrived_too_late: { icon: "📭" },
+  prophecy_formed: { icon: "🔮" },
+  prophecy_confirmed: { icon: "🔮" },
+  prophecy_forgotten: { icon: "🔮" },
+  chronicler_answer: { icon: "📖" },
 };
 
 // Event-log filter chips (v0.64.0 UI backlog): coarse groups, display-only —
@@ -162,6 +166,7 @@ const EVENT_GROUP_OF = {
   festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind",
   institution_belief: "mind", ritual_formed: "mind", religion_formed: "mind",
   narrative_direction: "mind", consciousness_intervention: "mind", dialect_coined: "mind",
+  prophecy_formed: "mind", prophecy_confirmed: "mind", prophecy_forgotten: "mind", chronicler_answer: "mind",
 };
 let activeEventGroup = "all";
 
@@ -360,6 +365,79 @@ summaryGenerateBtn.addEventListener("click", async () => {
   } catch (e) {
     summaryStatus.textContent = `failed: ${e.message}`;
     summaryGenerateBtn.disabled = false;
+  }
+});
+
+// --- Ask the Chronicler (§3, docs/IDEAS-2026-07-EMERGENCE.md) --------------
+// Same on-demand request/poll shape as the simulation summary above, but
+// the answer is a subjective in-fiction voice, not a stats readout.
+
+const chroniclerPanel = document.getElementById("chronicler-panel");
+const chroniclerToggle = document.getElementById("chronicler-toggle");
+const chroniclerForm = document.getElementById("chronicler-form");
+const chroniclerInput = document.getElementById("chronicler-input");
+const chroniclerStatus = document.getElementById("chronicler-status");
+const chroniclerQuestionEcho = document.getElementById("chronicler-question-echo");
+const chroniclerAnswer = document.getElementById("chronicler-answer");
+let chroniclerPollTimer = null;
+
+function renderChronicler(data) {
+  if (data.pending) {
+    chroniclerStatus.textContent = "the chronicler is thinking…";
+  } else {
+    chroniclerStatus.textContent = data.tick >= 0 ? `as of tick ${data.tick}` : "";
+    chroniclerForm.querySelector("button").disabled = false;
+  }
+  if (data.question) {
+    chroniclerQuestionEcho.textContent = `"${data.question}"`;
+    chroniclerQuestionEcho.classList.remove("hidden");
+  }
+  if (data.answer) chroniclerAnswer.textContent = data.answer;
+}
+
+async function loadChronicler() {
+  try {
+    renderChronicler(await fetchJSON("/chronicler"));
+  } catch (e) {
+    chroniclerStatus.textContent = `failed to load: ${e.message}`;
+  }
+}
+
+function pollChroniclerUntilDone() {
+  if (chroniclerPollTimer) clearInterval(chroniclerPollTimer);
+  chroniclerPollTimer = setInterval(async () => {
+    try {
+      const data = await fetchJSON("/chronicler");
+      renderChronicler(data);
+      if (!data.pending) clearInterval(chroniclerPollTimer);
+    } catch (e) {
+      clearInterval(chroniclerPollTimer);
+    }
+  }, 2000);
+}
+
+chroniclerToggle.addEventListener("click", () => {
+  chroniclerPanel.classList.toggle("hidden");
+  chroniclerToggle.classList.toggle("active");
+  if (!chroniclerPanel.classList.contains("hidden")) loadChronicler();
+});
+
+chroniclerForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const question = chroniclerInput.value.trim();
+  if (!question) return;
+  chroniclerForm.querySelector("button").disabled = true;
+  chroniclerStatus.textContent = "the chronicler is thinking…";
+  try {
+    const body = { question, settlement_id: activeSettlementId };
+    await fetch("/ask-chronicler", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    chroniclerInput.value = "";
+    pollChroniclerUntilDone();
+  } catch (e2) {
+    chroniclerStatus.textContent = `failed: ${e2.message}`;
+    chroniclerForm.querySelector("button").disabled = false;
   }
 });
 
@@ -1449,6 +1527,22 @@ canvas.addEventListener("mousemove", (ev) => {
   if (b) {
     tooltip.classList.remove("hidden");
     const pct = Math.round((b.condition || 0) * 100);
+    if (subjectiveMode) {
+      // §3 "subjective map mode": the village doesn't read a percentage
+      // off a wall — it just knows a place as well-kept, worn, or
+      // falling apart, mirroring the plain-language bands the server's
+      // own `_condition_label` uses for the infrastructure report.
+      const label = b.stage === "under_construction" ? "being built"
+        : b.stage === "ruined" ? "in ruins"
+        : pct >= 80 ? "well-kept"
+        : pct >= 50 ? "showing its age"
+        : pct >= 20 ? "worn and neglected"
+        : "falling apart";
+      tooltip.innerHTML = `<b>${b.kind.replace(/_/g, " ")}</b><br>` +
+        `<span class="muted">${label}</span>` +
+        (b.stored_food ? `<br>keeps a store of food` : "");
+      return;
+    }
     tooltip.innerHTML =
       `<b>${b.kind}</b> (${b.stage})<br>` +
       `condition ${pct}%` +
@@ -1464,6 +1558,13 @@ canvas.addEventListener("mousemove", (ev) => {
       ? `<br><span class="muted">✝ ${graves.map((m) => m.name).join(", ")} rest${graves.length === 1 ? "s" : ""} here</span>`
       : "";
     tooltip.classList.remove("hidden");
+    if (subjectiveMode) {
+      const s = latest && latest.summary ? activeSettlementSummary(latest.summary) : null;
+      const folkName = s && s.place_names ? Object.values(s.place_names).find((n) => biome.startsWith("river") || biome.startsWith("lake")) : null;
+      tooltip.innerHTML = `<span class="muted">${folkName || biome.replace(/_/g, " ")}</span>${graveText}` +
+        `<br><span class="muted">click for details</span>`;
+      return;
+    }
     tooltip.innerHTML = `<span class="muted">${biome.replace(/_/g, " ")}</span> (${gx}, ${gy})${graveText}` +
       `<br><span class="muted">click for details</span>`;
     return;
@@ -1954,9 +2055,42 @@ if (settlementChipsEl) {
   });
 }
 
+// --- §3 "subjective map mode" (docs/IDEAS-2026-07-EMERGENCE.md) ------------
+// Pure client-side re-presentation of data the server already sends every
+// tick (belief_digest/culture_digest/place_names/folklore, plus building
+// condition and terrain coordinates already in the payload) — no new
+// endpoint, no new LLM call. Toggling re-reads the last-rendered `latest`
+// payload rather than waiting for the next tick, so the switch feels
+// immediate.
+let subjectiveMode = false;
+const subjectiveMapToggle = document.getElementById("subjective-map-toggle");
+
+function renderSubjectiveSummary(s) {
+  const panel = document.getElementById("subjective-summary-panel");
+  panel.style.display = subjectiveMode ? "" : "none";
+  if (!subjectiveMode) return;
+  document.getElementById("subjective-summary-title").textContent =
+    `${s.name || "The village"}'s own view`;
+  const beliefEl = document.getElementById("subjective-belief-digest");
+  beliefEl.innerHTML = s.belief_digest ? `<i>"${s.belief_digest}"</i>` : "The village hasn't settled on what it believes about itself yet.";
+  const cultureEl = document.getElementById("subjective-culture-digest");
+  cultureEl.innerHTML = s.culture_digest ? `<i>"${s.culture_digest}"</i>` : "";
+  const placesEl = document.getElementById("subjective-place-names");
+  const names = Object.values(s.place_names || {});
+  placesEl.textContent = names.length ? `Known to the village as: ${names.join(", ")}.` : "";
+}
+
+subjectiveMapToggle.addEventListener("click", () => {
+  subjectiveMode = !subjectiveMode;
+  subjectiveMapToggle.classList.toggle("active", subjectiveMode);
+  document.body.classList.toggle("subjective-mode", subjectiveMode);
+  if (latest && latest.summary) renderSubjectiveSummary(activeSettlementSummary(latest.summary));
+});
+
 function renderStats(summary) {
   const p = summary.population, r = summary.resources;
   const s = activeSettlementSummary(summary);
+  renderSubjectiveSummary(s);
   const f = summary.farms, llm = summary.llm, w = summary.wildlife, rd = summary.roads;
   const c = summary.climate;
   const tiles = [

@@ -4,6 +4,65 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.20] — §3 close-out: closing meaning loops
+
+Direct follow-up per explicit user request ("Complete the item 3 of
+ideas.md") — closes docs/IDEAS-2026-07-EMERGENCE.md §3's four items,
+all previously unchecked.
+
+**Self-fulfilling prophecy** (`llm/omens.py`, `Settlement.prophecy`):
+rides the existing monthly omen call — `PROPHECY_CHANCE` (0.15, on top
+of the omen's own rarity) invites a vague forward-looking line + tone
+alongside the retrospective omen, kept live until `PROPHECY_RESOLUTION_
+WINDOW_TICKS` passes. While pending, folds into `cognition`/
+`town_brain` prompts as one more optional grounding line (ominous ->
+caution framing, hopeful -> ambition framing). `SimulationEngine.
+_resolve_prophecies` (new tick job, zero LLM cost) judges confirmed/
+forgotten deterministically from a `World.last_life_events` hardship/
+prosperity tally accumulated during the window — a documented scope
+trim versus the idea's "the beliefs job later judges it" framing,
+since a second LLM call to judge fulfillment would double this
+feature's call cost for a question the settlement's own event record
+already answers. New `prophecy_formed`/`prophecy_confirmed`/
+`prophecy_forgotten` events (🔮).
+
+**The observer enters the theology** (`Settlement.last_intervention_
+tick`, `llm/beliefs.py`): zero new LLM call volume — a real player-
+originated `/intervene/*` call (never a consciousness-authored one)
+timestamps the settlement; the existing monthly beliefs job gets one
+conditional grounding sentence inviting an optional theory naming a
+nameless "Quiet Neighbor," worded to stay ambiguous. Reuses the entire
+`Settlement.beliefs`/institution-mirroring pipeline unchanged.
+
+**Ask the Chronicler** (new `llm/chronicler.py`, `POST /ask-chronicler`
+/ `GET /chronicler`): on-demand single-shot call, same enqueue-now/
+apply-next-tick seam as `POST /summary/request`. Answers strictly from
+folklore/chronicle/beliefs/records — never population/settlement stat
+dicts — so the chronicler can be honestly wrong or say "I don't know."
+New sidebar "📖 chronicler" panel with a question form.
+
+**Subjective map mode**: pure client-side toggle ("👁 subjective"),
+zero backend changes. Swaps the raw stat grid for a "the village's own
+view" panel (belief_digest/culture_digest/place_names) and switches
+building/terrain hover tooltips to plain-language condition bands and
+folk place-names.
+
+Verified: direct tests against real production paths — `Settlement.
+prophecy`/`last_intervention_tick` round-trip (to_dict/from_dict/
+summary, legacy-snapshot defaults); `omens.parse_prophecy` validation;
+a real `_maybe_schedule_omen` call (fake LLM client) confirms a
+prophecy forms correctly and a second call while one is pending never
+overwrites it; `_resolve_prophecies` confirmed/forgotten paths driven
+by real `last_life_events` tallies across hardship, prosperity, and
+no-signal cases; a real `_maybe_schedule_beliefs` call confirms the
+Quiet-Neighbor grounding line reaches an actual built prompt only
+within the intervention window; a real `_apply_intervention({"type":
+"ask_chronicler", ...})` call drives the actual scheduling pipeline
+end to end (pending -> fake LLM answer -> cleared) and confirms an
+empty question is a no-op. `scripts/verify_native_soak.py` (2 seeds x
+800 ticks) byte-identical — no native module touched. A 20,000-tick
+organic engine soak (LLM disabled) completes with zero crashes.
+
 ## [0.87.19] — §2 close-out: a world, not parallel towns
 
 Direct follow-up per explicit user request ("finish 2 of ideas.md")

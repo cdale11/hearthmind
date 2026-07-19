@@ -28,7 +28,7 @@ def build_prompt(
     settlement_name: str, recent_events: list[dict], population_summary: dict,
     settlement_summary: dict, player_whispers: list[str], beliefs: list[dict] | None = None,
     council_beliefs: list[dict] | None = None, narrative_theme: str = "", belief_digest: str = "",
-    culture_digest: str = "", council_faction_name: str = "",
+    culture_digest: str = "", council_faction_name: str = "", prophecy: dict | None = None,
 ) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
@@ -75,6 +75,14 @@ def build_prompt(
         f"\nThe council of elders is currently dominated by {council_faction_name}."
         if council_faction_name else ""
     )
+    # §3 "self-fulfilling prophecy": same "texture, never a required
+    # thread" treatment as narrative_theme below — a pending prophecy
+    # is offered as one more ambient input the priority MAY lean toward
+    # (ominous -> caution, hopeful -> ambition), never a directive.
+    prophecy_text = (
+        f"\nThere's a half-remembered {prophecy['tone']} saying going around: \"{prophecy['text']}\""
+        if prophecy else ""
+    )
     # player_standing (Settlement.player_standing) is one more quiet
     # input, same "folded in, never a command" treatment as whispers —
     # only mentioned at all once it's notably warm/cold, and even then
@@ -100,7 +108,7 @@ def build_prompt(
         f"{settlement_summary.get('standing', 0)} standing structures "
         f"({settlement_summary.get('hospitals', 0)} hospitals, {settlement_summary.get('schools', 0)} schools, "
         f"{settlement_summary.get('workshops', 0)} workshops).\n"
-        f"Recent history:\n{events_text}{whisper_text}{digest_text}{culture_digest_text}{beliefs_text}{council_text}{faction_leaning_text}{standing_text}"
+        f"Recent history:\n{events_text}{whisper_text}{digest_text}{culture_digest_text}{beliefs_text}{council_text}{faction_leaning_text}{standing_text}{prophecy_text}"
         # Phase M "Narrative Direction": ambient bias only, never a
         # directive — the theme colors how this decision is framed, it
         # never dictates it.

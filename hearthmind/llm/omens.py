@@ -35,6 +35,14 @@ incremental per Phase G's standing ambiguity discipline — this doesn't
 add a new kind of event, just widens where an existing one's memory
 can come from."""
 
+PROPHECY_CHANCE = 0.15
+"""§3 "self-fulfilling prophecy" (docs/IDEAS-2026-07-EMERGENCE.md):
+when an omen call already fires (itself rare), this is the further
+chance `SimulationEngine._maybe_schedule_omen` invites a vague,
+forward-looking line alongside the retrospective one — kept deliberately
+rare on top of an already-rare event, so a live prophecy reads as a
+genuinely unusual moment, not a running mechanic."""
+
 SYSTEM_PROMPT = (
     "You are noting a small, unexplained occurrence noticed in a simulated "
     "village — something residents mention to each other without quite "
@@ -42,9 +50,17 @@ SYSTEM_PROMPT = (
     "mundane explanation (an animal's behavior, a trick of light, a run of "
     "coincidences, an old building's odd creak) and never confirmed as "
     "anything more. Match the tone to whether the village's fortunes have "
-    "lately felt lucky or unlucky, without saying so directly. "
+    "lately felt lucky or unlucky, without saying so directly. Separately, "
+    "if asked for a prophecy, offer ONE vague, forward-looking line in the "
+    "same unexplained register — never a specific prediction, just an "
+    "unsettled or hopeful sense of what's coming ('a hard reckoning before "
+    "the second thaw,' 'a kindness repaid before the year turns') — and say "
+    "plainly whether its overall feeling is ominous or hopeful. "
     'Respond with strict JSON only, no other text: {"omen": "one sentence, '
-    'under 25 words, described as something noticed, not explained"}.'
+    'under 25 words, described as something noticed, not explained", '
+    '"prophecy": "a vague forward-looking line, or empty if none this time", '
+    '"prophecy_tone": "ominous" or "hopeful" (only meaningful if prophecy is '
+    'non-empty)}.'
 )
 
 
@@ -157,3 +173,17 @@ def parse_omen(result: dict, fallback: dict) -> str:
     if not isinstance(omen, str) or not omen.strip():
         omen = fallback["omen"]
     return omen.strip()[:200]
+
+
+def parse_prophecy(result: dict) -> tuple[str, str] | None:
+    """§3 "self-fulfilling prophecy": returns `(text, tone)` or None —
+    None is the common, expected outcome (no fallback pool for this;
+    a prophecy is meant to be a genuine LLM offering, never fabricated,
+    same "None is not a failure" shape used elsewhere in this codebase)."""
+    text = result.get("prophecy")
+    tone = result.get("prophecy_tone")
+    if not isinstance(text, str) or not text.strip():
+        return None
+    if tone not in ("ominous", "hopeful"):
+        tone = "ominous"
+    return text.strip()[:200], tone

@@ -58,8 +58,8 @@ from hearthmind.config import Config
 from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
-    faction, fission, beliefs, caravan, chronicle, consciousness, culture, culture_digest, dialogue, dispute,
-    documentary, dream, festival, folklore, founding, geography, invention, memory_drift, mind, naming,
+    faction, fission, beliefs, caravan, chronicle, chronicler, consciousness, culture, culture_digest, dialogue,
+    dispute, documentary, dream, festival, folklore, founding, geography, invention, memory_drift, mind, naming,
     narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
     diplomacy, laws, letters, noncore_nudge,
 )
@@ -284,6 +284,35 @@ _JOB_EVENTS_SEASON = 2
 a per-tick scheduling method takes either no args, this tick's `events`
 list, or `(events, previous_season)`. Kept as small int sentinels so the
 dispatch loop is a cheap branch, not a reflection/inspect call."""
+
+PROPHECY_RESOLUTION_WINDOW_TICKS = 480
+"""§3 "self-fulfilling prophecy" (docs/IDEAS-2026-07-EMERGENCE.md): how
+long a formed prophecy stays live (~5 sim-days at the default tick
+rate) before `_resolve_prophecies` judges it confirmed/forgotten —
+long enough for the village to plausibly act on it, short enough that
+it reads as one bounded, self-contained moment rather than a
+permanent background state."""
+
+OBSERVER_ATTRIBUTION_WINDOW_TICKS = 960
+"""§3 "the observer enters the theology" (docs/IDEAS-2026-07-
+EMERGENCE.md): how recent a genuine `/intervene/*` call must be
+(~10 sim-days) for `_maybe_schedule_beliefs` to invite the model to
+optionally attribute something to a nameless "Quiet Neighbor" —
+wide enough that a monthly-cadence beliefs job has a real chance to
+land inside the window, narrow enough that this stays "the player just
+did something," not a permanent ambient state."""
+
+_PROPHECY_HARDSHIP_CATEGORIES = frozenset({
+    "death", "theft", "illness", "disaster_flood", "disaster_wildfire", "disaster_heatwave",
+})
+_PROPHECY_PROSPERITY_CATEGORIES = frozenset({
+    "birth", "building_completed", "vehicle_completed", "skill_mastered", "recovery",
+})
+"""`_resolve_prophecies`'s deterministic tally categories — reuses
+`World.last_life_events`'s existing category vocabulary rather than
+inventing a parallel one. Deliberately coarse/settlement-agnostic, same
+looseness `_detect_ritual_signals`'s `shrine_mourning` pattern already
+accepts."""
 
 BACKPRESSURE_BACKLOG_PER_SLOT = 3
 """Scheduling gate: no new routine LLM jobs while the runner's backlog
@@ -1413,6 +1442,7 @@ class SimulationEngine:
                 )
             _pending_memory_evictions.clear()
         self._detect_ritual_signals()
+        self._resolve_prophecies()
         self._maybe_schedule_skill_mastery()
         if "day_end" in events:
             self._log_daily_metrics()
@@ -1738,6 +1768,7 @@ class SimulationEngine:
                 lesson=lesson, seek_candidate=seek_prompt_hint,
                 institution_objective=institution_objective, plan=agent.plan,
                 core_memory=self._pick_core_memory(agent),
+                prophecy=home.prophecy if home.prophecy and home.prophecy.get("status") == "pending" else None,
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             traits_snapshot = dict(agent.traits)
@@ -1916,6 +1947,9 @@ class SimulationEngine:
             reason = item.get("reason") or "a nudge from outside the simulation"
             self.world.population.apply_goal(agent.id, goal, reason)
             self._log("intervention", f"{agent.name} was nudged toward {goal.value} — {reason}")
+            # §3 "the observer enters the theology": see the settlement_
+            # resources branch below for why this is recorded.
+            self._settlement_by_id(agent.settlement_id).last_intervention_tick = self.world.clock.tick_count
         elif kind == "settlement_resources":
             settlement = self._settlement_by_id(item.get("settlement_id", self.world.settlement.id))
             materials_delta = float(item.get("materials", 0.0))
@@ -1927,6 +1961,16 @@ class SimulationEngine:
                 f"An outside hand adjusted the settlement's stores "
                 f"(materials {materials_delta:+.1f}, currency {currency_delta:+.1f}).",
             )
+            # §3 "the observer enters the theology" (docs/IDEAS-2026-07-
+            # EMERGENCE.md): a real, player-caused nudge, timestamped —
+            # `_maybe_schedule_beliefs` reads this (never writes it) to
+            # decide whether a recent event is close enough to invite the
+            # beliefs job to optionally attribute something to a nameless
+            # something, worded so it could equally be superstition. This
+            # never fires for consciousness-authored interventions
+            # (`weather_nudge`/`temperament_nudge`/`false_memory`,
+            # llm/consciousness.py) — only genuine `/intervene/*` calls.
+            settlement.last_intervention_tick = self.world.clock.tick_count
         elif kind == "weather":
             weather = self.world.weather
             if "temperature_c" in item:
@@ -1940,6 +1984,7 @@ class SimulationEngine:
             self._log(
                 "intervention", f"The weather shifted unnaturally — an outside hand nudged it to {weather.describe()}.",
             )
+            self.world.settlement.last_intervention_tick = self.world.clock.tick_count
         elif kind == "town_influence":
             text = str(item.get("text", "")).strip()[:200]
             if text:
@@ -1961,8 +2006,11 @@ class SimulationEngine:
                 target.player_influence = target.player_influence[-3:]
                 noun = target.name or "the village"
                 self._log("intervention", f"A whisper reached {noun}'s ear: \"{text}\"")
+                target.last_intervention_tick = self.world.clock.tick_count
         elif kind == "request_summary":
             self._schedule_summary()
+        elif kind == "ask_chronicler":
+            self._schedule_chronicler_answer(str(item.get("question", "")), item.get("settlement_id"))
 
     def _schedule_due_dialogue(self) -> None:
         """Route this tick's due dialogue pairs (v0.70.0). `due_for_
@@ -2183,6 +2231,43 @@ class SimulationEngine:
             self._log("sim_summary", self.world.sim_summary_text)
 
         self._schedule_llm_job("sim_summary", prompt, summary.SYSTEM_PROMPT, fallback, apply)
+
+    # --- §3 "Ask the Chronicler" (on-demand, subjective) -----------------------
+
+    def _schedule_chronicler_answer(self, question: str, settlement_id: int | None) -> None:
+        """Applied the tick after `POST /ask-chronicler` enqueues an
+        `ask_chronicler` intervention — same enqueue-now/apply-next-tick
+        seam as `_schedule_summary`, and deliberately NOT gated by
+        `_settlement_job_backpressured()` for the identical reason: a
+        single user-triggered question isn't part of the coincident
+        monthly job cluster that gate exists to smooth. Unlike `summary`,
+        the prompt is built ONLY from the settlement's own narrative
+        material (folklore/chronicle/beliefs/records) — never population/
+        settlement stat dicts — so the answer is genuinely subjective,
+        never a ground-truth readout dressed up as in-character text."""
+        settlement = self._settlement_by_id(settlement_id) if settlement_id is not None else self.world.settlement
+        question = question.strip()[:300]
+        if not question:
+            return
+        chronicle_events = [
+            e for e in recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
+            if e["category"] in ("chronicle", "documentary")
+        ]
+        prompt = chronicler.build_prompt(
+            settlement.name, question, list(settlement.folklore), chronicle_events,
+            list(settlement.beliefs), list(settlement.records),
+        )
+        fallback = chronicler.fallback_chronicler(question)
+        self.world.chronicler_question = question
+        self.world.chronicler_pending = True
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            self.world.chronicler_answer = chronicler.parse_chronicler(result, fallback)
+            self.world.chronicler_answer_tick = self.world.clock.tick_count
+            self.world.chronicler_pending = False
+            self._log("chronicler_answer", f"Asked of the chronicler: \"{question}\" — {self.world.chronicler_answer}")
+
+        self._schedule_llm_job("chronicler", prompt, chronicler.SYSTEM_PROMPT, fallback, apply)
 
     # --- Phase E: village culture (traditions) --------------------------------
 
@@ -2523,6 +2608,54 @@ class SimulationEngine:
                 stl.rituals = stl.rituals[-RITUAL_MAX_STORED:]
             stl.ritual_signal_counts["shrine_mourning"] = 0  # consumed — don't re-promote a duplicate
             self._log("ritual_formed", f"{stl.name} has taken to mourning its dead at the shrine.")
+
+    def _resolve_prophecies(self) -> None:
+        """§3 "self-fulfilling prophecy" (docs/IDEAS-2026-07-EMERGENCE.md):
+        runs every tick, zero LLM cost. While a settlement holds a
+        `prophecy` with `status == "pending"`, accumulates a same-tick
+        hardship/prosperity tally from `World.last_life_events` — the
+        same settlement-agnostic looseness `_detect_ritual_signals`
+        already accepts for `shrine_mourning` (most worlds have one
+        settlement for a long time anyway). At `resolve_tick`, the
+        prophecy is judged confirmed or forgotten purely from which
+        tally led — nothing here ever *causes* an event to happen;
+        if the village reads an ominous prophecy and stockpiles, or a
+        hopeful one and builds, any resulting hardship/prosperity is
+        the villagers' own doing, per this project's whole Phase G
+        ambiguity discipline. Deliberately simpler than the idea doc's
+        own "the beliefs job later judges it" framing — a second LLM
+        call to judge fulfillment would double this feature's call
+        cost for a judgment the settlement's own event record can
+        already answer deterministically."""
+        had_hardship = any(category in _PROPHECY_HARDSHIP_CATEGORIES for category, _ in self.world.last_life_events)
+        had_prosperity = any(category in _PROPHECY_PROSPERITY_CATEGORIES for category, _ in self.world.last_life_events)
+        tick = self.world.clock.tick_count
+        for stl in self.world.settlements:
+            prophecy = stl.prophecy
+            if prophecy is None or prophecy.get("status") != "pending":
+                continue
+            if had_hardship:
+                prophecy["hardship_signals"] = prophecy.get("hardship_signals", 0) + 1
+            if had_prosperity:
+                prophecy["prosperity_signals"] = prophecy.get("prosperity_signals", 0) + 1
+            if tick < prophecy.get("resolve_tick", tick):
+                continue
+            hardship = prophecy.get("hardship_signals", 0)
+            prosperity = prophecy.get("prosperity_signals", 0)
+            tone = prophecy.get("tone", "ominous")
+            confirmed = (tone == "ominous" and hardship > prosperity) or (tone == "hopeful" and prosperity > hardship)
+            prophecy["status"] = "confirmed" if confirmed else "forgotten"
+            if confirmed:
+                self._log(
+                    "prophecy_confirmed",
+                    f"{stl.name or 'The village'}'s half-remembered words seem, in hindsight, to have known something: \"{prophecy['text']}\"",
+                )
+            else:
+                self._log(
+                    "prophecy_forgotten",
+                    f"{stl.name or 'The village'}'s old vague words came to nothing in particular, and were mostly forgotten.",
+                )
+            stl.prophecy = None  # at most one live prophecy at a time
 
     def _maybe_promote_family_feud(
         self, settlement: "Settlement", family_a: "Institution", family_b: "Institution",
@@ -3069,6 +3202,7 @@ class SimulationEngine:
             council_beliefs=council.beliefs[-PROMPT_BELIEFS_MAX:] if council else None,
             narrative_theme=self._narrative_theme_bias(settlement),
             council_faction_name=council_majority.name if council_majority else "",
+            prophecy=settlement.prophecy if settlement.prophecy and settlement.prophecy.get("status") == "pending" else None,
         )
         fallback = town_brain.fallback_priority(population_summary, settlement_summary, council_disposition)
         brain_target_id = settlement.id
@@ -3142,8 +3276,13 @@ class SimulationEngine:
             [{"category": "pattern_noticed", "description": s} for s in pattern_sentences] + recent
             if pattern_sentences else recent
         )
+        intervention_recent = (
+            settlement.last_intervention_tick >= 0
+            and self.world.clock.tick_count - settlement.last_intervention_tick <= OBSERVER_ATTRIBUTION_WINDOW_TICKS
+        )
         prompt = beliefs.build_prompt(
             settlement.name, recent_for_prompt, list(settlement.beliefs), population_summary, settlement_summary,
+            intervention_recent=intervention_recent,
         )
         fallback = beliefs.fallback_belief(recent, list(settlement.beliefs), settlement_summary)
         existing_count = len(settlement.beliefs)
@@ -3686,13 +3825,34 @@ class SimulationEngine:
         )
         fallback = omens.fallback_omen(temperament, self.world.clock.tick_count, subject_name=subject_name)
         omen_target_id = omen_target.id
+        # §3 "self-fulfilling prophecy": a genuine LLM answer (never the
+        # fallback, which has no prophecy pool) may additionally offer a
+        # vague forward-looking line — only rolled/applied when this
+        # settlement doesn't already hold a live one, so at most one
+        # prophecy is ever pending per settlement.
+        roll_prophecy = (
+            omen_target.prophecy is None
+            and _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "prophecy_roll") < omens.PROPHECY_CHANCE
+        )
 
         def apply(result: dict, used_fallback: bool) -> None:
             omen = omens.parse_omen(result, fallback)
             self._log("omen", omen)
-            self._settlement_by_id(omen_target_id).record_omen(self.world.clock.tick_count, omen, subject_name)
+            target = self._settlement_by_id(omen_target_id)
+            target.record_omen(self.world.clock.tick_count, omen, subject_name)
             if not used_fallback and self.world.settlement.omen_seed == seed_phrase:
                 self.world.settlement.omen_seed = ""
+            if not used_fallback and roll_prophecy and target.prophecy is None:
+                prophecy = omens.parse_prophecy(result)
+                if prophecy is not None:
+                    text, tone = prophecy
+                    tick = self.world.clock.tick_count
+                    target.prophecy = {
+                        "text": text, "tone": tone, "formed_tick": tick,
+                        "resolve_tick": tick + PROPHECY_RESOLUTION_WINDOW_TICKS,
+                        "status": "pending", "hardship_signals": 0, "prosperity_signals": 0,
+                    }
+                    self._log("prophecy_formed", f"{target.name or 'The village'} noticed something spoken half in jest: \"{text}\"")
 
         self._schedule_llm_job("omen", prompt, omens.SYSTEM_PROMPT, fallback, apply)
 

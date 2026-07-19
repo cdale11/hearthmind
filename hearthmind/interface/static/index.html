@@ -26,10 +26,12 @@
       <button id="sim-speed-reset" title="Reset to default speed">reset</button>
     </div>
     <button id="summary-toggle" class="dev-toggle" title="LLM-generated summary of the simulation, on demand">🧭 summary</button>
+    <button id="chronicler-toggle" class="dev-toggle" title="Ask the village chronicler a question, in character">📖 chronicler</button>
     <button id="history-toggle" class="dev-toggle" title="Summarized town history">📜 history</button>
     <button id="timeline-toggle" class="dev-toggle" title="Scrub through past snapshots">🕰 timeline</button>
     <button id="relationship-toggle" class="dev-toggle" title="Interactive relationship graph">🕸 relationships</button>
     <button id="details-toggle" class="dev-toggle" title="Raw stats, culture, and infrastructure detail">📊 details</button>
+    <button id="subjective-map-toggle" class="dev-toggle" title="View the map through the village's own eyes — folk names, reputation, folklore">👁 subjective</button>
     <button id="dev-toggle" class="dev-toggle" title="Developer console: raw diagnostics/telemetry">⚙ dev</button>
   </header>
 
@@ -69,6 +71,13 @@
         <div id="pending-whispers" class="muted hidden"></div>
       </div>
 
+      <div class="panel" id="subjective-summary-panel" style="display:none;">
+        <h2 id="subjective-summary-title">The village's own view</h2>
+        <div id="subjective-belief-digest" class="muted"></div>
+        <div id="subjective-culture-digest" class="muted"></div>
+        <div id="subjective-place-names" class="muted"></div>
+      </div>
+
       <div class="panel">
         <h2>Recent events</h2>
         <div id="event-filter-chips">
@@ -89,6 +98,21 @@
         <button id="summary-generate">Generate summary</button>
         <span id="summary-status" class="muted"></span>
         <p id="summary-text" class="muted">no summary generated yet</p>
+      </div>
+
+      <div class="panel hidden" id="chronicler-panel">
+        <h2>Ask the chronicler</h2>
+        <div class="muted" style="font-size:11px; margin-bottom:6px;">
+          The chronicler answers in character, from the village's own tales, history, and beliefs only — never
+          from ground-truth simulation state, and may honestly not know.
+        </div>
+        <form id="chronicler-form">
+          <input id="chronicler-input" type="text" maxlength="300" placeholder="Ask the chronicler something…" />
+          <button type="submit">Ask</button>
+        </form>
+        <span id="chronicler-status" class="muted"></span>
+        <p id="chronicler-question-echo" class="muted hidden"></p>
+        <p id="chronicler-answer" class="muted">no question asked yet</p>
       </div>
 
       <div class="panel hidden" id="history-panel">

@@ -91,6 +91,7 @@ def build_prompt(
     semantic_memory: str = "", mind_text: str = "", needs_repair: bool = False,
     life_digest: str = "", lesson: str = "", seek_candidate: tuple[str, str] | None = None,
     institution_objective: str = "", plan: dict | None = None, core_memory: str = "",
+    prophecy: dict | None = None,
 ) -> str:
     """`settlement_name`/`latest_tradition` are optional culture context
     (Phase E) — empty until the settlement is named/has a tradition, so
@@ -192,7 +193,17 @@ def build_prompt(
     a death, a settlement split) that graduated out of the ordinary
     8-slot recency window months or years ago, computed at the call
     site. "" most of the time (an agent with no core memories yet, or
-    none relevant right now)."""
+    none relevant right now).
+
+    `prophecy` (§3 "self-fulfilling prophecy", docs/IDEAS-2026-07-
+    EMERGENCE.md): `Settlement.prophecy` while `status == "pending"`,
+    if any — a vague forward-looking line the village half-remembers.
+    An ominous one nudges toward stockpiling/caution phrasing, a
+    hopeful one toward building/ambition phrasing; nothing here forces
+    a specific goal, it's colored suggestion only, same "texture, never
+    a required thread" treatment every other optional grounding line in
+    this prompt gets. `None` most of the time — a live prophecy is
+    meant to be rare."""
     culture = ""
     if settlement_name:
         culture = f" You live in {settlement_name}."
@@ -254,6 +265,13 @@ def build_prompt(
         if plan else ""
     )
     core_memory_text = f" You still remember well: {core_memory}" if core_memory else ""
+    prophecy_text = ""
+    if prophecy is not None:
+        lean = "unsettled" if prophecy["tone"] == "ominous" else "hopeful"
+        prophecy_text = (
+            f" There's a {lean} half-remembered saying going around: \"{prophecy['text']}\" "
+            "— it may be worth heeding, or it may be nothing."
+        )
     # v0.87.15, explicit user direction: past a real survival threshold,
     # the goal isn't a genuine choice — don't pose it as an open
     # question (see SURVIVAL_HUNGER_THRESHOLD/SURVIVAL_ENERGY_THRESHOLD's
@@ -271,7 +289,7 @@ def build_prompt(
         f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{just_now_text}"
         f"{personality_text}{emotion_text}{beliefs_text}{own_belief_text}{semantic_text}{mind_prompt_text}"
         f"{life_digest_text}{lesson_text}{repair_text}{seek_text}{objective_text}{plan_text}"
-        f"{core_memory_text}{closing}"
+        f"{core_memory_text}{prophecy_text}{closing}"
     )
 
 

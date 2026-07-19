@@ -138,6 +138,20 @@ class World:
     "generating..." state in between. Persisted (unlike last_life_events)
     so a page refresh or resumed world still shows the last summary
     rather than reading empty."""
+    chronicler_question: str = ""
+    chronicler_answer: str = ""
+    chronicler_answer_tick: int = -1
+    chronicler_pending: bool = False
+    """§3 "Ask the Chronicler" (docs/IDEAS-2026-07-EMERGENCE.md): an
+    on-demand, single-shot LLM call mirroring `sim_summary_*` above
+    exactly — `chronicler_question` the observer's own typed question,
+    `chronicler_answer` the settlement chronicler's most recent reply
+    (answered strictly from folklore/chronicle/beliefs/records, never
+    ground truth — see llm/chronicler.py), `chronicler_answer_tick` when
+    it was generated (-1 = never asked), `chronicler_pending` true from
+    the moment a `ask_chronicler` intervention is applied until its
+    `_schedule_llm_job` callback resolves. Persisted like sim_summary_*
+    so a page refresh still shows the last answer."""
     consciousness_memory: list[dict] = field(default_factory=list)
     """Phase N "Town Consciousness v2" (docs/VISION-2026-07.md, "The Town
     Awake"): bounded log of what the town's persistent inner awareness
@@ -473,6 +487,12 @@ class World:
                 "tick": self.sim_summary_tick,
                 "pending": self.sim_summary_pending,
             },
+            "chronicler": {
+                "question": self.chronicler_question,
+                "answer": self.chronicler_answer,
+                "tick": self.chronicler_answer_tick,
+                "pending": self.chronicler_pending,
+            },
             "consciousness": {
                 "personality": dict(self.consciousness_personality),
                 "memory": list(self.consciousness_memory),
@@ -522,6 +542,11 @@ class World:
             # generation left in flight at shutdown never resolves after
             # restart, so it must load back as False, not stuck "true"
             # forever with no job to clear it.
+            "chronicler_question": self.chronicler_question,
+            "chronicler_answer": self.chronicler_answer,
+            "chronicler_answer_tick": self.chronicler_answer_tick,
+            # chronicler_pending: same not-persisted reasoning as
+            # sim_summary_pending above.
             "consciousness_memory": list(self.consciousness_memory),
             "consciousness_personality": dict(self.consciousness_personality),
             "consciousness_objectives": list(self.consciousness_objectives),
@@ -658,6 +683,9 @@ class World:
             rumor_total=data.get("rumor_total", 0),
             sim_summary_text=data.get("sim_summary_text", ""),
             sim_summary_tick=data.get("sim_summary_tick", -1),
+            chronicler_question=data.get("chronicler_question", ""),
+            chronicler_answer=data.get("chronicler_answer", ""),
+            chronicler_answer_tick=data.get("chronicler_answer_tick", -1),
             consciousness_memory=list(data.get("consciousness_memory", [])),
             consciousness_personality=dict(data.get("consciousness_personality", {})),
             consciousness_objectives=list(data.get("consciousness_objectives", [])),

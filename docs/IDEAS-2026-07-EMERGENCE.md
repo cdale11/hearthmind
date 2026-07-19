@@ -209,45 +209,55 @@ caravans, omen echoes) but they don't *want* anything from each other.
 The rumor→folklore→religion→theme pipeline is shipped, but it's still
 mostly *interpretive* — belief rarely feeds back into behavior.
 
-- [ ] **Self-fulfilling prophecy.** Omens/dreams are retrospective by
-  design. Add a stored, *vague* forward-looking line (rare; authored by
-  the existing omen/dream jobs, e.g. "a hard reckoning before the
-  second thaw") kept on the settlement with a confirmation window.
-  Nothing in the engine ever makes it true — but while it's live, it's
-  a prompt-bias line for cognition/town-brain (a fearful village
-  stockpiles; a hopeful one builds), and the beliefs job later judges
-  it confirmed/forgotten *from the subjective event record*. Belief
-  nudging behavior which manufactures the confirming evidence is
-  textbook emergence, fully inside the ambiguity discipline (the
-  prophecy is only ever words; the "fulfillment" is the villagers'
-  own doing).
+- [x] **Self-fulfilling prophecy.** Shipped v0.87.20. `PROPHECY_CHANCE`
+  in `llm/omens.py` — when the existing monthly omen call fires,
+  further chance it offers a vague forward-looking line + tone
+  (ominous/hopeful) alongside the retrospective omen; stored as
+  `Settlement.prophecy` (`{text, tone, formed_tick, resolve_tick,
+  status, hardship_signals, prosperity_signals}`), one live at a time.
+  While pending, folded into `cognition`/`town_brain` prompts as one
+  more optional grounding line. **Scope trim, flagged not silently
+  dropped**: resolution (`SimulationEngine._resolve_prophecies`, runs
+  every tick) is deterministic, not a second LLM "judge" call — it
+  tallies `World.last_life_events` against hardship/prosperity category
+  sets during the confirmation window (`PROPHECY_RESOLUTION_WINDOW_
+  TICKS`) and judges confirmed/forgotten from whichever tally led, same
+  "spend the call only once, judge from what already happened"
+  discipline as everywhere else in this codebase — a second call to
+  literally ask the model "did this come true" would double the
+  feature's LLM cost for a judgment the settlement's own event record
+  can already answer. New `prophecy_formed`/`prophecy_confirmed`/
+  `prophecy_forgotten` events (🔮).
 
-- [ ] **The observer enters the theology.** `player_standing` and the
-  player model exist, but the *villagers* have no concept of the hand
-  that whispers and shifts weather. Let the religion/beliefs machinery
-  occasionally attribute intervention-correlated events to a named
-  something ("the Quiet Neighbor") — emerging only if the player
-  actually intervenes, worded so it could equally be superstition.
-  Players who meddle get mythologized by their own world; players who
-  never touch anything never see it form. High surprise, zero new
-  subsystems: it's one more belief subject.
+- [x] **The observer enters the theology.** Shipped v0.87.20. New
+  `Settlement.last_intervention_tick`, set in `_apply_intervention`
+  whenever a genuine player-originated `/intervene/*` call lands
+  (agent_goal/settlement_resources/weather/town_influence — never a
+  consciousness-authored intervention). `llm/beliefs.py`'s settlement-
+  level prompt gains one conditional grounding sentence
+  (`OBSERVER_ATTRIBUTION_WINDOW_TICKS`-tick window) inviting the model
+  to optionally attribute recent fortune to a nameless "Quiet Neighbor"
+  or similar, worded so it reads as plausibly as coincidence — reuses
+  the entire existing `Settlement.beliefs`/institution-mirroring
+  pipeline with zero new schema or new LLM call.
 
-- [ ] **Ask the Chronicler (on-demand, subjective).** An interface
-  endpoint where the observer types a question and one LLM call answers
-  **as the settlement's chronicler, from folklore + chronicle + beliefs
-  + records only — never ground truth.** The answer can be wrong, and
-  the observer can check it against the dev surface. This is the
-  two-surface split turned into a *game*: the gap between what the
-  world believes and what the world is becomes directly explorable.
-  On-demand only, so it costs nothing unattended.
+- [x] **Ask the Chronicler (on-demand, subjective).** Shipped v0.87.20.
+  New `llm/chronicler.py` + `POST /ask-chronicler` / `GET /chronicler`,
+  mirroring the existing on-demand `/summary` seam exactly
+  (`World.chronicler_question/answer/answer_tick/pending`). The prompt
+  is built ONLY from folklore/chronicle events/beliefs/records — never
+  population/settlement stat dicts — so the answer is a genuinely
+  subjective in-fiction voice, honestly wrong or "I don't know" when
+  the material doesn't cover it. New "📖 chronicler" sidebar panel with
+  a question form.
 
-- [ ] **Subjective map mode.** A toggle that re-renders the observatory
-  through the town's eyes: folk place-names instead of coordinates,
-  buildings labeled by reputation ("the unlucky house"), map annotated
-  with folklore sites, statistics replaced by the belief digest.
-  Pure client work over data that already exists. The moment an
-  observer flips it and sees the same world wearing its own myth is
-  exactly the register this project aims for.
+- [x] **Subjective map mode.** Shipped v0.87.20. Pure client-side
+  toggle ("👁 subjective" header button) — no new endpoint. Shows a
+  "the village's own view" panel (belief_digest/culture_digest/
+  place_names, already-serialized data) in place of the raw stat grid;
+  building/terrain hover tooltips switch to plain-language condition
+  bands ("well-kept"/"falling apart") and folk place-names instead of
+  percentages/coordinates when a folk name exists for that tile.
 
 ## 4. The watcher watched (Phase G, turned around)
 

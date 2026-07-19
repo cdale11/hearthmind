@@ -253,6 +253,12 @@ SYSTEM_PROMPT = (
     "into one short digest sentence — the gist of what the village currently "
     "believes about itself as a whole, the way you'd sum up someone's outlook in "
     "one line rather than listing every opinion they hold. "
+    "If something notably fortunate happened shortly after the village felt "
+    "quietly nudged from outside, you MAY, if it genuinely fits, form or revise a "
+    "theory that names this nameless something — something people have started "
+    "calling 'the Quiet Neighbor' or similar — worded so it reads exactly as "
+    "plausibly as ordinary luck or coincidence; never state or imply it is "
+    "definitely real. This should be rare, not a theory you reach for by default. "
     'Respond with strict JSON only, no other text: {"subject": "short label, e.g. '
     'a person/family name, \'the harvests\', \'the newcomers\', \'the whispers '
     "from outside'\", \"belief\": \"one sentence, under 30 words, stated as the "
@@ -265,7 +271,7 @@ SYSTEM_PROMPT = (
 
 def build_prompt(
     settlement_name: str, recent_events: list[dict], existing_beliefs: list[dict],
-    population_summary: dict, settlement_summary: dict,
+    population_summary: dict, settlement_summary: dict, intervention_recent: bool = False,
 ) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
@@ -284,9 +290,20 @@ def build_prompt(
     # goal ("beliefs are allowed to be wrong," CLAUDE.md). Feeding this
     # prompt accurate stats meant beliefs could never meaningfully
     # diverge from reality (July 2026 architecture review, §3.4).
+    # §3 "the observer enters the theology" (docs/IDEAS-2026-07-
+    # EMERGENCE.md): only mentioned at all once a real `/intervene/*`
+    # call landed recently (`SimulationEngine._apply_intervention` sets
+    # `Settlement.last_intervention_tick`, read — never written — here);
+    # emerges only if the player actually intervenes, per the idea's own
+    # framing.
+    intervention_line = (
+        "\nSomething about the village's fortunes has felt quietly nudged lately, "
+        "as if by an unseen hand — or by nothing at all."
+        if intervention_recent else ""
+    )
     return (
         f"The village of {settlement_name}, in its {settlement_summary.get('era', 'industrial')} days.\n"
-        f"What people have been saying and seeing lately:\n{events_text}\n"
+        f"What people have been saying and seeing lately:\n{events_text}{intervention_line}\n"
         f"Theories the village already holds about itself:\n{beliefs_text}\n"
         "Form or revise one theory."
     )
