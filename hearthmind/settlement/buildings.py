@@ -751,6 +751,27 @@ MATERIALS_GATHER_PER_TICK = 0.03
 """Materials added per GATHER-goal agent present on forest/hills, per
 tick, up to MATERIALS_CAPACITY — see Population._maybe_gather."""
 
+MINERAL_CAPACITY = 8.0
+"""Max iron or gold a settlement's stockpile can hold per kind — well
+below MATERIALS_CAPACITY (30.0): a specific ore vein's yield is a
+luxury/specialty good, not bulk construction stock. See Population.
+_maybe_gather, world/minerals.py."""
+
+MINERAL_GATHER_PER_TICK = 0.015
+"""Iron/gold added per GATHER-goal agent present on a HILLS tile
+carrying a MineralDeposit, per tick — half MATERIALS_GATHER_PER_TICK,
+reflecting that working a specific vein is slower/more careful labor
+than general quarrying."""
+
+MINERAL_CURRENCY_VALUE = {"iron": 3.0, "gold": 12.0}
+"""Currency earned per unit of iron/gold sold at capacity (the same
+overflow-sale mechanic materials/food already use) — well above
+CURRENCY_PER_OVERFLOW_UNIT's flat 1.0, reflecting real per-unit value:
+gold sells for 4x iron, both far above bulk materials. This is also
+what makes a gold vein "worth fighting over" (docs/IDEAS-2026-07-
+EMERGENCE.md §8) even before any dedicated dispute/theft hook exists
+for it — a settlement's economy already feels the difference."""
+
 MATERIALS_PER_CONSTRUCTION_TICK = 0.1
 """Materials consumed per tick a construction site draws on the
 stockpile, in exchange for CONSTRUCTION_MATERIALS_MULTIPLIER — see
@@ -887,6 +908,16 @@ different goods with different scarcity."""
 
 WORKSHOP_CRAFT_MATERIALS_COST_PER_TICK = 0.05
 WORKSHOP_CRAFT_TOOLS_PER_TICK = 0.02
+
+IRON_TOOL_COST_PER_TICK = 0.01
+IRON_TOOL_BONUS_PER_TICK = 0.012
+"""§8 expanded mineral economy (v0.87.25): when the settlement has iron
+on hand, a workshop worker's craft also consumes a small amount of it
+alongside materials for a real quality bonus — extends the existing H4
+tools chain rather than building a parallel one, same "iron ore feeds
+better tools" logic real smithing has. Optional, not required: a
+settlement with no iron still crafts tools exactly as before at the
+plain WORKSHOP_CRAFT_TOOLS_PER_TICK rate."""
 """H4: the first real multi-good supply chain — a staffed, standing
 workshop with materials available converts `WORKSHOP_CRAFT_MATERIALS_
 COST_PER_TICK` of the settlement's shared stockpile into
@@ -1634,6 +1665,14 @@ class SettlementEconomy:
     market_prices: dict = field(default_factory=dict)
     """good name -> price multiplier, empty (all goods read 1.0) unless
     a MARKET stands — see `tick_market_prices`/MARKET_PRICE_MIN."""
+    minerals: dict = field(default_factory=dict)
+    """§8 expanded mineral economy (v0.87.25): {"iron": float, "gold":
+    float}, each 0..MINERAL_CAPACITY — distinct from `materials`
+    (bulk wood/stone) the way a specific ore vein differs from a quarry.
+    Gathered by GATHER-goal agents on a hills tile carrying a
+    `MineralDeposit` (world/minerals.py), consumed by tool-crafting
+    (iron) and overflow-sold at a much higher per-unit price than
+    materials (both) once at capacity. See Population._maybe_gather."""
     fish_caught: int = 0
     """Persistent, never-decremented count of meals relieved from a
     FISH resource node (Population._maybe_forage) — same shape as
@@ -2040,6 +2079,7 @@ class Settlement:
         pending_letters: list[dict] | None = None,
         prophecy: dict | None = None, last_intervention_tick: int = -1,
         predecessor_id: int | None = None,
+        minerals: dict | None = None,
     ):
         self.id = id
         """Stable settlement identity (multi-settlement pass, v0.65.0):
@@ -2071,6 +2111,7 @@ class Settlement:
             buildings_repaired=buildings_repaired, vehicles_repaired=vehicles_repaired,
             market_prices=market_prices if market_prices is not None else {},
             thefts_committed=thefts_committed,
+            minerals=minerals if minerals is not None else {},
         )
         self.culture = SettlementCulture(
             name=name, founding_scenario=founding_scenario, llm_named=llm_named, era=era, tech_level=tech_level,
@@ -2471,6 +2512,10 @@ class Settlement:
     @property
     def market_prices(self) -> dict:
         return self.economy.market_prices
+
+    @property
+    def minerals(self) -> dict:
+        return self.economy.minerals
 
     def market_price(self, good: str) -> float:
         """Current price multiplier for a good — 1.0 (flat/no market)
@@ -2900,6 +2945,7 @@ class Settlement:
             "buildings_repaired": self.buildings_repaired,
             "vehicles_repaired": self.vehicles_repaired,
             "market_prices": dict(self.market_prices),
+            "minerals": {k: round(v, 3) for k, v in self.minerals.items()},
             "place_names": dict(self.place_names),
             "records": list(self.records),
             "education_level": round(self.education_level, 3),
@@ -3049,6 +3095,7 @@ class Settlement:
             "buildings_repaired": self.buildings_repaired,
             "vehicles_repaired": self.vehicles_repaired,
             "market_prices": dict(self.market_prices),
+            "minerals": dict(self.minerals),
             "memorials": list(self.memorials),
             "place_names": dict(self.place_names),
             "records": list(self.records),
@@ -3113,6 +3160,7 @@ class Settlement:
             buildings_repaired=data.get("buildings_repaired", 0),
             vehicles_repaired=data.get("vehicles_repaired", 0),
             market_prices=dict(data.get("market_prices", {})),
+            minerals=dict(data.get("minerals", {})),
             memorials=list(data.get("memorials", [])),
             place_names=dict(data.get("place_names", {})),
             records=list(data.get("records", [])),

@@ -424,6 +424,42 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v0.87.26)
+
+§8's mineral economy (docs/IDEAS-2026-07-EMERGENCE.md, explicit user
+directive), per explicit sequencing ("except lora do everything
+sequentially" — minerals first, geography reshaping next, LoRA
+fine-tuning left recorded-only). New `world/minerals.py`
+(`MineralGrid`): distinct IRON/GOLD veins on HILLS, deliberately a
+standalone module rather than a `ResourceKind` extension —
+`ResourceGrid`'s native tick path switches on a closed kind-string set,
+and extending it without touching C++ risked silently wrong regen or a
+crash. Flagged R7 deviation (same shape as v0.87.23's spatial weather).
+GATHER-goal agents on a deposit-bearing tile work it in place of plain
+materials into `Settlement.minerals`, capped at `MINERAL_CAPACITY=8.0`
+per kind; extends (not duplicates) two existing systems — iron
+sweetens H4's tools chain, both sell for far more than materials at
+the existing overflow-to-currency mechanic. DIAMOND (MOUNTAIN)/SILICON
+(BEACH) explicitly deferred — need real GATHER pathing work
+`_nearest_material_tile` doesn't do today (`MATERIAL_BIOMES` is
+FOREST/HILLS only), a larger increment. New "Minerals" UI stat tile.
+
+## Current state (v0.87.25)
+
+Direct follow-up to v0.87.24's starvation work, mid-turn explicit user
+request: "the starvation fix shouldn't just come from granaries and
+agriculture, they should actively seek out new ways to get food like
+husbandries (milk, eggs, meat), hatcheries (fish), foraging... and
+other sources." Audited: PASTURE/HATCHERY (v0.86.7) already produced
+food, and wild foraging was already the last-resort fallback — the
+real gap was that nothing ever deliberately PATHED a hungry agent
+toward a pasture/hatchery, or an idle agent toward tending one; both
+only ever worked by lucky colocation. `stocked_granary_positions`
+widened to include stocked PASTURE/HATCHERY as FORAGE targets; new
+`husbandry_positions` folded into `work_positions` (the WANDER-goal
+attractor) so idle well-fed agents seek out tending them. Movement-
+layer only, no new state.
+
 ## Current state (v0.87.24)
 
 Explicit user directive: starvation was reported as the dominant,

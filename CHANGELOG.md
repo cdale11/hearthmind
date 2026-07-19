@@ -4,6 +4,64 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [0.87.26] — Expanded mineral economy: iron and gold
+
+§8's mineral-economy idea (docs/IDEAS-2026-07-EMERGENCE.md — explicit
+user directive: "we also need to include more materials like gold,
+iron, diamonds, silicon etc... NPCs too should believe they are living
+in a real world"), scoped first per explicit user sequencing ("except
+lora do everything sequentially" — mineral economy, then geography
+reshaping, LoRA fine-tuning left as a recorded-only idea).
+
+New `world/minerals.py` (`MineralGrid`/`MineralDeposit`/`MineralKind`):
+distinct IRON and GOLD veins on HILLS terrain, independent of whatever
+`ResourceGrid` node also sits on a tile (a real hillside can hold both
+a stone quarry and a distinct ore vein — no exclusivity check needed).
+Deliberately a standalone module, not a `ResourceKind` extension —
+`ResourceGrid._tick_native`/`cpp/src/resource_grid.cpp` switch on a
+closed set of kind strings for regen behavior; extending that without
+touching the C++ side risked silently wrong regen rates or a crash
+under a native build. A flagged R7 ("new physical-substrate code is
+C++-first") deviation, same documented shape as v0.87.23's spatial
+weather — a native port is a reasonable follow-up, not attempted this
+pass given the low density (rare tile lookups, not a hot per-agent
+loop).
+
+GATHER-goal agents on a HILLS tile carrying a deposit work it instead
+of plain materials that tick, into a new `Settlement.minerals: dict`
+(iron/gold, each capped at `MINERAL_CAPACITY=8.0` — well below
+materials' 30.0, reflecting "specialty good" scarcity). Extends two
+existing systems rather than building parallel ones: iron on hand
+sweetens H4's tools chain (`_maybe_craft_tools` now optionally consumes
+a little iron for a real quality bonus, `IRON_TOOL_BONUS_PER_TICK`, on
+top of the plain materials-only rate); both kinds sell for far more
+than materials at the existing overflow-to-currency mechanic
+(`MINERAL_CURRENCY_VALUE`: gold 12.0/unit, iron 3.0/unit, vs materials'
+flat 1.0) — a gold vein is already worth more to a settlement's economy
+than plain stone, in service of "NPCs believe they live in a real
+world" even before any dedicated dispute/theft hook exists for it
+specifically.
+
+**Explicitly deferred, flagged in the doc**: DIAMOND (MOUNTAIN) and
+SILICON (BEACH) need real GATHER-goal pathing work `_nearest_material_
+tile` doesn't do today (`MATERIAL_BIOMES` is FOREST/HILLS only) — a
+larger increment than extending an already-hills-reachable mechanic,
+not attempted this pass. Dedicated rare-mineral belief/dispute/theft
+hooks (distinct from the existing generic theft/dispute mechanics,
+which already apply to any inventory good) also not attempted.
+
+New UI: "Minerals" stat tile (Economy section) listing iron/gold stock.
+
+Verified: direct tests against real production code (mineral
+generation on synthetic HILLS terrain; `_maybe_gather` harvesting into
+a deposit, respecting its own depletion/regen and the settlement cap;
+overflow-to-currency conversion at capacity, confirmed hitting both
+caps over 2000 forced-gather ticks); a real 3,000-tick `World.tick()`
+integration run (deposit generation, no crashes, round-trip
+serialization); two 20,000-tick organic no-LLM soaks (seeds 7, 23) in
+progress as of this entry to confirm no regression in the broader tick
+loop.
+
 ## [0.87.25] — Husbandry becomes an actively-sought food source
 
 Direct follow-up to v0.87.24's starvation work, per explicit user

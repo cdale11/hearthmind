@@ -36,6 +36,7 @@ from hearthmind.world.disasters import (
     tick_wildfire,
 )
 from hearthmind.world.hydrology import LakeState, generate_rivers, identify_lakes, tick_lakes
+from hearthmind.world.minerals import MineralGrid
 from hearthmind.world.weather import WeatherState, compute_weather
 from hearthmind.world.wildlife import WildlifeGrid
 from hearthmind.util import namespaced_rng
@@ -129,6 +130,13 @@ class World:
     disasters: DisasterState = field(default_factory=DisasterState)
     """Flood pressure/active-flood tiles and any in-progress wildfire —
     see world/disasters.py."""
+    minerals: MineralGrid = field(default_factory=MineralGrid)
+    """§8 expanded mineral economy (v0.87.25, docs/IDEAS-2026-07-
+    EMERGENCE.md — explicit user directive): distinct iron/gold veins
+    on hills terrain, generated once at world creation (empty grid on a
+    legacy snapshot missing this key — a resumed old world simply has
+    no mineral deposits, same "creation-only" stance the calendar shape
+    already takes). See world/minerals.py."""
     terrain_activity: dict[tuple[int, int], float] = field(default_factory=dict)
     """Per-tile deforestation pressure (forest tiles only) — see
     world/terrain_evolution.py. Small and self-pruning (entries are
@@ -358,6 +366,7 @@ class World:
         lakes = identify_lakes(terrain)
         weather = compute_weather(seed=config.seed, tick=0, month=clock.month_name.lower(), previous=None)
         resources = ResourceGrid.generate(seed=config.seed, terrain=terrain)
+        minerals = MineralGrid.generate(seed=config.seed, terrain=terrain)
         # Resources before population: founders spawn clustered around
         # the best local food supply (see Population.spawn_initial).
         population = Population.spawn_initial(
@@ -370,7 +379,7 @@ class World:
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             population=population, resources=resources, settlements=settlements, farms=farms,
-            wildlife=wildlife, roads=roads, lakes=lakes,
+            wildlife=wildlife, roads=roads, lakes=lakes, minerals=minerals,
         )
 
     # --- tick --------------------------------------------------------------
@@ -405,6 +414,7 @@ class World:
                 )
         self.weather_regions = new_regions
         self.resources.tick(season=self.clock.season)
+        self.minerals.tick(season=self.clock.season)
         self.farms.tick(season=self.clock.season, terrain=self.terrain)
         wildlife_events = self.wildlife.tick(
             seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain, resources=self.resources,
@@ -437,7 +447,7 @@ class World:
         disaster_events = self._tick_disasters(events)
         population_events = self.population.tick(
             seed=self.config.seed, tick=self.clock.tick_count,
-            terrain=self.terrain, resources=self.resources,
+            terrain=self.terrain, resources=self.resources, minerals=self.minerals,
             settlements=self.settlements, farms=self.farms, wildlife=self.wildlife, roads=self.roads,
             weather=self.weather, night_factor=night, heatwave_active=self.disasters.heatwave_active,
             month_end="month_end" in events, core_cast_target=self.config.llm_core_cast_size,
@@ -575,6 +585,7 @@ class World:
             "world_size": f"{self.config.width}x{self.config.height}",
             "population": self.population.summary(),
             "resources": self.resources.summary(),
+            "minerals": self.minerals.summary(),
             "settlement": self.settlement.summary(),
             "settlements": [
                 {
@@ -664,6 +675,7 @@ class World:
             },
             "population": self.population.to_dict(),
             "resources": self.resources.to_dict(),
+            "minerals": self.minerals.to_dict(),
             "settlements": [stl.to_dict() for stl in self.settlements],
             "farms": self.farms.to_dict(),
             "wildlife": self.wildlife.to_dict(),
@@ -779,6 +791,15 @@ class World:
             resources = ResourceGrid.generate(seed=config.seed, terrain=terrain)
             migrated_subsystems.append("resources")
 
+        if "minerals" in data:
+            minerals = MineralGrid.from_dict(data["minerals"])
+        else:
+            # Legacy pre-§8 snapshot: no mineral deposits, same
+            # creation-only stance the calendar shape already takes —
+            # not regenerated retroactively onto an existing map.
+            minerals = MineralGrid()
+            migrated_subsystems.append("minerals")
+
         if "settlements" in data:
             settlements = [Settlement.from_dict(entry) for entry in data["settlements"]]
         elif "settlement" in data:
@@ -833,6 +854,7 @@ class World:
             weather_regions=weather_regions,
             population=population, resources=resources, settlements=settlements, farms=farms,
             wildlife=wildlife, roads=roads, climate=climate, lakes=lakes, disasters=disasters,
+            minerals=minerals,
             terrain_activity=terrain_activity,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),

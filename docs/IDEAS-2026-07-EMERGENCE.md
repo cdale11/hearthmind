@@ -579,26 +579,31 @@ not forgotten, acted on only with future explicit direction.
   are exactly the kind of "findable" history that mode is designed to
   leave behind).
 
-- [ ] **Expanded mineral/material economy — gold, iron, diamonds,
-  silicon, etc. (Minecraft-like depth).** Today `ResourceKind.ORE`
-  (`world/resources.py`) is a single undifferentiated mineral feeding
-  `Settlement.materials` via the GATHER goal — real depth (distinct
-  ore types with different rarity/biome affinity/tech-tier gating,
-  feeding distinct crafted-good chains the way H4's tools/medicine
-  supply chain already works) is unbuilt. The explicit framing given:
-  **NPCs should believe they are living in a real world**, not a
-  thin resource sim — richer materials existing, being sought after,
-  fought over, and hoarded is in service of that belief, not just
-  more numbers. Whatever shape this takes should extend the existing
-  `ResourceGrid`/`Settlement.materials`/H4 supply-chain machinery
-  (new `ResourceKind` values, new biome affinities, new crafted-good
-  recipes) rather than building a parallel system — same "extend,
-  don't duplicate" discipline as everything else in this doc. Also
-  genuinely open: how deep the crafting tree should go before it
-  competes with LLM-call budget for attention, and whether rarer
-  materials should get their own belief/dispute/theft hooks (a
-  diamond vein is a much more interesting thing to fight over than
-  undifferentiated "materials").
+- [x] **Expanded mineral/material economy — gold, iron, diamonds,
+  silicon, etc. (Minecraft-like depth).** IRON and GOLD shipped
+  v0.87.25: new standalone `world/minerals.py` (`MineralGrid`,
+  deliberately NOT a `ResourceKind` extension — `ResourceGrid`'s
+  native tick path switches on a closed set of kind strings, and
+  adding new ones there without touching the C++ side risked silently
+  wrong regen or a crash; a flagged R7 deviation, same documented
+  shape as v0.87.23's spatial weather). HILLS-only, independent of
+  whatever `ResourceGrid` node also sits on a tile (a hillside can
+  hold both a stone quarry and a distinct ore vein). GATHER-goal
+  agents on a tile with a deposit work it in place of plain materials
+  that tick; iron sweetens H4's existing tools chain
+  (`IRON_TOOL_BONUS_PER_TICK`), both extend the existing overflow-
+  sale-to-currency mechanic at a far higher per-unit value than bulk
+  materials (`MINERAL_CURRENCY_VALUE`) — a gold vein is already
+  worth more to a settlement's economy than plain stone, even before
+  any dedicated dispute/theft hook exists for it specifically.
+  **DIAMOND (MOUNTAIN) and SILICON (BEACH) explicitly deferred** —
+  both need real GATHER-goal pathing work `_nearest_material_tile`
+  doesn't do today (`MATERIAL_BIOMES` is FOREST/HILLS only), a larger
+  increment than extending an already-hills-reachable mechanic.
+  Dedicated belief/dispute/theft hooks for rare minerals specifically
+  (distinct from the existing generic theft/dispute mechanics, which
+  already apply to any inventory good) also not attempted this pass —
+  flagged, not dropped.
 
 ## 9. Cultural depth & societal-evolution ideas (2026-07-19, explicit
    user request) — checklist only, not scoped, not started

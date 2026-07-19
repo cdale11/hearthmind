@@ -263,10 +263,15 @@ from hearthmind.settlement.buildings import (
     HOSPITAL_REST_RECOVERY_MULTIPLIER,
     HUT_CAPACITY,
     INSTITUTION_LIST_MAX_STORED,
+    IRON_TOOL_BONUS_PER_TICK,
+    IRON_TOOL_COST_PER_TICK,
     MEDICINE_CAPACITY,
     MEDICINE_CONSUMPTION_PER_TICK,
     MEDICINE_DEATH_CHANCE_REDUCTION,
     MATERIALS_CAPACITY,
+    MINERAL_CAPACITY,
+    MINERAL_CURRENCY_VALUE,
+    MINERAL_GATHER_PER_TICK,
     POWER_GRID_INDUSTRY_MULTIPLIER,
     MATERIALS_COST_BY_KIND,
     MATERIALS_GATHER_PER_TICK,
@@ -329,6 +334,7 @@ from hearthmind.settlement.vehicles import (
     VehicleKind,
     VehicleStage,
 )
+from hearthmind.world.minerals import MineralGrid, MineralKind
 from hearthmind.world.resources import (
     FISH_HUNGER_RELIEF_MULTIPLIER,
     ORE_BIOMES,
@@ -1544,6 +1550,7 @@ class Population:
         roads: RoadNetwork, weather: WeatherState, night_factor: float = 0.0,
         heatwave_active: bool = False, month_end: bool = False,
         core_cast_target: int = POPULATION_CRITICAL_THRESHOLD,
+        minerals: "MineralGrid | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -1721,7 +1728,7 @@ class Population:
                 agent, resources, farms, settlements, wildlife, life_events,
                 skill_masteries=self.last_skill_masteries,
             )  # can eat while resting, not just awake
-            if self._maybe_gather(agent, terrain, home, resources):
+            if self._maybe_gather(agent, terrain, home, resources, minerals):
                 any_gather_occurred = True
             if agent.hunger >= STARVATION_HUNGER_THRESHOLD:
                 agent.starving_ticks += 1
@@ -2220,6 +2227,7 @@ class Population:
     @staticmethod
     def _maybe_gather(
         agent: Agent, terrain: list[list[Tile]], settlement: Settlement, resources: ResourceGrid,
+        minerals: "MineralGrid | None" = None,
     ) -> bool:
         """GATHER-goal agents on forest/hills feed the settlement's shared
         materials stockpile — awake-only (unlike foraging, this isn't a
@@ -2233,12 +2241,39 @@ class Population:
         hill genuinely stops producing until it recovers. A hills tile
         with no ore node (rolled FOOD instead at generation, see
         `ResourceGrid.generate`) yields nothing to a GATHER-goal agent —
-        it's a foraging spot, not a mine."""
+        it's a foraging spot, not a mine.
+
+        §8 expanded mineral economy (v0.87.25): a hills tile carrying a
+        `MineralDeposit` (world/minerals.py, independent of whatever
+        ResourceGrid node sits there — see that module's docstring)
+        takes priority when present — the agent works the specific
+        iron/gold vein that tick instead of general ore/materials, same
+        "one focused lot per tick" shape the rest of gathering already
+        has. `minerals=None` (a caller that hasn't threaded the grid
+        through, e.g. an older test) simply skips this branch — no
+        behavior change from before this pass."""
         biome = terrain[agent.y][agent.x].biome
         if agent.goal is not AgentGoal.GATHER or agent.state is not AgentState.AWAKE:
             return False
         if biome not in MATERIAL_BIOMES:
             return False
+
+        if minerals is not None:
+            deposit = minerals.get(agent.x, agent.y)
+            if deposit is not None and deposit.amount > 0:
+                mined = minerals.harvest(agent.x, agent.y, MINERAL_GATHER_PER_TICK)
+                mined *= _haul_factor(settlement)
+                kind = deposit.kind.value
+                stock = settlement.minerals
+                current = stock.get(kind, 0.0)
+                if current >= MINERAL_CAPACITY:
+                    settlement.currency = min(
+                        CURRENCY_CAPACITY,
+                        settlement.currency + mined * MINERAL_CURRENCY_VALUE.get(kind, 1.0),
+                    )
+                else:
+                    stock[kind] = min(MINERAL_CAPACITY, current + mined)
+                return True
 
         gathered = MATERIALS_GATHER_PER_TICK
         if biome in ORE_BIOMES:
@@ -4582,8 +4617,15 @@ class Population:
                 if worker.inventory.get("tools", 0.0) >= TOOLS_CAPACITY:
                     continue
                 settlement.materials -= WORKSHOP_CRAFT_MATERIALS_COST_PER_TICK
+                crafted = WORKSHOP_CRAFT_TOOLS_PER_TICK
+                # §8 expanded mineral economy: iron on hand sweetens the
+                # craft with a real quality bonus, on top of the plain
+                # materials-only rate — see IRON_TOOL_BONUS_PER_TICK.
+                if settlement.minerals.get("iron", 0.0) >= IRON_TOOL_COST_PER_TICK:
+                    settlement.minerals["iron"] -= IRON_TOOL_COST_PER_TICK
+                    crafted += IRON_TOOL_BONUS_PER_TICK
                 worker.inventory["tools"] = min(
-                    TOOLS_CAPACITY, worker.inventory.get("tools", 0.0) + WORKSHOP_CRAFT_TOOLS_PER_TICK
+                    TOOLS_CAPACITY, worker.inventory.get("tools", 0.0) + crafted
                 )
 
     @staticmethod

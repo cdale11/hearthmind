@@ -2474,6 +2474,13 @@ function renderStats(summary) {
       "Settlement-wide wealth, earned by selling food/materials surplus that would otherwise be wasted at capacity. Spent on emergency rations when a granary runs dry.",
     ],
     [
+      "Minerals",
+      (s.minerals && Object.keys(s.minerals).length)
+        ? Object.entries(s.minerals).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(", ")
+        : "none gathered yet",
+      "Distinct iron and gold veins on hills terrain (§8 expanded mineral economy), gathered separately from bulk materials. Iron sweetens tool-crafting; both sell for far more than materials once a settlement's stockpile is full.",
+    ],
+    [
       "Tech level", `${s.tech_level} invention${s.tech_level === 1 ? "" : "s"}`,
       "Each invention permanently boosts construction/repair speed and cultivated-food yield (farm harvest, granary stock/withdraw) by 15% — wild foraging is unaffected. Rare: gated by settlement prosperity, rolled once a year.",
     ],
