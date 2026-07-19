@@ -416,6 +416,20 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.0.0) — first major-version bump
+
+Closes the five-phase v1 batch (v0.88.0-v0.91.0, this file's four
+entries directly below) launched by an explicit "audit the code again
+very carefully and in depth... this will be the first v1 bump"
+request. Four parallel research passes (CA/deterministic systems, LLM
+prompts incl. genesis, era/invention math, convergence/emergence)
+found the bug list closed in Phase 1; genesis overhaul in Phase 2; the
+full ten-era ladder in Phase 3; LLM branching influence in Phase 4.
+Verified end-to-end via a 20,000-tick soak (LLM disabled) confirming
+the whole batch integrates cleanly and round-trips through snapshot
+save/load. Full detail: CHANGELOG.md's [1.0.0] entry and the four
+phase entries below it.
+
 ## Current state (v0.91.0) — v1 batch, Phase 4
 
 Explicit user ask: let emergence/LLM steer its own course of era

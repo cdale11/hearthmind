@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.0.0] — v1: deep audit, era overhaul, C++ ports, first major-version bump
+
+The first v1 bump, per explicit user request. Closes a five-phase
+batch (v0.88.0-v0.91.0, this release) launched by a "very carefully
+and in depth" audit request spanning four parallel research passes:
+CA/deterministic systems, LLM prompts (incl. the genesis prompt),
+era/invention progression math, and convergence/emergence bugs.
+
+**What shipped this batch, in one place:**
+- Bug fixes: flood-pressure saturation (an inverted "unreachable
+  threshold" bug — was too easily reachable, not too rarely),
+  surveyor agents wasting core-cast LLM cognition calls on decisions
+  silently discarded every tick, and a real trait-homogenization risk
+  (sociability/ambition/openness previously had zero negative event
+  triggers, only resilience was bidirectional).
+- Two native C++ ports closing unflagged R7 gaps (soil fertility,
+  mining scars) — the first session where the native extension was
+  actually compiled here, so this also re-verified every pre-existing
+  native module against its Python fallback under a real binary for
+  the first time, not just the two new ones.
+- World genesis overhauled: terrain generated before the LLM call so
+  the founding scenario is grounded in what's actually near spawn
+  (guaranteed match, not independently varied), plus a settler-
+  circumstance hint axis alongside the existing terrain flavor.
+- A full ten-era historical ladder (stone_age through digital,
+  replacing the old four-era industrial-start ladder) with two new
+  buildings (FORGE, LIBRARY) and two new occupations (blacksmith,
+  scribe), rebalanced thresholds so progress is visible every 1-3
+  inventions instead of four sparse milestones.
+- LLM branching influence on era progression: a closed-choice job
+  picks one of five named settlement character branches per era
+  advance, biasing future building odds — real emergent divergence
+  between settlements on the same tech path, bounded to existing,
+  mechanically-supported outcomes.
+
+Verified throughout: direct smoke tests for every mechanism,
+`scripts/verify_native_soak.py` after every phase (byte-identical, now
+run with the extension actually built), `node --check` on app.js, and
+a final 20,000-tick end-to-end soak (LLM disabled) confirming the
+whole batch integrates without error and round-trips through snapshot
+save/load correctly (era, era_branch, new occupations/buildings all
+present and consistent after reload).
+
+No test-suite run (project convention — the automated suite is
+deemed unreliable; verification is live diagnostics plus ad-hoc
+scripts, as documented in CLAUDE.md's workflow rules).
+
 ## [0.91.0] — v1 batch, Phase 4: LLM branching influence on era progression
 
 Phase 4 of the v1 batch. Explicit user ask: "let emergence/LLM steer
