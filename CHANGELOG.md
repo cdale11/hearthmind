@@ -4,6 +4,71 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.2] — Second review-pack audit: fix folklore's own-output feedback loop
+
+Explicit user follow-up: a second uploaded review pack (500 examples,
+live `/diagnostics` snapshot pasted alongside it) from the SAME
+long-running world ("Lakeview"/"Lakefield", now 51,922 ticks). First
+finding, not a code issue: the pasted diagnostics reports `"hearthmind_
+version": "0.87.46"` — this live deployment is running code from
+before this session's entire v1 batch (v0.88.0 through v1.3.1 have
+never been deployed to it). That fully explains several things that
+would otherwise look like new bugs: no "Context influence" section in
+`diagnostics.md` (didn't exist in 0.87.46), still-low personality
+diversity (0.87.46 predates core-cast rotation), and the forage/gather
+mislabeling already fixed in v1.3.1 (this pack is presumably still
+exhibiting it live, but it isn't a new finding — restart the deployed
+server on current code to pick up the fixes already shipped this
+session).
+
+**Real new bug found and fixed**: the `folklore` examples in this pack
+show the exact same-shaped feedback loop `Settlement.top_topics()` had
+for dialogue (root-caused and fixed v0.87.35), just localized to
+`llm/folklore.py`'s own small context window instead of settlement-
+wide topic weighting. `build_prompt` shows the model its own last 5
+tales as "old tales already told," but nothing told it to make the NEW
+tale meaningfully different — so with the settlement's rumor stream
+dominated by one recurring theme (a standing "ground is sighing"
+tradition/omen), the tale-condensation job kept re-minting near-
+identical restatements of the same legend almost every month it fired
+("When the deep earth began to sigh, the villagers remembered the old
+stones, promising to watch the ground and build strong roots" occurred
+twice in the sampled "old tales" list, once with one clause appended).
+Fixed two ways, same "don't trust a small model to self-regulate"
+discipline as v1.3.1's forage fix: (1) `SYSTEM_PROMPT` now explicitly
+says a real oral tradition only mints a NEW legend with genuinely new
+material — restating an old one in different words isn't "worth
+telling." (2) `parse_folklore` gained an optional `existing_tales`
+param and a stdlib-only Jaccard word-overlap check (`_is_near_
+duplicate`, `FOLKLORE_DUPLICATE_OVERLAP=0.6`) as the deterministic
+backstop — a proposed tale sharing >=60% of its distinct words with any
+already-stored tale is treated as "nothing new" and discarded rather
+than appended, mirroring `review_diagnostics`' own keyword-overlap
+heuristic style. `SimulationEngine._maybe_schedule_folklore`'s `apply`
+closure now reads `settlement.folklore` at apply time (not the
+schedule-time snapshot) so the check sees any tale that landed between
+scheduling and applying.
+
+**Audited, no code change**: the `calls_dropped_backpressure` (74) >
+`calls_attempted` (37) figures in the pasted diagnostics looked odd at
+a glance but are two independent lifetime counters incremented at
+different points (a drop happens at the backpressure gate, before a
+call is ever "attempted") — expected, not a bug, especially with
+`llm_pressure_paused: true` in the same snapshot. The `llm_stats.
+latency_ms_*` fields (a live 200-call rolling window since last
+process/llama-server start) reading lower than `llm_prompt_stats`' own
+per-task averages (computed from the full on-disk recorder archive,
+spanning a longer, more heavily-loaded period) is a real difference in
+measurement window, not an inconsistency — left as-is, matches how
+both were always documented to work.
+
+Verified: a direct unit test of `_is_near_duplicate`/`parse_folklore`
+against the pack's own real near-duplicate tale pair (confirmed
+rejected) and a genuinely new tale (confirmed accepted); a 2500-tick
+LLM-disabled engine soak (deterministic path unaffected, no crash);
+`scripts/verify_native_soak.py` (2 seeds x 1500 ticks) byte-identical
+— no native module touched.
+
 ## [1.3.1] — Review-pack audit: fix the forage/gather goal-echo bug
 
 Explicit user request: audit a real 500-example training-recorder

@@ -2797,10 +2797,11 @@ class SimulationEngine:
         target_id = target.id
 
         def apply(result: dict, used_fallback: bool) -> None:
-            entry = folklore.parse_folklore(result, fallback)
-            if entry is None:
-                return  # nothing worth telling this month — a real, expected outcome
             settlement = self._settlement_by_id(target_id)
+            prior_tales = [e["tale"] for e in settlement.folklore]
+            entry = folklore.parse_folklore(result, fallback, existing_tales=prior_tales)
+            if entry is None:
+                return  # nothing worth telling this month, or a near-restatement of an existing tale
             entry["tick"] = self.world.clock.tick_count
             settlement.folklore.append(entry)
             if len(settlement.folklore) > FOLKLORE_MAX_STORED:

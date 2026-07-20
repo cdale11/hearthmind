@@ -416,6 +416,27 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.2)
+
+Follow-up review-pack audit, same live world (51,922 ticks), with a
+live `/diagnostics` snapshot pasted alongside it. That snapshot's
+`training_recorder.dataset.hearthmind_version` reads `"0.87.46"` —
+**this deployment hasn't picked up any of this session's v0.88.0-1.3.1
+work**; several things that would otherwise read as new bugs (missing
+Context Influence diagnostics, low personality diversity, the forage/
+gather mislabeling) are that already-fixed backlog still running live,
+not new findings — restart the deployed server on current code.
+
+Real new bug found: `llm/folklore.py` had the same feedback-loop shape
+`Settlement.top_topics()` had for dialogue (fixed v0.87.35) — showing
+the model its own last 5 tales as context with no instruction to
+differ from them, so a settlement with one dominant recurring rumor
+theme got near-identical restatements of the same legend nearly every
+month. Fixed via a `SYSTEM_PROMPT` instruction plus a deterministic
+Jaccard word-overlap backstop (`parse_folklore`'s new `existing_tales`
+param, `FOLKLORE_DUPLICATE_OVERLAP=0.6`) — a near-restatement is now
+discarded as "nothing new" instead of stored. Full detail: CHANGELOG.md.
+
 ## Current state (v1.3.1)
 
 Explicit user request: audit a real uploaded review-pack export (500
