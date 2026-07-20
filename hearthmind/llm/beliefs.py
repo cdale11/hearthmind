@@ -17,6 +17,8 @@ not just raw stats — see `SimulationEngine._maybe_schedule_beliefs`.
 """
 from __future__ import annotations
 
+import re
+
 from hearthmind.util import clamp
 from hearthmind.settlement.institutions import Institution, InstitutionKind
 
@@ -427,6 +429,31 @@ def find_belief_index_by_subject(
     return matches[-1] if matches else None
 
 
+_BELIEF_WORD_RE = re.compile(r"[a-z']+")
+BELIEF_NOOP_REVISION_OVERLAP = 0.6
+"""Live review-pack finding: SYSTEM_PROMPT asks the model to "sharpen/
+revise" a theory "with new evidence," but a small model sometimes just
+restates the existing entry it was pointed at verbatim (same subject,
+same belief text, same confidence) — a `belief_revised` event and a
+`push_belief_history` snapshot for a "revision" that changed nothing.
+Same class of gap as folklore's own-output feedback loop (fixed
+v1.3.2): a Jaccard word-overlap check on the belief TEXT is the
+deterministic backstop, gated additionally on unchanged (rounded)
+confidence so a real confidence-only sharpening still counts as a
+genuine update."""
+
+
+def is_noop_belief_revision(new_belief: str, new_confidence: float, existing_entry: dict) -> bool:
+    if round(new_confidence, 3) != round(existing_entry.get("confidence", -1.0), 3):
+        return False
+    new_words = set(_BELIEF_WORD_RE.findall(new_belief.lower()))
+    old_words = set(_BELIEF_WORD_RE.findall(str(existing_entry.get("belief", "")).lower()))
+    if not new_words or not old_words:
+        return False
+    overlap = len(new_words & old_words) / len(new_words | old_words)
+    return overlap >= BELIEF_NOOP_REVISION_OVERLAP
+
+
 def parse_belief(result: dict, fallback: dict, existing_count: int) -> dict:
     subject = result.get("subject")
     belief = result.get("belief")
@@ -727,6 +754,8 @@ def apply_institution_belief(institution: Institution, parsed: dict, tick: int) 
         revises = find_belief_index_by_subject(parsed["subject"], institution.beliefs)
     if revises is not None and revises < len(institution.beliefs):
         entry = institution.beliefs[revises]
+        if is_noop_belief_revision(parsed["belief"], parsed["confidence"], entry):
+            return "unchanged"
         push_belief_history(entry, tick)
         entry.update({
             "subject": parsed["subject"], "belief": parsed["belief"],

@@ -4,6 +4,52 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.4] — Third review-pack audit: fix no-op belief "revisions"
+
+Explicit user request: examine a third uploaded review pack + live
+diagnostics (both confirmed running actual current code —
+`hearthmind_version: "1.3.3"` — the first pack in this audit series to
+do so, so its Context Influence numbers are a real, comparable
+post-v1.3.0 reading: any-context-reflected 0.436, multi-context
+synthesis 0.099. Worth tracking on a future pack, not itself changed
+this pass). The v1.3.1 forage/gather fix is confirmed working live in
+this pack's own sample cognition call (hunger 0.90 correctly returned
+`goal: "forage"`).
+
+**Real bug found and fixed**: `beliefs.py`'s settlement-level theory
+job returned a `revises: 0` answer whose `belief` text and `confidence`
+were byte-identical to the existing entry at that index (`"the spring
+soil"`, confidence 0.99 both times) — SYSTEM_PROMPT asks the model to
+"sharpen/revise... with new evidence," but nothing stopped a small
+model from just restating the theory it was pointed at. Every call
+site trusted `revises` unconditionally: `push_belief_history` fired
+(archiving a "previous version" identical to the new one),
+`revision_count` incremented, and a `belief_revised` event logged —
+all for a call that changed nothing, at all three places this shape
+occurs (`_maybe_schedule_beliefs` settlement job, `_maybe_schedule_
+personal_belief` per-agent job, `beliefs.apply_institution_belief`).
+Same class of gap as folklore's own-output feedback loop (v1.3.2), so
+the same fix shape: new `beliefs.is_noop_belief_revision()` (Jaccard
+word-overlap on `belief` text, gated on unchanged rounded confidence so
+a real confidence-only sharpening still counts as a genuine update) —
+wired into all three call sites. A detected no-op skips the mutation/
+counter/event/durable-log entirely rather than recording a fake
+revision; every other output of the same call (digest, semantic
+memory, plan, institution objective) still applies normally, since
+those aren't tied to whether the theory text itself changed.
+
+Ruled out as NOT a bug: `rumor_interpret`'s large share of total LLM
+calls (475/1930 in this world's full archive) — capped at
+`INTERPRET_RUMOR_MAX_PER_DAY=3`, so the count is just cumulative over
+many in-world days, not a runaway job.
+
+Verified: a direct unit test of `is_noop_belief_revision` against the
+pack's own real duplicate example (confirmed no-op), a genuinely new
+belief text (confirmed real update), and same-text-different-
+confidence (confirmed NOT treated as a no-op); a 3000-tick LLM-disabled
+engine soak; `scripts/verify_native_soak.py` (2 seeds x 1500 ticks)
+byte-identical — no native module touched.
+
 ## [1.3.3] — Fix backpressure double-counting wasting pause time/dropped calls
 
 Explicit user request, following the two review-pack audits: "fix calls

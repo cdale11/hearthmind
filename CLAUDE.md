@@ -416,6 +416,20 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.4)
+
+Third review-pack audit, first one confirmed running actual current
+code (`hearthmind_version: "1.3.3"` in its own diagnostics) — v1.3.1's
+forage/gather fix visibly working live in its sample cognition call.
+Real bug found: `beliefs.py`'s theory-revision jobs (settlement,
+per-agent, and institution) trusted a `revises` answer unconditionally
+even when the returned belief text/confidence were byte-identical to
+the entry being "revised" — logging a `belief_revised` event and
+archiving a no-op "previous version" for a call that changed nothing.
+Same shape as folklore's v1.3.2 fix: new `beliefs.is_noop_belief_
+revision()` (Jaccard word-overlap + unchanged-confidence gate) wired
+into all three call sites. Full detail: CHANGELOG.md.
+
 ## Current state (v1.3.3)
 
 Explicit user request off the pasted live diagnostics: fix backpressure

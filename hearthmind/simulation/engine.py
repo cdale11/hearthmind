@@ -4058,6 +4058,15 @@ class SimulationEngine:
                 )
             if revises is not None and revises < len(settlement.beliefs):
                 entry = settlement.beliefs[revises]
+                if beliefs.is_noop_belief_revision(parsed["belief"], parsed["confidence"], entry):
+                    # Live review-pack finding: the model sometimes points
+                    # `revises` at an entry and just restates it verbatim
+                    # (same text, same confidence) instead of genuinely
+                    # sharpening it — not a real revision, so don't log one
+                    # or churn `push_belief_history`/`revision_count` for
+                    # nothing. Same discipline as folklore's own-output
+                    # dedup guard (v1.3.2).
+                    return
                 beliefs.push_belief_history(entry, tick)  # H2: keep what it used to think, not just overwrite
                 entry["belief"] = parsed["belief"]
                 entry["confidence"] = parsed["confidence"]
@@ -4159,14 +4168,21 @@ class SimulationEngine:
                 revises = beliefs.find_belief_index_by_subject(
                     parsed["subject"], target.beliefs, beliefs.MAX_COMPETING_BELIEFS_PER_SUBJECT,
                 )
+            noop_revision = False
             if revises is not None and revises < len(target.beliefs):
                 entry = target.beliefs[revises]
-                beliefs.push_belief_history(entry, tick)
-                entry["belief"] = parsed["belief"]
-                entry["confidence"] = parsed["confidence"]
-                entry["subject"] = parsed["subject"]
-                entry["revised_tick"] = tick
-                entry["revision_count"] = entry.get("revision_count", 0) + 1
+                if beliefs.is_noop_belief_revision(parsed["belief"], parsed["confidence"], entry):
+                    # Same live review-pack finding as the settlement job
+                    # above: a verbatim restatement isn't a real revision —
+                    # skip the mutation/counter/durable-log entry for it.
+                    noop_revision = True
+                else:
+                    beliefs.push_belief_history(entry, tick)
+                    entry["belief"] = parsed["belief"]
+                    entry["confidence"] = parsed["confidence"]
+                    entry["subject"] = parsed["subject"]
+                    entry["revised_tick"] = tick
+                    entry["revision_count"] = entry.get("revision_count", 0) + 1
             else:
                 entry = {
                     "subject": parsed["subject"], "belief": parsed["belief"], "confidence": parsed["confidence"],
@@ -4184,10 +4200,12 @@ class SimulationEngine:
             # MAX_PERSONAL_BELIEFS was previously evicted (weakest
             # confidence) with no record anywhere. Logged unconditionally
             # (not gated on `revises is None`) so a revision's new text
-            # is preserved too, not just the original.
-            log_agent_memory_entry(
-                self.conn, tick, target.id, "belief", f"(re: {parsed['subject']}) {parsed['belief']}",
-            )
+            # is preserved too, not just the original — but not for a
+            # no-op revision, which changed nothing worth recording.
+            if not noop_revision:
+                log_agent_memory_entry(
+                    self.conn, tick, target.id, "belief", f"(re: {parsed['subject']}) {parsed['belief']}",
+                )
             semantic_text = beliefs.parse_semantic_memory(result, fallback)
             beliefs.push_semantic_memory(target, semantic_text)
             if semantic_text:
@@ -4932,6 +4950,8 @@ class SimulationEngine:
             objective = beliefs.parse_institution_objective(result)
             if objective is not None:
                 target.objective = objective
+            if verb == "unchanged":
+                return  # a verbatim restatement of an existing theory — nothing to log
             self._log(
                 "institution_belief",
                 f"The {label} {'revised its view' if verb == 'revised' else 'came to believe something'}"
