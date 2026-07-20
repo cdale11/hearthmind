@@ -4,6 +4,52 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.3] — Fix backpressure double-counting wasting pause time/dropped calls
+
+Explicit user request, following the two review-pack audits: "fix calls
+dropping out due to back pressure as it is wasting precious system
+resources and LLM calls." The pasted live diagnostics gave the exact
+smoking gun: `llm_backlog_effective: 20` while `background_tasks: 10`
+and `llm_backlog_reserved_this_tick: 10` — the same 10 in-flight jobs
+counted TWICE.
+
+Root cause: `_reserved_this_tick` (the v0.81.0 same-tick reservation
+fix — see its docstring) was only ever cleared at the TOP of the next
+`_tick_once`, which made sense when ticking ran continuously (the next
+tick was always ~1 real second away). LLM-pressure pacing (v0.82.0,
+added later) can now pause ticking entirely for extended real time
+while backlog drains — while paused, `_tick_once` never runs, so that
+tick's reservation count never clears. But by the time the very next
+`llm_pressure_paused()` check runs (`run_forever` has yielded to the
+event loop at least once by then), every job reserved that tick has
+already had the chance to actually start and is now ALSO counted by
+`CognitionRunner.backlog`. `_effective_backlog()`
+(`backlog + _reserved_this_tick`) then double-counts that same batch
+for the ENTIRE pause window, inflating `llm_pressure_ratio()` ~2x —
+here, a real ratio of ~1.11 (10 in-flight against a limit of 9) read as
+2.22, tripping `LLM_PRESSURE_PAUSE_RATIO` (2.0) and keeping the sim
+paused well past the point its real backlog justified. Every extra
+second paused unnecessarily is idle capacity, and the inflated ratio
+also feeds the same per-job `backlog >= limit` checks that increment
+`calls_dropped_backpressure` — so the double-count directly caused
+both symptoms the user reported.
+
+Fix: `_tick_once` now also clears `_reserved_this_tick` right after its
+own `_TICK_JOBS` scheduling loop finishes (in addition to the existing
+top-of-tick reset, kept as-is for the original same-tick purpose) —
+so a reservation never survives past the tick that created it, and
+`_effective_backlog()` reads only the live `CognitionRunner.backlog`
+between ticks (including during a subsequent pause check), never a
+stale double-count of the same batch.
+
+Verified: a direct test confirming `_reserved_this_tick` is 0
+immediately after `_tick_once()` returns (both on a normal tick and
+after manually simulating a leftover reservation, matching the exact
+double-count scenario from the live diagnostics); a 3000-tick
+LLM-disabled engine soak (`_reserved_this_tick` still 0 at the end, no
+crash); `scripts/verify_native_soak.py` (2 seeds x 1500 ticks)
+byte-identical — no native module touched.
+
 ## [1.3.2] — Second review-pack audit: fix folklore's own-output feedback loop
 
 Explicit user follow-up: a second uploaded review pack (500 examples,

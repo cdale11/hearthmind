@@ -416,6 +416,25 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.3)
+
+Explicit user request off the pasted live diagnostics: fix backpressure
+drops wasting system resources/LLM calls. Root cause: `_reserved_this_
+tick` (v0.81.0's same-tick reservation fix) only cleared at the TOP of
+the next `_tick_once` — fine when ticking ran continuously, but LLM-
+pressure pacing (v0.82.0, added later) can pause ticking for extended
+real time, during which that tick's reservation count never clears
+while `CognitionRunner.backlog` correctly keeps counting the same jobs
+once they actually start — `_effective_backlog()` then double-counted
+one in-flight batch for the whole pause window. Live evidence: `llm_
+backlog_effective` 20 = `background_tasks` 10 + `llm_backlog_reserved_
+this_tick` 10, the same 10 jobs twice, inflating `llm_pressure_ratio()`
+from a real ~1.11 to 2.22 and tripping the pause threshold (2.0)
+unnecessarily — which also fed the same-limit checks that drop calls.
+Fixed by also clearing `_reserved_this_tick` right after `_tick_once`'s
+own scheduling loop finishes, not just at the next tick's top. Full
+detail: CHANGELOG.md.
+
 ## Current state (v1.3.2)
 
 Follow-up review-pack audit, same live world (51,922 ticks), with a

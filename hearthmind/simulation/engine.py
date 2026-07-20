@@ -1615,6 +1615,29 @@ class SimulationEngine:
                 method(events)
             else:  # _JOB_EVENTS_SEASON
                 method(events, previous_season)
+        # Root-cause fix for a live diagnostics finding: `_reserved_this_
+        # tick` was only ever cleared at the TOP of the next `_tick_once`
+        # (see its docstring — designed purely to close a same-tick
+        # staleness window for scheduling calls within ONE synchronous
+        # tick). LLM-pressure pacing (v0.82.0) can pause ticking entirely
+        # for extended real time while backlog drains; while paused,
+        # `_tick_once` never runs, so this tick's reservation count never
+        # clears — but by the time the NEXT `llm_pressure_paused()` check
+        # runs (after `run_forever` has yielded to the event loop at least
+        # once), every job reserved this tick has already had the chance
+        # to actually start and is now ALSO counted by `CognitionRunner.
+        # backlog`. The result: `_effective_backlog()` double-counted the
+        # same in-flight batch (backlog + a stale reservation of the same
+        # jobs) for the entire pause window, inflating `llm_pressure_
+        # ratio()` roughly 2x and keeping the sim paused well past the
+        # point its real backlog had already drained enough to resume —
+        # confirmed live: `llm_backlog_effective` 20 = `background_tasks`
+        # 10 + `llm_backlog_reserved_this_tick` 10, the same 10 jobs
+        # counted twice. Clearing it here (once this tick's own scheduling
+        # work is done, not just at the next tick's top) removes the
+        # double-count without reopening the original same-tick gap the
+        # v0.81.0 fix closed.
+        self._reserved_this_tick = 0
         self.conn.commit()  # one commit for everything this tick logged (see log_event's commit param)
         self._last_tick_duration_ms = (time.perf_counter() - tick_start) * 1000
         self._tick_durations_ms.append(self._last_tick_duration_ms)
