@@ -50,7 +50,11 @@ SYSTEM_PROMPT = (
     "statements: line_b must be a genuine reaction to line_a — an actual "
     "answer, a rebuttal, a joke back, a change of subject that still "
     "acknowledges what was said — never a line that could just as well "
-    "have opened the conversation. If a speaker is noted as privately "
+    "have opened the conversation. Specifically: line_b should respond to "
+    "the actual thing line_a just said, not swap in a different memory, "
+    "rumor, or topic from the speaker's own background that has nothing "
+    "to do with it — if unsure what to say, a short direct reaction to "
+    "line_a's words beats an unrelated aside. If a speaker is noted as privately "
     "holding something back about the other, that tension may surface as "
     "a deflection, a pointed silence, or a half-said thing — never have "
     "them simply state the secret outright, that defeats the point of it "
@@ -577,6 +581,58 @@ def _is_sane_line(line: str, other_line: str) -> bool:
     if _looks_garbled(line):
         return False
     return True
+
+
+TIC_SPREAD_DISTINCT_SPEAKER_THRESHOLD = 3
+TIC_SPREAD_WINDOW = 60
+TIC_TAIL_MIN_LINE_LENGTH = 10
+TIC_TAIL_MAX_WORDS = 4
+"""P3.2 (docs/AUDIT-2026-07-20.md): a live session showed the same
+trailing phrase ("…, and so.") appearing in multiple different agents'
+lines — the model imitating a verbal tic it saw in one agent's
+pair-history text and letting it bleed into everyone else's, which
+defeats the whole point of `mind.py`'s per-agent voice feature.
+`SimulationEngine` tracks the last `TIC_SPREAD_WINDOW` (tail
+fingerprint, speaker name) pairs across all dialogue calls; a line
+whose tail fingerprint has already been used by
+`TIC_SPREAD_DISTINCT_SPEAKER_THRESHOLD` or more OTHER speakers within
+that window degrades to the deterministic fallback, same "suspicious
+content -> fallback" treatment `_is_sane_line` already gives garbled/
+leaked text. The fingerprint is the text after the line's last comma
+(the observed tic sat right after one), capped at `TIC_TAIL_MAX_WORDS`
+words — falls back to the last `TIC_TAIL_MAX_WORDS` words when there's
+no comma. Deliberately a literal-string match, not stemmed/semantic —
+the observed failure mode is a repeated tail string, not a paraphrase.
+Lines shorter than `TIC_TAIL_MIN_LINE_LENGTH` are exempt (a short
+interjection sharing a tail with another short interjection is
+normal, not a spreading tic)."""
+
+
+def line_tail_fingerprint(line: str) -> str:
+    """Fingerprint of a line's trailing clause — see TIC_TAIL_MAX_
+    WORDS's docstring for why this is intentionally a literal-string
+    match, not semantic."""
+    stripped = line.strip().lower()
+    tail = stripped.rsplit(",", 1)[-1].strip()
+    words = tail.split()
+    if not words:
+        words = stripped.split()
+    return " ".join(words[-TIC_TAIL_MAX_WORDS:])
+
+
+def is_spreading_tic(
+    line: str, speaker: str, recent_tails: list[tuple[str, str]],
+    threshold: int = TIC_SPREAD_DISTINCT_SPEAKER_THRESHOLD,
+) -> bool:
+    """True if `line`'s tail fingerprint has already been used by at
+    least `threshold` speakers OTHER than `speaker` within
+    `recent_tails` (a bounded (fingerprint, speaker) history the
+    caller maintains — see TIC_SPREAD_WINDOW's docstring)."""
+    if len(line.strip()) < TIC_TAIL_MIN_LINE_LENGTH:
+        return False
+    fingerprint = line_tail_fingerprint(line)
+    other_speakers = {s for fp, s in recent_tails if fp == fingerprint and s != speaker}
+    return len(other_speakers) >= threshold
 
 
 def parse_dialogue(result: dict, fallback: dict) -> dict:

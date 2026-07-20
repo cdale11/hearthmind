@@ -239,6 +239,26 @@ def _context_text_threads(structured_input: dict) -> dict[str, str]:
     return threads
 
 
+def context_reflects_any(structured_input: dict, output_text: str) -> bool | None:
+    """Live-diagnostics counterpart to `_context_influence_for_task`'s
+    per-example scoring (P3.4, docs/AUDIT-2026-07-20.md): does ANY
+    supplied context thread share a keyword with `output_text`? `None`
+    if there was nothing scoreable (no real text thread offered, or no
+    output text) — the caller should skip that example entirely rather
+    than counting it as a miss, same "no data point when synthesis was
+    never possible" rule `_context_influence_for_task` follows. Used by
+    `SimulationEngine._record_llm_debug` to maintain an incremental
+    live counter for the dev console, without re-scanning the archive
+    the way the full review-pack export does."""
+    if not isinstance(structured_input, dict) or not isinstance(output_text, str) or not output_text.strip():
+        return None
+    text_threads = _context_text_threads(structured_input)
+    if not text_threads:
+        return None
+    output_keywords = _context_keywords(output_text)
+    return any(output_keywords & _context_keywords(field_text) for field_text in text_threads.values())
+
+
 def _context_influence_for_task(examples: list[dict], output_field: str) -> dict | None:
     """Per example: how many DISTINCT supplied context threads share a
     content keyword with the model's own `output_field` text. Only

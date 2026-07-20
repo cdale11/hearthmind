@@ -304,7 +304,7 @@ class TrainingRecorder:
         return self.status()
 
     def status(self) -> dict:
-        return {
+        status: dict = {
             "policy": self._policy.value,
             "recording": self.enabled,
             "session_id": self._session_id,
@@ -316,7 +316,6 @@ class TrainingRecorder:
             "dropped": self._dropped,
             "write_errors": self._write_errors,
             "selected_tasks": sorted(self._selected_tasks),
-            "sample_rate": self._sample_rate,
             "archive_dir": str(self._archive_dir),
             # v1.1.0 item 7 "Recorder Statistics" — all incremental, see
             # this class's own docstring note above `__init__`.
@@ -331,6 +330,16 @@ class TrainingRecorder:
                 "hearthmind_version": self._hearthmind_version_provider(),
             },
         }
+        # P3.1 (docs/AUDIT-2026-07-20.md): `sample_rate` only affects
+        # behavior under RecordingPolicy.SAMPLED (`_should_record`) —
+        # surfacing it unconditionally alongside e.g. `policy:
+        # all_tasks` read like a bug (a rate that looks like it should
+        # be dropping 90% of calls but wasn't). Omit it entirely
+        # outside SAMPLED so the status payload only shows fields that
+        # are actually in effect.
+        if self._policy == RecordingPolicy.SAMPLED:
+            status["sample_rate"] = self._sample_rate
+        return status
 
     def _seed_stats_from_disk(self) -> None:
         """One-time real scan of the archive, run only from `start()`

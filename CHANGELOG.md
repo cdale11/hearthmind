@@ -4,6 +4,68 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.11] — P1.4 eyeball-pass verdict + all four P3 audit items
+
+Explicit user follow-up: "Do the eyeball pass and make the call [on
+P1.4's mind_text pruning] and also finish P3." Closes docs/AUDIT-
+2026-07-20.md entirely (P0-P3 all shipped; only the FT fine-tuning
+roadmap, a scoped future effort, remains).
+
+**P1.4 verdict: do NOT prune `mind_text`.** A real review pack
+(20260720_231334) landed `mind_text` at 10.3% reflected — lower than
+the audit's original 44%. Investigation found 47/68 (69%) of that
+pack's cognition examples were forced-choice narration-only calls
+(P1.3 wasn't yet live in that pack's v1.3.9 build) — reactive
+present-tense hunger/energy lines were never going to lexically echo
+an identity paragraph, dragging the aggregate down independent of any
+real prompt problem. Eyeballing the 21 genuine open-decision examples
+directly found `mind_text` clearly shaping several reasons even
+without shared vocabulary (e.g. Isolde's "seeks quiet stability" ->
+reason "I need quiet stability before I worry about anything else").
+A minority showed the reason ignoring the agent's identity entirely —
+real, but occasional, not dominant. Removing a character's core
+identity paragraph on a metric that structurally undercounts
+paraphrase (and was itself majority-contaminated by since-fixed P1.3
+volume) would trade real identity grounding for a better-looking
+number.
+
+**P3.1 — recorder status.** `TrainingRecorder.status()` now only
+includes `sample_rate` under `RecordingPolicy.SAMPLED` — previously
+shown unconditionally, reading as a bug under `all_tasks`.
+
+**P3.2 — spreading verbal tic.** New `dialogue.is_spreading_tic`/
+`line_tail_fingerprint` (fingerprint = text after a line's last comma,
+capped at 4 words). `SimulationEngine` tracks the last 60 (tail,
+speaker) pairs across real dialogue calls; a line whose tail has
+already been used by 3+ other speakers degrades to the deterministic
+fallback, same treatment `_is_sane_line` gives garbled/leaked text.
+
+**P3.3 — dialogue non-sequiturs.** `dialogue.SYSTEM_PROMPT` already
+carried 5 well-connected exemplar exchanges and an explicit
+line_b-must-react instruction predating this audit; added one more
+sentence naming the SPECIFIC observed failure (line_b swapping in an
+unrelated memory/topic instead of reacting to line_a). Residual
+non-sequiturs beyond this are the audit's own acknowledged model-class
+limit — the fine-tuning roadmap is the real next lever.
+
+**P3.4 — four failure-mode numbers surfaced live in `/diagnostics`.**
+`dialogue_topic_share` (dominant topic + share of the tracked window);
+`mood` (the founding settlement's mood dict); `materials_flow_per_tick`
+(net change over a new 200-tick rolling sample, same deque-sampling
+shape `_tick_durations_ms` already uses); `cognition_context_
+reflection_rate` (new incremental live counter — `context_reflects_
+any()` factored out of `review_diagnostics.py` for reuse, updated
+inline in `_record_llm_debug`, a coarser any-vs-none live signal, not
+the export's full per-field breakdown).
+
+Verified: a 3000-tick LLM-disabled engine soak confirming all four new
+diagnostics fields resolve correctly; `scripts/verify_native_soak.py`
+(2 seeds x 1500 ticks) byte-identical; direct unit tests for `is_
+spreading_tic`/`line_tail_fingerprint` (crosses threshold at 3 distinct
+speakers, not 2, not same-speaker, not short lines) and `TrainingRecorder.
+status()`'s conditional `sample_rate`; a fake-LLM-client engine run
+confirming real dialogue calls populate the tic tracker correctly.
+
 ## [1.3.10] — P1.3 + all five P2 audit items
 
 Explicit user follow-up: "Continue with P2 items from the audit and

@@ -71,6 +71,7 @@ from hearthmind.llm import (
     diplomacy, laws, letters, noncore_nudge, institution_culture,
 )
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
+from hearthmind.llm.review_diagnostics import context_reflects_any
 from hearthmind.llm.cognition import (
     RECENT_MEMORIES_IN_PROMPT, SURVIVAL_ENERGY_THRESHOLD, SURVIVAL_HUNGER_THRESHOLD, SYSTEM_PROMPT, build_prompt,
     fallback_goal, parse_goal,
@@ -437,6 +438,12 @@ Event-*triggered* cognition (hunger emergency, fresh grief) is allowed
 up to twice this bound — when rationing, the urgent reasoning goes
 first. Deterministic runs are unaffected (fallbacks resolve instantly,
 so the backlog stays ~0). July 2026 architecture review, §3.6."""
+
+MATERIALS_FLOW_WINDOW_TICKS = 200
+"""Window size for `SimulationEngine._materials_level_history` (P3.4)
+— a couple hundred ticks is short enough to read as "current trend,"
+not a whole-run average, matching the audit's ask for a live materials
+inflow/outflow signal rather than a historical chart."""
 
 DIALOGUE_BACKPRESSURE_FRACTION = 0.75
 RUMOR_INTERPRET_BACKPRESSURE_FRACTION = 0.5
@@ -988,6 +995,28 @@ class SimulationEngine:
         self._pending_dialogue_results: list[tuple[int, int, int, dict, bool]] = []
         """(scheduled_tick, agent_a_id, agent_b_id, parsed) — same
         staleness convention as `_pending_goal_results`."""
+        self._recent_line_tails: deque[tuple[str, str]] = deque(maxlen=dialogue.TIC_SPREAD_WINDOW)
+        """(tail_fingerprint, speaker_name) history feeding P3.2's
+        spreading-tic detector — see `dialogue.is_spreading_tic`'s
+        docstring."""
+        self._materials_level_history: deque[tuple[int, float]] = deque(maxlen=MATERIALS_FLOW_WINDOW_TICKS)
+        """(tick, total materials across all settlements) sampled once
+        per tick — P3.4 (docs/AUDIT-2026-07-20.md): "materials inflow/
+        outflow" was one of four numbers the audit had to compute by
+        hand from raw events; this is the cheap live equivalent (a
+        simple level delta over a bounded window), same deque-sampling
+        shape `_tick_durations_ms` already uses. See `materials_flow_
+        per_tick` in `_diagnostics_snapshot`."""
+        self._cognition_context_stats = {"scored": 0, "any_reflected": 0}
+        """Incremental (not archive-rescanning) counters feeding P3.4's
+        live "per-thread context-reflection rate" — updated inline in
+        `_record_llm_debug` for the `cognition` task only (the one task
+        `llm/review_diagnostics.py`'s own Context Influence section
+        scores), same "maintain a running count, never re-scan"
+        discipline the training recorder's own v1.1.0 stats pass
+        established. Deliberately a coarser any-vs-none live signal,
+        not the export's full per-field breakdown — that stays an
+        archive-analysis job, this is just the dev-console's canary."""
         self._background_tasks: set[asyncio.Task] = set()
         self._last_llm_calls: dict[str, dict] = {}
         """Most recent prompt/result/fallback-flag for each named LLM
@@ -1640,6 +1669,8 @@ class SimulationEngine:
 
         previous_season = self.world.clock.season
         events = self.world.tick()
+        total_materials = sum(s.materials for s in self.world.settlements)
+        self._materials_level_history.append((self.world.clock.tick_count, total_materials))
         for event in events:
             log_event(
                 self.conn,
@@ -2717,6 +2748,28 @@ class SimulationEngine:
             prompt, dialogue.SYSTEM_PROMPT, fallback=lambda: fallback
         )
         parsed = dialogue.parse_dialogue(result, fallback)
+        # P3.2: a genuinely LLM-authored line whose tail matches a tic
+        # already spreading across other speakers degrades to the
+        # deterministic fallback, same "suspicious -> fallback"
+        # treatment garbled/leaked text already gets inside parse_
+        # dialogue itself. Only checked (and only recorded into the
+        # tracker) for real LLM lines — the deterministic fallback pool
+        # legitimately reuses phrasing across agents, which isn't a tic.
+        if not used_fallback:
+            agent_a = self.world.population.get(agent_a_id)
+            agent_b = self.world.population.get(agent_b_id)
+            name_a = agent_a.name if agent_a is not None else str(agent_a_id)
+            name_b = agent_b.name if agent_b is not None else str(agent_b_id)
+            tails = list(self._recent_line_tails)
+            if (
+                dialogue.is_spreading_tic(parsed["line_a"], name_a, tails)
+                or dialogue.is_spreading_tic(parsed["line_b"], name_b, tails)
+            ):
+                parsed = dict(parsed)
+                parsed["line_a"], parsed["line_b"] = fallback["line_a"], fallback["line_b"]
+            else:
+                self._recent_line_tails.append((dialogue.line_tail_fingerprint(parsed["line_a"]), name_a))
+                self._recent_line_tails.append((dialogue.line_tail_fingerprint(parsed["line_b"]), name_b))
         # is_llm=not used_fallback: only a genuine core-cast Ollama reply
         # is treated as LLM-authored for event-feed purposes (below) — a
         # core pair that degraded to its fallback text inside the
@@ -5898,6 +5951,15 @@ class SimulationEngine:
         stats["completion_chars"].append(len(str(result)))
         if elapsed_ms is not None:
             stats["latency_ms"].append(elapsed_ms)
+        # P3.4: live counterpart to review_diagnostics.py's export-time
+        # Context Influence section — see `context_reflects_any`'s and
+        # `self._cognition_context_stats`'s docstrings.
+        if name == "cognition" and structured_input is not None:
+            reflected = context_reflects_any(structured_input, result.get("reason") if isinstance(result, dict) else None)
+            if reflected is not None:
+                self._cognition_context_stats["scored"] += 1
+                if reflected:
+                    self._cognition_context_stats["any_reflected"] += 1
 
     # --- permanent LLM training recorder (§8, llm/recorder.py) ----------------
 
@@ -6118,6 +6180,60 @@ class SimulationEngine:
             "dialogue_cooldown_entries": len(self.world.population.dialogue_cooldowns),
             "snapshots_saved": self._snapshots_saved,
             "sim_pacing": self._broadcaster.sim_pacing() if self._broadcaster else {"paused": False, "speed_multiplier": 1.0},
+            # P3.4 (docs/AUDIT-2026-07-20.md): topic-share, mood axes,
+            # materials flow, and context-reflection rate were four
+            # numbers the audit had to compute by hand from raw events/
+            # the archive — each already exists server-side; this
+            # surfaces them directly in the same cheap per-tick snapshot
+            # the dev console already polls, rather than a one-off
+            # export.
+            "dialogue_topic_share": self._dominant_topic_share(),
+            "mood": dict(self.world.settlement.mood),
+            "materials_flow_per_tick": self._materials_flow_per_tick(),
+            "cognition_context_reflection_rate": self._cognition_context_reflection_rate(),
+        }
+
+    def _dominant_topic_share(self) -> dict | None:
+        """P3.4: `Settlement.top_topics(1)` already ranks the founding
+        settlement's recent dialogue topics — this just also computes
+        its share of the tracked window, the number the audit actually
+        wanted (a live regression signal for the "spring rhythm keeps
+        coming up" monoculture class of bug, see v0.87.35)."""
+        topics = self.world.settlement.recent_topics
+        if not topics:
+            return None
+        top = self.world.settlement.top_topics(1)
+        if not top:
+            return None
+        topic, count = top[0]
+        return {"topic": topic, "share": round(count / len(topics), 3)}
+
+    def _materials_flow_per_tick(self) -> float | None:
+        """P3.4: net materials change per tick over `_materials_level_
+        history`'s window — positive means the settlement(s) are
+        accumulating materials faster than they're spending them,
+        negative means the reverse (a live "is construction starving"
+        signal, see P0.3/materials_critical)."""
+        if len(self._materials_level_history) < 2:
+            return None
+        first_tick, first_level = self._materials_level_history[0]
+        last_tick, last_level = self._materials_level_history[-1]
+        tick_span = last_tick - first_tick
+        if tick_span <= 0:
+            return None
+        return round((last_level - first_level) / tick_span, 4)
+
+    def _cognition_context_reflection_rate(self) -> dict:
+        """P3.4: incremental live counterpart to review_diagnostics.py's
+        export-time Context Influence section — see `self._cognition_
+        context_stats`'s docstring for why this is a coarser any-vs-
+        none signal rather than the export's full per-field breakdown."""
+        scored = self._cognition_context_stats["scored"]
+        return {
+            "examples_scored": scored,
+            "any_context_reflected_rate": (
+                round(self._cognition_context_stats["any_reflected"] / scored, 3) if scored else None
+            ),
         }
 
     def full_diagnostics(self) -> dict:

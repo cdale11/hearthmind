@@ -416,6 +416,33 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.11)
+
+Explicit user follow-up: "Do the eyeball pass and make the call [on
+P1.4] and also finish P3." Closes `docs/AUDIT-2026-07-20.md`
+entirely — every P0/P1/P2/P3 item shipped, only the FT fine-tuning
+roadmap remains (a scoped future effort, not a checklist item). Full
+detail: CHANGELOG.md.
+
+P1.4 verdict: NOT pruning `mind_text` from cognition prompts. A live
+review pack's low reflected-rate (10.3%) was mostly an artifact of
+P1.3's not-yet-live forced-choice call volume (69% of that pack's
+cognition examples), not a real prompt problem — eyeballing the
+remaining genuine open-decision examples found `mind_text` clearly
+shaping reasons even without lexical overlap. Re-measure from a
+post-P1.3 archive before revisiting.
+
+P3.1: recorder status omits `sample_rate` outside `SAMPLED` policy.
+P3.2: a new spreading-verbal-tic detector (`dialogue.is_spreading_
+tic`) degrades a line whose tail phrase has already been used by 3+
+other speakers to the deterministic fallback. P3.3: dialogue's
+SYSTEM_PROMPT (already carrying 5 connected exemplars) gained one more
+sentence naming the specific observed non-sequitur failure mode. P3.4:
+`/diagnostics` gained `dialogue_topic_share`/`mood`/`materials_flow_
+per_tick`/`cognition_context_reflection_rate` — four numbers the audit
+had to compute by hand, now live in the same payload the dev console
+already polls.
+
 ## Current state (v1.3.10)
 
 Explicit user follow-up: "Continue with P2 items from the audit and
