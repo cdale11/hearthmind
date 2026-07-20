@@ -134,6 +134,7 @@ from hearthmind.agents.agent import (
     OUTBREAK_ROAD_CONTACT_MULTIPLIER,
     PERSONAL_FOOD_CAPACITY,
     POPULATION_CAP,
+    dynamic_population_cap,
     REPRODUCTION_AFFINITY_THRESHOLD,
     REPRODUCTION_CHANCE_PER_TICK,
     RELATIONSHIP_DECAY_PER_TICK,
@@ -1678,6 +1679,7 @@ class Population:
         heatwave_active: bool = False, month_end: bool = False,
         core_cast_target: int = POPULATION_CRITICAL_THRESHOLD,
         minerals: "MineralGrid | None" = None,
+        map_tiles: int | None = None,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -1963,6 +1965,7 @@ class Population:
                 s, housing_by_id[s.id], weather_harsh, bool(predator_tiles),
                 established_roads=established_roads,
                 members=[a for a in self.agents if home_of(a).id == s.id],
+                map_tiles=map_tiles,
             )
             for s in settlements
         }
@@ -3737,22 +3740,28 @@ class Population:
 
     def carrying_capacity(
         self, settlement: Settlement, housing_capacity: int, weather_harsh: bool, predator_pressure: bool,
-        established_roads: int = 0, members: "list[Agent] | None" = None,
+        established_roads: int = 0, members: "list[Agent] | None" = None, map_tiles: int | None = None,
     ) -> float:
         """Dynamic carrying capacity (H1, docs/ROADMAP.md Phase H):
         composes housing (the base), economy, security, and labor/
         environment pressure into one number that moves with the
         settlement's actual situation, the same way food already gates
-        reproduction via the surplus check below — rather than the flat
-        `POPULATION_CAP` scalar being the only real constraint. Called
-        once per tick from `tick()`; the result also drives
-        `_maybe_reproduce`'s gate and is exposed via `summary()`.
-        Integration milestone: also reads institutional coordination
-        (a sitting council), aggregate population skill (knowledge), and
-        road infrastructure — previously this function only ever read
-        housing/economy/security/labor/weather, leaving three real,
-        effortful systems with no way to expand what a settlement can
-        actually support."""
+        reproduction via the surplus check below — rather than a flat
+        scalar being the only real constraint. Called once per tick
+        from `tick()`; the result also drives `_maybe_reproduce`'s gate
+        and is exposed via `summary()`. Integration milestone: also
+        reads institutional coordination (a sitting council), aggregate
+        population skill (knowledge), and road infrastructure —
+        previously this function only ever read housing/economy/
+        security/labor/weather, leaving three real, effortful systems
+        with no way to expand what a settlement can actually support.
+
+        `map_tiles` (live-report finding): the final safety-valve
+        ceiling below is `dynamic_population_cap(map_tiles)`, not the
+        flat `POPULATION_CAP` — a settlement that fills a large map
+        with housing shouldn't hit the same hard number a tiny map
+        would. `None` (a caller not passing map area) keeps the old
+        flat-`POPULATION_CAP` behavior unchanged."""
         # Multi-settlement pass: capacity is per community — `members`
         # scopes the human terms (sickness, labor) to this settlement's
         # own people; None keeps the legacy whole-population behavior.
@@ -3835,7 +3844,7 @@ class Population:
             + coordination_term + knowledge_term + infrastructure_term
         )
         multiplier = max(CARRYING_CAPACITY_MIN_MULTIPLIER, min(CARRYING_CAPACITY_MAX_MULTIPLIER, multiplier))
-        return min(float(POPULATION_CAP), housing_capacity * multiplier)
+        return min(dynamic_population_cap(map_tiles), housing_capacity * multiplier)
 
     def _maybe_reproduce(
         self, by_position: dict[tuple[int, int], list[Agent]], rng: random.Random,

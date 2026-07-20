@@ -416,6 +416,36 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.8)
+
+Explicit live-report follow-up, two-part request: diagnose a
+400-population/1590-structure world stuck at zero inventions and
+`stone_age`, and replace the flat `POPULATION_CAP=400` with a
+map-size-scaled cap. Full detail: CHANGELOG.md.
+
+Root cause of the invention stall: `invention` was the one job
+deliberately excluded from `SEASON_YEAR_JOBS_WITH_RETRY` (its own
+per-occurrence RNG roll made a naive retry window inflate the real
+odds) — under this world's real backpressure (598 dropped calls),
+that single-exact-tick gate meant its one seasonal roll per settlement
+had a real chance of landing on a backpressured tick and losing the
+whole season silently. Fixed by adding `invention` to the retry set
+and moving `_mark_season_year_resolved("invention")` to fire right
+after the backpressure check clears but before the RNG roll — the
+roll still happens at most once per season, a backpressured attempt
+just no longer burns that one chance.
+
+New `dynamic_population_cap(map_tiles)` (`agents/agent.py`,
+`POPULATION_DENSITY_PER_TILE=0.1`, bounded [`POPULATION_CAP_FLOOR=
+100`, `POPULATION_CAP_CEILING=3000`]) replaces the flat `POPULATION_
+CAP` as `carrying_capacity()`'s final ceiling whenever a caller passes
+map area — `World.tick()` now does, via `map_tiles=config.width *
+config.height`. Default 64x64 map's cap (~410) stays close to the old
+400 so existing tuning expectations hold at default map size; a
+larger map gets real headroom (up to 3000), a smaller one a floor
+(100). `POPULATION_CAP` itself stays as the fallback for any caller
+that doesn't pass map area.
+
 ## Current state (v1.3.7)
 
 Explicit user follow-up: "do the next part from audit" — continuing

@@ -4,6 +4,59 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.8] — Invention retry window + dynamic population cap
+
+Explicit live-report request: a 400-population, 1590-standing-structure
+world had made zero inventions and stayed stuck in `stone_age` despite
+clearing every prosperity gate, plus "the population should be
+dynamically capped according to map size... instead of hard 400 cap."
+
+**Invention never firing under backpressure.** Root cause:
+`invention` was the one job deliberately EXCLUDED from
+`SEASON_YEAR_JOBS_WITH_RETRY` (v0.87.41/§7's retry-window fix), because
+naively retrying across a multi-day window would re-roll its
+`INVENTION_CHANCE_PER_SEASON` RNG check on every retry day, inflating
+the real per-season odds. This world's live diagnostics showed heavy
+backpressure (598 dropped calls) — invention's single-exact-tick gate
+meant its one seasonal roll per settlement was disproportionately
+likely to land on a backpressured tick and be silently lost for the
+whole season, exactly the failure mode the retry-window fix was built
+for elsewhere. Fixed by adding `invention` to `SEASON_YEAR_JOBS_WITH_
+RETRY` AND moving `_mark_season_year_resolved("invention")` to fire
+immediately after the backpressure check clears but BEFORE the RNG
+roll (`_maybe_schedule_invention`) — the roll still happens at most
+once per season (the resolved-marker still gates it), but a
+backpressured first attempt no longer consumes that single chance;
+the job is free to retry on a later, non-backpressured day within the
+window. Verified via a direct test: a backpressured first attempt is
+confirmed NOT marked resolved (no roll consumed), a successful retry a
+few ticks later is confirmed marked resolved with a real roll.
+
+**Dynamic population cap.** `Population.carrying_capacity()`'s
+composed multiplier (housing x economy/security/labor/environment/
+coordination/knowledge/infrastructure) was already fully dynamic, but
+its final ceiling was a flat `POPULATION_CAP=400` regardless of map
+size — a settlement that fills a large map with housing hits the exact
+same hard number a tiny map would. New `dynamic_population_cap
+(map_tiles)` (`agents/agent.py`): scales linearly with map area
+(`POPULATION_DENSITY_PER_TILE=0.1`, chosen so the default 64x64=4096-
+tile map's cap (~410) stays close to the old flat 400, preserving
+existing tuning expectations at default map size), bounded
+[`POPULATION_CAP_FLOOR=100`, `POPULATION_CAP_CEILING=3000`] — the
+ceiling raised above the old flat default because a measured ~85ms/
+tick p50 for a 400-population world leaves real headroom against the
+1000ms tick budget. `POPULATION_CAP` itself stays as the fallback used
+when a caller doesn't pass map area (its docstring reworded to reflect
+this). `World.tick()` now passes `map_tiles=config.width * config.
+height` through to `Population.tick()` -> `carrying_capacity()`.
+
+Verified: `dynamic_population_cap()` direct unit test across map sizes
+(64x64 -> ~410, 32x32 -> 102.4, 256x256 clamped to the 3000 ceiling,
+10x10 clamped to the 100 floor, `None`/`0` -> the old flat 400
+unchanged); a 3000-tick LLM-disabled engine soak (no crash, population
+and capacity both readable); `scripts/verify_native_soak.py` (2 seeds
+x 1500 ticks) byte-identical — no native module touched by either fix.
+
 ## [1.3.7] — External audit: P1.1 and P1.5 (fiction leaks, duplicate names)
 
 Explicit user follow-up: "do the next part from audit" — continuing

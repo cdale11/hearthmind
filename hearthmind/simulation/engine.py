@@ -563,7 +563,7 @@ shape unchanged. See docs/DECISIONS.md, "monthly job retry window"."""
 
 SEASON_YEAR_JOBS_WITH_RETRY = frozenset({
     "tradition", "religion", "narrative_direction", "culture_digest", "documentary",
-    "institution_culture",
+    "institution_culture", "invention",
 })
 """Same bug class as `MONTHLY_JOBS_WITH_RETRY`, found in a 2026-07 audit
 but never fixed for the season/year cadence tier: `tradition`/
@@ -579,15 +579,26 @@ caravan/omen, which are deliberately excluded from the monthly
 version) — each already always calls once its boundary/backpressure/
 condition gates are met, so widening the window here doesn't inflate
 any tuned probability, exactly like the monthly jobs' rationale.
-**`invention` is deliberately excluded** despite being season_end-
-gated too: unlike the other five, it rolls its own per-tick RNG chance
+
+**`invention` was excluded for a while too**, for a documented but
+ultimately wrong reason: it rolls its own per-occurrence RNG chance
 (`INVENTION_CHANCE_PER_SEASON` via `_namespaced_roll(..., "invention_
-roll")`, tick-seeded) AFTER the boundary/prosperity gate — the same
-shape as festival/caravan/omen's own exclusion from the monthly
-version. Widening its window would re-roll that chance on every day of
-the window, inflating the effective per-season invention probability
-beyond what `INVENTION_CHANCE_PER_SEASON` was tuned for. See
-`_season_year_gate`/`_mark_season_year_resolved`."""
+roll")`) AFTER the boundary/prosperity gate, and widening the window
+naively would re-roll that chance on every day of the window,
+inflating the effective per-season probability. Fixed by having
+`_maybe_schedule_invention` call `_mark_season_year_resolved` the
+instant its OWN backpressure check clears — same spot every other job
+in this set already marks resolved — which means the roll still only
+ever happens once per season (a later day in the window sees the
+season already marked resolved and never re-enters), so retry-safety
+came for free once the mark moved before the roll instead of after a
+successful schedule. A live 400-population world with heavy
+backpressure (598 dropped calls) went an entire multi-season run with
+zero inventions — `invention`'s single-exact-tick gate meant its ONE
+seasonal roll per settlement was disproportionately likely to fall on
+a backpressured tick, especially since season_end is also when five
+OTHER settlement jobs fire and compete for the same backpressure slot.
+See `_season_year_gate`/`_mark_season_year_resolved`."""
 
 SEASON_YEAR_JOB_RETRY_WINDOW_DAYS = 5
 """Retry window for `SEASON_YEAR_JOBS_WITH_RETRY` jobs, in days after
@@ -2962,6 +2973,7 @@ class SimulationEngine:
             return
         if self._settlement_job_backpressured():
             return
+        self._mark_season_year_resolved("invention")
         # An educated town invents more — a real school/university, not
         # just prosperity, measurably raises the odds. See
         # buildings.education_invention_bonus, docs/DECISIONS.md,

@@ -12,6 +12,8 @@ from __future__ import annotations
 import re
 from enum import Enum
 
+from hearthmind.util import clamp
+
 try:
     from hearthmind._native import EmotionState as _NativeEmotionState
     from hearthmind._native import decay_emotions as _native_decay_emotions
@@ -770,8 +772,10 @@ since `lessons` are currently only LLM-authored for the core cast plus
 the two deterministic template triggers from item 1)."""
 
 POPULATION_CAP = 400
-"""A pure safety valve now, no longer the binding constraint it had
-quietly become: the July 2026 architecture review measured every run
+"""Fallback safety valve when map area isn't available to `carrying_
+capacity()` (e.g. a caller that doesn't pass `map_tiles` — see
+`dynamic_population_cap`). A pure safety valve, not the binding
+constraint: the July 2026 architecture review measured every run
 pinning at the old 200 indefinitely (food was post-scarce, so nothing
 else ever pushed back). With the carrying-capacity rework — goal-gated
 planting, crop rot (FARM_ROT_TICKS), and surplus-gated reproduction
@@ -780,6 +784,42 @@ the food economy; this cap only guards against a pathological runaway.
 Raised rather than removed so a tuning mistake in the new food loop
 can't take the process down. See docs/DECISIONS.md, A2 and the
 architecture-review implementation pass."""
+
+POPULATION_DENSITY_PER_TILE = 0.1
+"""Live report finding: a flat `POPULATION_CAP=400` regardless of map
+size meant a settlement that filled a large map with housing (1590
+standing structures observed live) hit the SAME hard ceiling a tiny
+map would — the safety valve had quietly become the binding constraint
+again, just at a higher number, exactly the bug class `POPULATION_CAP`
+itself was raised to fix in the first place. `dynamic_population_cap`
+scales the ceiling with map area instead: ~1 person per 10 tiles,
+chosen so the default 64x64 map (4096 tiles) yields ~410 — close to
+the old flat default, so existing tuning/expectations at default map
+size carry over almost exactly, while a larger map gets real headroom
+to support what it can actually build."""
+
+POPULATION_CAP_FLOOR = 100
+"""`dynamic_population_cap`'s floor — even a small map keeps a
+minimum-viable-colony ceiling rather than being squeezed by density
+scaling alone."""
+
+POPULATION_CAP_CEILING = 3000
+"""`dynamic_population_cap`'s ceiling — still a genuine safety valve
+against a pathological runaway on a very large map; at the measured
+~85ms/tick p50 for a 400-population world against a 1000ms tick
+budget, there's real headroom above the old flat 400, but this stays a
+real bound, not "whatever the map allows.\""""
+
+
+def dynamic_population_cap(map_tiles: int | None) -> float:
+    """Map-area-scaled population ceiling — see `POPULATION_DENSITY_
+    PER_TILE`'s docstring for the live-reported bug this closes.
+    `map_tiles` is `Config.width * Config.height`; `None` (a caller
+    that hasn't been updated to pass map area) falls back to the flat
+    `POPULATION_CAP`, unchanged from before this existed."""
+    if not map_tiles:
+        return float(POPULATION_CAP)
+    return clamp(map_tiles * POPULATION_DENSITY_PER_TILE, POPULATION_CAP_FLOOR, POPULATION_CAP_CEILING)
 
 OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK = 1e-7
 """Background per-agent-tick chance of a single spontaneous illness case
