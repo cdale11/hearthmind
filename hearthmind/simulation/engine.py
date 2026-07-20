@@ -20,6 +20,7 @@ import asyncio
 import itertools
 import logging
 import os
+import re
 import sqlite3
 import time
 from collections import deque
@@ -271,6 +272,21 @@ times before treating it as "the dominant, saturating topic" worth
 damping; otherwise a settlement's very first-ever topic (trivially rank
 1 of a near-empty ring) would get suppressed before it ever had a
 chance to recur."""
+
+GROUNDED_EVENT_PICK_WEIGHTS = (0.40, 0.25, 0.15, 0.12, 0.08)
+"""Live audit finding (P1.1): dialogue's `grounded_event` used to be
+`recent_events_diverse(...)[0]` unconditionally — the single most
+recent diverse event, deterministically ignoring the other 4 fetched.
+Still favors recency (weights sum to 1.0, strictly decreasing) but
+gives every candidate in the top-5 a real chance."""
+
+_EVENT_COORDINATE_RE = re.compile(r"\s*at \(\d+,\s*\d+\)")
+"""Strips a literal "at (x, y)" from an event description before it
+reaches a SPEAKING prompt (dialogue's `grounded_event`) — live audit
+finding (P1.1): NPCs were reciting raw tile coordinates verbatim
+("Remember the field at sixty, forty-five?"). Not applied to narrator-
+voice prompts (chronicle/town_brain/beliefs), which read `recent_
+events_diverse` directly and aren't first-person character speech."""
 
 INTERPRET_RUMOR_MAX_PER_DAY = 3
 """Phase K's InterpretRumor() (docs/VISION-2026-07.md, "Knowledge &
@@ -2507,7 +2523,30 @@ class SimulationEngine:
                 or self.world.weather.wind_label() == "gale"
             )
             grounded_recent = recent_events_diverse(self.conn, limit=5)
-            grounded_event = grounded_recent[0]["description"] if grounded_recent else ""
+            grounded_event = ""
+            if grounded_recent:
+                # Live audit finding (P1.1): always picking index [0] (the
+                # single most recent diverse event) meant grounded_event
+                # was overwhelmingly whatever routine thing just happened
+                # (usually a field planting at current event mix) — a
+                # top-3 contributor to the topic-monoculture measured in
+                # P0.2 ("new field"/"field"/"the field" as dominant
+                # topics). Weighted pick across the top-5 instead, still
+                # favoring recency but no longer deterministically
+                # ignoring the other four.
+                grounded_rng = _namespaced_rng(
+                    self.world.config.seed, self.world.clock.tick_count,
+                    f"dialogue_grounded_event_{agent_a.id}_{agent_b.id}",
+                )
+                weights = GROUNDED_EVENT_PICK_WEIGHTS[:len(grounded_recent)]
+                chosen = grounded_rng.choices(grounded_recent, weights=weights, k=1)[0]
+                # Also P1.1: raw "at (x, y)" coordinates were showing up
+                # verbatim in spoken dialogue ("Remember the field at
+                # sixty, forty-five?") — simulation scaffolding an NPC
+                # has no business reciting. Strip rather than translate
+                # to a place name (most events aren't near a named
+                # place); the sentence still reads fine without it.
+                grounded_event = _EVENT_COORDINATE_RE.sub("", chosen["description"]).strip()
             is_family_pair = (
                 (agent_a.parents is not None and agent_b.id in agent_a.parents)
                 or (agent_b.parents is not None and agent_a.id in agent_b.parents)
@@ -5573,15 +5612,20 @@ class SimulationEngine:
         if self._settlement_job_backpressured():
             return
         self._mark_monthly_resolved("geography")
+        existing_names = list(place_names.values())
         prompt = geography.build_prompt(
             self.world.settlement.name, feature_kind, self.world.settlement.founding_scenario,
+            existing_names=existing_names,
         )
-        fallback = geography.fallback_name(feature_kind, self.world.clock.tick_count)
+        fallback = geography.fallback_name(feature_kind, self.world.clock.tick_count, existing_names=existing_names)
 
         def apply(result: dict, used_fallback: bool) -> None:
             if feature_key in self.world.settlement.place_names:
                 return  # already named by an earlier in-flight job
-            name = geography.parse_name(result, fallback)
+            # Re-reads current place_names at apply time (not the
+            # `existing_names` snapshot above) in case another geography
+            # job landed while this one was in flight.
+            name = geography.parse_name(result, fallback, list(self.world.settlement.place_names.values()))
             self.world.settlement.place_names[feature_key] = name
             noun = "the river" if feature_kind == "river" else "the lake"
             self._log("place_named", f"The villagers took to calling {noun} {name}.")

@@ -558,18 +558,27 @@ def retrieval_diagnostics() -> dict:
 
 def faded_memory_text(text: str, salience: float) -> str:
     """Wraps `text` with a hazier framing once its salience has decayed
-    below `MEMORY_FADE_DISPLAY_THRESHOLD` — "I remember clearly" becomes
-    "I only vaguely recall," changing how the memory reads to the LLM
-    without altering the underlying stored text (the original stays
-    exact in `Agent.memories` for `memory_drift`/UI history — only the
-    prompt-facing copy is reworded). Deliberately not itself an LLM call
-    (deferred item 4 explicitly scopes this as the deterministic half of
-    "gradual forgetting"; item 5's LLM-authored skill-mastery narration
-    is the batch's one new call)."""
+    below `MEMORY_FADE_DISPLAY_THRESHOLD` — a clear memory reads as
+    itself, a faded one is marked as hazy, changing how the memory
+    reads to the LLM without altering the underlying stored text (the
+    original stays exact in `Agent.memories` for `memory_drift`/UI
+    history — only the prompt-facing copy is reworded). Deliberately
+    not itself an LLM call (deferred item 4 explicitly scopes this as
+    the deterministic half of "gradual forgetting"; item 5's
+    LLM-authored skill-mastery narration is the batch's one new call).
+
+    Live audit finding (P1.1): the original "I only vaguely recall: X"
+    framing read as literal first-person speech, so a small model
+    routinely quoted it verbatim in dialogue ("Yeah, I only vaguely
+    recall Bartholomew was born to us") and even laundered it into
+    rumor text — a narrator's note about vividness leaking into the
+    fiction as something a villager would actually say. The
+    parenthetical `(a hazy memory)` framing reads as an aside about the
+    memory, not a sentence to repeat."""
     if salience >= MEMORY_FADE_DISPLAY_THRESHOLD:
         return text
     lowered = text[0].lower() + text[1:] if text else text
-    return f"I only vaguely recall: {lowered}"
+    return f"(a hazy memory) {lowered}"
 
 
 ROUTINE_MEMORY_SALIENCE_MULT = 0.5

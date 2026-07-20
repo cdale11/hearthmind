@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.7] — External audit: P1.1 and P1.5 (fiction leaks, duplicate names)
+
+Explicit user follow-up: "do the next part from audit" — continuing
+`docs/AUDIT-2026-07-20.md`'s P1 backlog.
+
+**P1.1 — simulation scaffolding leaking into the fiction (three
+leaks, all shipped):**
+1. Raw coordinates in speech (31/201 measured dialogue prompts had
+   "at (x, y)", and NPCs recited it verbatim). New `_EVENT_
+   COORDINATE_RE` strips it from `grounded_event` specifically — the
+   one consumer that's literal character speech — left alone in
+   narrator-voice prompts (chronicle/town_brain/beliefs).
+2. Memory-fade scaffolding quoted as speech (`faded_memory_text`'s
+   old "I only vaguely recall: X" read as literal first-person
+   dialogue and got echoed/laundered into rumor text). Reworded to
+   `"(a hazy memory) X"` — a parenthetical aside, not a sentence to
+   repeat — plus an explicit "never quote a parenthetical out loud"
+   line added to both `dialogue.py`'s and `cognition.py`'s
+   SYSTEM_PROMPTs.
+3. `grounded_event` always being `recent_events_diverse(...)[0]` (the
+   single most recent event, usually a field planting — a measured
+   top-3 contributor to P0.2's topic monoculture). New
+   `GROUNDED_EVENT_PICK_WEIGHTS`, a deterministic namespaced-RNG
+   weighted pick across the top 5 (0.40/0.25/0.15/0.12/0.08), still
+   favoring recency without ignoring the other four unconditionally.
+
+**P1.5 — duplicate place names** ("Marshwater; Marshpool; Marshmere;
+Marshpool" — two lakes, same name). `geography.build_prompt` now
+tells the model which names are already in use; `parse_name` rejects
+a colliding answer and falls back to the (also now collision-safe —
+`_first_unused`) fallback pool.
+
+**P1.3 flagged, not shipped:** the audit's suggested fix (skip the
+LLM call entirely during a forced-priority hunger/exhaustion moment)
+directly reverses an earlier explicit decision in `Population.
+_update_needs`'s `critically_hungry` block, whose own comment says a
+hunger emergency "deserves the LLM's actual reasoning... not just the
+movement-layer override." Recorded in `docs/AUDIT-2026-07-20.md` as
+needing a user call rather than a unilateral reversal.
+
+Verified: direct unit tests for each fix (faded-memory reframing,
+coordinate stripping, the geography name-collision scenario from the
+audit's own example — both a colliding LLM answer and a genuinely
+novel one); a 3000-tick LLM-disabled engine soak after each change;
+`scripts/verify_native_soak.py` (2 seeds x 1500 ticks) byte-identical
+— no native module touched.
+
 ## [1.3.6] — External audit: ship all four P0 items
 
 Explicit user request: implement the uploaded `docs/AUDIT-2026-07-20.md`

@@ -81,7 +81,11 @@ SYSTEM_PROMPT = (
     "against what the village expects of them. Don't force a connection "
     "that isn't there, and don't list your reasons like a report — say "
     "it the way the person would actually think it to themselves, in "
-    "one breath, never as numbered or step-by-step reasoning. "
+    "one breath, never as numbered or step-by-step reasoning. Anything "
+    "written in parentheses, like '(a hazy memory)', is a note about "
+    "how clearly they remember something, not something they'd think "
+    "in those exact words — never quote it, just let it color how sure "
+    "they sound. "
     'Respond with strict JSON only, no other text: '
     '{"goal": "forage" | "rest" | "socialize" | "wander" | "gather" | "seek_person", '
     '"reason": "a short first-person reason, under 28 words, blending at '

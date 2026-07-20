@@ -416,6 +416,23 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.7)
+
+Explicit user follow-up: "do the next part from audit" — continuing
+`docs/AUDIT-2026-07-20.md`'s P1 backlog. Shipped P1.1 (three
+simulation-scaffolding leaks into the fiction: raw tile coordinates
+recited in speech, `faded_memory_text`'s "I only vaguely recall:"
+prefix quoted/laundered as literal dialogue, `grounded_event` always
+being the single most recent event and feeding P0.2's monoculture —
+now a weighted top-5 pick) and P1.5 (duplicate place names — prompt
+now lists names already in use, `parse_name` rejects a collision).
+P1.3 (skip the LLM call during forced-priority hunger/exhaustion)
+deliberately NOT shipped — it reverses an earlier explicit decision
+(`critically_hungry` agents are flagged triggered specifically so a
+crisis "deserves the LLM's actual reasoning," not just deterministic
+text) and needs a user call, recorded as flagged-not-shipped in the
+audit doc rather than changed unilaterally. Full detail: CHANGELOG.md.
+
 ## Current state (v1.3.6)
 
 Explicit user request: implement an uploaded external audit
