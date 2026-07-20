@@ -256,6 +256,26 @@ class TrainingRecorder:
     def enabled(self) -> bool:
         return self._policy != RecordingPolicy.OFF
 
+    def _with_epoch_tag(self, tags: list[str] | None) -> list[str]:
+        """FT.1 (docs/AUDIT-2026-07-20.md's fine-tuning roadmap): "start
+        fresh recording sessions tagged with the new prompt versions ...
+        mark the epoch boundary with a tag." A human operator starting a
+        session from the UI/API has no reason to remember to hand-type a
+        version tag every time, and an untagged archive is exactly the
+        "which examples predate which fix" ambiguity that bit several
+        review passes in this file's history (see CLAUDE.md's v1.3.2/
+        v1.3.9 entries — a stale-deployment mismatch was only caught
+        because the archive happened to carry its own version string
+        elsewhere). Every session now gets `hearthmind-<version>`
+        appended automatically — cheap, unambiguous, and still lets an
+        operator add their own tags (e.g. "post-fix", "schema-
+        constrained") alongside it via the existing `tags` param."""
+        resolved = [str(t) for t in (tags or [])]
+        version_tag = f"hearthmind-{self._hearthmind_version_provider()}"
+        if version_tag not in resolved:
+            resolved.append(version_tag)
+        return resolved
+
     # --- control -------------------------------------------------------------
 
     def start(
@@ -279,7 +299,7 @@ class TrainingRecorder:
             self._sample_rate = max(0.0, min(1.0, sample_rate))
             self._session_id = uuid.uuid4().hex[:12]
             self._session_name = session_name or f"session-{self._session_id}"
-            self._session_tags = [str(t) for t in (tags or [])]
+            self._session_tags = self._with_epoch_tag(tags)
             self._examples_this_session = 0
             self._dropped = 0
             self._write_errors = 0

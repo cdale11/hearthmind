@@ -126,7 +126,8 @@ class CognitionRunner:
         return round(sorted_values[idx], 1)
 
     async def run(
-        self, prompt: str, system: str | None, fallback: Callable[[], dict]
+        self, prompt: str, system: str | None, fallback: Callable[[], dict],
+        json_schema: dict | None = None,
     ) -> tuple[dict, bool, str | None]:
         """Return `(result, used_fallback, raw_completion)`: a parsed
         JSON dict from the LLM with `used_fallback=False` and the exact
@@ -138,18 +139,25 @@ class CognitionRunner:
         from a saved snapshot. `raw_completion` (added for the training
         recorder, llm/recorder.py — Layer 3) is the model's exact text
         before JSON parsing; `None` on any fallback path since no real
-        completion exists to record."""
+        completion exists to record.
+
+        `json_schema` (optional, FT.0 — see `llm/json_schemas.py`):
+        forwarded to the client's own `generate_json` to constrain
+        decoding to a specific shape rather than bare JSON. `None`
+        (the default, and every call site's behavior before FT.0)
+        leaves generation unconstrained beyond "valid JSON."""
         if self.client is None:
             return fallback(), True, None
 
         self.backlog += 1
         try:
-            return await self._run_gated(prompt, system, fallback)
+            return await self._run_gated(prompt, system, fallback, json_schema)
         finally:
             self.backlog -= 1
 
     async def _run_gated(
-        self, prompt: str, system: str | None, fallback: Callable[[], dict]
+        self, prompt: str, system: str | None, fallback: Callable[[], dict],
+        json_schema: dict | None = None,
     ) -> tuple[dict, bool, str | None]:
         queue_entered = time.perf_counter()
         async with self._semaphore:
@@ -163,7 +171,7 @@ class CognitionRunner:
                 # wrap it in a hard wait_for as defense in depth beyond
                 # the client's own socket timeout.
                 result = await asyncio.wait_for(
-                    asyncio.to_thread(self.client.generate_json, prompt, system, capture),
+                    asyncio.to_thread(self.client.generate_json, prompt, system, capture, json_schema),
                     timeout=self.client.timeout_seconds + 5.0,
                 )
                 self._latencies_ms.append((time.perf_counter() - start) * 1000)

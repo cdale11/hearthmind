@@ -81,7 +81,10 @@ class OllamaClient:
     way raising `llm_max_concurrent` would. `None` (the default) omits
     it, leaving Ollama's own heuristic in charge."""
 
-    def generate_json(self, prompt: str, system: str | None = None, capture: dict | None = None) -> dict:
+    def generate_json(
+        self, prompt: str, system: str | None = None, capture: dict | None = None,
+        json_schema: dict | None = None,
+    ) -> dict:
         """Blocking call — issue one generate request and parse the
         response as JSON. Callers running inside the event loop must wrap
         this in `asyncio.to_thread` (see hearthmind/llm/jobs.py); this
@@ -96,7 +99,15 @@ class OllamaClient:
         fresh dict per call (never a shared/instance attribute) — this
         method may run concurrently across threads under
         `Config.llm_max_concurrent` > 1, and a shared attribute would be
-        a data race."""
+        a data race.
+
+        `json_schema` (optional, FT.0 — docs/AUDIT-2026-07-20.md):
+        a per-task JSON Schema (see `llm/json_schemas.py`) that, when
+        given, replaces the bare `"format": "json"` request with the
+        actual schema — Ollama (0.5+) accepts a JSON Schema object
+        directly in `format`, constraining decoding to the real
+        shape (required keys, enums), not just valid-JSON-in-general.
+        `None` keeps the old bare `"json"` behavior unchanged."""
         options = {}
         if self.num_ctx is not None:
             options["num_ctx"] = self.num_ctx
@@ -113,7 +124,7 @@ class OllamaClient:
         payload = {
             "model": self.model,
             "prompt": prompt,
-            "format": "json",
+            "format": json_schema if json_schema is not None else "json",
             "stream": False,
             "think": False,
         }
@@ -187,7 +198,10 @@ class LlamaCppClient:
     default). Lower values curb the rambling/off-shape output small
     models emit under the JSON grammar constraint."""
 
-    def generate_json(self, prompt: str, system: str | None = None, capture: dict | None = None) -> dict:
+    def generate_json(
+        self, prompt: str, system: str | None = None, capture: dict | None = None,
+        json_schema: dict | None = None,
+    ) -> dict:
         """Blocking call — issue one `/v1/chat/completions` request and
         parse the response as JSON. Callers running inside the event loop
         must wrap this in `asyncio.to_thread` (see hearthmind/llm/jobs.py);
@@ -198,11 +212,28 @@ class LlamaCppClient:
         without this project needing to know each model's prompt format.
 
         `capture`: see `OllamaClient.generate_json`'s docstring — same
-        contract (fresh dict per call, filled with `capture["raw"]`)."""
+        contract (fresh dict per call, filled with `capture["raw"]`).
+
+        `json_schema` (optional, FT.0 — docs/AUDIT-2026-07-20.md, see
+        `llm/json_schemas.py`): when given, requests `response_format:
+        {"type": "json_schema", ...}` instead of the bare `json_object`
+        mode — llama-server converts the schema to a GBNF grammar and
+        enforces it at the sampler level, so a call with a schema can no
+        longer emit a missing required key, a wrong-typed value, or an
+        out-of-enum string; it was already structurally guaranteed valid
+        JSON, this narrows that guarantee to the actual expected shape.
+        `None` keeps the old bare `json_object` behavior unchanged."""
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
+        if json_schema is not None:
+            response_format = {
+                "type": "json_schema",
+                "json_schema": {"name": "hearthmind_task", "schema": json_schema, "strict": True},
+            }
+        else:
+            response_format = {"type": "json_object"}
         payload = {
             "model": self.model,
             "messages": messages,
@@ -210,8 +241,9 @@ class LlamaCppClient:
             # Grammar-constrained JSON output — llama.cpp enforces this at
             # the sampler level (not just prompted), same intent as
             # Ollama's `"format": "json"` but stronger (structurally
-            # guaranteed valid JSON, not merely requested).
-            "response_format": {"type": "json_object"},
+            # guaranteed valid JSON, not merely requested; a per-task
+            # schema above narrows this further to the expected shape).
+            "response_format": response_format,
         }
         if self.num_predict is not None:
             payload["max_tokens"] = self.num_predict

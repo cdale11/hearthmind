@@ -416,6 +416,28 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.12)
+
+Explicit user follow-up: "ship FT0 and FT1" — docs/AUDIT-2026-07-20.md's
+fine-tuning roadmap, first two items.
+
+FT.0: `llm/json_schemas.py` gives the eleven highest-volume LLM tasks
+(everything a real archive's `task_distribution` actually shows) a
+real JSON Schema; `LlamaCppClient`/`OllamaClient.generate_json` and
+`CognitionRunner.run` gained an optional `json_schema` param, wired at
+all four `_cognition_runner.run` call sites. llama-server enforces the
+schema as a GBNF grammar — required keys, types, and enums (`goal`,
+`sentiment`, `priority`) are now sampler-level guaranteed, not just
+"valid JSON." `None` for any task outside the eleven keeps the old
+unconstrained `json_object` behavior untouched.
+
+FT.1: the prompt fixes it depends on (P0.1/P0.2/P0.4/P1.1) were
+already shipped; `TrainingRecorder.start()` now auto-appends
+`hearthmind-<version>` to `session_tags` so every future recording
+session is unambiguously version-tagged without relying on an
+operator to type one in — closes the "mark the epoch boundary with a
+tag" gap that was previously purely aspirational.
+
 ## Current state (v1.3.11)
 
 Explicit user follow-up: "Do the eyeball pass and make the call [on

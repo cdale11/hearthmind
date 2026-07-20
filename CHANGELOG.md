@@ -4,6 +4,78 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.12] — FT.0 grammar-constrained decoding + FT.1 epoch tagging
+
+Explicit user follow-up: "ship FT0 and FT1" — the first two items of
+docs/AUDIT-2026-07-20.md's fine-tuning roadmap.
+
+FT.0: new `hearthmind/llm/json_schemas.py` defines a real JSON Schema
+per task for the eleven task names every live recorder archive
+actually shows (dialogue, cognition, rumor_interpret, mind,
+personal_belief, chronicle, beliefs, dream, folklore, naming,
+town_brain — confirmed against a real `review_pack.json` manifest's
+`task_distribution`, 100% coverage). Each schema's `required` list is
+scoped to exactly what that task's `parse_*` fallback already
+guarantees a value for (never the "leave blank, never fabricate"
+optional fields like `secret`/`plan_intent`), and every closed-choice
+field is a real `enum` (`goal` against `AgentGoal`'s seven values,
+`sentiment` against dialogue's three, `priority` against town_brain's
+six). `CognitionRunner.run`/`_run_gated` (`llm/jobs.py`) and both
+`OllamaClient.generate_json`/`LlamaCppClient.generate_json`
+(`llm/client.py`) gained an optional `json_schema` parameter:
+`LlamaCppClient` now sends `response_format: {"type": "json_schema",
+"json_schema": {...}}` in place of the previous bare `{"type":
+"json_object"}` when a schema is given — llama-server converts this
+to a GBNF grammar and enforces it at the sampler level, so a
+schema-constrained call can no longer emit a missing required key, a
+wrong-typed value, or an out-of-enum string; `OllamaClient` passes the
+schema object directly as `format` (Ollama 0.5+ accepts a full JSON
+Schema there, not just the string `"json"`). All four
+`_cognition_runner.run(...)` call sites in `simulation/engine.py` (the
+generic `_schedule_llm_job` path used by chronicle/beliefs/
+personal_belief/dream/folklore/naming/town_brain/mind, plus
+cognition's, rumor_interpret's, and dialogue's own dedicated paths)
+now pass `schema_for_task(name)` — `None` for any task without an
+entry (caravan, dispute, diplomacy, invention, consciousness, era_
+branch, ...) preserves the exact old unconstrained behavior, so this
+is additive to the eleven highest-volume jobs, not a rewrite of every
+LLM call site. This directly serves the audit's stated goal: it
+eliminates the entire parse/repair failure class at the source, so
+future fine-tuning data never has to spend completion budget coping
+with (or, worse, imitating) malformed JSON.
+
+FT.1: P0.1/P0.2/P0.4 (v1.3.6) and P1.1 (v1.3.7) — the prompt fixes
+this item calls a prerequisite — were already both shipped; the one
+remaining gap was operational, not code: `TrainingRecorder.
+session_tags` existed (v1.1.0 recorder pass) but nothing populated it
+automatically, so "mark the epoch boundary with a tag" depended on an
+operator remembering to hand-type one every time a recording session
+started from the UI or API — exactly the kind of gap that produced the
+v1.3.2/v1.3.9 stale-deployment mismatches recorded elsewhere in this
+file. `TrainingRecorder.start()` (`llm/recorder.py`) now calls a new
+`_with_epoch_tag()` that appends `hearthmind-<version>` to whatever
+tags were supplied (or is the sole tag when none are given) — every
+future session is automatically attributable to the exact code
+version that produced it, no operator action required, while an
+operator can still layer their own tags (e.g. "post-fix",
+"schema-constrained") alongside it. Every archive collected before
+this ships — including the one this audit itself was written
+against — predates either the prompt fixes or this auto-tagging, so
+per this item's own rule it stays prompt-corpus/eval-only, not SFT
+material.
+
+Verified: a direct `LlamaCppClient` test confirming the `response_
+format` payload shape for both the schema and no-schema cases; a real
+`SimulationEngine` run with a fake LLM client capturing every `json_
+schema` argument reaching `generate_json`, confirming cognition/
+dialogue/chronicle/mind calls each receive their own schema through
+actual production scheduling, not just in isolation; a direct
+`TrainingRecorder.start()` test (auto-tag appended alongside supplied
+tags, sole tag when none given, no duplicate on a repeat matching
+tag); `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical — no native module or persisted field touched, this
+batch is pure LLM-call plumbing.
+
 ## [1.3.11] — P1.4 eyeball-pass verdict + all four P3 audit items
 
 Explicit user follow-up: "Do the eyeball pass and make the call [on

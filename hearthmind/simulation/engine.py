@@ -72,6 +72,7 @@ from hearthmind.llm import (
 )
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
+from hearthmind.llm.json_schemas import schema_for_task
 from hearthmind.llm.cognition import (
     RECENT_MEMORIES_IN_PROMPT, SURVIVAL_ENERGY_THRESHOLD, SURVIVAL_HUNGER_THRESHOLD, SYSTEM_PROMPT, build_prompt,
     fallback_goal, parse_goal,
@@ -1487,7 +1488,7 @@ class SimulationEngine:
         async def _runner() -> None:
             call_start = time.perf_counter()
             result, used_fallback, raw_completion = await self._cognition_runner.run(
-                prompt, system, fallback=lambda: fallback
+                prompt, system, fallback=lambda: fallback, json_schema=schema_for_task(name),
             )
             elapsed_ms = (time.perf_counter() - call_start) * 1000
             apply_failed = False
@@ -2174,6 +2175,7 @@ class SimulationEngine:
                 fallback=lambda: fallback_goal(
                     hunger, energy, agent_id, traits, emotions, plan_intent, materials_critical,
                 ),
+                json_schema=schema_for_task("cognition"),
             )
             self._record_llm_debug(
                 "cognition", prompt, result, used_fallback, (time.perf_counter() - call_start) * 1000,
@@ -2339,6 +2341,7 @@ class SimulationEngine:
         async def _runner() -> None:
             result, used_fallback, raw_completion = await self._cognition_runner.run(
                 prompt, rumor_interpret.SYSTEM_PROMPT, fallback=lambda: fallback,
+                json_schema=schema_for_task("rumor_interpret"),
             )
             target = self.world.population.get(listener_id)
             applied = False
@@ -2745,7 +2748,8 @@ class SimulationEngine:
         scheduled_tick = self.world.clock.tick_count
         call_start = time.perf_counter()
         result, used_fallback, raw_completion = await self._cognition_runner.run(
-            prompt, dialogue.SYSTEM_PROMPT, fallback=lambda: fallback
+            prompt, dialogue.SYSTEM_PROMPT, fallback=lambda: fallback,
+            json_schema=schema_for_task("dialogue"),
         )
         parsed = dialogue.parse_dialogue(result, fallback)
         # P3.2: a genuinely LLM-authored line whose tail matches a tic
