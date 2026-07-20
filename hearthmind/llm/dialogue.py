@@ -17,6 +17,7 @@ from hearthmind.agents.agent import (
     describe_traits,
     faded_memory_text,
     just_now_text as _just_now_text,
+    normalize_voice_phrase,
 )
 
 SYSTEM_PROMPT = (
@@ -359,7 +360,10 @@ def build_prompt(
         # §7): a manner-of-speaking garnish, same core-cast-only scope
         # as `mind` (empty "" for everyone else — no-op here).
         if agent.voice:
-            voice_bits.append(f"{label} {agent.voice}")
+            # Retroactively sanitizes any already-persisted voice text
+            # too (see `normalize_voice_phrase`'s docstring) — no
+            # snapshot migration needed, this runs on every read.
+            voice_bits.append(f"{label} {normalize_voice_phrase(agent.voice)}")
         # Lessons (v0.87.0, "learns like a human"): the one stored lesson
         # (if any) matching THIS speaker's current situation — see
         # Agent.lessons/SimulationEngine._current_situation_tag. Same

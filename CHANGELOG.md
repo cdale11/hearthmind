@@ -4,6 +4,79 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.6] — External audit: ship all four P0 items
+
+Explicit user request: implement the uploaded `docs/AUDIT-2026-07-20.md`
+(an external live-run audit) and check off shipped items. All four P0
+items landed this pass; P1-P3 and the FT fine-tuning roadmap are
+recorded in the doc as the standing backlog for future sessions.
+
+**P0.1 — mood pinned negative.** `settlement/buildings.py::tick_mood`'s
+`signal = avg * 2.0 - 1.0` mapped a perfectly calm population (source
+emotion avg ~= 0) to signal ~= -1 on every one of the four mood axes
+(hope/fear/grief/suspicion) — "nobody is afraid" was being encoded as
+"profound anti-fear." Fixed to `signal = avg` (0..1 emotion maps
+directly onto mood's own -1..1 range, calm tracks toward neutral).
+`MOOD_MEAN_REVERSION` already pulls existing saved moods back from any
+pre-fix -1 pinning over the next few months — no migration needed.
+
+**P0.2 — discourse monoculture (rumor→memory→dialogue→folklore loop
+had no damping).** Three dampers: (a) `Population.record_dialogue_
+topic` no longer appends a topic identical to the pair's own last
+entry (was producing literal "talked about: garden, garden, garden"
+novelty lines); (b)/(c) a dialogue's rumor is no longer spread (and
+InterpretRumor() no longer spends its 3/day budget retelling it) once
+its topic is already the settlement's dominant one
+(`RUMOR_NOVELTY_MIN_COUNT=3` guards against suppressing a genuinely
+first-ever topic); (d) `terrain_reclaimed`/`terrain_thinned` added to
+`ROUTINE_EVENT_CATEGORIES` — a live beliefs prompt had 14 consecutive
+"Nature reclaimed abandoned ground" lines because these categories
+were never capped despite being the exact bursty-physical-tick shape
+every other entry in that set already targets.
+
+**P0.3 — construction starvation (16,662 ticks, pop 24, one standing
+structure).** Scoped to the audit's option (ii) plus a deterministic-
+fallback counterpart, not the full "civic reservation" mechanism (its
+option i): new `buildings.cheapest_founding_cost()` and a
+`materials_critical` flag (stockpile below that cost) threaded into
+both `cognition.build_prompt`'s grounding line (same `needs_repair`
+treatment) AND `fallback_goal` — the latter matters more in practice
+since only core-cast agents ever reach the live-LLM cognition path, so
+most GATHER decisions were never getting any settlement-need signal at
+all. When critical, GATHER is force-selected the same way hunger/
+energy already force FORAGE/REST (still yields to hunger/energy/fear/
+grief, which stay genuine survival priorities). Verifying whether this
+alone is sufficient (vs. still needing the reserved-fraction mechanism)
+is left to the audit's own suggested 5-seed/30k-tick soak.
+
+**P0.4 — broken voice grammar (79% of dialogue prompts measured:
+"Ysolde Always speaks...", "Godfrey He always speaks...").**
+`dialogue.py` prepends the agent's name to `agent.voice`, but the mind
+job had been authoring `voice` as a complete sentence with its own
+subject/capital/period. New `agents.agent.normalize_voice_phrase()`
+strips a leading subject pronoun and trailing punctuation, lowercases
+the new leading letter — applied at write time (`mind.parse_voice`,
+for future authoring) AND at every read (`dialogue.py`'s consumption
+site), which retroactively fixes every already-persisted voice with no
+snapshot migration needed. `mind.py`'s `SYSTEM_PROMPT` also now asks
+explicitly for a bare predicate phrase with a worked example. Known
+residual: a stripped leading "They" can leave a plural-conjugated verb
+behind on an old already-persisted voice (cosmetic; new voices won't
+have this shape).
+
+Full detail and the standing P1-P3/FT backlog: `docs/
+AUDIT-2026-07-20.md` (added this pass, checkboxes updated as items
+ship).
+
+Verified: direct unit tests for each fix (mood stays near-neutral
+under 50 simulated calm months; topic-ring dedup; rumor-gate rejects a
+dominant-topic rumor and accepts a novel one; `recent_events_diverse`
+caps `terrain_reclaimed`; `fallback_goal` force-selects GATHER when
+materials-critical but still yields to hunger; `normalize_voice_
+phrase` against the audit's own verbatim examples); a 2000-4000-tick
+LLM-disabled engine soak after each fix; `scripts/verify_native_soak.py`
+(2 seeds x 1000-1500 ticks) byte-identical — no native module touched.
+
 ## [1.3.5] — Improve Context Influence: root-cause the empty-context calls
 
 Explicit user follow-up: "improve the context influence numbers"

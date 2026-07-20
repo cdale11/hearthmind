@@ -125,6 +125,7 @@ def build_prompt(
     colocated_names: list[str] | None = None, nearest_food_steps: int | None = None,
     beliefs_about: list[str] | None = None, own_belief: str = "",
     semantic_memory: str = "", mind_text: str = "", needs_repair: bool = False,
+    materials_critical: bool = False,
     life_digest: str = "", lesson: str = "", seek_candidate: tuple[str, str] | None = None,
     institution_objective: str = "", plan: dict | None = None, core_memory: str = "",
     prophecy: dict | None = None,
@@ -181,6 +182,15 @@ def build_prompt(
     had no way to rationally choose it over forage/socialize/gather.
     This closes that information gap the same way `nearest_food_steps`
     already grounds 'forage'.
+
+    `materials_critical` (live audit finding, P0.3): whether the
+    settlement's stockpile currently sits below `buildings.cheapest_
+    founding_cost()` — the point where NOTHING can be founded, not even
+    a single hut, while repairs/tools/workshop crafting keep drawing
+    from the same stockpile. Same information-gap shape as `needs_
+    repair`: 'gather' was already an available choice, but nothing told
+    the model the village's building economy was genuinely stalled, so
+    it had no more reason to favor gather here than on any ordinary day.
 
     `life_digest` (v0.86.7): `Agent.life_digest`, one LLM-authored
     sentence condensing this agent's ENTIRE accumulated self-
@@ -311,6 +321,10 @@ def build_prompt(
         " A building nearby has fallen into disrepair and could use a hand — 'wander' "
         "would take you there." if needs_repair else ""
     )
+    materials_text = (
+        " The village's stockpile of building materials has run dry — nothing new can be "
+        "built until someone gathers more." if materials_critical else ""
+    )
     seek_text = (
         f" You could go find {seek_candidate[0]} — {seek_candidate[1]}; 'seek_person' would take you to them."
         if seek_candidate else ""
@@ -352,7 +366,7 @@ def build_prompt(
         f"Currently {agent.state.value}, focused on '{agent.goal.value}'."
         f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{just_now_text}"
         f"{personality_text}{emotion_text}{beliefs_text}{own_belief_text}{semantic_text}{mind_prompt_text}"
-        f"{life_digest_text}{lesson_text}{repair_text}{seek_text}{objective_text}{plan_text}"
+        f"{life_digest_text}{lesson_text}{repair_text}{materials_text}{seek_text}{objective_text}{plan_text}"
         f"{core_memory_text}{prophecy_text}{closing}"
     )
 
@@ -374,7 +388,7 @@ above, which is why this constant is only consulted after those."""
 
 def fallback_goal(
     hunger: float, energy: float, agent_id: int = 0, traits: dict | None = None,
-    emotions: dict | None = None, plan_intent: str = "",
+    emotions: dict | None = None, plan_intent: str = "", materials_critical: bool = False,
 ) -> dict:
     """Deterministic rule-based stand-in for the LLM's choice, used when
     Ollama is disabled, unreachable, or misbehaves. Mirrors the kind of
@@ -415,6 +429,17 @@ def fallback_goal(
         # sociability standout below, same "real feeling beats routine
         # tie-break" precedence fear gets above.
         return {"goal": AgentGoal.WANDER.value, "reason": "grieving, wants to be alone"}
+    if materials_critical:
+        # Live audit finding (P0.3): the majority of GATHER decisions
+        # come from this fallback (only core-cast agents ever get a
+        # live-LLM cognition call), so the `agent_id % 3`/trait-standout
+        # split below gave a critically-materials-starved settlement no
+        # more GATHER pressure than an ordinary well-stocked day —
+        # sinks (repairs/tools/crafting) kept outpacing this trickle.
+        # Overrides plan_intent/trait/id-split the same way fear/grief
+        # above override them — a genuine settlement-wide need, not a
+        # routine tie-break.
+        return {"goal": AgentGoal.GATHER.value, "reason": "the village badly needs materials"}
     if plan_intent:
         lowered = plan_intent.lower()
         for goal_name, keywords in PLAN_GOAL_BIAS_KEYWORDS.items():

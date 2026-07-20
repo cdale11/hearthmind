@@ -102,6 +102,7 @@ from hearthmind.agents.occupations import (
 from hearthmind.settlement.buildings import (
     CULTURE_LIST_MAX_STORED,
     CURRENCY_CAPACITY,
+    cheapest_founding_cost,
     ERA_DESCRIPTIONS,
     FAMILY_FEUD_FESTIVAL_PENALTY,
     FESTIVAL_CHANCE_PER_MONTH,
@@ -259,6 +260,17 @@ count, so this stays a settlement-scoped job under CLAUDE.md's LLM-
 budget rule, not a per-agent-gated one; it just makes each core-cast
 member's own_belief/semantic_memory/plan/lesson catch up meaningfully
 faster than one pick a month ever could across an 18-member cast."""
+
+RUMOR_NOVELTY_MIN_COUNT = 3
+"""Live audit finding (P0.2b/c): before a dialogue's rumor is spread
+and (if a core-cast listener heard it) retold via InterpretRumor(), it's
+checked against `Settlement.top_topics(1)` — the rumor's OWN topic
+label recorded a moment earlier is included in that ranking, so this
+requires the leading topic to have already recurred at least this many
+times before treating it as "the dominant, saturating topic" worth
+damping; otherwise a settlement's very first-ever topic (trivially rank
+1 of a near-empty ring) would get suppressed before it ever had a
+chance to recur."""
 
 INTERPRET_RUMOR_MAX_PER_DAY = 3
 """Phase K's InterpretRumor() (docs/VISION-2026-07.md, "Knowledge &
@@ -1887,6 +1899,14 @@ class SimulationEngine:
             if agent.occupation == OCCUPATION_SURVEYOR:
                 population.apply_goal(agent.id, AgentGoal.EXPLORE, "surveying the unmapped land")
                 continue
+            # Live audit finding (P0.3): a settlement whose stockpile
+            # can't even afford its cheapest building kind gets real
+            # GATHER urgency here (both the fallback path most agents
+            # take and the live-LLM prompt's grounding line below) —
+            # see `fallback_goal`'s/`build_prompt`'s `materials_critical`
+            # docstrings for the full root-cause writeup.
+            agent_home = self._settlement_by_id(agent.settlement_id)
+            materials_critical = agent_home is not None and agent_home.materials < cheapest_founding_cost()
             # Core-cast gate (v0.70.0): only core-cast agents spend an
             # Ollama call on goal reasoning. Everyone else — and everyone,
             # once the day's LLM ceiling is hit or the LLM is disabled —
@@ -1917,6 +1937,7 @@ class SimulationEngine:
                     self.world.clock.tick_count,
                     fallback_goal(
                         agent.hunger, agent.energy, agent.id, dict(agent.traits), dict(agent.emotions), plan_intent,
+                        materials_critical,
                     ),
                     None,
                 )
@@ -1976,6 +1997,7 @@ class SimulationEngine:
                 beliefs_about=beliefs_about, own_belief=own_belief,
                 semantic_memory=semantic_memory, mind_text=agent.mind,
                 needs_repair=needs_repair, life_digest=agent.life_digest,
+                materials_critical=materials_critical,
                 lesson=lesson, seek_candidate=seek_prompt_hint,
                 institution_objective=institution_objective, plan=agent.plan,
                 core_memory=core_memory_text, prophecy=prophecy_obj,
@@ -2011,7 +2033,7 @@ class SimulationEngine:
             task = asyncio.create_task(
                 self._run_cognition(
                     agent.id, prompt, hunger_snapshot, energy_snapshot, traits_snapshot, emotions_snapshot,
-                    seek_candidate_id, plan_intent_snapshot, context_snapshot,
+                    seek_candidate_id, plan_intent_snapshot, context_snapshot, materials_critical,
                 )
             )
             self._background_tasks.add(task)
@@ -2020,14 +2042,16 @@ class SimulationEngine:
     async def _run_cognition(
         self, agent_id: int, prompt: str, hunger: float, energy: float, traits: dict, emotions: dict,
         seek_candidate_id: int | None = None, plan_intent: str = "",
-        context_snapshot: dict | None = None,
+        context_snapshot: dict | None = None, materials_critical: bool = False,
     ) -> None:
         scheduled_tick = self.world.clock.tick_count
         call_start = time.perf_counter()
         try:
             result, used_fallback, raw_completion = await self._cognition_runner.run(
                 prompt, SYSTEM_PROMPT,
-                fallback=lambda: fallback_goal(hunger, energy, agent_id, traits, emotions, plan_intent),
+                fallback=lambda: fallback_goal(
+                    hunger, energy, agent_id, traits, emotions, plan_intent, materials_critical,
+                ),
             )
             self._record_llm_debug(
                 "cognition", prompt, result, used_fallback, (time.perf_counter() - call_start) * 1000,
@@ -2113,9 +2137,32 @@ class SimulationEngine:
                         home.record_topic(parsed["topic"])
             self.world.dialogue_total += 1
             if parsed["rumor"]:
-                self._log("rumor", f"{agent_a.name} and {agent_b.name}: {parsed['rumor']}")
-                self.world.rumor_total += 1
-                self._maybe_interpret_rumor(agent_a, agent_b, parsed["rumor"])
+                # Root-cause fix for a live audit finding (P0.2b/c): the
+                # rumor->memory->dialogue->folklore loop had no damping —
+                # 71% of LLM dialogues emitted a rumor, and once a topic
+                # became dominant every exchange about it minted ANOTHER
+                # rumor object, feeding right back into the same loop
+                # (measured: 853 rumor events, one settlement spending an
+                # entire in-world year on one topic). An exchange about
+                # the settlement's own already-dominant topic still
+                # happens and still shows up in the event log/history —
+                # it just doesn't mint a new rumor object or spend an
+                # InterpretRumor() call retelling something the village
+                # is already thoroughly talking about.
+                home_for_rumor = self._settlement_by_id(agent_a.settlement_id)
+                dominant = home_for_rumor.top_topics(1) if home_for_rumor is not None else []
+                # Requires the dominant topic to have already recurred a
+                # few times (not just "is currently rank 1 of a nearly-
+                # empty ring," which every settlement's very first topic
+                # would trivially satisfy) — RUMOR_NOVELTY_MIN_COUNT.
+                is_dominant_topic = bool(
+                    parsed["topic"] and dominant and dominant[0][1] >= RUMOR_NOVELTY_MIN_COUNT
+                    and parsed["topic"].strip().lower() == dominant[0][0].strip().lower()
+                )
+                if not is_dominant_topic:
+                    self._log("rumor", f"{agent_a.name} and {agent_b.name}: {parsed['rumor']}")
+                    self.world.rumor_total += 1
+                    self._maybe_interpret_rumor(agent_a, agent_b, parsed["rumor"])
             if agent_a.settlement_id != agent_b.settlement_id:
                 # Cross-settlement relations (v0.67.0): a colocated pair
                 # from two different named settlements is itself a real,

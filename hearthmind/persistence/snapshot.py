@@ -321,6 +321,16 @@ ROUTINE_EVENT_CATEGORIES = frozenset({
     "day_end", "week_end", "month_end", "season_end", "year_end",
     "farm_planted", "construction_started", "building_completed",
     "recovery", "wildlife_recolonized",
+    # Added per a live audit finding (P0.2d): `terrain_reclaimed`/
+    # `terrain_thinned` (world/terrain_evolution.py) fire the same
+    # bursty, physical-substrate-tick way `farm_planted`/`recovery`
+    # already do (many tiles can reclaim/thin in one pass) but were
+    # missing from this set entirely — a live beliefs prompt showed 14
+    # consecutive "Nature reclaimed abandoned ground at (x, y)" lines,
+    # crowding out the rarer social/dramatic events this cap exists to
+    # protect, exactly the failure mode this frozenset's own docstring
+    # describes for every category already in it.
+    "terrain_reclaimed", "terrain_thinned",
 })
 """Categories that fire routinely at high volume (a calendar tick, a farm
 plot planted, a wall going up) rather than marking something a chronicle

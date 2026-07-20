@@ -416,6 +416,30 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.6)
+
+Explicit user request: implement an uploaded external audit
+(`docs/AUDIT-2026-07-20.md`, added this pass — full P0-P3/FT backlog,
+checkboxes updated as items ship) and check off shipped items. All
+four P0 items landed: (1) mood pinned negative — `tick_mood`'s
+`signal = avg*2-1` mapped calm to -1 on every axis, fixed to
+`signal = avg`; (2) discourse monoculture — dedupe the per-pair topic
+ring, gate rumor spread/InterpretRumor() on topic novelty
+(`RUMOR_NOVELTY_MIN_COUNT=3`), add `terrain_reclaimed`/`terrain_
+thinned` to `ROUTINE_EVENT_CATEGORIES` (14 consecutive lines had been
+flooding a beliefs prompt); (3) construction starvation — new
+`materials_critical` flag (stockpile below `cheapest_founding_cost()`)
+threaded into both the cognition grounding line and, more importantly,
+`fallback_goal` (most GATHER decisions never reach the LLM path at
+all), force-selecting GATHER the way hunger/energy already force
+FORAGE/REST — scoped to the audit's cheaper options, not the full
+civic-reservation mechanism; (4) broken voice grammar ("Ysolde Always
+speaks...") — new `agents.agent.normalize_voice_phrase()` applied at
+both write time and every read, retroactively fixing already-
+persisted voices with no snapshot migration. P1-P3 and the FT
+fine-tuning roadmap are recorded in the doc as standing backlog. Full
+detail: CHANGELOG.md.
+
 ## Current state (v1.3.5)
 
 Explicit user follow-up: "improve the context influence numbers."

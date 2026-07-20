@@ -1477,6 +1477,35 @@ def describe_voice_fallback(name: str, agent_id: int) -> str:
     return _VOICE_FALLBACK_TEMPLATES[agent_id % len(_VOICE_FALLBACK_TEMPLATES)]
 
 
+_VOICE_LEADING_PRONOUN_RE = re.compile(r"^(they|he|she|it)\s+", re.IGNORECASE)
+
+
+def normalize_voice_phrase(text: str) -> str:
+    """`Agent.voice` is meant to read as a bare predicate phrase — the
+    fallback templates above are already shaped this way ("speaks in
+    short, plain sentences," no subject, no trailing period), so
+    `llm/dialogue.py` can safely write `f"{agent.name} {agent.voice}"`
+    and get one grammatical sentence. A live audit found the LLM-
+    authored path routinely violates this despite SYSTEM_PROMPT asking
+    for "third person" (meant to distinguish it from a stage direction
+    like "I always..."), producing "Ysolde Always speaks..." (a
+    sentence-initial capital that reads as two sentences smashed
+    together once concatenated) or "Godfrey He always speaks..." (a
+    redundant explicit subject pronoun duplicating the name dialogue.py
+    already prepends). Applied both at write time (`llm/mind.py`'s
+    `parse_voice`, for anything authored from here on) and at read time
+    here (retroactively fixes every already-persisted voice with zero
+    snapshot migration needed) — strip a leading subject pronoun, strip
+    trailing punctuation, lowercase the new leading letter so it reads
+    as a continuation of the name that precedes it."""
+    text = text.strip()
+    text = _VOICE_LEADING_PRONOUN_RE.sub("", text)
+    text = text.rstrip(". ").strip()
+    if text:
+        text = text[0].lower() + text[1:]
+    return text
+
+
 class Agent:
     """A single inhabitant.
 

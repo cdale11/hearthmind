@@ -6253,11 +6253,23 @@ class Population:
     def record_dialogue_topic(self, a_id: int, b_id: int, topic: str) -> None:
         """Append `topic` to this pair's ring, capped at DIALOGUE_TOPICS_
         RING_MAX (oldest dropped first) — called once a real LLM-
-        authored exchange supplies a non-blank topic."""
+        authored exchange supplies a non-blank topic.
+
+        Root-cause fix for a live audit finding (P0.2a): appended
+        unconditionally, so a pair stuck on one recurring subject filled
+        their own ring with the SAME topic repeated — `dialogue.
+        build_prompt`'s novelty line then literally read "You two have
+        lately talked about: garden, garden, garden," which is the
+        opposite of a novelty prompt. Skip the append when it's a
+        repeat of the ring's own last entry (case/whitespace-
+        insensitive) — a pair can still return to a topic after
+        something else came up, just not stutter on it back-to-back."""
         if not topic:
             return
         key = (a_id, b_id) if a_id < b_id else (b_id, a_id)
         ring = self.dialogue_topics.setdefault(key, [])
+        if ring and ring[-1].strip().lower() == topic.strip().lower():
+            return
         ring.append(topic)
         if len(ring) > DIALOGUE_TOPICS_RING_MAX:
             del ring[: len(ring) - DIALOGUE_TOPICS_RING_MAX]

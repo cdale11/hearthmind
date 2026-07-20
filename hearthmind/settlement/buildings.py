@@ -594,6 +594,20 @@ MATERIALS_COST_BY_KIND: dict[BuildingKind, float] = {
     BuildingKind.LIBRARY: LIBRARY_MATERIALS_COST,
 }
 
+def cheapest_founding_cost() -> float:
+    """The lowest `MATERIALS_COST_BY_KIND` entry — the real bar a
+    settlement's stockpile has to clear before ANY building can be
+    founded at all. Used as the "materials critically low" threshold
+    (see `Population.fallback_goal`'s `materials_critical` param and
+    `cognition.build_prompt`'s matching grounding line) — a live audit
+    finding (P0.3): sinks (repairs, tools, workshop/hospital crafting)
+    draw from the same stockpile as founding, and nothing gave GATHER
+    real urgency the way hunger/energy already have, so a small
+    population's stockpile could sit permanently below even the
+    cheapest kind's cost."""
+    return min(MATERIALS_COST_BY_KIND.values())
+
+
 BUILDING_KIND_BASE_WEIGHTS: dict[str, float] = {
     "hut": 0.42, "granary": 0.23, "workshop": 0.15, "school": 0.12, "hospital": 0.08,
     "factory": 0.10, "shrine": 0.07, "power_plant": 0.06, "market": 0.07,
@@ -1589,7 +1603,21 @@ def tick_mood(
             avg = sum(e.get(source, 0.0) for e in agent_emotions) / len(agent_emotions)
         else:
             avg = 0.0
-        signal = avg * 2.0 - 1.0  # 0..1 emotion intensity -> -1..1 mood range
+        # Root-cause fix for a live audit finding (P0.1): emotions decay
+        # TOWARD 0 (calm), so the old `avg * 2.0 - 1.0` mapped an
+        # ordinary, calm population (avg ~= 0) to signal ~= -1 on EVERY
+        # axis — "nobody is afraid" was being encoded as "profound
+        # anti-fear," pinning hope/fear/grief/suspicion all toward -1
+        # forever regardless of what was actually happening. `avg` (0..1
+        # emotion intensity) maps directly onto mood's own -1..1 range:
+        # calm correctly tracks toward neutral (0), and MOOD_MEAN_
+        # REVERSION already pulls existing saved moods back from any
+        # pre-fix -1 pinning over the next few months without a separate
+        # migration. The true negative register (a village that's
+        # unusually safe/hope-drained/etc, "very calm" moods) comes from
+        # jitter/mean-reversion drift and inherited state, same as
+        # temperament's own asymmetric-signal shape.
+        signal = avg
         jitter = rng.uniform(-MOOD_STEP_MAX, MOOD_STEP_MAX)
         step = (jitter + (signal - current) * MOOD_TRACKING_WEIGHT) * intensity
         if _native_bounded_random_walk_step is not None:

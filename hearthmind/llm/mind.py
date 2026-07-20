@@ -8,7 +8,7 @@ uses — never revised afterward, unlike beliefs/semantic memories.
 """
 from __future__ import annotations
 
-from hearthmind.agents.agent import MAX_VOICE_TEXT_CHARS, Agent, describe_traits
+from hearthmind.agents.agent import MAX_VOICE_TEXT_CHARS, Agent, describe_traits, normalize_voice_phrase
 
 SYSTEM_PROMPT = (
     "You are naming the permanent, unchanging core of one villager in a small "
@@ -21,8 +21,11 @@ SYSTEM_PROMPT = (
     "habit — so a reader could recognize their voice without seeing their name. "
     'Respond with strict JSON only, no other text: {"mind": "one to two '
     'sentences, under 35 words, third person, this villager\'s permanent '
-    'inner character", "voice": "under 12 words, third person, one concrete '
-    'habit of speech"}.'
+    'inner character", "voice": "under 12 words: a bare predicate phrase '
+    'with NO subject and no leading pronoun, as if continuing the sentence '
+    '\'<Name> ...\' — e.g. \'speaks in short, plain sentences\' or \'trails '
+    'off mid-thought,\' never \'They speak...\' or \'Always speaks...\' with '
+    'a capital letter, and no trailing period"}.'
 )
 
 
@@ -51,4 +54,4 @@ def parse_voice(result: dict, fallback: dict) -> str:
     text = result.get("voice")
     if not isinstance(text, str) or not text.strip():
         text = fallback["voice"]
-    return text.strip()[:MAX_VOICE_TEXT_CHARS]
+    return normalize_voice_phrase(text)[:MAX_VOICE_TEXT_CHARS]
