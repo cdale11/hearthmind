@@ -253,7 +253,7 @@ class Config:
     toward 0.9 for more variety on a stronger model. Kept above 0 so a
     stuck pair doesn't get the identical deterministic-looking line every
     time."""
-    llm_max_concurrent: int = 3
+    llm_max_concurrent: int = 2
     """How many LLM requests may be in flight at once. History: 4 (E2) ->
     2 (v0.43.0) -> 1 (v0.43.1) -> 2 (v0.44.0, the "permanent floor") ->
     1 (v0.78.5, "make concurrent task = 1 if it reduces memory
@@ -263,19 +263,20 @@ class Config:
     (2GB of llama-server swap at population 301/13k ticks) genuinely
     justified trading concurrency for headroom) -> 2 (v0.81.0, per a
     live diagnostic showing that swap crisis resolved and the live
-    symptom shifted to single-lane-queue throughput instead). **Raised
-    2 -> 3 in v0.87.6** per explicit user direction: a live report that
-    `LLAMA_CACHE_RAM=0` (v0.87.5) resolved the swap/memory pressure that
-    had driven every prior pull-back on this project's own tuning knobs
-    — that flag's stock default reserves 8192 MiB (8GB!) purely for a
-    host-RAM prompt-prefix cache this workload barely uses (see v0.87.5),
-    which in hindsight plausibly explains more of the historical swap
-    pressure than the KV-cache sizing these concurrency/context knobs
-    were repeatedly pulled back for. This is a **directed increase
-    pending live re-verification**, not itself a fresh measurement —
-    report back a `/diagnostics.system_memory` + `llama_server_metrics`
-    (v0.87.6) reading after adopting it; re-lower toward 2 or 1 if swap
-    or elevated latency reappears. `scripts/run.sh`'s `--parallel` is
+    symptom shifted to single-lane-queue throughput instead) -> 3
+    (v0.87.6, per explicit user direction that `LLAMA_CACHE_RAM=0`
+    (v0.87.5) resolved the swap pressure that had driven every prior
+    pull-back — a **directed increase pending live re-verification**,
+    not itself a fresh measurement). **Re-lowered 3 -> 2 (docs/AUDIT-
+    2026-07-20.md, P1.2)**: that re-verification landed — a live
+    session's `llama_server_metrics` measured `n_busy_slots_per_decode`
+    2.58 against 3 configured slots, meaning the third slot mostly adds
+    contention rather than real throughput (matches this project's own
+    earlier v0.39 review finding that 2 streams at ~2x speed beat 3-4
+    at ~3-4x latency), and end-to-end p95 was ~38s/decision at that
+    concurrency. Not itself a swap-pressure finding — a latency/
+    contention one — but the same re-tune-from-live-measurement
+    discipline applies. `scripts/run.sh`'s `--parallel` is
     `LLAMA_PARALLEL` (now default 3, matching this), with `LLAMA_CTX_
     SIZE` sized as `llm_num_ctx * llm_max_concurrent` so each slot still
     gets the full `llm_num_ctx` budget (llama-server divides one shared

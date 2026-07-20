@@ -416,6 +416,34 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.9)
+
+Explicit user follow-up: "Complete P1 fully" — the three remaining
+`docs/AUDIT-2026-07-20.md` P1 items. P1.3 stays deliberately flagged,
+not shipped (reverses an earlier explicit design decision, needs a
+user call). Full detail: CHANGELOG.md.
+
+P1.2: `llm_max_concurrent` 3 -> 2 (a live `n_busy_slots_per_decode`
+2.58 against 3 slots showed the third mostly adds contention);
+dialogue/rumor_interpret now shed backpressure load before cognition
+does (`DIALOGUE_BACKPRESSURE_FRACTION=0.75`/`RUMOR_INTERPRET_
+BACKPRESSURE_FRACTION=0.5`, `simulation/engine.py`) — previously all
+three used the identical bare threshold despite dialogue being
+commented "most expendable."
+
+P1.4: `llm/review_diagnostics.py`'s Context Influence section gained a
+per-field `by_field` breakdown (offered count + reflected rate per
+context-thread key), the measurement step the audit asked for before
+any pruning decision — the prune/rotate action itself is left for a
+future pass once a real archive's numbers exist to act on.
+
+P1.6: new `CORE_CAST_POPULATION_FRACTION=0.4` caps the seat count
+passed to `maintain_core_cast` at `min(llm_core_cast_size, ceil(
+population * 0.4))` — a small founding party gets a proportionally
+small core cast instead of the fixed 18 driving 75%+ of everyone
+through LLM cognition. Scoped to this fraction cap only; throughput-
+derived sizing and the Tier 1/2/3 + spotlight scheme remain backlog.
+
 ## Current state (v1.3.8)
 
 Explicit live-report follow-up, two-part request: diagnose a

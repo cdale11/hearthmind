@@ -4,6 +4,56 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.9] — Complete P1: LLM scheduling priority, context-influence
+per-field measurement, budget-scaled core cast
+
+Explicit user follow-up: "Complete P1 fully" — the three remaining
+`docs/AUDIT-2026-07-20.md` P1 items (P1.3 stays deliberately flagged,
+not shipped, per its own note — it reverses an earlier explicit design
+decision and needs a user call).
+
+**P1.2 — LLM capacity was spent on chatter while cognition queued.**
+(i) `Config.llm_max_concurrent` 3 -> 2: a live session's `llama_server_
+metrics` measured `n_busy_slots_per_decode` 2.58 against 3 configured
+slots — the third slot was mostly contention, not real throughput,
+matching the project's own earlier v0.39 review finding. `scripts/
+run.sh`'s `LLAMA_PARALLEL`/`LLAMA_CTX_SIZE` defaults moved in step
+(3/9216 -> 2/6144). (ii) Dialogue and rumor_interpret were each
+commented "most expendable" but used the exact same bare backpressure
+threshold as routine cognition — no real rank existed at the consume
+stage. New `DIALOGUE_BACKPRESSURE_FRACTION=0.75`/`RUMOR_INTERPRET_
+BACKPRESSURE_FRACTION=0.5` scale the shared limit down for those two
+specifically, so they shed load before cognition does as the backlog
+climbs — cognition's own gate is untouched. (iii) P0.2(b)/(c)'s
+rumor_interpret novelty gating already shipped in v1.3.6.
+
+**P1.4 — cognition ignores most supplied context; measure per thread.**
+`llm/review_diagnostics.py`'s Context Influence section gained a
+`by_field` breakdown per task: for every context-thread key, how often
+it was offered and its own per-field reflected rate, alongside the
+existing aggregate any/multi-context rates — surfaced in both the JSON
+and markdown review-pack exports. Scoped to the measurement half only;
+the rotate/prune action itself needs a real archive's numbers to look
+at, which don't exist in this environment.
+
+**P1.6 — cast size was a fixed input pretending to be a load limit.**
+New `CORE_CAST_POPULATION_FRACTION=0.4`: the seat count passed to
+`Population.maintain_core_cast` is now `min(Config.llm_core_cast_size,
+ceil(population * 0.4))` — a small founding party (e.g. pop 24) gets a
+proportionally small cast (10, not 18) instead of driving 75%+ of
+everyone through LLM cognition, while larger settlements are
+unaffected once they clear `cast_size / 0.4` members. `maintain_core_
+cast`'s no-eviction contract is unchanged. Scoped to the fraction cap
+only — throughput-derived sizing and the Tier 1/2/3 + rotating-
+spotlight scheme remain open backlog (see docs/AUDIT-2026-07-20.md's
+shipped-note for why each was deferred).
+
+Verified: a 3000-tick LLM-disabled engine soak (core cast sized 4 at
+population 8, matching `ceil(8*0.4)`); `scripts/verify_native_soak.py`
+(2 seeds x 1500 ticks) byte-identical — no native module touched; a
+direct smoke test of the new `by_field` diagnostic against synthetic
+examples.
+
 ## [1.3.8] — Invention retry window + dynamic population cap
 
 Explicit live-report request: a 400-population, 1590-standing-structure

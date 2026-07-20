@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import logging
+import math
 import os
 import re
 import sqlite3
@@ -296,6 +297,24 @@ volume on top of the existing daily budget, not a reuse of an existing
 job slot. See `SimulationEngine._interpret_rumor_today` and
 `_apply_pending_dialogue_results`."""
 
+CORE_CAST_POPULATION_FRACTION = 0.4
+"""docs/AUDIT-2026-07-20.md, P1.6: the fixed `Config.llm_core_cast_size`
+(18) is an *input* pretending to be a *limit* — at a large population it
+correctly caps LLM load, but at a small one (a live report cited pop
+24) it means 75%+ of everyone is core-cast, and the queue saturates
+anyway because real load is `cast x jobs-per-agent / latency`, not cast
+alone. `_tick_once` now caps the seat count actually passed to
+`Population.maintain_core_cast` at `min(configured_size, ceil(
+population * this))`, so a small founding party gets a proportionally
+small cast (and a genuine non-core crowd — "the crowd is what makes the
+core cast legible") while a large settlement is unaffected once it
+clears `configured_size / this` members. Scoped down from the audit's
+full ask: this ships the fraction cap only, not throughput-derived
+sizing or the Tier 1/2/3 + rotating-spotlight scheme — both flagged as
+still-open follow-ups in the audit doc. `maintain_core_cast`'s own
+no-eviction contract is unchanged: a shrinking cap only slows how fast
+new seats fill, it never demotes an existing living member."""
+
 CONSCIOUSNESS_WEATHER_PRECIP_NUDGE_MAX = 0.12
 CONSCIOUSNESS_WEATHER_TEMP_NUDGE_MAX_C = 1.5
 """`weather_nudge`'s bounds (Phase N) — small enough to stay well within
@@ -418,6 +437,25 @@ Event-*triggered* cognition (hunger emergency, fresh grief) is allowed
 up to twice this bound — when rationing, the urgent reasoning goes
 first. Deterministic runs are unaffected (fallbacks resolve instantly,
 so the backlog stays ~0). July 2026 architecture review, §3.6."""
+
+DIALOGUE_BACKPRESSURE_FRACTION = 0.75
+RUMOR_INTERPRET_BACKPRESSURE_FRACTION = 0.5
+"""docs/AUDIT-2026-07-20.md, P1.2(ii): dialogue and rumor_interpret were
+each commented as "the most expendable LLM job" but mechanically used
+the identical bare `_current_backpressure_limit()` threshold as routine
+cognition — no real rank existed at the consume stage, only the
+priority-order suggested by comments. A live session measured cognition
+(the only job that changes behavior) at 110 successful calls against
+dialogue+rumor_interpret at 353+149 = 78% of the session's LLM spend.
+These fractions make dialogue/rumor_interpret shed load *before*
+cognition does as backlog climbs toward the shared limit — cognition's
+own gate (`_schedule_due_cognition`) is left at the full, unscaled
+limit so it's rationed last, not to a stricter threshold of its own.
+Ordered rumor_interpret < dialogue < cognition, matching the audit's
+stated priority (cognition > dialogue > rumor_interpret); P0.2(b)/(c)'s
+novelty gating already trims rumor_interpret's raw call volume
+separately — this fraction only changes which job yields first when
+the queue is genuinely saturated."""
 
 ADAPTIVE_LATENCY_ELEVATED_MS = 45_000
 ADAPTIVE_LATENCY_SEVERE_MS = 80_000
@@ -1655,8 +1693,15 @@ class SimulationEngine:
             )
 
         # Keep the LLM core cast full and current before any cognition/
-        # dialogue scheduling reads it this tick (v0.70.0).
-        newly_core = self.world.population.maintain_core_cast(self.config.llm_core_cast_size)
+        # dialogue scheduling reads it this tick (v0.70.0). P1.6: cap the
+        # configured cast size by a population fraction so a small
+        # village doesn't drive 75%+ of everyone through LLM cognition —
+        # see CORE_CAST_POPULATION_FRACTION's docstring.
+        target_cast_size = min(
+            self.config.llm_core_cast_size,
+            math.ceil(len(self.world.population.agents) * CORE_CAST_POPULATION_FRACTION),
+        )
+        newly_core = self.world.population.maintain_core_cast(target_cast_size)
         if newly_core:
             self._author_minds(newly_core)
         # Per-tick scheduling jobs fire in a fixed order via a declarative
@@ -2226,7 +2271,13 @@ class SimulationEngine:
             return
         if self._interpret_rumor_today >= INTERPRET_RUMOR_MAX_PER_DAY:
             return
-        if self._settlement_job_backpressured():
+        # P1.2(ii): rumor_interpret ranks below both cognition and
+        # dialogue at the consume stage — its own tighter fraction of
+        # the shared limit, not `_settlement_job_backpressured()`'s
+        # bare threshold (that one is shared by chronicle/town_brain/
+        # beliefs/etc., which aren't part of this ranking).
+        if self._effective_backlog() >= self._current_backpressure_limit() * RUMOR_INTERPRET_BACKPRESSURE_FRACTION:
+            self._cognition_runner.calls_dropped_backpressure += 1
             return
         if not self._consume_llm_budget():
             return
@@ -2494,10 +2545,12 @@ class SimulationEngine:
         if not self._cognition_runner.enabled:
             llm_pairs, demoted = [], list(llm_pairs)
         for agent_a, agent_b in llm_pairs:
-            # Dialogue is the most expendable LLM job — under backpressure
-            # or a spent daily budget the core-core pair still talks, just
-            # via the deterministic fallback this tick.
-            if self._effective_backlog() >= self._current_backpressure_limit():
+            # Dialogue is the most expendable LLM job (P1.2(ii)) — under
+            # backpressure or a spent daily budget the core-core pair
+            # still talks, just via the deterministic fallback this
+            # tick. Yields before cognition (DIALOGUE_BACKPRESSURE_
+            # FRACTION < 1.0), not at the same bare limit.
+            if self._effective_backlog() >= self._current_backpressure_limit() * DIALOGUE_BACKPRESSURE_FRACTION:
                 self._cognition_runner.calls_dropped_backpressure += 1
                 demoted.append((agent_a, agent_b))
                 continue

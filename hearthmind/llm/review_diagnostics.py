@@ -246,9 +246,24 @@ def _context_influence_for_task(examples: list[dict], output_field: str) -> dict
     a non-empty output — an example with nothing to synthesize (a
     routine day, no memories/beliefs/plan offered) correctly contributes
     no data point rather than dragging the rate toward zero for a
-    situation where synthesis was never possible in the first place."""
+    situation where synthesis was never possible in the first place.
+
+    `by_field` (docs/AUDIT-2026-07-20.md, P1.4): the aggregate rate
+    above answers "does the model use *some* context" but not "which
+    fields are worth their prompt tokens" — a field offered often but
+    reflected rarely is a pruning/rotation candidate (the same shape
+    dialogue's `select_opportunities` already handles by construction).
+    Per field key: how often it was offered vs. how often ITS OWN
+    keywords specifically overlapped the output, among examples where
+    it was actually present — this is the "measure per-thread
+    reflected-rate by field" step the audit asks for before any
+    pruning decision; it deliberately stops at measurement; which
+    fields specifically hurt a small model still needs a real archive
+    to look at."""
     threads_referenced: list[int] = []
     threads_available: list[int] = []
+    field_offered: dict[str, int] = {}
+    field_reflected: dict[str, int] = {}
     for ex in examples:
         structured = ex.get("layer1_structured_input")
         output = ex.get("layer4_parsed_output")
@@ -261,21 +276,31 @@ def _context_influence_for_task(examples: list[dict], output_field: str) -> dict
         if not text_threads:
             continue
         output_keywords = _context_keywords(output_text)
-        referenced = sum(
-            1 for field_text in text_threads.values()
-            if output_keywords & _context_keywords(field_text)
-        )
+        referenced = 0
+        for field_name, field_text in text_threads.items():
+            field_offered[field_name] = field_offered.get(field_name, 0) + 1
+            if output_keywords & _context_keywords(field_text):
+                referenced += 1
+                field_reflected[field_name] = field_reflected.get(field_name, 0) + 1
         threads_referenced.append(referenced)
         threads_available.append(len(text_threads))
     if not threads_referenced:
         return None
     n = len(threads_referenced)
+    by_field = {
+        field_name: {
+            "offered": offered,
+            "reflected_rate": _rate(field_reflected.get(field_name, 0), offered),
+        }
+        for field_name, offered in sorted(field_offered.items(), key=lambda kv: -kv[1])
+    }
     return {
         "examples_scored": n,
         "avg_threads_available": round(sum(threads_available) / n, 2),
         "avg_threads_referenced": round(sum(threads_referenced) / n, 2),
         "any_context_reflected_rate": _rate(sum(1 for c in threads_referenced if c >= 1), n),
         "multi_context_synthesis_rate": _rate(sum(1 for c in threads_referenced if c >= 2), n),
+        "by_field": by_field,
     }
 
 
@@ -527,6 +552,14 @@ def diagnostics_to_markdown(diag: dict) -> str:
             lines.append(f"  - Avg context threads referenced in output: {row['avg_threads_referenced']}")
             lines.append(f"  - Any-context-reflected rate: {row['any_context_reflected_rate']}")
             lines.append(f"  - Multi-context synthesis rate (≥2 threads): {row['multi_context_synthesis_rate']}")
+            by_field = row.get("by_field") or {}
+            if by_field:
+                lines.append("  - Per-field reflected rate (P1.4 — low-offered/low-reflected fields are pruning candidates):")
+                for field_name, field_row in by_field.items():
+                    lines.append(
+                        f"    - `{field_name}`: offered {field_row['offered']}x, "
+                        f"reflected {field_row['reflected_rate']}"
+                    )
     else:
         lines.append("- n/a (no scored examples — needs both structured_input text fields and a parsed output field)")
     lines.append("")
