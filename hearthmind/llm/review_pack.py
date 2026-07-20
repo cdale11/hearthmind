@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Iterator
 
 from hearthmind.llm import review_diagnostics
+from hearthmind.llm.quality_labels import label_example
 
 # Fields carried into a review-pack example — spec: "structured input,
 # prompt, raw completion, parsed output, stable example ID, essential
@@ -260,6 +261,79 @@ def archive_stats(archive_dir: str | Path) -> dict:
                         except json.JSONDecodeError:
                             continue
     return {"total_examples": total, "total_bytes": total_bytes, "per_task": per_task}
+
+
+def label_archive(archive_dir: str | Path, task: str | None = None) -> dict:
+    """FT.2 (docs/AUDIT-2026-07-20.md): runs `quality_labels.label_
+    example` over every example in the archive (optionally scoped to
+    one task) and aggregates per-task rates — the "automatic curation"
+    report the audit asked for, matching `archive_stats`/`validate_
+    archive`'s own read-only, single-pass shape. Purely additive:
+    doesn't touch the archive or require FT.0's schema-constrained
+    decoding to have been live when an example was recorded (`quality_
+    labels.schema_valid` judges the OUTPUT's shape, not how it was
+    produced)."""
+    per_task: dict[str, dict] = {}
+    total = 0
+    for example in iter_examples(archive_dir, task=task):
+        total += 1
+        ex_task = example.get("task") or "unknown"
+        labels = label_example(example)
+        stats = per_task.setdefault(ex_task, {
+            "count": 0, "sft_eligible": 0, "schema_valid": 0, "schema_invalid": 0,
+            "has_leaks": 0, "fallback_used": 0,
+        })
+        stats["count"] += 1
+        if labels["sft_eligible"]:
+            stats["sft_eligible"] += 1
+        if labels["schema_valid"] is True:
+            stats["schema_valid"] += 1
+        elif labels["schema_valid"] is False:
+            stats["schema_invalid"] += 1
+        if labels["leak_flags"]:
+            stats["has_leaks"] += 1
+        if labels["fallback_used"]:
+            stats["fallback_used"] += 1
+    for stats in per_task.values():
+        count = stats["count"]
+        stats["sft_eligible_rate"] = round(stats["sft_eligible"] / count, 3) if count else 0.0
+        stats["leak_rate"] = round(stats["has_leaks"] / count, 3) if count else 0.0
+    return {"total_examples": total, "per_task": per_task}
+
+
+def export_sft_filter(
+    archive_dir: str | Path, out_path: str | Path | None = None, task: str | None = None,
+    require_sft_eligible: bool = True, require_context_reflected: bool = False,
+) -> Path:
+    """FT.2's stated payoff: "the SFT set is then a filter query over
+    the archive." Writes one JSONL line per example that passes the
+    given thresholds — `example_id` plus its `quality_labels` and the
+    full example dict, so a downstream training script can either use
+    this file directly or just read the `example_id` column to select
+    rows out of the real archive. Never mutates the source archive
+    (same append-only discipline as everything else here); `out_path`
+    defaults next to the archive's own `exports/` directory, same as
+    the review-pack ZIPs. `require_context_reflected=True` is an
+    OPTIONAL stricter gate (off by default — `context_reflected=None`
+    is common and not itself a quality problem, see `quality_labels`'s
+    own docstring), for a caller that specifically wants FT's "does
+    reasoning reflect the supplied context" signal enforced."""
+    root = Path(archive_dir)
+    out_path = Path(out_path) if out_path else root / "exports" / f"sft_filter_{time.strftime('%Y%m%d_%H%M%S', time.gmtime())}.jsonl"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    written = 0
+    with open(out_path, "w", encoding="utf-8") as fh:
+        for example in iter_examples(root, task=task):
+            labels = label_example(example)
+            if require_sft_eligible and not labels["sft_eligible"]:
+                continue
+            if require_context_reflected and labels.get("context_reflected") is not True:
+                continue
+            row = _to_review_example(example)
+            row["quality_labels"] = labels
+            fh.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+            written += 1
+    return out_path
 
 
 def validate_archive(archive_dir: str | Path) -> dict:

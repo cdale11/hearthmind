@@ -416,6 +416,22 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.13)
+
+Explicit user follow-up: "try FT.2" — docs/AUDIT-2026-07-20.md's
+fine-tuning roadmap, third item.
+
+New `llm/quality_labels.py`: a read-only post-hoc labeler over the
+training archive (never mutates it) computing `schema_valid`/`length_
+in_bounds` (against FT.0's `json_schemas.py`), `leak_flags` (raw
+coordinates, memory-fade prefix, meta-leakage, voice-grammar-break),
+`dialogue_responds` (token overlap / question-answered), `topic_novel`
+(vs. the prompt's own `settlement_topic` field), and `context_
+reflected`, combined into one `sft_eligible` bool. `review_pack.
+label_archive()`/`export_sft_filter()` are the entry points —
+"the SFT set is a filter query over the archive" — wired into
+`scripts/recorder_tools.py` as new `label`/`export-sft` subcommands.
+
 ## Current state (v1.3.12)
 
 Explicit user follow-up: "ship FT0 and FT1" — docs/AUDIT-2026-07-20.md's

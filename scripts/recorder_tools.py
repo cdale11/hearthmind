@@ -15,6 +15,14 @@ Usage:
         [--limit N] [--markdown]
     python3 scripts/recorder_tools.py export-random [--archive-dir DIR]
         [--task TASK] [--count N] [--seed N] [--markdown]
+    python3 scripts/recorder_tools.py label [--archive-dir DIR] [--task TASK]
+        (FT.2, docs/AUDIT-2026-07-20.md: automatic quality-label pass —
+        prints a per-task aggregate report, doesn't write anything)
+    python3 scripts/recorder_tools.py export-sft [--archive-dir DIR]
+        [--task TASK] [--require-context-reflected]
+        (FT.2: writes the filtered "SFT-eligible" subset as a JSONL
+        sidecar under <archive-dir>/exports/ — never touches the
+        source archive)
 """
 from __future__ import annotations
 
@@ -25,12 +33,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from hearthmind.llm.review_pack import archive_stats, export_random_subset, export_review_pack, validate_archive
+from hearthmind.llm.review_pack import (
+    archive_stats, export_random_subset, export_review_pack, export_sft_filter,
+    label_archive, validate_archive,
+)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["validate", "stats", "export-review-pack", "export-random"])
+    parser.add_argument(
+        "command",
+        choices=["validate", "stats", "export-review-pack", "export-random", "label", "export-sft"],
+    )
     parser.add_argument("--archive-dir", default="training_archive")
     parser.add_argument("--task", default=None)
     parser.add_argument("--date-from", default=None)
@@ -39,6 +53,10 @@ def main() -> None:
     parser.add_argument("--count", type=int, default=50)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--markdown", action="store_true")
+    parser.add_argument(
+        "--require-context-reflected", action="store_true",
+        help="export-sft only: also require context_reflected is True (off by default).",
+    )
     args = parser.parse_args()
 
     if args.command == "validate":
@@ -56,6 +74,13 @@ def main() -> None:
     elif args.command == "export-random":
         path = export_random_subset(
             args.archive_dir, count=args.count, task=args.task, seed=args.seed, markdown=args.markdown,
+        )
+        print(f"Wrote {path}")
+    elif args.command == "label":
+        print(json.dumps(label_archive(args.archive_dir, task=args.task), indent=2))
+    elif args.command == "export-sft":
+        path = export_sft_filter(
+            args.archive_dir, task=args.task, require_context_reflected=args.require_context_reflected,
         )
         print(f"Wrote {path}")
 

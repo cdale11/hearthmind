@@ -4,6 +4,64 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.13] — FT.2 quality-label pass over the training archive
+
+Explicit user follow-up: "try FT.2" — docs/AUDIT-2026-07-20.md's
+fine-tuning roadmap, third item ("Build the quality-label pass
+(automatic curation)").
+
+New `hearthmind/llm/quality_labels.py`: a read-only post-hoc labeler
+(the archive stays append-only) implementing every label the item
+names. `schema_valid`/`length_in_bounds` reuse FT.0's own per-task
+JSON Schemas (`llm/json_schemas.py`) as ground truth — a lightweight
+structural check (required keys, types, enums, a generous `maxLength`
+slack for pre-truncation raw text), answering "would this output have
+survived being schema-constrained" for archive lines recorded before
+or after FT.0 shipped alike. `check_leaks` covers raw tile coordinates
+leaking into narrated text, the "I only vaguely recall" memory-fade
+prefix quoted as literal dialogue, a task-agnostic instruction/meta-
+leakage marker scan (trimmed from `dialogue._LEAKAGE_MARKERS`), and —
+for the `mind` task only — the P0.4 voice-grammar-break pattern
+(`normalize_voice_phrase` fixes this at write/read time in production;
+this flags any archived example recorded before that fix). `dialogue_
+responds` is the item's named "token overlap / question-answered
+heuristic": a question-then-answer pair, a leading connective word
+("well," "aye," "but," ...), or genuine shared non-stopword tokens
+between line_a/line_b — any one counts as a real response rather than
+a non-sequitur. `topic_novel` compares the parsed `topic` against
+`structured_input["settlement_topic"]`, the actual per-call dominant-
+topic baseline the dialogue prompt itself supplied — the best real
+per-tick baseline an already-archived example carries. `context_
+reflected` reuses P3.4/FT.0's `context_reflects_any` across every text
+field in the output (not just `reason`, generalizing its previous
+cognition-only use). All six combine into one `sft_eligible` bool per
+example.
+
+`review_pack.label_archive()` (aggregate per-task report, matching
+`archive_stats`'s shape) and `review_pack.export_sft_filter()` — the
+literal "the SFT set is then a filter query over the archive," writing
+a JSONL of only examples passing the thresholds, with each row
+carrying its own `quality_labels` — are the two entry points, wired
+into `scripts/recorder_tools.py`'s existing `validate`/`stats`/
+`export-*` pattern as new `label`/`export-sft` subcommands (the latter
+takes an optional `--require-context-reflected` for a stricter gate,
+off by default since `context_reflected=None` is common and not
+itself a quality signal). Filter thresholds are plain function
+arguments — tunable without touching the labeling logic, per the
+item's "filter thresholds are themselves tunable and versioned."
+
+Verified: a direct `label_example` test across six hand-built examples
+(clean cognition, coordinate-leaking cognition, question-answered
+dialogue, non-sequitur dialogue, voice-grammar-break mind, a fallback
+example) confirms every label fires correctly and `sft_eligible`
+tracks them as expected; a real end-to-end test builds an on-disk
+archive via `TrainingRecorder.maybe_record` and runs both new CLI
+subcommands against it, confirming `export-sft` correctly excludes the
+leaky/non-sequitur/fallback rows and keeps the clean ones.
+`scripts/verify_native_soak.py` (seed 1, 500 ticks) byte-identical —
+this batch never touches the tick loop or persisted state, it's a
+read-only archive tool.
+
 ## [1.3.12] — FT.0 grammar-constrained decoding + FT.1 epoch tagging
 
 Explicit user follow-up: "ship FT0 and FT1" — the first two items of
