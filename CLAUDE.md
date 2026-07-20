@@ -416,6 +416,26 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.1)
+
+Explicit user request: audit a real uploaded review-pack export (500
+examples, one live run) and find concrete cognition/intelligence/
+learning/emergence improvements. Found and fixed a real bug: past
+`SURVIVAL_HUNGER_THRESHOLD` the model was supposed to echo the forced
+priority back as `goal: "forage"` but `SYSTEM_PROMPT` never defined
+what `'forage'` meant, so it overwhelmingly returned `"gather"` instead
+while narrating hunger in `reason` — real movement impact for the
+0.6-0.9 hunger band (below `CRITICAL_HUNGER_THRESHOLD`'s movement-layer
+override), not just cosmetic. Fixed by defining `'forage'` in the
+prompt AND enforcing the forced goal server-side in `SimulationEngine.
+_apply_pending_cognition_results` (same "not a real LLM choice past
+threshold" reasoning as v0.87.15) rather than trusting a small model to
+self-report correctly. This pack's own diagnostics also carried a
+data-freshness caveat (empty Context usage section, no Context
+Influence section, old 15-word reason cap) indicating it predates
+v1.3.0 — noted so its findings aren't misread as measuring that fix.
+Full detail: CHANGELOG.md.
+
 ## Current state (v1.3.0)
 
 Explicit user request: "improve context utilization" — cognition

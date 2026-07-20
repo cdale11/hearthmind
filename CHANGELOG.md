@@ -4,6 +4,81 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.1] — Review-pack audit: fix the forage/gather goal-echo bug
+
+Explicit user request: audit a real 500-example training-recorder
+review pack (uploaded, `gemma-4-e2b-it`, settlement "Lakefield") and
+find concrete improvements to cognition/intelligence/learning/
+emergence. Caveat surfaced up front: this specific pack's `diagnostics.
+md` has an empty "Context usage" section and no "Context influence"
+section at all, and its `reason` word-counts top out at 15 — all three
+indicate this recording predates the v1.3.0 context-utilization prompt
+change, so it can't be used to measure that fix's effect (a fresh
+export post-v1.3.0 would be needed for a real before/after).
+
+**Root-cause bug found and fixed.** `cognition.py`'s goal distribution
+across 481 cognition examples: `{gather: 288, wander: 107, socialize:
+55, rest: 26, seek_person: 4, forage: 1}`. Cross-referencing each
+example's prompt-embedded hunger value against its parsed output: of
+328 examples with `hunger > SURVIVAL_HUNGER_THRESHOLD` (0.6, the point
+`build_prompt` already tells the model "there's no real choice about
+it, give that same priority back as 'goal'"), essentially none actually
+returned `goal: "forage"` — the model overwhelmingly still returned
+`"gather"` (occasionally `"socialize"`) while its own `reason` text was
+unambiguously about hunger/food ("The hunger bites; I must find those
+roots before the day ends.", "Must find food before the hunger takes
+full hold."). Root cause: `SYSTEM_PROMPT` defined `'gather'`/`'wander'`/
+`'seek_person'` explicitly but never defined what `'forage'` meant, so
+a small model narrating a food craving had no labeled bucket for it and
+picked the nearest-sounding defined one ("collecting... for the
+village's shared supply"). This wasn't cosmetic: `Population._dispatch_
+movement`'s `effective_goal` only force-overrides to FORAGE once hunger
+reaches `CRITICAL_HUNGER_THRESHOLD` (0.9); for the whole 0.6-0.9 band,
+`agent.goal` (whatever the LLM actually returned) drives real movement
+— so agents in this band were mechanically walking toward wood/stone
+instead of food while narrating hunger, worsening real starvation
+outcomes purely from a labeling gap in the prompt.
+
+Two-part fix, same "objective survival decisions aren't a real LLM
+choice" reasoning v0.87.15 already established for posing the question
+in the first place: (1) `SYSTEM_PROMPT` now explicitly defines
+`'forage'` ("going after food specifically... this is the one to pick
+whenever hunger is what's driving the choice, never 'gather'") along-
+side the existing definitions. (2) Belt-and-suspenders — since a small
+model won't reliably self-report correctly even once told, `Simulation
+Engine._apply_pending_cognition_results` now enforces the forced goal
+server-side: past `SURVIVAL_HUNGER_THRESHOLD`/`SURVIVAL_ENERGY_
+THRESHOLD` the applied `goal` is set to FORAGE/REST directly from the
+agent's current state, regardless of what the model returned for
+`'goal'` — the model's `reason` text (its one genuine contribution past
+that threshold, per the existing prompt framing) is kept untouched
+either way. Closes the same class of gap `fallback_goal` (the
+deterministic path) already handled correctly — only the live-LLM path
+had this bug.
+
+**Audited, no code change**: latency (cognition avg 15.8s/max 41.4s —
+a live hardware/model-speed signal, not a code defect, and this
+project's `llm_*` config constants are already re-tuned from live
+`system_memory`/latency readings repeatedly per CLAUDE.md's lineage);
+personality/NPC diversity (0.0603 ratio, 29 unique NPCs/500 examples —
+this recording also predates v1.1.0's core-cast rotation fix, per the
+same era/prompt-hash evidence as the context-utilization caveat above,
+so it measures the already-fixed problem, not a new one); belief-topic
+concentration (6/8 sampled `beliefs` examples cluster on "the land
+reclaiming"/"the fading ways" — plausibly a genuinely dominant real
+event in this specific world rather than a mechanism bug, and too small
+a sample (8) to justify a code change without corroborating evidence);
+`caravan`/`chronicle` examples (1 and 10 respectively) read as
+well-formed, no defect found.
+
+Verified: a direct unit-level check of the new override logic (hunger
+0.9 model-said-gather -> forced FORAGE; hunger 0.9 model-said-socialize
+-> forced FORAGE; not-hungry model-said-gather -> GATHER unchanged;
+low-energy model-said-socialize -> forced REST); a 3000-tick LLM-
+disabled engine soak (deterministic path unaffected, no crash);
+`scripts/verify_native_soak.py` (2 seeds x 1500 ticks) byte-identical
+— no native module touched.
+
 ## [1.3.0] — Improve context utilization (cognition synthesis + Context Influence diagnostic)
 
 Explicit user request: cognition prompts already supply rich context

@@ -70,7 +70,8 @@ from hearthmind.llm import (
 )
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.cognition import (
-    RECENT_MEMORIES_IN_PROMPT, SURVIVAL_HUNGER_THRESHOLD, SYSTEM_PROMPT, build_prompt, fallback_goal, parse_goal,
+    RECENT_MEMORIES_IN_PROMPT, SURVIVAL_ENERGY_THRESHOLD, SURVIVAL_HUNGER_THRESHOLD, SYSTEM_PROMPT, build_prompt,
+    fallback_goal, parse_goal,
 )
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.llm.recorder import TrainingRecorder
@@ -1639,6 +1640,29 @@ class SimulationEngine:
             if now - scheduled_tick > STALE_GOAL_RESULT_TICKS:
                 continue  # reasoned from a days-old snapshot — see STALE_GOAL_RESULT_TICKS
             goal, reason = parse_goal(result)
+            # Root-cause fix for a live review-pack audit finding: past
+            # SURVIVAL_HUNGER_THRESHOLD/SURVIVAL_ENERGY_THRESHOLD the
+            # prompt already tells the model "there's no real choice
+            # about it" and asks it to echo that forced priority back as
+            # 'goal' — but SYSTEM_PROMPT never actually defines what
+            # 'forage' means (only 'gather'/'wander'/'seek_person' are
+            # defined), so a small model reliably narrates hunger in
+            # 'reason' while still returning 'gather' for 'goal' (a
+            # review pack showed this on 328/328 sampled hunger>0.6
+            # examples). Below CRITICAL_HUNGER_THRESHOLD the movement
+            # layer's critically_hungry override doesn't kick in, so
+            # this genuinely steered agents toward materials instead of
+            # food while starving. Same "objective survival decisions
+            # aren't a real LLM choice" reasoning as v0.87.15 — enforce
+            # it server-side instead of trusting the model to self-report
+            # correctly; 'reason' (the model's real contribution) is
+            # kept untouched either way.
+            agent = self.world.population.get(agent_id)
+            if agent is not None:
+                if agent.hunger > SURVIVAL_HUNGER_THRESHOLD:
+                    goal = AgentGoal.FORAGE
+                elif agent.energy < SURVIVAL_ENERGY_THRESHOLD:
+                    goal = AgentGoal.REST
             self.world.population.apply_goal(agent_id, goal, reason, seek_candidate_id)
         self._pending_goal_results.clear()
 
