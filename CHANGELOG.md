@@ -63,11 +63,14 @@ Verified: a 3000-tick LLM-disabled engine soak; `scripts/verify_
 native_soak.py` (2 seeds x 1500 ticks) byte-identical — no native
 module touched by any of these fixes; a direct fake-LLM-client test
 confirming P1.3's forced-agent skip; a 16k-tick LLM-off wildlife soak
-(seed 42, pop 15, 64x64) reproducing P2.1's collapse pre-fix (final
-grazers 27 / predators 1, 10 extinctions vs. 4 recolonizations) — the
-same soak re-run post-fix is still in progress as of this entry; treat
-the exact post-fix numbers as pending confirmation, not yet reported
-here.
+(seed 42, pop 15, 64x64), before/after the P2.1 fix: pre-fix final
+grazers 27 / predators 1, 10 extinctions vs. 4 recolonizations
+(recolonize:extinct ratio 0.4) — post-fix final grazers 20 / predators
+3, 30 extinctions vs. 31 recolonizations (ratio ~1.03). Predators
+nearly tripled (1 -> 3) and the recolonize:extinct ratio moved from
+badly-losing to roughly balanced, confirming the fix corrects the
+monotonic-decline-toward-empty trajectory into a healthier (if still
+churning) equilibrium rather than just changing the raw event counts.
 
 ## [1.3.9] — Complete P1: LLM scheduling priority, context-influence
 per-field measurement, budget-scaled core cast
