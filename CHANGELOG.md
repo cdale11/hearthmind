@@ -4,6 +4,67 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.5] — Improve Context Influence: root-cause the empty-context calls
+
+Explicit user follow-up: "improve the context influence numbers"
+(v1.3.4's diagnostics showed any-context-reflected 0.436, multi-context
+synthesis 0.099 even on current code). Rather than tune the prompt
+wording again, dug into WHY: per-example inspection of the 3rd review
+pack's `structured_input` across all 282 cognition examples showed
+`mind_text` present 97% of the time but almost every OTHER optional
+context field (`own_belief`, `semantic_memory`, `life_digest`, `lesson`,
+`core_memory`, `institution_objective`, `plan_intent`) empty 82-100% of
+the time — cognition mostly had nothing but `mind_text` to synthesize
+FROM, so the low numbers were a context-*supply* problem, not (only) a
+context-*use* problem the prompt wording could fix.
+
+Two root causes found and fixed:
+
+1. `_author_minds` (one-time genesis identity authoring) "never
+   retries" a backpressure-dropped agent, by design (v0.78.4) — but
+   several sampled `mind_text` values were literally the generic
+   fallback template ("has never put much thought into who they are —
+   they just live"), meaning a real fraction of the core cast had
+   permanently lost the backpressure roll on their ONE chance at
+   distinctive identity text. Same "one unlucky tick means permanent
+   silence" bug class CLAUDE.md's diagnostic history already flags for
+   monthly jobs (v0.81.0) — this job just had no retry window at all.
+   Fixed with a bounded FIFO retry queue (`_pending_mind_agent_ids`,
+   drained one agent per tick by new `_maybe_retry_mind_authoring`,
+   itself still gated by the same backpressure/budget checks as every
+   other job — no unbounded call volume added, a saturated queue just
+   keeps losing its turn like today) — a dropped agent now keeps trying
+   until it succeeds instead of giving up forever. Dead or rotated-out
+   agents are pruned from the queue without wasting a call.
+
+2. `_maybe_schedule_personal_belief` (Reflect(), the ONLY source of
+   `own_belief`/`semantic_memory`/`life_digest`/`plan`/`lesson`/
+   `core_memory`) picked exactly one agent a month — with an 18-member
+   core cast, most agents went many real months without ever being
+   reflected on, which is exactly why those fields were near-universally
+   empty. New `PERSONAL_BELIEF_PICKS_PER_MONTH=2` widens this to two
+   distinct agents a month (`_run_personal_belief` extracted from the
+   scheduler to make this a clean per-agent call). Still a fixed,
+   population-independent monthly count — stays within the "settlement-
+   scoped jobs... give those to the LLM freely" allowance (CLAUDE.md),
+   not the per-agent-gated call-volume-budget category.
+
+Together these raise how often cognition's prompt has genuinely
+distinctive, non-boilerplate context to draw on — the actual
+prerequisite the Context Influence diagnostic measures reflection
+against. Framed as a supply-side fix, not a re-tune of `cognition.py`'s
+own prompt wording (left unchanged this pass).
+
+Verified: a direct test confirming a backpressured genesis batch queues
+every dropped agent and a subsequent retry drains exactly one per call;
+a dead/rotated-agent-in-queue test confirming it's pruned without an
+LLM call; a 3000-4000-tick LLM-disabled engine soak (queue empties
+correctly, no crash); `scripts/verify_native_soak.py` (2 seeds x 1500
+ticks) byte-identical — no native module touched. Real before/after
+Context Influence numbers need a fresh review-pack export from a world
+that's run under this fix to confirm the measured effect — noted as a
+natural next step, not claimed here.
+
 ## [1.3.4] — Third review-pack audit: fix no-op belief "revisions"
 
 Explicit user request: examine a third uploaded review pack + live

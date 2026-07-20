@@ -416,6 +416,27 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.5)
+
+Explicit user follow-up: "improve the context influence numbers."
+Per-example inspection of the 3rd review pack's `structured_input`
+found the real cause was context *supply*, not prompt wording: 97% of
+cognition calls had `mind_text` but 82-100% had every other optional
+field (`own_belief`/`semantic_memory`/`life_digest`/`lesson`/
+`core_memory`/`institution_objective`/`plan_intent`) empty. Two fixes:
+(1) `_author_minds`'s "never retries" backpressure drop (deliberate,
+v0.78.4) left some core-cast members permanently on the generic
+fallback identity text — new bounded FIFO retry queue (`_pending_mind_
+agent_ids` + `_maybe_retry_mind_authoring`, one retry/tick, same
+backpressure/budget gates as everything else) instead of giving up
+forever. (2) `_maybe_schedule_personal_belief` (Reflect(), the only
+source of those other fields) picked one agent/month against an
+18-member core cast — `PERSONAL_BELIEF_PICKS_PER_MONTH=2` widens this
+to two, still a fixed population-independent monthly count. `cognition.
+py`'s own prompt wording left unchanged this pass — this targets supply
+of distinctive context, not how the model uses it. Full detail:
+CHANGELOG.md.
+
 ## Current state (v1.3.4)
 
 Third review-pack audit, first one confirmed running actual current

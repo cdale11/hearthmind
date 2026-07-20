@@ -251,6 +251,15 @@ chronicle/town_brain directly), but far short of the 300-item storage
 cap (`CULTURE_LIST_MAX_STORED`), so this genuinely-new-call-volume job
 doesn't itself become an unbounded prompt on a long-running world."""
 
+PERSONAL_BELIEF_PICKS_PER_MONTH = 2
+"""How many distinct agents Reflect() (`_maybe_schedule_personal_belief`)
+picks per month — raised from a hardcoded 1 (live review-pack finding,
+"improve context influence"). Still a fixed, population-independent
+count, so this stays a settlement-scoped job under CLAUDE.md's LLM-
+budget rule, not a per-agent-gated one; it just makes each core-cast
+member's own_belief/semantic_memory/plan/lesson catch up meaningfully
+faster than one pick a month ever could across an 18-member cast."""
+
 INTERPRET_RUMOR_MAX_PER_DAY = 3
 """Phase K's InterpretRumor() (docs/VISION-2026-07.md, "Knowledge &
 Story") fires per listening event, not once a month like every other
@@ -836,6 +845,15 @@ class SimulationEngine:
         scheduled day was backpressured, instead of silently waiting a
         full month. See MONTHLY_JOB_RETRY_WINDOW_DAYS and `_mark_monthly_
         resolved`."""
+        self._pending_mind_agent_ids: list[int] = []
+        """FIFO queue of core-cast agent ids whose one-time `_author_
+        minds` LLM call lost the backpressure roll — retried by `_maybe_
+        retry_mind_authoring`, see its docstring. Never persisted
+        (snapshot round-trip just re-derives the fallback text was never
+        replaced, same as any other in-flight-job queue in this class);
+        a world resumed mid-backlog simply leaves those agents on the
+        fallback template until the next live retry, no worse than
+        before this fix existed."""
         self._season_year_job_window: dict[str, tuple[int, int]] = {}
         """job name -> (window_open_tick, ordinal) captured the instant
         this job's boundary event (season_end/year_end) is crossed —
@@ -1499,6 +1517,7 @@ class SimulationEngine:
         # Preserve order when editing; add a new job as one entry here plus
         # its `_maybe_schedule_*` method. `maintain_core_cast` runs just
         # before this loop (it takes a config arg, not the loop's shape).
+        ("_maybe_retry_mind_authoring", _JOB_NO_ARGS),
         ("_maybe_schedule_naming", _JOB_NO_ARGS),
         ("_maybe_schedule_chronicle", _JOB_EVENTS_SEASON),
         ("_maybe_schedule_documentary", _JOB_EVENTS),
@@ -4100,8 +4119,9 @@ class SimulationEngine:
     def _maybe_schedule_personal_belief(self, events: list[str]) -> None:
         """H2 extension (docs/ROADMAP.md "Phase H" stage 2), extended
         into a Reflect()-shaped job in v0.78.0 (Phase J, docs/VISION-
-        2026-07.md): once a month, one living agent forms or revises a
-        private belief about their own life AND distills one lasting
+        2026-07.md): once a month, `PERSONAL_BELIEF_PICKS_PER_MONTH`
+        distinct living agents each form or revise a private belief
+        about their own life AND distill one lasting
         "semantic memory" (`Agent.semantic_memories`, see agents/
         agent.py) from their recent episodic memories — one LLM call
         now does both, so this stays the "settlement-scoped... round-
@@ -4129,7 +4149,22 @@ class SimulationEngine:
             return
         self._mark_monthly_resolved("personal_belief")
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "personal_belief")
-        agent = rng.choice(candidates)
+        # Widened from a single pick to PERSONAL_BELIEF_PICKS_PER_MONTH
+        # (live review-pack finding, "improve context influence"): with
+        # an 18-member core cast and one Reflect() a month, most agents
+        # went many real months between ever forming an own_belief/
+        # semantic_memory/plan/lesson — the exact fields cognition's
+        # prompt offers as personalized context, so most cognition calls
+        # simply had nothing but `mind_text` to draw on. Still flat,
+        # population-independent volume per month (a fixed small N, not
+        # "one per agent") — stays within the "settlement-scoped jobs...
+        # give those to the LLM freely" allowance (CLAUDE.md), not the
+        # per-agent-gated category.
+        picks = rng.sample(candidates, k=min(PERSONAL_BELIEF_PICKS_PER_MONTH, len(candidates)))
+        for agent in picks:
+            self._run_personal_belief(agent)
+
+    def _run_personal_belief(self, agent) -> None:
         agent_id = agent.id
         # v0.87.35 context-selection audit: was a blind `memories[-3:]`
         # slice — the one job whose entire purpose is judging "what
@@ -4700,10 +4735,15 @@ class SimulationEngine:
         as settlement naming. Backpressure-gated like `_maybe_schedule_
         dispute`: a burst at genesis (the initial cast filling all
         `llm_core_cast_size` seats in one tick) must not compete with
-        routine cognition/dialogue for the concurrency semaphore. This
-        never retries — an agent dropped under backpressure simply keeps
-        its deterministic placeholder forever, a graceful degrade, not a
-        silent failure (no `used_fallback` path ever re-queues it)."""
+        routine cognition/dialogue for the concurrency semaphore. A
+        backpressure-dropped agent is queued in `_pending_mind_agent_ids`
+        for `_maybe_retry_mind_authoring` rather than permanently stuck
+        (see that method's docstring — root-cause fix for a live
+        review-pack finding: `mind_text` dominated cognition's only
+        reliably-present context thread, but most of it was this generic
+        fallback template, not the distinctive LLM-authored paragraph,
+        because a genesis burst regularly loses the backpressure roll on
+        this hardware)."""
         for agent in agents:
             fallback = mind.fallback_mind(agent)
             agent.mind = fallback["mind"]
@@ -4712,18 +4752,54 @@ class SimulationEngine:
             # added LLM volume — see llm/mind.py's widened SYSTEM_PROMPT.
             agent.voice = fallback["voice"]
             if self._settlement_job_backpressured():
+                if agent.id not in self._pending_mind_agent_ids:
+                    self._pending_mind_agent_ids.append(agent.id)
                 continue
-            agent_id = agent.id
-            prompt = mind.build_prompt(agent)
+            self._author_one_mind(agent)
 
-            def apply(result: dict, used_fallback: bool, agent_id=agent_id, fallback=fallback) -> None:
-                target = self.world.population.get(agent_id)
-                if target is None:
-                    return  # died before the answer arrived
-                target.mind = mind.parse_mind(result, fallback)
-                target.voice = mind.parse_voice(result, fallback)
+    def _author_one_mind(self, agent) -> None:
+        agent_id = agent.id
+        fallback = {"mind": agent.mind, "voice": agent.voice}
+        prompt = mind.build_prompt(agent)
 
-            self._schedule_llm_job("mind", prompt, mind.SYSTEM_PROMPT, fallback, apply)
+        def apply(result: dict, used_fallback: bool, agent_id=agent_id, fallback=fallback) -> None:
+            target = self.world.population.get(agent_id)
+            if target is None:
+                return  # died before the answer arrived
+            target.mind = mind.parse_mind(result, fallback)
+            target.voice = mind.parse_voice(result, fallback)
+
+        self._schedule_llm_job("mind", prompt, mind.SYSTEM_PROMPT, fallback, apply)
+
+    def _maybe_retry_mind_authoring(self) -> None:
+        """Backpressure at genesis is common (a fresh core-cast seat, or
+        several at once after a `core_cast_rotation`) — `_author_minds`
+        used to give up permanently on a dropped agent, so any tick that
+        lost the backpressure roll left that agent's `Agent.mind` stuck
+        on the generic fallback template for the rest of its life. Same
+        "one unlucky tick shouldn't mean permanent silence" bug class as
+        the monthly-job retry-window fix (v0.81.0/.87.0-era, see CLAUDE.
+        md's diagnostic history) — here the job has no natural monthly
+        cadence to fall back on, so it just keeps retrying, one agent per
+        tick, until it succeeds (bounded by the existing backpressure/
+        budget gates like any other job, so this never adds unbounded
+        call volume — a persistently-saturated queue just means this
+        keeps losing its slot to higher-priority jobs, same as today).
+        Only spends a retry on an agent still worth it: alive and
+        currently core cast (a rotated-out or deceased agent is quietly
+        dropped from the queue rather than wasting a call on it)."""
+        core_ids = self.world.population.core_agent_ids
+        while self._pending_mind_agent_ids:
+            agent_id = self._pending_mind_agent_ids[0]
+            agent = self.world.population.get(agent_id)
+            if agent is None or agent_id not in core_ids:
+                self._pending_mind_agent_ids.pop(0)
+                continue
+            if self._settlement_job_backpressured():
+                return
+            self._pending_mind_agent_ids.pop(0)
+            self._author_one_mind(agent)
+            return  # one retry per tick — let it compete fairly with every other job
 
     def _maybe_schedule_dispute(self) -> None:
         """LLM-mediated dispute resolution — see llm/dispute.py and
