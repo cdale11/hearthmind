@@ -109,6 +109,33 @@ these same constants instead of separate magic numbers) so the live-
 LLM and deterministic paths agree on where "survival forces it" begins."""
 
 
+FORCED_HUNGER_REASON_POOL = (
+    "hungry",
+    "stomach gnawing, hunting for anything to eat",
+    "belly aching, casting around for a meal",
+    "hunger pressing hard, can't think past it",
+    "gut twisting with hunger, needs food now",
+)
+FORCED_ENERGY_REASON_POOL = (
+    "tired",
+    "legs heavy, desperate for rest",
+    "worn thin, needs to lie down",
+    "exhausted, can barely keep moving",
+    "running on nothing, has to stop and rest",
+)
+"""docs/AUDIT-2026-07-20.md, P1.3 (explicit user direction to
+implement it, overriding the earlier v1.3.7 flag): once hunger/energy
+cross `SURVIVAL_HUNGER_THRESHOLD`/`SURVIVAL_ENERGY_THRESHOLD`, the goal
+was never a real choice — `build_prompt`'s own closing text says so —
+so `SimulationEngine._schedule_due_cognition` now skips the LLM call
+entirely in this state (see its `forced` gate) rather than spending a
+full call for reason-only flavor text. These pools stand in for that
+flavor text, picked by `agent_id % len(pool)` for a little per-agent
+variety without an RNG dependency — plain "hungry"/"tired" stays the
+first entry so an existing save's fallback text doesn't shift for
+agent_id % len == 0."""
+
+
 RECENT_MEMORIES_IN_PROMPT = 3
 """How many memories reach the cognition prompt — the prompt-slot
 BUDGET, unchanged since the July 2026 architecture review (a 2B model
@@ -415,9 +442,11 @@ def fallback_goal(
     id%3 split unchanged. See docs/DECISIONS.md, "personality steers
     profession.\""""
     if hunger > SURVIVAL_HUNGER_THRESHOLD:
-        return {"goal": AgentGoal.FORAGE.value, "reason": "hungry"}
+        reason = FORCED_HUNGER_REASON_POOL[agent_id % len(FORCED_HUNGER_REASON_POOL)]
+        return {"goal": AgentGoal.FORAGE.value, "reason": reason}
     if energy < SURVIVAL_ENERGY_THRESHOLD:
-        return {"goal": AgentGoal.REST.value, "reason": "tired"}
+        reason = FORCED_ENERGY_REASON_POOL[agent_id % len(FORCED_ENERGY_REASON_POOL)]
+        return {"goal": AgentGoal.REST.value, "reason": reason}
     emotions = emotions or {}
     fear = emotions.get(EMOTION_FEAR, 0.0)
     grief = emotions.get(EMOTION_GRIEF, 0.0)

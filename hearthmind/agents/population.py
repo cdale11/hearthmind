@@ -130,6 +130,7 @@ from hearthmind.agents.agent import (
     MOVE_CHANCE,
     OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK,
     OUTBREAK_CROWDING_MULTIPLIER,
+    OUTBREAK_FLOOR_SICK_FRACTION_CAP,
     OUTBREAK_MIN_CHANCE_PER_TICK,
     OUTBREAK_ROAD_CONTACT_MULTIPLIER,
     PERSONAL_FOOD_CAPACITY,
@@ -2155,7 +2156,14 @@ class Population:
         if roads is not None and self.agents:
             on_road_fraction = sum(1 for a in self.agents if roads.is_road(a.x, a.y)) / len(self.agents)
             chance *= 1.0 + on_road_fraction * OUTBREAK_ROAD_CONTACT_MULTIPLIER
-        chance = max(chance, OUTBREAK_MIN_CHANCE_PER_TICK)
+        # P2.2: the flat floor's job (guarantee a small settlement's
+        # first case isn't invisible for the whole early game) is done
+        # once illness has actually appeared — don't let it keep
+        # reseeding fresh index cases on top of an already-sick
+        # population (see OUTBREAK_FLOOR_SICK_FRACTION_CAP's docstring).
+        sick_fraction = 1.0 - (len(healthy) / len(self.agents)) if self.agents else 0.0
+        if sick_fraction <= OUTBREAK_FLOOR_SICK_FRACTION_CAP:
+            chance = max(chance, OUTBREAK_MIN_CHANCE_PER_TICK)
         if rng.random() >= chance:
             return []
         index_case = rng.choice(healthy)

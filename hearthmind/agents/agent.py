@@ -848,6 +848,24 @@ therefore the "rare at low/mid population, real pressure once crowded"
 design intent) untouched for any settlement large enough that the
 scaled term already exceeds this floor on its own."""
 
+OUTBREAK_FLOOR_SICK_FRACTION_CAP = 0.15
+"""P2.2 (docs/AUDIT-2026-07-20.md): a live report at pop ~25 found
+illness prevalence sitting near 40% — the floor above is population-
+INDEPENDENT (a flat per-tick chance), so below roughly population 200
+(where the scaled term overtakes it) it fires at the same absolute
+rate regardless of settlement size, disadvantaging small villages
+proportionally. Worse, nothing stopped it from firing again and again
+while a settlement was already mid-outbreak — its job ("guarantee a
+small settlement doesn't go a whole early game with zero visible
+disease") is done the moment a first case has occurred; repeatedly
+reseeding fresh index cases on top of an already-sick population is
+what turned a real, felt pressure into a near-permanent state.
+`_maybe_outbreak` now skips the floor (falls back to the honest
+population-scaled chance alone) once the sick fraction already exceeds
+this cap — small villages still get their guaranteed early case, but
+the floor stops actively working against recovery once an outbreak is
+already under way."""
+
 OUTBREAK_CROWDING_MULTIPLIER = 6.0
 """Applied to OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK while the
 settlement is crowded (same flag CROWDING_ENERGY_MULTIPLIER already

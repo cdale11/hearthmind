@@ -16,11 +16,14 @@ _VALID_PRIORITIES = ("growth", "food", "commerce", "education", "health", "defen
 SYSTEM_PROMPT = (
     "You are the quiet civic instinct of a small simulated village — not a "
     "ruler, just the sense of what the village needs most right now. Given "
-    "its stats and recent history, choose ONE current priority. "
+    "its stats and recent history, choose ONE current priority. Beliefs and "
+    "history are real color, but your rationale must wrestle with the "
+    "village's actual numbers, not just its own myths about itself. "
     'Respond with strict JSON only, no other text: {"priority": one of '
     '"growth", "food", "commerce", "education", "health", "defense", '
-    '"rationale": "one sentence, under 20 words, grounded in the actual '
-    'stats/history given"}.'
+    '"rationale": "one sentence, under 20 words, naming at least one actual '
+    'number from the stats given (population, hunger, materials, currency, '
+    'sick count, or structure counts)"}.'
 )
 
 
@@ -99,7 +102,7 @@ def build_prompt(
     sickness_text = (
         f", {sick_count} currently ill" if sick_count else ""
     )
-    return (
+    stat_block = (
         f"The village of {settlement_name}: population {population_summary.get('total', 0)} "
         f"(avg hunger {population_summary.get('avg_hunger', 0):.2f}{sickness_text}), "
         f"materials {settlement_summary.get('materials', 0):.1f}/{settlement_summary.get('materials_capacity', 0):.0f}, "
@@ -107,13 +110,27 @@ def build_prompt(
         f"education {settlement_summary.get('education_level', 0):.2f}, "
         f"{settlement_summary.get('standing', 0)} standing structures "
         f"({settlement_summary.get('hospitals', 0)} hospitals, {settlement_summary.get('schools', 0)} schools, "
-        f"{settlement_summary.get('workshops', 0)} workshops).\n"
+        f"{settlement_summary.get('workshops', 0)} workshops)."
+    )
+    # P2.5 (docs/AUDIT-2026-07-20.md): a live example showed the model
+    # citing the soil belief for its rationale while the objective stat
+    # block — materials 1.7/30, 1 structure, 10 ill — sat unused, a
+    # page above the actual ask. Small models weight recency; the fix
+    # is to restate the stats immediately before "Choose the village's
+    # current priority" instead of trusting the model to look back up
+    # past a page of history/beliefs/theme text. Beliefs/history stay
+    # exactly where they were (subjective bias is the design, not a
+    # bug) — this only ensures the objective numbers are the LAST thing
+    # read before the ask, not the first thing forgotten.
+    return (
+        f"{stat_block}\n"
         f"Recent history:\n{events_text}{whisper_text}{digest_text}{culture_digest_text}{beliefs_text}{council_text}{faction_leaning_text}{standing_text}{prophecy_text}"
         # Phase M "Narrative Direction": ambient bias only, never a
         # directive — the theme colors how this decision is framed, it
         # never dictates it.
         + (f"\nThe recent theme of village life has been {narrative_theme}." if narrative_theme else "")
-        + "\nChoose the village's current priority."
+        + f"\nThe numbers again, right before you decide: {stat_block}"
+        + "\nChoose the village's current priority, and make your rationale name at least one of these actual numbers."
     )
 
 

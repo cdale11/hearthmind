@@ -348,12 +348,10 @@ def maybe_reclaim(
         for (x, y) in reclaimed:
             tile = terrain[y][x]
             terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.FOREST)
-            events.append((
-                "terrain_reclaimed",
-                f"Nature reclaimed abandoned ground at ({x}, {y}) — forest crept back in.",
-            ))
+        events.extend(_reclaim_events(reclaimed))
         return events
 
+    reclaimed: list[tuple[int, int]] = []
     for y in range(height):
         for x in range(width):
             tile = terrain[y][x]
@@ -371,11 +369,31 @@ def maybe_reclaim(
             if rng.random() >= REFOREST_CHANCE_PER_WEEK:
                 continue
             terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.FOREST)
-            events.append((
-                "terrain_reclaimed",
-                f"Nature reclaimed abandoned ground at ({x}, {y}) — forest crept back in.",
-            ))
+            reclaimed.append((x, y))
+    events.extend(_reclaim_events(reclaimed))
     return events
+
+
+def _reclaim_events(reclaimed: list[tuple[int, int]]) -> list[tuple[str, str]]:
+    """P2.3 (docs/AUDIT-2026-07-20.md): `terrain_reclaimed` was 281/16k
+    events in a live run (16%) — one event per tile per week flooded
+    the History tab even after P0.2(d) capped its prompt-side crowding.
+    One combined line per call instead of one per tile, same UI-noise
+    fix the audit describes ("batch reclaim into one ... line with a
+    count") applied at the weekly cadence this function actually runs
+    on rather than forcing a month-boundary rewrite."""
+    if not reclaimed:
+        return []
+    if len(reclaimed) == 1:
+        x, y = reclaimed[0]
+        return [(
+            "terrain_reclaimed",
+            f"Nature reclaimed abandoned ground at ({x}, {y}) — forest crept back in.",
+        )]
+    return [(
+        "terrain_reclaimed",
+        f"Nature reclaimed abandoned ground at {len(reclaimed)} sites — forest crept back in.",
+    )]
 
 
 def apply_climate_drift(

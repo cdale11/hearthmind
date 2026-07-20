@@ -171,6 +171,11 @@ const CATEGORY_META = {
   prophecy_forgotten: { icon: "🔮" },
   chronicler_answer: { icon: "📖" },
   mining_scarred: { icon: "⛏️" },
+  // P2.3 (docs/AUDIT-2026-07-20.md): 296/16k events (18%) in a live run —
+  // routine background texture already surfaced via the Exploration stat
+  // tile (v0.87.45), same "recorded internally, not the main feed"
+  // treatment as routine `dialogue` above.
+  surveyor_finding: { skip: true },
 };
 
 // Event-log filter chips (v0.64.0 UI backlog): coarse groups, display-only —

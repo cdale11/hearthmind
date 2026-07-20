@@ -4,6 +4,71 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.10] — P1.3 + all five P2 audit items
+
+Explicit user follow-up: "Continue with P2 items from the audit and
+P1.3." P1.3 was previously flagged, not shipped (v1.3.7), because it
+reversed an earlier explicit design decision (hunger-emergency
+narration "deserves the LLM's actual reasoning"); this pass's explicit
+instruction supersedes that flag.
+
+**P1.3 — forced-choice cognition no longer spends a full call.**
+`SimulationEngine._schedule_due_cognition` now skips the LLM call
+entirely once `agent.hunger > SURVIVAL_HUNGER_THRESHOLD or agent.
+energy < SURVIVAL_ENERGY_THRESHOLD` — the goal was never a real choice
+at that point (`fallback_goal` already forces the identical goal), so
+only the reason-authoring call is removed, regardless of `is_
+triggered`/significance. New `FORCED_HUNGER_REASON_POOL`/`FORCED_
+ENERGY_REASON_POOL` (`llm/cognition.py`) give the deterministic
+fallback a little per-agent variety in place of the old flat "hungry"/
+"tired" strings.
+
+**P2.1 — ecology was trending toward empty.** A 16k-tick LLM-off soak
+(seed 42, pop 15, 64x64) reproduced the audit's finding: predator
+packs collapsed toward 1 while only 4 recolonizations happened against
+10 extinctions. Root cause: `WildlifeGrid._maybe_recolonize`'s
+predator branch only fired at exactly 0 packs, unlike grazers (already
+target-fraction-based) — a pack thinned to 1 got zero recolonization
+pressure. Fixed by giving predators the same target-fraction shape,
+reusing `GRAZER_TO_PREDATOR_RATIO`.
+
+**P2.2 — disease was near-permanent in small villages.**
+`OUTBREAK_MIN_CHANCE_PER_TICK` is a flat, population-independent floor
+that dominates below ~pop 200, giving small villages disproportionate
+per-capita outbreak pressure — and it kept firing even mid-outbreak,
+continually reseeding fresh cases. New `OUTBREAK_FLOOR_SICK_FRACTION_
+CAP=0.15`: the floor is skipped once the sick fraction already exceeds
+this cap, falling back to the honest population-scaled chance alone.
+
+**P2.3 — event-feed noise.** `terrain_reclaimed` now emits one
+combined event per `maybe_reclaim` call instead of one per tile;
+`surveyor_finding` gained the UI's `{ skip: true }` treatment (same as
+routine `dialogue`) — still reachable via the Exploration stat tile.
+
+**P2.4 — settlement beliefs had no contradicting evidence to react
+to.** `llm/beliefs.py`'s `build_prompt` now re-surfaces already-
+offered `recent_events` lines that share a keyword with an existing
+belief's subject (soil/harvest/food/crop families), appended directly
+onto that belief's own line — beliefs stay narration-only by design,
+this just stops subject-relevant evidence getting lost in a larger
+event list.
+
+**P2.5 — town brain was rationalizing from belief, not stats.**
+`llm/town_brain.py`'s `build_prompt` now restates the objective stat
+block immediately before the final ask (small models weight recency);
+`SYSTEM_PROMPT` requires the rationale to name at least one actual
+number.
+
+Verified: a 3000-tick LLM-disabled engine soak; `scripts/verify_
+native_soak.py` (2 seeds x 1500 ticks) byte-identical — no native
+module touched by any of these fixes; a direct fake-LLM-client test
+confirming P1.3's forced-agent skip; a 16k-tick LLM-off wildlife soak
+(seed 42, pop 15, 64x64) reproducing P2.1's collapse pre-fix (final
+grazers 27 / predators 1, 10 extinctions vs. 4 recolonizations) — the
+same soak re-run post-fix is still in progress as of this entry; treat
+the exact post-fix numbers as pending confirmation, not yet reported
+here.
+
 ## [1.3.9] — Complete P1: LLM scheduling priority, context-influence
 per-field measurement, budget-scaled core cast
 

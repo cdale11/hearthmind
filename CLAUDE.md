@@ -416,6 +416,39 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.10)
+
+Explicit user follow-up: "Continue with P2 items from the audit and
+P1.3." Ships P1.3 (previously flagged v1.3.7 — explicit instruction
+now supersedes that flag) and all five P2 items from `docs/AUDIT-
+2026-07-20.md`. Full detail: CHANGELOG.md.
+
+P1.3: forced-choice cognition (hunger/energy past their survival
+thresholds) skips the LLM call entirely now — the goal was never a
+real choice at that point, only the reason-authoring call is removed.
+
+P2.1: predator-pack recolonization was gated on exactly-0-packs (a
+pack thinned to 1 got no help) — now target-fraction-based like
+grazers, fixing a real measured ecology-trending-empty collapse.
+
+P2.2: the disease outbreak floor was population-independent and kept
+reseeding new cases mid-outbreak — now skipped once sick fraction
+exceeds 15%, so a small village still gets its guaranteed first case
+without staying artificially sick forever.
+
+P2.3: `terrain_reclaimed` events batch per-call instead of per-tile;
+`surveyor_finding` demoted from the main event feed (still reachable
+via the Exploration stat tile).
+
+P2.4: settlement belief revision now re-surfaces subject-relevant
+lived evidence (soil/harvest/food keyword families) already present in
+the event window, so a stale belief has something to actually contend
+with.
+
+P2.5: town-brain's prompt restates its objective stat block
+immediately before the ask instead of only at the top, and requires
+the rationale to cite an actual number.
+
 ## Current state (v1.3.9)
 
 Explicit user follow-up: "Complete P1 fully" — the three remaining

@@ -1997,10 +1997,29 @@ class SimulationEngine:
             # the concrete mechanism behind "reserve the scarce LLM
             # budget for high-impact decisions" (docs/DECISIONS.md).
             is_triggered = agent.id in triggered_ids
+            # P1.3 (docs/AUDIT-2026-07-20.md, explicit user direction to
+            # implement it): past SURVIVAL_HUNGER_THRESHOLD/SURVIVAL_
+            # ENERGY_THRESHOLD the goal isn't a real choice — cognition.
+            # build_prompt's own "closing" text already says so verbatim
+            # ("there's no real choice about it") — so a full LLM call
+            # in this state buys only in-character flavor text on a
+            # foregone decision. Reverses the v1.3.7 flag: that earlier
+            # note preserved crisis reasoning specifically because a
+            # hunger emergency "deserves the LLM's actual reasoning";
+            # this pass's explicit user instruction supersedes it.
+            # `fallback_goal` below is unchanged in what GOAL it picks
+            # here (it already enforces the identical thresholds) — the
+            # only change is skipping the LLM call for the reason text,
+            # which now comes from FORCED_HUNGER_REASON_POOL/FORCED_
+            # ENERGY_REASON_POOL instead. Real open decisions (is_
+            # triggered by grief, or `_is_significant_moment`) are
+            # unaffected.
+            forced = agent.hunger > SURVIVAL_HUNGER_THRESHOLD or agent.energy < SURVIVAL_ENERGY_THRESHOLD
             use_llm = (
                 self._cognition_runner.enabled
                 and population.is_core(agent.id)
                 and self._llm_calls_today < self.config.llm_max_calls_per_day
+                and not forced
                 and (is_triggered or self._is_significant_moment(agent))
             )
             if not use_llm:

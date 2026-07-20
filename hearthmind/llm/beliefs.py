@@ -271,6 +271,42 @@ SYSTEM_PROMPT = (
 )
 
 
+_METRIC_FAMILY_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "soil": ("soil", "fertil", "harvest", "crop", "planted", "farm"),
+    "harvest": ("harvest", "crop", "planted", "farm", "granary", "stockpil"),
+    "food": ("food", "hunger", "harvest", "forage", "granary", "famine"),
+    "crop": ("crop", "harvest", "planted", "soil", "fertil"),
+}
+"""P2.4 (docs/AUDIT-2026-07-20.md): a live 16k-tick run showed "the
+spring soil is deteriorating" sitting at confidence 0.99 through 572
+successful plantings — the revision call kept re-emitting it verbatim
+because nothing in the prompt ever surfaced lived outcomes that might
+contradict it; the generic `recent_events` window can easily go a
+whole revision cycle without a harvest-adjacent event reaching its cap.
+When an existing belief's subject matches one of these recognizable
+metric families, `build_prompt` re-surfaces any already-in-`recent_
+events` lines whose own description shares a keyword, labeled
+specifically against that belief — not a new ground-truth stat feed
+(this project deliberately keeps beliefs narration-only, see the note
+below), just making sure subject-relevant lived evidence that WAS
+already offered doesn't get lost in a larger unrelated event list."""
+
+
+def _subject_relevant_event_lines(subject: str, recent_events: list[dict]) -> list[str]:
+    subject_lower = subject.strip().lower()
+    keywords: tuple[str, ...] = ()
+    for family, family_keywords in _METRIC_FAMILY_KEYWORDS.items():
+        if family in subject_lower:
+            keywords = family_keywords
+            break
+    if not keywords:
+        return []
+    return [
+        event["description"] for event in recent_events
+        if any(kw in event["description"].lower() for kw in keywords)
+    ]
+
+
 def build_prompt(
     settlement_name: str, recent_events: list[dict], existing_beliefs: list[dict],
     population_summary: dict, settlement_summary: dict, intervention_recent: bool = False,
@@ -278,10 +314,14 @@ def build_prompt(
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
     if existing_beliefs:
-        beliefs_text = "\n".join(
-            f"  [{i}] (confidence {b['confidence']:.2f}) {b['subject']}: {b['belief']}"
-            for i, b in enumerate(existing_beliefs)
-        )
+        belief_lines = []
+        for i, b in enumerate(existing_beliefs):
+            line = f"  [{i}] (confidence {b['confidence']:.2f}) {b['subject']}: {b['belief']}"
+            relevant = _subject_relevant_event_lines(b["subject"], recent_events)
+            if relevant:
+                line += f" — recent evidence on this: {'; '.join(relevant)}"
+            belief_lines.append(line)
+        beliefs_text = "\n".join(belief_lines)
     else:
         beliefs_text = "  (none yet — this would be the village's first theory about itself)"
     # Deliberately NO ground-truth stat block here (population counts,

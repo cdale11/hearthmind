@@ -449,7 +449,18 @@ class WildlifeGrid:
             self._next_id += 1
             events.append(("wildlife_recolonized", f"A new grazer herd was seen near ({x}, {y})."))
 
-        if not predator_packs and grazer_herds:
+        # P2.1 (docs/AUDIT-2026-07-20.md): a live 16k-tick LLM-off soak
+        # measured predators collapsing 6-ish packs -> 1, with only 4
+        # recolonizations against 10 extinctions — this branch only ever
+        # fired once packs hit exactly 0, so a pack thinned to 1 (still
+        # technically alive, easy prey for the starve-out chance next
+        # tick) never got recolonization pressure the way a thin grazer
+        # population already does via `target_herds`. Now uses the same
+        # target-fraction shape as grazers (reusing GRAZER_TO_PREDATOR_
+        # RATIO, the same ratio world-gen itself uses to size the
+        # initial predator count) instead of a strict "== 0" check.
+        predator_target = max(1, len(grazer_herds) // GRAZER_TO_PREDATOR_RATIO)
+        if len(predator_packs) < predator_target and grazer_herds:
             # Only recolonize predators if there's already prey to
             # sustain them — a predator pack with nothing to hunt would
             # just starve out again immediately.
