@@ -4,6 +4,70 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.0] — Improve context utilization (cognition synthesis + Context Influence diagnostic)
+
+Explicit user request: cognition prompts already supply rich context
+(memories, relationships, personality, goals, traditions, weather,
+beliefs, ...), but a small local model's default instinct is to key off
+the single loudest cue (usually hunger) and let the rest go unreflected
+in its own output, even when a real person would weigh several things
+at once. Not a request to shorten prompts — the ask was deeper
+synthesis of what's already supplied, with only a slight, acceptable
+uptick in output length.
+
+**`llm/cognition.py` prompt redesign**: `SYSTEM_PROMPT` now explicitly
+names the class of context the model is given (feelings, memories,
+beliefs about self, what others believe, plan, lessons, ...) and asks
+for `reason` to weigh at least one thing beyond the single most obvious
+need "whenever the prompt actually gives you more than one thing to
+weigh" — with a worked instruction on WHAT that sounds like (a real
+person's blended in-the-moment thought) versus what it must NOT be (a
+numbered or step-by-step listing, i.e. no exposed chain-of-thought).
+`reason`'s word cap raised modestly (15 -> 28 words) to give synthesis
+room without inviting a verbose report; `parse_goal`'s truncation cap
+raised in step (200 -> 260 chars). The two survival-forced closings
+(critical hunger/exhaustion) and the free-choice closing question were
+reworded to invite the same synthesis even when the goal itself isn't
+a real choice — the "reason" still can be.
+
+**Context Influence diagnostic** (`llm/review_diagnostics.py`,
+`llm/recorder.py`'s existing structured_input plumbing): the
+measurable counterpart — did the model's own reasoning actually touch
+more than one supplied context thread, not just react to the loudest
+one? `SimulationEngine._schedule_due_cognition` now captures a
+`context_snapshot` of every optional TEXT context thread offered this
+call (beliefs_about, own_belief, semantic_memory, life_digest,
+mind_text, lesson, seek_reason, institution_objective, plan_intent,
+core_memory, prophecy_text, latest_tradition — retrieved-memory text
+itself is a known, documented scope trim, computed inside `build_
+prompt` and not duplicated here) into the recorder's `structured_
+input`, alongside the scalars it already captured. New `_context_
+influence_for_task`: a deliberately approximate, stdlib-only lexical
+heuristic (keyword overlap between each supplied thread and the
+output's free-text field) — same "real, if crude" honesty this
+project's other heuristic diagnostics (personality/topic diversity)
+already carry, explicitly documented as unable to tell a genuinely
+load-bearing reference from coincidental vocabulary overlap, only a
+real regression signal tracked over time like every other diagnostic
+here. Reports per scored task: avg context threads available/
+referenced, any-context-reflected rate, and the direct "multi-context
+synthesis rate" (≥2 threads) the request asks for. Surfaced in both
+`diagnostics.json` and the markdown report every review-pack export
+already produces — zero new export plumbing needed.
+
+Verified: direct smoke tests (synthetic examples distinguishing a
+2-thread-synthesized reason from a shallow "hungry" one, confirming
+the diagnostic scores them differently and correctly skips an example
+with no text context available), an end-to-end test spying on
+`_record_llm_debug` through `_run_cognition`'s real call path
+confirming `context_snapshot` reaches `structured_input` intact, a
+worst-case-populated `build_prompt` call confirming the system+user
+prompt still comfortably fits `Config.llm_num_ctx=2560` (~988 of 2560
+tokens even with nearly every optional field populated at once, which
+essentially never happens in practice), `scripts/verify_native_soak.py`
+(2 seeds x 800 ticks) byte-identical — no native module or simulation
+state touched, this is a prompt/recorder-only change.
+
 ## [1.2.0] — Inventions unlock specific things
 
 Post-v1 follow-up (explicit user ask, second of two chosen items):

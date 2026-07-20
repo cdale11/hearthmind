@@ -6,6 +6,24 @@ fixed goals (see AgentGoal) rather than free text, which keeps the output
 structured, cheap to validate, and directly executable by the deterministic
 movement logic in Population — "decision-first, not dialogue-first," per
 the project roadmap. See docs/DECISIONS.md, B2.
+
+"Improve context utilization" pass (explicit user request): this prompt
+already supplies rich per-agent context (memories, relationships,
+beliefs, personality, goals, traditions, weather, ...), but a small
+model's own default instinct is to key off the single loudest cue
+(usually hunger) and ignore the rest, even when a real person would
+weigh several things at once. `SYSTEM_PROMPT`/`build_prompt`'s closing
+lines now explicitly ask for that synthesis — not longer output, richer
+reasoning — with a worked example calibrating what "weighing two things
+in one breath" sounds like versus a step-by-step listing (which is
+explicitly forbidden, so the model doesn't just enumerate context
+instead of reacting to only one piece of it). The `reason` word cap
+rose modestly (15 -> 28) to give that synthesis room without inviting
+a verbose report. See `SimulationEngine._schedule_due_cognition`'s
+`context_snapshot` and `llm/review_diagnostics.py`'s `context_
+influence` diagnostic — the measurable counterpart to this change,
+scoring how many distinct supplied context threads a `reason` actually
+shares vocabulary with.
 """
 from __future__ import annotations
 
@@ -45,11 +63,25 @@ SYSTEM_PROMPT = (
     "decides the priority for them (they're too hungry or too "
     "exhausted to weigh anything else) — when told this is the case, "
     "there is no real choice to make: give that same priority back as "
-    "'goal' and spend your one real contribution on 'reason', a short, "
-    "in-character account of how they go about it right now. "
+    "'goal' and spend your one real contribution on 'reason'.\n"
+    "You're given a lot about this person: how they feel, what they "
+    "remember, what they believe about themselves, what others believe "
+    "about them, who they're with, their village's mood and customs, a "
+    "plan they're partway through, a lesson they once learned. A real "
+    "person doesn't think about only one of these at a time — they feel "
+    "hungry AND remember a promise AND notice who's nearby, all at once, "
+    "and one of those tips the balance. Let 'reason' show that: weigh at "
+    "least one thing beyond the single most obvious need whenever the "
+    "prompt actually gives you more than one thing to weigh — hunger "
+    "against a commitment, a memory against the weather, personality "
+    "against what the village expects of them. Don't force a connection "
+    "that isn't there, and don't list your reasons like a report — say "
+    "it the way the person would actually think it to themselves, in "
+    "one breath, never as numbered or step-by-step reasoning. "
     'Respond with strict JSON only, no other text: '
     '{"goal": "forage" | "rest" | "socialize" | "wander" | "gather" | "seek_person", '
-    '"reason": "a short first-person reason, under 15 words"}.'
+    '"reason": "a short first-person reason, under 28 words, blending at '
+    'least two things they\'re weighing when more than one applies"}.'
 )
 
 
@@ -297,11 +329,19 @@ def build_prompt(
     # question (see SURVIVAL_HUNGER_THRESHOLD/SURVIVAL_ENERGY_THRESHOLD's
     # docstring). The LLM's contribution narrows to the "reason" alone.
     if agent.hunger > SURVIVAL_HUNGER_THRESHOLD:
-        closing = " Your current priority is obtaining food — there's no real choice about it. Explain briefly, in character, how you go about it."
+        closing = (
+            " Your current priority is obtaining food — there's no real choice about it. "
+            "Explain briefly, in character, how you go about it — let it carry a trace of "
+            "what else is on your mind right now, if anything genuinely is."
+        )
     elif agent.energy < SURVIVAL_ENERGY_THRESHOLD:
-        closing = " Your current priority is resting — there's no real choice about it. Explain briefly, in character, how you go about it."
+        closing = (
+            " Your current priority is resting — there's no real choice about it. "
+            "Explain briefly, in character, how you go about it — let it carry a trace of "
+            "what else is on your mind right now, if anything genuinely is."
+        )
     else:
-        closing = " What should you focus on right now?"
+        closing = " What should you focus on right now — and what's actually weighing on you as you decide?"
     return (
         f"You are {agent.name}. Hunger: {agent.hunger:.2f} (0=full, 1=starving). "
         f"Energy: {agent.energy:.2f} (0=exhausted, 1=fully rested). "
@@ -400,5 +440,5 @@ def parse_goal(result: dict) -> tuple[AgentGoal, str]:
         goal = AgentGoal(raw_goal)
     except ValueError:
         goal = AgentGoal.WANDER
-    reason = str(result.get("reason", ""))[:200]
+    reason = str(result.get("reason", ""))[:260]
     return goal, reason

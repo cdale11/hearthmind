@@ -1901,6 +1901,8 @@ class SimulationEngine:
             seek_candidate_id = seek_candidate[0] if seek_candidate is not None else None
             seek_prompt_hint = (seek_candidate[1], seek_candidate[3]) if seek_candidate is not None else None
             institution_objective = population.institution_objective_for(agent.id, home)
+            core_memory_text = self._pick_core_memory(agent)
+            prophecy_obj = home.prophecy if home.prophecy and home.prophecy.get("status") == "pending" else None
             prompt = build_prompt(
                 agent, self.world.clock.season, self.world.weather.describe(),
                 settlement_name=home.name, latest_tradition=latest_tradition,
@@ -1910,17 +1912,40 @@ class SimulationEngine:
                 needs_repair=needs_repair, life_digest=agent.life_digest,
                 lesson=lesson, seek_candidate=seek_prompt_hint,
                 institution_objective=institution_objective, plan=agent.plan,
-                core_memory=self._pick_core_memory(agent),
-                prophecy=home.prophecy if home.prophecy and home.prophecy.get("status") == "pending" else None,
+                core_memory=core_memory_text, prophecy=prophecy_obj,
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             traits_snapshot = dict(agent.traits)
             emotions_snapshot = dict(agent.emotions)
             plan_intent_snapshot = agent.plan["intent"] if agent.plan else ""
+            # "Context Influence" diagnostics (llm/review_diagnostics.py):
+            # the actual TEXT of every optional context thread offered in
+            # this prompt, not just whether it was present — lets a later
+            # diagnostics pass check whether the model's own `reason`
+            # shares vocabulary with more than one of these, i.e. actually
+            # synthesized what it was given rather than reacting to a
+            # single obvious cue. Retrieved-memory text itself is computed
+            # inside `build_prompt` and isn't duplicated here (would cost
+            # a second retrieval pass) — a known scope trim, not an
+            # oversight.
+            context_snapshot = {
+                "beliefs_about": list(beliefs_about) if beliefs_about else [],
+                "own_belief": own_belief,
+                "semantic_memory": semantic_memory,
+                "life_digest": agent.life_digest,
+                "mind_text": agent.mind,
+                "lesson": lesson,
+                "seek_reason": seek_prompt_hint[1] if seek_prompt_hint else "",
+                "institution_objective": institution_objective,
+                "plan_intent": plan_intent_snapshot,
+                "core_memory": core_memory_text,
+                "prophecy_text": prophecy_obj["text"] if prophecy_obj else "",
+                "latest_tradition": latest_tradition,
+            }
             task = asyncio.create_task(
                 self._run_cognition(
                     agent.id, prompt, hunger_snapshot, energy_snapshot, traits_snapshot, emotions_snapshot,
-                    seek_candidate_id, plan_intent_snapshot,
+                    seek_candidate_id, plan_intent_snapshot, context_snapshot,
                 )
             )
             self._background_tasks.add(task)
@@ -1929,6 +1954,7 @@ class SimulationEngine:
     async def _run_cognition(
         self, agent_id: int, prompt: str, hunger: float, energy: float, traits: dict, emotions: dict,
         seek_candidate_id: int | None = None, plan_intent: str = "",
+        context_snapshot: dict | None = None,
     ) -> None:
         scheduled_tick = self.world.clock.tick_count
         call_start = time.perf_counter()
@@ -1944,6 +1970,7 @@ class SimulationEngine:
                     "agent_id": agent_id, "hunger": hunger, "energy": energy,
                     "traits": traits, "emotions": emotions,
                     "seek_candidate_id": seek_candidate_id, "plan_intent": plan_intent,
+                    **(context_snapshot or {}),
                 },
                 # Cognition never applies a fabricated goal on fallback
                 # (Constitution §3/§7) — see the used_fallback branch just

@@ -416,6 +416,26 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.0)
+
+Explicit user request: "improve context utilization" — cognition
+prompts already supply rich context, but generated `reason` text often
+reflects only the loudest cue (hunger) rather than synthesizing what
+else was given, even when a real person would weigh several things at
+once. `llm/cognition.py`'s `SYSTEM_PROMPT` now explicitly asks the
+model to weigh ≥1 thing beyond the obvious need when the prompt offers
+more than one, with a worked example of what blended real-person
+reasoning sounds like versus a forbidden step-by-step/numbered listing
+(no exposed chain-of-thought). `reason`'s word cap raised 15 -> 28 (a
+slight, acceptable token uptick, not the goal itself). New measurable
+counterpart: `SimulationEngine._schedule_due_cognition` now captures a
+`context_snapshot` (every optional text context thread actually
+offered this call) into the recorder's `structured_input`; new `llm/
+review_diagnostics.py` "Context Influence" diagnostic — a stdlib-only
+lexical-overlap heuristic reporting avg context threads referenced per
+example and the direct "multi-context synthesis rate" (≥2 threads),
+surfaced in every review-pack export. Full detail: CHANGELOG.md.
+
 ## Current state (v1.2.0)
 
 Post-v1 follow-up, second of two chosen items ("inventions unlock

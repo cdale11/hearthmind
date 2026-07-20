@@ -22,6 +22,7 @@ apply throughout.
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 
 
@@ -177,6 +178,129 @@ def _personality_diversity(examples: list[dict]) -> dict | None:
     }
 
 
+# "Context Influence" (explicit user request, "Improve Context
+# Utilization" pass): the prompts already supply rich context, but a
+# small model's own default instinct is to key off the single loudest
+# cue and let the rest go unreflected in its own output. This is the
+# measurable counterpart to the prompt-design change in `llm/
+# cognition.py` — a cheap, stdlib-only, deliberately approximate lexical
+# heuristic (word-overlap between each supplied context thread and the
+# model's own free-text output), same "real, if crude" honesty the
+# project's other heuristic diagnostics (`_personality_diversity`, topic
+# diversity) already carry. It cannot tell whether a reference is
+# genuinely load-bearing to the decision or coincidental vocabulary
+# overlap — only a real regression signal for "did the output's
+# vocabulary touch more than one of the things it was given," tracked
+# over time the same way every other diagnostic here is.
+_CONTEXT_INFLUENCE_STOPWORDS = frozenset({
+    "about", "after", "again", "against", "already", "always", "another",
+    "around", "because", "been", "before", "being", "between", "could",
+    "doesn't", "during", "each", "even", "ever", "every", "feels",
+    "feeling", "felt", "focused", "focus", "from", "gather", "goal",
+    "going", "have", "here", "home", "into", "just", "know", "later",
+    "life", "like", "little", "live", "lived", "look", "maybe", "might",
+    "more", "most", "much", "nearby", "never", "night", "nothing", "often",
+    "once", "only", "other", "ought", "over", "people", "perhaps",
+    "person", "place", "quite", "rather", "reason", "really", "right",
+    "seek", "should", "since", "small", "some", "something", "still",
+    "such", "than", "that", "their", "them", "then", "there", "these",
+    "they", "thing", "think", "this", "those", "though", "through",
+    "time", "today", "toward", "under", "until", "very", "wander",
+    "want", "wants", "weather", "week", "were", "what", "when", "where",
+    "which", "while", "will", "with", "would", "years",
+})
+"""Domain-generic/function words filtered out of keyword sets before
+overlap checks — words this prompt's own boilerplate sprinkles into
+almost every field (weather, seek, wander, gather...) or that carry no
+real content on their own. Deliberately conservative (errs toward
+excluding a borderline word) since a false "referenced" hit is worse
+for this diagnostic's credibility than a missed one."""
+
+
+def _context_keywords(text: str, min_len: int = 4) -> set[str]:
+    words = re.findall(r"[a-zA-Z']+", text.lower())
+    return {w for w in words if len(w) >= min_len and w not in _CONTEXT_INFLUENCE_STOPWORDS}
+
+
+def _context_text_threads(structured_input: dict) -> dict[str, str]:
+    """The free-text context fields worth checking for influence —
+    non-empty strings, or lists of strings joined into one (e.g.
+    `beliefs_about`) — skipping scalars (hunger, energy, agent_id,
+    numeric traits/emotions dicts) that were never going to show up as
+    shared vocabulary in a first-person sentence."""
+    threads: dict[str, str] = {}
+    for key, value in structured_input.items():
+        if isinstance(value, str) and value.strip():
+            threads[key] = value
+        elif isinstance(value, list) and value and all(isinstance(v, str) for v in value):
+            joined = " ".join(value)
+            if joined.strip():
+                threads[key] = joined
+    return threads
+
+
+def _context_influence_for_task(examples: list[dict], output_field: str) -> dict | None:
+    """Per example: how many DISTINCT supplied context threads share a
+    content keyword with the model's own `output_field` text. Only
+    scores examples that actually had ≥1 real text thread available AND
+    a non-empty output — an example with nothing to synthesize (a
+    routine day, no memories/beliefs/plan offered) correctly contributes
+    no data point rather than dragging the rate toward zero for a
+    situation where synthesis was never possible in the first place."""
+    threads_referenced: list[int] = []
+    threads_available: list[int] = []
+    for ex in examples:
+        structured = ex.get("layer1_structured_input")
+        output = ex.get("layer4_parsed_output")
+        if not isinstance(structured, dict) or not isinstance(output, dict):
+            continue
+        output_text = output.get(output_field)
+        if not isinstance(output_text, str) or not output_text.strip():
+            continue
+        text_threads = _context_text_threads(structured)
+        if not text_threads:
+            continue
+        output_keywords = _context_keywords(output_text)
+        referenced = sum(
+            1 for field_text in text_threads.values()
+            if output_keywords & _context_keywords(field_text)
+        )
+        threads_referenced.append(referenced)
+        threads_available.append(len(text_threads))
+    if not threads_referenced:
+        return None
+    n = len(threads_referenced)
+    return {
+        "examples_scored": n,
+        "avg_threads_available": round(sum(threads_available) / n, 2),
+        "avg_threads_referenced": round(sum(threads_referenced) / n, 2),
+        "any_context_reflected_rate": _rate(sum(1 for c in threads_referenced if c >= 1), n),
+        "multi_context_synthesis_rate": _rate(sum(1 for c in threads_referenced if c >= 2), n),
+    }
+
+
+_CONTEXT_INFLUENCE_OUTPUT_FIELD = {
+    "cognition": "reason",
+}
+"""Which `layer4_parsed_output` field carries the model's own free-text
+reasoning, per task — only tasks with a genuine first-person
+explanatory field are scored (cognition's `reason` is the one this
+pass targets explicitly). Extend this dict, not the function above, to
+score another task later (e.g. a dispute/diplomacy rationale field)."""
+
+
+def _context_influence(raw_examples: list[dict]) -> dict[str, dict]:
+    result: dict[str, dict] = {}
+    for task, output_field in _CONTEXT_INFLUENCE_OUTPUT_FIELD.items():
+        task_examples = [ex for ex in raw_examples if ex.get("task") == task]
+        if not task_examples:
+            continue
+        scored = _context_influence_for_task(task_examples, output_field)
+        if scored:
+            result[task] = scored
+    return result
+
+
 def _duplicate_rates(examples: list[dict]) -> dict:
     prompt_hashes = [ex.get("prompt_hash") for ex in examples if ex.get("prompt_hash")]
     structured_hashes = [ex.get("structured_input_hash") for ex in examples if ex.get("structured_input_hash")]
@@ -301,6 +425,7 @@ def compute_diagnostics(raw_examples: list[dict]) -> dict:
             "dialogue": _opportunity_diversity_for_dialogue(dialogue_examples),
         },
         "personality_diversity": _personality_diversity(raw_examples),
+        "context_influence": _context_influence(raw_examples),
         "historical_trends": {
             "daily": _historical_trends(raw_examples),
         },
@@ -391,6 +516,19 @@ def diagnostics_to_markdown(diag: dict) -> str:
         lines.append(f"- Diversity ratio (unique / total appearances): {personality['diversity_ratio']}")
     else:
         lines.append("- n/a")
+    lines.append("")
+
+    lines.append("## Context influence (does reasoning reflect the supplied context?)")
+    influence = diag.get("context_influence") or {}
+    if influence:
+        for task, row in influence.items():
+            lines.append(f"- `{task}` (n={row['examples_scored']}):")
+            lines.append(f"  - Avg context threads available: {row['avg_threads_available']}")
+            lines.append(f"  - Avg context threads referenced in output: {row['avg_threads_referenced']}")
+            lines.append(f"  - Any-context-reflected rate: {row['any_context_reflected_rate']}")
+            lines.append(f"  - Multi-context synthesis rate (≥2 threads): {row['multi_context_synthesis_rate']}")
+    else:
+        lines.append("- n/a (no scored examples — needs both structured_input text fields and a parsed output field)")
     lines.append("")
 
     lines.append("## Historical trends (daily)")
