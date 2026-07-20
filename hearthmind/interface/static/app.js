@@ -2910,6 +2910,22 @@ function renderStats(summary) {
       : "<li>none yet</li>");
   }
 
+  const specializationsEl = document.getElementById("invention-specializations");
+  if (specializationsEl) {
+    // Post-v1 follow-up: each invention's LLM-chosen category (agricultural/
+    // structural/mercantile/general) nudges a small, capped settlement-wide
+    // lean toward that category's yield/work-rate/income — this is what makes
+    // a specific invention do something specific, not just bump a counter.
+    const specs = s.invention_specializations || {};
+    const entries = Object.entries(specs).filter(([, v]) => v > 0);
+    specializationsEl.title = "Each invention's category (agricultural/structural/mercantile) nudges a small, " +
+      "capped settlement-wide bonus to matching yield/work-rate/income — a specific invention now does " +
+      "something specific, on top of the flat tech-level bonus every invention already gives.";
+    setInnerHTMLIfChanged(specializationsEl, entries.length
+      ? entries.map(([cat, v]) => `<li>${cat}: +${Math.round(v * 100)}%</li>`).join("")
+      : "<li>none yet</li>");
+  }
+
   const recordsEl = document.getElementById("records-list");
   if (recordsEl) {
     const records = (s.records || []).slice().reverse(); // newest first

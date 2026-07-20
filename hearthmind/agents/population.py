@@ -993,6 +993,16 @@ def _tech_factor(settlement: Settlement) -> float:
     return 1.0 + TECH_BONUS_PER_LEVEL * settlement.tech_level
 
 
+def _specialization_factor(settlement: Settlement, category: str) -> float:
+    """Post-v1 follow-up: multiplicative bonus from `Settlement.
+    invention_specializations[category]` — the category-specific LEAN
+    an invention's LLM-chosen category nudges, stacking on top of (not
+    replacing) `_tech_factor`'s flat, category-agnostic bonus. 1.0 (no-
+    op) for a settlement that hasn't accumulated any bonus in this
+    category yet. See INVENTION_SPECIALIZATION_STEP/CAP."""
+    return 1.0 + settlement.invention_specializations.get(category, 0.0)
+
+
 def _haul_factor(settlement: Settlement) -> float:
     """Multiplicative bonus from ready carts on gathered-material yield —
     see CART_HAUL_BONUS_PER_CART/CART_BONUS_CAP, docs/DECISIONS.md,
@@ -2255,7 +2265,10 @@ class Population:
         if plot is not None and plot.stage is FarmStage.READY:
             # FARMER (v0.87.44): a real occupation-based harvest bonus,
             # on top of (not instead of) SKILL_FARMING below.
-            harvest_amount = HARVEST_AMOUNT * (FARMER_HARVEST_BONUS if agent.occupation == OCCUPATION_FARMER else 1.0)
+            harvest_amount = (
+                HARVEST_AMOUNT * (FARMER_HARVEST_BONUS if agent.occupation == OCCUPATION_FARMER else 1.0)
+                * _specialization_factor(home, "agricultural")
+            )
             consumed = farms.harvest(agent.x, agent.y, harvest_amount)
             if consumed > 0:
                 # Harvest-minded traditions stretch what a harvest gives —
@@ -4551,6 +4564,7 @@ class Population:
             )
             work = (
                 CONSTRUCTION_WORK_PER_TICK * weighted_workers * _tech_factor(settlement)
+                * _specialization_factor(settlement, "structural")
                 * (1.0 + avg_skill * SKILL_CONSTRUCTION_SPEED_BONUS)
             )
             if settlement.materials >= MATERIALS_PER_CONSTRUCTION_TICK:
@@ -4590,7 +4604,7 @@ class Population:
                 sum(BUILDER_WORK_BONUS if a.occupation == OCCUPATION_BUILDER else 1.0 for a in present),
                 float(MAX_WORKERS),
             )
-            repair = REPAIR_WORK_PER_TICK * workers * _tech_factor(settlement)
+            repair = REPAIR_WORK_PER_TICK * workers * _tech_factor(settlement) * _specialization_factor(settlement, "structural")
             building.condition = min(1.0, building.condition + repair)
             if building.condition >= REPAIR_THRESHOLD:
                 # Discrete "repair completed" count (v0.86.7) — how many
@@ -4876,7 +4890,10 @@ class Population:
                 for a in by_position.get((building.x, building.y), [])
                 if a.state is AgentState.AWAKE and a.hunger <= GRANARY_WELLFED_HUNGER_THRESHOLD
             )
-            yield_amount = (passive + tended * min(tenders, MAX_WORKERS)) * _tech_factor(settlement)
+            yield_amount = (
+                (passive + tended * min(tenders, MAX_WORKERS))
+                * _tech_factor(settlement) * _specialization_factor(settlement, "agricultural")
+            )
             building.stored_food = min(capacity, building.stored_food + yield_amount)
 
     @staticmethod
@@ -4894,7 +4911,7 @@ class Population:
             )
             if staff == 0:
                 continue
-            income = WORKSHOP_INCOME_PER_TICK * staff * _tech_factor(settlement)
+            income = WORKSHOP_INCOME_PER_TICK * staff * _tech_factor(settlement) * _specialization_factor(settlement, "mercantile")
             if settlement.has_power_plant():
                 income *= POWER_GRID_INDUSTRY_MULTIPLIER
             settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
@@ -5072,7 +5089,7 @@ class Population:
             )
             if staff == 0:
                 continue
-            income = FACTORY_INCOME_PER_TICK * staff * _tech_factor(settlement)
+            income = FACTORY_INCOME_PER_TICK * staff * _tech_factor(settlement) * _specialization_factor(settlement, "mercantile")
             if settlement.has_power_plant():
                 income *= POWER_GRID_INDUSTRY_MULTIPLIER
             settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
@@ -5091,7 +5108,7 @@ class Population:
             )
             if staff == 0:
                 continue
-            income = DOCK_INCOME_PER_TICK * staff * _tech_factor(settlement)
+            income = DOCK_INCOME_PER_TICK * staff * _tech_factor(settlement) * _specialization_factor(settlement, "mercantile")
             settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
 
     @staticmethod
@@ -5109,7 +5126,7 @@ class Population:
             )
             if staff == 0:
                 continue
-            income = OIL_RIG_INCOME_PER_TICK * staff * _tech_factor(settlement)
+            income = OIL_RIG_INCOME_PER_TICK * staff * _tech_factor(settlement) * _specialization_factor(settlement, "mercantile")
             if settlement.has_power_plant():
                 income *= POWER_GRID_INDUSTRY_MULTIPLIER
             settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
@@ -5215,7 +5232,7 @@ class Population:
             )
             if staff == 0:
                 continue
-            income = FORGE_INCOME_PER_TICK * staff * _tech_factor(settlement)
+            income = FORGE_INCOME_PER_TICK * staff * _tech_factor(settlement) * _specialization_factor(settlement, "mercantile")
             settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
 
     @staticmethod
@@ -5236,7 +5253,7 @@ class Population:
             )
             if bankers == 0:
                 continue
-            income = BANKER_INCOME_PER_TICK * bankers * _tech_factor(settlement)
+            income = BANKER_INCOME_PER_TICK * bankers * _tech_factor(settlement) * _specialization_factor(settlement, "mercantile")
             settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
 
     @staticmethod
@@ -5310,7 +5327,7 @@ class Population:
             )
             if workers == 0:
                 continue
-            work = VEHICLE_CONSTRUCTION_WORK_PER_TICK * min(workers, VEHICLE_MAX_WORKERS) * _tech_factor(settlement)
+            work = VEHICLE_CONSTRUCTION_WORK_PER_TICK * min(workers, VEHICLE_MAX_WORKERS) * _tech_factor(settlement) * _specialization_factor(settlement, "structural")
             vehicle.progress = min(1.0, vehicle.progress + work)
             if vehicle.progress >= 1.0:
                 vehicle.stage = VehicleStage.READY
@@ -5332,7 +5349,7 @@ class Population:
             )
             if workers == 0:
                 continue
-            repair = VEHICLE_REPAIR_WORK_PER_TICK * min(workers, VEHICLE_MAX_WORKERS) * _tech_factor(settlement)
+            repair = VEHICLE_REPAIR_WORK_PER_TICK * min(workers, VEHICLE_MAX_WORKERS) * _tech_factor(settlement) * _specialization_factor(settlement, "structural")
             vehicle.condition = min(1.0, vehicle.condition + repair)
             if vehicle.stage is VehicleStage.BROKEN and vehicle.condition >= VEHICLE_REPAIR_THRESHOLD:
                 vehicle.stage = VehicleStage.READY

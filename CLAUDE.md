@@ -416,6 +416,24 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.2.0)
+
+Post-v1 follow-up, second of two chosen items ("inventions unlock
+specific things"). Every invention used to have the identical
+mechanical effect (flat `tech_level += 1`) regardless of what the LLM
+named it. `llm/invention.py` now also picks a closed-choice `category`
+(agricultural/structural/mercantile/general, `buildings.INVENTION_
+CATEGORIES`) alongside the free-text name/description — same closed-
+choice-on-top-of-open-creativity shape `era_branch.py` established.
+Each matching invention nudges a small, capped (`INVENTION_
+SPECIALIZATION_CAP=0.18`) settlement bonus consumed multiplicatively
+via new `Population._specialization_factor` at category-matched sites
+(agricultural: farm/husbandry yield; mercantile: workshop/factory/
+dock/oil_rig/forge/banker income; structural: construction/repair work
+rate) — stacks with, doesn't replace, the existing flat `_tech_factor`.
+"medical" deliberately deferred (higher blast radius). New "Invention
+specializations" UI panel. Full detail: CHANGELOG.md.
+
 ## Current state (v1.1.0)
 
 Post-v1 follow-up, explicit user request after the batch shipped:

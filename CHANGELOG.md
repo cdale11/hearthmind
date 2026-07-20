@@ -4,6 +4,45 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.2.0] — Inventions unlock specific things
+
+Post-v1 follow-up (explicit user ask, second of two chosen items):
+every invention previously had the identical mechanical effect
+regardless of what the LLM actually invented — a flat `tech_level +=
+1` bump, the free-text name/description was pure flavor with zero
+mechanical weight. `llm/invention.py` now also asks the model for a
+closed-choice `category` (`INVENTION_CATEGORIES`: agricultural,
+structural, mercantile, general) alongside its free-text name/
+description — same "closed-choice on top of open creativity" discipline
+`llm/era_branch.py` established, so a wilder invented name/description
+still never risks an unsupported mechanical outcome.
+
+Each matching invention nudges the new `Settlement.invention_
+specializations[category]` up by `INVENTION_SPECIALIZATION_STEP`
+(0.03), capped per category at `INVENTION_SPECIALIZATION_CAP` (0.18,
+diminishing returns — six matching inventions saturate a category).
+Consumed multiplicatively via new `Population._specialization_factor`,
+stacking on top of (not replacing) the existing flat `_tech_factor`:
+agricultural at farm harvest + husbandry yield; mercantile at
+workshop/factory/dock/oil_rig/forge/banker income; structural at
+building/vehicle construction and repair work rate. `general` (and any
+malformed/missing category) is a safe no-op, same as before this
+change. "medical" was deliberately left out this pass — disease/
+predator death-chance code is higher-blast-radius than a yield/income/
+work-rate multiplier, flagged as a follow-up, not attempted.
+
+UI: new "Invention specializations" panel listing each category's
+current bonus percentage, with a tooltip explaining the mechanism.
+
+Verified: direct smoke tests (category parsing incl. malformed-category
+fallback, `_specialization_factor` baseline/bump/cap/round-trip),
+a monkeypatched end-to-end test forcing the invention roll through the
+real async engine job path (confirms `tech_level`, `inventions`, and
+`invention_specializations` all update together correctly),
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+no native module touched, a 9,000-tick engine run with no crash and a
+snapshot round-trip check, and `node --check` on app.js.
+
 ## [1.1.0] — Core-cast rotation
 
 Post-v1 follow-up (explicit user ask: "anything else that might

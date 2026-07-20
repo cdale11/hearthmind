@@ -1751,6 +1751,26 @@ Uncapped: inventions are meant to be rare (see INVENTION_CHANCE_PER_SEASON),
 so runaway compounding is self-limiting in practice. See
 docs/DECISIONS.md, E3."""
 
+INVENTION_CATEGORIES: tuple[str, ...] = ("agricultural", "structural", "mercantile", "general")
+"""Post-v1 follow-up: closed-choice category `llm/invention.py` picks
+alongside an invention's name/description, so a specific invention
+carries a specific mechanical lean rather than every invention doing
+the identical generic thing. "medical" was deliberately left out this
+pass — disease/predator death-chance code is higher-blast-radius to
+touch than yield/income/work-rate multipliers, flagged as a follow-up,
+not attempted. "general" is always a safe, valid choice with no
+specific consumption, for an invention that genuinely doesn't fit."""
+
+INVENTION_SPECIALIZATION_STEP = 0.03
+INVENTION_SPECIALIZATION_CAP = 0.18
+"""Per-category bonus step/cap on `Settlement.invention_specializations`
+— six matching inventions saturate a category at the cap (diminishing
+returns, same "can't stack to dominance" discipline capped values use
+elsewhere in this project). Deliberately smaller than TECH_BONUS_PER_
+LEVEL's per-invention 0.15 (uncapped, generic, applies regardless of
+category) — this is a differentiating LEAN on top of that baseline,
+not a replacement for it."""
+
 INVENTION_CURRENCY_THRESHOLD = 10.0
 INVENTION_MATERIALS_FRACTION = 0.5
 """A settlement is "prosperous" enough to invent something when its
@@ -2095,6 +2115,24 @@ class SettlementCulture:
     (`knowledge_lost` event); `_apply_inheritance` gives an heir a
     chance to rediscover a dormant invention they inherit alongside
     goods/skill/bias (H7)."""
+    invention_specializations: dict = field(default_factory=dict)
+    """Post-v1 follow-up: previously EVERY invention had the identical
+    mechanical effect (`tech_level += 1`, feeding the flat, invention-
+    agnostic `_tech_factor`) — the LLM's own choice of WHAT to invent
+    carried zero mechanical weight beyond its narrated flavor text.
+    `llm/invention.py` now also picks a closed-choice category
+    (`INVENTION_CATEGORIES`) alongside the name/description; each
+    matching invention nudges `invention_specializations[category]` up
+    by `INVENTION_SPECIALIZATION_STEP`, capped at `INVENTION_
+    SPECIALIZATION_CAP` per category (diminishing returns — a
+    settlement can't stack one category to dominance from a lucky
+    naming streak). Consumed multiplicatively alongside `_tech_factor`
+    at category-matched call sites (agricultural: farm/husbandry yield;
+    mercantile: workshop/factory/dock/oil_rig/forge/banker income;
+    structural: construction/repair work rate) — see `Population.
+    _specialization_factor`. `general` is a safe always-valid category
+    with no specific consumption, for inventions that genuinely don't
+    fit a category."""
     festivals: list[str] = field(default_factory=list)
     """Festivals held, same shape — wellbeing-gated, with a direct
     mechanical effect (FESTIVAL_RELATIONSHIP_BOOST). Capped in storage
@@ -2443,6 +2481,7 @@ class Settlement:
         pattern_signal_counts: dict | None = None,
         family_feud_counts: dict | None = None,
         invention_knowledge: dict | None = None,
+        invention_specializations: dict | None = None,
         laws: list[dict] | None = None, law_signal_counts: dict | None = None,
         thefts_committed: int = 0,
         lexicon: list[dict] | None = None,
@@ -2494,6 +2533,7 @@ class Settlement:
             culture_effects=culture_effects if culture_effects is not None else {},
             inventions=inventions if inventions is not None else [],
             invention_knowledge=invention_knowledge if invention_knowledge is not None else {},
+            invention_specializations=invention_specializations if invention_specializations is not None else {},
             festivals=festivals if festivals is not None else [],
             festivals_held=festivals_held,
             beliefs=beliefs if beliefs is not None else [],
@@ -2717,6 +2757,14 @@ class Settlement:
     @invention_knowledge.setter
     def invention_knowledge(self, value: dict) -> None:
         self.culture.invention_knowledge = value
+
+    @property
+    def invention_specializations(self) -> dict:
+        return self.culture.invention_specializations
+
+    @invention_specializations.setter
+    def invention_specializations(self, value: dict) -> None:
+        self.culture.invention_specializations = value
 
     @property
     def festivals(self) -> list[str]:
@@ -3377,6 +3425,7 @@ class Settlement:
             "tech_level": self.tech_level,
             "inventions": list(self.inventions),
             "invention_knowledge": self.invention_knowledge,
+            "invention_specializations": dict(self.invention_specializations),
             "festivals": list(self.festivals),
             "vehicles": vehicle_summary,
             "workshops": kind_counts["workshop"],
@@ -3530,6 +3579,7 @@ class Settlement:
             "tech_level": self.tech_level,
             "inventions": list(self.inventions),
             "invention_knowledge": self.invention_knowledge,
+            "invention_specializations": dict(self.invention_specializations),
             "festivals": list(self.festivals),
             "festivals_held": self.festivals_held,
             "vehicles": [v.to_dict() for v in self.vehicles],
@@ -3600,6 +3650,7 @@ class Settlement:
             culture_effects=dict(data.get("culture_effects", {})),
             tech_level=data.get("tech_level", 0), inventions=list(data.get("inventions", [])),
             invention_knowledge=dict(data.get("invention_knowledge", {})),
+            invention_specializations=dict(data.get("invention_specializations", {})),
             festivals=list(data.get("festivals", [])),
             festivals_held=data.get("festivals_held", len(data.get("festivals", []))),
             vehicles=vehicles, _next_vehicle_id=data.get("next_vehicle_id", 0),

@@ -12,13 +12,24 @@ the first place") beyond its original build/farm framing — the LLM is
 invited toward whatever this settlement's own specific history
 plausibly leads to (a husbandry technique, a genuinely new food source,
 a hardship-born medical remedy, or anything else), not steered into a
-fixed category list. Mechanically this is still just a flavor string —
-the only guaranteed effect remains the flat `tech_level += 1` bump
-(`SimulationEngine._maybe_schedule_invention`) — so a wilder answer
-never risks breaking anything downstream; it only changes what gets
-narrated as the reason tech_level went up.
+fixed category list.
+
+Post-v1 follow-up: every invention used to have the identical
+mechanical effect regardless of what it actually was (the flat
+`tech_level += 1` bump, `SimulationEngine._maybe_schedule_invention`)
+— the free-text name/description was pure flavor. The model now ALSO
+picks a closed-choice `category` (`buildings.INVENTION_CATEGORIES`)
+alongside its free-text invention, nudging a small, capped, category-
+matched settlement bonus (`Settlement.invention_specializations`,
+consumed by `Population._specialization_factor`) on top of the
+existing generic `tech_level` bump — the free-text creativity is
+unchanged, only the category is now closed-choice and load-bearing, so
+a wilder invented name/description still never risks an unsupported
+mechanical outcome.
 """
 from __future__ import annotations
+
+from hearthmind.settlement.buildings import INVENTION_CATEGORIES
 
 SYSTEM_PROMPT = (
     "You are the craft-keeper of a small simulated village. Given its "
@@ -31,21 +42,23 @@ SYSTEM_PROMPT = (
     "through, or anything else this particular history plausibly leads "
     "to — the goal is something that feels like it grew out of these "
     "specific people's specific experience, not a generic tech-tree "
-    "entry. "
+    "entry. Also classify it as one of: "
+    f"{', '.join(INVENTION_CATEGORIES)} (use 'general' if it genuinely "
+    "doesn't fit the others). "
     'Respond with strict JSON only, no other text: {"invention": '
     '"a short name, under 8 words", "description": "one sentence, under '
-    '25 words"}.'
+    '25 words", "category": "one of the exact listed words"}.'
 )
 
-_FALLBACK_POOL: tuple[tuple[str, str], ...] = (
-    ("The Iron Ploughshare", "A sturdier plough blade lets fields be worked faster."),
-    ("Post-and-Beam Framing", "A stronger timber frame speeds every new structure."),
-    ("The Root Cellar", "Cool storage dug below ground keeps food from spoiling."),
-    ("Crop Rotation", "Fields are rested and rotated, yielding more over time."),
-    ("The Grain Quern", "A hand-turned mill grinds harvests faster than before."),
-    ("The Rain Cistern", "A dug cistern catches rainwater, easing the well's burden in dry spells."),
-    ("Woven Fencing", "Interlaced hedging keeps livestock and wandering feet out of tended fields."),
-    ("The Handcart Axle", "A stronger axle lets carts haul heavier loads without breaking."),
+_FALLBACK_POOL: tuple[tuple[str, str, str], ...] = (
+    ("The Iron Ploughshare", "A sturdier plough blade lets fields be worked faster.", "agricultural"),
+    ("Post-and-Beam Framing", "A stronger timber frame speeds every new structure.", "structural"),
+    ("The Root Cellar", "Cool storage dug below ground keeps food from spoiling.", "agricultural"),
+    ("Crop Rotation", "Fields are rested and rotated, yielding more over time.", "agricultural"),
+    ("The Grain Quern", "A hand-turned mill grinds harvests faster than before.", "agricultural"),
+    ("The Rain Cistern", "A dug cistern catches rainwater, easing the well's burden in dry spells.", "structural"),
+    ("Woven Fencing", "Interlaced hedging keeps livestock and wandering feet out of tended fields.", "structural"),
+    ("The Handcart Axle", "A stronger axle lets carts haul heavier loads without breaking.", "mercantile"),
 )
 
 
@@ -72,15 +85,18 @@ def build_prompt(
 def fallback_invention(settlement_name: str, tech_level: int, established_count: int) -> dict:
     """Deterministic stand-in — cycles through a small fixed pool, same
     approach as culture.fallback_tradition."""
-    name, description = _FALLBACK_POOL[established_count % len(_FALLBACK_POOL)]
-    return {"invention": name, "description": description}
+    name, description, category = _FALLBACK_POOL[established_count % len(_FALLBACK_POOL)]
+    return {"invention": name, "description": description, "category": category}
 
 
-def parse_invention(result: dict, fallback: dict) -> tuple[str, str]:
+def parse_invention(result: dict, fallback: dict) -> tuple[str, str, str]:
     name = result.get("invention")
     description = result.get("description")
+    category = result.get("category")
     if not isinstance(name, str) or not name.strip():
         name = fallback["invention"]
     if not isinstance(description, str) or not description.strip():
         description = fallback["description"]
-    return name.strip()[:80], description.strip()[:200]
+    if not isinstance(category, str) or category not in INVENTION_CATEGORIES:
+        category = fallback["category"]
+    return name.strip()[:80], description.strip()[:200], category

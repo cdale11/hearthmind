@@ -111,6 +111,8 @@ from hearthmind.settlement.buildings import (
     INVENTION_KNOWLEDGE_MAX_TRACKED,
     INVENTION_MATERIALS_FRACTION,
     INVENTION_REDISCOVERY_CHANCE,
+    INVENTION_SPECIALIZATION_CAP,
+    INVENTION_SPECIALIZATION_STEP,
     LAWS_MAX_STORED,
     LAW_SIGNAL_THRESHOLD,
     LEXICON_MAX_STORED,
@@ -2825,13 +2827,18 @@ class SimulationEngine:
         invention_target_id = settlement.id
 
         def apply(result: dict, used_fallback: bool) -> None:
-            name, description = invention.parse_invention(result, fallback)
+            name, description, category = invention.parse_invention(result, fallback)
             entry = f"{name}: {description}"
             settlement = self._settlement_by_id(invention_target_id)
             settlement.inventions.append(entry)
             if len(settlement.inventions) > CULTURE_LIST_MAX_STORED:
                 settlement.inventions = settlement.inventions[-CULTURE_LIST_MAX_STORED:]
             settlement.tech_level += 1
+            if category != "general":
+                current = settlement.invention_specializations.get(category, 0.0)
+                settlement.invention_specializations[category] = min(
+                    INVENTION_SPECIALIZATION_CAP, current + INVENTION_SPECIALIZATION_STEP,
+                )
             invention_detail = f"{settlement.name or 'The village'} invented {entry}"
             self._log("invention", invention_detail)
             if sum(s.tech_level for s in self.world.settlements) == 1:
