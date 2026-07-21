@@ -453,6 +453,35 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.28)
+
+Explicit user directive: "Start the 5th item and extend LLM 4-5
+pillars." Reflection (Phase 5) is the meta-cognitive system observing
+the four Minds (Humans, Village, Nature, Innovation) — not a fifth
+pillar, per v1.3.27's Body/Mind correction. Ships 5.A + 5.B only;
+5.C (counterfactual sandbox)/5.D/5.E (self-improvement recommendations)
+stay design-only.
+
+New `World.reflection_notebook`/`next_reflection_entry_id`: typed,
+never-pruned `ReflectionEntry` records (observation/hypothesis/
+experiment/conclusion/question, confidence, evidence_for/against,
+open/supported/rejected/superseded status) — a rejected hypothesis
+stays as historical knowledge, never deleted. New `llm/reflection.py`
++ `SimulationEngine._maybe_schedule_reflection` (world-scoped,
+`season_end`, `critical=False` — ambient self-improvement, keeps a
+real deterministic fallback). Each firing: deterministic pattern-
+detection reusing existing counters across all four pillars with zero
+new instrumentation beyond one read-only aggregate (`pattern_signal_
+counts` for Village/Human, `WildlifeGrid.summary()`'s `prey_scarce`/
+`predator_pressure_ratio` for Nature, established-concept category-
+imbalance over `world.invented_concepts` for Innovation) -> one LLM
+call proposes a grounded hypothesis (skipped if an open hypothesis
+already shares the pattern's subject) -> every existing open
+hypothesis gets a small bounded confidence nudge from fresh evidence,
+no LLM call, transitioning to supported/rejected at threshold. Surfaced
+via `_diagnostics_snapshot()` only (dev-console/raw-JSON depth,
+Observatory UI split).
+
 ## Current state (v1.3.27)
 
 Explicit user correction ("The self-evolving ontology is not the

@@ -350,6 +350,23 @@ class World:
     `llm.beliefs.MAX_BELIEFS`, weakest-confidence eviction, same as
     settlement beliefs. See `llm/nature_mind.py`, `SimulationEngine.
     _maybe_schedule_nature_mind`."""
+    reflection_notebook: list[dict] = field(default_factory=list)
+    """Phase 5.A (docs/VISION-2026-07-21-SELFEVOLVING.md, "Start the
+    5th item"): the persistent research notebook of Hearthmind's own
+    reflective intelligence — a FIFTH participant observing the other
+    four pillars' long-term behavior, never their objective state
+    directly. Each entry: `{id, created_tick, kind: hypothesis|
+    observation, subject, content, confidence, evidence_for,
+    evidence_against, status: open|supported|rejected, supersedes}`.
+    Deliberately NEVER pruned (unlike every other capped log in this
+    codebase) — "preserve rejected hypotheses as historical knowledge"
+    is structural, not aspirational; low natural volume (one entry per
+    reflection cycle at most, year-cadence) keeps this safe without an
+    artificial cap. See `llm/reflection.py`, `SimulationEngine.
+    _maybe_schedule_reflection`."""
+    next_reflection_entry_id: int = 1
+    """Monotonic id counter for `reflection_notebook` — never reused,
+    same discipline as every other id counter in this codebase."""
     _water_tiles: set = field(default=None, compare=False, repr=False)  # type: ignore[assignment]
     """Cached set of water-biome tile coords for `_tick_disasters` —
     previously rebuilt with a full terrain scan every tick even though
@@ -803,6 +820,8 @@ class World:
             "invented_concepts": {str(k): v.to_dict() for k, v in self.invented_concepts.items()},
             "next_concept_id": self.next_concept_id,
             "nature_beliefs": list(self.nature_beliefs),
+            "reflection_notebook": list(self.reflection_notebook),
+            "next_reflection_entry_id": self.next_reflection_entry_id,
             "consciousness_memory": list(self.consciousness_memory),
             "consciousness_personality": dict(self.consciousness_personality),
             "consciousness_objectives": list(self.consciousness_objectives),
@@ -998,5 +1017,7 @@ class World:
             },
             next_concept_id=data.get("next_concept_id", 1),
             nature_beliefs=list(data.get("nature_beliefs", [])),
+            reflection_notebook=list(data.get("reflection_notebook", [])),
+            next_reflection_entry_id=data.get("next_reflection_entry_id", 1),
             migrated_subsystems=migrated_subsystems,
         )

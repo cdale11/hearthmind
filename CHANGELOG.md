@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.28] — Reflection (Phase 5.A/5.B): the fifth participant
+
+Explicit user directive: "Start the 5th item and extend LLM 4-5
+pillars." Reflection is a meta-cognitive system observing the four
+Minds (Humans, Village, Nature, Innovation), not a fifth pillar — see
+v1.3.27's Body/Mind correction. Ships 5.A (persistent research
+notebook) and 5.B (the reflection job) only; 5.C (counterfactual
+sandbox), 5.D/5.E (prompt/architectural self-improvement) remain
+design-only, flagged not attempted this pass.
+
+New `World.reflection_notebook`/`next_reflection_entry_id`: typed
+`ReflectionEntry` records (`kind: observation|hypothesis|experiment|
+conclusion|question`, `subject`, `content`, `confidence`,
+`evidence_for`/`evidence_against`, `status: open|supported|rejected|
+superseded`, `supersedes`), never pruned by design — a rejected
+hypothesis stays as historical knowledge, not deleted.
+
+New `llm/reflection.py` + `SimulationEngine._maybe_schedule_reflection`
+(world-scoped, `season_end`, `critical=False` — ambient self-
+improvement, not blocking cognition, keeps a real deterministic
+fallback). Each firing: (1) `_detect_reflection_pattern` — a
+deterministic pass reusing existing counters across all four pillars,
+no new instrumentation beyond one read-only aggregate: `Settlement.
+pattern_signal_counts` (Village/Human), `WildlifeGrid.summary()`'s
+`prey_scarce`/`predator_pressure_ratio` (Nature), and established-
+concept category-imbalance over `world.invented_concepts` (Innovation/
+cross-pillar, new `REFLECTION_ONTOLOGY_IMBALANCE_MIN_TOTAL=6`/
+`_RATIO=3.0`); (2) if a pattern clears threshold and no open hypothesis
+already shares its subject, one LLM call proposes a grounded hypothesis
+plus explicit "what would contradict it" evidence, written as a new
+notebook entry; (3) `_reevaluate_reflection_hypotheses` — every
+existing OPEN hypothesis gets a small bounded confidence nudge
+(`REFLECTION_CONFIDENCE_STEP=0.08`) from fresh evidence, transitioning
+to `supported`/`rejected` at `REFLECTION_SUPPORTED_THRESHOLD=0.85`/
+`REFLECTION_REJECTED_THRESHOLD=0.15`, no LLM call. Surfaced via
+`_diagnostics_snapshot()` (`reflection_notebook_total`, `_by_status`,
+`_recent`) — dev-console/raw-JSON only, matching Phase G/consciousness
+precedent for internals-depth content.
+
+Verified: direct production-path tests (hypothesis formation with a
+FakeClient, multi-cycle confidence-nudge/dedup showing exactly 1
+notebook entry persists across 3 firing cycles despite the pattern
+recurring, ontology-imbalance detection, critical-job-deferral N/A
+since `critical=False`), a 6000-tick engine soak + round-trip equality,
+`scripts/verify_native_soak.py` byte-identical (no native module
+touched).
+
 ## [1.3.27] — Body/Mind architecture correction + Nature's Mind
 
 Explicit user correction: stop describing the LLM as a layer "bolted

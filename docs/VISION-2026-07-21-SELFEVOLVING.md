@@ -726,8 +726,9 @@ lower-priority follow-up, not flagged gaps.
 
 ## Phase 5 — Reflection & Self-Improvement (the AI Scientist)
 
-**Status: DESIGNED, not yet implemented.** Explicit user directive
-(2026-07-21): a large pasted checklist ("Reflection & Self-Improvement",
+**Status: 5.A/5.B SHIPPED, v1.3.28 ("Start the 5th item").** 5.C/5.D/5.E
+remain design-only, not yet implemented — see their own sections below.
+Explicit user directive (2026-07-21): a large pasted checklist ("Reflection & Self-Improvement",
 "Hearthmind Reflection (AI Scientist)", "Scientific Method",
 "Self-Improvement", "Counterfactual Reasoning", "Research Questions",
 "Architectural Reflection", "AI Co-Developer", "Reflection Rules",
@@ -751,6 +752,12 @@ Town Consciousness already uses, or (b) an offline engineering
 recommendation requiring human approval — never a live code edit.
 
 ### 5.A — The research notebook (persistent, not a log)
+
+**Shipped v1.3.28.** `World.reflection_notebook`/`next_reflection_
+entry_id` implemented exactly as specified below; surfaced via
+`_diagnostics_snapshot()` (`reflection_notebook_total`, `_by_status`,
+`_recent`) — dev-console/raw-JSON only, per the Observatory UI split
+(this is diagnostics-depth content, not main-UI).
 
 New `World.reflection_notebook` (world-scoped, durable-logged per the
 Constitution §6 pattern every other persistent-cognition store already
@@ -778,6 +785,16 @@ from decades" made literal by simply not pruning this table on the
 usual retention cadence other logs use.
 
 ### 5.B — The reflection job (pattern detection → hypothesis → evidence)
+
+**Shipped v1.3.28.** `_detect_reflection_pattern`/`_reevaluate_
+reflection_hypotheses`/`_maybe_schedule_reflection` implemented as
+specified below, reusing `pattern_signal_counts` (Village/Human),
+`WildlifeGrid.summary()`'s `prey_scarce`/`predator_pressure_ratio`
+(Nature), and a new read-only aggregate over `world.invented_concepts`
+category counts (Innovation/cross-pillar) — no new instrumentation
+beyond that one aggregate. An existing open hypothesis with the same
+`subject` skips the LLM call (deterministic re-evaluation handles it
+instead), verified via a multi-cycle test.
 
 One new round-robin-bounded LLM job (`llm/reflection.py`,
 `_maybe_schedule_reflection`, same shape as the quarterly `culture_

@@ -69,7 +69,7 @@ from hearthmind.llm import (
     digest, dispute, documentary, dream, era_branch, festival, folklore, founding, geography, invention,
     memory_drift, mind,
     naming, narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
-    diplomacy, laws, letters, noncore_nudge, institution_culture, nature_mind,
+    diplomacy, laws, letters, noncore_nudge, institution_culture, nature_mind, reflection,
 )
 from hearthmind.llm import ontology as ontology_llm
 from hearthmind.world import ontology
@@ -391,6 +391,30 @@ these calls originate a genuinely new idea and get named in the
 village's own history, worth the extra tokens/latency in a way an
 ordinary dialogue exchange or goal decision isn't. Every other job's
 generation config is completely unaffected."""
+
+REFLECTION_ONTOLOGY_IMBALANCE_MIN_TOTAL = 6
+REFLECTION_ONTOLOGY_IMBALANCE_RATIO = 3.0
+"""Phase 5.B pattern-detection (docs/VISION-2026-07-21-SELFEVOLVING.md,
+"Start the 5th item"): one of Reflection's deterministic cross-pillar
+signals — if established `invented_concepts` total at least this many
+(enough to be a real sample, not noise) and one category has at least
+this many times more established concepts than the least-represented
+category with at least one, that's a genuine imbalance across the four
+pillars' ontology-origination worth a hypothesis (e.g. "the village
+keeps inventing customs but the land almost never gives rise to
+anything")."""
+
+REFLECTION_CONFIDENCE_STEP = 0.08
+REFLECTION_SUPPORTED_THRESHOLD = 0.85
+REFLECTION_REJECTED_THRESHOLD = 0.15
+"""5.B item 3, "existing OPEN hypotheses are re-evaluated against fresh
+evidence every firing" — a small bounded nudge (same `bounded_random_
+walk_step`-adjacent shape temperament/mood already use), never a fresh
+LLM call. An open hypothesis whose pattern recurs this cycle gains
+confidence; one whose pattern no longer clears its own threshold loses
+some. Crossing `_SUPPORTED_THRESHOLD`/`_REJECTED_THRESHOLD` transitions
+status — supported/rejected hypotheses stop being re-evaluated (the
+notebook itself is never pruned, only status-transitioned)."""
 
 CONCEPT_SPREAD_CHANCE_PER_TICK = 0.02
 """Per-tick, per-growing-concept roll driving `_maybe_spread_concepts`
@@ -1700,6 +1724,7 @@ class SimulationEngine:
         ("_maybe_schedule_narrative_direction", _JOB_EVENTS),
         ("_maybe_schedule_culture_digest", _JOB_EVENTS),
         ("_maybe_schedule_consciousness", _JOB_EVENTS),
+        ("_maybe_schedule_reflection", _JOB_EVENTS),
         ("_maybe_schedule_caravan", _JOB_EVENTS),
         ("_maybe_schedule_town_brain", _JOB_EVENTS),
         ("_maybe_schedule_beliefs", _JOB_EVENTS),
@@ -4397,6 +4422,136 @@ class SimulationEngine:
             _remember(donor, text)
             _remember(recipient, text)
 
+    # --- Phase 5.A/5.B "self-evolving world" — Reflection, the fifth participant ---
+
+    def _detect_reflection_pattern(self) -> dict | None:
+        """Deterministic pattern-detection pass across all four
+        pillars' Body state and existing signal counters — no new
+        instrumentation (docs/VISION-2026-07-21-SELFEVOLVING.md, Phase
+        5.B item 1). Checked in a fixed priority order; returns the
+        first pattern that clears a real threshold, or `None` if
+        nothing does this cycle — reflection genuinely has "nothing
+        notable to say" most cycles, which is correct, not a gap."""
+        for settlement in self.world.settlements:
+            counts = settlement.pattern_signal_counts
+            for category, count in counts.items():
+                if count >= PATTERN_SIGNAL_BELIEF_THRESHOLD:
+                    label = category.replace("_", " ")
+                    return {
+                        "subject": f"{label} in {settlement.name or 'the village'}",
+                        "description": f"{count} {label} occurrences recently in {settlement.name or 'the village'}.",
+                    }
+        wildlife_summary = self.world.wildlife.summary()
+        if wildlife_summary.get("prey_scarce"):
+            return {
+                "subject": "prey scarcity",
+                "description": (
+                    f"{wildlife_summary['grazer_herds']} grazer herds against "
+                    f"{wildlife_summary['predator_packs']} predator packs — prey is scarce."
+                ),
+            }
+        if wildlife_summary.get("predator_pressure_ratio", 0.0) > 0.25:
+            return {
+                "subject": "predator pressure",
+                "description": f"predator pressure ratio {wildlife_summary['predator_pressure_ratio']:.2f} against grazer population.",
+            }
+        established = [c for c in self.world.invented_concepts.values() if c.status == "established"]
+        if len(established) >= REFLECTION_ONTOLOGY_IMBALANCE_MIN_TOTAL:
+            counts_by_cat: dict[str, int] = {}
+            for c in established:
+                counts_by_cat[c.category] = counts_by_cat.get(c.category, 0) + 1
+            if len(counts_by_cat) >= 2:
+                top_cat = max(counts_by_cat, key=lambda k: counts_by_cat[k])
+                bottom_cat = min(counts_by_cat, key=lambda k: counts_by_cat[k])
+                top_n, bottom_n = counts_by_cat[top_cat], counts_by_cat[bottom_cat]
+                if bottom_n > 0 and top_n >= bottom_n * REFLECTION_ONTOLOGY_IMBALANCE_RATIO:
+                    return {
+                        "subject": "ontology imbalance",
+                        "description": (
+                            f"{top_n} established '{top_cat}' concepts against only {bottom_n} "
+                            f"'{bottom_cat}' concepts, out of {len(established)} established total."
+                        ),
+                    }
+        return None
+
+    def _reevaluate_reflection_hypotheses(self, current_pattern: dict | None) -> None:
+        """5.B item 3: existing OPEN hypotheses re-evaluated against
+        fresh evidence every firing — deterministic, no LLM call. A
+        hypothesis whose own subject matches this cycle's detected
+        pattern gains confidence (the pattern recurred); one that
+        doesn't match loses a little (its supporting evidence didn't
+        renew this cycle). Crossing the supported/rejected threshold
+        transitions status; the entry itself is never deleted."""
+        tick = self.world.clock.tick_count
+        for entry in self.world.reflection_notebook:
+            if entry.get("status") != "open" or entry.get("kind") != "hypothesis":
+                continue
+            recurred = current_pattern is not None and entry.get("subject") == current_pattern["subject"]
+            step = REFLECTION_CONFIDENCE_STEP if recurred else -REFLECTION_CONFIDENCE_STEP
+            entry["confidence"] = round(max(0.0, min(1.0, entry["confidence"] + step)), 3)
+            if recurred:
+                entry.setdefault("evidence_for", []).append(current_pattern["description"])
+            if entry["confidence"] >= REFLECTION_SUPPORTED_THRESHOLD:
+                entry["status"] = "supported"
+            elif entry["confidence"] <= REFLECTION_REJECTED_THRESHOLD:
+                entry["status"] = "rejected"
+                entry.setdefault("evidence_against", []).append(
+                    f"confidence fell below threshold at tick {tick} without recurring evidence"
+                )
+
+    def _maybe_schedule_reflection(self, events: list[str]) -> None:
+        """Phase 5.A/5.B (docs/VISION-2026-07-21-SELFEVOLVING.md,
+        explicit user directive "Start the 5th item"): Reflection is a
+        FIFTH participant observing the other four pillars' long-term
+        behavior, not their objective state directly. Year-cadence
+        (deliberately slower than any per-pillar Mind job — "decades
+        and generations," not "every tick"), `critical=False`
+        (ambient self-improvement, real deterministic "skip this cycle"
+        fallback like every other narrative job — reflection never
+        blocks or defers crucial per-pillar cognition)."""
+        if not self._season_year_gate(events, "reflection", "year_end"):
+            return
+        if self._settlement_job_backpressured():
+            return
+        self._mark_season_year_resolved("reflection")
+        pattern = self._detect_reflection_pattern()
+        self._reevaluate_reflection_hypotheses(pattern)
+        if pattern is None:
+            return
+        open_hypotheses = [
+            e for e in self.world.reflection_notebook
+            if e.get("status") == "open" and e.get("kind") == "hypothesis"
+        ]
+        # Don't spend a call re-proposing a hypothesis this exact
+        # pattern already has an open explanation for — the fresh
+        # evidence already fed it via _reevaluate_reflection_hypotheses
+        # above.
+        if any(e.get("subject") == pattern["subject"] for e in open_hypotheses):
+            return
+        prompt = reflection.build_prompt(pattern, open_hypotheses)
+        fallback = reflection.fallback_hypothesis(pattern)
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            parsed = reflection.parse_hypothesis(result, fallback)
+            entry_id = self.world.next_reflection_entry_id
+            self.world.next_reflection_entry_id += 1
+            tick = self.world.clock.tick_count
+            entry = {
+                "id": entry_id, "created_tick": tick, "kind": "hypothesis",
+                "subject": pattern["subject"], "content": parsed["hypothesis"],
+                "confidence": parsed["confidence"],
+                "evidence_for": [pattern["description"]],
+                "evidence_against": [],
+                "evidence_against_hint": parsed["evidence_against_hint"],
+                "status": "open", "supersedes": None,
+            }
+            self.world.reflection_notebook.append(entry)
+            self._log("reflection", f"Hearthmind formed a hypothesis about {pattern['subject']}: {parsed['hypothesis']}")
+
+        self._schedule_llm_job(
+            "reflection", prompt, reflection.SYSTEM_PROMPT, fallback, apply,
+        )
+
     # --- caravans: a first, scoped step toward "external settlements and trade" ---
 
     def _maybe_schedule_caravan(self, events: list[str]) -> None:
@@ -6600,6 +6755,21 @@ class SimulationEngine:
                 for cat in ontology.ONTOLOGY_CATEGORIES
                 if any(c.category == cat for c in self.world.invented_concepts.values())
             },
+            # Phase 5.A/5.B (docs/VISION-2026-07-21-SELFEVOLVING.md,
+            # "Start the 5th item"): dev-console reachability for
+            # Reflection's notebook, same "diagnostics-depth content,
+            # not main-UI" treatment as every other Phase N/§4-§6
+            # internals-only feature.
+            "reflection_notebook_total": len(self.world.reflection_notebook),
+            "reflection_notebook_by_status": {
+                status: sum(1 for e in self.world.reflection_notebook if e.get("status") == status)
+                for status in ("open", "supported", "rejected")
+                if any(e.get("status") == status for e in self.world.reflection_notebook)
+            },
+            "reflection_notebook_recent": [
+                {"subject": e["subject"], "content": e["content"], "confidence": e["confidence"], "status": e["status"]}
+                for e in self.world.reflection_notebook[-10:]
+            ],
             "llm_stats": self._cognition_runner.stats(),
             "llm_backlog_effective": self._effective_backlog(),
             "llm_backlog_reserved_this_tick": self._reserved_this_tick,
