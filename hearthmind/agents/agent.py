@@ -247,6 +247,15 @@ TRUST_SKEPTICISM_THRESHOLD = -0.15
 """Below this, a rumor from that source is remembered with visible
 skepticism instead of at face value — see Population.apply_dialogue."""
 
+DIALOGUE_MISUNDERSTANDING_TRUST_PENALTY = 0.06
+"""Phase 2 ("dialogue as a simulation event"): applied to BOTH
+directions of trust when an exchange's `misunderstanding` outcome
+fires — on top of, not instead of, the ordinary TRUST_DELTA sentiment
+nudge (a misunderstanding can happen within an otherwise warm
+exchange). Deliberately smaller than TRUST_DELTA's tense penalty —
+being confused about something is a lighter hit to credibility than an
+openly tense exchange."""
+
 PERSONAL_FOOD_CAPACITY = 0.6
 """Max `Agent.inventory["food"]` — a small personal reserve, deliberately
 far below granary/farm scale (GRANARY_CAPACITY 15.0), since this is one
@@ -1309,6 +1318,13 @@ it graduates into permanent `core_memories` instead of disappearing —
 see EMOTION_DECAY_RATE's docstring above: a spike this sharp is exactly
 the "should leave a longer mark" case, even though the emotion value
 itself still decays like any other."""
+
+EMOTION_STORM_FEAR_BUMP = 0.4
+"""Storm has no per-tile tracking (`tick_storm` damages every settlement
+uniformly the instant it fires, unlike flood/wildfire's persistent
+per-tile state) — every AWAKE agent gets this smaller, settlement-wide
+fear bump instead of EMOTION_DISASTER_FEAR_BUMP's tile-scoped, more
+direct spike."""
 
 MOURNING_DURATION_TICKS = 96
 """v0.87.9, "ceremonies agents attend: funerals" (docs/IDEAS-2026-07-

@@ -468,6 +468,7 @@ class World:
             hour_of_day=self.clock.minute_of_day / 60.0, month_name=self.clock.month_name,
         )
         disaster_events = self._tick_disasters(events)
+        storm_struck = any(category == "disaster_storm" for category, _ in disaster_events)
         population_events = self.population.tick(
             seed=self.config.seed, tick=self.clock.tick_count,
             terrain=self.terrain, resources=self.resources, minerals=self.minerals,
@@ -477,6 +478,7 @@ class World:
             map_tiles=self.config.width * self.config.height,
             flooded_tiles=self.disasters.flooded_tiles,
             active_wildfire_tiles=self.disasters.active_wildfire_tiles,
+            storm_struck=storm_struck,
         )
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (

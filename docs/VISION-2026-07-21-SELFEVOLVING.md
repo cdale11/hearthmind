@@ -289,11 +289,14 @@ already established, widened to cite recent NPC-driven events too.
 
 ### 1.D — Nature → Human: disasters leave a permanent mark (the cross-pillar wire)
 
-**Status: SHIPPED, v1.3.20** (scoped: flood/wildfire only, storm left
-unwired for lack of discrete per-tile tracking; the mutual "survived
-together" bond is implemented, the non-helper grievance half is not —
-no disaster-response mechanic exists yet to ground who "could have
-helped") — see CHANGELOG.md's [1.3.20] entry.
+**Status: SHIPPED, v1.3.20, extended v1.3.21.** Storm now wired
+(settlement-wide mark, since it has no per-tile tracking unlike flood/
+wildfire) and a real "helper" bond added (a bystander who visibly
+moved toward the disaster tile) — see CHANGELOG.md's [1.3.21] entry.
+The non-helper grievance half remains unimplemented — no disaster-
+response mechanic exists yet to ground who "could have helped," and
+fabricating awareness would violate the project's evidence-only
+discipline.
 
 Prior checklist's unshipped N1, promoted into Phase 1 specifically
 *because* it's the clearest available proof that two pillars are
@@ -314,6 +317,19 @@ v1.3.17 already built.
 ---
 
 ## Phase 2 — Dialogue as a simulation event
+
+**Status: first slice SHIPPED, v1.3.21.** Items 1 (hidden state/
+objectives) and 3 (structured outcome, mechanically applied) below are
+live — `objectives`/`open_thread` in `dialogue.build_prompt`, the five
+structured-outcome fields in `apply_dialogue`. Item 2 (explicitly
+supplying BOTH sides' objectives and asking the model not to resolve
+the tension) is folded into item 1's prompt wording, not a separate
+mechanism. Item 4 (continuation weeks later) is partially live — an
+open promise is read back as grounding, but `due_for_dialogue`'s
+pair-selection doesn't yet PRIORITIZE a pair with an open thread, just
+allows it to surface when they're naturally due. Item 5 (voice
+consumed more consistently) untouched this pass. See CHANGELOG.md's
+[1.3.21] entry.
 
 The most concretely-scoped rewrite in the manifesto, deliberately its
 own phase (cross-cutting Humans + Village, not one pillar's turn).
@@ -447,6 +463,178 @@ explicitly, rather than each phase reinventing its own convention.
 
 ---
 
+## Phase 5 — Reflection & Self-Improvement (the AI Scientist)
+
+**Status: DESIGNED, not yet implemented.** Explicit user directive
+(2026-07-21): a large pasted checklist ("Reflection & Self-Improvement",
+"Hearthmind Reflection (AI Scientist)", "Scientific Method",
+"Self-Improvement", "Counterfactual Reasoning", "Research Questions",
+"Architectural Reflection", "AI Co-Developer", "Reflection Rules",
+"Reflection Acceptance Criteria" — ~90 bullets across nine headers),
+consolidated here into one scoped design rather than implemented
+verbatim as nine parallel systems. Where the pasted checklist and
+existing standing rules overlap, the existing rule wins (e.g. "never
+modify deterministic simulation code or objective world state directly
+at runtime" is already CLAUDE.md's Constitution — this phase doesn't
+relax it, it's the same boundary Town Consciousness's interventions
+already respect).
+
+**Framing**: this is a FIFTH participant, not a bolt-on diagnostic tool
+— it observes the other four pillars (Humans, Village, Nature,
+Innovation) the way the Town Consciousness observes the town, except
+its subject is the SIMULATION'S OWN BEHAVIOR over long horizons, and
+its output is understanding, not narrative. It never touches objective
+world state or deterministic code directly; every actionable output is
+either (a) a bounded nudge through the SAME deniable-intervention seam
+Town Consciousness already uses, or (b) an offline engineering
+recommendation requiring human approval — never a live code edit.
+
+### 5.A — The research notebook (persistent, not a log)
+
+New `World.reflection_notebook` (world-scoped, durable-logged per the
+Constitution §6 pattern every other persistent-cognition store already
+uses — `consciousness_log`/`agent_memory_log`'s shape, not a fresh
+mechanism). One typed record per entry, never deleted, only appended
+or status-transitioned:
+
+```
+ReflectionEntry:
+  id, created_tick, kind: observation|hypothesis|experiment|conclusion|question
+  subject: text (what pillar(s)/mechanism it concerns)
+  content: text
+  confidence: float (0..1, hypotheses/conclusions only)
+  evidence_for: list[entry_id | event_ref]
+  evidence_against: list[entry_id | event_ref]
+  status: open|supported|rejected|superseded
+  supersedes: entry_id | None
+```
+
+A rejected hypothesis is a `status="rejected"` entry, never deleted —
+"preserve rejected hypotheses as historical knowledge" is structural,
+not a promise. An unanswered `question` entry has no expiry; it's
+eligible to be picked back up by any future reflection pass, "learn
+from decades" made literal by simply not pruning this table on the
+usual retention cadence other logs use.
+
+### 5.B — The reflection job (pattern detection → hypothesis → evidence)
+
+One new round-robin-bounded LLM job (`llm/reflection.py`,
+`_maybe_schedule_reflection`, same shape as the quarterly `culture_
+digest`/`institution_culture` jobs — flat call volume regardless of
+world size, `critical=False`: reflection is ambient self-improvement,
+not blocking cognition, so it keeps the real deterministic "skip this
+cycle" fallback like every other narrative job). Fires on a long
+cadence (season or year boundary, not monthly — "decades and
+generations," not "every tick").
+
+Each firing:
+1. Reads a DETERMINISTIC pattern-detection pass over recent history
+   (reuses existing counters — `pattern_signal_counts`, `recent_goal_
+   counts` from 1.C, dispute/feud/invention rates, disaster frequency
+   vs. `Population._mark_disaster_survivors` outcomes — no new
+   instrumentation, this is the same "grounded in real numbers, cite an
+   actual figure" discipline P2.5/town_brain already enforce) looking
+   for a recurring pattern above a threshold, not a single event.
+2. If a pattern clears the threshold, ONE LLM call proposes a
+   hypothesis explaining it, grounded in the actual numbers (never a
+   free invention) — written as a new `hypothesis` entry with initial
+   confidence and both an `evidence_for` (the triggering pattern) and
+   an explicit prompt instruction to also name what WOULD contradict
+   it, so `evidence_against` isn't structurally empty from birth.
+3. Existing OPEN hypotheses are re-evaluated against fresh evidence
+   every firing (deterministic re-scan, not a new LLM call each time —
+   confidence moves via a small bounded step, same `bounded_random_
+   walk_step`-adjacent shape temperament/mood already use, nudged by
+   whether the latest evidence supports or contradicts) — "confidence
+   increases or decreases as new evidence appears" without spending a
+   call on every re-check.
+
+### 5.C — Counterfactual experiments (safe, never touch real state)
+
+"Test hypotheses through safe experiments before adopting conclusions"
+is the one item needing genuine new plumbing, not reuse: a
+`counterfactual_run(world_snapshot, parameter_overrides, ticks) ->
+outcome_summary` harness — deep-copies a `World` from an existing
+snapshot (the save/load path already exists, `from_dict`/`to_dict`),
+runs it forward LLM-disabled (deterministic-only, matching every
+verification script in this repo) for a bounded tick count with one
+parameter perturbed, and diffs the outcome against the real world's
+actual trajectory over the same window. This is EXPLICITLY sandboxed:
+runs on a throwaway in-memory `World` object, never the live one,
+never writes back — "hypothetical simulations that never affect
+objective history" is enforced by construction (no code path from a
+counterfactual run back to `self.world`), not by convention. A
+hypothesis whose counterfactual outcome matches its prediction gains
+confidence; a miss lowers it and gets recorded as contradicting
+evidence, per 5.A's schema. Real cost (extra tick-compute) means this
+only runs for a small number of the highest-confidence-worthy open
+hypotheses per reflection cycle, not every one — first genuinely
+resource-scoped item in the doc.
+
+### 5.D — Self-improving reasoning (prompt/heuristic evolution, not fact accumulation)
+
+The pasted checklist's "invent new reasoning strategies/abstractions/
+frameworks" is the highest-risk item to implement literally (arbitrary
+runtime-generated code is exactly what the Constitution's "never modify
+deterministic code at runtime" rule exists to prevent). Scoped down to
+what's actually safe and useful: reflection may propose PROMPT-LEVEL
+and HEURISTIC-PARAMETER changes as offline recommendations — "this
+system prompt's example set biases toward X, evidence suggests Y is
+more accurate," "the current `RUMOR_NOVELTY_MIN_COUNT` threshold looks
+too strict against three seasons of measured data" — surfaced as
+`kind="conclusion"` notebook entries with a `proposed_change` field
+naming the exact constant/prompt/config value and citing the evidence,
+NEVER auto-applied. This is 5.E's "AI Co-Developer" role, not a
+separate mechanism — a recommendation with evidence and an estimated
+benefit, for a human to accept or reject, same review gate as any
+other CLAUDE.md-governed change. A recommendation a human DOES accept
+(a real prompt/config edit in a later coding session) closes the loop:
+its outcome over the following reflection cycles becomes evidence for
+or against reflection's OWN track record, tracked per-recommendation
+so "learn from accepted and rejected developer decisions" is a real
+measurement, not aspiration.
+
+### 5.E — Architectural reflection → engineering proposals
+
+Same offline-recommendation shape as 5.D, scoped to structural gaps
+rather than tuning: reflection may notice a recurring pattern that no
+existing mechanism explains (a repeated `question` entry that stays
+unanswered across many cycles is itself the signal — "an idea nothing
+in the engine currently models keeps recurring") and write a
+`kind="conclusion"` entry proposing a new or extended mechanic, with
+confidence, cited evidence, and an estimated benefit — ranked, not
+auto-prioritized. Surfaced in the dev console (new "Reflection" panel,
+notebook browsable by kind/status/confidence) exactly like every other
+Phase N/§4-§6 internals-only feature — this is diagnostics-depth
+content per the Observatory UI split, not main-UI.
+
+### Explicitly NOT this phase
+
+- No runtime code generation or self-modifying prompts/policies.
+  Everything in 5.D/5.E is a recommendation record; a human session
+  applies it, same as any other CLAUDE.md-governed change.
+- No new LLM call volume scaling with population — reflection is
+  settlement/world-scoped and round-robin bounded like culture_digest,
+  never per-agent.
+- No literal one-to-one implementation of all nine pasted headers as
+  separate systems — "Reflection & Self-Improvement," "Hearthmind
+  Reflection (AI Scientist)," "Scientific Method," and "Reflection
+  Rules/Acceptance Criteria" describe the SAME loop from four angles;
+  5.A-5.C implement it once. "Self-Improvement" and "AI Co-Developer"
+  are 5.D. "Architectural Reflection" is 5.E. "Counterfactual
+  Reasoning" is 5.C. "Research Questions" is the `question`-kind entry
+  type in 5.A's schema, not a sixth mechanism.
+
+### First slice (when this phase starts)
+
+5.A (notebook schema + persistence) is the prerequisite everything else
+needs, same role Phase 0's ledger played for Phase 1 — implement it
+first, alone, then 5.B (the actual reflection job) as the smallest
+piece that makes the notebook non-empty. 5.C/5.D/5.E depend on 5.B
+producing real hypotheses to act on.
+
+---
+
 ## The acceptance gate (folds into CLAUDE.md once Phase 0 ships)
 
 The manifesto's Emergence Rules + Acceptance Criteria sections are a
@@ -472,6 +660,14 @@ ships — not re-litigated per feature, applied the way the existing
 first slice, together, including the 1.D Nature→Human cross-wire) —
 Phase 2 (dialogue-as-event) — Phase 3 (all four pillars' second slice,
 together) — Phase 4 (cross-pillar audit, last, since it's an audit of
-the other phases, not independent work).
+the other phases, not independent work). Phase 5 (Reflection) is
+sequenced last among the currently-designed phases, not because it's
+lowest priority but because it's an OBSERVER of the other four pillars
+— it needs Phases 1-4's mechanisms already producing real history to
+have anything worth reflecting on; start it whenever explicitly
+directed, it doesn't strictly require 2-4 to be fully shipped first
+(5.A/5.B only need SOME real event/pattern history, which Phase 0+1
+alone already produce).
 
-Next step: Phase 0 implementation (the pairwise ledger).
+Next step: Phase 2 implementation (dialogue-as-event) — Phase 0 and
+Phase 1 (all four pillars) are shipped as of v1.3.20.

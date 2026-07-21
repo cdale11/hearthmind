@@ -33,6 +33,7 @@ except ImportError:  # pragma: no cover — this project's target hardware is Li
     resource = None  # type: ignore[assignment]
 
 from hearthmind.agents.agent import (
+    DEBT_SIGNIFICANT_THRESHOLD,
     DIALOGUE_COOLDOWN_TICKS,
     DIALOGUE_SENTIMENT_DELTA,
     EMOTION_FEAR,
@@ -2269,6 +2270,10 @@ class SimulationEngine:
             applied = self.world.population.apply_dialogue(
                 agent_a_id, agent_b_id, parsed["sentiment"], parsed["rumor"],
                 line_a=parsed["line_a"], line_b=parsed["line_b"],
+                promise=parsed.get("promise", ""), debt_delta=parsed.get("debt_delta", 0.0),
+                secret_revealed=parsed.get("secret_revealed", False),
+                misunderstanding=parsed.get("misunderstanding", False),
+                goal_change=parsed.get("goal_change", False),
             )
             if applied is None:
                 continue
@@ -2626,6 +2631,26 @@ class SimulationEngine:
             self.world.consciousness_grudge_ledger + delta, -1.0, 1.0,
         )
 
+    @staticmethod
+    def _dialogue_objective(speaker, other) -> str:
+        """Phase 2 "dialogue as a simulation event": what `speaker`
+        privately wants out of an exchange with `other`, in priority
+        order — a real ledger-recorded debt they owe outranks a vague
+        long-term ambition, since it's concrete and about THIS other
+        person specifically. Returns "" (most calls) when neither
+        source yields anything — dialogue.build_prompt already treats
+        an empty objective as "no grounding, write ordinary chatter."
+        """
+        owed = speaker.debts.get(other.id, 0.0)
+        if owed >= DEBT_SIGNIFICANT_THRESHOLD:
+            return f"settle what I owe {other.name}, or at least explain myself"
+        grievance = speaker.grievances.get(other.id)
+        if grievance:
+            return f"air a grievance I hold about {other.name}: {grievance[-1]}"
+        if speaker.long_term_goal:
+            return speaker.long_term_goal.get("goal", "")
+        return ""
+
     def _schedule_due_dialogue(self) -> None:
         """Route this tick's due dialogue pairs (v0.70.0). `due_for_
         dialogue` hands back two buckets: `llm_pairs` (core-core, the
@@ -2726,6 +2751,17 @@ class SimulationEngine:
                 self.world.weather.describe(),
             )
             opportunities = dialogue.select_opportunities(opportunity_candidates, opportunity_rng)
+            # Phase 2 "dialogue as a simulation event": each speaker's
+            # own want for THIS exchange, grounded in the ledger (an
+            # open debt/grievance toward the other) and Phase 1.B's
+            # long_term_goal — "" (most exchanges) when neither yields
+            # anything concrete for that speaker.
+            objectives = (
+                self._dialogue_objective(agent_a, agent_b),
+                self._dialogue_objective(agent_b, agent_a),
+            )
+            open_promises = agent_a.ledger.open_promises(agent_b.id) + agent_b.ledger.open_promises(agent_a.id)
+            open_thread = open_promises[-1]["text"] if open_promises else ""
             prompt = dialogue.build_prompt(
                 agent_a, agent_b, affinity, local.name, latest_tradition,
                 self.world.clock.season, self.world.weather.describe(), beliefs_about=beliefs_about,
@@ -2733,7 +2769,7 @@ class SimulationEngine:
                 lessons=lessons, recent_topics=recent_topics, weather_notable=weather_notable,
                 lexicon=local.lexicon, settlement_topics=settlement_topics,
                 place_names=list(local.place_names.values()), grounded_event=grounded_event,
-                opportunities=opportunities,
+                opportunities=opportunities, objectives=objectives, open_thread=open_thread,
             )
             fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
             self._reserved_this_tick += 1

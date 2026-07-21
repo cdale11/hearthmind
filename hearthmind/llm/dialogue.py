@@ -60,7 +60,17 @@ SYSTEM_PROMPT = (
     "them simply state the secret outright, that defeats the point of it "
     "being one. Optionally the exchange plants a "
     "short rumor that might spread through the village — leave it blank "
-    "most of the time. Output ONLY the JSON object below, nothing before "
+    "most of the time. This is a real conversation between two people "
+    "with their own wants, not just talk for its own sake — when you're "
+    "given each speaker's own objective for this exchange (grounded in "
+    "what they want, what they owe, or a grievance between them), let it "
+    "actually shape the exchange rather than being decoration; the two "
+    "objectives may conflict, and it's fine for the exchange to leave "
+    "that tension unresolved rather than reaching tidy agreement. Most "
+    "exchanges are still just talk and change nothing beyond the mood — "
+    "only mark a promise/debt/secret/misunderstanding/goal_change when "
+    "something in THIS exchange genuinely caused it, never as a matter "
+    "of course. Output ONLY the JSON object below, nothing before "
     "or after it, no explanation.\n"
     "Examples of the exact shape expected:\n"
     '{"line_a": "You look worn out, friend.", "line_b": "Long day in the '
@@ -75,11 +85,25 @@ SYSTEM_PROMPT = (
     '"topic": "the fence"}\n'
     '{"line_a": "Hungry work today.", "line_b": "Isn\'t it always with '
     'you.", "sentiment": "warm", "rumor": "", "topic": "hunger"}\n'
+    '{"line_a": "I still owe you for the seed grain.", "line_b": '
+    '"I\'ll bring the rest by market day, I swear it.", "sentiment": '
+    '"neutral", "rumor": "", "topic": "debt", "promise": "bring the '
+    'rest of what is owed by market day"}\n'
     'Now respond with strict JSON only, in that exact shape: {"line_a": '
     '"under 14 words, said by the first villager", "line_b": "under 14 '
     'words, said by the second", "sentiment": "warm" | "tense" | '
     '"neutral", "rumor": "" or a short rumor under 15 words, "topic": '
-    '"1-3 words naming what this exchange was actually about"}.'
+    '"1-3 words naming what this exchange was actually about", '
+    '"promise": "" or a short concrete promise under 15 words made by '
+    'either speaker, "debt_delta": 0 or a small number (positive if '
+    'the first speaker now owes the second, negative the other way — '
+    'only for a real exchange of goods/favor/coin just now), '
+    '"secret_revealed": true only if a speaker just let slip something '
+    'they were privately holding back, otherwise false, '
+    '"misunderstanding": true only if the exchange genuinely left one '
+    'or both speakers with a wrong idea, otherwise false, "goal_change": '
+    'true only if this exchange plausibly shifted a speaker\'s deeper '
+    'ambition, otherwise false}.'
 )
 
 
@@ -216,8 +240,20 @@ def build_prompt(
     settlement_topics: list[str] | None = None, place_names: list[str] | None = None,
     grounded_event: str = "", opportunity_rng: "random.Random | None" = None,
     opportunities: list[tuple[str, str]] | None = None,
+    objectives: tuple[str, str] = ("", ""), open_thread: str = "",
 ) -> str:
-    """`lessons` (v0.87.0): `(agent_a's matching lesson, agent_b's
+    """`objectives`/`open_thread` (Phase 2, "dialogue as a simulation
+    event", docs/VISION-2026-07-21-SELFEVOLVING.md): `objectives` is
+    `(agent_a's want for THIS exchange, agent_b's)`, computed at the
+    call site from the ledger (Phase 0 — an open debt/grievance/promise
+    toward the other speaker) and `Agent.long_term_goal` (Phase 1.B) —
+    "" when neither yields anything concrete, which is most exchanges.
+    `open_thread` is one still-open promise between this exact pair
+    (`Ledger.open_promises`), offered as something either speaker might
+    follow up on — empty when there is none. Both are optional grounding,
+    never a requirement that the exchange resolve anything.
+
+    `lessons` (v0.87.0): `(agent_a's matching lesson, agent_b's
     matching lesson)`, each "" when no stored lesson matches that
     speaker's current situation — computed at the call site via
     `SimulationEngine._current_situation_tag`/`_matching_lesson`, the
@@ -402,6 +438,13 @@ def build_prompt(
         opportunities = select_opportunities(opportunity_candidates, opportunity_rng or random.Random())
     opportunity_text = "".join(f" {text}" for _category, text in opportunities)
 
+    objective_bits = []
+    for label, objective in ((agent_a.name, objectives[0]), (agent_b.name, objectives[1])):
+        if objective:
+            objective_bits.append(f"{label} privately wants, from this exchange: {objective}")
+    objective_text = f" {'. '.join(objective_bits)}." if objective_bits else ""
+    open_thread_text = f" Still unresolved between them: {open_thread}." if open_thread else ""
+
     def _activity(agent: Agent) -> str:
         # Grounds "currently X" in *why* when cognition set a reason
         # (LLM-authored goal or the trait-aware fallback_goal both
@@ -420,7 +463,8 @@ def build_prompt(
         f"{agent_b.hunger:.2f}, energy {agent_b.energy:.2f}, currently {_activity(agent_b)}). "
         f"They are {tie}. It is {season}."
         f"{culture}{beliefs_text}{personality_text}{emotion_text}{memory_text}{just_now_text}"
-        f"{semantic_text}{secret_text}{mind_text}{voice_text}{lesson_text}{opportunity_text} "
+        f"{semantic_text}{secret_text}{mind_text}{voice_text}{lesson_text}{opportunity_text}"
+        f"{objective_text}{open_thread_text} "
         "Write their brief exchange."
     )
 
@@ -516,6 +560,14 @@ def fallback_dialogue(agent_a: Agent, agent_b: Agent, affinity: float, tick: int
 
 
 _VALID_SENTIMENTS = {"warm", "tense", "neutral"}
+
+DIALOGUE_DEBT_DELTA_MAX = 1.0
+"""Phase 2: caps how much a single exchange's `debt_delta` can move
+either agent's ledger debt — small next to `_record_debt`'s per-trade
+DEBT_PER_TRADE_FRACTION-scaled amounts (a real barter, not a
+conversational aside about one), and well below `DEBT_SIGNIFICANT_
+THRESHOLD=2.0`'s decay-lock floor, so a single chatty exchange alone
+can never lock a debt against decay — only several would."""
 
 _MAX_LINE_WORDS = 26
 """A line requested as "under 14 words" that comes back several times
@@ -664,10 +716,27 @@ def parse_dialogue(result: dict, fallback: dict) -> dict:
     topic = result.get("topic")
     if not isinstance(topic, str):
         topic = ""
+    # Phase 2 "dialogue as a simulation event" structured-outcome fields
+    # (docs/VISION-2026-07-21-SELFEVOLVING.md) — same "missing/invalid
+    # degrades to the inert default, never fabricated" treatment as
+    # topic/rumor above. Never present on `fallback` (deterministic
+    # chatter has no mechanical outcome), so no fallback lookup needed.
+    promise = result.get("promise")
+    if not isinstance(promise, str):
+        promise = ""
+    debt_delta = result.get("debt_delta")
+    if not isinstance(debt_delta, (int, float)) or isinstance(debt_delta, bool):
+        debt_delta = 0.0
+    debt_delta = max(-DIALOGUE_DEBT_DELTA_MAX, min(DIALOGUE_DEBT_DELTA_MAX, float(debt_delta)))
     return {
         "line_a": line_a.strip()[:120],
         "line_b": line_b.strip()[:120],
         "sentiment": sentiment,
         "rumor": rumor.strip()[:150],
         "topic": topic.strip()[:40],
+        "promise": promise.strip()[:120],
+        "debt_delta": debt_delta,
+        "secret_revealed": bool(result.get("secret_revealed")),
+        "misunderstanding": bool(result.get("misunderstanding")),
+        "goal_change": bool(result.get("goal_change")),
     }

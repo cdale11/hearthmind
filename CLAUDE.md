@@ -523,6 +523,38 @@ outcome wiring), `scripts/verify_native_soak.py` byte-identical (2
 seeds x 800 ticks, plus a 4000-tick single-seed run past the
 checklist's own 3685-tick reference window).
 
+## Current state (v1.3.21)
+
+Explicit user request, three parts: finish 1.D's deliberately-scoped-
+out items, add a large pasted "Reflection & Self-Improvement (AI
+Scientist)" checklist into the self-evolving vision doc, start Phase 2.
+
+1.D leftovers: storm (no per-tile tracking, unlike flood/wildfire) now
+marks every AWAKE agent settlement-wide with a smaller `EMOTION_STORM_
+FEAR_BUMP` via `World.tick`'s new `storm_struck` detection; a new
+honest "helper" bond (`DISASTER_HELPER_BOND_BUMP`) rewards a bystander
+who visibly moved closer to a flood/wildfire tile this same tick — the
+non-helper grievance half stays unimplemented (no way to know a
+bystander was even aware of the disaster).
+
+Reflection: docs/VISION-2026-07-21-SELFEVOLVING.md gained "Phase 5 —
+Reflection & Self-Improvement (the AI Scientist)," a scoped design
+(persistent notebook, pattern-detection reflection job, sandboxed
+counterfactual harness, offline human-approved recommendations only —
+never runtime self-modification) consolidating the pasted ~90-bullet
+checklist. Design only this pass.
+
+Phase 2 first slice: dialogue gained five optional structured-outcome
+fields (promise/debt_delta/secret_revealed/misunderstanding/
+goal_change), mechanically applied to the ledger/agent state by
+`Population.apply_dialogue`, plus each speaker's own conflict-capable
+`objective` for the exchange (debt > grievance > long_term_goal
+priority) grounding the prompt. See CHANGELOG.md's [1.3.21] entry.
+
+Verified: direct smoke tests for all new mechanics, a 4000-tick
+LLM-disabled engine run, `scripts/verify_native_soak.py` (2 seeds x
+3000 ticks) byte-identical.
+
 ## Current state (v1.3.20)
 
 Explicit user follow-up: "Continue Phase 1 with 1.B, 1.C, and 1.D" —

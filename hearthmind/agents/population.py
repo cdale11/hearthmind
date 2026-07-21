@@ -81,6 +81,7 @@ from hearthmind.agents.agent import (
     DEATHBED_SECRET_RUMOR_CHANCE,
     DEATHBED_SECRET_RUMOR_LISTENER_COUNT,
     DEBT_PRUNE_THRESHOLD,
+    DIALOGUE_MISUNDERSTANDING_TRUST_PENALTY,
     DIALOGUE_SENTIMENT_DELTA,
     DIALOGUE_TOPICS_RING_MAX,
     ELDER_AGE_FRACTION,
@@ -98,6 +99,7 @@ from hearthmind.agents.agent import (
     EMOTION_PREDATOR_FEAR_BUMP,
     EMOTION_RECONCILE_JOY_BUMP,
     EMOTION_STARVATION_FEAR_BUMP,
+    EMOTION_STORM_FEAR_BUMP,
     ELDER_RECOVERY_MULTIPLIER,
     ENERGY_DRAIN_AWAKE,
     ENERGY_RECOVERY_RESTING,
@@ -678,15 +680,22 @@ DISPUTE_FEUD_DEEPEN = -0.2
 DISASTER_SURVIVOR_BOND_BUMP = 0.15
 """Phase 1.D (Nature->Human): agents caught on the same flooded/wildfire
 tile this tick get a one-time relationship bump toward each other — an
-honest "survived it together" proxy. Deliberately NOT the vision doc's
-full helper/non-helper distinction (bond with whoever helped, grievance
-against whoever could help but didn't) — no disaster-response mechanic
-exists yet to ground who "could have helped," so only the mutual bond
-half is implemented; a fabricated non-helper grievance is flagged as a
-future follow-up once real disaster-response behavior exists. Sized
-above RELATIONSHIP_GAIN_PER_TICK_COLOCATED (routine, per-tick, tiny) but
-below a full reconciliation — a single sharp shared-hardship moment, not
-a standing companionship."""
+honest "survived it together" proxy. Sized above RELATIONSHIP_GAIN_PER_
+TICK_COLOCATED (routine, per-tick, tiny) but below a full reconciliation
+— a single sharp shared-hardship moment, not a standing companionship."""
+
+DISASTER_HELPER_RADIUS = 3
+DISASTER_HELPER_BOND_BUMP = 0.08
+"""Phase 1.D follow-up: the honest half of the vision doc's helper/
+non-helper framing. A nearby AWAKE agent who visibly moved closer to a
+disaster tile this same tick (`_mark_disaster_survivors` compares
+start-of-tick vs. post-movement position — a real, observed action, not
+an inferred one) counts as a helper and gets a smaller bond with the
+survivors there. Deliberately still NOT implementing a grievance against
+agents who were merely nearby and did nothing — the engine has no way
+to know a bystander was even aware of the disaster, so "could have
+helped" would be asserted, not observed; that stays a future follow-up
+pending a real disaster-awareness/response mechanic."""
 
 THEFT_HUNGER_THRESHOLD = 0.65
 """Item 8a ("crime & theft"): a colocated agent this desperate — past
@@ -1708,6 +1717,7 @@ class Population:
         map_tiles: int | None = None,
         flooded_tiles: "dict | None" = None,
         active_wildfire_tiles: "set | None" = None,
+        storm_struck: bool = False,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -2011,14 +2021,18 @@ class Population:
             life_events.extend(self._maybe_refresh_council(stl, tick, members))
             life_events.extend(self._maybe_form_guild(stl, tick, members))
             life_events.extend(self._maybe_refresh_guild(stl, members))
-        self._mark_disaster_survivors(start_of_tick_by_position, flooded_tiles, active_wildfire_tiles)
+        self._mark_disaster_survivors(
+            start_of_tick_by_position, flooded_tiles, active_wildfire_tiles, storm_struck, position_by_id,
+        )
         return life_events
 
-    @staticmethod
     def _mark_disaster_survivors(
+        self,
         start_of_tick_by_position: dict[tuple[int, int], list[Agent]],
         flooded_tiles: "dict | None",
         active_wildfire_tiles: "set | None",
+        storm_struck: bool,
+        start_positions_by_id: dict[int, tuple[int, int]],
     ) -> None:
         """Phase 1.D (Nature->Human): an agent standing on a flooded or
         actively-burning tile this tick gets a genuinely lasting mark —
@@ -2027,12 +2041,24 @@ class Population:
         instead of vanishing once it's eventually evicted from the
         regular memory list) and a sharp `EMOTION_FEAR` spike, plus a
         one-time bond with anyone else who survived the same tile
-        alongside them (DISASTER_SURVIVOR_BOND_BUMP). Storm is
-        deliberately left unwired this pass — it has no equivalent
-        discrete per-tile tracking on `DisasterState` the way flood/
-        wildfire do."""
-        if not flooded_tiles and not active_wildfire_tiles:
-            return
+        alongside them (DISASTER_SURVIVOR_BOND_BUMP).
+
+        Storm has no per-tile tracking on `DisasterState` (`tick_storm`
+        damages every settlement uniformly the instant it fires) — every
+        AWAKE agent gets the same, smaller mark instead of a tile-scoped
+        one when `storm_struck` is True.
+
+        A nearby AWAKE bystander who moved measurably closer to a
+        flood/wildfire tile this same tick (real, observable behavior —
+        `start_positions_by_id` vs. the agent's post-movement position,
+        not a fabricated "could have helped" judgment) counts as a
+        genuine helper: a smaller bond with the survivors there, and
+        their own memory of it. This is the honest half of the vision
+        doc's helper/non-helper framing; a grievance against agents who
+        were merely nearby and did nothing is still NOT implemented —
+        the engine has no way to know a bystander was even aware of the
+        disaster, so asserting they "could have helped" would be
+        fabricated, not observed."""
         disaster_tiles: dict[tuple[int, int], str] = {}
         if flooded_tiles:
             for pos in flooded_tiles:
@@ -2040,10 +2066,12 @@ class Population:
         if active_wildfire_tiles:
             for pos in active_wildfire_tiles:
                 disaster_tiles[pos] = "wildfire"
+        all_survivor_ids: set[int] = set()
         for pos, kind in disaster_tiles.items():
             survivors = start_of_tick_by_position.get(pos)
             if not survivors:
                 continue
+            all_survivor_ids.update(a.id for a in survivors)
             for agent in survivors:
                 bump_emotion(agent, EMOTION_FEAR, EMOTION_DISASTER_FEAR_BUMP)
                 _remember(
@@ -2055,6 +2083,30 @@ class Population:
                 for b in survivors[i + 1:]:
                     a.relationships[b.id] = min(1.0, a.relationships.get(b.id, 0.0) + DISASTER_SURVIVOR_BOND_BUMP)
                     b.relationships[a.id] = min(1.0, b.relationships.get(a.id, 0.0) + DISASTER_SURVIVOR_BOND_BUMP)
+            for bystander in self.agents:
+                if bystander.id in all_survivor_ids or bystander.state is not AgentState.AWAKE:
+                    continue
+                start_pos = start_positions_by_id.get(bystander.id)
+                if start_pos is None:
+                    continue
+                start_dist = max(abs(start_pos[0] - pos[0]), abs(start_pos[1] - pos[1]))
+                now_dist = max(abs(bystander.x - pos[0]), abs(bystander.y - pos[1]))
+                if now_dist >= start_dist or now_dist > DISASTER_HELPER_RADIUS:
+                    continue
+                for agent in survivors:
+                    agent.relationships[bystander.id] = min(
+                        1.0, agent.relationships.get(bystander.id, 0.0) + DISASTER_HELPER_BOND_BUMP
+                    )
+                    bystander.relationships[agent.id] = min(
+                        1.0, bystander.relationships.get(agent.id, 0.0) + DISASTER_HELPER_BOND_BUMP
+                    )
+                _remember(bystander, f"Rushed toward the {kind} to help.", because=f"helped during a {kind}")
+        if storm_struck:
+            for agent in self.agents:
+                if agent.state is not AgentState.AWAKE or agent.id in all_survivor_ids:
+                    continue
+                bump_emotion(agent, EMOTION_FEAR, EMOTION_STORM_FEAR_BUMP)
+                _remember(agent, "A violent storm tore through the settlement.", because="survived a storm")
 
     @staticmethod
     def _update_needs(
@@ -6391,6 +6443,8 @@ class Population:
 
     def apply_dialogue(
         self, a_id: int, b_id: int, sentiment: str, rumor: str = "", line_a: str = "", line_b: str = "",
+        promise: str = "", debt_delta: float = 0.0, secret_revealed: bool = False,
+        misunderstanding: bool = False, goal_change: bool = False,
     ) -> tuple[Agent, Agent, bool] | None:
         """Apply a resolved dialogue's sentiment as a relationship nudge,
         on top of the passive per-tick colocation gain. Returns None (a
@@ -6412,7 +6466,20 @@ class Population:
         caller (SimulationEngine) can distinguish a "surfaced"
         conversation from routine background chatter in the UI's main
         event feed without duplicating this threshold logic. See
-        docs/DECISIONS.md, Observatory UI pass."""
+        docs/DECISIONS.md, Observatory UI pass.
+
+        `promise`/`debt_delta`/`secret_revealed`/`misunderstanding`/
+        `goal_change` (Phase 2, "dialogue as a simulation event",
+        docs/VISION-2026-07-21-SELFEVOLVING.md): optional structured
+        outcomes an LLM-authored exchange may report (never present on
+        a deterministic-fallback exchange — `dialogue.parse_dialogue`
+        only ever surfaces these from a real model response). Each is
+        independently a no-op at its default ("" / 0.0 / False) — most
+        exchanges are still just talk. `promise` writes onto the
+        LEDGER (Phase 0), not `memories`, so a later dialogue call
+        between the same pair can read it back as an open thread
+        (`Ledger.open_promises`, see `SimulationEngine._schedule_due_
+        dialogue`'s `open_thread` param)."""
         agent_a, agent_b = self.get(a_id), self.get(b_id)
         if agent_a is None or agent_b is None:
             return None
@@ -6468,6 +6535,32 @@ class Population:
             # the conversation itself (July 2026 review, §3.5).
             _remember(agent_a, f'Talked with {agent_b.name} — they said "{line_b}"')
             _remember(agent_b, f'Talked with {agent_a.name} — they said "{line_a}"')
+        if promise:
+            agent_a.ledger.add_promise(b_id, {"text": promise, "made_tick": None})
+            _remember(agent_a, f"I told {agent_b.name}: {promise}", because="made a promise")
+            _remember(agent_b, f"{agent_a.name} promised: {promise}")
+            surfaced = True
+        if debt_delta:
+            if debt_delta > 0:
+                agent_a.debts[b_id] = agent_a.debts.get(b_id, 0.0) + debt_delta
+            else:
+                agent_b.debts[a_id] = agent_b.debts.get(a_id, 0.0) + (-debt_delta)
+            surfaced = True
+        if secret_revealed:
+            for discloser, other in ((agent_a, agent_b), (agent_b, agent_a)):
+                own_secret = next((s for s in discloser.secrets if other.name in s), None)
+                if own_secret is not None:
+                    discloser.secrets.remove(own_secret)
+                    _remember(discloser, f"Let slip something I'd been holding back about {other.name}.")
+                    _remember(other, f"{discloser.name} finally told me something they'd been hiding.")
+                    surfaced = True
+                    break
+        if misunderstanding:
+            agent_a.trust[b_id] = clamp(agent_a.trust.get(b_id, 0.0) - DIALOGUE_MISUNDERSTANDING_TRUST_PENALTY, -1.0, 1.0)
+            agent_b.trust[a_id] = clamp(agent_b.trust.get(a_id, 0.0) - DIALOGUE_MISUNDERSTANDING_TRUST_PENALTY, -1.0, 1.0)
+        if goal_change:
+            agent_a.life_event_since_goal = True
+            agent_b.life_event_since_goal = True
         return agent_a, agent_b, surfaced
 
     def _apply_gossip_contagion(

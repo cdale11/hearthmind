@@ -4,6 +4,72 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.21] — 1.D leftovers (storm + helper bond), Reflection design, Phase 2 first slice
+
+Explicit user request: implement the two items 1.D had deliberately
+scoped out (storm wiring, the honest half of helper/non-helper), add a
+large pasted "Reflection & Self-Improvement (AI Scientist)" checklist
+into the self-evolving vision doc as a scoped design, and start Phase 2
+("dialogue as a simulation event").
+
+**1.D leftovers.** Storm has no per-tile tracking (`tick_storm` damages
+every settlement uniformly the instant it fires) — `World.tick` now
+detects a `disaster_storm` event and passes `storm_struck=True` into
+`Population.tick`; `_mark_disaster_survivors` gives every AWAKE agent
+not already a flood/wildfire survivor a smaller, settlement-wide
+`EMOTION_STORM_FEAR_BUMP` fear spike and a causally-tagged memory. New
+honest "helper" half: a nearby AWAKE bystander who visibly moved closer
+to a flood/wildfire tile this same tick (`start_positions_by_id` vs.
+post-movement position — an observed action, not an inferred one) gets
+a smaller bond (`DISASTER_HELPER_BOND_BUMP`) with the survivors there
+and their own memory of it. Still deliberately NOT implementing a
+grievance against bystanders who did nothing — the engine has no way
+to know a bystander was even aware of the disaster, so "could have
+helped" would be asserted, not observed.
+
+**Reflection & Self-Improvement design.** docs/VISION-2026-07-21-
+SELFEVOLVING.md gained "Phase 5 — Reflection & Self-Improvement (the
+AI Scientist)": a ~90-bullet pasted checklist across nine headers,
+consolidated into one scoped design (a persistent `reflection_notebook`
+of typed observation/hypothesis/experiment/conclusion/question entries
+that's never pruned; a long-cadence reflection job that detects
+patterns, proposes evidence-grounded hypotheses, and re-evaluates
+confidence; a sandboxed counterfactual-run harness that never touches
+live world state; prompt/heuristic-tuning and architectural
+recommendations surfaced as offline, human-approved notebook entries,
+never auto-applied). Design only this pass, per the doc's own "first
+slice" section — 5.A (the notebook schema) is the prerequisite for
+everything else, same role Phase 0's ledger played for Phase 1.
+
+**Phase 2 first slice: dialogue as a simulation event.** `llm/
+dialogue.py`'s schema gained five optional structured-outcome fields
+(`promise`, `debt_delta`, `secret_revealed`, `misunderstanding`,
+`goal_change`) — mechanically applied by `Population.apply_dialogue`
+to the ledger (Phase 0) and agent state, not just narration: a promise
+writes onto `Ledger.promises` (readable back as an "open thread" in a
+LATER exchange between the same pair, `SimulationEngine._schedule_due_
+dialogue`'s new `open_thread` param), `debt_delta` moves `Agent.debts`
+directly, `secret_revealed` pops a matching entry from `Agent.secrets`,
+`misunderstanding` costs both directions of trust
+(`DIALOGUE_MISUNDERSTANDING_TRUST_PENALTY`), `goal_change` sets
+`life_event_since_goal` so the next Reflect() call may revise the
+speaker's ambition. New `SimulationEngine._dialogue_objective` grounds
+each speaker's own want for THIS exchange (a significant owed debt >
+an open grievance > `long_term_goal`, in that priority order) fed into
+`dialogue.build_prompt`'s new `objectives` param — the two speakers'
+objectives may conflict, and the prompt explicitly allows the exchange
+to leave that unresolved rather than reaching tidy agreement. All five
+fields default to inert (0.0/""/False) and are never present on the
+deterministic-fallback path — most exchanges still change nothing
+beyond mood, exactly as before.
+
+Verified: direct smoke tests for storm/helper marking, all five
+dialogue-outcome mechanics (promise round-trip via `Ledger.
+open_promises`, debt_delta sign/bounds, secret removal, trust penalty,
+goal-change gating), and `_dialogue_objective`'s priority order; a
+clean 4000-tick LLM-disabled engine run; `scripts/verify_native_soak.py`
+(2 seeds x 3000 ticks) byte-identical.
+
 ## [1.3.20] — Self-evolving world, Phase 1.B/1.C/1.D
 
 Explicit user follow-up: "Continue Phase 1 with 1.B, 1.C, and 1.D" —
