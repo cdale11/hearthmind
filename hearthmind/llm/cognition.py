@@ -159,7 +159,7 @@ def build_prompt(
     materials_critical: bool = False,
     life_digest: str = "", lesson: str = "", seek_candidate: tuple[str, str] | None = None,
     institution_objective: str = "", plan: dict | None = None, core_memory: str = "",
-    prophecy: dict | None = None,
+    prophecy: dict | None = None, long_term_goal: dict | None = None,
 ) -> str:
     """`settlement_name`/`latest_tradition` are optional culture context
     (Phase E) — empty until the settlement is named/has a tradition, so
@@ -365,6 +365,12 @@ def build_prompt(
         f" Your plan: {plan['intent']} ({plan.get('days_remaining', 0)} days left)."
         if plan else ""
     )
+    # Phase 1.B "self-evolving world" (docs/VISION-2026-07-21-
+    # SELFEVOLVING.md): the standing WHY behind `plan`'s near-term
+    # step — shown alongside it, never instead of it, so a day's goal
+    # choice can read as serving something larger without pretending
+    # the ambition itself is today's decision.
+    long_term_goal_text = f" Your deeper aim: {long_term_goal['goal']}." if long_term_goal else ""
     core_memory_text = f" You still remember well: {core_memory}" if core_memory else ""
     prophecy_text = ""
     if prophecy is not None:
@@ -398,7 +404,7 @@ def build_prompt(
         f"{company}{food} It is {season}, weather: {weather}.{culture}{memory}{just_now_text}"
         f"{personality_text}{emotion_text}{beliefs_text}{own_belief_text}{semantic_text}{mind_prompt_text}"
         f"{life_digest_text}{lesson_text}{repair_text}{materials_text}{seek_text}{objective_text}{plan_text}"
-        f"{core_memory_text}{prophecy_text}{closing}"
+        f"{long_term_goal_text}{core_memory_text}{prophecy_text}{closing}"
     )
 
 

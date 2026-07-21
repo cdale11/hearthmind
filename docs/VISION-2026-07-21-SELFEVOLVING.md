@@ -260,6 +260,9 @@ ontology.py's `category="technology"` path once this ships):
 
 ### 1.B — Humans: long-term goal drives planning
 
+**Status: SHIPPED, v1.3.20.** `Agent.long_term_goal`/`life_event_
+since_goal` — see CHANGELOG.md's [1.3.20] entry.
+
 Prior checklist's Tier 3.1, unshipped: `Agent.plan` (existing, bounded
 episodic planning) already covers "immediate objective." New
 `Agent.long_term_goal: dict | None` (core cast only, LLM-authored,
@@ -269,6 +272,9 @@ rather than an independent thing, closing "wants are described then
 ignored in favor of ambient verbs" directly.
 
 ### 1.C — Village: NPC-behavior feeds village-cognition
+
+**Status: SHIPPED, v1.3.20.** `Settlement.recent_goal_counts` — see
+CHANGELOG.md's [1.3.20] entry.
 
 Village-as-participant is closer to already-true than any other
 pillar: `Settlement`/`town_brain`/`culture_digest`/institutions are
@@ -282,6 +288,12 @@ explicit grounding — same shape P2.5's "cite an actual number" fix
 already established, widened to cite recent NPC-driven events too.
 
 ### 1.D — Nature → Human: disasters leave a permanent mark (the cross-pillar wire)
+
+**Status: SHIPPED, v1.3.20** (scoped: flood/wildfire only, storm left
+unwired for lack of discrete per-tile tracking; the mutual "survived
+together" bond is implemented, the non-helper grievance half is not —
+no disaster-response mechanic exists yet to ground who "could have
+helped") — see CHANGELOG.md's [1.3.20] entry.
 
 Prior checklist's unshipped N1, promoted into Phase 1 specifically
 *because* it's the clearest available proof that two pillars are

@@ -1854,6 +1854,20 @@ class SimulationEngine:
                 elif agent.energy < SURVIVAL_ENERGY_THRESHOLD:
                     goal = AgentGoal.REST
             self.world.population.apply_goal(agent_id, goal, reason, seek_candidate_id)
+            # Phase 1.C "self-evolving world" (docs/VISION-2026-07-21-
+            # SELFEVOLVING.md): tally every REAL per-agent goal
+            # decision — the single choke point every LLM-decided or
+            # forced-survival goal passes through — so town_brain can
+            # cite actual NPC behavior, not just settlement-level
+            # numbers. Deliberately not incremented for the player-
+            # intervention or forced-surveyor-EXPLORE call sites (see
+            # Settlement.recent_goal_counts' docstring) — neither is a
+            # real NPC decision.
+            if agent is not None:
+                home = self._settlement_by_id(agent.settlement_id)
+                if home is not None:
+                    counts = home.recent_goal_counts
+                    counts[goal.value] = counts.get(goal.value, 0) + 1
         self._pending_goal_results.clear()
 
     @staticmethod
@@ -2156,6 +2170,7 @@ class SimulationEngine:
                 lesson=lesson, seek_candidate=seek_prompt_hint,
                 institution_objective=institution_objective, plan=agent.plan,
                 core_memory=core_memory_text, prophecy=prophecy_obj,
+                long_term_goal=agent.long_term_goal,
             )
             hunger_snapshot, energy_snapshot = agent.hunger, agent.energy
             traits_snapshot = dict(agent.traits)
@@ -4347,6 +4362,12 @@ class SimulationEngine:
             f"{c.name}: {c.description}"
             for c in ontology.established_concepts(self.world, settlement.id)[-PROMPT_CULTURE_LIST_MAX:]
         ]
+        # Phase 1.C: read, then reset — a since-last-check window, same
+        # shape `away_digest_since_tick` already uses, so this stays a
+        # genuinely "recent" NPC-behavior signal rather than an
+        # all-time tally.
+        recent_goal_counts = dict(settlement.recent_goal_counts)
+        settlement.recent_goal_counts = {}
         prompt = town_brain.build_prompt(
             settlement.name, recent, population_summary, settlement_summary, whispers_sent,
             beliefs=settlement.beliefs[-PROMPT_SETTLEMENT_BELIEFS_MAX:],
@@ -4356,7 +4377,7 @@ class SimulationEngine:
             narrative_theme=self._narrative_theme_bias(settlement),
             council_faction_name=council_majority.name if council_majority else "",
             prophecy=settlement.prophecy if settlement.prophecy and settlement.prophecy.get("status") == "pending" else None,
-            known_concepts=known_concepts,
+            known_concepts=known_concepts, recent_goal_counts=recent_goal_counts,
         )
         fallback = town_brain.fallback_priority(population_summary, settlement_summary, council_disposition)
         brain_target_id = settlement.id
@@ -4611,9 +4632,12 @@ class SimulationEngine:
         current_plan = dict(agent.plan) if agent.plan is not None else None
         personality_text = describe_traits(agent.traits)
         occupation = self._occupation_for(agent)
+        current_long_term_goal = dict(agent.long_term_goal) if agent.long_term_goal is not None else None
+        life_event_occurred = agent.life_event_since_goal
         prompt = beliefs.build_personal_prompt(
             agent.name, recent, existing, emotion_text, semantic, current_plan,
             personality_text, occupation, list(agent.core_memories),
+            current_long_term_goal=current_long_term_goal, life_event_occurred=life_event_occurred,
         )
         fallback = beliefs.fallback_personal_belief(agent.name, recent)
         existing_count = len(existing)
@@ -4730,6 +4754,22 @@ class SimulationEngine:
                     log_agent_memory_entry(
                         self.conn, tick, target.id, "plan", f"New plan: {new_plan['intent']}",
                     )
+            # Phase 1.B "self-evolving world" (docs/VISION-2026-07-21-
+            # SELFEVOLVING.md): the server-enforced gate — a parsed
+            # long_term_goal is only ever applied when a real life
+            # event was confirmed for THIS call (see `life_event_
+            # since_goal`'s docstring); a model that answers anyway on
+            # an ordinary reflection is simply ignored here, not
+            # trusted. The flag is consumed (cleared) either way once
+            # Reflect() has actually run for this agent.
+            if target.life_event_since_goal:
+                new_goal = beliefs.parse_long_term_goal(result, target.long_term_goal, tick)
+                if new_goal is not target.long_term_goal:
+                    target.long_term_goal = new_goal
+                    log_agent_memory_entry(
+                        self.conn, tick, target.id, "long_term_goal", f"New ambition: {new_goal['goal']}",
+                    )
+                target.life_event_since_goal = False
 
         self._schedule_llm_job("personal_belief", prompt, beliefs.PERSONAL_SYSTEM_PROMPT, fallback, apply, critical=True)
 

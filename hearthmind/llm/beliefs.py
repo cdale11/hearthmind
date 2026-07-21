@@ -115,7 +115,12 @@ PERSONAL_SYSTEM_PROMPT = (
     "making peace with someone), name it briefly and how many days it would "
     "realistically take. If they already have a current plan, either continue it "
     "unchanged (leave blank), replace it with a new one if it's been overtaken by "
-    "events, or note brief progress on it. "
+    "events, or note brief progress on it. Finally, and only when told something "
+    "genuinely life-changing has just happened to them (never otherwise) — name or "
+    "revise their one overriding long-term ambition, the deeper thing any near-term "
+    "plan should serve (becoming the village's leading healer, avenging a wrong, "
+    "protecting their family's standing, finding real belonging here); leave blank "
+    "if nothing that large comes to mind even now. "
     'Respond with strict JSON only, no other text: {"subject": "short label, e.g. '
     'a person\'s name, \'my place here\', \'the harvests\', \'what happened to '
     'them\'", "belief": "one sentence, under 30 words, stated as this villager\'s '
@@ -130,7 +135,9 @@ PERSONAL_SYSTEM_PROMPT = (
     'first-person, a practical takeaway for handling that situation again", '
     '"plan_intent": "" (leave blank almost always) or a short first-person intent '
     'under 12 words, "plan_horizon_days": 0 or an integer 3-30, "plan_progress_note": '
-    '"" or one short first-person note on progress toward an EXISTING plan}.'
+    '"" or one short first-person note on progress toward an EXISTING plan, '
+    '"long_term_goal": "" (leave blank unless told something life-changing just '
+    "happened) or a short first-person ambition under 15 words}."
 )
 
 
@@ -138,7 +145,8 @@ def build_personal_prompt(
     agent_name: str, recent_memories: list[str], existing_beliefs: list[dict],
     emotion_text: str = "", semantic_memories: list[str] | None = None,
     current_plan: dict | None = None, personality_text: str = "", occupation: str = "",
-    core_memories: list[str] | None = None,
+    core_memories: list[str] | None = None, current_long_term_goal: dict | None = None,
+    life_event_occurred: bool = False,
 ) -> str:
     """Scoped to one agent's own `memories` (already a short personal
     log — bonds formed, rumors heard, a partner's death) rather than
@@ -168,7 +176,17 @@ def build_personal_prompt(
     ordinary 8-slot recency window months or years ago — given here
     unfiltered (unlike cognition's single keyword-matched pick) since
     Reflect() is exactly the job meant to weigh someone's WHOLE
-    accumulated life, not just what's freshest."""
+    accumulated life, not just what's freshest.
+
+    `current_long_term_goal`/`life_event_occurred` (Phase 1.B, "self-
+    evolving world," docs/VISION-2026-07-21-SELFEVOLVING.md):
+    `life_event_occurred` is only True when the caller has confirmed
+    (server-side, not by trusting the LLM) a real life event happened
+    to this agent since their goal was last set — the prompt only
+    invites a long_term_goal answer in that case, so an ordinary
+    reflection doesn't manufacture ambitions out of nothing. The
+    existing goal, when any, is shown either way so a genuine revision
+    reads as continuity, not amnesia."""
     memories_text = " | ".join(recent_memories) if recent_memories else "Nothing notable has happened to them lately."
     if existing_beliefs:
         beliefs_text = "\n".join(
@@ -198,6 +216,13 @@ def build_personal_prompt(
         )
     if core_memories:
         lines.append(f"Things {agent_name} has never forgotten: {' | '.join(core_memories)}")
+    if current_long_term_goal:
+        lines.append(f"{agent_name}'s standing ambition: {current_long_term_goal.get('goal', '')}.")
+    if life_event_occurred:
+        lines.append(
+            f"Something genuinely life-changing has just happened to {agent_name} — "
+            "this is a real moment to name or revise their long-term ambition, if one comes to mind."
+        )
     lines.append(f"Theories {agent_name} already holds about their own life:\n{beliefs_text}")
     lines.append("Form or revise one theory, and distill one lasting thought.")
     return "\n".join(lines)
@@ -640,6 +665,20 @@ def parse_plan(result: dict, existing_plan: dict | None, tick: int) -> dict | No
             updated["progress_note"] = note.strip()[:150]
             return updated
     return existing_plan
+
+
+def parse_long_term_goal(result: dict, existing_goal: dict | None, tick: int) -> dict | None:
+    """Phase 1.B "self-evolving world": extracts the optional
+    `long_term_goal` field. Only meaningful to call when the caller has
+    already confirmed a real life event occurred (see `build_personal_
+    prompt`'s `life_event_occurred`) — this function itself has no
+    opinion on that, it just parses whatever the model returned; the
+    eligibility gate is `Agent.life_event_since_goal`, enforced at the
+    call site (`SimulationEngine._run_personal_belief`), not here."""
+    goal = result.get("long_term_goal")
+    if isinstance(goal, str) and goal.strip():
+        return {"goal": goal.strip()[:150], "formed_tick": tick}
+    return existing_goal
 
 
 def push_lesson(agent, situation: str, text: str, tick: int) -> None:

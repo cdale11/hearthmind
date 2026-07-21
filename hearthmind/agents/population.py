@@ -87,6 +87,7 @@ from hearthmind.agents.agent import (
     EMOTION_ANGER,
     EMOTION_BIRTH_JOY_BUMP,
     EMOTION_DEATH_GRIEF_BUMP,
+    EMOTION_DISASTER_FEAR_BUMP,
     EMOTION_DISPUTE_ANGER_BUMP,
     EMOTION_FEAR,
     EMOTION_FESTIVAL_JOY_BUMP,
@@ -673,6 +674,19 @@ festered pair becomes eligible in."""
 DISPUTE_RECONCILE_RELATIONSHIP = 0.1
 DISPUTE_TRUCE_RELATIONSHIP = -0.1
 DISPUTE_FEUD_DEEPEN = -0.2
+
+DISASTER_SURVIVOR_BOND_BUMP = 0.15
+"""Phase 1.D (Nature->Human): agents caught on the same flooded/wildfire
+tile this tick get a one-time relationship bump toward each other — an
+honest "survived it together" proxy. Deliberately NOT the vision doc's
+full helper/non-helper distinction (bond with whoever helped, grievance
+against whoever could help but didn't) — no disaster-response mechanic
+exists yet to ground who "could have helped," so only the mutual bond
+half is implemented; a fabricated non-helper grievance is flagged as a
+future follow-up once real disaster-response behavior exists. Sized
+above RELATIONSHIP_GAIN_PER_TICK_COLOCATED (routine, per-tick, tiny) but
+below a full reconciliation — a single sharp shared-hardship moment, not
+a standing companionship."""
 
 THEFT_HUNGER_THRESHOLD = 0.65
 """Item 8a ("crime & theft"): a colocated agent this desperate — past
@@ -1692,6 +1706,8 @@ class Population:
         core_cast_target: int = POPULATION_CRITICAL_THRESHOLD,
         minerals: "MineralGrid | None" = None,
         map_tiles: int | None = None,
+        flooded_tiles: "dict | None" = None,
+        active_wildfire_tiles: "set | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -1995,7 +2011,50 @@ class Population:
             life_events.extend(self._maybe_refresh_council(stl, tick, members))
             life_events.extend(self._maybe_form_guild(stl, tick, members))
             life_events.extend(self._maybe_refresh_guild(stl, members))
+        self._mark_disaster_survivors(start_of_tick_by_position, flooded_tiles, active_wildfire_tiles)
         return life_events
+
+    @staticmethod
+    def _mark_disaster_survivors(
+        start_of_tick_by_position: dict[tuple[int, int], list[Agent]],
+        flooded_tiles: "dict | None",
+        active_wildfire_tiles: "set | None",
+    ) -> None:
+        """Phase 1.D (Nature->Human): an agent standing on a flooded or
+        actively-burning tile this tick gets a genuinely lasting mark —
+        a causally-tagged memory (via `_remember(..., because=...)`,
+        which graduates it into the small permanent `core_memories` tier
+        instead of vanishing once it's eventually evicted from the
+        regular memory list) and a sharp `EMOTION_FEAR` spike, plus a
+        one-time bond with anyone else who survived the same tile
+        alongside them (DISASTER_SURVIVOR_BOND_BUMP). Storm is
+        deliberately left unwired this pass — it has no equivalent
+        discrete per-tile tracking on `DisasterState` the way flood/
+        wildfire do."""
+        if not flooded_tiles and not active_wildfire_tiles:
+            return
+        disaster_tiles: dict[tuple[int, int], str] = {}
+        if flooded_tiles:
+            for pos in flooded_tiles:
+                disaster_tiles[pos] = "flood"
+        if active_wildfire_tiles:
+            for pos in active_wildfire_tiles:
+                disaster_tiles[pos] = "wildfire"
+        for pos, kind in disaster_tiles.items():
+            survivors = start_of_tick_by_position.get(pos)
+            if not survivors:
+                continue
+            for agent in survivors:
+                bump_emotion(agent, EMOTION_FEAR, EMOTION_DISASTER_FEAR_BUMP)
+                _remember(
+                    agent,
+                    f"Survived a {kind} that struck right where I was standing.",
+                    because=f"survived a {kind}",
+                )
+            for i, a in enumerate(survivors):
+                for b in survivors[i + 1:]:
+                    a.relationships[b.id] = min(1.0, a.relationships.get(b.id, 0.0) + DISASTER_SURVIVOR_BOND_BUMP)
+                    b.relationships[a.id] = min(1.0, b.relationships.get(a.id, 0.0) + DISASTER_SURVIVOR_BOND_BUMP)
 
     @staticmethod
     def _update_needs(
@@ -3990,6 +4049,11 @@ class Population:
                 _remember(b, f"{child.name} was born to us.")
                 bump_emotion(a, EMOTION_JOY, EMOTION_BIRTH_JOY_BUMP)
                 bump_emotion(b, EMOTION_JOY, EMOTION_BIRTH_JOY_BUMP)
+                # Phase 1.B "self-evolving world": a child born is
+                # squarely "success," one of the doc's named life
+                # events eligible to reshape a standing ambition.
+                a.life_event_since_goal = True
+                b.life_event_since_goal = True
                 family_event = self._extend_family(home, tick, a.id, b.id, child.id, a.name, b.name)
                 if family_event is not None:
                     life_events.append(family_event)
@@ -5792,6 +5856,9 @@ class Population:
                     self.last_triggered_agent_ids.add(other.id)
                     _nudge_trait(other, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
                     bump_emotion(other, EMOTION_GRIEF, EMOTION_DEATH_GRIEF_BUMP)
+                    # Phase 1.B: losing a parent or child is squarely
+                    # "death," one of the doc's named life events.
+                    other.life_event_since_goal = True
                     if home is not None:
                         other.mourning_target = (agent.x, agent.y)
                         other.mourning_ticks_remaining = MOURNING_DURATION_TICKS
@@ -5801,6 +5868,7 @@ class Population:
                     self.last_triggered_agent_ids.add(other.id)
                     _nudge_trait(other, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
                     bump_emotion(other, EMOTION_GRIEF, EMOTION_DEATH_GRIEF_BUMP)
+                    other.life_event_since_goal = True
                     if home is not None:
                         other.mourning_target = (agent.x, agent.y)
                         other.mourning_ticks_remaining = MOURNING_DURATION_TICKS
@@ -6563,6 +6631,14 @@ class Population:
                 _nudge_trait(me, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
                 _nudge_trait(me, TRAIT_SOCIABILITY, TRAIT_FEUD_SOCIABILITY_NUDGE)
                 bump_emotion(me, EMOTION_ANGER, EMOTION_DISPUTE_ANGER_BUMP)
+        # Phase 1.B "self-evolving world" (docs/VISION-2026-07-21-
+        # SELFEVOLVING.md): a resolved dispute — any outcome — is
+        # exactly "a major dispute," one of the life events the doc
+        # names as eligible to reshape a standing ambition. Consumed
+        # by the next Reflect() call for whichever of these two gets
+        # picked (see SimulationEngine._run_personal_belief).
+        agent_a.life_event_since_goal = True
+        agent_b.life_event_since_goal = True
         return agent_a, agent_b
 
     # --- deliberate guild founding (v0.64.0) ------------------------------------

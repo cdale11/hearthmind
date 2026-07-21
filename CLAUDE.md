@@ -523,6 +523,34 @@ outcome wiring), `scripts/verify_native_soak.py` byte-identical (2
 seeds x 800 ticks, plus a 4000-tick single-seed run past the
 checklist's own 3685-tick reference window).
 
+## Current state (v1.3.20)
+
+Explicit user follow-up: "Continue Phase 1 with 1.B, 1.C, and 1.D" —
+closes Phase 1 of docs/VISION-2026-07-21-SELFEVOLVING.md (the
+"self-evolving world" direction, additional layer over the Definitive
+Checklist work) for all four co-equal pillars, joining 1.A (v1.3.19).
+
+1.B (Humans): `Agent.long_term_goal`/`life_event_since_goal` — a
+standing ambition, revised only at genuine life events (dispute,
+death grief, birth) via the existing monthly personal-belief job, zero
+added LLM volume; grounds both cognition and personal-belief prompts.
+1.C (Village): `Settlement.recent_goal_counts` (via `SettlementCulture`
++ the facade passthrough) — a since-last-check tally of real per-agent
+goal decisions, read once by town_brain then reset, so village
+cognition reflects aggregate routine behavior, not just discrete
+events. 1.D (Nature->Human): `Population._mark_disaster_survivors` —
+an agent caught on a flooded/wildfire tile gets a sharp `EMOTION_
+DISASTER_FEAR_BUMP` and a causally-tagged memory that graduates to
+permanent `core_memories` on eventual eviction; colocated survivors
+get a one-time relationship bond. Storm left unwired (no discrete
+per-tile tracking yet); the "grievance against non-helpers" half of
+the vision doc explicitly not implemented — no disaster-response
+mechanic exists to ground it, flagged as a future follow-up.
+
+Verified: direct smoke tests for all three sub-phases, a clean
+4000-tick LLM-disabled engine run, `scripts/verify_native_soak.py` (2
+seeds x 3000 ticks) byte-identical.
+
 ## Current state (v1.3.16)
 
 Explicit user request: "try finishing FT" — docs/AUDIT-2026-07-20.md's

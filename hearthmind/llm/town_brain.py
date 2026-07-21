@@ -32,7 +32,7 @@ def build_prompt(
     settlement_summary: dict, player_whispers: list[str], beliefs: list[dict] | None = None,
     council_beliefs: list[dict] | None = None, narrative_theme: str = "", belief_digest: str = "",
     culture_digest: str = "", council_faction_name: str = "", prophecy: dict | None = None,
-    known_concepts: list[str] | None = None,
+    known_concepts: list[str] | None = None, recent_goal_counts: dict | None = None,
 ) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
@@ -109,6 +109,19 @@ def build_prompt(
         "\nIdeas the village has come to rely on: " + "; ".join(known_concepts) + "."
         if known_concepts else ""
     )
+    # Phase 1.C "self-evolving world": what villagers have actually
+    # been DOING lately, not just the settlement's instantaneous
+    # numbers — a real NPC-behavior signal `population_summary`/
+    # `settlement_summary` don't carry (those are snapshots, this is a
+    # trend). Top 3 goals only, most-common first, so a long tail of
+    # one-off choices doesn't drown out the real pattern.
+    goal_activity_text = ""
+    if recent_goal_counts:
+        top = sorted(recent_goal_counts.items(), key=lambda kv: kv[1], reverse=True)[:3]
+        goal_activity_text = (
+            "\nLately, villagers have mostly been: "
+            + ", ".join(f"{goal} ({count} times)" for goal, count in top) + "."
+        )
     sick_count = population_summary.get("sick_count", 0)
     sickness_text = (
         f", {sick_count} currently ill" if sick_count else ""
@@ -135,7 +148,7 @@ def build_prompt(
     # read before the ask, not the first thing forgotten.
     return (
         f"{stat_block}\n"
-        f"Recent history:\n{events_text}{whisper_text}{digest_text}{culture_digest_text}{beliefs_text}{council_text}{faction_leaning_text}{standing_text}{prophecy_text}{concepts_text}"
+        f"Recent history:\n{events_text}{whisper_text}{digest_text}{culture_digest_text}{beliefs_text}{council_text}{faction_leaning_text}{standing_text}{prophecy_text}{concepts_text}{goal_activity_text}"
         # Phase M "Narrative Direction": ambient bias only, never a
         # directive — the theme colors how this decision is framed, it
         # never dictates it.

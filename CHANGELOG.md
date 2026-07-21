@@ -4,6 +4,73 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.20] — Self-evolving world, Phase 1.B/1.C/1.D
+
+Explicit user follow-up: "Continue Phase 1 with 1.B, 1.C, and 1.D" —
+the remaining three pillars' first slice from docs/VISION-2026-07-21-
+SELFEVOLVING.md's Phase 1 (Humans, Village, Nature->Human), landing
+alongside 1.A (v1.3.19) to close Phase 1 for all four co-equal pillars.
+
+**1.B — Humans: long-term goal drives planning.** New `Agent.long_
+term_goal` (`{goal, formed_tick}` or `None`) and `Agent.life_event_
+since_goal` (a server-side eligibility gate, not a prompt instruction
+— set only at three objective life-event call sites: dispute
+resolution, bonded/family death grief, birth; cleared only when
+Reflect() actually processes that agent). The existing monthly
+personal-belief job (`_run_personal_belief`, zero added LLM volume)
+may now also name or revise the agent's one overriding ambition when
+`life_event_since_goal` is set; `beliefs.parse_long_term_goal` never
+trusts a blank/missing answer as "clear the goal" — only a genuine new
+value replaces it. Both cognition and personal-belief prompts ground
+on the standing ambition when present (`cognition.build_prompt`'s
+`long_term_goal` param, `beliefs.build_personal_prompt`'s `current_
+long_term_goal`/`life_event_occurred` params).
+
+**1.C — Village: NPC-behavior feeds village-cognition.** New
+`SettlementCulture.recent_goal_counts` (exposed via the `Settlement`
+facade's existing property-passthrough pattern): a rolling "since last
+check" tally of real per-agent goal decisions, incremented at the one
+genuine choke point (`apply_goal`'s call site in `_apply_pending_
+cognition_results` — deliberately excludes the forced-surveyor-EXPLORE
+and player-intervention call sites, neither a real NPC decision).
+Read once by `_maybe_schedule_town_brain` then reset to `{}` (same
+shape as `away_digest_since_tick`), surfaced as a top-3 "lately,
+villagers have mostly been..." line in `town_brain.build_prompt` — the
+village's own collective cognition now measurably reflects aggregate
+routine behavior, not just discrete narrative events.
+
+**1.D — Nature->Human: disasters leave a permanent psychological
+mark.** New `Population._mark_disaster_survivors`, called once per
+tick from `Population.tick` (wired via `World.tick`'s existing
+`self.disasters.flooded_tiles`/`active_wildfire_tiles`, no new
+plumbing needed — both already tracked per-tile). An agent caught on a
+flooded or actively-burning tile gets a sharp `EMOTION_FEAR` spike
+(new `EMOTION_DISASTER_FEAR_BUMP=0.7`, the largest bump of the set)
+plus a causally-tagged memory (`_remember(..., because="survived a
+flood/wildfire")`) that graduates into the small permanent `core_
+memories` tier instead of vanishing once it eventually falls out of
+the regular capped memory list. Colocated survivors on the same
+disaster tile get a one-time relationship bond (`DISASTER_SURVIVOR_
+BOND_BUMP=0.15`) — an honest "survived it together" proxy. Storm is
+deliberately left unwired this pass (no discrete per-tile tracking on
+`DisasterState` the way flood/wildfire have); the vision doc's fuller
+"grievance against whoever could have helped but didn't" half is
+explicitly NOT implemented — no disaster-response mechanic exists yet
+to ground who "could have helped," flagged as a future follow-up once
+one does.
+
+Verified via direct smoke tests for all three sub-phases (goal
+formation/gating/prompt-grounding round trips, goal-count aggregation
+via the facade, disaster-survivor memory/emotion/bond mechanics
+including the "no disaster tiles" no-op path), a clean 4000-tick
+LLM-disabled engine run, and `scripts/verify_native_soak.py` (2 seeds
+x 3000 ticks) byte-identical — no native module touched, but every
+new field/method sits on the same per-tick path the soak hashes.
+
+This closes Phase 1 of docs/VISION-2026-07-21-SELFEVOLVING.md — all
+four pillars (Innovation, Humans, Village, Nature->Human) now have
+their first co-equal slice shipped.
+
 ## [1.3.19] — Self-evolving world, Phase 1.A: the Innovation Layer
 
 Explicit user follow-up on Phase 1: "invented concepts shouldn't just

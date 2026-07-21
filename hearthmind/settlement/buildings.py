@@ -2274,6 +2274,20 @@ class SettlementCulture:
     feuds, several starvation deaths) rather than only ever reacting to
     whichever single event happens to be freshest in the recency-sliced
     event window."""
+    recent_goal_counts: dict = field(default_factory=dict)
+    """Phase 1.C "self-evolving world" (docs/VISION-2026-07-21-
+    SELFEVOLVING.md) — goal-value -> count, tallying every REAL
+    per-agent goal decision this settlement's population has actually
+    made since the last town_brain call (`SimulationEngine.
+    _apply_pending_cognition_results`, the single choke point every
+    LLM-decided or forced-survival goal passes through — deliberately
+    NOT incremented for a player-issued `/intervene` goal nudge or the
+    surveyor's permanently-forced EXPLORE, neither of which is a real
+    NPC decision). Read once by `_maybe_schedule_town_brain` as a
+    concrete "what have people actually been doing lately" grounding
+    line, then reset to `{}` — a since-last-check window, same shape
+    `away_digest_since_tick` already uses, so this stays "recent" and
+    bounded rather than an ever-growing all-time tally."""
     family_feud_counts: dict = field(default_factory=dict)
     """v0.87.11, "generational feuds between FAMILY institutions"
     (docs/IDEAS-2026-07-EMERGENCE.md §1). Same accumulate/threshold/
@@ -2507,6 +2521,7 @@ class Settlement:
         religion: dict | None = None, narrative_themes: list[dict] | None = None,
         omen_seed: str = "", dream_seed: str = "",
         pattern_signal_counts: dict | None = None,
+        recent_goal_counts: dict | None = None,
         family_feud_counts: dict | None = None,
         invention_knowledge: dict | None = None,
         invention_specializations: dict | None = None,
@@ -2575,6 +2590,7 @@ class Settlement:
             rituals=rituals if rituals is not None else [],
             ritual_signal_counts=ritual_signal_counts if ritual_signal_counts is not None else {},
             pattern_signal_counts=pattern_signal_counts if pattern_signal_counts is not None else {},
+            recent_goal_counts=recent_goal_counts if recent_goal_counts is not None else {},
             family_feud_counts=family_feud_counts if family_feud_counts is not None else {},
             religion=religion,
             narrative_themes=narrative_themes if narrative_themes is not None else [],
@@ -2881,6 +2897,14 @@ class Settlement:
     @pattern_signal_counts.setter
     def pattern_signal_counts(self, value: dict) -> None:
         self.culture.pattern_signal_counts = value
+
+    @property
+    def recent_goal_counts(self) -> dict:
+        return self.culture.recent_goal_counts
+
+    @recent_goal_counts.setter
+    def recent_goal_counts(self, value: dict) -> None:
+        self.culture.recent_goal_counts = value
 
     @property
     def family_feud_counts(self) -> dict:
@@ -3646,6 +3670,7 @@ class Settlement:
             "rituals": list(self.rituals),
             "ritual_signal_counts": dict(self.ritual_signal_counts),
             "pattern_signal_counts": dict(self.pattern_signal_counts),
+            "recent_goal_counts": dict(self.recent_goal_counts),
             "family_feud_counts": dict(self.family_feud_counts),
             "religion": dict(self.religion) if self.religion is not None else None,
             "narrative_themes": list(self.narrative_themes),
@@ -3718,6 +3743,7 @@ class Settlement:
             rituals=list(data.get("rituals", [])),
             ritual_signal_counts=dict(data.get("ritual_signal_counts", {})),
             pattern_signal_counts=dict(data.get("pattern_signal_counts", {})),
+            recent_goal_counts=dict(data.get("recent_goal_counts", {})),
             family_feud_counts=dict(data.get("family_feud_counts", {})),
             religion=dict(data["religion"]) if data.get("religion") is not None else None,
             narrative_themes=list(data.get("narrative_themes", [])),

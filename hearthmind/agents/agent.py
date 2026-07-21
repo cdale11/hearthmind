@@ -1300,6 +1300,16 @@ a death in the family) reads as a real spike against the 0..1 range,
 not a rounding error; see the call sites in `agents/population.py` for
 exactly which event fires which bump."""
 
+EMOTION_DISASTER_FEAR_BUMP = 0.7
+"""Largest fear bump of the set — surviving a flood/wildfire on your own
+tile is a direct brush with the disaster itself, not a secondhand scare.
+Paired in `Population.tick` with a `_remember(..., because=...)` call, so
+when the memory eventually falls out of the regular capped memory list
+it graduates into permanent `core_memories` instead of disappearing —
+see EMOTION_DECAY_RATE's docstring above: a spike this sharp is exactly
+the "should leave a longer mark" case, even though the emotion value
+itself still decays like any other."""
+
 MOURNING_DURATION_TICKS = 96
 """v0.87.9, "ceremonies agents attend: funerals" (docs/IDEAS-2026-07-
 EMERGENCE.md §1). How long a bereaved kin/bonded survivor's movement is
@@ -1695,6 +1705,8 @@ class Agent:
         occupation: str = "",
         relationship_flags: dict[int, str] | None = None,
         grievances: dict[int, list[str]] | None = None,
+        long_term_goal: dict | None = None,
+        life_event_since_goal: bool = False,
     ) -> None:
         self.id = id
         self.name = name
@@ -1956,6 +1968,30 @@ class Agent:
         # `days_remaining` reaches 0 — "expiring," not "failing"; Reflect
         # () may form a fresh one afterward if warranted.
         self.plan: dict | None = plan
+        # long_term_goal: Phase 1.B "self-evolving world" (docs/VISION-
+        # 2026-07-21-SELFEVOLVING.md) — `None` until a real life event
+        # (a hardened dispute outcome, a bonded partner/family death, a
+        # child born) makes this agent eligible for Reflect() to name
+        # one; a dict of {"goal": str, "formed_tick": int} while active.
+        # Deliberately NOT time-limited like `plan` — an ambition
+        # doesn't expire on a schedule, only when life genuinely moves
+        # past it (the LLM may revise or drop it on a later eligible
+        # Reflect() call). `plan` is the near-term STEP toward this;
+        # this is the standing WHY. Core cast only in practice (Reflect
+        # ()'s candidate pool). See `life_event_since_goal` below and
+        # `SimulationEngine._run_personal_belief`.
+        self.long_term_goal: dict | None = long_term_goal
+        # life_event_since_goal: server-enforced eligibility gate — set
+        # True at the handful of call sites that are genuinely "a life
+        # event" (apply_dispute's outcomes, bonded/family death grief,
+        # a child born), consumed (reset False) the next time Reflect()
+        # actually runs for this agent. `_run_personal_belief` only
+        # applies a parsed `long_term_goal` when this is True — the
+        # model's own prompt asks it to only rarely offer one, but this
+        # is the real guarantee, same "closed-choice enforced server-
+        # side, never just a prompt instruction" discipline as every
+        # other constrained field in this codebase.
+        self.life_event_since_goal: bool = life_event_since_goal
         # core_memories/core_memory_salience: v0.87.16, "deepen long-
         # term historical identity" — see MAX_CORE_MEMORIES's docstring.
         # Index-aligned pair, same discipline as memories/memory_
@@ -2200,6 +2236,8 @@ class Agent:
             "wedding_ticks_remaining": self.wedding_ticks_remaining,
             "wedding_target": list(self.wedding_target) if self.wedding_target is not None else None,
             "plan": dict(self.plan) if self.plan is not None else None,
+            "long_term_goal": dict(self.long_term_goal) if self.long_term_goal is not None else None,
+            "life_event_since_goal": self.life_event_since_goal,
             "core_memories": list(self.core_memories),
             "core_memory_salience": [round(v, 4) for v in self.core_memory_salience],
             "standing_penalty": round(self.standing_penalty, 4),
@@ -2279,6 +2317,8 @@ class Agent:
                 tuple(data["wedding_target"]) if data.get("wedding_target") is not None else None
             ),
             plan=data.get("plan"),
+            long_term_goal=data.get("long_term_goal"),
+            life_event_since_goal=data.get("life_event_since_goal", False),
             core_memories=list(data.get("core_memories", [])),
             core_memory_salience=list(data.get("core_memory_salience", [])),
             standing_penalty=data.get("standing_penalty", 0.0),

@@ -475,6 +475,8 @@ class World:
             weather=self.weather, night_factor=night, heatwave_active=self.disasters.heatwave_active,
             month_end="month_end" in events, core_cast_target=self.config.llm_core_cast_size,
             map_tiles=self.config.width * self.config.height,
+            flooded_tiles=self.disasters.flooded_tiles,
+            active_wildfire_tiles=self.disasters.active_wildfire_tiles,
         )
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (
