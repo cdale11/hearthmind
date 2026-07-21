@@ -3587,6 +3587,16 @@ class SimulationEngine:
                     weakest = min(self.world.nature_beliefs, key=lambda b: b["confidence"])
                     self.world.nature_beliefs.remove(weakest)
                 self._log("nature_belief_formed", f"The land came to hold a sense of {entry['subject']}: {entry['belief']}")
+                # Vision doc item 2.3 ("Nature and Village can surprise
+                # each other"): a genuinely NEW belief (not a revision
+                # of an existing one) is real fresh insight the land
+                # has formed — bump the origin settlement's existing
+                # pattern-signal counter so it can, on its own pressure
+                # threshold, feed straight into an ontology/rule
+                # proposal the Village pillar didn't originate itself.
+                origin_settlement.pattern_signal_counts["nature_adaptation"] = (
+                    origin_settlement.pattern_signal_counts.get("nature_adaptation", 0) + 1
+                )
             concept_data = nature_mind.parse_concept(result)
             if concept_data is not None and not ontology.is_near_duplicate(
                 self.world, concept_data["name"], concept_data["description"],

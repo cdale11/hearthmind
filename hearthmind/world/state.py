@@ -28,6 +28,7 @@ from hearthmind.world.terrain_evolution import (
     decay_disaster_scars,
     decay_mining_scars,
     maybe_reclaim,
+    nature_adaptation_bias,
     tick_climate,
 )
 from hearthmind.world.daylight import night_factor as compute_night_factor
@@ -635,7 +636,7 @@ class World:
                 self.fallow_ticks,
             )
             decay_mining_scars(self.mining_scars)
-            decay_disaster_scars(self.disaster_scars)
+            decay_disaster_scars(self.disaster_scars, nature_adaptation_bias(self.nature_beliefs))
 
         if "month_end" in calendar_events:
             climate_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "climate_drift")

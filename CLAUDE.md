@@ -453,6 +453,25 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.33)
+
+Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md's own sequence:
+item 4 ("2.1 + 2.3 — Nature that adapts and can surprise the
+humans"). 2.1: `terrain_evolution.nature_adaptation_bias()` reads the
+confidence of Nature's Mind's strongest belief about repeated fire/
+flood damage; `decay_disaster_scars` now speeds scar recovery up to
+`NATURE_ADAPTATION_DECAY_BONUS_MAX=0.5` faster when that belief is
+confident — bounded, directed adaptation, not a raw random walk.
+Scoped to disaster scars specifically since they're confirmed to have
+no native C++ counterpart, so this adds zero native/fallback parity
+risk. 2.3 (scoped): a genuinely NEW Nature's-Mind belief bumps
+`pattern_signal_counts["nature_adaptation"]`, the same pressure-signal
+dict `_maybe_schedule_ontology_proposal`'s gate already reads — a
+poor/small settlement can now become eligible for a Village ontology
+proposal purely from Nature's own unprompted insight. Ships the
+Nature -> Village half only; the reverse direction is flagged as the
+sequel once 2.2 lands.
+
 ## Current state (v1.3.32)
 
 Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md's own sequence:

@@ -4,6 +4,54 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.33] — Living Terrarium items 2.1, 2.3: Nature that adapts and can surprise the Village
+
+Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md's own sequence,
+"4. 2.1 + 2.3 — Nature that adapts and can surprise the humans."
+
+**2.1, Nature acts on its Mind.** New `terrain_evolution.
+nature_adaptation_bias(nature_beliefs)`: the confidence of Nature's
+Mind's single strongest belief whose subject concerns repeated fire/
+flood/disaster damage (string-matched over `World.nature_beliefs`), or
+0.0 if it holds none. `decay_disaster_scars` now takes this as an
+`adaptation_bias` parameter and speeds the weekly scar-recovery rate up
+to `NATURE_ADAPTATION_DECAY_BONUS_MAX=0.5` (50%) faster once the belief
+is confident — the land genuinely recovering faster from repeated
+disaster damage it has "paid attention to," bounded and directed by
+Nature's own accumulated experience rather than a raw random walk.
+Deliberately scoped to disaster scars — the one physical-substrate
+module confirmed to have no native C++ counterpart (`apply_disaster_
+scars`/`decay_disaster_scars`'s own long-standing R7-deviation note),
+so this adds new logic with zero native/fallback parity risk.
+`World.tick()`'s existing `decay_disaster_scars` call site now passes
+`nature_adaptation_bias(self.nature_beliefs)`.
+
+**2.3, Nature and Village can surprise each other (scoped).** Every
+genuinely NEW Nature's-Mind belief (the `else` branch of `_maybe_
+schedule_nature_mind`'s apply callback — real fresh insight the land
+formed on its own, not a revision of an existing belief) now bumps the
+origin settlement's `pattern_signal_counts["nature_adaptation"]` — the
+same generic pressure-signal dict `_maybe_schedule_ontology_proposal`'s
+`pressured` gate already reads (previously fed only by `dispute_
+feud`). A settlement too poor/small to clear the prosperity gate can
+now still have its ontology-proposal job made eligible purely by
+Nature's own accumulated, unprompted insight — a real Nature-initiated
+pressure the Village didn't script, free to originate a custom/law/
+ritual/saying in response. Ships the Nature -> Village half of the
+loop only; the reverse (a Village action visibly forcing a Nature
+adaptation) is flagged as the natural sequel once 2.2 (institution-
+driven actions) lands.
+
+Verified: direct tests for `nature_adaptation_bias` (empty list, no
+matching subject, matching subject) and the biased decay rate (1.0
+bias applies the full 50% bonus, 0.0 bias unchanged), a direct test of
+the `pattern_signal_counts` bump shape, `scripts/verify_native_soak.py`
+(2 seeds x 800 ticks) byte-identical — `decay_disaster_scars` sits in
+`World.tick()`'s hot path even though the function itself isn't
+natively ported, so this re-confirms no native/fallback divergence was
+introduced — and a 4000-tick LLM-disabled engine soak with full
+`World.to_dict()` round-trip equality.
+
 ## [1.3.32] — Living Terrarium items 5.1, 5.2: the guardrails
 
 Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md's own sequence,

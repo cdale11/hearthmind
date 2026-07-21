@@ -195,6 +195,37 @@ DISASTER_SCAR_VISIBLE_THRESHOLD = 0.35
 """Same role as MINING_SCAR_VISIBLE_THRESHOLD — fired once per tile
 crossing this, not on every threshold-crossing tick."""
 
+NATURE_ADAPTATION_DECAY_BONUS_MAX = 0.5
+"""Vision doc item 2.1, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
+("Nature acts on its Mind, not just narrates it") — the max fractional
+speed-up `decay_disaster_scars` grants once Nature's Mind holds a
+confident belief about repeated fire/flood damage: "a forest learning
+to reclaim burned land differently after repeated fires," bounded
+adaptation DIRECTED BY Nature's own accumulated experience (the
+belief `llm/nature_mind.py` forms, grounded only in Nature's Body
+state) rather than a raw random walk. Deliberately modest — this
+nudges an existing rate, it doesn't rewrite ecology; not natively
+ported (see `apply_disaster_scars`'s own R7-deviation note), so this
+stays pure Python with no native-parity risk."""
+
+_NATURE_ADAPTATION_SUBJECT_KEYWORDS = ("fire", "flood", "disaster", "scar", "burn")
+
+
+def nature_adaptation_bias(nature_beliefs: list[dict]) -> float:
+    """The confidence (0..1) of Nature's single strongest held belief
+    whose subject concerns repeated disaster damage, or 0.0 if it
+    holds none — see `NATURE_ADAPTATION_DECAY_BONUS_MAX`. The belief
+    TEXT is LLM-authored (`nature_mind.py`); reading it here to bias a
+    real deterministic rate is not — same "closed-vocabulary-hosting-
+    open-content" discipline as everywhere else the LLM's output feeds
+    a real number in this codebase."""
+    best = 0.0
+    for belief in nature_beliefs:
+        subject = str(belief.get("subject", "")).lower()
+        if any(kw in subject for kw in _NATURE_ADAPTATION_SUBJECT_KEYWORDS):
+            best = max(best, float(belief.get("confidence", 0.0)))
+    return best
+
 
 def apply_disaster_scars(
     flooded_tiles: dict, active_wildfire_tiles: set, scars: dict[tuple[int, int], float],
@@ -218,10 +249,15 @@ def apply_disaster_scars(
     return events
 
 
-def decay_disaster_scars(scars: dict[tuple[int, int], float]) -> None:
-    """Called once per week, same cadence as `decay_mining_scars`."""
+def decay_disaster_scars(scars: dict[tuple[int, int], float], adaptation_bias: float = 0.0) -> None:
+    """Called once per week, same cadence as `decay_mining_scars`.
+    `adaptation_bias` (0..1, see `nature_adaptation_bias`) speeds up
+    decay up to `NATURE_ADAPTATION_DECAY_BONUS_MAX` extra fraction —
+    Nature's own accumulated belief about repeated disaster damage
+    directing how fast the land recovers, vision doc item 2.1."""
+    rate = DISASTER_SCAR_DECAY_PER_WEEK * (1.0 + adaptation_bias * NATURE_ADAPTATION_DECAY_BONUS_MAX)
     for pos in list(scars.keys()):
-        scars[pos] -= DISASTER_SCAR_DECAY_PER_WEEK
+        scars[pos] -= rate
         if scars[pos] <= 0.0:
             del scars[pos]
 

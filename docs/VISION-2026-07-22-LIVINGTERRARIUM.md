@@ -106,16 +106,19 @@ The Body/Mind framing is in place and Nature's Mind exists — but the
 vision wants Nature, institutions, and the world *itself* to observe,
 learn, and act with real agency, symmetric to humans.
 
-- [ ] **2.1 [CERTAIN] — Nature acts on its Mind, not just narrates it.**
-  Verify: Nature's Mind currently interprets ecological state. Close
-  the loop so its *understanding changes its Body behavior* within
-  physical law — a forest "learning" (via a slow bounded bias) to
-  reclaim burned land differently after repeated fires, a species
-  shifting range toward where it survived. Not magic: bounded
-  adaptation the ecology rules permit, but *directed by* Nature's
-  accumulated experience rather than pure random walk. Nature that
-  remembers what happened to it and adapts is the difference between
-  scenery and a participant.
+- [x] **2.1 [CERTAIN] — Nature acts on its Mind, not just narrates it.**
+  **Shipped v1.3.33.** `terrain_evolution.nature_adaptation_bias()`
+  reads the confidence of Nature's Mind's single strongest belief whose
+  subject concerns repeated fire/flood damage (a real string match over
+  `World.nature_beliefs`, not a fixed field); `decay_disaster_scars`
+  now takes that as a bias, speeding disaster-scar recovery up to
+  `NATURE_ADAPTATION_DECAY_BONUS_MAX=0.5` (50%) faster once the belief
+  is confident — "the land learning to reclaim burned land differently
+  after repeated fires," bounded, directed by Nature's own accumulated
+  experience rather than a raw random walk. Scoped to disaster scars
+  only (the one physical-substrate module confirmed to have no native
+  C++ counterpart, avoiding any native/fallback parity risk); species
+  range-shifting is a real, larger follow-up not attempted this pass.
 
 - [ ] **2.2 [CERTAIN] — Institutions with persistent goals that act.**
   Institution objectives exist; ensure they *drive* — a council that
@@ -125,12 +128,22 @@ learn, and act with real agency, symmetric to humans.
   laws through the Innovation Layer, giving them a real will that
   outlives members.
 
-- [ ] **2.3 [LIKELY] — Nature and Village can surprise each other.** The
-  manifesto's co-equal test: a Nature adaptation (2.1) the humans
-  didn't cause should force a human/village response (migrate, invent,
-  ritualize), and vice-versa. One concrete cross-pillar loop where
-  neither side scripted the other is worth more than ten isolated
-  deepenings — it's the proof the pillars are actually interdependent.
+- [x] **2.3 [LIKELY] — Nature and Village can surprise each other.**
+  **Shipped v1.3.33 (scoped).** Every genuinely NEW Nature's-Mind
+  belief (not a revision of an existing one — real fresh insight the
+  land formed on its own, unprompted by any Village action) bumps the
+  origin settlement's existing `pattern_signal_counts["nature_
+  adaptation"]` counter — the same generic pressure-signal dict
+  `_maybe_schedule_ontology_proposal`'s `pressured` gate already reads
+  (previously fed only by `dispute_feud`). A confident, repeated Nature
+  belief can now, on its own, make the Village's ontology-proposal job
+  eligible to fire even in a settlement too poor/small to clear the
+  prosperity gate — a real Nature-initiated pressure the Village didn't
+  script, free to originate a custom/law/ritual/saying in response.
+  This is the loop's Nature -> Village half; the reverse (a Village
+  action visibly forcing a Nature adaptation) is not attempted this
+  pass — flagged as the natural sequel once 2.2's institution-driven
+  actions land.
 
 - [ ] **2.4 [CREATIVE] — The world-Mind: a Reflection that acts.**
   Today Reflection observes and hypothesizes but "never touches Body."
