@@ -1360,6 +1360,32 @@ def push_secret(agent: "Agent", text: str) -> None:
         del agent.secrets[0]
 
 
+MAX_GRIEVANCE_TAGS_PER_SOURCE = 3
+"""Cap on each `Agent.grievances[source_id]` list — "a handful of
+concrete wrongs remembered about this one person," not a growing
+diary. See `Agent.grievances`'s docstring for why this is a separate,
+protected store rather than relying on the churning `memories` log."""
+
+
+def add_grievance(agent: "Agent", source_id: int, text: str) -> None:
+    """Appends one tagged grievance against `source_id`, FIFO-evicted at
+    MAX_GRIEVANCE_TAGS_PER_SOURCE. Never auto-cleared by time — only
+    `clear_grievance` (an explicit reconciliation) removes an entry."""
+    if not text:
+        return
+    tags = agent.grievances.setdefault(source_id, [])
+    tags.append(text)
+    if len(tags) > MAX_GRIEVANCE_TAGS_PER_SOURCE:
+        del tags[0]
+
+
+def clear_grievance(agent: "Agent", source_id: int) -> None:
+    """Explicit reconciliation: drops every grievance tag against
+    `source_id`. Distinct from decay — grievances never fade on their
+    own, see `Agent.grievances`'s docstring."""
+    agent.grievances.pop(source_id, None)
+
+
 def decay_emotions(agent: "Agent") -> None:
     """Tick every held emotion back toward 0 by `EMOTION_DECAY_RATE`,
     dropping entries that have decayed to (near enough) nothing so a
@@ -1413,10 +1439,27 @@ DEBT_PRUNE_THRESHOLD = 0.02
 "prune small entries, don't let them linger forever" discipline as
 `decay_emotions`/the relationship/trust dicts."""
 
+DEBT_SIGNIFICANT_THRESHOLD = 2.0
+""""Definitive checklist" Tier 0.1 (2026-07-21, "significant
+interpersonal state stops decaying to zero — persists for years,
+resolves only explicitly"): a debt at or above this amount (roughly 4x
+one trade's DEBT_PER_TRADE_FRACTION increment — several real
+exchanges, not one) is a genuine standing obligation a village would
+actually remember and expect repaid, not small change that's fine to
+quietly forget. `decay_debts` now leaves it flat once it crosses this
+line; only an explicit repayment/forgiveness action (or the debtor's
+death) resolves it. Smaller, ordinary debts keep the original ambient
+fade unchanged — this distinguishes "history" (permanent, load-
+bearing) from "weather" (ambient, meant to fade), applied to the one
+axis that previously decayed unconditionally to zero regardless of
+size."""
+
 
 def decay_debts(agent: "Agent") -> None:
     """Tick every owed debt back toward 0, pruning what's decayed near
-    enough to nothing. Pure Python, no native fast path: unlike emotions
+    enough to nothing — except a debt at/above DEBT_SIGNIFICANT_
+    THRESHOLD, which stays flat (see its docstring) rather than fading
+    on its own. Pure Python, no native fast path: unlike emotions
     (a fixed 4-key vector scanned every tick for every agent regardless
     of activity), `debts` is sparse and only ever has entries for
     agents who've actually traded — nowhere near the same hot-path
@@ -1425,7 +1468,10 @@ def decay_debts(agent: "Agent") -> None:
     if not agent.debts:
         return
     for key in list(agent.debts.keys()):
-        value = agent.debts[key] * (1.0 - DEBT_DECAY_RATE)
+        current = agent.debts[key]
+        if current >= DEBT_SIGNIFICANT_THRESHOLD:
+            continue
+        value = current * (1.0 - DEBT_DECAY_RATE)
         if value < DEBT_PRUNE_THRESHOLD:
             del agent.debts[key]
         else:
@@ -1647,6 +1693,8 @@ class Agent:
         core_memory_salience: list[float] | None = None,
         standing_penalty: float = 0.0,
         occupation: str = "",
+        relationship_flags: dict[int, str] | None = None,
+        grievances: dict[int, list[str]] | None = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -1788,6 +1836,33 @@ class Agent:
         # trust/relationships/emotions) so an old, small debt eventually
         # reads as forgiven rather than accumulating forever.
         self.debts: dict[int, float] = {} if debts is None else debts
+        # relationship_flags: "Definitive checklist" Tier 0.1 — id ->
+        # "feud" (the only flag written this pass; "bond"/formative-
+        # attachment locking is a documented follow-up, not guessed at
+        # here). A flagged pair is exempted from `Population.
+        # _update_relationships`'s ambient decay entirely: a hardened
+        # feud is meant to hold at whatever depth it deepened to
+        # ("hardened for good," see apply_dispute's own narration) until
+        # an explicit reconcile/council_ruling outcome clears the flag —
+        # previously the ambient RELATIONSHIP_DECAY_PER_TICK eroded it
+        # back toward 0 every tick regardless, silently undoing what the
+        # narration promised. Sparse: only ever has entries for pairs
+        # with a real hardened dispute outcome.
+        self.relationship_flags: dict[int, str] = {} if relationship_flags is None else relationship_flags
+        # grievances: "Definitive checklist" Tier 0.2 — id -> a small
+        # (MAX_GRIEVANCE_TAGS_PER_SOURCE), FIFO-capped list of short,
+        # concrete wrongs suffered from that source ("refused to help
+        # fight the fire," "took my grain while I starved"). Distinct
+        # from the numeric `relationships`/`trust` scalars (which say
+        # HOW MUCH, not WHAT) and from the churning 8-slot `memories`
+        # log (which a grievance can still be evicted out of by an
+        # ordinary day's flood of routine events) — this is a small,
+        # protected, text-tagged store that is never touched by
+        # MAX_AGENT_MEMORIES eviction and only ever cleared by an
+        # explicit reconciliation, not by time or by being crowded out.
+        # Written at dispute/ostracism/theft-victimization time; read by
+        # dispute framing and (future work) interpersonal goal choice.
+        self.grievances: dict[int, list[str]] = {} if grievances is None else grievances
         # standing_penalty: §1 "deviance loop" (docs/IDEAS-2026-07-
         # EMERGENCE.md) — a bounded 0..1 civic penalty applied by an
         # "ostracism" dispute outcome (`Population.apply_dispute`),
@@ -2092,6 +2167,8 @@ class Agent:
             "travel_target": list(self.travel_target) if self.travel_target is not None else None,
             "emotions": {k: round(v, 4) for k, v in self.emotions.items()},
             "debts": {str(k): round(v, 4) for k, v in self.debts.items()},
+            "relationship_flags": {str(k): v for k, v in self.relationship_flags.items()},
+            "grievances": {str(k): list(v) for k, v in self.grievances.items()},
             "stuck_ticks": self.stuck_ticks,
             "last_move_dx": self.last_move_dx,
             "last_move_dy": self.last_move_dy,
@@ -2142,6 +2219,8 @@ class Agent:
             relationships={int(k): v for k, v in data.get("relationships", {}).items()},
             trust={int(k): v for k, v in data.get("trust", {}).items()},
             debts={int(k): v for k, v in data.get("debts", {}).items()},
+            relationship_flags={int(k): v for k, v in data.get("relationship_flags", {}).items()},
+            grievances={int(k): list(v) for k, v in data.get("grievances", {}).items()},
             inventory=dict(data.get("inventory", {})),
             parents=tuple(parents) if parents is not None else None,
             goal=AgentGoal(data.get("goal", AgentGoal.WANDER.value)),

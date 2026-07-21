@@ -416,6 +416,56 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.17)
+
+Explicit user request: implement items from an uploaded audit,
+`docs/DEFINITIVECHECKLIST-2026-07-21.md` — a dependency-ordered,
+tiered rewrite plan whose central finding is that interpersonal state
+(feuds, debts, grievances) ambiently decays to zero exactly like mood
+does, and disputes (the one interpersonal LLM job) are throttled to a
+cooldown that measurably never fires — so nothing between two specific
+people can ever accumulate into real history. Ships the audit's own
+Tier 0 ("stop the self-erasure," the dependency root everything else
+needs) + Tier 2.2 (un-throttle disputes) only, this pass — Tier 1 (a
+full pairwise-ledger migration replacing the scattered relationship/
+trust/debt scalars) is explicitly flagged as too large/risky to
+attempt in the same batch without live-testing every migrated call
+site; Tiers 2.1/2.3 and 3-7 (interpersonal LLM scene-jobs, wants-
+driven goals, consequence loops, dialogue-as-transaction, life arcs,
+N1-N3 environmental wiring) are real follow-up work, not silently
+dropped — see the checklist doc's own per-item shipped/not-shipped
+notes.
+
+`Agent.relationship_flags` (id -> `"feud"`, set by `apply_dispute`'s
+feud/ostracism outcomes) exempts that pair from BOTH the ambient decay
+AND the passive colocation-warmth gain in `Population.
+_update_relationships` — "hardened for good" now actually holds
+instead of eroding back toward neutral every tick; only an explicit
+reconcile/council_ruling clears it. `Agent.debts` at/above new
+`DEBT_SIGNIFICANT_THRESHOLD=2.0` stops passive decay in `decay_debts`
+entirely. New `Agent.grievances` (id -> small FIFO-capped tagged-text
+list, `MAX_GRIEVANCE_TAGS_PER_SOURCE=3`) is a protected store separate
+from the churning 8-slot `memories`/`working_memory` — written at
+feud/ostracism/theft time, immune to `MAX_AGENT_MEMORIES` eviction,
+cleared only by explicit reconciliation. `DISPUTE_COOLDOWN_TICKS`
+3000 -> 1000 (still backpressure-gated, so LLM volume can't blow out);
+`due_for_dispute` now fires on EITHER side's relationship crossing
+`DISPUTE_RELATIONSHIP_THRESHOLD` rather than requiring mutual souring
+— `_maybe_schedule_dispute` reads the worse of the two directions into
+the prompt so a one-sided dispute's framing isn't misleadingly mild.
+Both new dicts get the same dead-agent cleanup as relationships/trust
+(v0.42.0's leak fix). Deliberately did NOT blind-reflag the 36 existing
+`_remember(routine=)` call sites (checklist's other Tier 0.2 half) —
+that needs live measurement/judgment per site, a wrong call could
+suppress genuinely significant memories instead of routine ones.
+
+Verified: direct unit tests (debt-significance skip, decay-lock +
+gain-lock on a flagged pair, grievance cap/clear, `to_dict`/`from_dict`
+round trip, one-sided dispute trigger + cooldown + `apply_dispute`
+outcome wiring), `scripts/verify_native_soak.py` byte-identical (2
+seeds x 800 ticks, plus a 4000-tick single-seed run past the
+checklist's own 3685-tick reference window).
+
 ## Current state (v1.3.16)
 
 Explicit user request: "try finishing FT" — docs/AUDIT-2026-07-20.md's

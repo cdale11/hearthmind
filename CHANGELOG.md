@@ -4,6 +4,77 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.17] — "Definitive checklist" Tier 0 + 2.2: stop the self-erasure, un-throttle disputes
+
+Explicit user request: implement items from an uploaded audit
+(`docs/DEFINITIVECHECKLIST20260721.md` — user's own file, not checked
+into the repo). The audit's central finding: interpersonal state
+(feuds, debts, grievances) ambiently decays to zero every tick just
+like ambient mood does, so nothing genuinely bad or good between two
+people can ever accumulate into real history — combined with disputes
+being throttled to a cooldown (3000 ticks) the audit measured as never
+firing in practice. This ships the audit's own dependency-ordered
+Tier 0 (stop the self-erasure) and Tier 2.2 (un-throttle disputes) —
+the foundation everything else in the checklist depends on. Tiers 1
+(full pairwise-ledger migration), 2.1/2.3, and 3-7 (wants-driven
+interpersonal goals, consequence loops, dialogue-as-transaction, life
+arcs) are NOT in this pass — each is its own large, dependency-ordered
+effort per the audit's own structure; scoped as follow-up work, not
+silently dropped. See CLAUDE.md's "Current state" for the full
+reasoning and the explicit remaining-work list.
+
+**Tier 0.1 — significant interpersonal state stops decaying to zero:**
+`Agent.relationship_flags` (id -> `"feud"`) is set by `apply_dispute`'s
+`feud`/`ostracism` outcomes and exempts that pair from BOTH halves of
+`Population._update_relationships` (ambient decay-toward-0 AND the
+passive colocation warmth gain) — a hardened feud now actually holds
+at the depth it deepened to ("hardened for good" finally means it)
+instead of silently eroding back toward neutral every tick regardless
+of the narration. Only an explicit `reconcile`/`council_ruling`
+dispute outcome clears the flag. `Agent.debts` gained `DEBT_
+SIGNIFICANT_THRESHOLD = 2.0`: a debt at/above it stops passive decay
+in `decay_debts` entirely — real standing obligations are resolved
+by repayment, not forgotten by the clock, while small day-to-day
+trade debts keep the original ambient fade unchanged.
+
+**Tier 0.2 — protect significant interpersonal memory from flooding:**
+new `Agent.grievances` (id -> small FIFO-capped list of concrete
+wrong-text tags, `MAX_GRIEVANCE_TAGS_PER_SOURCE = 3`), a store
+entirely separate from the churning 8-slot `memories`/`working_
+memory` — a grievance formed here can never be evicted by an ordinary
+day's flood of routine events the way an entry in `memories` can.
+Written at feud/ostracism (`apply_dispute`) and theft-victimization
+time; cleared only by explicit reconciliation, same discipline as the
+relationship-flag lock. (A full audit of which of the 36 existing
+`_remember(..., routine=)` call sites are mis-flagged is flagged as a
+separate, more judgment-heavy follow-up — not attempted blind this
+pass, since salience-at-write-time already partly covers it and a
+wrong call could suppress genuinely significant memories.)
+
+**Tier 2.2 — un-throttle dispute triggering:** `DISPUTE_COOLDOWN_
+TICKS` 3000 -> 1000 (still gated by `_maybe_schedule_dispute`'s
+existing backpressure check, so this can't blow the LLM budget — it
+only widens the eligibility window). `Population.due_for_dispute` no
+longer requires BOTH sides' relationship to have soured past
+`DISPUTE_RELATIONSHIP_THRESHOLD` — one-sided resentment (a theft
+victim, someone refused help) is now enough, matching what `apply_
+dispute`'s `ostracism` outcome already models as a real, common case
+the old mutual-only gate could never surface. `_maybe_schedule_
+dispute` now reads the worse of the two relationship directions into
+the prompt/fallback framing instead of always `a`'s view of `b`, so a
+one-sided dispute doesn't show a misleadingly mild "regard for each
+other" number.
+
+Both survivor-side dead-agent cleanup for `relationships`/`trust`
+(v0.42.0's memory-leak fix) extended to the two new dicts, same "dead
+weight, no observable behavior change" discipline. Verified: direct
+unit tests (debt-significance skip, decay-lock + gain-lock on a
+flagged pair, grievance cap/clear, `to_dict`/`from_dict` round trip,
+one-sided dispute trigger + cooldown + `apply_dispute` outcome
+wiring), `scripts/verify_native_soak.py` byte-identical (2 seeds x 800
+ticks, plus a 4000-tick single-seed run past the checklist's own
+3685-tick reference window with dispute firings actually observed).
+
 ## [1.3.16] — Finish the FT fine-tuning roadmap's buildable half
 
 Explicit user request: "try finishing FT" — the remaining items of

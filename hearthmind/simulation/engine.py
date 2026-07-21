@@ -5060,7 +5060,15 @@ class SimulationEngine:
         if pair is None:
             return
         agent_a, agent_b = pair
-        relationship = agent_a.relationships.get(agent_b.id, 0.0)
+        # Tier 2.2 (2026-07-21): due_for_dispute now also fires on
+        # one-sided souring, so the two directions can genuinely
+        # differ — show whichever side has actually festered worse
+        # rather than always reading a's view of b, which could
+        # otherwise show a mild/neutral number while b's real
+        # grievance (the reason this fired at all) goes unmentioned.
+        relationship = min(
+            agent_a.relationships.get(agent_b.id, 0.0), agent_b.relationships.get(agent_a.id, 0.0),
+        )
         dispute_home = self._settlement_by_id(agent_a.settlement_id)
         has_council = dispute_home.council() is not None
         reputation_a = self.world.population.reputation(agent_a.id)

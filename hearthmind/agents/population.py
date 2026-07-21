@@ -209,7 +209,9 @@ from hearthmind.agents.agent import (
     Agent,
     AgentGoal,
     AgentState,
+    add_grievance,
     bump_emotion,
+    clear_grievance,
     decay_debts,
     decay_emotions,
     dominant_emotion,
@@ -653,11 +655,20 @@ dispute-resolution moment — see Population.due_for_dispute,
 SimulationEngine._maybe_schedule_dispute. Deep enough that ordinary
 tense patches never trigger it; a feud has to have genuinely festered."""
 
-DISPUTE_COOLDOWN_TICKS = 3000
+DISPUTE_COOLDOWN_TICKS = 1000
 """Minimum ticks between two dispute-resolution moments for the same
-pair (~31 sim-days at default pacing) — a resolution is a rare, notable
-event, not a recurring mechanic; an outcome needs time to settle (or
-fester again) before the question can reopen."""
+pair (~10 sim-days at default pacing) — a resolution is still a rare,
+notable event, not a recurring mechanic; an outcome needs time to
+settle (or fester again) before the question can reopen. Lowered from
+3000 ("Definitive checklist" Tier 2.2, 2026-07-21): the audit measured
+zero dispute firings across a 3685-tick run at the old value — combined
+with `due_for_dispute`'s prior mutual-souring requirement (see below),
+the gate was tight enough that the interpersonal system with the
+richest mechanical teeth (feud/reconcile/council_ruling/ostracism,
+Population.apply_dispute) almost never actually fired. Still gated by
+`_maybe_schedule_dispute`'s existing backpressure check, so this can't
+add unbounded LLM volume — it only widens the window a genuinely
+festered pair becomes eligible in."""
 
 DISPUTE_RECONCILE_RELATIONSHIP = 0.1
 DISPUTE_TRUCE_RELATIONSHIP = -0.1
@@ -3397,6 +3408,13 @@ class Population:
             # high-population world. See docs/DECISIONS.md, "memory
             # leak: unpruned relationships" pass.
             for other_id in list(agent.relationships):
+                if agent.relationship_flags.get(other_id) == "feud":
+                    # Tier 0.1 "significant state stops decaying to
+                    # zero": a hardened feud holds at whatever depth it
+                    # deepened to until an explicit reconcile/council_
+                    # ruling clears the flag (apply_dispute below) — see
+                    # Agent.relationship_flags's docstring.
+                    continue
                 value = agent.relationships[other_id]
                 if _native_relationship_decay_step is not None:
                     value = _native_relationship_decay_step(value, RELATIONSHIP_DECAY_PER_TICK)
@@ -3412,6 +3430,11 @@ class Population:
             if len(group) < 2:
                 continue
             for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
+                if a.relationship_flags.get(b.id) == "feud" or b.relationship_flags.get(a.id) == "feud":
+                    # A locked feud doesn't quietly warm back up just
+                    # from standing near each other, same "resolves only
+                    # explicitly" rule as the decay skip above.
+                    continue
                 if _native_relationship_gain_step is not None:
                     a.relationships[b.id] = _native_relationship_gain_step(
                         a.relationships.get(b.id, 0.0), RELATIONSHIP_GAIN_PER_TICK_COLOCATED, 1.0,
@@ -3597,6 +3620,7 @@ class Population:
                     bump_emotion(victim, EMOTION_ANGER, EMOTION_DISPUTE_ANGER_BUMP)
                     _nudge_trait(victim, TRAIT_SOCIABILITY, TRAIT_THEFT_VICTIM_SOCIABILITY_NUDGE)
                     _remember(victim, f"{thief.name} stole food from me while I wasn't looking.", because=f"{thief.name} stole from me")
+                    add_grievance(victim, thief.id, f"{thief.name} stole food from me.")
                     _remember(thief, f"I took food from {victim.name} out of desperation.", routine=True)
                     # §1 "deviance loop" completion: the act now plants a
                     # real secret on the thief (not just a routine
@@ -5823,6 +5847,12 @@ class Population:
                 for dying_id in dying_ids:
                     survivor.relationships.pop(dying_id, None)
                     survivor.trust.pop(dying_id, None)
+                    # Tier 0.1/0.2 additions: same "dead weight" cleanup
+                    # — a feud/grievance against someone who died is
+                    # meaningless to keep locked or tagged. Death is
+                    # itself an explicit resolution.
+                    survivor.relationship_flags.pop(dying_id, None)
+                    survivor.grievances.pop(dying_id, None)
         if dying_ids:
             # A dead rider's mount goes back to the unclaimed pool rather
             # than staying claimed forever by nobody.
@@ -6406,13 +6436,26 @@ class Population:
     # --- disputes: rare LLM-mediated resolution of a festered feud (v0.64.0) ----
 
     def due_for_dispute(self, tick: int, cooldown_ticks: int) -> tuple[Agent, Agent] | None:
-        """At most one deeply-soured pair per tick (mutual relationship
-        at or below DISPUTE_RELATIONSHIP_THRESHOLD, both alive, cooldown
-        expired) whose feud is ripe for a rare LLM-mediated resolution
-        moment — see SimulationEngine._maybe_schedule_dispute. Marks the
-        cooldown immediately, same convention as due_for_dialogue.
-        Colocation deliberately NOT required: a feud simmers regardless
-        of where either party happens to be standing."""
+        """At most one deeply-soured pair per tick (EITHER side's
+        relationship at or below DISPUTE_RELATIONSHIP_THRESHOLD, both
+        alive, cooldown expired) whose feud is ripe for a rare
+        LLM-mediated resolution moment — see SimulationEngine.
+        _maybe_schedule_dispute. Marks the cooldown immediately, same
+        convention as due_for_dialogue. Colocation deliberately NOT
+        required: a feud simmers regardless of where either party
+        happens to be standing.
+
+        "Definitive checklist" Tier 2.2 (2026-07-21): previously
+        required BOTH sides to have soured past the threshold — "the
+        resentment must be mutual, not one-sided." That's a real
+        interaction most disputes don't have: one party can resent the
+        other (a theft victim, someone who was refused help) while the
+        other party's own relationship reading stays neutral, and the
+        old gate meant that grievance could never surface as a dispute
+        at all. Now either direction crossing the threshold is enough —
+        one-sided resentment is exactly the case `apply_dispute`'s
+        "ostracism" outcome and grievance tagging (Agent.grievances)
+        exist to dramatize."""
         alive_ids = {a.id for a in self.agents}
         prune_horizon = cooldown_ticks * 4
         stale_keys = [
@@ -6425,13 +6468,14 @@ class Population:
         by_id = {a.id: a for a in self.agents}
         for agent in self.agents:
             for other_id, value in agent.relationships.items():
-                if other_id <= agent.id or value > DISPUTE_RELATIONSHIP_THRESHOLD:
-                    continue  # each pair once (lower id first), and only genuinely festered feuds
+                if other_id <= agent.id:
+                    continue  # each pair once (lower id first)
                 other = by_id.get(other_id)
                 if other is None:
                     continue
-                if other.relationships.get(agent.id, 0.0) > DISPUTE_RELATIONSHIP_THRESHOLD:
-                    continue  # the resentment must be mutual, not one-sided
+                mutual_value = other.relationships.get(agent.id, 0.0)
+                if value > DISPUTE_RELATIONSHIP_THRESHOLD and mutual_value > DISPUTE_RELATIONSHIP_THRESHOLD:
+                    continue  # neither side has genuinely festered
                 key = (agent.id, other_id)
                 last = self.dispute_cooldowns.get(key, -cooldown_ticks)
                 if tick - last < cooldown_ticks:
@@ -6461,6 +6505,11 @@ class Population:
             shunned.standing_penalty = min(1.0, shunned.standing_penalty + OSTRACISM_PENALTY)
             shunned.relationships[other.id] = max(-1.0, shunned.relationships.get(other.id, 0.0) + DISPUTE_FEUD_DEEPEN)
             other.relationships[shunned.id] = max(-1.0, other.relationships.get(shunned.id, 0.0) + DISPUTE_FEUD_DEEPEN)
+            # Tier 0.1/0.2: ostracism is as much a hardened rupture as a
+            # "feud" outcome — same decay-lock + tagged grievance.
+            shunned.relationship_flags[other.id] = "feud"
+            other.relationship_flags[shunned.id] = "feud"
+            add_grievance(shunned, other.id, "The village ostracized me.")
             _nudge_trait(shunned, TRAIT_SOCIABILITY, TRAIT_OSTRACISM_SOCIABILITY_NUDGE)
             _remember(shunned, "The village has turned its back on me.", because="ostracized by the village")
             _remember(other, f"The village ostracized {shunned.name} over what happened between us.", because=f"dispute with {shunned.name}")
@@ -6469,6 +6518,12 @@ class Population:
             for me, them in pairs:
                 me.relationships[them.id] = DISPUTE_RECONCILE_RELATIONSHIP
                 me.trust[them.id] = clamp(me.trust.get(them.id, 0.0) + DISPUTE_TRUST_DELTA, -1.0, 1.0)
+                # Tier 0.1: an explicit reconciliation is the only thing
+                # that resolves a locked "feud" flag/grievance — it never
+                # just fades out on its own. See relationship_flags'/
+                # grievances' docstrings on Agent.
+                me.relationship_flags.pop(them.id, None)
+                clear_grievance(me, them.id)
                 _remember(me, f"{them.name} and I made peace after our long feud.", because=f"dispute with {them.name}")
                 # H6 extension: trusting someone again after a real feud and
                 # being right about it teaches you to keep trusting — a
@@ -6483,8 +6538,13 @@ class Population:
         elif outcome == "council_ruling":
             for me, them in pairs:
                 # A ruling suppresses the feud without warming it — a
-                # cool, enforced truce, not a reconciliation.
+                # cool, enforced truce, not a reconciliation. Still an
+                # explicit resolution (Tier 0.1): the lock lifts and the
+                # truce value is free to drift like any ordinary
+                # relationship from here.
                 me.relationships[them.id] = DISPUTE_TRUCE_RELATIONSHIP
+                me.relationship_flags.pop(them.id, None)
+                clear_grievance(me, them.id)
                 _remember(me, f"The council ruled on my dispute with {them.name}; we keep our distance now.", because=f"dispute with {them.name}")
         else:  # feud — the default/worst outcome
             for me, them in pairs:
@@ -6492,6 +6552,13 @@ class Population:
                     -1.0, me.relationships.get(them.id, 0.0) + DISPUTE_FEUD_DEEPEN
                 )
                 me.trust[them.id] = clamp(me.trust.get(them.id, 0.0) - DISPUTE_TRUST_DELTA, -1.0, 1.0)
+                # Tier 0.1/0.2: "hardened for good" now means it —
+                # exempted from ambient relationship decay (see
+                # _update_relationships) until an explicit reconcile/
+                # council_ruling, and the specific wrong is tagged in a
+                # protected store the routine-memory flood can't evict.
+                me.relationship_flags[them.id] = "feud"
+                add_grievance(me, them.id, f"{them.name} and I have an unresolved feud.")
                 _remember(me, f"My feud with {them.name} has hardened for good.", because=f"dispute with {them.name}")
                 _nudge_trait(me, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
                 _nudge_trait(me, TRAIT_SOCIABILITY, TRAIT_FEUD_SOCIABILITY_NUDGE)
