@@ -4,25 +4,72 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
-## [1.3.27] — Body/Mind architecture framing (docs only)
+## [1.3.27] — Body/Mind architecture correction + Nature's Mind
 
-Explicit user correction, no code/behavior changes: stop describing the
-LLM as a layer "bolted on to" deterministic simulation. Each pillar
-(Humans, Village, Nature, Innovation) is one system with two
-inseparable halves — Body (deterministic, always-authoritative
-objective reality) and Mind (LLM, that pillar's subjective cognition:
-perception, memory interpretation, belief formation, goal/social/
-cultural reasoning, concept invention). The Mind is a pillar's
-cognition, not decoration; a pillar with a thin Mind (Nature, today) is
-incomplete, not correctly-mostly-deterministic-by-design. Reflection is
-not a fifth pillar — it's the meta-cognitive system observing the four
-Minds, one level up, never touching Body state directly. Recorded in
-full in docs/VISION-2026-07-21-SELFEVOLVING.md's new "v1.2 revision
-note" and summarized as a standing rule in CLAUDE.md's design-
-priorities section, next to the pre-existing deterministic/LLM split it
-refines. Doesn't loosen the existing call-budget gating (core cast,
-daily ceiling, `critical` scheduling) — it's a completeness target for
-what deserves a Mind, not license to remove the gating.
+Explicit user correction: stop describing the LLM as a layer "bolted
+on to" deterministic simulation — each pillar (Humans, Village, Nature,
+Innovation) is one system with two inseparable halves: Body
+(deterministic, always-authoritative objective reality) and Mind (LLM,
+that pillar's subjective cognition — perception, memory interpretation,
+belief formation, goal/social/cultural reasoning, concept invention).
+A pillar with a thin Mind is incomplete, not correctly-mostly-
+deterministic-by-design. Reflection is not a fifth pillar — it's the
+meta-cognitive system observing the four Minds, one level up, never
+touching Body state directly. Full text: docs/VISION-2026-07-21-
+SELFEVOLVING.md's new "v1.2 revision note"; summarized as a standing
+rule in CLAUDE.md's design-priorities section.
+
+**Follow-up correction, same session: the shared ontology is a cross-
+pillar capability, not an Innovation subsystem.** Every pillar should
+originate its own kind of first-class entity into the SAME `world.
+ontology.InventedConcept` registry — Humans (customs/professions/
+myths/traditions), Village (institutions/laws/festivals/political
+structures), Nature (ecological relationships/migration routes/
+habitats/climate phenomena), Innovation (technologies/philosophies/
+theories) — so any system can discover/combine/reinterpret/evolve/
+merge across origins indefinitely. `ONTOLOGY_CATEGORIES` already spans
+all four pillars' flavors, but scheduling had collapsed to one
+mechanism: `_maybe_schedule_ontology_proposal` let the LLM pick ANY of
+the eight categories from a single settlement-prosperity-gated
+"village imagination" job — meaning even an `ecological` concept was,
+in practice, Village-originated.
+
+**Closed this pass: Nature's Mind (the identified gap) + the ontology
+fix together.** New `llm/nature_mind.py` + `SimulationEngine._maybe_
+schedule_nature_mind` — world-scoped, `season_end` cadence, `critical=
+True` (deferred, never fabricated, on a spent budget/failed call, same
+discipline as settlement beliefs). Grounded ONLY in Nature's own Body
+state: `WildlifeGrid.summary()`'s trophic-pressure ratios (3.D),
+`World.disaster_scars`/`mining_scars` counts, `World.fallow_ticks`
+(succession progress, 3.D), `World.climate`'s warming/drying trend,
+season — never settlement prosperity/era/tech level. One combined LLM
+call does two things (same "maximize emergence per call" discipline):
+(1) forms/revises a belief in new `World.nature_beliefs` (same shape/
+discipline as `Settlement.beliefs`, reuses `llm.beliefs.parse_belief`/
+`is_noop_belief_revision`); (2) may originate one new `category=
+"ecological"` concept into the shared registry. `llm/ontology.py`'s new
+`VILLAGE_PROPOSE_CATEGORIES` narrows the Village-imagination job to the
+other seven categories — `ecological` is now `nature_mind`'s exclusive
+territory — and `parse_propose` deterministically redirects a
+hallucinated `ecological` answer back to a real Village category.
+
+Not attempted this pass (flagged, real future scope): Nature's Mind
+doesn't yet feed back into the Body mechanically (Village's `current_
+priority` does, via `choose_building_kind`); a genuine Human-vs-Village
+ontology-origination split (both still route through the same Village
+job today).
+
+Surfaced: `World.summary()`'s `nature_beliefs`, a new "The land's own
+sense" stat tile in app.js.
+
+Verified: direct unit tests (belief formation + concept origination
+through the real production `_schedule_llm_job` path with a fake
+client; correct critical-job deferral with the LLM disabled — state
+left untouched, `calls_deferred_critical` incremented, nothing
+fabricated), category-redirect test for the narrowed Village-imagination
+job, a 6000-tick LLM-disabled engine soak with round-trip `to_dict()`/
+`from_dict()` equality, `scripts/verify_native_soak.py` (2 seeds x
+800 ticks) byte-identical — no native module touched.
 
 ## [1.3.26] — Phase 3.D food webs / predator-prey feedback
 

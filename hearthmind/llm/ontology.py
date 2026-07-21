@@ -27,6 +27,18 @@ from __future__ import annotations
 from hearthmind.agents.agent import SKILL_CONSTRUCTION, SKILL_FARMING, SKILL_MEDICINE
 from hearthmind.world.ontology import MAX_HOOK_MAGNITUDE, MECHANICAL_HOOK_TYPES, ONTOLOGY_CATEGORIES
 
+VILLAGE_PROPOSE_CATEGORIES = tuple(c for c in ONTOLOGY_CATEGORIES if c != "ecological")
+"""Body/Mind correction (CLAUDE.md "Design priorities", explicit user
+direction 2026-07-21): `category="ecological"` used to be offered here
+alongside everything else, gated on settlement prosperity — an
+accidental collapse of Nature's own ontology-origination into a
+Village-flavored mechanism. `ecological` concepts are now exclusively
+`llm/nature_mind.py`'s territory, grounded in Nature's own Body state
+(wildlife/disaster/succession/climate signals), not village prosperity.
+Every other category stays here — this job is genuinely "the village's
+collective imagination," and a custom/law/ritual/saying/profession/
+institution-flavor idea IS naturally village-grounded."""
+
 _VALID_SKILL_TARGETS = (SKILL_FARMING, SKILL_CONSTRUCTION, SKILL_MEDICINE)
 _VALID_GOAL_TARGETS = ("forage", "gather", "socialize", "wander", "rest")
 """Free-text-but-validated goal names a `goal_flavor_bias` hook may
@@ -42,10 +54,10 @@ SYSTEM_PROMPT_PROPOSE = (
     "Given its name, recent history, current technological/cultural "
     "level, and ideas it already has, invent ONE new concept this "
     "village might genuinely originate — a technology, a custom, a law, "
-    "a ritual, a saying, a profession, a flavor of an existing "
-    "institution, or a new ecological practice. Ground it in what has "
+    "a ritual, a saying, a profession, or a flavor of an existing "
+    "institution. Ground it in what has "
     "actually happened to these people, not generic fantasy flavor. "
-    "Classify it as one of: " + ", ".join(ONTOLOGY_CATEGORIES) + ". "
+    "Classify it as one of: " + ", ".join(VILLAGE_PROPOSE_CATEGORIES) + ". "
     "If the idea has a real mechanical effect, name it as one of: "
     + ", ".join(MECHANICAL_HOOK_TYPES) + " (use 'custom_text_only' if it's "
     "meaningful but shouldn't move any number). If the hook is "
@@ -71,7 +83,6 @@ _FALLBACK_PROPOSALS: tuple[tuple[str, str, str, str, str], ...] = (
     ("Waste Not the Bone", "A saying reminding the village that nothing gathered goes unused.", "saying", "goal_flavor_bias", "gather"),
     ("The Path-Keeper", "A recognized role for whoever keeps the village paths clear and safe.", "profession", "custom_text_only", ""),
     ("Rest Before Ruin", "A saying urging the tired to rest before they collapse.", "saying", "goal_flavor_bias", "rest"),
-    ("The Fallow Turn", "A practiced habit of resting a field every few seasons.", "ecological", "skill_yield_bonus", "farming"),
 )
 
 
@@ -139,7 +150,7 @@ def parse_propose(result: dict, fallback: dict) -> dict:
         name = fallback["name"]
     if not isinstance(description, str) or not description.strip():
         description = fallback["description"]
-    if not isinstance(category, str) or category not in ONTOLOGY_CATEGORIES:
+    if not isinstance(category, str) or category not in VILLAGE_PROPOSE_CATEGORIES:
         category = fallback["category"]
     if not isinstance(hook_type, str) or hook_type not in MECHANICAL_HOOK_TYPES:
         hook_type = fallback["hook_type"]

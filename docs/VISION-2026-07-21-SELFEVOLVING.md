@@ -65,7 +65,7 @@ beliefs`/`town_brain` (Village's mind), per-agent cognition/`Agent.
 mind`/personal beliefs (Human's mind — currently core-cast-gated, not
 whole-population, by the call-budget rule below), `llm/ontology.py`'s
 propose/evolve/merge (Innovation's mind). Nature's mind is the
-identified gap — see Phase 3.D+ follow-up work.
+identified gap — see Phase 3.E below for the follow-up that closed it.
 
 **Reflection is not a fifth pillar.** It's the meta-cognitive system
 observing all four Minds — detecting long-term patterns across them,
@@ -571,6 +571,95 @@ identical to today's rendering.
   precipitation) is flagged `[HYPOTHESIS]` — confirm it's reachable
   against the existing spatial-weather smoothing before committing
   (same "unreachable threshold" lesson CLAUDE.md already documents).
+
+---
+
+## Phase 3.E — Nature's Mind (Body/Mind framing, v1.3.27)
+
+Explicit user correction (2026-07-21, same day as the Body/Mind
+architecture correction recorded in CLAUDE.md and this doc's v1.2
+revision note): every pillar is a Body (deterministic, authoritative)
+and a Mind (LLM, subjective cognition) — not a simulation with an LLM
+layer bolted on. Of the four pillars, Nature was the one with almost no
+Mind at all: weather/wildlife/disasters/terrain evolution are all real,
+rich Body state, but nothing ever formed a subjective interpretation of
+it, the way Village has `town_brain`/`beliefs` and Innovation has
+`llm/ontology.py`'s propose/evolve/merge.
+
+**Status: first slice SHIPPED, v1.3.27.** New `llm/nature_mind.py` +
+`SimulationEngine._maybe_schedule_nature_mind` (world-scoped,
+`season_end` cadence, same `critical=True` discipline as settlement
+beliefs — deferred, never fabricated, on a spent budget/failed call).
+Grounded ONLY in Nature's own Body state: `WildlifeGrid.summary()`'s
+trophic-pressure ratios (3.D), `World.disaster_scars`/`mining_scars`
+counts, `World.fallow_ticks` (succession progress), `World.climate`'s
+warming/drying trend, season — never settlement prosperity, era, or
+tech level, which is what accidentally gated Nature's only prior
+ontology-origination path (see the shared-ontology correction below).
+One combined LLM call does two things, same "maximize emergence per
+call" discipline as everywhere else:
+
+1. **Belief formation** — `World.nature_beliefs`, same shape/discipline
+   as `Settlement.beliefs` (subject/belief/confidence, revisable,
+   allowed to be wrong, capped at `llm.beliefs.MAX_BELIEFS`). Reuses
+   `llm.beliefs.parse_belief`/`is_noop_belief_revision` rather than
+   re-implementing belief mechanics.
+2. **Concept invention** — may (not must) originate one new
+   `category="ecological"` entry into the SHARED ontology registry
+   (`world.ontology.register_concept`) — a migration route, symbiosis,
+   habitat, climate phenomenon, or landscape identity.
+
+Surfaced in `World.summary()`'s `nature_beliefs` and a new "The land's
+own sense" stat tile (app.js) alongside Wildlife/scar tiles.
+
+**Not attempted this slice** (real follow-up, not silently dropped):
+Nature's Mind currently only *interprets and occasionally invents* — it
+doesn't yet feed back into the Body the way Village's `current_
+priority` measurably biases `choose_building_kind`'s odds. A future
+slice could have a strongly-held nature belief nudge something
+mechanical (e.g. a confidently-held "the herds are struggling" belief
+slightly raising `PREDATOR_STARVE_CHANCE`'s own variance, or biasing
+where `_maybe_recolonize` spawns) — flagged, not built, needs live
+design judgment on which knob to touch without corrupting the Body's
+own authority over objective reality (Mind interprets, it must never
+override the Body's ground truth).
+
+### Shared ontology correction: every pillar expands it, not just Innovation
+
+Explicit user correction, same session: the ontology (`world/
+ontology.py`'s `InventedConcept` registry) is a **cross-pillar
+capability**, not an Innovation-pillar subsystem — Humans should
+originate customs/professions/social roles/myths/traditions, Village
+should originate institutions/laws/festivals/political structures,
+Nature should originate ecological relationships/migration routes/
+habitats/climate phenomena, Innovation should originate technologies/
+techniques/philosophies/theories. All land in the SAME shared registry
+so any system can discover/reference/combine/reinterpret/evolve/merge
+across origins indefinitely — the registry was already architected this
+way (`ONTOLOGY_CATEGORIES` has always spanned all four pillars'
+flavors: `technology`, `custom`, `law`, `ritual`, `saying`,
+`profession`, `institution_flavor`, `ecological`), but the *scheduling*
+had accidentally collapsed to one mechanism: `_maybe_schedule_ontology_
+proposal` let the LLM pick ANY of the eight categories from a single
+"collective imagination of the village" job gated on SETTLEMENT
+prosperity — meaning even an `ecological` concept was, in practice,
+Village-originated, not Nature-originated.
+
+**Fixed this slice**: `ecological` is now `_maybe_schedule_nature_mind`'s
+exclusive territory (see above), grounded in Nature's own Body state;
+`llm/ontology.py`'s `VILLAGE_PROPOSE_CATEGORIES` narrows the Village
+job to the other seven, and `parse_propose` deterministically redirects
+a hallucinated `ecological` answer back to a real Village category
+rather than trusting the model's own claim. **Not attempted this
+slice**: a true Human-originated origination pathway (grounded in
+individual agent lived experience rather than settlement-level
+aggregate) distinct from Village's — today `custom`/`profession`/
+`saying` concepts are still Village-job-originated even though they're
+conceptually "Human" in the four-pillar sense; splitting Human from
+Village origination is real future scope, flagged rather than
+attempted here (the two pillars share a lot of surface area — an NPC's
+custom IS the village's custom — and a clean split needs its own design
+pass, not a rushed one alongside Nature's Mind).
 
 ---
 

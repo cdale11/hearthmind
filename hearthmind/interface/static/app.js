@@ -2799,6 +2799,13 @@ function renderStats(summary) {
       "Grazer herds roam grassland/forest and can be hunted for food; predator packs roam forest/hills and hunt grazers, starving without a kill. A real trophic loop: heavy predation pressure suppresses grazer breeding map-wide, and scarce prey suppresses predator breeding/survival in turn — not just direct per-tile kills.",
     ],
     [
+      "The land's own sense",
+      (summary.nature_beliefs && summary.nature_beliefs.length)
+        ? summary.nature_beliefs.map((b) => b.subject).join(", ")
+        : "not yet formed",
+      "Nature's Mind (Body/Mind framing): the wilderness's own running, revisable theories about its condition — formed from wildlife pressure, disaster/mining scars, succession, and climate drift, never from what the village believes. Grounded, sometimes wrong, same discipline as any other belief in this world. May also give rise to new ecological concepts (migration routes, symbioses, landscape identities) in the shared ontology.",
+    ],
+    [
       "Roads", `${rd.established_roads} established (${rd.worn_tiles} worn)` + (rd.paving_unlocked ? `, ${rd.paved_roads} paved` : ""),
       "Tiles worn by sustained foot traffic. An established road (wear ≥ 0.5) gives agents standing on it a 1.4x random-walk move-chance bonus. " +
       "Once any settlement reaches the modern era, sustained heavy traffic (wear ≥ 0.85) can pave a road into a faster, more weather-resistant surface (1.7x dry).",

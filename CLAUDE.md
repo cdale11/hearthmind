@@ -152,15 +152,31 @@ and **Mind** (LLM, that pillar's subjective cognition — perception,
 memory interpretation, belief formation, goal reasoning, planning,
 social/cultural interpretation, concept invention). The Mind is the
 pillar's cognition, not decoration or post-processing. A pillar whose
-Mind half is thin (Nature, today — almost entirely Body with no LLM
-interpretation layer) is incomplete, not "correctly mostly-
-deterministic by design" — closing that gap is real future work, not
-scope creep. This doesn't loosen the call-budget gating below (core
-cast, daily ceiling, `critical` scheduling) — it's a completeness
-target for what deserves a Mind, not license to remove the gating.
-Reflection (Phase 5, designed not yet built) is not a fifth pillar —
-it's the meta-cognitive system observing all four Minds, one level up,
-never touching Body state or inventing facts directly.
+Mind half is thin is incomplete, not "correctly mostly-deterministic by
+design" — closing that gap is real future work, not scope creep (Nature
+was this gap; closed v1.3.27, see "Current state" below). This doesn't
+loosen the call-budget gating below (core cast, daily ceiling,
+`critical` scheduling) — it's a completeness target for what deserves a
+Mind, not license to remove the gating. Reflection (Phase 5, designed
+not yet built) is not a fifth pillar — it's the meta-cognitive system
+observing all four Minds, one level up, never touching Body state or
+inventing facts directly.
+
+**Every pillar expands the shared ontology, not just Innovation
+(explicit user correction, same session).** `world/ontology.py`'s
+`InventedConcept` registry is a cross-pillar capability: Humans
+originate customs/professions/social roles/myths/traditions, Village
+originates institutions/laws/festivals/political structures, Nature
+originates ecological relationships/migration routes/habitats/climate
+phenomena, Innovation originates technologies/techniques/philosophies/
+theories — all into the SAME registry so any system can discover/
+reference/combine/reinterpret/evolve/merge across origins indefinitely.
+`ONTOLOGY_CATEGORIES` was already architected to span all four
+pillars' flavors, but scheduling had collapsed to one Village-gated
+mechanism (fixed v1.3.27 — see `llm/nature_mind.py`, `ontology_llm.
+VILLAGE_PROPOSE_CATEGORIES`). A genuine Human-vs-Village origination
+split (today both still route through the Village-imagination job)
+remains open, flagged.
 
 **Physical substrate = a C++ cellular-automata engine (R7, added
 v0.72.6, explicit user directive).** The objective-physical-reality
@@ -439,9 +455,25 @@ split.
 
 ## Current state (v1.3.27)
 
-Docs-only: recorded the Body/Mind architecture correction (see "Design
-priorities" above and docs/VISION-2026-07-21-SELFEVOLVING.md's "v1.2
-revision note") — no code changes.
+Explicit user correction ("The self-evolving ontology is not the
+responsibility of the Innovation pillar alone... every pillar
+continuously expands the ontology") plus "scope Nature's Mind next and
+start building whatever you can." Two docs corrections plus one real
+implementation slice, see "Design priorities" above for the standing
+rules recorded from this pass.
+
+New `llm/nature_mind.py` + `SimulationEngine._maybe_schedule_nature_
+mind`: world-scoped, `season_end`, `critical=True` (deferred not
+faked). Grounded only in Nature's Body state (wildlife trophic ratios,
+disaster/mining scar counts, fallow/succession progress, climate
+drift, season) — one LLM call forms/revises a `World.nature_beliefs`
+entry (same shape as `Settlement.beliefs`) and may originate one
+`category="ecological"` concept into the shared ontology registry.
+`llm/ontology.py`'s new `VILLAGE_PROPOSE_CATEGORIES` excludes
+`ecological` from the Village-imagination job — that category is now
+Nature's exclusive territory, closing the accidental "all ontology
+categories gated on settlement prosperity" collapse. Surfaced: `World.
+summary()`'s `nature_beliefs`, a "The land's own sense" stat tile.
 
 ## Current state (v1.3.26)
 

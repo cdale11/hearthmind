@@ -340,6 +340,16 @@ class World:
     """Monotonic id counter for `invented_concepts` — never reused,
     same discipline as every other id counter in this codebase (e.g.
     `Population`'s own agent-id counter)."""
+    nature_beliefs: list[dict] = field(default_factory=list)
+    """Nature's Mind (Body/Mind framing, CLAUDE.md "Design priorities" —
+    explicit user direction 2026-07-21): the land's own running,
+    revisable theories about its condition — same shape/discipline as
+    `Settlement.beliefs` (subject/belief/confidence/formed_tick/
+    revised_tick/revision_count), world-scoped rather than per-
+    settlement (the land isn't any one village's). Capped at
+    `llm.beliefs.MAX_BELIEFS`, weakest-confidence eviction, same as
+    settlement beliefs. See `llm/nature_mind.py`, `SimulationEngine.
+    _maybe_schedule_nature_mind`."""
     _water_tiles: set = field(default=None, compare=False, repr=False)  # type: ignore[assignment]
     """Cached set of water-biome tile coords for `_tick_disasters` —
     previously rebuilt with a full terrain scan every tick even though
@@ -658,6 +668,10 @@ class World:
                     if self.disaster_scars else 0.0
                 ),
             },
+            "nature_beliefs": [
+                {"subject": b["subject"], "belief": b["belief"], "confidence": b["confidence"]}
+                for b in self.nature_beliefs
+            ],
             "settlement": self.settlement.summary(established_roads=self.roads.summary()["established_roads"]),
             "settlements": [
                 {
@@ -788,6 +802,7 @@ class World:
             "consciousness_grudge_ledger": self.consciousness_grudge_ledger,
             "invented_concepts": {str(k): v.to_dict() for k, v in self.invented_concepts.items()},
             "next_concept_id": self.next_concept_id,
+            "nature_beliefs": list(self.nature_beliefs),
             "consciousness_memory": list(self.consciousness_memory),
             "consciousness_personality": dict(self.consciousness_personality),
             "consciousness_objectives": list(self.consciousness_objectives),
@@ -982,5 +997,6 @@ class World:
                 int(k): InventedConcept.from_dict(v) for k, v in data.get("invented_concepts", {}).items()
             },
             next_concept_id=data.get("next_concept_id", 1),
+            nature_beliefs=list(data.get("nature_beliefs", [])),
             migrated_subsystems=migrated_subsystems,
         )

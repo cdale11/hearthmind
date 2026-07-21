@@ -69,7 +69,7 @@ from hearthmind.llm import (
     digest, dispute, documentary, dream, era_branch, festival, folklore, founding, geography, invention,
     memory_drift, mind,
     naming, narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
-    diplomacy, laws, letters, noncore_nudge, institution_culture,
+    diplomacy, laws, letters, noncore_nudge, institution_culture, nature_mind,
 )
 from hearthmind.llm import ontology as ontology_llm
 from hearthmind.world import ontology
@@ -1693,6 +1693,7 @@ class SimulationEngine:
         ("_maybe_schedule_invention", _JOB_EVENTS),
         ("_maybe_schedule_ontology_proposal", _JOB_EVENTS),
         ("_maybe_schedule_ontology_evolution", _JOB_EVENTS),
+        ("_maybe_schedule_nature_mind", _JOB_EVENTS),
         ("_maybe_spread_concepts", _JOB_NO_ARGS),
         ("_maybe_schedule_festival", _JOB_EVENTS),
         ("_maybe_schedule_religion", _JOB_EVENTS),
@@ -3320,12 +3321,16 @@ class SimulationEngine:
 
     def _maybe_schedule_ontology_proposal(self, events: list[str]) -> None:
         """Same seasonal cadence/prosperity gate as `_maybe_schedule_
-        invention`, but for the seven ontology categories `invention.py`
+        invention`, but for the six ontology categories `invention.py`
         doesn't cover (custom/law/ritual/saying/profession/institution_
-        flavor/ecological) — see docs/VISION-2026-07-21-SELFEVOLVING.md,
-        Phase 1.A. Deliberately excludes "technology": that category
-        stays `invention.py`'s own job (bridged into the same registry,
-        not duplicated — see `_maybe_schedule_invention`'s apply())."""
+        flavor) — see docs/VISION-2026-07-21-SELFEVOLVING.md, Phase 1.A.
+        Deliberately excludes "technology" (`invention.py`'s own job,
+        bridged into the same registry, not duplicated — see
+        `_maybe_schedule_invention`'s apply()) AND "ecological" (Body/
+        Mind correction: that's `_maybe_schedule_nature_mind`'s
+        territory now, grounded in Nature's own Body state rather than
+        settlement prosperity — see `ontology_llm.VILLAGE_PROPOSE_
+        CATEGORIES`)."""
         settlement = self._job_target()
         if not self._season_year_gate(events, "ontology_proposal", "season_end") or not settlement.name:
             return
@@ -3435,6 +3440,90 @@ class SimulationEngine:
 
         self._schedule_llm_job(
             "ontology_evolution", prompt, system_prompt, fallback, apply, deep_reasoning=True,
+        )
+
+    def _maybe_schedule_nature_mind(self, events: list[str]) -> None:
+        """Nature's Mind (Body/Mind framing, CLAUDE.md "Design
+        priorities" — explicit user direction 2026-07-21): world-scoped
+        (the land isn't any one settlement's), season_end cadence, same
+        shape as `_maybe_schedule_beliefs` but grounded ONLY in Nature's
+        own Body state — wildlife trophic ratios, disaster/mining scars,
+        succession progress, climate drift, season — never settlement
+        prosperity, era, or tech level. Forms/revises one belief about
+        the land (critical — genuine cognition, deferred rather than
+        faked on a spent budget/failed call, same as settlement
+        beliefs) and may originate one `category="ecological"` concept
+        into the SHARED ontology registry — the "every pillar expands
+        the ontology from its own Body state" correction; this is the
+        one job allowed to originate that category now (see
+        `_maybe_schedule_ontology_proposal`'s narrowed category list)."""
+        if not self._season_year_gate(events, "nature_mind", "season_end"):
+            return
+        if self._settlement_job_backpressured():
+            return
+        self._mark_season_year_resolved("nature_mind")
+        recent = recent_events_diverse(self.conn, limit=30)
+        nature_events = [e for e in recent if e["category"] in nature_mind.NATURE_EVENT_CATEGORIES]
+        wildlife_summary = self.world.wildlife.summary()
+        disaster_scar_count = len(self.world.disaster_scars)
+        fallow_count = len(self.world.fallow_ticks)
+        climate_summary = self.world.climate.to_dict()
+        season = self.world.clock.season
+        existing_beliefs = list(self.world.nature_beliefs)
+        prompt = nature_mind.build_prompt(
+            nature_events, existing_beliefs, wildlife_summary, disaster_scar_count, fallow_count,
+            climate_summary, season,
+        )
+        fallback = nature_mind.fallback_belief(nature_events, wildlife_summary, fallow_count)
+        existing_count = len(existing_beliefs)
+        # A concept, if any, needs an origin_settlement_id — the shared
+        # ontology schema ties every concept to a settlement even when
+        # its true origin is the land itself; the round-robin job
+        # target is the pragmatic attribution, same as any other
+        # world-scoped job that still needs a settlement id to write
+        # through (`_maybe_schedule_ontology_evolution` above does the
+        # same thing).
+        origin_settlement = self._job_target()
+        origin_settlement_id = origin_settlement.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            # critical=True below means this apply only ever runs on a
+            # genuine LLM answer — see _schedule_llm_job's docstring.
+            parsed = nature_mind.parse_nature_belief(result, fallback, existing_count)
+            tick = self.world.clock.tick_count
+            revises = parsed["revises"]
+            if revises is not None and revises < len(self.world.nature_beliefs):
+                entry = self.world.nature_beliefs[revises]
+                if nature_mind.is_noop_nature_revision(parsed["belief"], parsed["confidence"], entry):
+                    return
+                entry["belief"] = parsed["belief"]
+                entry["confidence"] = parsed["confidence"]
+                entry["subject"] = parsed["subject"]
+                entry["revised_tick"] = tick
+                entry["revision_count"] = entry.get("revision_count", 0) + 1
+                self._log("nature_belief_revised", f"The land's own sense of {entry['subject']} shifted: {entry['belief']}")
+            else:
+                entry = {
+                    "subject": parsed["subject"], "belief": parsed["belief"], "confidence": parsed["confidence"],
+                    "formed_tick": tick, "revised_tick": tick, "revision_count": 0,
+                }
+                self.world.nature_beliefs.append(entry)
+                if len(self.world.nature_beliefs) > beliefs.MAX_BELIEFS:
+                    weakest = min(self.world.nature_beliefs, key=lambda b: b["confidence"])
+                    self.world.nature_beliefs.remove(weakest)
+                self._log("nature_belief_formed", f"The land came to hold a sense of {entry['subject']}: {entry['belief']}")
+            concept_data = nature_mind.parse_concept(result)
+            if concept_data is not None and not ontology.is_near_duplicate(
+                self.world, concept_data["name"], concept_data["description"],
+            ):
+                concept = ontology.register_concept(
+                    self.world, name=concept_data["name"], description=concept_data["description"],
+                    category="ecological", origin_settlement_id=origin_settlement_id, tick=tick,
+                )
+                self._log("ontology", f"The land itself gave rise to {concept.name}: {concept.description}")
+
+        self._schedule_llm_job(
+            "nature_mind", prompt, nature_mind.SYSTEM_PROMPT, fallback, apply, critical=True,
         )
 
     def _maybe_spread_concepts(self) -> None:
