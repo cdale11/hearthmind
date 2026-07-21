@@ -2422,7 +2422,26 @@ class SimulationEngine:
         every dialogue prompt already includes. See llm/rumor_
         interpret.py. Tightly capped per day
         (`INTERPRET_RUMOR_MAX_PER_DAY`) — this fires per listening
-        event, not once a month like every other settlement job."""
+        event, not once a month like every other settlement job.
+
+        Routed through `_schedule_llm_job` (LLM-integration audit,
+        v1.3.29) rather than a hand-rolled `_runner()` coroutine — it
+        used to duplicate the budget-consume/debug-record/call-record
+        bookkeeping `_schedule_llm_job` already centralizes, the one
+        settlement/world-scoped job that hadn't been folded in. One
+        real behavior change from this move: on a day whose LLM budget
+        is already spent, this used to skip the retelling entirely
+        (silent no-op, nothing recorded); now, like every other non-
+        critical job, it applies the deterministic fallback retelling
+        via `apply` — consistent with rumor_interpret's own ambient/
+        narrative classification (`critical=False`, a real deterministic
+        fallback already existed) rather than the outlier of silently
+        dropping it. Its own tighter-than-`_settlement_job_
+        backpressured()` fraction check (P1.2(ii) — rumor_interpret
+        ranks below both cognition and dialogue at the consume stage)
+        stays as an explicit pre-check, same pattern every settlement
+        job's own `_settlement_job_backpressured()` pre-check already
+        uses before calling into the shared helper."""
         if not self._cognition_runner.enabled:
             return
         core = self.world.population.core_agent_ids
@@ -2439,36 +2458,21 @@ class SimulationEngine:
         if self._effective_backlog() >= self._current_backpressure_limit() * RUMOR_INTERPRET_BACKPRESSURE_FRACTION:
             self._cognition_runner.calls_dropped_backpressure += 1
             return
-        if not self._consume_llm_budget():
-            return
         self._interpret_rumor_today += 1
         prompt = rumor_interpret.build_prompt(listener.name, dict(listener.traits), rumor)
         fallback = rumor_interpret.fallback_interpretation(listener.name, rumor)
         listener_id = listener.id
 
-        async def _runner() -> None:
-            result, used_fallback, raw_completion = await self._cognition_runner.run(
-                prompt, rumor_interpret.SYSTEM_PROMPT, fallback=lambda: fallback,
-                json_schema=schema_for_task("rumor_interpret"),
-            )
+        def apply(result: dict, used_fallback: bool) -> None:
             target = self.world.population.get(listener_id)
-            applied = False
             if target is not None:
                 retelling = rumor_interpret.parse_interpretation(result, fallback)
                 _remember(target, retelling)
-                applied = True
-            self._record_llm_debug(
-                "rumor_interpret", prompt, result, used_fallback,
-                system_prompt=rumor_interpret.SYSTEM_PROMPT, raw_completion=raw_completion,
-                npc_ids=[listener_id], structured_input={"rumor": rumor, "traits": dict(listener.traits)},
-                outcome={"status": "executed" if applied else "target_gone"},
-            )
-            self._record_llm_call(used_fallback)
 
-        self._reserved_this_tick += 1
-        task = asyncio.create_task(_runner())
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        self._schedule_llm_job(
+            "rumor_interpret", prompt, rumor_interpret.SYSTEM_PROMPT, fallback, apply,
+            structured_input={"rumor": rumor, "traits": dict(listener.traits)}, npc_ids=[listener_id],
+        )
 
     # --- interventions ("nudges" from outside the simulation) ------------------
 

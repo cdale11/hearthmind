@@ -4,7 +4,44 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
-## [1.3.28] — Reflection (Phase 5.A/5.B): the fifth participant
+## [1.3.29] — LLM integration architecture audit
+
+Explicit user directive: audit every LLM call site, classify what each
+one does (dialogue/planning/narration/cognition/other), and refactor
+only where necessary so every LLM interaction passes through a single
+cognition interface, without changing gameplay.
+
+**Finding: the unification mostly already existed.** `_schedule_llm_
+job` (engine.py, established the "July 2026 architecture review §1.2"
+collapse of ~10 hand-rolled `_run_X` coroutines into one shared runner)
+is already the single interface ~30 settlement/world-scoped jobs go
+through — budget consume, backpressure pre-check convention, JSON-
+schema-constrained decoding, critical-vs-ambient fallback discipline,
+debug/call recording, all centralized. Three call sites bypassed it:
+`_run_cognition` (per-agent goals) and `_run_dialogue` (per-pair
+dialogue) are documented, structurally-necessary exceptions — both
+carry pending-result queues and staleness handling `_schedule_llm_
+job`'s fire-and-immediate-apply shape doesn't need. `_maybe_interpret_
+rumor` had no such justification: it duplicated `_schedule_llm_job`'s
+budget-consume/debug-record/call-record bookkeeping in a hand-rolled
+`_runner()` coroutine for no structural reason.
+
+**The one refactor**: `_maybe_interpret_rumor` now builds its prompt/
+fallback and calls `_schedule_llm_job` like every other settlement job,
+keeping its own tighter backpressure fraction check as an explicit
+pre-check (same pattern every other job's `_settlement_job_
+backpressured()` pre-check already uses). One deliberate, documented
+behavior change: on a day whose LLM budget is already spent, this used
+to skip the rumor retelling entirely (silent no-op); now it applies the
+deterministic fallback retelling, matching every other non-critical
+job's convention instead of being the one outlier that silently drops
+its ambient texture. `server.py`'s one-shot world-genesis call and
+`llm/rejection_sampling.py`'s standalone offline training tool are both
+legitimate, out-of-scope exceptions (no engine/World exists yet for the
+former; not part of the live tick loop for the latter) — left as-is.
+
+See the release report (this session's chat) for the full architecture
+audit table, files changed, and regression verification.
 
 Explicit user directive: "Start the 5th item and extend LLM 4-5
 pillars." Reflection is a meta-cognitive system observing the four
