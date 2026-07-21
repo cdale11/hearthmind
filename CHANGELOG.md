@@ -40,8 +40,11 @@ its ambient texture. `server.py`'s one-shot world-genesis call and
 legitimate, out-of-scope exceptions (no engine/World exists yet for the
 former; not part of the live tick loop for the latter) — left as-is.
 
-See the release report (this session's chat) for the full architecture
-audit table, files changed, and regression verification.
+Verified: direct end-to-end test (FakeClient) confirming memory
+formation and counters unchanged through the new path,
+`scripts/verify_native_soak.py` byte-identical (no native module
+touched), a 6000-tick LLM-disabled engine soak with round-trip
+equality. Files changed: `hearthmind/simulation/engine.py` only.
 
 Explicit user directive: "Start the 5th item and extend LLM 4-5
 pillars." Reflection is a meta-cognitive system observing the four

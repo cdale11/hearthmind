@@ -453,6 +453,31 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.29)
+
+Explicit user directive: audit every LLM call site, classify each by
+role (dialogue/planning/narration/cognition/other), and refactor only
+where necessary so every LLM interaction passes through a single
+cognition interface, without changing gameplay. Finding: the
+unification mostly already existed — `_schedule_llm_job` is already
+the shared interface ~30 settlement/world-scoped jobs go through
+(budget consume, backpressure convention, JSON-schema decoding,
+critical-vs-ambient fallback discipline, debug/call recording).
+`_run_cognition`/`_run_dialogue` stay as documented, structurally-
+necessary exceptions (pending-result queues + staleness handling).
+`_maybe_interpret_rumor` was the one undocumented bypass — migrated
+onto `_schedule_llm_job`, removing its duplicated bookkeeping; one
+deliberate behavior change flagged (budget-exhausted days now apply
+the deterministic fallback retelling instead of silently skipping,
+matching every other ambient job's convention). `server.py`'s one-shot
+world-genesis call and `llm/rejection_sampling.py`'s standalone offline
+tool are legitimate, out-of-scope exceptions, left as-is.
+
+Also removed three leftover `.claude/worktrees/agent-*` git worktrees
+(and their branches) from prior background-agent sessions — verified
+clean (no uncommitted changes) and fully merged (ancestors of this
+branch) before removal.
+
 ## Current state (v1.3.28)
 
 Explicit user directive: "Start the 5th item and extend LLM 4-5
