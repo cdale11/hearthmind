@@ -4,6 +4,54 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.15] — llm_max_concurrent=1 + model name now set inside Hearthmind
+
+Explicit user follow-up to v1.3.14's latency-tuning pass: "try
+llm_max_concurrent = 1 and the model name is set inside Hearthmind."
+
+`Config.llm_max_concurrent` 2 -> 1. The v1.3.14 diagnostic (gemma-4-e4b,
+~2.6 tok/s predicted) measured `n_busy_slots_per_decode` 1.88 against 2
+configured slots — the same "configured concurrency exceeds what the
+hardware can actually run in parallel" shape docs/AUDIT-2026-07-20.md's
+P1.2 found at 3 slots (2.58 busy), one notch further down for a slower/
+larger model. On compute-bound hardware two concurrent decode streams
+don't double throughput, they each run near half speed while still
+occupying two KV-cache slots; serializing to one lane lets each call
+finish closer to its true solo latency, directly targeting the
+47-100s call times and the 30-73s queue waits the v1.3.14 diagnostic
+showed. `scripts/run.sh`'s `LLAMA_PARALLEL`/`LLAMA_CTX_SIZE` defaults
+moved to 1/3072 in step (`llm_num_ctx * llm_max_concurrent`, unchanged
+formula) — the sole slot now gets the full context budget to itself
+rather than splitting it. Not a new permanent floor — raise back toward
+2 if a future diagnostic shows real spare parallel headroom (`n_busy_
+slots_per_decode` near its configured count rather than noticeably
+below it), same re-tune-from-measurement discipline as every prior move
+on this constant.
+
+`Config.llm_model` default `gemma-4-e2b-it` -> `gemma-4-e4b-it`. The
+v1.3.14 diagnostics this whole tuning pass (and this one) acted on were
+already measuring the user's real deployed model (switched to e4b via
+`--llm-model`), but `Config.llm_model` itself — and therefore
+`/diagnostics`' own `llm_model` field — still read the old 2B default,
+a real "what's running" vs. "what the code says" drift the user's
+report flagged directly ("the model name is set inside Hearthmind").
+Making the deployed model the code default closes it for every future
+run that doesn't explicitly override `--llm-model`; `server.py`'s CLI
+default already mirrored `Config.llm_model` (no separate fix needed
+there, confirming the standing "CLI defaults reference Config" rule
+held). `gemma-4-e2b-it` stays documented (config.py docstring, README)
+as the smaller/faster fallback for anyone whose hardware finds 4B too
+slow. README's "Model choice history", concurrency/ctx-size formula
+examples, and the Ollama-backend `ollama pull` example all updated to
+match — the small `--llm-model`/`--llm-max-concurrent` CLI-flag
+mentions and the `LLAMA_PARALLEL` doc block in `scripts/run.sh` too.
+
+Verified: `python3 -c "import hearthmind; ..."` confirms `Config().
+llm_model == 'gemma-4-e4b-it'` and `llm_max_concurrent == 1`;
+`bash -n scripts/run.sh` confirms the env-var default edits didn't
+break the script's syntax. No native module or tick-loop logic
+touched — pure config-default changes, no soak needed.
+
 ## [1.3.14] — slow-model latency tuning (fit-target + pressure-slowdown start)
 
 Explicit user request off a live `/diagnostics` dump after switching

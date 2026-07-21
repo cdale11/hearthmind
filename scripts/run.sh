@@ -30,30 +30,43 @@
 #   LLAMA_HOST           Host:port llama-server binds to (also passed to
 #                        hearthmind via --llm-llamacpp-host).
 #                        Default: http://localhost:8080
-#   LLAMA_PARALLEL       Default: 2 (docs/AUDIT-2026-07-20.md P1.2,
-#                        down from 3 in v0.87.6 — matches Config.
-#                        llm_max_concurrent; see its docstring for the
-#                        live-diagnostics rationale. v0.87.6's raise to
-#                        3 was a directed increase pending live re-
-#                        verification; that re-verification measured
-#                        n_busy_slots_per_decode 2.58 against 3
-#                        configured slots — the third slot was mostly
-#                        contention, not throughput). Keep this in sync
+#   LLAMA_PARALLEL       Default: 1 (v1.3.15, down from 2 in docs/AUDIT-
+#                        2026-07-20.md P1.2 — matches Config.llm_max_
+#                        concurrent; see its docstring for the full
+#                        lineage). The v1.3.14 slow-model latency
+#                        diagnostic measured n_busy_slots_per_decode
+#                        1.88 against 2 configured slots on hardware
+#                        predicting at only ~2.6 tok/s — the same "more
+#                        slots than the hardware can actually run in
+#                        parallel" shape that drove the earlier 3->2
+#                        re-tune, one notch further down for a slower/
+#                        larger model. One lane means each call gets
+#                        the full compute budget to itself rather than
+#                        splitting it with a second in-flight call, so
+#                        each individual call's wall-clock latency drops
+#                        toward its true solo time. Keep this in sync
 #                        with Config.llm_max_concurrent — llama-server
 #                        can't usefully run more concurrent requests
-#                        than the Python side will ever send.
-#   LLAMA_CTX_SIZE       Default: 6144 (P1.2) = Config.llm_num_ctx
-#                        (3072) * LLAMA_PARALLEL (2). llama-server's
+#                        than the Python side will ever send. Raise back
+#                        toward 2 if a future diagnostic on faster/
+#                        smaller-model hardware shows real spare
+#                        parallel headroom (n_busy_slots_per_decode
+#                        sitting comfortably near the configured slot
+#                        count, not noticeably below it).
+#   LLAMA_CTX_SIZE       Default: 3072 (v1.3.15) = Config.llm_num_ctx
+#                        (3072) * LLAMA_PARALLEL (1). llama-server's
 #                        --ctx-size is a TOTAL, divided evenly across its
 #                        --parallel slots — raising LLAMA_PARALLEL without
 #                        raising this in step would silently HALVE the
 #                        context each concurrent request actually gets,
-#                        not add real throughput. Keep this synced to
-#                        `llm_num_ctx * LLAMA_PARALLEL` any time either
-#                        changes. For genuinely CPU-only/8GB hardware,
-#                        explicitly set LLAMA_CTX_SIZE=1280
-#                        LLAMA_PARALLEL=1 LLAMA_N_GPU_LAYERS=0 — see
-#                        README's 8GB section.
+#                        not add real throughput. At parallel=1 the
+#                        single slot now gets the full budget to itself
+#                        (previously split two ways at parallel=2/ctx=
+#                        6144). Keep this synced to `llm_num_ctx *
+#                        LLAMA_PARALLEL` any time either changes. For
+#                        genuinely CPU-only/8GB hardware, explicitly set
+#                        LLAMA_CTX_SIZE=1280 LLAMA_PARALLEL=1
+#                        LLAMA_N_GPU_LAYERS=0 — see README's 8GB section.
 #   LLAMA_BATCH_SIZE     Default: 512 (v0.78.5, down from llama.cpp's own
 #                        2048 — tuned for this project's short strict-JSON
 #                        prompts; a long sequential prompt just chunks
@@ -284,8 +297,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 LLAMA_SERVER_BIN="${LLAMA_SERVER_BIN:-llama-server}"
 LLAMA_HOST="${LLAMA_HOST:-http://localhost:8080}"
-LLAMA_PARALLEL="${LLAMA_PARALLEL:-2}"
-LLAMA_CTX_SIZE="${LLAMA_CTX_SIZE:-6144}"
+LLAMA_PARALLEL="${LLAMA_PARALLEL:-1}"
+LLAMA_CTX_SIZE="${LLAMA_CTX_SIZE:-3072}"
 LLAMA_THREADS="${LLAMA_THREADS:-$(nproc 2>/dev/null || echo 4)}"
 LLAMA_N_GPU_LAYERS="${LLAMA_N_GPU_LAYERS:-auto}"
 LLAMA_FIT="${LLAMA_FIT-on}"

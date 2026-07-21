@@ -237,12 +237,12 @@ Useful flags on `server.py`:
   [Running the LLM (llama.cpp)](#running-the-llm-llamacpp).
   `--llm-llamacpp-host URL` (default `http://localhost:8080`) for the
   llama.cpp backend, `--llm-host URL` (default `http://localhost:11434`)
-  for the Ollama backend, `--llm-model NAME` (default `gemma-4-e2b-it`),
-  `--llm-timeout SECONDS` (default 120, v0.81.0 — see `Config.llm_
-  timeout_seconds`'s docstring for the live-latency data behind this),
-  `--llm-max-concurrent INT` (default 2, v0.81.0 — every CLI default
-  mirrors its `Config` attribute, see the v0.63.0 audit) — all runtime
-  settings, safe to change between runs.
+  for the Ollama backend, `--llm-model NAME` (default `gemma-4-e4b-it`,
+  v1.3.15), `--llm-timeout SECONDS` (default 120, v0.81.0 — see
+  `Config.llm_timeout_seconds`'s docstring for the live-latency data
+  behind this), `--llm-max-concurrent INT` (default 1, v1.3.15 — every
+  CLI default mirrors its `Config` attribute, see the v0.63.0 audit) —
+  all runtime settings, safe to change between runs.
 - `--api-disabled` — turn off the browser interface (on by default; see
   below). `--api-host` (default `0.0.0.0`), `--api-port` (default `8765`).
 
@@ -270,8 +270,8 @@ unreachable, or times out.
   with an existing Ollama install. See
   [Alternative: Ollama backend](#alternative-ollama-backend).
 
-The default model tag/GGUF is `gemma-4-e2b-it` either way (set per a
-live user report — see "Model choice" below); `-it` means non-thinking
+The default model tag/GGUF is `gemma-4-e4b-it` either way (set per
+explicit user action — see "Model choice" below); `-it` means non-thinking
 by design, and this project always disables hybrid "thinking" output
 regardless (`"think": false` for Ollama, plus a defensive
 `<think>`-block strip applied by both clients) since every prompt here
@@ -356,24 +356,29 @@ python -m hearthmind.server --db world.sqlite3 --llm-disabled
 # or: ./scripts/run.sh --llm-disabled --db world.sqlite3
 ```
 
-- `--ctx-size 5120 --parallel 2` (v0.81.0) — llama-server divides one
-  shared `--ctx-size` evenly across its `--parallel` slots, so this is
-  `Config.llm_num_ctx` (2560) **times** `Config.llm_max_concurrent` (2):
-  each of the 2 slots still gets the full 2560-token budget the rest of
-  this project assumes. Raising `--parallel` alone without raising
+- `--ctx-size 3072 --parallel 1` (v1.3.15 default, `scripts/run.sh`'s
+  `LLAMA_CTX_SIZE`/`LLAMA_PARALLEL`) — llama-server divides one shared
+  `--ctx-size` evenly across its `--parallel` slots, so this is always
+  `Config.llm_num_ctx` **times** `Config.llm_max_concurrent`: each slot
+  still gets the full `llm_num_ctx`-token budget the rest of this
+  project assumes. Raising `--parallel` alone without raising
   `--ctx-size` in step would silently halve each concurrent request's
-  context instead of adding real throughput — keep the two synced if you
-  change either. History: 1280 (CPU-only) -> 4096 (GPU offload
-  confirmed) -> 3072 (a live `htop` showed only ~6.5GB usable RAM, not
-  the full 8GB nominal) -> 2560 (v0.78.1, a live `/diagnostics.system_
-  memory` report showed `llama-server` swapping 2GB at only 121MB RSS)
-  -> `2560 * parallel` (v0.81.0, once a fresh diagnostic showed that
-  swap pressure resolved — `mem_available` 3321MB of 7045MB, ~0 swap —
-  and the live symptom had shifted to single-lane queueing instead; see
-  `Config.llm_max_concurrent`'s docstring for the full reading). On
-  CPU-only 8GB hardware, use `LLAMA_CTX_SIZE=1280 LLAMA_PARALLEL=1` (or
-  the manual `--ctx-size 1280 --parallel 1`) instead, see the 8GB
-  section below.
+  context instead of adding real throughput — keep the two synced if
+  you change either (or just change `LLAMA_PARALLEL`/`LLAMA_CTX_SIZE`
+  together via `scripts/run.sh`'s own env vars). History: 1280
+  (CPU-only) -> 4096 (GPU offload confirmed) -> 3072 (a live `htop`
+  showed only ~6.5GB usable RAM, not the full 8GB nominal) -> 2560
+  (v0.78.1, a live `/diagnostics.system_memory` report showed
+  `llama-server` swapping 2GB at only 121MB RSS) -> `num_ctx * parallel`
+  at parallel=2 (v0.81.0, once a fresh diagnostic showed that swap
+  pressure resolved) -> 3072 restored at v0.87.6 -> **`3072 * 1` =
+  3072 as of v1.3.15**, once `llm_max_concurrent` dropped back to 1 on
+  a compute-bound model where a second concurrent decode stream was
+  measured adding contention rather than real throughput (see `Config.
+  llm_max_concurrent`'s docstring for the full reading). On CPU-only
+  8GB hardware, use `LLAMA_CTX_SIZE=1280 LLAMA_PARALLEL=1` (or the
+  manual `--ctx-size 1280 --parallel 1`) instead, see the 8GB section
+  below.
 - `--cache-type-k/-v q8_0` — 8-bit KV cache, ~half the memory of the f16
   default, free either way.
 - `--no-mmproj` — explicitly disables multimodal/vision (mmproj)
@@ -598,10 +603,11 @@ server process is.
 
 **Reducing swap** is the guidance throughout this section: lower
 `--ctx-size`/`--parallel`/`Config.llm_num_ctx`/`llm_num_predict`/
-`llm_max_concurrent` (defaults as of v0.87.6: ctx-size 9216 = num_ctx
-3072 × max_concurrent 3, num_predict 512 — raised from the v0.81.0
-defaults per a live report that `LLAMA_CACHE_RAM=0` had resolved the
-swap pressure driving them down; see their docstrings for the full
+`llm_max_concurrent` (defaults as of v1.3.15: ctx-size 3072 = num_ctx
+3072 × max_concurrent 1, num_predict 512 — re-lowered from v0.87.6's
+ctx-size 9216/max_concurrent 3 across two later live-diagnostic passes
+(P1.2's 3->2, then v1.3.15's 2->1) that each found the extra concurrent
+slot adding contention rather than real throughput; see their docstrings for the full
 live-diagnostic history and re-lower if pressure reappears), try
 `--cache-type-k/-v q4_0` for a further ~2×
 KV-cache cut
@@ -724,18 +730,28 @@ does occur despite the above.
 
 ### Model choice history
 
-The default model tag is `gemma-4-e2b-it` as of v0.85.0, per a live
-user report that it "seems to be performing the best" on their
-hardware — trusted as-is, same standing policy this project has always
-applied to live model-naming/performance reports over training-data
-assumptions. It replaced `qwen3:4b-instruct` (the v0.65.2 default,
-itself chosen over `qwen3.5:2b` — not a real released Qwen tag — after
-a live memory-pressure report; see `docs/DECISIONS.md` for that
-narrative if useful history). No config knob (`llm_num_ctx`/`llm_num_
-predict`/`llm_max_concurrent`/`llm_temperature`) was re-tuned alongside
-this switch — report back actual `/diagnostics` numbers (latency,
-memory, fallback rate) if `gemma-4-e2b-it` needs its own adjustment,
-rather than guessing ahead of real data.
+The default model tag is `gemma-4-e4b-it` as of v1.3.15, per explicit
+user action switching their live deployment to the larger sibling of
+the v0.85.0 default (`gemma-4-e2b-it`, "seemed to be performing the
+best" on their hardware at the time — trusted as-is, same standing
+policy this project has always applied to live model-naming/
+performance reports over training-data assumptions). `gemma-4-e2b-it`
+remains a documented smaller/faster fallback if `gemma-4-e4b-it` proves
+too slow on your own hardware. The switch to the 4B variant did prompt
+real re-tuning, since it measurably runs slower — a live diagnostic
+showed ~2.6 tok/s predicted throughput and 47s/77s p50/p95 call
+latency: `LLAMA_FIT_TARGET` 2048->1024 (offload more layers to the
+GPU), `LLM_PRESSURE_SLOWDOWN_START_RATIO` 1.0->0.75 (engine.py — let
+the sim actually slow down under sustained saturation instead of a
+blind spot at exactly the adaptive limit), and `llm_max_concurrent`
+2->1 (a second concurrent decode stream was mostly adding contention
+on this compute-bound hardware, not real throughput). `gemma-4-e2b-it`
+itself replaced `qwen3:4b-instruct` (the v0.65.2 default, itself chosen
+over `qwen3.5:2b` — not a real released Qwen tag — after a live
+memory-pressure report; see `docs/DECISIONS.md` for that narrative if
+useful history). Report back actual `/diagnostics` numbers (latency,
+memory, fallback rate) if a model needs further adjustment, rather than
+guessing ahead of real data.
 
 ### Alternative: Ollama backend
 
@@ -744,7 +760,7 @@ Still fully supported for anyone with an existing Ollama setup — pass
 
 ```bash
 # 1. Install and start Ollama (see https://ollama.com), then pull a model:
-ollama pull gemma-4-e2b-it
+ollama pull gemma-4-e4b-it
 
 # 2. Run with the Ollama backend explicitly:
 python3 -m hearthmind.server --db world.sqlite3 --llm-backend ollama

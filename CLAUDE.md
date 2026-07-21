@@ -416,6 +416,32 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.15)
+
+Explicit user follow-up: "try llm_max_concurrent = 1 and the model name
+is set inside Hearthmind." Two config changes, no logic change:
+
+- `Config.llm_max_concurrent` 2 -> 1: the v1.3.14 diagnostic showed
+  `n_busy_slots_per_decode` 1.88 against 2 configured slots on a
+  compute-bound model (~2.6 tok/s) — the same "more slots than the
+  hardware can run in parallel" shape as the earlier 3->2 re-tune, one
+  notch further for a slower model. One lane means each call gets the
+  full compute budget instead of splitting it, directly attacking the
+  47-100s call latencies and 30-73s queue waits. `scripts/run.sh`'s
+  `LLAMA_PARALLEL`/`LLAMA_CTX_SIZE` defaults moved in step (1, 3072 =
+  num_ctx × parallel) — CLI/script defaults must mirror `Config`, per
+  the standing rule.
+
+- `Config.llm_model` default `gemma-4-e2b-it` -> `gemma-4-e4b-it`: the
+  live diagnostics this whole tuning pass acted on were already running
+  the user's actual deployed model (e4b, switched via `--llm-model` at
+  the shell), but `Config.llm_model` — and therefore `/diagnostics`'
+  `llm_model` field — still read the old 2B default, a real drift
+  between "what's running" and "what the code says is running." Making
+  the actual deployed model the code default closes that gap for every
+  future run that doesn't override it. `gemma-4-e2b-it` stays documented
+  (config.py docstring, README) as the smaller/faster fallback.
+
 ## Current state (v1.3.14)
 
 Live-diagnostic tuning pass for a slower model (user switched toward

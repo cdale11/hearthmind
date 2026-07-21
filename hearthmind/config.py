@@ -184,24 +184,30 @@ class Config:
     `hearthmind.server`) with no shared memory, so a plain file's
     existence is the simplest correct signal — matches this project's
     stdlib-first, no-new-dependency posture."""
-    llm_model: str = "gemma-4-e2b-it"
-    """Changed from `qwen3:4b-instruct` in v0.85.0 per a live user
-    report: `gemma-4-e2b-it` "seems to be performing the best" on their
-    real hardware — trusted as-is per this project's standing rule to
-    take the user's live environment over training-data assumptions
-    about model naming/availability (same precedent as the qwen3.5:2b
-    -> qwen3:4b-instruct switch in v0.65.2). `-it` (instruction-tuned)
-    is Gemma's non-thinking-by-design convention, the same role
-    `-instruct` played for the previous default: `OllamaClient`'s
-    `"think": False` + `<think>` stripping stays a harmless defensive
-    no-op for it, not load-bearing. No other tuning knob (`llm_num_ctx`/
-    `llm_num_predict`/`llm_max_concurrent`/`llm_temperature`) was
-    changed alongside this switch — none of those were sized around
-    Qwen specifically, and no live diagnostic accompanied this report to
-    justify a specific re-tune; report back actual numbers (latency,
-    memory, fallback rate) if this model needs its own adjustment,
-    rather than guessing ahead of real data, matching how every prior
-    model-default change in this project was handled."""
+    llm_model: str = "gemma-4-e4b-it"
+    """Changed from `gemma-4-e2b-it` in v1.3.15 per explicit user action
+    (switched their live deployment to `gemma-4-e4b-it`, the larger
+    sibling in the same Gemma family/tuning line — `-it` keeps the same
+    instruction-tuned, non-thinking-by-design convention the 2B default
+    already relied on, so `OllamaClient`'s `"think": False` + `<think>`
+    stripping stays the same harmless defensive no-op, not load-
+    bearing). Previously the CLI (`server.py --llm-model`) already
+    defaulted to whatever `Config.llm_model` was, so an env-only model
+    switch left this field pointing at the wrong name in `/diagnostics`
+    (`llm_model` read `gemma-4-e2b-it` in a live dump even after the
+    user had switched) — this closes that drift by making the actual
+    deployed model the code default, per the standing rule that CLI
+    defaults must reference `Config` attributes rather than silently
+    disagree with them. The accompanying v1.3.14 latency tuning
+    (`LLAMA_FIT_TARGET` 2048->1024, `LLM_PRESSURE_SLOWDOWN_START_RATIO`
+    1.0->0.75) and v1.3.15's `llm_max_concurrent` 2->1 were both direct
+    responses to a live diagnostic run on this larger model — see those
+    constants' own docstrings. `gemma-4-e2b-it` (v0.85.0's original
+    choice, "performing the best" on that user's earlier hardware) is
+    documented here as the smaller/faster fallback for anyone who finds
+    the 4B variant too slow on their own hardware — same "report back
+    actual numbers if a model needs its own adjustment" discipline as
+    every prior model-default change in this project."""
     llm_timeout_seconds: float = 120.0
     """A live diagnostic report on the user's own hardware running
     `qwen3.5:2b` showed p50 latency 17.4s, p95 19.7s, max 29.7s against
@@ -253,7 +259,7 @@ class Config:
     toward 0.9 for more variety on a stronger model. Kept above 0 so a
     stuck pair doesn't get the identical deterministic-looking line every
     time."""
-    llm_max_concurrent: int = 2
+    llm_max_concurrent: int = 1
     """How many LLM requests may be in flight at once. History: 4 (E2) ->
     2 (v0.43.0) -> 1 (v0.43.1) -> 2 (v0.44.0, the "permanent floor") ->
     1 (v0.78.5, "make concurrent task = 1 if it reduces memory
@@ -274,16 +280,31 @@ class Config:
     contention rather than real throughput (matches this project's own
     earlier v0.39 review finding that 2 streams at ~2x speed beat 3-4
     at ~3-4x latency), and end-to-end p95 was ~38s/decision at that
-    concurrency. Not itself a swap-pressure finding — a latency/
-    contention one — but the same re-tune-from-live-measurement
-    discipline applies. `scripts/run.sh`'s `--parallel` is
-    `LLAMA_PARALLEL` (now default 3, matching this), with `LLAMA_CTX_
-    SIZE` sized as `llm_num_ctx * llm_max_concurrent` so each slot still
-    gets the full `llm_num_ctx` budget (llama-server divides one shared
-    `--ctx-size` across its `--parallel` slots — raising parallel
-    without raising ctx-size would silently halve each slot's context
-    instead of adding real throughput). See docs/DECISIONS.md, "LLM
-    concurrency: 1 -> 2 (v0.81.0)" and CHANGELOG.md v0.87.6."""
+    concurrency. **Re-lowered again, 2 -> 1, in v1.3.15** (explicit
+    user follow-up to the v1.3.14 latency-tuning pass, "try llm_max_
+    concurrent = 1"): the diagnostic that pass acted on showed
+    `n_busy_slots_per_decode` 1.88 against 2 configured slots on a
+    compute-bound model predicting at only ~2.6 tok/s — the same
+    "slot count exceeds what the hardware can actually run in
+    parallel" shape the 3->2 re-tune found, one notch further down a
+    slower/larger model. On genuinely compute-bound hardware two
+    concurrent decode streams don't run twice as fast, they each run
+    at roughly half speed while still occupying two KV-cache slots —
+    serializing to one lane means each individual call finishes in
+    closer to its true solo-latency time, directly relieving the
+    47-100s call latencies and the queue-wait pileup (`queue_wait_ms_
+    p50` 30s) the v1.3.14 diagnostic showed, at the cost of never
+    genuinely overlapping two calls. `scripts/run.sh`'s `--parallel`
+    is `LLAMA_PARALLEL` (now default 1, matching this), with `LLAMA_
+    CTX_SIZE` sized as `llm_num_ctx * llm_max_concurrent` unchanged
+    (one slot now gets the full shared `--ctx-size` to itself, which
+    was previously split across `LLAMA_PARALLEL`'s slots). Raise back
+    toward 2 if a future fast-model diagnostic shows `n_busy_slots_
+    per_decode` sitting comfortably near its configured slot count
+    (real parallel headroom, not contention) — this is a re-tune from
+    live measurement, not a new permanent floor, same discipline every
+    prior move on this constant followed. See docs/DECISIONS.md, "LLM
+    concurrency: 1 -> 2 (v0.81.0)" and CHANGELOG.md v0.87.6/v1.3.14."""
     llm_num_ctx: int = 3072
     """Explicit context-window cap sent with every Ollama request (and
     documented as the `--ctx-size` llama-server launch flag for the
