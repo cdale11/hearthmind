@@ -4,6 +4,70 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.31] — Living Terrarium items 3.1, 1.2, 1.3
+
+Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md down its own
+stated priority sequence: "1. 3.1 + 3.2 ... 2. 1.2 + 1.3."
+
+**3.1, "the morning paper".** The away-digest gained a structured
+"front page" section alongside its existing prose recap:
+`World.away_digest_highlights` is every `knowledge_tree()` entry
+originated strictly after the digest's own `since_tick` window — what
+the world originated for itself while the observer was away — computed
+in the same `apply` callback at zero extra LLM cost (a pure read over
+already-computed state). `GET /digest` now returns a `highlights`
+array; the digest panel renders it under the headline using the same
+entry renderer the knowledge-tree panel uses (hoisted above both so
+they share it, not duplicated).
+
+**1.2, "a conditional/trigger vocabulary as data".** New `world.
+ontology.TriggerRule` (+ `TRIGGER_TYPES`: on_death/on_birth/on_feud/
+on_invention/on_drought/on_surplus) — a village-originated rule binding
+a real trigger to a real mechanical hook (reuses `MECHANICAL_HOOK_
+TYPES`/`validate_hook` verbatim, same closed-vocabulary discipline as
+`InventedConcept`). New `llm/rule_propose.py` +
+`SimulationEngine._maybe_schedule_rule_proposal` (season_end, world-
+scoped, round-robins settlements like the ontology-proposal job).
+Firing is wired to each trigger's real, pre-existing detection point:
+`on_death`/`on_birth` off `World.last_life_events`, `on_feud` off
+`llm.dispute`'s feud outcome, `on_invention` off a genuine invention
+forming, `on_drought`/`on_surplus` off a new low->high edge-detected
+crossing of `World.disasters.heat_pressure`/a settlement's granary
+fill fraction (transient per-settlement previous-state tracking,
+`_prev_drought_state`/`_prev_surplus_state`). `TRIGGER_RULE_COOLDOWN_
+TICKS=500` prevents a burst of matching events from turning one rule
+into runaway repeated narration. Only `belief_confidence_bonus` is
+actually consumed as a real numeric effect this pass — the other hook
+types stay narrative-only, flagged not silently dropped (same honesty
+as `InventedConcept`'s own not-yet-consumed hook types, a pre-existing
+gap this pass did not attempt to close). Rules surface in the
+knowledge tree (new `type: "rule"`, ⚙ icon).
+
+**1.3, the counterfactual sandbox.** New `simulation/sandbox.py`'s
+`run_counterfactual`: before a proposed rule goes live, deep-copies the
+world via its own `to_dict`/`from_dict` round trip, runs the fork
+forward 50 ticks with the LLM forced off (a physics/invariant check,
+not a cognition test), and checks it doesn't crash (population loses
+>50%) or explode (population >3x) — the two invariants the vision doc
+names concretely. An unsafe proposal is discarded and logged
+(`trigger_rule_rejected`), never silently dropped. Properly cancels and
+awaits the fork's own background LLM-fallback tasks before closing its
+throwaway in-memory DB connection (caught live during verification —
+an early version left a dangling task writing to an already-closed
+connection). Runtime-invariant floors/ceilings as a standing guardrail
+(item 5.2) and coherence/drift detection (item 5.3) remain separate,
+larger, unattempted vision-doc items.
+
+Verified: direct tests for digest highlights (window correctness across
+two consecutive requests), trigger detection + cooldown (direct calls,
+same-tick re-fire suppression), the full rule-proposal ->
+sandbox -> registration pipeline end-to-end with a fake LLM client, the
+sandbox's isolation from the real world (population/tick unchanged
+after a sandboxed run) and its background-task cleanup fix,
+`scripts/verify_native_soak.py` byte-identical (no native module
+touched), an 8000-tick and a 15000-tick LLM-disabled engine soak with
+round-trip equality.
+
 ## [1.3.30] — The Living Terrarium vision doc + item 3.2 (knowledge tree)
 
 New docs/VISION-2026-07-22-LIVINGTERRARIUM.md (user-uploaded, filed as

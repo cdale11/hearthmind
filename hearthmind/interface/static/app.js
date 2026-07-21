@@ -592,6 +592,22 @@ chroniclerForm.addEventListener("submit", async (e) => {
   }
 });
 
+// --- shared "what the world originated" entry renderer, used by both the
+// digest's front-page section (below) and the knowledge tree panel (further
+// down) — vision doc items 3.1/3.2, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
+
+const KNOWLEDGE_TREE_ICONS = { concept: "💡", law: "⚖", custom: "⚖", taboo: "⚖", hypothesis: "🔬", nature_belief: "🌲", rule: "⚙" };
+
+function renderKnowledgeTreeEntry(row) {
+  const icon = KNOWLEDGE_TREE_ICONS[row.type] || "•";
+  const lineageBits = [];
+  if (row.lineage && row.lineage.evolved_from != null) lineageBits.push(`evolved from #${row.lineage.evolved_from}`);
+  if (row.lineage && row.lineage.merged_from) lineageBits.push(`merged from ${row.lineage.merged_from.map((id) => `#${id}`).join(" + ")}`);
+  const lineageText = lineageBits.length ? ` <span class="muted">(${lineageBits.join(", ")})</span>` : "";
+  const confText = typeof row.confidence === "number" ? ` <span class="muted">(confidence ${row.confidence.toFixed(2)})</span>` : "";
+  return `<li>${icon} <span class="muted">tick ${row.tick} · ${row.status}</span> <strong>${row.name}</strong>${confText} — ${row.text}${lineageText}</li>`;
+}
+
 // --- §5 "While you were away" digest (docs/IDEAS-2026-07-EMERGENCE.md) -----
 // Same on-demand request/poll shape as the simulation summary above.
 
@@ -600,6 +616,7 @@ const digestToggle = document.getElementById("digest-toggle");
 const digestGenerateBtn = document.getElementById("digest-generate");
 const digestStatus = document.getElementById("digest-status");
 const digestText = document.getElementById("digest-text");
+const digestHighlights = document.getElementById("digest-highlights");
 let digestPollTimer = null;
 
 function renderDigest(data) {
@@ -611,6 +628,12 @@ function renderDigest(data) {
     digestGenerateBtn.disabled = false;
   }
   if (data.text) digestText.textContent = data.text;
+  // Vision doc item 3.1 ("the morning paper"): the structured front-page
+  // section beneath the prose headline — what the world originated for
+  // itself during the away window.
+  const rows = data.highlights || [];
+  digestHighlights.classList.toggle("hidden", rows.length === 0);
+  if (rows.length) digestHighlights.innerHTML = rows.map(renderKnowledgeTreeEntry).join("");
 }
 
 async function loadDigest() {
@@ -683,17 +706,8 @@ const knowledgeTreePanel = document.getElementById("knowledge-tree-panel");
 const knowledgeTreeToggle = document.getElementById("knowledge-tree-toggle");
 const knowledgeTreeList = document.getElementById("knowledge-tree-list");
 
-const KNOWLEDGE_TREE_ICONS = { concept: "💡", law: "⚖", custom: "⚖", taboo: "⚖", hypothesis: "🔬", nature_belief: "🌲" };
-
-function renderKnowledgeTreeEntry(row) {
-  const icon = KNOWLEDGE_TREE_ICONS[row.type] || "•";
-  const lineageBits = [];
-  if (row.lineage && row.lineage.evolved_from != null) lineageBits.push(`evolved from #${row.lineage.evolved_from}`);
-  if (row.lineage && row.lineage.merged_from) lineageBits.push(`merged from ${row.lineage.merged_from.map((id) => `#${id}`).join(" + ")}`);
-  const lineageText = lineageBits.length ? ` <span class="muted">(${lineageBits.join(", ")})</span>` : "";
-  const confText = typeof row.confidence === "number" ? ` <span class="muted">(confidence ${row.confidence.toFixed(2)})</span>` : "";
-  return `<li>${icon} <span class="muted">tick ${row.tick} · ${row.status}</span> <strong>${row.name}</strong>${confText} — ${row.text}${lineageText}</li>`;
-}
+// KNOWLEDGE_TREE_ICONS/renderKnowledgeTreeEntry are defined once, above the
+// digest section, since item 3.1's front-page section reuses them too.
 
 async function loadKnowledgeTree() {
   knowledgeTreeList.innerHTML = "<li>loading…</li>";

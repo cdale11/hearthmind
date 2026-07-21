@@ -69,10 +69,11 @@ from hearthmind.llm import (
     digest, dispute, documentary, dream, era_branch, festival, folklore, founding, geography, invention,
     memory_drift, mind,
     naming, narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
-    diplomacy, laws, letters, noncore_nudge, institution_culture, nature_mind, reflection,
+    diplomacy, laws, letters, noncore_nudge, institution_culture, nature_mind, reflection, rule_propose,
 )
 from hearthmind.llm import ontology as ontology_llm
 from hearthmind.world import ontology
+from hearthmind.simulation.sandbox import run_counterfactual
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
 from hearthmind.llm.json_schemas import schema_for_task
@@ -115,6 +116,7 @@ from hearthmind.settlement.buildings import (
     FESTIVAL_CHANCE_PER_MONTH,
     FESTIVAL_HUNGER_GATE,
     FOLKLORE_MAX_STORED,
+    GRANARY_CAPACITY,
     INVENTION_CHANCE_PER_SEASON,
     INVENTION_CURRENCY_THRESHOLD,
     INVENTION_KNOWLEDGE_MAX_TRACKED,
@@ -415,6 +417,22 @@ confidence; one whose pattern no longer clears its own threshold loses
 some. Crossing `_SUPPORTED_THRESHOLD`/`_REJECTED_THRESHOLD` transitions
 status — supported/rejected hypotheses stop being re-evaluated (the
 notebook itself is never pruned, only status-transitioned)."""
+
+TRIGGER_DROUGHT_HEAT_PRESSURE_THRESHOLD = 0.9
+"""Vision doc item 1.2's `on_drought` edge-detection threshold — reused
+from `world.disasters.HEATWAVE_PRESSURE_THRESHOLD` verbatim rather than
+inventing a second number: disasters.py's own docstring already
+documents heat_pressure crossing this point as the real UK drought-
+comes-with-heatwave pattern (2018/2022), so "drought" riding the same
+signal a real heatwave already uses is the honest choice, not a new
+heuristic."""
+
+TRIGGER_SURPLUS_FILL_THRESHOLD = 0.85
+"""Vision doc item 1.2's `on_surplus` edge-detection threshold — a
+settlement's granary fill fraction (`stored_food / capacity`) crossing
+this reads as "the granary is genuinely close to overflowing," the
+concrete condition the vision doc's own worked example ("when the
+granary overflows, hold a feast") describes."""
 
 CONCEPT_SPREAD_CHANCE_PER_TICK = 0.02
 """Per-tick, per-growing-concept roll driving `_maybe_spread_concepts`
@@ -1066,6 +1084,14 @@ class SimulationEngine:
         """(tail_fingerprint, speaker_name) history feeding P3.2's
         spreading-tic detector — see `dialogue.is_spreading_tic`'s
         docstring."""
+        self._prev_drought_state: dict[int, bool] = {}
+        self._prev_surplus_state: dict[int, bool] = {}
+        """settlement_id -> previous-tick boolean, feeding vision doc
+        item 1.2's `on_drought`/`on_surplus` edge detection (see
+        `_maybe_tick_trigger_state_edges`) — transient, non-persisted
+        (same precedent as `_recent_line_tails`); re-derived cleanly on
+        restart since the worst case is one missed/extra edge, not a
+        correctness issue."""
         self._materials_level_history: deque[tuple[int, float]] = deque(maxlen=MATERIALS_FLOW_WINDOW_TICKS)
         """(tick, total materials across all settlements) sampled once
         per tick — P3.4 (docs/AUDIT-2026-07-20.md): "materials inflow/
@@ -1720,6 +1746,9 @@ class SimulationEngine:
         ("_maybe_schedule_ontology_evolution", _JOB_EVENTS),
         ("_maybe_schedule_nature_mind", _JOB_EVENTS),
         ("_maybe_spread_concepts", _JOB_NO_ARGS),
+        ("_apply_trigger_rules_from_life_events", _JOB_NO_ARGS),
+        ("_maybe_tick_trigger_state_edges", _JOB_NO_ARGS),
+        ("_maybe_schedule_rule_proposal", _JOB_EVENTS),
         ("_maybe_schedule_festival", _JOB_EVENTS),
         ("_maybe_schedule_religion", _JOB_EVENTS),
         ("_maybe_schedule_narrative_direction", _JOB_EVENTS),
@@ -3099,7 +3128,17 @@ class SimulationEngine:
         since the PREVIOUS digest's tick (or world start, -1, the first
         time), headlined by whatever touches agents the observer has
         actually inspected (`_watched_agent_names`) — see docs/IDEAS-
-        2026-07-EMERGENCE.md §5."""
+        2026-07-EMERGENCE.md §5.
+
+        Vision doc item 3.1, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
+        ("the morning paper"): alongside the existing prose recap,
+        `away_digest_highlights` is the structured "front page" section
+        — every `World.knowledge_tree()` entry originated strictly
+        after `since_tick`, i.e. what the world originated for itself
+        during the away window. Pure read over already-computed state,
+        zero added LLM cost; computed in `apply` (not before scheduling)
+        so it reflects the window at APPLY time, matching when `_tick`
+        is captured."""
         since_tick = self.world.away_digest_tick
         current_tick = self.world.clock.tick_count
         events = events_since_tick(self.conn, since_tick, limit=200)
@@ -3114,6 +3153,9 @@ class SimulationEngine:
             self.world.away_digest_text = digest.parse_digest(result, fallback)
             self.world.away_digest_tick = current_tick
             self.world.away_digest_pending = False
+            self.world.away_digest_highlights = [
+                entry for entry in self.world.knowledge_tree(limit=400) if entry["tick"] > since_tick
+            ]
             self._log("away_digest", self.world.away_digest_text)
 
         self._schedule_llm_job("away_digest", prompt, digest.SYSTEM_PROMPT, fallback, apply)
@@ -3306,6 +3348,9 @@ class SimulationEngine:
                 )
             invention_detail = f"{settlement.name or 'The village'} invented {entry}"
             self._log("invention", invention_detail)
+            # Vision doc item 1.2: a real invention forming is the
+            # concrete `on_invention` detection point for trigger rules.
+            self._apply_trigger_rules_for("on_invention", settlement)
             if sum(s.tech_level for s in self.world.settlements) == 1:
                 self._append_highlight("first_invention", f"The world's first invention: {invention_detail}")
             self._maybe_advance_era(settlement)
@@ -3582,6 +3627,148 @@ class SimulationEngine:
             if not candidates:
                 continue
             ontology.add_adopter(self.world, concept.id, rng.choice(candidates).id, self.world.clock.tick_count)
+
+    # --- vision doc item 1.2: trigger→effect rules as data ---------------------
+
+    def _apply_trigger_rules_for(self, trigger: str, settlement) -> None:
+        """Fires every ACTIVE `TriggerRule` bound to `trigger` and
+        originated by `settlement` — a rule is settlement-scoped, same
+        as an `InventedConcept`'s mechanical hook. Cooldown-gated
+        (`TRIGGER_RULE_COOLDOWN_TICKS`) so a burst of matching events
+        in quick succession can't turn one village custom into
+        runaway repeated narration. Called from each trigger's real
+        detection point (dispute/invention application callbacks, or
+        `_apply_trigger_rules_from_life_events`/`_maybe_tick_trigger_
+        state_edges` below) — never on a schedule of its own."""
+        now = self.world.clock.tick_count
+        for rule in self.world.trigger_rules.values():
+            if rule.status != "active" or rule.trigger != trigger or rule.origin_settlement_id != settlement.id:
+                continue
+            if rule.last_fired_tick >= 0 and now - rule.last_fired_tick < ontology.TRIGGER_RULE_COOLDOWN_TICKS:
+                continue
+            rule.fire_count += 1
+            rule.last_fired_tick = now
+            self._log("trigger_rule", f"{rule.name}: {rule.description}")
+            # Only `belief_confidence_bonus` is actually consumed as a
+            # real numeric effect this pass — see `llm/rule_propose.py`'s
+            # module docstring for why the other hook types (skill_
+            # yield_bonus, goal_flavor_bias) stay narrative-only for now,
+            # same flagged-not-silently-dropped honesty as InventedConcept's
+            # own not-yet-consumed hooks.
+            if rule.hook_type == "belief_confidence_bonus" and settlement.beliefs:
+                target = max(settlement.beliefs, key=lambda b: b["confidence"])
+                target["confidence"] = clamp(target["confidence"] + rule.magnitude, 0.0, 1.0)
+
+    def _apply_trigger_rules_from_life_events(self) -> None:
+        """`on_death`/`on_birth` detection — reads `World.last_life_
+        events` (already computed by `World.tick()` this same tick),
+        the same shared vocabulary many other jobs already key off of.
+        Applied settlement-wide (every settlement checks every fired
+        category) since life events aren't settlement-tagged in the
+        tuple; `_apply_trigger_rules_for`'s own settlement-id filter
+        means each settlement only ever fires its OWN rules."""
+        if not self.world.trigger_rules:
+            return
+        categories = {category for category, _ in self.world.last_life_events}
+        trigger_map = {"death": "on_death", "birth": "on_birth"}
+        fired = {trigger_map[c] for c in categories if c in trigger_map}
+        if not fired:
+            return
+        for settlement in self.world.settlements:
+            for trigger in fired:
+                self._apply_trigger_rules_for(trigger, settlement)
+
+    def _maybe_tick_trigger_state_edges(self) -> None:
+        """`on_drought`/`on_surplus` detection — these two triggers
+        aren't discrete events, they're a low->high crossing of an
+        ongoing state (`World.disasters.heat_pressure`, a settlement's
+        granary fill fraction), so a naive "check every tick" would
+        fire every tick the state stays above threshold. Tracks each
+        settlement's previous-tick boolean state in a transient
+        (non-persisted) dict — same precedent as `_recent_line_tails`
+        — and only fires on the false->true edge. A rule can still
+        re-fire on a later edge once its own cooldown clears."""
+        if not self.world.trigger_rules:
+            return
+        drought_now = self.world.disasters.heat_pressure > TRIGGER_DROUGHT_HEAT_PRESSURE_THRESHOLD
+        for settlement in self.world.settlements:
+            if drought_now and not self._prev_drought_state.get(settlement.id, False):
+                self._apply_trigger_rules_for("on_drought", settlement)
+            self._prev_drought_state[settlement.id] = drought_now
+
+            # Cheap direct count, NOT settlement.summary() — summary()
+            # also computes vehicle/era-infrastructure stats irrelevant
+            # here and is expensive enough that calling it every tick
+            # for every settlement measurably slowed the tick loop
+            # (caught live during this feature's own soak verification).
+            granaries = [
+                b for b in settlement.buildings
+                if b.kind is BuildingKind.GRANARY and b.stage is BuildingStage.STANDING
+            ]
+            capacity = len(granaries) * GRANARY_CAPACITY
+            fill = (sum(b.stored_food for b in granaries) / capacity) if capacity else 0.0
+            surplus_now = fill > TRIGGER_SURPLUS_FILL_THRESHOLD
+            if surplus_now and not self._prev_surplus_state.get(settlement.id, False):
+                self._apply_trigger_rules_for("on_surplus", settlement)
+            self._prev_surplus_state[settlement.id] = surplus_now
+
+    def _maybe_schedule_rule_proposal(self, events: list[str]) -> None:
+        """Vision doc item 1.2's origination half — one new trigger-
+        rule proposal per season at most, world-scoped (`_job_target`
+        round-robins settlements like `_maybe_schedule_ontology_
+        proposal`). `critical=False`: this is ambient village
+        imagination, same tier as the ontology/culture jobs it sits
+        beside — the real safety gate is item 1.3's sandbox in `apply`,
+        not the fallback/critical distinction (a fallback-authored rule
+        still goes through the same sandbox check as an LLM one)."""
+        if not self._season_year_gate(events, "rule_propose", "season_end"):
+            return
+        if self._settlement_job_backpressured():
+            return
+        self._mark_season_year_resolved("rule_propose")
+        settlement = self._job_target()
+        if not settlement.name:
+            return
+        recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
+        existing_names = [
+            r.name for r in self.world.trigger_rules.values()
+            if r.origin_settlement_id == settlement.id and r.status == "active"
+        ]
+        prompt = rule_propose.build_prompt(settlement.name, recent, existing_names)
+        fallback = rule_propose.fallback_propose(len(existing_names))
+        origin_settlement_id = settlement.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            parsed = rule_propose.parse_propose(result, fallback)
+            target = self._settlement_by_id(origin_settlement_id)
+            if target is None:
+                return
+
+            async def _sandbox_and_register() -> None:
+                # Item 1.3: never let a proposed rule go live without
+                # first proving it doesn't crash the population on a
+                # disposable fork — see simulation/sandbox.py.
+                verdict = await run_counterfactual(self.world, self.world.config)
+                if not verdict["safe"]:
+                    self._log(
+                        "trigger_rule_rejected",
+                        f"A proposed rule ({parsed['name']}) was discarded by the counterfactual "
+                        f"sandbox: {verdict['reason']}.",
+                    )
+                    return
+                rule = ontology.register_trigger_rule(
+                    self.world, name=parsed["name"], description=parsed["description"],
+                    trigger=parsed["trigger"], hook_type=parsed["hook_type"], hook_target=parsed["hook_target"],
+                    magnitude=parsed["magnitude"], origin_settlement_id=origin_settlement_id,
+                    tick=self.world.clock.tick_count,
+                )
+                self._log("rule_originated", f"{target.name or 'The village'} adopted a new rule: {rule.name} — {rule.description}")
+
+            task = asyncio.create_task(_sandbox_and_register())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+        self._schedule_llm_job("rule_propose", prompt, rule_propose.SYSTEM_PROMPT, fallback, apply)
 
     def _infra_counts(self, settlement) -> tuple[int, int, int, int]:
         """`(huts, established_roads, schools, ready_carts)` — the four
@@ -5670,6 +5857,9 @@ class SimulationEngine:
                 if dispute_settlement is not None:
                     counts = dispute_settlement.pattern_signal_counts
                     counts["dispute_feud"] = counts.get("dispute_feud", 0) + 1
+                    # Vision doc item 1.2: a feud is the real, concrete
+                    # `on_feud` detection point for trigger rules.
+                    self._apply_trigger_rules_for("on_feud", dispute_settlement)
                     # v0.87.11 "generational feuds between FAMILY
                     # institutions": a real feud outcome between members
                     # of two different families is the raw material this

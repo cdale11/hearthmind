@@ -41,7 +41,7 @@ from hearthmind.world.disasters import (
 )
 from hearthmind.world.hydrology import LakeState, generate_rivers, identify_lakes, tick_lakes
 from hearthmind.world.minerals import MineralGrid
-from hearthmind.world.ontology import InventedConcept
+from hearthmind.world.ontology import InventedConcept, TriggerRule
 from hearthmind.world.weather import WeatherState, compute_weather
 from hearthmind.world.wildlife import WildlifeGrid
 from hearthmind.util import namespaced_rng
@@ -212,6 +212,7 @@ class World:
     away_digest_tick: int = -1
     away_digest_since_tick: int = -1
     away_digest_pending: bool = False
+    away_digest_highlights: list[dict] = field(default_factory=list)
     """§5 "While you were away" digest (docs/IDEAS-2026-07-EMERGENCE.md):
     on-demand, mirrors `sim_summary_*`/`chronicler_*` exactly.
     `away_digest_since_tick` is the tick the PREVIOUS digest was
@@ -220,7 +221,18 @@ class World:
     becomes the new boundary for the NEXT request, so repeated requests
     never re-cover the same ground. Persisted like sim_summary_* so a
     page refresh still shows the last digest and the boundary survives
-    a restart."""
+    a restart.
+
+    `away_digest_highlights` (vision doc item 3.1, docs/VISION-2026-07-
+    22-LIVINGTERRARIUM.md, "the morning paper"): the structured "front
+    page" half — every `knowledge_tree()` entry originated strictly
+    after `away_digest_since_tick`, i.e. what the world originated for
+    itself during the away window (a new custom, a law the council
+    passed, a Reflection hypothesis, a Nature belief), computed
+    alongside the existing prose `away_digest_text` at zero extra LLM
+    cost (`World.knowledge_tree` is a pure read). The prose headline
+    stays the primary read; this is the "since you last looked, here's
+    what got originated" section beneath it — not a replacement."""
     weather_regions: dict[tuple[int, int], WeatherState] = field(default_factory=dict)
     """§6 "Spatial weather": `(region_x, region_y) -> WeatherState`, one
     entry per cell of the `WEATHER_REGION_GRID` x `WEATHER_REGION_GRID`
@@ -340,6 +352,16 @@ class World:
     """Monotonic id counter for `invented_concepts` — never reused,
     same discipline as every other id counter in this codebase (e.g.
     `Population`'s own agent-id counter)."""
+    trigger_rules: dict[int, TriggerRule] = field(default_factory=dict)
+    """Vision doc item 1.2, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
+    ("A conditional/trigger vocabulary as data") — village-originated
+    trigger→effect rules, world-scoped like `invented_concepts` (same
+    "shared, not settlement-private" reasoning), see world/ontology.py.
+    `SimulationEngine._apply_trigger_rules_for` fires these when a
+    matching real event occurs; `_maybe_schedule_rule_proposal`
+    originates new ones, gated through the counterfactual sandbox
+    (item 1.3, `simulation/sandbox.py`) before going live."""
+    next_trigger_rule_id: int = 1
     nature_beliefs: list[dict] = field(default_factory=list)
     """Nature's Mind (Body/Mind framing, CLAUDE.md "Design priorities" —
     explicit user direction 2026-07-21): the land's own running,
@@ -736,6 +758,7 @@ class World:
                 "tick": self.away_digest_tick,
                 "since_tick": self.away_digest_since_tick,
                 "pending": self.away_digest_pending,
+                "highlights": list(self.away_digest_highlights),
             },
             "consciousness": {
                 "personality": dict(self.consciousness_personality),
@@ -800,6 +823,12 @@ class World:
                 "tick": belief.get("formed_tick", 0), "confidence": belief.get("confidence"),
                 "settlement": None, "lineage": None,
             })
+        for rule in self.trigger_rules.values():
+            entries.append({
+                "type": "rule", "id": f"rule_{rule.id}", "kind": rule.trigger,
+                "name": rule.name, "text": rule.description, "status": rule.status,
+                "tick": rule.tick_created, "settlement": rule.origin_settlement_id, "lineage": None,
+            })
         entries.sort(key=lambda e: e["tick"], reverse=True)
         return entries[:limit]
 
@@ -858,6 +887,7 @@ class World:
             "away_digest_text": self.away_digest_text,
             "away_digest_tick": self.away_digest_tick,
             "away_digest_since_tick": self.away_digest_since_tick,
+            "away_digest_highlights": list(self.away_digest_highlights),
             # away_digest_pending: same not-persisted reasoning as
             # sim_summary_pending above.
             "highlights": list(self.highlights),
@@ -869,6 +899,8 @@ class World:
             "consciousness_grudge_ledger": self.consciousness_grudge_ledger,
             "invented_concepts": {str(k): v.to_dict() for k, v in self.invented_concepts.items()},
             "next_concept_id": self.next_concept_id,
+            "trigger_rules": {str(k): v.to_dict() for k, v in self.trigger_rules.items()},
+            "next_trigger_rule_id": self.next_trigger_rule_id,
             "nature_beliefs": list(self.nature_beliefs),
             "reflection_notebook": list(self.reflection_notebook),
             "next_reflection_entry_id": self.next_reflection_entry_id,
@@ -1047,6 +1079,7 @@ class World:
             away_digest_text=data.get("away_digest_text", ""),
             away_digest_tick=data.get("away_digest_tick", -1),
             away_digest_since_tick=data.get("away_digest_since_tick", -1),
+            away_digest_highlights=list(data.get("away_digest_highlights", [])),
             highlights=list(data.get("highlights", [])),
             observer_attention=(
                 {
@@ -1066,6 +1099,10 @@ class World:
                 int(k): InventedConcept.from_dict(v) for k, v in data.get("invented_concepts", {}).items()
             },
             next_concept_id=data.get("next_concept_id", 1),
+            trigger_rules={
+                int(k): TriggerRule.from_dict(v) for k, v in data.get("trigger_rules", {}).items()
+            },
+            next_trigger_rule_id=data.get("next_trigger_rule_id", 1),
             nature_beliefs=list(data.get("nature_beliefs", [])),
             reflection_notebook=list(data.get("reflection_notebook", [])),
             next_reflection_entry_id=data.get("next_reflection_entry_id", 1),

@@ -426,7 +426,8 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
             return JSONResponse({"error": "no tick has completed yet"}, status_code=503)
         return JSONResponse(
             payload.get("summary", {}).get(
-                "away_digest", {"text": "", "tick": -1, "since_tick": -1, "pending": False},
+                "away_digest",
+                {"text": "", "tick": -1, "since_tick": -1, "pending": False, "highlights": []},
             )
         )
 

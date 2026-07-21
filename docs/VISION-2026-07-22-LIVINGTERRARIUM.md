@@ -47,7 +47,14 @@ still validated deterministically.**
   wasn't programmed for" — you're not adding hook types, you're letting
   them multiply.
 
-- [ ] **1.2 [CERTAIN] — A conditional/trigger vocabulary as data.** The
+- [x] **1.2 [CERTAIN] — A conditional/trigger vocabulary as data.**
+  **Shipped v1.3.31.** `world.ontology.TriggerRule`/`TRIGGER_TYPES`
+  (on_death/on_birth/on_feud/on_invention/on_drought/on_surplus) bound
+  to `MECHANICAL_HOOK_TYPES` effects via `llm/rule_propose.py` +
+  `SimulationEngine._maybe_schedule_rule_proposal`; wired to each
+  trigger's real detection point. Only `belief_confidence_bonus` is
+  consumed as a real numeric effect so far — other hook types stay
+  narrative-only, a flagged follow-up. The
   deepest lever. Define triggers (on-death, on-drought, on-surplus,
   on-feud, on-birth, on-invention) and effects (the existing hooks) as
   data tables, and let a proposal bind a trigger to an effect. Now the
@@ -59,8 +66,14 @@ still validated deterministically.**
   trigger→effect rule the village wrote for itself. Ships as a small
   interpreter over closed primitives; validated like every other hook.
 
-- [ ] **1.3 [LIKELY] — The counterfactual sandbox (Reflection 5.C).**
-  Before a proposed rule/concept with a mechanical hook goes live, let
+- [x] **1.3 [LIKELY] — The counterfactual sandbox (Reflection 5.C).**
+  **Shipped v1.3.31** (as a standalone gate on rule proposals, not yet
+  wired into 5.D/5.E's broader self-tuning — see `simulation/
+  sandbox.py`'s `run_counterfactual`): deep-copies the world, runs the
+  fork 50 ticks LLM-disabled, checks it doesn't crash (population
+  loses >50%) or explode (population >3x). An unsafe proposal is
+  discarded and logged, never silently dropped. Before a proposed
+  rule/concept with a mechanical hook goes live, let
   Reflection *simulate it forward* on a cheap forked copy of recent
   state for N ticks and check it doesn't break an invariant (population
   crash, resource explosion, a governor pinned). This is the safety
@@ -135,7 +148,14 @@ is *experience-deep*. A living system you're excited to check on has to
 *perform* its aliveness to the observer. The away-digest and highlights
 exist — build the room around them.
 
-- [ ] **3.1 [CERTAIN] — The "morning paper" for your world.** Elevate
+- [x] **3.1 [CERTAIN] — The "morning paper" for your world.**
+  **Shipped v1.3.31** as the structured half, not yet the attention-
+  weighted headline half: `World.away_digest_highlights` (every
+  `knowledge_tree()` entry since the digest's own window) renders as a
+  "front page" section under the existing prose recap. Explicitly NOT
+  yet done: re-ranking by which agents/threads the observer has
+  watched most (`observer_attention` exists but isn't consumed here
+  yet) — flagged, not attempted. Elevate
   the away-digest into a real front page: since you last looked, *the
   chronicler's* account of what changed — a birth, a feud, an invention,
   a Nature adaptation, a law the council passed, a hypothesis Reflection
@@ -144,7 +164,9 @@ exist — build the room around them.
   single highest-ROI item for "excited to open it daily." The content
   exists; it needs a front page.
 
-- [ ] **3.2 [CERTAIN] — "What the world learned" ledger.** A dedicated,
+- [x] **3.2 [CERTAIN] — "What the world learned" ledger.** **Shipped
+  v1.3.30.** `World.knowledge_tree()` + `GET /knowledge-tree` + the
+  "🌳 knowledge tree" panel. A dedicated,
   permanent, browsable surface for emergence: every InventedConcept,
   every established custom/law, every Reflection hypothesis (open,
   confirmed, refuted), every Nature adaptation, with lineage — this

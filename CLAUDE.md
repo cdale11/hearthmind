@@ -453,6 +453,26 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.31)
+
+Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md down its own
+stated sequence ("1. 3.1 + 3.2 ... 2. 1.2 + 1.3"): item 3.1 (the
+away-digest's "front page" — `World.away_digest_highlights`, every
+`knowledge_tree()` entry originated since the digest's own window,
+zero extra LLM cost); item 1.2 (`world.ontology.TriggerRule` +
+`TRIGGER_TYPES` — a village-originated rule binding a real trigger
+on_death/on_birth/on_feud/on_invention/on_drought/on_surplus to a real
+`MECHANICAL_HOOK_TYPES` effect, wired to each trigger's actual
+pre-existing detection point in the engine, cooldown-gated against
+runaway repeated firing); item 1.3 (`simulation/sandbox.py`'s
+`run_counterfactual` — before a proposed rule goes live, deep-copies
+the world, runs the fork 50 ticks LLM-disabled, and checks it doesn't
+crash or explode the population; an unsafe proposal is discarded and
+logged, never silently dropped). Only `belief_confidence_bonus` is
+actually consumed as a numeric effect this pass — other hook types
+stay narrative-only, flagged (matching `InventedConcept`'s own
+pre-existing not-yet-consumed hooks, not newly introduced debt).
+
 ## Current state (v1.3.30)
 
 New user-uploaded vision doc, docs/VISION-2026-07-22-LIVINGTERRARIUM.md

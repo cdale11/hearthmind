@@ -164,6 +164,84 @@ class InventedConcept:
         )
 
 
+TRIGGER_TYPES: tuple[str, ...] = ("on_death", "on_birth", "on_feud", "on_invention", "on_drought", "on_surplus")
+"""Vision doc item 1.2, docs/VISION-2026-07-22-LIVINGTERRARIUM.md ("A
+conditional/trigger vocabulary as data"): the closed set of conditions
+a `TriggerRule` may bind to. Each name corresponds to a real, already-
+existing detection point `SimulationEngine._apply_trigger_rules_for`
+is called from — `on_death`/`on_birth` off `World.last_life_events`,
+`on_feud` off `llm.dispute`'s feud outcome, `on_invention` off a
+genuine (non-fallback) invention, `on_drought`/`on_surplus` off a
+low->high edge in `World.disasters.heat_pressure`/a settlement's
+granary food fraction. Not every trigger a real village might imagine
+is here — this is deliberately the small set with a real, already-
+built detection point, same "closed vocabulary hosting open-ended
+content" discipline as `ONTOLOGY_CATEGORIES`/`MECHANICAL_HOOK_TYPES`."""
+
+MAX_TRIGGER_RULES_STORED = 60
+"""Cap on `World.trigger_rules` — smaller than `MAX_CONCEPTS_STORED`
+since rules are rarer (one proposal per season at most, see
+`SimulationEngine._maybe_schedule_rule_proposal`) and a `retired` rule
+is pruned first (oldest first), same discipline as concepts."""
+
+TRIGGER_RULE_COOLDOWN_TICKS = 500
+"""A rule that already fired within this many ticks is skipped on a
+fresh trigger — without this, a burst of same-tick deaths (a disaster)
+or a state that stays past its `on_drought`/`on_surplus` threshold for
+many ticks would fire the same rule over and over, turning one
+"village custom" into runaway repeated narration/effect. ~1-2 weeks at
+default pacing — long enough that a rule reads as "this happens when X
+happens," not "this happens constantly.\""""
+
+
+@dataclass
+class TriggerRule:
+    """Vision doc item 1.2: a village-originated rule binding a real
+    `trigger` (from `TRIGGER_TYPES`) to a real mechanical `hook_type`
+    (from `MECHANICAL_HOOK_TYPES`, same closed vocabulary/validation as
+    `InventedConcept`) — "when the granary overflows, hold a feast that
+    raises everyone's fondness" is `trigger="on_surplus"`,
+    `hook_type="belief_confidence_bonus"` (or `custom_text_only` for a
+    purely narrative rule). The rule engine (`_apply_trigger_rules_for`)
+    is fixed and general; the rules themselves are LLM-authored and
+    open-ended within that closed shape. Never deleted on retirement —
+    `status="retired"` (Reflection's counterfactual sandbox judged it
+    unsafe, or a human/future mechanism retires it) keeps it as
+    historical record, same as a rejected Reflection hypothesis."""
+
+    id: int
+    name: str
+    description: str
+    trigger: str
+    hook_type: str
+    hook_target: str
+    magnitude: float
+    origin_settlement_id: int
+    tick_created: int
+    status: str = "active"
+    fire_count: int = 0
+    last_fired_tick: int = -1
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id, "name": self.name, "description": self.description,
+            "trigger": self.trigger, "hook_type": self.hook_type, "hook_target": self.hook_target,
+            "magnitude": self.magnitude, "origin_settlement_id": self.origin_settlement_id,
+            "tick_created": self.tick_created, "status": self.status,
+            "fire_count": self.fire_count, "last_fired_tick": self.last_fired_tick,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TriggerRule":
+        return cls(
+            id=data["id"], name=data["name"], description=data["description"],
+            trigger=data["trigger"], hook_type=data["hook_type"], hook_target=data.get("hook_target", ""),
+            magnitude=data.get("magnitude", 0.0), origin_settlement_id=data.get("origin_settlement_id", 0),
+            tick_created=data.get("tick_created", 0), status=data.get("status", "active"),
+            fire_count=data.get("fire_count", 0), last_fired_tick=data.get("last_fired_tick", -1),
+        )
+
+
 def register_concept(
     world, name: str, description: str, category: str, origin_settlement_id: int,
     tick: int, inventor_agent_id: int | None = None, mechanical_hook: dict | None = None,
@@ -322,3 +400,39 @@ def dominant_architecture_concept(world, settlement_id: int) -> InventedConcept 
     if not candidates:
         return None
     return max(candidates, key=lambda c: c.tick_invented)
+
+
+def register_trigger_rule(
+    world, name: str, description: str, trigger: str, hook_type: str, hook_target: str,
+    magnitude: float, origin_settlement_id: int, tick: int,
+) -> "TriggerRule":
+    """Mints a new `TriggerRule` with the next id — the trigger-rule
+    counterpart to `register_concept`. Never validates `trigger`/
+    `hook_type` itself (that's `llm/rule_propose.py`'s job, same
+    deterministic-re-verification discipline as `validate_hook`) —
+    this is the pure mutator."""
+    rule_id = world.next_trigger_rule_id
+    world.next_trigger_rule_id += 1
+    rule = TriggerRule(
+        id=rule_id, name=name, description=description, trigger=trigger,
+        hook_type=hook_type, hook_target=hook_target, magnitude=magnitude,
+        origin_settlement_id=origin_settlement_id, tick_created=tick,
+    )
+    world.trigger_rules[rule_id] = rule
+    prune_trigger_rules(world)
+    return rule
+
+
+def prune_trigger_rules(world) -> None:
+    """Same over-cap discipline as `prune_concepts`: `retired` rules
+    are dropped first (oldest first), never `active` ones."""
+    if len(world.trigger_rules) <= MAX_TRIGGER_RULES_STORED:
+        return
+    retired = sorted(
+        (r for r in world.trigger_rules.values() if r.status == "retired"),
+        key=lambda r: r.tick_created,
+    )
+    for rule in retired:
+        if len(world.trigger_rules) <= MAX_TRIGGER_RULES_STORED:
+            return
+        del world.trigger_rules[rule.id]
