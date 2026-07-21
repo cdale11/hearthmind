@@ -83,6 +83,18 @@ const BUILDING_COLORS = {
 };
 const FARM_COLORS = { growing: "#7fae4a", ready: "#e0c34a" };
 
+// Phase 3.C (docs/VISION-2026-07-21-SELFEVOLVING.md) "architecture
+// visibly changing on the map per established Innovation concept": a
+// settlement whose `architecture_styles` entry names a concept gets its
+// buildings outlined in a color deterministically derived from that
+// concept's id, instead of the plain default border — a new dominant
+// concept (see `ontology.dominant_architecture_concept`'s "most recent
+// wins" rule) genuinely changes the outline's hue.
+function architectureStyleColor(conceptId) {
+  const hue = (conceptId * 137) % 360;
+  return `hsl(${hue}, 62%, 58%)`;
+}
+
 // Per-event-category presentation: icon, human label prefix, and whether
 // it's noisy enough to skip in the log entirely (still stored server-side
 // via /events — this is a display-only filter). See docs/DECISIONS.md,
@@ -1282,13 +1294,15 @@ function drawFrame() {
     ctx.fillRect(farm.x * CELL + 2, farm.y * CELL + 2, CELL - 4, CELL - 4);
   }
 
+  const architectureStyles = latest.architecture_styles || {};
   for (const b of latest.buildings) {
     ctx.fillStyle = BUILDING_COLORS[b.kind] || "#aaa";
     ctx.globalAlpha = b.stage === "under_construction" ? 0.45 : b.stage === "ruined" ? 0.35 : 1.0;
     ctx.fillRect(b.x * CELL - 1, b.y * CELL - 1, CELL + 2, CELL + 2);
     ctx.globalAlpha = 1.0;
-    ctx.strokeStyle = "#f5f5f5";
-    ctx.lineWidth = 1;
+    const style = architectureStyles[String(b.settlement_id)];
+    ctx.strokeStyle = style ? architectureStyleColor(style.concept_id) : "#f5f5f5";
+    ctx.lineWidth = style ? 1.6 : 1;
     ctx.strokeRect(b.x * CELL - 0.5, b.y * CELL - 0.5, CELL + 1, CELL + 1);
     // A bridge's own tile is just its land anchor (see BuildingKind.
     // BRIDGE) — the actual water crossing is bridge_span, drawn as a
@@ -1951,6 +1965,8 @@ canvas.addEventListener("mousemove", (ev) => {
   if (b) {
     tooltip.classList.remove("hidden");
     const pct = Math.round((b.condition || 0) * 100);
+    const style = latest.architecture_styles && latest.architecture_styles[String(b.settlement_id)];
+    const styleText = style ? `<br><span class="muted">built in the "${style.name}" style</span>` : "";
     if (subjectiveMode) {
       // §3 "subjective map mode": the village doesn't read a percentage
       // off a wall — it just knows a place as well-kept, worn, or
@@ -1964,14 +1980,16 @@ canvas.addEventListener("mousemove", (ev) => {
         : "falling apart";
       tooltip.innerHTML = `<b>${b.kind.replace(/_/g, " ")}</b><br>` +
         `<span class="muted">${label}</span>` +
-        (b.stored_food ? `<br>keeps a store of food` : "");
+        (b.stored_food ? `<br>keeps a store of food` : "") +
+        styleText;
       return;
     }
     tooltip.innerHTML =
       `<b>${b.kind}</b> (${b.stage})<br>` +
       `condition ${pct}%` +
       (b.stage === "under_construction" ? ` · progress ${Math.round((b.progress || 0) * 100)}%` : "") +
-      (b.stored_food ? `<br>stored food ${b.stored_food.toFixed(1)}` : "");
+      (b.stored_food ? `<br>stored food ${b.stored_food.toFixed(1)}` : "") +
+      styleText;
     return;
   }
 

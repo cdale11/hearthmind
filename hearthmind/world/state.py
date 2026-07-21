@@ -163,6 +163,12 @@ class World:
     repeatedly caught in a flood/wildfire accumulates a visible scar
     instead of always fully healing. See world/terrain_evolution.py
     `apply_disaster_scars`/`decay_disaster_scars`."""
+    fallow_ticks: dict[tuple[int, int], int] = field(default_factory=dict)
+    """Phase 3.D "succession — real intermediate stages, not an instant
+    biome flip" — consecutive weeks a tile has qualified for reforesting
+    (undeveloped grassland with enough forest neighbors); reset to 0 the
+    moment it stops qualifying. See world/terrain_evolution.py
+    `maybe_reclaim`/`_tick_fallow`, `REFOREST_MIN_FALLOW_WEEKS`."""
     llm_calls_total: int = 0
     llm_fallback_total: int = 0
     """Cumulative counts of every LLM-backed decision (cognition +
@@ -577,6 +583,7 @@ class World:
             reclaim_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "terrain_reclaim")
             events += maybe_reclaim(
                 self.terrain, self.terrain_activity, self.settlements, self.farms, occupied_tiles, reclaim_rng,
+                self.fallow_ticks,
             )
             decay_mining_scars(self.mining_scars)
             decay_disaster_scars(self.disaster_scars)
@@ -751,6 +758,7 @@ class World:
             "terrain_activity": {f"{x}:{y}": v for (x, y), v in self.terrain_activity.items()},
             "mining_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.mining_scars.items()},
             "disaster_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.disaster_scars.items()},
+            "fallow_ticks": {f"{x}:{y}": v for (x, y), v in self.fallow_ticks.items()},
             "llm_calls_total": self.llm_calls_total,
             "llm_fallback_total": self.llm_fallback_total,
             "dialogue_total": self.dialogue_total,
@@ -928,6 +936,11 @@ class World:
             x_str, y_str = key.split(":")
             disaster_scars[(int(x_str), int(y_str))] = value
 
+        fallow_ticks: dict[tuple[int, int], int] = {}
+        for key, value in data.get("fallow_ticks", {}).items():
+            x_str, y_str = key.split(":")
+            fallow_ticks[(int(x_str), int(y_str))] = value
+
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             weather_regions=weather_regions,
@@ -937,6 +950,7 @@ class World:
             terrain_activity=terrain_activity,
             mining_scars=mining_scars,
             disaster_scars=disaster_scars,
+            fallow_ticks=fallow_ticks,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),
             dialogue_total=data.get("dialogue_total", 0),

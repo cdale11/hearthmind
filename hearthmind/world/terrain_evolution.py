@@ -236,6 +236,20 @@ recent activity heat) touching at least this many forest neighbors has
 this chance, rolled once per week, to revert to forest — "nature
 reclaims abandoned areas.\""""
 
+REFOREST_MIN_FALLOW_WEEKS = 3
+"""Phase 3.D "succession — real intermediate stages, not an instant
+biome flip" (docs/VISION-2026-07-21-SELFEVOLVING.md). Previously a
+qualifying tile could revert to forest the very first week it became
+eligible; now it must qualify (undeveloped, enough forest neighbors)
+for this many CONSECUTIVE weeks before the reforest roll is even
+attempted — a visible fallow period reads as gradual regrowth rather
+than land snapping to forest the week the farmer walks away. Tracked
+in `World.fallow_ticks`, the same additive Python-dict-overlay shape
+as `mining_scars`/`disaster_scars` (R7 deviation: a low-density weekly
+tile scan, not yet worth a native port) — a tile that stops qualifying
+resets to 0 rather than merely pausing, so an interrupted fallow period
+doesn't bank progress."""
+
 CLIMATE_STEP_MAX = 0.05
 CLIMATE_MEAN_REVERSION = 0.95
 """Each year, `warming`/`drying` take a small random step and decay
@@ -372,38 +386,20 @@ def apply_local_activity(
     return events
 
 
-def maybe_reclaim(
+def _tick_fallow(
     terrain: list[list[Tile]], heat: dict[tuple[int, int], float],
-    settlements, farms, excluded: set[tuple[int, int]], rng: random.Random,
-) -> list[tuple[str, str]]:
-    """Called once per week. An abandoned grassland tile bordered by
-    enough forest can revert to forest — nature reclaiming unused land,
-    the inverse of `apply_local_activity`'s deforestation."""
-    events: list[tuple[str, str]] = []
+    settlements, farms, excluded: set[tuple[int, int]],
+    fallow_ticks: dict[tuple[int, int], int],
+) -> set[tuple[int, int]]:
+    """Advances `fallow_ticks` one week and returns the set of tiles that
+    have now cleared `REFOREST_MIN_FALLOW_WEEKS` — the only tiles
+    `maybe_reclaim` is allowed to roll for this week. A tile that no
+    longer qualifies (developed, or fell below the forest-neighbor
+    count) is dropped from the dict entirely rather than paused."""
     height = len(terrain)
     width = len(terrain[0]) if height else 0
-
-    if _native_maybe_reclaim_tick is not None:
-        biome_codes = [
-            1 if terrain[y][x].biome is Biome.GRASSLAND
-            else (2 if terrain[y][x].biome is Biome.FOREST else 0)
-            for y in range(height) for x in range(width)
-        ]
-        developed = [
-            (x, y) in heat or _is_developed(x, y, settlements, farms, excluded)
-            for y in range(height) for x in range(width)
-        ]
-        reclaimed = _native_maybe_reclaim_tick(
-            width, height, biome_codes, developed,
-            REFOREST_MIN_FOREST_NEIGHBORS, REFOREST_CHANCE_PER_WEEK, rng.random,
-        )
-        for (x, y) in reclaimed:
-            tile = terrain[y][x]
-            terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.FOREST)
-        events.extend(_reclaim_events(reclaimed))
-        return events
-
-    reclaimed: list[tuple[int, int]] = []
+    eligible: set[tuple[int, int]] = set()
+    seen: set[tuple[int, int]] = set()
     for y in range(height):
         for x in range(width):
             tile = terrain[y][x]
@@ -418,10 +414,63 @@ def maybe_reclaim(
                     forest_neighbors += 1
             if forest_neighbors < REFOREST_MIN_FOREST_NEIGHBORS:
                 continue
-            if rng.random() >= REFOREST_CHANCE_PER_WEEK:
-                continue
+            seen.add((x, y))
+            weeks = fallow_ticks.get((x, y), 0) + 1
+            fallow_ticks[(x, y)] = weeks
+            if weeks >= REFOREST_MIN_FALLOW_WEEKS:
+                eligible.add((x, y))
+    for pos in list(fallow_ticks.keys()):
+        if pos not in seen:
+            del fallow_ticks[pos]
+    return eligible
+
+
+def maybe_reclaim(
+    terrain: list[list[Tile]], heat: dict[tuple[int, int], float],
+    settlements, farms, excluded: set[tuple[int, int]], rng: random.Random,
+    fallow_ticks: dict[tuple[int, int], int],
+) -> list[tuple[str, str]]:
+    """Called once per week. An abandoned grassland tile bordered by
+    enough forest, and fallow for `REFOREST_MIN_FALLOW_WEEKS`
+    consecutive weeks, can revert to forest — nature reclaiming unused
+    land, the inverse of `apply_local_activity`'s deforestation."""
+    events: list[tuple[str, str]] = []
+    height = len(terrain)
+    width = len(terrain[0]) if height else 0
+
+    eligible = _tick_fallow(terrain, heat, settlements, farms, excluded, fallow_ticks)
+    if not eligible:
+        return events
+
+    if _native_maybe_reclaim_tick is not None:
+        biome_codes = [
+            1 if terrain[y][x].biome is Biome.GRASSLAND
+            else (2 if terrain[y][x].biome is Biome.FOREST else 0)
+            for y in range(height) for x in range(width)
+        ]
+        developed = [
+            (x, y) not in eligible
+            for y in range(height) for x in range(width)
+        ]
+        reclaimed = _native_maybe_reclaim_tick(
+            width, height, biome_codes, developed,
+            REFOREST_MIN_FOREST_NEIGHBORS, REFOREST_CHANCE_PER_WEEK, rng.random,
+        )
+        for (x, y) in reclaimed:
+            tile = terrain[y][x]
             terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.FOREST)
-            reclaimed.append((x, y))
+            fallow_ticks.pop((x, y), None)
+        events.extend(_reclaim_events(reclaimed))
+        return events
+
+    reclaimed: list[tuple[int, int]] = []
+    for (x, y) in sorted(eligible, key=lambda pos: (pos[1], pos[0])):
+        if rng.random() >= REFOREST_CHANCE_PER_WEEK:
+            continue
+        tile = terrain[y][x]
+        terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.FOREST)
+        fallow_ticks.pop((x, y), None)
+        reclaimed.append((x, y))
     events.extend(_reclaim_events(reclaimed))
     return events
 

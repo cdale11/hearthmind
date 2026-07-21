@@ -444,33 +444,58 @@ shipped-status note above.
 Traditions/festivals/laws/architecture-evolving-through-history are
 mostly 3.A's category coverage applied (`category="custom"` /
 `"law"` / `"ritual"`) — not a sixth mechanism, and already live.
-**Status: audited, not further built this pass.** The two items this
-section originally scoped — architecture visibly changing on the map,
-and village priorities shifting over decades — were re-examined against
-what 1.A/1.C already ship: `known_concepts` already grounds every
-town_brain call (1.A) and `recent_goal_counts` already grounds it with
-aggregate NPC behavior (1.C), so "priorities shift from accumulated
-history" is mechanically already true, just not yet measured against a
-long real run. The map-rendering half (a genuine visual/UI difference
-per established concept) is real remaining scope, deliberately NOT
-attempted this pass — it needs live design judgment (which concepts
-get which visual treatment) rather than being a mechanical extension of
-existing code the way 3.A/3.B/3.D's scars item were; flagged as a
-future follow-up rather than built speculatively.
+"Priorities shift from accumulated history" was already true
+mechanically (`known_concepts` grounds town_brain per 1.A,
+`recent_goal_counts` per 1.C) — audited, no further code needed there.
+
+**Architecture visibly changing on the map: SHIPPED, v1.3.25.** The
+map-rendering half flagged in the prior pass as needing live design
+judgment now has a real, contained hook: `world/ontology.py`'s new
+`ARCHITECTURE_RELEVANT_CATEGORIES = ("technology",
+"institution_flavor")` (the two categories that plausibly reshape what
+gets *built*, not just believed/said/done) and `dominant_architecture_
+concept(world, settlement_id)` — a settlement's own most-recently-
+established concept in one of those categories, or `None`. "Most
+recent" (by `tick_invented`) deliberately keeps this revisable, not a
+one-time lock-in — a newer established concept can genuinely change a
+settlement's visible style again later.
+
+`SimulationEngine._maybe_broadcast` computes `architecture_styles`
+(per-settlement `{name, category, concept_id}`) and tags each broadcast
+building with its `settlement_id` (computed at broadcast time only,
+never persisted on `Building` itself — the frontend needs it only to
+look up the style). `app.js`'s building-paint loop outlines a
+settlement's buildings in a color deterministically hashed from the
+concept's id (`architectureStyleColor`) instead of the flat default
+border, and the building hover tooltip names the style
+("built in the ... style") when one exists. No concept yet -> no tint,
+identical to today's rendering.
 
 ### 3.D — Nature: food webs, succession, permanent scars
 
-- **Food webs / predator-prey feedback**: `world/wildlife.py`
-  currently tracks predator/prey as separate populations with a
-  kill-chance mechanic — a real trophic feedback loop (prey scarcity
-  suppresses predator reproduction, predator pressure suppresses prey
-  population, independent of human action) is the gap. R7 (CA-
-  substrate, C++-first) applies to any new code here.
-- **Forest succession / river evolution / gradual terrain change**:
-  `world/terrain_evolution.py` already has reclaim/mining-scar/wear
-  mechanics — succession (cleared land regrowing through real
-  intermediate stages, not an instant biome flip) and river course
-  drift extend the same module.
+- **Food webs / predator-prey feedback**: NOT attempted this pass
+  (v1.3.25 scoped to succession + 3.C's architecture item). `world/
+  wildlife.py` currently tracks predator/prey as separate populations
+  with a kill-chance mechanic — a real trophic feedback loop (prey
+  scarcity suppresses predator reproduction, predator pressure
+  suppresses prey population, independent of human action) is the
+  gap. R7 (CA-substrate, C++-first) applies to any new code here —
+  flagged as a real future follow-up, not silently dropped.
+- **Forest succession (cleared land regrowing through real intermediate
+  stages, not an instant biome flip): SHIPPED, v1.3.25.** `maybe_
+  reclaim` used to flip an eligible grassland tile to forest the very
+  first week it qualified. New `World.fallow_ticks` (same additive
+  Python-dict-overlay shape as `mining_scars`/`disaster_scars`, same
+  R7-deviation rationale — a low-density weekly tile scan) tracks
+  consecutive qualifying weeks per tile via `terrain_evolution._tick_
+  fallow`; only a tile that's stayed undeveloped and forest-bordered
+  for `REFOREST_MIN_FALLOW_WEEKS=3` straight weeks is even offered to
+  the existing roll. A tile that stops qualifying resets to 0 rather
+  than pausing — an interrupted fallow period doesn't bank progress.
+  River course drift is NOT attempted this pass (rivers are currently
+  static geometry in `world/hydrology.py`, not a per-tile biome the
+  existing reclaim/scar machinery can extend into — a real gap, larger
+  scope than this batch).
 - **Permanent landscape scars from disasters**: **SHIPPED, v1.3.22.**
   New `World.disaster_scars` + `world/terrain_evolution.py`'s `apply_
   disaster_scars`/`decay_disaster_scars` — exact same shape as `mining_

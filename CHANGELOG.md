@@ -4,6 +4,58 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.25] — Phase 3.C architecture + Phase 3.D succession
+
+Explicit user request: "continue with 3.C and 3.D" — the two remaining
+open items from docs/VISION-2026-07-21-SELFEVOLVING.md's Phase 3
+second slice.
+
+**3.C: architecture visibly changing on the map.** New `world/
+ontology.py` `ARCHITECTURE_RELEVANT_CATEGORIES = ("technology",
+"institution_flavor")` and `dominant_architecture_concept(world,
+settlement_id)` — a settlement's own most-recently-established concept
+(by `tick_invented`) in one of the two categories that plausibly
+reshape what gets built, or `None`. `SimulationEngine._maybe_broadcast`
+now computes `architecture_styles` (per-settlement `{name, category,
+concept_id}`) and tags each broadcast building with its `settlement_id`
+(broadcast-only, not persisted on `Building`). `app.js` outlines a
+settlement's buildings in a color hashed from the concept id
+(`architectureStyleColor`) instead of the flat default border, and
+building hover tooltips name the style when one exists. No established
+architecture-relevant concept yet -> unchanged rendering.
+
+**3.D: forest succession, real intermediate stages.** `maybe_reclaim`
+previously flipped an eligible abandoned-grassland tile straight to
+forest the first week it qualified — no gradual regrowth. New `World.
+fallow_ticks` (same additive-Python-dict-overlay shape as `mining_
+scars`/`disaster_scars`, same R7-deviation rationale) tracks
+consecutive qualifying weeks per tile via `terrain_evolution._tick_
+fallow`; only a tile fallow for `REFOREST_MIN_FALLOW_WEEKS=3`
+consecutive weeks is even offered to the existing roll, and a tile that
+stops qualifying resets to 0 rather than pausing. Caught and fixed a
+real native-vs-fallback divergence while verifying: the Python fallback
+originally iterated the eligible-tile set in undefined hash order,
+drawing RNG rolls in a different order than the native path's row-major
+scan — fixed by sorting the fallback's iteration into the same
+`(y, x)` order the native path implicitly uses.
+
+Flagged, not attempted this pass (real remaining scope, not silently
+dropped): food webs / predator-prey trophic feedback (`world/
+wildlife.py`), river course drift (rivers are static geometry in
+`world/hydrology.py`, not a per-tile biome the reclaim/scar machinery
+can extend into), and ecology->weather bidirectional feedback
+(flagged `[HYPOTHESIS]`, needs a reachability check against existing
+spatial-weather smoothing first).
+
+Verified: direct smoke tests (dominant-concept selection, payload
+construction, round-trip `World.to_dict()`/`from_dict()` equality for
+`fallow_ticks`), a live `SimulationEngine._maybe_broadcast` run through
+a real asyncio loop confirming `architecture_styles`/`buildings[].
+settlement_id` reach the actual broadcast payload, a 6000-tick
+LLM-disabled engine soak, `scripts/verify_native_soak.py` (2 seeds x
+2500 ticks, plus a re-run at 800 ticks) byte-identical after the
+ordering fix above.
+
 ## [1.3.24] — Phase 3.A adoption thresholds + Phase 4 initial audit
 
 Explicit user request: "start both" — Phase 3's last open 3.A item

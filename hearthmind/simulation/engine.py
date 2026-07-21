@@ -6409,7 +6409,20 @@ class SimulationEngine:
             ],
             # Physical layers merge across every settlement — the map
             # shows the world, not one community's slice of it.
-            "buildings": [b.to_dict() for s in settlements for b in s.buildings],
+            # `settlement_id` (Phase 3.C, docs/VISION-2026-07-21-
+            # SELFEVOLVING.md "architecture visibly changing on the
+            # map") is computed here, not persisted on `Building`
+            # itself — the frontend needs it only to look up
+            # `architecture_styles` below and tint accordingly.
+            "buildings": [
+                {**b.to_dict(), "settlement_id": s.id} for s in settlements for b in s.buildings
+            ],
+            "architecture_styles": {
+                str(s.id): {"name": concept.name, "category": concept.category, "concept_id": concept.id}
+                for s in settlements
+                for concept in [ontology.dominant_architecture_concept(self.world, s.id)]
+                if concept is not None
+            },
             "vehicles": [v.to_dict() for s in settlements for v in s.vehicles],
             "farms": [p.to_dict() for p in self.world.farms.plots.values()],
             "resources": [n.to_dict() for n in self.world.resources.nodes.values()],

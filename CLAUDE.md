@@ -416,6 +416,32 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.25)
+
+Explicit user follow-up: "continue with 3.C and 3.D" — the two
+remaining open Phase 3 items in docs/VISION-2026-07-21-SELFEVOLVING.md.
+
+3.C: `world/ontology.py`'s new `dominant_architecture_concept(world,
+settlement_id)` (categories `technology`/`institution_flavor` only —
+the two that plausibly reshape what gets built) feeds a per-settlement
+`architecture_styles` map into the broadcast payload;
+`SimulationEngine._maybe_broadcast` tags each building with its
+`settlement_id` at broadcast time (not persisted). `app.js` outlines a
+settlement's buildings in a color hashed from the concept id and names
+the style in the building hover tooltip. 3.D: `maybe_reclaim`'s
+instant grassland->forest flip now requires `REFOREST_MIN_FALLOW_
+WEEKS=3` consecutive qualifying weeks first, tracked in new `World.
+fallow_ticks` (same additive-dict-overlay shape as `mining_scars`/
+`disaster_scars`). Caught a real bug while verifying: the Python
+fallback path iterated its eligible-tile set in undefined hash order,
+drawing RNG differently than the native path's row-major scan —
+`scripts/verify_native_soak.py` caught the resulting divergence at
+tick 1727; fixed by sorting the fallback's iteration into the same
+`(y, x)` order.
+
+Food webs/predator-prey feedback, river course drift, and
+ecology->weather feedback remain explicitly flagged, not attempted.
+
 ## Current state (v1.3.19)
 
 Explicit user follow-up on Phase 1: invented concepts must be real

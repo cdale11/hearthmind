@@ -292,3 +292,33 @@ def established_concepts(world, settlement_id: int | None = None) -> list[Invent
         if c.status == "established"
         and (settlement_id is None or c.origin_settlement_id == settlement_id)
     ]
+
+
+ARCHITECTURE_RELEVANT_CATEGORIES = ("technology", "institution_flavor")
+"""Phase 3.C "architecture visibly changing on the map per established
+Innovation concept" (docs/VISION-2026-07-21-SELFEVOLVING.md): of the
+eight categories, only these two plausibly reshape what a settlement
+BUILDS, not just what it believes/says/does — a `custom`, `law`,
+`ritual`, `saying`, or `profession` doesn't have an obvious physical
+form. Deliberately narrow rather than letting every established
+concept compete for the one visual slot below."""
+
+
+def dominant_architecture_concept(world, settlement_id: int) -> InventedConcept | None:
+    """The settlement's own most-recently-established concept in an
+    architecture-relevant category, or `None` if it has none yet — the
+    real, contained hook `SimulationEngine._maybe_broadcast` reads to
+    tint that settlement's buildings on the map (see app.js
+    `paintArchitectureStyle`). "Most recent" (by `tick_invented`, the
+    only ordering field a concept carries) means a settlement's visible
+    style can genuinely shift again later if a newer concept overtakes
+    an older one — not a one-time permanent lock-in."""
+    candidates = [
+        c for c in world.invented_concepts.values()
+        if c.origin_settlement_id == settlement_id
+        and c.status == "established"
+        and c.category in ARCHITECTURE_RELEVANT_CATEGORIES
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda c: c.tick_invented)
