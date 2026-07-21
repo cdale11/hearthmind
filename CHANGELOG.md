@@ -4,6 +4,26 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.27] — Body/Mind architecture framing (docs only)
+
+Explicit user correction, no code/behavior changes: stop describing the
+LLM as a layer "bolted on to" deterministic simulation. Each pillar
+(Humans, Village, Nature, Innovation) is one system with two
+inseparable halves — Body (deterministic, always-authoritative
+objective reality) and Mind (LLM, that pillar's subjective cognition:
+perception, memory interpretation, belief formation, goal/social/
+cultural reasoning, concept invention). The Mind is a pillar's
+cognition, not decoration; a pillar with a thin Mind (Nature, today) is
+incomplete, not correctly-mostly-deterministic-by-design. Reflection is
+not a fifth pillar — it's the meta-cognitive system observing the four
+Minds, one level up, never touching Body state directly. Recorded in
+full in docs/VISION-2026-07-21-SELFEVOLVING.md's new "v1.2 revision
+note" and summarized as a standing rule in CLAUDE.md's design-
+priorities section, next to the pre-existing deterministic/LLM split it
+refines. Doesn't loosen the existing call-budget gating (core cast,
+daily ceiling, `critical` scheduling) — it's a completeness target for
+what deserves a Mind, not license to remove the gating.
+
 ## [1.3.26] — Phase 3.D food webs / predator-prey feedback
 
 Explicit user request: "continue with food webs and predator-prey

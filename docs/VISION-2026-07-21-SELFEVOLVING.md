@@ -36,6 +36,54 @@ genuinely open-ended and some bounded expansion slots" — the Innovation
 work below is designed around that split explicitly (see "Why not a
 fully open schema" under Phase 1.A).
 
+**v1.2 revision note (2026-07-21, later same day) — Body/Mind framing,
+explicit user correction.** Prior wording in this doc and in chat
+described the LLM as a "layer" added on top of deterministic
+simulation ("simulation + optional LLM enhancement"). Corrected
+framing, standing going forward: every major system — each of the four
+pillars — is **one system with two inseparable parts**, not a
+simulation with cognition bolted on:
+
+- **Body (deterministic)**: owns objective reality for that pillar.
+  Always authoritative; the LLM never invents or overrides an objective
+  fact. Physics, ecology, weather, economy, relationships (the ledger),
+  construction, pathfinding, resources, time.
+- **Mind (LLM)**: owns *subjective understanding* of that pillar's
+  reality — perception, memory interpretation, belief formation, goal
+  reasoning, planning, social/cultural interpretation, concept
+  invention, long-term abstraction. Not decoration or post-processing —
+  this *is* the pillar's cognition.
+
+So: Humans -> human cognition, Village -> collective cognition, Nature
+-> ecological cognition, Innovation -> conceptual cognition. Every
+pillar should eventually have both halves; a pillar whose Mind half is
+thin (Nature today — deterministic ecology/weather/wildlife with
+almost no LLM interpretation layer) is *incomplete*, not "correctly
+mostly-deterministic by design." This reframes several already-shipped
+mechanisms as a pillar's Mind half rather than a bolt-on: `Settlement.
+beliefs`/`town_brain` (Village's mind), per-agent cognition/`Agent.
+mind`/personal beliefs (Human's mind — currently core-cast-gated, not
+whole-population, by the call-budget rule below), `llm/ontology.py`'s
+propose/evolve/merge (Innovation's mind). Nature's mind is the
+identified gap — see Phase 3.D+ follow-up work.
+
+**Reflection is not a fifth pillar.** It's the meta-cognitive system
+observing all four Minds — detecting long-term patterns across them,
+forming hypotheses, running counterfactuals, maintaining a scientific
+notebook, and improving *how* the four Minds reason over time. It
+never touches Body state directly and never invents objective facts;
+it studies and improves cognition, one level up from the four pillars.
+
+This doesn't change any standing engineering constraint — the LLM-
+call-budget gating (core cast, daily ceiling, `critical`-vs-fallback
+scheduling per docs/CONSTITUTION.md) still bounds how much of a
+pillar's Mind runs on any given tick; "every pillar needs a Mind" is a
+completeness target for what genuinely warrants an LLM call, not
+license to remove the gating. When implementing a pillar feature going
+forward, frame it as **Body (objective state) <-> Mind (subjective
+cognition)** for that pillar, not "simulation + optional LLM
+enhancement."
+
 ---
 
 ## Reading the manifesto as one architecture, not five checklists

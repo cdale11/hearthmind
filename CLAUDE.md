@@ -141,6 +141,27 @@ reason not to. Don't replace LLM reasoning with a large deterministic
 rule system just because it's easier to implement. The deterministic
 engine provides reality; the LLM provides meaning.
 
+**Body/Mind framing (explicit user correction, 2026-07-21, standing —
+full text docs/VISION-2026-07-21-SELFEVOLVING.md's "v1.2 revision
+note").** Don't describe the LLM as a layer "bolted on to" deterministic
+simulation, and don't scope pillar work as "simulation + optional LLM
+enhancement." Instead: each of the four pillars (Humans, Village,
+Nature, Innovation) is one system with two inseparable halves — **Body**
+(deterministic, always-authoritative objective reality for that pillar)
+and **Mind** (LLM, that pillar's subjective cognition — perception,
+memory interpretation, belief formation, goal reasoning, planning,
+social/cultural interpretation, concept invention). The Mind is the
+pillar's cognition, not decoration or post-processing. A pillar whose
+Mind half is thin (Nature, today — almost entirely Body with no LLM
+interpretation layer) is incomplete, not "correctly mostly-
+deterministic by design" — closing that gap is real future work, not
+scope creep. This doesn't loosen the call-budget gating below (core
+cast, daily ceiling, `critical` scheduling) — it's a completeness
+target for what deserves a Mind, not license to remove the gating.
+Reflection (Phase 5, designed not yet built) is not a fifth pillar —
+it's the meta-cognitive system observing all four Minds, one level up,
+never touching Body state or inventing facts directly.
+
 **Physical substrate = a C++ cellular-automata engine (R7, added
 v0.72.6, explicit user directive).** The objective-physical-reality
 layer above — agriculture, ecology/wildlife, weather, environment
@@ -415,6 +436,12 @@ Single-writer tick loop + queued interventions; fallback-on-every-LLM-
 call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
+
+## Current state (v1.3.27)
+
+Docs-only: recorded the Body/Mind architecture correction (see "Design
+priorities" above and docs/VISION-2026-07-21-SELFEVOLVING.md's "v1.2
+revision note") — no code changes.
 
 ## Current state (v1.3.26)
 
