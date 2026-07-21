@@ -416,6 +416,29 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.16)
+
+Explicit user request: "try finishing FT" — docs/AUDIT-2026-07-20.md's
+fine-tuning roadmap, FT.3-FT.7. Ships everything buildable without a
+second "teacher" model or real GPU training infra (neither exists in
+this environment) — FT.3's teacher-distillation half and FT.6 (the
+actual training run) stay explicitly flagged as needing external
+infrastructure, same "no fine-tuning run itself is implemented"
+scoping this project held since FT's prereqs first shipped (v0.87.28).
+
+New modules: `llm/rejection_sampling.py` (FT.3's no-teacher half — k
+live LLM calls at a temperature spread, scored by FT.2's labeler,
+banked as chosen/rejected DPO pairs; `scripts/rejection_sample.py` is
+the CLI), `llm/task_mix.py` (FT.4 sampling-weight math), `llm/prompt_
+synthesis.py` (FT.4's synthetic town_brain prompt generator — calls
+the REAL `town_brain.build_prompt`, not a fake), `llm/eval_harness.py`
+(FT.5 — hash-based train/holdout split, stratified golden set,
+tunable regression thresholds over `review_diagnostics.compute_
+diagnostics()`). `scripts/recorder_tools.py` gained `synthesize-town-
+brain`/`freeze-eval-set`/`check-regressions` subcommands. FT.7: new
+`Config.llm_adapter_name` threaded into `TrainingRecorder`'s `dataset`
+dict and `/diagnostics`, `None` until a real adapter exists.
+
 ## Current state (v1.3.15)
 
 Explicit user follow-up: "try llm_max_concurrent = 1 and the model name

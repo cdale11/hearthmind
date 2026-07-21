@@ -4,6 +4,64 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.16] — Finish the FT fine-tuning roadmap's buildable half
+
+Explicit user request: "try finishing FT" — the remaining items of
+docs/AUDIT-2026-07-20.md's fine-tuning roadmap (FT.3-FT.7). Ships
+everything that's actually a coding task; FT.3's teacher-distillation
+half and FT.6 (the real LoRA training run) are explicitly flagged as
+out of scope — they need a second, larger "teacher" model and real GPU
+training infrastructure this environment has no access to, not more
+code. Every FT item that WAS buildable is now real, tested tooling.
+
+FT.3 (rejection sampling half): new `llm/rejection_sampling.py` —
+`sample_and_select()` makes k real LLM calls at a temperature spread,
+scores each with FT.2's `quality_labels.label_example()`, ranks by
+`sft_eligible` first; `bank_preference_pair()` produces a (chosen,
+rejected) DPO-bankable record. `scripts/rejection_sample.py` is the
+live-LLM CLI wrapper (accepts either `prompt_synthesis`'s shape or a
+real archive record's own `layerN_*` shape).
+
+FT.4: new `llm/task_mix.py`'s `compute_sampling_weights()` (inverse-
+frequency + floor + capped-and-redistributed share) and `weighted_
+task_targets()`. New `llm/prompt_synthesis.py`'s `synthesize_town_
+brain_batch()` — the audit's own named example made real: perturbs a
+full plausible `town_brain.build_prompt` input via a namespaced RNG
+and calls the REAL prompt builder, so synthesized and organic examples
+are structurally interchangeable. `scripts/recorder_tools.py
+synthesize-town-brain` is the CLI entry point.
+
+FT.5: new `llm/eval_harness.py` — `split_holdout()` hash-splits by
+each example's own `structured_input_hash` (never randomly, so
+duplicates can't straddle train/holdout); `build_golden_set()` is a
+stratified draw guaranteeing every task is represented; `DEFAULT_
+THRESHOLDS`/`check_regressions()` gate `review_diagnostics.compute_
+diagnostics()`'s own metrics. `scripts/recorder_tools.py freeze-eval-
+set`/`check-regressions` are the CLI entry points (the latter exits 1
+on any violation). The world-level 30k-tick base-vs-adapter A/B half
+is explicitly not attempted — it needs a trained adapter to compare
+against, which doesn't exist yet; this module is that A/B's real
+prerequisite.
+
+FT.7: new `Config.llm_adapter_name: str | None = None`, threaded into
+`TrainingRecorder` via a new `adapter_name_provider` param (wired from
+`SimulationEngine`) so every future archived example's `dataset.
+adapter_name` field carries it, and surfaced directly in `/diagnostics`
+as `llm_adapter_name` next to `llm_model`. `None` today — no adapter
+has ever been trained — but the plumbing is real and ready.
+
+Verified: direct unit-style tests for every new module (task_mix's
+weight math against the audit's own reported archive counts;
+prompt_synthesis's 1000+-prompt uniqueness + round-trip check;
+rejection_sampling's fake-`urlopen` ranking/banking test; eval_
+harness's synthetic 200-example split/golden-set/regression-detection
+test); real end-to-end runs building an on-disk archive via
+`TrainingRecorder` and exercising every new `scripts/recorder_tools.py`
+subcommand plus `scripts/rejection_sample.py` against it;
+`scripts/verify_native_soak.py` (500 ticks) byte-identical — this
+batch is entirely offline tooling plus one Config field, nothing in
+the tick loop or persisted state changed shape.
+
 ## [1.3.15] — llm_max_concurrent=1 + model name now set inside Hearthmind
 
 Explicit user follow-up to v1.3.14's latency-tuning pass: "try

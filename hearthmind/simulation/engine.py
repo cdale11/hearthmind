@@ -906,6 +906,7 @@ class SimulationEngine:
             hearthmind_version_provider=lambda: __version__,
             seed_provider=lambda: config.seed,
             generation_config_provider=lambda: _generation_config_snapshot(config),
+            adapter_name_provider=lambda: config.llm_adapter_name,
         )
         """Permanent LLM training recorder (llm/recorder.py, §8) — OFF by
         default (see `RecordingPolicy.OFF`), started/stopped only via
@@ -6180,6 +6181,7 @@ class SimulationEngine:
             "llm_enabled": self._cognition_runner.enabled,
             "llm_max_concurrent": self.config.llm_max_concurrent,
             "llm_model": self.config.llm_model,
+            "llm_adapter_name": self.config.llm_adapter_name,
             "llm_stats": self._cognition_runner.stats(),
             "llm_backlog_effective": self._effective_backlog(),
             "llm_backlog_reserved_this_tick": self._reserved_this_tick,

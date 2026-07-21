@@ -223,6 +223,7 @@ class TrainingRecorder:
         hearthmind_version_provider,
         seed_provider=None,
         generation_config_provider=None,
+        adapter_name_provider=None,
     ) -> None:
         self._archive_dir = Path(archive_dir)
         self._policy = RecordingPolicy.OFF
@@ -240,6 +241,7 @@ class TrainingRecorder:
         self._hearthmind_version_provider = hearthmind_version_provider
         self._seed_provider = seed_provider
         self._generation_config_provider = generation_config_provider
+        self._adapter_name_provider = adapter_name_provider
         self._lock = threading.Lock()
         # Incremental archive statistics (v1.1.0, item 7 "Recorder
         # Statistics") — seeded once per `start()` via a real one-time
@@ -348,6 +350,7 @@ class TrainingRecorder:
                 "recorder_version": RECORDER_VERSION,
                 "archive_version": ARCHIVE_VERSION,
                 "hearthmind_version": self._hearthmind_version_provider(),
+                "adapter_name": self._adapter_name_provider() if self._adapter_name_provider else None,
             },
         }
         # P3.1 (docs/AUDIT-2026-07-20.md): `sample_rate` only affects
@@ -496,6 +499,7 @@ class TrainingRecorder:
                     "schema_version": SCHEMA_VERSION,
                     "simulation_version": self._hearthmind_version_provider(),
                     "archive_version": ARCHIVE_VERSION,
+                    "adapter_name": self._adapter_name_provider() if self._adapter_name_provider else None,
                 },
             )
             payload = example.to_dict()
