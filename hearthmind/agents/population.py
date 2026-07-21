@@ -1070,14 +1070,17 @@ def _agent_mount(settlement: Settlement, agent_id: int) -> Vehicle | None:
 
 def _is_significant_pair(a: Agent, b: Agent) -> bool:
     """Shared significance signal for dialogue's LLM-slot prioritization
-    (see `Population.due_for_dialogue`) — a feud between the pair or a
-    notable emotion in either party. Same rivalry/emotion signals as
-    `SimulationEngine._is_significant_moment` uses for cognition, kept
-    here (rather than imported from engine.py) since population.py must
-    not depend on the simulation layer."""
+    (see `Population.due_for_dialogue`) — a feud between the pair, a
+    notable emotion in either party, or (Phase 2 item 4, "continuation
+    weeks later") an open promise still standing between them. Same
+    rivalry/emotion signals as `SimulationEngine._is_significant_moment`
+    uses for cognition, kept here (rather than imported from engine.py)
+    since population.py must not depend on the simulation layer."""
     if a.relationships.get(b.id, 0.0) <= RIVALRY_THRESHOLD or b.relationships.get(a.id, 0.0) <= RIVALRY_THRESHOLD:
         return True
-    return dominant_emotion(a.emotions) is not None or dominant_emotion(b.emotions) is not None
+    if dominant_emotion(a.emotions) is not None or dominant_emotion(b.emotions) is not None:
+        return True
+    return bool(a.ledger.open_promises(b.id) or b.ledger.open_promises(a.id))
 
 
 _pending_memory_evictions: list[dict] = []
@@ -1234,6 +1237,36 @@ def _nudge_trait(agent: Agent, trait: str, delta: float) -> None:
     """H6: apply one event-driven nudge to a trait axis, clamped -1..1.
     See TRAIT_RESILIENCE/TRAIT_SOCIABILITY."""
     agent.traits[trait] = clamp(agent.traits.get(trait, 0.0) + delta, -1.0, 1.0)
+
+
+EXTREME_EVENT_HARDEN_THRESHOLD = 3
+EXTREME_EVENT_HARDEN_BUMP = 0.3
+"""Phase 3.B, "identity, irreversible change" (docs/VISION-2026-07-21-
+SELFEVOLVING.md): a small, bounded counter of genuinely extreme lived
+events — surviving a disaster (1.D), a relationship hardening into a
+standing feud, a bonded partner's death — where H6's usual bounded/
+mean-reverting trait nudges (CLAUDE.md's own anti-homogenization fix)
+are deliberately too gentle to capture "this person is not who they
+were." Crossing the threshold locks TRAIT_RESILIENCE into `Agent.
+hardened_traits` (exempt from `_tick_traits`'s monthly reversion from
+then on) with one real, permanent bump — a genuine exception to "traits
+always revert toward neutral," not a repeal of it."""
+
+
+def _maybe_harden_trait(agent: Agent) -> None:
+    """Call at each of the three extreme-event sites (disaster survival,
+    feud hardening, bonded/family death grief). No-op once already
+    hardened — the counter still increments (a durable record of how
+    much this agent has lived through) but a second crossing does
+    nothing further."""
+    agent.extreme_event_count += 1
+    if TRAIT_RESILIENCE in agent.hardened_traits:
+        return
+    if agent.extreme_event_count >= EXTREME_EVENT_HARDEN_THRESHOLD:
+        agent.hardened_traits.add(TRAIT_RESILIENCE)
+        agent.traits[TRAIT_RESILIENCE] = clamp(
+            agent.traits.get(TRAIT_RESILIENCE, 0.0) + EXTREME_EVENT_HARDEN_BUMP, -1.0, 1.0,
+        )
 
 
 _TRAIT_MEAN_REVERSION_BY_TRAIT = {
@@ -2079,6 +2112,10 @@ class Population:
                     f"Survived a {kind} that struck right where I was standing.",
                     because=f"survived a {kind}",
                 )
+                # Phase 3.B "identity, irreversible change": surviving a
+                # disaster is one of the vision doc's three named
+                # extreme-event triggers for a permanent trait shift.
+                _maybe_harden_trait(agent)
             for i, a in enumerate(survivors):
                 for b in survivors[i + 1:]:
                     a.relationships[b.id] = min(1.0, a.relationships.get(b.id, 0.0) + DISASTER_SURVIVOR_BOND_BUMP)
@@ -3872,6 +3909,8 @@ class Population:
         month boundaries."""
         for agent in self.agents:
             for trait in (TRAIT_RESILIENCE, TRAIT_SOCIABILITY, TRAIT_AMBITION, TRAIT_OPENNESS):
+                if trait in agent.hardened_traits:
+                    continue  # Phase 3.B: a hardened trait is exempt from reversion, permanently
                 current = agent.traits.get(trait, 0.0)
                 step = rng.uniform(-TRAIT_STEP_MAX, TRAIT_STEP_MAX)
                 reversion = _TRAIT_MEAN_REVERSION_BY_TRAIT.get(trait, TRAIT_MEAN_REVERSION)
@@ -5921,6 +5960,10 @@ class Population:
                     _nudge_trait(other, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)
                     bump_emotion(other, EMOTION_GRIEF, EMOTION_DEATH_GRIEF_BUMP)
                     other.life_event_since_goal = True
+                    # Phase 3.B "identity, irreversible change": widowhood
+                    # is one of the vision doc's three named extreme-
+                    # event triggers for a permanent trait shift.
+                    _maybe_harden_trait(other)
                     if home is not None:
                         other.mourning_target = (agent.x, agent.y)
                         other.mourning_ticks_remaining = MOURNING_DURATION_TICKS
@@ -6670,6 +6713,11 @@ class Population:
             # "feud" outcome — same decay-lock + tagged grievance.
             shunned.relationship_flags[other.id] = "feud"
             other.relationship_flags[shunned.id] = "feud"
+            # Phase 3.B "identity, irreversible change": a permanent
+            # feud is one of the vision doc's three named extreme-event
+            # triggers for a permanent trait shift.
+            _maybe_harden_trait(shunned)
+            _maybe_harden_trait(other)
             add_grievance(shunned, other.id, "The village ostracized me.")
             _nudge_trait(shunned, TRAIT_SOCIABILITY, TRAIT_OSTRACISM_SOCIABILITY_NUDGE)
             _remember(shunned, "The village has turned its back on me.", because="ostracized by the village")
@@ -6719,6 +6767,7 @@ class Population:
                 # council_ruling, and the specific wrong is tagged in a
                 # protected store the routine-memory flood can't evict.
                 me.relationship_flags[them.id] = "feud"
+                _maybe_harden_trait(me)  # Phase 3.B: permanent feud is an extreme-event trigger
                 add_grievance(me, them.id, f"{them.name} and I have an unresolved feud.")
                 _remember(me, f"My feud with {them.name} has hardened for good.", because=f"dispute with {them.name}")
                 _nudge_trait(me, TRAIT_RESILIENCE, TRAIT_GRIEF_NUDGE)

@@ -62,7 +62,10 @@ class WorldBroadcaster:
 
     # --- called by SimulationEngine (writer side) -----------------------------
 
-    def set_terrain(self, terrain, width: int, height: int, mining_scars: dict | None = None) -> None:
+    def set_terrain(
+        self, terrain, width: int, height: int,
+        mining_scars: dict | None = None, disaster_scars: dict | None = None,
+    ) -> None:
         """Called when the engine starts, and again on any tick where
         terrain evolution changed a tile's biome (see
         `SimulationEngine._maybe_broadcast`) — terrain changes rarely
@@ -75,7 +78,11 @@ class WorldBroadcaster:
         the exact rarity profile (a tile crossing MINING_SCAR_VISIBLE_
         THRESHOLD is now in `TERRAIN_CHANGING_CATEGORIES`), so reusing
         this one payload avoids a second broadcast channel. Sparse —
-        only genuinely visible scars, not the full grid."""
+        only genuinely visible scars, not the full grid.
+
+        `disaster_scars` (Phase 3.D, docs/VISION-2026-07-21-
+        SELFEVOLVING.md): same shape/rationale as `mining_scars`, for
+        `disaster_scarred` events instead."""
         self._terrain_payload = {
             "width": width,
             "height": height,
@@ -83,6 +90,10 @@ class WorldBroadcaster:
             "mining_scars": (
                 {f"{x}:{y}": round(v, 3) for (x, y), v in mining_scars.items()}
                 if mining_scars else {}
+            ),
+            "disaster_scars": (
+                {f"{x}:{y}": round(v, 3) for (x, y), v in disaster_scars.items()}
+                if disaster_scars else {}
             ),
         }
 

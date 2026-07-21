@@ -173,6 +173,58 @@ def decay_mining_scars(scars: dict[tuple[int, int], float]) -> None:
         if scars[pos] <= 0.0:
             del scars[pos]
 
+
+DISASTER_SCAR_GAIN_PER_HIT = 0.2
+"""Phase 3.D "permanent landscape scars from disasters" (docs/VISION-
+2026-07-21-SELFEVOLVING.md), direct physical extension of 1.D's
+psychology-side scarring: a tile actively flooded or actively burning
+THIS tick gains scar intensity — a single disaster leaves a visible but
+minor mark, ~5 repeated hits (the same tile struck across several
+separate disaster events, not necessarily consecutive ticks — flood/
+wildfire already only persist a handful of ticks each) reaches full
+(1.0) scarring. Deliberately per-DISASTER-TICK, not per-hit-event, same
+"sustained pressure, not a single roll" shape MINING_SCAR_GAIN_PER_TICK
+already uses."""
+
+DISASTER_SCAR_DECAY_PER_WEEK = 0.04
+"""Slightly slower recovery than a worked-out mine (MINING_SCAR_DECAY_
+PER_WEEK) — scorched/flood-scoured ground plausibly takes a little
+longer to visibly recover than an abandoned quarry."""
+
+DISASTER_SCAR_VISIBLE_THRESHOLD = 0.35
+"""Same role as MINING_SCAR_VISIBLE_THRESHOLD — fired once per tile
+crossing this, not on every threshold-crossing tick."""
+
+
+def apply_disaster_scars(
+    flooded_tiles: dict, active_wildfire_tiles: set, scars: dict[tuple[int, int], float],
+) -> list[tuple[str, str]]:
+    """Called every tick from `World._tick_terrain`, alongside `apply_
+    mining_scars` — same shape, same R7 deviation rationale (Python not
+    C++: a low-density tile-scalar-step lookup, not yet worth a native
+    port; see MINING_SCAR's own docstring for the precedent). No
+    terrain/biome mutation — cosmetic-only, same as mining scars; a
+    scarred tile stays its normal biome, walkable, re-scarrable."""
+    events: list[tuple[str, str]] = []
+    hit_tiles = set(flooded_tiles) | active_wildfire_tiles
+    for pos in hit_tiles:
+        before = scars.get(pos, 0.0)
+        after = min(1.0, before + DISASTER_SCAR_GAIN_PER_HIT)
+        scars[pos] = after
+        if before < DISASTER_SCAR_VISIBLE_THRESHOLD <= after:
+            events.append((
+                "disaster_scarred", f"The land at {pos} bears lasting scars from repeated disasters.",
+            ))
+    return events
+
+
+def decay_disaster_scars(scars: dict[tuple[int, int], float]) -> None:
+    """Called once per week, same cadence as `decay_mining_scars`."""
+    for pos in list(scars.keys()):
+        scars[pos] -= DISASTER_SCAR_DECAY_PER_WEEK
+        if scars[pos] <= 0.0:
+            del scars[pos]
+
 DEFOREST_CHANCE_PER_TICK = 0.02
 """Rolled only once a tile's heat clears the threshold — deforestation
 isn't instant even under sustained pressure."""

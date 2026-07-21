@@ -318,18 +318,21 @@ v1.3.17 already built.
 
 ## Phase 2 — Dialogue as a simulation event
 
-**Status: first slice SHIPPED, v1.3.21.** Items 1 (hidden state/
-objectives) and 3 (structured outcome, mechanically applied) below are
-live — `objectives`/`open_thread` in `dialogue.build_prompt`, the five
-structured-outcome fields in `apply_dialogue`. Item 2 (explicitly
-supplying BOTH sides' objectives and asking the model not to resolve
-the tension) is folded into item 1's prompt wording, not a separate
-mechanism. Item 4 (continuation weeks later) is partially live — an
-open promise is read back as grounding, but `due_for_dialogue`'s
-pair-selection doesn't yet PRIORITIZE a pair with an open thread, just
-allows it to surface when they're naturally due. Item 5 (voice
-consumed more consistently) untouched this pass. See CHANGELOG.md's
-[1.3.21] entry.
+**Status: SHIPPED, v1.3.21-v1.3.22.** All five items now live. Items 1
+(hidden state/objectives) and 3 (structured outcome, mechanically
+applied) shipped v1.3.21 — `objectives`/`open_thread` in `dialogue.
+build_prompt`, the five structured-outcome fields in `apply_dialogue`.
+Item 2 (explicitly supplying BOTH sides' objectives and asking the
+model not to resolve the tension) is folded into item 1's prompt
+wording, not a separate mechanism. Item 4 (continuation weeks later)
+completed v1.3.22 — `_is_significant_pair` (dialogue's LLM-slot
+prioritizer) now also treats an open ledger promise between the pair
+as significant, so a pair with an unresolved thread genuinely gets
+prioritized for the next LLM slot, not just allowed to surface
+incidentally. Item 5 (voice consumed more consistently) also completed
+v1.3.22 — `llm/letters.py` now reads `agent.voice` the same way
+dialogue does (a letter is first-person written speech from a specific
+agent, the same shape). See CHANGELOG.md's [1.3.21]/[1.3.22] entries.
 
 The most concretely-scoped rewrite in the manifesto, deliberately its
 own phase (cross-cutting Humans + Village, not one pillar's turn).
@@ -382,12 +385,13 @@ pillar.
 waiting for this section: full category coverage (custom/law/ritual/
 saying/profession/institution_flavor/ecological, via `_maybe_
 schedule_ontology_proposal`) and evolve/merge (`_maybe_schedule_
-ontology_evolution`) are both live. What's left here: **reserved
-deeper reasoning** — the proposal/evolve/merge calls getting a larger
-`llm_num_predict`/lower temperature than routine dialogue/cognition
-(per-task generation-config override, extending existing per-call
-plumbing) — "reserve deeper reasoning for discoveries... keep routine
-dialogue lightweight," concretely, not yet wired. Also still open:
+ontology_evolution`) are both live. **Reserved deeper reasoning:
+SHIPPED, v1.3.22** — `_schedule_llm_job`'s new `deep_reasoning=True`
+param (the ontology proposal/evolve/merge call sites only) applies
+`DEEP_REASONING_NUM_PREDICT_MULT`/`DEEP_REASONING_TEMPERATURE` on top
+of `Config`'s normal generation config, per-call only, via new
+`num_predict_override`/`temperature_override` params threaded through
+`CognitionRunner.run` -> both LLM clients' `generate_json`. Still open:
 population-scaled (not flat) adoption thresholds once real numbers
 exist to tune against, and the full `invention_knowledge`-lifecycle
 reuse flagged in 1.A's shipped-status note above.
@@ -395,12 +399,15 @@ reuse flagged in 1.A's shipped-status note above.
 ### 3.B — Humans: identity, irreversible change, deeper inheritance
 
 - **Personality evolves through experience, sometimes irreversibly**:
-  H6 trait nudges are already event-driven but small/bounded/mean-
-  reverting by design (CLAUDE.md's own anti-homogenization fix). This
-  adds a genuinely IRREVERSIBLE personality shift after a small number
-  of extreme events (a survived disaster from 1.D, a permanent feud, a
-  widowhood) — a new small "hardened trait" concept, same shape as
-  v1.3.17's `relationship_flags` lock applied to `Agent.traits`.
+  **SHIPPED, v1.3.22.** New `Agent.hardened_traits`/`extreme_event_
+  count`, `Population._maybe_harden_trait` — three extreme-event
+  triggers (surviving a disaster from 1.D, a feud/ostracism outcome
+  hardening, widowhood) increment a counter; crossing `EXTREME_EVENT_
+  HARDEN_THRESHOLD=3` locks TRAIT_RESILIENCE into `hardened_traits`
+  (exempt from `_tick_traits`'s monthly reversion from then on) with
+  one real, permanent bump. Same "closed-choice enforced server-side"
+  shape as v1.3.17's `relationship_flags` lock, applied to traits
+  instead of relationships.
 - **Occupation → identity/status/dialogue register** (prior
   checklist's unshipped N2): occupation feeds `standing_penalty`'s
   positive counterpart (a mayor/priest carries baseline status),
@@ -417,13 +424,20 @@ reuse flagged in 1.A's shipped-status note above.
 
 Traditions/festivals/laws/architecture-evolving-through-history are
 mostly 3.A's category coverage applied (`category="custom"` /
-`"law"` / `"ritual"`) — not a sixth mechanism. The village-specific
-remainder: architecture visibly changing (building-kind flavor hooks
-from 1.A rendering as a real map/UI difference, not just a stat), and
-strengthening the 1.C wiring further — village priorities genuinely
-shifting over decades in response to accumulated NPC-driven and
-Innovation-driven history, not just the existing monthly `current_
-priority` recompute.
+`"law"` / `"ritual"`) — not a sixth mechanism, and already live.
+**Status: audited, not further built this pass.** The two items this
+section originally scoped — architecture visibly changing on the map,
+and village priorities shifting over decades — were re-examined against
+what 1.A/1.C already ship: `known_concepts` already grounds every
+town_brain call (1.A) and `recent_goal_counts` already grounds it with
+aggregate NPC behavior (1.C), so "priorities shift from accumulated
+history" is mechanically already true, just not yet measured against a
+long real run. The map-rendering half (a genuine visual/UI difference
+per established concept) is real remaining scope, deliberately NOT
+attempted this pass — it needs live design judgment (which concepts
+get which visual treatment) rather than being a mechanical extension of
+existing code the way 3.A/3.B/3.D's scars item were; flagged as a
+future follow-up rather than built speculatively.
 
 ### 3.D — Nature: food webs, succession, permanent scars
 
@@ -438,10 +452,13 @@ priority` recompute.
   mechanics — succession (cleared land regrowing through real
   intermediate stages, not an instant biome flip) and river course
   drift extend the same module.
-- **Permanent landscape scars from disasters**: direct extension of
-  1.D's psychology-side scarring to the physical layer — a
-  sufficiently severe disaster leaves a marked tile region (same shape
-  `mining_scars` already established) instead of fully healing.
+- **Permanent landscape scars from disasters**: **SHIPPED, v1.3.22.**
+  New `World.disaster_scars` + `world/terrain_evolution.py`'s `apply_
+  disaster_scars`/`decay_disaster_scars` — exact same shape as `mining_
+  scars` (cosmetic-only intensity, R7-deviation-flagged Python, same
+  precedent), gaining on any tile actively flooded/burning each tick
+  and decaying weekly. Map overlay + "Disaster scars" stat tile shipped
+  in the same batch per the standing UI-surfacing rule.
 - **Weather↔ecology bidirectional**: weather→ecology already exists;
   ecology→weather (deforestation measurably shifting local
   precipitation) is flagged `[HYPOTHESIS]` — confirm it's reachable

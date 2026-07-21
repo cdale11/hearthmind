@@ -12,7 +12,9 @@ pathfinding.
 """
 from __future__ import annotations
 
-from hearthmind.agents.agent import Agent, describe_traits, faded_memory_text, retrieve_relevant_memories
+from hearthmind.agents.agent import (
+    Agent, describe_traits, faded_memory_text, normalize_voice_phrase, retrieve_relevant_memories,
+)
 
 LETTER_TRAVEL_TICKS = 400
 """How long a letter takes to arrive — a real multi-day delay (at
@@ -43,15 +45,24 @@ def build_prompt(sender: Agent, recipient_name: str, sender_settlement: str, rec
     adaptive-retrieval scoring (recency + salience + relevance-to-
     what-just-happened + causal-link bonus). Same fix shape as
     `_maybe_schedule_personal_belief` (v0.87.36): `retrieve_relevant_
-    memories` + `faded_memory_text`, same 2-slot budget as before."""
+    memories` + `faded_memory_text`, same 2-slot budget as before.
+
+    Phase 2 item 5 ("voice consumed more consistently across every
+    dialogue call site" — flagged, not shipped, in the original Phase 2
+    scoping): a letter is first-person written speech from a specific
+    agent, the same "speaking as themselves" shape dialogue's own
+    manner-of-speaking garnish targets — `agent.voice` was never read
+    here despite being core-cast-scoped exactly like `mind`/`secrets`.
+    Empty "" (a no-op) for every non-core agent, same as dialogue."""
     personality = describe_traits(sender.traits)
     personality_text = f" You are {personality}." if personality else ""
+    voice_text = f" {normalize_voice_phrase(sender.voice)}" if sender.voice else ""
     retrieval_context = sender.working_memory[-1] if sender.working_memory else ""
     retrieved = retrieve_relevant_memories(sender, 2, context=retrieval_context)
     recent = [faded_memory_text(t, s) for t, s, _c in retrieved]
     memory_text = f" On your mind lately: {' | '.join(recent)}." if recent else ""
     return (
-        f"You are {sender.name}, living in {sender_settlement}.{personality_text} "
+        f"You are {sender.name}, living in {sender_settlement}.{personality_text}{voice_text} "
         f"You are writing to {recipient_name}, who now lives in {recipient_settlement}.{memory_text} "
         "What do you write?"
     )

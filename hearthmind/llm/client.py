@@ -84,11 +84,21 @@ class OllamaClient:
     def generate_json(
         self, prompt: str, system: str | None = None, capture: dict | None = None,
         json_schema: dict | None = None,
+        num_predict_override: int | None = None, temperature_override: float | None = None,
     ) -> dict:
         """Blocking call — issue one generate request and parse the
         response as JSON. Callers running inside the event loop must wrap
         this in `asyncio.to_thread` (see hearthmind/llm/jobs.py); this
         method itself does no async work.
+
+        `num_predict_override`/`temperature_override` (Phase 3.A,
+        "reserved deeper reasoning" — docs/VISION-2026-07-21-
+        SELFEVOLVING.md): per-call replacements for `self.num_predict`/
+        `self.temperature`, used by a job that genuinely warrants more
+        tokens/lower randomness than routine dialogue/cognition (the
+        Innovation Layer's propose/evolve/merge calls) without changing
+        every other call site's behavior. `None` (every prior call site)
+        keeps using the instance defaults exactly as before.
 
         `capture` (optional): if given a dict, this call fills in
         `capture["raw"]` with the exact raw completion text (Layer 3 of
@@ -111,16 +121,18 @@ class OllamaClient:
         options = {}
         if self.num_ctx is not None:
             options["num_ctx"] = self.num_ctx
-        if self.num_predict is not None:
-            options["num_predict"] = self.num_predict
+        effective_num_predict = num_predict_override if num_predict_override is not None else self.num_predict
+        if effective_num_predict is not None:
+            options["num_predict"] = effective_num_predict
         if self.use_mmap is not None:
             options["use_mmap"] = self.use_mmap
         if self.num_gpu is not None:
             options["num_gpu"] = self.num_gpu
         if self.num_thread is not None:
             options["num_thread"] = self.num_thread
-        if self.temperature is not None:
-            options["temperature"] = self.temperature
+        effective_temperature = temperature_override if temperature_override is not None else self.temperature
+        if effective_temperature is not None:
+            options["temperature"] = effective_temperature
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -201,6 +213,7 @@ class LlamaCppClient:
     def generate_json(
         self, prompt: str, system: str | None = None, capture: dict | None = None,
         json_schema: dict | None = None,
+        num_predict_override: int | None = None, temperature_override: float | None = None,
     ) -> dict:
         """Blocking call — issue one `/v1/chat/completions` request and
         parse the response as JSON. Callers running inside the event loop
@@ -245,10 +258,12 @@ class LlamaCppClient:
             # schema above narrows this further to the expected shape).
             "response_format": response_format,
         }
-        if self.num_predict is not None:
-            payload["max_tokens"] = self.num_predict
-        if self.temperature is not None:
-            payload["temperature"] = self.temperature
+        effective_num_predict = num_predict_override if num_predict_override is not None else self.num_predict
+        if effective_num_predict is not None:
+            payload["max_tokens"] = effective_num_predict
+        effective_temperature = temperature_override if temperature_override is not None else self.temperature
+        if effective_temperature is not None:
+            payload["temperature"] = effective_temperature
 
         request = urllib.request.Request(
             f"{self.host.rstrip('/')}/v1/chat/completions",

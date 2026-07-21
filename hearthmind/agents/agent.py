@@ -1723,6 +1723,8 @@ class Agent:
         grievances: dict[int, list[str]] | None = None,
         long_term_goal: dict | None = None,
         life_event_since_goal: bool = False,
+        hardened_traits: "set[str] | None" = None,
+        extreme_event_count: int = 0,
     ) -> None:
         self.id = id
         self.name = name
@@ -2008,6 +2010,19 @@ class Agent:
         # side, never just a prompt instruction" discipline as every
         # other constrained field in this codebase.
         self.life_event_since_goal: bool = life_event_since_goal
+        # hardened_traits/extreme_event_count (Phase 3.B, "identity,
+        # irreversible change" — docs/VISION-2026-07-21-SELFEVOLVING.md):
+        # a trait name in `hardened_traits` is exempt from `Population.
+        # _tick_traits`'s monthly mean-reversion — a real, permanent
+        # personality shift, not another bounded nudge. `extreme_event_
+        # count` is the server-side counter driving it (see
+        # `Population._maybe_harden_trait`); a small number of genuinely
+        # extreme events (a survived disaster, a hardened feud, a
+        # bonded-partner death) crosses a threshold and locks TRAIT_
+        # RESILIENCE in place — same "closed-choice enforced server-
+        # side" discipline as `life_event_since_goal` above.
+        self.hardened_traits: set[str] = set() if hardened_traits is None else hardened_traits
+        self.extreme_event_count: int = extreme_event_count
         # core_memories/core_memory_salience: v0.87.16, "deepen long-
         # term historical identity" — see MAX_CORE_MEMORIES's docstring.
         # Index-aligned pair, same discipline as memories/memory_
@@ -2254,6 +2269,8 @@ class Agent:
             "plan": dict(self.plan) if self.plan is not None else None,
             "long_term_goal": dict(self.long_term_goal) if self.long_term_goal is not None else None,
             "life_event_since_goal": self.life_event_since_goal,
+            "hardened_traits": sorted(self.hardened_traits),
+            "extreme_event_count": self.extreme_event_count,
             "core_memories": list(self.core_memories),
             "core_memory_salience": [round(v, 4) for v in self.core_memory_salience],
             "standing_penalty": round(self.standing_penalty, 4),
@@ -2335,6 +2352,8 @@ class Agent:
             plan=data.get("plan"),
             long_term_goal=data.get("long_term_goal"),
             life_event_since_goal=data.get("life_event_since_goal", False),
+            hardened_traits=set(data.get("hardened_traits", [])),
+            extreme_event_count=data.get("extreme_event_count", 0),
             core_memories=list(data.get("core_memories", [])),
             core_memory_salience=list(data.get("core_memory_salience", [])),
             standing_penalty=data.get("standing_penalty", 0.0),

@@ -171,6 +171,7 @@ const CATEGORY_META = {
   prophecy_forgotten: { icon: "🔮" },
   chronicler_answer: { icon: "📖" },
   mining_scarred: { icon: "⛏️" },
+  disaster_scarred: { icon: "🌋" },
   // P2.3 (docs/AUDIT-2026-07-20.md): 296/16k events (18%) in a live run —
   // routine background texture already surfaced via the Exploration stat
   // tile (v0.87.45), same "recorded internally, not the main feed"
@@ -198,7 +199,7 @@ const EVENT_GROUP_OF = {
   wildlife_migrated: "nature", disaster_flood: "nature", disaster_wildfire: "nature",
   disaster_storm: "nature", disaster_heatwave: "nature", disaster_frost: "nature",
   lake_rose: "nature", lake_receded: "nature", season_end: "nature", year_end: "nature",
-  place_named: "nature", mining_scarred: "nature",
+  place_named: "nature", mining_scarred: "nature", disaster_scarred: "nature",
   chronicle: "mind", documentary: "mind", sim_summary: "mind", tradition: "mind", invention: "mind",
   festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind",
   institution_belief: "mind", ritual_formed: "mind", religion_formed: "mind",
@@ -214,7 +215,7 @@ let activeEventGroup = "all";
 const TERRAIN_CHANGING_CATEGORIES = new Set([
   "terrain_thinned", "terrain_reclaimed", "climate_drift",
   "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
-  "mining_scarred",
+  "mining_scarred", "disaster_scarred",
 ]);
 function categoryMeta(category) {
   return CATEGORY_META[category] || (category.endsWith("_migration") ? { icon: "🔧" } : { icon: "•" });
@@ -1130,6 +1131,24 @@ function paintMiningScars(sctx, scars) {
   }
 }
 
+// Phase 3.D "permanent landscape scars from disasters" (docs/VISION-2026-07-21-
+// SELFEVOLVING.md): same overlay shape as paintMiningScars — an ashen/scoured tint
+// distinct from mining's dark pit color, so the two read as different phenomena.
+function paintDisasterScars(sctx, scars) {
+  if (!scars) return;
+  for (const key in scars) {
+    const intensity = scars[key];
+    if (!(intensity > 0)) continue;
+    const [xs, ys] = key.split(":");
+    const x = parseInt(xs, 10), y = parseInt(ys, 10);
+    sctx.fillStyle = `rgba(60,50,45,${(0.15 + intensity * 0.4).toFixed(3)})`;
+    sctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    sctx.strokeStyle = `rgba(20,15,10,${(0.2 + intensity * 0.3).toFixed(3)})`;
+    sctx.lineWidth = Math.max(1, CELL * 0.06);
+    sctx.strokeRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
+  }
+}
+
 function drawStaticTerrain() {
   staticCanvas = document.createElement("canvas");
   staticCanvas.width = terrain.width * CELL;
@@ -1143,6 +1162,7 @@ function drawStaticTerrain() {
   }
   paintEraOverlay(sctx, currentEraTier());
   paintMiningScars(sctx, terrain.mining_scars);
+  paintDisasterScars(sctx, terrain.disaster_scars);
   canvas.width = staticCanvas.width;
   canvas.height = staticCanvas.height;
   weatherCanvas.width = staticCanvas.width;
@@ -2745,6 +2765,14 @@ function renderStats(summary) {
         return ms.scarred_tiles ? `${ms.scarred_tiles} hillsides (avg ${ms.avg_intensity.toFixed(2)})` : "none yet";
       })(),
       "Sustained mining visibly pits and darkens a worked hillside over time (see the map itself for the actual scarring) — weathers back to nothing if abandoned. Cosmetic, not a biome change: a scarred hill stays walkable and re-minable.",
+    ],
+    [
+      "Disaster scars",
+      (() => {
+        const ds = summary.disaster_scars || {};
+        return ds.scarred_tiles ? `${ds.scarred_tiles} tiles (avg ${ds.avg_intensity.toFixed(2)})` : "none yet";
+      })(),
+      "A tile repeatedly caught in a flood or wildfire bears a lasting visible mark (see the map itself) instead of always fully healing — weathers back to nothing if left undisturbed. Cosmetic, not a biome change.",
     ],
     [
       "Wildlife", `${w.grazer_total} grazers (${w.grazer_herds} herds), ${w.predator_total} predators (${w.predator_packs} packs)`,

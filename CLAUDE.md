@@ -523,6 +523,32 @@ outcome wiring), `scripts/verify_native_soak.py` byte-identical (2
 seeds x 800 ticks, plus a 4000-tick single-seed run past the
 checklist's own 3685-tick reference window).
 
+## Current state (v1.3.22)
+
+Explicit user request: "complete phase 2 and start phase 3."
+
+Phase 2 completion: dialogue's LLM-slot prioritizer now treats an open
+ledger promise as significant (continuation pairs genuinely prioritized,
+not just allowed to surface); `llm/letters.py` reads `agent.voice`.
+
+Phase 3 first slice, one mechanism per pillar: 3.A "reserved deeper
+reasoning" — both LLM clients gained per-call `num_predict_override`/
+`temperature_override`, applied only to Innovation Layer propose/
+evolve/merge calls via `_schedule_llm_job(deep_reasoning=True)`. 3.B
+irreversible personality — `Agent.hardened_traits`/`extreme_event_
+count`, three extreme-event triggers (disaster survival, feud/
+ostracism, widowhood) lock TRAIT_RESILIENCE against monthly reversion
+after `EXTREME_EVENT_HARDEN_THRESHOLD=3`. 3.C audited, not built —
+1.A/1.C already ground town_brain with accumulated history; the
+map-rendering half flagged as a future follow-up needing live design
+judgment. 3.D permanent landscape scars — `World.disaster_scars`,
+same shape as `mining_scars`, map overlay + stat tile shipped same
+batch.
+
+Verified: direct smoke tests for every new mechanic, a 5000-tick
+LLM-disabled engine run with round-trip byte-equality, `scripts/
+verify_native_soak.py` (2 seeds x 3000 ticks) byte-identical.
+
 ## Current state (v1.3.21)
 
 Explicit user request, three parts: finish 1.D's deliberately-scoped-

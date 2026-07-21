@@ -4,6 +4,65 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.22] — Phase 2 completion, Phase 3 first slice (3.A/3.B/3.D)
+
+Explicit user request: "complete phase 2 and start phase 3" —
+docs/VISION-2026-07-21-SELFEVOLVING.md.
+
+**Phase 2 completion.** Item 4 ("continuation weeks later"):
+`_is_significant_pair` (dialogue's LLM-slot prioritizer) now also
+treats an open ledger promise between the pair as significant, so a
+pair with an unresolved thread genuinely competes for the next LLM
+slot instead of only surfacing incidentally. Item 5 (voice consumed
+more consistently): `llm/letters.py`'s prompt now reads `agent.voice`
+the same way `dialogue.py` already does — a letter is first-person
+written speech from a specific agent, the same "speaking as
+themselves" shape.
+
+**Phase 3 first slice** (one load-bearing mechanism per pillar, same
+discipline as Phase 1):
+
+- **3.A Innovation, "reserved deeper reasoning"**: both LLM clients'
+  `generate_json` gained optional `num_predict_override`/`temperature_
+  override` params, threaded through `CognitionRunner.run` and
+  `_schedule_llm_job`'s new `deep_reasoning=True` flag — applied only
+  to the Innovation Layer's propose/evolve/merge calls
+  (`DEEP_REASONING_NUM_PREDICT_MULT=1.5`, `DEEP_REASONING_
+  TEMPERATURE=0.5`), every other job's generation config unaffected.
+- **3.B Humans, irreversible personality shift**: new `Agent.hardened_
+  traits`/`extreme_event_count`, `Population._maybe_harden_trait`.
+  Three extreme-event triggers (surviving a disaster from 1.D, a
+  feud/ostracism outcome hardening, widowhood) increment a counter;
+  crossing `EXTREME_EVENT_HARDEN_THRESHOLD=3` locks TRAIT_RESILIENCE
+  into `hardened_traits` (exempt from `_tick_traits`'s monthly
+  reversion from then on) with one real, permanent bump.
+- **3.C Village**: audited, not further built — `known_concepts`
+  (1.A) and `recent_goal_counts` (1.C) already ground every town_brain
+  call with accumulated NPC/Innovation history. The map-rendering half
+  (architecture visibly differing per established concept) needs live
+  design judgment, not a mechanical extension — flagged as a future
+  follow-up rather than built speculatively this pass.
+- **3.D Nature, permanent landscape scars**: new `World.disaster_
+  scars` + `world/terrain_evolution.py`'s `apply_disaster_scars`/
+  `decay_disaster_scars` — same shape as `mining_scars` (cosmetic-only
+  intensity, same R7-deviation rationale: Python, not yet worth a
+  native port). A tile actively flooded/burning gains scar intensity
+  each tick, decays weekly if left alone. Food-web/succession/
+  weather-ecology items in 3.D remain open, not attempted this pass.
+
+Full UI-surfacing pass in the same batch per the standing workflow
+rule: a `disaster_scarred` map overlay (`paintDisasterScars`, distinct
+ashen tint from mining's dark-pit color) and a "Disaster scars" stat
+tile, both mirroring `mining_scars`' existing treatment exactly.
+
+Verified: direct smoke tests for every new mechanic (client generation-
+config overrides, trait hardening + reversion-exemption + round-trip,
+disaster-scar gain/threshold-event/decay), a clean 5000-tick
+LLM-disabled engine run with a full to_dict/from_dict round-trip
+byte-equality check, `scripts/verify_native_soak.py` (2 seeds x 3000
+ticks) byte-identical, and a Node.js syntax check on the modified
+frontend file.
+
 ## [1.3.21] — 1.D leftovers (storm + helper bond), Reflection design, Phase 2 first slice
 
 Explicit user request: implement the two items 1.D had deliberately

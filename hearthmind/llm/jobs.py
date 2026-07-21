@@ -128,6 +128,7 @@ class CognitionRunner:
     async def run(
         self, prompt: str, system: str | None, fallback: Callable[[], dict],
         json_schema: dict | None = None,
+        num_predict_override: int | None = None, temperature_override: float | None = None,
     ) -> tuple[dict, bool, str | None]:
         """Return `(result, used_fallback, raw_completion)`: a parsed
         JSON dict from the LLM with `used_fallback=False` and the exact
@@ -145,19 +146,28 @@ class CognitionRunner:
         forwarded to the client's own `generate_json` to constrain
         decoding to a specific shape rather than bare JSON. `None`
         (the default, and every call site's behavior before FT.0)
-        leaves generation unconstrained beyond "valid JSON."""
+        leaves generation unconstrained beyond "valid JSON."
+
+        `num_predict_override`/`temperature_override` (Phase 3.A
+        "reserved deeper reasoning" — see `client.py`'s `generate_json`
+        docstring): forwarded unchanged to the client. `None` (every
+        call site before this phase) leaves the client's own configured
+        defaults in effect."""
         if self.client is None:
             return fallback(), True, None
 
         self.backlog += 1
         try:
-            return await self._run_gated(prompt, system, fallback, json_schema)
+            return await self._run_gated(
+                prompt, system, fallback, json_schema, num_predict_override, temperature_override,
+            )
         finally:
             self.backlog -= 1
 
     async def _run_gated(
         self, prompt: str, system: str | None, fallback: Callable[[], dict],
         json_schema: dict | None = None,
+        num_predict_override: int | None = None, temperature_override: float | None = None,
     ) -> tuple[dict, bool, str | None]:
         queue_entered = time.perf_counter()
         async with self._semaphore:
@@ -171,7 +181,10 @@ class CognitionRunner:
                 # wrap it in a hard wait_for as defense in depth beyond
                 # the client's own socket timeout.
                 result = await asyncio.wait_for(
-                    asyncio.to_thread(self.client.generate_json, prompt, system, capture, json_schema),
+                    asyncio.to_thread(
+                        self.client.generate_json, prompt, system, capture, json_schema,
+                        num_predict_override, temperature_override,
+                    ),
                     timeout=self.client.timeout_seconds + 5.0,
                 )
                 self._latencies_ms.append((time.perf_counter() - start) * 1000)

@@ -23,7 +23,9 @@ from hearthmind.world.terrain_evolution import (
     ClimateState,
     apply_climate_drift,
     apply_local_activity,
+    apply_disaster_scars,
     apply_mining_scars,
+    decay_disaster_scars,
     decay_mining_scars,
     maybe_reclaim,
     tick_climate,
@@ -92,7 +94,7 @@ way every other confidence-shaped value in this project is."""
 TERRAIN_CHANGING_CATEGORIES = frozenset({
     "terrain_thinned", "terrain_reclaimed", "climate_drift",
     "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
-    "mining_scarred",
+    "mining_scarred", "disaster_scarred",
 })
 """Life-event categories that mean at least one tile's biome changed
 this tick. Canonical home for this set (it used to live only in
@@ -154,6 +156,13 @@ class World:
     stays cosmetic-only state, HILLS never stops being HILLS. Small and
     self-pruning like `terrain_activity`. See world/terrain_evolution.py
     `apply_mining_scars`/`decay_mining_scars`, `World._tick_terrain`."""
+    disaster_scars: dict[tuple[int, int], float] = field(default_factory=dict)
+    """Phase 3.D "permanent landscape scars from disasters" (docs/
+    VISION-2026-07-21-SELFEVOLVING.md), same shape as `mining_scars`
+    (cosmetic-only intensity, same R7-deviation rationale) — a tile
+    repeatedly caught in a flood/wildfire accumulates a visible scar
+    instead of always fully healing. See world/terrain_evolution.py
+    `apply_disaster_scars`/`decay_disaster_scars`."""
     llm_calls_total: int = 0
     llm_fallback_total: int = 0
     """Cumulative counts of every LLM-backed decision (cognition +
@@ -557,6 +566,12 @@ class World:
         rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "terrain_activity")
         events = apply_local_activity(self.terrain, active_forest_tiles, self.terrain_activity, rng)
         events += apply_mining_scars(active_mining_tiles, self.mining_scars)
+        # Phase 3.D: `self.disasters.flooded_tiles`/`active_wildfire_
+        # tiles` are already updated for THIS tick by `_tick_disasters`,
+        # which runs before `_tick_terrain` in `tick()` — no staleness.
+        events += apply_disaster_scars(
+            self.disasters.flooded_tiles, self.disasters.active_wildfire_tiles, self.disaster_scars,
+        )
 
         if "week_end" in calendar_events:
             reclaim_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "terrain_reclaim")
@@ -564,6 +579,7 @@ class World:
                 self.terrain, self.terrain_activity, self.settlements, self.farms, occupied_tiles, reclaim_rng,
             )
             decay_mining_scars(self.mining_scars)
+            decay_disaster_scars(self.disaster_scars)
 
         if "month_end" in calendar_events:
             climate_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "climate_drift")
@@ -626,6 +642,13 @@ class World:
                 "avg_intensity": (
                     round(sum(self.mining_scars.values()) / len(self.mining_scars), 3)
                     if self.mining_scars else 0.0
+                ),
+            },
+            "disaster_scars": {
+                "scarred_tiles": len(self.disaster_scars),
+                "avg_intensity": (
+                    round(sum(self.disaster_scars.values()) / len(self.disaster_scars), 3)
+                    if self.disaster_scars else 0.0
                 ),
             },
             "settlement": self.settlement.summary(established_roads=self.roads.summary()["established_roads"]),
@@ -727,6 +750,7 @@ class World:
             "disasters": self.disasters.to_dict(),
             "terrain_activity": {f"{x}:{y}": v for (x, y), v in self.terrain_activity.items()},
             "mining_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.mining_scars.items()},
+            "disaster_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.disaster_scars.items()},
             "llm_calls_total": self.llm_calls_total,
             "llm_fallback_total": self.llm_fallback_total,
             "dialogue_total": self.dialogue_total,
@@ -899,6 +923,11 @@ class World:
             x_str, y_str = key.split(":")
             mining_scars[(int(x_str), int(y_str))] = value
 
+        disaster_scars: dict[tuple[int, int], float] = {}
+        for key, value in data.get("disaster_scars", {}).items():
+            x_str, y_str = key.split(":")
+            disaster_scars[(int(x_str), int(y_str))] = value
+
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             weather_regions=weather_regions,
@@ -907,6 +936,7 @@ class World:
             minerals=minerals,
             terrain_activity=terrain_activity,
             mining_scars=mining_scars,
+            disaster_scars=disaster_scars,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),
             dialogue_total=data.get("dialogue_total", 0),

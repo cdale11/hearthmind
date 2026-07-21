@@ -380,6 +380,18 @@ than being merely intrusive), same "easier to lose than earn" shape
 `Agent.trust` already uses elsewhere in this project. See
 `SimulationEngine._intervention_hardship_context`."""
 
+DEEP_REASONING_NUM_PREDICT_MULT = 1.5
+DEEP_REASONING_TEMPERATURE = 0.5
+"""Phase 3.A "reserved deeper reasoning" (docs/VISION-2026-07-21-
+SELFEVOLVING.md): the Innovation Layer's propose/evolve/merge calls
+(`_schedule_llm_job(..., deep_reasoning=True)`) get 1.5x `Config.llm_
+num_predict`'s configured token budget and a lower, more deliberate
+temperature than `Config.llm_temperature`'s routine-dialogue default —
+these calls originate a genuinely new idea and get named in the
+village's own history, worth the extra tokens/latency in a way an
+ordinary dialogue exchange or goal decision isn't. Every other job's
+generation config is completely unaffected."""
+
 CONCEPT_SPREAD_CHANCE_PER_TICK = 0.02
 """Per-tick, per-growing-concept roll driving `_maybe_spread_concepts`
 — zero LLM cost, deliberately small (a concept's origin settlement
@@ -1104,7 +1116,8 @@ class SimulationEngine:
             # Terrain never changes after creation — set once, not part
             # of the per-tick payload. See docs/DECISIONS.md, F2.
             self._broadcaster.set_terrain(
-                world.terrain, world.config.width, world.config.height, mining_scars=world.mining_scars,
+                world.terrain, world.config.width, world.config.height,
+                mining_scars=world.mining_scars, disaster_scars=world.disaster_scars,
             )
             self._broadcaster.set_diagnostics_provider(self.full_diagnostics)
 
@@ -1452,6 +1465,7 @@ class SimulationEngine:
     def _schedule_llm_job(
         self, name: str, prompt: str, system: str, fallback: dict, apply, critical: bool = False,
         structured_input: dict | None = None, npc_ids: list | None = None, settlement: str | None = None,
+        deep_reasoning: bool = False,
     ) -> None:
         """Fire-and-forget one settlement-level LLM job (chronicle,
         tradition, town_brain, beliefs, omen, ...): run through the
@@ -1485,7 +1499,16 @@ class SimulationEngine:
         early-return). Non-critical jobs (chronicle, tradition, folklore,
         omens, caravan, naming, ...) keep the deterministic fallback:
         those genuinely have a sensible deterministic answer and are
-        ambient texture, not crucial cognition."""
+        ambient texture, not crucial cognition.
+
+        `deep_reasoning=True` (Phase 3.A, "reserved deeper reasoning" —
+        docs/VISION-2026-07-21-SELFEVOLVING.md): reserved for a job that
+        genuinely warrants more tokens/lower randomness than routine
+        dialogue/cognition — currently only the Innovation Layer's
+        propose/evolve/merge calls. Applies `DEEP_REASONING_NUM_
+        PREDICT_MULT`/`DEEP_REASONING_TEMPERATURE` on top of `Config`'s
+        normal `llm_num_predict`/`llm_temperature`, per-call only —
+        every other job's generation config is unaffected."""
         # Daily-ceiling gate (v0.70.0): once the day's Ollama budget is
         # spent, a non-critical settlement job resolves via its
         # deterministic fallback inline rather than scheduling a real
@@ -1517,8 +1540,15 @@ class SimulationEngine:
 
         async def _runner() -> None:
             call_start = time.perf_counter()
+            num_predict_override, temperature_override = None, None
+            if deep_reasoning:
+                base_num_predict = self.world.config.llm_num_predict
+                if base_num_predict is not None:
+                    num_predict_override = int(base_num_predict * DEEP_REASONING_NUM_PREDICT_MULT)
+                temperature_override = DEEP_REASONING_TEMPERATURE
             result, used_fallback, raw_completion = await self._cognition_runner.run(
                 prompt, system, fallback=lambda: fallback, json_schema=schema_for_task(name),
+                num_predict_override=num_predict_override, temperature_override=temperature_override,
             )
             elapsed_ms = (time.perf_counter() - call_start) * 1000
             apply_failed = False
@@ -3341,7 +3371,10 @@ class SimulationEngine:
             )
             self._log("ontology", f"{target.name or 'The village'} originated {concept.name}: {concept.description}")
 
-        self._schedule_llm_job("ontology_proposal", prompt, ontology_llm.SYSTEM_PROMPT_PROPOSE, fallback, apply)
+        self._schedule_llm_job(
+            "ontology_proposal", prompt, ontology_llm.SYSTEM_PROMPT_PROPOSE, fallback, apply,
+            deep_reasoning=True,
+        )
 
     def _maybe_schedule_ontology_evolution(self, events: list[str]) -> None:
         """Rare (year_end), world-scoped (not per-settlement — an idea
@@ -3400,7 +3433,9 @@ class SimulationEngine:
                 )
                 self._log("ontology", f"An old idea evolved into {concept.name}: {concept.description}")
 
-        self._schedule_llm_job("ontology_evolution", prompt, system_prompt, fallback, apply)
+        self._schedule_llm_job(
+            "ontology_evolution", prompt, system_prompt, fallback, apply, deep_reasoning=True,
+        )
 
     def _maybe_spread_concepts(self) -> None:
         """Zero-LLM-cost, every-tick, rare-roll adoption growth for
@@ -6328,7 +6363,7 @@ class SimulationEngine:
         if any(category in TERRAIN_CHANGING_CATEGORIES for category, _ in self.world.last_life_events):
             self._broadcaster.set_terrain(
                 self.world.terrain, self.world.config.width, self.world.config.height,
-                mining_scars=self.world.mining_scars,
+                mining_scars=self.world.mining_scars, disaster_scars=self.world.disaster_scars,
             )
         tick_events = [
             {"category": category, "description": description}
