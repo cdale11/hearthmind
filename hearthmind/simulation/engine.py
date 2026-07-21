@@ -1144,6 +1144,7 @@ class SimulationEngine:
                 mining_scars=world.mining_scars, disaster_scars=world.disaster_scars,
             )
             self._broadcaster.set_diagnostics_provider(self.full_diagnostics)
+            self._broadcaster.set_knowledge_tree_provider(self.world.knowledge_tree)
 
     @property
     def stop_event(self) -> asyncio.Event:

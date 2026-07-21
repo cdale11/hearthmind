@@ -676,6 +676,43 @@ highlightsToggle.addEventListener("click", () => {
   if (!highlightsPanel.classList.contains("hidden")) loadHighlights();
 });
 
+// --- vision doc item 3.2, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
+// ("What the world learned" ledger) ------------------------------------------
+
+const knowledgeTreePanel = document.getElementById("knowledge-tree-panel");
+const knowledgeTreeToggle = document.getElementById("knowledge-tree-toggle");
+const knowledgeTreeList = document.getElementById("knowledge-tree-list");
+
+const KNOWLEDGE_TREE_ICONS = { concept: "💡", law: "⚖", custom: "⚖", taboo: "⚖", hypothesis: "🔬", nature_belief: "🌲" };
+
+function renderKnowledgeTreeEntry(row) {
+  const icon = KNOWLEDGE_TREE_ICONS[row.type] || "•";
+  const lineageBits = [];
+  if (row.lineage && row.lineage.evolved_from != null) lineageBits.push(`evolved from #${row.lineage.evolved_from}`);
+  if (row.lineage && row.lineage.merged_from) lineageBits.push(`merged from ${row.lineage.merged_from.map((id) => `#${id}`).join(" + ")}`);
+  const lineageText = lineageBits.length ? ` <span class="muted">(${lineageBits.join(", ")})</span>` : "";
+  const confText = typeof row.confidence === "number" ? ` <span class="muted">(confidence ${row.confidence.toFixed(2)})</span>` : "";
+  return `<li>${icon} <span class="muted">tick ${row.tick} · ${row.status}</span> <strong>${row.name}</strong>${confText} — ${row.text}${lineageText}</li>`;
+}
+
+async function loadKnowledgeTree() {
+  knowledgeTreeList.innerHTML = "<li>loading…</li>";
+  try {
+    const rows = await fetchJSON("/knowledge-tree");
+    knowledgeTreeList.innerHTML = rows.length
+      ? rows.map(renderKnowledgeTreeEntry).join("")
+      : "<li>nothing originated yet</li>";
+  } catch (e) {
+    knowledgeTreeList.innerHTML = `<li>failed to load: ${e.message}</li>`;
+  }
+}
+
+knowledgeTreeToggle.addEventListener("click", () => {
+  knowledgeTreePanel.classList.toggle("hidden");
+  knowledgeTreeToggle.classList.toggle("active");
+  if (!knowledgeTreePanel.classList.contains("hidden")) loadKnowledgeTree();
+});
+
 // Observatory UI depth pass: a read-only scrub-through-time view over
 // whatever snapshot ticks are still on file (see docs/ROADMAP.md's
 // flagged "a true scrub-through-time replay view" gap, and

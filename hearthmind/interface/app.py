@@ -138,6 +138,19 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
             "snapshot_rows": snapshot_count(conn),
         })
 
+    @app.get("/knowledge-tree")
+    async def knowledge_tree() -> JSONResponse:
+        """Vision doc item 3.2, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
+        ("What the world learned" ledger) — every LLM-originated
+        persistent entity across all four pillars plus Reflection
+        (invented concepts, laws/customs/taboos, Reflection hypotheses,
+        Nature's beliefs), newest-first, with lineage where it exists.
+        See `World.knowledge_tree`."""
+        rows = broadcaster.get_knowledge_tree()
+        if rows is None:
+            return JSONResponse({"error": "no tick has completed yet"}, status_code=503)
+        return JSONResponse(rows)
+
     @app.get("/snapshots")
     async def snapshots() -> JSONResponse:
         """Observatory UI depth pass: which past ticks a snapshot still

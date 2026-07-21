@@ -453,6 +453,35 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.30)
+
+New user-uploaded vision doc, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
+("The Living Terrarium: Completing the Vision") — the next-frontier
+follow-up to docs/VISION-2026-07-21-SELFEVOLVING.md, mapping five
+capabilities: (1) self-modifying mechanics via data-not-code
+(composable hooks, a trigger→effect rule vocabulary, Reflection's
+counterfactual sandbox as the safety gate, bounded self-tuning), (2)
+Nature/institutions acting on their Minds not just narrating them, (3)
+the daily-peek experience (morning-paper digest, knowledge tree,
+causal threads, the world musing to the observer, time-lapse, ambient
+presence), (4) new entities/assets via composition (+ optional
+generative representations), (5) runtime safety guardrails (acceptance
+auditor, invariant floors/ceilings, coherence/drift detection,
+provenance). Ships its own priority sequence; work from it on future
+explicit direction naming a specific item, same convention as the
+other vision docs.
+
+This pass ships item 3.2 only ("What the world learned" ledger,
+[CERTAIN], first in the doc's own sequence): `World.knowledge_tree()`
+aggregates every LLM-originated persistent entity across all four
+pillars + Reflection (invented concepts w/ lineage, settlement laws/
+customs/taboos, Reflection hypotheses, Nature's beliefs) into one
+newest-first, read-only, already-capped list — zero new state, zero
+new LLM call. New `GET /knowledge-tree` (via a `WorldBroadcaster`
+on-demand provider hook mirroring `full_diagnostics`'s) + a "🌳
+knowledge tree" explore-menu panel, same pattern as the existing
+highlights panel.
+
 ## Current state (v1.3.29)
 
 Explicit user directive: audit every LLM call site, classify each by

@@ -47,6 +47,7 @@ class WorldBroadcaster:
         self._last_payload: dict | None = None
         self._terrain_payload: dict | None = None
         self._diagnostics_provider: Callable[[], dict] | None = None
+        self._knowledge_tree_provider: Callable[[], list] | None = None
         self._interventions: list[dict] = []
         self._paused = False
         self._speed_multiplier = DEFAULT_SPEED_MULTIPLIER
@@ -108,6 +109,19 @@ class WorldBroadcaster:
 
     def get_full_diagnostics(self) -> dict | None:
         return self._diagnostics_provider() if self._diagnostics_provider else None
+
+    def set_knowledge_tree_provider(self, provider: Callable[[], list]) -> None:
+        """Same shape as `set_diagnostics_provider` — `provider` is
+        `World.knowledge_tree`, a synchronous read-only callable.
+        Vision doc item 3.2 ("What the world learned" ledger,
+        docs/VISION-2026-07-22-LIVINGTERRARIUM.md): computed on demand
+        by `GET /knowledge-tree` rather than baked into the per-tick
+        broadcast payload, since it aggregates/sorts across several
+        stores and doesn't need sub-second freshness."""
+        self._knowledge_tree_provider = provider
+
+    def get_knowledge_tree(self) -> list | None:
+        return self._knowledge_tree_provider() if self._knowledge_tree_provider else None
 
     # --- called by the FastAPI app (writer side — interventions only) ---------
 

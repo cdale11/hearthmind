@@ -753,6 +753,56 @@ class World:
             "highlights": list(self.highlights),
         }
 
+    def knowledge_tree(self, limit: int = 200) -> list[dict]:
+        """Vision doc item 3.2, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
+        ("What the world learned" ledger — CERTAIN, mostly-existing-
+        data): a single, browsable, newest-first aggregation of every
+        LLM-originated persistent entity in the world, across all four
+        pillars plus Reflection, with lineage where it exists. Reads
+        only — no new state, no new LLM call. Sources: `invented_
+        concepts` (Innovation + every pillar's ontology origination,
+        `lineage`'s `evolved_from`/`merged_from` preserved), each
+        settlement's `laws` (Village — law/custom/taboo), `reflection_
+        notebook` hypotheses (Reflection — status/confidence), and
+        `nature_beliefs` (Nature). Capped at `limit` (default 200,
+        matching `ontology.MAX_CONCEPTS_STORED`'s order of magnitude)
+        so the endpoint payload stays bounded even on a world that's
+        run for months — the underlying stores are each already capped
+        independently; this cap is just a display ceiling on top."""
+        entries: list[dict] = []
+        for concept in self.invented_concepts.values():
+            entries.append({
+                "type": "concept", "id": f"concept_{concept.id}", "kind": concept.category,
+                "name": concept.name, "text": concept.description, "status": concept.status,
+                "tick": concept.tick_invented, "settlement": concept.origin_settlement_id,
+                "lineage": dict(concept.lineage) if concept.lineage else None,
+            })
+        for settlement in self.settlements:
+            for i, law in enumerate(settlement.laws):
+                entries.append({
+                    "type": "law", "id": f"law_{settlement.id}_{i}", "kind": law.get("kind", "law"),
+                    "name": law.get("text", "")[:40], "text": law.get("text", ""), "status": "active",
+                    "tick": law.get("formed_tick", 0), "settlement": settlement.name, "lineage": None,
+                })
+        for entry in self.reflection_notebook:
+            if entry.get("kind") != "hypothesis":
+                continue
+            entries.append({
+                "type": "hypothesis", "id": f"reflection_{entry['id']}", "kind": entry.get("subject", ""),
+                "name": entry.get("subject", ""), "text": entry.get("content", ""),
+                "status": entry.get("status", "open"), "tick": entry.get("created_tick", 0),
+                "confidence": entry.get("confidence"), "settlement": None, "lineage": None,
+            })
+        for i, belief in enumerate(self.nature_beliefs):
+            entries.append({
+                "type": "nature_belief", "id": f"nature_{i}", "kind": belief.get("subject", ""),
+                "name": belief.get("subject", ""), "text": belief.get("belief", ""), "status": "held",
+                "tick": belief.get("formed_tick", 0), "confidence": belief.get("confidence"),
+                "settlement": None, "lineage": None,
+            })
+        entries.sort(key=lambda e: e["tick"], reverse=True)
+        return entries[:limit]
+
     # --- (de)serialization --------------------------------------------------
 
     def to_dict(self) -> dict:

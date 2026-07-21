@@ -4,6 +4,44 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.30] — The Living Terrarium vision doc + item 3.2 (knowledge tree)
+
+New docs/VISION-2026-07-22-LIVINGTERRARIUM.md (user-uploaded, filed as
+the next-frontier vision doc following docs/VISION-2026-07-21-
+SELFEVOLVING.md's pattern): maps five capabilities toward a "living
+terrarium" — self-modifying mechanics (composable/trigger hooks +
+counterfactual sandbox + bounded self-tuning), Nature/institutions as
+true participants, the daily-peek experience, new entities/assets, and
+runtime safety guardrails. Confidence-tagged [CERTAIN]/[LIKELY]/
+[CREATIVE]; ships its own priority sequence.
+
+This pass: item 3.2, "What the world learned" ledger — [CERTAIN],
+first in the doc's stated sequence, "mostly surfacing data that
+already exists." New `World.knowledge_tree(limit=200)`: a single,
+newest-first, read-only aggregation of every LLM-originated persistent
+entity across all four pillars plus Reflection — `invented_concepts`
+(with `lineage`), each settlement's `laws` (law/custom/taboo),
+`reflection_notebook` hypotheses (status/confidence), and `nature_
+beliefs` — no new state, no new LLM call, each underlying store
+already independently capped. Reached via a new on-demand provider
+hook (`WorldBroadcaster.set_knowledge_tree_provider`/`get_knowledge_
+tree`, same shape as the existing `full_diagnostics` provider) and
+`GET /knowledge-tree`. New "🌳 knowledge tree" panel in the explore
+menu, same toggle/fetch/render pattern as the existing highlights
+panel — lineage rendered inline ("evolved from #N" / "merged from
+#N + #N") when present.
+
+Verified: direct aggregation/sort/lineage tests, a round-trip
+(`to_dict`/`from_dict`) equality check, an end-to-end FastAPI
+`TestClient` request through the real provider chain, a JS syntax
+check, `scripts/verify_native_soak.py` byte-identical (no native
+module touched), a 500-tick LLM-disabled engine run with round-trip
+equality. The doc's remaining items (3.1 "morning paper," the
+1.x self-modification frontier, 2.x Nature/institution agency, 4.x/5.x)
+are recorded as open in the vision doc itself — not attempted this
+pass, picked up on future explicit direction per this project's
+"smallest coherent milestone" discipline.
+
 ## [1.3.29] — LLM integration architecture audit
 
 Explicit user directive: audit every LLM call site, classify what each
