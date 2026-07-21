@@ -2793,8 +2793,10 @@ function renderStats(summary) {
       "A tile repeatedly caught in a flood or wildfire bears a lasting visible mark (see the map itself) instead of always fully healing — weathers back to nothing if left undisturbed. Cosmetic, not a biome change.",
     ],
     [
-      "Wildlife", `${w.grazer_total} grazers (${w.grazer_herds} herds), ${w.predator_total} predators (${w.predator_packs} packs)`,
-      "Grazer herds roam grassland/forest and can be hunted for food; predator packs roam forest/hills and hunt grazers, starving without a kill.",
+      "Wildlife",
+      `${w.grazer_total} grazers (${w.grazer_herds} herds), ${w.predator_total} predators (${w.predator_packs} packs)`
+      + (w.prey_scarce ? " — prey scarce" : w.predator_pressure_ratio > 0.25 ? " — heavy predation" : ""),
+      "Grazer herds roam grassland/forest and can be hunted for food; predator packs roam forest/hills and hunt grazers, starving without a kill. A real trophic loop: heavy predation pressure suppresses grazer breeding map-wide, and scarce prey suppresses predator breeding/survival in turn — not just direct per-tile kills.",
     ],
     [
       "Roads", `${rd.established_roads} established (${rd.worn_tiles} worn)` + (rd.paving_unlocked ? `, ${rd.paved_roads} paved` : ""),

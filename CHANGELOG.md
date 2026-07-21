@@ -4,6 +4,52 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.26] — Phase 3.D food webs / predator-prey feedback
+
+Explicit user request: "continue with food webs and predator-prey
+feedback" — the last open item in docs/VISION-2026-07-21-
+SELFEVOLVING.md's Phase 3.D.
+
+`world/wildlife.py`'s hunt/starve mechanic already had a real local
+loop (a predator pack only reproduces on a successful same-tile hunt,
+and starves out without one) — the actual gap was that it was purely
+local: a pack that happened to land on prey bred normally even while
+the map-wide grazer population was collapsing, and a herd bred at its
+normal rate even under heavy predation pressure it hadn't personally
+been hunted by yet.
+
+`WildlifeGrid.tick()` now computes two cheap aggregate ratios once per
+tick (R7 deviation — Python, an O(n) scalar reduction over the herd
+dict the tick loop already iterates, not a new per-tile hot loop, same
+precedent as the mining/disaster-scar and soil-fertility modules):
+`predator_pressure_ratio` (total predator animals / total grazer
+animals) crossing `PREDATOR_PRESSURE_RATIO_THRESHOLD=0.25` halves
+grazer reproduction chance map-wide (`PREDATOR_PRESSURE_REPRODUCE_
+PENALTY=0.5`) — a "landscape of fear" effect distinct from the direct
+kills the existing hunt mechanic already applies. `prey_scarce`
+(current grazer-herd-count below `PREY_SCARCITY_RATIO_THRESHOLD=0.5`
+of world-gen's own expected support, `GRAZER_TO_PREDATOR_RATIO` herds
+per pack) halves predator reproduction chance
+(`PREY_SCARCITY_REPRODUCE_PENALTY`) and doubles starvation risk
+(`PREY_SCARCITY_STARVE_MULTIPLIER`) even for a pack that got a lucky
+same-tile hunt this exact tick. Both ratios are surfaced in
+`WildlifeGrid.summary()` and the "Wildlife" stat tile (a "prey
+scarce"/"heavy predation" suffix, plus an updated tooltip explaining
+the loop).
+
+River course drift and ecology->weather bidirectional feedback remain
+flagged, not attempted — the doc's own §3.D scope was food webs +
+succession + scars; succession and scars already shipped (v1.3.22/
+v1.3.25), this closes food webs, the last of the three.
+
+Verified: direct unit tests exercising both directions of the loop in
+isolation (heavy-predation-suppresses-grazer-breeding,
+prey-scarcity-suppresses-predator-breeding-and-raises-starvation), an
+8000-tick LLM-disabled engine soak sampling `wildlife.summary()` every
+2000 ticks (stable, non-collapsing populations throughout) with a
+round-trip `to_dict()`/`from_dict()` equality check,
+`scripts/verify_native_soak.py` (2 seeds x 2500 ticks) byte-identical.
+
 ## [1.3.25] — Phase 3.C architecture + Phase 3.D succession
 
 Explicit user request: "continue with 3.C and 3.D" — the two remaining

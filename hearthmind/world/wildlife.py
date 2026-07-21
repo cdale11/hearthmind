@@ -92,6 +92,33 @@ PREDATOR_STARVE_CHANCE = 0.002
 risks losing a member each tick — packs that can't find prey shrink and
 eventually vanish, not persist forever on nothing."""
 
+PREDATOR_PRESSURE_RATIO_THRESHOLD = 0.25
+"""Phase 3.D "food webs / predator-prey feedback" (docs/VISION-2026-07-
+21-SELFEVOLVING.md): total live predator animals as a fraction of total
+live grazer animals. Above this ratio, predation pressure is high
+enough to measurably suppress grazer reproduction map-wide — not just
+the direct per-tile kills the hunt mechanic already does, but a
+"landscape of fear" effect: a herd under heavy predation pressure
+breeds less even where it hasn't personally been hunted yet."""
+PREDATOR_PRESSURE_REPRODUCE_PENALTY = 0.5
+"""Grazer `reproduce_chance` multiplier once the ratio above is
+crossed — halved, not zeroed; direct kills remain the dominant
+suppression mechanism, this is a secondary population-level effect."""
+
+PREY_SCARCITY_RATIO_THRESHOLD = 0.5
+"""The other half of the loop: `GRAZER_TO_PREDATOR_RATIO` grazer herds
+per predator pack is the population world-gen (and recolonization)
+already treats as "enough support." When the actual grazer-herd-count-
+to-predator-pack-count ratio falls below this fraction of that
+baseline, prey is scarce enough map-wide that predator reproduction and
+survival suffer even for a pack that got lucky with a same-tile hunt
+this tick — not just the existing same-tile "no prey here" case."""
+PREY_SCARCITY_REPRODUCE_PENALTY = 0.5
+PREY_SCARCITY_STARVE_MULTIPLIER = 2.0
+"""A pack in a prey-scarce landscape is twice as likely to lose a
+member on the post-grace-period starvation roll — scarcity compounds
+starvation risk beyond just "this exact pack hasn't eaten in a while.\""""
+
 HUNT_YIELD_PER_ANIMAL = 0.6
 """Hunger relief per grazer killed by a hunting agent — richer than a
 wild forage (FORAGE_HUNGER_RELIEF 0.3) or even a farm harvest (0.5): the
@@ -319,6 +346,28 @@ class WildlifeGrid:
         events: list[tuple[str, str]] = []
         predator_tiles = self.predator_tiles()
 
+        # Phase 3.D trophic feedback (see PREDATOR_PRESSURE_RATIO_
+        # THRESHOLD/PREY_SCARCITY_RATIO_THRESHOLD docstrings): two cheap
+        # O(n) aggregate reads over the herd dict we're about to iterate
+        # anyway, computed once up front rather than per-herd — R7
+        # deviation (Python, not C++), same "aggregate scalar, not a new
+        # per-tile hot loop" rationale as the existing scar/soil
+        # deviations.
+        total_grazers = sum(h.count for h in self.herds.values() if h.species is Species.GRAZER)
+        total_predators = sum(h.count for h in self.herds.values() if h.species is Species.PREDATOR)
+        predator_pack_count = sum(1 for h in self.herds.values() if h.species is Species.PREDATOR)
+        grazer_herd_count = sum(1 for h in self.herds.values() if h.species is Species.GRAZER)
+        predator_pressure_ratio = total_predators / max(1, total_grazers)
+        grazer_reproduce_penalty = (
+            PREDATOR_PRESSURE_REPRODUCE_PENALTY if predator_pressure_ratio > PREDATOR_PRESSURE_RATIO_THRESHOLD
+            else 1.0
+        )
+        expected_grazer_herds = predator_pack_count * GRAZER_TO_PREDATOR_RATIO
+        prey_scarce = (
+            predator_pack_count > 0
+            and grazer_herd_count < expected_grazer_herds * PREY_SCARCITY_RATIO_THRESHOLD
+        )
+
         for herd in self.herds.values():
             if herd.count <= 0:
                 continue
@@ -361,7 +410,10 @@ class WildlifeGrid:
                     continue
                 node = resources.get(herd.x, herd.y) if resources is not None else None
                 grazing_food = node is not None and node.kind is ResourceKind.FOOD
-                reproduce_chance = GRAZER_REPRODUCE_CHANCE * SEASON_GRAZER_REPRODUCE_MULTIPLIER.get(season, 1.0)
+                reproduce_chance = (
+                    GRAZER_REPRODUCE_CHANCE * SEASON_GRAZER_REPRODUCE_MULTIPLIER.get(season, 1.0)
+                    * grazer_reproduce_penalty
+                )
                 reproduce_roll = rng.random()
                 if _native_grazer_tick_step is not None:
                     # Native fast path (module 22): bundles the node-
@@ -396,7 +448,10 @@ class WildlifeGrid:
             if prey is not None and rng.random() < PREDATOR_HUNT_CHANCE:
                 prey.count -= min(PREDATOR_KILL_SIZE, prey.count)
                 herd.ticks_since_meal = 0
-                if herd.count < MAX_PREDATOR_PACK and rng.random() < GRAZER_REPRODUCE_CHANCE:
+                reproduce_chance = GRAZER_REPRODUCE_CHANCE * (
+                    PREY_SCARCITY_REPRODUCE_PENALTY if prey_scarce else 1.0
+                )
+                if herd.count < MAX_PREDATOR_PACK and rng.random() < reproduce_chance:
                     herd.count += 1
                 if prey.count <= 0:
                     events.append((
@@ -408,7 +463,9 @@ class WildlifeGrid:
                         "wildlife_hunt",
                         f"A predator pack culled a grazer herd near ({herd.x}, {herd.y}).",
                     ))
-            elif herd.ticks_since_meal > PREDATOR_STARVE_GRACE_TICKS and rng.random() < PREDATOR_STARVE_CHANCE:
+            elif herd.ticks_since_meal > PREDATOR_STARVE_GRACE_TICKS and rng.random() < (
+                PREDATOR_STARVE_CHANCE * (PREY_SCARCITY_STARVE_MULTIPLIER if prey_scarce else 1.0)
+            ):
                 herd.count -= 1
                 if herd.count <= 0:
                     events.append((
@@ -481,11 +538,22 @@ class WildlifeGrid:
     def summary(self) -> dict:
         grazers = [h for h in self.herds.values() if h.species is Species.GRAZER]
         predators = [h for h in self.herds.values() if h.species is Species.PREDATOR]
+        grazer_total = sum(h.count for h in grazers)
+        predator_total = sum(h.count for h in predators)
+        # Phase 3.D trophic feedback — same formulas `tick()` uses live,
+        # recomputed here (cheap) so the dev console can see the two
+        # pressure signals that are currently suppressing reproduction/
+        # raising starvation risk, not just the raw population counts.
+        predator_pressure_ratio = predator_total / max(1, grazer_total)
+        expected_grazer_herds = len(predators) * GRAZER_TO_PREDATOR_RATIO
+        prey_scarce = len(predators) > 0 and len(grazers) < expected_grazer_herds * PREY_SCARCITY_RATIO_THRESHOLD
         return {
             "grazer_herds": len(grazers),
-            "grazer_total": sum(h.count for h in grazers),
+            "grazer_total": grazer_total,
             "predator_packs": len(predators),
-            "predator_total": sum(h.count for h in predators),
+            "predator_total": predator_total,
+            "predator_pressure_ratio": round(predator_pressure_ratio, 3),
+            "prey_scarce": prey_scarce,
         }
 
     # --- (de)serialization -----------------------------------------------------

@@ -473,14 +473,29 @@ identical to today's rendering.
 
 ### 3.D — Nature: food webs, succession, permanent scars
 
-- **Food webs / predator-prey feedback**: NOT attempted this pass
-  (v1.3.25 scoped to succession + 3.C's architecture item). `world/
-  wildlife.py` currently tracks predator/prey as separate populations
-  with a kill-chance mechanic — a real trophic feedback loop (prey
-  scarcity suppresses predator reproduction, predator pressure
-  suppresses prey population, independent of human action) is the
-  gap. R7 (CA-substrate, C++-first) applies to any new code here —
-  flagged as a real future follow-up, not silently dropped.
+- **Food webs / predator-prey feedback: SHIPPED, v1.3.26.** The
+  existing hunt/starve mechanic already had a real per-tile loop
+  (predators only reproduce on a successful same-tile hunt, and starve
+  out without one) — the actual gap was that it was purely local: a
+  pack that happened to land on prey bred fine even while the map-wide
+  population was collapsing, and a herd bred at its normal rate even
+  under heavy predation pressure it hadn't personally been hunted by
+  yet. `WildlifeGrid.tick()` now computes two cheap O(n) aggregate
+  ratios once per tick (R7 deviation — Python, aggregate scalar over
+  the herd dict it already iterates, not a new per-tile hot loop, same
+  precedent as the scar/soil modules): `predator_pressure_ratio`
+  (total predator animals / total grazer animals) above `PREDATOR_
+  PRESSURE_RATIO_THRESHOLD=0.25` measurably halves grazer reproduction
+  map-wide (`PREDATOR_PRESSURE_REPRODUCE_PENALTY`) — a "landscape of
+  fear" effect distinct from the direct kills the hunt mechanic already
+  does. `prey_scarce` (grazer-herd-count below `PREY_SCARCITY_RATIO_
+  THRESHOLD=0.5` of world-gen's own expected support,
+  `GRAZER_TO_PREDATOR_RATIO` herds per pack) halves predator
+  reproduction chance and doubles starvation risk even for a pack that
+  got a lucky same-tile hunt. Both ratios are surfaced in `WildlifeGrid.
+  summary()` and the "Wildlife" stat tile (a "prey scarce"/"heavy
+  predation" suffix). River course drift and ecology->weather
+  bidirectional feedback remain flagged, not attempted.
 - **Forest succession (cleared land regrowing through real intermediate
   stages, not an instant biome flip): SHIPPED, v1.3.25.** `maybe_
   reclaim` used to flip an eligible grassland tile to forest the very

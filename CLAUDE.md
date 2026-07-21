@@ -416,6 +416,25 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.26)
+
+Explicit user follow-up: "continue with food webs and predator-prey
+feedback" — the last open Phase 3.D item.
+
+The existing hunt/starve mechanic already had a real per-tile loop
+(predator reproduction was gated on a successful same-tile hunt;
+starvation fired without one) — the actual gap was that it was purely
+local, blind to map-wide population trends. `world/wildlife.py`'s
+`WildlifeGrid.tick()` now computes `predator_pressure_ratio` (total
+predator animals / total grazer animals) and `prey_scarce` (grazer-herd
+count vs. world-gen's own `GRAZER_TO_PREDATOR_RATIO` expectation) once
+per tick — cheap O(n) aggregates, R7-deviation-flagged Python, same
+precedent as the scar/soil modules. Heavy predator pressure now halves
+grazer reproduction map-wide (a "landscape of fear" effect beyond
+direct kills); prey scarcity halves predator reproduction and doubles
+starvation risk even for a pack with a lucky hunt that tick. Surfaced
+in `WildlifeGrid.summary()` and the Wildlife stat tile.
+
 ## Current state (v1.3.25)
 
 Explicit user follow-up: "continue with 3.C and 3.D" — the two
