@@ -22,6 +22,7 @@ open-ended name/description/lineage)."""
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 ONTOLOGY_CATEGORIES: tuple[str, ...] = (
@@ -69,11 +70,23 @@ census."""
 
 CONCEPT_SPREADING_ADOPTERS = 2
 CONCEPT_ESTABLISHED_ADOPTERS = 5
-"""Adoption-count thresholds driving `maybe_promote_status` — small
-and population-independent by design (this is Phase 1's minimal
-adoption mechanism; population-scaled thresholds are a documented
-follow-up once real numbers exist to tune against, same "measure
-before tuning" discipline the rest of this project holds to)."""
+"""Floors for `maybe_promote_status`'s thresholds — the Phase 1.A
+minimum, still in force for a small/new core cast so an early-game
+settlement doesn't get an impossibly slow first promotion."""
+
+CONCEPT_SPREADING_FRACTION = 0.2
+CONCEPT_ESTABLISHED_FRACTION = 0.5
+"""Phase 3.A "population-scaled (not flat) adoption thresholds"
+(docs/VISION-2026-07-21-SELFEVOLVING.md): only core-cast members of the
+concept's origin settlement can ever become tracked adopters (see
+`_maybe_spread_concepts`'s candidate filter in engine.py) — the
+relevant "population" to scale against is that settlement's actual
+core-cast headcount, not the settlement's total population, which the
+adoption mechanism structurally can't reach. `maybe_promote_status`
+takes the max of these fractions and the flat floors above, so a large
+core cast needs proportionally more real adopters to promote a concept
+(not just 5 out of an 80-strong cast) while a small/new cast still
+promotes at the original flat pace."""
 
 CONCEPT_STALE_TICKS = 20_000
 """A `proposed` concept that never gains a second adopter within this
@@ -197,14 +210,27 @@ def add_adopter(world, concept_id: int, agent_id: int, tick: int) -> None:
     if len(concept.adopter_ids) >= MAX_ADOPTERS_STORED:
         return
     concept.adopter_ids.add(agent_id)
-    maybe_promote_status(concept)
+    core_cast_size = sum(
+        1 for a in world.population.agents
+        if a.settlement_id == concept.origin_settlement_id and a.id in world.population.core_agent_ids
+    )
+    maybe_promote_status(concept, core_cast_size)
 
 
-def maybe_promote_status(concept: InventedConcept) -> None:
+def maybe_promote_status(concept: InventedConcept, core_cast_size: int = 0) -> None:
+    """`core_cast_size` (Phase 3.A): the origin settlement's current
+    core-cast headcount — see CONCEPT_SPREADING_FRACTION's docstring
+    for why that, not total population, is the right scale. Defaults to
+    0 (falls back to the flat floors unchanged) for any caller that
+    doesn't have a settlement context to compute it from."""
     count = len(concept.adopter_ids)
-    if concept.status == "proposed" and count >= CONCEPT_SPREADING_ADOPTERS:
+    spreading_threshold = max(CONCEPT_SPREADING_ADOPTERS, math.ceil(core_cast_size * CONCEPT_SPREADING_FRACTION))
+    established_threshold = max(
+        CONCEPT_ESTABLISHED_ADOPTERS, math.ceil(core_cast_size * CONCEPT_ESTABLISHED_FRACTION)
+    )
+    if concept.status == "proposed" and count >= spreading_threshold:
         concept.status = "spreading"
-    if concept.status in ("proposed", "spreading") and count >= CONCEPT_ESTABLISHED_ADOPTERS:
+    if concept.status in ("proposed", "spreading") and count >= established_threshold:
         concept.status = "established"
 
 

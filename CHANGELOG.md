@@ -4,6 +4,43 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.24] — Phase 3.A adoption thresholds + Phase 4 initial audit
+
+Explicit user request: "start both" — Phase 3's last open 3.A item
+plus starting Phase 4 (cross-pillar audit + persistence
+generalization), docs/VISION-2026-07-21-SELFEVOLVING.md.
+
+**3.A: population-scaled adoption thresholds.** `world/ontology.py`'s
+`maybe_promote_status` now scales its spreading/established thresholds
+against the concept's origin settlement's actual core-cast headcount
+(`CONCEPT_SPREADING_FRACTION=0.2`/`CONCEPT_ESTABLISHED_FRACTION=0.5`),
+floored at the original flat values so a small/new core cast still
+promotes at the original pace. Core-cast headcount, not total
+settlement population, since only core-cast members can ever become
+tracked adopters (`_maybe_spread_concepts`'s existing candidate
+filter) — scaling against unreachable population would have made
+large settlements' concepts nearly impossible to promote.
+
+**Phase 4 initial audit pass.** Spot-checked representative wiring
+across all three cross-pillar directions (Nature<->Human, Village<->
+Human, Nature<->Village) — no code gap found, consistent with the
+audit's own "expected to be small" framing; findings documented in the
+vision doc's Phase 4 section. Persistence-generalization item audited
+and resolved as "already consistent by design, no new mechanism
+needed": the Tier 0.1 decay-lock convention exists specifically
+because interpersonal rupture has a "should never silently heal"
+intent, the opposite of disasters/landscape-scars' deliberate "nature
+recovers if left alone" intent — applying a lock there would
+contradict the mechanic's own purpose. Village-identity fields
+(`current_priority`/`era_branch`/`recent_topics`) checked for
+unintended erosion and found clean — none have any decay mechanic,
+persisting until their own owning job overwrites them.
+
+Verified: direct smoke tests for `maybe_promote_status`'s scaling
+(small vs. large core cast), `scripts/verify_native_soak.py` (2 seeds
+x 3000 ticks) byte-identical — the audit pass made no code changes
+beyond the 3.A threshold fix.
+
 ## [1.3.23] — Phase 3.B remaining items: occupation-as-status, dialogue register, deeper inheritance
 
 Explicit user follow-up ("continue"): closes 3.B's two remaining

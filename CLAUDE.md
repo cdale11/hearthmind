@@ -523,6 +523,29 @@ outcome wiring), `scripts/verify_native_soak.py` byte-identical (2
 seeds x 800 ticks, plus a 4000-tick single-seed run past the
 checklist's own 3685-tick reference window).
 
+## Current state (v1.3.24)
+
+Explicit user request: "start both" — Phase 3's last open 3.A item
+plus starting Phase 4.
+
+3.A: `world/ontology.py`'s `maybe_promote_status` now scales adoption
+thresholds against the origin settlement's core-cast headcount (only
+core-cast members can become tracked adopters), floored at the
+original flat values.
+
+Phase 4 initial audit: spot-checked cross-pillar wiring (Nature<->
+Human, Village<->Human, Nature<->Village) — no gap found. Persistence-
+generalization item resolved as "already consistent by design": the
+Tier 0.1 decay-lock exists because interpersonal rupture should never
+silently heal, the opposite intent from disasters/landscape-scars
+(deliberately DO heal if left alone) — applying a lock there would
+contradict the mechanic. Village-identity fields checked clean (no
+decay mechanic at all). See docs/VISION-2026-07-21-SELFEVOLVING.md's
+Phase 4 section for the full writeup.
+
+Verified: direct smoke tests, `scripts/verify_native_soak.py` (2 seeds
+x 3000 ticks) byte-identical.
+
 ## Current state (v1.3.23)
 
 Explicit user follow-up ("continue"): closes 3.B's two remaining

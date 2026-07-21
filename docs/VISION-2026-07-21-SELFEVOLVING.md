@@ -391,10 +391,17 @@ param (the ontology proposal/evolve/merge call sites only) applies
 `DEEP_REASONING_NUM_PREDICT_MULT`/`DEEP_REASONING_TEMPERATURE` on top
 of `Config`'s normal generation config, per-call only, via new
 `num_predict_override`/`temperature_override` params threaded through
-`CognitionRunner.run` -> both LLM clients' `generate_json`. Still open:
-population-scaled (not flat) adoption thresholds once real numbers
-exist to tune against, and the full `invention_knowledge`-lifecycle
-reuse flagged in 1.A's shipped-status note above.
+`CognitionRunner.run` -> both LLM clients' `generate_json`. **Adoption
+thresholds: SHIPPED, v1.3.24** — `maybe_promote_status` now scales
+against the concept's origin settlement's actual core-cast headcount
+(`CONCEPT_SPREADING_FRACTION=0.2`/`CONCEPT_ESTABLISHED_FRACTION=0.5`,
+floored at the original flat values `CONCEPT_SPREADING_ADOPTERS`/
+`CONCEPT_ESTABLISHED_ADOPTERS` so a small/new cast still promotes at
+the original pace) — core-cast headcount, not total settlement
+population, since only core-cast members can ever become tracked
+adopters (`_maybe_spread_concepts`'s candidate filter). Still open: the
+full `invention_knowledge`-lifecycle reuse flagged in 1.A's
+shipped-status note above.
 
 ### 3.B — Humans: identity, irreversible change, deeper inheritance
 
@@ -489,6 +496,54 @@ to be small — most resolve to "yes, once the relevant phase shipped"
 rather than needing bespoke code). Persistence: generalize v1.3.17's
 decay-lock pattern to disasters/village-identity/landscape scars
 explicitly, rather than each phase reinventing its own convention.
+
+**Status: initial pass, v1.3.24.** Spot-checked representative wiring
+across all three cross-pillar directions, no code gap found this pass
+(consistent with the doc's own "expected to be small" framing):
+
+- **Nature -> Human**: 1.D (`Population._mark_disaster_survivors`) —
+  shipped.
+- **Human -> Nature**: mining scars accumulate from sustained GATHER-
+  goal presence on HILLS (v0.87.27); disaster scars (3.D, v1.3.22)
+  extend the same shape.
+- **Village -> Human**: `current_priority` (town_brain's monthly
+  decision) biases `choose_building_kind`'s odds — confirmed live in
+  `settlement/buildings.py`.
+- **Human -> Village**: `_maybe_schedule_town_brain` reads `materials_
+  critical` (a real per-settlement shortage flag) and `recent_goal_
+  counts` (1.C) — the village's own priority decision is grounded in
+  aggregate NPC-driven state, not detached from it.
+- **Nature -> Village**: disasters damage buildings directly
+  (`tick_flood`/`tick_wildfire`/`tick_storm`), which feeds `materials_
+  critical` the same way scarcity from any other cause does — no
+  separate code path needed, already the same mechanism.
+- **Village -> Nature**: construction/farming site selection already
+  reads real terrain (`_maybe_start_construction`'s reachability-
+  filtered scan) — expanding settlements measurably draw down nearby
+  wild resources and drive local deforestation via the existing
+  GATHER-goal `terrain_activity` heat mechanic, no settlement-specific
+  code needed since it's individual agent behavior aggregated.
+
+**Persistence generalization**: audited, no new mechanism needed. The
+Tier 0.1 decay-lock convention (`relationship_flags`, v1.3.17) exists
+specifically because interpersonal rupture has a "should never
+silently heal on its own" design intent — the opposite intent from
+disasters/landscape scars, which are explicitly DESIGNED to fade if
+left alone (`decay_mining_scars`/`decay_disaster_scars`, "nature
+recovers if left alone," same as `maybe_reclaim`). Applying a lock
+there would contradict the mechanic's own purpose, not generalize a
+convention. What Phase 1.D actually needed from that same "protect
+what should endure" family — and got — is a DIFFERENT existing
+mechanism: `_remember(..., because=...)`'s `core_memories` graduation,
+which is itself already the generalized "significant + causally-tagged
+survives eviction/decay" pattern, just applied to memory instead of
+relationships. Village-identity (`Settlement.current_priority`/`era_
+branch`/`recent_topics`) was checked for unintended erosion and found
+clean — none of these fields have any decay mechanic at all; they
+persist until explicitly overwritten by their own owning job, which is
+the correct behavior for identity state. No code changes from this
+audit pass; remaining manifesto bullets not spot-checked here are
+lower-priority follow-up, not flagged gaps.
 
 ---
 
