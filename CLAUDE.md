@@ -416,6 +416,40 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.14)
+
+Live-diagnostic tuning pass for a slower model (user switched toward
+gemma-4-e4b; the pasted `/diagnostics` still read `gemma-4-e2b-it` as
+the config default and measured ~2.6 tok/s predicted, p50/p95 call
+latency 47s/77s, `llm_pressure_ratio` 1.0 / not paused, and 11,891
+backpressure drops against 760 attempts). Two constant changes, no
+logic change:
+
+- `scripts/run.sh` `LLAMA_FIT_TARGET` 2048 -> 1024 (explicit user
+  request): a smaller `--fit` free-margin offloads MORE model layers to
+  the GPU, directly targeting the ~2.6 tok/s throughput floor that
+  every downstream number (latency, backlog, drops) bottlenecks on.
+  Root-cause lever. Raise back toward 2048 if a fresh `system_memory`
+  reading shows the larger offload pushed llama-server into real swap.
+
+- `LLM_PRESSURE_SLOWDOWN_START_RATIO` (engine.py) 1.0 -> 0.75: the
+  diagnostic exposed a blind spot — under *sustained* saturation the
+  backlog sits pinned exactly at the adaptive limit (ratio 1.0, not
+  paused) because excess jobs are cleanly dropped at the gate rather
+  than queued past it, so a start of 1.0 never engaged despite the
+  drop flood. 0.75 makes a pinned-at-limit backlog stretch the tick gap
+  ~2x, halving how fast agents become cognition-due per real second.
+  Still no slowdown on a healthy fast-model run (ratio ~0.33).
+
+Adaptive latency thresholds (`ADAPTIVE_LATENCY_ELEVATED/SEVERE_MS`) left
+unchanged — the new p50/p95/max (47/77/100s) are near-identical to what
+they were calibrated against (32/70/102s), so they're still correctly
+sized; the fit-target fix is the real lever. `llm_max_concurrent` also
+left at 2 (memory reading was only mildly pressured, ~485MB swap /
+2570MB free) — dropping to 1 for faster solo calls on a compute-bound
+model is a documented follow-up to try only if latency stays high after
+the fit-target change.
+
 ## Current state (v1.3.13)
 
 Explicit user follow-up: "try FT.2" — docs/AUDIT-2026-07-20.md's

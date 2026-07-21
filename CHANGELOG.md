@@ -4,6 +4,59 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.14] — slow-model latency tuning (fit-target + pressure-slowdown start)
+
+Explicit user request off a live `/diagnostics` dump after switching
+toward a larger/slower model (gemma-4-e4b): "tune things for this kind
+of latency ... and change default LLAMA_FIT_TARGET to 1024 from 2048."
+The dump measured llama-server predicting at only ~2.6 tok/s
+(`llamacpp:predicted_tokens_seconds`), per-call p50/p95/max latency of
+47s/77s/100s, `llm_pressure_ratio` pinned at 1.0 with
+`llm_pressure_paused` false, and 11,891 `calls_dropped_backpressure`
+against 760 attempted — the signature of a model that isn't offloading
+enough layers to the GPU, feeding a physical sim that sprints far ahead
+of cognition. Two constant changes, no logic change:
+
+- `scripts/run.sh`: `LLAMA_FIT_TARGET` default 2048 -> 1024. `--fit`'s
+  free-margin per device: a smaller value leaves less headroom and
+  offloads MORE of the model to the GPU. Lowering it directly attacks
+  the ~2.6 tok/s throughput floor that every downstream number
+  (latency, backlog depth, drop count) is bottlenecked on — the
+  root-cause lever, and the one the user flagged. Doc comment updated
+  with the full lineage (2560 -> 2048 -> 1024) and the "raise back if
+  system_memory shows real swap from the larger offload" guidance.
+
+- `simulation/engine.py`: `LLM_PRESSURE_SLOWDOWN_START_RATIO` 1.0 ->
+  0.75. The pacing mechanism (v0.82.0) stretches the real-time gap
+  between ticks as the LLM backlog climbs, so cognition can keep up
+  instead of the sim dropping most scheduling opportunities — but its
+  1.0 start had a blind spot for *sustained* saturation: excess jobs
+  are cleanly dropped at the scheduling gate rather than queued past
+  the limit, so the backlog sits pinned at exactly the adaptive limit
+  and `llm_pressure_ratio` structurally can't climb above ~1.0 to trip
+  a start of 1.0. The diagnostic showed this precisely (ratio 1.0, not
+  paused, yet 11.9k drops). A 0.75 start means a pinned-at-limit
+  backlog now reads ~1.0/0.75 into the slowdown band and stretches the
+  tick gap ~2x, halving how fast agents become cognition-due per real
+  second — draining the wasteful churn and landing more calls on fresh
+  state, per the standing "town consciousness is important enough to
+  trade off with simulation speed" directive. A healthy fast-model run
+  (backlog ~2 vs limit 6 = ratio 0.33) is unaffected — the slowdown
+  only engages under genuine saturation.
+
+Deliberately left unchanged: the adaptive latency thresholds
+(`ADAPTIVE_LATENCY_ELEVATED/SEVERE_MS` = 45s/80s) — the new
+p50/p95/max (47/77/100s) are near-identical to the 32/70/102s they were
+originally calibrated against, so they remain correctly sized and the
+fit-target change is the real lever. `llm_max_concurrent` stays 2 (the
+memory reading was only mildly pressured: ~485MB swap against 2570MB
+free) — dropping to 1 for faster solo calls on a compute-bound model is
+recorded as a follow-up to try only if latency stays high after the
+fit-target fix. Verified: the tick-interval multiplier math across the
+ratio range (0.33 -> x1.0 no slowdown, 0.75 -> x1.0, 1.0 -> x2.0,
+2.0 -> x6.0 pause boundary) confirms healthy runs untouched and
+saturation engaged; `scripts/run.sh` re-checked with `bash -n`.
+
 ## [1.3.13] — FT.2 quality-label pass over the training archive
 
 Explicit user follow-up: "try FT.2" — docs/AUDIT-2026-07-20.md's

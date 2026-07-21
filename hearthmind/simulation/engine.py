@@ -476,7 +476,7 @@ observed p95, SEVERE sits just under the observed max, so a genuinely
 struggling server (not just ordinary load) is what triggers the
 tightest tier."""
 
-LLM_PRESSURE_SLOWDOWN_START_RATIO = 1.0
+LLM_PRESSURE_SLOWDOWN_START_RATIO = 0.75
 LLM_PRESSURE_PAUSE_RATIO = 2.0
 LLM_PRESSURE_MAX_SLOWDOWN = 6.0
 """Explicit standing directive (CLAUDE.md, "town consciousness is
@@ -495,9 +495,29 @@ regardless of whether the 12 already-in-flight calls (each taking
 opportunity was born already-doomed to be dropped.
 
 Ratio = `_effective_backlog() / _current_backpressure_limit()`.
-Below `LLM_PRESSURE_SLOWDOWN_START_RATIO` (1.0, i.e. at/under the
-adaptive limit): no change, ticks run at the configured/user-selected
-speed. Between START_RATIO and `LLM_PRESSURE_PAUSE_RATIO` (2.0): the
+Below `LLM_PRESSURE_SLOWDOWN_START_RATIO` (0.75, i.e. comfortably under
+the adaptive limit): no change, ticks run at the configured/user-
+selected speed. **Lowered 1.0 -> 0.75 in v1.3.14** after a live
+diagnostic on a much slower model (gemma-4-e4b, ~2.6 tok/s, per-call
+p50/p95 latency 47s/77s) exposed a blind spot in the original 1.0
+start: under *sustained* (not bursty) saturation the backlog sits
+pinned right at the adaptive limit — `llm_pressure_ratio` reads
+exactly 1.0, `llm_pressure_paused` false — because excess jobs are
+cleanly *dropped* at the gate rather than queued past the limit, so the
+ratio structurally can't climb above ~1.0 to trip a start of 1.0. That
+run showed the symptom precisely: ratio 1.0, not paused, yet 11,891
+backpressure drops against 760 attempted calls — the sim sprinting at
+~4.5 ticks/s while each cognition call took 47-100s, so nearly every
+scheduling opportunity was born doomed (exactly the failure the pacing
+mechanism exists to prevent, just at a saturation shape the 1.0 start
+didn't catch). A 0.75 start means a backlog pinned at the limit now
+reads as ~1.0/0.75 into the slowdown band and stretches the tick gap
+~2x, halving how fast agents become cognition-due per real second —
+draining the wasteful churn and letting more calls land on fresh state.
+Still well clear of a healthy fast-model run (backlog ~2 against limit
+6 = ratio 0.33, no slowdown), so this only engages under real
+saturation, never normal operation. Between START_RATIO and `LLM_
+PRESSURE_PAUSE_RATIO` (2.0): the
 real-time gap between ticks stretches linearly, up to `LLM_PRESSURE_
 MAX_SLOWDOWN`x slower — fewer new ticks means fewer new agents becoming
 "due" for cognition/dialogue per unit of real time (staggered-daily

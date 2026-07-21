@@ -230,22 +230,31 @@
 #                        the old hardcoded 999. Set empty (LLAMA_FIT=) to
 #                        omit the flag entirely on older builds that don't
 #                        support it.
-#   LLAMA_FIT_TARGET     Default: 2048 (v0.81.0, down from 2560 in
-#                        v0.78.5) — MiB margin per device --fit leaves
-#                        free rather than offloading. v0.78.5 raised this
-#                        for the shared-memory-iGPU case ("VRAM" there is
-#                        drawn from the same system-RAM pool --ctx-size/
-#                        hearthmind itself also need); a live diagnostic
-#                        since then (see Config.llm_max_concurrent's
-#                        docstring) showed real headroom to spare
-#                        (mem_available 3321MB of 7045MB, swap ~0) rather
-#                        than pressure, so this pulls back toward a
-#                        slightly larger offload — freeing a bit more
-#                        general system RAM for LLAMA_PARALLEL's second
-#                        KV-cache slot rather than reserving it unused.
-#                        Raise back toward 2560+ if a fresh
-#                        /diagnostics.system_memory reading shows
-#                        pressure again. Set empty (LLAMA_FIT_TARGET=) to
+#   LLAMA_FIT_TARGET     Default: 1024 (v1.3.14, down from 2048 in
+#                        v0.81.0 / 2560 in v0.78.5) — MiB margin per
+#                        device --fit leaves free rather than offloading.
+#                        A SMALLER target offloads MORE of the model to
+#                        the GPU (leaves less headroom), a larger one
+#                        leaves more system/VRAM free at the cost of a
+#                        smaller offload. The pull-back lineage: v0.78.5
+#                        raised it (2560) for the shared-memory-iGPU case
+#                        ("VRAM" there is drawn from the same system-RAM
+#                        pool --ctx-size/hearthmind itself also need);
+#                        v0.81.0 lowered to 2048 once a diagnostic showed
+#                        headroom. v1.3.14 lowers again to 1024 after a
+#                        live diagnostic on a larger model (gemma-4-e4b)
+#                        measured predicted throughput at only ~2.6 tok/s
+#                        (llamacpp:predicted_tokens_seconds) with p50/p95
+#                        call latency 47s/77s and 11.9k backpressure
+#                        drops — the classic signature of too few model
+#                        layers on the GPU. Freeing ~1GB more VRAM for
+#                        offload directly targets the tokens/sec floor
+#                        that everything downstream (latency, backlog,
+#                        drops) is bottlenecked on. RAISE back toward
+#                        2048+ if a fresh /diagnostics.system_memory
+#                        reading shows the larger offload has pushed
+#                        llama-server into real swap (a little swap, ~20MB
+#                        here, is fine); set empty (LLAMA_FIT_TARGET=) to
 #                        restore llama.cpp's own default, e.g. on a
 #                        discrete GPU where VRAM genuinely is separate.
 #   LLAMA_CACHE_TYPE_K   Default: q8_0
@@ -280,7 +289,7 @@ LLAMA_CTX_SIZE="${LLAMA_CTX_SIZE:-6144}"
 LLAMA_THREADS="${LLAMA_THREADS:-$(nproc 2>/dev/null || echo 4)}"
 LLAMA_N_GPU_LAYERS="${LLAMA_N_GPU_LAYERS:-auto}"
 LLAMA_FIT="${LLAMA_FIT-on}"
-LLAMA_FIT_TARGET="${LLAMA_FIT_TARGET-2048}"
+LLAMA_FIT_TARGET="${LLAMA_FIT_TARGET-1024}"
 LLAMA_CACHE_TYPE_K="${LLAMA_CACHE_TYPE_K:-q8_0}"
 LLAMA_CACHE_TYPE_V="${LLAMA_CACHE_TYPE_V:-q8_0}"
 LLAMA_FLASH_ATTN="${LLAMA_FLASH_ATTN-on}"
