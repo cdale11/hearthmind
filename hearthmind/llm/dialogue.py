@@ -19,6 +19,7 @@ from hearthmind.agents.agent import (
     just_now_text as _just_now_text,
     normalize_voice_phrase,
 )
+from hearthmind.agents.occupations import OCCUPATION_DIALOGUE_REGISTER
 
 SYSTEM_PROMPT = (
     "You are writing a brief, natural exchange between two villagers who "
@@ -362,6 +363,18 @@ def build_prompt(
         if personality:
             personality_bits.append(f"{label} is {personality}")
     personality_text = f" {'; '.join(personality_bits)}." if personality_bits else ""
+    # Phase 3.B "occupation -> identity/status/dialogue register"
+    # (docs/VISION-2026-07-21-SELFEVOLVING.md): "a priest speaks to
+    # belief, a banker to debt" — a light manner-of-speaking hint, same
+    # "garnish, never forced" treatment `voice_bits` below already gets.
+    # Only the occupations in OCCUPATION_DIALOGUE_REGISTER carry one;
+    # everyone else contributes nothing here.
+    register_bits = []
+    for agent, label in ((agent_a, agent_a.name), (agent_b, agent_b.name)):
+        register = OCCUPATION_DIALOGUE_REGISTER.get(agent.occupation)
+        if register:
+            register_bits.append(f"{label}, as {agent.occupation}, {register}")
+    register_text = f" {'. '.join(register_bits)}." if register_bits else ""
     emotion_bits = []
     for agent, label in ((agent_a, agent_a.name), (agent_b, agent_b.name)):
         emotion = describe_emotion(agent.emotions)
@@ -462,7 +475,7 @@ def build_prompt(
         f"currently {_activity(agent_a)}) meets {agent_b.name} (hunger "
         f"{agent_b.hunger:.2f}, energy {agent_b.energy:.2f}, currently {_activity(agent_b)}). "
         f"They are {tie}. It is {season}."
-        f"{culture}{beliefs_text}{personality_text}{emotion_text}{memory_text}{just_now_text}"
+        f"{culture}{beliefs_text}{personality_text}{register_text}{emotion_text}{memory_text}{just_now_text}"
         f"{semantic_text}{secret_text}{mind_text}{voice_text}{lesson_text}{opportunity_text}"
         f"{objective_text}{open_thread_text} "
         "Write their brief exchange."

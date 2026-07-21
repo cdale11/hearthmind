@@ -408,17 +408,29 @@ reuse flagged in 1.A's shipped-status note above.
   one real, permanent bump. Same "closed-choice enforced server-side"
   shape as v1.3.17's `relationship_flags` lock, applied to traits
   instead of relationships.
-- **Occupation → identity/status/dialogue register** (prior
-  checklist's unshipped N2): occupation feeds `standing_penalty`'s
-  positive counterpart (a mayor/priest carries baseline status),
-  dialogue system-prompt gets an occupation-keyed register line ("a
-  priest speaks to belief, a banker to debt" — literally in the
-  manifesto), rivalry between same-occupation agents sharing one
-  building/market becomes a ledger-flag signal.
-- **Deeper inheritance**: H7's existing inheritance function
-  (land/goods/skill/trust-bias) extends to also pass beliefs,
-  traditions, rivalries, occupation lean, and reputation — more fields
-  on an existing mechanism, not a new one.
+- **Occupation → identity/status/dialogue register**: **SHIPPED,
+  v1.3.23** (prior checklist's unshipped N2), two of three sub-items.
+  `OCCUPATION_STATUS_BONUS` (mayor/priest) feeds directly into
+  `Population._prominence` — the positive counterpart to `standing_
+  penalty`'s ostracism-only signal, consumed by council eligibility and
+  core-cast refill (both already `_prominence`-driven). `OCCUPATION_
+  DIALOGUE_REGISTER` (priest/banker/mayor/teacher/scribe) is a light
+  manner-of-speaking hint in `dialogue.build_prompt` — "a priest speaks
+  to belief, a banker to debt," literally the manifesto's own example.
+  Rivalry between same-occupation agents sharing a building/market
+  deliberately NOT attempted — it needs a real colocation-detection
+  mechanism that doesn't exist yet; flagged as a future follow-up
+  rather than faked.
+- **Deeper inheritance**: **SHIPPED (partial), v1.3.23.** `_apply_
+  inheritance` gained a personal-belief transfer, same imperfect-
+  transmission shape lesson inheritance already established — the
+  deceased's freshest belief passes to the heir at `INHERITANCE_
+  BELIEF_CHANCE=0.4`, attributed and at reduced confidence. Traditions/
+  rivalries/occupation-lean/reputation transfer remain open —
+  reputation specifically is a derived/cached value (`Population.
+  reputation()`), not per-agent stored state, so "inheriting" it isn't
+  mechanically meaningful without a new stored field; flagged rather
+  than forced.
 
 ### 3.C — Village: traditions/laws/architecture via the Innovation Layer
 

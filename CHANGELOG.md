@@ -4,6 +4,40 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.23] — Phase 3.B remaining items: occupation-as-status, dialogue register, deeper inheritance
+
+Explicit user follow-up ("continue"): closes 3.B's two remaining
+unshipped items (occupation → identity/status/dialogue register,
+deeper inheritance) from docs/VISION-2026-07-21-SELFEVOLVING.md.
+
+New `agents/occupations.py` constants: `OCCUPATION_STATUS_BONUS`
+(mayor/priest only) feeds directly into `Population._prominence` — the
+"positive counterpart" to `Agent.standing_penalty`'s ostracism-only
+negative signal, consumed by the same council-eligibility ranking and
+core-cast refill `_prominence` already drives. `OCCUPATION_DIALOGUE_
+REGISTER` (priest/banker/mayor/teacher/scribe) is a light manner-of-
+speaking hint in `dialogue.build_prompt` — "a priest speaks to belief,
+a banker to debt," the doc's own example — same "garnish, never
+forced" treatment `voice` already gets; every other occupation is a
+genuine no-op. Rivalry between same-occupation agents sharing a
+building/market (the doc's third occupation-status bullet) is
+deliberately NOT attempted this pass — it needs a real colocation-
+detection mechanism that doesn't exist yet, flagged as a future
+follow-up rather than faked.
+
+Deeper inheritance: `Population._apply_inheritance` gained a personal-
+belief transfer, same imperfect-transmission shape v0.87.0's lesson
+inheritance already established — the deceased's freshest `Agent.
+beliefs` entry passes to the heir at `INHERITANCE_BELIEF_CHANCE=0.4`,
+attributed ("X used to believe...") and at reduced confidence
+(`INHERITANCE_BELIEF_CONFIDENCE_FRACTION=0.6`) rather than claimed as
+the heir's own hard-won theory.
+
+Verified: direct smoke tests (status bonus in `_prominence`, dialogue
+register text, belief-inheritance transfer shape), a clean 5000-tick
+LLM-disabled engine run with round-trip byte-equality,
+`scripts/verify_native_soak.py` (2 seeds x 3000 ticks) byte-identical.
+
 ## [1.3.22] — Phase 2 completion, Phase 3 first slice (3.A/3.B/3.D)
 
 Explicit user request: "complete phase 2 and start phase 3" —

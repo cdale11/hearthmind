@@ -523,6 +523,26 @@ outcome wiring), `scripts/verify_native_soak.py` byte-identical (2
 seeds x 800 ticks, plus a 4000-tick single-seed run past the
 checklist's own 3685-tick reference window).
 
+## Current state (v1.3.23)
+
+Explicit user follow-up ("continue"): closes 3.B's two remaining
+unshipped items. `OCCUPATION_STATUS_BONUS` (mayor/priest) feeds
+`Population._prominence` directly — the positive counterpart to
+`standing_penalty`'s ostracism-only signal, consumed by council
+eligibility/core-cast refill. `OCCUPATION_DIALOGUE_REGISTER` (priest/
+banker/mayor/teacher/scribe) is a light manner-of-speaking hint in
+`dialogue.build_prompt`. Same-occupation-rivalry deliberately not
+attempted — no colocation-detection mechanism exists yet.
+
+Deeper inheritance: `_apply_inheritance` gained a personal-belief
+transfer at `INHERITANCE_BELIEF_CHANCE=0.4`, same imperfect-
+transmission shape as the existing lesson inheritance, at reduced
+confidence.
+
+Verified: direct smoke tests, a 5000-tick LLM-disabled engine run with
+round-trip byte-equality, `scripts/verify_native_soak.py` (2 seeds x
+3000 ticks) byte-identical.
+
 ## Current state (v1.3.22)
 
 Explicit user request: "complete phase 2 and start phase 3."

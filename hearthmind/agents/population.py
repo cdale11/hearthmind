@@ -113,6 +113,8 @@ from hearthmind.agents.agent import (
     GRIEF_ENERGY_PENALTY,
     HUNGER_RATE,
     IMMUNITY_DURATION_TICKS,
+    INHERITANCE_BELIEF_CHANCE,
+    INHERITANCE_BELIEF_CONFIDENCE_FRACTION,
     INHERITANCE_LESSON_CHANCE,
     INSTITUTION_TEACHING_BONUS_MULTIPLIER,
     MATURITY_TICKS,
@@ -221,7 +223,7 @@ from hearthmind.agents.agent import (
     push_secret,
 )
 from hearthmind.agents.names import _roman, generate_names
-from hearthmind.llm.beliefs import push_lesson
+from hearthmind.llm.beliefs import MAX_PERSONAL_BELIEFS, push_lesson
 from hearthmind.economy.farms import (
     FARM_TOOL_MATERIALS_COST,
     HARVEST_AMOUNT,
@@ -244,12 +246,14 @@ from hearthmind.agents.occupations import (
     OCCUPATION_BLACKSMITH,
     OCCUPATION_BUILDER,
     OCCUPATION_BUSINESSMAN,
+    OCCUPATION_DIALOGUE_REGISTER,
     OCCUPATION_FARMER,
     OCCUPATION_FISHERMAN,
     OCCUPATION_MAYOR,
     OCCUPATION_PRIEST,
     OCCUPATION_SCRIBE,
     OCCUPATION_SHOPKEEPER,
+    OCCUPATION_STATUS_BONUS,
     OCCUPATION_SURVEYOR,
     OCCUPATION_TEACHER,
     OCCUPATION_WORKPLACES,
@@ -5784,6 +5788,23 @@ class Population:
             )
             inherited.append("a lesson")
 
+        # Phase 3.B "deeper inheritance" (docs/VISION-2026-07-21-
+        # SELFEVOLVING.md): same imperfect-transmission shape as the
+        # lesson transfer above, applied to the deceased's freshest
+        # personal belief instead — attributed, not claimed as the
+        # heir's own, and at reduced confidence (secondhand conviction).
+        if agent.beliefs and rng is not None and rng.random() < INHERITANCE_BELIEF_CHANCE:
+            source_belief = max(agent.beliefs, key=lambda b: b.get("formed_tick", 0))
+            heir.beliefs.append({
+                "subject": source_belief.get("subject", ""),
+                "belief": f"{agent.name} used to believe: {source_belief.get('belief', '')}",
+                "confidence": source_belief.get("confidence", 0.5) * INHERITANCE_BELIEF_CONFIDENCE_FRACTION,
+                "formed_tick": tick,
+            })
+            if len(heir.beliefs) > MAX_PERSONAL_BELIEFS:
+                del heir.beliefs[0]
+            inherited.append("a private belief")
+
         # v0.87.6, "deathbed release of secrets" (docs/IDEAS-2026-07-
         # EMERGENCE.md §1): a kept secret currently just dies with its
         # holder. The heir already resolved above (the same person H7
@@ -6077,7 +6098,11 @@ class Population:
         other mechanic — purely a ranking key, recomputed on demand.
         Phase L (docs/VISION-2026-07.md) added the reputation term: the
         vision doc explicitly calls for extending this ranking's inputs
-        rather than adding a parallel one."""
+        rather than adding a parallel one. Phase 3.B ("occupation ->
+        identity/status") adds `OCCUPATION_STATUS_BONUS` the same way —
+        a mayor/priest's office itself carries real baseline standing,
+        the "positive counterpart" to `standing_penalty`'s ostracism-
+        only negative signal."""
         bonds = sum(1 for v in agent.relationships.values() if abs(v) >= PROMINENCE_BOND_THRESHOLD)
         skill = sum(agent.skills.values())
         return (
@@ -6085,6 +6110,7 @@ class Population:
             + bonds * PROMINENCE_BOND_WEIGHT
             + skill * PROMINENCE_SKILL_WEIGHT
             + self.reputation(agent.id) * PROMINENCE_REPUTATION_WEIGHT
+            + OCCUPATION_STATUS_BONUS.get(agent.occupation, 0.0)
         )
 
     def reputation(self, agent_id: int) -> float:

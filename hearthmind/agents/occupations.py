@@ -101,6 +101,34 @@ when a caravan visits — a shopkeeper genuinely negotiates a better
 trade, capped the same way RAFT/CART bonuses are (see `Population.
 _maybe_schedule_caravan`'s caller in engine.py)."""
 
+OCCUPATION_STATUS_BONUS: dict[str, float] = {
+    OCCUPATION_MAYOR: 40.0,
+    OCCUPATION_PRIEST: 20.0,
+}
+"""Phase 3.B "occupation -> identity/status" (docs/VISION-2026-07-21-
+SELFEVOLVING.md): the "positive counterpart" to `Agent.standing_
+penalty`'s ostracism-only negative signal — a mayor/priest carries real
+baseline social standing from the office itself, not just their
+individual bonds/skill/reputation. Added directly into `Population.
+_prominence`'s score (same units as `age_ticks`, so these read as
+"worth several thousand ticks of ordinary social credit," a real but
+not overwhelming edge) — consumed by council eligibility ranking and
+core-cast refill, both already `_prominence`-driven. Every other
+occupation reads 0.0 (no entry), a genuine no-op."""
+
+OCCUPATION_DIALOGUE_REGISTER: dict[str, str] = {
+    OCCUPATION_PRIEST: "speaks in terms of faith, ritual, and what people owe each other spiritually",
+    OCCUPATION_BANKER: "speaks in terms of debt, ledgers, and what's owed",
+    OCCUPATION_MAYOR: "speaks in terms of the settlement's needs as a whole, not just their own",
+    OCCUPATION_TEACHER: "speaks in terms of what's been learned or ought to be taught",
+    OCCUPATION_SCRIBE: "speaks in terms of what's been recorded and what's worth remembering",
+}
+"""Phase 3.B: a light manner-of-speaking hint, same "garnish, never
+forced" treatment `Agent.voice` already gets in `dialogue.build_prompt`
+— only the occupations named above carry a real register (the doc's
+own example, "a priest speaks to belief, a banker to debt"); every
+other occupation is a genuine no-op, not a fabricated one."""
+
 BUILDER_WORK_BONUS = 1.5
 """Same magnitude as OCCUPATION_STAFF_BONUS, applied directly to a
 builder's own construction/repair contribution (see `Population.

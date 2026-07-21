@@ -781,6 +781,21 @@ had no lessons to pass on (the common case for a non-core-cast agent,
 since `lessons` are currently only LLM-authored for the core cast plus
 the two deterministic template triggers from item 1)."""
 
+INHERITANCE_BELIEF_CHANCE = 0.4
+"""Phase 3.B "deeper inheritance" (docs/VISION-2026-07-21-SELFEVOLVING.
+md): chance the deceased's freshest personal belief (`Agent.beliefs`,
+core-cast-only in practice — same scope lessons/secrets already have)
+passes to their heir on death, same imperfect-transmission shape as
+`INHERITANCE_LESSON_CHANCE` — attributed ("X used to believe: ...")
+rather than claimed as the heir's own private theory, and at reduced
+confidence (see INHERITANCE_BELIEF_CONFIDENCE_FRACTION). A no-op when
+the deceased held no personal beliefs."""
+
+INHERITANCE_BELIEF_CONFIDENCE_FRACTION = 0.6
+"""A secondhand, inherited belief starts less certain than the
+deceased's own conviction in it — the heir wasn't there to live the
+experience that formed it, only heard the retelling."""
+
 POPULATION_CAP = 400
 """Fallback safety valve when map area isn't available to `carrying_
 capacity()` (e.g. a caller that doesn't pass `map_tiles` — see
