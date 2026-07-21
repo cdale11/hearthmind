@@ -88,16 +88,21 @@ Stripped of repetition, the ~150 bullets reduce to five real claims:
 
 ## Phase 0 — Shared substrate (prerequisite, mostly already scoped)
 
+**Status: SHIPPED, v1.3.18.** `agents/ledger.py` — see CHANGELOG.md's
+[1.3.18] entry for the full account, including a real bug the native
+soak caught mid-migration (a naive "neutral value means absent" scheme
+auto-pruned an edge on an explicit `agent.debts[id] = 0.0` write,
+breaking the very next re-read — fixed with a genuine `None` presence
+sentinel).
+
 Nothing below is safe to build on top of the current scattered
 `relationships`/`trust`/`debts` scalars — the manifesto's own "one
 shared relationship ledger used by every interpersonal system" is this
-project's Tier 1 from the prior checklist, verbatim. Status: **not
-started** (flagged too large/risky to do blind in the v1.3.17 pass).
-This vision does not change that scoping — it just makes the ledger's
-urgency higher, since Phase 1's inventor/adopter tracking, dialogue's
-promises/debts, and every pillar's deepening in Phase 3 all want to
-write typed edges onto the same substrate. **Confirmed as the starting
-point** (explicit user instruction).
+project's Tier 1 from the prior checklist, verbatim. This vision does
+not change that scoping — it just makes the ledger's urgency higher,
+since Phase 1's inventor/adopter tracking, dialogue's promises/debts,
+and every pillar's deepening in Phase 3 all want to write typed edges
+onto the same substrate.
 
 **"Make all relationships directional rather than symmetric"**:
 already true structurally today — `Agent.relationships`/`Agent.trust`

@@ -4,6 +4,55 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.18] — Self-evolving world, Phase 0: the pairwise ledger
+
+Explicit user directive: "Start Phase 0" of `docs/VISION-2026-07-21-
+SELFEVOLVING.md` — the shared pairwise ledger every later phase
+(Innovation, dialogue-as-event, deeper Human/Village/Nature emergence)
+needs as its substrate.
+
+New `hearthmind/agents/ledger.py`: `LedgerEdge` (one agent's directional
+view of one other — fondness/trust/debt/flag/grievances plus two new
+capabilities, `promises` and `history_tags`, for Phase 2/3 to consume)
+and `Ledger`, consolidating what used to be five separate scattered
+dicts on `Agent` (`relationships`, `trust`, `debts`,
+`relationship_flags`, `grievances`) into one shared per-pair store.
+Each of those five attributes is now a dict-like view (`_FieldView`/
+`_GrievanceView`) over the shared `Ledger` rather than an independent
+dict — same external shape (still independently sparse, still every
+`.get()`/`.items()`/`del`/`in` pattern works unmodified) via the same
+"compatibility-shim property, zero call-site changes" discipline the
+native `AgentStore` migration (v0.65.0) established for a different
+set of scalars — ~90 existing call sites across the codebase needed
+zero edits.
+
+Real bug caught mid-migration by the native soak (not by the unit
+tests, which didn't exercise the exact code path): `Population.
+_record_debt` does `giver.debts[id] = reverse - settled` then
+immediately re-reads `giver.debts[id]` on the next line before an
+explicit `.pop`. A naive "the field's neutral value means the pair is
+absent" scheme (comparing against a default float) auto-pruned the
+shared edge the instant that line wrote `0.0`, turning the very next
+read into a spurious `KeyError` — a real regression a plain-dict
+migration doesn't have, since setting a dict value to `0.0` doesn't
+delete the key. Fixed by giving `fondness`/`trust`/`debt` a genuine
+`None` presence sentinel (an explicit `0.0` is a legitimate, still-
+readable value) and removing all auto-pruning from `__setitem__` —
+only an explicit `del`/`.pop()` ever prunes now, exactly matching the
+plain-dict semantics being replaced.
+
+Verified: direct unit tests (per-field sparsity preserved with a
+shared edge, partial-delete keeps the edge alive while other fields
+are set, full-clear prunes it, promises/history_tags CRUD + `to_dict`/
+`from_dict` round trip, the grievance-mutation regression the
+`_GrievanceView` split avoids), all of v1.3.17's Tier 0/2.2 smoke
+tests re-run unmodified against the new backing (proving the
+compatibility-shim claim), `scripts/verify_native_soak.py` byte-
+identical (2 seeds x 800 ticks, then a 4000-tick single-seed run —
+this run is what actually caught and confirmed the fix for the
+`_record_debt` bug above, since it exercises real trade activity the
+narrower unit tests didn't happen to hit).
+
 ## [1.3.17] — "Definitive checklist" Tier 0 + 2.2: stop the self-erasure, un-throttle disputes
 
 Explicit user request: implement items from an uploaded audit

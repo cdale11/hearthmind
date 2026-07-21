@@ -416,6 +416,32 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.18)
+
+Explicit user directive: "Start Phase 0" of `docs/VISION-2026-07-21-
+SELFEVOLVING.md` — the shared pairwise ledger every later self-
+evolving-world phase needs. New `agents/ledger.py`: `LedgerEdge`
+(fondness/trust/debt/flag/grievances + new `promises`/`history_tags`
+for Phase 2/3) and `Ledger`, consolidating what were five separate
+`Agent` dicts (`relationships`/`trust`/`debts`/`relationship_flags`/
+`grievances`) into one shared per-pair store. Each of the five is now
+a dict-like view over the shared ledger (`_FieldView`/`_GrievanceView`)
+— same external shape, ~90 existing call sites needed zero edits, same
+"compatibility-shim property" discipline `AgentStore` (v0.65.0)
+established. Native soak caught a real bug mid-migration: `_record_
+debt` writes `giver.debts[id] = 0.0` then immediately re-reads it —
+comparing against a "neutral value means absent" default would have
+auto-pruned the edge on that write, turning the re-read into a spurious
+KeyError. Fixed with a genuine `None` presence sentinel on the three
+float fields (explicit 0.0 stays a valid, readable, present value)
+and removing all auto-pruning from `__setitem__` — only explicit `del`/
+`.pop()` prunes now, matching the plain-dict semantics being replaced.
+Verified: direct unit tests, all of v1.3.17's Tier 0/2.2 tests re-run
+unmodified against the new backing, `verify_native_soak.py` byte-
+identical (2x800 + a 4000-tick single-seed run — the run that actually
+caught the bug above). Phases 1-4 of the self-evolving-world roadmap
+remain open; see the vision doc.
+
 ## Current state (v1.3.17)
 
 Explicit user request: implement items from an uploaded audit,

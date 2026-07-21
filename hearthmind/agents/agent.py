@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from enum import Enum
 
+from hearthmind.agents.ledger import Ledger
 from hearthmind.util import clamp
 
 try:
@@ -1370,20 +1371,19 @@ protected store rather than relying on the churning `memories` log."""
 def add_grievance(agent: "Agent", source_id: int, text: str) -> None:
     """Appends one tagged grievance against `source_id`, FIFO-evicted at
     MAX_GRIEVANCE_TAGS_PER_SOURCE. Never auto-cleared by time — only
-    `clear_grievance` (an explicit reconciliation) removes an entry."""
-    if not text:
-        return
-    tags = agent.grievances.setdefault(source_id, [])
-    tags.append(text)
-    if len(tags) > MAX_GRIEVANCE_TAGS_PER_SOURCE:
-        del tags[0]
+    `clear_grievance` (an explicit reconciliation) removes an entry.
+    Goes through `agent.ledger` directly rather than `agent.grievances
+    .setdefault(...)` — see `_GrievanceView`'s docstring in
+    agents/ledger.py for why the dict-proxy's `setdefault` isn't safe
+    for a mutable-list field backed by shared ledger storage."""
+    agent.ledger.add_grievance(source_id, text, MAX_GRIEVANCE_TAGS_PER_SOURCE)
 
 
 def clear_grievance(agent: "Agent", source_id: int) -> None:
     """Explicit reconciliation: drops every grievance tag against
     `source_id`. Distinct from decay — grievances never fade on their
     own, see `Agent.grievances`'s docstring."""
-    agent.grievances.pop(source_id, None)
+    agent.ledger.clear_grievance(source_id)
 
 
 def decay_emotions(agent: "Agent") -> None:
@@ -1728,11 +1728,20 @@ class Agent:
         self._settlement_id = settlement_id
         self.goal_reason = goal_reason
         # --- variable-size fields — always plain Python attributes ----------
-        self.relationships: dict[int, float] = {} if relationships is None else relationships
+        # relationships/trust/debts/relationship_flags/grievances: all
+        # five now back onto one shared `Ledger` (Phase 0 of "the
+        # self-evolving world," docs/VISION-2026-07-21-SELFEVOLVING.md
+        # — agents/ledger.py) instead of five independent dicts. Each
+        # attribute below is still a real dict-like object with the
+        # exact same sparsity/behavior as before (see `ledger.py`'s
+        # `_FieldView`/`_GrievanceView`) — assigned further down, once
+        # all five constructor args are in scope, so this is a forward
+        # reference; see `self.ledger = Ledger()` below.
+        #
         # trust: -1..1 per source id — credibility, a distinct axis from
         # `relationships` (fondness); the two can diverge. Low trust makes
         # a rumor land with visible skepticism. See apply_dialogue.
-        self.trust: dict[int, float] = {} if trust is None else trust
+        #
         # inventory: personal possessions, today just {"food": 0..
         # PERSONAL_FOOD_CAPACITY} — the one thing unambiguously this
         # agent's own, vs. communal Settlement.materials/granary food.
@@ -1828,41 +1837,44 @@ class Agent:
         # (bounded by EMOTION_* constants themselves, no separate cap
         # needed the way memories/beliefs need MAX_*).
         self.emotions: dict[str, float] = {} if emotions is None else emotions
-        # debts: Phase L "Economy depth" (docs/VISION-2026-07.md, "Society
-        # & Power") — id -> abstract amount THIS agent owes that source,
-        # written only by `_record_debt` (agents/population.py) when a
-        # barter trade leaves the recipient in the giver's debt. Decays
-        # slowly every tick (same "prune small entries" discipline as
-        # trust/relationships/emotions) so an old, small debt eventually
-        # reads as forgiven rather than accumulating forever.
-        self.debts: dict[int, float] = {} if debts is None else debts
-        # relationship_flags: "Definitive checklist" Tier 0.1 — id ->
-        # "feud" (the only flag written this pass; "bond"/formative-
-        # attachment locking is a documented follow-up, not guessed at
-        # here). A flagged pair is exempted from `Population.
-        # _update_relationships`'s ambient decay entirely: a hardened
-        # feud is meant to hold at whatever depth it deepened to
-        # ("hardened for good," see apply_dispute's own narration) until
-        # an explicit reconcile/council_ruling outcome clears the flag —
-        # previously the ambient RELATIONSHIP_DECAY_PER_TICK eroded it
-        # back toward 0 every tick regardless, silently undoing what the
-        # narration promised. Sparse: only ever has entries for pairs
-        # with a real hardened dispute outcome.
-        self.relationship_flags: dict[int, str] = {} if relationship_flags is None else relationship_flags
-        # grievances: "Definitive checklist" Tier 0.2 — id -> a small
-        # (MAX_GRIEVANCE_TAGS_PER_SOURCE), FIFO-capped list of short,
-        # concrete wrongs suffered from that source ("refused to help
-        # fight the fire," "took my grain while I starved"). Distinct
-        # from the numeric `relationships`/`trust` scalars (which say
-        # HOW MUCH, not WHAT) and from the churning 8-slot `memories`
-        # log (which a grievance can still be evicted out of by an
-        # ordinary day's flood of routine events) — this is a small,
-        # protected, text-tagged store that is never touched by
-        # MAX_AGENT_MEMORIES eviction and only ever cleared by an
-        # explicit reconciliation, not by time or by being crowded out.
-        # Written at dispute/ostracism/theft-victimization time; read by
-        # dispute framing and (future work) interpersonal goal choice.
-        self.grievances: dict[int, list[str]] = {} if grievances is None else grievances
+        # ledger: the shared substrate for relationships/trust/debts/
+        # relationship_flags/grievances (Phase 0, agents/ledger.py) —
+        # seeded from whichever of the five constructor args were
+        # passed (from_dict reconstruction, or a legacy direct-
+        # construction call site), then each of the five attributes
+        # below is a live dict-like view over it. debts: Phase L
+        # "Economy depth" — id -> abstract amount THIS agent owes that
+        # source, written only by `_record_debt` (agents/population.py).
+        # Decays slowly every tick EXCEPT past `DEBT_SIGNIFICANT_
+        # THRESHOLD` (see decay_debts) so an old, small debt reads as
+        # forgiven while a real standing obligation doesn't. relation
+        # ship_flags: "Definitive checklist" Tier 0.1 — id -> "feud"
+        # (the only flag written so far). A flagged pair is exempted
+        # from `Population._update_relationships`'s ambient decay
+        # entirely: a hardened feud holds at whatever depth it
+        # deepened to until an explicit reconcile/council_ruling clears
+        # it. grievances: Tier 0.2 — id -> a small (MAX_GRIEVANCE_
+        # TAGS_PER_SOURCE), FIFO-capped list of concrete wrongs
+        # suffered from that source, distinct from the numeric scalars
+        # (HOW MUCH vs. WHAT) and from the churning 8-slot `memories`
+        # log — a protected store untouched by MAX_AGENT_MEMORIES
+        # eviction, cleared only by explicit reconciliation.
+        self.ledger = Ledger()
+        for other_id, value in (relationships or {}).items():
+            self.ledger.get_or_create(other_id).fondness = value
+        for other_id, value in (trust or {}).items():
+            self.ledger.get_or_create(other_id).trust = value
+        for other_id, value in (debts or {}).items():
+            self.ledger.get_or_create(other_id).debt = value
+        for other_id, value in (relationship_flags or {}).items():
+            self.ledger.get_or_create(other_id).flag = value
+        for other_id, value in (grievances or {}).items():
+            self.ledger.get_or_create(other_id).grievances = list(value)
+        self.relationships = self.ledger.fondness_view
+        self.trust = self.ledger.trust_view
+        self.debts = self.ledger.debt_view
+        self.relationship_flags = self.ledger.flag_view
+        self.grievances = self.ledger.grievance_view
         # standing_penalty: §1 "deviance loop" (docs/IDEAS-2026-07-
         # EMERGENCE.md) — a bounded 0..1 civic penalty applied by an
         # "ostracism" dispute outcome (`Population.apply_dispute`),
@@ -2169,6 +2181,16 @@ class Agent:
             "debts": {str(k): round(v, 4) for k, v in self.debts.items()},
             "relationship_flags": {str(k): v for k, v in self.relationship_flags.items()},
             "grievances": {str(k): list(v) for k, v in self.grievances.items()},
+            # ledger_extra: the two Phase 0 additions with no legacy
+            # dict of their own — promises (Phase 2) / history_tags —
+            # only entries that actually have one or the other, keyed
+            # separately from the five legacy keys above so their
+            # shape stays exactly what it always was.
+            "ledger_extra": {
+                str(other_id): {"promises": list(edge.promises), "history_tags": sorted(edge.history_tags)}
+                for other_id, edge in self.ledger.edges.items()
+                if edge.promises or edge.history_tags
+            },
             "stuck_ticks": self.stuck_ticks,
             "last_move_dx": self.last_move_dx,
             "last_move_dy": self.last_move_dy,
@@ -2203,7 +2225,7 @@ class Agent:
             memory_causes += [""] * (len(memories) - len(memory_causes))
         elif len(memory_causes) > len(memories):
             memory_causes = memory_causes[:len(memories)]
-        return cls(
+        _agent = cls(
             id=data["id"],
             name=data["name"],
             x=data["x"],
@@ -2261,3 +2283,8 @@ class Agent:
             core_memory_salience=list(data.get("core_memory_salience", [])),
             standing_penalty=data.get("standing_penalty", 0.0),
         )
+        for other_id_str, extra in data.get("ledger_extra", {}).items():
+            edge = _agent.ledger.get_or_create(int(other_id_str))
+            edge.promises = [dict(p) for p in extra.get("promises", [])]
+            edge.history_tags = set(extra.get("history_tags", []))
+        return _agent
