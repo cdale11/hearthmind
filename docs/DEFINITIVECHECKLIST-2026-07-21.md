@@ -161,19 +161,16 @@ verified, some judgment · **[HYPOTHESIS]** confirm with a run first.
 
 ### Tier 1 — The ledger (the keystone; nothing compounds before it)
 
-- [ ] **1.1 [CERTAIN]** One typed pairwise ledger (fondness, trust,
+- [x] **1.1 [CERTAIN]** One typed pairwise ledger (fondness, trust,
   debt/favor, tagged grievances, history flags, rivalry/alliance) that
   every interpersonal system reads first. Migrate the scattered scalars
   into it. This is the edge-substrate the whole project has been
-  missing. — **NOT shipped.** v1.3.17 added two of the ledger's pieces
-  additively (`relationship_flags`, `grievances`) directly on `Agent`
-  rather than as a new unified structure — the full migration this item
-  actually asks for (one typed object every interpersonal system reads
-  first, replacing the scattered `relationships`/`trust`/`debts`
-  scalars) touches nearly every interpersonal call site in the
-  codebase and is too large/risky to do in the same pass as Tier 0
-  without live-testing each migrated consumer. Real next step, not
-  abandoned.
+  missing. — **Shipped v1.3.18** (docs/VISION-2026-07-21-SELFEVOLVING.md
+  Phase 0): new `agents/ledger.py` (`LedgerEdge`/`Ledger`) consolidates
+  the five scattered `Agent` dicts (`relationships`/`trust`/`debts`/
+  `relationship_flags`/`grievances`) into one shared per-pair store,
+  each exposed as a dict-like view over it so ~90 existing call sites
+  needed zero edits — the exact migration this item asked for.
 
 ### Tier 2 — Point the LLM budget at individuals (Proof 1's fix)
 
@@ -236,8 +233,12 @@ verified, some judgment · **[HYPOTHESIS]** confirm with a run first.
 - [ ] **5.2 [CERTAIN]** Every dialogue prompt carries goal + stake +
   asymmetry; replace "Write their brief exchange" with a tension to
   advance or resolve.
-- [ ] **5.3 [CERTAIN]** Dialogue produces a structured outcome that
-  mutates the ledger (today: only trust/affinity + rumor).
+- [x] **5.3 [CERTAIN]** Dialogue produces a structured outcome that
+  mutates the ledger (today: only trust/affinity + rumor). —
+  **Shipped v1.3.21**: five optional structured-outcome fields
+  (promise/debt_delta/secret_revealed/misunderstanding/goal_change),
+  mechanically applied to the ledger/agent state by `Population.
+  apply_dialogue`.
 - [ ] **5.4 [LIKELY]** Craft pass: exemplars of tense exchanges, ban the
   mutual-agreement aphorism pattern. *Then* collect the fine-tune
   archive — never before, or you bake the deadness in.

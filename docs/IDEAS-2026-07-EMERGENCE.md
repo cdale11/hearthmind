@@ -1,18 +1,27 @@
 # Hearthmind — What's Still Missing (July 2026 outside review)
 
-Status: **idea checklist only — nothing here is implemented or green-lit.**
-An outside critical/creative pass over the repo at v0.87.5, deliberately
-aimed *past* the shipped Phases A–N and the 2026-07 vision roadmap.
-Every item below was checked against the current code before being
-listed (no crime/justice loop exists, no ceremonies, no individual
-inter-settlement migration, no letters, no catch-up digest, no
-prophecy state, no anomaly/highlight detection, no observer-attention
-signal, no dialect drift, no successor-world mode — the grep trail is
-real). Each item states what it is, why it should raise emergence or
-observer surprise, and which existing machinery it rides, in keeping
-with the standing rules: extend-don't-duplicate, bounded collections,
-fallback on every LLM call, ambiguity discipline, "maximize emergence
-per LLM call."
+Status: **fully resolved as of v0.87.31** — every checklist item across
+§0-§9 is either shipped, confirmed already-shipped under another name,
+or (§8's LoRA fine-tuning item only) explicitly and correctly left as
+data-collection-only pending a real training-pipeline effort outside
+`SimulationEngine`'s scope (see CLAUDE.md's "Long-term design vision"
+section). Kept as a historical decision record, like docs/DECISIONS.md
+— the original outside-review text below is preserved unedited except
+for each item's own `[x] ... — shipped vX.Y.Z` marker; work from it
+again only on future explicit direction naming a specific item.
+
+Originally: an outside critical/creative pass over the repo at
+v0.87.5, deliberately aimed *past* the shipped Phases A–N and the
+2026-07 vision roadmap. Every item below was checked against the
+current code before being listed (no crime/justice loop exists, no
+ceremonies, no individual inter-settlement migration, no letters, no
+catch-up digest, no prophecy state, no anomaly/highlight detection, no
+observer-attention signal, no dialect drift, no successor-world mode —
+the grep trail is real, at the time). Each item states what it is, why
+it should raise emergence or observer surprise, and which existing
+machinery it rides, in keeping with the standing rules: extend-don't-
+duplicate, bounded collections, fallback on every LLM call, ambiguity
+discipline, "maximize emergence per LLM call."
 
 Ordering within each section is roughly by leverage.
 
