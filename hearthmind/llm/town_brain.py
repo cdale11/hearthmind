@@ -32,6 +32,7 @@ def build_prompt(
     settlement_summary: dict, player_whispers: list[str], beliefs: list[dict] | None = None,
     council_beliefs: list[dict] | None = None, narrative_theme: str = "", belief_digest: str = "",
     culture_digest: str = "", council_faction_name: str = "", prophecy: dict | None = None,
+    known_concepts: list[str] | None = None,
 ) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
@@ -98,6 +99,16 @@ def build_prompt(
         "\nThe village has grown a little wary of the outside hand that occasionally nudges it."
         if standing < -0.4 else ""
     )
+    # Phase 1 "self-evolving world" (docs/VISION-2026-07-21-
+    # SELFEVOLVING.md): established InventedConcepts are real,
+    # referenceable history — the concrete proof that ANY system can
+    # read what the Innovation Layer has produced, not just narrate
+    # around it. Ambient grounding only, same "texture, never a
+    # directive" treatment as narrative_theme.
+    concepts_text = (
+        "\nIdeas the village has come to rely on: " + "; ".join(known_concepts) + "."
+        if known_concepts else ""
+    )
     sick_count = population_summary.get("sick_count", 0)
     sickness_text = (
         f", {sick_count} currently ill" if sick_count else ""
@@ -124,7 +135,7 @@ def build_prompt(
     # read before the ask, not the first thing forgotten.
     return (
         f"{stat_block}\n"
-        f"Recent history:\n{events_text}{whisper_text}{digest_text}{culture_digest_text}{beliefs_text}{council_text}{faction_leaning_text}{standing_text}{prophecy_text}"
+        f"Recent history:\n{events_text}{whisper_text}{digest_text}{culture_digest_text}{beliefs_text}{council_text}{faction_leaning_text}{standing_text}{prophecy_text}{concepts_text}"
         # Phase M "Narrative Direction": ambient bias only, never a
         # directive — the theme colors how this decision is framed, it
         # never dictates it.

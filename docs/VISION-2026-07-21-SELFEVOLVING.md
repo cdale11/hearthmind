@@ -137,6 +137,25 @@ one rather than deferring the actual interaction to later.
 
 ### 1.A — Innovation: the core proposal → validate → persist pipeline
 
+**Status: SHIPPED, v1.3.19** (elevated to also include evolve/merge —
+see explicit user follow-up below — rather than deferring them to
+Phase 3.A as originally scoped here). See CHANGELOG.md's [1.3.19]
+entry for the full account. Not yet done: full main-UI stat-tile
+surfacing (dev-console diagnostics shipped; flagged fast-follow) and
+full reuse of `invention_knowledge`'s teach/lose/rediscover lifecycle
+for adoption spread (a minimal independent spread step shipped
+instead, documented simplification).
+
+**Explicit user follow-up (2026-07-21)**, received after this section
+was first written: "invented concepts shouldn't just exist. They
+should become building blocks... treated as first-class persistent
+entities that any system can discover, reference, reinterpret,
+combine, mutate, and build upon indefinitely." This confirmed/
+sharpened the design below rather than changing it — the `lineage`
+field and "parents are never destroyed" discipline were already
+planned for Phase 3.A; the change is that evolve/merge ship NOW,
+alongside propose, not later.
+
 The manifesto's genuinely novel architectural ask, and the one that
 needed the most design work up front.
 
@@ -329,21 +348,21 @@ Same "advance all four in one batch" discipline as Phase 1, now going
 past the minimum viable slice into the manifesto's remaining items per
 pillar.
 
-### 3.A — Innovation: full category coverage + spread lifecycle
+### 3.A — Innovation: remaining refinements
 
-Remaining `InventedConcept` categories (custom/law/ritual/saying/
-profession/institution_flavor/ecological) beyond 1.A's technology-only
-scope; evolve/merge as a rare round-robin-bounded follow-on LLM job
-(same shape as culture_digest/institution_culture) — a mutation of an
-established concept (new entry, `lineage.evolved_from` set) or a merge
-of two co-adopted concepts, both re-run through 1.A's validate step,
-never a shortcut. `status` transitions `spreading -> established`
-once adoption crosses a meaningful population fraction, `-> abandoned`
-if it never spreads and ages out. Reserved deeper reasoning: the
-proposal call gets a larger `llm_num_predict`/lower temperature than
-routine dialogue/cognition (per-task generation-config override,
-extending existing per-call plumbing) — "reserve deeper reasoning for
-discoveries... keep routine dialogue lightweight," concretely.
+**Partially shipped early**, folded into 1.A (v1.3.19) instead of
+waiting for this section: full category coverage (custom/law/ritual/
+saying/profession/institution_flavor/ecological, via `_maybe_
+schedule_ontology_proposal`) and evolve/merge (`_maybe_schedule_
+ontology_evolution`) are both live. What's left here: **reserved
+deeper reasoning** — the proposal/evolve/merge calls getting a larger
+`llm_num_predict`/lower temperature than routine dialogue/cognition
+(per-task generation-config override, extending existing per-call
+plumbing) — "reserve deeper reasoning for discoveries... keep routine
+dialogue lightweight," concretely, not yet wired. Also still open:
+population-scaled (not flat) adoption thresholds once real numbers
+exist to tune against, and the full `invention_knowledge`-lifecycle
+reuse flagged in 1.A's shipped-status note above.
 
 ### 3.B — Humans: identity, irreversible change, deeper inheritance
 

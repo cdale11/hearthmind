@@ -416,6 +416,37 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.19)
+
+Explicit user follow-up on Phase 1: invented concepts must be real
+building blocks — "any system can discover, reference, reinterpret,
+combine, mutate, and build upon indefinitely," not inert flavor.
+Elevates combine (merge)/mutate (evolve) into this same pass rather
+than deferring them. New `world/ontology.py` (`InventedConcept` +
+`World.invented_concepts` registry, world-scoped) and `llm/ontology.py`
+(propose/evolve/merge pipelines, deterministic `validate_hook` re-
+verification, never an LLM self-check). Bounded, not fully open:
+category/hook-type are closed vocabularies (enums partly mirrored into
+the C++ native store make runtime schema mutation unsafe); name/
+description/lineage are genuinely open-ended. Lineage (`evolved_from`/
+`merged_from`) is a real DAG — evolving/merging never destroys a
+parent concept, so reinterpretation chains stay walkable.
+`_maybe_schedule_invention` (existing, unchanged mechanically) now
+also registers a `technology`-category concept — the bridge that
+keeps this from duplicating a disconnected registry; new `_maybe_
+schedule_ontology_proposal` covers the other seven categories, new
+`_maybe_schedule_ontology_evolution` does evolve/merge (rare, world-
+scoped), new zero-LLM-cost `_maybe_spread_concepts` grows adoption
+(documented simplification — full reuse of `invention_knowledge`'s
+teach/lose/rediscover lifecycle is a flagged follow-up). `town_brain.
+build_prompt` references established concepts as grounding — proof
+any system can read what Innovation produces. Verified: unit tests,
+World round-trip, a 6000-tick real-engine run with the new jobs live,
+native soak byte-identical. Main-UI stat tile flagged as fast-follow
+(dev-console diagnostics counts shipped now); Phases 1.B/1.C/1.D
+(Humans' long-term goal, Village NPC->cognition, Nature->Human
+disaster scarring) and Phase 2+ remain open — see the vision doc.
+
 ## Current state (v1.3.18)
 
 Explicit user directive: "Start Phase 0" of `docs/VISION-2026-07-21-

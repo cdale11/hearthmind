@@ -4,6 +4,67 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.19] — Self-evolving world, Phase 1.A: the Innovation Layer
+
+Explicit user follow-up on Phase 1: "invented concepts shouldn't just
+exist. They should become building blocks... treated as first-class
+persistent entities that any system can discover, reference,
+reinterpret, combine, mutate, and build upon indefinitely." Elevates
+the Innovation Layer's proposal/validate/persist pipeline PLUS its
+combine (merge) and mutate (evolve) lifecycle into this single pass,
+rather than deferring combine/merge to a later phase as the original
+Phase 1 scoping had planned — see docs/VISION-2026-07-21-
+SELFEVOLVING.md's Phase 1.A for the full design writeup.
+
+New `world/ontology.py`: `InventedConcept` (id, name, description,
+category, status, `mechanical_hook`, `adopter_ids`, `lineage`) and a
+shared `World.invented_concepts` registry (world-scoped, not
+settlement-private — an idea can be referenced beyond where it
+started). Deliberately bounded, not a fully open schema: category and
+mechanical-hook-type are closed vocabularies (name/description/
+lineage are genuinely open-ended free text) since `BuildingKind`/
+`AgentGoal`/etc. are Python enums partly mirrored into the C++ native
+store's integer code tables — a literal runtime schema mutation isn't
+safely attemptable. New `llm/ontology.py`: propose (grounded in real
+settlement pressure/prosperity), evolve (mutate one established
+concept), and merge (combine two) pipelines, each with deterministic
+`validate_hook` re-verification against real skill/goal/invention-
+category names — never an LLM self-check.
+
+Lineage (`evolved_from`/`merged_from`) is a real DAG: evolving or
+merging never destroys or alters the parent concept(s), so a chain of
+reinterpretation stays fully walkable — "build upon indefinitely"
+literally. `SimulationEngine._maybe_schedule_invention`'s existing job
+(unchanged mechanically) now ALSO registers its result as a
+`technology`-category `InventedConcept` — the bridge that keeps this
+from becoming a disconnected duplicate registry; the seven other
+categories (custom/law/ritual/saying/profession/institution_flavor/
+ecological) come from a new `_maybe_schedule_ontology_proposal` job.
+New `_maybe_schedule_ontology_evolution` (rare, year_end, world-scoped)
+does the evolve/merge. New zero-LLM-cost `_maybe_spread_concepts`
+(every tick, rare roll) grows adoption — a documented simplification
+of the full `invention_knowledge` teach/lose/rediscover lifecycle,
+flagged as a follow-up rather than fully unified this pass.
+`town_brain.build_prompt` gained a `known_concepts` grounding line —
+concrete proof any system can reference established concepts, not
+just narrate around them.
+
+Verified: direct unit tests (registry CRUD, duplicate detection,
+status promotion, lineage preserving parents, `validate_hook`
+rejecting invalid targets, `to_dict`/`from_dict` round trip, cap
+pruning respecting lineage references), a real `World.to_dict`/
+`from_dict` round trip through a live-created world, a 6000-tick real-
+engine run (new jobs actively scheduled every tick) with zero crashes,
+`scripts/verify_native_soak.py` byte-identical (2 seeds x 800 ticks,
+re-run after the diagnostics/town_brain edits). A full main-UI stat-
+tile pass (an "Ideas & Innovations" panel, adopter view in the NPC
+inspector) is flagged as a fast-follow — this batch's registry fields
+are dev-console-reachable (`invented_concepts_total`/`_established`/
+`_by_category` in `/diagnostics`) but not yet a dedicated settlement
+panel, since the settlement-summary broadcast path needed for a clean
+per-settlement tile touches more of the multi-settlement plumbing than
+was safe to rush in the same pass as the registry itself.
+
 ## [1.3.18] — Self-evolving world, Phase 0: the pairwise ledger
 
 Explicit user directive: "Start Phase 0" of `docs/VISION-2026-07-21-

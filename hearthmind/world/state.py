@@ -39,6 +39,7 @@ from hearthmind.world.disasters import (
 )
 from hearthmind.world.hydrology import LakeState, generate_rivers, identify_lakes, tick_lakes
 from hearthmind.world.minerals import MineralGrid
+from hearthmind.world.ontology import InventedConcept
 from hearthmind.world.weather import WeatherState, compute_weather
 from hearthmind.world.wildlife import WildlifeGrid
 from hearthmind.util import namespaced_rng
@@ -313,6 +314,17 @@ class World:
     (SimulationEngine) log a one-off migration event per subsystem and
     persist the change. Never itself serialized; see docs/DECISIONS.md,
     M2-3 and A4."""
+    invented_concepts: dict[int, InventedConcept] = field(default_factory=dict)
+    """The Innovation Layer's persistent registry (Phase 1, docs/
+    VISION-2026-07-21-SELFEVOLVING.md) — see world/ontology.py. World-
+    scoped, not per-settlement: an invented concept is a first-class
+    object any settlement/system can reference, same "shared, not
+    settlement-private" reasoning `roads`' paving tier already
+    established."""
+    next_concept_id: int = 1
+    """Monotonic id counter for `invented_concepts` — never reused,
+    same discipline as every other id counter in this codebase (e.g.
+    `Population`'s own agent-id counter)."""
     _water_tiles: set = field(default=None, compare=False, repr=False)  # type: ignore[assignment]
     """Cached set of water-biome tile coords for `_tick_disasters` —
     previously rebuilt with a full terrain scan every tick even though
@@ -738,6 +750,8 @@ class World:
                 "last_seen_tick": self.observer_attention.get("last_seen_tick", -1),
             },
             "consciousness_grudge_ledger": self.consciousness_grudge_ledger,
+            "invented_concepts": {str(k): v.to_dict() for k, v in self.invented_concepts.items()},
+            "next_concept_id": self.next_concept_id,
             "consciousness_memory": list(self.consciousness_memory),
             "consciousness_personality": dict(self.consciousness_personality),
             "consciousness_objectives": list(self.consciousness_objectives),
@@ -916,5 +930,9 @@ class World:
             consciousness_objectives=list(data.get("consciousness_objectives", [])),
             consciousness_player_model=list(data.get("consciousness_player_model", [])),
             consciousness_intervention_log=list(data.get("consciousness_intervention_log", [])),
+            invented_concepts={
+                int(k): InventedConcept.from_dict(v) for k, v in data.get("invented_concepts", {}).items()
+            },
+            next_concept_id=data.get("next_concept_id", 1),
             migrated_subsystems=migrated_subsystems,
         )

@@ -70,6 +70,8 @@ from hearthmind.llm import (
     naming, narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
     diplomacy, laws, letters, noncore_nudge, institution_culture,
 )
+from hearthmind.llm import ontology as ontology_llm
+from hearthmind.world import ontology
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
 from hearthmind.llm.json_schemas import schema_for_task
@@ -377,6 +379,12 @@ than being merely intrusive), same "easier to lose than earn" shape
 `Agent.trust` already uses elsewhere in this project. See
 `SimulationEngine._intervention_hardship_context`."""
 
+CONCEPT_SPREAD_CHANCE_PER_TICK = 0.02
+"""Per-tick, per-growing-concept roll driving `_maybe_spread_concepts`
+— zero LLM cost, deliberately small (a concept's origin settlement
+will see roughly one new adopter every ~50 ticks a candidate is
+available) so adoption reads as gradual uptake, not an instant flip."""
+
 PROMPT_RECENT_EVENTS = 40
 """How many recent events reach a settlement-level LLM prompt
 (chronicle, tradition, invention, town-brain, etc.). Lowered 50 -> 30 in
@@ -629,7 +637,7 @@ shape unchanged. See docs/DECISIONS.md, "monthly job retry window"."""
 
 SEASON_YEAR_JOBS_WITH_RETRY = frozenset({
     "tradition", "religion", "narrative_direction", "culture_digest", "documentary",
-    "institution_culture", "invention",
+    "institution_culture", "invention", "ontology_proposal", "ontology_evolution",
 })
 """Same bug class as `MONTHLY_JOBS_WITH_RETRY`, found in a 2026-07 audit
 but never fixed for the season/year cadence tier: `tradition`/
@@ -1652,6 +1660,9 @@ class SimulationEngine:
         ("_maybe_schedule_tradition", _JOB_EVENTS),
         ("_maybe_schedule_folklore", _JOB_EVENTS),
         ("_maybe_schedule_invention", _JOB_EVENTS),
+        ("_maybe_schedule_ontology_proposal", _JOB_EVENTS),
+        ("_maybe_schedule_ontology_evolution", _JOB_EVENTS),
+        ("_maybe_spread_concepts", _JOB_NO_ARGS),
         ("_maybe_schedule_festival", _JOB_EVENTS),
         ("_maybe_schedule_religion", _JOB_EVENTS),
         ("_maybe_schedule_narrative_direction", _JOB_EVENTS),
@@ -3193,15 +3204,179 @@ class SimulationEngine:
             local = [a for a in self.world.population.agents if a.settlement_id == settlement.id]
             core_local = [a for a in local if a.id in self.world.population.core_agent_ids]
             candidates = core_local or local
+            inventor_id = None
             if candidates:
                 rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "invention_inventor")
                 inventor = rng.choice(candidates)
+                inventor_id = inventor.id
                 settlement.invention_knowledge[entry] = {"knowers": [inventor.id], "dormant": False}
                 if len(settlement.invention_knowledge) > INVENTION_KNOWLEDGE_MAX_TRACKED:
                     oldest_key = next(iter(settlement.invention_knowledge))
                     del settlement.invention_knowledge[oldest_key]
+            # Phase 1.A "self-evolving world" (docs/VISION-2026-07-21-
+            # SELFEVOLVING.md): every invention is ALSO registered as a
+            # first-class InventedConcept — the bridge that keeps this
+            # pre-existing job from becoming a disconnected duplicate
+            # of the new Innovation Layer registry, per the explicit
+            # user direction that invented concepts must be real,
+            # referenceable building blocks, not inert flavor. Reuses
+            # the mechanical effect this job already computed above
+            # (the v1.2.0 specialization bump) rather than inventing a
+            # second one.
+            ontology.register_concept(
+                self.world, name=name, description=description, category="technology",
+                origin_settlement_id=settlement.id, tick=self.world.clock.tick_count,
+                inventor_agent_id=inventor_id,
+                mechanical_hook=(
+                    {"type": "invention_specialization_category", "target": category, "magnitude": INVENTION_SPECIALIZATION_STEP}
+                    if category != "general" else None
+                ),
+            )
 
         self._schedule_llm_job("invention", prompt, invention.SYSTEM_PROMPT, fallback, apply)
+
+    # --- Phase 1.A "self-evolving world" — the Innovation Layer -----------
+
+    def _maybe_schedule_ontology_proposal(self, events: list[str]) -> None:
+        """Same seasonal cadence/prosperity gate as `_maybe_schedule_
+        invention`, but for the seven ontology categories `invention.py`
+        doesn't cover (custom/law/ritual/saying/profession/institution_
+        flavor/ecological) — see docs/VISION-2026-07-21-SELFEVOLVING.md,
+        Phase 1.A. Deliberately excludes "technology": that category
+        stays `invention.py`'s own job (bridged into the same registry,
+        not duplicated — see `_maybe_schedule_invention`'s apply())."""
+        settlement = self._job_target()
+        if not self._season_year_gate(events, "ontology_proposal", "season_end") or not settlement.name:
+            return
+        prosperous = (
+            settlement.currency >= INVENTION_CURRENCY_THRESHOLD
+            or settlement.materials >= MATERIALS_CAPACITY * INVENTION_MATERIALS_FRACTION
+        )
+        pressured = any(v >= PATTERN_SIGNAL_BELIEF_THRESHOLD for v in settlement.pattern_signal_counts.values())
+        if not (prosperous or pressured):
+            return
+        if self._settlement_job_backpressured():
+            return
+        self._mark_season_year_resolved("ontology_proposal")
+        ontology.abandon_stale(self.world, self.world.clock.tick_count)
+        chance = min(1.0, INVENTION_CHANCE_PER_SEASON * education_invention_bonus(settlement.education_level))
+        if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "ontology_proposal_roll") >= chance:
+            return
+        recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
+        existing_names = [c.name for c in self.world.invented_concepts.values()][-PROMPT_CULTURE_LIST_MAX:]
+        prompt = ontology_llm.build_propose_prompt(
+            settlement.name, recent, existing_names, settlement.era, settlement.tech_level,
+        )
+        established_count = sum(1 for c in self.world.invented_concepts.values() if c.status == "established")
+        fallback = ontology_llm.fallback_propose(established_count)
+        settlement_id = settlement.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            parsed = ontology_llm.parse_propose(result, fallback)
+            if ontology.is_near_duplicate(self.world, parsed["name"], parsed["description"]):
+                return  # "nothing new" — same discipline as folklore's duplicate-tale guard
+            target = self._settlement_by_id(settlement_id)
+            local = [a for a in self.world.population.agents if a.settlement_id == settlement_id]
+            core_local = [a for a in local if a.id in self.world.population.core_agent_ids]
+            candidates = core_local or local
+            inventor_id = None
+            if candidates:
+                rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "ontology_inventor")
+                inventor_id = rng.choice(candidates).id
+            concept = ontology.register_concept(
+                self.world, name=parsed["name"], description=parsed["description"], category=parsed["category"],
+                origin_settlement_id=settlement_id, tick=self.world.clock.tick_count,
+                inventor_agent_id=inventor_id, mechanical_hook=parsed["hook"],
+            )
+            self._log("ontology", f"{target.name or 'The village'} originated {concept.name}: {concept.description}")
+
+        self._schedule_llm_job("ontology_proposal", prompt, ontology_llm.SYSTEM_PROMPT_PROPOSE, fallback, apply)
+
+    def _maybe_schedule_ontology_evolution(self, events: list[str]) -> None:
+        """Rare (year_end), world-scoped (not per-settlement — an idea
+        being reinterpreted/combined isn't bound to where it started):
+        picks one `established` concept and either evolves it (mutation,
+        `lineage.evolved_from`) or, if at least two exist, combines two
+        of them (`lineage.merged_from`) — the concrete "combine, mutate,
+        build upon indefinitely" mechanism. Parents are never removed
+        or altered; the new concept just references them, so the DAG
+        stays fully walkable."""
+        if not self._season_year_gate(events, "ontology_evolution", "year_end"):
+            return
+        if self._settlement_job_backpressured():
+            return
+        self._mark_season_year_resolved("ontology_evolution")
+        established = [c for c in self.world.invented_concepts.values() if c.status == "established"]
+        if not established:
+            return
+        rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "ontology_evolution_pick")
+        do_merge = len(established) >= 2 and rng.random() < 0.5
+        settlement = self._settlement_by_id(established[0].origin_settlement_id) or self._job_target()
+        if do_merge:
+            a, b = rng.sample(established, 2)
+            prompt = ontology_llm.build_merge_prompt(a.name, a.description, b.name, b.description, settlement.name or "The village")
+            fallback = ontology_llm.fallback_merge(a.name, b.name)
+            system_prompt = ontology_llm.SYSTEM_PROMPT_MERGE
+            parent_ids = [a.id, b.id]
+            category, hook, origin_settlement_id = a.category, a.mechanical_hook, a.origin_settlement_id
+
+            def apply(result: dict, used_fallback: bool) -> None:
+                name, description = ontology_llm.parse_merge(result, fallback)
+                if ontology.is_near_duplicate(self.world, name, description):
+                    return
+                concept = ontology.register_concept(
+                    self.world, name=name, description=description, category=category,
+                    origin_settlement_id=origin_settlement_id, tick=self.world.clock.tick_count,
+                    mechanical_hook=hook, lineage={"merged_from": parent_ids},
+                )
+                self._log("ontology", f"Two ideas combined into {concept.name}: {concept.description}")
+        else:
+            parent = rng.choice(established)
+            prompt = ontology_llm.build_evolve_prompt(parent.name, parent.description, settlement.name or "The village", [])
+            fallback = ontology_llm.fallback_evolve(parent.name)
+            system_prompt = ontology_llm.SYSTEM_PROMPT_EVOLVE
+            parent_id = parent.id
+            category, hook, origin_settlement_id = parent.category, parent.mechanical_hook, parent.origin_settlement_id
+
+            def apply(result: dict, used_fallback: bool) -> None:
+                name, description = ontology_llm.parse_evolve(result, fallback)
+                if ontology.is_near_duplicate(self.world, name, description):
+                    return
+                concept = ontology.register_concept(
+                    self.world, name=name, description=description, category=category,
+                    origin_settlement_id=origin_settlement_id, tick=self.world.clock.tick_count,
+                    mechanical_hook=hook, lineage={"evolved_from": parent_id},
+                )
+                self._log("ontology", f"An old idea evolved into {concept.name}: {concept.description}")
+
+        self._schedule_llm_job("ontology_evolution", prompt, system_prompt, fallback, apply)
+
+    def _maybe_spread_concepts(self) -> None:
+        """Zero-LLM-cost, every-tick, rare-roll adoption growth for
+        `proposed`/`spreading` concepts — the minimal spread mechanism
+        Phase 1.A ships with (a documented simplification: full reuse
+        of `invention_knowledge`'s teach/lose/rediscover lifecycle for
+        every ontology category is flagged as a follow-up, not
+        attempted this pass — see docs/VISION-2026-07-21-SELFEVOLVING.
+        md). A random core-cast member of the concept's origin
+        settlement who isn't already an adopter has a small chance to
+        become one each tick a growing concept exists."""
+        growing = [c for c in self.world.invented_concepts.values() if c.status in ("proposed", "spreading")]
+        if not growing:
+            return
+        rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "ontology_spread")
+        for concept in growing:
+            if rng.random() >= CONCEPT_SPREAD_CHANCE_PER_TICK:
+                continue
+            candidates = [
+                a for a in self.world.population.agents
+                if a.settlement_id == concept.origin_settlement_id
+                and a.id in self.world.population.core_agent_ids
+                and a.id not in concept.adopter_ids
+            ]
+            if not candidates:
+                continue
+            ontology.add_adopter(self.world, concept.id, rng.choice(candidates).id, self.world.clock.tick_count)
 
     def _infra_counts(self, settlement) -> tuple[int, int, int, int]:
         """`(huts, established_roads, schools, ready_carts)` — the four
@@ -4168,6 +4343,10 @@ class SimulationEngine:
         # v0.87.15 "emergent leadership": name the council's own faction
         # majority, if any — see Population.council_faction_majority.
         council_majority = self.world.population.council_faction_majority(settlement)
+        known_concepts = [
+            f"{c.name}: {c.description}"
+            for c in ontology.established_concepts(self.world, settlement.id)[-PROMPT_CULTURE_LIST_MAX:]
+        ]
         prompt = town_brain.build_prompt(
             settlement.name, recent, population_summary, settlement_summary, whispers_sent,
             beliefs=settlement.beliefs[-PROMPT_SETTLEMENT_BELIEFS_MAX:],
@@ -4177,6 +4356,7 @@ class SimulationEngine:
             narrative_theme=self._narrative_theme_bias(settlement),
             council_faction_name=council_majority.name if council_majority else "",
             prophecy=settlement.prophecy if settlement.prophecy and settlement.prophecy.get("status") == "pending" else None,
+            known_concepts=known_concepts,
         )
         fallback = town_brain.fallback_priority(population_summary, settlement_summary, council_disposition)
         brain_target_id = settlement.id
@@ -6190,6 +6370,23 @@ class SimulationEngine:
             "llm_max_concurrent": self.config.llm_max_concurrent,
             "llm_model": self.config.llm_model,
             "llm_adapter_name": self.config.llm_adapter_name,
+            # Phase 1.A "self-evolving world" (docs/VISION-2026-07-21-
+            # SELFEVOLVING.md): the Innovation Layer's own registry
+            # size/health, dev-console reachable — a full main-UI
+            # panel (per-settlement "Ideas & Innovations" stat tile,
+            # NPC-inspector adopter view) is flagged as a fast-follow
+            # UI pass, not shipped this batch (backend/mechanism is the
+            # priority for this slice; every field here is already
+            # real, mechanically-consumed state, not placeholder).
+            "invented_concepts_total": len(self.world.invented_concepts),
+            "invented_concepts_established": sum(
+                1 for c in self.world.invented_concepts.values() if c.status == "established"
+            ),
+            "invented_concepts_by_category": {
+                cat: sum(1 for c in self.world.invented_concepts.values() if c.category == cat)
+                for cat in ontology.ONTOLOGY_CATEGORIES
+                if any(c.category == cat for c in self.world.invented_concepts.values())
+            },
             "llm_stats": self._cognition_runner.stats(),
             "llm_backlog_effective": self._effective_backlog(),
             "llm_backlog_reserved_this_tick": self._reserved_this_tick,

@@ -1,0 +1,268 @@
+"""Phase 1 of the "self-evolving world" architecture
+(docs/VISION-2026-07-21-SELFEVOLVING.md): the Innovation Layer's
+persistent registry. Explicit user follow-up (2026-07-21): invented
+concepts must not just exist — they are first-class simulation
+objects any system can discover, reference, reinterpret, combine,
+mutate, and build upon indefinitely, not inert flavor text.
+
+`InventedConcept` is the object; `World.invented_concepts` (keyed by a
+stable integer id, never reused) is the shared registry every system
+reads/writes through — genuinely shared across settlements (an idea
+can spread or be referenced beyond where it was born, same "ideas
+aren't settlement-private" reasoning `roads`' paving tier already
+established). Lineage (`evolved_from`/`merged_from`) makes this a real
+DAG: a concept's parents are never destroyed when a child is created
+("build upon indefinitely" means the history stays walkable, not that
+old concepts get replaced), so a chain of reinterpretation/combination
+is itself part of the world's history.
+
+Deliberately bounded, not a fully open schema — see `llm/ontology.py`'s
+module docstring for why (closed category/hook-type vocabulary hosting
+open-ended name/description/lineage)."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+ONTOLOGY_CATEGORIES: tuple[str, ...] = (
+    "technology", "custom", "law", "ritual", "saying", "profession",
+    "institution_flavor", "ecological",
+)
+"""The closed set of "what kind of thing is this" categories — see
+`llm/ontology.py`'s SYSTEM_PROMPT_PROPOSE. `technology` is the one
+category the pre-existing `llm/invention.py` job already produces
+(bridged into this registry by `SimulationEngine._maybe_schedule_
+invention`, not duplicated — see its docstring); the other seven are
+new, produced by `SimulationEngine._maybe_schedule_ontology_proposal`."""
+
+MECHANICAL_HOOK_TYPES: tuple[str, ...] = (
+    "invention_specialization_category", "skill_yield_bonus", "goal_flavor_bias",
+    "belief_confidence_bonus", "custom_text_only",
+)
+"""The closed set of mechanical effects a proposed concept may attach
+to — see `llm/ontology.py`'s `validate_hook`. `custom_text_only` (no
+numeric effect) is a legitimate, common choice: most sayings/customs/
+rituals are real (persistent, spreadable, referenceable) without
+needing a fabricated numeric effect — same tier as folklore/omens."""
+
+MAX_HOOK_MAGNITUDE = 0.12
+"""Shared cap on any non-`invention_specialization_category` hook's
+`magnitude` — deliberately smaller than `INVENTION_SPECIALIZATION_CAP`
+(a mature, single-purpose mechanism); a same-tier-but-newer mechanism
+gets a same-tier-but-slightly-more-conservative ceiling until it has a
+comparable amount of live tuning behind it."""
+
+MAX_CONCEPTS_STORED = 400
+"""Cap on `World.invented_concepts` — same "prune the least-load-
+bearing entries first" discipline as `INSTITUTION_LIST_MAX_STORED`/
+`CULTURE_LIST_MAX_STORED`: `abandoned` concepts are dropped first
+(oldest first), then (only if still over cap) the oldest `proposed`
+ones — `spreading`/`established` concepts and anything with a lineage
+child pointing at it are never pruned, since deleting a referenced
+parent would corrupt the DAG other concepts' `lineage` fields point
+into."""
+
+MAX_ADOPTERS_STORED = 40
+"""Cap on `InventedConcept.adopter_ids` — enough to comfortably clear
+the `established` threshold below with headroom, not a full population
+census."""
+
+CONCEPT_SPREADING_ADOPTERS = 2
+CONCEPT_ESTABLISHED_ADOPTERS = 5
+"""Adoption-count thresholds driving `maybe_promote_status` — small
+and population-independent by design (this is Phase 1's minimal
+adoption mechanism; population-scaled thresholds are a documented
+follow-up once real numbers exist to tune against, same "measure
+before tuning" discipline the rest of this project holds to)."""
+
+CONCEPT_STALE_TICKS = 20_000
+"""A `proposed` concept that never gains a second adopter within this
+many ticks (~a season and a half at default pacing) ages to
+`abandoned` — a real "this idea didn't catch on" outcome, not a
+permanent zombie entry competing for the `MAX_CONCEPTS_STORED` cap
+forever. `spreading`/`established` concepts never go stale this way —
+adoption momentum, once real, isn't punished for slowing down."""
+
+DUPLICATE_NAME_OVERLAP = 0.6
+"""Jaccard word-overlap threshold for `is_near_duplicate` — same value
+and reasoning as `folklore.FOLKLORE_DUPLICATE_OVERLAP`: a near-
+restatement of an existing concept's name+description is "nothing
+new," not a fresh entry."""
+
+
+def _overlap_tokens(text: str) -> set[str]:
+    return {w for w in text.lower().split() if len(w) > 3}
+
+
+@dataclass
+class InventedConcept:
+    """One first-class, persistent invented concept — see this
+    module's docstring. `status` is the adoption lifecycle
+    (`proposed -> spreading -> established`, or `-> abandoned` if it
+    never catches on); a concept is never deleted for having been
+    superseded — `lineage` lets later concepts point back at it
+    instead, so old ideas stay part of the walkable history even once
+    a village has moved past them."""
+
+    id: int
+    name: str
+    description: str
+    category: str
+    origin_settlement_id: int
+    tick_invented: int
+    inventor_agent_id: int | None
+    status: str = "proposed"
+    mechanical_hook: dict | None = None
+    adopter_ids: set[int] = field(default_factory=set)
+    lineage: dict = field(default_factory=dict)
+    """`{"evolved_from": id|None, "merged_from": [id, id]|None}` — at
+    most one of the two keys is ever populated (a concept is either a
+    mutation of one parent or a combination of two, never both)."""
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "category": self.category,
+            "origin_settlement_id": self.origin_settlement_id,
+            "tick_invented": self.tick_invented,
+            "inventor_agent_id": self.inventor_agent_id,
+            "status": self.status,
+            "mechanical_hook": dict(self.mechanical_hook) if self.mechanical_hook else None,
+            "adopter_ids": sorted(self.adopter_ids),
+            "lineage": dict(self.lineage),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "InventedConcept":
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            description=data["description"],
+            category=data["category"],
+            origin_settlement_id=data.get("origin_settlement_id", 0),
+            tick_invented=data.get("tick_invented", 0),
+            inventor_agent_id=data.get("inventor_agent_id"),
+            status=data.get("status", "proposed"),
+            mechanical_hook=dict(data["mechanical_hook"]) if data.get("mechanical_hook") else None,
+            adopter_ids=set(data.get("adopter_ids", [])),
+            lineage=dict(data.get("lineage", {})),
+        )
+
+
+def register_concept(
+    world, name: str, description: str, category: str, origin_settlement_id: int,
+    tick: int, inventor_agent_id: int | None = None, mechanical_hook: dict | None = None,
+    lineage: dict | None = None,
+) -> InventedConcept:
+    """Mints a new `InventedConcept` with the next id, seeds the
+    inventor as its first adopter (if any), and prunes the registry if
+    it's now over cap. The one mutator that creates new concepts —
+    every other write goes through `add_adopter`/`maybe_promote_
+    status`/`abandon_stale` below."""
+    concept_id = world.next_concept_id
+    world.next_concept_id += 1
+    concept = InventedConcept(
+        id=concept_id, name=name, description=description, category=category,
+        origin_settlement_id=origin_settlement_id, tick_invented=tick,
+        inventor_agent_id=inventor_agent_id, mechanical_hook=mechanical_hook,
+        lineage=lineage or {},
+    )
+    if inventor_agent_id is not None:
+        concept.adopter_ids.add(inventor_agent_id)
+    world.invented_concepts[concept_id] = concept
+    prune_concepts(world)
+    return concept
+
+
+def is_near_duplicate(world, name: str, description: str) -> bool:
+    tokens = _overlap_tokens(f"{name} {description}")
+    if not tokens:
+        return False
+    for concept in world.invented_concepts.values():
+        existing_tokens = _overlap_tokens(f"{concept.name} {concept.description}")
+        if not existing_tokens:
+            continue
+        overlap = len(tokens & existing_tokens) / max(1, len(tokens | existing_tokens))
+        if overlap >= DUPLICATE_NAME_OVERLAP:
+            return True
+    return False
+
+
+def add_adopter(world, concept_id: int, agent_id: int, tick: int) -> None:
+    concept = world.invented_concepts.get(concept_id)
+    if concept is None or concept.status == "abandoned":
+        return
+    if len(concept.adopter_ids) >= MAX_ADOPTERS_STORED:
+        return
+    concept.adopter_ids.add(agent_id)
+    maybe_promote_status(concept)
+
+
+def maybe_promote_status(concept: InventedConcept) -> None:
+    count = len(concept.adopter_ids)
+    if concept.status == "proposed" and count >= CONCEPT_SPREADING_ADOPTERS:
+        concept.status = "spreading"
+    if concept.status in ("proposed", "spreading") and count >= CONCEPT_ESTABLISHED_ADOPTERS:
+        concept.status = "established"
+
+
+def abandon_stale(world, tick: int) -> None:
+    """Monthly-cadence sweep (see `SimulationEngine._maybe_schedule_
+    ontology_proposal`'s call site): a `proposed` concept that's been
+    sitting with fewer than `CONCEPT_SPREADING_ADOPTERS` adopters for
+    longer than `CONCEPT_STALE_TICKS` genuinely didn't catch on."""
+    for concept in world.invented_concepts.values():
+        if concept.status == "proposed" and tick - concept.tick_invented > CONCEPT_STALE_TICKS:
+            concept.status = "abandoned"
+
+
+def _referenced_ids(world) -> set[int]:
+    referenced: set[int] = set()
+    for concept in world.invented_concepts.values():
+        evolved_from = concept.lineage.get("evolved_from")
+        if evolved_from is not None:
+            referenced.add(evolved_from)
+        for parent_id in concept.lineage.get("merged_from") or ():
+            referenced.add(parent_id)
+    return referenced
+
+
+def prune_concepts(world) -> None:
+    if len(world.invented_concepts) <= MAX_CONCEPTS_STORED:
+        return
+    referenced = _referenced_ids(world)
+
+    def prunable(concept: InventedConcept) -> bool:
+        return concept.id not in referenced
+
+    abandoned = sorted(
+        (c for c in world.invented_concepts.values() if c.status == "abandoned" and prunable(c)),
+        key=lambda c: c.tick_invented,
+    )
+    for concept in abandoned:
+        if len(world.invented_concepts) <= MAX_CONCEPTS_STORED:
+            return
+        del world.invented_concepts[concept.id]
+    proposed = sorted(
+        (c for c in world.invented_concepts.values() if c.status == "proposed" and prunable(c)),
+        key=lambda c: c.tick_invented,
+    )
+    for concept in proposed:
+        if len(world.invented_concepts) <= MAX_CONCEPTS_STORED:
+            return
+        del world.invented_concepts[concept.id]
+
+
+def established_concepts(world, settlement_id: int | None = None) -> list[InventedConcept]:
+    """Reference material for prompt-grounding call sites — see
+    `SimulationEngine._maybe_schedule_town_brain`'s new grounding line.
+    `settlement_id=None` returns every established concept world-wide
+    (an idea already established elsewhere is real, referenceable
+    history even for a settlement that never adopted it itself)."""
+    return [
+        c for c in world.invented_concepts.values()
+        if c.status == "established"
+        and (settlement_id is None or c.origin_settlement_id == settlement_id)
+    ]
