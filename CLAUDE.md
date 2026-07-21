@@ -453,6 +453,21 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.32)
+
+Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md's own sequence:
+item 3 ("5.1 + 5.2, ship before turning up self-modification"). 5.1:
+`world.ontology.retire_stale_rules` — an active `TriggerRule` that's
+never once fired (`fire_count == 0`) past `TRIGGER_RULE_STALE_
+TICKS=40_000` is retired, the runtime-acceptance-auditor gap
+`InventedConcept` already had (`abandon_stale`) but the newer
+`TriggerRule` didn't. 5.2: `simulation/sandbox.py`'s `run_
+counterfactual` gained an unconditional population-extinction floor
+and a resource-explosion ceiling (total settlement materials >5x
+start); "no governor can be disabled" holds structurally since
+`TriggerRule.hook_type` is drawn from a closed vocabulary that never
+touches `Config`.
+
 ## Current state (v1.3.31)
 
 Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md down its own

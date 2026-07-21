@@ -4,6 +4,46 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.32] — Living Terrarium items 5.1, 5.2: the guardrails
+
+Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md's own sequence,
+"3. 5.1 + 5.2 — the acceptance auditor and invariant guards. Ship
+*before* turning up self-modification, so weeks-long runs stay
+coherent."
+
+**5.1, the acceptance gate as a runtime invariant.** New `world.
+ontology.retire_stale_rules` + `TRIGGER_RULE_STALE_TICKS=40_000`: an
+`active` `TriggerRule` whose trigger has never once matched
+(`fire_count == 0`) past the stale window is retired — the concrete
+gap this closes, since `InventedConcept` already had this via
+`abandon_stale`'s adopter-based staleness but `TriggerRule` (new in
+v1.3.31) had no analogous mechanism yet. Called from `_maybe_schedule_
+rule_proposal`'s own gated cadence, same precedent as `abandon_stale`'s
+call site. Retired, never deleted — same historical-record discipline
+as every other status-transition in this registry.
+
+**5.2, invariant guards around self-modification.** Extended
+`simulation/sandbox.py`'s `run_counterfactual` (the one place a
+proposal's consequences already get checked, rather than a second
+parallel gate) with the vision doc's three named invariants:
+`POPULATION_HARD_FLOOR` (population reaching exactly 0 is always
+unsafe, unconditionally — independent of the existing 50%-loss
+fraction check, which could theoretically miss a small-population edge
+case) and `RESOURCE_EXPLOSION_MULTIPLE=5.0` (total settlement
+materials exploding beyond 5x starting value). "No governor can be
+disabled" is satisfied structurally rather than by a new runtime
+check: a `TriggerRule`'s `hook_type` is drawn from the closed
+`MECHANICAL_HOOK_TYPES` vocabulary, none of which reads or writes
+`Config` — there's no vector through which a proposal could reach a
+governor at all.
+
+Verified: direct tests for `retire_stale_rules` (a never-fired rule
+retires past the window, a once-fired rule doesn't), the sandbox's new
+extinction/resource checks (including the edge case of an
+already-extinct world not being falsely flagged as newly-caused),
+`scripts/verify_native_soak.py` byte-identical, a 6000-tick
+LLM-disabled engine soak with round-trip equality.
+
 ## [1.3.31] — Living Terrarium items 3.1, 1.2, 1.3
 
 Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md down its own

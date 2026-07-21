@@ -193,6 +193,18 @@ many ticks would fire the same rule over and over, turning one
 default pacing — long enough that a rule reads as "this happens when X
 happens," not "this happens constantly.\""""
 
+TRIGGER_RULE_STALE_TICKS = 40_000
+"""Vision doc item 5.1, docs/VISION-2026-07-22-LIVINGTERRARIUM.md ("the
+acceptance gate as a runtime invariant... anything the Innovation Layer
+creates that no system reads within N days is auto-flagged and
+retired"). A `TriggerRule` is "read" by the rule engine every time its
+trigger condition actually matches (`fire_count` increments) — a rule
+whose trigger genuinely never occurs is exactly the "isolated mechanic"
+the acceptance gate exists to catch. Twice `CONCEPT_STALE_TICKS`
+(rarer conditions — on_feud/on_invention/on_drought/on_surplus don't
+recur as often as a concept simply gaining a second adopter) — see
+`retire_stale_rules`."""
+
 
 @dataclass
 class TriggerRule:
@@ -436,3 +448,19 @@ def prune_trigger_rules(world) -> None:
         if len(world.trigger_rules) <= MAX_TRIGGER_RULES_STORED:
             return
         del world.trigger_rules[rule.id]
+
+
+def retire_stale_rules(world, tick: int) -> None:
+    """Vision doc item 5.1's runtime acceptance auditor, applied to
+    `TriggerRule` — see `TRIGGER_RULE_STALE_TICKS`'s docstring. An
+    `active` rule whose trigger condition has never once matched
+    (`fire_count == 0`) for longer than the stale window is genuinely
+    an isolated mechanic: proposed, validated, stored, but never once
+    consumed by the rule engine. Retired, never deleted — same
+    "preserve as historical record" discipline as `abandon_stale`'s
+    concepts and Reflection's rejected hypotheses; `prune_trigger_
+    rules` is the only thing that ever actually removes a retired
+    rule, and only once the registry is over its storage cap."""
+    for rule in world.trigger_rules.values():
+        if rule.status == "active" and rule.fire_count == 0 and tick - rule.tick_created > TRIGGER_RULE_STALE_TICKS:
+            rule.status = "retired"

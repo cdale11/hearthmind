@@ -3726,6 +3726,9 @@ class SimulationEngine:
         if self._settlement_job_backpressured():
             return
         self._mark_season_year_resolved("rule_propose")
+        # Item 5.1's runtime acceptance auditor: same "run it on this
+        # job's own gated cadence" precedent as ontology.abandon_stale.
+        ontology.retire_stale_rules(self.world, self.world.clock.tick_count)
         settlement = self._job_target()
         if not settlement.name:
             return

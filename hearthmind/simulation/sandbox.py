@@ -4,15 +4,27 @@ rule with a real mechanical effect goes live, run it forward on a
 disposable, deep-copied fork of the current world for a small bounded
 number of ticks (LLM forced off — this is a physical/invariant check,
 not a cognition test) and verify it doesn't break an invariant
-(population collapse or explosion). Never mutates the real `World`;
-the fork and its throwaway in-memory DB connection are both discarded
-when this returns.
+(population collapse/explosion/extinction, resource explosion). Never
+mutates the real `World`; the fork and its throwaway in-memory DB
+connection are both discarded when this returns.
 
-Deliberately narrow this pass: only the two invariants the vision doc
-names concretely (population crash / explosion). Runtime-invariant
-floors/ceilings as a standing guardrail (item 5.2) and coherence/drift
-detection (item 5.3) are separate, larger vision-doc items, not
-attempted here."""
+Item 5.2 ("invariant guards around self-modification... population
+can't be driven to 0, resources can't explode, no governor can be
+disabled") is folded in here rather than built as a separate module —
+this IS the one place a proposal's consequences get checked before
+going live, so the hard floors/ceilings belong exactly where the soft
+crash/explosion checks already live, not a second parallel gate.
+`POPULATION_HARD_FLOOR` is unconditional (never gated on the crash
+fraction — literal extinction is always rejected regardless of how
+small the starting population was) and `RESOURCE_EXPLOSION_MULTIPLE`
+mirrors the population-explosion check for total settlement materials.
+"No governor can be disabled" is enforced structurally, not by a
+runtime check here: a `TriggerRule`'s `hook_type` is drawn from the
+closed `MECHANICAL_HOOK_TYPES` vocabulary (`ontology.validate_hook`),
+none of which reads or writes `Config` — there is no vector through
+which a proposal could reach a governor at all, so there's nothing for
+this sandbox to catch on that axis. Coherence/drift detection (item
+5.3) is a separate, larger vision-doc item, not attempted here."""
 from __future__ import annotations
 
 import asyncio
@@ -37,6 +49,22 @@ POPULATION_EXPLOSION_MULTIPLE = 3.0
 """...or grows beyond this multiple of its starting population — the
 other direction of the same collapse/explosion invariant."""
 
+POPULATION_HARD_FLOOR = 0
+"""Item 5.2's unconditional invariant: population reaching exactly
+this many agents is ALWAYS unsafe, independent of `POPULATION_CRASH_
+FRACTION` — a world that started with only 2-3 agents could lose 100%
+without ever tripping the fractional check (2 -> 0 is a 100% loss, but
+so is a fractional check with a small denominator behaving oddly at
+the edges); this is the literal "can't be driven to 0" floor the
+vision doc names, checked first and separately."""
+
+RESOURCE_EXPLOSION_MULTIPLE = 5.0
+"""Item 5.2's resource-side invariant, the same shape as `POPULATION_
+EXPLOSION_MULTIPLE` applied to total settlement materials — a real
+"resources can't explode" ceiling. Looser than the population multiple
+since materials legitimately swing harder tick-to-tick (a single big
+harvest or caravan trade) than population ever does."""
+
 
 async def run_counterfactual(world: World, config, ticks: int = SANDBOX_TICKS) -> dict:
     """Returns `{"safe": bool, "reason": str, "population_start": int,
@@ -55,6 +83,7 @@ async def run_counterfactual(world: World, config, ticks: int = SANDBOX_TICKS) -
     sandbox_config = replace(config, llm_enabled=False)
     forked_world = World.from_dict(world.to_dict(), sandbox_config)
     population_start = len(forked_world.population.agents)
+    materials_start = sum(s.materials for s in forked_world.settlements)
     conn = connect(":memory:")
     engine = SimulationEngine(conn, sandbox_config, forked_world)
     try:
@@ -73,6 +102,12 @@ async def run_counterfactual(world: World, config, ticks: int = SANDBOX_TICKS) -
             await asyncio.gather(*engine._background_tasks, return_exceptions=True)
         conn.close()
     population_end = len(forked_world.population.agents)
+    materials_end = sum(s.materials for s in forked_world.settlements)
+    if population_start > POPULATION_HARD_FLOOR and population_end <= POPULATION_HARD_FLOOR:
+        return {
+            "safe": False, "reason": f"population driven to extinction {population_start} -> {population_end}",
+            "population_start": population_start, "population_end": population_end,
+        }
     if population_start > 0 and population_end < population_start * (1 - POPULATION_CRASH_FRACTION):
         return {
             "safe": False, "reason": f"population crashed {population_start} -> {population_end}",
@@ -81,6 +116,11 @@ async def run_counterfactual(world: World, config, ticks: int = SANDBOX_TICKS) -
     if population_start > 0 and population_end > population_start * POPULATION_EXPLOSION_MULTIPLE:
         return {
             "safe": False, "reason": f"population exploded {population_start} -> {population_end}",
+            "population_start": population_start, "population_end": population_end,
+        }
+    if materials_start > 0 and materials_end > materials_start * RESOURCE_EXPLOSION_MULTIPLE:
+        return {
+            "safe": False, "reason": f"materials exploded {materials_start:.1f} -> {materials_end:.1f}",
             "population_start": population_start, "population_end": population_end,
         }
     return {

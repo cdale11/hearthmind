@@ -238,15 +238,29 @@ A self-modifying terrarium you leave running for weeks needs organs
 that keep it coherent without you. Several exist (governors, the
 acceptance gate); these complete the set.
 
-- [ ] **5.1 [CERTAIN] — The acceptance gate as runtime invariant, not
-  just review rule.** The vision's "every persistent state has a creator
-  and a consumer; reject isolated mechanics." Make it a *runtime
+- [x] **5.1 [CERTAIN] — The acceptance gate as runtime invariant, not
+  just review rule.** **Shipped v1.3.32**, scoped to `TriggerRule` (the
+  concept-side analogue, `abandon_stale`, already existed pre-1.2):
+  `ontology.retire_stale_rules` — an `active` rule whose trigger has
+  never once matched (`fire_count == 0`) for longer than `TRIGGER_
+  RULE_STALE_TICKS` is retired, same "preserve as history, never
+  delete" discipline as everything else in this registry. The vision's
+  "every persistent state has a creator and a consumer; reject isolated
+  mechanics." Make it a *runtime
   auditor*: anything the Innovation Layer creates that no system reads
   within N days is auto-flagged and retired. This keeps LLM-authored
   ontology from silting up the world with dead concepts — essential
   when the world runs for weeks unattended and proposes constantly.
 
-- [ ] **5.2 [CERTAIN] — Invariant guards around self-modification.** The
+- [x] **5.2 [CERTAIN] — Invariant guards around self-modification.**
+  **Shipped v1.3.32** inside `simulation/sandbox.py`'s `run_
+  counterfactual` (the one place a proposal's consequences already get
+  checked): an unconditional population-extinction floor (independent
+  of the existing crash-fraction check), a resource-explosion ceiling
+  on total settlement materials, and "no governor can be disabled" is
+  satisfied structurally — a `TriggerRule`'s hook type is drawn from
+  the closed `MECHANICAL_HOOK_TYPES` vocabulary, none of which can
+  reach `Config` at all. The
   homeostatic governors from prior audits become *hard floors/ceilings*
   the sandbox (1.3) and self-tuning (1.4) can never cross: population
   can't be driven to 0, resources can't explode, no governor can be
