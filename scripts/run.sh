@@ -280,13 +280,27 @@
 #                        older llama-server that doesn't have it.
 #   LLAMA_REASONING      Default: off. Every prompt here wants one short
 #                        strict-JSON answer — hybrid-thinking models
-#                        (Qwen3 and similar) burn real tokens/latency/
-#                        memory on a <think> block nobody reads, so
-#                        reasoning is off by default (--reasoning off
-#                        --reasoning-budget 0, both confirmed working).
+#                        (Qwen3, Nemotron 3, and similar) burn real
+#                        tokens/latency/memory on a <think> block nobody
+#                        reads, so reasoning is off by default (--reasoning
+#                        off --reasoning-budget 0, both confirmed working).
 #                        Set LLAMA_REASONING=auto to restore the model's
 #                        own default, or empty (LLAMA_REASONING=) to omit
 #                        both flags on an older llama-server.
+#                        NOTE (Nemotron 3): this is a SERVER-WIDE floor,
+#                        separate from the app's own PER-CALL "detailed
+#                        thinking on/off" system-prompt toggle (llm/
+#                        client.py's `reasoning` param, used by the small
+#                        number of `deep_reasoning=True` jobs — Innovation
+#                        Layer propose/evolve). With the default `off`
+#                        here (--reasoning-budget 0), those calls' "detailed
+#                        thinking on" phrase is a no-op — llama-server
+#                        won't emit a <think> block regardless. Set
+#                        LLAMA_REASONING=auto (or leave it empty) if you
+#                        want those specific jobs to get a real reasoning
+#                        trace; every other call already asks for
+#                        reasoning off per-call and is unaffected either
+#                        way.
 #   SKIP_NATIVE_BUILD    1 to skip building hearthmind._native. Default: 0.
 #   LLAMA_EXTRA_ARGS     Extra raw flags appended to the llama-server
 #                        command line.

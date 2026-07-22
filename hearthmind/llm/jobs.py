@@ -129,6 +129,7 @@ class CognitionRunner:
         self, prompt: str, system: str | None, fallback: Callable[[], dict],
         json_schema: dict | None = None,
         num_predict_override: int | None = None, temperature_override: float | None = None,
+        reasoning: bool = False,
     ) -> tuple[dict, bool, str | None]:
         """Return `(result, used_fallback, raw_completion)`: a parsed
         JSON dict from the LLM with `used_fallback=False` and the exact
@@ -152,14 +153,20 @@ class CognitionRunner:
         "reserved deeper reasoning" — see `client.py`'s `generate_json`
         docstring): forwarded unchanged to the client. `None` (every
         call site before this phase) leaves the client's own configured
-        defaults in effect."""
+        defaults in effect.
+
+        `reasoning` (see `client.py`'s `_REASONING_ON_PROMPT`): forwarded
+        unchanged. Callers must never pass `True` together with a
+        `json_schema` — grammar-constrained decoding and a preceding
+        `<think>` block are incompatible; `_schedule_llm_job` enforces
+        this at the call site."""
         if self.client is None:
             return fallback(), True, None
 
         self.backlog += 1
         try:
             return await self._run_gated(
-                prompt, system, fallback, json_schema, num_predict_override, temperature_override,
+                prompt, system, fallback, json_schema, num_predict_override, temperature_override, reasoning,
             )
         finally:
             self.backlog -= 1
@@ -168,6 +175,7 @@ class CognitionRunner:
         self, prompt: str, system: str | None, fallback: Callable[[], dict],
         json_schema: dict | None = None,
         num_predict_override: int | None = None, temperature_override: float | None = None,
+        reasoning: bool = False,
     ) -> tuple[dict, bool, str | None]:
         queue_entered = time.perf_counter()
         async with self._semaphore:
@@ -183,7 +191,7 @@ class CognitionRunner:
                 result = await asyncio.wait_for(
                     asyncio.to_thread(
                         self.client.generate_json, prompt, system, capture, json_schema,
-                        num_predict_override, temperature_override,
+                        num_predict_override, temperature_override, reasoning,
                     ),
                     timeout=self.client.timeout_seconds + 5.0,
                 )

@@ -476,6 +476,45 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.3.36)
+
+Explicit user directive, two parts: (1) "move the LLM from describing
+the world to thinking within the world," clarified via follow-up as
+an audit-driven expansion of genuine decision points — classify every
+decision as deterministic (keep in code) / subjective cognition (move
+to LLM) / hybrid (code finds facts, LLM chooses/interprets) — NOT a
+prompt-wording/person-framing change; (2) "optimize all the prompts
+and parser to work with Nemotron 3 Nano 4B." This is the opposite
+direction from v1.3.35, which stays correct (that pass's five
+conversions were genuinely objective once separated from narration;
+this pass's is a genuine judgment call) — both are right, applied to
+different decisions.
+
+Ships the audit's #1-ranked item: individual migration decisions.
+New `llm/migration.py` (same candidacy/decision split as `llm/
+fission.py`) — `Population.migration_push_target`/`core_migration_
+candidates`/`depart_for_migration` extract the deterministic
+preconditions and effects (unchanged logic), a new `_maybe_schedule_
+migration_decision` engine job asks the LLM to actually weigh a
+core-cast agent's life against a real push/pull reason to leave;
+declining is a real outcome. Core-cast-gated per the standing rule;
+non-core agents keep the original flat-chance-roll path unchanged.
+
+Nemotron 3 Nano 4B is genuinely hybrid-thinking (unlike the prior
+Gemma default) but toggles its `<think>` reasoning purely via an exact
+system-prompt phrase ("detailed thinking on"/"detailed thinking off"),
+not an API field — both LLM clients' `generate_json` gained a
+`reasoning` param implementing this (plus Ollama's native `"think"`
+field for Qwen3), reusing the existing `deep_reasoning` flag (Phase
+3.A) rather than adding a new one; structurally never combined with
+`json_schema` (`reasoning = deep_reasoning and task_schema is None`
+in `_schedule_llm_job`) since a grammar suppresses a preceding
+`<think>` block. `Config.llm_model` default -> `nemotron-3-nano-4b`.
+
+Audit's remaining items — `choose_building_kind`, SOCIALIZE targeting
+(highest call volume, likely needs a heuristic fix first), `_maybe_
+assign_occupations` — flagged as follow-up.
+
 ## Current state (v1.3.34)
 
 Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md's own sequence:

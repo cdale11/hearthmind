@@ -14,10 +14,32 @@ import urllib.request
 from dataclasses import dataclass
 
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
-"""Hybrid "thinking" models (e.g. Qwen3) can wrap chain-of-thought in
-these tags even when a strict JSON response is requested — stripped
-defensively so a stray reasoning block never breaks `json.loads`. Cheap
-and a no-op for models that never emit them."""
+"""Hybrid "thinking" models (e.g. Qwen3, Nemotron 3) can wrap chain-of-
+thought in these tags even when a strict JSON response is requested —
+stripped defensively so a stray reasoning block never breaks
+`json.loads`. Cheap and a no-op for models that never emit them."""
+
+_REASONING_OFF_PROMPT = "detailed thinking off"
+_REASONING_ON_PROMPT = "detailed thinking on"
+"""NVIDIA Nemotron 3's documented reasoning-mode toggle (default model
+as of this pass, see `Config.llm_model`): unlike Qwen3's hybrid-
+thinking mode (controlled via Ollama's own `"think"` API field, still
+sent below), Nemotron 3 controls its `<think>` chain-of-thought purely
+through this exact phrase appearing in the system prompt — it must be
+the model's first-seen instruction, so it's prepended, never appended.
+Harmless boilerplate for any other model family (ignored as ordinary
+text), so this is sent on every call regardless of which model is
+actually loaded — no backend/model-detection branch needed. `generate_
+json`'s new `reasoning` param selects which phrase: `False` (the
+default, every routine strict-JSON task) asks for a fast direct answer;
+`True` is reserved for a job that has genuinely benefited from a real
+reasoning trace before committing to an answer (`deep_reasoning=True`
+call sites, `_schedule_llm_job`'s docstring) — never combined with a
+`json_schema` grammar (see that param's own note), since a grammar
+enforces the FULL output shape from the first token and would suppress
+a preceding `<think>` block entirely; `_schedule_llm_job` only ever
+passes `reasoning=True` when `schema_for_task` returned `None` for
+that job."""
 
 
 class LLMUnavailable(Exception):
@@ -85,11 +107,20 @@ class OllamaClient:
         self, prompt: str, system: str | None = None, capture: dict | None = None,
         json_schema: dict | None = None,
         num_predict_override: int | None = None, temperature_override: float | None = None,
+        reasoning: bool = False,
     ) -> dict:
         """Blocking call — issue one generate request and parse the
         response as JSON. Callers running inside the event loop must wrap
         this in `asyncio.to_thread` (see hearthmind/llm/jobs.py); this
         method itself does no async work.
+
+        `reasoning` (see `_REASONING_OFF_PROMPT`/`_REASONING_ON_PROMPT`):
+        prepends Nemotron 3's system-prompt reasoning toggle AND sets
+        Ollama's native `"think"` field to match — two different
+        models' hybrid-thinking controls (Nemotron's is prompt-text,
+        Qwen3's is this API field), sent together since each is inert
+        for the other model family, so both can stay on regardless of
+        which is actually loaded.
 
         `num_predict_override`/`temperature_override` (Phase 3.A,
         "reserved deeper reasoning" — docs/VISION-2026-07-21-
@@ -133,17 +164,18 @@ class OllamaClient:
         effective_temperature = temperature_override if temperature_override is not None else self.temperature
         if effective_temperature is not None:
             options["temperature"] = effective_temperature
+        reasoning_prefix = _REASONING_ON_PROMPT if reasoning else _REASONING_OFF_PROMPT
+        effective_system = f"{reasoning_prefix}\n{system}" if system else reasoning_prefix
         payload = {
             "model": self.model,
             "prompt": prompt,
             "format": json_schema if json_schema is not None else "json",
             "stream": False,
-            "think": False,
+            "think": reasoning,
         }
         if options:
             payload["options"] = options
-        if system:
-            payload["system"] = system
+        payload["system"] = effective_system
         if self.keep_alive is not None:
             payload["keep_alive"] = self.keep_alive
 
@@ -214,6 +246,7 @@ class LlamaCppClient:
         self, prompt: str, system: str | None = None, capture: dict | None = None,
         json_schema: dict | None = None,
         num_predict_override: int | None = None, temperature_override: float | None = None,
+        reasoning: bool = False,
     ) -> dict:
         """Blocking call — issue one `/v1/chat/completions` request and
         parse the response as JSON. Callers running inside the event loop
@@ -227,6 +260,14 @@ class LlamaCppClient:
         `capture`: see `OllamaClient.generate_json`'s docstring — same
         contract (fresh dict per call, filled with `capture["raw"]`).
 
+        `reasoning`: see `OllamaClient.generate_json`'s docstring for the
+        Nemotron 3 rationale — this client has no per-request analog of
+        Ollama's `"think"` field (llama-server's reasoning control is a
+        server-launch flag, `LLAMA_REASONING`/`--reasoning`, see the
+        README), so the system-prompt phrase is the only per-call lever
+        here. Never pass `reasoning=True` alongside `json_schema` — see
+        `_REASONING_ON_PROMPT`'s docstring for why.
+
         `json_schema` (optional, FT.0 — docs/AUDIT-2026-07-20.md, see
         `llm/json_schemas.py`): when given, requests `response_format:
         {"type": "json_schema", ...}` instead of the bare `json_object`
@@ -236,9 +277,9 @@ class LlamaCppClient:
         out-of-enum string; it was already structurally guaranteed valid
         JSON, this narrows that guarantee to the actual expected shape.
         `None` keeps the old bare `json_object` behavior unchanged."""
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
+        reasoning_prefix = _REASONING_ON_PROMPT if reasoning else _REASONING_OFF_PROMPT
+        effective_system = f"{reasoning_prefix}\n{system}" if system else reasoning_prefix
+        messages = [{"role": "system", "content": effective_system}]
         messages.append({"role": "user", "content": prompt})
         if json_schema is not None:
             response_format = {

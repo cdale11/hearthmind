@@ -3828,76 +3828,124 @@ class Population:
         population = settlement.living_member_count(self.agents)
         return population / capacity if capacity else float("inf")
 
+    def migration_push_target(
+        self, agent: "Agent", home: Settlement, by_id: dict[int, Settlement],
+    ) -> tuple[Settlement, str] | None:
+        """The objective half of migration (§1 "migration by choice,
+        not just fission", docs/IDEAS-2026-07-EMERGENCE.md): the real
+        push/pull facts already tracked elsewhere — ostracism
+        (`standing_penalty`), family feud pressure (`Institution.
+        feuds`), genuine starvation next to a meaningfully better-fed
+        sister settlement, real overcrowding (§2 "refugees after
+        disasters" — see `_housing_pressure`), or a bonded partner
+        already living elsewhere — priority-ordered exactly as before.
+        Returns `(target_settlement, push_reason)` or `None`. Extracted
+        from the old monolithic `_maybe_migrate` (explicit user
+        directive, "expand genuine decision points" audit) so the
+        WHETHER-they-actually-go half can split by agent: a core-cast
+        member's own life circumstances deserve a real weighed decision
+        (`SimulationEngine._maybe_schedule_migration_decision`, `llm/
+        migration.py`, mirroring `llm/fission.py`'s "they weighed the
+        leap and stayed" shape exactly); everyone else keeps the
+        original flat-chance-roll path in `_maybe_migrate` below,
+        unchanged, for call-volume reasons (CLAUDE.md's standing
+        per-agent LLM-gating rule)."""
+        alternatives = [s for s in by_id.values() if s.id != home.id]
+        if not alternatives:
+            return None
+        bonded_settlement = None
+        for other_id, value in agent.relationships.items():
+            if value < MIGRATION_BOND_THRESHOLD:
+                continue
+            partner = self.get(other_id)
+            if partner is not None and partner.settlement_id in by_id and partner.settlement_id != home.id:
+                bonded_settlement = by_id[partner.settlement_id]
+                break
+        my_family = self.family_of(agent.id, home)
+        feud_pressure = my_family is not None and bool(my_family.feuds)
+        if bonded_settlement is not None:
+            return bonded_settlement, "a bonded partner already living there"
+        if agent.hunger >= MIGRATION_STARVATION_HUNGER_THRESHOLD:
+            best = max(alternatives, key=self._granary_fill_ratio)
+            if self._granary_fill_ratio(best) - self._granary_fill_ratio(home) >= MIGRATION_GRANARY_ADVANTAGE:
+                return best, "hunger here against real food security there"
+        elif self._housing_pressure(home) >= MIGRATION_HOUSING_PRESSURE_THRESHOLD:
+            best = min(alternatives, key=self._housing_pressure)
+            if self._housing_pressure(best) < self._housing_pressure(home):
+                return best, "overcrowding here against real room there"
+        elif agent.standing_penalty > 0.0 or feud_pressure:
+            return max(alternatives, key=self._granary_fill_ratio), "no longer welcome here"
+        return None
+
+    def core_migration_candidates(self, settlements: list[Settlement]) -> list[tuple["Agent", Settlement, str]]:
+        """The core-cast half of migration candidacy — every living
+        core-cast member with a real push/pull target and no journey
+        already underway. `SimulationEngine._maybe_schedule_migration_
+        decision` schedules at most one LLM decision per tick from
+        this list (same volume discipline as every other per-agent
+        core-cast job)."""
+        named = [s for s in settlements if s.name]
+        if len(named) < 2:
+            return []
+        by_id = {s.id: s for s in named}
+        candidates: list[tuple["Agent", Settlement, str]] = []
+        for agent in self.agents:
+            if agent.id not in self.core_agent_ids:
+                continue
+            home = by_id.get(agent.settlement_id)
+            if home is None or agent.travel_target is not None:
+                continue
+            found = self.migration_push_target(agent, home, by_id)
+            if found is not None:
+                candidates.append((agent, found[0], found[1]))
+        return candidates
+
+    def depart_for_migration(self, agent: "Agent", home: Settlement, target: Settlement) -> str:
+        """Apply a real migration decision (from either path — the
+        deterministic roll below, or a genuine LLM "yes" via `llm/
+        migration.py`): reassigns settlement, resets `standing_penalty`
+        (a fresh settlement doesn't know what the old one held against
+        someone — a genuine second chance), sets `travel_target` so the
+        agent physically walks there via the existing journey
+        machinery, and nudges settlement-level relations toward warmer
+        (§2 "settlement-level stance": increased contact reads as
+        modest symmetric warming). Returns the life-event description."""
+        origin_name = home.name
+        agent.settlement_id = target.id
+        agent.standing_penalty = 0.0
+        center = target.center()
+        if center is not None:
+            agent.travel_target = center
+        _remember(agent, f"I left {origin_name} for {target.name}.", because=f"migrated to {target.name}")
+        new_relation = min(1.0, home.relations.get(target.id, 0.0) + RELATION_MIGRATION_NUDGE)
+        home.relations[target.id] = new_relation
+        target.relations[home.id] = new_relation
+        return f"{agent.name} left {origin_name} to make a life in {target.name}."
+
     def _maybe_migrate(self, rng: random.Random, settlements: list[Settlement]) -> list[tuple[str, str]]:
-        """§1 "migration by choice, not just fission"
-        (docs/IDEAS-2026-07-EMERGENCE.md): individuals never moved
-        between settlements before this — only whole fission parties.
-        A rare, deterministic per-agent check against push/pull signals
-        already tracked elsewhere: ostracism (`standing_penalty`),
-        family feud pressure (`Institution.feuds`), genuine starvation
-        next to a meaningfully better-fed sister settlement, real
-        overcrowding (§2 "refugees after disasters" — see `_housing_
-        pressure`), or a bonded partner already living elsewhere. A
-        migrant carries their own memories/beliefs/secrets with them
-        (nothing here touches those — they're already per-agent state),
-        which is exactly how one settlement's folklore/rumors/religion
-        can now actually reach another, the gap the idea doc names
-        (previously only the omen-echo backchannel crossed settlement
-        lines at all). Reuses `depart_for_fission`'s exact shape
-        (settlement_id reassigned immediately, `travel_target` set so
-        the agent physically walks there via the existing journey
-        machinery) at individual scale. A fresh settlement doesn't know
-        what the old one held against someone, so `standing_penalty`
-        resets on arrival — a genuine second chance, not just a change
-        of scenery."""
+        """The non-core-cast path: same flat per-tick chance roll as
+        before this pass, now reading its candidate target via the
+        shared `migration_push_target` — core-cast agents are excluded
+        here (see that method's docstring) since they're handled by a
+        real weighed LLM decision instead. See docs/DECISIONS.md /
+        `migration_push_target`'s docstring for the full design note."""
         named = [s for s in settlements if s.name]
         if len(named) < 2:
             return []
         by_id = {s.id: s for s in named}
         life_events: list[tuple[str, str]] = []
         for agent in self.agents:
+            if agent.id in self.core_agent_ids:
+                continue
             home = by_id.get(agent.settlement_id)
             if home is None or agent.travel_target is not None:
                 continue
-            alternatives = [s for s in named if s.id != home.id]
-            bonded_settlement = None
-            for other_id, value in agent.relationships.items():
-                if value < MIGRATION_BOND_THRESHOLD:
-                    continue
-                partner = self.get(other_id)
-                if partner is not None and partner.settlement_id in by_id and partner.settlement_id != home.id:
-                    bonded_settlement = by_id[partner.settlement_id]
-                    break
-            my_family = self.family_of(agent.id, home)
-            feud_pressure = my_family is not None and bool(my_family.feuds)
-            target: Settlement | None = None
-            if bonded_settlement is not None:
-                target = bonded_settlement
-            elif agent.hunger >= MIGRATION_STARVATION_HUNGER_THRESHOLD:
-                best = max(alternatives, key=self._granary_fill_ratio)
-                if self._granary_fill_ratio(best) - self._granary_fill_ratio(home) >= MIGRATION_GRANARY_ADVANTAGE:
-                    target = best
-            elif self._housing_pressure(home) >= MIGRATION_HOUSING_PRESSURE_THRESHOLD:
-                best = min(alternatives, key=self._housing_pressure)
-                if self._housing_pressure(best) < self._housing_pressure(home):
-                    target = best
-            elif agent.standing_penalty > 0.0 or feud_pressure:
-                target = max(alternatives, key=self._granary_fill_ratio)
-            if target is None or rng.random() >= MIGRATION_CHANCE_PER_TICK:
+            found = self.migration_push_target(agent, home, by_id)
+            if found is None or rng.random() >= MIGRATION_CHANCE_PER_TICK:
                 continue
-            origin_name = home.name
-            agent.settlement_id = target.id
-            agent.standing_penalty = 0.0
-            center = target.center()
-            if center is not None:
-                agent.travel_target = center
-            _remember(agent, f"I left {origin_name} for {target.name}.", because=f"migrated to {target.name}")
-            life_events.append(("migrant_departed", f"{agent.name} left {origin_name} to make a life in {target.name}."))
-            # §2 "settlement-level stance": increased contact between
-            # the two communities reads as modest warming, symmetric.
-            new_relation = min(1.0, home.relations.get(target.id, 0.0) + RELATION_MIGRATION_NUDGE)
-            home.relations[target.id] = new_relation
-            target.relations[home.id] = new_relation
+            target, _reason = found
+            description = self.depart_for_migration(agent, home, target)
+            life_events.append(("migrant_departed", description))
         return life_events
 
     def _tick_traits(self, rng: random.Random) -> None:

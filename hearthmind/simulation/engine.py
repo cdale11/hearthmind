@@ -67,7 +67,7 @@ from hearthmind.llm import (
     artifacts,
     faction, fission, beliefs, caravan, chronicle, chronicler, consciousness, culture, culture_digest, dialogue,
     digest, dispute, documentary, dream, era_branch, festival, folklore, founding, geography, invention,
-    memory_drift, mind,
+    memory_drift, migration, mind,
     naming, narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
     diplomacy, laws, letters, noncore_nudge, institution_culture, nature_mind, reflection, rule_propose,
 )
@@ -96,6 +96,7 @@ from hearthmind.agents.population import (
     FISSION_MIN_DISTANCE,
     MAX_SETTLEMENTS,
     MIGRATION_BOND_THRESHOLD,
+    MIGRATION_CHANCE_PER_TICK,
     POPULATION_CRITICAL_THRESHOLD,
     Population,
     _bridge_tiles_from_settlements,
@@ -1628,14 +1629,22 @@ class SimulationEngine:
         async def _runner() -> None:
             call_start = time.perf_counter()
             num_predict_override, temperature_override = None, None
+            task_schema = schema_for_task(name)
             if deep_reasoning:
                 base_num_predict = self.world.config.llm_num_predict
                 if base_num_predict is not None:
                     num_predict_override = int(base_num_predict * DEEP_REASONING_NUM_PREDICT_MULT)
                 temperature_override = DEEP_REASONING_TEMPERATURE
+            # Nemotron 3 "detailed thinking on": reserved for the same
+            # deep_reasoning jobs that already get extra tokens/lower
+            # temperature — never combined with a schema-constrained
+            # call (see client.py's _REASONING_ON_PROMPT docstring for
+            # why a grammar and a preceding <think> block conflict).
+            reasoning = deep_reasoning and task_schema is None
             result, used_fallback, raw_completion = await self._cognition_runner.run(
-                prompt, system, fallback=lambda: fallback, json_schema=schema_for_task(name),
+                prompt, system, fallback=lambda: fallback, json_schema=task_schema,
                 num_predict_override=num_predict_override, temperature_override=temperature_override,
+                reasoning=reasoning,
             )
             elapsed_ms = (time.perf_counter() - call_start) * 1000
             apply_failed = False
@@ -1808,6 +1817,7 @@ class SimulationEngine:
         ("_maybe_schedule_institution_belief", _JOB_EVENTS),
         ("_maybe_schedule_geography", _JOB_EVENTS),
         ("_maybe_schedule_fission", _JOB_EVENTS),
+        ("_maybe_schedule_migration_decision", _JOB_NO_ARGS),
         ("_maybe_schedule_diplomacy", _JOB_EVENTS),
         ("_maybe_schedule_laws", _JOB_EVENTS),
         ("_maybe_schedule_noncore_nudge", _JOB_EVENTS),
@@ -6639,6 +6649,59 @@ class SimulationEngine:
             )
 
         self._schedule_llm_job("fission", prompt, fission.SYSTEM_PROMPT, fallback, apply)
+
+    def _maybe_schedule_migration_decision(self) -> None:
+        """Individual migration's core-cast half (explicit user
+        directive, "expand genuine decision points" audit): mirrors
+        `_maybe_schedule_fission`'s candidacy/decision split exactly,
+        one level down — `Population.core_migration_candidates` finds
+        the deterministic preconditions (push/pull facts already
+        tracked elsewhere), this schedules the LLM's actual "do they
+        go" judgment (`llm/migration.py`). At most one candidate
+        considered per tick (the first found — candidate order is
+        stable, not adversarially gamed), gated by the same `MIGRATION_
+        CHANCE_PER_TICK` roll the non-core path already uses, so this
+        adds no new call-volume ceiling beyond what individual
+        migration already cost before this pass — it only changes WHO
+        decides for the core cast specifically. Non-core agents keep
+        the original flat-roll path in `Population._maybe_migrate`
+        entirely unchanged."""
+        candidates = self.world.population.core_migration_candidates(self.world.settlements)
+        if not candidates:
+            return
+        if self._settlement_job_backpressured():
+            return
+        if _namespaced_roll(
+            self.world.config.seed, self.world.clock.tick_count, "migration_decision_roll",
+        ) >= MIGRATION_CHANCE_PER_TICK:
+            return
+        agent, target, push_reason = candidates[0]
+        home = self._settlement_by_id(agent.settlement_id)
+        if home is None:
+            return
+        prompt = migration.build_prompt(agent, home.name, target.name, push_reason)
+        fallback = migration.fallback_decision(agent)
+        agent_id, home_id, target_id = agent.id, home.id, target.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            depart, reason = migration.parse_decision(result, fallback)
+            if not depart:
+                return  # they weighed the reason to go and stayed — a real decision
+            population = self.world.population
+            target_agent = population.get(agent_id)
+            target_home = self._settlement_by_id(home_id)
+            target_settlement = self._settlement_by_id(target_id)
+            if (
+                target_agent is None or target_home is None or target_settlement is None
+                or target_agent.settlement_id != home_id or target_agent.travel_target is not None
+            ):
+                return  # died, already moved, or already mid-journey while the decision was in flight
+            description = population.depart_for_migration(target_agent, target_home, target_settlement)
+            self._log("migrant_departed", f"{description} — \"{reason}\"")
+
+        self._schedule_llm_job(
+            "migration_decision", prompt, migration.SYSTEM_PROMPT, fallback, apply, settlement=home.name,
+        )
 
     # --- §5 "Ruins mode / successor worlds" (docs/IDEAS-2026-07-EMERGENCE.md) --
 

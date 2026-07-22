@@ -4,6 +4,73 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.36] — Genuine decision-point expansion (migration); Nemotron 3 Nano 4B reasoning support
+
+Explicit user directive, two parts. First: "move the LLM from
+describing the world to thinking within the world" — clarified via
+follow-up as an audit-driven expansion of which decisions the LLM
+makes (not a prompt-wording/person-framing change), classifying each
+decision point as deterministic/subjective/hybrid per the user's own
+framework and converting hybrid/deterministic judgment calls that are
+genuinely subjective into real LLM decisions. This is the opposite
+direction from v1.3.35's settlement/civic conversions, which stay
+correct — that pass targeted decisions that were actually objective
+once the facts were separated out; this pass targets a decision that
+is genuinely a judgment call. Second: "optimize all the prompts and
+parser to work with Nemotron 3 Nano 4B."
+
+**Individual migration decision** (`llm/migration.py`, new module,
+audit's #1-ranked item): a core-cast agent with a real push/pull
+reason to leave (bonded partner elsewhere, real hunger next to a
+better-fed settlement, overcrowding, standing/feud pressure) used to
+migrate on a flat chance roll. Same candidacy/decision split as
+`llm/fission.py`/`llm/founding.py`: `Population.migration_push_target`
+finds the deterministic preconditions (extracted, unchanged logic,
+from the old `_maybe_migrate`); `Population.core_migration_candidates`
+scans the core cast only (per-agent LLM decisions stay call-volume-
+bounded, standing CLAUDE.md rule); a new engine job (`_maybe_schedule_
+migration_decision`, gated by `MIGRATION_CHANCE_PER_TICK`, ambient/
+non-critical — a sensible deterministic fallback exists) asks the LLM
+to actually weigh the agent's life against the reason, with declining
+to leave a real, valid outcome. `Population.depart_for_migration`
+carries the extracted mutation logic (settlement reassignment, standing
+reset, travel target, memory, relations nudge) unchanged. Non-core-cast
+agents keep the original flat-chance-roll path exactly as before.
+
+**Nemotron 3 Nano 4B support** (`llm/client.py`): `Config.llm_model`
+default `gemma-4-e4b-it` -> `nemotron-3-nano-4b`. Unlike Gemma
+(non-thinking by design), Nemotron 3 is genuinely hybrid-thinking, but
+its `<think>` chain-of-thought is controlled purely by an exact
+system-prompt phrase ("detailed thinking on"/"detailed thinking off")
+that must be the model's first-seen instruction — not an API field.
+Both LLM clients' `generate_json` gained a `reasoning: bool = False`
+param that prepends the correct phrase (`OllamaClient` also sets its
+native `"think"` field to match, for Qwen3 compatibility); harmless
+boilerplate for any other model family, sent on every call regardless
+of which model is actually loaded. Never combined with `json_schema`
+(a grammar enforces the full output shape from the first token,
+suppressing a preceding `<think>` block) — `_schedule_llm_job` enforces
+this structurally (`reasoning = deep_reasoning and task_schema is
+None`), reusing the existing Phase 3.A `deep_reasoning` flag (ontology
+propose/evolve, neither of which uses a schema) rather than adding a
+new one. `scripts/run.sh`'s `LLAMA_REASONING` doc comment updated to
+note Nemotron 3 alongside Qwen3 and flag that a server-wide `off`
+default makes this per-call phrase a no-op for `deep_reasoning=True`
+jobs unless overridden.
+
+Verified: direct mocked-client tests for both `LlamaCppClient`/
+`OllamaClient` reasoning toggle (system-prompt content, Ollama `think`
+field), a direct end-to-end migration-decision test (candidacy
+detection, job scheduling, apply logic for both depart=True/False),
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical,
+a 4000-tick LLM-disabled engine soak with round-trip equality.
+
+Audit's remaining prioritized items — `choose_building_kind`
+(settlement-level, low volume), SOCIALIZE targeting (highest per-tick
+call volume; likely needs a non-LLM relationship-weighted heuristic
+fix first), `_maybe_assign_occupations` (infrequent per-agent event) —
+flagged as follow-up, not attempted this pass.
+
 ## [1.3.35] — Deterministic decisions, LLM-authored motivation; diagnostics fixes
 
 Explicit user directive: several settlement/civic decisions were being

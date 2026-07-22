@@ -184,30 +184,21 @@ class Config:
     `hearthmind.server`) with no shared memory, so a plain file's
     existence is the simplest correct signal — matches this project's
     stdlib-first, no-new-dependency posture."""
-    llm_model: str = "gemma-4-e4b-it"
-    """Changed from `gemma-4-e2b-it` in v1.3.15 per explicit user action
-    (switched their live deployment to `gemma-4-e4b-it`, the larger
-    sibling in the same Gemma family/tuning line — `-it` keeps the same
-    instruction-tuned, non-thinking-by-design convention the 2B default
-    already relied on, so `OllamaClient`'s `"think": False` + `<think>`
-    stripping stays the same harmless defensive no-op, not load-
-    bearing). Previously the CLI (`server.py --llm-model`) already
-    defaulted to whatever `Config.llm_model` was, so an env-only model
-    switch left this field pointing at the wrong name in `/diagnostics`
-    (`llm_model` read `gemma-4-e2b-it` in a live dump even after the
-    user had switched) — this closes that drift by making the actual
-    deployed model the code default, per the standing rule that CLI
-    defaults must reference `Config` attributes rather than silently
-    disagree with them. The accompanying v1.3.14 latency tuning
-    (`LLAMA_FIT_TARGET` 2048->1024, `LLM_PRESSURE_SLOWDOWN_START_RATIO`
-    1.0->0.75) and v1.3.15's `llm_max_concurrent` 2->1 were both direct
-    responses to a live diagnostic run on this larger model — see those
-    constants' own docstrings. `gemma-4-e2b-it` (v0.85.0's original
-    choice, "performing the best" on that user's earlier hardware) is
-    documented here as the smaller/faster fallback for anyone who finds
-    the 4B variant too slow on their own hardware — same "report back
-    actual numbers if a model needs its own adjustment" discipline as
-    every prior model-default change in this project."""
+    llm_model: str = "nemotron-3-nano-4b"
+    """Changed from `gemma-4-e4b-it` per explicit user directive
+    ("optimize all the prompts and parser to work with Nemotron 3 Nano
+    4B") — NVIDIA's small unified reasoning/non-reasoning model. Unlike
+    Gemma's `-it` (non-thinking by design, the earlier default), Nemotron
+    3 is genuinely hybrid-thinking: its `<think>` chain-of-thought is
+    controlled purely by an exact system-prompt phrase ("detailed
+    thinking on"/"detailed thinking off", NOT an API field), which is
+    where this is now load-bearing rather than a defensive no-op — see
+    `llm/client.py`'s `_REASONING_OFF_PROMPT`/`_REASONING_ON_PROMPT` and
+    `generate_json`'s new `reasoning` param. Every prior model-default
+    change in this project follows "the actual deployed model becomes
+    the code default, report real numbers if a size-down is needed" —
+    `gemma-4-e4b-it` (the prior default) remains documented in
+    CHANGELOG.md/git history for anyone still running that family."""
     llm_adapter_name: str | None = None
     """FT.7 (docs/AUDIT-2026-07-20.md's fine-tuning roadmap): "Version
     the adapter in the diagnostics block next to `llm_model` so every
