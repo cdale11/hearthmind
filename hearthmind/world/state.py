@@ -84,6 +84,14 @@ HIGHLIGHTS_MAX_STORED = 30
 emergent moments, not a growing archive (the full narrative record
 already lives durably in the `events` table)."""
 
+EMERGENCE_LOG_MAX_STORED = 500
+"""Cap on `World.emergence_log` (see its own docstring) — bigger than
+`HIGHLIGHTS_MAX_STORED` on purpose: highlights are a small hand-curated
+human-facing log, the emergence stream is meant to be the pillars' full
+sensory feed once Stage II consumers exist, so it needs headroom for a
+busier signal without still growing unbounded. Small dicts, oldest
+evicted — same discipline as every other capped ring in this codebase."""
+
 CONSCIOUSNESS_REVISION_CONFIDENCE_GAIN = 0.1
 """Deferred item 6 (docs/VISION-2026-07-LEARNING.md), "consciousness
 player-theory revision, round 2": how much a `consciousness_player_
@@ -255,6 +263,31 @@ class World:
     swings) computed in `_log_daily_metrics`. Zero LLM cost by design —
     the doc's own framing: "if the highlight log is boring, the
     emergence isn't real yet.\""""
+    emergence_log: list[dict] = field(default_factory=list)
+    """A22 "The Emergence API" (docs/MASTERCHECKLIST-2026-07-22.md, Part
+    A, Stage I step 1): the deterministic Body's structured sense-stream
+    — curated observations tagged by *kind* (`world.emergence.
+    OBSERVATION_KINDS`: anomaly/novel_combination/bottleneck/
+    unexplained_shift/opportunity) and by which future cognitive
+    pillar(s) (`world.emergence.PILLARS`: humans/village/nature/
+    innovation/reflection) would care, not raw state. This is the
+    Body↔Mind interface item the master checklist calls "the single
+    most important... without it, cognition drowns in raw data or eats
+    hand-picked slices" — no pillar refactor consumes it yet (that's
+    Stage II), so today this is a real, populated, but not-yet-read
+    sensory stream, same "build the organ before the consumer" shape
+    `Population.voice_conversation` had before the voice-pair feature
+    read it. Each entry: `{id, tick, kind, subsystem, summary, pillars,
+    magnitude, settlement, data}` — see `world/emergence.py`'s `make_
+    observation` for the exact contract. Capped at `EMERGENCE_LOG_MAX_
+    STORED` (oldest evicted) — unlike `reflection_notebook` (never
+    pruned, low natural volume), this is meant to be a genuinely busy
+    stream once more Stage IV detectors feed it, so it needs a real cap
+    from day one. Populated by `SimulationEngine._append_emergence`."""
+    next_emergence_id: int = 1
+    """Monotonic id counter for `emergence_log` — never reused, same
+    discipline as `next_reflection_entry_id` and every other id counter
+    in this codebase."""
     consciousness_memory: list[dict] = field(default_factory=list)
     """Phase N "Town Consciousness v2" (docs/VISION-2026-07.md, "The Town
     Awake"): bounded log of what the town's persistent inner awareness
@@ -940,6 +973,17 @@ class World:
         entries.sort(key=lambda e: e["tick"], reverse=True)
         return entries[:limit]
 
+    def emergence_log_recent(self, limit: int = 200) -> list[dict]:
+        """A22 "The Emergence API" (docs/MASTERCHECKLIST-2026-07-22.md):
+        newest-first view over `World.emergence_log`, same on-demand-
+        endpoint shape as `knowledge_tree()`/`causal_threads_list()` —
+        `GET /emergence` (interface/app.py) calls this via the
+        broadcaster's provider hook. `emergence_log` itself stays
+        append-order (oldest-first) internally, same as every other
+        capped list in this codebase; only the read-side view reverses
+        it for "what just happened" display convenience."""
+        return list(reversed(self.emergence_log[-limit:]))
+
     def causal_threads_list(self, limit: int = 60) -> list[dict]:
         """Vision doc item 3.3 ("Legible causal threads") — newest-first
         view over `World.causal_threads`, the same on-demand-endpoint
@@ -1011,6 +1055,8 @@ class World:
             # away_digest_pending: same not-persisted reasoning as
             # sim_summary_pending above.
             "highlights": list(self.highlights),
+            "emergence_log": list(self.emergence_log),
+            "next_emergence_id": self.next_emergence_id,
             "observer_attention": {
                 "agent_view_counts": {str(k): v for k, v in self.observer_attention.get("agent_view_counts", {}).items()},
                 "last_agent_id": self.observer_attention.get("last_agent_id"),
@@ -1211,6 +1257,8 @@ class World:
             away_digest_since_tick=data.get("away_digest_since_tick", -1),
             away_digest_highlights=list(data.get("away_digest_highlights", [])),
             highlights=list(data.get("highlights", [])),
+            emergence_log=list(data.get("emergence_log", [])),
+            next_emergence_id=data.get("next_emergence_id", 1),
             observer_attention=(
                 {
                     "agent_view_counts": {int(k): v for k, v in data["observer_attention"].get("agent_view_counts", {}).items()},

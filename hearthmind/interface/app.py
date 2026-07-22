@@ -162,6 +162,16 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
             return JSONResponse({"error": "no tick has completed yet"}, status_code=503)
         return JSONResponse(rows)
 
+    @app.get("/emergence")
+    async def emergence_log() -> JSONResponse:
+        """A22 "The Emergence API", docs/MASTERCHECKLIST-2026-07-22.md —
+        newest-first curated, kind/pillar-tagged observations from the
+        deterministic Body layer. See `World.emergence_log_recent`."""
+        rows = broadcaster.get_emergence_log()
+        if rows is None:
+            return JSONResponse({"error": "no tick has completed yet"}, status_code=503)
+        return JSONResponse(rows)
+
     @app.get("/snapshots")
     async def snapshots() -> JSONResponse:
         """Observatory UI depth pass: which past ticks a snapshot still

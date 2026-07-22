@@ -49,6 +49,7 @@ class WorldBroadcaster:
         self._diagnostics_provider: Callable[[], dict] | None = None
         self._knowledge_tree_provider: Callable[[], list] | None = None
         self._causal_threads_provider: Callable[[], list] | None = None
+        self._emergence_log_provider: Callable[[], list] | None = None
         self._interventions: list[dict] = []
         self._paused = False
         self._speed_multiplier = DEFAULT_SPEED_MULTIPLIER
@@ -132,6 +133,18 @@ class WorldBroadcaster:
 
     def get_causal_threads(self) -> list | None:
         return self._causal_threads_provider() if self._causal_threads_provider else None
+
+    def set_emergence_log_provider(self, provider: Callable[[], list]) -> None:
+        """Same on-demand shape as `set_knowledge_tree_provider` —
+        `provider` reads `World.emergence_log` directly (no aggregation
+        needed, but on-demand rather than baked into the per-tick
+        broadcast anyway: up to `EMERGENCE_LOG_MAX_STORED` entries would
+        bloat every WS message for a stream nothing polls sub-second).
+        A22 "The Emergence API" (docs/MASTERCHECKLIST-2026-07-22.md)."""
+        self._emergence_log_provider = provider
+
+    def get_emergence_log(self) -> list | None:
+        return self._emergence_log_provider() if self._emergence_log_provider else None
 
     # --- called by the FastAPI app (writer side — interventions only) ---------
 

@@ -497,6 +497,29 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.4.8)
+
+Explicit user instruction: "Start step 1: the Emergence API" — the
+first implementation step off v1.4.7's roadmap (docs/MASTERCHECKLIST-
+2026-07-22.md, A22). New `hearthmind/world/emergence.py` (`Observation`
+shape, `OBSERVATION_KINDS`/`PILLARS` closed vocabularies,
+`make_observation()`), `World.emergence_log`/`next_emergence_id`
+(capped 500, `emergence_log_recent()`), and `SimulationEngine.
+_append_emergence` — populated by mirroring `_append_highlight` (via
+`_HIGHLIGHT_EMERGENCE_MAP`, all 8 existing highlight kinds), the
+reflection hypothesis lifecycle, ontology concept promotion to
+`established`, and a new edge-triggered settlement materials-bottleneck
+detector (`_detect_settlement_bottlenecks`, riding the existing daily-
+metrics cadence). `GET /emergence` + on-demand broadcaster provider,
+same shape as `/knowledge-tree`/`/causal-threads`. UI surfacing: dev
+console's raw diagnostics dump only (`emergence_log_total`/`_by_kind`/
+`_recent`) — same treatment `reflection_notebook` has always had, no
+dedicated panel, since nothing consumes this stream yet. Stage II of
+the roadmap (the five-pillar refactor) is what will actually read it.
+Verified: direct smoke tests (validation, mirroring, cap, round-trip,
+bottleneck edge-triggering), `scripts/verify_native_soak.py` (2 seeds
+x 800 ticks) byte-identical.
+
 ## Current state (v1.4.7)
 
 Explicit user request: file an uploaded consolidated audit ("Hearthmind

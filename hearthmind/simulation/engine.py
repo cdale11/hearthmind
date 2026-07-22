@@ -77,6 +77,7 @@ from hearthmind.llm import ontology as ontology_llm
 from hearthmind.llm import self_tuning
 from hearthmind.world.sigils import generate_sigil_svg
 from hearthmind.world import ontology
+from hearthmind.world import emergence
 from hearthmind.world.disasters import GOVERNOR_TUNING_BAND, WILDFIRE_CHANCE_PER_WEEK
 from hearthmind.world.wildlife import MAX_SPECIES_VARIANTS_STORED, SpeciesVariant
 from hearthmind.simulation.sandbox import run_counterfactual
@@ -179,6 +180,7 @@ from hearthmind.world.state import (
     CONSCIOUSNESS_MEMORY_MAX,
     CONSCIOUSNESS_PLAYER_MODEL_MAX,
     CONSCIOUSNESS_REVISION_CONFIDENCE_GAIN,
+    EMERGENCE_LOG_MAX_STORED,
     HIGHLIGHTS_MAX_STORED,
     TERRAIN_CHANGING_CATEGORIES,
     World,
@@ -493,6 +495,26 @@ against the THEORETICAL mean gap `disasters.WILDFIRE_CHANCE_PER_WEEK`
 implies. A ratio (realized/theoretical, or its inverse) clearing
 `_DRIFT_RATIO` is treated as a genuine, sustained drift worth a
 hypothesis — not RNG noise around the configured rate."""
+
+_HIGHLIGHT_EMERGENCE_MAP: dict[str, tuple[str, str, tuple[str, ...]]] = {
+    # highlight kind -> (emergence.OBSERVATION_KINDS member, subsystem, pillars)
+    "first_invention": ("opportunity", "innovation", ("innovation",)),
+    "era_advance": ("opportunity", "settlement", ("village", "innovation")),
+    "first_ritual": ("opportunity", "culture", ("village", "humans")),
+    "first_religion": ("opportunity", "culture", ("village", "humans")),
+    "family_feud": ("unexplained_shift", "population", ("humans", "village")),
+    "successor_founded": ("unexplained_shift", "settlement", ("village",)),
+    "extinction_near_miss": ("anomaly", "population", ("humans", "nature")),
+    "population_anomaly": ("anomaly", "population", ("humans", "village")),
+}
+"""A22 Emergence API: every existing `_append_highlight` trigger site is
+already a real, edge-triggered "something notable happened" detector —
+this maps each highlight `kind` string onto an emergence observation's
+`(kind, subsystem, pillars)` so `_append_highlight` can mirror into
+`_append_emergence` for free instead of a parallel detection pass. Keys
+must exactly match every `kind` string passed to `_append_highlight`
+across the codebase; a highlight kind not listed here just doesn't get
+an emergence mirror (see `_append_highlight`'s own docstring)."""
 
 REFLECTION_COHERENCE_MIN_TOTAL = 10
 REFLECTION_COHERENCE_ABANDONED_RATIO = 0.5
@@ -1143,6 +1165,16 @@ class SimulationEngine:
         Never persisted — a restart simply re-baselines from the first
         post-restart reading, which is fine since this only needs to
         catch a genuine fresh crossing, not survive a restart mid-crisis."""
+        self._materials_critical_flagged: set[int] = set()
+        """A22 Emergence API: settlement ids currently below `cheapest_
+        founding_cost()` — edge-triggered, same shape as `_prev_
+        population_total`, so `_detect_settlement_bottlenecks` emits one
+        `bottleneck` observation on the falling edge and one implicit
+        recovery (silent — no "opportunity" spam) on the rising edge,
+        not a fresh observation every single day a settlement stays
+        materials-poor. Never persisted — a restart re-baselines from
+        the first post-restart reading, same reasoning as `_prev_
+        population_total`."""
         self._monthly_job_scheduled_month: dict[str, int] = {}
         """job name -> absolute month ordinal (year * months_per_year +
         month_index) it last got past its own backpressure check — lets
@@ -1308,6 +1340,7 @@ class SimulationEngine:
             self._broadcaster.set_diagnostics_provider(self.full_diagnostics)
             self._broadcaster.set_knowledge_tree_provider(self.world.knowledge_tree)
             self._broadcaster.set_causal_threads_provider(self.world.causal_threads_list)
+            self._broadcaster.set_emergence_log_provider(self.world.emergence_log_recent)
 
     @property
     def stop_event(self) -> asyncio.Event:
@@ -3980,7 +4013,22 @@ class SimulationEngine:
             ]
             if not candidates:
                 continue
+            status_before = concept.status
             ontology.add_adopter(self.world, concept.id, rng.choice(candidates).id, self.world.clock.tick_count)
+            if status_before != "established" and concept.status == "established":
+                # A22 Emergence API: a concept crossing into "established"
+                # is the one genuinely novel-combination moment in its
+                # whole lifecycle (proposed/spreading are just growth
+                # toward this) — see `world/ontology.py`'s `maybe_
+                # promote_status`.
+                origin = self._settlement_by_id(concept.origin_settlement_id)
+                self._append_emergence(
+                    "novel_combination", "ontology",
+                    f"'{concept.name}' ({concept.category}) has become an established part of "
+                    f"{origin.name if origin else 'the village'}'s life.",
+                    pillars=("innovation", "village"), settlement=origin.name if origin else None,
+                    data={"concept_id": concept.id, "category": concept.category},
+                )
 
     # --- vision doc item 1.2: trigger→effect rules as data ---------------------
 
@@ -5168,7 +5216,24 @@ class SimulationEngine:
         hypothesis out of `open`. Never deleted, same append-only
         discipline as everything else in this notebook; `supersedes`
         points back at the hypothesis it concludes, keeping the DAG
-        walkable the way `InventedConcept.lineage` already is."""
+        walkable the way `InventedConcept.lineage` already is.
+
+        A22 Emergence API: a confirmed hypothesis is a genuine
+        `opportunity` (the world learned something real about itself);
+        a refuted one is an `unexplained_shift` (the pattern that
+        prompted it didn't hold up — worth noting, not worth acting
+        on). Both tagged `reflection` only — inferring which OTHER
+        pillar a bare `subject` string belongs to would need fragile
+        string matching; left for Stage II's pillar refactor, which
+        will have real per-pillar context to draw on instead."""
+        emergence_kind = "opportunity" if confirmed else "unexplained_shift"
+        self._append_emergence(
+            emergence_kind, "reflection",
+            f"The hypothesis about {hypothesis['subject']} was "
+            f"{'confirmed' if confirmed else 'refuted'} "
+            f"(confidence settled at {hypothesis['confidence']:.2f}).",
+            pillars=("reflection",), magnitude=hypothesis["confidence"],
+        )
         entry_id = self.world.next_reflection_entry_id
         self.world.next_reflection_entry_id += 1
         verb = "confirmed" if confirmed else "refuted"
@@ -5269,6 +5334,11 @@ class SimulationEngine:
             }
             self.world.reflection_notebook.append(entry)
             self._log("reflection", f"Hearthmind formed a hypothesis about {pattern['subject']}: {parsed['hypothesis']}")
+            self._append_emergence(
+                "anomaly", "reflection",
+                f"Hearthmind formed a hypothesis about {pattern['subject']}: {parsed['hypothesis']}",
+                pillars=("reflection",), magnitude=parsed["confidence"],
+            )
 
         # The game learning/improving itself: Reflection proposes a
         # grounded hypothesis from real cross-pillar pattern signals —
@@ -7351,12 +7421,46 @@ class SimulationEngine:
         already durably logs everything to. Called from hand-picked
         trigger sites (first religion, extinction near-miss, feud
         formation, first ritual) and from `_log_daily_metrics`'s rolling
-        z-score anomaly check."""
+        z-score anomaly check.
+
+        Also mirrors into `_append_emergence` (A22) via `_HIGHLIGHT_
+        EMERGENCE_MAP` — every highlight trigger site is already a real,
+        edge-triggered "something notable happened" detector, so this
+        reuses all of them for free rather than building a parallel
+        detection pass. A `kind` with no map entry (should never happen
+        — every call site above is mapped) silently skips the mirror
+        rather than raising, so a future highlight trigger added without
+        updating the map degrades to "just a highlight," not a crash."""
         self.world.highlights.append({
             "kind": kind, "detail": detail, "tick": self.world.clock.tick_count,
         })
         if len(self.world.highlights) > HIGHLIGHTS_MAX_STORED:
             self.world.highlights = self.world.highlights[-HIGHLIGHTS_MAX_STORED:]
+        mapped = _HIGHLIGHT_EMERGENCE_MAP.get(kind)
+        if mapped is not None:
+            emergence_kind, subsystem, pillars = mapped
+            self._append_emergence(emergence_kind, subsystem, detail, pillars)
+
+    def _append_emergence(
+        self, kind: str, subsystem: str, summary: str, pillars: list[str] | tuple[str, ...],
+        magnitude: float | None = None, settlement: str | None = None, data: dict | None = None,
+    ) -> None:
+        """A22 "The Emergence API" (docs/MASTERCHECKLIST-2026-07-22.md):
+        appends one curated, typed, pillar-tagged observation to `World.
+        emergence_log`, capped at EMERGENCE_LOG_MAX_STORED (oldest
+        evicted) — see `world/emergence.py`'s `make_observation` for the
+        shape contract this validates against. No pillar reads this
+        stream yet (Stage II of the roadmap); this is the producer side
+        only, exercised by the detectors below so the shape is proven
+        against real signals before anything depends on it."""
+        observation = emergence.make_observation(
+            self.world.next_emergence_id, self.world.clock.tick_count, kind, subsystem, summary,
+            pillars, magnitude=magnitude, settlement=settlement, data=data,
+        )
+        self.world.next_emergence_id += 1
+        self.world.emergence_log.append(observation)
+        if len(self.world.emergence_log) > EMERGENCE_LOG_MAX_STORED:
+            self.world.emergence_log = self.world.emergence_log[-EMERGENCE_LOG_MAX_STORED:]
 
     def _log_daily_metrics(self) -> None:
         """One compact time-series row per sim-day (see database.py's
@@ -7404,6 +7508,7 @@ class SimulationEngine:
         }
         log_metrics(self.conn, tick=self.world.clock.tick_count, metrics=metrics, commit=False)
         self._detect_metric_highlights(pop_summary["total"])
+        self._detect_settlement_bottlenecks()
 
     def _detect_metric_highlights(self, population_total: int) -> None:
         """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md):
@@ -7445,6 +7550,35 @@ class SimulationEngine:
                         f"Population {direction} to {population_total} — well outside its recent trend "
                         f"(~{mean:.0f} average).",
                     )
+
+    def _detect_settlement_bottlenecks(self) -> None:
+        """A22 Emergence API: a genuine, already-computed bottleneck
+        signal — `cheapest_founding_cost()` is the same bar `cognition.
+        py`'s `materials_critical` flag uses per-agent every tick to
+        force a GATHER decision, but that's too fine-grained (per
+        agent, per tick) for a settlement-level "is this bottleneck
+        actually binding" observation. Checked once per sim-day
+        (riding `_log_daily_metrics`'s existing cadence, no new
+        polling loop) and edge-triggered via `_materials_critical_
+        flagged` — one `bottleneck` observation when a settlement
+        first crosses below the threshold, silence while it stays
+        there or once it recovers, same discipline as `_detect_metric_
+        highlights`' extinction-near-miss check."""
+        cheapest = cheapest_founding_cost()
+        for settlement in self.world.settlements:
+            critical = settlement.materials < cheapest
+            was_flagged = settlement.id in self._materials_critical_flagged
+            if critical and not was_flagged:
+                self._materials_critical_flagged.add(settlement.id)
+                self._append_emergence(
+                    "bottleneck", "settlement",
+                    f"{settlement.name or 'The village'}'s material stockpile "
+                    f"({settlement.materials:.1f}) has run dry — nothing new can be built.",
+                    pillars=("village", "humans"), magnitude=1.0, settlement=settlement.name,
+                    data={"materials": round(settlement.materials, 2), "threshold": round(cheapest, 2)},
+                )
+            elif not critical and was_flagged:
+                self._materials_critical_flagged.discard(settlement.id)
 
     def _record_llm_call(self, used_fallback: bool) -> None:
         """Cumulative counters persisted on `World`, for diagnosing LLM
@@ -7786,6 +7920,22 @@ class SimulationEngine:
             "reflection_notebook_recent": [
                 {"subject": e["subject"], "content": e["content"], "confidence": e["confidence"], "status": e["status"]}
                 for e in self.world.reflection_notebook[-10:]
+            ],
+            # A22 "The Emergence API" (docs/MASTERCHECKLIST-2026-07-22.
+            # md, Stage I step 1): same dev-console-reachability
+            # treatment as reflection_notebook above — full stream via
+            # GET /emergence (on-demand provider), this is just the
+            # at-a-glance summary the diagnostics payload already
+            # carries for everything else.
+            "emergence_log_total": len(self.world.emergence_log),
+            "emergence_log_by_kind": {
+                kind: sum(1 for o in self.world.emergence_log if o.get("kind") == kind)
+                for kind in emergence.OBSERVATION_KINDS
+                if any(o.get("kind") == kind for o in self.world.emergence_log)
+            },
+            "emergence_log_recent": [
+                {"kind": o["kind"], "subsystem": o["subsystem"], "summary": o["summary"], "pillars": o["pillars"]}
+                for o in self.world.emergence_log[-10:]
             ],
             # Vision doc items 1.4/2.4: same dev-console depth as
             # reflection_notebook above — governor_tuning is the live

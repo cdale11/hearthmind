@@ -4,6 +4,78 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.4.8] — A22 "The Emergence API" (roadmap Stage I, step 1)
+
+Explicit user request: "Start step 1: the Emergence API" — the first
+concrete implementation step off v1.4.7's roadmap
+(docs/MASTERCHECKLIST-2026-07-22.md). A22 asks for a per-subsystem
+structured observation stream from the deterministic Body — anomalies,
+novel combinations, bottlenecks, unexplained shifts, opportunities —
+tagged by which future cognitive pillar (humans/village/nature/
+innovation/reflection) would care, ahead of any pillar actually
+consuming it ("build the sense organ before the mind that uses it,"
+same sequencing `Population.voice_conversation` had before the voice-
+pair feature read it).
+
+New `hearthmind/world/emergence.py`: `OBSERVATION_KINDS`/`PILLARS`
+closed vocabularies and `make_observation()`, a plain-dict factory
+(same convention as `highlights`/`reflection_notebook` — no per-type
+(de)serialization to maintain) that validates both vocabularies at
+construction (`ValueError` on a bad call site, since this is an
+internal producer contract, not user input). New `World.emergence_log`
+(capped `EMERGENCE_LOG_MAX_STORED=500` — a busier future stream than
+`highlights`' 30, but still small dicts) + `World.next_emergence_id`,
+wired into `to_dict`/`from_dict`; `World.emergence_log_recent()`
+mirrors `knowledge_tree()`/`causal_threads_list()`'s newest-first
+on-demand shape.
+
+Deliberately reused already-computed, already-edge-triggered signals
+rather than building a new scanning system: `SimulationEngine.
+_append_highlight` now mirrors into `_append_emergence` for every
+highlight kind with an entry in the new `_HIGHLIGHT_EMERGENCE_MAP`
+(first_invention, era_advance, first_ritual, first_religion,
+family_feud, successor_founded, extinction_near_miss,
+population_anomaly — every existing highlight kind, each given a
+kind/subsystem/pillar-tuple mapping); the reflection hypothesis
+lifecycle (`_maybe_schedule_reflection`'s `apply` closure on formation,
+`_append_reflection_conclusion` on confirm/refute) each emit one
+observation; `_maybe_spread_concepts` emits `novel_combination` the
+first tick an `InventedConcept`'s status transitions to `established`.
+One genuinely new detector: `_detect_settlement_bottlenecks` (riding
+`_log_daily_metrics`'s existing once-per-sim-day cadence, no new
+polling loop) emits `bottleneck` the first day a settlement's
+materials drop below `cheapest_founding_cost()` — the same bar
+`cognition.py`'s per-agent `materials_critical` flag already uses, but
+settlement-scoped and edge-triggered (`_materials_critical_flagged`,
+a plain runtime set, never persisted) so it fires once on the crossing
+and again only after a real recovery, not every day the settlement
+stays poor.
+
+`GET /emergence` (interface/app.py) + `WorldBroadcaster.
+set_emergence_log_provider`/`get_emergence_log` (interface/api.py, same
+on-demand-provider shape as knowledge-tree/causal-threads — up to 500
+entries is too large for the per-tick WS payload, and nothing needs
+sub-second freshness). UI surfacing: `full_diagnostics()` gained
+`emergence_log_total`/`emergence_log_by_kind`/`emergence_log_recent`
+(last 10, kind/subsystem/summary/pillars only) — the dev console's
+existing "Full diagnostic report" button already dumps this raw, the
+same reachability `reflection_notebook` has always had with no
+dedicated panel; a stream with no consumer yet doesn't warrant a new
+main-UI surface ahead of Stage II's pillar refactor actually reading
+it.
+
+No pillar reads `emergence_log` yet — that's Stage II of the roadmap.
+Verified: direct smoke tests (`make_observation` kind/pillar
+validation + magnitude clamping; `_append_highlight`→`_append_emergence`
+mirroring including a non-mapped highlight kind correctly emitting
+nothing extra; the 500-entry cap; `emergence_log_recent`'s newest-first
+ordering; `to_dict`/`from_dict` round-trip; the bottleneck detector's
+edge-triggering — fires once on crossing, silent while still critical,
+clears on recovery without emitting again). `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical — no native module
+touched, but `_append_emergence`/`_detect_settlement_bottlenecks` run
+inside/adjacent to the tick loop.
+
 ## [1.4.7] — File the Master Checklist (Body/Mind/Seam audit) + a 30-step implementation roadmap
 
 Explicit user request: add an uploaded consolidated audit doc,

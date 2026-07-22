@@ -590,7 +590,12 @@ is not authorization to start executing it.
 
 1. **A22 Emergence API** — per-subsystem `emergence_events()` stream,
    salience-tagged, pillar-relevance-tagged. Build first: every later
-   pillar depends on having something to perceive.
+   pillar depends on having something to perceive. **Shipped v1.4.8**:
+   `world/emergence.py` + `World.emergence_log`, populated by mirroring
+   highlights/reflection/ontology-promotion plus a new settlement
+   bottleneck detector; `GET /emergence`; dev-console-only surfacing
+   (no consumer yet — that's Stage II). See CLAUDE.md's "Current state
+   (v1.4.8)" and CHANGELOG.md for full detail.
 2. **A1 FieldGrid** — named scalar fields over the map, coarse
    resolution to start (existing region-grid granularity), per-tick
    `step()` per field. The Body's new substrate.
