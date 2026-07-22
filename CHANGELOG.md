@@ -4,6 +4,80 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.35] — Deterministic decisions, LLM-authored motivation; diagnostics fixes
+
+Explicit user directive: several settlement/civic decisions were being
+asked of the LLM when they should be computed — "the LLM can explain
+the motivation afterward." Converts five systems from LLM-decided to
+deterministic-decided-plus-LLM-explained, and fixes two diagnostics
+gaps.
+
+**Diagnostics.** `/diagnostics`'/dev-console's `llm_model` now reads
+the actual `MODEL_PATH` env var (`scripts/run.sh`'s llama-server launch
+flag) when set, falling back to `Config.llm_model` only when it isn't
+— a live model switch no longer silently drifts from what diagnostics
+reports (same root cause class as v1.3.15's `llm_model` default fix,
+now closed at the read site instead of just the default). New
+`trigger_rules_total`/`trigger_rules_by_status`/`wildfire_ignition_
+ticks_recorded` fields close the gap for the two most recent Living
+Terrarium systems — `governor_tuning`/`self_tuning_actions_recent`
+were already present (v1.3.34) but nothing else from that pass was;
+the dev console already dumps the whole `diagnostics` payload as raw
+JSON, so any field added here is immediately visible with no frontend
+change needed.
+
+**Geography naming** (`llm/geography.py`): fully procedural now, zero
+LLM call — a plain weathered place name ("Stillmere", "the Aldwash")
+carries no interpretation the LLM would meaningfully add. Reuses the
+existing collision-safe fallback pool as the only naming path.
+
+**Era branch** (`llm/era_branch.py`): `compute_branch` scores each of
+the five named branches by the settlement's own real STANDING-building
+mix (the same `ERA_BRANCH_KIND_WEIGHTS` `choose_building_kind` already
+reads), picking the highest — ties favor the sticky current branch,
+then a namespaced random pick only when there's genuinely no signal
+yet. The one remaining LLM call explains the computed lean in one
+sentence; it can no longer choose a different one.
+
+**Town brain priority** (`llm/town_brain.py`): `fallback_priority`
+renamed `compute_priority` and promoted from fallback to THE decision
+— "Food? Health? Construction? Just compute. Highest wins." Applied
+synchronously before any LLM call; `Settlement.current_priority`
+reflects it immediately regardless of LLM availability. The job is no
+longer `critical` (nothing to defer — the priority is never in
+question, only its one-sentence rationale is, and that already has a
+real deterministic fallback).
+
+**Institution objectives** (`settlement/institutions.py`): new
+`compute_objective` — per-kind deterministic reads (FAMILY: feud
+status / household size; COUNCIL: materials shortfall / ambition-vs-
+resilience disposition, reusing `town_brain`'s own council-disposition
+signal; GUILD: currency shortfall vs. teaching-focus). `Institution.
+objective` is set immediately; the institution-belief LLM call (same
+call, zero added volume) now only supplies `objective_reason`, an
+explanation of the already-decided want, logged as a new
+`institution_objective` event.
+
+**Narrative Direction** (`llm/narrative_direction.py`): `compute_
+themes` reads `Settlement.mood`'s own real axes (hope/fear/grief/
+suspicion — already a statistical aggregate of lived events, Phase I)
+and picks the strongest past a real threshold, same signal the old
+`fallback_direction` used as its non-LLM path, now THE decision. The
+LLM's remaining jobs: a one-sentence summary of the computed theme, and
+its one genuinely creative side task (coining a local term for a
+dominant event) — unchanged, since naming an unprecedented thing isn't
+"choosing among a closed set of moods."
+
+Verified: direct unit tests for every new deterministic function
+(`era_branch.compute_branch` tie-breaking, `institutions.compute_
+objective` across all three kinds' branches, `narrative_direction.
+compute_themes` threshold behavior, `_resolve_llm_model_label`'s
+MODEL_PATH precedence), a direct engine-level test confirming `town_
+brain`'s priority/rationale/history apply synchronously before the LLM
+job resolves, `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical, and a 6000-tick LLM-disabled engine soak with full
+`World.to_dict()` round-trip equality.
+
 ## [1.3.34] — Living Terrarium items 1.4, 2.4: self-tuning, and Reflection that acts
 
 Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md's own sequence,

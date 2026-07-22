@@ -1,13 +1,22 @@
-"""The "town brain": a seasonal LLM decision that sets the settlement's
-current civic priority — the concrete expression of "the LLM is the
-brain of the town" (see CLAUDE.md). Unlike traditions/festivals/
-inventions, which are purely narrative-with-a-side-effect, this
-decision measurably steers mechanics: `Settlement.current_priority`
-feeds `buildings.choose_building_kind`'s weighting at every future
-construction founding until the next seasonal decision. Player
-intervention (`POST /intervene/town-brain`) is folded in as one input
-among the real settlement stats/history — a deliberately subtle nudge,
-not a command. See docs/DECISIONS.md, "LLM-as-brain batch."
+"""The "town brain": a monthly civic-priority decision — the concrete
+expression of "the LLM is the brain of the town" (see CLAUDE.md).
+Unlike traditions/festivals/inventions, which are purely narrative-
+with-a-side-effect, this decision measurably steers mechanics:
+`Settlement.current_priority` feeds `buildings.choose_building_kind`'s
+weighting at every future construction founding until the next
+monthly decision.
+
+Made deterministic (explicit user directive): "Instead of asking Food?
+Health? Construction? Just compute. Highest wins." `compute_priority`
+is a plain, legible, ordered read of the settlement's own real numbers
+(hunger, illness, coffers, materials, council disposition) — the SAME
+priority every time given the same stats, not an LLM impression of
+them. The LLM's only remaining job is to write one sentence explaining
+the already-decided priority, grounded in the real numbers it's given
+— narration, not decision. Player intervention (`POST /intervene/
+town-brain`) still folds queued whispers into that narration as one
+input, a deliberately subtle nudge, not a command. See docs/
+DECISIONS.md, "LLM-as-brain batch."
 """
 from __future__ import annotations
 
@@ -15,20 +24,21 @@ _VALID_PRIORITIES = ("growth", "food", "commerce", "education", "health", "defen
 
 SYSTEM_PROMPT = (
     "You are the quiet civic instinct of a small simulated village — not a "
-    "ruler, just the sense of what the village needs most right now. Given "
-    "its stats and recent history, choose ONE current priority. Beliefs and "
-    "history are real color, but your rationale must wrestle with the "
-    "village's actual numbers, not just its own myths about itself. "
-    'Respond with strict JSON only, no other text: {"priority": one of '
-    '"growth", "food", "commerce", "education", "health", "defense", '
-    '"rationale": "one sentence, under 20 words, naming at least one actual '
-    'number from the stats given (population, hunger, materials, currency, '
-    'sick count, or structure counts)"}.'
+    "ruler, just the sense of what the village needs most right now. You have "
+    "been told the village's ALREADY-DECIDED current priority, computed from "
+    "its own real numbers — your only job is to explain it in one sentence, "
+    "naming at least one of the actual numbers given, never to choose a "
+    "different priority. Beliefs and history are real color for the "
+    "explanation but must not override the numbers. "
+    'Respond with strict JSON only, no other text: {"rationale": "one '
+    'sentence, under 20 words, naming at least one actual number from the '
+    'stats given (population, hunger, materials, currency, sick count, or '
+    'structure counts)"}.'
 )
 
 
 def build_prompt(
-    settlement_name: str, recent_events: list[dict], population_summary: dict,
+    settlement_name: str, priority: str, recent_events: list[dict], population_summary: dict,
     settlement_summary: dict, player_whispers: list[str], beliefs: list[dict] | None = None,
     council_beliefs: list[dict] | None = None, narrative_theme: str = "", belief_digest: str = "",
     culture_digest: str = "", council_faction_name: str = "", prophecy: dict | None = None,
@@ -140,12 +150,12 @@ def build_prompt(
     # citing the soil belief for its rationale while the objective stat
     # block — materials 1.7/30, 1 structure, 10 ill — sat unused, a
     # page above the actual ask. Small models weight recency; the fix
-    # is to restate the stats immediately before "Choose the village's
-    # current priority" instead of trusting the model to look back up
-    # past a page of history/beliefs/theme text. Beliefs/history stay
-    # exactly where they were (subjective bias is the design, not a
-    # bug) — this only ensures the objective numbers are the LAST thing
-    # read before the ask, not the first thing forgotten.
+    # is to restate the stats immediately before the ask instead of
+    # trusting the model to look back up past a page of history/
+    # beliefs/theme text. Beliefs/history stay exactly where they were
+    # (subjective bias is the design, not a bug) — this only ensures
+    # the objective numbers are the LAST thing read before the ask, not
+    # the first thing forgotten.
     return (
         f"{stat_block}\n"
         f"Recent history:\n{events_text}{whisper_text}{digest_text}{culture_digest_text}{beliefs_text}{council_text}{faction_leaning_text}{standing_text}{prophecy_text}{concepts_text}{goal_activity_text}"
@@ -154,13 +164,14 @@ def build_prompt(
         # never dictates it.
         + (f"\nThe recent theme of village life has been {narrative_theme}." if narrative_theme else "")
         + f"\nThe numbers again, right before you decide: {stat_block}"
-        + "\nChoose the village's current priority, and make your rationale name at least one of these actual numbers."
+        + f"\nThe village's current priority is already decided: {priority}. "
+        "Explain why in one sentence, naming at least one of these actual numbers."
     )
 
 
 COUNCIL_DISPOSITION_TIEBREAK_THRESHOLD = 0.15
 """Integration milestone: how far a sitting council's average trait
-must lean before it tips `fallback_priority`'s otherwise-arbitrary
+must lean before it tips `compute_priority`'s otherwise-arbitrary
 final "growth vs. defense" catchall — deliberately small and applied
 only at the bottom of the chain (nothing urgent like hunger/illness/
 coffers is ever overridden by council mood), same "real but never
@@ -168,12 +179,16 @@ dominant" magnitude every other cross-system nudge in this project
 uses (temperament's *_INFLUENCE constants, trait step sizes)."""
 
 
-def fallback_priority(
+def compute_priority(
     population_summary: dict, settlement_summary: dict, council_disposition: dict | None = None,
 ) -> dict:
-    """Deterministic stand-in: a simple, legible read of the same stats
-    an LLM would see, not a random pick — so a fallback run still steers
-    sensibly rather than just narrating."""
+    """THE decision — not a fallback. "Instead of asking Food? Health?
+    Construction? Just compute. Highest wins." A plain, legible,
+    ordered read of the settlement's own real numbers (hunger, illness,
+    coffers, materials, council disposition), always producing the same
+    priority for the same stats. `rationale` here is only ever used as
+    the deterministic narration fallback when the LLM call itself can't
+    happen — the priority value is authoritative either way."""
     avg_hunger = population_summary.get("avg_hunger", 0.0)
     materials_frac = (
         settlement_summary.get("materials", 0.0) / settlement_summary.get("materials_capacity", 1.0)
@@ -236,13 +251,8 @@ def fallback_priority(
     return {"priority": "defense", "rationale": "The essentials are covered; time to look after the village's safety."}
 
 
-def parse_priority(result: dict, fallback: dict) -> tuple[str, str]:
-    priority = result.get("priority")
+def parse_rationale(result: dict, fallback: dict) -> str:
     rationale = result.get("rationale")
-    if not isinstance(priority, str) or priority.strip().lower() not in _VALID_PRIORITIES:
-        priority = fallback["priority"]
-    else:
-        priority = priority.strip().lower()
     if not isinstance(rationale, str) or not rationale.strip():
         rationale = fallback["rationale"]
-    return priority, rationale.strip()[:200]
+    return rationale.strip()[:200]

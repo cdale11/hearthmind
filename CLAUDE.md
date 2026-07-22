@@ -453,6 +453,29 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.35)
+
+Explicit user directive: several settlement/civic decisions were being
+asked of the LLM when they should be computed, LLM explaining
+afterward. Five systems converted: geography naming (fully procedural,
+zero LLM call, reuses the existing collision-safe fallback pool), era
+branch (`era_branch.compute_branch` scores branches by real standing-
+building mix, ties favor sticky/then random), town-brain priority
+(`town_brain.compute_priority`, renamed from `fallback_priority`, is
+now THE decision — applied before any LLM call, job no longer
+`critical`), institution objectives (new `institutions.compute_
+objective`, per-kind deterministic reads: FAMILY feud/size, COUNCIL
+materials/disposition, GUILD currency), narrative direction (`narrative_
+direction.compute_themes` reads `Settlement.mood`'s real axes past a
+threshold). Each LLM call that remains is narration-only — one
+sentence explaining the already-decided value, never choosing a
+different one. Also fixed: `/diagnostics`' `llm_model` now reads the
+actual `MODEL_PATH` env var when set (was silently drifting from the
+real deployed model on an env-only switch); added `trigger_rules_*`/
+`wildfire_ignition_ticks_recorded` to the diagnostics snapshot the dev
+console already dumps raw (closes the last un-exposed Living Terrarium
+fields from v1.3.31-34).
+
 ## Current state (v1.3.34)
 
 Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md's own sequence:

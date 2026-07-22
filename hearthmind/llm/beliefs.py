@@ -738,17 +738,15 @@ INSTITUTION_SYSTEM_PROMPT = (
     "group's own narrow point of view (its members, its trade, its "
     "standing, its worries). Group theories are not guaranteed correct "
     "and may contradict what the wider village believes — that is "
-    "expected, not an error. Also say what the group WANTS right now — a "
-    "guild wanting to secure materials, a family wanting a council seat, "
-    "a council wanting to keep the peace — one slow-changing ambition, "
-    "not a reaction to today. Leave it blank if nothing has genuinely "
-    "changed since last time. "
+    "expected, not an error. You have also been told what the group "
+    "ALREADY wants, computed from its own real circumstances — explain "
+    "that motivation in one short phrase, never invent a different want. "
     'Respond with strict JSON only, no other text: {"subject": "short '
     'label", "belief": "one sentence, under 30 words, stated as the '
     'group\'s own belief", "confidence": 0.0-1.0, "revises": integer '
     'index of an existing theory this replaces, or null for a new one, '
-    '"objective": "under 15 words, what the group wants, or empty string '
-    'if unchanged"}.'
+    '"objective_reason": "under 15 words, why the group wants what it '
+    'already wants"}.'
 )
 """Institutions Stage 3 (v0.64.0 audit-backlog item): institutions now
 *form* beliefs of their own, not only receive mirrored copies of
@@ -760,11 +758,17 @@ beliefs` list the existing consumers already read (council beliefs ->
 town-brain prompt, family beliefs -> dialogue context), capped at the
 same INSTITUTION_BELIEF_CAP. A group's own theory is allowed to
 contradict the village's — the objective/subjective split, one scale
-down."""
+down.
+
+The objective itself is deterministic (`institutions.compute_
+objective`, explicit user directive) — this prompt now only asks the
+LLM to explain the already-decided want in `objective_reason`, never to
+choose one."""
 
 
 def build_institution_prompt(
     kind_label: str, member_names: list[str], existing_beliefs: list[dict], recent_events: list[dict],
+    objective: str = "",
 ) -> str:
     """Mirrors `build_prompt`'s enumerated-theories shape at group
     scale. Same deliberate no-ground-truth-stats rule: a group's theory
@@ -780,11 +784,12 @@ def build_institution_prompt(
     else:
         beliefs_text = "  (none yet — this would be the group's first theory of its own)"
     members = ", ".join(member_names[:6]) if member_names else "nobody still living"
+    objective_text = f"\nThe group already wants to {objective}." if objective else ""
     return (
         f"The group: {kind_label}. Its living members: {members}.\n"
         f"What has been happening around them lately:\n{events_text}\n"
-        f"Theories the group already holds:\n{beliefs_text}\n"
-        "Form or revise one theory of the group's own."
+        f"Theories the group already holds:\n{beliefs_text}{objective_text}\n"
+        "Form or revise one theory of the group's own, and explain the already-decided want."
     )
 
 
@@ -804,18 +809,18 @@ def fallback_institution_belief(kind_label: str, recent_events: list[dict]) -> d
     return {"subject": subject, "belief": belief, "confidence": 0.4, "revises": None}
 
 
-def parse_institution_objective(result: dict) -> str | None:
-    """v0.87.12 "institution objectives" (docs/IDEAS-2026-07-EMERGENCE.md
-    §7): pulled from the SAME institution-belief JSON result `parse_
-    belief` already parses for subject/belief/confidence — a separate
-    accessor since a blank/missing objective means "nothing changed,"
-    not "clear the existing one" (unlike belief, which always writes).
-    Returns None on a blank/missing/non-string answer so the caller can
-    leave `Institution.objective` untouched — the fallback path (a
-    templated belief with no real objective opinion) never fabricates
-    one either, since `fallback_institution_belief` has no "objective"
-    key at all and this only ever reads a genuine LLM `result`."""
-    text = result.get("objective")
+def parse_institution_objective_reason(result: dict) -> str | None:
+    """v0.87.12 "institution objectives," made deterministic: the WANT
+    itself is now `institutions.compute_objective` (explicit user
+    directive) — this only pulls the LLM's short explanation of that
+    already-decided want, from the SAME institution-belief JSON result
+    `parse_belief` already parses for subject/belief/confidence.
+    Returns None on a blank/missing/non-string answer so a fallback/
+    flaky stretch simply means no reason sentence gets logged, never a
+    fabricated one — `fallback_institution_belief` has no
+    "objective_reason" key at all and this only ever reads a genuine
+    LLM `result`."""
+    text = result.get("objective_reason")
     if not isinstance(text, str) or not text.strip():
         return None
     return text.strip()[:150]

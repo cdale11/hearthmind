@@ -160,6 +160,7 @@ from hearthmind.settlement.buildings import (
     tick_relation,
     tick_temperament,
 )
+from hearthmind.settlement import institutions
 from hearthmind.settlement.institutions import (
     FAMILY_FEUD_MAX_STORED,
     FAMILY_FEUD_PROMOTION_THRESHOLD,
@@ -190,6 +191,20 @@ if TYPE_CHECKING:
     from hearthmind.interface.api import WorldBroadcaster
 
 logger = logging.getLogger("hearthmind.engine")
+
+
+def _resolve_llm_model_label(config: Config) -> str:
+    """`Config.llm_model` is a hand-set label that has drifted from the
+    actually-deployed model before (v1.3.15's own docstring records a
+    live incident: an env-only model switch left `/diagnostics` reading
+    the stale default). `scripts/run.sh`'s `MODEL_PATH` env var is what
+    the llama-server process was ACTUALLY launched with — when set, it
+    is ground truth and takes priority; `Config.llm_model` stays the
+    fallback (Ollama backend, or `MODEL_PATH` unset in this process)."""
+    model_path = os.environ.get("MODEL_PATH")
+    if model_path:
+        return os.path.splitext(os.path.basename(model_path))[0]
+    return config.llm_model
 
 _CALENDAR_EVENT_DESCRIPTIONS = {
     "day_end": "A new day begins.",
@@ -986,7 +1001,7 @@ class SimulationEngine:
         self._cognition_runner = CognitionRunner(client=client, max_concurrent=config.llm_max_concurrent)
         self._training_recorder = TrainingRecorder(
             archive_dir=config.recorder_archive_dir,
-            model_name_provider=lambda: config.llm_model,
+            model_name_provider=lambda: _resolve_llm_model_label(config),
             hearthmind_version_provider=lambda: __version__,
             seed_provider=lambda: config.seed,
             generation_config_provider=lambda: _generation_config_snapshot(config),
@@ -3906,25 +3921,26 @@ class SimulationEngine:
         era` moves a settlement into a new era — never periodically, so
         it needs no round-robin day slot and stays trivially within the
         LLM-volume budget (a handful of calls per settlement's whole
-        life). Chooses one of `ERA_BRANCH_NAMES` (see llm/era_branch.py)
-        to lean the settlement's own future `choose_building_kind` odds
-        toward — real, bounded emergent divergence between settlements
-        reaching the same era via the same tech path, never an
-        unsupported invented outcome."""
+        life). The branch itself (see llm/era_branch.py) is computed
+        deterministically from the settlement's own real standing-
+        building mix and applied immediately — real, bounded emergent
+        divergence between settlements reaching the same era via the
+        same tech path, never an LLM impression of it. The one LLM call
+        this still schedules is narration-only: one sentence explaining
+        the already-computed lean, never a second vote on what it is."""
         rng = namespaced_rng(self.world.config.seed, self.world.clock.tick_count, f"era_branch_{settlement.id}")
-        fallback = era_branch.fallback_branch(rng)
-        recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
-        prompt = era_branch.build_prompt(settlement.name, new_era, recent, settlement.era_branch)
+        branch, scores = era_branch.compute_branch(settlement, rng)
+        settlement.era_branch = branch
+        fallback = era_branch.fallback_reason()
+        prompt = era_branch.build_prompt(settlement.name, new_era, branch, scores)
         branch_target_id = settlement.id
 
         def apply(result: dict, used_fallback: bool) -> None:
-            branch, reason = era_branch.parse_branch(result, fallback)
+            reason = era_branch.parse_reason(result, fallback)
             target = self._settlement_by_id(branch_target_id)
-            if target is None:
+            if target is None or not reason:
                 return
-            target.era_branch = branch
-            if reason:
-                self._log("era_branch", f"{target.name or 'The village'} is leaning {branch} — {reason}")
+            self._log("era_branch", f"{target.name or 'The village'} is leaning {branch} — {reason}")
 
         self._schedule_llm_job(
             "era_branch", prompt, era_branch.SYSTEM_PROMPT, fallback, apply,
@@ -4233,10 +4249,16 @@ class SimulationEngine:
     def _maybe_schedule_narrative_direction(self, events: list[str]) -> None:
         """Quarterly (season_end — a season already IS a real-calendar
         quarter, no new cadence machinery needed), one call: names the
-        theme(s) running through the settlement's recent life. Consumed
+        theme running through the settlement's recent life. Consumed
         ONLY as prompt bias (see `_narrative_theme_bias` below) — never
         schedules or scripts anything on its own. See llm/narrative_
-        direction.py's module docstring."""
+        direction.py's module docstring.
+
+        The theme itself is computed deterministically (explicit user
+        directive) from `Settlement.mood`'s own real axes — applied
+        immediately, before any LLM call. The LLM's remaining job is a
+        grounded one-sentence summary, plus its genuinely creative side
+        task of coining a local term for a dominant event."""
         target = self._job_target()
         if not self._season_year_gate(events, "narrative_direction", "season_end") or not target.name:
             return
@@ -4245,22 +4267,28 @@ class SimulationEngine:
         self._mark_season_year_resolved("narrative_direction")
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         mood = dict(target.mood)
+        themes = narrative_direction.compute_themes(mood)
+        target.narrative_themes.append({"themes": themes, "formed_tick": self.world.clock.tick_count})
+        if len(target.narrative_themes) > NARRATIVE_THEMES_MAX_STORED:
+            target.narrative_themes = target.narrative_themes[-NARRATIVE_THEMES_MAX_STORED:]
         prompt = narrative_direction.build_prompt(
-            target.name, recent, target.folklore, mood, target.narrative_themes, target.lexicon,
+            target.name, themes, recent, target.folklore, mood, target.lexicon,
         )
-        fallback = narrative_direction.fallback_direction(mood)
+        fallback = narrative_direction.fallback_summary()
         target_id = target.id
 
         def apply(result: dict, used_fallback: bool) -> None:
-            themes = narrative_direction.parse_direction(result, fallback)
             stl = self._settlement_by_id(target_id)
-            stl.narrative_themes.append({"themes": themes, "formed_tick": self.world.clock.tick_count})
-            if len(stl.narrative_themes) > NARRATIVE_THEMES_MAX_STORED:
-                stl.narrative_themes = stl.narrative_themes[-NARRATIVE_THEMES_MAX_STORED:]
-            self._log("narrative_direction", f"{stl.name}'s recent life reads as: {', '.join(themes)}.")
+            if stl is None:
+                return
+            summary = narrative_direction.parse_summary(result, fallback)
+            self._log(
+                "narrative_direction",
+                f"{stl.name}'s recent life reads as: {', '.join(themes)}." + (f" {summary}" if summary else ""),
+            )
             # §2 "dialect drift": a real answer only, never fabricated by
-            # the fallback (fallback_direction has no coined_term field
-            # at all) — rides this call for zero added LLM volume.
+            # the fallback (fallback_summary has no coined_term field at
+            # all) — rides this call for zero added LLM volume.
             if not used_fallback:
                 coined = narrative_direction.parse_coined_term(result)
                 if coined is not None:
@@ -4985,14 +5013,16 @@ class SimulationEngine:
         ever consumed it; same root cause and same fix shape as the
         terrain-evolution cadence decoupling already documented — see
         docs/DECISIONS.md, "cadence decoupling" pass), for a named
-        settlement, the LLM (or its deterministic fallback — see
-        llm/town_brain.fallback_priority) decides the settlement's
-        current civic priority — the concrete "LLM as the town's brain"
-        mechanic (CLAUDE.md): the result measurably steers
-        `buildings.choose_building_kind`, not just narration. Any
-        queued player whispers (`settlement.player_influence`, via
-        POST /intervene/town-brain) are folded in as one input among
-        the real stats, then consumed. See docs/DECISIONS.md,
+        settlement, `town_brain.compute_priority` (deterministic, see
+        its own docstring) decides the settlement's current civic
+        priority — the concrete "LLM as the town's brain" mechanic
+        (CLAUDE.md): the result measurably steers `buildings.
+        choose_building_kind`, not just narration. The LLM's remaining
+        role is to write one grounded sentence explaining that already-
+        decided priority. Any queued player whispers (`settlement.
+        player_influence`, via POST /intervene/town-brain) are folded
+        in as one input among the real stats, then consumed. See
+        docs/DECISIONS.md,
         "LLM-as-brain batch.\""""
         settlement = self._job_target()
         if not self._monthly_gate(events, "town_brain") or not settlement.name:
@@ -5019,8 +5049,18 @@ class SimulationEngine:
         # all-time tally.
         recent_goal_counts = dict(settlement.recent_goal_counts)
         settlement.recent_goal_counts = {}
+        # THE decision: computed, not asked for — see town_brain.
+        # compute_priority's docstring. Applied immediately, before any
+        # LLM call, so the mechanical effect (choose_building_kind's
+        # weighting) never waits on or depends on inference.
+        decision = town_brain.compute_priority(population_summary, settlement_summary, council_disposition)
+        priority = decision["priority"]
+        settlement.current_priority = priority
+        settlement.priority_rationale = decision["rationale"]
+        settlement.record_priority(self.world.clock.tick_count, priority, decision["rationale"])
+        self._log("town_brain", f"{settlement.name or 'The village'}'s priority is now {priority} — {decision['rationale']}")
         prompt = town_brain.build_prompt(
-            settlement.name, recent, population_summary, settlement_summary, whispers_sent,
+            settlement.name, priority, recent, population_summary, settlement_summary, whispers_sent,
             beliefs=settlement.beliefs[-PROMPT_SETTLEMENT_BELIEFS_MAX:],
             belief_digest=settlement.belief_digest,
             culture_digest=settlement.culture_digest,
@@ -5030,11 +5070,13 @@ class SimulationEngine:
             prophecy=settlement.prophecy if settlement.prophecy and settlement.prophecy.get("status") == "pending" else None,
             known_concepts=known_concepts, recent_goal_counts=recent_goal_counts,
         )
-        fallback = town_brain.fallback_priority(population_summary, settlement_summary, council_disposition)
+        fallback = {"rationale": decision["rationale"]}
         brain_target_id = settlement.id
 
         def apply(result: dict, used_fallback: bool) -> None:
             target = self._settlement_by_id(brain_target_id)
+            if target is None:
+                return
             if whispers_sent and not used_fallback:
                 # A whisper only counts as heard when the LLM actually
                 # read the prompt containing it. On timeout/fallback it
@@ -5045,14 +5087,16 @@ class SimulationEngine:
                 # architecture review, §0.2).
                 remaining = [w for w in target.player_influence if w not in whispers_sent]
                 target.player_influence = remaining[-3:]
-            priority, rationale = town_brain.parse_priority(result, fallback)
-            target.current_priority = priority
+            if used_fallback:
+                return  # the deterministic rationale was already applied/logged above
+            rationale = town_brain.parse_rationale(result, fallback)
             target.priority_rationale = rationale
-            target.record_priority(self.world.clock.tick_count, priority, rationale)
-            self._log("town_brain", f"{target.name or 'The village'}'s priority is now {priority} — {rationale}")
+            if target.priority_history:
+                target.priority_history[-1]["rationale"] = rationale
+            self._log("town_brain", f"{target.name or 'The village'}'s priority is {priority} — {rationale}")
 
         self._schedule_llm_job(
-            "town_brain", prompt, town_brain.SYSTEM_PROMPT, fallback, apply, critical=True,
+            "town_brain", prompt, town_brain.SYSTEM_PROMPT, fallback, apply,
             settlement=settlement.name,
             structured_input={
                 "settlement_id": settlement.id, "population_summary": population_summary,
@@ -6136,7 +6180,18 @@ class SimulationEngine:
         ]
         recent = recent_events_diverse(self.conn, limit=20)
         existing = list(institution.beliefs)
-        prompt = beliefs.build_institution_prompt(label, member_names, existing, recent)
+        # v0.87.12 "institution objectives," made deterministic
+        # (explicit user directive): the WANT itself is computed, not
+        # asked for — applied immediately, before any LLM call. Only
+        # the LLM's explanation of it (`objective_reason`) waits on
+        # inference.
+        council_disposition = (
+            self.world.population.council_disposition(institution)
+            if institution.kind is InstitutionKind.COUNCIL else None
+        )
+        objective = institutions.compute_objective(institution, inst_target.summary(), council_disposition)
+        institution.objective = objective
+        prompt = beliefs.build_institution_prompt(label, member_names, existing, recent, objective=objective)
         fallback = beliefs.fallback_institution_belief(label, recent)
         existing_count = len(existing)
         institution_id = institution.id
@@ -6150,12 +6205,9 @@ class SimulationEngine:
                 return  # pruned while the job was in flight
             parsed = beliefs.parse_belief(result, fallback, existing_count)
             verb = beliefs.apply_institution_belief(target, parsed, self.world.clock.tick_count)
-            # v0.87.12 "institution objectives": rides this same call,
-            # zero added volume — only overwritten on a genuine new
-            # answer, retained across a fallback/blank stretch.
-            objective = beliefs.parse_institution_objective(result)
-            if objective is not None:
-                target.objective = objective
+            objective_reason = beliefs.parse_institution_objective_reason(result)
+            if objective_reason:
+                self._log("institution_objective", f"The {label} wants to {objective} — {objective_reason}")
             if verb == "unchanged":
                 return  # a verbatim restatement of an existing theory — nothing to log
             self._log(
@@ -6638,7 +6690,10 @@ class SimulationEngine:
     def _maybe_schedule_geography(self, events: list[str]) -> None:
         """Named geography: one unnamed feature (the river first, then
         each lake) earns a permanent name per month once the settlement
-        itself is named. See llm/geography.py."""
+        itself is named. Fully procedural (explicit user directive) —
+        a plain weathered place name carries no interpretation the LLM
+        would meaningfully add, so this is a direct, zero-LLM-call
+        assignment, not a scheduled job. See llm/geography.py."""
         if not self._monthly_gate(events, "geography") or not self.world.settlement.name:
             return
         place_names = self.world.settlement.place_names
@@ -6653,28 +6708,12 @@ class SimulationEngine:
                     break
         if feature_key is None:
             return  # everything nameable already has a name — permanent no-op
-        if self._settlement_job_backpressured():
-            return
         self._mark_monthly_resolved("geography")
         existing_names = list(place_names.values())
-        prompt = geography.build_prompt(
-            self.world.settlement.name, feature_kind, self.world.settlement.founding_scenario,
-            existing_names=existing_names,
-        )
-        fallback = geography.fallback_name(feature_kind, self.world.clock.tick_count, existing_names=existing_names)
-
-        def apply(result: dict, used_fallback: bool) -> None:
-            if feature_key in self.world.settlement.place_names:
-                return  # already named by an earlier in-flight job
-            # Re-reads current place_names at apply time (not the
-            # `existing_names` snapshot above) in case another geography
-            # job landed while this one was in flight.
-            name = geography.parse_name(result, fallback, list(self.world.settlement.place_names.values()))
-            self.world.settlement.place_names[feature_key] = name
-            noun = "the river" if feature_kind == "river" else "the lake"
-            self._log("place_named", f"The villagers took to calling {noun} {name}.")
-
-        self._schedule_llm_job("geography", prompt, geography.SYSTEM_PROMPT, fallback, apply)
+        name = geography.name_feature(feature_kind, self.world.clock.tick_count, existing_names=existing_names)
+        place_names[feature_key] = name
+        noun = "the river" if feature_kind == "river" else "the lake"
+        self._log("place_named", f"The villagers took to calling {noun} {name}.")
 
     def _log(self, category: str, description: str) -> None:
         """Persist an event AND buffer it for the next broadcast —
@@ -7075,7 +7114,7 @@ class SimulationEngine:
             "connected_clients": self._broadcaster.client_count() if self._broadcaster else 0,
             "llm_enabled": self._cognition_runner.enabled,
             "llm_max_concurrent": self.config.llm_max_concurrent,
-            "llm_model": self.config.llm_model,
+            "llm_model": _resolve_llm_model_label(self.config),
             "llm_adapter_name": self.config.llm_adapter_name,
             # Phase 1.A "self-evolving world" (docs/VISION-2026-07-21-
             # SELFEVOLVING.md): the Innovation Layer's own registry
@@ -7094,6 +7133,19 @@ class SimulationEngine:
                 for cat in ontology.ONTOLOGY_CATEGORIES
                 if any(c.category == cat for c in self.world.invented_concepts.values())
             },
+            # Vision doc item 1.2 — same dev-console depth as the
+            # ontology fields above.
+            "trigger_rules_total": len(self.world.trigger_rules),
+            "trigger_rules_by_status": {
+                status: sum(1 for r in self.world.trigger_rules.values() if r.status == status)
+                for status in ("active", "retired")
+                if any(r.status == status for r in self.world.trigger_rules.values())
+            },
+            # Vision doc item 1.4/2.4's own signal — how close the
+            # governor-drift detector is to having enough samples, and
+            # the same recent-window numbers `_detect_reflection_
+            # pattern` itself computes.
+            "wildfire_ignition_ticks_recorded": len(self.world.wildfire_ignition_ticks),
             # Phase 5.A/5.B (docs/VISION-2026-07-21-SELFEVOLVING.md,
             # "Start the 5th item"): dev-console reachability for
             # Reflection's notebook, same "diagnostics-depth content,

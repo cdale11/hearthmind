@@ -4520,7 +4520,7 @@ class Population:
         which is itself meaningful and left for the caller to read as
         "no bias"). Consumed by dispute-outcome framing (`llm/
         dispute.py`'s `council_faction` bias) and town_brain framing
-        (`fallback_priority`'s tiebreak) — "let a faction majority on
+        (`compute_priority`'s tiebreak) — "let a faction majority on
         the council bias dispute rulings and town-brain framing," the
         idea doc's own phrasing."""
         council = next((i for i in settlement.institutions if i.kind is InstitutionKind.COUNCIL), None)
@@ -7047,7 +7047,7 @@ class Population:
     def council_disposition(self, council: "Institution") -> dict:
         """Integration milestone: the living council's average traits —
         the concrete "who's on the council actually matters" mechanism
-        consumed by `town_brain.fallback_priority`'s tie-break and (via
+        consumed by `town_brain.compute_priority`'s tie-break and (via
         `build_prompt`) offered as context for the LLM path too. Reads
         only living members (`member_agent_ids` outlives them, same as
         `family_for`'s reasoning) — a council of the dead has no

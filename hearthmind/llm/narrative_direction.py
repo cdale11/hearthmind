@@ -1,42 +1,70 @@
 """Narrative Direction (Phase M, docs/VISION-2026-07.md, "Faith &
 Meaning"): quarterly (season_end-gated — a season already IS a quarter
 of the real 365-day calendar, no new cadence needed), settlement-scoped,
-one call. Reads the chronicle/folklore/mood trajectory and names 1-2
-active themes (grief, hope, decay, renewal...). Consumed ONLY as prompt
-bias for town_brain/omens/chronicle/Dream() — it never schedules or
-scripts an event on its own; it makes whatever those mechanisms already
-do thematically coherent instead of arbitrary from call to call.
-"""
+one call. Names 1-2 active themes (grief, hope, decay, renewal...) and
+folds them into `_narrative_theme_bias` as prompt bias for town_brain/
+omens/chronicle/Dream() — it never schedules or scripts an event on its
+own; it makes whatever those mechanisms already do thematically
+coherent instead of arbitrary from call to call.
+
+Made deterministic (explicit user directive): "I don't think an LLM
+should decide Theme: Grief, Renewal. That can emerge statistically from
+events. The LLM can write a summary." `compute_themes` reads
+`Settlement.mood`'s own real axes (hope/fear/grief/suspicion, each
+already a statistical aggregate of lived events — Phase I) and picks
+the strongest one past a real threshold — the same signal the old
+`fallback_direction` already used as its non-LLM path, now promoted to
+THE decision. The LLM's remaining job is a one-sentence summary
+explaining the computed theme, plus its one genuinely creative-
+authorship side task (coining a local term for a dominant event, kept
+as-is — naming an unprecedented thing, not choosing among a closed set
+of moods)."""
 from __future__ import annotations
 
+_MOOD_THEME_THRESHOLD = 0.15
+"""Same magnitude as the prior `fallback_direction`'s threshold —
+below this, no mood axis reads as a genuine active theme."""
+
+_LABEL_BY_AXIS = {"hope": "quiet hope", "fear": "unease", "grief": "mourning", "suspicion": "wariness"}
+
 SYSTEM_PROMPT = (
-    "You are noticing the emotional throughline of a small simulated "
-    "village's recent history. Given what has happened lately and its "
-    "general mood, name the theme or two that actually run through it right "
-    "now — not a plot, not a prediction, just what this stretch of the "
-    "village's life has been ABOUT (grief, renewal, suspicion, quiet "
-    "prosperity, decline, whatever genuinely fits). Stay grounded in what's "
-    "given; don't invent drama that isn't there. Separately — and only when "
-    "one event has genuinely dominated this stretch enough that villagers "
-    "would actually have started calling it something ('the white month' "
-    "for a brutal winter, 'the long hunger') — coin ONE short local term "
-    "for it and say briefly what it means; most of the time nothing has "
-    "been dominant enough for this, and that is the correct answer. "
-    'Respond with strict JSON only, no other text: {"themes": ["one or two '
-    'short theme words or phrases"], "coined_term": "a short local term, or '
-    'empty if nothing dominant enough happened", "coined_meaning": "what it '
-    'refers to, under 15 words, or empty"}.'
+    "You are summarizing the emotional throughline of a small simulated "
+    "village's recent history. You have been told the theme that has ALREADY "
+    "been computed for this stretch of its life, from its own real mood — "
+    "your only job is to write one short sentence grounded in what's given, "
+    "never to name a different theme. Separately — and only when one event "
+    "has genuinely dominated this stretch enough that villagers would "
+    "actually have started calling it something ('the white month' for a "
+    "brutal winter, 'the long hunger') — coin ONE short local term for it "
+    "and say briefly what it means; most of the time nothing has been "
+    "dominant enough for this, and that is the correct answer. "
+    'Respond with strict JSON only, no other text: {"summary": "one short '
+    'sentence, under 20 words, grounded in the given theme", "coined_term": '
+    '"a short local term, or empty if nothing dominant enough happened", '
+    '"coined_meaning": "what it refers to, under 15 words, or empty"}.'
 )
 
 
+def compute_themes(mood: dict) -> list[str]:
+    """THE decision — not a fallback. Reads the settlement's own real,
+    already-tracked mood axes; a theme only counts once its axis clears
+    `_MOOD_THEME_THRESHOLD`, so most quarters correctly read as "an
+    ordinary season" rather than manufacturing drama from noise."""
+    if not mood:
+        return ["an ordinary season"]
+    strongest = max(mood, key=lambda k: abs(mood.get(k, 0.0)))
+    if abs(mood.get(strongest, 0.0)) < _MOOD_THEME_THRESHOLD:
+        return ["an ordinary season"]
+    return [_LABEL_BY_AXIS.get(strongest, strongest)]
+
+
 def build_prompt(
-    settlement_name: str, recent_events: list[dict], folklore: list[dict],
-    mood: dict, previous_themes: list[dict], lexicon: list[dict] | None = None,
+    settlement_name: str, themes: list[str], recent_events: list[dict], folklore: list[dict],
+    mood: dict, lexicon: list[dict] | None = None,
 ) -> str:
     events_text = "\n".join(f"- {e['description']}" for e in recent_events) or "A quiet stretch."
     folklore_text = "; ".join(f["tale"] for f in folklore[-3:]) or "None told."
     mood_text = ", ".join(f"{k} {v:+.2f}" for k, v in mood.items()) or "unremarkable"
-    prev_text = ", ".join(previous_themes[-1]["themes"]) if previous_themes else "none yet"
     lexicon_text = (
         "; ".join(f"\"{e['term']}\" ({e['meaning']})" for e in (lexicon or [])) or "none coined yet"
     )
@@ -44,34 +72,22 @@ def build_prompt(
         f"The village of {settlement_name}. What's happened lately:\n{events_text}\n"
         f"Its tales: {folklore_text}\n"
         f"Its current mood: {mood_text}\n"
-        f"The last theme noticed: {prev_text}\n"
+        f"The theme already computed for this stretch of its life: {', '.join(themes)}.\n"
         f"Local terms it already uses: {lexicon_text}\n"
-        "What theme (or two) runs through this stretch of its life right now? "
+        "Write one sentence grounded in the computed theme. "
         "Has anything happened that's dominant enough to deserve its own local term?"
     )
 
 
-def fallback_direction(mood: dict) -> dict:
-    """Deterministic stand-in: reads the single strongest mood axis
-    rather than inventing a theme from nothing — a real signal already
-    on the settlement, just not model-interpreted."""
-    label_by_axis = {
-        "hope": "quiet hope", "fear": "unease", "grief": "mourning", "suspicion": "wariness",
-    }
-    if not mood:
-        return {"themes": ["an ordinary season"]}
-    strongest = max(mood, key=lambda k: abs(mood.get(k, 0.0)))
-    if abs(mood.get(strongest, 0.0)) < 0.15:
-        return {"themes": ["an ordinary season"]}
-    return {"themes": [label_by_axis.get(strongest, strongest)]}
+def fallback_summary() -> dict:
+    return {"summary": ""}
 
 
-def parse_direction(result: dict, fallback: dict) -> list[str]:
-    themes = result.get("themes")
-    if not isinstance(themes, list):
-        themes = fallback["themes"]
-    clean = [t.strip()[:40] for t in themes if isinstance(t, str) and t.strip()][:2]
-    return clean or fallback["themes"]
+def parse_summary(result: dict, fallback: dict) -> str:
+    summary = result.get("summary")
+    if not isinstance(summary, str):
+        summary = fallback["summary"]
+    return summary.strip()[:160]
 
 
 def parse_coined_term(result: dict) -> tuple[str, str] | None:

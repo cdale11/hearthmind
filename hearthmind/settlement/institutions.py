@@ -174,6 +174,61 @@ class Institution:
         )
 
 
+COUNCIL_OBJECTIVE_DISPOSITION_THRESHOLD = 0.15
+"""Same magnitude as `town_brain.COUNCIL_DISPOSITION_TIEBREAK_
+THRESHOLD` — how far a council's average ambition/resilience must lean
+before `compute_objective` reads it as a real signal, not noise."""
+
+FAMILY_OBJECTIVE_SMALL_THRESHOLD = 3
+"""A FAMILY institution at or below this many living members reads as
+"still small" for `compute_objective`'s growth-vs-standing branch."""
+
+
+def compute_objective(
+    institution: "Institution", settlement_summary: dict, council_disposition: dict | None = None,
+) -> str:
+    """Deterministic (explicit user directive: "Institution objectives:
+    these can be deterministic. The LLM should explain the motivation.")
+    — one slow-revised line of what this institution WANTS, computed
+    from its own real state rather than an LLM impression of it. Same
+    signals `town_brain.compute_priority` already reads for the
+    settlement as a whole, applied at institution scope."""
+    if institution.kind is InstitutionKind.FAMILY:
+        if institution.feuds:
+            return "see its feud with a rival family finally end"
+        if len(institution.member_agent_ids) <= FAMILY_OBJECTIVE_SMALL_THRESHOLD:
+            return "see its household grow"
+        return "earn a lasting place among the village's council"
+    if institution.kind is InstitutionKind.COUNCIL:
+        materials_frac = (
+            settlement_summary.get("materials", 0.0) / settlement_summary.get("materials_capacity", 1.0)
+            if settlement_summary.get("materials_capacity") else 0.0
+        )
+        if materials_frac < 0.2:
+            return "see the village provided for before anything else"
+        if council_disposition:
+            avg_ambition = council_disposition.get("avg_ambition", 0.0)
+            avg_resilience = council_disposition.get("avg_resilience", 0.0)
+            if avg_ambition - avg_resilience > COUNCIL_OBJECTIVE_DISPOSITION_THRESHOLD:
+                return "see the village grow and its reach widen"
+            if avg_resilience - avg_ambition > COUNCIL_OBJECTIVE_DISPOSITION_THRESHOLD:
+                return "keep the village secure and at peace"
+        return "keep the village steady"
+    if institution.kind is InstitutionKind.GUILD:
+        currency_frac = (
+            settlement_summary.get("currency", 0.0) / settlement_summary.get("currency_capacity", 1.0)
+            if settlement_summary.get("currency_capacity") else 0.0
+        )
+        if currency_frac < 0.2:
+            return "bring in more trade for the village's coffers"
+        return "pass its craft on to the next generation"
+    # FACTION and any future kind: no mechanically-grounded signal yet
+    # (chosen-loyalty clusters carry no settlement-scoped stat this
+    # function reads) — a genuine, honest "nothing to compute" rather
+    # than a fabricated guess.
+    return "hold its own together"
+
+
 FAMILY_FEUD_PROMOTION_THRESHOLD = 3
 """v0.87.11: how many real `outcome == "feud"` dispute results between
 two different FAMILY institutions' members it takes to promote a

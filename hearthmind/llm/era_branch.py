@@ -1,60 +1,73 @@
-"""One-time-per-era-advance LLM job: chooses which of a small, fixed
-set of named "branches" (settlement/buildings.py's ERA_BRANCH_NAMES)
-best fits this settlement's own recent history — v1 audit fix,
-"let emergence/LLM steer its own course of era progression." Fires
-only right after `SimulationEngine._maybe_advance_era` moves a
-settlement into a new era (a handful of times per settlement's whole
-life), never periodically, so it needs no round-robin day slot.
+"""One-time-per-era-advance job: picks which of a small, fixed set of
+named "branches" (settlement/buildings.py's ERA_BRANCH_NAMES) best fits
+this settlement's own recent history — v1 audit fix, "let emergence/
+LLM steer its own course of era progression."
 
-Deliberately a CLOSED choice among ERA_BRANCH_NAMES, not free text —
-the branch nudges real building-selection odds (`choose_building_kind`'s
-`branch` param), so the LLM must land on a mechanically-supported
-option rather than inventing an unsupported one. This is the "bounded
-branch space" the branching-influence design explicitly requires: the
-LLM decides WHICH of the existing paths a settlement leans into, never
-invents a wholly new one outside what the engine can act on.
-"""
+Made deterministic (explicit user directive): the branch itself is now
+COMPUTED from the settlement's own real standing-building mix — the
+same signal `ERA_BRANCH_KIND_WEIGHTS` already ties to each branch's
+`choose_building_kind` boost, so "what a settlement has actually built"
+directly decides "what it leans toward," not an LLM impression of it.
+The LLM's only remaining job is to explain the computed lean in one
+sentence, grounded in the actual counts — narration, not decision."""
 from __future__ import annotations
 
-from hearthmind.settlement.buildings import ERA_BRANCH_NAMES
+from hearthmind.settlement.buildings import ERA_BRANCH_KIND_WEIGHTS, BuildingStage
 
 SYSTEM_PROMPT = (
-    "You are choosing the emerging character of a small simulated village as it enters a "
-    "new era of its history. Given what the village has recently lived through, choose "
-    "which ONE of the following paths it is leaning toward: "
-    f"{', '.join(ERA_BRANCH_NAMES)}. "
-    'Respond with strict JSON only, no other text: {"branch": "one of the exact listed '
-    'words", "reason": "one short sentence, under 20 words, explaining why"}.'
+    "You are describing the emerging character of a small simulated village as it enters "
+    "a new era of its history. You have been told which path it has ALREADY leaned toward, "
+    "computed from what it has actually built — your job is only to explain why in one "
+    "short sentence, grounded in the given facts, never to choose a different path. "
+    'Respond with strict JSON only, no other text: {"reason": "one short sentence, under '
+    '20 words, explaining why, citing an actual count or fact given to you"}.'
 )
 
 
-def build_prompt(settlement_name: str, era: str, recent_events: list[dict], current_branch: str) -> str:
-    lines = [f"- {event['description']}" for event in recent_events[-6:]]
-    events_text = "\n".join(lines) if lines else "Nothing especially notable yet."
-    previous = f" It had been leaning {current_branch} before this." if current_branch else ""
+def compute_branch(settlement, rng) -> tuple[str, dict[str, float]]:
+    """Deterministic: score each branch by the weighted count of its
+    matching STANDING buildings (the same `ERA_BRANCH_KIND_WEIGHTS`
+    `choose_building_kind` itself reads) — the settlement's own
+    already-built character decides its lean, not a free-text guess.
+    Ties (including the common all-zero case for a settlement that just
+    entered its first branch-eligible era with nothing matching built
+    yet) favor the settlement's current branch if it has one, then fall
+    back to a namespaced random pick among the tied branches — a real
+    choice, not an arbitrary fixed default, when there's genuinely no
+    signal yet."""
+    standing_kinds = [b.kind.value for b in settlement.buildings if b.stage is BuildingStage.STANDING]
+    scores = {
+        branch: sum(weights.get(kind, 0.0) for kind in standing_kinds)
+        for branch, weights in ERA_BRANCH_KIND_WEIGHTS.items()
+    }
+    best_score = max(scores.values())
+    tied = [b for b, s in scores.items() if s == best_score]
+    if len(tied) == 1:
+        return tied[0], scores
+    if settlement.era_branch in tied:
+        return settlement.era_branch, scores
+    return rng.choice(tied), scores
+
+
+def build_prompt(settlement_name: str, era: str, branch: str, scores: dict[str, float]) -> str:
+    facts = ", ".join(f"{b}: {s:.1f}" for b, s in sorted(scores.items(), key=lambda kv: -kv[1]))
     return (
-        f"The village of {settlement_name} has just entered the {era} era.{previous}\n"
-        f"What it has recently lived through:\n{events_text}\n"
-        "Which path does it lean toward now?"
+        f"The village of {settlement_name} has just entered the {era} era, and its own "
+        f"building mix shows it leaning {branch} (scores by path — {facts}).\n"
+        f"Explain in one sentence why {branch} fits."
     )
 
 
-def fallback_branch(rng) -> dict:
-    """Deterministic stand-in: a real pick, not a no-op — unlike a
-    quarterly digest job (where "nothing changed" is a fine outcome),
-    a settlement needs SOME branch as soon as it enters a new era so
-    `choose_building_kind` has something to read; an empty answer would
-    silently degrade to "no lean at all," not a genuine texture-only
-    absence. See llm.institution_culture.fallback_digest for the
-    contrasting genuine-no-op shape used elsewhere."""
-    return {"branch": rng.choice(ERA_BRANCH_NAMES), "reason": ""}
+def fallback_reason() -> dict:
+    """Genuine no-op — a computed branch needs no fabricated
+    explanation to function mechanically (`choose_building_kind` reads
+    `Settlement.era_branch` directly), so an unresolved LLM call simply
+    means no reason sentence gets logged this time."""
+    return {"reason": ""}
 
 
-def parse_branch(result: dict, fallback: dict) -> tuple[str, str]:
-    branch = result.get("branch")
-    if not isinstance(branch, str) or branch not in ERA_BRANCH_NAMES:
-        branch = fallback["branch"]
+def parse_reason(result: dict, fallback: dict) -> str:
     reason = result.get("reason")
     if not isinstance(reason, str):
-        reason = ""
-    return branch, reason.strip()[:160]
+        reason = fallback["reason"]
+    return reason.strip()[:160]
