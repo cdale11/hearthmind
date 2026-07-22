@@ -219,6 +219,7 @@ from hearthmind.agents.agent import (
     clear_grievance,
     decay_debts,
     decay_emotions,
+    dominant_emotion,
     push_secret,
 )
 from hearthmind.agents.names import _roman, generate_names
@@ -944,13 +945,40 @@ including former core-core ones, resolves via the deterministic
 fallback so the crowd stays socially alive without spending any LLM
 budget. See Population.due_for_dialogue, docs/DECISIONS.md, E2."""
 
-VOICE_DIALOGUE_COOLDOWN_TICKS = 60
-"""Explicit user directive ("call often"): the voice pair's own
-cooldown between exchanges, much shorter than the ordinary
-`DIALOGUE_COOLDOWN_TICKS` (300) — since this is now the ONLY pair
-spending LLM dialogue budget, the freed-up call volume goes toward
-talking to each other far more frequently instead of many pairs
-talking rarely. See due_for_voice_dialogue."""
+VOICE_DIALOGUE_COOLDOWN_TICKS = 5
+"""Explicit user directive ("triggered often... every 5 ticks or
+something like that"): the voice pair's own cooldown between
+exchanges, far shorter than the ordinary `DIALOGUE_COOLDOWN_TICKS`
+(300) — since this is now the ONLY pair spending LLM dialogue budget,
+the freed-up call volume goes toward talking to each other far more
+frequently instead of many pairs talking rarely. See due_for_voice_
+dialogue."""
+
+NARRATIVE_EMOTION_BONUS = 3000.0
+"""`_narrative_significance`'s bonus for any dominant, non-grief
+emotion (fear/joy/anger) — same unit family as `PROMINENCE_BOND_
+WEIGHT`. A visibly emotional agent right now reads as "something is
+happening to them," worth surfacing as this week's protagonist even
+if they're not otherwise the settlement's most prominent figure."""
+
+NARRATIVE_GRIEF_BONUS = 5000.0
+"""`_narrative_significance`'s bonus for grief specifically — the
+explicit "a grieving parent" example — weighted above the generic
+emotion bonus since grief is the single most narratively load-bearing
+emotion this project models (death, widowhood, loss)."""
+
+NARRATIVE_REBEL_BONUS = 4000.0
+"""`_narrative_significance`'s bonus for an active hardened feud
+(`Agent.relationship_flags`, set by ostracism/feud-outcome disputes) —
+the explicit "a rebel" example: someone the village has turned against
+or who has turned against someone else."""
+
+NARRATIVE_EXTREME_EVENT_WEIGHT = 1500.0
+"""`_narrative_significance`'s per-point weight on `Agent.extreme_
+event_count` (Phase 3.B "irreversible personality" — disaster
+survival, feud/ostracism, widowhood) — a life visibly marked by
+extreme events is exactly the kind of standing narrative weight that
+should pull someone into the spotlight over an ordinary quiet week."""
 
 VOICE_CONVERSATION_HISTORY_TURNS = 6
 """How many of the voice pair's own most recent lines (from
@@ -6593,21 +6621,73 @@ class Population:
             self.dialogue_cooldowns[(a.id, b.id)] = tick
         return fallback_pairs
 
-    def select_voice_pair(self, exclude_ids: frozenset[int] = frozenset()) -> tuple[int, int] | None:
-        """The 2 most prominent living core-cast members (by
-        `_prominence`, tie-broken by lowest id for determinism),
-        excluding `exclude_ids` — the initial pick, and the "both died,
-        start fresh" rotation case. Returns None if fewer than 2 eligible
-        core-cast members exist yet (a very young world)."""
+    def _narrative_significance(self, agent, extra_scores: dict[int, float] | None = None) -> float:
+        """"Shifting protagonists rather than permanent stars" (explicit
+        user directive): a `_prominence`-baseline score (so an otherwise
+        quiet week still favors an established figure) layered with real
+        narrative-event bonuses — the same signal a reader would point
+        to and say "that's who the story is about right now." `extra_
+        scores` (agent_id -> bonus) carries the two signals that live
+        outside `Agent`/`Population` and must be computed at the engine
+        call site: a recent invention (`World.invented_concepts`) and
+        active COUNCIL membership ("a council elder") — both read
+        Settlement/World state `Population` deliberately doesn't hold a
+        reference to."""
+        score = self._prominence(agent)
+        emotion = dominant_emotion(agent.emotions)
+        if emotion == EMOTION_GRIEF:
+            score += NARRATIVE_GRIEF_BONUS  # "a grieving parent"
+        elif emotion is not None:
+            score += NARRATIVE_EMOTION_BONUS
+        if any(flag == "feud" for flag in agent.relationship_flags.values()):
+            score += NARRATIVE_REBEL_BONUS  # ostracized/hardened feud — "a rebel"
+        score += agent.extreme_event_count * NARRATIVE_EXTREME_EVENT_WEIGHT
+        if extra_scores:
+            score += extra_scores.get(agent.id, 0.0)
+        return score
+
+    def _strongest_core_bond(self, agent_id: int, exclude_ids: frozenset[int] = frozenset()) -> int | None:
+        """The living core-cast member `agent_id` has the strongest
+        relationship with, excluding `exclude_ids` and themself. `None`
+        if `agent_id` is unknown or has no such bond."""
+        agent = self.get(agent_id)
+        if agent is None:
+            return None
+        alive_ids = {a.id for a in self.agents}
+        bonded = [
+            (other_id, score) for other_id, score in agent.relationships.items()
+            if other_id in self.core_agent_ids and other_id in alive_ids
+            and other_id != agent_id and other_id not in exclude_ids
+        ]
+        return max(bonded, key=lambda pair: pair[1])[0] if bonded else None
+
+    def select_voice_pair(
+        self, exclude_ids: frozenset[int] = frozenset(), extra_scores: dict[int, float] | None = None,
+    ) -> tuple[int, int] | None:
+        """Picks this week's "protagonist" — the living core-cast member
+        with the highest `_narrative_significance` (tie-broken by lowest
+        id), excluding `exclude_ids` — then partners them with their
+        strongest bond among the remaining core cast, falling back to
+        the next-highest-significance candidate if the protagonist has
+        no such bond. Used for the initial pick, the "both died, start
+        fresh" rotation case, and the weekly reselection. Returns None
+        if fewer than 2 eligible core-cast members exist yet (a very
+        young world)."""
         candidates = [
             a for a in self.agents if a.id in self.core_agent_ids and a.id not in exclude_ids
         ]
         if len(candidates) < 2:
             return None
-        candidates.sort(key=lambda a: (-self._prominence(a), a.id))
-        return (candidates[0].id, candidates[1].id)
+        candidates.sort(key=lambda a: (-self._narrative_significance(a, extra_scores), a.id))
+        protagonist = candidates[0]
+        partner_id = self._strongest_core_bond(protagonist.id, exclude_ids=exclude_ids)
+        if partner_id is None:
+            partner_id = candidates[1].id
+        return (protagonist.id, partner_id)
 
-    def maintain_voice_pair(self, tick: int) -> tuple[int, int] | None:
+    def maintain_voice_pair(
+        self, tick: int, week_rotation: bool = False, extra_scores: dict[int, float] | None = None,
+    ) -> tuple[int, int] | None:
         """Explicit user directive: keeps exactly one fixed pair of core-
         cast members as the sole LLM-dialogue voice of the town, called
         every tick (cheap — a no-op unless the pair actually changed).
@@ -6615,15 +6695,27 @@ class Population:
         yet; if one member has since died, rotates to the survivor's
         strongest remaining bond among the current core cast (falling
         back to `select_voice_pair` if the survivor has no bonds at all);
-        if both have died, picks an entirely fresh pair. Any change
-        clears `voice_conversation` — a new partner has no business
-        continuing the old thread. Returns the NEW pair only when it
-        actually changed this call, else None (so the caller can log a
-        real "the town's voice passes to..." event only on a genuine
-        change, not every tick)."""
+        if both have died, picks an entirely fresh pair.
+
+        `week_rotation=True` (the caller passes this on a real in-game
+        week boundary) forces a fresh `select_voice_pair` reselection
+        regardless of whether the current pair is still alive — "shifting
+        protagonists rather than permanent stars": some weeks the mayor
+        dominates, other weeks it's a grieving parent, later an inventor
+        or a council elder. The still-living previous pair is naturally
+        excluded from consideration (see `select_voice_pair`'s partner-
+        bond fallback) only if they no longer score highest; there is no
+        forced "never repeat" rule — if the same pair is still genuinely
+        the town's liveliest story, they stay.
+
+        Any change clears `voice_conversation` — a new partner has no
+        business continuing the old thread. Returns the NEW pair only
+        when it actually changed this call, else None (so the caller can
+        log a real "the town's voice passes to..." event only on a
+        genuine change, not every tick)."""
         alive_ids = {a.id for a in self.agents}
         if self.voice_pair_ids is None:
-            new_pair = self.select_voice_pair()
+            new_pair = self.select_voice_pair(extra_scores=extra_scores)
             if new_pair is None:
                 return None
             self.voice_pair_ids = new_pair
@@ -6631,29 +6723,25 @@ class Population:
             return new_pair
         a_id, b_id = self.voice_pair_ids
         a_alive, b_alive = a_id in alive_ids, b_id in alive_ids
-        if a_alive and b_alive:
+        if a_alive and b_alive and not week_rotation:
             return None
-        if not a_alive and not b_alive:
-            new_pair = self.select_voice_pair()
+        if week_rotation and a_alive and b_alive:
+            new_pair = self.select_voice_pair(extra_scores=extra_scores)
+        elif not a_alive and not b_alive:
+            new_pair = self.select_voice_pair(extra_scores=extra_scores)
         else:
             survivor_id = a_id if a_alive else b_id
-            survivor = self.get(survivor_id)
-            replacement_id = None
-            if survivor is not None:
-                bonded = [
-                    (other_id, score) for other_id, score in survivor.relationships.items()
-                    if other_id in self.core_agent_ids and other_id in alive_ids and other_id != survivor_id
-                ]
-                if bonded:
-                    replacement_id = max(bonded, key=lambda pair: pair[1])[0]
+            replacement_id = self._strongest_core_bond(survivor_id)
             if replacement_id is None:
-                fallback = self.select_voice_pair(exclude_ids=frozenset({survivor_id}))
+                fallback = self.select_voice_pair(exclude_ids=frozenset({survivor_id}), extra_scores=extra_scores)
                 replacement_id = fallback[0] if fallback else None
             new_pair = (survivor_id, replacement_id) if replacement_id is not None else None
         if new_pair is None:
             self.voice_pair_ids = None
             self.voice_conversation = []
             return None
+        if new_pair == self.voice_pair_ids:
+            return None  # week_rotation reselected the same pair — not a real change
         self.voice_pair_ids = new_pair
         self.voice_conversation = []
         return new_pair

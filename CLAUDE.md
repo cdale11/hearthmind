@@ -476,6 +476,26 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.4.1)
+
+Explicit user follow-up on v1.4.0's voice pair: much more frequent
+triggering (`VOICE_DIALOGUE_COOLDOWN_TICKS` 60 -> 5) and a "shifting
+protagonists rather than permanent stars" directive — the pair should
+rotate roughly weekly, selected by narrative significance (mayor one
+week, a grieving parent the next, later an inventor/rebel/council
+elder) rather than fixed prominence. New `Population._narrative_
+significance` layers grief/emotion/feud("rebel")/extreme-event-count
+bonuses on top of the existing `_prominence` baseline; `select_voice_
+pair` now picks a "protagonist" this way then partners them with their
+strongest core-cast bond. `maintain_voice_pair(week_rotation=...)` is
+called with `"week_end" in events` each tick — a real calendar
+boundary, not a synthetic timer — forcing reselection without a forced
+"never repeat" rule (same winner two weeks running is a no-op, not a
+change). Two signals needing `World`/`Settlement` (recent inventor,
+active COUNCIL membership) are computed in `SimulationEngine._voice_
+narrative_extra_scores()` and passed in, since `Population` stays
+decoupled from those layers.
+
 ## Current state (v1.4.0)
 
 Explicit user directive: LLM dialogue disabled for every NPC pair

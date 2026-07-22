@@ -4,6 +4,57 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.4.1] — Shifting protagonists: narrative-significance-driven voice pair rotation
+
+Explicit user follow-up on v1.4.0's voice pair: trigger far more often
+("every 5 ticks or something like that"), and rotate WHO the pair is
+roughly weekly, driven by narrative significance rather than fixed
+prominence — "some weeks the mayor dominates, other weeks it's a
+grieving parent, later an inventor, a rebel, or a council elder... a
+simulation with shifting protagonists rather than permanent stars."
+
+**Cadence**: `VOICE_DIALOGUE_COOLDOWN_TICKS` 60 -> 5.
+
+**Narrative-significance scoring**: new `Population._narrative_
+significance(agent, extra_scores)` — a `_prominence` baseline (so an
+otherwise-quiet week still favors an established figure) layered with
+real event bonuses: `NARRATIVE_GRIEF_BONUS` (dominant emotion is
+grief — "a grieving parent"), `NARRATIVE_EMOTION_BONUS` (any other
+dominant emotion), `NARRATIVE_REBEL_BONUS` (an active hardened feud in
+`Agent.relationship_flags` — "a rebel"), and `NARRATIVE_EXTREME_EVENT_
+WEIGHT` × `Agent.extreme_event_count` (Phase 3.B's disaster-survival/
+feud/widowhood tracker — a life visibly marked by extreme events).
+`extra_scores` (an `{agent_id: bonus}` dict) carries the two signals
+that live outside `Population` — a recent invention (`World.invented_
+concepts`, `VOICE_NARRATIVE_INVENTOR_BONUS`, ~a season's recency
+window) and active COUNCIL membership (`VOICE_NARRATIVE_COUNCIL_
+BONUS`, "a council elder") — both computed by the new `SimulationEngine.
+_voice_narrative_extra_scores()` since `Population` deliberately
+doesn't reference `World`/`Settlement`.
+
+**Selection**: `select_voice_pair` now picks this week's "protagonist"
+(highest narrative significance) then partners them with their
+strongest bond among the remaining core cast (falling back to the
+next-highest-significance candidate if they have no such bond) —
+reusing a new shared `_strongest_core_bond` helper also used by the
+existing death-triggered rotation.
+
+**Weekly rotation**: `maintain_voice_pair` gained `week_rotation: bool`
+— the engine passes `"week_end" in events` (the calendar boundary
+`SimClock` already computes) alongside `extra_scores`, forcing a fresh
+`select_voice_pair` reselection even when the current pair is still
+alive. No forced "never repeat" rule: if the same pair genuinely
+remains the town's liveliest story, they stay — a no-op reselect isn't
+treated as a change (no spurious `voice_pair_change` event/thread
+reset). Death-triggered rotation (survivor's strongest bond, fresh
+pair if both die) is unchanged.
+
+Verified: direct smoke test (baseline prominence tie -> grief bonus
+promotes the grieving agent -> partnering picks their strongest bond
+-> week_rotation reselecting the same winner is a no-op -> an
+inventor's extra score wins the next week's rotation),
+`scripts/verify_native_soak.py` (2 seeds × 800 ticks) byte-identical.
+
 ## [1.4.0] — The voice pair: LLM dialogue narrowed to one deep, continuing conversation
 
 Explicit user directive: disable LLM dialogue for every NPC pair except

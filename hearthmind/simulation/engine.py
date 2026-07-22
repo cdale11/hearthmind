@@ -589,6 +589,23 @@ MATERIALS_FLOW_WINDOW_TICKS = 200
 not a whole-run average, matching the audit's ask for a live materials
 inflow/outflow signal rather than a historical chart."""
 
+VOICE_NARRATIVE_INVENTOR_BONUS = 4000.0
+"""`_voice_narrative_extra_scores`'s bonus for an agent who authored a
+concept within `VOICE_NARRATIVE_INVENTOR_RECENT_TICKS` — the explicit
+"an inventor" example — same magnitude family as `Population`'s
+NARRATIVE_*_BONUS constants (computed here rather than in population.py
+since it reads `World.invented_concepts`, which Population deliberately
+doesn't reference)."""
+
+VOICE_NARRATIVE_INVENTOR_RECENT_TICKS = 2000
+"""How recently `InventedConcept.tick_invented` must fall for the
+inventor bonus above to apply — roughly a season, so an invention from
+years ago doesn't keep pulling its author into the spotlight forever."""
+
+VOICE_NARRATIVE_COUNCIL_BONUS = 3500.0
+"""`_voice_narrative_extra_scores`'s bonus for a living COUNCIL member —
+the explicit "a council elder" example."""
+
 DIALOGUE_BACKPRESSURE_FRACTION = 0.6
 RUMOR_INTERPRET_BACKPRESSURE_FRACTION = 0.35
 """docs/AUDIT-2026-07-20.md, P1.2(ii): dialogue and rumor_interpret were
@@ -1964,8 +1981,14 @@ class SimulationEngine:
         # core-core ones) is now deterministic-only. Cheap every-tick
         # check (a no-op unless the pair actually changed) — see
         # Population.maintain_voice_pair's docstring for the rotation
-        # rule on death.
-        new_voice_pair = self.world.population.maintain_voice_pair(self.world.clock.tick_count)
+        # rule on death. "Shifting protagonists rather than permanent
+        # stars" (explicit follow-up directive): also force a fresh
+        # narrative-significance reselection on a real in-game week
+        # boundary, not just on death.
+        new_voice_pair = self.world.population.maintain_voice_pair(
+            self.world.clock.tick_count, week_rotation="week_end" in events,
+            extra_scores=self._voice_narrative_extra_scores(),
+        )
         if new_voice_pair is not None:
             a = self.world.population.get(new_voice_pair[0])
             b = self.world.population.get(new_voice_pair[1])
@@ -2856,6 +2879,34 @@ class SimulationEngine:
         if speaker.long_term_goal:
             return speaker.long_term_goal.get("goal", "")
         return ""
+
+    def _voice_narrative_extra_scores(self) -> dict[int, float]:
+        """The two "who's the story about right now" signals that live
+        outside `Population` — a recent invention and active COUNCIL
+        membership — computed here (not in `population.py`, which
+        deliberately doesn't reference `World`/`Settlement`) and fed
+        into `Population.select_voice_pair`'s `extra_scores`. Cheap: at
+        most a handful of recent concepts and a few council seats per
+        settlement, not an O(population) scan."""
+        scores: dict[int, float] = {}
+        now = self.world.clock.tick_count
+        for concept in self.world.invented_concepts.values():
+            if (
+                concept.inventor_agent_id is not None
+                and now - concept.tick_invented <= VOICE_NARRATIVE_INVENTOR_RECENT_TICKS
+            ):
+                scores[concept.inventor_agent_id] = max(
+                    scores.get(concept.inventor_agent_id, 0.0), VOICE_NARRATIVE_INVENTOR_BONUS,
+                )
+        alive_ids = {a.id for a in self.world.population.agents}
+        for settlement in self.world.settlements:
+            council = settlement.council()
+            if council is None:
+                continue
+            for member_id in council.member_agent_ids:
+                if member_id in alive_ids:
+                    scores[member_id] = max(scores.get(member_id, 0.0), VOICE_NARRATIVE_COUNCIL_BONUS)
+        return scores
 
     def _schedule_due_dialogue(self) -> None:
         """Route this tick's due (non-voice-pair) dialogue pairs. Every
