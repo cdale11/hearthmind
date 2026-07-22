@@ -4,6 +4,66 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.5.0] — B1 "The Pillar abstraction," Nature first (roadmap Stage II, step 4)
+
+Explicit user request: "Start stage 2" — the first step of the
+roadmap's Stage II (docs/MASTERCHECKLIST-2026-07-22.md), the "five
+minds" refactor. B1 is the doc's own "keystone": each future pillar
+(Humans, Village, Nature, Innovation, Reflection) is meant to be a
+persistent conscious entity with identity, self-model, world-model,
+living memory, objectives, and inbox/outbox — this pass proves that
+shape against ONE pillar (Nature) before replicating it four more
+times, per the roadmap's explicit sequencing.
+
+New `hearthmind/cognition/pillar.py`: `Pillar` (self_model — an open
+dict of what the pillar is/wants; `world_model` — a list of typed,
+revisable theories via `make_world_model_entry`, explicitly tagging
+`status: "observation"|"hypothesis"` per B9's "distinguish observation
+from hypothesis" line; `memory` — a capped consolidated-knowledge list,
+`MEMORY_MAX=40`, the simplest possible stand-in for B8's real
+consolidate/forget/reinforce cycle; `objectives`; `inbox`/`outbox` —
+B4's typed `MESSAGE_KINDS` vocabulary, structurally present but unused
+until a second pillar exists to message). Plain-dict-backed
+(`to_dict`/`from_dict`), same persistence convention as every other
+World-scoped store.
+
+New `World.nature_pillar` (seeded via `default_nature_pillar()` —
+genesis-time identity/self-model/objectives, not LLM-authored: what a
+pillar fundamentally is isn't itself a revisable belief).
+`_maybe_schedule_nature_mind`'s existing apply() (unchanged mechanics)
+now mirrors every belief formation/revision into `nature_pillar.
+world_model` (tracked via a new `pillar_entry_id` key on each
+`World.nature_beliefs` entry, so a later revision updates the same
+pillar entry) and appends a `remember()` note — `World.nature_beliefs`
+itself is completely untouched, so every existing reader (town_brain
+grounding, the ontology bridge, `/diagnostics`) keeps working exactly
+as before. This is additive proof the shape holds against a genuine
+production call site, not a standalone demo structure nobody writes
+to.
+
+Deliberately NOT attempted this pass: the checklist's larger B1 ask
+("refactor the ~55 scattered jobs into acts of five pillars") — that's
+B2 (the continuous observe→interpret→remember→plan→act→reflect cycle)
+and the rest of Stage II; inter-pillar messaging (B4) stays inert since
+Nature is the only pillar that exists yet; B8's real memory-
+consolidation cycle stays a capped FIFO list, not genuine
+consolidate/forget/reinforce/reinterpret.
+
+UI: `full_diagnostics()["nature_pillar"]` — same dev-console-only
+reachability as `reflection_notebook`/`emergence_log` (nothing
+player-facing reads a pillar's self-model/world-model yet; the shape
+is being proven, not shown off).
+
+Verified: direct smoke tests (`Pillar`'s upsert-or-append world-model
+semantics, memory cap, `to_dict`/`from_dict` round-trip, `make_
+world_model_entry`/`make_message` validation), an engine-level test
+exercising the actual `nature_mind` apply() mirroring logic (new
+belief, revision, round-trip through `World.from_dict`, `full_
+diagnostics()` reachability). `scripts/verify_native_soak.py` (2 seeds
+x 800 ticks) byte-identical — the mirrored write only runs inside a
+critical LLM job's `apply()`, which never fires in an LLM-disabled
+soak, so this is a pure regression check on everything else.
+
 ## [1.4.9] — A1 FieldGrid + A16 Graph algorithms (roadmap Stage I, steps 2-3 — Stage I complete)
 
 Explicit user request: "complete stage 1" — the remaining two steps of

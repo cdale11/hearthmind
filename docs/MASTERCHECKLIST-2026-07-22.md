@@ -621,7 +621,18 @@ is not authorization to start executing it.
 
 4. **B1 Pillar abstraction, Nature first** — identity/self-model/
    world-model/memory/objectives/inbox-outbox for one pillar, proving
-   the shape before replicating it four more times.
+   the shape before replicating it four more times. **Shipped v1.5.0**:
+   `cognition/pillar.py`'s `Pillar` class (self_model/world_model/
+   memory/objectives/inbox/outbox, typed `MESSAGE_KINDS` for B4) +
+   `World.nature_pillar` (seeded identity/self-model/objectives).
+   `_maybe_schedule_nature_mind`'s existing apply() now mirrors every
+   belief form/revision into `nature_pillar.world_model` and writes a
+   `remember()` note, alongside the untouched `World.nature_beliefs`
+   every existing reader still uses. Deliberately NOT the full "refactor
+   ~55 scattered jobs into acts of five pillars" — that's B2 (the
+   cognitive cycle) and beyond; inbox/outbox stay structurally present
+   but empty (no second pillar exists to message yet). Dev-console-only
+   surfacing (`full_diagnostics()["nature_pillar"]`).
 5. **B2 Continuous cognitive cycle** — observe→interpret→remember→
    plan→act→reflect, resumable across turns, wired to Nature.
 6. **B3 Attention scheduler** — one budget arbiter across pillars,

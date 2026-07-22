@@ -33,6 +33,7 @@ from hearthmind.world.terrain_evolution import (
 )
 from hearthmind.world.daylight import night_factor as compute_night_factor
 from hearthmind.world.fields import FieldGrid
+from hearthmind.cognition.pillar import Pillar, default_nature_pillar
 from hearthmind.world.disasters import (
     DisasterState,
     WILDFIRE_IGNITION_HISTORY_MAX,
@@ -298,6 +299,17 @@ class World:
     field's own `step_*` method — today just `population_density`, the
     one field this pass ships as a real consumer proof; more fields are
     additive follow-ups onto the same grid. See `world/fields.py`."""
+    nature_pillar: Pillar = field(default_factory=default_nature_pillar)
+    """B1 "The Pillar abstraction" (docs/MASTERCHECKLIST-2026-07-22.md,
+    Part B, Stage II step 4 — the keystone): Nature's persistent
+    conscious-entity structure (identity, self-model, world-model,
+    memory, objectives, inbox/outbox — `cognition/pillar.py`), proving
+    the shape against the existing `_maybe_schedule_nature_mind` job
+    before it's replicated to the other four future pillars (Humans,
+    Village, Innovation, Reflection). Mirrors `World.nature_beliefs`
+    into `nature_pillar.world_model` alongside it — `nature_beliefs`
+    stays the source every existing consumer reads unchanged; this is
+    additive, not a migration."""
     consciousness_memory: list[dict] = field(default_factory=list)
     """Phase N "Town Consciousness v2" (docs/VISION-2026-07.md, "The Town
     Awake"): bounded log of what the town's persistent inner awareness
@@ -1071,6 +1083,7 @@ class World:
             "emergence_log": list(self.emergence_log),
             "next_emergence_id": self.next_emergence_id,
             "fields": self.fields.to_dict(),
+            "nature_pillar": self.nature_pillar.to_dict(),
             "observer_attention": {
                 "agent_view_counts": {str(k): v for k, v in self.observer_attention.get("agent_view_counts", {}).items()},
                 "last_agent_id": self.observer_attention.get("last_agent_id"),
@@ -1274,6 +1287,9 @@ class World:
             emergence_log=list(data.get("emergence_log", [])),
             next_emergence_id=data.get("next_emergence_id", 1),
             fields=FieldGrid.from_dict(data.get("fields", {})),
+            nature_pillar=(
+                Pillar.from_dict(data["nature_pillar"]) if data.get("nature_pillar") else default_nature_pillar()
+            ),
             observer_attention=(
                 {
                     "agent_view_counts": {int(k): v for k, v in data["observer_attention"].get("agent_view_counts", {}).items()},

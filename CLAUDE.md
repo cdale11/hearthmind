@@ -497,6 +497,31 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.5.0)
+
+Explicit user instruction: "Start stage 2" — roadmap Stage II step 4
+(docs/MASTERCHECKLIST-2026-07-22.md), B1 "The Pillar abstraction," the
+doc's own "keystone." New `hearthmind/cognition/pillar.py`'s `Pillar`
+class (self_model, world_model — typed revisable theories tagging
+observation-vs-hypothesis, memory — capped consolidated-knowledge
+list, objectives, inbox/outbox — B4's typed `MESSAGE_KINDS`,
+structurally present but unused until a second pillar exists). New
+`World.nature_pillar`, seeded via `default_nature_pillar()`.
+`_maybe_schedule_nature_mind`'s existing apply() (mechanics unchanged)
+now mirrors every belief form/revision into `nature_pillar.
+world_model` + a `remember()` note, alongside the untouched `World.
+nature_beliefs` every existing reader still uses — additive proof the
+shape holds against a genuine production call site. Deliberately NOT
+the doc's larger "refactor ~55 scattered jobs into acts of five
+pillars" — that's B2 (the continuous cognitive cycle) and the rest of
+Stage II. Dev-console-only surfacing (`full_diagnostics()
+["nature_pillar"]`). Verified: direct smoke tests for `Pillar`'s
+upsert/revise/memory-cap/round-trip semantics plus an engine-level test
+of the actual nature_mind mirroring path; `scripts/verify_native_soak.
+py` (2 seeds x 800 ticks) byte-identical (the mirrored write only runs
+inside a critical LLM job's apply(), never fires LLM-disabled, so this
+is a pure regression check).
+
 ## Current state (v1.4.9)
 
 Explicit user instruction: "complete stage 1" — roadmap Stage I steps

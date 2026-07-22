@@ -3914,6 +3914,14 @@ class SimulationEngine:
                 entry["revised_tick"] = tick
                 entry["revision_count"] = entry.get("revision_count", 0) + 1
                 self._log("nature_belief_revised", f"The land's own sense of {entry['subject']} shifted: {entry['belief']}")
+                # B1 Pillar abstraction (roadmap Stage II step 4): mirror
+                # the same revision into Nature's own world_model —
+                # `nature_beliefs` stays the field every existing reader
+                # uses, this is additive proof of the pillar shape.
+                self.world.nature_pillar.upsert_world_model(
+                    tick, entry["subject"], entry["belief"], entry["confidence"],
+                    source="nature_mind", revises_id=entry.get("pillar_entry_id"),
+                )
             else:
                 entry = {
                     "subject": parsed["subject"], "belief": parsed["belief"], "confidence": parsed["confidence"],
@@ -3924,6 +3932,11 @@ class SimulationEngine:
                     weakest = min(self.world.nature_beliefs, key=lambda b: b["confidence"])
                     self.world.nature_beliefs.remove(weakest)
                 self._log("nature_belief_formed", f"The land came to hold a sense of {entry['subject']}: {entry['belief']}")
+                pillar_entry = self.world.nature_pillar.upsert_world_model(
+                    tick, entry["subject"], entry["belief"], entry["confidence"], source="nature_mind",
+                )
+                entry["pillar_entry_id"] = pillar_entry["id"]
+                self.world.nature_pillar.remember(f"Came to sense {entry['subject']}: {entry['belief']}")
                 # Vision doc item 2.3 ("Nature and Village can surprise
                 # each other"): a genuinely NEW belief (not a revision
                 # of an existing one) is real fresh insight the land
@@ -7992,6 +8005,13 @@ class SimulationEngine:
                 {"kind": o["kind"], "subsystem": o["subsystem"], "summary": o["summary"], "pillars": o["pillars"]}
                 for o in self.world.emergence_log[-10:]
             ],
+            # B1 Pillar abstraction (roadmap Stage II step 4): same dev-
+            # console-only reachability as reflection_notebook/emergence
+            # above — Nature's persistent self-model/world-model/memory
+            # aren't main-UI-worthy yet (nothing player-facing reads
+            # them), but the shape should be inspectable while it's
+            # being proven out.
+            "nature_pillar": self.world.nature_pillar.to_dict(),
             # Vision doc items 1.4/2.4: same dev-console depth as
             # reflection_notebook above — governor_tuning is the live
             # effective state, self_tuning_actions is the append-only
