@@ -4,6 +4,93 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.4.4] — Fix timeout misclassification/truncation on reasoning calls; visible voice-pair dialogue; deep-reasoning diagnostics
+
+Explicit user follow-up on v1.4.3, with a fresh review pack + `/diagnostics`
+attached: reasoning calls were still failing, no voice-pair dialogue was
+visible anywhere in the UI, and some completions looked truncated
+mid-sentence. Four real bugs found and fixed, none of them the same
+bug as v1.4.3's fix (which genuinely worked — `calls_errored` in the
+new diagnostic was 2/313, not the near-100% of before).
+
+**Timeout misclassification (the "is timeout playing a role" question).**
+`LlamaCppClient`/`OllamaClient.generate_json` open the HTTP request
+with `urlopen(request, timeout=self.timeout_seconds)`; `jobs.py`'s
+`CognitionRunner._run_gated` separately wraps the whole call in
+`asyncio.wait_for(..., timeout=self.client.timeout_seconds + 5.0)` as
+"defense in depth." Since the inner socket timeout is strictly smaller
+than the outer one, the inner timeout ALWAYS fires first — and it
+raised plain `LLMUnavailable`, landing in `calls_errored`, not
+`calls_timed_out`. The `calls_timed_out` counter has read 0 in every
+diagnostic this project has ever produced; it was structurally
+incapable of ever incrementing. New `client.LLMTimeout(LLMUnavailable)`
+raised specifically on a socket-level timeout (`TimeoutError`, or a
+`URLError` whose `.reason` is one); `jobs.py` now catches it before the
+generic `LLMUnavailable` and counts it correctly.
+
+**Reasoning calls genuinely needed a longer timeout.** The new
+diagnostic's `personal_belief` (a `deep_reasoning=True` task) showed
+p95 latency 146.7s against an un-scaled 125s timeout (120s config + 5s
+grace) — the socket timeout was cutting off calls that were still
+legitimately generating a `<think>` trace plus an answer, not stuck.
+New `DEEP_REASONING_TIMEOUT_MULT=1.5` (`simulation/engine.py`, mirrors
+`DEEP_REASONING_NUM_PREDICT_MULT`'s own ratio) scales the timeout in
+step with the already-scaled token budget whenever `reasoning=True`;
+both clients' `generate_json` and `CognitionRunner.run`/`_run_gated`
+gained a `timeout_override` param threaded end to end.
+
+**Truncation.** A `json_schema`'s `maxLength` is enforced by the
+sampler at the character level — the grammar force-closes the JSON
+string (and the object around it) the instant the cap is hit, with no
+chance for the model to finish its sentence. Both diagnostics showed
+this exact shape (`mind.voice` ending "...a whisper that remains, a
+rhythm," `chronicle.summary` ending "...ends not with fanfare but
+with"), both landing within a couple characters of that field's
+`maxLength`. New `client._trim_truncated_string`/`_trim_truncated_
+strings`: only touches a string field whose length is at/near its
+schema's declared cap, trimming back to the last complete sentence (or
+the last complete word before a dangling comma fragment if no sentence
+exists) — applied to every schema-constrained call's parsed result in
+both clients.
+
+**"No dialogue at all" — a real UI bug, not a backend gap.** The
+attached diagnostic's own `event_category_counts` showed `dialogue:
+137` and `voice_dialogue` (the LLM task) calls succeeding fine — the
+voice pair WAS talking. The bug: since v1.4.0's redesign, `is_llm` in
+`_apply_pending_dialogue_results` can only ever be the one dedicated
+voice pair (every other pair resolves through the always-`is_llm=False`
+deterministic path), but the category logic still gated visibility on
+`surfaced` (a rumor/relationship-threshold flag) — an ordinary
+voice-pair line that didn't cross that threshold logged under the
+plain `dialogue` category, which is `skip: true` in `app.js` (a
+holdover from when many core-cast pairs produced real LLM chatter and
+most of it needed hiding). The pair's actual conversation — the whole
+point of the feature — was invisible in the main event feed unless a
+line happened to also cross the surfaced threshold. Fixed: an ordinary
+voice-pair line now logs under a new, visible `voice_dialogue`
+category (💬); `dialogue_surfaced` (💬✨) still marks the stronger case.
+`app.js`'s thought-flash map marker (a brief pulse over a core-cast
+agent on a genuine LLM exchange) updated to match.
+
+**Deep-reasoning diagnostics, per explicit request.** `CognitionRunner`
+gained `reasoning_calls_attempted/succeeded/timed_out/errored` plus a
+reasoning-only latency percentile window, surfaced as a new `reasoning`
+sub-object in `llm_stats` (`/diagnostics`); `_last_llm_calls` and
+`llm_prompt_stats` entries now carry a `reasoning: bool` tag so a
+reasoning-specific failure is traceable per-task, not just in the
+aggregate.
+
+Verified: direct unit tests for `LLMTimeout` classification (socket
+timeout vs. connection-refused vs. generic failure), `timeout_override`
+reaching the request, `_trim_truncated_string`/`_trim_truncated_
+strings` (sentence-boundary trim, dangling-fragment trim, only-near-cap
+gating), the voice-pair dialogue category fix (an `is_llm=True` queued
+result now logs `voice_dialogue`/`dialogue_surfaced`, never the hidden
+`dialogue`), and the reasoning load-shed/timeout-scaling interaction
+end to end through `_schedule_llm_job`. `scripts/verify_native_soak.py`
+(2 seeds x 800 ticks) byte-identical — no native module or persisted
+field touched.
+
 ## [1.4.3] — Fix reasoning-mode calls erroring out; dynamic/load-aware reasoning toggle
 
 Explicit user follow-up on v1.4.2: a fresh review pack + `/diagnostics`

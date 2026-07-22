@@ -117,8 +117,9 @@ const CATEGORY_META = {
   farm_planted: { icon: "🌱" },
   birth: { icon: "👶" },
   death: { icon: "💀" },
-  dialogue: { skip: true }, // routine background chatter — recorded internally (/events, dev console) but not the main feed; see dialogue_surfaced
-  dialogue_surfaced: { icon: "💬" }, // a conversation that actually changed a belief/relationship/rumor — see population.py's apply_dialogue `surfaced` flag
+  dialogue: { skip: true }, // routine crowd background chatter (deterministic fallback, never LLM-authored) — recorded internally (/events, dev console) but not the main feed
+  voice_dialogue: { icon: "💬" }, // v1.4.4: the town's one LLM-dialogue voice pair's ordinary lines — was wrongly bucketed under skip:true `dialogue` before this fix, making the pair's whole conversation invisible
+  dialogue_surfaced: { icon: "💬✨" }, // a voice-pair line that also changed a belief/relationship/rumor — see population.py's apply_dialogue `surfaced` flag
   voice_pair_change: { icon: "🗣" }, // the town's one LLM-dialogue pair changed (death/rotation)
   rumor: { icon: "📣" },
   tradition: { icon: "🎭" },
@@ -195,7 +196,7 @@ const CATEGORY_META = {
 // Event-log filter chips (v0.64.0 UI backlog): coarse groups, display-only —
 // everything is still stored and still reaches /events untouched.
 const EVENT_GROUP_OF = {
-  birth: "people", death: "people", dialogue_surfaced: "people", voice_pair_change: "people", rumor: "people",
+  birth: "people", death: "people", dialogue_surfaced: "people", voice_dialogue: "people", voice_pair_change: "people", rumor: "people",
   migrant_arrived: "people", migrant_departed: "people", inheritance: "people", dispute: "people",
   record_written: "people", illness: "people", recovery: "people", predator_attack: "people",
   family_feud: "people", knowledge_lost: "people", theft: "people",
@@ -1801,8 +1802,8 @@ function agentRenderPos(a) {
 // exchange involving them lands — the concrete, moment-to-moment "this
 // mind just reasoned about something" cue the map otherwise never gives
 // you (dialogue only ever showed up as sidebar text, disconnected from
-// WHERE it happened). Only fires for `dialogue`/`dialogue_surfaced`
-// events, which are logged only for genuine LLM-authored core-cast
+// WHERE it happened). Only fires for `voice_dialogue`/`dialogue_surfaced`
+// events, which are logged only for the voice pair's genuine LLM-authored
 // exchanges (never the deterministic crowd fallback) — see engine.py's
 // `is_llm` gating — so this reads as "the model just thought," not noise.
 const THOUGHT_FLASH_DURATION_MS = 2600;
@@ -1820,7 +1821,7 @@ function registerThoughtFlashes(events, agents) {
   const now = performance.now();
   const byName = new Map(agents.map((a) => [a.name, a.id]));
   for (const e of events) {
-    if (e.category !== "dialogue" && e.category !== "dialogue_surfaced") continue;
+    if (e.category !== "voice_dialogue" && e.category !== "dialogue_surfaced") continue;
     const m = DIALOGUE_EVENT_RE.exec(e.description || "");
     if (!m) continue;
     for (const name of [m[1], m[2]]) {

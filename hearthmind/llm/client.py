@@ -52,6 +52,67 @@ def _extract_json_object(text: str) -> str:
     return text[start : end + 1]
 
 
+_SENTENCE_END_RE = re.compile(r"[.!?][\"'’”)]?(?:\s|$)")
+"""v1.4.4: matches the end of a complete sentence (terminal punctuation,
+optionally followed by a closing quote/paren) — used by `_trim_
+truncated_string` to find the last point a maxLength-truncated
+completion can be cut back to without leaving a dangling mid-word/
+mid-clause fragment."""
+
+
+def _trim_truncated_string(text: str) -> str:
+    """A `json_schema`'s `maxLength` is enforced by the sampler at the
+    character level — the grammar force-closes the JSON string (and the
+    object around it) the instant the cap is hit, with no chance for the
+    model to wrap up its sentence first. A live review pack showed this
+    exact shape twice: `mind.voice` ("...a whisper that remains, a
+    rhythm,") and `chronicle.summary` ("...ends not with fanfare but
+    with") — both stop mid-clause, both land within a couple characters
+    of that field's declared `maxLength`. Only called on a string whose
+    length is at/near its schema cap (see `_trim_truncated_strings`), so
+    a normal short answer that just happens to end without punctuation
+    is never touched. Trims to the last complete sentence if one exists;
+    otherwise falls back to the last complete word before an obviously
+    dangling trailing comma/fragment. Never raises, never returns empty
+    on non-empty input — worst case returns the input unchanged."""
+    if not text:
+        return text
+    matches = list(_SENTENCE_END_RE.finditer(text))
+    if matches:
+        return text[: matches[-1].end()].rstrip()
+    # No complete sentence at all (short phrase-style fields like
+    # `voice`) — drop the trailing dangling word/comma fragment instead.
+    trimmed = text.rstrip().rstrip(",")
+    last_space = trimmed.rfind(" ")
+    if last_space > 0:
+        trimmed = trimmed[:last_space]
+    return trimmed.rstrip().rstrip(",") or text
+
+
+def _trim_truncated_strings(parsed, schema: dict | None):
+    """Walks a parsed JSON-schema-constrained result's top-level string
+    properties and trims any value that hit (or came within a couple
+    characters of) its declared `maxLength` — see `_trim_truncated_
+    string`'s docstring for why. A no-op when there's no schema (nothing
+    to compare a length against — an unconstrained call can ramble but
+    was never sampler-truncated mid-clause the way a maxLength cap can)
+    or the parsed result isn't a dict (defensive; every task schema in
+    `llm/json_schemas.py` is object-shaped, but this must never raise on
+    a surprise shape)."""
+    if not schema or not isinstance(parsed, dict):
+        return parsed
+    properties = schema.get("properties", {})
+    for key, spec in properties.items():
+        max_length = spec.get("maxLength") if isinstance(spec, dict) else None
+        if max_length is None:
+            continue
+        value = parsed.get(key)
+        if not isinstance(value, str) or len(value) < max_length - 2:
+            continue
+        parsed[key] = _trim_truncated_string(value)
+    return parsed
+
+
 _REASONING_OFF_PROMPT = "detailed thinking off"
 _REASONING_ON_PROMPT = "detailed thinking on"
 """NVIDIA Nemotron 3's documented reasoning-mode toggle (default model
@@ -108,6 +169,25 @@ OllamaUnavailable = LLMUnavailable
 """Backward-compatible alias — see `LLMUnavailable`."""
 
 
+class LLMTimeout(LLMUnavailable):
+    """v1.4.4: a genuine socket-level timeout, raised distinctly from the
+    generic `LLMUnavailable` so `CognitionRunner._run_gated` can count it
+    as `calls_timed_out` instead of `calls_errored` — see that class's
+    docstring for the live-diagnosed bug this fixes. Before this, EVERY
+    timeout was misclassified: `urlopen(..., timeout=self.timeout_
+    seconds)` always expires before the outer `asyncio.wait_for(...,
+    timeout=self.client.timeout_seconds + 5.0)` in jobs.py ever gets a
+    chance to fire (the inner socket timeout is strictly smaller), so a
+    slow call always raised plain `LLMUnavailable` from this module and
+    the `calls_timed_out` counter stayed permanently at 0 in every live
+    diagnostic to date — real timeouts were invisible as a distinct
+    failure mode, indistinguishable from a parse error or connection
+    refusal. Still an `LLMUnavailable` subclass, so any existing `except
+    LLMUnavailable` catch-all still absorbs it correctly; only jobs.py's
+    now more specific `except LLMTimeout` branch (checked first) changes
+    behavior."""
+
+
 @dataclass
 class OllamaClient:
     host: str
@@ -159,12 +239,20 @@ class OllamaClient:
         self, prompt: str, system: str | None = None, capture: dict | None = None,
         json_schema: dict | None = None,
         num_predict_override: int | None = None, temperature_override: float | None = None,
-        reasoning: bool = False,
+        reasoning: bool = False, timeout_override: float | None = None,
     ) -> dict:
         """Blocking call — issue one generate request and parse the
         response as JSON. Callers running inside the event loop must wrap
         this in `asyncio.to_thread` (see hearthmind/llm/jobs.py); this
         method itself does no async work.
+
+        `timeout_override` (v1.4.4, companion to `num_predict_override`):
+        a `reasoning=True` call legitimately generates more tokens (a
+        `<think>` trace plus the answer) and so legitimately takes
+        longer — `_schedule_llm_job` scales this proportionally to its
+        own `num_predict_override` so the socket timeout doesn't cut off
+        a call that's genuinely still working, not stuck. `None` (every
+        non-reasoning call) keeps using `self.timeout_seconds`.
 
         `reasoning` (see `_REASONING_OFF_PROMPT`/`_REASONING_ON_PROMPT`):
         prepends Nemotron 3's system-prompt reasoning toggle AND sets
@@ -231,6 +319,7 @@ class OllamaClient:
         if self.keep_alive is not None:
             payload["keep_alive"] = self.keep_alive
 
+        effective_timeout = timeout_override if timeout_override is not None else self.timeout_seconds
         request = urllib.request.Request(
             f"{self.host.rstrip('/')}/api/generate",
             data=json.dumps(payload).encode("utf-8"),
@@ -238,9 +327,15 @@ class OllamaClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+            with urllib.request.urlopen(request, timeout=effective_timeout) as response:
                 body = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        except TimeoutError as exc:
+            raise LLMTimeout(f"Ollama request timed out after {effective_timeout}s: {exc}") from exc
+        except urllib.error.URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise LLMTimeout(f"Ollama request timed out after {effective_timeout}s: {exc}") from exc
+            raise LLMUnavailable(f"Ollama request failed: {exc}") from exc
+        except (OSError, json.JSONDecodeError) as exc:
             raise LLMUnavailable(f"Ollama request failed: {exc}") from exc
 
         raw_response = body.get("response", "")
@@ -250,13 +345,15 @@ class OllamaClient:
         if capture is not None:
             capture["raw"] = raw_response
         try:
-            return json.loads(raw_response)
+            parsed = json.loads(raw_response)
         except json.JSONDecodeError:
-            pass
-        try:
-            return json.loads(_extract_json_object(raw_response))
-        except json.JSONDecodeError as exc:
-            raise LLMUnavailable(f"Ollama returned non-JSON response: {raw_response!r}") from exc
+            parsed = None
+        if parsed is None:
+            try:
+                parsed = json.loads(_extract_json_object(raw_response))
+            except json.JSONDecodeError as exc:
+                raise LLMUnavailable(f"Ollama returned non-JSON response: {raw_response!r}") from exc
+        return _trim_truncated_strings(parsed, json_schema)
 
 
 @dataclass
@@ -305,7 +402,7 @@ class LlamaCppClient:
         self, prompt: str, system: str | None = None, capture: dict | None = None,
         json_schema: dict | None = None,
         num_predict_override: int | None = None, temperature_override: float | None = None,
-        reasoning: bool = False,
+        reasoning: bool = False, timeout_override: float | None = None,
     ) -> dict:
         """Blocking call — issue one `/v1/chat/completions` request and
         parse the response as JSON. Callers running inside the event loop
@@ -315,6 +412,9 @@ class LlamaCppClient:
         own chat template handles system/user role formatting correctly
         per-model, matching how `OllamaClient` separates `system`/`prompt`
         without this project needing to know each model's prompt format.
+
+        `timeout_override`: see `OllamaClient.generate_json`'s docstring
+        — same contract (`None` keeps `self.timeout_seconds`).
 
         `capture`: see `OllamaClient.generate_json`'s docstring — same
         contract (fresh dict per call, filled with `capture["raw"]`).
@@ -381,6 +481,7 @@ class LlamaCppClient:
         if effective_temperature is not None:
             payload["temperature"] = effective_temperature
 
+        effective_timeout = timeout_override if timeout_override is not None else self.timeout_seconds
         request = urllib.request.Request(
             f"{self.host.rstrip('/')}/v1/chat/completions",
             data=json.dumps(payload).encode("utf-8"),
@@ -388,9 +489,15 @@ class LlamaCppClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+            with urllib.request.urlopen(request, timeout=effective_timeout) as response:
                 body = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        except TimeoutError as exc:
+            raise LLMTimeout(f"llama.cpp request timed out after {effective_timeout}s: {exc}") from exc
+        except urllib.error.URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise LLMTimeout(f"llama.cpp request timed out after {effective_timeout}s: {exc}") from exc
+            raise LLMUnavailable(f"llama.cpp request failed: {exc}") from exc
+        except (OSError, json.JSONDecodeError) as exc:
             raise LLMUnavailable(f"llama.cpp request failed: {exc}") from exc
 
         try:
@@ -405,13 +512,15 @@ class LlamaCppClient:
         if capture is not None:
             capture["raw"] = raw_response
         try:
-            return json.loads(raw_response)
+            parsed = json.loads(raw_response)
         except json.JSONDecodeError:
-            pass
-        try:
-            return json.loads(_extract_json_object(raw_response))
-        except json.JSONDecodeError as exc:
-            raise LLMUnavailable(f"llama.cpp returned non-JSON content: {raw_response!r}") from exc
+            parsed = None
+        if parsed is None:
+            try:
+                parsed = json.loads(_extract_json_object(raw_response))
+            except json.JSONDecodeError as exc:
+                raise LLMUnavailable(f"llama.cpp returned non-JSON content: {raw_response!r}") from exc
+        return _trim_truncated_strings(parsed, json_schema)
 
 
 _METRICS_LINE_RE = re.compile(r"^(llamacpp:[a-zA-Z_]+)(?:\{[^}]*\})?\s+([0-9eE.+-]+)\s*$")

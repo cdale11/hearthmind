@@ -476,6 +476,44 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.4.4)
+
+Explicit user follow-up on v1.4.3 with a fresh review pack +
+`/diagnostics` attached: reasoning calls still failing, no voice-pair
+dialogue visible in the UI, some completions truncated mid-sentence,
+plus a request to expose deep-reasoning-specific diagnostics. Four
+distinct bugs fixed — full incident writeup in CHANGELOG.md's [1.4.4]
+entry:
+
+1. **Timeout misclassification**: `urlopen`'s socket-level timeout is
+   strictly smaller than `jobs.py`'s outer `asyncio.wait_for` — the
+   inner one always fired first and raised plain `LLMUnavailable`,
+   so `calls_timed_out` was structurally incapable of ever
+   incrementing (0 in every diagnostic to date). New `client.
+   LLMTimeout(LLMUnavailable)` fixes the classification.
+2. **Reasoning calls needed a longer timeout**: `personal_belief`
+   showed p95 latency 146.7s against an un-scaled 125s timeout — new
+   `DEEP_REASONING_TIMEOUT_MULT=1.5` scales it the same way `DEEP_
+   REASONING_NUM_PREDICT_MULT` already scales the token budget; both
+   clients gained a `timeout_override` param threaded end to end.
+3. **Truncation**: a `json_schema`'s `maxLength` is enforced at the
+   character level with no chance for the model to finish its
+   sentence — `client._trim_truncated_string(s)` trims a near-cap
+   value back to the last complete sentence/clause.
+4. **"No dialogue at all"**: a real UI bug, not a backend gap — since
+   v1.4.0, `is_llm` in `_apply_pending_dialogue_results` can only ever
+   be the voice pair, but an ordinary (non-`surfaced`) line still
+   logged under the `skip: true` `dialogue` category, a holdover from
+   when many core-cast pairs produced real LLM chatter. Fixed: a new
+   visible `voice_dialogue` category (💬); `dialogue_surfaced` (💬✨)
+   stays for the stronger case.
+
+Also: `CognitionRunner` gained `reasoning_calls_*` counters + a
+reasoning-only latency window (new `reasoning` sub-object in `llm_
+stats`), and `reasoning: bool` is now tagged on `_last_llm_calls`/
+`llm_prompt_stats` entries — per explicit request, so a future
+reasoning-specific failure is traceable per-task.
+
 ## Current state (v1.4.3)
 
 Explicit user follow-up on v1.4.2: calls were still erroring (100% on

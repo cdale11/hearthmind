@@ -20,7 +20,7 @@ import time
 from collections import deque
 from typing import Callable
 
-from hearthmind.llm.client import LlamaCppClient, LLMUnavailable, OllamaClient
+from hearthmind.llm.client import LlamaCppClient, LLMTimeout, LLMUnavailable, OllamaClient
 
 logger = logging.getLogger("hearthmind.llm")
 
@@ -74,7 +74,21 @@ class CognitionRunner:
         "LLM is slow" each point at a different fix, and used_fallback
         alone can't distinguish them. See docs/DECISIONS.md,
         diagnostics pass."""
+        self.reasoning_calls_attempted = 0
+        self.reasoning_calls_succeeded = 0
+        self.reasoning_calls_timed_out = 0
+        self.reasoning_calls_errored = 0
+        """v1.4.4, explicit user request: "expose the diagnostics of deep
+        reasoning calls... so we can trace the errors properly in
+        future" — a `reasoning=True` call (see `_schedule_llm_job`'s
+        `deep_reasoning`/`REASONING_LOAD_SHED_RATIO`) is structurally
+        slower and unconstrained (never combined with `json_schema`), so
+        it fails differently than a routine call and deserves its own
+        counters rather than being invisible inside the aggregate totals
+        above. `_reasoning_latencies_ms` is the reasoning-only latency
+        percentile counterpart to `_latencies_ms`."""
         self._latencies_ms: deque[float] = deque(maxlen=_LATENCY_WINDOW)
+        self._reasoning_latencies_ms: deque[float] = deque(maxlen=_LATENCY_WINDOW)
         self._queue_wait_ms: deque[float] = deque(maxlen=_LATENCY_WINDOW)
         """§7 "llama-server-side diagnostics," the one remaining piece
         (docs/IDEAS-2026-07-EMERGENCE.md — `/slots`/`/metrics` polling
@@ -115,6 +129,15 @@ class CognitionRunner:
             "latency_ms_max": round(latencies[-1], 1) if latencies else 0.0,
             "queue_wait_ms_p50": self._percentile(self._queue_wait_ms, 0.5),
             "queue_wait_ms_p95": self._percentile(self._queue_wait_ms, 0.95),
+            "reasoning": {
+                "calls_attempted": self.reasoning_calls_attempted,
+                "calls_succeeded": self.reasoning_calls_succeeded,
+                "calls_timed_out": self.reasoning_calls_timed_out,
+                "calls_errored": self.reasoning_calls_errored,
+                "latency_ms_p50": self._percentile(self._reasoning_latencies_ms, 0.5),
+                "latency_ms_p95": self._percentile(self._reasoning_latencies_ms, 0.95),
+                "latency_ms_max": round(max(self._reasoning_latencies_ms), 1) if self._reasoning_latencies_ms else 0.0,
+            },
         }
 
     @staticmethod
@@ -129,7 +152,7 @@ class CognitionRunner:
         self, prompt: str, system: str | None, fallback: Callable[[], dict],
         json_schema: dict | None = None,
         num_predict_override: int | None = None, temperature_override: float | None = None,
-        reasoning: bool = False,
+        reasoning: bool = False, timeout_override: float | None = None,
     ) -> tuple[dict, bool, str | None]:
         """Return `(result, used_fallback, raw_completion)`: a parsed
         JSON dict from the LLM with `used_fallback=False` and the exact
@@ -159,14 +182,20 @@ class CognitionRunner:
         unchanged. Callers must never pass `True` together with a
         `json_schema` — grammar-constrained decoding and a preceding
         `<think>` block are incompatible; `_schedule_llm_job` enforces
-        this at the call site."""
+        this at the call site.
+
+        `timeout_override` (v1.4.4): forwarded to the client's request-
+        level timeout AND used (plus a 5s grace) as this method's own
+        `asyncio.wait_for` ceiling — `None` keeps `self.client.timeout_
+        seconds` for both, same as before this param existed."""
         if self.client is None:
             return fallback(), True, None
 
         self.backlog += 1
         try:
             return await self._run_gated(
-                prompt, system, fallback, json_schema, num_predict_override, temperature_override, reasoning,
+                prompt, system, fallback, json_schema, num_predict_override, temperature_override,
+                reasoning, timeout_override,
             )
         finally:
             self.backlog -= 1
@@ -175,38 +204,65 @@ class CognitionRunner:
         self, prompt: str, system: str | None, fallback: Callable[[], dict],
         json_schema: dict | None = None,
         num_predict_override: int | None = None, temperature_override: float | None = None,
-        reasoning: bool = False,
+        reasoning: bool = False, timeout_override: float | None = None,
     ) -> tuple[dict, bool, str | None]:
         queue_entered = time.perf_counter()
+        effective_timeout = timeout_override if timeout_override is not None else self.client.timeout_seconds
         async with self._semaphore:
             self._queue_wait_ms.append((time.perf_counter() - queue_entered) * 1000)
             self.calls_attempted += 1
+            if reasoning:
+                self.reasoning_calls_attempted += 1
             start = time.perf_counter()
             capture: dict = {}
             try:
                 # `generate_json` is a blocking network call; run it off
                 # the event loop so it can't stall other ticks/tasks, and
                 # wrap it in a hard wait_for as defense in depth beyond
-                # the client's own socket timeout.
+                # the client's own socket timeout. The 5s grace is meant
+                # to let the client's own (smaller-or-equal) socket
+                # timeout fire first and raise a properly classified
+                # `LLMTimeout` — see that class's docstring for why this
+                # ordering matters for `calls_timed_out` accuracy.
                 result = await asyncio.wait_for(
                     asyncio.to_thread(
                         self.client.generate_json, prompt, system, capture, json_schema,
-                        num_predict_override, temperature_override, reasoning,
+                        num_predict_override, temperature_override, reasoning, timeout_override,
                     ),
-                    timeout=self.client.timeout_seconds + 5.0,
+                    timeout=effective_timeout + 5.0,
                 )
-                self._latencies_ms.append((time.perf_counter() - start) * 1000)
+                elapsed_ms = (time.perf_counter() - start) * 1000
+                self._latencies_ms.append(elapsed_ms)
                 self.calls_succeeded += 1
+                if reasoning:
+                    self._reasoning_latencies_ms.append(elapsed_ms)
+                    self.reasoning_calls_succeeded += 1
                 return result, False, capture.get("raw")
             except asyncio.TimeoutError as exc:
                 self.calls_timed_out += 1
+                if reasoning:
+                    self.reasoning_calls_timed_out += 1
+                logger.warning("LLM call timed out (outer wait_for), using deterministic fallback: %s", exc)
+                return fallback(), True, None
+            except LLMTimeout as exc:
+                # The client's own request-level socket timeout — see
+                # that class's docstring. Checked before the broader
+                # `LLMUnavailable` below (it's a subclass) so a real
+                # timeout is never misclassified as a generic error.
+                self.calls_timed_out += 1
+                if reasoning:
+                    self.reasoning_calls_timed_out += 1
                 logger.warning("LLM call timed out, using deterministic fallback: %s", exc)
                 return fallback(), True, None
             except LLMUnavailable as exc:
                 self.calls_errored += 1
+                if reasoning:
+                    self.reasoning_calls_errored += 1
                 logger.warning("LLM call failed, using deterministic fallback: %s", exc)
                 return fallback(), True, None
             except Exception as exc:  # defense in depth: LLM failure must never propagate
                 self.calls_errored += 1
+                if reasoning:
+                    self.reasoning_calls_errored += 1
                 logger.warning("Unexpected LLM error, using deterministic fallback: %s", exc)
                 return fallback(), True, None

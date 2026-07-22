@@ -408,6 +408,19 @@ than being merely intrusive), same "easier to lose than earn" shape
 
 DEEP_REASONING_NUM_PREDICT_MULT = 1.5
 DEEP_REASONING_TEMPERATURE = 0.5
+DEEP_REASONING_TIMEOUT_MULT = 1.5
+"""v1.4.4, explicit user follow-up ("see if timeout is playing a role
+here"): a real reasoning trace plus its answer is a proportionally
+longer generation than a routine call — a live diagnostic showed
+`personal_belief` (a `deep_reasoning=True` task) at p95 latency 146.7s
+against an un-scaled 125s timeout (`Config.llm_timeout_seconds` (120) +
+`jobs.py`'s 5s grace), meaning the socket timeout was cutting off calls
+that were genuinely still generating, not stuck — misclassified as
+`calls_errored` rather than `calls_timed_out` on top of that (see
+`client.py`'s `LLMTimeout` docstring for the classification bug fixed
+alongside this). Mirrors `DEEP_REASONING_NUM_PREDICT_MULT`'s own 1.5x
+rather than inventing a second ratio — the timeout should grow in step
+with the token budget it's meant to cover, not by an unrelated amount."""
 """Phase 3.A "reserved deeper reasoning" (docs/VISION-2026-07-21-
 SELFEVOLVING.md), broadened v1.3.37 (explicit user directive: "move the
 LLM from describing the world to thinking within the world," enable
@@ -1737,10 +1750,22 @@ class SimulationEngine:
                 deep_reasoning and task_schema is None
                 and self.llm_pressure_ratio() < REASONING_LOAD_SHED_RATIO
             )
+            # v1.4.4: a reasoning call legitimately generates more tokens
+            # (a <think> trace plus the answer) and so legitimately takes
+            # longer — scale the request-level timeout the same way
+            # num_predict was already scaled, so the socket timeout
+            # doesn't cut off a call that's genuinely still working. A
+            # live diagnostic showed reasoning-task p95 latency (146.7s)
+            # exceeding the un-scaled timeout (125s) outright.
+            timeout_override = None
+            if reasoning:
+                base_timeout = self.world.config.llm_timeout_seconds
+                if base_timeout is not None:
+                    timeout_override = base_timeout * DEEP_REASONING_TIMEOUT_MULT
             result, used_fallback, raw_completion = await self._cognition_runner.run(
                 prompt, system, fallback=lambda: fallback, json_schema=task_schema,
                 num_predict_override=num_predict_override, temperature_override=temperature_override,
-                reasoning=reasoning,
+                reasoning=reasoning, timeout_override=timeout_override,
             )
             elapsed_ms = (time.perf_counter() - call_start) * 1000
             apply_failed = False
@@ -1762,6 +1787,7 @@ class SimulationEngine:
                 raw_completion=raw_completion, structured_input=structured_input,
                 npc_ids=npc_ids, settlement=settlement,
                 outcome={"status": outcome_status, "apply_failed": apply_failed},
+                reasoning=reasoning,
             )
             self._record_llm_call(used_fallback)
 
@@ -2534,17 +2560,30 @@ class SimulationEngine:
             # events" (Observatory UI direction, CLAUDE.md): every
             # exchange still applies its relationship/trust/gossip effects
             # (`apply_dialogue` above, unconditional), but only a genuine
-            # LLM-authored core-cast exchange (`is_llm`) reaches the event
-            # log at all — the crowd's deterministic fallback chatter is
-            # real and mechanically consequential, it's just not narration
+            # LLM-authored exchange (`is_llm`) reaches the event log at
+            # all — the crowd's deterministic fallback chatter is real
+            # and mechanically consequential, it's just not narration
             # worth surfacing in /events or /history (explicit user
-            # direction). Among LLM exchanges, only a `surfaced` one — a
-            # rumor, or crossing into a close bond/rivalry — uses the
-            # distinct `dialogue_surfaced` category the main UI's event
-            # feed keys off of; the rest stay under the quieter `dialogue`
-            # category. See docs/DECISIONS.md.
+            # direction).
+            #
+            # v1.4.4 fix: since v1.4.0's voice-pair redesign, `is_llm`
+            # here can ONLY ever be the one dedicated voice pair (every
+            # other pair resolves through `_queue_fallback_dialogue`,
+            # always `is_llm=False`) — but the OLD category split below
+            # still gated visibility on `surfaced` (a rumor/relationship-
+            # threshold flag), and plain `dialogue` is `skip: true` in
+            # the frontend (a holdover from when many core-cast pairs
+            # produced real LLM chatter and most of it needed hiding).
+            # The result: the voice pair's actual conversation — the
+            # entire point of the feature — was invisible in the main UI
+            # feed unless a line happened to also cross that threshold,
+            # a live-diagnosed "I don't see any dialogue at all" bug.
+            # `surfaced` still marks the stronger `dialogue_surfaced`
+            # category; every OTHER voice-pair line now gets its own
+            # visible `voice_dialogue` category instead of the hidden
+            # `dialogue` one — see docs/DECISIONS.md.
             if is_llm:
-                category = "dialogue_surfaced" if surfaced else "dialogue"
+                category = "dialogue_surfaced" if surfaced else "voice_dialogue"
                 self._log(
                     category, f'{agent_a.name}: "{parsed["line_a"]}" — {agent_b.name}: "{parsed["line_b"]}"',
                 )
@@ -7398,7 +7437,7 @@ class SimulationEngine:
         self, name: str, prompt: str, result: dict, used_fallback: bool, elapsed_ms: float | None = None,
         system_prompt: str | None = None, raw_completion: str | None = None,
         structured_input: dict | None = None, npc_ids: list | None = None, settlement: str | None = None,
-        outcome: dict | None = None,
+        outcome: dict | None = None, reasoning: bool = False,
     ) -> None:
         """Records the most recent prompt/result for one named LLM job
         — see `self._last_llm_calls`'s docstring — and folds size/
@@ -7422,7 +7461,7 @@ class SimulationEngine:
         default."""
         self._last_llm_calls[name] = {
             "tick": self.world.clock.tick_count, "prompt": prompt,
-            "result": result, "used_fallback": used_fallback,
+            "result": result, "used_fallback": used_fallback, "reasoning": reasoning,
         }
         self._training_recorder.maybe_record(
             task=name, prompt=prompt, system_prompt=system_prompt, result=result,
@@ -7432,7 +7471,7 @@ class SimulationEngine:
             outcome=outcome,
         )
         stats = self._llm_prompt_stats.setdefault(name, {
-            "calls": 0, "fallback_calls": 0,
+            "calls": 0, "fallback_calls": 0, "reasoning_calls": 0,
             "prompt_chars": deque(maxlen=LLM_PROMPT_STATS_WINDOW),
             "completion_chars": deque(maxlen=LLM_PROMPT_STATS_WINDOW),
             "latency_ms": deque(maxlen=LLM_PROMPT_STATS_WINDOW),
@@ -7440,6 +7479,8 @@ class SimulationEngine:
         stats["calls"] += 1
         if used_fallback:
             stats["fallback_calls"] += 1
+        if reasoning:
+            stats["reasoning_calls"] += 1
         stats["prompt_chars"].append(len(prompt))
         # `result` is the parsed JSON dict (or the fallback dict on a
         # fallback resolution) — its str() length is a rough proxy for
@@ -7508,6 +7549,7 @@ class SimulationEngine:
             summary[name] = {
                 "calls": stats["calls"],
                 "fallback_calls": stats["fallback_calls"],
+                "reasoning_calls": stats.get("reasoning_calls", 0),
                 "avg_prompt_tokens_est": round(sum(prompt_chars) / len(prompt_chars) / _TOKEN_CHARS_ESTIMATE, 1)
                 if prompt_chars else 0.0,
                 "p95_prompt_tokens_est": round(pctl(prompt_chars, 0.95) / _TOKEN_CHARS_ESTIMATE, 1),
