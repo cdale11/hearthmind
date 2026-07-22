@@ -476,6 +476,32 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.3.40)
+
+Explicit user directive: "Start all of that" — the remaining Living
+Terrarium vision-doc items plus four flagged v1.3.38 audit follow-ups.
+Scoped down to the backend/data-model-tractable half; 1.5/3.3/3.5/3.6
+(all real UI-heavy efforts) deliberately deferred as their own future
+batch rather than rushed shallowly — see docs/VISION-2026-07-22-
+LIVINGTERRARIUM.md for each item's own scoping note. Full detail:
+CHANGELOG.md.
+
+Shipped: 1.1 composable hooks (`TriggerRule` secondary trigger/hook
+pair, own cooldown), 4.2 species variants (`world.wildlife.
+SpeciesVariant`, identity-only — deliberately NOT wired into
+`AnimalHerd`'s native-parity-critical fields), 5.3 coherence/drift
+detection (an ontology-abandonment Reflection hypothesis, consumable
+by self-tuning as a new `ontology_proposal_chance` governor), 5.4
+provenance (`knowledge_tree()`'s new `"who"` field on every entry
+type, surfaced in the existing knowledge-tree panel) — plus all four
+audit items: reflection `kind="question"`/`"conclusion"` entries
+(zero added LLM volume — reuses the existing year-cadence slot and a
+deterministic status-transition hook), a real plan-fulfillment memory
+on `Agent.plan` expiry, relationship-weighted SOCIALIZE targeting,
+and genesis-time `Agent.long_term_goal` seeding via `llm/mind.py`
+(fallback-less — a blank answer just means the existing monthly job
+still forms one later).
+
 ## Current state (v1.3.39)
 
 Explicit user request: implement Living Terrarium items 4.1 (composite

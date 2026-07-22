@@ -69,7 +69,8 @@ from hearthmind.llm import (
     culture_digest, dialogue,
     digest, dispute, documentary, dream, era_branch, festival, folklore, founding, geography, invention,
     memory_drift, migration, mind, musing,
-    naming, narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
+    naming, narrative_direction, omens, religion, rumor_interpret, skill_mastery, species_variant, summary,
+    town_brain,
     diplomacy, laws, letters, noncore_nudge, institution_culture, nature_mind, reflection, rule_propose,
 )
 from hearthmind.llm import ontology as ontology_llm
@@ -77,6 +78,7 @@ from hearthmind.llm import self_tuning
 from hearthmind.world.sigils import generate_sigil_svg
 from hearthmind.world import ontology
 from hearthmind.world.disasters import GOVERNOR_TUNING_BAND, WILDFIRE_CHANCE_PER_WEEK
+from hearthmind.world.wildlife import MAX_SPECIES_VARIANTS_STORED, SpeciesVariant
 from hearthmind.simulation.sandbox import run_counterfactual
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
@@ -476,6 +478,16 @@ against the THEORETICAL mean gap `disasters.WILDFIRE_CHANCE_PER_WEEK`
 implies. A ratio (realized/theoretical, or its inverse) clearing
 `_DRIFT_RATIO` is treated as a genuine, sustained drift worth a
 hypothesis — not RNG noise around the configured rate."""
+
+REFLECTION_COHERENCE_MIN_TOTAL = 10
+REFLECTION_COHERENCE_ABANDONED_RATIO = 0.5
+"""Vision doc item 5.3 ("Coherence/drift detection... the immune system
+for long-run open-ended growth"): a genuine incoherence signal — most
+of what the village has ever imagined never caught on. Requires at
+least `_MIN_TOTAL` concepts ever registered (a small sample reads as
+noise, same "enough real data" gate every other Reflection branch
+uses) before the abandoned fraction is trusted as a real pattern, not
+early-game normal churn."""
 
 SELF_TUNING_MIN_MAGNITUDE = 0.05
 """Vision doc items 1.4/2.4: a proposed nudge below this magnitude is
@@ -1829,6 +1841,7 @@ class SimulationEngine:
         ("_maybe_schedule_ontology_evolution", _JOB_EVENTS),
         ("_maybe_schedule_composite_entity", _JOB_EVENTS),
         ("_maybe_schedule_nature_mind", _JOB_EVENTS),
+        ("_maybe_schedule_species_variant", _JOB_EVENTS),
         ("_maybe_spread_concepts", _JOB_NO_ARGS),
         ("_apply_trigger_rules_from_life_events", _JOB_NO_ARGS),
         ("_maybe_tick_trigger_state_edges", _JOB_NO_ARGS),
@@ -3514,6 +3527,9 @@ class SimulationEngine:
         self._mark_season_year_resolved("ontology_proposal")
         ontology.abandon_stale(self.world, self.world.clock.tick_count)
         chance = min(1.0, INVENTION_CHANCE_PER_SEASON * education_invention_bonus(settlement.education_level))
+        # Vision item 5.3: self-tuning's bounded nudge on ontology
+        # coherence, if any has ever been applied.
+        chance = max(0.0, min(1.0, chance * self.world.governor_tuning.get("ontology_proposal_chance", 1.0)))
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "ontology_proposal_roll") >= chance:
             return
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
@@ -3779,6 +3795,55 @@ class SimulationEngine:
             deep_reasoning=True,
         )
 
+    def _maybe_schedule_species_variant(self, events: list[str]) -> None:
+        """Vision doc item 4.2 ("Emergent species/variants via
+        parameter-space"): Nature naming a real existing wildlife herd
+        — an existing `Species` given an LLM-authored identity and a
+        closed-vocabulary trait, grounded in the land's own real recent
+        condition. World-scoped, year_end cadence (rarer than `nature_
+        mind` — a named variant is a bigger event than an ordinary
+        belief revision), `critical=False` — ambient world-building
+        texture with a real deterministic fallback name, same tier as
+        `_maybe_schedule_composite_entity`. Never touches `AnimalHerd`'s
+        own mechanics/native-index parity (R7) — identity only this
+        pass, see `wildlife.SPECIES_VARIANT_TRAITS`'s docstring."""
+        if not self._season_year_gate(events, "species_variant", "year_end"):
+            return
+        named_herd_ids = {v.herd_id for v in self.world.species_variants.values()}
+        candidates = [h for h in self.world.wildlife.herds.values() if h.id not in named_herd_ids]
+        if not candidates:
+            return
+        herd = min(candidates, key=lambda h: h.id)
+        if self._settlement_job_backpressured():
+            return
+        self._mark_season_year_resolved("species_variant")
+        wildlife_summary = self.world.wildlife.summary()
+        condition_bits = [f"{k.replace('_', ' ')}: {v}" for k, v in wildlife_summary.items()]
+        condition_text = "; ".join(condition_bits) if condition_bits else "The land is quiet."
+        existing_names = [v.name for v in self.world.species_variants.values()]
+        prompt = species_variant.build_prompt(herd.species.value, condition_text, existing_names)
+        fallback = species_variant.fallback_variant(len(existing_names))
+        herd_id, species_value = herd.id, herd.species.value
+        tick = self.world.clock.tick_count
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            if herd_id not in self.world.wildlife.herds:
+                return  # the herd died out while the call was in flight
+            parsed = species_variant.parse_variant(result, fallback)
+            variant_id = self.world.next_species_variant_id
+            self.world.next_species_variant_id += 1
+            variant = SpeciesVariant(
+                id=variant_id, name=parsed["name"], species=species_value, herd_id=herd_id,
+                trait=parsed["trait"], description=parsed["description"], tick_named=tick,
+            )
+            self.world.species_variants[variant_id] = variant
+            if len(self.world.species_variants) > MAX_SPECIES_VARIANTS_STORED:
+                oldest_id = min(self.world.species_variants, key=lambda i: self.world.species_variants[i].tick_named)
+                del self.world.species_variants[oldest_id]
+            self._log("species_variant_named", f"The land gave rise to {variant.name} — {variant.description}")
+
+        self._schedule_llm_job("species_variant", prompt, species_variant.SYSTEM_PROMPT, fallback, apply)
+
     def _maybe_spread_concepts(self) -> None:
         """Zero-LLM-cost, every-tick, rare-roll adoption growth for
         `proposed`/`spreading` concepts — the minimal spread mechanism
@@ -3820,22 +3885,39 @@ class SimulationEngine:
         state_edges` below) — never on a schedule of its own."""
         now = self.world.clock.tick_count
         for rule in self.world.trigger_rules.values():
-            if rule.status != "active" or rule.trigger != trigger or rule.origin_settlement_id != settlement.id:
+            if rule.status != "active" or rule.origin_settlement_id != settlement.id:
                 continue
-            if rule.last_fired_tick >= 0 and now - rule.last_fired_tick < ontology.TRIGGER_RULE_COOLDOWN_TICKS:
-                continue
-            rule.fire_count += 1
-            rule.last_fired_tick = now
-            self._log("trigger_rule", f"{rule.name}: {rule.description}")
-            # Only `belief_confidence_bonus` is actually consumed as a
-            # real numeric effect this pass — see `llm/rule_propose.py`'s
-            # module docstring for why the other hook types (skill_
-            # yield_bonus, goal_flavor_bias) stay narrative-only for now,
-            # same flagged-not-silently-dropped honesty as InventedConcept's
-            # own not-yet-consumed hooks.
-            if rule.hook_type == "belief_confidence_bonus" and settlement.beliefs:
-                target = max(settlement.beliefs, key=lambda b: b["confidence"])
-                target["confidence"] = clamp(target["confidence"] + rule.magnitude, 0.0, 1.0)
+            # Vision item 1.1 (composable hooks): a rule's primary and
+            # secondary side are independent triggers with independent
+            # effects and independent cooldowns — either can fire this
+            # call, neither is required to fire alongside the other.
+            if rule.trigger == trigger:
+                if rule.last_fired_tick < 0 or now - rule.last_fired_tick >= ontology.TRIGGER_RULE_COOLDOWN_TICKS:
+                    rule.fire_count += 1
+                    rule.last_fired_tick = now
+                    self._log("trigger_rule", f"{rule.name}: {rule.description}")
+                    self._apply_trigger_rule_hook(rule.hook_type, rule.magnitude, settlement)
+            if rule.secondary_trigger and rule.secondary_trigger == trigger:
+                if (
+                    rule.secondary_last_fired_tick < 0
+                    or now - rule.secondary_last_fired_tick >= ontology.TRIGGER_RULE_COOLDOWN_TICKS
+                ):
+                    rule.secondary_last_fired_tick = now
+                    self._log("trigger_rule", f"{rule.name} (secondary): {rule.description}")
+                    self._apply_trigger_rule_hook(rule.secondary_hook_type, rule.secondary_magnitude, settlement)
+
+    def _apply_trigger_rule_hook(self, hook_type: str, magnitude: float, settlement) -> None:
+        """Only `belief_confidence_bonus` is actually consumed as a
+        real numeric effect this pass — see `llm/rule_propose.py`'s
+        module docstring for why the other hook types (skill_yield_
+        bonus, goal_flavor_bias) stay narrative-only for now, same
+        flagged-not-silently-dropped honesty as InventedConcept's own
+        not-yet-consumed hooks. Shared by a rule's primary and
+        secondary side (item 1.1) so both go through one real
+        consumer, not two copies."""
+        if hook_type == "belief_confidence_bonus" and settlement.beliefs:
+            target = max(settlement.beliefs, key=lambda b: b["confidence"])
+            target["confidence"] = clamp(target["confidence"] + magnitude, 0.0, 1.0)
 
     def _apply_trigger_rules_from_life_events(self) -> None:
         """`on_death`/`on_birth` detection — reads `World.last_life_
@@ -3961,10 +4043,15 @@ class SimulationEngine:
                     trigger=parsed["trigger"], hook_type=parsed["hook_type"], hook_target=parsed["hook_target"],
                     magnitude=parsed["magnitude"], origin_settlement_id=origin_settlement_id,
                     tick=self.world.clock.tick_count,
+                    secondary_trigger=parsed["secondary_trigger"], secondary_hook_type=parsed["secondary_hook_type"],
+                    secondary_hook_target=parsed["secondary_hook_target"],
+                    secondary_magnitude=parsed["secondary_magnitude"],
                 )
                 message = f"{target.name or 'The village'} adopted a new rule: {rule.name} — {rule.description}"
                 if stuck_label:
                     message += f" (long-standing want of the {stuck_label})"
+                if rule.secondary_trigger:
+                    message += f" — also bound to {rule.secondary_trigger.replace('_', ' ')}"
                 self._log("rule_originated", message)
 
             task = asyncio.create_task(_sandbox_and_register())
@@ -4893,6 +4980,24 @@ class SimulationEngine:
                             f"'{bottom_cat}' concepts, out of {len(established)} established total."
                         ),
                     }
+        # Vision doc item 5.3 ("coherence/drift detection"): the
+        # ontology's own immune-system signal — a village that's
+        # inventing constantly but nothing is actually catching on is
+        # incoherent growth, not healthy emergence. Checked before the
+        # imbalance branch above since a bloated-but-abandoned registry
+        # is the more urgent read.
+        total_concepts = len(self.world.invented_concepts)
+        if total_concepts >= REFLECTION_COHERENCE_MIN_TOTAL:
+            abandoned = sum(1 for c in self.world.invented_concepts.values() if c.status == "abandoned")
+            abandoned_fraction = abandoned / total_concepts
+            if abandoned_fraction >= REFLECTION_COHERENCE_ABANDONED_RATIO:
+                return {
+                    "subject": "ontology coherence",
+                    "description": (
+                        f"{abandoned} of {total_concepts} invented concepts were abandoned "
+                        f"(never caught on) — the village may be imagining faster than it can absorb."
+                    ),
+                }
         # Vision doc item 1.4's own worked example — a genuine governor
         # drift, grounded only in Body state (WILDFIRE_CHANCE_PER_WEEK's
         # theoretical rate vs. the realized gap between ignitions),
@@ -4935,11 +5040,71 @@ class SimulationEngine:
                 entry.setdefault("evidence_for", []).append(current_pattern["description"])
             if entry["confidence"] >= REFLECTION_SUPPORTED_THRESHOLD:
                 entry["status"] = "supported"
+                self._append_reflection_conclusion(entry, tick, confirmed=True)
             elif entry["confidence"] <= REFLECTION_REJECTED_THRESHOLD:
                 entry["status"] = "rejected"
                 entry.setdefault("evidence_against", []).append(
                     f"confidence fell below threshold at tick {tick} without recurring evidence"
                 )
+                self._append_reflection_conclusion(entry, tick, confirmed=False)
+
+    def _append_reflection_conclusion(self, hypothesis: dict, tick: int, confirmed: bool) -> None:
+        """Audit follow-up ("reflection kind='question'/'conclusion'
+        entries", flagged in the v1.3.38 cognition-architecture audit):
+        the deterministic counterpart to the LLM-authored hypothesis —
+        zero new LLM call, fires exactly once at the moment
+        `_reevaluate_reflection_hypotheses` above transitions a
+        hypothesis out of `open`. Never deleted, same append-only
+        discipline as everything else in this notebook; `supersedes`
+        points back at the hypothesis it concludes, keeping the DAG
+        walkable the way `InventedConcept.lineage` already is."""
+        entry_id = self.world.next_reflection_entry_id
+        self.world.next_reflection_entry_id += 1
+        verb = "confirmed" if confirmed else "refuted"
+        content = (
+            f"The hypothesis about {hypothesis['subject']} was {verb} "
+            f"(confidence settled at {hypothesis['confidence']:.2f})."
+        )
+        self.world.reflection_notebook.append({
+            "id": entry_id, "created_tick": tick, "kind": "conclusion",
+            "subject": hypothesis["subject"], "content": content, "confidence": hypothesis["confidence"],
+            "evidence_for": [], "evidence_against": [], "evidence_against_hint": "",
+            "status": "confirmed" if confirmed else "refuted", "supersedes": hypothesis["id"],
+        })
+        self._log("reflection_conclusion", content)
+
+    def _maybe_schedule_reflection_question(self, pattern: dict, hypothesis: dict) -> None:
+        """Audit follow-up ("reflection kind='question' entries"): a
+        genuine standing question about a pattern that already has an
+        open hypothesis — same call slot `_maybe_schedule_reflection`
+        would otherwise waste re-proposing a redundant hypothesis for.
+        Skips if an open question already covers this exact hypothesis
+        (asked once, not re-asked every year the hypothesis stays
+        open)."""
+        if any(
+            e.get("kind") == "question" and e.get("status") == "open" and e.get("supersedes") == hypothesis["id"]
+            for e in self.world.reflection_notebook
+        ):
+            return
+        prompt = reflection.build_question_prompt(pattern, hypothesis)
+        fallback = reflection.fallback_question(pattern)
+        hypothesis_id = hypothesis["id"]
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            question_text = reflection.parse_question(result, fallback)
+            entry_id = self.world.next_reflection_entry_id
+            self.world.next_reflection_entry_id += 1
+            self.world.reflection_notebook.append({
+                "id": entry_id, "created_tick": self.world.clock.tick_count, "kind": "question",
+                "subject": pattern["subject"], "content": question_text, "confidence": None,
+                "evidence_for": [], "evidence_against": [], "evidence_against_hint": "",
+                "status": "open", "supersedes": hypothesis_id,
+            })
+            self._log("reflection_question", f"Hearthmind is still wondering: {question_text}")
+
+        self._schedule_llm_job(
+            "reflection_question", prompt, reflection.SYSTEM_PROMPT_QUESTION, fallback, apply, deep_reasoning=True,
+        )
 
     def _maybe_schedule_reflection(self, events: list[str]) -> None:
         """Phase 5.A/5.B (docs/VISION-2026-07-21-SELFEVOLVING.md,
@@ -4967,8 +5132,12 @@ class SimulationEngine:
         # Don't spend a call re-proposing a hypothesis this exact
         # pattern already has an open explanation for — the fresh
         # evidence already fed it via _reevaluate_reflection_hypotheses
-        # above.
-        if any(e.get("subject") == pattern["subject"] for e in open_hypotheses):
+        # above. Ask a genuine open QUESTION about it instead (audit
+        # follow-up, kind="question") rather than doing nothing this
+        # cycle — same call slot, not extra volume.
+        existing = next((e for e in open_hypotheses if e.get("subject") == pattern["subject"]), None)
+        if existing is not None:
+            self._maybe_schedule_reflection_question(pattern, existing)
             return
         prompt = reflection.build_prompt(pattern, open_hypotheses)
         fallback = reflection.fallback_hypothesis(pattern)
@@ -6164,6 +6333,10 @@ class SimulationEngine:
                 return  # died before the answer arrived
             target.mind = mind.parse_mind(result, fallback)
             target.voice = mind.parse_voice(result, fallback)
+            if target.long_term_goal is None and not used_fallback:
+                initial_goal = mind.parse_initial_goal(result)
+                if initial_goal:
+                    target.long_term_goal = {"goal": initial_goal, "formed_tick": self.world.clock.tick_count}
 
         self._schedule_llm_job("mind", prompt, mind.SYSTEM_PROMPT, fallback, apply)
 

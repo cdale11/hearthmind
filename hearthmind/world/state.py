@@ -45,7 +45,7 @@ from hearthmind.world.hydrology import LakeState, generate_rivers, identify_lake
 from hearthmind.world.minerals import MineralGrid
 from hearthmind.world.ontology import CompositeEntity, InventedConcept, TriggerRule
 from hearthmind.world.weather import WeatherState, compute_weather
-from hearthmind.world.wildlife import WildlifeGrid
+from hearthmind.world.wildlife import SpeciesVariant, WildlifeGrid
 from hearthmind.util import namespaced_rng
 
 # Shared helper (hearthmind/util.py) under its historical private name so
@@ -372,6 +372,12 @@ class World:
     ones, binding a real standing building to a real `InventedConcept`
     via a name and an origin story."""
     next_composite_entity_id: int = 1
+    species_variants: dict[int, SpeciesVariant] = field(default_factory=dict)
+    """Vision doc item 4.2 ("Emergent species/variants via parameter-
+    space") — world-scoped like `composite_entities`. `SimulationEngine.
+    _maybe_schedule_species_variant` originates new ones, naming a real
+    existing wildlife herd via `llm/species_variant.py`."""
+    next_species_variant_id: int = 1
     nature_beliefs: list[dict] = field(default_factory=list)
     """Nature's Mind (Body/Mind framing, CLAUDE.md "Design priorities" —
     explicit user direction 2026-07-21): the land's own running,
@@ -843,6 +849,12 @@ class World:
         so the endpoint payload stays bounded even on a world that's
         run for months — the underlying stores are each already capped
         independently; this cap is just a display ceiling on top."""
+        def _agent_name(agent_id: int | None) -> str | None:
+            if agent_id is None:
+                return None
+            agent = self.population.get(agent_id)
+            return agent.name if agent is not None else "someone no longer living"
+
         entries: list[dict] = []
         for concept in self.invented_concepts.values():
             entries.append({
@@ -850,6 +862,7 @@ class World:
                 "name": concept.name, "text": concept.description, "status": concept.status,
                 "tick": concept.tick_invented, "settlement": concept.origin_settlement_id,
                 "lineage": dict(concept.lineage) if concept.lineage else None,
+                "who": _agent_name(concept.inventor_agent_id) or "the village",
             })
         for settlement in self.settlements:
             for i, law in enumerate(settlement.laws):
@@ -857,28 +870,32 @@ class World:
                     "type": "law", "id": f"law_{settlement.id}_{i}", "kind": law.get("kind", "law"),
                     "name": law.get("text", "")[:40], "text": law.get("text", ""), "status": "active",
                     "tick": law.get("formed_tick", 0), "settlement": settlement.name, "lineage": None,
+                    "who": settlement.name or "the village",
                 })
         for entry in self.reflection_notebook:
-            if entry.get("kind") != "hypothesis":
+            if entry.get("kind") not in ("hypothesis", "conclusion", "question"):
                 continue
             entries.append({
-                "type": "hypothesis", "id": f"reflection_{entry['id']}", "kind": entry.get("subject", ""),
+                "type": entry["kind"], "id": f"reflection_{entry['id']}", "kind": entry.get("subject", ""),
                 "name": entry.get("subject", ""), "text": entry.get("content", ""),
                 "status": entry.get("status", "open"), "tick": entry.get("created_tick", 0),
-                "confidence": entry.get("confidence"), "settlement": None, "lineage": None,
+                "confidence": entry.get("confidence"),
+                "settlement": None, "lineage": {"supersedes": entry["supersedes"]} if entry.get("supersedes") else None,
+                "who": "Hearthmind's own reflection",
             })
         for i, belief in enumerate(self.nature_beliefs):
             entries.append({
                 "type": "nature_belief", "id": f"nature_{i}", "kind": belief.get("subject", ""),
                 "name": belief.get("subject", ""), "text": belief.get("belief", ""), "status": "held",
                 "tick": belief.get("formed_tick", 0), "confidence": belief.get("confidence"),
-                "settlement": None, "lineage": None,
+                "settlement": None, "lineage": None, "who": "the land itself",
             })
         for rule in self.trigger_rules.values():
             entries.append({
                 "type": "rule", "id": f"rule_{rule.id}", "kind": rule.trigger,
                 "name": rule.name, "text": rule.description, "status": rule.status,
                 "tick": rule.tick_created, "settlement": rule.origin_settlement_id, "lineage": None,
+                "who": "the village",
             })
         for entity in self.composite_entities.values():
             entries.append({
@@ -886,6 +903,14 @@ class World:
                 "name": entity.name, "text": entity.origin_story, "status": "named",
                 "tick": entity.tick_created, "settlement": entity.origin_settlement_id,
                 "lineage": {"concept_id": entity.concept_id, "building_id": entity.building_id},
+                "who": "the village",
+            })
+        for variant in self.species_variants.values():
+            entries.append({
+                "type": "species_variant", "id": f"variant_{variant.id}", "kind": variant.trait,
+                "name": variant.name, "text": variant.description, "status": "named",
+                "tick": variant.tick_named, "settlement": None, "lineage": {"herd_id": variant.herd_id},
+                "who": "the land itself",
             })
         for action in self.self_tuning_actions:
             if action.get("status") != "applied":
@@ -894,6 +919,7 @@ class World:
                 "type": "self_tuning", "id": f"self_tuning_{action['id']}", "kind": action["governor"],
                 "name": action["governor"], "text": action["rationale"], "status": action["status"],
                 "tick": action["tick"], "settlement": None, "lineage": None,
+                "who": "Hearthmind itself",
             })
         entries.sort(key=lambda e: e["tick"], reverse=True)
         return entries[:limit]
@@ -969,6 +995,8 @@ class World:
             "next_trigger_rule_id": self.next_trigger_rule_id,
             "composite_entities": {str(k): v.to_dict() for k, v in self.composite_entities.items()},
             "next_composite_entity_id": self.next_composite_entity_id,
+            "species_variants": {str(k): v.to_dict() for k, v in self.species_variants.items()},
+            "next_species_variant_id": self.next_species_variant_id,
             "nature_beliefs": list(self.nature_beliefs),
             "reflection_notebook": list(self.reflection_notebook),
             "musings": list(self.musings),
@@ -1179,6 +1207,10 @@ class World:
                 int(k): CompositeEntity.from_dict(v) for k, v in data.get("composite_entities", {}).items()
             },
             next_composite_entity_id=data.get("next_composite_entity_id", 1),
+            species_variants={
+                int(k): SpeciesVariant.from_dict(v) for k, v in data.get("species_variants", {}).items()
+            },
+            next_species_variant_id=data.get("next_species_variant_id", 1),
             nature_beliefs=list(data.get("nature_beliefs", [])),
             reflection_notebook=list(data.get("reflection_notebook", [])),
             musings=list(data.get("musings", [])),

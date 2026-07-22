@@ -433,6 +433,21 @@ GATHER_SEARCH_RADIUS = 6
 """Same rationale as FORAGE_SEARCH_RADIUS — local, plausible awareness of
 nearby forest/hills, not map-wide. See D8."""
 
+SOCIALIZE_RELATIONSHIP_RADIUS = 12
+SOCIALIZE_DISTANCE_PENALTY = 0.02
+"""Audit follow-up (v1.3.38 cognition-architecture audit, "relationship-
+weighted SOCIALIZE targeting" — the highest-call-volume movement
+decision, previously pure nearest-neighbor). An agent seeking company
+now prefers whoever they genuinely like (`Agent.relationships` > 0)
+within `_RADIUS` tiles, breaking ties by distance
+(`score = relationship - distance * _DISTANCE_PENALTY`); with no liked
+candidate in range, behavior is unchanged — plain nearest-neighbor.
+Only applied when `agent.relationships` is non-empty (most agents,
+most of the time, have at least one real bond by then) — see
+`_nearest_liked_agent`'s own docstring for why this bypasses the
+native fast-path index (no weighting support there, same reasoning as
+the pre-existing `ostracized_ids` exclusion-set case)."""
+
 MOVEMENT_STUCK_TICKS_THRESHOLD = 4
 """Consecutive ticks `_step_toward`'s greedy 2-candidate step can fail
 toward a live goal-directed target (FORAGE/SOCIALIZE/GATHER/WANDER)
@@ -2863,8 +2878,13 @@ class Population:
             # §1 "deviance loop": an ostracized villager isn't sought out
             # as company (Agent.standing_penalty) — the native index has
             # no exclusion-set support, so it's only bypassed on the rare
-            # ticks any ostracism is actually in effect.
-            if ostracized_ids and agent_position_index is not None:
+            # ticks any ostracism is actually in effect. Audit follow-up:
+            # relationship-weighted targeting (also native-index-
+            # incompatible) whenever the agent has any real bond on
+            # record — see _nearest_liked_agent's docstring.
+            if agent.relationships:
+                target = cls._nearest_liked_agent(agent, position_snapshot, ostracized_ids)
+            elif ostracized_ids and agent_position_index is not None:
                 target = cls._nearest_other_agent(agent, position_snapshot, None, ostracized_ids)
             else:
                 target = cls._nearest_other_agent(agent, position_snapshot, agent_position_index, ostracized_ids)
@@ -3287,6 +3307,40 @@ class Population:
             if best_dist is None or dist < best_dist:
                 best, best_dist = (x, y), dist
         return best
+
+    @staticmethod
+    def _nearest_liked_agent(
+        agent: Agent, position_snapshot: list[tuple[int, int, int]], ostracized_ids: frozenset[int] = frozenset(),
+    ) -> tuple[int, int] | None:
+        """Audit follow-up: relationship-weighted counterpart to
+        `_nearest_other_agent`, used for SOCIALIZE whenever the seeking
+        agent has any real relationship on record. Never bypasses
+        distance entirely — a beloved friend on the far side of a large
+        map still loses to someone merely liked nearby, same "locally
+        plausible awareness" discipline `FORAGE_SEARCH_RADIUS`/
+        `GATHER_SEARCH_RADIUS` already establish elsewhere. Falls back
+        to plain nearest-neighbor (unweighted) when no one liked is in
+        range — same behavior as before this pass, not a regression for
+        an agent with no nearby friends."""
+        best: tuple[int, int] | None = None
+        best_score: float | None = None
+        fallback_best: tuple[int, int] | None = None
+        fallback_dist: int | None = None
+        for other_id, x, y in position_snapshot:
+            if other_id == agent.id or other_id in ostracized_ids:
+                continue
+            dist = abs(x - agent.x) + abs(y - agent.y)
+            if fallback_dist is None or dist < fallback_dist:
+                fallback_best, fallback_dist = (x, y), dist
+            if dist > SOCIALIZE_RELATIONSHIP_RADIUS:
+                continue
+            relationship = agent.relationships.get(other_id, 0.0)
+            if relationship <= 0:
+                continue
+            score = relationship - dist * SOCIALIZE_DISTANCE_PENALTY
+            if best_score is None or score > best_score:
+                best, best_score = (x, y), score
+        return best if best is not None else fallback_best
 
     @staticmethod
     def _seek_person_candidate(agent: Agent, agents: list[Agent]) -> tuple[int, str, str, str] | None:
@@ -6347,17 +6401,36 @@ class Population:
         EMERGENCE.md §7): called once/sim-day (`day_end`), same cadence
         as `decay_memory_salience` above — decrements every living
         agent's active `Agent.plan["days_remaining"]`, clearing it
-        (reverts to `None`) once it reaches 0. "Expiring," not
-        "failing": Reflect() (`SimulationEngine._maybe_schedule_
-        personal_belief`) may form a fresh plan afterward if the
-        agent's situation still warrants one. Population-wide, zero LLM
-        cost — bounded by population size, one dict-or-None check per
-        agent."""
+        (reverts to `None`) once it reaches 0. Reflect() (`Simulation
+        Engine._maybe_schedule_personal_belief`) may form a fresh plan
+        afterward if the agent's situation still warrants one.
+        Population-wide, zero LLM cost — bounded by population size,
+        one dict-or-None check per agent.
+
+        Audit follow-up (v1.3.38 cognition-architecture audit, "a
+        plan-fulfillment check"): a genuine deterministic judgment on
+        expiry rather than silently reverting to `None` — a plan whose
+        `progress_note` was ever updated read as real, lived pursuit
+        ("pursued, ran out of time"); one that was never touched read
+        as truly abandoned (formed, then nothing came of it). Not a
+        second LLM call — the judgment is purely "was this plan ever
+        acted on," derivable from state Reflect() already writes."""
         for agent in self.agents:
             if agent.plan is None:
                 continue
             agent.plan["days_remaining"] -= 1
             if agent.plan["days_remaining"] <= 0:
+                intent = agent.plan.get("intent", "")
+                if agent.plan.get("progress_note"):
+                    _remember(
+                        agent, f"Their plan to {intent} ran out of time, though they'd made real headway.",
+                        because="a plan resolved (pursued)",
+                    )
+                elif intent:
+                    _remember(
+                        agent, f"Their plan to {intent} never came to anything.",
+                        because="a plan resolved (abandoned)",
+                    )
                 agent.plan = None
 
     # --- cognition (Phase B) --------------------------------------------------

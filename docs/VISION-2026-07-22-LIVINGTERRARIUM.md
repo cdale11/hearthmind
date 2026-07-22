@@ -36,16 +36,26 @@ The key idea, which the codebase is one step away from: **treat
 mechanics as data, so proposing a new mechanic is proposing new data,
 still validated deterministically.**
 
-- [ ] **1.1 [CERTAIN] — Composable hooks, not just parameterized ones.**
-  Reflection already documents that 5.C (counterfactual sandbox) and
-  5.D/5.E (self-tuning) are unbuilt. Before those, add *composition*:
-  let a proposal chain existing hook types ("a ritual that raises
-  farming yield BUT only after a death, AND lowers it during feuds") —
-  a small combinator grammar over the closed hook primitives. The
-  primitives stay fixed and safe; the *combinations* are unbounded and
-  genuinely novel. This is the cheapest large step toward "mechanics it
-  wasn't programmed for" — you're not adding hook types, you're letting
-  them multiply.
+- [x] **1.1 [CERTAIN] — Composable hooks, not just parameterized ones.**
+  **Shipped v1.3.40 (scoped).** Reflection already documents that 5.C
+  (counterfactual sandbox) and 5.D/5.E (self-tuning) are unbuilt.
+  Before those, add *composition*: let a proposal chain existing hook
+  types ("a ritual that raises farming yield BUT only after a death,
+  AND lowers it during feuds") — a small combinator grammar over the
+  closed hook primitives. The primitives stay fixed and safe; the
+  *combinations* are unbounded and genuinely novel. This is the
+  cheapest large step toward "mechanics it wasn't programmed for" —
+  you're not adding hook types, you're letting them multiply.
+  Scoped down from a full boolean/AND-NOT interpreter (would need new
+  trigger-recency infrastructure) to a bounded, testable shape: a
+  `TriggerRule` may now bind a SECOND, independent (trigger, hook)
+  pair alongside its primary one — `ontology.TriggerRule.secondary_
+  trigger`/`secondary_hook_type`/`secondary_hook_target`/`secondary_
+  magnitude`/`secondary_last_fired_tick`, each side with its own
+  cooldown, `llm/rule_propose.py`'s prompt/schema extended to let the
+  LLM propose it, `retire_stale_rules` counts either side firing as
+  "ever fired." A full grammar (AND/NOT over trigger *state*, not just
+  a second independent pair) remains a further follow-up.
 
 - [x] **1.2 [CERTAIN] — A conditional/trigger vocabulary as data.**
   **Shipped v1.3.31.** `world.ontology.TriggerRule`/`TRIGGER_TYPES`
@@ -250,12 +260,22 @@ but there's a safe path via the same data-not-code discipline.
   picks the oldest unnamed standing building and asks the LLM to name
   it. Surfaced in the building click inspector.
 
-- [ ] **4.2 [LIKELY] — Emergent species/variants via parameter-space.**
-  Nature proposing a "new" grazer variant = an existing wildlife type
-  with LLM-named identity and bounded stat deltas (hardier, migratory),
-  validated against the ecology rules. A new *kind of thing* in the
-  world, still fully inside the physics. Same pattern as 4.1, applied to
-  Nature.
+- [x] **4.2 [LIKELY] — Emergent species/variants via parameter-space.**
+  **Shipped v1.3.40 (scoped).** Nature proposing a "new" grazer variant
+  = an existing wildlife type with LLM-named identity and bounded stat
+  deltas (hardier, migratory), validated against the ecology rules. A
+  new *kind of thing* in the world, still fully inside the physics.
+  Same pattern as 4.1, applied to Nature. New `world/wildlife.
+  SpeciesVariant` registry (id/name/species/herd_id/trait/description),
+  `SPECIES_VARIANT_TRAITS` closed vocabulary (hardier/migratory/timid/
+  aggressive/prolific), `llm/species_variant.py` + `_maybe_schedule_
+  species_variant` (year_end cadence, one existing herd per firing).
+  Deliberately identity/narrative-only this pass, NOT wired into
+  `AnimalHerd`'s own numeric fields or the native wildlife tick — that
+  struct has C++-native-index parity requirements (R7) and mixing in
+  a variant-conditional stat delta risks native/fallback divergence;
+  flagged as a real follow-up once justified by a native soak-safe
+  design.
 
 - [x] **4.3 [CREATIVE] — Generative assets bound to emergent entities.**
   **Shipped v1.3.39** (the parameterized-SVG path this item itself
@@ -302,19 +322,42 @@ acceptance gate); these complete the set.
   disabled. The constitution of a world that governs itself — the rules
   even the world-Mind can't break.
 
-- [ ] **5.3 [LIKELY] — Coherence/drift detection.** A slow Reflection
-  job watching for the world becoming *incoherent* — an ontology
-  bloated with contradictory customs, a culture that's drifted into
-  nonsense, runaway concept-proposal loops. The immune system for
-  long-run open-ended growth. Without it, "runs for months and keeps
-  inventing" risks "runs for months and dissolves into noise."
+- [x] **5.3 [LIKELY] — Coherence/drift detection.** **Shipped v1.3.40
+  (scoped).** A slow Reflection job watching for the world becoming
+  *incoherent* — an ontology bloated with contradictory customs, a
+  culture that's drifted into nonsense, runaway concept-proposal
+  loops. The immune system for long-run open-ended growth. Without it,
+  "runs for months and keeps inventing" risks "runs for months and
+  dissolves into noise." Scoped to the concrete, measurable half of
+  this: `_detect_reflection_pattern` gained an "ontology coherence"
+  branch — once ≥`REFLECTION_COHERENCE_MIN_TOTAL` concepts exist and
+  ≥`REFLECTION_COHERENCE_ABANDONED_RATIO` of them were abandoned
+  (never caught on), this becomes a real Reflection hypothesis through
+  the existing pipeline (zero new LLM call shape). If self-tuning
+  later confirms the pattern, `self_tuning.TUNABLE_GOVERNORS` gained
+  `"ontology coherence" -> "ontology_proposal_chance"`, consumed as a
+  multiplier on `_maybe_schedule_ontology_proposal`'s chance calc — the
+  world can genuinely slow its own rate of new-concept proposals when
+  it's proposing faster than it can absorb. "Culture drifted into
+  nonsense" (a semantic/qualitative drift check) is NOT attempted —
+  would need an LLM judgment call of its own, flagged as a real
+  follow-up.
 
-- [ ] **5.4 [LIKELY] — Provenance for everything.** Every emergent
-  thing carries *who/what/when/why* it came to be (partly there via
-  lineage). Non-negotiable for a system you'll want to *understand*
-  weeks later — and the substrate for 3.2's knowledge tree and 3.3's
-  causal threads. Also your debugging lifeline when something strange
-  emerges and you want to know how.
+- [x] **5.4 [LIKELY] — Provenance for everything.** **Shipped v1.3.40.**
+  Every emergent thing carries *who/what/when/why* it came to be
+  (partly there via lineage). Non-negotiable for a system you'll want
+  to *understand* weeks later — and the substrate for 3.2's knowledge
+  tree and 3.3's causal threads. Also your debugging lifeline when
+  something strange emerges and you want to know how. `World.
+  knowledge_tree()`'s entries already carried `tick`/`status`/
+  `lineage`; every entry type now also carries a `"who"` field
+  resolving to a real living agent's name where one exists (an
+  invented concept's inventor, a law's proposing settlement), a
+  fixed attribution string for non-agent origins ("the land itself"
+  for Nature's beliefs/species variants, "Hearthmind's own reflection"
+  for hypotheses/conclusions/questions, "Hearthmind itself" for
+  self-tuning actions), or `"the village"` where authorship is
+  genuinely collective/settlement-scoped rather than individual.
 
 ---
 

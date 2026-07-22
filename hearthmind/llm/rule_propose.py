@@ -31,12 +31,20 @@ SYSTEM_PROMPT = (
     "an unrelated one. "
     "Otherwise leave target empty. Ground it in what has actually "
     "happened to these people. "
+    "You may ALSO give this rule a second, DIFFERENT trigger with its own separate effect — "
+    "a real village custom is often two-sided (e.g. raises something after one event, lowers "
+    "it during another). Only do this if it's genuinely meaningful, not just to fill the field; "
+    "leave the secondary trigger as an empty string for an ordinary single-effect rule. "
     'Respond with strict JSON only, no other text: {"name": "a short '
     'name, under 8 words", "description": "one sentence, under 25 '
     'words, phrased as when X then Y", "trigger": "one of the exact '
     'listed trigger words", "hook_type": "one of the exact listed '
     'effect words", "hook_target": "a valid target or empty string", '
-    '"magnitude": a number between 0 and 1}.'
+    '"magnitude": a number between 0 and 1, "secondary_trigger": "a '
+    'different trigger word, or empty string", "secondary_hook_type": '
+    '"one of the exact listed effect words, or empty string", '
+    '"secondary_hook_target": "a valid target or empty string", '
+    '"secondary_magnitude": a number between 0 and 1}.'
 )
 
 _FALLBACK_RULES: tuple[tuple[str, str, str, str], ...] = (
@@ -75,6 +83,8 @@ def fallback_propose(existing_count: int) -> dict:
     return {
         "name": name, "description": description, "trigger": trigger,
         "hook_type": hook_type, "hook_target": "", "magnitude": 0.5,
+        "secondary_trigger": "", "secondary_hook_type": "", "secondary_hook_target": "",
+        "secondary_magnitude": 0.0,
     }
 
 
@@ -96,6 +106,25 @@ def parse_propose(result: dict, fallback: dict) -> dict:
     hook_target = hook_target.strip() if isinstance(hook_target, str) else fallback["hook_target"]
     if not isinstance(magnitude, (int, float)):
         magnitude = fallback["magnitude"]
+    # Item 1.1 (composable hooks): the secondary side is genuinely
+    # optional — an invalid/empty secondary trigger just means "no
+    # second effect," never a fallback substitution (there's nothing
+    # to preserve the weight of, unlike the primary fields above).
+    secondary_trigger = result.get("secondary_trigger")
+    secondary_hook_type = result.get("secondary_hook_type")
+    secondary_hook_target = result.get("secondary_hook_target")
+    secondary_magnitude = result.get("secondary_magnitude")
+    if (
+        isinstance(secondary_trigger, str) and secondary_trigger.strip() in TRIGGER_TYPES
+        and secondary_trigger.strip() != trigger
+        and isinstance(secondary_hook_type, str) and secondary_hook_type.strip() in MECHANICAL_HOOK_TYPES
+    ):
+        secondary_trigger = secondary_trigger.strip()
+        secondary_hook_type = secondary_hook_type.strip()
+        secondary_hook_target = secondary_hook_target.strip() if isinstance(secondary_hook_target, str) else ""
+        secondary_magnitude = float(secondary_magnitude) if isinstance(secondary_magnitude, (int, float)) else 0.5
+    else:
+        secondary_trigger, secondary_hook_type, secondary_hook_target, secondary_magnitude = "", "", "", 0.0
     return {
         "name": name.strip()[:80],
         "description": description.strip()[:200],
@@ -103,4 +132,8 @@ def parse_propose(result: dict, fallback: dict) -> dict:
         "hook_type": hook_type,
         "hook_target": hook_target,
         "magnitude": float(magnitude),
+        "secondary_trigger": secondary_trigger,
+        "secondary_hook_type": secondary_hook_type,
+        "secondary_hook_target": secondary_hook_target,
+        "secondary_magnitude": secondary_magnitude,
     }

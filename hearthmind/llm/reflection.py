@@ -85,3 +85,39 @@ def parse_hypothesis(result: dict, fallback: dict) -> dict:
         "confidence": round(confidence, 3),
         "evidence_against_hint": evidence_against_hint.strip()[:120],
     }
+
+
+SYSTEM_PROMPT_QUESTION = (
+    "You are Hearthmind's own reflective intelligence. You have been given a real, recurring "
+    "pattern the world is still living through, and your own existing hypothesis already trying "
+    "to explain it. Rather than repeat that hypothesis, pose ONE genuine open QUESTION you still "
+    "don't know the answer to about this pattern — something that would actually change your "
+    "understanding if answered. Not rhetorical, not already answered by the hypothesis. "
+    'Respond with strict JSON only, no other text: {"question": "one sentence, under 30 words, '
+    'phrased as a real question"}.'
+)
+"""Audit follow-up ("reflection kind='question' entries", flagged in
+the v1.3.38 cognition-architecture audit): fired from the SAME
+year-cadence call `_maybe_schedule_reflection` already makes, in the
+branch where the detected pattern already has an open hypothesis (so
+proposing a second, redundant one would be wasted) — zero added LLM
+call volume, just a different question asked of the same slot."""
+
+
+def build_question_prompt(pattern: dict, hypothesis: dict) -> str:
+    return (
+        f"Detected pattern ({pattern['subject']}): {pattern['description']}\n"
+        f"Your existing hypothesis (confidence {hypothesis['confidence']:.2f}): {hypothesis['content']}\n"
+        "Pose one genuine open question about this pattern you don't yet know the answer to."
+    )
+
+
+def fallback_question(pattern: dict) -> dict:
+    return {"question": f"Will the pattern in {pattern['subject']} still hold a year from now, or was it a passing thing?"}
+
+
+def parse_question(result: dict, fallback: dict) -> str:
+    question = result.get("question")
+    if not isinstance(question, str) or not question.strip():
+        question = fallback["question"]
+    return question.strip()[:200]

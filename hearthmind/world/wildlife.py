@@ -232,6 +232,56 @@ class AnimalHerd:
         )
 
 
+SPECIES_VARIANT_TRAITS: tuple[str, ...] = ("hardier", "migratory", "timid", "aggressive", "prolific")
+"""Vision doc item 4.2, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
+("Emergent species/variants via parameter-space"): closed vocabulary
+of what makes a named variant distinct — same "closed primitives,
+open combination" discipline as `MECHANICAL_HOOK_TYPES`. Descriptive
+only for now (surfaced in the UI/knowledge tree, read by Nature's own
+belief-formation prompt) — real numeric stat deltas applied inside
+`WildlifeGrid.tick`'s hot loop are explicitly NOT wired this pass to
+avoid an `AnimalHerd`/native-index parity risk (R7); same flagged-not-
+silently-dropped honesty as `TriggerRule`'s still-narrative-only hook
+types."""
+
+MAX_SPECIES_VARIANTS_STORED = 60
+"""Cap on `World.species_variants` — rare (Nature's own cadence, not
+per-tick), smaller ceiling than concepts/rules is plenty."""
+
+
+@dataclass
+class SpeciesVariant:
+    """Vision item 4.2: a named, persistent variant of an EXISTING
+    wildlife species — "a new kind of thing in the world, still fully
+    inside the physics," same composition discipline as item 4.1's
+    `CompositeEntity` applied to Nature. Bound to one real `AnimalHerd`
+    (`herd_id`) at the moment it's named; the herd's own species/
+    mechanics never change — this is identity, not a new creature
+    type."""
+
+    id: int
+    name: str
+    species: str
+    herd_id: int
+    trait: str
+    description: str
+    tick_named: int
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id, "name": self.name, "species": self.species, "herd_id": self.herd_id,
+            "trait": self.trait, "description": self.description, "tick_named": self.tick_named,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SpeciesVariant":
+        return cls(
+            id=data["id"], name=data["name"], species=data.get("species", ""),
+            herd_id=data["herd_id"], trait=data.get("trait", ""),
+            description=data.get("description", ""), tick_named=data.get("tick_named", 0),
+        )
+
+
 @dataclass
 class WildlifeGrid:
     herds: dict[int, AnimalHerd] = field(default_factory=dict)

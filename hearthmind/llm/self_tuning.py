@@ -14,12 +14,21 @@ world's own balance, not narrative texture) — deferred, never faked, on
 a spent budget or failed call, same as `nature_mind`/`beliefs`."""
 from __future__ import annotations
 
-TUNABLE_GOVERNORS = {"wildfire frequency": "wildfire_chance"}
+TUNABLE_GOVERNORS = {"wildfire frequency": "wildfire_chance", "ontology coherence": "ontology_proposal_chance"}
 """Closed vocabulary: reflection hypothesis subject -> governor key
-consumed by `World.governor_tuning`. Only one governor is wired to a
-real mechanical effect so far (`tick_wildfire`'s `chance_multiplier`)
-— the vision doc's own worked example. Extending this dict is how a
-future governor joins self-tuning; the interpreter itself stays fixed."""
+consumed by `World.governor_tuning`. `wildfire_chance` is the vision
+doc's own worked example (`tick_wildfire`'s `chance_multiplier`).
+`ontology_proposal_chance` (vision item 5.3, "coherence/drift
+detection") is the immune-system counterpart — when Reflection's
+ontology-coherence hypothesis (a high abandoned-concept fraction) is
+supported, self-tuning may nudge this multiplier within the usual
+`disasters.GOVERNOR_TUNING_BAND`, same bounded direction+magnitude
+shape as every other governor (the model isn't forced to lower it, but
+a hypothesis grounded in "too much abandoned churn" gives it real
+reason to) — see `_maybe_schedule_ontology_proposal`'s consumption of
+`World.governor_tuning.get("ontology_proposal_chance", 1.0)`. Extending
+this dict is how a future governor joins self-tuning; the interpreter
+itself stays fixed."""
 
 SYSTEM_PROMPT = (
     "You are Hearthmind's own reflective intelligence, now considering whether to "

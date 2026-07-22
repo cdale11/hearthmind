@@ -233,6 +233,25 @@ class TriggerRule:
     status: str = "active"
     fire_count: int = 0
     last_fired_tick: int = -1
+    secondary_trigger: str = ""
+    """Vision doc item 1.1 ("composable hooks, not just parameterized
+    ones"): a rule may bind a SECOND, different trigger to its own
+    independent effect — "a ritual that raises farming yield after a
+    death, AND lowers it during a feud" is one `TriggerRule` with
+    `trigger="on_death"`/`hook_type="skill_yield_bonus"` and
+    `secondary_trigger="on_feud"`/`secondary_hook_type=...`. The two
+    closed primitives (`TRIGGER_TYPES`/`MECHANICAL_HOOK_TYPES`) stay
+    fixed; letting one rule chain two of them is the combination that's
+    genuinely open-ended. Empty string means single-effect (the
+    original v1.3.31 shape) — every existing rule round-trips
+    unchanged. `_apply_trigger_rules_for` fires whichever trigger
+    (primary or secondary) matches, cooldown-gated independently per
+    side so a rule with two frequently-matching triggers can't runaway
+    either half."""
+    secondary_hook_type: str = ""
+    secondary_hook_target: str = ""
+    secondary_magnitude: float = 0.0
+    secondary_last_fired_tick: int = -1
 
     def to_dict(self) -> dict:
         return {
@@ -241,6 +260,9 @@ class TriggerRule:
             "magnitude": self.magnitude, "origin_settlement_id": self.origin_settlement_id,
             "tick_created": self.tick_created, "status": self.status,
             "fire_count": self.fire_count, "last_fired_tick": self.last_fired_tick,
+            "secondary_trigger": self.secondary_trigger, "secondary_hook_type": self.secondary_hook_type,
+            "secondary_hook_target": self.secondary_hook_target, "secondary_magnitude": self.secondary_magnitude,
+            "secondary_last_fired_tick": self.secondary_last_fired_tick,
         }
 
     @classmethod
@@ -251,6 +273,11 @@ class TriggerRule:
             magnitude=data.get("magnitude", 0.0), origin_settlement_id=data.get("origin_settlement_id", 0),
             tick_created=data.get("tick_created", 0), status=data.get("status", "active"),
             fire_count=data.get("fire_count", 0), last_fired_tick=data.get("last_fired_tick", -1),
+            secondary_trigger=data.get("secondary_trigger", ""),
+            secondary_hook_type=data.get("secondary_hook_type", ""),
+            secondary_hook_target=data.get("secondary_hook_target", ""),
+            secondary_magnitude=data.get("secondary_magnitude", 0.0),
+            secondary_last_fired_tick=data.get("secondary_last_fired_tick", -1),
         )
 
 
@@ -474,18 +501,23 @@ def dominant_architecture_concept(world, settlement_id: int) -> InventedConcept 
 def register_trigger_rule(
     world, name: str, description: str, trigger: str, hook_type: str, hook_target: str,
     magnitude: float, origin_settlement_id: int, tick: int,
+    secondary_trigger: str = "", secondary_hook_type: str = "", secondary_hook_target: str = "",
+    secondary_magnitude: float = 0.0,
 ) -> "TriggerRule":
     """Mints a new `TriggerRule` with the next id — the trigger-rule
     counterpart to `register_concept`. Never validates `trigger`/
     `hook_type` itself (that's `llm/rule_propose.py`'s job, same
     deterministic-re-verification discipline as `validate_hook`) —
-    this is the pure mutator."""
+    this is the pure mutator. `secondary_*` (item 1.1, composable
+    hooks) defaults to empty/single-effect."""
     rule_id = world.next_trigger_rule_id
     world.next_trigger_rule_id += 1
     rule = TriggerRule(
         id=rule_id, name=name, description=description, trigger=trigger,
         hook_type=hook_type, hook_target=hook_target, magnitude=magnitude,
         origin_settlement_id=origin_settlement_id, tick_created=tick,
+        secondary_trigger=secondary_trigger, secondary_hook_type=secondary_hook_type,
+        secondary_hook_target=secondary_hook_target, secondary_magnitude=secondary_magnitude,
     )
     world.trigger_rules[rule_id] = rule
     prune_trigger_rules(world)
@@ -542,5 +574,10 @@ def retire_stale_rules(world, tick: int) -> None:
     rules` is the only thing that ever actually removes a retired
     rule, and only once the registry is over its storage cap."""
     for rule in world.trigger_rules.values():
-        if rule.status == "active" and rule.fire_count == 0 and tick - rule.tick_created > TRIGGER_RULE_STALE_TICKS:
+        # Item 1.1: a composed rule only counts as "never consumed" if
+        # NEITHER side has ever fired — a rule whose secondary trigger
+        # is doing real work shouldn't be retired just because
+        # `fire_count` (primary-only) reads 0.
+        ever_fired = rule.fire_count > 0 or rule.secondary_last_fired_tick >= 0
+        if rule.status == "active" and not ever_fired and tick - rule.tick_created > TRIGGER_RULE_STALE_TICKS:
             rule.status = "retired"

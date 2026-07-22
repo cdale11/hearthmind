@@ -4,6 +4,112 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.40] — Living Terrarium batch: composable hooks, species variants, coherence detection, provenance + 4 audit follow-ups
+
+Explicit user request ("Start all of that") over the remaining Living
+Terrarium vision-doc items plus four flagged follow-ups from the
+v1.3.38 cognition-architecture audit. Scoped down from the full list
+(1.1, 1.5, 3.3, 3.5, 3.6, 4.2, 5.3, 5.4 + 4 audit items) to the
+backend/data-model-tractable half — 1.5 (visible "law of nature"
+ontology), 3.3 (legible causal threads), 3.5 (time-lapse/returning
+eye), and 3.6 (ambient generative presence) are all real UI-heavy
+efforts better done as their own dedicated batch, deliberately
+deferred rather than rushed. See docs/VISION-2026-07-22-LIVINGTERRARIUM.md
+for each shipped item's own scoping note.
+
+**1.1, composable hooks (scoped).** A full boolean/AND-NOT combinator
+grammar over trigger *state* would need new trigger-recency
+infrastructure; shipped a bounded, testable slice instead — a
+`TriggerRule` may now bind a SECOND, independent (trigger, hook) pair
+alongside its primary one (`ontology.TriggerRule.secondary_trigger`/
+`secondary_hook_type`/`secondary_hook_target`/`secondary_magnitude`/
+`secondary_last_fired_tick`, each side its own cooldown).
+`llm/rule_propose.py`'s prompt/schema/parser extended to let the LLM
+propose the secondary side (optional — defaults to empty rather than
+falling back to a substitute, since there's nothing to preserve the
+weight of for an optional field). `retire_stale_rules` now counts
+either side firing as "ever fired."
+
+**4.2, emergent species/variants (scoped).** New `world/wildlife.
+SpeciesVariant` registry (id/name/species/herd_id/trait/description)
++ `SPECIES_VARIANT_TRAITS` closed vocabulary (hardier/migratory/timid/
+aggressive/prolific) + `llm/species_variant.py` +
+`_maybe_schedule_species_variant` (year_end cadence, one un-named
+existing herd per firing). Deliberately identity/narrative-only —
+`AnimalHerd` has C++-native-index parity requirements (R7); wiring a
+variant-conditional numeric stat delta into the native wildlife tick
+risks native/fallback divergence and is flagged as real follow-up
+work, not silently dropped.
+
+**5.3, coherence/drift detection (scoped).** `_detect_reflection_
+pattern` gained an "ontology coherence" branch: once
+`REFLECTION_COHERENCE_MIN_TOTAL` (10) concepts exist and
+`REFLECTION_COHERENCE_ABANDONED_RATIO` (0.5) of them were abandoned,
+this becomes a real Reflection hypothesis through the existing
+pipeline. `self_tuning.TUNABLE_GOVERNORS` gained `"ontology
+coherence" -> "ontology_proposal_chance"`, consumed as a multiplier
+on `_maybe_schedule_ontology_proposal`'s chance calc — a confirmed
+hypothesis can genuinely slow the world's own rate of new-concept
+proposals. The semantic/qualitative half ("culture drifted into
+nonsense") is NOT attempted — needs its own LLM judgment call,
+flagged as follow-up.
+
+**5.4, provenance for everything.** `World.knowledge_tree()`'s
+entries already carried tick/status/lineage; every entry now also
+carries a `"who"` field — a real living agent's name where one
+genuinely exists (a concept's inventor, a law's proposing
+settlement), a fixed attribution for non-agent origins ("the land
+itself" for Nature's beliefs/species variants, "Hearthmind's own
+reflection" for hypotheses/conclusions/questions, "Hearthmind itself"
+for self-tuning actions), or "the village" where authorship is
+genuinely collective. Surfaced in the existing knowledge-tree panel
+(`app.js`'s `renderKnowledgeTreeEntry`) — no new panel needed, the
+vehicle already existed.
+
+**Audit follow-up: reflection `kind="question"`/`"conclusion"`
+entries.** `_reevaluate_reflection_hypotheses` now appends a
+deterministic, zero-LLM-cost `kind="conclusion"` notebook entry
+(`status="confirmed"`/`"refuted"`, `supersedes` the hypothesis id) at
+the exact moment a hypothesis transitions to supported/rejected — a
+rejected hypothesis's refutation is now itself a permanent knowledge-
+tree entry, not silent. `_maybe_schedule_reflection`'s "pattern
+already has an open hypothesis" branch — previously a bare skip —
+now asks a genuine open QUESTION about that hypothesis instead
+(new `llm/reflection.py` `SYSTEM_PROMPT_QUESTION`/`build_question_
+prompt`/`fallback_question`/`parse_question`, new `_maybe_schedule_
+reflection_question`) — same year-cadence call slot, zero added LLM
+volume.
+
+**Audit follow-up: plan-fulfillment judgment.** `Population.
+tick_plans()` previously let an expired `Agent.plan` silently vanish
+with no fulfilled/abandoned judgment. Now writes a real memory on
+expiry: "a plan resolved (pursued)" if `progress_note` was ever set
+during the plan's life, "a plan resolved (abandoned)" if the plan had
+a real intent but no progress was ever logged.
+
+**Audit follow-up: relationship-weighted SOCIALIZE targeting.**
+`Population`'s SOCIALIZE goal previously picked the plain-nearest
+other agent, regardless of any actual relationship — "judgment call
+dressed as a heuristic." New `_nearest_liked_agent` (`SOCIALIZE_
+RELATIONSHIP_RADIUS=12`, `SOCIALIZE_DISTANCE_PENALTY=0.02`) scores
+candidates within radius by `relationship - distance * penalty`,
+falling back to the old plain-nearest behavior when the agent has no
+relationships yet or none are in range.
+
+**Audit follow-up: genesis-time `Agent.long_term_goal` seeding.**
+`llm/mind.py`'s one-time permanent-identity prompt (`_author_one_
+mind`, core cast only, fired once per agent's life) now also asks for
+an `initial_goal` — new `parse_initial_goal` is deliberately
+fallback-less (unlike mind/voice): a missing/empty answer just means
+no goal is seeded yet, and the existing monthly life-event-gated job
+still forms one naturally later. Applied only when `target.long_term_
+goal is None`, so it never overwrites a goal that already formed
+some other way, and only on a genuine (non-fallback) LLM answer.
+
+Verified: `python3 -c "import hearthmind.simulation.engine"` after
+every edit; `scripts/verify_native_soak.py` (2 seeds × 800 ticks)
+byte-identical, run twice across this batch.
+
 ## [1.3.39] — Living Terrarium items 4.1/4.3: composite entities + generated sigils
 
 Explicit user request: implement items 4.1 and 4.3 from

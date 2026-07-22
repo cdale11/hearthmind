@@ -596,16 +596,25 @@ chroniclerForm.addEventListener("submit", async (e) => {
 // digest's front-page section (below) and the knowledge tree panel (further
 // down) — vision doc items 3.1/3.2, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
 
-const KNOWLEDGE_TREE_ICONS = { concept: "💡", law: "⚖", custom: "⚖", taboo: "⚖", hypothesis: "🔬", nature_belief: "🌲", rule: "⚙", self_tuning: "🎛" };
+const KNOWLEDGE_TREE_ICONS = {
+  concept: "💡", law: "⚖", custom: "⚖", taboo: "⚖", hypothesis: "🔬",
+  nature_belief: "🌲", rule: "⚙", self_tuning: "🎛", composite_entity: "🔗",
+  species_variant: "🐾", conclusion: "✅", question: "❓",
+};
 
 function renderKnowledgeTreeEntry(row) {
   const icon = KNOWLEDGE_TREE_ICONS[row.type] || "•";
   const lineageBits = [];
   if (row.lineage && row.lineage.evolved_from != null) lineageBits.push(`evolved from #${row.lineage.evolved_from}`);
   if (row.lineage && row.lineage.merged_from) lineageBits.push(`merged from ${row.lineage.merged_from.map((id) => `#${id}`).join(" + ")}`);
+  if (row.lineage && row.lineage.supersedes != null) lineageBits.push(`from hypothesis #${row.lineage.supersedes}`);
+  if (row.lineage && row.lineage.herd_id != null) lineageBits.push(`herd #${row.lineage.herd_id}`);
   const lineageText = lineageBits.length ? ` <span class="muted">(${lineageBits.join(", ")})</span>` : "";
   const confText = typeof row.confidence === "number" ? ` <span class="muted">(confidence ${row.confidence.toFixed(2)})</span>` : "";
-  return `<li>${icon} <span class="muted">tick ${row.tick} · ${row.status}</span> <strong>${row.name}</strong>${confText} — ${row.text}${lineageText}</li>`;
+  // 5.4 "provenance for everything": who/what originated this entry, next
+  // to the existing when (tick)/why (text)/lineage fields.
+  const whoText = row.who ? ` <span class="muted">— ${row.who}</span>` : "";
+  return `<li>${icon} <span class="muted">tick ${row.tick} · ${row.status}</span> <strong>${row.name}</strong>${confText}${whoText} — ${row.text}${lineageText}</li>`;
 }
 
 // --- §5 "While you were away" digest (docs/IDEAS-2026-07-EMERGENCE.md) -----
