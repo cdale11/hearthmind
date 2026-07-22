@@ -19,6 +19,19 @@ thought in these tags even when a strict JSON response is requested —
 stripped defensively so a stray reasoning block never breaks
 `json.loads`. Cheap and a no-op for models that never emit them."""
 
+_UNCLOSED_THINK_RE = re.compile(r"<think>.*", re.DOTALL)
+"""v1.4.3: a completion that runs out of `max_tokens` mid-reasoning
+never emits the closing `</think>` — invisible to `_THINK_BLOCK_RE`
+above, which requires a matched pair, so the whole unfinished trace
+(never valid JSON) used to reach `json.loads` and fail. Applied only
+after `_THINK_BLOCK_RE` finds no *closed* pair, so a normal closed
+block is never double-processed. Strips from the dangling `<think>` to
+the end, same as a closed block would once it closes — leaves nothing
+recoverable (there genuinely is no answer in a truncated trace), so
+this still surfaces as a real `LLMUnavailable`/fallback, it just fails
+fast with an accurate message instead of a confusing "non-JSON
+response" dump of a half-finished reasoning trace."""
+
 def _extract_json_object(text: str) -> str:
     """Best-effort recovery for a completion that's *almost* a bare JSON
     object but has stray text wrapped around it — a small/hybrid-
@@ -59,7 +72,26 @@ call sites, `_schedule_llm_job`'s docstring) — never combined with a
 enforces the FULL output shape from the first token and would suppress
 a preceding `<think>` block entirely; `_schedule_llm_job` only ever
 passes `reasoning=True` when `schema_for_task` returned `None` for
-that job."""
+that job.
+
+**v1.4.3 fix — the prompt phrase alone is not enough.** A live review
+pack (`--reasoning auto` server default since v1.3.37) showed
+`reasoning=False` tasks — including plain `mind`, never a `deep_
+reasoning` job — erroring out almost 100% of the time (`calls_errored`
+5/5, avg latency ~114s against a measured ~11 tok/s decode rate, i.e.
+~1280 tokens generated against a 512 `max_tokens` request). Root
+cause: `--reasoning auto` leaves the server's own reasoning budget
+open regardless of what the system prompt asks for — this model does
+not reliably honor "detailed thinking off" as a hard stop, so it kept
+generating a `<think>` trace that ran the completion past `max_tokens`
+with no JSON ever emitted (an unclosed `<think>` block, invisible to
+`_THINK_BLOCK_RE`, which only matches a *closed* pair). The prompt
+phrase alone was a soft hint the model could ignore; both clients below
+now also assert `reasoning=False` at the request level (`llama-server`'s
+`reasoning_budget: 0`/Ollama-compatible `chat_template_kwargs.
+enable_thinking: false` — mirrors the already-proven `--reasoning-budget
+0` CLI flag, this is its per-request equivalent), which is enforced by
+the sampler rather than merely requested of the model."""
 
 
 class LLMUnavailable(Exception):
@@ -211,7 +243,10 @@ class OllamaClient:
         except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
             raise LLMUnavailable(f"Ollama request failed: {exc}") from exc
 
-        raw_response = _THINK_BLOCK_RE.sub("", body.get("response", "")).strip()
+        raw_response = body.get("response", "")
+        if not _THINK_BLOCK_RE.search(raw_response):
+            raw_response = _UNCLOSED_THINK_RE.sub("", raw_response)
+        raw_response = _THINK_BLOCK_RE.sub("", raw_response).strip()
         if capture is not None:
             capture["raw"] = raw_response
         try:
@@ -323,6 +358,22 @@ class LlamaCppClient:
             # schema above narrows this further to the expected shape).
             "response_format": response_format,
         }
+        if not reasoning:
+            # v1.4.3: hard-disable reasoning for this specific request,
+            # rather than trusting the system-prompt phrase alone — see
+            # `_REASONING_OFF_PROMPT`'s docstring for the live-diagnosed
+            # failure this fixes. `reasoning_budget` mirrors `scripts/
+            # run.sh`'s already-proven `--reasoning-budget 0` CLI flag as
+            # its per-request equivalent; `chat_template_kwargs.enable_
+            # thinking` covers templates (Qwen3-family included) that key
+            # off that variable instead. Both are additive/ignored by a
+            # server build or template that doesn't recognize them, so
+            # this is safe even if one of the two levers is a no-op on a
+            # given llama-server version — never sent when reasoning=True
+            # (a deep_reasoning job wants the server's configured budget,
+            # set once via `--reasoning`, not overridden per-call here).
+            payload["reasoning_budget"] = 0
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
         effective_num_predict = num_predict_override if num_predict_override is not None else self.num_predict
         if effective_num_predict is not None:
             payload["max_tokens"] = effective_num_predict
@@ -347,7 +398,10 @@ class LlamaCppClient:
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMUnavailable(f"llama.cpp returned an unexpected response shape: {body!r}") from exc
 
-        raw_response = _THINK_BLOCK_RE.sub("", raw_response or "").strip()
+        raw_response = raw_response or ""
+        if not _THINK_BLOCK_RE.search(raw_response):
+            raw_response = _UNCLOSED_THINK_RE.sub("", raw_response)
+        raw_response = _THINK_BLOCK_RE.sub("", raw_response).strip()
         if capture is not None:
             capture["raw"] = raw_response
         try:

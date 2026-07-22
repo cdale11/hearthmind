@@ -476,6 +476,28 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.4.3)
+
+Explicit user follow-up on v1.4.2: calls were still erroring (100% on
+`mind`, a task that was never `deep_reasoning`) after `LLAMA_REASONING
+=auto` (v1.3.37). Root cause: the per-call "detailed thinking off"
+system-prompt phrase is only a soft hint this model doesn't reliably
+honor — it kept reasoning anyway, running the completion past `max_
+tokens` mid-`<think>` with no JSON ever emitted, and `_THINK_BLOCK_RE`
+only matched a *closed* pair so the truncated trace reached `json.
+loads` whole and failed. Fixed at the request level, not the prompt
+level: both LLM clients now send a genuine per-request reasoning
+override (`llama-server`'s `reasoning_budget: 0` + `chat_template_
+kwargs.enable_thinking: false`, sampler-enforced) whenever `reasoning=
+False` — see `llm/client.py`'s `_REASONING_OFF_PROMPT` docstring for
+the full incident writeup. New `_UNCLOSED_THINK_RE` strips a dangling
+never-closed `<think>` block as defense-in-depth. Also, explicit user
+directive: reasoning is now load-shed, not just crucial-task-gated —
+`REASONING_LOAD_SHED_RATIO=0.9` in `simulation/engine.py` drops a
+`deep_reasoning=True` job to its fast reasoning-free path once `llm_
+pressure_ratio()` crosses it, before pacing/pause even engage. See
+CHANGELOG.md's [1.4.3] entry for full verification detail.
+
 ## Current state (v1.4.2)
 
 Live-diagnostic fix: a pasted `/diagnostics` showed `voice_dialogue`

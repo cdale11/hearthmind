@@ -281,27 +281,46 @@
 #   LLAMA_REASONING      Default: auto (changed from `off` in v1.3.37,
 #                        explicit user directive to give genuine
 #                        subjective-decision jobs a real reasoning trace).
-#                        This is a SERVER-WIDE floor, separate from the
+#                        This is a SERVER-WIDE ceiling, separate from the
 #                        app's own PER-CALL "detailed thinking on/off"
 #                        system-prompt toggle (llm/client.py's `reasoning`
 #                        param, `_schedule_llm_job(..., deep_reasoning=
-#                        True)` — now ~20 tasks: belief revision, major
-#                        life decisions, council/institution deliberation,
-#                        town consciousness, cultural evolution,
-#                        invention/ontology origination, Reflection/self-
-#                        tuning). A server-wide `off` (--reasoning-budget
-#                        0) makes that per-call "detailed thinking on"
-#                        phrase a no-op regardless of what the app asks
-#                        for — `auto` is required for those jobs to get a
-#                        real trace, hence the new default. Every other
-#                        call already asks for reasoning off per-call
-#                        (`deep_reasoning=False`, the default) and is
-#                        unaffected either way — set LLAMA_REASONING=off
-#                        to restore the old server-wide floor (e.g. to
-#                        save latency/memory on constrained hardware, at
-#                        the cost of every deep_reasoning=True job losing
-#                        its trace too), or empty (LLAMA_REASONING=) to
-#                        omit both flags on an older llama-server.
+#                        True)` — ~20 tasks: belief revision, major life
+#                        decisions, council/institution deliberation, town
+#                        consciousness, cultural evolution, invention/
+#                        ontology origination, Reflection/self-tuning; also
+#                        shed under queue pressure, see REASONING_LOAD_
+#                        SHED_RATIO in engine.py). A server-wide `off`
+#                        (--reasoning-budget 0) makes every call's request
+#                        reasoning-free regardless of what the app asks
+#                        for, so `auto` is required for deep_reasoning
+#                        jobs to get a real trace, hence the default.
+#
+#                        v1.4.3 fix: a live diagnostic showed `auto` alone
+#                        was NOT sufficient to keep every OTHER call
+#                        reasoning-free — the per-call "detailed thinking
+#                        off" system-prompt phrase is a soft hint this
+#                        model doesn't reliably honor, and a call left to
+#                        reason anyway can run its completion past
+#                        `max_tokens` mid-`<think>` with no JSON ever
+#                        emitted (100% `calls_errored` on ordinary,
+#                        non-deep_reasoning tasks in the field). Both LLM
+#                        clients now ALSO send a genuine per-request
+#                        override (llama-server's `reasoning_budget: 0` +
+#                        `chat_template_kwargs.enable_thinking: false`,
+#                        sampler-enforced, not just prompted) whenever
+#                        `reasoning=False` — this is what actually fixes
+#                        it; `LLAMA_REASONING=auto` here is what allows a
+#                        genuine `reasoning=True` call to still get its
+#                        trace. Set LLAMA_REASONING=off to remove the
+#                        server-wide ceiling entirely (e.g. to save
+#                        latency/memory on constrained hardware, at the
+#                        cost of every deep_reasoning=True job losing its
+#                        trace too — the per-request override can't ask
+#                        for MORE than the server ceiling allows), or
+#                        empty (LLAMA_REASONING=) to omit both flags on an
+#                        older llama-server (the per-request override
+#                        above is harmless there even without this flag).
 #   SKIP_NATIVE_BUILD    1 to skip building hearthmind._native. Default: 0.
 #   LLAMA_EXTRA_ARGS     Extra raw flags appended to the llama-server
 #                        command line.

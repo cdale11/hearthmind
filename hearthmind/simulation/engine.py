@@ -647,6 +647,23 @@ tightest tier."""
 
 LLM_PRESSURE_SLOWDOWN_START_RATIO = 0.75
 LLM_PRESSURE_PAUSE_RATIO = 2.0
+
+REASONING_LOAD_SHED_RATIO = 0.9
+"""v1.4.3, explicit user directive: reasoning ("detailed thinking on",
+a real `<think>` trace) genuinely costs several times a routine call's
+latency — worth it for a `deep_reasoning=True` job's own judgment
+quality, not worth it while the LLM queue is already struggling to
+keep up. A `deep_reasoning` job whose `llm_pressure_ratio()` is at/
+above this ratio silently runs WITHOUT a reasoning trace this one call
+(same fast direct-answer path as every routine task) rather than
+deferring or dropping — the decision still gets made, just without the
+extra trace, shedding load exactly where it's most expensive. Sized
+just under `LLM_PRESSURE_SLOWDOWN_START_RATIO`'s own pacing kicking in
+(0.75) is too eager (would strip reasoning from routine minor load);
+just under `LLM_PRESSURE_PAUSE_RATIO` (2.0) is too late (the queue is
+already stalling by then) — 0.9 sheds the single most expensive job
+class right as the queue starts genuinely backing up, before pacing/
+pause even engage."""
 LLM_PRESSURE_MAX_SLOWDOWN = 6.0
 """Explicit standing directive (CLAUDE.md, "town consciousness is
 important enough to trade off with simulation speed"): when the LLM
@@ -1710,7 +1727,16 @@ class SimulationEngine:
             # temperature — never combined with a schema-constrained
             # call (see client.py's _REASONING_ON_PROMPT docstring for
             # why a grammar and a preceding <think> block conflict).
-            reasoning = deep_reasoning and task_schema is None
+            # Also shed under queue pressure (REASONING_LOAD_SHED_RATIO,
+            # v1.4.3, explicit user directive) — reasoning is the single
+            # most expensive thing a call can ask for, so it's the first
+            # thing given up once the backlog is genuinely struggling;
+            # the job still runs and still decides, just without a trace
+            # this one call, same as every routine task.
+            reasoning = (
+                deep_reasoning and task_schema is None
+                and self.llm_pressure_ratio() < REASONING_LOAD_SHED_RATIO
+            )
             result, used_fallback, raw_completion = await self._cognition_runner.run(
                 prompt, system, fallback=lambda: fallback, json_schema=task_schema,
                 num_predict_override=num_predict_override, temperature_override=temperature_override,

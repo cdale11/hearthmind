@@ -4,6 +4,67 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.4.3] — Fix reasoning-mode calls erroring out; dynamic/load-aware reasoning toggle
+
+Explicit user follow-up on v1.4.2: a fresh review pack + `/diagnostics`
+showed calls STILL erroring after that fix — this time `calls_errored`
+5/5 (100%) on the `mind` task specifically, a task that has never been
+`deep_reasoning=True`. Avg latency for those calls was ~114s against a
+measured ~11.24 tok/s decode rate — roughly 1280 tokens generated
+against a 512-token `max_tokens` request, i.e. the model was still
+generating well past its budget with no JSON ever produced.
+
+Root cause: `scripts/run.sh`'s `LLAMA_REASONING=auto` (the v1.3.37
+default) leaves the server's reasoning budget open for every call: the
+app's own per-call "detailed thinking off" system-prompt phrase is
+only a soft hint, and this model does not reliably honor it — it kept
+generating an (unclosed, budget-exhausted) `<think>` trace even for
+routine, non-`deep_reasoning` tasks, so `content` never contained an
+answer at all. `_THINK_BLOCK_RE` only ever matched a *closed*
+`<think>...</think>` pair, so a truncated trace reached `json.loads`
+whole and failed every time. Both LLM clients (`hearthmind/llm/
+client.py`) now assert `reasoning=False` at the REQUEST level, not
+just the prompt level — `LlamaCppClient` sends `reasoning_budget: 0` +
+`chat_template_kwargs: {"enable_thinking": false}` (llama-server's
+per-request equivalent of the already-proven `--reasoning-budget 0`
+CLI flag; both fields are additive/ignored if the server build doesn't
+recognize them) whenever `reasoning=False`, which is sampler-enforced
+rather than merely requested — this is the actual fix. New `_UNCLOSED_
+THINK_RE` strips a dangling, never-closed `<think>` block (applied
+only when `_THINK_BLOCK_RE` finds no closed pair) as defense-in-depth
+for any server/model combination where the per-request override is a
+no-op — the completion still fails cleanly as `LLMUnavailable`/
+fallback (there genuinely is no answer in a truncated trace), just
+without dumping a multi-hundred-token half-finished reasoning trace
+into the error message.
+
+Second, explicit user directive: reasoning is expensive (several times
+a routine call's latency) and should be reserved for genuinely crucial
+tasks, dynamically shed under load rather than either a global on/off.
+New `REASONING_LOAD_SHED_RATIO=0.9` (`simulation/engine.py`) —
+`_schedule_llm_job`'s `reasoning` computation now also requires `llm_
+pressure_ratio() < REASONING_LOAD_SHED_RATIO`; a `deep_reasoning=True`
+job whose queue is already backing up runs WITHOUT a trace that one
+call (same fast path as every routine task) instead of deferring or
+dropping — the decision still gets made, just without the extra cost,
+shedding load at exactly its most expensive point, before `LLM_
+PRESSURE_SLOWDOWN_START_RATIO` (0.75) pacing or `LLM_PRESSURE_PAUSE_
+RATIO` (2.0) even engage. `scripts/run.sh`'s `LLAMA_REASONING` doc
+comment rewritten to describe both the server-wide ceiling and the new
+per-request/per-load override together, since a reader tuning one
+without knowing about the other would draw the wrong conclusion about
+what each lever actually controls.
+
+Verified: direct unit tests (`reasoning=False` sends the request-level
+override, `reasoning=True` omits it and keeps the server default;
+closed vs. unclosed `<think>` blocks parse correctly on both clients;
+`_schedule_llm_job` keeps `reasoning=True` under low `llm_pressure_
+ratio()` and drops to `False` under high pressure even with `deep_
+reasoning=True`, and a routine non-`deep_reasoning` job never gets
+`reasoning=True` regardless of pressure), `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical — no native module or
+persisted field touched.
+
 ## [1.4.2] — Fix voice_dialogue's missing JSON schema; harden JSON extraction against wrapped completions
 
 Live-diagnostic-driven fix: a pasted `/diagnostics` snapshot showed
