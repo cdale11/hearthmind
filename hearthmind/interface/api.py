@@ -48,6 +48,7 @@ class WorldBroadcaster:
         self._terrain_payload: dict | None = None
         self._diagnostics_provider: Callable[[], dict] | None = None
         self._knowledge_tree_provider: Callable[[], list] | None = None
+        self._causal_threads_provider: Callable[[], list] | None = None
         self._interventions: list[dict] = []
         self._paused = False
         self._speed_multiplier = DEFAULT_SPEED_MULTIPLIER
@@ -122,6 +123,15 @@ class WorldBroadcaster:
 
     def get_knowledge_tree(self) -> list | None:
         return self._knowledge_tree_provider() if self._knowledge_tree_provider else None
+
+    def set_causal_threads_provider(self, provider: Callable[[], list]) -> None:
+        """Same on-demand shape as `set_knowledge_tree_provider` —
+        `provider` is `World.causal_threads_list`. Vision doc item 3.3
+        ("Legible causal threads")."""
+        self._causal_threads_provider = provider
+
+    def get_causal_threads(self) -> list | None:
+        return self._causal_threads_provider() if self._causal_threads_provider else None
 
     # --- called by the FastAPI app (writer side — interventions only) ---------
 

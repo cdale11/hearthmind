@@ -476,6 +476,25 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.3.41)
+
+Explicit user follow-up ("Yes do that") shipping the four Living
+Terrarium items deferred from v1.3.40 as UI-heavy: 1.5 (a "⚖ laws of
+nature" panel — filtered/reformatted `/knowledge-tree` data, a
+validated/untested badge from `TriggerRule.fire_count`), 3.3 (legible
+causal threads, scoped to dispute outcomes — the grounding facts
+already computed for the LLM prompt are now captured as a `world.
+ontology.CausalThread`, surfaced via a new "🔗 causal threads" panel),
+3.5 (a "🌳 N things known so far" line on the timeline scrubber,
+reconstructed for any past tick by counting current knowledge-tree
+entries with origination tick `<= X` — no new history needed), and 3.6
+(a faint seasonal color-grade over the map, `#season-vignette`,
+darkening toward winter; ambient audio's existing weather/night/
+temperament inputs gained Nature's Mind belief confidence). All four
+items were already partly shipped under other names (replay/export,
+ambient audio, era cartography) — each pass's own scoping note in
+docs/VISION-2026-07-22-LIVINGTERRARIUM.md details the real delta.
+
 ## Current state (v1.3.40)
 
 Explicit user directive: "Start all of that" — the remaining Living

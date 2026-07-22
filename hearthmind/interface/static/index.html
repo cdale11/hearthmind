@@ -54,6 +54,8 @@
           <button id="digest-toggle" class="dev-toggle" title="A recap of what happened since you last looked">🕯 digest</button>
           <button id="highlights-toggle" class="dev-toggle" title="The simulation's own log of its most notable emergent moments">✨ highlights</button>
           <button id="knowledge-tree-toggle" class="dev-toggle" title="Everything the world has originated for itself — concepts, laws, hypotheses, beliefs — with lineage">🌳 knowledge tree</button>
+          <button id="laws-toggle" class="dev-toggle" title="The world's own discovered laws — some validated by real events, some still untested">⚖ laws of nature</button>
+          <button id="causal-threads-toggle" class="dev-toggle" title="Click a feud, see the chain that made it">🔗 causal threads</button>
           <button id="history-toggle" class="dev-toggle" title="Summarized town history">📜 history</button>
           <button id="timeline-toggle" class="dev-toggle" title="Scrub through past snapshots">🕰 timeline</button>
           <button id="relationship-toggle" class="dev-toggle" title="Interactive relationship graph">🕸 relationships</button>
@@ -74,6 +76,7 @@
     <section id="map-panel">
       <canvas id="map-canvas"></canvas>
       <canvas id="weather-canvas"></canvas>
+      <div id="season-vignette"></div>
       <div id="tooltip" class="tooltip hidden"></div>
       <ul id="consequences-strip" class="hidden"></ul>
       <canvas id="minimap" width="150" height="150" title="Click to jump; scroll the map to zoom, drag to pan"></canvas>
@@ -179,6 +182,25 @@
           hypotheses, beliefs — newest first. A concept marked "evolved from"/"merged from" traces its lineage.
         </div>
         <ul id="knowledge-tree-list" class="muted"><li>nothing yet</li></ul>
+      </div>
+
+      <div class="panel hidden" id="laws-panel">
+        <h2>Laws of this world</h2>
+        <div class="muted" style="font-size:11px; margin-bottom:6px;">
+          Rules and codes the village, and the land, have accreted for themselves — some proven by a real
+          event, some still untested. "Validated" means it has actually fired at least once, not that it's
+          objectively true.
+        </div>
+        <ul id="laws-list" class="muted"><li>nothing yet</li></ul>
+      </div>
+
+      <div class="panel hidden" id="causal-threads-panel">
+        <h2>Causal threads</h2>
+        <div class="muted" style="font-size:11px; margin-bottom:6px;">
+          The chain of concrete facts behind a recent feud or dispute outcome — why it happened, not just
+          that it did.
+        </div>
+        <ul id="causal-threads-list" class="muted"><li>nothing yet</li></ul>
       </div>
 
       <div class="panel hidden" id="history-panel">

@@ -338,6 +338,59 @@ class CompositeEntity:
         )
 
 
+MAX_CAUSAL_THREADS_STORED = 60
+"""Cap on `World.causal_threads` — one entry per dispute-family-feud-
+style outcome, roughly the same rarity class as composite entities."""
+
+
+@dataclass
+class CausalThread:
+    """Vision doc item 3.3, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
+    ("Legible causal threads"): "click a feud, see the chain that made
+    it." A full generic event-graph (every event linked to its cause)
+    would need every event-emission site in the codebase threaded with
+    stable ids — out of scope for one batch. Scoped instead to the
+    concrete grounding facts ALREADY computed at the one call site that
+    decides a dispute/feud outcome (`SimulationEngine._maybe_schedule_
+    dispute`) — the debt/rival-faction/rival-family/reputation-gap/law
+    lines that already go into the LLM prompt are exactly the causal
+    chain a human would point to, just captured as a structured record
+    instead of being spent once on a single prompt and discarded."""
+
+    id: int
+    subject: str
+    chain: list[str]
+    tick: int
+    settlement_id: int | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id, "subject": self.subject, "chain": list(self.chain),
+            "tick": self.tick, "settlement_id": self.settlement_id,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "CausalThread":
+        return cls(
+            id=data["id"], subject=data.get("subject", ""), chain=list(data.get("chain", [])),
+            tick=data.get("tick", 0), settlement_id=data.get("settlement_id"),
+        )
+
+
+def register_causal_thread(world, subject: str, chain: list[str], tick: int, settlement_id: int | None = None) -> CausalThread:
+    """Mints a new `CausalThread`, prunes the registry past MAX_CAUSAL_
+    THREADS_STORED (oldest dropped first, same discipline as every
+    other capped registry here)."""
+    thread_id = world.next_causal_thread_id
+    world.next_causal_thread_id += 1
+    thread = CausalThread(id=thread_id, subject=subject, chain=list(chain), tick=tick, settlement_id=settlement_id)
+    world.causal_threads[thread_id] = thread
+    if len(world.causal_threads) > MAX_CAUSAL_THREADS_STORED:
+        oldest_id = min(world.causal_threads, key=lambda i: world.causal_threads[i].tick)
+        del world.causal_threads[oldest_id]
+    return thread
+
+
 def register_concept(
     world, name: str, description: str, category: str, origin_settlement_id: int,
     tick: int, inventor_agent_id: int | None = None, mechanical_hook: dict | None = None,

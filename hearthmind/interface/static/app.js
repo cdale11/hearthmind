@@ -736,6 +736,74 @@ knowledgeTreeToggle.addEventListener("click", () => {
   if (!knowledgeTreePanel.classList.contains("hidden")) loadKnowledgeTree();
 });
 
+// --- vision doc item 1.5 ("A visible law of nature ontology") --------------
+// Same knowledge-tree data, filtered to the entry types that read as a
+// "rule of this world" (trigger rules, laws/customs/taboos), reformatted
+// to foreground trigger->effect and whether it's ever actually fired.
+
+const lawsPanel = document.getElementById("laws-panel");
+const lawsToggle = document.getElementById("laws-toggle");
+const lawsList = document.getElementById("laws-list");
+const LAW_ENTRY_TYPES = new Set(["rule", "law", "custom", "taboo"]);
+
+function renderLawEntry(row) {
+  const icon = KNOWLEDGE_TREE_ICONS[row.type] || "⚖";
+  if (row.type === "rule") {
+    const badge = row.validated
+      ? `<span class="muted">(validated${row.fire_count ? `, fired ${row.fire_count}×` : ""})</span>`
+      : `<span class="muted">(untested)</span>`;
+    const effect = row.hook_type ? ` <span class="muted">→ ${row.hook_type}</span>` : "";
+    const secondary = row.secondary_trigger ? ` <span class="muted">(also bound to ${row.secondary_trigger})</span>` : "";
+    return `<li>${icon} <strong>if ${row.kind}</strong>${effect}${secondary} ${badge} — ${row.text}</li>`;
+  }
+  return `<li>${icon} <span class="muted">${row.kind}</span> — ${row.text}</li>`;
+}
+
+async function loadLaws() {
+  lawsList.innerHTML = "<li>loading…</li>";
+  try {
+    const rows = (await fetchJSON("/knowledge-tree")).filter((r) => LAW_ENTRY_TYPES.has(r.type));
+    lawsList.innerHTML = rows.length ? rows.map(renderLawEntry).join("") : "<li>no laws discovered yet</li>";
+  } catch (e) {
+    lawsList.innerHTML = `<li>failed to load: ${e.message}</li>`;
+  }
+}
+
+lawsToggle.addEventListener("click", () => {
+  lawsPanel.classList.toggle("hidden");
+  lawsToggle.classList.toggle("active");
+  if (!lawsPanel.classList.contains("hidden")) loadLaws();
+});
+
+// --- vision doc item 3.3 ("Legible causal threads") -------------------------
+
+const causalThreadsPanel = document.getElementById("causal-threads-panel");
+const causalThreadsToggle = document.getElementById("causal-threads-toggle");
+const causalThreadsList = document.getElementById("causal-threads-list");
+
+function renderCausalThread(thread) {
+  const chainText = thread.chain.map((step, i) => (i === 0 ? step : `→ ${step}`)).join(" ");
+  return `<li><strong>${thread.subject}</strong> <span class="muted">(tick ${thread.tick})</span><div class="muted" style="margin-top:2px;">${chainText}</div></li>`;
+}
+
+async function loadCausalThreads() {
+  causalThreadsList.innerHTML = "<li>loading…</li>";
+  try {
+    const rows = await fetchJSON("/causal-threads");
+    causalThreadsList.innerHTML = rows.length
+      ? rows.map(renderCausalThread).join("")
+      : "<li>nothing traced yet</li>";
+  } catch (e) {
+    causalThreadsList.innerHTML = `<li>failed to load: ${e.message}</li>`;
+  }
+}
+
+causalThreadsToggle.addEventListener("click", () => {
+  causalThreadsPanel.classList.toggle("hidden");
+  causalThreadsToggle.classList.toggle("active");
+  if (!causalThreadsPanel.classList.contains("hidden")) loadCausalThreads();
+});
+
 // Observatory UI depth pass: a read-only scrub-through-time view over
 // whatever snapshot ticks are still on file (see docs/ROADMAP.md's
 // flagged "a true scrub-through-time replay view" gap, and
@@ -750,7 +818,36 @@ const timelineLabel = document.getElementById("timeline-label");
 const timelineSummary = document.getElementById("timeline-summary");
 let timelineTicks = []; // oldest-first, so the slider reads left (past) to right (recent)
 
+// Vision doc item 3.5 ("Time-lapse and the returning eye" — "watch the
+// law-book thicken"): knowledge-tree entries are permanent and only ever
+// grow (capped-registry eviction aside), so "how many things were known as
+// of tick X" is honestly reconstructable from the CURRENT full tree by
+// counting entries whose own origination tick is <= X — no per-tick
+// history snapshot of the tree itself needed. Fetched once per timeline
+// session, not per scrub step.
+let timelineKnowledgeTicks = null;
+
+async function loadTimelineKnowledge() {
+  try {
+    const rows = await fetchJSON("/knowledge-tree");
+    timelineKnowledgeTicks = rows.map((r) => r.tick).sort((a, b) => a - b);
+  } catch (e) {
+    timelineKnowledgeTicks = null;
+  }
+}
+
+function knowledgeCountAsOf(tick) {
+  if (!timelineKnowledgeTicks) return null;
+  let lo = 0, hi = timelineKnowledgeTicks.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (timelineKnowledgeTicks[mid] <= tick) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
 async function loadTimelineIndex() {
+  loadTimelineKnowledge(); // fire-and-forget, best-effort
   try {
     const rows = await fetchJSON("/snapshots");
     timelineTicks = rows.map((r) => r.tick).reverse();
@@ -775,12 +872,14 @@ async function loadTimelineTick(tick) {
     // switches to a rendering of this snapshot until "return to live".
     if (snap.map) enterGhostMode(snap.tick, snap.map);
     const s = snap.settlement, p = snap.population;
+    const knowledgeCount = knowledgeCountAsOf(snap.tick);
     timelineSummary.innerHTML = [
       `<li>${s.name || "(unnamed)"} — era: ${s.era}</li>`,
       `<li>population: ${p.total} (avg hunger ${p.avg_hunger.toFixed(2)})</li>`,
       `<li>buildings: ${s.standing} standing, ${s.under_construction} building, ${s.ruined} ruined</li>`,
       `<li>currency ${s.currency.toFixed(1)}, materials ${s.materials.toFixed(1)}</li>`,
       `<li>priority: ${s.current_priority || "(none yet)"}</li>`,
+      knowledgeCount != null ? `<li>🌳 ${knowledgeCount} things known so far</li>` : "",
     ].join("");
   } catch (e) {
     timelineLabel.textContent = `tick ${tick} — failed to load: ${e.message}`;
@@ -3279,6 +3378,13 @@ function updateAmbientAudio(summary) {
   const precipitation = w.precipitation != null ? w.precipitation : 0;
   const wind = w.wind != null ? w.wind : 0;
   const temperament = (summary.settlement && summary.settlement.temperament) || 0;
+  // Item 3.6 ("ambient generative presence"): Nature's Mind's own
+  // confidence in its strongest current belief adds a little extra
+  // "certainty" to the pad's resonance — the land's hidden state, same
+  // never-dominant magnitude as every other input here.
+  const natureConfidence = (summary.nature_beliefs && summary.nature_beliefs.length)
+    ? Math.max(...summary.nature_beliefs.map((b) => b.confidence || 0))
+    : 0;
 
   // Base pitch drops at night, warms (rises) with positive temperament —
   // a small, never-dominant nudge, same magnitude discipline Phase G
@@ -3290,7 +3396,7 @@ function updateAmbientAudio(summary) {
 
   // Rain/overcast muffles the pad (lower filter cutoff); clear skies
   // brighten it. Wind adds a little extra openness on top.
-  const cutoff = 300 + (1 - precipitation) * 900 + wind * 200;
+  const cutoff = 300 + (1 - precipitation) * 900 + wind * 200 + natureConfidence * 80;
   filter.frequency.linearRampToValueAtTime(cutoff, now + RAMP);
 
   // 0.035 (original) read as "unable to hear anything" in a live
@@ -3303,6 +3409,36 @@ function updateAmbientAudio(summary) {
 }
 
 let ambientAudioEnabled = false;
+// Vision doc item 3.6 ("Ambient generative presence"): a faint seasonal
+// color-grade over the map — "feel it darken before winter" without any
+// text telling you. Keyed to the same `summary.season` the header
+// already surfaces, plus night_factor for a little extra depth at night.
+// Deliberately not tied to Phase G's temperament/mood — those stay
+// dev-console-only per the ambiguity discipline; season is already
+// plainly visible everywhere else, so tinting by it isn't a new leak.
+const SEASON_VIGNETTE = {
+  winter: "radial-gradient(ellipse at center, transparent 40%, rgba(90,110,140,0.35) 100%)",
+  autumn: "radial-gradient(ellipse at center, transparent 45%, rgba(150,100,50,0.28) 100%)",
+  spring: "radial-gradient(ellipse at center, transparent 50%, rgba(90,150,90,0.16) 100%)",
+  summer: "radial-gradient(ellipse at center, transparent 55%, rgba(200,170,80,0.14) 100%)",
+};
+const SEASON_VIGNETTE_OPACITY = { winter: 0.35, autumn: 0.25, spring: 0.12, summer: 0.1 };
+const seasonVignetteEl = document.getElementById("season-vignette");
+let lastVignetteSeason = null;
+
+function updateSeasonVignette(summary) {
+  if (!seasonVignetteEl || !summary || !summary.season) return;
+  const season = summary.season;
+  if (season === lastVignetteSeason) return; // avoid retriggering the CSS transition every tick
+  lastVignetteSeason = season;
+  const gradient = SEASON_VIGNETTE[season];
+  if (!gradient) return;
+  seasonVignetteEl.style.background = gradient;
+  const nightFactor = summary.night_factor != null ? summary.night_factor : 0;
+  const opacity = (SEASON_VIGNETTE_OPACITY[season] || 0.15) * (1 + nightFactor * 0.4);
+  seasonVignetteEl.style.opacity = String(Math.min(1, opacity));
+}
+
 const ambientAudioToggle = document.getElementById("ambient-audio-toggle");
 if (ambientAudioToggle) {
   ambientAudioToggle.addEventListener("click", () => {
@@ -3355,6 +3491,7 @@ function applyPayload(payload) {
   renderMusing(payload.summary);
   renderExtinctionBanner(payload.summary);
   if (ambientAudioEnabled) updateAmbientAudio(payload.summary);
+  updateSeasonVignette(payload.summary);
   renderConsequences(payload.summary);
   renderInfrastructure(payload.infrastructure);
   if (payload.diagnostics && payload.diagnostics.sim_pacing) renderSimPacing(payload.diagnostics.sim_pacing);

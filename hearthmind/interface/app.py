@@ -151,6 +151,17 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
             return JSONResponse({"error": "no tick has completed yet"}, status_code=503)
         return JSONResponse(rows)
 
+    @app.get("/causal-threads")
+    async def causal_threads() -> JSONResponse:
+        """Vision doc item 3.3, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
+        ("Legible causal threads") — newest-first grounding-fact chains
+        behind recent dispute/feud outcomes. See `World.causal_threads_
+        list`."""
+        rows = broadcaster.get_causal_threads()
+        if rows is None:
+            return JSONResponse({"error": "no tick has completed yet"}, status_code=503)
+        return JSONResponse(rows)
+
     @app.get("/snapshots")
     async def snapshots() -> JSONResponse:
         """Observatory UI depth pass: which past ticks a snapshot still

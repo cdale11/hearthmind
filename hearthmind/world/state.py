@@ -43,7 +43,7 @@ from hearthmind.world.disasters import (
 )
 from hearthmind.world.hydrology import LakeState, generate_rivers, identify_lakes, tick_lakes
 from hearthmind.world.minerals import MineralGrid
-from hearthmind.world.ontology import CompositeEntity, InventedConcept, TriggerRule
+from hearthmind.world.ontology import CausalThread, CompositeEntity, InventedConcept, TriggerRule
 from hearthmind.world.weather import WeatherState, compute_weather
 from hearthmind.world.wildlife import SpeciesVariant, WildlifeGrid
 from hearthmind.util import namespaced_rng
@@ -378,6 +378,13 @@ class World:
     _maybe_schedule_species_variant` originates new ones, naming a real
     existing wildlife herd via `llm/species_variant.py`."""
     next_species_variant_id: int = 1
+    causal_threads: dict[int, CausalThread] = field(default_factory=dict)
+    """Vision doc item 3.3 ("Legible causal threads") — world-scoped
+    like `composite_entities`. `SimulationEngine._maybe_schedule_
+    dispute` captures the concrete grounding facts already computed for
+    a feud/ostracism/council_ruling outcome into a `CausalThread`, see
+    world/ontology.py's docstring for the scoping rationale."""
+    next_causal_thread_id: int = 1
     nature_beliefs: list[dict] = field(default_factory=list)
     """Nature's Mind (Body/Mind framing, CLAUDE.md "Design priorities" —
     explicit user direction 2026-07-21): the land's own running,
@@ -891,11 +898,20 @@ class World:
                 "settlement": None, "lineage": None, "who": "the land itself",
             })
         for rule in self.trigger_rules.values():
+            # Item 1.5 ("a visible law of nature ontology"): fire_count
+            # (and the secondary side's own last-fired tick) is what
+            # tells the observer whether this "law" has ever actually
+            # been validated by a real occurrence, or is still an
+            # untested proposal — "some true, some superstition the sim
+            # never validated."
             entries.append({
                 "type": "rule", "id": f"rule_{rule.id}", "kind": rule.trigger,
                 "name": rule.name, "text": rule.description, "status": rule.status,
                 "tick": rule.tick_created, "settlement": rule.origin_settlement_id, "lineage": None,
                 "who": "the village",
+                "hook_type": rule.hook_type, "fire_count": rule.fire_count,
+                "secondary_trigger": rule.secondary_trigger or None,
+                "validated": rule.fire_count > 0 or rule.secondary_last_fired_tick >= 0,
             })
         for entity in self.composite_entities.values():
             entries.append({
@@ -923,6 +939,18 @@ class World:
             })
         entries.sort(key=lambda e: e["tick"], reverse=True)
         return entries[:limit]
+
+    def causal_threads_list(self, limit: int = 60) -> list[dict]:
+        """Vision doc item 3.3 ("Legible causal threads") — newest-first
+        view over `World.causal_threads`, the same on-demand-endpoint
+        shape as `knowledge_tree()`. Each entry's `chain` is the
+        ordered list of concrete grounding facts that led to the
+        outcome named in `subject` — "click a feud, see the chain.\""""
+        threads = sorted(self.causal_threads.values(), key=lambda t: t.tick, reverse=True)
+        return [
+            {"id": t.id, "subject": t.subject, "chain": list(t.chain), "tick": t.tick, "settlement_id": t.settlement_id}
+            for t in threads[:limit]
+        ]
 
     # --- (de)serialization --------------------------------------------------
 
@@ -997,6 +1025,8 @@ class World:
             "next_composite_entity_id": self.next_composite_entity_id,
             "species_variants": {str(k): v.to_dict() for k, v in self.species_variants.items()},
             "next_species_variant_id": self.next_species_variant_id,
+            "causal_threads": {str(k): v.to_dict() for k, v in self.causal_threads.items()},
+            "next_causal_thread_id": self.next_causal_thread_id,
             "nature_beliefs": list(self.nature_beliefs),
             "reflection_notebook": list(self.reflection_notebook),
             "musings": list(self.musings),
@@ -1211,6 +1241,10 @@ class World:
                 int(k): SpeciesVariant.from_dict(v) for k, v in data.get("species_variants", {}).items()
             },
             next_species_variant_id=data.get("next_species_variant_id", 1),
+            causal_threads={
+                int(k): CausalThread.from_dict(v) for k, v in data.get("causal_threads", {}).items()
+            },
+            next_causal_thread_id=data.get("next_causal_thread_id", 1),
             nature_beliefs=list(data.get("nature_beliefs", [])),
             reflection_notebook=list(data.get("reflection_notebook", [])),
             musings=list(data.get("musings", [])),

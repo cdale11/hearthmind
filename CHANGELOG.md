@@ -4,6 +4,63 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.41] — Living Terrarium batch: laws-of-nature panel, causal threads, time-lapse knowledge counter, ambient seasonal presence
+
+Explicit user follow-up ("Yes do that") on the four items deferred from
+v1.3.40 as UI-heavy: 1.5, 3.3, 3.5, 3.6.
+
+**1.5, a visible "law of nature" ontology.** New "⚖ laws of nature"
+panel — a filtered, reformatted view over the existing `/knowledge-tree`
+data (rule/law/custom/taboo entry types), foregrounding each rule's
+real trigger→effect and a "validated"/"untested" badge read from
+`TriggerRule.fire_count` (and the secondary side's own last-fired
+tick). `World.knowledge_tree()`'s `rule` entries gained `hook_type`/
+`fire_count`/`secondary_trigger`/`validated` fields to support this —
+"validated" means it has actually fired at least once, never that it's
+objectively true, matching the doc's own "some true, some superstition
+the sim never validated" framing.
+
+**3.3, legible causal threads (scoped).** A fully generic event-graph
+(every event linked to its real cause) would need every event-emission
+site threaded with stable ids — out of scope for one batch. Scoped
+instead to the one call site that already computes real grounding
+facts for a dispute outcome: `_maybe_schedule_dispute`'s apply() now
+captures the same souring-level/debt/rival-faction/rival-family/
+reputation-gap/law facts already used to build the LLM prompt into a
+new `world.ontology.CausalThread` (feud/ostracism/council_ruling
+outcomes only — a plain reconcile has no rupture worth tracing). New
+`World.causal_threads`/`causal_threads_list()`, `GET /causal-threads`,
+and a "🔗 causal threads" panel — click through and see why a feud
+actually formed, not just that it did.
+
+**3.5, time-lapse and the returning eye (scoped).** The map-scrubber/
+replay/year-reel-export machinery was already fully shipped (v0.65.0,
+§5); the new piece is "watch the law-book thicken." Since knowledge-
+tree entries are permanent and only ever grow, "how many things were
+known as of tick X" is honestly reconstructable from the CURRENT full
+tree by counting entries with origination tick `<= X` — no new
+per-tick history needed. `loadTimelineIndex` fetches the tree once per
+timeline session; `loadTimelineTick` now shows a live "🌳 N things
+known so far" line via a binary search over the sorted tick list,
+updating as you scrub or replay.
+
+**3.6, ambient generative presence (scoped).** The soundscape half was
+already substantially shipped (§6, keyed to weather/night/
+temperament); this pass adds Nature's Mind's own strongest-belief
+confidence as one more subtle input (a small filter-cutoff nudge) and
+ships the genuinely new piece — a faint seasonal color-grade over the
+map (`#season-vignette`, a CSS radial-gradient overlay keyed to
+`summary.season`, darkening toward winter and lightening through
+spring/summer) so the world visibly darkens ahead of a hard winter
+without any text announcing it. Era-styled cartography itself was
+already shipped (§5 item 5).
+
+Verified: `python3 -c "import hearthmind.simulation.engine; import
+hearthmind.interface.app; import hearthmind.interface.api"`, `node
+--check app.js`, direct round-trip tests for `CausalThread` and
+`TriggerRule.fire_count`, `scripts/verify_native_soak.py` (2 seeds ×
+800 ticks) byte-identical.
+
 ## [1.3.40] — Living Terrarium batch: composable hooks, species variants, coherence detection, provenance + 4 audit follow-ups
 
 Explicit user request ("Start all of that") over the remaining Living

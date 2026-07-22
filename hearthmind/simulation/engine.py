@@ -1258,6 +1258,7 @@ class SimulationEngine:
             )
             self._broadcaster.set_diagnostics_provider(self.full_diagnostics)
             self._broadcaster.set_knowledge_tree_provider(self.world.knowledge_tree)
+            self._broadcaster.set_causal_threads_provider(self.world.causal_threads_list)
 
     @property
     def stop_event(self) -> asyncio.Event:
@@ -6438,6 +6439,28 @@ class SimulationEngine:
             if applied is None:
                 return  # one of them died while the decision was in flight
             self._log("dispute", narration)
+            # Vision doc item 3.3 ("Legible causal threads"): capture the
+            # SAME grounding facts already computed above for the prompt
+            # as a structured chain, for any outcome that represents a
+            # real, lasting rupture (not a plain reconcile, which has no
+            # "how this came to be" worth tracing).
+            if outcome in ("feud", "ostracism", "council_ruling"):
+                chain = [f"{agent_a.name} and {agent_b.name}'s relationship soured (level {relationship:.2f})."]
+                if debt_a_owes_b >= 1.0 or debt_b_owes_a >= 1.0:
+                    debtor, creditor = (agent_a, agent_b) if debt_a_owes_b >= debt_b_owes_a else (agent_b, agent_a)
+                    chain.append(f"{debtor.name} owed {creditor.name} an unpaid debt.")
+                if rival_factions:
+                    chain.append(f"{agent_a.name} and {agent_b.name} belong to rival factions.")
+                if rival_families:
+                    chain.append(f"{agent_a.name} and {agent_b.name}'s families were already feuding.")
+                if abs(reputation_a - reputation_b) >= 0.3:
+                    better, worse = (agent_a, agent_b) if reputation_a > reputation_b else (agent_b, agent_a)
+                    chain.append(f"{better.name} was generally better regarded in the village than {worse.name}.")
+                if has_law_against_feuding:
+                    chain.append("The village has a law against unresolved feuding.")
+                chain.append(narration)
+                subject = f"{agent_a.name} & {agent_b.name}'s {outcome.replace('_', ' ')}"
+                ontology.register_causal_thread(self.world, subject, chain, self.world.clock.tick_count, dispute_home_id)
             # Phase J "Secrets & lies" (v0.78.3): a hardened feud plants
             # a private secret on each core-cast party — deterministic,
             # not a new LLM output field (zero added call volume/schema

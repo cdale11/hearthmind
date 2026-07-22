@@ -107,13 +107,18 @@ still validated deterministically.**
   one governor wired to a real mechanical effect so far — `self_tuning.
   TUNABLE_GOVERNORS` is the closed vocabulary a future governor joins.
 
-- [ ] **1.5 [CREATIVE] — A visible "law of nature" ontology for
-  emergent rules.** When 1.2's trigger→effect rules accumulate, surface
-  them as the world's *discovered laws* — the village's, and Nature's,
-  and the observer's shared record of "how this world works," some
-  true, some superstition the sim never validated. Watching your
-  terrarium's physics-of-culture accrete is exactly the daily-peek
-  reward.
+- [x] **1.5 [CREATIVE] — A visible "law of nature" ontology for
+  emergent rules.** **Shipped v1.3.41.** When 1.2's trigger→effect
+  rules accumulate, surface them as the world's *discovered laws* —
+  the village's, and Nature's, and the observer's shared record of
+  "how this world works," some true, some superstition the sim never
+  validated. Watching your terrarium's physics-of-culture accrete is
+  exactly the daily-peek reward. New "⚖ laws of nature" panel — a
+  filtered, reformatted view over the same `/knowledge-tree` data
+  (rule/law/custom/taboo entry types) foregrounding each rule's real
+  trigger→effect and a "validated"/"untested" badge from `TriggerRule.
+  fire_count` — "validated" means it has actually fired at least once,
+  never that it's objectively true, exactly the doc's own framing.
 
 ## Capability 2 — Nature and Institutions as true sentient participants
 
@@ -215,11 +220,23 @@ exist — build the room around them.
   of your world grow across weeks is the terrarium-owner's core joy,
   and the data model (lineage, status) already supports it.
 
-- [ ] **3.3 [LIKELY] — Legible causal threads.** The cross-system chain
-  metric from prior audits, surfaced *as story*: click a feud, see the
-  chain that made it (the drought → the theft → the grievance → the
-  dispute). "Why did this happen" answerable by tracing real edges is
-  what makes an observer feel the world has depth rather than noise.
+- [x] **3.3 [LIKELY] — Legible causal threads.** **Shipped v1.3.41
+  (scoped).** The cross-system chain metric from prior audits, surfaced
+  *as story*: click a feud, see the chain that made it (the drought →
+  the theft → the grievance → the dispute). "Why did this happen"
+  answerable by tracing real edges is what makes an observer feel the
+  world has depth rather than noise. A fully generic event-graph (every
+  event linked to its actual cause) would need every event-emission
+  site threaded with stable ids — out of scope for one batch. Scoped
+  instead to the one call site that already computes real grounding
+  facts for a feud/ostracism/council_ruling outcome (`_maybe_schedule_
+  dispute`): those same facts (souring level, unpaid debt, rival
+  factions, rival families, reputation gap, an anti-feuding law) are
+  now captured as a structured `world.ontology.CausalThread` instead of
+  being spent once on a prompt and discarded. New "🔗 causal threads"
+  panel + `GET /causal-threads`. The drought → theft → grievance chain
+  specifically (spanning Nature and multiple prior dialogue turns) is a
+  real follow-up once event ids exist to link across.
 
 - [x] **3.4 [CREATIVE] — The world talks to you.** **Shipped v1.3.38.**
   New `llm/musing.py` + `World.musings` (capped, unlike `reflection_
@@ -232,17 +249,36 @@ exist — build the room around them.
   "💭" header line reading the live broadcast's `summary().latest_
   musing`.
 
-- [ ] **3.5 [CREATIVE] — Time-lapse and the returning eye.** A scrubber
-  that replays your world's map/knowledge-tree evolution as a time-lapse
-  since founding — watch settlements bud, forests shift, the law-book
-  thicken. The terrarium's whole point is evolution-over-time made
-  visible; give the eye a way to see the long arc, not just today.
+- [x] **3.5 [CREATIVE] — Time-lapse and the returning eye.** **Shipped
+  v1.3.41 (scoped).** A scrubber that replays your world's map/
+  knowledge-tree evolution as a time-lapse since founding — watch
+  settlements bud, forests shift, the law-book thicken. The terrarium's
+  whole point is evolution-over-time made visible; give the eye a way
+  to see the long arc, not just today. The map-scrubber/replay/year-
+  reel-export half of this was already fully shipped (v0.65.0's
+  frame-by-frame replay + §5's year-reel export) — the genuinely new
+  piece this pass is "the law-book thicken": since knowledge-tree
+  entries are permanent and only ever grow, "how many things were
+  known as of tick X" is honestly reconstructable from the CURRENT full
+  tree by counting entries whose own origination tick is `<= X` — no
+  new per-tick history needed. The existing timeline scrubber now shows
+  a live "🌳 N things known so far" line that updates as you scrub or
+  replay.
 
-- [ ] **3.6 [CREATIVE] — Ambient generative presence.** Optional: a
-  soundscape keyed to hidden mood/season/Nature state, and era-styled
-  map rendering that visibly ages. You *feel* the world darken before a
-  hard winter you weren't told about. Sensory aliveness for a thing
-  you're meant to love checking on.
+- [x] **3.6 [CREATIVE] — Ambient generative presence.** **Shipped
+  v1.3.41 (scoped).** Optional: a soundscape keyed to hidden mood/
+  season/Nature state, and era-styled map rendering that visibly ages.
+  You *feel* the world darken before a hard winter you weren't told
+  about. Sensory aliveness for a thing you're meant to love checking
+  on. The soundscape half was already substantially shipped (§6's
+  ambient audio, keyed to weather/night/temperament) — this pass adds
+  Nature's Mind's own belief confidence as one more input (a subtle
+  resonance nudge) and ships the genuinely new piece: a faint seasonal
+  color-grade over the map (`#season-vignette`) that darkens toward
+  winter and lightens through spring/summer, keyed to the same
+  `summary.season` the header already shows — "feel it darken before
+  winter" without any text saying so. Era-styled cartography itself was
+  already shipped (§5 item 5).
 
 ## Capability 4 — New *entities and assets*, not just concepts
 
