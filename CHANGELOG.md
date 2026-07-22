@@ -4,6 +4,52 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.4.7] — File the Master Checklist (Body/Mind/Seam audit) + a 30-step implementation roadmap
+
+Explicit user request: add an uploaded consolidated audit doc,
+"Hearthmind — The Complete Master Checklist," to the project docs, and
+produce a concrete implementation roadmap (sequence + step count) for
+it. Docs-only — no code changed.
+
+The checklist covers three parts against v1.4.1: **Part A**, the
+deterministic "Body" (25 systems from an external `det_sys.md` — fields,
+CA/diffusion, procgen-as-runtime, affordances, materials, chemistry,
+genetics, graphs, information ecosystems, the Emergence API, etc.);
+**Part B**, the cognitive "Mind" (9 items from an external `LLM_
+Pillars.md` — five persistent pillars: Humans/Village/Nature/
+Innovation/Reflection, each with identity/self-model/world-model/
+memory/attention); **Part C**, the "Seam" (5 items — how Mind perceives
+and reshapes Body without violating it). Headline finding: most of
+today's Body systems are generated-once-at-creation and static/random-
+walk thereafter (rivers carved once, a 9-region climate grid not
+per-tile fields, no material/affordance/genetics/chemistry model) —
+det_sys.md's "procedural generation as continuous runtime, not a
+world-gen step" is the through-line gap across nearly every PARTIAL
+item.
+
+Filed verbatim as `docs/MASTERCHECKLIST-2026-07-22.md`, same convention
+as every other externally-submitted vision/audit doc this project
+keeps (docs/IDEAS-2026-07-EMERGENCE.md, docs/VISION-2026-07-21-
+SELFEVOLVING.md, docs/VISION-2026-07-22-LIVINGTERRARIUM.md, docs/
+DEFINITIVECHECKLIST-2026-07-21.md). New "Implementation roadmap"
+section appended to the same file: the doc's own 4-phase thematic
+SEQUENCE (senses/substrate → five minds → interaction → deepen the
+Body) is broken into **30 concrete, independently-shippable steps** —
+Stage I (senses & substrate, 3 steps: Emergence API, FieldGrid, graph
+algorithms) → Stage II (the five minds, 6 steps, Nature first) → Stage
+III (player-facing + interaction, 5 steps) → Stage IV (deepen the
+Body, 16 steps, ordered by leverage — hydrology first, temporal-
+compression pipeline last). 5 of the checklist's 39 items (A9/A23/A24/
+A25/C4) are standing review-time discipline folded into every step
+rather than separate line items, hence 39 checklist items → 30 build
+steps. One design decision flagged as blocking only Stage III's step
+14 (Humans collective vs. individual-NPC disagreement in dialogue),
+not any earlier step. A short CLAUDE.md pointer entry added alongside
+the doc's other vision-doc pointers, same "work from it only on future
+explicit direction naming a specific step" standing rule as every
+other filed vision doc — this pass is planning/filing only, nothing
+implemented.
+
 ## [1.4.6] — Widen voice_conversation's retention cap so the repetition backstop actually reaches
 
 Explicit user follow-up on v1.4.5, off a fresh `/diagnostics` +

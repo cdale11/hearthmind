@@ -270,6 +270,27 @@ real training-pipeline effort outside `SimulationEngine`'s scope. Kept
 as a historical decision record (like docs/DECISIONS.md); work from it
 again only on future explicit direction naming a specific item.
 
+**`docs/MASTERCHECKLIST-2026-07-22.md`** (filed v1.4.7, a user-uploaded
+consolidated audit covering det_sys.md's 25-item deterministic "Body"
+and LLM_Pillars.md's five-pillar cognitive "Mind," plus the Body↔Mind
+"Seam"): **design/planning only, nothing built from it yet** — the doc
+itself carries a 4-phase thematic sequence; a companion "Implementation
+roadmap" section appended at the bottom breaks that into 30 concrete,
+independently-shippable steps (Stage I senses/substrate, 3 steps;
+Stage II the five minds, 6 steps; Stage III player-facing/interaction,
+5 steps; Stage IV deepen the Body, 16 steps — 5 checklist items are
+standing review-time discipline, not separate steps). Same standing
+convention as every other vision doc here: work from it only on future
+explicit direction naming a specific step. The core finding worth
+remembering even before any step ships: most of today's Body systems
+are generated-once-at-creation and static/random-walk thereafter
+(rivers carved once, a 9-region climate grid not per-tile fields, no
+material/affordance/genetics/chemistry model) — det_sys.md's "procedural
+generation as continuous runtime, not a world-gen step" is the
+through-line gap. One design decision is explicitly flagged as needed
+before Stage III's step 14 (Humans collective vs. individual-NPC
+disagreement in dialogue/chronicle) — not blocking on anything earlier.
+
 ## LLM as the town's brain
 
 The LLM isn't a flavor-text generator bolted onto deterministic
@@ -475,6 +496,23 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 `wildfire_ignition_ticks_recorded` to the diagnostics snapshot the dev
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
+
+## Current state (v1.4.7)
+
+Explicit user request: file an uploaded consolidated audit ("Hearthmind
+— The Complete Master Checklist," Body/Mind/Seam against v1.4.1) into
+docs and produce a concrete implementation roadmap. Docs-only. Filed
+verbatim as docs/MASTERCHECKLIST-2026-07-22.md with a new appended
+"Implementation roadmap" section breaking the doc's own 4-phase
+thematic sequence into 30 concrete, independently-shippable steps
+(Stage I senses/substrate 3 steps, Stage II the five minds 6 steps,
+Stage III player-facing/interaction 5 steps, Stage IV deepen the Body
+16 steps; 5 items are standing review-time discipline, not separate
+steps). See the "Long-term design vision" section below for the
+CLAUDE.md pointer entry and full CHANGELOG.md's [1.4.7] entry for
+detail. Planning/filing only — work from it only on future explicit
+direction naming a specific step, same standing rule as every other
+vision doc here.
 
 ## Current state (v1.4.6)
 
