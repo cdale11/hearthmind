@@ -21,7 +21,16 @@ not a standalone demo.
 `inbox`/`outbox` are structurally present (B4's typed message
 vocabulary, `MESSAGE_KINDS`) but stay empty for Nature — a message
 needs a second pillar to send to/receive from, which doesn't exist
-until a future step."""
+until a future step.
+
+Also carries B2 "The continuous cognitive cycle"'s minimal real
+implementation: `cycle_stage`/`CYCLE_STAGES`/`working_memory`/
+`note_observation`/`set_cycle_stage`. Nature's turn genuinely
+alternates between two persisted stops — a cheap `observe` turn
+(reads the Emergence API into bounded `working_memory`, zero LLM cost)
+and an `interpret` turn (the one real LLM call, which performs
+remember/plan/act/reflect synchronously before returning to
+`observe`) — see `SimulationEngine._maybe_schedule_nature_mind`."""
 from __future__ import annotations
 
 WORLD_MODEL_STATUSES = ("observation", "hypothesis")
@@ -83,11 +92,31 @@ class Pillar:
     still needs a cap from day one per the standing memory-leak-audit
     discipline (CLAUDE.md's "Memory-leak pattern to audit first")."""
 
+    WORKING_MEMORY_MAX = 5
+    """B2's "bounded attention, working memory" line, taken literally —
+    small on purpose (this is "what the pillar is attending to THIS
+    cycle," not consolidated knowledge; `memory` is the long-lived
+    store, this is scratch space cleared at the end of every cycle)."""
+
+    CYCLE_STAGES = ("observe", "interpret", "remember", "plan", "act", "reflect")
+    """B2 "The continuous cognitive cycle": the full named stage
+    vocabulary a pillar's turn moves through. Today's Nature
+    implementation (`SimulationEngine._maybe_schedule_nature_mind`)
+    only branches on two entry points — `observe` (cheap, zero LLM
+    cost: reads the Emergence API into `working_memory`) and
+    `interpret` (the one real LLM call, which performs remember/plan/
+    act/reflect synchronously within its own `apply()` before
+    returning `cycle_stage` to `observe`) — the four intermediate
+    names are reserved vocabulary for a future pillar whose turn
+    genuinely needs to pause between them, not yet exercised as
+    separate persisted stops."""
+
     def __init__(
         self, name: str, description: str = "", self_model: dict | None = None,
         world_model: list[dict] | None = None, memory: list[str] | None = None,
         objectives: list[str] | None = None, inbox: list[dict] | None = None,
         outbox: list[dict] | None = None, next_world_model_id: int = 1, next_message_id: int = 1,
+        cycle_stage: str = "observe", working_memory: list[str] | None = None,
     ) -> None:
         self.name = name
         self.description = description
@@ -99,6 +128,25 @@ class Pillar:
         self.outbox = outbox if outbox is not None else []
         self.next_world_model_id = next_world_model_id
         self.next_message_id = next_message_id
+        self.cycle_stage = cycle_stage if cycle_stage in self.CYCLE_STAGES else "observe"
+        self.working_memory = working_memory if working_memory is not None else []
+
+    def note_observation(self, text: str) -> None:
+        """B2's `observe` stage: appends one curated observation (a
+        real Emergence API entry's summary, not raw state) to
+        `working_memory`, capped at `WORKING_MEMORY_MAX` (oldest
+        evicted) — bounded attention, not an ever-growing log."""
+        self.working_memory.append(text)
+        if len(self.working_memory) > self.WORKING_MEMORY_MAX:
+            self.working_memory = self.working_memory[-self.WORKING_MEMORY_MAX:]
+
+    def clear_working_memory(self) -> None:
+        self.working_memory = []
+
+    def set_cycle_stage(self, stage: str) -> None:
+        if stage not in self.CYCLE_STAGES:
+            raise ValueError(f"unknown cycle stage {stage!r}, expected one of {self.CYCLE_STAGES}")
+        self.cycle_stage = stage
 
     def upsert_world_model(
         self, tick: int, subject: str, belief: str, confidence: float,
@@ -137,6 +185,7 @@ class Pillar:
             "objectives": list(self.objectives), "inbox": [dict(m) for m in self.inbox],
             "outbox": [dict(m) for m in self.outbox],
             "next_world_model_id": self.next_world_model_id, "next_message_id": self.next_message_id,
+            "cycle_stage": self.cycle_stage, "working_memory": list(self.working_memory),
         }
 
     @classmethod
@@ -147,6 +196,8 @@ class Pillar:
             world_model=[dict(e) for e in data.get("world_model", [])],
             memory=list(data.get("memory", [])),
             objectives=list(data.get("objectives", [])),
+            cycle_stage=data.get("cycle_stage", "observe"),
+            working_memory=list(data.get("working_memory", [])),
             inbox=[dict(m) for m in data.get("inbox", [])],
             outbox=[dict(m) for m in data.get("outbox", [])],
             next_world_model_id=data.get("next_world_model_id", 1),

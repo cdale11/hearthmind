@@ -3868,8 +3868,29 @@ class SimulationEngine:
         into the SHARED ontology registry — the "every pillar expands
         the ontology from its own Body state" correction; this is the
         one job allowed to originate that category now (see
-        `_maybe_schedule_ontology_proposal`'s narrowed category list)."""
+        `_maybe_schedule_ontology_proposal`'s narrowed category list).
+
+        B2 "The continuous cognitive cycle" (roadmap Stage II step 5):
+        this method is now Nature's whole turn, branching on `world.
+        nature_pillar.cycle_stage`. An `observe` season reads the
+        Emergence API (A22) into bounded `working_memory` — cheap, zero
+        LLM cost — and advances to `interpret`; the NEXT season is the
+        one that actually fires the LLM call below, grounded in both
+        the raw event window (unchanged) and what was noticed during
+        the prior observe turn, then returns to `observe` once resolved.
+        Total LLM call volume for this job is now halved (one real call
+        every other season instead of every season) — a real trade of
+        volume for a genuinely resumable, perception-grounded cycle,
+        not a free lunch."""
         if not self._season_year_gate(events, "nature_mind", "season_end"):
+            return
+        pillar = self.world.nature_pillar
+        if pillar.cycle_stage == "observe":
+            self._mark_season_year_resolved("nature_mind")
+            for obs in self.world.emergence_log_recent(limit=40):
+                if "nature" in obs.get("pillars", ()):
+                    pillar.note_observation(obs["summary"])
+            pillar.set_cycle_stage("interpret")
             return
         if self._settlement_job_backpressured():
             return
@@ -3884,7 +3905,7 @@ class SimulationEngine:
         existing_beliefs = list(self.world.nature_beliefs)
         prompt = nature_mind.build_prompt(
             nature_events, existing_beliefs, wildlife_summary, disaster_scar_count, fallow_count,
-            climate_summary, season,
+            climate_summary, season, emergence_observations=list(pillar.working_memory),
         )
         fallback = nature_mind.fallback_belief(nature_events, wildlife_summary, fallow_count)
         existing_count = len(existing_beliefs)
@@ -3907,6 +3928,14 @@ class SimulationEngine:
             if revises is not None and revises < len(self.world.nature_beliefs):
                 entry = self.world.nature_beliefs[revises]
                 if nature_mind.is_noop_nature_revision(parsed["belief"], parsed["confidence"], entry):
+                    # B2: a no-op interpretation is still a completed
+                    # interpret turn (the LLM genuinely answered, it
+                    # just found nothing worth changing) — the cycle
+                    # still closes, or the pillar would retry the same
+                    # interpret turn forever whenever the model tends
+                    # to no-op.
+                    pillar.clear_working_memory()
+                    pillar.set_cycle_stage("observe")
                     return
                 entry["belief"] = parsed["belief"]
                 entry["confidence"] = parsed["confidence"]
@@ -3956,6 +3985,11 @@ class SimulationEngine:
                     category="ecological", origin_settlement_id=origin_settlement_id, tick=tick,
                 )
                 self._log("ontology", f"The land itself gave rise to {concept.name}: {concept.description}")
+            # B2: interpret/remember/plan/act/reflect all completed
+            # synchronously above — close the cycle, freeing the
+            # working memory this turn consumed.
+            pillar.clear_working_memory()
+            pillar.set_cycle_stage("observe")
 
         # Nature's Mind is a pillar-cognition/ontology-origination task
         # (v1.3.37).

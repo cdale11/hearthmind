@@ -497,6 +497,30 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.5.1)
+
+Explicit user instruction: "Continue with roadmap" — Stage II step 5,
+B2 "The continuous cognitive cycle" (docs/MASTERCHECKLIST-2026-07-22.
+md), following step 4's Pillar abstraction. `cognition/pillar.py`'s
+`Pillar` gained `cycle_stage`/`CYCLE_STAGES`, bounded `working_memory`
+(distinct from consolidated `memory`), `note_observation()`/`clear_
+working_memory()`/`set_cycle_stage()`. `_maybe_schedule_nature_mind`
+now genuinely alternates: an `observe` season reads `World.emergence_
+log_recent()` filtered to `"nature"`-tagged entries into `working_
+memory` (zero LLM cost — closes C1's perception channel, Nature's
+first real read of the Emergence API), advances to `interpret`; the
+next season fires the existing LLM call (now also grounded in what was
+observed, via a new optional `emergence_observations` param on `llm/
+nature_mind.py`'s `build_prompt`), completes remember/plan/act/reflect
+synchronously, then returns to `observe`. Real trade: `nature_mind`'s
+LLM call volume is now halved (one real call every other season). A
+deferred critical call leaves `cycle_stage` on `interpret` — nothing
+lost, matches the standing deferral discipline. Verified: direct smoke
+tests for `Pillar`'s cycle/working-memory semantics and the prompt
+param, an engine-level test of the real `_maybe_schedule_nature_mind`
+observe→interpret transition, `scripts/verify_native_soak.py` (2 seeds
+x 800 ticks) byte-identical.
+
 ## Current state (v1.5.0)
 
 Explicit user instruction: "Start stage 2" — roadmap Stage II step 4

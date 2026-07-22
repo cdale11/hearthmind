@@ -4,6 +4,61 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.5.1] — B2 "The continuous cognitive cycle," Nature first (roadmap Stage II, step 5)
+
+Explicit user instruction: "Continue with roadmap" — Stage II step 5,
+following step 4's Pillar abstraction (v1.5.0). B2 asks for each
+pillar to run a genuine observe→interpret→remember→plan→act→reflect
+cycle, resumed across turns rather than a single timer-fired job.
+
+`cognition/pillar.py`'s `Pillar` gained `cycle_stage`/`CYCLE_STAGES`
+(the full six-stage vocabulary, reserved for future generality),
+`working_memory` (bounded `WORKING_MEMORY_MAX=5` scratch space, distinct
+from the long-lived `memory` list), `note_observation()`, `clear_
+working_memory()`, `set_cycle_stage()` — all persisted.
+
+`_maybe_schedule_nature_mind` now branches on `nature_pillar.
+cycle_stage` instead of firing the same monolithic call every season:
+an `observe` season reads `World.emergence_log_recent()` (A22) filtered
+to entries tagged `"nature"`, writes their summaries into `working_
+memory` (zero LLM cost), and advances to `interpret` — a real C1
+"perception channel" wiring (Nature now genuinely reads the curated
+Emergence API, not just raw event categories; nothing read `emergence_
+log` before this). The FOLLOWING season is the `interpret` turn: the
+existing LLM call fires exactly as before, now also grounded in the
+observations gathered last turn (`llm/nature_mind.py`'s `build_prompt`
+gained an optional `emergence_observations` param, rendered as "What
+you noticed since last time:" when non-empty) — remember/plan/act/
+reflect still happen synchronously inside one call (`apply()`), which
+then clears `working_memory` and returns `cycle_stage` to `observe`,
+closing the cycle. A no-op revision (the model finds nothing worth
+changing) also closes the cycle rather than leaving it stuck retrying
+`interpret` forever.
+
+Real consequence, not free: `nature_mind`'s LLM call volume is now
+halved (one real call every OTHER season instead of every season) —
+a genuine trade of raw call frequency for a resumable, perception-
+grounded cycle, consistent with "maximize emergence per LLM call."
+If a critical call is ever deferred (budget/failure), `cycle_stage`
+stays on `interpret` and the next season retries from there — nothing
+is lost, matching the standing critical-cognition deferral discipline
+(CLAUDE.md's tick-loop workflow rule).
+
+Deliberately NOT attempted: bounded bookkeeping for the four
+intermediate stage names (`remember`/`plan`/`act`/`reflect`) as
+separate persisted stops — Nature's one LLM call still performs all
+four synchronously, matching the project's "one call does everything"
+convention; splitting them across turns is future work if a pillar
+ever needs it. B3 (attention scheduler) and generalizing this cycle
+beyond Nature remain open Stage II steps.
+
+Verified: direct smoke tests (`Pillar` cycle-stage/working-memory
+semantics + round-trip, `nature_mind.build_prompt`'s new param), an
+engine-level test calling the real `_maybe_schedule_nature_mind`
+directly and confirming the observe→interpret stage transition and
+working-memory population from a seeded `emergence_log` entry.
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical.
+
 ## [1.5.0] — B1 "The Pillar abstraction," Nature first (roadmap Stage II, step 4)
 
 Explicit user request: "Start stage 2" — the first step of the

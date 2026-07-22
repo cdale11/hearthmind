@@ -73,9 +73,22 @@ SYSTEM_PROMPT = (
 def build_prompt(
     nature_events: list[dict], existing_beliefs: list[dict], wildlife_summary: dict,
     disaster_scar_count: int, fallow_count: int, climate_summary: dict, season: str,
+    emergence_observations: list[str] | None = None,
 ) -> str:
+    """`emergence_observations` (B2 "The continuous cognitive cycle,"
+    docs/MASTERCHECKLIST-2026-07-22.md): curated Emergence API summaries
+    gathered during this pillar's prior `observe` turn
+    (`Pillar.working_memory`) — a real second grounding channel
+    alongside the raw event window, since a mirrored highlight/
+    reflection/bottleneck observation can carry a distillation a raw
+    event category can't (e.g. "Hearthmind formed a hypothesis about
+    X"). Optional and additive; an empty/`None` list reads exactly as
+    before this parameter existed."""
     lines = [f"- {event['description']}" for event in nature_events]
     events_text = "\n".join(lines) if lines else "Nothing notable has happened to the land lately."
+    observations_text = (
+        "\n".join(f"- {o}" for o in emergence_observations) if emergence_observations else ""
+    )
     if existing_beliefs:
         belief_lines = [
             f"  [{i}] (confidence {b['confidence']:.2f}) {b['subject']}: {b['belief']}"
@@ -99,8 +112,12 @@ def build_prompt(
         f"Climate trend: {'warming' if climate_summary.get('warming', 0.0) > 0.05 else 'cooling' if climate_summary.get('warming', 0.0) < -0.05 else 'stable'}, "
         f"{'drying' if climate_summary.get('drying', 0.0) > 0.05 else 'wettening' if climate_summary.get('drying', 0.0) < -0.05 else 'stable'}."
     )
+    observations_block = (
+        f"What you noticed since last time:\n{observations_text}\n" if observations_text else ""
+    )
     return (
         f"What has happened to the land lately:\n{events_text}\n"
+        f"{observations_block}"
         f"Current conditions: {signals}\n"
         f"Theories the land already holds about itself:\n{beliefs_text}\n"
         "Form or revise one theory. Originate a new thing only if it's genuinely suggested."

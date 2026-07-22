@@ -451,12 +451,23 @@ the master is complete, with the Body-dependencies made explicit.
   scattered jobs" is NOT attempted — only nature_mind's one job writes
   through this shape so far.
 
-### B2 — The continuous cognitive cycle — MISSING
+### B2 — The continuous cognitive cycle — PARTIAL (Nature only, v1.5.1)
 
-- [ ] Each pillar runs observe→interpret→remember→plan→act→reflect,
+- [x] Each pillar runs observe→interpret→remember→plan→act→reflect,
   resumed across cognitive turns (not timer-fired jobs). Bounded
   attention, working memory, uncertainty, incomplete knowledge — a mind,
-  not an oracle.
+  not an oracle. **Shipped, scoped to Nature only**: `_maybe_schedule_
+  nature_mind` now branches on `nature_pillar.cycle_stage` — a cheap
+  `observe` turn (reads A22's Emergence API into bounded `working_
+  memory`, zero LLM cost) and an `interpret` turn (the one real LLM
+  call, performing remember/plan/act/reflect synchronously before
+  returning to `observe`), genuinely resumed across season boundaries
+  rather than firing identically every time. Only two of the six named
+  stages are separately persisted stops (the other four are bundled
+  into `interpret`'s single call, matching the project's "one call
+  does everything" convention) — a real simplification, not the full
+  granular cycle. Humans/Village/Innovation/Reflection still have no
+  cycle at all.
 
 ### B3 — The Attention Scheduler — MISSING
 
@@ -679,6 +690,13 @@ is not authorization to start executing it.
    surfacing (`full_diagnostics()["nature_pillar"]`).
 5. **B2 Continuous cognitive cycle** — observe→interpret→remember→
    plan→act→reflect, resumable across turns, wired to Nature.
+   **Shipped v1.5.1**: `Pillar.cycle_stage`/`working_memory`;
+   `_maybe_schedule_nature_mind` alternates a cheap `observe` season
+   (reads A22 into `working_memory`) with an `interpret` season (the
+   existing LLM call, grounded in what was observed, closing the cycle
+   back to `observe`). Halves `nature_mind`'s LLM call volume as a real
+   trade for genuine resumability. Only Nature; the other four stage
+   names stay bundled into one call.
 6. **B3 Attention scheduler** — one budget arbiter across pillars,
    wired to the already-existing dynamic pacing (`llm_pressure_ratio`).
 7. **B9 Self/world-models** — generalized once Nature proves them out
