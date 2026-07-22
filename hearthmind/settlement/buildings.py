@@ -2480,6 +2480,16 @@ class SettlementDisposition:
     may misread them — "they got the old stories wrong" is a feature of
     the new settlement's imperfect knowledge, not a bug. None for every
     ordinary settlement (founding or fission-born)."""
+    social_hub_agent_id: str | None = None
+    """A16 "Graph algorithms" (docs/MASTERCHECKLIST-2026-07-22.md,
+    roadmap Stage I step 3): the living agent with the highest weighted-
+    degree centrality in this settlement's relationship graph (`world.
+    graph_algorithms.most_central_agent`), recomputed on a season
+    cadence by `SimulationEngine._detect_social_hub`. A structural fact
+    ("who the village's social network actually centers on"), not an
+    LLM judgment — zero added LLM volume. `None` until the first
+    computation or if the settlement has no living agents with any
+    relationship edges yet."""
 
 
 class Settlement:
@@ -2532,6 +2542,7 @@ class Settlement:
         pending_letters: list[dict] | None = None,
         prophecy: dict | None = None, last_intervention_tick: int = -1,
         predecessor_id: int | None = None,
+        social_hub_agent_id: str | None = None,
         minerals: dict | None = None,
         explored_tiles: set | list | None = None,
         exploration_findings: list[dict] | None = None,
@@ -2613,6 +2624,7 @@ class Settlement:
             omen_seed=omen_seed, dream_seed=dream_seed,
             prophecy=prophecy, last_intervention_tick=last_intervention_tick,
             predecessor_id=predecessor_id,
+            social_hub_agent_id=social_hub_agent_id,
         )
         self._position_index: dict | None = None
         """(x, y) -> Building cache behind `at()` — never serialized,
@@ -3190,6 +3202,14 @@ class Settlement:
         self.disposition.predecessor_id = value
 
     @property
+    def social_hub_agent_id(self) -> str | None:
+        return self.disposition.social_hub_agent_id
+
+    @social_hub_agent_id.setter
+    def social_hub_agent_id(self, value: str | None) -> None:
+        self.disposition.social_hub_agent_id = value
+
+    @property
     def current_priority(self) -> str:
         return self.disposition.current_priority
 
@@ -3541,6 +3561,7 @@ class Settlement:
             "top_topics": self.top_topics(),
             "prophecy": dict(self.prophecy) if self.prophecy is not None else None,
             "predecessor_id": self.predecessor_id,
+            "social_hub_agent_id": self.social_hub_agent_id,
         }
 
     def infrastructure_report(self) -> list[dict]:
@@ -3685,6 +3706,7 @@ class Settlement:
             "prophecy": dict(self.prophecy) if self.prophecy is not None else None,
             "last_intervention_tick": self.last_intervention_tick,
             "predecessor_id": self.predecessor_id,
+            "social_hub_agent_id": self.social_hub_agent_id,
         }
 
     @classmethod
@@ -3758,4 +3780,5 @@ class Settlement:
             prophecy=dict(data["prophecy"]) if data.get("prophecy") is not None else None,
             last_intervention_tick=data.get("last_intervention_tick", -1),
             predecessor_id=data.get("predecessor_id"),
+            social_hub_agent_id=data.get("social_hub_agent_id"),
         )

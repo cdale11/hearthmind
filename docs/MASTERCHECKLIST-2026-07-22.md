@@ -598,10 +598,24 @@ is not authorization to start executing it.
    (v1.4.8)" and CHANGELOG.md for full detail.
 2. **A1 FieldGrid** — named scalar fields over the map, coarse
    resolution to start (existing region-grid granularity), per-tick
-   `step()` per field. The Body's new substrate.
+   `step()` per field. The Body's new substrate. **Shipped v1.4.9**:
+   `world/fields.py`'s `FieldGrid` abstraction (3x3, matching
+   `WEATHER_REGION_GRID`) + `World.fields`, stepped every tick right
+   after `population.tick`; one concrete field (`population_density`)
+   proves the shape and feeds a real consumer (fission-site search now
+   avoids crowded regions when an alternative exists). The other
+   eleven named fields det_sys.md lists are explicitly NOT built yet —
+   each is its own future step onto the same grid.
 3. **A16 Graph algorithms** — centrality/flow/community-detection over
    the existing pairwise ledger + economy/trade adjacency. Cheap,
-   deterministic, immediately feeds A22.
+   deterministic, immediately feeds A22. **Shipped v1.4.9**:
+   `world/graph_algorithms.py`'s weighted-degree centrality over the
+   relationship ledger; `SimulationEngine._detect_social_hub` (season
+   cadence, edge-triggered) tracks each settlement's `social_hub_
+   agent_id` and emits an A22 observation when it changes. Community
+   detection was already shipped as `InstitutionKind.FACTION`
+   detection (v0.80.0) under a different name — not duplicated.
+   Betweenness/network-flow/tech-DAG metrics remain future follow-ups.
 
 ### Stage II — The five minds (6 steps, the refactor)
 

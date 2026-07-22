@@ -78,6 +78,7 @@ from hearthmind.llm import self_tuning
 from hearthmind.world.sigils import generate_sigil_svg
 from hearthmind.world import ontology
 from hearthmind.world import emergence
+from hearthmind.world import graph_algorithms
 from hearthmind.world.disasters import GOVERNOR_TUNING_BAND, WILDFIRE_CHANCE_PER_WEEK
 from hearthmind.world.wildlife import MAX_SPECIES_VARIANTS_STORED, SpeciesVariant
 from hearthmind.simulation.sandbox import run_counterfactual
@@ -515,6 +516,15 @@ this maps each highlight `kind` string onto an emergence observation's
 must exactly match every `kind` string passed to `_append_highlight`
 across the codebase; a highlight kind not listed here just doesn't get
 an emergence mirror (see `_append_highlight`'s own docstring)."""
+
+POPULATION_DENSITY_FISSION_AVOID_THRESHOLD = 0.75
+"""A1 FieldGrid (docs/MASTERCHECKLIST-2026-07-22.md, roadmap Stage I
+step 2): a candidate fission site in a region at or above this
+`population_density` field reading is avoided when a less-crowded
+alternative exists — the field's own "Feeds: settlement siting" line,
+made real. Never a hard block (see `_choose_fission_site`'s fallback):
+a map where every walkable region is this crowded still lets fission
+proceed, just without the density preference."""
 
 REFLECTION_COHERENCE_MIN_TOTAL = 10
 REFLECTION_COHERENCE_ABANDONED_RATIO = 0.5
@@ -2025,6 +2035,8 @@ class SimulationEngine:
         self._detect_ritual_signals()
         self._resolve_prophecies()
         self._maybe_schedule_skill_mastery()
+        if "season_end" in events:
+            self._detect_social_hub()
         if "day_end" in events:
             self._log_daily_metrics()
             self._llm_calls_today = 0  # reset the daily Ollama-call ceiling (v0.70.0)
@@ -7146,6 +7158,18 @@ class SimulationEngine:
                 ]
                 if near_surveyed:
                     spots = near_surveyed
+        if spots:
+            # A1 FieldGrid (roadmap Stage I step 2): prefer a region the
+            # live population_density field doesn't already read as
+            # crowded, when an alternative exists — never a hard block.
+            uncrowded = [
+                pos for pos in spots
+                if self.world.fields.get_at(
+                    "population_density", pos, self.world.config.width, self.world.config.height,
+                ) < POPULATION_DENSITY_FISSION_AVOID_THRESHOLD
+            ]
+            if uncrowded:
+                spots = uncrowded
         if origin is not None and spots:
             # Never point the party at land it can't walk to — rivers/
             # lakes genuinely disconnect regions on this generator.
@@ -7579,6 +7603,37 @@ class SimulationEngine:
                 )
             elif not critical and was_flagged:
                 self._materials_critical_flagged.discard(settlement.id)
+
+    def _detect_social_hub(self) -> None:
+        """A16 "Graph algorithms" (docs/MASTERCHECKLIST-2026-07-22.md,
+        roadmap Stage I step 3): a real graph-theoretic algorithm
+        (weighted-degree centrality, `world.graph_algorithms`) run over
+        the existing pairwise relationship ledger — a structural fact
+        ("who does this village's social network actually center on"),
+        computed deterministically, never an LLM judgment. Season
+        cadence per settlement (cheap — O(agents), no LLM call, so
+        every settlement gets it every season rather than round-
+        robining like the LLM-gated settlement jobs). Edge-triggered on
+        `Settlement.social_hub_agent_id` actually changing to a new,
+        non-None agent — a settlement whose hub stays the same, or
+        drops to no hub at all (an emptied settlement), stays silent."""
+        for settlement in self.world.settlements:
+            members = [a for a in self.world.population.agents if a.settlement_id == settlement.id]
+            if not members:
+                continue
+            graph = graph_algorithms.build_relationship_graph(members)
+            new_hub = graph_algorithms.most_central_agent(graph)
+            if new_hub is not None and new_hub != settlement.social_hub_agent_id:
+                settlement.social_hub_agent_id = new_hub
+                hub_agent = next((a for a in members if a.id == new_hub), None)
+                if hub_agent is not None:
+                    self._append_emergence(
+                        "unexplained_shift", "social_graph",
+                        f"{hub_agent.name} has become the center of {settlement.name or 'the village'}'s "
+                        f"social network.",
+                        pillars=("humans", "village"), settlement=settlement.name,
+                        data={"agent_id": hub_agent.id},
+                    )
 
     def _record_llm_call(self, used_fallback: bool) -> None:
         """Cumulative counters persisted on `World`, for diagnosing LLM

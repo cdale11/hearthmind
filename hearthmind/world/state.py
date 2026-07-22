@@ -32,6 +32,7 @@ from hearthmind.world.terrain_evolution import (
     tick_climate,
 )
 from hearthmind.world.daylight import night_factor as compute_night_factor
+from hearthmind.world.fields import FieldGrid
 from hearthmind.world.disasters import (
     DisasterState,
     WILDFIRE_IGNITION_HISTORY_MAX,
@@ -288,6 +289,15 @@ class World:
     """Monotonic id counter for `emergence_log` — never reused, same
     discipline as `next_reflection_entry_id` and every other id counter
     in this codebase."""
+    fields: FieldGrid = field(default_factory=FieldGrid)
+    """A1 "Continuous environmental fields" (docs/MASTERCHECKLIST-2026-
+    07-22.md, Part A, Stage I step 2): named scalar fields over the map
+    (`world.fields.FieldGrid`), coarse (the existing 3x3 weather-region
+    resolution) to start. Stepped once per tick (`World.tick`, right
+    after `population.tick` so agent positions are current) via each
+    field's own `step_*` method — today just `population_density`, the
+    one field this pass ships as a real consumer proof; more fields are
+    additive follow-ups onto the same grid. See `world/fields.py`."""
     consciousness_memory: list[dict] = field(default_factory=list)
     """Phase N "Town Consciousness v2" (docs/VISION-2026-07.md, "The Town
     Awake"): bounded log of what the town's persistent inner awareness
@@ -633,6 +643,9 @@ class World:
             flooded_tiles=self.disasters.flooded_tiles,
             active_wildfire_tiles=self.disasters.active_wildfire_tiles,
             storm_struck=storm_struck,
+        )
+        self.fields.step_population_density(
+            [(a.x, a.y) for a in self.population.agents], self.config.width, self.config.height,
         )
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (
@@ -1057,6 +1070,7 @@ class World:
             "highlights": list(self.highlights),
             "emergence_log": list(self.emergence_log),
             "next_emergence_id": self.next_emergence_id,
+            "fields": self.fields.to_dict(),
             "observer_attention": {
                 "agent_view_counts": {str(k): v for k, v in self.observer_attention.get("agent_view_counts", {}).items()},
                 "last_agent_id": self.observer_attention.get("last_agent_id"),
@@ -1259,6 +1273,7 @@ class World:
             highlights=list(data.get("highlights", [])),
             emergence_log=list(data.get("emergence_log", [])),
             next_emergence_id=data.get("next_emergence_id", 1),
+            fields=FieldGrid.from_dict(data.get("fields", {})),
             observer_attention=(
                 {
                     "agent_view_counts": {int(k): v for k, v in data["observer_attention"].get("agent_view_counts", {}).items()},

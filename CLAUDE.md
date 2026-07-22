@@ -497,6 +497,29 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.4.9)
+
+Explicit user instruction: "complete stage 1" — roadmap Stage I steps
+2-3 (docs/MASTERCHECKLIST-2026-07-22.md), completing Stage I after
+v1.4.8 shipped step 1. New `hearthmind/world/fields.py`'s `FieldGrid`
+(3x3, matches `WEATHER_REGION_GRID`) + `World.fields`, stepped every
+tick; ships one concrete field (`population_density`) wired into
+`_choose_fission_site` (avoids crowded regions when an alternative
+exists) as a real consumer proof — the other eleven det_sys.md fields
+are future follow-ups. R7 deviation flagged (Python, not C++ — a 3x3
+grid is too small to justify a native port yet). New `hearthmind/
+world/graph_algorithms.py` (weighted-degree centrality over the
+relationship ledger) + `Settlement.social_hub_agent_id` +
+`SimulationEngine._detect_social_hub` (season cadence, edge-triggered,
+zero LLM cost, emits an A22 observation on change). UI: "Social hub"
+main-UI stat-tile row (a structural fact about a named person, not
+under Phase G's discipline). Community detection was already shipped
+as FACTION detection (v0.80.0) under another name — not duplicated.
+This closes roadmap Stage I entirely. Verified: direct smoke tests for
+both new modules plus the engine detector's edge-triggering/round-trip,
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks + a longer single-
+seed run crossing a real season boundary) byte-identical.
+
 ## Current state (v1.4.8)
 
 Explicit user instruction: "Start step 1: the Emergence API" — the

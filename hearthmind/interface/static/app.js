@@ -2809,6 +2809,17 @@ function renderStats(summary) {
       "not blood or trade.",
     ],
     [
+      "Social hub",
+      (() => {
+        if (!s.social_hub_agent_id) return "(none yet)";
+        const hub = (latest && latest.agents ? latest.agents : []).find((a) => a.id === s.social_hub_agent_id);
+        return hub ? hub.name : "(unknown)";
+      })(),
+      "Who the village's own relationship network actually centers on — the agent with the highest weighted-degree " +
+      "centrality in the settlement's relationship graph, recomputed each season. A structural fact, not a title: " +
+      "changes when someone else becomes more connected than they are.",
+    ],
+    [
       "Skills & tools",
       `farming ${(p.avg_farming_skill || 0).toFixed(2)}, construction ${(p.avg_construction_skill || 0).toFixed(2)}, ` +
       `tools ${(p.avg_tools || 0).toFixed(2)}, medicine ${(p.avg_medicine || 0).toFixed(2)}`,

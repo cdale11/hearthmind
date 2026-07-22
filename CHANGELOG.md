@@ -4,6 +4,71 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.4.9] — A1 FieldGrid + A16 Graph algorithms (roadmap Stage I, steps 2-3 — Stage I complete)
+
+Explicit user request: "complete stage 1" — the remaining two steps of
+the roadmap's Stage I (docs/MASTERCHECKLIST-2026-07-22.md), after
+v1.4.8 shipped step 1 (the Emergence API). Both scoped to a real,
+minimal proof-of-shape rather than the doc's full wishlist, matching
+the same discipline v1.4.8 used.
+
+**A1 FieldGrid** (step 2): new `hearthmind/world/fields.py` —
+`FieldGrid`, a dict of named `FIELD_GRID_SIZE`x`FIELD_GRID_SIZE` (3x3,
+matching `WEATHER_REGION_GRID`) dense scalar grids, deliberately coarse
+per the roadmap's own scoping note ("the interface matters more than
+resolution day one"). `World.fields`, stepped once per tick right
+after `population.tick` (agent positions must be current). Ships one
+concrete field, `population_density` (agents per region, normalized),
+as a real per-tick-computed consumer proof rather than bare
+infrastructure: `_choose_fission_site` now prefers a region the field
+doesn't read as crowded (`POPULATION_DENSITY_FISSION_AVOID_THRESHOLD
+=0.75`) when an alternative exists — never a hard block. The other
+eleven named fields det_sys.md lists (moisture, fertility, disease-
+pressure, ...) are explicitly not built this pass; each is an additive
+follow-up onto the same grid. R7 deviation flagged (Python, not C++)
+— same precedent as spatial weather/mining scars/minerals: a 3x3 grid
+is under 200 floats total, several orders below where a native port
+would pay for itself.
+
+**A16 Graph algorithms** (step 3): new `hearthmind/world/graph_
+algorithms.py` — `build_relationship_graph`/`degree_centrality`/`most_
+central_agent`, a real graph-theoretic algorithm (weighted-degree
+centrality, negative edges clamped to 0 since this measures
+connectedness not fondness) run over the existing pairwise relationship
+ledger rather than a second graph structure. New `Settlement.social_
+hub_agent_id` + `SimulationEngine._detect_social_hub` (season cadence,
+every settlement — cheap enough not to need round-robin gating, zero
+LLM cost) recomputes each settlement's most-central living agent and
+emits an A22 `unexplained_shift` observation only when the hub actually
+changes (edge-triggered, same discipline as `_detect_settlement_
+bottlenecks`). Community detection — the doc's other headline example
+— was already shipped as `InstitutionKind.FACTION` detection (v0.80.0)
+under a different name; not duplicated. Betweenness/network-flow/tech-
+dependency-DAG metrics remain flagged future follow-ups.
+
+UI: `social_hub_agent_id` reaches `Settlement.summary()`; a new
+"Social hub" stat-tile row (main UI, per the Observatory direction's
+"plain-language facts" precedent — this is a structural fact about a
+real named person, not under Phase G's ambiguity discipline) resolves
+the id to a name via the existing live agent broadcast. `world.fields`
+and the graph algorithms module stay dev-console-invisible for now
+(no diagnostics field added) — nothing yet needs to inspect the raw
+grid; `population_density`'s only visible effect is fission-site
+behavior, same as any other deterministic mechanic.
+
+This closes roadmap Stage I ("Senses & substrate") — all three steps
+shipped (v1.4.8-v1.4.9). Stage II (the five-pillar refactor) is the
+first real consumer of `emergence_log`/`fields`/graph algorithms
+together; work from it only on future explicit direction.
+
+Verified: direct smoke tests (`FieldGrid` region bucketing/step/round-
+trip, `graph_algorithms` centrality/tie-breaking/isolated-node
+handling, `_detect_social_hub`'s edge-triggering + round-trip
+persistence, a real engine tick confirming `population_density`
+populates). `scripts/verify_native_soak.py` (2 seeds x 800 ticks, plus
+a longer single-seed run crossing a real season boundary to exercise
+`_detect_social_hub` in the live tick loop) — byte-identical.
+
 ## [1.4.8] — A22 "The Emergence API" (roadmap Stage I, step 1)
 
 Explicit user request: "Start step 1: the Emergence API" — the first
