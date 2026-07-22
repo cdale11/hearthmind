@@ -63,13 +63,19 @@ hearthmind/
     hydrology.py         # rivers (carved at creation) + lakes with living levels
     disasters.py         # floods, wildfires, storms, heatwaves, frost
     resources.py         # depletable, regenerating forage/ore/fishing nodes
-    wildlife.py          # grazer herds + predator packs, huntable ecology
+    minerals.py          # iron/gold veins on hills
+    wildlife.py          # grazer herds + predator packs, huntable ecology + named variants
     roads.py             # foot-traffic-driven path wear/decay
+    ontology.py           # InventedConcept/TriggerRule/CompositeEntity/CausalThread registries
+    sigils.py             # deterministic parameterized SVG icons for named entities
     state.py             # World: the aggregate root, (de)serializes to dict
   agents/
     agent.py             # Agent: needs, traits, skills, memories, lifecycle constants
+    agent_store.py       # AgentTable: optional native scalar-field storage backing Agent
+    ledger.py            # Ledger/LedgerEdge: shared pairwise fondness/trust/debt/promises
     population.py        # Population: the whole per-tick agent loop (forage, build,
                          #   trade, teach, disease, institutions, birth, death)
+    occupations.py       # named jobs (baker/builder/mayor/...) and their mechanical bonuses
     names.py             # deterministic name generation
   settlement/
     buildings.py         # Building/Settlement (4 composed domains), eras, upkeep
@@ -82,19 +88,19 @@ hearthmind/
     database.py          # SQLite schema + connection helper (WAL)
     snapshot.py          # snapshots (pruned + keyframes), event log, metrics
   llm/
-    client.py            # minimal stdlib Ollama HTTP client
+    client.py            # minimal stdlib Ollama HTTP client, llamacpp_client.py for llama-server
     jobs.py              # CognitionRunner: bounded concurrency + fallback guarantee
-    cognition.py         # per-agent goals      chronicle.py    # monthly narration
-    dialogue.py          # NPC-to-NPC dialogue  documentary.py  # yearly look-back
-    culture.py           # traditions           invention.py    # tech unlocks
-    festival.py          # festivals            caravan.py      # outside trade contact
-    town_brain.py        # civic priority       beliefs.py      # evolving town theories
-    omens.py             # Phase G ambiguity    naming.py       # LLM settlement naming
-    world_genesis.py     # one-time LLM-chosen world seed
+    json_schemas.py      # per-task JSON Schema / grammar constraints
+    recorder.py          # optional training-data recorder (see docs/TRAINING_RECORDER.md)
+    ~60 task modules, one per LLM job (cognition/dialogue/beliefs/town_brain/
+      chronicle/dream/reflection/ontology/self_tuning/consciousness/...) — each
+      pairs a SYSTEM_PROMPT + build_prompt() with a deterministic fallback_*()
+      and parse_*(), the shared shape every job in this package follows.
   interface/
     api.py               # WorldBroadcaster: framework-free bridge engine <-> web
     app.py               # FastAPI app: /state /terrain /events /history /metrics
-                         #   /diagnostics /snapshots /intervene/* + WS /ws
+                         #   /diagnostics /snapshots /knowledge-tree /causal-threads
+                         #   /intervene/* + WS /ws
     static/              # plain HTML/CSS/JS browser client, no build step
   simulation/
     engine.py            # SimulationEngine: the tick loop + LLM/API scheduling
@@ -270,12 +276,16 @@ unreachable, or times out.
   with an existing Ollama install. See
   [Alternative: Ollama backend](#alternative-ollama-backend).
 
-The default model tag/GGUF is `gemma-4-e4b-it` either way (set per
-explicit user action — see "Model choice" below); `-it` means non-thinking
-by design, and this project always disables hybrid "thinking" output
-regardless (`"think": false` for Ollama, plus a defensive
-`<think>`-block strip applied by both clients) since every prompt here
-wants one strict-JSON answer.
+The default model tag/GGUF is `Config.llm_model` (`nemotron-3-nano-4b`
+as of v1.3.36, set per explicit user action — see "Model choice" below);
+this is a genuinely hybrid-thinking model, toggled per call rather than
+disabled outright — around 20 tasks that benefit from genuine reasoning
+(personal belief revision, major life decisions, council deliberation,
+town consciousness, cultural evolution, innovation & discovery) get
+"detailed thinking on"; dialogue/rumors/dreams/moment-to-moment
+cognition keep reasoning off since those want one quick strict-JSON
+answer, not a trace. See CLAUDE.md's v1.3.36/v1.3.37 entries for the
+full mechanism.
 
 Any LLM failure (unreachable server, timeout, malformed response)
 transparently falls back to the same deterministic behavior used when
@@ -730,28 +740,22 @@ does occur despite the above.
 
 ### Model choice history
 
-The default model tag is `gemma-4-e4b-it` as of v1.3.15, per explicit
-user action switching their live deployment to the larger sibling of
-the v0.85.0 default (`gemma-4-e2b-it`, "seemed to be performing the
-best" on their hardware at the time — trusted as-is, same standing
-policy this project has always applied to live model-naming/
-performance reports over training-data assumptions). `gemma-4-e2b-it`
-remains a documented smaller/faster fallback if `gemma-4-e4b-it` proves
-too slow on your own hardware. The switch to the 4B variant did prompt
-real re-tuning, since it measurably runs slower — a live diagnostic
-showed ~2.6 tok/s predicted throughput and 47s/77s p50/p95 call
-latency: `LLAMA_FIT_TARGET` 2048->1024 (offload more layers to the
-GPU), `LLM_PRESSURE_SLOWDOWN_START_RATIO` 1.0->0.75 (engine.py — let
-the sim actually slow down under sustained saturation instead of a
-blind spot at exactly the adaptive limit), and `llm_max_concurrent`
-2->1 (a second concurrent decode stream was mostly adding contention
-on this compute-bound hardware, not real throughput). `gemma-4-e2b-it`
-itself replaced `qwen3:4b-instruct` (the v0.65.2 default, itself chosen
-over `qwen3.5:2b` — not a real released Qwen tag — after a live
-memory-pressure report; see `docs/DECISIONS.md` for that narrative if
-useful history). Report back actual `/diagnostics` numbers (latency,
-memory, fallback rate) if a model needs further adjustment, rather than
-guessing ahead of real data.
+The default model is `nemotron-3-nano-4b` as of v1.3.36 (`Config.
+llm_model`), a genuinely hybrid-thinking model whose reasoning is
+toggled per task rather than switched off globally — see "Running it"
+above and CLAUDE.md's v1.3.36/v1.3.37 entries. Earlier defaults, in
+order: `qwen3:4b-instruct` (v0.65.2) -> `gemma-4-e2b-it` (v0.85.0) ->
+`gemma-4-e4b-it` (v1.3.15, a live-reported "performing best" switch to
+the larger sibling) -> `nemotron-3-nano-4b`. Each switch is a live,
+hardware-reported decision (this project trusts real diagnostics over
+training-data assumptions about model naming/performance) and usually
+came with real re-tuning of `llm_max_concurrent`/`LLAMA_FIT_TARGET`/
+adaptive-pressure thresholds for the new model's actual throughput —
+full narrative for any of these transitions is in `docs/DECISIONS.md`/
+`CHANGELOG.md` if useful history, not repeated here since it goes
+stale the moment the model changes again. Report back actual
+`/diagnostics` numbers (latency, memory, fallback rate) if a model
+needs further adjustment, rather than guessing ahead of real data.
 
 ### Alternative: Ollama backend
 
@@ -760,7 +764,7 @@ Still fully supported for anyone with an existing Ollama setup — pass
 
 ```bash
 # 1. Install and start Ollama (see https://ollama.com), then pull a model:
-ollama pull gemma-4-e4b-it
+ollama pull nemotron-3-nano-4b
 
 # 2. Run with the Ollama backend explicitly:
 python3 -m hearthmind.server --db world.sqlite3 --llm-backend ollama
@@ -886,24 +890,17 @@ workflow and the CLI smoke tests that are still worth running.
 
 ## Status
 
-All original phases (A–F), the ambient Phase G layer, and the full
-Phase H program (dynamic carrying capacity, institutions —
-families/councils/guilds, evolving beliefs/world-models at settlement,
-family, and personal scale, skills and teaching, supply chains and
-personal property, inheritance, psychology traits) have shipped at
-least a v1, plus an integration milestone wiring the systems into each
-other. As of v0.65.0 the three last architectural gaps are closed too:
-**multiple named settlements** (a crowded settlement can fission — an
-LLM-decided founding party walks to a distant site and builds a second
-named community with its own economy, institutions, temperament, and
-place in the monthly LLM job rotation), **fully agent-pathed
-construction** (founders stake out the best nearby site and builders
-walk to it), and **true frame-by-frame replay** (the timeline's ▶
-button plays the world's real past maps snapshot by snapshot). The one
-surviving deliberate deferral is WebSocket delta payloads — see
-`CLAUDE.md`.
+The engine is well past its original phase plan (A–H) and the long-term
+vision phases (I–N) — every one of those has shipped at least a v1. The
+project is now in continuous open-ended development: each batch is
+recorded as a dated entry in `CLAUDE.md`'s "Current state" section
+(newest first, most useful single place to read what's actually true
+right now) with full rationale/verification detail in `CHANGELOG.md`.
+Deliberate, still-open deferrals are also tracked there — check
+`CLAUDE.md` rather than this file for "what's not done yet."
 
-See `CHANGELOG.md` for the version-by-version history,
-`docs/DECISIONS.md` for the reasoning behind non-obvious choices (the
-project's primary archive), and `docs/ROADMAP.md` for the phase plan
-and its per-item accounting.
+See `CHANGELOG.md` for the version-by-version history (older entries
+live in `docs/CHANGELOG-ARCHIVE.md` to keep the live file readable),
+`docs/DECISIONS.md` for the reasoning behind non-obvious choices (older
+entries in `docs/DECISIONS-ARCHIVE.md`), and `docs/ROADMAP.md` for the
+original phase plan's status.
