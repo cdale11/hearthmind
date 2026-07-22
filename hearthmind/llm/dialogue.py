@@ -627,17 +627,19 @@ def _looks_garbled(line: str) -> bool:
     return False
 
 
-def _is_sane_line(line: str, other_line: str) -> bool:
+def _is_sane_line(line: str, other_line: str, max_words: int = _MAX_LINE_WORDS) -> bool:
     """Reject a line that's almost certainly a small-model failure mode
     rather than a real line of dialogue: instruction/meta/field-name
     leakage, garbled (mostly-symbol or repetition-loop) text, wildly over
     length, or an exact duplicate of the other speaker's line (all "make
     no sense" symptoms actually observed in live small-model
-    diagnostics)."""
+    diagnostics). `max_words` is overridable — the voice pair's own
+    longer-form exchanges (see `VOICE_MAX_LINE_WORDS`) need a higher
+    ceiling than ordinary crowd small talk."""
     lowered = line.lower()
     if any(marker in lowered for marker in _LEAKAGE_MARKERS):
         return False
-    if len(line.split()) > _MAX_LINE_WORDS:
+    if len(line.split()) > max_words:
         return False
     if line.strip().lower() == other_line.strip().lower():
         return False
@@ -752,4 +754,155 @@ def parse_dialogue(result: dict, fallback: dict) -> dict:
         "secret_revealed": bool(result.get("secret_revealed")),
         "misunderstanding": bool(result.get("misunderstanding")),
         "goal_change": bool(result.get("goal_change")),
+    }
+
+
+# --- Voice pair: the town's two LLM-dialogue speakers ----------------------
+# Explicit user directive: LLM dialogue is disabled for every pair except one
+# fixed core-cast pair (Population.voice_pair_ids) — freeing the budget that
+# used to spread thin across several core-core pairs into ONE real, deep,
+# continuing conversation between two people who know each other, with an
+# actual memory of what was just said. Deliberately a separate prompt/parse
+# path from build_prompt/parse_dialogue above rather than a mode flag on
+# them — the ordinary crowd-dialogue machinery (opportunity weighting,
+# novelty-topic rings, weather/place/settlement-topic steering) is tuned for
+# brief small talk between people who may barely know each other; the voice
+# pair wants something structurally simpler (concise town state + internal
+# state + the actual conversation so far) pushed much harder on depth and
+# continuity instead.
+
+VOICE_MAX_LINE_WORDS = 40
+"""Each voice-pair line may run up to this many words — real conversation
+between two people who know each other well runs longer than a passing
+"just crossed paths" exchange (`_MAX_LINE_WORDS`=26 there). Enforced both
+in the prompt's own instruction and as `_is_sane_line`'s ceiling via
+`parse_voice_dialogue`."""
+
+VOICE_MAX_LINE_CHARS = 320
+"""Character truncation ceiling for a voice-pair line — proportionally
+wider than the ordinary 120-char cap, matching VOICE_MAX_LINE_WORDS."""
+
+VOICE_SYSTEM_PROMPT = (
+    "You are writing the next moment in an ONGOING, real conversation between "
+    "two people who know each other well in a small simulated world — not two "
+    "strangers making small talk, an established relationship continuing "
+    "naturally from what was just said. If 'the conversation so far' is given "
+    "below, treat it as real and continue it: line_a must pick up from the "
+    "last thing said, not restart the topic or open with a fresh greeting. "
+    "Ground what you write in the concrete facts given — the town's current "
+    "situation, what each person is feeling and doing right now, their "
+    "relationship, and anything either privately wants or is holding back. "
+    "Real conversation between two people who know each other can run longer "
+    "and go deeper than passing small talk — lines may run up to about 40 "
+    "words when there's something real being said, but don't pad or ramble; "
+    "a short reaction is still fine when that's honest, and it's fine for a "
+    "line to be a half-finished thought or a single word. Write like two "
+    "real people: it's fine to disagree, deflect, joke, trail off, or leave "
+    "something unresolved — they don't have to agree or resolve anything. "
+    "line_b must be a genuine reaction to line_a — an actual answer, a "
+    "rebuttal, a joke back, a change of subject that still acknowledges what "
+    "was said — never a line that could just as well have opened the "
+    "conversation on its own. Never invent unrelated topics, and never "
+    "mention that this is a game, a simulation, or that you are an AI. "
+    "Output ONLY the JSON object below, nothing before or after it, no "
+    "explanation.\n"
+    'Respond with strict JSON only, in this exact shape: {"line_a": "up to '
+    '40 words, said by the first speaker, continuing the conversation", '
+    '"line_b": "up to 40 words, a genuine reply from the second speaker to '
+    'what line_a just said", "sentiment": "warm" | "tense" | "neutral", '
+    '"topic": "1-3 words naming what this exchange was actually about"}.'
+)
+
+
+def build_voice_prompt(
+    agent_a: Agent, agent_b: Agent, affinity: float, settlement_name: str,
+    town_digest: str = "", internal_state_a: str = "", internal_state_b: str = "",
+    conversation_so_far: list[dict] | None = None,
+) -> str:
+    """`town_digest`: one concise sentence of what's happening in the
+    town right now (the call site's own condensed read, NOT the full
+    grounding apparatus `build_prompt` uses — explicit user directive
+    for "a very concise summary of the town and happenings"). `internal_
+    state_a`/`internal_state_b`: a short line per speaker covering their
+    own hunger/energy/emotion/current activity — "their internal
+    states," per the same directive. `conversation_so_far`: the voice
+    pair's own recent lines (`Population.voice_conversation`, newest
+    last, each `{"speaker", "text"}` with `speaker` already resolved to
+    a display name at the call site) — when given, the prompt frames
+    this as a continuation, not an opener."""
+    if affinity >= 0.6:
+        tie = "close friends"
+    elif affinity <= RIVALRY_THRESHOLD:
+        tie = "at odds with each other"
+    elif affinity <= 0.0:
+        tie = "strangers, or barely acquainted"
+    else:
+        tie = "friendly acquaintances"
+    lines = [
+        f"{agent_a.name} and {agent_b.name} are {tie}"
+        + (f" in {settlement_name}." if settlement_name else "."),
+    ]
+    if town_digest:
+        lines.append(f"The town right now: {town_digest}")
+    if internal_state_a:
+        lines.append(f"{agent_a.name} right now: {internal_state_a}")
+    if internal_state_b:
+        lines.append(f"{agent_b.name} right now: {internal_state_b}")
+    if conversation_so_far:
+        convo = "\n".join(f"  {turn['speaker']}: {turn['text']}" for turn in conversation_so_far)
+        lines.append(f"The conversation so far:\n{convo}")
+        lines.append("Continue this conversation naturally from here.")
+    else:
+        lines.append("This is the start of a new conversation between them.")
+    return "\n".join(lines)
+
+
+def fallback_voice_dialogue(agent_a: Agent, agent_b: Agent, affinity: float, tick: int) -> dict:
+    """Same shape/pool as `fallback_dialogue` — the voice pair still
+    needs a real answer on a backpressured/budget-exhausted tick, this
+    is just the identical deterministic mechanism reused rather than a
+    parallel pool."""
+    return fallback_dialogue(agent_a, agent_b, affinity, tick)
+
+
+def parse_voice_dialogue(result: dict, fallback: dict) -> dict:
+    """Same validation shape as `parse_dialogue`, with the voice pair's
+    wider length ceiling (`VOICE_MAX_LINE_WORDS`/`_CHARS`). The model
+    itself is never asked for the Phase-2 structured-outcome fields
+    (promise/debt/secret/misunderstanding/goal_change) — the voice
+    pair's exchanges are narration-grade conversation, not a scripted
+    scene — but the returned dict still carries them at inert defaults
+    so it's a drop-in for `Population.apply_dialogue`/`SimulationEngine.
+    _apply_pending_dialogue_results`, the same shared apply pipeline
+    ordinary dialogue already uses (is_llm-gated event surfacing, topic-
+    ring recording, cross-settlement relation nudge — all reused
+    unchanged rather than duplicated for the voice pair)."""
+    sentiment = result.get("sentiment")
+    if sentiment not in _VALID_SENTIMENTS:
+        sentiment = fallback["sentiment"]
+    line_a = result.get("line_a")
+    line_b = result.get("line_b")
+    if not isinstance(line_a, str) or not line_a.strip():
+        line_a = fallback["line_a"]
+    if not isinstance(line_b, str) or not line_b.strip():
+        line_b = fallback["line_b"]
+    if (
+        not _is_sane_line(line_a, line_b, max_words=VOICE_MAX_LINE_WORDS)
+        or not _is_sane_line(line_b, line_a, max_words=VOICE_MAX_LINE_WORDS)
+    ):
+        line_a, line_b = fallback["line_a"], fallback["line_b"]
+    topic = result.get("topic")
+    if not isinstance(topic, str):
+        topic = ""
+    return {
+        "line_a": line_a.strip()[:VOICE_MAX_LINE_CHARS],
+        "line_b": line_b.strip()[:VOICE_MAX_LINE_CHARS],
+        "sentiment": sentiment,
+        "topic": topic.strip()[:40],
+        "rumor": "",
+        "promise": "",
+        "debt_delta": 0.0,
+        "secret_revealed": False,
+        "misunderstanding": False,
+        "goal_change": False,
     }

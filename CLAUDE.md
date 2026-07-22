@@ -476,6 +476,29 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.4.0)
+
+Explicit user directive: LLM dialogue disabled for every NPC pair
+except one fixed core-cast pair (`Population.voice_pair_ids`), freeing
+the budget that used to spread across several core-core pairs into one
+genuinely deep, continuing conversation — longer lines (`VOICE_MAX_
+LINE_WORDS=40` vs 26), real turn-to-turn continuity via a persisted
+`voice_conversation` thread fed back into each prompt, grounded in a
+concise town digest + each speaker's own internal state, called far
+more often (`VOICE_DIALOGUE_COOLDOWN_TICKS=60` vs the ordinary 300).
+Rotates to the survivor's strongest remaining bond on death (or a
+fresh pair if both die), logged as a `voice_pair_change` event. Every
+other pair — including former core-core ones — is now deterministic-
+only; `due_for_dialogue` no longer partitions core vs. crowd at all.
+New `llm/dialogue.py` voice-mode prompt/parse path
+(`build_voice_prompt`/`parse_voice_dialogue`), deliberately separate
+from ordinary `build_prompt` (tuned for brief small talk between
+near-strangers) rather than a mode flag — its parsed output still
+carries the Phase-2 structured-outcome fields at inert defaults so it
+reuses the same `_apply_pending_dialogue_results` pipeline (is_llm-
+gated event surfacing already meant only genuine LLM exchanges reach
+`/events`, now sharper since there's exactly one such pair).
+
 ## Current state (v1.3.41)
 
 Explicit user follow-up ("Yes do that") shipping the four Living

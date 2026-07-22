@@ -219,7 +219,6 @@ from hearthmind.agents.agent import (
     clear_grievance,
     decay_debts,
     decay_emotions,
-    dominant_emotion,
     push_secret,
 )
 from hearthmind.agents.names import _roman, generate_names
@@ -936,31 +935,35 @@ agent who lives through the same kind of event gets *a* lesson, not
 necessarily the identical wording every time."""
 
 MAX_DIALOGUES_PER_TICK = 6
-"""Caps how many dialogue exchanges are *selected* in a single tick
-regardless of how many colocated pairs qualify. Of these, only
-core-core pairs (see `Population.core_agent_ids`) become LLM calls, and
-those are further capped at MAX_LLM_DIALOGUES_PER_TICK below; the rest
-are resolved by the deterministic fallback. Raised 3 -> 6 in the
-v0.72.3 GPU-offload pass — must stay >= MAX_LLM_DIALOGUES_PER_TICK (a
-selection cap smaller than the LLM cap would make the LLM cap
-unreachable) with some headroom left for genuine crowd/fallback pairs
-too, not just core-core ones. See Population.due_for_dialogue,
-docs/DECISIONS.md, E2."""
+"""Caps how many *fallback* (deterministic, no LLM call) dialogue
+exchanges are selected in a single tick regardless of how many
+colocated pairs qualify. Explicit user directive: LLM dialogue is now
+reserved entirely for the single fixed `Population.voice_pair_ids`
+pair (see `due_for_voice_dialogue`) — every other colocated pair,
+including former core-core ones, resolves via the deterministic
+fallback so the crowd stays socially alive without spending any LLM
+budget. See Population.due_for_dialogue, docs/DECISIONS.md, E2."""
 
-MAX_LLM_DIALOGUES_PER_TICK = 4
-"""Of the core-core colocated pairs due this tick, at most this many
-become actual LLM-authored dialogue calls (v0.70.0). Raised 2 -> 4 in
-the v0.72.3 GPU-offload pass alongside `Config.llm_core_cast_size`
-(11 -> 18) and `llm_max_calls_per_day` (200 -> 400) — confirmed-fast GPU
-inference makes a larger volume of core-core exchanges affordable
-without recreating the sustained-saturation condition v0.70.0 fixed.
-Small and constant either way, so LLM dialogue volume never scales with
-population — that property is what matters for the swap fix, not the
-specific number. Any pair beyond this cap, and every pair that isn't
-two core-cast members, use the deterministic fallback. Preferring
-core-core pairs for these slots (rather than random selection) is what
-makes the cast's conversations reliably model-authored despite the
-crowd being far more numerous. See Population.due_for_dialogue."""
+VOICE_DIALOGUE_COOLDOWN_TICKS = 60
+"""Explicit user directive ("call often"): the voice pair's own
+cooldown between exchanges, much shorter than the ordinary
+`DIALOGUE_COOLDOWN_TICKS` (300) — since this is now the ONLY pair
+spending LLM dialogue budget, the freed-up call volume goes toward
+talking to each other far more frequently instead of many pairs
+talking rarely. See due_for_voice_dialogue."""
+
+VOICE_CONVERSATION_HISTORY_TURNS = 6
+"""How many of the voice pair's own most recent lines (from
+`Population.voice_conversation`) are fed back into the next prompt as
+"the conversation so far" — enough for the model to pick up a genuine
+thread without letting an already-long-running conversation dominate
+the prompt. See llm/dialogue.py's build_voice_prompt."""
+
+MAX_VOICE_CONVERSATION_STORED = 24
+"""Cap on `Population.voice_conversation`'s ring — comfortably more
+than VOICE_CONVERSATION_HISTORY_TURNS actually reads each call, so a
+little history survives past what any single prompt uses, same
+oldest-dropped-first discipline as every other capped ring here."""
 
 PROMINENCE_BOND_WEIGHT = 4000.0
 """Weight on an agent's bond count in `_prominence` (core-cast refill
@@ -1085,21 +1088,6 @@ def _agent_mount(settlement: Settlement, agent_id: int) -> Vehicle | None:
         ):
             return vehicle
     return None
-
-
-def _is_significant_pair(a: Agent, b: Agent) -> bool:
-    """Shared significance signal for dialogue's LLM-slot prioritization
-    (see `Population.due_for_dialogue`) — a feud between the pair, a
-    notable emotion in either party, or (Phase 2 item 4, "continuation
-    weeks later") an open promise still standing between them. Same
-    rivalry/emotion signals as `SimulationEngine._is_significant_moment`
-    uses for cognition, kept here (rather than imported from engine.py)
-    since population.py must not depend on the simulation layer."""
-    if a.relationships.get(b.id, 0.0) <= RIVALRY_THRESHOLD or b.relationships.get(a.id, 0.0) <= RIVALRY_THRESHOLD:
-        return True
-    if dominant_emotion(a.emotions) is not None or dominant_emotion(b.emotions) is not None:
-        return True
-    return bool(a.ledger.open_promises(b.id) or b.ledger.open_promises(a.id))
 
 
 _pending_memory_evictions: list[dict] = []
@@ -1601,6 +1589,29 @@ class Population:
     have lately talked about X, Y — find something new or go deeper"),
     so the live-LLM path doesn't keep converging on the same subject
     pair after pair."""
+    voice_pair_ids: tuple[int, int] | None = None
+    """Explicit user directive: LLM dialogue is disabled for every pair
+    except this ONE fixed core-cast pair, so their exchanges can be much
+    deeper (longer lines, real conversational continuity) without the
+    call volume every other core-core pair used to cost. Selected by
+    `select_voice_pair` (most prominent 2 core-cast members), maintained
+    every tick by `maintain_voice_pair` — rotates to the survivor's
+    strongest remaining bond if one dies, or picks a fresh pair if both
+    do. `due_for_dialogue` excludes this exact pair from the ordinary
+    (now LLM-free) dialogue pool; `due_for_voice_dialogue` is their own
+    separate, shorter-cooldown scheduling path."""
+    voice_conversation: list[dict] = field(default_factory=list)
+    """Ring of `{"speaker_id", "text", "tick"}` — the voice pair's own
+    running conversation thread (distinct from `dialogue_topics`, which
+    only stores a topic WORD, not the actual line), fed back into the
+    next call so a reply genuinely continues from what was just said
+    rather than re-opening small talk. Capped at MAX_VOICE_CONVERSATION_
+    STORED; cleared whenever the pair itself changes (a new partner has
+    no business continuing the old thread)."""
+    voice_dialogue_last_tick: int = -1_000_000
+    """Tick of the voice pair's last exchange — a single scalar cooldown
+    (not a dict, since there is only ever one active pair) gating
+    `due_for_voice_dialogue`."""
     last_fission_tick: int = -1_000_000
     """Tick of the most recent settlement fission (world-wide) — gates
     FISSION_COOLDOWN_TICKS. Persisted; the far-negative default means a
@@ -6527,27 +6538,21 @@ class Population:
 
     def due_for_dialogue(
         self, seed: int, tick: int, cooldown_ticks: int,
-    ) -> tuple[list[tuple[Agent, Agent]], list[tuple[Agent, Agent]]]:
-        """Colocated, awake pairs whose cooldown has expired, partitioned
-        into `(llm_pairs, fallback_pairs)` (v0.70.0):
+    ) -> list[tuple[Agent, Agent]]:
+        """Colocated, awake pairs whose cooldown has expired, up to
+        MAX_DIALOGUES_PER_TICK — every one of these resolves via the
+        deterministic fallback (relationship/trust/gossip effects still
+        apply, no Ollama call). Explicit user directive: LLM dialogue no
+        longer scales with core-cast size at all — it's reserved for the
+        single fixed `voice_pair_ids` pair, scheduled separately via
+        `due_for_voice_dialogue`. That exact pair is excluded here (their
+        conversational energy goes into the voice thread, not a
+        redundant fallback exchange with each other) — they're still
+        eligible for an ordinary fallback exchange with anyone ELSE.
 
-        - `llm_pairs`: up to MAX_LLM_DIALOGUES_PER_TICK pairs where BOTH
-          members are in the core cast (`core_agent_ids`) — these are the
-          only exchanges that spend an Ollama call.
-        - `fallback_pairs`: up to MAX_DIALOGUES_PER_TICK of the remaining
-          eligible pairs (any pair with a non-core member) — resolved by
-          the deterministic fallback, so the crowd stays socially alive
-          (relationship/trust/gossip effects still apply) without LLM
-          load.
-
-        Preferring core-core pairs for the LLM slots (rather than the old
-        single random cap) is what makes the cast's conversations
-        reliably model-authored even though crowd pairs vastly outnumber
-        them. Selection within each bucket is a deterministic namespaced-
-        RNG shuffle, reproducible for a given seed. Both buckets mark
-        their pairs' cooldown immediately, so a pair isn't re-selected
-        while its exchange is still in flight (no separate inflight set).
-        See docs/DECISIONS.md, E2 and the core-cast pass.
+        Selection is a deterministic namespaced-RNG shuffle, reproducible
+        for a given seed. Marks each returned pair's cooldown
+        immediately, so it isn't re-selected next tick.
 
         Also prunes `dialogue_cooldowns`: entries for dead agents and
         entries stale past `cooldown_ticks * 8` (they no longer prevent
@@ -6568,37 +6573,121 @@ class Population:
             if agent.state is AgentState.AWAKE:
                 by_position.setdefault((agent.x, agent.y), []).append(agent)
 
-        core_candidates: list[tuple[Agent, Agent]] = []
-        other_candidates: list[tuple[Agent, Agent]] = []
+        voice_pair_set = set(self.voice_pair_ids) if self.voice_pair_ids else set()
+        candidates: list[tuple[Agent, Agent]] = []
         for group in by_position.values():
             if len(group) < 2:
                 continue
             for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
+                if {a.id, b.id} == voice_pair_set:
+                    continue
                 last = self.dialogue_cooldowns.get((a.id, b.id), -cooldown_ticks)
                 if tick - last < cooldown_ticks:
                     continue
-                if a.id in self.core_agent_ids and b.id in self.core_agent_ids:
-                    core_candidates.append((a, b))
-                else:
-                    other_candidates.append((a, b))
+                candidates.append((a, b))
 
         rng = _namespaced_rng(seed, tick, "dialogue_select")
-        rng.shuffle(core_candidates)
-        rng.shuffle(other_candidates)
-        # Significance gate (v0.77.0), same "reserve the scarce LLM
-        # budget for high-impact decisions" reasoning as cognition's own
-        # gate: within the (already-shuffled, so still varied) core-cast
-        # candidates, a pair with an active feud or a notably emotional
-        # member goes first for the limited LLM slots — an ordinary
-        # "quiet day" chat between two content core agents is exactly
-        # what fallback_dialogue already handles well. Doesn't change
-        # MAX_LLM_DIALOGUES_PER_TICK's own volume cap, only who gets it.
-        core_candidates.sort(key=lambda pair: not _is_significant_pair(pair[0], pair[1]))
-        llm_pairs = core_candidates[:MAX_LLM_DIALOGUES_PER_TICK]
-        fallback_pairs = other_candidates[:MAX_DIALOGUES_PER_TICK]
-        for a, b in llm_pairs + fallback_pairs:
+        rng.shuffle(candidates)
+        fallback_pairs = candidates[:MAX_DIALOGUES_PER_TICK]
+        for a, b in fallback_pairs:
             self.dialogue_cooldowns[(a.id, b.id)] = tick
-        return llm_pairs, fallback_pairs
+        return fallback_pairs
+
+    def select_voice_pair(self, exclude_ids: frozenset[int] = frozenset()) -> tuple[int, int] | None:
+        """The 2 most prominent living core-cast members (by
+        `_prominence`, tie-broken by lowest id for determinism),
+        excluding `exclude_ids` — the initial pick, and the "both died,
+        start fresh" rotation case. Returns None if fewer than 2 eligible
+        core-cast members exist yet (a very young world)."""
+        candidates = [
+            a for a in self.agents if a.id in self.core_agent_ids and a.id not in exclude_ids
+        ]
+        if len(candidates) < 2:
+            return None
+        candidates.sort(key=lambda a: (-self._prominence(a), a.id))
+        return (candidates[0].id, candidates[1].id)
+
+    def maintain_voice_pair(self, tick: int) -> tuple[int, int] | None:
+        """Explicit user directive: keeps exactly one fixed pair of core-
+        cast members as the sole LLM-dialogue voice of the town, called
+        every tick (cheap — a no-op unless the pair actually changed).
+        Picks an initial pair via `select_voice_pair` if there is none
+        yet; if one member has since died, rotates to the survivor's
+        strongest remaining bond among the current core cast (falling
+        back to `select_voice_pair` if the survivor has no bonds at all);
+        if both have died, picks an entirely fresh pair. Any change
+        clears `voice_conversation` — a new partner has no business
+        continuing the old thread. Returns the NEW pair only when it
+        actually changed this call, else None (so the caller can log a
+        real "the town's voice passes to..." event only on a genuine
+        change, not every tick)."""
+        alive_ids = {a.id for a in self.agents}
+        if self.voice_pair_ids is None:
+            new_pair = self.select_voice_pair()
+            if new_pair is None:
+                return None
+            self.voice_pair_ids = new_pair
+            self.voice_conversation = []
+            return new_pair
+        a_id, b_id = self.voice_pair_ids
+        a_alive, b_alive = a_id in alive_ids, b_id in alive_ids
+        if a_alive and b_alive:
+            return None
+        if not a_alive and not b_alive:
+            new_pair = self.select_voice_pair()
+        else:
+            survivor_id = a_id if a_alive else b_id
+            survivor = self.get(survivor_id)
+            replacement_id = None
+            if survivor is not None:
+                bonded = [
+                    (other_id, score) for other_id, score in survivor.relationships.items()
+                    if other_id in self.core_agent_ids and other_id in alive_ids and other_id != survivor_id
+                ]
+                if bonded:
+                    replacement_id = max(bonded, key=lambda pair: pair[1])[0]
+            if replacement_id is None:
+                fallback = self.select_voice_pair(exclude_ids=frozenset({survivor_id}))
+                replacement_id = fallback[0] if fallback else None
+            new_pair = (survivor_id, replacement_id) if replacement_id is not None else None
+        if new_pair is None:
+            self.voice_pair_ids = None
+            self.voice_conversation = []
+            return None
+        self.voice_pair_ids = new_pair
+        self.voice_conversation = []
+        return new_pair
+
+    def due_for_voice_dialogue(self, tick: int, cooldown_ticks: int) -> tuple[Agent, Agent] | None:
+        """The voice pair's own dedicated scheduling path — colocated,
+        both awake, cooldown expired. Returns None otherwise (no pair
+        set yet, one or both not present/awake, or still cooling down).
+        Marks the cooldown immediately on a hit, same "don't re-select
+        while in flight" discipline as `due_for_dialogue`."""
+        if self.voice_pair_ids is None:
+            return None
+        a = self.get(self.voice_pair_ids[0])
+        b = self.get(self.voice_pair_ids[1])
+        if a is None or b is None:
+            return None
+        if a.state is not AgentState.AWAKE or b.state is not AgentState.AWAKE:
+            return None
+        if (a.x, a.y) != (b.x, b.y):
+            return None
+        if tick - self.voice_dialogue_last_tick < cooldown_ticks:
+            return None
+        self.voice_dialogue_last_tick = tick
+        return (a, b)
+
+    def record_voice_line(self, speaker_id: int, text: str, tick: int) -> None:
+        """Appends one line to `voice_conversation` (oldest dropped past
+        MAX_VOICE_CONVERSATION_STORED) — the voice pair's own running
+        thread, read back by `llm/dialogue.py`'s `build_voice_prompt` as
+        "the conversation so far" so the next call genuinely continues
+        it rather than re-opening small talk."""
+        self.voice_conversation.append({"speaker_id": speaker_id, "text": text, "tick": tick})
+        if len(self.voice_conversation) > MAX_VOICE_CONVERSATION_STORED:
+            del self.voice_conversation[: len(self.voice_conversation) - MAX_VOICE_CONVERSATION_STORED]
 
     def recent_dialogue_topics(self, a_id: int, b_id: int) -> list[str]:
         """The stored `dialogue_topics` ring for this pair, if any —
@@ -7282,6 +7371,9 @@ class Population:
             "cognition_trigger_cooldowns": dict(self.cognition_trigger_cooldowns),
             "core_agent_ids": sorted(self.core_agent_ids),
             "last_fission_tick": self.last_fission_tick,
+            "voice_pair_ids": list(self.voice_pair_ids) if self.voice_pair_ids else None,
+            "voice_conversation": list(self.voice_conversation),
+            "voice_dialogue_last_tick": self.voice_dialogue_last_tick,
         }
 
     @classmethod
@@ -7317,4 +7409,7 @@ class Population:
             cognition_trigger_cooldowns=cognition_trigger_cooldowns,
             core_agent_ids=set(data.get("core_agent_ids", [])),
             last_fission_tick=data.get("last_fission_tick", -1_000_000),
+            voice_pair_ids=tuple(data["voice_pair_ids"]) if data.get("voice_pair_ids") else None,
+            voice_conversation=list(data.get("voice_conversation", [])),
+            voice_dialogue_last_tick=data.get("voice_dialogue_last_tick", -1_000_000),
         )

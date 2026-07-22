@@ -4,6 +4,85 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.4.0] — The voice pair: LLM dialogue narrowed to one deep, continuing conversation
+
+Explicit user directive: disable LLM dialogue for every NPC pair except
+exactly ONE fixed core-cast pair, and spend the freed-up budget making
+that one pair's conversation genuinely deep — longer lines, real
+continuity across calls (each reply picks up from what was just said,
+not a fresh small-talk opener), grounded in a concise town summary and
+each speaker's own internal state. Rotates to a new pair on death. All
+other dialogue (the vast majority) stays deterministic-only, same as
+it's always been for non-core pairs — unchanged mechanically, just no
+longer LLM-eligible even for a core-core pairing that isn't the voice
+pair.
+
+**`Population.voice_pair_ids`** (a fixed `(agent_id, agent_id)` tuple,
+persisted): the sole LLM-dialogue pair. `select_voice_pair` picks the 2
+most prominent living core-cast members (reuses `_prominence`, the
+same ranking `maintain_core_cast` already uses); `maintain_voice_pair`
+(called every tick, cheap no-op unless something changed) rotates to
+the survivor's strongest remaining core-cast bond if one dies, or picks
+an entirely fresh pair if both do — logged as a `voice_pair_change`
+event, surfaced with a new 🗣 icon. A pair change clears `voice_
+conversation` (a new partner has no business continuing the old
+thread).
+
+**`due_for_dialogue` simplified**: no longer partitions core-core vs.
+crowd pairs — every colocated pair (including former core-core ones)
+now resolves via the deterministic fallback, EXCEPT the exact voice
+pair, which is excluded here and scheduled separately via the new
+`due_for_voice_dialogue` (its own `VOICE_DIALOGUE_COOLDOWN_TICKS=60`,
+far shorter than the ordinary 300 — "call often," since this is now
+the only pair spending LLM budget at all). `MAX_LLM_DIALOGUES_PER_TICK`
+and the now-dead `_is_significant_pair` LLM-slot prioritizer are
+removed — no longer meaningful once there's only ever one LLM-eligible
+pair.
+
+**New `llm/dialogue.py` voice-mode prompt/parse path**
+(`VOICE_SYSTEM_PROMPT`/`build_voice_prompt`/`parse_voice_dialogue`/
+`fallback_voice_dialogue`), deliberately separate from the ordinary
+`build_prompt`/`parse_dialogue` (tuned for brief small talk between
+people who may barely know each other) rather than a mode flag on it:
+- `VOICE_MAX_LINE_WORDS=40` (vs. 26 for ordinary dialogue) — real
+  conversation between two people who know each other runs longer.
+- `conversation_so_far`: the pair's last `VOICE_CONVERSATION_HISTORY_
+  TURNS=6` lines (`Population.voice_conversation`, a new persisted
+  ring, `MAX_VOICE_CONVERSATION_STORED=24`), fed back so the model
+  continues the actual thread instead of reopening small talk each
+  call — the system prompt explicitly instructs this.
+- `town_digest`: one concise sentence (current town-brain priority +
+  population/season) — deliberately NOT the full grounding apparatus
+  (opportunities/beliefs/lexicon/place-names/etc.) ordinary dialogue
+  uses, per the explicit "very concise summary" request.
+- `internal_state_a`/`_b`: each speaker's own hunger/energy/current
+  goal/emotion, one line each.
+- The model is never asked for the Phase-2 structured-outcome fields
+  (promise/debt/secret/misunderstanding/goal_change) — `parse_voice_
+  dialogue`'s return dict carries them at inert defaults so it's a
+  drop-in for the SAME shared `_apply_pending_dialogue_results`
+  pipeline ordinary dialogue already uses (is_llm-gated event
+  surfacing, topic-ring recording, cross-settlement relation nudge —
+  reused unchanged, not duplicated).
+
+New `SimulationEngine._schedule_voice_dialogue`/`_run_voice_dialogue`
+(mirrors `_schedule_due_dialogue`/`_run_dialogue`'s shape, backpressure/
+budget-exhausted ticks degrade to the deterministic fallback same as
+every other LLM job) records both lines into `voice_conversation`
+regardless of whether the result later resolves via fallback, so the
+thread itself always remembers what was actually said.
+
+"Only surface these dialogues in events" was already structurally true
+before this change (the `is_llm` event-surfacing gate, v0.73.0) — with
+LLM dialogue now concentrated on exactly one pair, this guarantee is
+simply sharper: the `dialogue`/`dialogue_surfaced` event categories now
+mean, specifically, this one pair's real conversation.
+
+Verified: direct smoke test (initial pair selection, maintain no-op on
+an unchanged pair, death-triggered rotation to the survivor's strongest
+bond, prompt/parse round trip including a too-long-line rejection),
+`scripts/verify_native_soak.py` (2 seeds × 800 ticks) byte-identical.
+
 ## [1.3.41] — Living Terrarium batch: laws-of-nature panel, causal threads, time-lapse knowledge counter, ambient seasonal presence
 
 Explicit user follow-up ("Yes do that") on the four items deferred from

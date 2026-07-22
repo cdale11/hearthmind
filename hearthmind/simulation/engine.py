@@ -102,6 +102,8 @@ from hearthmind.agents.population import (
     MIGRATION_BOND_THRESHOLD,
     MIGRATION_CHANCE_PER_TICK,
     POPULATION_CRITICAL_THRESHOLD,
+    VOICE_CONVERSATION_HISTORY_TURNS,
+    VOICE_DIALOGUE_COOLDOWN_TICKS,
     Population,
     _bridge_tiles_from_settlements,
     _nudge_trait,
@@ -1879,6 +1881,7 @@ class SimulationEngine:
         ("_maybe_schedule_institution_culture", _JOB_EVENTS),
         ("_schedule_due_cognition", _JOB_NO_ARGS),
         ("_schedule_due_dialogue", _JOB_NO_ARGS),
+        ("_schedule_voice_dialogue", _JOB_NO_ARGS),
     )
 
     def _tick_once(self) -> None:
@@ -1956,6 +1959,18 @@ class SimulationEngine:
         newly_core = self.world.population.maintain_core_cast(target_cast_size)
         if newly_core:
             self._author_minds(newly_core)
+        # Explicit user directive: exactly one fixed core-cast pair
+        # carries all LLM dialogue; every other pair (including former
+        # core-core ones) is now deterministic-only. Cheap every-tick
+        # check (a no-op unless the pair actually changed) — see
+        # Population.maintain_voice_pair's docstring for the rotation
+        # rule on death.
+        new_voice_pair = self.world.population.maintain_voice_pair(self.world.clock.tick_count)
+        if new_voice_pair is not None:
+            a = self.world.population.get(new_voice_pair[0])
+            b = self.world.population.get(new_voice_pair[1])
+            if a is not None and b is not None:
+                self._log("voice_pair_change", f"{a.name} and {b.name} now carry the village's voice.")
         # Per-tick scheduling jobs fire in a fixed order via a declarative
         # table (`_TICK_JOBS`, R2 in docs/REFACTOR-2026-07.md) instead of a
         # hand-maintained call list. Adding a job is one table entry; the
@@ -2843,161 +2858,17 @@ class SimulationEngine:
         return ""
 
     def _schedule_due_dialogue(self) -> None:
-        """Route this tick's due dialogue pairs (v0.70.0). `due_for_
-        dialogue` hands back two buckets: `llm_pairs` (core-core, the
-        only exchanges worth an Ollama call) and `fallback_pairs`
-        (everything else). Core-core pairs get a real LLM job when there's
-        backpressure headroom and daily budget; otherwise they degrade to
-        the deterministic fallback like the crowd pairs. Fallback pairs
-        are resolved inline (no call, no task) so the crowd stays socially
-        alive — relationship/trust/gossip effects still apply — without
-        LLM load. See docs/DECISIONS.md, E2 + core-cast pass."""
-        llm_pairs, fallback_pairs = self.world.population.due_for_dialogue(
+        """Route this tick's due (non-voice-pair) dialogue pairs. Every
+        one of these resolves via the deterministic fallback — no Ollama
+        call, LLM dialogue is reserved entirely for the fixed voice pair
+        (see `_schedule_voice_dialogue`). Still real: relationship/trust/
+        gossip effects apply, the crowd stays socially alive, it just
+        never reaches the event log (`is_llm=False`). See docs/
+        DECISIONS.md, E2 + core-cast pass; explicit user directive for
+        the voice-pair split."""
+        for agent_a, agent_b in self.world.population.due_for_dialogue(
             self.world.config.seed, self.world.clock.tick_count, DIALOGUE_COOLDOWN_TICKS,
-        )
-        demoted: list[tuple] = []
-        # When the LLM is disabled entirely, every pair is deterministic —
-        # skip the task/budget machinery and resolve them all inline.
-        if not self._cognition_runner.enabled:
-            llm_pairs, demoted = [], list(llm_pairs)
-        for agent_a, agent_b in llm_pairs:
-            # Dialogue is the most expendable LLM job (P1.2(ii)) — under
-            # backpressure or a spent daily budget the core-core pair
-            # still talks, just via the deterministic fallback this
-            # tick. Yields before cognition (DIALOGUE_BACKPRESSURE_
-            # FRACTION < 1.0), not at the same bare limit.
-            if self._effective_backlog() >= self._current_backpressure_limit() * DIALOGUE_BACKPRESSURE_FRACTION:
-                self._cognition_runner.calls_dropped_backpressure += 1
-                demoted.append((agent_a, agent_b))
-                continue
-            if not self._consume_llm_budget():
-                demoted.append((agent_a, agent_b))
-                continue
-            # Post-fission (v0.65.0), a colocated pair isn't guaranteed to
-            # belong to the founding settlement — resolve the actual home
-            # settlement so its name/tradition/beliefs ground the prompt
-            # correctly instead of a fissioned pair "living in" the wrong
-            # town. See docs/DECISIONS.md, "dialogue grounding fix."
-            local = self._settlement_by_id(agent_a.settlement_id)
-            latest_tradition = local.traditions[-1] if local.traditions else ""
-            affinity = agent_a.relationships.get(agent_b.id, 0.0)
-            beliefs_about = beliefs.beliefs_about_agent(
-                agent_a.id, local.beliefs
-            ) + beliefs.beliefs_about_agent(agent_b.id, local.beliefs)
-            other_settlement_name, cross_relation = "", None
-            if agent_b.settlement_id != agent_a.settlement_id:
-                other = self._settlement_by_id(agent_b.settlement_id)
-                other_settlement_name = other.name
-                cross_relation = local.relation_with(other.id)
-            lessons = (
-                self._matching_lesson(agent_a, self._current_situation_tag(agent_a)),
-                self._matching_lesson(agent_b, self._current_situation_tag(agent_b)),
-            )
-            recent_topics = self.world.population.recent_dialogue_topics(agent_a.id, agent_b.id)
-            # v0.87.16 "reduce conversational convergence": weather only
-            # actually reaches the prompt text when it's genuinely
-            # notable — see dialogue.build_prompt's weather_notable
-            # docstring.
-            weather_notable = (
-                self.world.weather.sky() not in ("clear", "partly_cloudy", "overcast")
-                or self.world.weather.wind_label() == "gale"
-            )
-            grounded_recent = recent_events_diverse(self.conn, limit=5)
-            grounded_event = ""
-            if grounded_recent:
-                # Live audit finding (P1.1): always picking index [0] (the
-                # single most recent diverse event) meant grounded_event
-                # was overwhelmingly whatever routine thing just happened
-                # (usually a field planting at current event mix) — a
-                # top-3 contributor to the topic-monoculture measured in
-                # P0.2 ("new field"/"field"/"the field" as dominant
-                # topics). Weighted pick across the top-5 instead, still
-                # favoring recency but no longer deterministically
-                # ignoring the other four.
-                grounded_rng = _namespaced_rng(
-                    self.world.config.seed, self.world.clock.tick_count,
-                    f"dialogue_grounded_event_{agent_a.id}_{agent_b.id}",
-                )
-                weights = GROUNDED_EVENT_PICK_WEIGHTS[:len(grounded_recent)]
-                chosen = grounded_rng.choices(grounded_recent, weights=weights, k=1)[0]
-                # Also P1.1: raw "at (x, y)" coordinates were showing up
-                # verbatim in spoken dialogue ("Remember the field at
-                # sixty, forty-five?") — simulation scaffolding an NPC
-                # has no business reciting. Strip rather than translate
-                # to a place name (most events aren't near a named
-                # place); the sentence still reads fine without it.
-                grounded_event = _EVENT_COORDINATE_RE.sub("", chosen["description"]).strip()
-            is_family_pair = (
-                (agent_a.parents is not None and agent_b.id in agent_a.parents)
-                or (agent_b.parents is not None and agent_a.id in agent_b.parents)
-            )
-            opportunity_rng = _namespaced_rng(
-                self.world.config.seed, self.world.clock.tick_count,
-                f"dialogue_opportunity_{agent_a.id}_{agent_b.id}",
-            )
-            settlement_topics = [t for t, _count in local.top_topics()]
-            opportunity_candidates = dialogue.build_opportunity_candidates(
-                agent_a, agent_b, is_family_pair, recent_topics, settlement_topics,
-                list(local.place_names.values()), grounded_event, weather_notable,
-                self.world.weather.describe(),
-            )
-            opportunities = dialogue.select_opportunities(opportunity_candidates, opportunity_rng)
-            # Phase 2 "dialogue as a simulation event": each speaker's
-            # own want for THIS exchange, grounded in the ledger (an
-            # open debt/grievance toward the other) and Phase 1.B's
-            # long_term_goal — "" (most exchanges) when neither yields
-            # anything concrete for that speaker.
-            objectives = (
-                self._dialogue_objective(agent_a, agent_b),
-                self._dialogue_objective(agent_b, agent_a),
-            )
-            open_promises = agent_a.ledger.open_promises(agent_b.id) + agent_b.ledger.open_promises(agent_a.id)
-            open_thread = open_promises[-1]["text"] if open_promises else ""
-            prompt = dialogue.build_prompt(
-                agent_a, agent_b, affinity, local.name, latest_tradition,
-                self.world.clock.season, self.world.weather.describe(), beliefs_about=beliefs_about,
-                other_settlement_name=other_settlement_name, cross_settlement_relation=cross_relation,
-                lessons=lessons, recent_topics=recent_topics, weather_notable=weather_notable,
-                lexicon=local.lexicon, settlement_topics=settlement_topics,
-                place_names=list(local.place_names.values()), grounded_event=grounded_event,
-                opportunities=opportunities, objectives=objectives, open_thread=open_thread,
-            )
-            fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
-            self._reserved_this_tick += 1
-            task = asyncio.create_task(
-                self._run_dialogue(
-                    agent_a.id, agent_b.id, prompt, fallback,
-                    structured_input={
-                        "affinity": affinity, "settlement": local.name,
-                        "other_settlement_name": other_settlement_name,
-                        "weather_notable": weather_notable, "recent_topics": recent_topics,
-                        # "Improve context selection instead of context
-                        # quantity" + review-pack diagnostics (explicit
-                        # live request): which opportunity category(ies)
-                        # actually got surfaced this call, plus which
-                        # optional context fields were genuinely
-                        # available — lets `llm/review_diagnostics.py`
-                        # measure topic diversity and context usage
-                        # directly from the archive instead of re-parsing
-                        # prompt text.
-                        "opportunities": [category for category, _text in opportunities],
-                        "context_available": {
-                            "pair_history": bool(recent_topics),
-                            "settlement_topic": bool(settlement_topics),
-                            "place": bool(local.place_names),
-                            "village_event": bool(grounded_event),
-                            "family": is_family_pair,
-                            "beliefs": bool(beliefs_about),
-                            "lexicon": bool(local.lexicon),
-                        },
-                    },
-                    settlement=local.name,
-                )
-            )
-            self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
-
-        for agent_a, agent_b in fallback_pairs + demoted:
+        ):
             self._queue_fallback_dialogue(agent_a, agent_b)
 
     def _queue_fallback_dialogue(self, agent_a, agent_b) -> None:
@@ -3005,15 +2876,116 @@ class SimulationEngine:
         it onto the same pending-results queue an LLM exchange uses, so it
         flows through `_apply_pending_dialogue_results` identically (same
         relationship/trust/gossip effects, logging, surfacing) — just with
-        no Ollama call. The crowd's social life, and any core-core pair
-        that lost its LLM slot to backpressure/budget, runs through here.
-        See _schedule_due_dialogue (v0.70.0)."""
+        no Ollama call. See _schedule_due_dialogue."""
         affinity = agent_a.relationships.get(agent_b.id, 0.0)
         fallback = dialogue.fallback_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
         parsed = dialogue.parse_dialogue(fallback, fallback)
         self._pending_dialogue_results.append(
             (self.world.clock.tick_count, agent_a.id, agent_b.id, parsed, False)
         )
+
+    def _schedule_voice_dialogue(self) -> None:
+        """Explicit user directive: the town's ONE LLM-dialogue pair
+        (`Population.voice_pair_ids`, maintained by `maintain_voice_pair`
+        every tick). Backpressure/budget-exhausted ticks degrade to the
+        deterministic fallback, same discipline as every other LLM job —
+        the pair still "talks," it just isn't the deep model-authored
+        exchange that tick."""
+        due = self.world.population.due_for_voice_dialogue(
+            self.world.clock.tick_count, VOICE_DIALOGUE_COOLDOWN_TICKS,
+        )
+        if due is None:
+            return
+        agent_a, agent_b = due
+        affinity = agent_a.relationships.get(agent_b.id, 0.0)
+        fallback = dialogue.fallback_voice_dialogue(agent_a, agent_b, affinity, self.world.clock.tick_count)
+        if (
+            not self._cognition_runner.enabled
+            or self._effective_backlog() >= self._current_backpressure_limit() * DIALOGUE_BACKPRESSURE_FRACTION
+            or not self._consume_llm_budget()
+        ):
+            parsed = dialogue.parse_voice_dialogue(fallback, fallback)
+            self._pending_dialogue_results.append(
+                (self.world.clock.tick_count, agent_a.id, agent_b.id, parsed, False)
+            )
+            return
+        local = self._settlement_by_id(agent_a.settlement_id)
+        # Explicit user directive: "a very concise summary of the town
+        # and happenings" — deliberately NOT the full grounding
+        # apparatus `_schedule_due_dialogue`'s old LLM path used
+        # (opportunities/beliefs/lexicon/etc.) — one condensed sentence,
+        # reusing the town-brain decision already computed this month
+        # rather than a fresh read of raw stats.
+        town_bits = []
+        if local is not None:
+            if local.current_priority:
+                town_bits.append(f"the village's current focus is {local.current_priority}")
+            pop = self.world.population.summary()
+            town_bits.append(f"population {pop['total']}, {self.world.clock.season}")
+        town_digest = "; ".join(town_bits)
+
+        def _internal_state(agent) -> str:
+            bits = [f"hunger {agent.hunger:.2f}, energy {agent.energy:.2f}, currently {agent.goal.value}"]
+            emotion = describe_emotion(agent.emotions)
+            if emotion:
+                bits.append(f"feeling {emotion}")
+            return ", ".join(bits)
+
+        conversation_so_far = [
+            {
+                "speaker": agent_a.name if turn["speaker_id"] == agent_a.id else agent_b.name,
+                "text": turn["text"],
+            }
+            for turn in self.world.population.voice_conversation[-VOICE_CONVERSATION_HISTORY_TURNS:]
+        ]
+        prompt = dialogue.build_voice_prompt(
+            agent_a, agent_b, affinity, local.name if local else "",
+            town_digest=town_digest, internal_state_a=_internal_state(agent_a),
+            internal_state_b=_internal_state(agent_b), conversation_so_far=conversation_so_far,
+        )
+        self._reserved_this_tick += 1
+        task = asyncio.create_task(
+            self._run_voice_dialogue(
+                agent_a.id, agent_b.id, prompt, fallback,
+                structured_input={"affinity": affinity, "settlement": local.name if local else ""},
+                settlement=local.name if local else None,
+            )
+        )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _run_voice_dialogue(
+        self, agent_a_id: int, agent_b_id: int, prompt: str, fallback: dict,
+        structured_input: dict | None = None, settlement: str | None = None,
+    ) -> None:
+        """Voice pair counterpart to `_run_dialogue` — separate parse
+        path (`parse_voice_dialogue`, wider length ceiling, no tic-
+        spread check since this is one dedicated pair, not many
+        rotating speakers) but the SAME pending-results queue, so
+        `_apply_pending_dialogue_results` applies/surfaces it exactly
+        like an ordinary LLM exchange. Also records both lines into
+        `voice_conversation` for the NEXT call's continuity, regardless
+        of whether this result is later found stale for `apply_
+        dialogue` purposes — the thread itself should still remember
+        what was said."""
+        scheduled_tick = self.world.clock.tick_count
+        call_start = time.perf_counter()
+        result, used_fallback, raw_completion = await self._cognition_runner.run(
+            prompt, dialogue.VOICE_SYSTEM_PROMPT, fallback=lambda: fallback,
+        )
+        parsed = dialogue.parse_voice_dialogue(result, fallback)
+        self.world.population.record_voice_line(agent_a_id, parsed["line_a"], scheduled_tick)
+        self.world.population.record_voice_line(agent_b_id, parsed["line_b"], scheduled_tick)
+        self._pending_dialogue_results.append(
+            (scheduled_tick, agent_a_id, agent_b_id, parsed, not used_fallback)
+        )
+        self._record_llm_debug(
+            "voice_dialogue", prompt, result, used_fallback, (time.perf_counter() - call_start) * 1000,
+            system_prompt=dialogue.VOICE_SYSTEM_PROMPT, raw_completion=raw_completion,
+            structured_input=structured_input, npc_ids=[agent_a_id, agent_b_id], settlement=settlement,
+            outcome={"status": "queued_pending_apply"},
+        )
+        self._record_llm_call(used_fallback)
 
     async def _run_dialogue(
         self, agent_a_id: int, agent_b_id: int, prompt: str, fallback: dict,

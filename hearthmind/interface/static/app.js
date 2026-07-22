@@ -119,6 +119,7 @@ const CATEGORY_META = {
   death: { icon: "💀" },
   dialogue: { skip: true }, // routine background chatter — recorded internally (/events, dev console) but not the main feed; see dialogue_surfaced
   dialogue_surfaced: { icon: "💬" }, // a conversation that actually changed a belief/relationship/rumor — see population.py's apply_dialogue `surfaced` flag
+  voice_pair_change: { icon: "🗣" }, // the town's one LLM-dialogue pair changed (death/rotation)
   rumor: { icon: "📣" },
   tradition: { icon: "🎭" },
   invention: { icon: "💡" },
@@ -194,7 +195,7 @@ const CATEGORY_META = {
 // Event-log filter chips (v0.64.0 UI backlog): coarse groups, display-only —
 // everything is still stored and still reaches /events untouched.
 const EVENT_GROUP_OF = {
-  birth: "people", death: "people", dialogue_surfaced: "people", rumor: "people",
+  birth: "people", death: "people", dialogue_surfaced: "people", voice_pair_change: "people", rumor: "people",
   migrant_arrived: "people", migrant_departed: "people", inheritance: "people", dispute: "people",
   record_written: "people", illness: "people", recovery: "people", predator_attack: "people",
   family_feud: "people", knowledge_lost: "people", theft: "people",
