@@ -35,31 +35,41 @@ no genetics). det_sys.md's core ask — "procedural generation as a
 *continuous runtime process*, not a world-generation step" — is the
 through-line for nearly every PARTIAL below.
 
-### A1 — Continuous environmental fields [det #1] — PARTIAL → the foundation
+### A1 — Continuous environmental fields [det #1] — SHIPPED (scoped, v1.4.9) → the foundation
 
 - [ ] **Status:** A 9-region climate grid and sparse `terrain_activity`/
   `mining_scars`/`disaster_scars` dicts exist in `world/state.py`;
   explicitly *not* per-tile fields (deferred as "R7/C++-first").
-- [ ] **Spec:** Introduce a `FieldGrid` abstraction — a set of named
+- [x] **Spec:** Introduce a `FieldGrid` abstraction — a set of named
   scalar fields over the map (moisture, fertility, nutrients, disease-
   pressure, pollution, scent, traffic, heat, cultural-influence,
   ownership, beauty, noise), each a 2D array updated per tick by a
   local rule. Start coarse (the existing region grid resolution) and
   raise resolution as the C++ store allows; the *interface* (named
   fields, per-tick update, cross-field coupling) matters more than
-  resolution day one.
-- [ ] **Data model:** `World.fields: dict[str, ndarray]` (or C++ dense
+  resolution day one. **Shipped**: `world/fields.py`'s `FieldGrid`
+  abstraction, coarse (3x3, matching `WEATHER_REGION_GRID`). Only
+  `population_density` is a real field so far — the other eleven named
+  above are NOT built; each is a future follow-up onto the same grid.
+- [x] **Data model:** `World.fields: dict[str, ndarray]` (or C++ dense
   columns), each with a per-tick `step(fields, terrain) -> delta`
-  function; bounded, clamped, serialized.
+  function; bounded, clamped, serialized. **Shipped** (Python dense
+  lists, not C++ — R7 deviation flagged, a 3x3 grid is too small to
+  justify a native port yet; `to_dict`/`from_dict` serialize it).
 - [ ] **Replaces/extends:** Generalizes `terrain_activity`/scars (which
-  become *two fields* among many) and the region climate grid.
+  become *two fields* among many) and the region climate grid. NOT
+  done — `terrain_activity`/`mining_scars`/`disaster_scars` and the
+  climate grid remain their own separate stores; migrating them onto
+  `FieldGrid` is future work, not attempted this pass.
 - [ ] **Feeds:** *Everything.* "Trees don't exist; they emerge because
   the fields allow them" (det #1) — vegetation, wildlife, farming,
   settlement siting all read fields. This is the single most load-
   bearing Body item; A2–A11 largely become field-update rules once this
-  exists.
-- [ ] **Sequencing:** First. It's the substrate the rest of Part A
-  writes to.
+  exists. Only ONE real consumer shipped (fission-site selection reads
+  `population_density`) — vegetation/wildlife/farming do not read
+  fields yet.
+- [x] **Sequencing:** First. It's the substrate the rest of Part A
+  writes to. Shipped ahead of A2-A11, per this line's own instruction.
 
 ### A2 — Interacting local-rule systems: CA / diffusion / reaction-diffusion [det #2] — PARTIAL
 
@@ -275,21 +285,32 @@ through-line for nearly every PARTIAL below.
   (selective pressure from humans). Emergent species variants (already
   prototyped via LLM) get a deterministic substrate.
 
-### A16 — Graph representation + graph algorithms [det #16] — PARTIAL
+### A16 — Graph representation + graph algorithms [det #16] — PARTIAL (scoped, v1.4.9)
 
 - [ ] **Status:** The pairwise ledger is an edge store; economy/farms
   have adjacency; but no graph *algorithms* (centrality, flow,
   community detection) are run.
-- [ ] **Spec:** Represent relationships, institutions, economy, trade,
+- [x] **Spec:** Represent relationships, institutions, economy, trade,
   transport, beliefs, tech, ecosystems as explicit graphs and *analyze*
   them: trade as network-flow, influence as centrality, factions as
   community-detection, tech as a dependency DAG, information as
   propagation (A17). Cheap, deterministic, and a rich Emergence-API
-  source.
-- [ ] **Feeds:** the pillars perceive *structural* facts ("this family
+  source. **Shipped**: `world/graph_algorithms.py`'s weighted-degree
+  centrality over the existing relationship ledger (`build_
+  relationship_graph`/`degree_centrality`/`most_central_agent`).
+  Community detection was already shipped as `InstitutionKind.FACTION`
+  detection (v0.80.0) under a different name — confirmed, not
+  duplicated. Trade-as-network-flow, tech-as-DAG, and information-
+  propagation (A17) are NOT built — centrality is the only algorithm
+  shipped.
+- [x] **Feeds:** the pillars perceive *structural* facts ("this family
   became the trade hub," "the village split into two communities") they
   currently can't see. Graph metrics are high-signal, low-token
-  observations — ideal cognition inputs.
+  observations — ideal cognition inputs. **Shipped**: `Settlement.
+  social_hub_agent_id` + `SimulationEngine._detect_social_hub` (season
+  cadence, edge-triggered) emits an A22 `unexplained_shift` observation
+  when the structural fact changes — feeds the Emergence API exactly
+  as this line asks.
 
 ### A17 — Information as a deterministic ecosystem [det #17] — PRESENT-ish
 
@@ -351,21 +372,35 @@ through-line for nearly every PARTIAL below.
 - [ ] **Feeds:** years remain cognitively manageable; the knowledge tree
   (terrarium doc 3.2) is this pipeline's output.
 
-### A22 — The Emergence API [det #22] — MISSING (prototyped)
+### A22 — The Emergence API [det #22] — SHIPPED (scoped, v1.4.8)
 
-- [ ] **Status:** The highlight/anomaly log prototypes the idea; not a
-  per-subsystem structured stream.
-- [ ] **Spec:** Every deterministic subsystem exposes a stream of
+- [x] **Status:** The highlight/anomaly log prototypes the idea; not a
+  per-subsystem structured stream. **Now superseded**: `world/
+  emergence.py` + `World.emergence_log` is the real structured stream;
+  `highlights` still exists unchanged underneath it (mirrored into
+  emergence via `_HIGHLIGHT_EMERGENCE_MAP`), not replaced.
+- [x] **Spec:** Every deterministic subsystem exposes a stream of
   *interesting* observations — anomalies (metric off its rolling norm),
   novel combinations (affordance/reaction never seen), bottlenecks
   (network-flow saturation), unexplained shifts, opportunities — tagged
   by which pillar would care. Not raw state: *curated salience*.
-- [ ] **Data model:** `subsystem.emergence_events() -> list[Observation]`
-  with type, magnitude, location, pillar-relevance.
-- [ ] **Feeds:** **this is the pillars' senses** (Part C). It's the
+  **Shipped**: all five `OBSERVATION_KINDS` implemented; producers
+  today are highlights (8 kinds), the reflection hypothesis lifecycle,
+  ontology concept promotion, a settlement materials-bottleneck
+  detector, and (v1.4.9) the social-hub graph-centrality detector — NOT
+  literally "every deterministic subsystem" yet, more producers are
+  future follow-ups onto the same stream.
+- [x] **Data model:** `subsystem.emergence_events() -> list[Observation]`
+  with type, magnitude, location, pillar-relevance. **Shipped** as
+  `world.emergence.make_observation()` (kind/subsystem/summary/
+  pillars/magnitude/settlement/data), validated against closed
+  `OBSERVATION_KINDS`/`PILLARS` vocabularies.
+- [x] **Feeds:** **this is the pillars' senses** (Part C). It's the
   single most important Body↔Mind interface item — without it, cognition
   drowns in raw data or eats hand-picked slices. Build it alongside the
-  pillar refactor, not after.
+  pillar refactor, not after. The stream itself shipped first (v1.4.8);
+  B1 (v1.5.0) is the first pillar refactor step, but no pillar reads
+  `emergence_log` yet — that's still ahead (Stage II, B2 onward).
 
 ### A23 — Composability over content [det #23] — PRINCIPLE
 
@@ -398,14 +433,23 @@ through-line for nearly every PARTIAL below.
 Covered in depth in FIVE-PILLARS-REFACTOR-2026-07-22; summarized here so
 the master is complete, with the Body-dependencies made explicit.
 
-### B1 — The Pillar abstraction — MISSING (the keystone)
+### B1 — The Pillar abstraction — PARTIAL (Nature only, v1.5.0) — the keystone
 
-- [ ] Five persistent conscious entities (Humans, Village, Nature,
+- [x] Five persistent conscious entities (Humans, Village, Nature,
   Innovation, Reflection), each with identity, self-model, world-model
   (typed theories, confidence, observations-vs-hypotheses), living memory
   (consolidate/forget/reinforce/reinterpret), objectives, inbox/outbox.
   Refactor the ~55 scattered jobs into acts of these five. **Depends on
-  A22** (senses) and **A16** (structural perception).
+  A22** (senses) and **A16** (structural perception). **Shipped, scoped
+  to ONE of five**: `cognition/pillar.py`'s `Pillar` class (identity,
+  self_model, typed world_model — status observation-vs-hypothesis,
+  memory — a capped FIFO list, not yet real consolidate/forget/
+  reinforce, objectives, inbox/outbox with B4's typed message
+  vocabulary) proven against `World.nature_pillar`, mirroring the
+  existing `nature_mind` belief job. Humans/Village/Innovation/
+  Reflection do NOT have a Pillar instance yet; the "refactor ~55
+  scattered jobs" is NOT attempted — only nature_mind's one job writes
+  through this shape so far.
 
 ### B2 — The continuous cognitive cycle — MISSING
 
