@@ -476,6 +476,19 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.4.6)
+
+Explicit user follow-up on v1.4.5 with a fresh diagnostic + dialogue
+log: self-naming confirmed fixed, but exact-line repeats were still
+visible. Root cause: v1.4.5's Jaccard dedup backstop only checks
+against `Population.voice_conversation`'s stored ring, capped at
+`MAX_VOICE_CONVERSATION_STORED` — the reported repeats recurred ~650
+ticks apart (100+ exchanges at the fastest cooldown), well outside the
+old 24-entry cap, so the earlier occurrence was long evicted before
+the repeat happened. Raised to 220 — cheap (small dicts, still just
+the backstop's lookback; the prompt itself still only reads the newest
+`VOICE_CONVERSATION_HISTORY_TURNS`).
+
 ## Current state (v1.4.5)
 
 Explicit user follow-up after v1.4.4 made voice-pair dialogue visible

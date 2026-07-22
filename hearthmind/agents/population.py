@@ -987,11 +987,24 @@ VOICE_CONVERSATION_HISTORY_TURNS = 6
 thread without letting an already-long-running conversation dominate
 the prompt. See llm/dialogue.py's build_voice_prompt."""
 
-MAX_VOICE_CONVERSATION_STORED = 24
+MAX_VOICE_CONVERSATION_STORED = 220
 """Cap on `Population.voice_conversation`'s ring — comfortably more
 than VOICE_CONVERSATION_HISTORY_TURNS actually reads each call, so a
 little history survives past what any single prompt uses, same
-oldest-dropped-first discipline as every other capped ring here."""
+oldest-dropped-first discipline as every other capped ring here.
+
+Raised 24 -> 220 in v1.4.6: this ring is also the ONLY place
+`dialogue._is_near_duplicate_line`'s repetition backstop (see
+VOICE_LINE_DUPLICATE_OVERLAP) looks for a speaker's own past lines,
+and a live-reported repeat recurred ~650 ticks apart — at `VOICE_
+DIALOGUE_COOLDOWN_TICKS=5`'s fastest cadence that's well over 100
+exchanges, far outside the old 24-entry window (which had already
+evicted the earlier occurrence long before the repeat happened, so the
+backstop never got a chance to catch it). 220 covers a Wilhelmina/
+Quill-shaped run comfortably even at the fastest cooldown; still a
+bounded ring, still cheap (small dicts, no LLM cost either way — the
+prompt itself still only ever reads the newest VOICE_CONVERSATION_
+HISTORY_TURNS)."""
 
 PROMINENCE_BOND_WEIGHT = 4000.0
 """Weight on an agent's bond count in `_prominence` (core-cast refill

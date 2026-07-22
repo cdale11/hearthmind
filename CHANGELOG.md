@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.4.6] — Widen voice_conversation's retention cap so the repetition backstop actually reaches
+
+Explicit user follow-up on v1.4.5, off a fresh `/diagnostics` +
+dialogue log: self-naming is fixed (confirmed absent across the whole
+log) and `calls_errored`/`calls_timed_out` both stayed low/zero — but
+exact-line repeats were still visible ("Wilhelmina: 'Is that so.'"
+recurring, "then we'll dream it real, don't we?" recurring), even
+though v1.4.5's dedup backstop is running.
+
+Root cause: `dialogue._is_near_duplicate_line` only ever checks
+against what's still IN `Population.voice_conversation`'s ring, capped
+at `MAX_VOICE_CONVERSATION_STORED=24`. The reported repeats recurred
+~650 ticks apart — at the voice pair's fastest cadence (`VOICE_
+DIALOGUE_COOLDOWN_TICKS=5`) that's 100+ exchanges, meaning the earlier
+occurrence had long since been evicted from a 24-entry ring by the
+time the repeat happened; the backstop was working exactly as coded,
+its lookback window was just too short to ever catch a repeat that far
+apart. Fixed by raising `MAX_VOICE_CONVERSATION_STORED` 24 -> 220 —
+comfortably covers 1000+ ticks of continuous fastest-cadence exchanges
+before evicting anything, at negligible memory cost (small dicts, a
+capped list, no LLM cost either way since the PROMPT itself still only
+ever reads the newest `VOICE_CONVERSATION_HISTORY_TURNS` (6) — only
+the backstop's own lookback widens).
+
+Verified: `MAX_VOICE_CONVERSATION_STORED` constant check,
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical
+— no native module touched, and this constant only governs how much
+of an already-deterministic Python list gets retained.
+
 ## [1.4.5] — Fix voice-pair repetition attractor and self-name addressing
 
 Explicit user follow-up after v1.4.4 made the voice pair's dialogue
