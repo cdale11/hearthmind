@@ -4,6 +4,77 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.34] — Living Terrarium items 1.4, 2.4: self-tuning, and Reflection that acts
+
+Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md's own sequence,
+"5. 1.4 + 2.4 — the world tuning and modifying itself, inside
+guardrails." The two items are one mechanism: 1.4 is the proposal,
+2.4 is the (sandboxed) act.
+
+**The signal.** `World.wildfire_ignition_ticks` (a small capped
+rolling window) records the real tick of every wildfire ignition;
+`_detect_reflection_pattern` gained a governor-drift branch comparing
+the realized mean gap between ignitions against the theoretical gap
+`disasters.WILDFIRE_CHANCE_PER_WEEK` implies (`GOVERNOR_DRIFT_RATIO=
+2.0`, needs `GOVERNOR_DRIFT_MIN_SAMPLES=5` real ignitions first) — the
+vision doc's own worked example ("wildfires feel too rare to matter"),
+grounded only in Body state, never a free-text hunch. This is the same
+existing Reflection pipeline everything else in Phase 5 uses — a
+recurring pattern becomes an open hypothesis, then (via the existing
+deterministic `_reevaluate_reflection_hypotheses`) a `supported` one
+once it survives multiple year-cadence cycles.
+
+**The proposal (1.4).** New `llm/self_tuning.py`: once a `supported`
+hypothesis names a governor in the closed `TUNABLE_GOVERNORS`
+vocabulary (`{"wildfire frequency": "wildfire_chance"}` — the only
+governor wired to a real mechanical effect so far), one LLM call
+proposes a direction (raise/lower) and a magnitude (0..1, a FRACTION of
+the allowed band, never a raw value). `disasters.GOVERNOR_TUNING_BAND
+=0.3` (±30%) is enforced by `apply_bounded_nudge`, the interpreter
+itself — structurally, regardless of what the model asks for.
+`tick_wildfire` gained a `chance_multiplier` param reading `World.
+governor_tuning.get("wildfire_chance", 1.0)`; `decay_disaster_scars`-
+style, this is the second governor items 2.1/2.3 and 1.4 both touch
+(disaster_scars via `nature_adaptation_bias`, wildfire ignition via
+self-tuning) — deliberately the same low-native-parity-risk module
+region.
+
+**The act (2.4).** `SimulationEngine._maybe_schedule_self_tuning`
+(world-scoped, year-cadence, `critical=True` — a genuine judgment
+about the world's own balance, deferred rather than faked). The
+proposed tuning is built on a disposable DEEP-COPIED world (`World.
+from_dict`) FIRST — real `World.governor_tuning` is never touched
+until `simulation.sandbox.run_counterfactual` confirms the copy
+survives 50 ticks without crashing/exploding (item 1.3's sandbox
+actually gating a real self-modification, not just rule proposals).
+New `World.self_tuning_actions` (append-only, never pruned, same
+discipline as `reflection_notebook`) logs every attempt — applied,
+rejected by the sandbox, or a deliberate no-op below `SELF_TUNING_MIN_
+MAGNITUDE=0.05` — "logged verbosely as the world's own decision,"
+exactly as the vision doc asked. A hypothesis is only ever acted on
+once (`self_tuning_actions`' own `hypothesis_id`s gate re-firing).
+Reflection still never touches Body state directly outside this one
+narrow, sandboxed, bounded exception.
+
+**Surfacing.** Dev-console depth, same treatment as `reflection_
+notebook` (`_diagnostics_snapshot()` gained `governor_tuning`/`self_
+tuning_actions_recent`); an *applied* action also appears in `World.
+knowledge_tree()` (new `type: "self_tuning"` entry, 🎛 icon) — visible
+in the existing knowledge-tree UI panel alongside every other LLM-
+originated persistent decision.
+
+Verified: direct tests for `nature_adaptation_bias`-adjacent
+`GOVERNOR_DRIFT_RATIO` detection (no ignitions, severe drift, normal
+spacing — each producing the right pattern/no-pattern), `self_tuning.
+apply_bounded_nudge`/`parse_self_tuning`, and a full synchronous
+pipeline test (seeded `supported` hypothesis -> faked LLM proposal ->
+sandbox-validated -> `governor_tuning` mutated for real -> re-firing on
+the same hypothesis id correctly skipped). `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical — `tick_wildfire` sits in
+`World.tick()`'s hot path. A 3000-4000-tick LLM-disabled engine soak
+with full `World.to_dict()` round-trip equality, `knowledge_tree()`/
+`_diagnostics_snapshot()` both exercised without error.
+
 ## [1.3.33] — Living Terrarium items 2.1, 2.3: Nature that adapts and can surprise the Village
 
 Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md's own sequence,

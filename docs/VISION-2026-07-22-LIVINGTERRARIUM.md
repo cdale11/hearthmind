@@ -83,14 +83,19 @@ still validated deterministically.**
   hypothesis machinery; this is the "test the hypothesis in a jar"
   half.
 
-- [ ] **1.4 [LIKELY] — Self-tuning as bounded proposals (Reflection
-  5.D/5.E).** Let Reflection propose *adjustments to its own world's
-  balance constants* — but only ones expressed as bounded nudges to
-  existing governors (the homeostatic bands), never raw values, and
-  only after 1.3's sandbox validates them. "Wildfires feel too rare to
-  matter; widen the ignition band 10%." The simulation tuning itself,
-  inside guardrails. This is "proposes modifications to itself" made
-  real and safe.
+- [x] **1.4 [LIKELY] — Self-tuning as bounded proposals (Reflection
+  5.D/5.E).** **Shipped v1.3.34**, together with 2.4 below — the two
+  are one mechanism. `_detect_reflection_pattern` gained a governor-
+  drift branch: `World.wildfire_ignition_ticks` (a small rolling window
+  of real ignition ticks) compared against `disasters.WILDFIRE_CHANCE_
+  PER_WEEK`'s theoretical rate — the vision doc's own worked example,
+  verbatim. Once that pattern survives multiple reflection cycles into
+  a `supported` hypothesis, `llm/self_tuning.py` proposes a direction +
+  bounded magnitude (never a raw value) for the one wired governor
+  (`wildfire_chance`); `disasters.GOVERNOR_TUNING_BAND=0.3` (±30%) is
+  enforced by the interpreter itself, not by trusting the model. Only
+  one governor wired to a real mechanical effect so far — `self_tuning.
+  TUNABLE_GOVERNORS` is the closed vocabulary a future governor joins.
 
 - [ ] **1.5 [CREATIVE] — A visible "law of nature" ontology for
   emergent rules.** When 1.2's trigger→effect rules accumulate, surface
@@ -145,14 +150,22 @@ learn, and act with real agency, symmetric to humans.
   pass — flagged as the natural sequel once 2.2's institution-driven
   actions land.
 
-- [ ] **2.4 [CREATIVE] — The world-Mind: a Reflection that acts.**
-  Today Reflection observes and hypothesizes but "never touches Body."
-  Consider a narrow, sacred exception downstream of the sandbox (1.3):
-  Reflection may enact *one* validated self-tuning proposal per long
-  period, logged verbosely as the world's own decision. This is the
-  simulator itself becoming the fifth sentient agent — the terrarium
-  that doesn't just get maintained, but maintains itself, and tells you
-  it did.
+- [x] **2.4 [CREATIVE] — The world-Mind: a Reflection that acts.**
+  **Shipped v1.3.34**, together with 1.4 above. `Simulation
+  Engine._maybe_schedule_self_tuning` (world-scoped, year-cadence,
+  `critical=True` — deferred, never faked, on a spent budget/failed
+  call): before ever touching real state, builds the proposed tuning on
+  a disposable DEEP-COPIED world (`World.from_dict`) and only applies
+  it to the real `World.governor_tuning` after `simulation.sandbox.
+  run_counterfactual` confirms the copy survives 50 ticks without
+  crashing/exploding — item 1.3's sandbox actually gating a real
+  self-modification, not just rule proposals. Every attempt (applied/
+  rejected/no_adjustment) is logged verbosely and permanently in the
+  new `World.self_tuning_actions` (append-only, mirrors `reflection_
+  notebook`'s never-pruned discipline) — "logged verbosely as the
+  world's own decision," exactly as the vision doc asked. Reflection
+  still never touches Body state directly outside this one narrow,
+  sandboxed, bounded exception.
 
 ## Capability 3 — The daily-peek experience (why you open the UI)
 

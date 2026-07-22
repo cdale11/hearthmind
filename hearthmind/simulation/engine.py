@@ -72,7 +72,9 @@ from hearthmind.llm import (
     diplomacy, laws, letters, noncore_nudge, institution_culture, nature_mind, reflection, rule_propose,
 )
 from hearthmind.llm import ontology as ontology_llm
+from hearthmind.llm import self_tuning
 from hearthmind.world import ontology
+from hearthmind.world.disasters import GOVERNOR_TUNING_BAND, WILDFIRE_CHANCE_PER_WEEK
 from hearthmind.simulation.sandbox import run_counterfactual
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
@@ -417,6 +419,25 @@ confidence; one whose pattern no longer clears its own threshold loses
 some. Crossing `_SUPPORTED_THRESHOLD`/`_REJECTED_THRESHOLD` transitions
 status — supported/rejected hypotheses stop being re-evaluated (the
 notebook itself is never pruned, only status-transitioned)."""
+
+GOVERNOR_DRIFT_MIN_SAMPLES = 5
+GOVERNOR_DRIFT_RATIO = 2.0
+"""Vision doc item 1.4's own worked example ("wildfires feel too rare
+to matter"): `_detect_reflection_pattern`'s governor-drift branch reads
+`World.wildfire_ignition_ticks` (needs at least `_MIN_SAMPLES` real
+ignitions to say anything — a small sample is noise, not drift) and
+compares the REALIZED mean tick-gap between consecutive ignitions
+against the THEORETICAL mean gap `disasters.WILDFIRE_CHANCE_PER_WEEK`
+implies. A ratio (realized/theoretical, or its inverse) clearing
+`_DRIFT_RATIO` is treated as a genuine, sustained drift worth a
+hypothesis — not RNG noise around the configured rate."""
+
+SELF_TUNING_MIN_MAGNITUDE = 0.05
+"""Vision doc items 1.4/2.4: a proposed nudge below this magnitude is
+treated as "no real adjustment warranted" — recorded in `World.self_
+tuning_actions` (so the same supported hypothesis isn't re-asked about
+every year-cadence firing) but never sandbox-validated or applied,
+since there is nothing to validate."""
 
 TRIGGER_DROUGHT_HEAT_PRESSURE_THRESHOLD = 0.9
 """Vision doc item 1.2's `on_drought` edge-detection threshold — reused
@@ -1755,6 +1776,7 @@ class SimulationEngine:
         ("_maybe_schedule_culture_digest", _JOB_EVENTS),
         ("_maybe_schedule_consciousness", _JOB_EVENTS),
         ("_maybe_schedule_reflection", _JOB_EVENTS),
+        ("_maybe_schedule_self_tuning", _JOB_EVENTS),
         ("_maybe_schedule_caravan", _JOB_EVENTS),
         ("_maybe_schedule_town_brain", _JOB_EVENTS),
         ("_maybe_schedule_beliefs", _JOB_EVENTS),
@@ -4677,6 +4699,27 @@ class SimulationEngine:
                             f"'{bottom_cat}' concepts, out of {len(established)} established total."
                         ),
                     }
+        # Vision doc item 1.4's own worked example — a genuine governor
+        # drift, grounded only in Body state (WILDFIRE_CHANCE_PER_WEEK's
+        # theoretical rate vs. the realized gap between ignitions),
+        # never a free-text hunch.
+        ticks = self.world.wildfire_ignition_ticks
+        if len(ticks) >= GOVERNOR_DRIFT_MIN_SAMPLES:
+            realized_gap = (ticks[-1] - ticks[0]) / (len(ticks) - 1)
+            ticks_per_week = 7 * self.world.config.minutes_per_day / self.world.config.sim_minutes_per_tick
+            theoretical_gap = ticks_per_week / WILDFIRE_CHANCE_PER_WEEK
+            if theoretical_gap > 0 and realized_gap > 0:
+                ratio = max(realized_gap / theoretical_gap, theoretical_gap / realized_gap)
+                if ratio >= GOVERNOR_DRIFT_RATIO:
+                    direction = "far rarer" if realized_gap > theoretical_gap else "far more frequent"
+                    return {
+                        "subject": "wildfire frequency",
+                        "description": (
+                            f"wildfires are firing {direction} than the configured rate implies — "
+                            f"realized ~{realized_gap:.0f} ticks between ignitions against a theoretical "
+                            f"~{theoretical_gap:.0f}."
+                        ),
+                    }
         return None
 
     def _reevaluate_reflection_hypotheses(self, current_pattern: dict | None) -> None:
@@ -4755,6 +4798,94 @@ class SimulationEngine:
 
         self._schedule_llm_job(
             "reflection", prompt, reflection.SYSTEM_PROMPT, fallback, apply,
+        )
+
+    def _maybe_schedule_self_tuning(self, events: list[str]) -> None:
+        """Vision doc items 1.4 + 2.4, docs/VISION-2026-07-22-
+        LIVINGTERRARIUM.md: "self-tuning as bounded proposals" and "a
+        Reflection that acts." World-scoped, year-cadence (deliberately
+        the same "long period" as `_maybe_schedule_reflection` itself,
+        never more often). Only fires when a `supported` hypothesis
+        (survived `_reevaluate_reflection_hypotheses`'s deterministic
+        evidence-nudging across multiple cycles, not a single-cycle
+        guess) names one of `self_tuning.TUNABLE_GOVERNORS`'s closed
+        vocabulary; `critical=True` — a genuine, real judgment about the
+        world's own balance, deferred rather than faked on a spent
+        budget or failed call. The proposal is validated on a disposable
+        forked copy of the world (item 1.3's sandbox) BEFORE ever
+        touching real state — see `apply`'s `_validate_and_tune`."""
+        if not self._season_year_gate(events, "self_tuning", "year_end"):
+            return
+        if self._settlement_job_backpressured():
+            return
+        self._mark_season_year_resolved("self_tuning")
+        acted_hypothesis_ids = {a.get("hypothesis_id") for a in self.world.self_tuning_actions}
+        candidate = None
+        for entry in self.world.reflection_notebook:
+            if (
+                entry.get("kind") == "hypothesis" and entry.get("status") == "supported"
+                and entry.get("subject") in self_tuning.TUNABLE_GOVERNORS
+                and entry.get("id") not in acted_hypothesis_ids
+            ):
+                candidate = entry
+                break
+        if candidate is None:
+            return
+        governor_key = self_tuning.TUNABLE_GOVERNORS[candidate["subject"]]
+        current_multiplier = self.world.governor_tuning.get(governor_key, 1.0)
+        prompt = self_tuning.build_prompt(candidate["subject"], candidate["content"], current_multiplier)
+        fallback = self_tuning.fallback_self_tuning()
+        hypothesis_id = candidate["id"]
+        hypothesis_subject = candidate["subject"]
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            parsed = self_tuning.parse_self_tuning(result, fallback)
+
+            def _record(status: str, new_multiplier: float | None) -> None:
+                self.world.self_tuning_actions.append({
+                    "id": len(self.world.self_tuning_actions) + 1, "tick": self.world.clock.tick_count,
+                    "governor": governor_key, "hypothesis_id": hypothesis_id, "status": status,
+                    "direction": parsed["direction"], "magnitude": parsed["magnitude"],
+                    "new_multiplier": new_multiplier, "rationale": parsed["rationale"],
+                })
+
+            if parsed["magnitude"] < SELF_TUNING_MIN_MAGNITUDE:
+                _record("no_adjustment", None)
+                return
+
+            async def _validate_and_tune() -> None:
+                new_multiplier = self_tuning.apply_bounded_nudge(
+                    parsed["magnitude"], parsed["direction"], GOVERNOR_TUNING_BAND,
+                )
+                # Build the proposed state on a disposable copy FIRST —
+                # real World.governor_tuning is never touched until the
+                # sandbox confirms it's safe (item 1.3's whole point).
+                test_dict = self.world.to_dict()
+                test_dict.setdefault("governor_tuning", {})[governor_key] = new_multiplier
+                test_world = World.from_dict(test_dict, self.world.config)
+                verdict = await run_counterfactual(test_world, self.world.config)
+                if not verdict["safe"]:
+                    self._log(
+                        "self_tuning_rejected",
+                        f"A proposed adjustment to {hypothesis_subject} was discarded by the "
+                        f"counterfactual sandbox: {verdict['reason']}.",
+                    )
+                    _record("rejected", new_multiplier)
+                    return
+                self.world.governor_tuning[governor_key] = new_multiplier
+                _record("applied", new_multiplier)
+                self._log(
+                    "self_tuning",
+                    f"Hearthmind adjusted {hypothesis_subject} on its own judgment: {parsed['rationale']} "
+                    f"(multiplier {current_multiplier:.2f} -> {new_multiplier:.2f}).",
+                )
+
+            task = asyncio.create_task(_validate_and_tune())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+        self._schedule_llm_job(
+            "self_tuning", prompt, self_tuning.SYSTEM_PROMPT, fallback, apply, critical=True,
         )
 
     # --- caravans: a first, scoped step toward "external settlements and trade" ---
@@ -6978,6 +7109,12 @@ class SimulationEngine:
                 {"subject": e["subject"], "content": e["content"], "confidence": e["confidence"], "status": e["status"]}
                 for e in self.world.reflection_notebook[-10:]
             ],
+            # Vision doc items 1.4/2.4: same dev-console depth as
+            # reflection_notebook above — governor_tuning is the live
+            # effective state, self_tuning_actions is the append-only
+            # decision log (applied/rejected/no_adjustment) behind it.
+            "governor_tuning": dict(self.world.governor_tuning),
+            "self_tuning_actions_recent": list(self.world.self_tuning_actions[-10:]),
             "llm_stats": self._cognition_runner.stats(),
             "llm_backlog_effective": self._effective_backlog(),
             "llm_backlog_reserved_this_tick": self._reserved_this_tick,

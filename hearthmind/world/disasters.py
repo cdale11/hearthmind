@@ -111,11 +111,30 @@ WILDFIRE_SPREAD_CHANCE = 0.35
 WILDFIRE_MAX_TILES = 14
 WILDFIRE_BUILDING_DAMAGE = 0.5
 WILDFIRE_DRY_PRECIPITATION = 0.1
+
 """A dry summer forest tile can ignite (rare weekly roll, chance nudged
 by ill-fortune temperament the same way TEMPERAMENT_KILL_CHANCE_INFLUENCE
 nudges predator lethality — see settlement/buildings.py), then spreads to
 neighboring forest tiles for a few ticks before burning out, turning
 FOREST to GRASSLAND (ash) and damaging any building caught in its path."""
+
+GOVERNOR_TUNING_BAND = 0.3
+"""Vision doc items 1.4/2.4, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
+("self-tuning as bounded proposals... only ones expressed as bounded
+nudges to existing governors, never raw values"). Reflection's
+self-tuning job may only move a governor's effective multiplier within
+[1-GOVERNOR_TUNING_BAND, 1+GOVERNOR_TUNING_BAND] of its base constant
+— a real homeostatic band enforced at the proposal-parsing step
+(`llm/self_tuning.py`'s `parse_self_tuning`), not just a suggestion.
+`WILDFIRE_CHANCE_PER_WEEK` is the only governor wired to this band so
+far (`tick_wildfire`'s `chance_multiplier` param) — the example the
+vision doc names verbatim ("wildfires feel too rare to matter; widen
+the ignition band 10%")."""
+
+WILDFIRE_IGNITION_HISTORY_MAX = 20
+"""Cap on `World.wildfire_ignition_ticks` — only the gap between
+consecutive ignitions matters for drift detection, so this stays a
+small bounded rolling window, not a growing history."""
 
 STORM_WIND_THRESHOLD = 0.55
 STORM_CHANCE_PER_TICK = 0.01
@@ -352,7 +371,7 @@ def tick_flood(
 def tick_wildfire(
     state: DisasterState, terrain: list[list[Tile]], weather: WeatherState, season: str,
     temperament: float, settlements: list[Settlement], is_week_end: bool, rng: random.Random,
-    heatwave_active: bool = False, farms: FarmGrid | None = None,
+    heatwave_active: bool = False, farms: FarmGrid | None = None, chance_multiplier: float = 1.0,
 ) -> list[tuple[str, str]]:
     """Called every tick — ignition is only rolled on week boundaries
     (rare by design), but an already-burning fire spreads/dies down every
@@ -428,6 +447,7 @@ def tick_wildfire(
     chance = WILDFIRE_CHANCE_PER_WEEK * (1.0 + max(0.0, -temperament) * WILDFIRE_TEMPERAMENT_INFLUENCE)
     if heatwave_active:
         chance *= HEATWAVE_WILDFIRE_CHANCE_MULTIPLIER
+    chance *= chance_multiplier
     if rng.random() >= chance:
         return events
     forest_tiles = [(t.x, t.y) for row in terrain for t in row if t.biome is Biome.FOREST]

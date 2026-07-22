@@ -596,7 +596,7 @@ chroniclerForm.addEventListener("submit", async (e) => {
 // digest's front-page section (below) and the knowledge tree panel (further
 // down) — vision doc items 3.1/3.2, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
 
-const KNOWLEDGE_TREE_ICONS = { concept: "💡", law: "⚖", custom: "⚖", taboo: "⚖", hypothesis: "🔬", nature_belief: "🌲", rule: "⚙" };
+const KNOWLEDGE_TREE_ICONS = { concept: "💡", law: "⚖", custom: "⚖", taboo: "⚖", hypothesis: "🔬", nature_belief: "🌲", rule: "⚙", self_tuning: "🎛" };
 
 function renderKnowledgeTreeEntry(row) {
   const icon = KNOWLEDGE_TREE_ICONS[row.type] || "•";

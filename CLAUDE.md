@@ -453,6 +453,25 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.3.34)
+
+Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md's own sequence:
+item 5 ("1.4 + 2.4 — the world tuning and modifying itself, inside
+guardrails"). New `World.wildfire_ignition_ticks` feeds a governor-
+drift branch in `_detect_reflection_pattern` (realized vs. theoretical
+gap between ignitions, `disasters.WILDFIRE_CHANCE_PER_WEEK`) — once
+that becomes a `supported` Reflection hypothesis, `llm/self_tuning.py`
+proposes a bounded direction+magnitude nudge to `World.governor_
+tuning["wildfire_chance"]` (band `disasters.GOVERNOR_TUNING_BAND=0.3`
+enforced by the interpreter, never trusted from the model). `_maybe_
+schedule_self_tuning` (critical=True, year-cadence) never touches real
+state until `simulation.sandbox.run_counterfactual` validates the
+tuning on a disposable deep-copied world first — item 1.3's sandbox
+actually gating a real self-modification. Every attempt logs to new
+`World.self_tuning_actions` (append-only, never pruned); an applied one
+also appears in `knowledge_tree()`. Dev-console surfacing only, same
+treatment as `reflection_notebook`.
+
 ## Current state (v1.3.33)
 
 Continues docs/VISION-2026-07-22-LIVINGTERRARIUM.md's own sequence:

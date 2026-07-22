@@ -34,6 +34,7 @@ from hearthmind.world.terrain_evolution import (
 from hearthmind.world.daylight import night_factor as compute_night_factor
 from hearthmind.world.disasters import (
     DisasterState,
+    WILDFIRE_IGNITION_HISTORY_MAX,
     tick_flood,
     tick_frost,
     tick_heatwave,
@@ -390,6 +391,29 @@ class World:
     next_reflection_entry_id: int = 1
     """Monotonic id counter for `reflection_notebook` — never reused,
     same discipline as every other id counter in this codebase."""
+    wildfire_ignition_ticks: list[int] = field(default_factory=list)
+    """Rolling window (capped at `WILDFIRE_IGNITION_HISTORY_MAX`) of the
+    tick each real wildfire ignition fired — the deterministic signal
+    `SimulationEngine._detect_reflection_pattern`'s governor-drift
+    branch compares against `disasters.WILDFIRE_CHANCE_PER_WEEK`'s own
+    theoretical rate to notice a real, sustained drift (vision doc item
+    1.4's own example: "wildfires feel too rare to matter")."""
+    governor_tuning: dict[str, float] = field(default_factory=dict)
+    """Vision doc items 1.4/2.4: governor name -> effective multiplier,
+    bounded to `disasters.GOVERNOR_TUNING_BAND` around 1.0. Missing key
+    means untouched (multiplier 1.0). The only consumer so far is
+    `tick_wildfire`'s `chance_multiplier` (key `"wildfire_chance"`) —
+    see `SimulationEngine._maybe_schedule_self_tuning`, the only writer."""
+    self_tuning_actions: list[dict] = field(default_factory=list)
+    """Vision doc item 2.4 ("Reflection may enact ONE validated
+    self-tuning proposal per long period, logged verbosely as the
+    world's own decision"): append-only record of every enacted
+    tuning — `{id, tick, governor, hypothesis_id, direction, magnitude,
+    new_multiplier, rationale}`. Never pruned (low natural volume, at
+    most one per year-cadence reflection cycle, same discipline as
+    `reflection_notebook`) — this IS the terrarium's own decision log,
+    read by `_maybe_schedule_self_tuning` to avoid re-acting on a
+    hypothesis it already tuned for."""
     _water_tiles: set = field(default=None, compare=False, repr=False)  # type: ignore[assignment]
     """Cached set of water-biome tile coords for `_tick_disasters` —
     previously rebuilt with a full terrain scan every tick even though
@@ -583,11 +607,17 @@ class World:
         heat_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_heatwave")
         events += tick_heatwave(self.disasters, self.weather, self.farms, heat_rng)
         fire_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_wildfire")
-        events += tick_wildfire(
+        wildfire_events = tick_wildfire(
             self.disasters, self.terrain, self.weather, self.clock.season, self.settlement.temperament,
             self.settlements, "week_end" in calendar_events, fire_rng,
             heatwave_active=self.disasters.heatwave_active, farms=self.farms,
+            chance_multiplier=self.governor_tuning.get("wildfire_chance", 1.0),
         )
+        if any(desc != "The wildfire burned itself out." for cat, desc in wildfire_events if cat == "disaster_wildfire"):
+            self.wildfire_ignition_ticks.append(self.clock.tick_count)
+            if len(self.wildfire_ignition_ticks) > WILDFIRE_IGNITION_HISTORY_MAX:
+                self.wildfire_ignition_ticks.pop(0)
+        events += wildfire_events
         storm_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_storm")
         events += tick_storm(self.weather, self.settlements, storm_rng)
         frost_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_frost")
@@ -830,6 +860,14 @@ class World:
                 "name": rule.name, "text": rule.description, "status": rule.status,
                 "tick": rule.tick_created, "settlement": rule.origin_settlement_id, "lineage": None,
             })
+        for action in self.self_tuning_actions:
+            if action.get("status") != "applied":
+                continue
+            entries.append({
+                "type": "self_tuning", "id": f"self_tuning_{action['id']}", "kind": action["governor"],
+                "name": action["governor"], "text": action["rationale"], "status": action["status"],
+                "tick": action["tick"], "settlement": None, "lineage": None,
+            })
         entries.sort(key=lambda e: e["tick"], reverse=True)
         return entries[:limit]
 
@@ -905,6 +943,9 @@ class World:
             "nature_beliefs": list(self.nature_beliefs),
             "reflection_notebook": list(self.reflection_notebook),
             "next_reflection_entry_id": self.next_reflection_entry_id,
+            "wildfire_ignition_ticks": list(self.wildfire_ignition_ticks),
+            "governor_tuning": dict(self.governor_tuning),
+            "self_tuning_actions": list(self.self_tuning_actions),
             "consciousness_memory": list(self.consciousness_memory),
             "consciousness_personality": dict(self.consciousness_personality),
             "consciousness_objectives": list(self.consciousness_objectives),
@@ -1107,5 +1148,8 @@ class World:
             nature_beliefs=list(data.get("nature_beliefs", [])),
             reflection_notebook=list(data.get("reflection_notebook", [])),
             next_reflection_entry_id=data.get("next_reflection_entry_id", 1),
+            wildfire_ignition_ticks=list(data.get("wildfire_ignition_ticks", [])),
+            governor_tuning=dict(data.get("governor_tuning", {})),
+            self_tuning_actions=list(data.get("self_tuning_actions", [])),
             migrated_subsystems=migrated_subsystems,
         )
