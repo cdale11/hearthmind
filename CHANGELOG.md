@@ -4,6 +4,69 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.38] — Cognition-architecture audit + Living Terrarium items 2.2/3.4
+
+Explicit user request: an audit focused on WHERE cognition should
+live, not prompt wording — (1) text-only LLM calls that could update
+persistent state, (2) deterministic judgment calls that could become
+real LLM cognition, (3) opportunities to extend decision horizon
+(plans/goals/experiments/belief revision) over more narration, (4)
+fewer-but-more-meaningful calls whose output persists and conditions
+later calls, (5) agents/settlement forming hypotheses and carrying
+intentions across months/years. Plus: finish a few items from
+docs/VISION-2026-07-22-LIVINGTERRARIUM.md.
+
+A research pass across `simulation/engine.py` and every `llm/*.py`
+module produced five sections of findings (full text kept in this
+session's record, condensed here): confirmed `World.reflection_
+notebook` is the only place with a real "am I right about this yet"
+evidence loop; found several write-once/read-never LLM outputs
+(`culture_digest`/`institution_culture`/`narrative_direction`,
+`chronicler` Q&A); found `Agent.plan` silently expires with no
+fulfilled/abandoned judgment; confirmed SOCIALIZE targeting and
+`_maybe_assign_occupations` are judgment calls dressed as heuristics
+that ignore `Agent.relationships`/`trust`/`skills`; confirmed vision
+item 2.2 (institutions with persistent goals) was the already-designed
+answer to the long-horizon-institution gap. Top follow-ups flagged,
+not shipped this pass: `reflection_notebook` `kind="question"`/
+`"conclusion"` entries (SELFEVOLVING §5.D/5.E), a plan-fulfillment
+check in `Population.tick_plans`, relationship/trust-weighted
+SOCIALIZE targeting, an `Agent.long_term_goal` seed at genesis
+(`llm/mind.py`).
+
+**Vision item 2.2 shipped (scoped):** `Institution.objective_ticks_
+unmet` (`settlement/institutions.py`) tracks how many consecutive
+times `compute_objective` re-derives the identical want — a real,
+persistent frustration, not a fresh one each check (incremented/reset
+in `_maybe_schedule_institution_belief`, zero added LLM volume).
+`_maybe_schedule_rule_proposal` now grounds its prompt in whichever
+institution has been stuck longest past `INSTITUTION_OBJECTIVE_
+PERSISTENCE_THRESHOLD=3`, giving that institution real causal reach
+into the Innovation Layer's rule-proposal pipeline — the doc's own
+"council remembers a famine legislating against it" case. `rule_
+propose.SYSTEM_PROMPT` now asks the model to prefer a rule that
+actually responds to a named institutional want when one is given.
+
+**Vision item 3.4 shipped:** new `llm/musing.py` + `World.musings`
+(capped at `MUSING_HISTORY_MAX=60` — daily texture, unlike `reflection_
+notebook`'s never-pruned discipline) + `SimulationEngine._maybe_
+schedule_musing` (day_end cadence, `critical=False`, genuine
+deterministic fallback). Grounded in the newest OPEN `reflection_
+notebook` hypothesis when one exists, else the newest `knowledge_
+tree()` entry, else the call is skipped entirely — no fabricated
+musing on a fresh world with nothing yet to say. Surfaced main-UI
+(this is explicitly meant to be seen, not dev-console depth): a "💭"
+header line reading `World.summary()`'s new `latest_musing` field off
+the live broadcast.
+
+Verified: direct `World.to_dict()`/`from_dict()` round-trip for both
+`musings` and `Institution.objective_ticks_unmet`; a direct end-to-end
+test of `_maybe_schedule_rule_proposal` confirming a stuck institution
+grounds the resulting rule and its `rule_originated` log line; a direct
+`_musing_subject()` test confirming a fresh world (nothing learned yet)
+correctly yields `None`; `scripts/verify_native_soak.py` (2 seeds x
+800 ticks) byte-identical (no deterministic tick-state code touched).
+
 ## [1.3.37] — Enable real reasoning traces for genuine judgment tasks; free their LLM budget
 
 Explicit user directive, table-form: enable reasoning for personal

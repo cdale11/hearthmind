@@ -67,7 +67,7 @@ from hearthmind.llm import (
     artifacts,
     faction, fission, beliefs, caravan, chronicle, chronicler, consciousness, culture, culture_digest, dialogue,
     digest, dispute, documentary, dream, era_branch, festival, folklore, founding, geography, invention,
-    memory_drift, migration, mind,
+    memory_drift, migration, mind, musing,
     naming, narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
     diplomacy, laws, letters, noncore_nudge, institution_culture, nature_mind, reflection, rule_propose,
 )
@@ -431,6 +431,13 @@ brain, era_branch, geography — v1.3.35) or genuinely don't benefit from
 a reasoning trace (one-line narration, a single goal word). Every job
 NOT passing `deep_reasoning=True` is completely unaffected by this
 constant."""
+
+MUSING_HISTORY_MAX = 60
+"""Vision item 3.4: `World.musings` is daily-cadence texture (unlike
+`reflection_notebook`, which is never pruned) — 60 entries is roughly
+two months of daily lines, plenty for a UI scrollback, capped so a
+years-long world doesn't accumulate thousands of short strings for no
+consumer that reads more than the last handful."""
 
 REFLECTION_ONTOLOGY_IMBALANCE_MIN_TOTAL = 6
 REFLECTION_ONTOLOGY_IMBALANCE_RATIO = 3.0
@@ -1830,6 +1837,7 @@ class SimulationEngine:
         ("_maybe_schedule_consciousness", _JOB_EVENTS),
         ("_maybe_schedule_reflection", _JOB_EVENTS),
         ("_maybe_schedule_self_tuning", _JOB_EVENTS),
+        ("_maybe_schedule_musing", _JOB_EVENTS),
         ("_maybe_schedule_caravan", _JOB_EVENTS),
         ("_maybe_schedule_town_brain", _JOB_EVENTS),
         ("_maybe_schedule_beliefs", _JOB_EVENTS),
@@ -3832,7 +3840,26 @@ class SimulationEngine:
             r.name for r in self.world.trigger_rules.values()
             if r.origin_settlement_id == settlement.id and r.status == "active"
         ]
-        prompt = rule_propose.build_prompt(settlement.name, recent, existing_names)
+        # Vision item 2.2: ground the proposal in whichever institution
+        # has wanted the same thing longest, if any has stuck around
+        # long enough to count as real (not fresh-noise) frustration.
+        stuck_institution = max(
+            (i for i in settlement.institutions if i.objective_ticks_unmet >= institutions.INSTITUTION_OBJECTIVE_PERSISTENCE_THRESHOLD),
+            key=lambda i: i.objective_ticks_unmet, default=None,
+        )
+        institution_grounding = ""
+        stuck_label = ""
+        if stuck_institution is not None:
+            stuck_label = (
+                "council of elders" if stuck_institution.kind is InstitutionKind.COUNCIL
+                else f"{stuck_institution.name} guild" if stuck_institution.kind is InstitutionKind.GUILD
+                else "a family"
+            )
+            institution_grounding = (
+                f"The {stuck_label} has wanted to {stuck_institution.objective} for a long "
+                "stretch now, without it happening."
+            )
+        prompt = rule_propose.build_prompt(settlement.name, recent, existing_names, institution_grounding)
         fallback = rule_propose.fallback_propose(len(existing_names))
         origin_settlement_id = settlement.id
 
@@ -3860,7 +3887,10 @@ class SimulationEngine:
                     magnitude=parsed["magnitude"], origin_settlement_id=origin_settlement_id,
                     tick=self.world.clock.tick_count,
                 )
-                self._log("rule_originated", f"{target.name or 'The village'} adopted a new rule: {rule.name} — {rule.description}")
+                message = f"{target.name or 'The village'} adopted a new rule: {rule.name} — {rule.description}"
+                if stuck_label:
+                    message += f" (long-standing want of the {stuck_label})"
+                self._log("rule_originated", message)
 
             task = asyncio.create_task(_sandbox_and_register())
             self._background_tasks.add(task)
@@ -4982,6 +5012,58 @@ class SimulationEngine:
             "self_tuning", prompt, self_tuning.SYSTEM_PROMPT, fallback, apply, critical=True,
             deep_reasoning=True,
         )
+
+    def _musing_subject(self) -> dict | None:
+        """Vision item 3.4's grounding: prefer the newest OPEN
+        `reflection_notebook` hypothesis (something genuinely still
+        being tested) over the newest `knowledge_tree()` entry (a
+        recent settled fact) — musing about an open question reads more
+        like "wondering" than musing about a closed one. `None` when
+        the world hasn't learned or hypothesized anything yet (a fresh
+        world) — the caller skips the call entirely rather than
+        fabricating a subject."""
+        open_hyps = [e for e in self.world.reflection_notebook if e.get("status") == "open"]
+        if open_hyps:
+            latest = max(open_hyps, key=lambda e: e.get("created_tick", 0))
+            return {
+                "kind": "hypothesis", "text": latest.get("content", ""),
+                "confidence": latest.get("confidence", 0.3),
+            }
+        tree = self.world.knowledge_tree(limit=1)
+        if tree:
+            return {"kind": "knowledge", "text": tree[0].get("text", "")}
+        return None
+
+    def _maybe_schedule_musing(self, events: list[str]) -> None:
+        """Vision doc item 3.4, "The world talks to you"
+        (docs/VISION-2026-07-22-LIVINGTERRARIUM.md): a once-a-day line
+        in Reflection's own voice, not a stat. `critical=False` — this
+        is texture, not cognition, and has a genuine deterministic
+        fallback (a plain restatement of the subject); a day with
+        nothing to muse about (`_musing_subject` returns `None`) skips
+        the call entirely rather than fabricating one, same discipline
+        as every other "no material, no call" ambient job here."""
+        if "day_end" not in events:
+            return
+        subject = self._musing_subject()
+        if subject is None:
+            return
+        if self._settlement_job_backpressured():
+            return
+        prompt = musing.build_prompt(subject)
+        fallback = musing.fallback_musing(subject)
+        tick = self.world.clock.tick_count
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            text = musing.parse_musing(result, fallback)
+            if not text:
+                return
+            self.world.musings.append({"tick": tick, "text": text})
+            if len(self.world.musings) > MUSING_HISTORY_MAX:
+                self.world.musings = self.world.musings[-MUSING_HISTORY_MAX:]
+            self._log("musing", text)
+
+        self._schedule_llm_job("musing", prompt, musing.SYSTEM_PROMPT, fallback, apply)
 
     # --- caravans: a first, scoped step toward "external settlements and trade" ---
 
@@ -6270,6 +6352,13 @@ class SimulationEngine:
             if institution.kind is InstitutionKind.COUNCIL else None
         )
         objective = institutions.compute_objective(institution, inst_target.summary(), council_disposition)
+        # Vision item 2.2: track how long this institution has wanted
+        # the SAME thing — a real, persistent frustration, not a fresh
+        # one each check.
+        if objective and objective == institution.objective:
+            institution.objective_ticks_unmet += 1
+        else:
+            institution.objective_ticks_unmet = 0
         institution.objective = objective
         prompt = beliefs.build_institution_prompt(label, member_names, existing, recent, objective=objective)
         fallback = beliefs.fallback_institution_belief(label, recent)

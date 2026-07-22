@@ -404,6 +404,17 @@ class World:
     means untouched (multiplier 1.0). The only consumer so far is
     `tick_wildfire`'s `chance_multiplier` (key `"wildfire_chance"`) —
     see `SimulationEngine._maybe_schedule_self_tuning`, the only writer."""
+    musings: list[dict] = field(default_factory=list)
+    """Vision doc item 3.4, "The world talks to you"
+    (docs/VISION-2026-07-22-LIVINGTERRARIUM.md): a once-a-day line in
+    Reflection's own voice — not a stat, a musing — `{tick, text}`,
+    capped at MUSING_HISTORY_MAX (this is texture for the daily-peek
+    experience, not a persistent-knowledge structure like `reflection_
+    notebook`, so it prunes unlike that list). Grounded in a real open
+    `reflection_notebook` hypothesis or a recent `knowledge_tree()`
+    entry when one exists; a genuine "nothing notable to muse on yet"
+    fallback otherwise — never fabricated. See `llm/musing.py`,
+    `SimulationEngine._maybe_schedule_musing`."""
     self_tuning_actions: list[dict] = field(default_factory=list)
     """Vision doc item 2.4 ("Reflection may enact ONE validated
     self-tuning proposal per long period, logged verbosely as the
@@ -791,6 +802,7 @@ class World:
                 "pending": self.away_digest_pending,
                 "highlights": list(self.away_digest_highlights),
             },
+            "latest_musing": self.musings[-1] if self.musings else None,
             "consciousness": {
                 "personality": dict(self.consciousness_personality),
                 "memory": list(self.consciousness_memory),
@@ -942,6 +954,7 @@ class World:
             "next_trigger_rule_id": self.next_trigger_rule_id,
             "nature_beliefs": list(self.nature_beliefs),
             "reflection_notebook": list(self.reflection_notebook),
+            "musings": list(self.musings),
             "next_reflection_entry_id": self.next_reflection_entry_id,
             "wildfire_ignition_ticks": list(self.wildfire_ignition_ticks),
             "governor_tuning": dict(self.governor_tuning),
@@ -1147,6 +1160,7 @@ class World:
             next_trigger_rule_id=data.get("next_trigger_rule_id", 1),
             nature_beliefs=list(data.get("nature_beliefs", [])),
             reflection_notebook=list(data.get("reflection_notebook", [])),
+            musings=list(data.get("musings", [])),
             next_reflection_entry_id=data.get("next_reflection_entry_id", 1),
             wildfire_ignition_ticks=list(data.get("wildfire_ignition_ticks", [])),
             governor_tuning=dict(data.get("governor_tuning", {})),

@@ -476,6 +476,43 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.3.38)
+
+Explicit user request: a cognition-architecture audit (not prompt
+wording) covering five angles — text-only calls that could write
+persistent state, deterministic judgment calls that could become real
+LLM cognition, decision-horizon opportunities (plans/goals/hypotheses)
+over more narration, fewer-but-persistent-and-conditioning calls
+instead of isolated generations, and agents/settlement forming
+hypotheses/carrying intentions across months-years — plus finishing a
+few docs/VISION-2026-07-22-LIVINGTERRARIUM.md items.
+
+Audit findings (full detail: CHANGELOG.md): `World.reflection_
+notebook` is the only real "test my own belief against evidence" loop
+in the codebase; several settlement-scoped LLM outputs (culture_
+digest/institution_culture/narrative_direction, chronicler Q&A) are
+write-once islands nothing downstream reads; `Agent.plan` silently
+expires with no fulfilled/abandoned judgment; SOCIALIZE targeting and
+`_maybe_assign_occupations` are judgment calls dressed as heuristics.
+Flagged, not shipped: reflection `kind="question"`/`"conclusion"`
+entries, a plan-fulfillment check, relationship-weighted SOCIALIZE,
+seeding `Agent.long_term_goal` at genesis.
+
+Shipped items 2.2 and 3.4 from the vision doc. 2.2: `Institution.
+objective_ticks_unmet` tracks how long an institution has wanted the
+same unmet thing (incremented in the existing monthly `institution_
+belief` job, zero added LLM volume); `_maybe_schedule_rule_proposal`
+grounds its prompt in whichever institution is stuck longest past
+`INSTITUTION_OBJECTIVE_PERSISTENCE_THRESHOLD` — real institutional
+will reaching into the Innovation Layer's rule pipeline. 3.4: new
+`llm/musing.py` + `World.musings` (capped, daily texture) +
+`_maybe_schedule_musing` (day_end, ambient, real fallback) — grounded
+in the newest open Reflection hypothesis or newest knowledge-tree
+entry, skipped entirely with nothing to muse on. Surfaced main-UI (a
+"💭" header line off the live broadcast's `latest_musing`) since this
+is explicitly meant to be seen, unlike Phase G's dev-console-only
+discipline.
+
 ## Current state (v1.3.37)
 
 Explicit user directive, table-form: enable real reasoning traces

@@ -127,6 +127,20 @@ class Institution:
     (beliefs/objective/feud history) discipline as `culture_digest`'s
     own fallback. Never fabricated: a genuine no-op fallback retains
     the prior digest across a flaky stretch."""
+    objective_ticks_unmet: int = 0
+    """Vision doc item 2.2 ("institutions with persistent goals that
+    act"), docs/VISION-2026-07-22-LIVINGTERRARIUM.md: how many
+    consecutive times `compute_objective` has re-derived the SAME want
+    for this institution — a persistent, unmet objective, not a fresh
+    one. Incremented/reset in `SimulationEngine._maybe_schedule_
+    institution_belief` right where `objective` itself is recomputed;
+    zero cost (reuses that job's existing monthly cadence, no new LLM
+    call). Read by `_maybe_schedule_rule_proposal` — an institution
+    stuck wanting the same thing long enough grounds the village's next
+    self-authored rule proposal in that specific frustration ("the
+    council that remembers a famine legislating against it"), giving
+    institutions real causal reach into the Innovation Layer rather
+    than a want that just sits there being narrated."""
     feuds: list[dict] = field(default_factory=list)
     """v0.87.11, "generational feuds between FAMILY institutions"
     (docs/IDEAS-2026-07-EMERGENCE.md §1). FAMILY-only in practice (no
@@ -155,6 +169,7 @@ class Institution:
             "name": self.name,
             "beliefs": list(self.beliefs),
             "objective": self.objective,
+            "objective_ticks_unmet": self.objective_ticks_unmet,
             "culture_digest": self.culture_digest,
             "feuds": list(self.feuds),
         }
@@ -169,6 +184,7 @@ class Institution:
             name=data.get("name", ""),
             beliefs=list(data.get("beliefs", [])),
             objective=data.get("objective", ""),
+            objective_ticks_unmet=data.get("objective_ticks_unmet", 0),
             culture_digest=data.get("culture_digest", ""),
             feuds=list(data.get("feuds", [])),
         )
@@ -178,6 +194,13 @@ COUNCIL_OBJECTIVE_DISPOSITION_THRESHOLD = 0.15
 """Same magnitude as `town_brain.COUNCIL_DISPOSITION_TIEBREAK_
 THRESHOLD` — how far a council's average ambition/resilience must lean
 before `compute_objective` reads it as a real signal, not noise."""
+
+INSTITUTION_OBJECTIVE_PERSISTENCE_THRESHOLD = 3
+"""Vision item 2.2: how many consecutive times `compute_objective` must
+re-derive the identical want before `Institution.objective_ticks_
+unmet` counts as a real, persistent frustration worth grounding a rule
+proposal in — one unlucky month reading the same way isn't a standing
+grievance yet."""
 
 FAMILY_OBJECTIVE_SMALL_THRESHOLD = 3
 """A FAMILY institution at or below this many living members reads as

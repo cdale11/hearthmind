@@ -26,6 +26,9 @@ SYSTEM_PROMPT = (
     "hook is 'skill_yield_bonus' the target must be one of: farming, "
     "construction, medicine. If it's 'goal_flavor_bias' the target "
     "must be one of: forage, gather, socialize, wander, rest. "
+    "If a specific institution's long-standing want is mentioned, "
+    "prefer a rule that would actually satisfy or respond to it over "
+    "an unrelated one. "
     "Otherwise leave target empty. Ground it in what has actually "
     "happened to these people. "
     'Respond with strict JSON only, no other text: {"name": "a short '
@@ -46,15 +49,25 @@ _FALLBACK_RULES: tuple[tuple[str, str, str, str], ...] = (
 )
 
 
-def build_prompt(settlement_name: str, recent_events: list[dict], existing_rule_names: list[str]) -> str:
+def build_prompt(
+    settlement_name: str, recent_events: list[dict], existing_rule_names: list[str],
+    institution_grounding: str = "",
+) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
     rules_text = "; ".join(existing_rule_names) if existing_rule_names else "None yet."
-    return (
+    parts = [
         f"The village of {settlement_name}. Recent history:\n{events_text}\n"
-        f"Rules the village already lives by: {rules_text}\n"
-        "Originate one new trigger-and-effect rule this village might genuinely have."
-    )
+        f"Rules the village already lives by: {rules_text}",
+    ]
+    if institution_grounding:
+        # Vision item 2.2: an institution stuck wanting the same thing
+        # for a real stretch of time is exactly the "council remembers
+        # a famine legislating against it" case — grounding the
+        # proposal in that persistent want, not just recent events.
+        parts.append(institution_grounding)
+    parts.append("Originate one new trigger-and-effect rule this village might genuinely have.")
+    return "\n".join(parts)
 
 
 def fallback_propose(existing_count: int) -> dict:

@@ -125,13 +125,18 @@ learn, and act with real agency, symmetric to humans.
   C++ counterpart, avoiding any native/fallback parity risk); species
   range-shifting is a real, larger follow-up not attempted this pass.
 
-- [ ] **2.2 [CERTAIN] — Institutions with persistent goals that act.**
-  Institution objectives exist; ensure they *drive* — a council that
-  remembers a famine legislating against it (via 1.2's rule
-  proposals!), a guild pursuing a monopoly, a family dynasty playing a
-  multi-generation game. Institutions should be able to author customs/
-  laws through the Innovation Layer, giving them a real will that
-  outlives members.
+- [x] **2.2 [CERTAIN] — Institutions with persistent goals that act.**
+  **Shipped v1.3.38 (scoped).** `Institution.objective_ticks_unmet`
+  tracks how many consecutive times `compute_objective` re-derives the
+  SAME want — a real, persistent frustration. `_maybe_schedule_rule_
+  proposal` now grounds its prompt in whichever settlement institution
+  has been stuck longest (past `INSTITUTION_OBJECTIVE_PERSISTENCE_
+  THRESHOLD`), giving that institution real causal reach into the
+  Innovation Layer — the exact "council remembers a famine legislating
+  against it" case from this doc. Scoped to rule proposals only; a
+  guild pursuing a monopoly or a family dynasty's multi-generation game
+  would need their own consumers of this same counter, flagged as
+  natural follow-up.
 
 - [x] **2.3 [LIKELY] — Nature and Village can surprise each other.**
   **Shipped v1.3.33 (scoped).** Every genuinely NEW Nature's-Mind
@@ -206,12 +211,16 @@ exist — build the room around them.
   dispute). "Why did this happen" answerable by tracing real edges is
   what makes an observer feel the world has depth rather than noise.
 
-- [ ] **3.4 [CREATIVE] — The world talks to you.** A once-a-day line
-  from the simulation itself (Reflection's voice) — "I've been noticing
-  the eastern families never intermarry; I wonder if the old feud
-  outlives everyone who remembers it." Not a stat, a *musing*. The
-  terrarium acknowledging its observer, sharing what it's puzzling over.
-  One LLM call a day, enormous presence.
+- [x] **3.4 [CREATIVE] — The world talks to you.** **Shipped v1.3.38.**
+  New `llm/musing.py` + `World.musings` (capped, unlike `reflection_
+  notebook`) + `SimulationEngine._maybe_schedule_musing` (day_end
+  cadence, `critical=False`, real deterministic fallback). Grounded in
+  the newest OPEN `reflection_notebook` hypothesis when one exists,
+  else the newest `knowledge_tree()` entry, else skipped entirely — no
+  fabricated musing on a fresh world with nothing to say yet. Surfaced
+  main-UI (not dev-console — this is explicitly meant to be seen): a
+  "💭" header line reading the live broadcast's `summary().latest_
+  musing`.
 
 - [ ] **3.5 [CREATIVE] — Time-lapse and the returning eye.** A scrubber
   that replays your world's map/knowledge-tree evolution as a time-lapse

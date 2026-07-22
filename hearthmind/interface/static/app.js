@@ -3304,10 +3304,34 @@ if (ambientAudioToggle) {
   });
 }
 
+// Vision item 3.4, "the world talks to you" — the front-page counterpart
+// to the away-digest: a once-a-day line in Reflection's own voice, read
+// straight off the live broadcast (payload.summary.latest_musing), same
+// shape as the consciousness indicator below. Only re-renders on a new
+// tick so it doesn't visually flicker every broadcast.
+const musingLineEl = document.getElementById("musing-line");
+const musingTextEl = document.getElementById("musing-text");
+let lastMusingTick = null;
+
+function renderMusing(summary) {
+  if (!musingLineEl) return;
+  const musing = summary.latest_musing;
+  if (!musing || !musing.text) {
+    musingLineEl.classList.add("hidden");
+    return;
+  }
+  if (musing.tick !== lastMusingTick) {
+    lastMusingTick = musing.tick;
+    musingTextEl.textContent = musing.text;
+  }
+  musingLineEl.classList.remove("hidden");
+}
+
 function applyPayload(payload) {
   latest = payload;
   renderSettlementChips(payload);
   renderStats(payload.summary);
+  renderMusing(payload.summary);
   renderExtinctionBanner(payload.summary);
   if (ambientAudioEnabled) updateAmbientAudio(payload.summary);
   renderConsequences(payload.summary);
