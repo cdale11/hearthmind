@@ -476,6 +476,24 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.4.2)
+
+Live-diagnostic fix: a pasted `/diagnostics` showed `voice_dialogue`
+(now the highest-volume LLM task after v1.4.1's cooldown drop) erroring
+50% of the time — it was the one dialogue-shaped call site never given
+a `json_schema` (didn't exist when FT.0's schema set was built), so it
+free-generated unconstrained on a model that visibly doesn't reliably
+keep meta-commentary out of its answer (a same-snapshot "mind" call
+succeeded but its `voice` field contained leaked reasoning text). New
+`"voice_dialogue"` entry in `llm/json_schemas.py`, wired into
+`_run_voice_dialogue`. Also hardened both LLM clients' final JSON parse
+with a new `_extract_json_object()` fallback (first-`{`-to-last-`}`
+substring retry) for every remaining unconstrained task (`beliefs`/
+`personal_belief`) — recovers a completion wrapped in stray prose or a
+markdown fence. The garbled-but-schema-valid "mind" content itself is a
+separate model-quality issue, not fixed here (a schema only guarantees
+shape, not semantic quality).
+
 ## Current state (v1.4.1)
 
 Explicit user follow-up on v1.4.0's voice pair: much more frequent

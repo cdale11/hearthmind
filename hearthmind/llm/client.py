@@ -19,6 +19,26 @@ thought in these tags even when a strict JSON response is requested —
 stripped defensively so a stray reasoning block never breaks
 `json.loads`. Cheap and a no-op for models that never emit them."""
 
+def _extract_json_object(text: str) -> str:
+    """Best-effort recovery for a completion that's *almost* a bare JSON
+    object but has stray text wrapped around it — a small/hybrid-
+    reasoning model asked NOT to think can still occasionally prepend
+    ("Sure, here's the response:") or append commentary despite the
+    system prompt's explicit instruction, or leak a fragment of
+    reasoning outside a well-formed `<think>...</think>` pair (so
+    `_THINK_BLOCK_RE` above never matches it). Returns the substring
+    from the first `{` to the last `}` when both exist and the slice is
+    non-trivial; otherwise returns `text` unchanged so the caller's own
+    `json.loads` raises its normal, accurately-worded error. Cheap and
+    a no-op for the common case (a response that's already bare JSON —
+    `start == 0` and `end == len(text) - 1`)."""
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return text
+    return text[start : end + 1]
+
+
 _REASONING_OFF_PROMPT = "detailed thinking off"
 _REASONING_ON_PROMPT = "detailed thinking on"
 """NVIDIA Nemotron 3's documented reasoning-mode toggle (default model
@@ -196,6 +216,10 @@ class OllamaClient:
             capture["raw"] = raw_response
         try:
             return json.loads(raw_response)
+        except json.JSONDecodeError:
+            pass
+        try:
+            return json.loads(_extract_json_object(raw_response))
         except json.JSONDecodeError as exc:
             raise LLMUnavailable(f"Ollama returned non-JSON response: {raw_response!r}") from exc
 
@@ -328,6 +352,10 @@ class LlamaCppClient:
             capture["raw"] = raw_response
         try:
             return json.loads(raw_response)
+        except json.JSONDecodeError:
+            pass
+        try:
+            return json.loads(_extract_json_object(raw_response))
         except json.JSONDecodeError as exc:
             raise LLMUnavailable(f"llama.cpp returned non-JSON content: {raw_response!r}") from exc
 

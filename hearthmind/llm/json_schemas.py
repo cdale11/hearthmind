@@ -86,6 +86,17 @@ TASK_SCHEMAS: dict[str, dict] = {
         "required": ["line_a", "line_b", "sentiment"],
         "additionalProperties": False,
     },
+    "voice_dialogue": {
+        "type": "object",
+        "properties": {
+            "line_a": {"type": "string", "maxLength": 320},
+            "line_b": {"type": "string", "maxLength": 320},
+            "sentiment": {"type": "string", "enum": _DIALOGUE_SENTIMENTS},
+            "topic": {"type": "string", "maxLength": 50},
+        },
+        "required": ["line_a", "line_b", "sentiment"],
+        "additionalProperties": False,
+    },
     "rumor_interpret": {
         "type": "object",
         "properties": {"retelling": {"type": "string", "maxLength": 250}},

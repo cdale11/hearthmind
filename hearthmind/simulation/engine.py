@@ -3023,6 +3023,7 @@ class SimulationEngine:
         call_start = time.perf_counter()
         result, used_fallback, raw_completion = await self._cognition_runner.run(
             prompt, dialogue.VOICE_SYSTEM_PROMPT, fallback=lambda: fallback,
+            json_schema=schema_for_task("voice_dialogue"),
         )
         parsed = dialogue.parse_voice_dialogue(result, fallback)
         self.world.population.record_voice_line(agent_a_id, parsed["line_a"], scheduled_tick)

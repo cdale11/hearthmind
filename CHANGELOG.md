@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.4.2] — Fix voice_dialogue's missing JSON schema; harden JSON extraction against wrapped completions
+
+Live-diagnostic-driven fix: a pasted `/diagnostics` snapshot showed
+`llm_stats.calls_errored` at 50% (6 of 12 attempted) on the voice
+pair's own call (now the highest-volume task after v1.4.1's cooldown
+drop to 5 ticks), plus one successful "mind" call whose `voice` field
+came back containing visible leaked reasoning text ("speaks in short,
+plain sentences 12 words? Actually voice field is ").
+
+Root cause of the error spike: `_run_voice_dialogue` was the one
+dialogue-shaped LLM call site never given a `json_schema` — every
+other schema-eligible task (`cognition`, `dialogue`, `mind`, ...) went
+through FT.0's grammar-constrained decoding (structurally guaranteed
+valid JSON at the sampler level), but `voice_dialogue` didn't exist
+yet when that schema set was built and was left unconstrained,
+free-generating on a model that (per the "mind" evidence) doesn't
+reliably keep meta-commentary out of its answer even when explicitly
+told "detailed thinking off." New `"voice_dialogue"` entry in
+`llm/json_schemas.py` (line_a/line_b/sentiment/topic, mirroring
+`"dialogue"`'s shape at the wider `VOICE_MAX_LINE_CHARS`), wired into
+`_run_voice_dialogue`'s `_cognition_runner.run(json_schema=schema_for_
+task("voice_dialogue"))` call.
+
+Defense in depth for every remaining unconstrained task (`beliefs`/
+`personal_belief`, and anything future): `llm/client.py`'s new
+`_extract_json_object()` — when a raw completion isn't itself valid
+JSON, retries with the substring from the first `{` to the last `}`
+before giving up. Recovers a completion wrapped in stray prose
+("Sure, here's the JSON: {...}") or a markdown code fence that a
+grammar-less small model occasionally emits despite the system
+prompt's explicit instruction not to — a no-op for the already-common
+case of a bare JSON response. Wired into both `OllamaClient` and
+`LlamaCppClient`'s final parse step, tried only after the plain
+`json.loads` has already failed once.
+
+The garbled-but-schema-valid "mind" content itself (a call that
+technically succeeded, `additionalProperties: False` + grammar
+correctly enforced the shape) is a separate, harder problem — the
+model producing low-quality-but-structurally-valid string content —
+not something a schema or JSON-extraction fix can address; flagged as
+a live model-quality observation, not a bug fixed here.
+
+Verified: direct test of `_extract_json_object` against bare/prefixed/
+code-fenced/unparseable inputs, `scripts/verify_native_soak.py` (2
+seeds × 800 ticks) byte-identical (no native module touched, but the
+LLM-call path runs on every schedule regardless of LLM enablement).
+
 ## [1.4.1] — Shifting protagonists: narrative-significance-driven voice pair rotation
 
 Explicit user follow-up on v1.4.0's voice pair: trigger far more often
