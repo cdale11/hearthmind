@@ -476,6 +476,35 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.3.37)
+
+Explicit user directive, table-form: enable real reasoning traces
+(Nemotron 3's "detailed thinking on") for personal belief revision,
+major life decisions, council deliberation, town consciousness,
+cultural evolution, and innovation & discovery — keep it off for
+dialogue/rumors/dreams/moment-to-moment cognition; change `scripts/
+run.sh` defaults if required; reallocate the freed budget toward
+tasks that need genuine sentience/intelligence, not narration.
+
+Found the real blocker first: `scripts/run.sh`'s `LLAMA_REASONING`
+defaulted to `off` (server-wide `--reasoning-budget 0`), which made
+every `deep_reasoning=True` job's per-call "detailed thinking on"
+phrase a no-op no matter what the app sent — default now `auto`.
+`_schedule_llm_job(..., deep_reasoning=True)` now flags ~20 tasks (was
+2: Innovation Layer propose/evolve only) — belief revision (personal +
+settlement), major life decisions (migration/fission/founding/
+dispute), institutional/council deliberation, town consciousness,
+cultural evolution (tradition/religion/narrative direction/culture
+digest/institution culture/faction/laws/rule proposals), invention,
+and the Reflection/self-tuning system that lets the game learn and
+improve itself. `personal_belief`/`beliefs` lost their `json_schemas.py`
+grammar entries — a schema-constrained call structurally can't also
+carry a reasoning trace, and belief revision benefits more from the
+trace. `DIALOGUE_BACKPRESSURE_FRACTION`/`RUMOR_INTERPRET_BACKPRESSURE_
+FRACTION` lowered (0.75->0.6, 0.5->0.35) so pure narration sheds its
+queue slot earlier, freeing the shared concurrency limit for the now
+much larger set of genuinely-reasoning tasks.
+
 ## Current state (v1.3.36)
 
 Explicit user directive, two parts: (1) "move the LLM from describing

@@ -403,14 +403,34 @@ than being merely intrusive), same "easier to lose than earn" shape
 DEEP_REASONING_NUM_PREDICT_MULT = 1.5
 DEEP_REASONING_TEMPERATURE = 0.5
 """Phase 3.A "reserved deeper reasoning" (docs/VISION-2026-07-21-
-SELFEVOLVING.md): the Innovation Layer's propose/evolve/merge calls
-(`_schedule_llm_job(..., deep_reasoning=True)`) get 1.5x `Config.llm_
-num_predict`'s configured token budget and a lower, more deliberate
-temperature than `Config.llm_temperature`'s routine-dialogue default —
-these calls originate a genuinely new idea and get named in the
-village's own history, worth the extra tokens/latency in a way an
-ordinary dialogue exchange or goal decision isn't. Every other job's
-generation config is completely unaffected."""
+SELFEVOLVING.md), broadened v1.3.37 (explicit user directive: "move the
+LLM from describing the world to thinking within the world," enable
+reasoning for genuine judgment/planning/belief-revision tasks, leave
+narration/routine-cognition tasks fast). `_schedule_llm_job(...,
+deep_reasoning=True)` gets 1.5x `Config.llm_num_predict`'s configured
+token budget and a lower, more deliberate temperature than `Config.
+llm_temperature`'s routine-dialogue default, AND — new in v1.3.37 — a
+real Nemotron 3 "detailed thinking on" reasoning trace (`reasoning =
+deep_reasoning and task_schema is None` in `_runner()` below; never
+combined with a schema, see `client.py`'s `_REASONING_ON_PROMPT`
+docstring). Originally scoped to just the Innovation Layer's propose/
+evolve/merge calls; now every task that is a genuine subjective
+judgment call (personal/settlement belief revision, major life
+decisions — migration/fission/founding/dispute, institutional/council
+belief formation, town consciousness, cultural evolution — tradition/
+religion/narrative direction/culture digest/institution culture/
+faction naming/laws/self-modifying-rule proposals, invention/ontology
+origination, and the Reflection/self-tuning system that lets the game
+itself learn and improve) carries this flag — see each call site's own
+comment for why. Routine/high-volume/narration tasks (dialogue,
+rumor_interpret, dream, moment-to-moment cognition/goal decisions,
+chronicle, documentary, naming, festival, caravan, town_brain's
+one-sentence rationale, ...) deliberately stay off this path — they
+either have a sensible deterministic answer already computed (town_
+brain, era_branch, geography — v1.3.35) or genuinely don't benefit from
+a reasoning trace (one-line narration, a single goal word). Every job
+NOT passing `deep_reasoning=True` is completely unaffected by this
+constant."""
 
 REFLECTION_ONTOLOGY_IMBALANCE_MIN_TOTAL = 6
 REFLECTION_ONTOLOGY_IMBALANCE_RATIO = 3.0
@@ -546,8 +566,8 @@ MATERIALS_FLOW_WINDOW_TICKS = 200
 not a whole-run average, matching the audit's ask for a live materials
 inflow/outflow signal rather than a historical chart."""
 
-DIALOGUE_BACKPRESSURE_FRACTION = 0.75
-RUMOR_INTERPRET_BACKPRESSURE_FRACTION = 0.5
+DIALOGUE_BACKPRESSURE_FRACTION = 0.6
+RUMOR_INTERPRET_BACKPRESSURE_FRACTION = 0.35
 """docs/AUDIT-2026-07-20.md, P1.2(ii): dialogue and rumor_interpret were
 each commented as "the most expendable LLM job" but mechanically used
 the identical bare `_current_backpressure_limit()` threshold as routine
@@ -563,7 +583,16 @@ Ordered rumor_interpret < dialogue < cognition, matching the audit's
 stated priority (cognition > dialogue > rumor_interpret); P0.2(b)/(c)'s
 novelty gating already trims rumor_interpret's raw call volume
 separately — this fraction only changes which job yields first when
-the queue is genuinely saturated."""
+the queue is genuinely saturated.
+
+Lowered further from 0.75/0.5 in v1.3.37 (explicit user directive:
+"allocate more freed-up LLM budget to tasks that require sentience and
+intelligence"): that pass gave roughly twenty settlement/institution/
+agent judgment tasks a real reasoning trace (`deep_reasoning=True`,
+1.5x token budget each), so pure narration — dialogue lines,
+distorted-retelling — should yield its queue slot even earlier under
+real pressure, leaving more of the shared backlog limit for jobs that
+actually think rather than describe."""
 
 ADAPTIVE_LATENCY_ELEVATED_MS = 45_000
 ADAPTIVE_LATENCY_SEVERE_MS = 80_000
@@ -3254,7 +3283,10 @@ class SimulationEngine:
                 settlement.culture_effects[influence] = settlement.culture_effects.get(influence, 0) + 1
             self._log("tradition", f"{settlement.name or 'The village'} established a new tradition — {entry}")
 
-        self._schedule_llm_job("tradition", prompt, culture.SYSTEM_PROMPT, fallback, apply)
+        # Cultural evolution: a tradition is a genuine interpretive claim
+        # about what the settlement's lived history means, worth a real
+        # reasoning trace (v1.3.37).
+        self._schedule_llm_job("tradition", prompt, culture.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
 
     def _maybe_schedule_folklore(self, events: list[str]) -> None:
         """Phase K "folklore condensation" (docs/VISION-2026-07.md,
@@ -3437,7 +3469,10 @@ class SimulationEngine:
                 ),
             )
 
-        self._schedule_llm_job("invention", prompt, invention.SYSTEM_PROMPT, fallback, apply)
+        # Innovation & discovery: naming/scoping a genuinely new idea
+        # warrants a real reasoning trace, same treatment as ontology
+        # propose/evolve below (v1.3.37).
+        self._schedule_llm_job("invention", prompt, invention.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
 
     # --- Phase 1.A "self-evolving world" — the Innovation Layer -----------
 
@@ -3654,8 +3689,11 @@ class SimulationEngine:
                 )
                 self._log("ontology", f"The land itself gave rise to {concept.name}: {concept.description}")
 
+        # Nature's Mind is a pillar-cognition/ontology-origination task
+        # (v1.3.37).
         self._schedule_llm_job(
             "nature_mind", prompt, nature_mind.SYSTEM_PROMPT, fallback, apply, critical=True,
+            deep_reasoning=True,
         )
 
     def _maybe_spread_concepts(self) -> None:
@@ -3828,7 +3866,10 @@ class SimulationEngine:
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
-        self._schedule_llm_job("rule_propose", prompt, rule_propose.SYSTEM_PROMPT, fallback, apply)
+        # The game learning/improving itself: a self-modifying trigger
+        # rule is exactly the kind of proposal that should be reasoned
+        # through, not narrated (v1.3.37).
+        self._schedule_llm_job("rule_propose", prompt, rule_propose.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
 
     def _infra_counts(self, settlement) -> tuple[int, int, int, int]:
         """`(huts, established_roads, schools, ready_carts)` — the four
@@ -4254,7 +4295,9 @@ class SimulationEngine:
                     f"The first faith in this world took root: {stl.name} now shares a belief called {parsed['name']}.",
                 )
 
-        self._schedule_llm_job("religion", prompt, religion.SYSTEM_PROMPT, fallback, apply)
+        # Cultural evolution: crystallizing a religion from a repeated
+        # ritual is a real interpretive act (v1.3.37).
+        self._schedule_llm_job("religion", prompt, religion.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
 
     def _maybe_schedule_narrative_direction(self, events: list[str]) -> None:
         """Quarterly (season_end — a season already IS a real-calendar
@@ -4308,7 +4351,9 @@ class SimulationEngine:
                         stl.lexicon = stl.lexicon[-LEXICON_MAX_STORED:]
                     self._log("dialect_coined", f"{stl.name} has started calling it \"{term}\" — {meaning}")
 
-        self._schedule_llm_job("narrative_direction", prompt, narrative_direction.SYSTEM_PROMPT, fallback, apply)
+        # Cultural evolution: naming the emergent theme is interpretation
+        # over a real computed mood signal (v1.3.37).
+        self._schedule_llm_job("narrative_direction", prompt, narrative_direction.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
 
     def _maybe_schedule_culture_digest(self, events: list[str]) -> None:
         """Quarterly (season_end, same cadence as narrative_direction —
@@ -4348,7 +4393,8 @@ class SimulationEngine:
                 stl = self._settlement_by_id(target_id)
                 stl.culture_digest = digest
 
-        self._schedule_llm_job("culture_digest", prompt, culture_digest.SYSTEM_PROMPT, fallback, apply)
+        # Cultural evolution (v1.3.37).
+        self._schedule_llm_job("culture_digest", prompt, culture_digest.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
 
     def _institution_job_target(self) -> "tuple[Settlement, object] | None":
         """§9 "institutions get their own persistent memory" (docs/IDEAS-
@@ -4406,9 +4452,11 @@ class SimulationEngine:
             if inst is not None:
                 inst.culture_digest = digest
 
+        # Cultural evolution: an institution's own independent character
+        # (v1.3.37).
         self._schedule_llm_job(
             "institution_culture", prompt, institution_culture.SYSTEM_PROMPT, fallback, apply,
-            settlement=settlement.name,
+            settlement=settlement.name, deep_reasoning=True,
         )
 
     @staticmethod
@@ -4590,9 +4638,12 @@ class SimulationEngine:
                 log_consciousness_entry(self.conn, tick, "intervention", f"{kind}: {detail}")
                 self._log("consciousness_intervention", f"Something in {target.name} quietly shifted.")
 
+        # Town consciousness: choosing at most one deniable intervention
+        # is exactly the kind of long-horizon judgment reasoning helps
+        # with (v1.3.37).
         self._schedule_llm_job(
             "consciousness", prompt, consciousness.SYSTEM_PROMPT, fallback, apply, critical=True,
-            settlement=target.name,
+            settlement=target.name, deep_reasoning=True,
         )
 
     def _apply_consciousness_intervention(self, kind: str, detail: str, target: "Settlement") -> None:
@@ -4834,8 +4885,11 @@ class SimulationEngine:
             self.world.reflection_notebook.append(entry)
             self._log("reflection", f"Hearthmind formed a hypothesis about {pattern['subject']}: {parsed['hypothesis']}")
 
+        # The game learning/improving itself: Reflection proposes a
+        # grounded hypothesis from real cross-pillar pattern signals —
+        # the flagship "self-improvement" reasoning task (v1.3.37).
         self._schedule_llm_job(
-            "reflection", prompt, reflection.SYSTEM_PROMPT, fallback, apply,
+            "reflection", prompt, reflection.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True,
         )
 
     def _maybe_schedule_self_tuning(self, events: list[str]) -> None:
@@ -4922,8 +4976,11 @@ class SimulationEngine:
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
+        # The game learning/improving itself: proposing a bounded
+        # governor-tuning nudge (v1.3.37).
         self._schedule_llm_job(
             "self_tuning", prompt, self_tuning.SYSTEM_PROMPT, fallback, apply, critical=True,
+            deep_reasoning=True,
         )
 
     # --- caravans: a first, scoped step toward "external settlements and trade" ---
@@ -5265,9 +5322,12 @@ class SimulationEngine:
             beliefs.sync_council_beliefs(entry, settlement.institutions)  # integration milestone
             beliefs.sync_guild_beliefs(entry, settlement.institutions)  # continue expanding, round three
 
+        # Settlement-wide belief revision: genuine subjective judgment,
+        # same reasoning-over-schema tradeoff as personal_belief
+        # (v1.3.37, see json_schemas.py's docstring).
         self._schedule_llm_job(
             "beliefs", prompt, beliefs.SYSTEM_PROMPT, fallback, apply, critical=True,
-            settlement=settlement.name,
+            settlement=settlement.name, deep_reasoning=True,
         )
 
     def _maybe_schedule_personal_belief(self, events: list[str]) -> None:
@@ -5476,7 +5536,13 @@ class SimulationEngine:
                     )
                 target.life_event_since_goal = False
 
-        self._schedule_llm_job("personal_belief", prompt, beliefs.PERSONAL_SYSTEM_PROMPT, fallback, apply, critical=True)
+        # Personal belief revision: genuine subjective judgment,
+        # deliberately reasons rather than schema-constrains (v1.3.37,
+        # see json_schemas.py's docstring).
+        self._schedule_llm_job(
+            "personal_belief", prompt, beliefs.PERSONAL_SYSTEM_PROMPT, fallback, apply, critical=True,
+            deep_reasoning=True,
+        )
 
     def _maybe_schedule_dream(self, events: list[str]) -> None:
         """Phase K's Dream() (docs/VISION-2026-07.md, "Knowledge &
@@ -5849,7 +5915,7 @@ class SimulationEngine:
                     }
                     self._log("prophecy_formed", f"{target.name or 'The village'} noticed something spoken half in jest: \"{text}\"")
 
-        self._schedule_llm_job("omen", prompt, omens.SYSTEM_PROMPT, fallback, apply)
+        self._schedule_llm_job("omen", prompt, omens.SYSTEM_PROMPT, fallback, apply)  # ambient texture, stays fast
 
     # --- v0.64.0 audit-backlog jobs ---------------------------------------------
 
@@ -6081,7 +6147,9 @@ class SimulationEngine:
                     push_secret(b, text)
                     log_agent_memory_entry(self.conn, tick, b.id, "secret", text)
 
-        self._schedule_llm_job("dispute", prompt, dispute.SYSTEM_PROMPT, fallback, apply)
+        # Major life decision: a dispute outcome reshapes two lives and
+        # settlement history (v1.3.37).
+        self._schedule_llm_job("dispute", prompt, dispute.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
 
     def _maybe_schedule_faction(self, events: list[str]) -> None:
         """Phase L "Factions" (docs/VISION-2026-07.md, "Society &
@@ -6122,7 +6190,8 @@ class SimulationEngine:
                 )
             self._log(event[0], f"{event[1]} {framing}")
 
-        self._schedule_llm_job("faction", prompt, faction.SYSTEM_PROMPT, fallback, apply)
+        # Cultural evolution: naming a real detected faction (v1.3.37).
+        self._schedule_llm_job("faction", prompt, faction.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
 
     def _maybe_schedule_guild_founding(self, events: list[str]) -> None:
         """Deliberate institution founding — see llm/founding.py and
@@ -6155,7 +6224,8 @@ class SimulationEngine:
             if event is not None:
                 self._log(event[0], f'{event[1]} — "{reason}"')
 
-        self._schedule_llm_job("guild_founding", prompt, founding.SYSTEM_PROMPT, fallback, apply)
+        # Major life decision: deliberately founding a guild (v1.3.37).
+        self._schedule_llm_job("guild_founding", prompt, founding.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
 
     def _maybe_schedule_institution_belief(self, events: list[str]) -> None:
         """Institutions Stage 3: once a month, ONE institution with
@@ -6226,7 +6296,10 @@ class SimulationEngine:
                 f" of {parsed['subject']}: {parsed['belief']}",
             )
 
-        self._schedule_llm_job("institution_belief", prompt, beliefs.INSTITUTION_SYSTEM_PROMPT, fallback, apply)
+        # Council deliberation (and FAMILY/GUILD's own equivalent):
+        # institutional belief formation is genuine collective judgment
+        # (v1.3.37).
+        self._schedule_llm_job("institution_belief", prompt, beliefs.INSTITUTION_SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
 
     # --- item 8b: inter-settlement diplomacy ------------------------------------
 
@@ -6341,7 +6414,9 @@ class SimulationEngine:
                 stl.pattern_signal_counts["dispute_feud"] = 0
             self._log("law_enacted", f"{stl.name} has come to hold a {parsed['kind']}: {parsed['text']}")
 
-        self._schedule_llm_job("laws", prompt, laws.SYSTEM_PROMPT, fallback, apply)
+        # Cultural evolution: a law/custom/taboo is a real normative
+        # judgment about the settlement (v1.3.37).
+        self._schedule_llm_job("laws", prompt, laws.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
 
     # --- item 9: occasional LLM nudges for non-core-cast agents -----------------
 
@@ -6648,7 +6723,9 @@ class SimulationEngine:
                 f" toward a new home in the distance — \"{reason}\"",
             )
 
-        self._schedule_llm_job("fission", prompt, fission.SYSTEM_PROMPT, fallback, apply)
+        # Major life decision: whether to leave and found a new
+        # settlement (v1.3.37).
+        self._schedule_llm_job("fission", prompt, fission.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
 
     def _maybe_schedule_migration_decision(self) -> None:
         """Individual migration's core-cast half (explicit user
@@ -6699,8 +6776,11 @@ class SimulationEngine:
             description = population.depart_for_migration(target_agent, target_home, target_settlement)
             self._log("migrant_departed", f"{description} — \"{reason}\"")
 
+        # Major life decision: weighing a real reason to leave against
+        # roots/relationships (v1.3.37).
         self._schedule_llm_job(
             "migration_decision", prompt, migration.SYSTEM_PROMPT, fallback, apply, settlement=home.name,
+            deep_reasoning=True,
         )
 
     # --- §5 "Ruins mode / successor worlds" (docs/IDEAS-2026-07-EMERGENCE.md) --

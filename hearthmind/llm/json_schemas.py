@@ -12,18 +12,29 @@ on JSON syntax and *never* need `parse_*`'s defensive coercion for
 structural reasons (a missing/mistyped field), only for semantic
 judgment calls (e.g. `revises` pointing at a real prior belief).
 
-Deliberately scoped to the eleven task names the training recorder
-actually observes in a real live run (see any `review_pack.json`
-manifest's `task_distribution` — dialogue/cognition/rumor_interpret/
-mind/personal_belief/chronicle/beliefs/dream/folklore/naming/
-town_brain cover 100% of a real archive). Every other `llm/*.py` job
-(caravan, dispute, diplomacy, invention, ...) still works exactly as
-before via the unconstrained `json_object` mode — `schema_for_task`
-returns `None` for anything not listed here, and every call site
-already treats `None` as "no schema, fall back to the old behavior."
-Extend this dict opportunistically when a new task earns a real archive
-presence; it is not required to stay in lockstep with every `llm/`
-module.
+Deliberately scoped to task names the training recorder actually
+observes in a real live run (see any `review_pack.json` manifest's
+`task_distribution`). Every other `llm/*.py` job (caravan, dispute,
+diplomacy, invention, ...) still works exactly as before via the
+unconstrained `json_object` mode — `schema_for_task` returns `None`
+for anything not listed here, and every call site already treats
+`None` as "no schema, fall back to the old behavior." Extend this dict
+opportunistically when a new task earns a real archive presence; it is
+not required to stay in lockstep with every `llm/` module.
+
+`personal_belief`/`beliefs` were REMOVED here (v1.3.37, explicit user
+directive to expand genuine reasoning to belief revision): a grammar
+enforces the full output shape from the first token, which suppresses
+a preceding `<think>` block entirely (see `llm/client.py`'s
+`_REASONING_ON_PROMPT` docstring) — `_schedule_llm_job`'s own
+structural rule (`reasoning = deep_reasoning and task_schema is
+None`) means a schema-constrained task can never get a real reasoning
+trace. Belief revision is exactly the kind of judgment call that
+benefits from reasoning far more than from strict-schema enforcement,
+so this pass trades the grammar guarantee for the trace — `beliefs.
+parse_*` already tolerates a missing/malformed optional field (it did
+before FT.0 added schemas), so dropping the schema here is a real but
+bounded regression, not a new failure class.
 
 Each schema intentionally omits any field `parse_*` treats as "optional,
 never fabricate" (secrets, plan fields split across `parse_plan`,
@@ -126,41 +137,9 @@ TASK_SCHEMAS: dict[str, dict] = {
         "required": ["priority", "rationale"],
         "additionalProperties": False,
     },
-    "beliefs": {
-        "type": "object",
-        "properties": {
-            "subject": {"type": "string", "maxLength": 70},
-            "belief": {"type": "string", "maxLength": 220},
-            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-            "revises": {"type": ["integer", "null"]},
-        },
-        "required": ["subject", "belief", "confidence"],
-        "additionalProperties": False,
-    },
-    "personal_belief": {
-        # A strict superset of "beliefs" — `_run_personal_belief` (engine.py)
-        # reads several more optional fields off the same one call
-        # (semantic_memory, life_digest, lesson, plan) that the settlement
-        # job never asks for. None of them go in `required`: each has its
-        # own "leave blank most calls, never fabricate" contract in
-        # `beliefs.parse_*`.
-        "type": "object",
-        "properties": {
-            "subject": {"type": "string", "maxLength": 70},
-            "belief": {"type": "string", "maxLength": 220},
-            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-            "revises": {"type": ["integer", "null"]},
-            "semantic_memory": {"type": "string", "maxLength": 200},
-            "life_digest": {"type": "string", "maxLength": 300},
-            "lesson_situation": {"type": "string", "maxLength": 100},
-            "lesson": {"type": "string", "maxLength": 150},
-            "plan_intent": {"type": "string", "maxLength": 120},
-            "plan_horizon_days": {"type": "integer", "minimum": 3, "maximum": 30},
-            "plan_progress_note": {"type": "string", "maxLength": 150},
-        },
-        "required": ["subject", "belief", "confidence"],
-        "additionalProperties": False,
-    },
+    # "beliefs"/"personal_belief" deliberately absent — see the module
+    # docstring's v1.3.37 note: both now run with reasoning=True, which
+    # structurally requires no schema (see `_schedule_llm_job`).
 }
 
 

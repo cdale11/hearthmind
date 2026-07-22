@@ -278,29 +278,30 @@
 #                        backend combination rejects "on" outright, or
 #                        empty (LLAMA_FLASH_ATTN=) to omit the flag on an
 #                        older llama-server that doesn't have it.
-#   LLAMA_REASONING      Default: off. Every prompt here wants one short
-#                        strict-JSON answer — hybrid-thinking models
-#                        (Qwen3, Nemotron 3, and similar) burn real
-#                        tokens/latency/memory on a <think> block nobody
-#                        reads, so reasoning is off by default (--reasoning
-#                        off --reasoning-budget 0, both confirmed working).
-#                        Set LLAMA_REASONING=auto to restore the model's
-#                        own default, or empty (LLAMA_REASONING=) to omit
-#                        both flags on an older llama-server.
-#                        NOTE (Nemotron 3): this is a SERVER-WIDE floor,
-#                        separate from the app's own PER-CALL "detailed
-#                        thinking on/off" system-prompt toggle (llm/
-#                        client.py's `reasoning` param, used by the small
-#                        number of `deep_reasoning=True` jobs — Innovation
-#                        Layer propose/evolve). With the default `off`
-#                        here (--reasoning-budget 0), those calls' "detailed
-#                        thinking on" phrase is a no-op — llama-server
-#                        won't emit a <think> block regardless. Set
-#                        LLAMA_REASONING=auto (or leave it empty) if you
-#                        want those specific jobs to get a real reasoning
-#                        trace; every other call already asks for
-#                        reasoning off per-call and is unaffected either
-#                        way.
+#   LLAMA_REASONING      Default: auto (changed from `off` in v1.3.37,
+#                        explicit user directive to give genuine
+#                        subjective-decision jobs a real reasoning trace).
+#                        This is a SERVER-WIDE floor, separate from the
+#                        app's own PER-CALL "detailed thinking on/off"
+#                        system-prompt toggle (llm/client.py's `reasoning`
+#                        param, `_schedule_llm_job(..., deep_reasoning=
+#                        True)` — now ~20 tasks: belief revision, major
+#                        life decisions, council/institution deliberation,
+#                        town consciousness, cultural evolution,
+#                        invention/ontology origination, Reflection/self-
+#                        tuning). A server-wide `off` (--reasoning-budget
+#                        0) makes that per-call "detailed thinking on"
+#                        phrase a no-op regardless of what the app asks
+#                        for — `auto` is required for those jobs to get a
+#                        real trace, hence the new default. Every other
+#                        call already asks for reasoning off per-call
+#                        (`deep_reasoning=False`, the default) and is
+#                        unaffected either way — set LLAMA_REASONING=off
+#                        to restore the old server-wide floor (e.g. to
+#                        save latency/memory on constrained hardware, at
+#                        the cost of every deep_reasoning=True job losing
+#                        its trace too), or empty (LLAMA_REASONING=) to
+#                        omit both flags on an older llama-server.
 #   SKIP_NATIVE_BUILD    1 to skip building hearthmind._native. Default: 0.
 #   LLAMA_EXTRA_ARGS     Extra raw flags appended to the llama-server
 #                        command line.
@@ -320,7 +321,7 @@ LLAMA_FIT_TARGET="${LLAMA_FIT_TARGET-1024}"
 LLAMA_CACHE_TYPE_K="${LLAMA_CACHE_TYPE_K:-q8_0}"
 LLAMA_CACHE_TYPE_V="${LLAMA_CACHE_TYPE_V:-q8_0}"
 LLAMA_FLASH_ATTN="${LLAMA_FLASH_ATTN-on}"
-LLAMA_REASONING="${LLAMA_REASONING-off}"
+LLAMA_REASONING="${LLAMA_REASONING-auto}"
 LLAMA_BATCH_SIZE="${LLAMA_BATCH_SIZE-512}"
 LLAMA_UBATCH_SIZE="${LLAMA_UBATCH_SIZE-128}"
 LLAMA_DEFRAG_THOLD="${LLAMA_DEFRAG_THOLD-0.1}"

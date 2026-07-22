@@ -4,6 +4,72 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.37] — Enable real reasoning traces for genuine judgment tasks; free their LLM budget
+
+Explicit user directive, table-form: enable reasoning for personal
+belief revision, major life decisions, council deliberation, town
+consciousness, cultural evolution, and innovation & discovery — keep
+it off for dialogue, rumors, dreams, and NPC moment-to-moment
+cognition. Change `scripts/run.sh` defaults if required to actually
+enable it, and reallocate freed LLM budget toward the tasks that need
+real sentience/intelligence — the pillars' own Mind-half tasks and the
+game's own self-improvement (Reflection/self-tuning), not just
+narration.
+
+**Root blocker found and fixed first:** `scripts/run.sh`'s
+`LLAMA_REASONING` defaulted to `off` (`--reasoning-budget 0`,
+server-wide) — this silently made every existing `deep_reasoning=True`
+job's per-call "detailed thinking on" phrase a no-op regardless of
+what the app asked for. Default -> `auto`; `off` still available to
+restore the old floor.
+
+**~20 tasks now carry `deep_reasoning=True`** (was 2 — Innovation
+Layer propose/evolve only), one flag per the user's table, each tagged
+at its call site: `personal_belief`/`beliefs` (personal + settlement
+belief revision), `migration_decision`/`fission`/`guild_founding`/
+`dispute` (major life decisions), `institution_belief` (council/
+family/guild deliberation), `consciousness` (town consciousness),
+`tradition`/`religion`/`narrative_direction`/`culture_digest`/
+`institution_culture`/`faction`/`laws`/`rule_propose` (cultural
+evolution), `invention` (alongside the existing `ontology_proposal`/
+`ontology_evolution`, innovation & discovery), `reflection`/
+`self_tuning` (the game learning/improving itself — not in the user's
+table verbatim but a direct fit for "the game itself to learn and
+improve," same Reflection/self-tuning system CLAUDE.md already frames
+that way). Dialogue/rumor_interpret/dream/cognition (moment-to-moment
+goal decisions) deliberately untouched — already fast, matching the
+"off" column. town_brain/era_branch/geography stay untouched too
+(already deterministic-decided-plus-LLM-narrated as of v1.3.35 — no
+decision left to reason about).
+
+**Schema/reasoning conflict resolved by dropping two schemas, not by
+silently keeping reasoning off:** `personal_belief`/`beliefs` were the
+only two of the newly-flagged tasks with a `json_schemas.py` grammar —
+a grammar enforces the full output shape from the first token, which
+suppresses a preceding `<think>` block entirely (`_schedule_llm_job`'s
+own structural rule, `reasoning = deep_reasoning and task_schema is
+None`, would otherwise silently keep reasoning off for exactly the two
+tasks the user named first). Removed both from `TASK_SCHEMAS` — belief
+revision benefits more from a real reasoning trace than from strict-
+schema enforcement, and `beliefs.parse_*` already tolerated schema-less
+output before FT.0 added the grammar.
+
+**Budget reallocation:** `DIALOGUE_BACKPRESSURE_FRACTION` 0.75 -> 0.6,
+`RUMOR_INTERPRET_BACKPRESSURE_FRACTION` 0.5 -> 0.35 — pure narration
+now sheds its queue slot even earlier under real backlog pressure,
+since ~20 tasks now cost 1.5x tokens each (existing `DEEP_REASONING_
+NUM_PREDICT_MULT`/`_TEMPERATURE`, unchanged values, now applied far
+more broadly) and should get first claim on the shared concurrency
+limit.
+
+Verified: direct `_schedule_llm_job` unit test confirming `reasoning=
+True`/no schema/boosted num_predict-temperature/correct apply for a
+representative newly-flagged task (`beliefs`); a full audit confirming
+zero of the ~20 flagged tasks retain a `TASK_SCHEMAS` entry;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical
+(this batch touches only the async LLM-call path, never deterministic
+tick state).
+
 ## [1.3.36] — Genuine decision-point expansion (migration); Nemotron 3 Nano 4B reasoning support
 
 Explicit user directive, two parts. First: "move the LLM from
