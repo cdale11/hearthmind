@@ -43,7 +43,7 @@ from hearthmind.world.disasters import (
 )
 from hearthmind.world.hydrology import LakeState, generate_rivers, identify_lakes, tick_lakes
 from hearthmind.world.minerals import MineralGrid
-from hearthmind.world.ontology import InventedConcept, TriggerRule
+from hearthmind.world.ontology import CompositeEntity, InventedConcept, TriggerRule
 from hearthmind.world.weather import WeatherState, compute_weather
 from hearthmind.world.wildlife import WildlifeGrid
 from hearthmind.util import namespaced_rng
@@ -364,6 +364,14 @@ class World:
     originates new ones, gated through the counterfactual sandbox
     (item 1.3, `simulation/sandbox.py`) before going live."""
     next_trigger_rule_id: int = 1
+    composite_entities: dict[int, CompositeEntity] = field(default_factory=dict)
+    """Vision doc item 4.1 (docs/VISION-2026-07-22-LIVINGTERRARIUM.md,
+    "Composite entities from existing primitives") — world-scoped like
+    `invented_concepts`/`trigger_rules`, see world/ontology.py.
+    `SimulationEngine._maybe_schedule_composite_entity` originates new
+    ones, binding a real standing building to a real `InventedConcept`
+    via a name and an origin story."""
+    next_composite_entity_id: int = 1
     nature_beliefs: list[dict] = field(default_factory=list)
     """Nature's Mind (Body/Mind framing, CLAUDE.md "Design priorities" —
     explicit user direction 2026-07-21): the land's own running,
@@ -872,6 +880,13 @@ class World:
                 "name": rule.name, "text": rule.description, "status": rule.status,
                 "tick": rule.tick_created, "settlement": rule.origin_settlement_id, "lineage": None,
             })
+        for entity in self.composite_entities.values():
+            entries.append({
+                "type": "composite_entity", "id": f"composite_{entity.id}", "kind": entity.base_kind,
+                "name": entity.name, "text": entity.origin_story, "status": "named",
+                "tick": entity.tick_created, "settlement": entity.origin_settlement_id,
+                "lineage": {"concept_id": entity.concept_id, "building_id": entity.building_id},
+            })
         for action in self.self_tuning_actions:
             if action.get("status") != "applied":
                 continue
@@ -952,6 +967,8 @@ class World:
             "next_concept_id": self.next_concept_id,
             "trigger_rules": {str(k): v.to_dict() for k, v in self.trigger_rules.items()},
             "next_trigger_rule_id": self.next_trigger_rule_id,
+            "composite_entities": {str(k): v.to_dict() for k, v in self.composite_entities.items()},
+            "next_composite_entity_id": self.next_composite_entity_id,
             "nature_beliefs": list(self.nature_beliefs),
             "reflection_notebook": list(self.reflection_notebook),
             "musings": list(self.musings),
@@ -1158,6 +1175,10 @@ class World:
                 int(k): TriggerRule.from_dict(v) for k, v in data.get("trigger_rules", {}).items()
             },
             next_trigger_rule_id=data.get("next_trigger_rule_id", 1),
+            composite_entities={
+                int(k): CompositeEntity.from_dict(v) for k, v in data.get("composite_entities", {}).items()
+            },
+            next_composite_entity_id=data.get("next_composite_entity_id", 1),
             nature_beliefs=list(data.get("nature_beliefs", [])),
             reflection_notebook=list(data.get("reflection_notebook", [])),
             musings=list(data.get("musings", [])),

@@ -254,6 +254,63 @@ class TriggerRule:
         )
 
 
+MAX_COMPOSITE_ENTITIES_STORED = 100
+"""Cap on `World.composite_entities` — rarer than concepts/rules (one
+proposal per season at most per settlement, same cadence as `_maybe_
+schedule_institution_culture`), so a smaller ceiling than `MAX_
+CONCEPTS_STORED` suffices. Never pruned by eviction in practice at
+that volume; kept as a genuine ceiling, oldest dropped first, matching
+every other capped registry here."""
+
+
+@dataclass
+class CompositeEntity:
+    """Vision doc item 4.1, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
+    ("Composite entities from existing primitives"): a new "entity"
+    that isn't new code — a named, persistent COMPOSITE of things that
+    already exist. Mechanically this is nothing more than: one real
+    standing `Building` (`building_id`, unchanged kind/stats — a
+    composite entity never adds a new `BuildingKind`), bound to one
+    real `InventedConcept` (`concept_id`, carrying whatever mechanical
+    hook that concept already has, if any) via a name and an origin
+    story grounded in something that actually happened. "The
+    Sorrow-Hall" is mechanically still just a MEMORIAL-shaped building
+    and an `institution_flavor` concept — the entity is the SUM,
+    structurally just composition, never a new mechanism. `sigil_svg`
+    (item 4.3) is a small deterministic parameterized SVG icon
+    generated at creation time — see `world/sigils.py` — never an LLM
+    call of its own."""
+
+    id: int
+    name: str
+    base_kind: str
+    building_id: int
+    concept_id: int
+    origin_settlement_id: int
+    origin_story: str
+    tick_created: int
+    sigil_svg: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id, "name": self.name, "base_kind": self.base_kind,
+            "building_id": self.building_id, "concept_id": self.concept_id,
+            "origin_settlement_id": self.origin_settlement_id,
+            "origin_story": self.origin_story, "tick_created": self.tick_created,
+            "sigil_svg": self.sigil_svg,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "CompositeEntity":
+        return cls(
+            id=data["id"], name=data["name"], base_kind=data.get("base_kind", ""),
+            building_id=data["building_id"], concept_id=data["concept_id"],
+            origin_settlement_id=data.get("origin_settlement_id", 0),
+            origin_story=data.get("origin_story", ""), tick_created=data.get("tick_created", 0),
+            sigil_svg=data.get("sigil_svg", ""),
+        )
+
+
 def register_concept(
     world, name: str, description: str, category: str, origin_settlement_id: int,
     tick: int, inventor_agent_id: int | None = None, mechanical_hook: dict | None = None,
@@ -448,6 +505,29 @@ def prune_trigger_rules(world) -> None:
         if len(world.trigger_rules) <= MAX_TRIGGER_RULES_STORED:
             return
         del world.trigger_rules[rule.id]
+
+
+def register_composite_entity(
+    world, name: str, base_kind: str, building_id: int, concept_id: int,
+    origin_settlement_id: int, origin_story: str, tick: int, sigil_svg: str = "",
+) -> "CompositeEntity":
+    """Mints a new `CompositeEntity` — the item 4.1 counterpart to
+    `register_concept`/`register_trigger_rule`. Pure mutator; the
+    caller (`SimulationEngine._maybe_schedule_composite_entity`)
+    already validated that `building_id` is a real standing building
+    without an entity yet and `concept_id` a real registered concept."""
+    entity_id = world.next_composite_entity_id
+    world.next_composite_entity_id += 1
+    entity = CompositeEntity(
+        id=entity_id, name=name, base_kind=base_kind, building_id=building_id,
+        concept_id=concept_id, origin_settlement_id=origin_settlement_id,
+        origin_story=origin_story, tick_created=tick, sigil_svg=sigil_svg,
+    )
+    world.composite_entities[entity_id] = entity
+    if len(world.composite_entities) > MAX_COMPOSITE_ENTITIES_STORED:
+        oldest_id = min(world.composite_entities, key=lambda i: world.composite_entities[i].tick_created)
+        del world.composite_entities[oldest_id]
+    return entity
 
 
 def retire_stale_rules(world, tick: int) -> None:

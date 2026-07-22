@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.3.39] — Living Terrarium items 4.1/4.3: composite entities + generated sigils
+
+Explicit user request: implement items 4.1 and 4.3 from
+docs/VISION-2026-07-22-LIVINGTERRARIUM.md ("New entities and assets,
+not just concepts").
+
+**4.1, composite entities from existing primitives:** new `world.
+ontology.CompositeEntity` — mechanically nothing more than one real
+standing `Building` (unchanged kind/stats — never a new `BuildingKind`)
+bound to one real `InventedConcept` via a name and an origin story, the
+doc's own "Sorrow-Hall" example (a memorial-shaped building + an
+institution_flavor concept, the entity is the sum). New `llm/composite_
+entity.py` (same closed-category/hook-vocabulary shape as `llm/
+ontology.py`/`llm/rule_propose.py` — a category from `ONTOLOGY_
+CATEGORIES`, an optional bounded mechanical hook via the existing
+`validate_hook`). `SimulationEngine._maybe_schedule_composite_entity`
+(seasonal, round-robin settlement via `_job_target`, `critical=False`
+with a real deterministic fallback name) finds the oldest standing
+building in the settlement that no entity has named yet
+(`_composite_entity_candidate_building`) and grounds the naming prompt
+in the settlement's single most notable recent event. `World.
+composite_entities` (capped, world-scoped like `invented_concepts`/
+`trigger_rules`) also feeds `knowledge_tree()`.
+
+**4.3, generative assets bound to emergent entities:** the parameterized-
+SVG path the vision doc itself recommends starting with. New `world/
+sigils.py`'s `generate_sigil_svg(name, category)` — fully deterministic
+(hashes name+category into a palette/motif/rotation choice, no RNG
+state, no LLM call, no heavy model), generated once at composite-entity
+creation and stored on `CompositeEntity.sigil_svg`.
+
+Surfaced main-UI (not dev-console — per the standing rule these are
+meant to be discovered): the building click inspector shows a named
+building's sigil, name, and origin story above the ordinary building
+facts (`app.js`'s `renderTargetInspector`, new `latest.composite_
+entities` broadcast field); `_diagnostics_snapshot`'s `composite_
+entities_total` gives the dev console a raw count.
+
+Verified: direct `_composite_entity_candidate_building` test (finds
+the oldest unnamed standing building, correctly excludes an already-
+named one on a second call); a direct end-to-end `_maybe_schedule_
+composite_entity` test confirming the fallback path names a building,
+registers a real `InventedConcept`, generates a sigil, and the entity
+survives a `World.to_dict()`/`from_dict()` round-trip;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical
+(no deterministic tick-state code touched).
+
 ## [1.3.38] — Cognition-architecture audit + Living Terrarium items 2.2/3.4
 
 Explicit user request: an audit focused on WHERE cognition should

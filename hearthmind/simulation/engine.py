@@ -65,7 +65,8 @@ from hearthmind.config import Config
 from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
-    faction, fission, beliefs, caravan, chronicle, chronicler, consciousness, culture, culture_digest, dialogue,
+    faction, fission, beliefs, caravan, chronicle, chronicler, composite_entity, consciousness, culture,
+    culture_digest, dialogue,
     digest, dispute, documentary, dream, era_branch, festival, folklore, founding, geography, invention,
     memory_drift, migration, mind, musing,
     naming, narrative_direction, omens, religion, rumor_interpret, skill_mastery, summary, town_brain,
@@ -73,6 +74,7 @@ from hearthmind.llm import (
 )
 from hearthmind.llm import ontology as ontology_llm
 from hearthmind.llm import self_tuning
+from hearthmind.world.sigils import generate_sigil_svg
 from hearthmind.world import ontology
 from hearthmind.world.disasters import GOVERNOR_TUNING_BAND, WILDFIRE_CHANCE_PER_WEEK
 from hearthmind.simulation.sandbox import run_counterfactual
@@ -1825,6 +1827,7 @@ class SimulationEngine:
         ("_maybe_schedule_invention", _JOB_EVENTS),
         ("_maybe_schedule_ontology_proposal", _JOB_EVENTS),
         ("_maybe_schedule_ontology_evolution", _JOB_EVENTS),
+        ("_maybe_schedule_composite_entity", _JOB_EVENTS),
         ("_maybe_schedule_nature_mind", _JOB_EVENTS),
         ("_maybe_spread_concepts", _JOB_NO_ARGS),
         ("_apply_trigger_rules_from_life_events", _JOB_NO_ARGS),
@@ -3606,6 +3609,78 @@ class SimulationEngine:
         self._schedule_llm_job(
             "ontology_evolution", prompt, system_prompt, fallback, apply, deep_reasoning=True,
         )
+
+    def _composite_entity_candidate_building(self, settlement) -> "Building | None":
+        """Vision item 4.1: a real standing building in `settlement`
+        that no `CompositeEntity` has named yet — the deterministic
+        eligibility check. Prefers the oldest-standing (most likely to
+        have real history behind it) among unnamed candidates, a small
+        deterministic tiebreak rather than random, so a settlement's
+        first-ever named place tends to be a genuinely established one,
+        not whichever hut finished construction most recently."""
+        named_building_ids = {e.building_id for e in self.world.composite_entities.values()}
+        candidates = [
+            b for b in settlement.buildings
+            if b.stage == BuildingStage.STANDING and b.id not in named_building_ids
+        ]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda b: b.id)
+
+    def _maybe_schedule_composite_entity(self, events: list[str]) -> None:
+        """Vision doc item 4.1, docs/VISION-2026-07-22-LIVINGTERRARIUM.md
+        ("Composite entities from existing primitives"): a new "entity"
+        that's structurally just composition — a real standing building
+        (unchanged kind/mechanics), given a name and an origin story
+        grounded in something that actually happened, plus a genuine
+        new `InventedConcept` that name embodies. Same seasonal,
+        round-robin-settlement cadence as `_maybe_schedule_institution_
+        culture`; `critical=False` — this is ambient world-building
+        texture with a real deterministic fallback name, not crucial
+        cognition."""
+        settlement = self._job_target()
+        if not self._season_year_gate(events, "composite_entity", "season_end") or not settlement.name:
+            return
+        building = self._composite_entity_candidate_building(settlement)
+        if building is None:
+            return
+        if self._settlement_job_backpressured():
+            return
+        self._mark_season_year_resolved("composite_entity")
+        recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
+        event_description = recent[0]["description"] if recent else "The village has simply endured, season after season."
+        existing_names = [e.name for e in self.world.composite_entities.values()]
+        prompt = composite_entity.build_prompt(settlement.name, building.kind.value, event_description, existing_names)
+        fallback = composite_entity.fallback_entity(len(existing_names))
+        settlement_id, building_id, building_kind = settlement.id, building.id, building.kind.value
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            parsed = composite_entity.parse_entity(result, fallback)
+            if ontology.is_near_duplicate(self.world, parsed["name"], parsed["origin_story"]):
+                return  # "nothing new" — same discipline as folklore/ontology's duplicate guard
+            target = self._settlement_by_id(settlement_id)
+            live_building = next(
+                (b for b in target.buildings if b.id == building_id and b.stage == BuildingStage.STANDING), None,
+            ) if target else None
+            if live_building is None:
+                return  # ruined/gone while the call was in flight
+            concept = ontology.register_concept(
+                self.world, name=parsed["name"], description=parsed["origin_story"], category=parsed["category"],
+                origin_settlement_id=settlement_id, tick=self.world.clock.tick_count,
+                mechanical_hook=parsed["hook"],
+            )
+            sigil = generate_sigil_svg(parsed["name"], parsed["category"])
+            ontology.register_composite_entity(
+                self.world, name=parsed["name"], base_kind=building_kind, building_id=building_id,
+                concept_id=concept.id, origin_settlement_id=settlement_id,
+                origin_story=parsed["origin_story"], tick=self.world.clock.tick_count, sigil_svg=sigil,
+            )
+            self._log(
+                "composite_entity_named",
+                f"{target.name or 'The village'} now knows this place as {parsed['name']} — {parsed['origin_story']}",
+            )
+
+        self._schedule_llm_job("composite_entity", prompt, composite_entity.SYSTEM_PROMPT, fallback, apply)
 
     def _maybe_schedule_nature_mind(self, events: list[str]) -> None:
         """Nature's Mind (Body/Mind framing, CLAUDE.md "Design
@@ -7277,6 +7352,11 @@ class SimulationEngine:
                 for concept in [ontology.dominant_architecture_concept(self.world, s.id)]
                 if concept is not None
             },
+            # Vision item 4.1: named composite entities, keyed by the
+            # real building they're bound to — the building inspector
+            # looks one up by building_id when a clicked building has
+            # been named.
+            "composite_entities": [e.to_dict() for e in self.world.composite_entities.values()],
             "vehicles": [v.to_dict() for s in settlements for v in s.vehicles],
             "farms": [p.to_dict() for p in self.world.farms.plots.values()],
             "resources": [n.to_dict() for n in self.world.resources.nodes.values()],
@@ -7373,6 +7453,11 @@ class SimulationEngine:
                 for status in ("active", "retired")
                 if any(r.status == status for r in self.world.trigger_rules.values())
             },
+            # Vision doc item 4.1 — same dev-console depth as trigger
+            # rules above; the main-UI surfacing is the building click
+            # inspector (a composite entity is meant to be discovered
+            # by clicking its building, not read as a raw count).
+            "composite_entities_total": len(self.world.composite_entities),
             # Vision doc item 1.4/2.4's own signal — how close the
             # governor-drift detector is to having enough samples, and
             # the same recent-window numbers `_detect_reflection_

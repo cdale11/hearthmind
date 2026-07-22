@@ -240,14 +240,15 @@ You asked specifically for the sim to propose "even new assets or
 entities." This is the hardest ask and needs the tightest guardrails —
 but there's a safe path via the same data-not-code discipline.
 
-- [ ] **4.1 [LIKELY] — Composite entities from existing primitives.** A
-  new "entity" need not be new code — it can be a *named, persistent
-  composite* of existing primitives: a new building "kind" that is
-  mechanically a known kind + an InventedConcept hook + a place-name +
-  an origin story (the "Sorrow-Hall," mechanically a memorial with a
-  grief-decay hook, born of a specific plague). New to the world, novel
-  to the observer, structurally just composition. This is how "new
-  infrastructure it wasn't programmed for" ships safely.
+- [x] **4.1 [LIKELY] — Composite entities from existing primitives.**
+  **Shipped v1.3.39.** New `world.ontology.CompositeEntity` — a real
+  standing building (unchanged kind/mechanics), bound to a new
+  `InventedConcept` via a name and an origin story grounded in an
+  actual recent event, exactly the "Sorrow-Hall" shape this item
+  describes. `SimulationEngine._maybe_schedule_composite_entity`
+  (seasonal, round-robin settlement, real deterministic fallback name)
+  picks the oldest unnamed standing building and asks the LLM to name
+  it. Surfaced in the building click inspector.
 
 - [ ] **4.2 [LIKELY] — Emergent species/variants via parameter-space.**
   Nature proposing a "new" grazer variant = an existing wildlife type
@@ -256,16 +257,15 @@ but there's a safe path via the same data-not-code discipline.
   world, still fully inside the physics. Same pattern as 4.1, applied to
   Nature.
 
-- [ ] **4.3 [CREATIVE] — Generative assets bound to emergent entities.**
-  The genuinely futuristic slice: when 4.1/4.2 create a novel entity,
-  generate its *representation* to match — an SVG sigil for a new
-  institution, a procedural icon for a new building, a generated crest
-  for a dynasty, from a local image/vector model or even parameterized
-  SVG templates (no heavy model needed). Your terrarium literally
-  *drawing new things it invented*. Start with parameterized SVG
-  (cheap, deterministic, on-brand with the diagram tooling); graduate to
-  a local generative model if you want. Nothing makes "it made something
-  new" land harder than *seeing* the new thing.
+- [x] **4.3 [CREATIVE] — Generative assets bound to emergent entities.**
+  **Shipped v1.3.39** (the parameterized-SVG path this item itself
+  recommends starting with). New `world/sigils.py`'s `generate_sigil_
+  svg(name, category)`: fully deterministic (same name+category always
+  draws the same sigil, no RNG, no LLM call, no heavy model) — a small
+  inline SVG hashed from the entity's own name and category into a
+  palette/motif/rotation choice. Generated once at composite-entity
+  creation time (item 4.1) and stored on `CompositeEntity.sigil_svg`;
+  rendered next to the entity's name in the building click inspector.
 
 ## Capability 5 — The guardrails that make it safe to leave running
 

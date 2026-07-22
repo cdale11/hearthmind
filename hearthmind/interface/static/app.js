@@ -2440,9 +2440,21 @@ function renderTargetInspector() {
     const label = kindSpaced.charAt(0).toUpperCase() + kindSpaced.slice(1);
     const conditionPct = Math.round((b.condition || 0) * 100);
     const occupants = (latest.agents || []).filter((a) => a.x === x && a.y === y).map((a) => a.name);
+    // Vision item 4.1/4.3: a composite entity is a real named place
+    // bound to this specific building — show its name/origin story/
+    // generated sigil above the ordinary building facts when present.
+    const entity = (latest.composite_entities || []).find((e) => e.building_id === b.id);
+    const entityHtml = entity
+      ? `<div class="npc-section composite-entity-section">
+          <div class="composite-entity-sigil">${entity.sigil_svg}</div>
+          <h4>${entity.name}</h4>
+          <div>${entity.origin_story}</div>
+        </div>`
+      : "";
     npcContent.innerHTML = `
-      <h3>${label}</h3>
-      <div class="npc-subtitle">${b.stage.replace(/_/g, " ")} at (${x}, ${y})</div>
+      <h3>${entity ? entity.name : label}</h3>
+      <div class="npc-subtitle">${entity ? `${label.toLowerCase()} — ` : ""}${b.stage.replace(/_/g, " ")} at (${x}, ${y})</div>
+      ${entityHtml}
       <div class="npc-section"><h4>Condition</h4>
         <div>${conditionPct}%${b.stage === "under_construction" ? ` · progress ${Math.round((b.progress || 0) * 100)}%` : ""}</div>
       </div>

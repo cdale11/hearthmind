@@ -476,6 +476,26 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.3.39)
+
+Explicit user request: implement Living Terrarium items 4.1 (composite
+entities from existing primitives) and 4.3 (generative assets bound to
+emergent entities).
+
+New `world.ontology.CompositeEntity`: structurally just composition —
+one real standing building (unchanged kind/mechanics) bound to one real
+`InventedConcept` via a name + origin story grounded in an actual
+recent event, the doc's own "Sorrow-Hall" shape. `llm/composite_
+entity.py` (closed category/hook vocabulary, `validate_hook` reused)
++ `SimulationEngine._maybe_schedule_composite_entity` (seasonal,
+round-robin settlement, real fallback name) name the oldest unnamed
+standing building in a settlement. New `world/sigils.py`'s `generate_
+sigil_svg(name, category)`: fully deterministic parameterized SVG (hash
+-> palette/motif/rotation, zero LLM cost), generated once at entity
+creation and stored on `CompositeEntity.sigil_svg`. Surfaced main-UI:
+the building click inspector shows a named building's sigil/name/
+origin story.
+
 ## Current state (v1.3.38)
 
 Explicit user request: a cognition-architecture audit (not prompt
