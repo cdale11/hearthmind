@@ -9,6 +9,7 @@ docs/DECISIONS.md, E2.
 from __future__ import annotations
 
 import random
+import re
 
 from hearthmind.agents.agent import (
     RIVALRY_THRESHOLD,
@@ -804,6 +805,12 @@ VOICE_SYSTEM_PROMPT = (
     "was said — never a line that could just as well have opened the "
     "conversation on its own. Never invent unrelated topics, and never "
     "mention that this is a game, a simulation, or that you are an AI. "
+    "A real person doesn't repeat the same image, metaphor, or complaint "
+    "every time they talk — if 'the conversation so far' sounds similar to "
+    "something already said, find an actually different angle, memory, or "
+    "concern rather than reusing the same phrase or idea again. "
+    "Each speaker may address the OTHER person by name, but must NEVER say "
+    "their own name — a person doesn't call themself by name when they talk. "
     "Output ONLY the JSON object below, nothing before or after it, no "
     "explanation.\n"
     'Respond with strict JSON only, in this exact shape: {"line_a": "up to '
@@ -865,7 +872,79 @@ def fallback_voice_dialogue(agent_a: Agent, agent_b: Agent, affinity: float, tic
     return fallback_dialogue(agent_a, agent_b, affinity, tick)
 
 
-def parse_voice_dialogue(result: dict, fallback: dict) -> dict:
+_VOICE_WORD_RE = re.compile(r"[a-z']+")
+VOICE_LINE_DUPLICATE_OVERLAP = 0.6
+"""Live-reported finding: the voice pair's own frequent cadence
+(`VOICE_DIALOGUE_COOLDOWN_TICKS=5`) plus a small model repeatedly seeing
+similar internal-state/town-digest input converges onto a handful of
+images ("cold bread," "stir the soup," "ash still smells like home")
+and recites them near-verbatim many exchanges apart — the exact same
+"small model shown similar context re-condenses the same idea instead
+of writing something new" shape `FOLKLORE_DUPLICATE_OVERLAP` already
+fixed for monthly tale-telling, just for the voice pair's much more
+frequent cadence instead. The prompt itself now also asks the model not
+to repeat an image/complaint it's already used (see `VOICE_SYSTEM_
+PROMPT`) — this Jaccard word-overlap check is the deterministic
+backstop for when a weak model doesn't comply, same class of stdlib-
+only heuristic as `review_diagnostics`' keyword overlap."""
+
+
+def _is_near_duplicate_line(line: str, recent_lines: list[str]) -> bool:
+    words = set(_VOICE_WORD_RE.findall(line.lower()))
+    if not words:
+        return False
+    for existing in recent_lines:
+        existing_words = set(_VOICE_WORD_RE.findall(existing.lower()))
+        if not existing_words:
+            continue
+        overlap = len(words & existing_words) / len(words | existing_words)
+        if overlap >= VOICE_LINE_DUPLICATE_OVERLAP:
+            return True
+    return False
+
+
+_SELF_NAME_VOCATIVE_RES_CACHE: dict[str, tuple] = {}
+
+
+def _self_name_vocative_patterns(own_name: str) -> tuple:
+    cached = _SELF_NAME_VOCATIVE_RES_CACHE.get(own_name)
+    if cached is not None:
+        return cached
+    escaped = re.escape(own_name)
+    patterns = (
+        re.compile(rf",\s*{escaped}\s*([.!?]?)\s*$", re.IGNORECASE),  # "..., Osric." (trailing)
+        re.compile(rf"^{escaped}\s*,\s*", re.IGNORECASE),  # "Osric, ..." (leading)
+        re.compile(rf",\s*{escaped}\s*,", re.IGNORECASE),  # "..., Osric, ..." (mid-sentence)
+    )
+    _SELF_NAME_VOCATIVE_RES_CACHE[own_name] = patterns
+    return patterns
+
+
+def _strip_self_address(line: str, own_name: str) -> str:
+    """Removes a vocative use of the SPEAKER'S OWN name from their own
+    line — e.g. "...we were, Osric." spoken by Osric himself, a real
+    live-reported failure mode (a real person doesn't call themself by
+    name mid-sentence; `VOICE_SYSTEM_PROMPT` now says so explicitly,
+    this is the deterministic backstop). Only strips a clear vocative
+    position (immediately after/before a comma, trailing punctuation
+    preserved) rather than any substring occurrence, so a name that
+    happens to appear as part of a longer clause is left alone. A no-op
+    when `own_name` is empty (agent/name unavailable at the call site)
+    or doesn't appear as a vocative."""
+    if not own_name or not line:
+        return line
+    trailing_re, leading_re, mid_re = _self_name_vocative_patterns(own_name)
+    stripped = trailing_re.sub(r"\1", line)
+    stripped = leading_re.sub("", stripped)
+    stripped = mid_re.sub(",", stripped)
+    return stripped.strip() or line
+
+
+def parse_voice_dialogue(
+    result: dict, fallback: dict,
+    speaker_a_name: str = "", speaker_b_name: str = "",
+    recent_lines_a: list[str] | None = None, recent_lines_b: list[str] | None = None,
+) -> dict:
     """Same validation shape as `parse_dialogue`, with the voice pair's
     wider length ceiling (`VOICE_MAX_LINE_WORDS`/`_CHARS`). The model
     itself is never asked for the Phase-2 structured-outcome fields
@@ -876,7 +955,16 @@ def parse_voice_dialogue(result: dict, fallback: dict) -> dict:
     _apply_pending_dialogue_results`, the same shared apply pipeline
     ordinary dialogue already uses (is_llm-gated event surfacing, topic-
     ring recording, cross-settlement relation nudge — all reused
-    unchanged rather than duplicated for the voice pair)."""
+    unchanged rather than duplicated for the voice pair).
+
+    `speaker_a_name`/`speaker_b_name` (optional, backward compatible):
+    when given, strips a self-address vocative from that speaker's own
+    line — see `_strip_self_address`. `recent_lines_a`/`recent_lines_b`
+    (optional): that speaker's own prior voice-pair lines — a near-
+    duplicate (see `VOICE_LINE_DUPLICATE_OVERLAP`) degrades just that
+    one side to the deterministic fallback rather than losing the whole
+    exchange, since the other side is very likely still a genuine, non-
+    repeated line worth keeping."""
     sentiment = result.get("sentiment")
     if sentiment not in _VALID_SENTIMENTS:
         sentiment = fallback["sentiment"]
@@ -891,6 +979,13 @@ def parse_voice_dialogue(result: dict, fallback: dict) -> dict:
         or not _is_sane_line(line_b, line_a, max_words=VOICE_MAX_LINE_WORDS)
     ):
         line_a, line_b = fallback["line_a"], fallback["line_b"]
+    else:
+        line_a = _strip_self_address(line_a, speaker_a_name)
+        line_b = _strip_self_address(line_b, speaker_b_name)
+        if recent_lines_a and _is_near_duplicate_line(line_a, recent_lines_a):
+            line_a = fallback["line_a"]
+        if recent_lines_b and _is_near_duplicate_line(line_b, recent_lines_b):
+            line_b = fallback["line_b"]
     topic = result.get("topic")
     if not isinstance(topic, str):
         topic = ""

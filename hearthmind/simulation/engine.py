@@ -3090,7 +3090,28 @@ class SimulationEngine:
             prompt, dialogue.VOICE_SYSTEM_PROMPT, fallback=lambda: fallback,
             json_schema=schema_for_task("voice_dialogue"),
         )
-        parsed = dialogue.parse_voice_dialogue(result, fallback)
+        # v1.4.5: self-name stripping + per-speaker repetition backstop
+        # (see parse_voice_dialogue's docstring and VOICE_LINE_DUPLICATE_
+        # OVERLAP) — `recent_lines_*` reads the FULL stored `voice_
+        # conversation` ring (not just the ~6 turns fed into the prompt
+        # itself), since a live report showed exact-line repeats well
+        # outside that shorter prompt window.
+        agent_a = self.world.population.get(agent_a_id)
+        agent_b = self.world.population.get(agent_b_id)
+        recent_lines_a = [
+            turn["text"] for turn in self.world.population.voice_conversation
+            if turn["speaker_id"] == agent_a_id
+        ]
+        recent_lines_b = [
+            turn["text"] for turn in self.world.population.voice_conversation
+            if turn["speaker_id"] == agent_b_id
+        ]
+        parsed = dialogue.parse_voice_dialogue(
+            result, fallback,
+            speaker_a_name=agent_a.name if agent_a is not None else "",
+            speaker_b_name=agent_b.name if agent_b is not None else "",
+            recent_lines_a=recent_lines_a, recent_lines_b=recent_lines_b,
+        )
         self.world.population.record_voice_line(agent_a_id, parsed["line_a"], scheduled_tick)
         self.world.population.record_voice_line(agent_b_id, parsed["line_b"], scheduled_tick)
         self._pending_dialogue_results.append(

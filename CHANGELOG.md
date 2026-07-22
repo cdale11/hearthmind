@@ -4,6 +4,64 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.4.5] — Fix voice-pair repetition attractor and self-name addressing
+
+Explicit user follow-up after v1.4.4 made the voice pair's dialogue
+visible in the UI for the first time: reading the actual conversation
+history showed two real quality bugs — the pair converges onto a
+handful of images/complaints and recites them near-verbatim many
+exchanges apart ("Ash still smells like home, Osric." repeated
+verbatim 5+ times across a ~500-tick span; "Cold bread? I'm already
+cold from the wind." similarly), and a speaker sometimes addresses
+THEMSELF by name mid-line (Osric saying "...Osric" about himself,
+Liora saying "...Liora" about herself) rather than only ever naming
+the other person.
+
+**Repetition.** No novelty/dedup check existed for voice-pair lines at
+all — `_run_dialogue`'s `is_spreading_tic` (tail-fingerprint check
+across DIFFERENT speakers) was never wired into `_run_voice_dialogue`,
+and there was nothing checking a speaker's line against their OWN
+prior lines either way. Root cause: the voice pair's frequent cadence
+(`VOICE_DIALOGUE_COOLDOWN_TICKS=5`) plus a small model repeatedly
+handed similar internal-state/town-digest input converges onto the
+same few images rather than writing something new each time — the
+exact "small model re-condenses the same idea when shown similar
+context" shape `FOLKLORE_DUPLICATE_OVERLAP` already fixed for monthly
+tale-telling (v1.3.2), just for this much higher-frequency job. Two-
+part fix, same "prompt hint + deterministic backstop" pattern as that
+earlier fix: `VOICE_SYSTEM_PROMPT` now explicitly tells the model not
+to repeat an image/complaint it's already used; new `dialogue.
+_is_near_duplicate_line`/`VOICE_LINE_DUPLICATE_OVERLAP=0.6` (Jaccard
+word overlap, stdlib only) is the deterministic backstop for when a
+weak model doesn't comply — checked per speaker against the FULL
+stored `Population.voice_conversation` ring (up to `MAX_VOICE_
+CONVERSATION_STORED=24` lines), not just the ~6 turns fed into the
+prompt itself, since the live-reported repeats recurred well outside
+that shorter prompt window. A near-duplicate degrades only THAT one
+side to the deterministic fallback pool — the other speaker's
+(presumably still-novel) line is kept, rather than discarding the
+whole exchange the way `_is_sane_line` failures already do.
+
+**Self-naming.** `VOICE_SYSTEM_PROMPT` now explicitly says a speaker
+may name the OTHER person but must never say their own name — a real
+person doesn't call themself by name mid-sentence. New `dialogue.
+_strip_self_address(line, own_name)` is the deterministic backstop:
+strips a clear vocative use of the speaker's own name (immediately
+after/before a comma — "...we were, Osric." or "Osric, I still...")
+while leaving the OTHER speaker's name and any non-vocative substring
+occurrence untouched. `parse_voice_dialogue` gained optional
+`speaker_a_name`/`speaker_b_name`/`recent_lines_a`/`recent_lines_b`
+params (backward compatible — all default to empty/`None`, a no-op)
+wired at the one call site, `SimulationEngine._run_voice_dialogue`.
+
+Verified: direct unit tests (trailing/leading self-vocative stripping,
+the other speaker's name staying untouched, near-duplicate detection
+on both an exact repeat and a light paraphrase while sparing a genuine
+novel line, and an end-to-end `parse_voice_dialogue` check confirming
+a repeated line degrades to fallback on only its own side while the
+novel side survives). `scripts/verify_native_soak.py` (2 seeds x 800
+ticks) byte-identical — no native module or persisted field touched.
+
 ## [1.4.4] — Fix timeout misclassification/truncation on reasoning calls; visible voice-pair dialogue; deep-reasoning diagnostics
 
 Explicit user follow-up on v1.4.3, with a fresh review pack + `/diagnostics`

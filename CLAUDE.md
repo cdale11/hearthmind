@@ -476,6 +476,25 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.4.5)
+
+Explicit user follow-up after v1.4.4 made voice-pair dialogue visible
+for the first time: the actual conversation showed a real repetition
+attractor (the same lines — "Ash still smells like home, Osric.",
+"Cold bread? I'm already cold from the wind." — recited near-verbatim
+many exchanges apart) and speakers sometimes naming THEMSELF
+mid-line instead of only ever naming the other person. Fixed with the
+established "prompt hint + deterministic backstop" pattern (same shape
+as folklore's v1.3.2 dedup fix): `VOICE_SYSTEM_PROMPT` now asks the
+model not to repeat an image/complaint and never to say its own name;
+new `dialogue._is_near_duplicate_line`/`VOICE_LINE_DUPLICATE_
+OVERLAP=0.6` (Jaccard word overlap against a speaker's OWN full stored
+`voice_conversation` history, not just the ~6-turn prompt window) and
+`dialogue._strip_self_address` are the deterministic backstops,
+wired into `parse_voice_dialogue`/`SimulationEngine._run_voice_
+dialogue`. A repeated line degrades only its own side to the
+fallback pool, not the whole exchange.
+
 ## Current state (v1.4.4)
 
 Explicit user follow-up on v1.4.3 with a fresh review pack +
