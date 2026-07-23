@@ -230,32 +230,45 @@ Sandbox forward-simulation as a fitness input; grammar-based mutation
 propose/evolve/merge — both open.
 
 ### A9 — Producer/consumer feedback loops
-**Audited, v1.34.0.** 15 named state stores checked; most already
-genuinely closed loops. Two real write-only producers found and
-FIXED: `World.mining_scars`/`disaster_scars` now bias `Population.
-_choose_build_site` away from badly scarred ground (new `MINING_
-SCAR_SITE_PENALTY_SCALE`/`DISASTER_SCAR_SITE_PENALTY_SCALE`, `world/
-terrain_evolution.py`). Real gaps found and RECORDED, not yet fixed:
+**CLOSED, v1.34.0-v1.34.2.** 15 named state stores checked; most
+already genuinely closed loops. Three real gaps found and fixed:
 
-- `world/spatial_memory.py`'s `location_character()` — **closed,
-  v1.34.1**: split into `location_character_from_dicts(...)` (the real
-  logic) + a thin `World`-scoped wrapper; `Population._choose_build_
-  site` now reads its mining/disaster/ruin scoring from ONE call to
-  the former instead of three duplicate `.get()` lookups. The `World`-
-  scoped wrapper itself still has zero callers (nothing with `World`
-  in scope needs it yet) — a future dialogue/cognition/NPC-inspector
-  location-flavor consumer remains open, not attempted.
-- `world/architecture_grammar.py`'s per-building descriptor and
-  `Settlement.legends` are both fully-formed producers whose only
-  reader is the JSON/API export — display-only, no downstream
-  mechanical consumer.
+- `World.mining_scars`/`disaster_scars` (v1.34.0) now bias `Population.
+  _choose_build_site` away from badly scarred ground (new `MINING_
+  SCAR_SITE_PENALTY_SCALE`/`DISASTER_SCAR_SITE_PENALTY_SCALE`, `world/
+  terrain_evolution.py`).
+- `world/spatial_memory.py`'s `location_character()` (v1.34.1): split
+  into `location_character_from_dicts(...)` (the real logic) + a thin
+  `World`-scoped wrapper; `_choose_build_site` now reads its mining/
+  disaster/ruin scoring from ONE call to the former instead of three
+  duplicate `.get()` lookups. The `World`-scoped wrapper itself still
+  has zero callers (nothing with `World` in scope needs it yet) — a
+  future dialogue/cognition/NPC-inspector location-flavor consumer
+  remains open, not attempted (a separate, smaller finding, not
+  re-opened by the "closed" verdict above — the read-side duplication
+  itself IS fixed).
 - `llm/ontology.py`'s `PRESSURE_SIGNAL_LABELS["materials_bottleneck"]`
-  names a pressure signal with no subsystem anywhere incrementing that
-  key — either add the increment or drop the label.
-- `Agent.genome` is write-once-at-birth only, never revised by lived
-  experience — `Agent.immune_strength` proves this codebase already
-  knows how to build a genuinely bidirectional biology loop; genome
-  doesn't have one yet.
+  (v1.34.2): had a label with no writer anywhere. `_detect_settlement_
+  bottlenecks`'s existing edge-trigger now increments it, same shape
+  as `dispute_feud`/`nature_adaptation`'s existing sites.
+
+Two of the original four "recorded, not fixed" findings were
+CORRECTED on re-examination (v1.34.2), not fixed — they were never
+real A9 violations: `world/architecture_grammar.py`'s per-building
+descriptor and `World.causal_threads` are both deliberately UI-facing
+flavor content by their own design docs (same category as dream text
+or chronicle narration — never required to feed back mechanically).
+`Agent.genome` is already a genuine closed loop (birth -> `Agent.
+traits`, read everywhere trait behavior matters) — "never revised
+post-conception" is correct biology, not a gap; `hardened_traits`
+already covers "life events permanently reshape behavior" at the
+phenotype layer, the right layer for that mechanism.
+
+`Settlement.legends`'s write-only status is real but was ALREADY
+tracked as its own separate finding under A21 above ("legend feedback
+into tradition/institution formation... remains open") before this
+audit — not a new A9 item, and not something A9's closure claims to
+have resolved.
 
 Also surfaced (unrelated finding, not an A9 item): `scripts/verify_
 native_soak.py` shows a pre-existing MISMATCH at tick 1055, confirmed

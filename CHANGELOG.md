@@ -4,6 +4,63 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.2] — A9 closed: last real gap fixed, two findings corrected
+
+Explicit user instruction: "expand A9 further, whatever you have
+missed. Completely close it." Two parts: fixed the one remaining real
+gap, and re-examined two of v1.34.0's own "recorded, not fixed"
+findings that turn out to be mischaracterized rather than actual bugs
+— closing A9 honestly means correcting an overreach, not forcing an
+artificial fix onto working-as-designed code.
+
+**Fixed**: `llm/ontology.py`'s `PRESSURE_SIGNAL_LABELS["materials_
+bottleneck"]` has always named a pressure signal that nothing ever
+incremented — `Settlement.pattern_signal_counts["materials_
+bottleneck"]` could structurally never cross its promotion threshold,
+so Innovation's ontology-proposal job could never name THIS specific
+pressure even when grounded by it. `_detect_settlement_bottlenecks`
+(the existing edge-triggered "materials genuinely ran dry" detector,
+v1.4.8) now increments it at the same edge-trigger point it already
+emits an Emergence API observation from — same shape as `dispute_
+feud`/`nature_adaptation`'s existing increment sites elsewhere in this
+file.
+
+**Corrected, not fixed** (re-reading turned up that these were never
+real A9 violations):
+- `world/architecture_grammar.py`'s per-building descriptor is, by its
+  own module docstring, deliberately pure flavor text ("one structural
+  descriptor phrase," no mechanical intent) — same category as dream
+  text or chronicle narration, which this codebase has never required
+  to feed back mechanically. `World.causal_threads` (vision item 3.3,
+  "legible causal threads") is the same: an explicitly UI-facing
+  feature by its own design doc, not a silently-abandoned producer.
+  Flagging either as "write-only" applied A9's producer/consumer bar
+  to content that was never meant to clear it.
+- `Agent.genome`: re-examined against the audit's own stated verdict
+  categories. It has a real producer (conception, with inheritance +
+  mutation) AND a real consumer (`Agent.traits`, read everywhere trait
+  behavior matters) — a genuine CLOSED LOOP, not "READ-ONLY." The
+  earlier finding conflated "never revised post-conception" with "no
+  consumer" — but genes not changing from lived experience is
+  biologically correct, not a gap; `hardened_traits`' existing
+  monthly-reversion-lock mechanism already covers "life events
+  permanently reshape behavior" at the phenotype (traits) layer, which
+  is the right layer for that, not genotype.
+
+`Settlement.legends`' write-only status stands (unlike the two above,
+it's a real, already-separately-tracked gap — A21's own roadmap entry
+already names "legend->tradition/institution feedback... remains
+open," so it's not a new A9 finding, just not something A9 needs to
+additionally claim).
+
+This closes A9 — both a real remaining fix and an honest correction of
+scope, not a forced mechanical effect bolted onto intentionally-
+decorative content.
+
+Verified: a direct smoke test (`materials=0.0` forces the edge-trigger,
+confirms the counter increments) plus a 2000-tick LLM-disabled engine
+run, zero exceptions.
+
 ## [1.34.1] — A9 second pass: location_character becomes real
 
 Explicit user instruction: "do the second pass" — following up on

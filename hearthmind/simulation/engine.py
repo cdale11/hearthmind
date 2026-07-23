@@ -8561,6 +8561,19 @@ class SimulationEngine:
                     pillars=("village", "humans"), magnitude=1.0, settlement=settlement.name,
                     data={"materials": round(settlement.materials, 2), "threshold": round(cheapest, 2)},
                 )
+                # A9 feedback-loop audit, second pass (docs/ROADMAP-
+                # 2026-07-REMAINING.md): `llm/ontology.py`'s
+                # PRESSURE_SIGNAL_LABELS has always named this key, but
+                # nothing anywhere incremented `pattern_signal_counts[
+                # "materials_bottleneck"]` — a real pressure signal that
+                # could never actually fire. This edge-trigger (a
+                # settlement genuinely crossing INTO a materials
+                # shortage, not merely staying in one) is the natural
+                # producer, same shape as `dispute_feud`/`nature_
+                # adaptation` elsewhere in this file.
+                settlement.pattern_signal_counts["materials_bottleneck"] = (
+                    settlement.pattern_signal_counts.get("materials_bottleneck", 0) + 1
+                )
             elif not critical and was_flagged:
                 self._materials_critical_flagged.discard(settlement.id)
 

@@ -527,6 +527,24 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.2)
+
+Explicit user instruction: "expand A9 further... completely close
+it." Fixed the one remaining real gap: `pattern_signal_counts[
+"materials_bottleneck"]` had a plain-language label (`llm/ontology.
+py`) but no writer anywhere — `_detect_settlement_bottlenecks`'s
+existing edge-trigger now increments it. Also corrected two of
+v1.34.0's own findings on re-examination: `architecture_grammar`'s
+descriptor and `causal_threads` are deliberately UI-facing flavor by
+their own design docs, not abandoned producers; `Agent.genome` is
+already a genuine closed producer+consumer loop (birth -> `Agent.
+traits`) — "never revised post-conception" isn't a gap, it's correct
+biology (the codebase's own `hardened_traits` mechanism already
+covers "life permanently reshapes behavior" at the phenotype layer,
+which is where it belongs). `Settlement.legends`' write-only status
+stands, already tracked under A21's own roadmap entry, not A9's. Full
+detail: CHANGELOG.md's [1.34.2] entry. This closes A9.
+
 ## Current state (v1.34.1)
 
 Explicit user instruction: "do the second pass" — closes v1.34.0's
