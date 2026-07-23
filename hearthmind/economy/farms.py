@@ -107,6 +107,16 @@ floor on `FarmGrid.soil_fertility` — exhausted land still yields
 something (a floor, not a dead end you can never farm again), just
 noticeably less than fresh/rested land. Never reaches 0."""
 
+FARM_MOISTURE_YIELD_MIN_FACTOR = 0.5
+"""A11 "Continuous hydrology," first slice (roadmap Stage IV step 15):
+floor on the moisture-scaled yield multiplier in `FarmGrid.plant()` —
+same "a floor, not a dead end" shape as `SOIL_FERTILITY_MIN` above. A
+tile at zero measured surface moisture still yields half of what a
+fully-watered one would (real soil always retains some water even in
+a dry reading); this is the actual mechanical lever that makes
+`world/hydrology_field.py`'s moisture field matter to a planting
+decision, not just a number nothing reads."""
+
 SOIL_FERTILITY_DEPLETION_PER_TICK = 0.00015
 """Fertility lost per tick a tile has an active plot (GROWING or READY)
 on it — continuous cultivation without rest exhausts the soil. At this
@@ -225,10 +235,21 @@ class FarmGrid:
 
     # --- planting ------------------------------------------------------------
 
-    def plant(self, x: int, y: int, tooled: bool = False) -> FarmPlot:
+    def plant(self, x: int, y: int, tooled: bool = False, moisture: float = 1.0) -> FarmPlot:
+        """`moisture` (A11, roadmap Stage IV step 15): the real per-tile
+        surface-moisture reading from `World.hydrology_field` at plant
+        time, 0..1. Scaled into a bounded `FARM_MOISTURE_YIELD_MIN_
+        FACTOR..1.0` multiplier — a bone-dry tile still yields
+        something (there's always SOME residual soil water), a
+        well-watered one yields at full potential. Defaults to `1.0`
+        (best case) so every existing call site/test that doesn't pass
+        a real reading keeps its old behavior exactly."""
         base_max_yield = MAX_FARM_YIELD * FARM_TOOL_YIELD_MULTIPLIER if tooled else MAX_FARM_YIELD
         fertility = self.fertility_at(x, y)
-        plot = FarmPlot(x=x, y=y, max_yield=base_max_yield * fertility)
+        moisture_factor = FARM_MOISTURE_YIELD_MIN_FACTOR + max(0.0, min(1.0, moisture)) * (
+            1.0 - FARM_MOISTURE_YIELD_MIN_FACTOR
+        )
+        plot = FarmPlot(x=x, y=y, max_yield=base_max_yield * fertility * moisture_factor)
         self.plots[(x, y)] = plot
         self.soil_fertility.setdefault((x, y), fertility)
         return plot

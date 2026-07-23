@@ -583,6 +583,19 @@ noise, same "enough real data" gate every other Reflection branch
 uses) before the abandoned fraction is trusted as a real pattern, not
 early-game normal churn."""
 
+HYDROLOGY_DROUGHT_THRESHOLD = 0.15
+"""A11 (roadmap Stage IV step 15): a tile below this `HydrologyField.
+moisture` reading counts as "parched" for `_detect_hydrology_drought`.
+Below `hydrology_field.MOISTURE_DEFAULT` (0.35) — a tile has to be
+genuinely dried out, not just at its ordinary starting level."""
+
+HYDROLOGY_DROUGHT_LAND_FRACTION = 0.5
+"""A11: `_detect_hydrology_drought` only fires once at least this
+fraction of ALL tiles (water tiles included in the denominator, but
+they're always pinned above the threshold so they never count as
+parched) read below `HYDROLOGY_DROUGHT_THRESHOLD` — a genuinely
+widespread drought, not a dry patch in one corner of the map."""
+
 SELF_TUNING_MIN_MAGNITUDE = 0.05
 """Vision doc items 1.4/2.4: a proposed nudge below this magnitude is
 treated as "no real adjustment warranted" — recorded in `World.self_
@@ -1269,6 +1282,14 @@ class SimulationEngine:
         materials-poor. Never persisted — a restart re-baselines from
         the first post-restart reading, same reasoning as `_prev_
         population_total`."""
+        self._hydrology_drought_flagged: bool = False
+        """A11 (roadmap Stage IV step 15): edge-trigger flag for
+        `_detect_hydrology_drought`, same "one observation on the
+        falling edge, silent recovery on the rising edge" shape as
+        `_materials_critical_flagged`. World-scoped (not per-
+        settlement) since the moisture field is map-wide, not tied to
+        settlement boundaries. Never persisted — same re-baseline-on-
+        restart reasoning as every other edge-trigger flag here."""
         self._monthly_job_scheduled_month: dict[str, int] = {}
         """job name -> absolute month ordinal (year * months_per_year +
         month_index) it last got past its own backpressure check — lets
@@ -2144,6 +2165,12 @@ class SimulationEngine:
         self._maybe_schedule_skill_mastery()
         if "season_end" in events:
             self._detect_social_hub()
+        if "week_end" in events:
+            # A11 (roadmap Stage IV step 15): riding the same week_end
+            # boundary World.tick's own _tick_disasters just updated
+            # hydrology_field on, so this always reads this week's
+            # fresh moisture reading, never a stale one.
+            self._detect_hydrology_drought()
         if "day_end" in events:
             self._log_daily_metrics()
             self._llm_calls_today = 0  # reset the daily Ollama-call ceiling (v0.70.0)
@@ -8213,6 +8240,33 @@ class SimulationEngine:
                 )
             elif not critical and was_flagged:
                 self._materials_critical_flagged.discard(settlement.id)
+
+    def _detect_hydrology_drought(self) -> None:
+        """A22 Emergence API, A11's real consumer beyond farm yield
+        (roadmap Stage IV step 15): a genuinely widespread drought —
+        most land tiles reading well below `HYDROLOGY_DROUGHT_
+        THRESHOLD` — is a real Nature-domain fact, not narrative
+        texture. Riding the weekly hydrology-tick cadence (no separate
+        polling loop); edge-triggered via `_hydrology_drought_flagged`,
+        same "one observation on the falling edge, silent recovery on
+        the rising edge" discipline as `_detect_settlement_
+        bottlenecks`."""
+        moisture = self.world.hydrology_field.moisture
+        flat = [v for row in moisture for v in row]
+        if not flat:
+            return
+        dry_fraction = sum(1 for v in flat if v < HYDROLOGY_DROUGHT_THRESHOLD) / len(flat)
+        drought = dry_fraction >= HYDROLOGY_DROUGHT_LAND_FRACTION
+        if drought and not self._hydrology_drought_flagged:
+            self._hydrology_drought_flagged = True
+            self._append_emergence(
+                "bottleneck", "hydrology",
+                f"The land itself is drying — {dry_fraction:.0%} of the ground reads parched.",
+                pillars=("nature", "village"), magnitude=1.0,
+                data={"dry_fraction": round(dry_fraction, 3)},
+            )
+        elif not drought and self._hydrology_drought_flagged:
+            self._hydrology_drought_flagged = False
 
     def _detect_social_hub(self) -> None:
         """A16 "Graph algorithms" (docs/MASTERCHECKLIST-2026-07-22.md,

@@ -4,6 +4,96 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.13.0] — A11 "Continuous hydrology," first slice (roadmap Stage IV step 15 — starts Stage IV)
+
+Explicit user instruction: "Start Stage 4's first step" — the first
+step of Stage IV ("Deepen the Body," 16 steps), docs/MASTERCHECKLIST-
+2026-07-22.md's A11, the roadmap's own "highest-leverage single item."
+
+The existing `world/hydrology.py` only ever answered "is this tile a
+river or a lake" — rivers carved once at genesis, lakes with their own
+slow bounded-random-walk level. What A11 actually asks for is water as
+a genuinely CONTINUOUS field every tile carries, with real flow and
+feedback into agriculture/siting/disasters/ecology. Given the size of
+the full spec (four real pieces: flow, groundwater, evaporation,
+erosion-into-mutable-elevation), this ships a real, working first
+slice rather than attempting all four at once — the same "scoped first
+version, deferrals flagged explicitly" discipline every Stage III step
+this session used.
+
+New `world/hydrology_field.py`: `HydrologyField`, a real per-tile
+0..1 `moisture` grid. `tick_hydrology` runs three real passes each
+week: precipitation gain (scaled by `WeatherState.precipitation`),
+a single-pass downhill transfer (each land tile pushes a bounded
+fraction of its above-neighbor moisture excess to its lowest-elevation
+orthogonal neighbor, computed against a snapshot so no tile's transfer
+depends on iteration order), and evaporation (faster in summer). Water-
+biome tiles stay pinned at full saturation. Two of A11's four pieces
+are explicitly NOT attempted and flagged rather than silently dropped:
+groundwater (no subsurface reservoir layer — surface moisture only)
+and erosion feeding back into now-mutable elevation (`Tile.elevation`
+stays immutable this pass — the single biggest remaining piece of
+A11, deliberately deferred since it touches the already-native-ported
+`TerrainGrid` and needs its own careful equivalence pass).
+
+Real consumers, not a number nothing reads: `FarmGrid.plant()` gained
+a `moisture` param (new `FARM_MOISTURE_YIELD_MIN_FACTOR=0.5` floor —
+a bone-dry tile still yields half of a fully-watered one's potential,
+never zero) threaded from `Population._maybe_plant`/`Population.tick`
+through `World.tick`'s existing `population.tick(...)` call site,
+reading `World.hydrology_field.moisture` at the exact tile a field is
+planted on — a planting decision's real yield now genuinely depends on
+local water, not just soil fertility. New `SimulationEngine._detect_
+hydrology_drought` (Emergence API, edge-triggered like `_detect_
+settlement_bottlenecks`): a genuinely widespread drought (>=50% of all
+tiles below `HYDROLOGY_DROUGHT_THRESHOLD=0.15`) emits one `bottleneck`
+observation tagged `nature`/`village`, silent while it persists or once
+it recovers.
+
+R7 deviation, flagged (docs/CONSTITUTION.md's "new physical-substrate
+code is C++-first" rule): ships in pure Python, weekly cadence (not
+per-tick, to bound the real-time cost of an un-ported full-grid pass),
+not yet natively ported. Justification, explicit: this is a genuinely
+NEW field-based mechanism, not a reimplementation of an existing
+pattern the way mining_scars/soil_fertility were — the flow-
+accumulation algorithm's exact shape needs to prove itself against
+real gameplay before being locked into a compiled interface expensive
+to iterate on further. Port to C++ once the shape is confirmed live,
+following `cpp/src/soil_fertility.cpp`'s precedent exactly.
+
+New silent-backfill persistence: `World.hydrology_field` gets a fresh
+field via `create_hydrology_field(terrain)` when loading a pre-A11
+snapshot — deliberately NOT routed through the `migrated_subsystems`
+narrative-announcement machinery (rivers/lakes use that since they're
+one-time genesis events a player would notice being added); a
+background field silently rebuilding is the same treatment
+`_biome_counts_cache` already gets.
+
+Surfaced: `World.summary()["hydrology"]["avg_moisture"]`, a new "Soil
+moisture" stat tile in the main UI (average moisture as a percentage)
+— explicitly player-facing per the standing workflow rule, not
+dev-console-only, since it's plain environmental state like weather.
+
+Verified: direct tests for `create_hydrology_field`/`tick_hydrology`
+(water-tile saturation, moisture rising under sustained rain, falling
+under sustained drought, round trip), `FarmGrid.plant()`'s moisture-
+scaled yield (wet vs. dry vs. default-unset backward compatibility),
+a real production-path test driving the actual weekly tick through
+`SimulationEngine._tick_once` and confirming the field visibly changes,
+`World.to_dict`/`from_dict` round trip including legacy-snapshot silent
+backfill, and the drought detector's edge-trigger discipline (fires
+once on the falling edge, doesn't re-fire while still in drought,
+clears silently on recovery). `scripts/verify_native_soak.py` (2 seeds
+x 800 ticks, long enough to cross a real week boundary) byte-identical
+— the new field only mutates inside `World.tick`'s deterministic
+weekly branch, exercised identically by both native and fallback runs
+since nothing in this pass touches a native-ported module.
+
+This starts Stage IV. 15 steps remain (16-30); per the roadmap's own
+scoping note, each is a substantially larger effort than any single
+Stage I-III step — continuing only on explicit future direction naming
+the next step, same standing convention as every other vision doc.
+
 ## [1.12.0] — B7 "Humans collective consciousness + coordinator," first version (roadmap Stage III step 14 — closes Stage III)
 
 Explicit user instruction: "Continue with next roadmap" — Stage III

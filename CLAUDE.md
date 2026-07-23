@@ -527,6 +527,38 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.13.0)
+
+Explicit user instruction: "Start Stage 4's first step" — A11
+"Continuous hydrology," first slice (roadmap Stage IV step 15, docs/
+MASTERCHECKLIST-2026-07-22.md). **Starts Stage IV** ("Deepen the
+Body," 16 steps; 15 remain). Full detail: CHANGELOG.md's [1.13.0]
+entry.
+
+New `world/hydrology_field.py`'s `HydrologyField`: real per-tile 0..1
+`moisture`, ticked weekly — precipitation gain, single-pass downhill
+transfer to each land tile's lowest-elevation neighbor, evaporation
+(faster in summer). Water tiles pinned saturated. Two of A11's four
+named pieces deliberately deferred and flagged: groundwater (surface-
+only this pass) and erosion into now-mutable elevation (`Tile.
+elevation` stays immutable — the biggest remaining piece, touches the
+native-ported `TerrainGrid`, needs its own equivalence pass). Real
+consumers: `FarmGrid.plant()`'s yield now scales with actual local
+moisture (`FARM_MOISTURE_YIELD_MIN_FACTOR=0.5` floor); `_detect_
+hydrology_drought` emits an edge-triggered `nature`/`village`-tagged
+Emergence API observation on a genuinely widespread drought. R7
+deviation flagged (pure Python, weekly not per-tick cadence, not
+natively ported) — justified as a from-scratch mechanism needing live
+shape-validation before a compiled port, not a low-density excuse.
+Silent backfill on legacy snapshots (not routed through `migrated_
+subsystems` — background field, not a narrated genesis event). Main-
+UI "Soil moisture" stat tile (plain environmental state, not Phase-G-
+gated).
+
+Per the roadmap's own scoping note that Stage IV steps are
+substantially larger than Stage I-III ones, continuing to step 16 only
+on explicit future direction naming it, same standing convention.
+
 ## Current state (v1.12.0)
 
 Explicit user instruction: "Continue with next roadmap" — B7 "Humans

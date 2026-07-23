@@ -962,7 +962,22 @@ waiting for a later integration pass.
 15. **A11 Continuous hydrology** — water as a field, network-flow
     downhill, groundwater/evaporation/erosion feeding back into
     (now-mutable) elevation. Highest-leverage single item: touches
-    agriculture, siting, disasters, ecology at once.
+    agriculture, siting, disasters, ecology at once. **Shipped a first
+    slice, v1.13.0**: a real per-tile `HydrologyField` (`world/
+    hydrology_field.py`) — precipitation, single-pass downhill
+    redistribution, evaporation, ticked weekly. Real consumer:
+    `FarmGrid.plant()`'s yield now scales with the actual local
+    moisture reading, not just soil fertility. Real Emergence API
+    consumer: `_detect_hydrology_drought` (edge-triggered, `nature`/
+    `village`-tagged). Groundwater and erosion-into-mutable-elevation
+    (the item's two biggest remaining pieces) explicitly deferred —
+    see `hydrology_field.py`'s own module docstring for the full scope
+    and the flagged R7 deviation (pure Python, weekly cadence, not yet
+    natively ported — this is a from-scratch mechanism whose exact
+    shape needs live validation before locking into a compiled
+    interface, same reasoning class as every other flagged R7
+    deviation in this codebase, applied here to "new" rather than
+    "low-density").
 16. **A2 CA/diffusion/reaction-diffusion operators** — `diffuse`/
     `reaction_diffuse`/`cellular_step` library over A1's fields;
     forest succession as the worked first consumer.

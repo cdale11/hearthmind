@@ -3060,6 +3060,15 @@ function renderStats(summary) {
       "A tile repeatedly caught in a flood or wildfire bears a lasting visible mark (see the map itself) instead of always fully healing — weathers back to nothing if left undisturbed. Cosmetic, not a biome change.",
     ],
     [
+      "Soil moisture",
+      (() => {
+        const h = summary.hydrology || {};
+        const pct = ((h.avg_moisture ?? 0.35) * 100).toFixed(0);
+        return `${pct}% average`;
+      })(),
+      "A real per-tile water field — rain soaks in, then flows downhill toward low ground, then evaporates, updated weekly. A planted field's yield now depends on how wet its own tile actually is, not just soil fertility.",
+    ],
+    [
       "Wildlife",
       `${w.grazer_total} grazers (${w.grazer_herds} herds), ${w.predator_total} predators (${w.predator_packs} packs)`
       + (w.prey_scarce ? " — prey scarce" : w.predator_pressure_ratio > 0.25 ? " — heavy predation" : ""),

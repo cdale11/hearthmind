@@ -1823,6 +1823,7 @@ class Population:
         active_wildfire_tiles: "set | None" = None,
         storm_struck: bool = False,
         outbreak_chance_multiplier: float = 1.0,
+        hydrology_moisture: list[list[float]] | None = None,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -2101,7 +2102,9 @@ class Population:
         life_events.extend(
             self._maybe_start_construction(by_position, settlements, farms, rng, roads, resources, terrain)
         )
-        life_events.extend(self._maybe_plant(by_position, farms, settlements, terrain, rng))
+        life_events.extend(
+            self._maybe_plant(by_position, farms, settlements, terrain, rng, hydrology_moisture)
+        )
         established_roads = roads.summary()["established_roads"]
         capacity_by_id = {
             s.id: self.carrying_capacity(
@@ -2715,6 +2718,7 @@ class Population:
     def _maybe_plant(
         by_position: dict[tuple[int, int], list[Agent]], farms: FarmGrid,
         settlements: list[Settlement], terrain: list[list[Tile]], rng: random.Random,
+        hydrology_moisture: list[list[float]] | None = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         settlements_by_id = {s.id: s for s in settlements}
@@ -2746,7 +2750,10 @@ class Population:
             tooled = settlement.materials >= FARM_TOOL_MATERIALS_COST
             if tooled:
                 settlement.materials -= FARM_TOOL_MATERIALS_COST
-            farms.plant(x, y, tooled=tooled)
+            moisture = 1.0
+            if hydrology_moisture is not None and 0 <= y < len(hydrology_moisture) and 0 <= x < len(hydrology_moisture[y]):
+                moisture = hydrology_moisture[y][x]
+            farms.plant(x, y, tooled=tooled, moisture=moisture)
             note = (
                 f"A field was planted at ({x}, {y}), using tools for a richer harvest."
                 if tooled else f"A field was planted at ({x}, {y})."

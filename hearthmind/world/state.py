@@ -48,6 +48,7 @@ from hearthmind.world.disasters import (
     tick_wildfire,
 )
 from hearthmind.world.hydrology import LakeState, generate_rivers, identify_lakes, tick_lakes
+from hearthmind.world.hydrology_field import HydrologyField, create_hydrology_field, tick_hydrology
 from hearthmind.world.minerals import MineralGrid
 from hearthmind.world.ontology import CausalThread, CompositeEntity, InventedConcept, TriggerRule
 from hearthmind.world.weather import WeatherState, compute_weather
@@ -152,6 +153,17 @@ class World:
     disasters: DisasterState = field(default_factory=DisasterState)
     """Flood pressure/active-flood tiles and any in-progress wildfire —
     see world/disasters.py."""
+    hydrology_field: "HydrologyField" = field(default_factory=lambda: HydrologyField(moisture=[]))
+    """A11 "Continuous hydrology," first slice (docs/MASTERCHECKLIST-
+    2026-07-22.md, Stage IV step 15): a real per-tile surface-moisture
+    field — precipitation, single-pass downhill redistribution, and
+    evaporation, ticked weekly by `SimulationEngine._maybe_tick_
+    hydrology`. Distinct from `lakes`/rivers above (which only answer
+    "is this tile water") — every tile, not just water tiles, carries a
+    real continuous quantity. See `world/hydrology_field.py`'s module
+    docstring for the full scope (and what's deliberately deferred:
+    groundwater, erosion into mutable elevation) and the flagged R7
+    deviation (pure Python this pass, not yet natively ported)."""
     minerals: MineralGrid = field(default_factory=MineralGrid)
     """§8 expanded mineral economy (v0.87.25, docs/IDEAS-2026-07-
     EMERGENCE.md — explicit user directive): distinct iron/gold veins
@@ -613,6 +625,7 @@ class World:
         )
         generate_rivers(seed=config.seed, terrain=terrain)
         lakes = identify_lakes(terrain)
+        hydrology_field = create_hydrology_field(terrain)
         weather = compute_weather(seed=config.seed, tick=0, month=clock.month_name.lower(), previous=None)
         resources = ResourceGrid.generate(seed=config.seed, terrain=terrain)
         minerals = MineralGrid.generate(seed=config.seed, terrain=terrain)
@@ -629,6 +642,7 @@ class World:
             config=config, clock=clock, terrain=terrain, weather=weather,
             population=population, resources=resources, settlements=settlements, farms=farms,
             wildlife=wildlife, roads=roads, lakes=lakes, minerals=minerals,
+            hydrology_field=hydrology_field,
         )
 
     # --- tick --------------------------------------------------------------
@@ -706,6 +720,7 @@ class World:
             active_wildfire_tiles=self.disasters.active_wildfire_tiles,
             storm_struck=storm_struck,
             outbreak_chance_multiplier=self.governor_tuning.get("disease_outbreak_chance", 1.0),
+            hydrology_moisture=self.hydrology_field.moisture,
         )
         self.fields.step_population_density(
             [(a.x, a.y) for a in self.population.agents], self.config.width, self.config.height,
@@ -767,6 +782,14 @@ class World:
             occupied_tiles = {(a.x, a.y) for a in self.population.agents}
             lake_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "lakes")
             events += tick_lakes(self.lakes, self.terrain, self.climate.drying, lake_rng, occupied_tiles)
+        if "week_end" in calendar_events:
+            # A11 "Continuous hydrology," first slice (Stage IV step
+            # 15): weekly cadence, not per-tick — see hydrology_field.
+            # py's own R7-deviation docstring for why.
+            hydro_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "hydrology")
+            tick_hydrology(
+                self.hydrology_field, self.terrain, self.weather.precipitation, self.clock.season, hydro_rng,
+            )
         return events
 
     def _tick_terrain(self, calendar_events: list[str]) -> list[tuple[str, str]]:
@@ -879,6 +902,7 @@ class World:
                     if self.disaster_scars else 0.0
                 ),
             },
+            "hydrology": {"avg_moisture": round(self.hydrology_field.average(), 3)},
             "nature_beliefs": [
                 {"subject": b["subject"], "belief": b["belief"], "confidence": b["confidence"]}
                 for b in self.nature_beliefs
@@ -1125,6 +1149,7 @@ class World:
             "roads": self.roads.to_dict(),
             "climate": self.climate.to_dict(),
             "lakes": [lake.to_dict() for lake in self.lakes],
+            "hydrology_field": self.hydrology_field.to_dict(),
             "disasters": self.disasters.to_dict(),
             "terrain_activity": {f"{x}:{y}": v for (x, y), v in self.terrain_activity.items()},
             "mining_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.mining_scars.items()},
@@ -1316,6 +1341,16 @@ class World:
             lakes = identify_lakes(terrain)
             migrated_subsystems.append("lakes")
 
+        if "hydrology_field" in data:
+            hydrology_field = HydrologyField.from_dict(data["hydrology_field"])
+        else:
+            # A11 (Stage IV step 15): silent backfill, not a narrated
+            # migrated_subsystems entry — this is derived background
+            # state (same treatment as _biome_counts_cache), not a
+            # one-time genesis event a player would notice like rivers/
+            # lakes being carved.
+            hydrology_field = create_hydrology_field(terrain)
+
         disasters = DisasterState.from_dict(data["disasters"]) if "disasters" in data else DisasterState()
 
         terrain_activity: dict[tuple[int, int], float] = {}
@@ -1343,7 +1378,7 @@ class World:
             weather_regions=weather_regions,
             population=population, resources=resources, settlements=settlements, farms=farms,
             wildlife=wildlife, roads=roads, climate=climate, lakes=lakes, disasters=disasters,
-            minerals=minerals,
+            minerals=minerals, hydrology_field=hydrology_field,
             terrain_activity=terrain_activity,
             mining_scars=mining_scars,
             disaster_scars=disaster_scars,
