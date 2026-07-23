@@ -24,6 +24,7 @@ from hearthmind.settlement.vehicles import (
 )
 from hearthmind.world.weather import WeatherState
 from hearthmind.world.layout_grammar import settlement_layout_style
+from hearthmind.world.terrain_evolution import apply_ruin_scar
 
 try:
     from hearthmind._native import building_decay_tick as _native_building_decay_tick
@@ -3287,13 +3288,23 @@ class Settlement:
 
     # --- tick: weathering, ruin, reclamation ----------------------------------
 
-    def tick(self, weather: WeatherState, season: str = "summer") -> list[tuple[str, str]]:
+    def tick(
+        self, weather: WeatherState, season: str = "summer",
+        ruin_scars: dict[tuple[int, int], float] | None = None,
+    ) -> list[tuple[str, str]]:
         """Weather- and season-driven decay of standing buildings into
         ruins, and eventual removal of long-abandoned ruins. Returns
         life-cycle events as (category, description) pairs.
         Construction/repair progress (which needs agent presence) is
         handled separately by Population.tick, since Settlement has no
-        agent awareness."""
+        agent awareness.
+
+        A3 (roadmap Stage IV step 28): `ruin_scars` (optional —
+        `World.ruin_scars`, `None` reproduces the exact pre-A3
+        behavior for any caller without a `World` in scope) records a
+        real, slow-decaying mark at a building's position the instant
+        it's fully reclaimed, so a dead settlement's ground keeps a
+        trace long after its last ruin physically crumbles away."""
         events: list[tuple[str, str]] = []
         survivors: list[Building] = []
 
@@ -3346,6 +3357,8 @@ class Settlement:
                     events.append(
                         ("building_reclaimed", f"Nature reclaimed the ruins at ({building.x}, {building.y}).")
                     )
+                    if ruin_scars is not None:
+                        apply_ruin_scar((building.x, building.y), ruin_scars)
                     continue  # dropped from survivors — removed from the world
                 building.stage = _bstage_out[stage]
                 building.condition = condition
@@ -3367,6 +3380,8 @@ class Settlement:
                         events.append(
                             ("building_reclaimed", f"Nature reclaimed the ruins at ({building.x}, {building.y}).")
                         )
+                        if ruin_scars is not None:
+                            apply_ruin_scar((building.x, building.y), ruin_scars)
                         continue  # dropped from survivors — removed from the world
 
                 survivors.append(building)

@@ -91,14 +91,31 @@ through-line for nearly every PARTIAL below.
 
 ### A3 — Procedural generation as continuous runtime [det #3] — PARTIAL
 
-- [ ] **Status:** `terrain_evolution`, road paving, lake-level walk are
-  continuous; rivers carved once and static; settlements/cultures
-  evolve via LLM, not deterministic procgen.
+- [x] **Status: shipped a first slice, v1.26.0** (roadmap Stage IV step
+  28). The spec's own worked example: "ruins should form where
+  settlements die." Before this pass a fully-decayed building was
+  simply deleted (`RUIN_REMOVAL_TICKS`, `settlement/buildings.py`) —
+  a dead settlement left literally no trace once its last ruin
+  crumbled away. New `World.ruin_scars` (same scar-shaped-dict pattern
+  as `mining_scars`/`disaster_scars`/`ritual_activity`): gained via
+  `apply_ruin_scar` at both building-removal code paths (native fast
+  path and pure-Python fallback), decays slowly weekly (~1.6 years to
+  fully clear — by far the slowest of the four). Real consequence: a
+  new building's site search (`Population._choose_build_site`) now
+  biases toward a tile with a prior ruin — "the village rebuilds on
+  old foundations." Added as a 4th axis to A19's `location_character`
+  unification. `terrain_evolution`, road paving, lake-level walk stay
+  continuous as before; rivers/erosion (mutating `Tile.elevation`,
+  immutable and native-store-backed) remain explicitly NOT attempted —
+  the biggest remaining piece, flagged follow-up, same as prior
+  CLAUDE.md notes. Settlements/cultures still evolve via LLM, not
+  deterministic procgen.
 - [ ] **Spec:** Audit every "generated once at world creation" call and
   ask "should this keep evolving?" Rivers should re-carve as erosion
   (A-hydrology) shifts elevation; ruins should form where settlements
-  die; roads already pave — extend the pattern. The principle: world-gen
-  is just tick 0 of the same rules that run forever.
+  die (shipped, see above); roads already pave — extend the pattern.
+  The principle: world-gen is just tick 0 of the same rules that run
+  forever.
 - [ ] **Feeds:** a world that looks different after a sim-year even with
   no humans — the terrarium's baseline aliveness.
 
@@ -1267,10 +1284,12 @@ waiting for a later integration pass.
     section above. Not a full graph/shape grammar in any domain; a
     genuine rewrite/production system (vs. the current single-slot/
     single-rule scope) and LLM-proposable rules remain open, flagged.
-28. **A3/A4 Continuous procgen + scripted-event conversion** — audit
-    every "generated once" call (rivers re-carving via 15, ruins
-    forming, etc.) and every remaining scripted-event subsystem,
-    converting to continuous field/rule updates.
+28. **A3/A4 Continuous procgen + scripted-event conversion — first
+    slice shipped v1.26.0** (A3's own worked example, "ruins should
+    form where settlements die" — see the A3 section above). Rivers
+    re-carving via elevation/erosion (item 15) and A4's economy/
+    agriculture/information continuous-field conversion remain open,
+    explicitly not attempted this pass.
 29. **A20 Multi-scale aggregation** — region/culture-level state
     becomes a computed summary over local fields/graphs instead of a
     separately-simulated object.

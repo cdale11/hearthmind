@@ -4,6 +4,54 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.26.0] — A3/A4 "Continuous procgen + scripted-event conversion," first slice (roadmap Stage IV step 28)
+
+Explicit user instruction: "next step" — Stage IV step 28, docs/
+MASTERCHECKLIST-2026-07-22.md's A3, whose own worked example is
+"ruins should form where settlements die." Found the concrete gap by
+reading `settlement/buildings.py`: `RUIN_REMOVAL_TICKS = 1200` deletes
+a fully-decayed building with zero persistent trace once it's been a
+ruin for ~12.5 sim-days — directly contradicting A3's own "a world
+that looks different after a sim-year even with no humans" framing.
+
+New `World.ruin_scars` (`world/terrain_evolution.py`'s `apply_ruin_
+scar`/`decay_ruin_scars`, `RUIN_SCAR_GAIN_ON_REMOVAL=0.5`, `RUIN_SCAR_
+DECAY_PER_WEEK=0.006` — by far the slowest of the four scar-shaped
+dicts, ~1.6 years to fully clear): same shape as `mining_scars`/
+`disaster_scars`/`ritual_activity` — a `World`-level sparse dict,
+gained at both building-removal code paths in `Settlement.tick`
+(native fast path and pure-Python fallback, both threaded a new
+optional `ruin_scars` param), decayed weekly alongside the other three
+in `World._tick_terrain`. Real consequence, not just a cosmetic mark:
+`RUIN_SITE_BONUS_SCALE=0.6` biases `Population._choose_build_site`
+toward a tile with a prior ruin — "the village rebuilds on old
+foundations," a genuine callback loop between A3's own formation
+mechanism and construction. Added as a 4th axis (`"ruin"`) to A19's
+`world/spatial_memory.py` `location_character` unification. New
+`building_reclaimed` life-event category added to `TERRAIN_CHANGING_
+CATEGORIES` (both Python and JS sides) so the map overlay resyncs
+immediately when a ruin scar is gained, no lag.
+
+UI surfacing pass: new `paintRuinScars` map overlay (pale crumbled-
+stone tint, distinct from mining/disaster/ritual), a "Ruins" main-UI
+stat tile, and a bare-tile click-inspector "Ruins" line.
+
+Deliberately scoped down from A3/A4's full spec: rivers re-carving via
+elevation/erosion (needs mutating `Tile.elevation`, immutable and
+native-store-backed — "the biggest remaining piece" per prior CLAUDE.md
+notes) and A4's economy/agriculture/information continuous-field
+conversion are explicitly NOT attempted this pass, flagged follow-up.
+
+Verified: direct smoke tests (`apply_ruin_scar`/`decay_ruin_scars`
+gain/clamp/decay math, `World.to_dict()`/`from_dict()` round-trip,
+`location_character`'s new `ruin` axis, `_choose_build_site`'s ruin-
+bonus site-selection bias on a synthetic fully-walkable grid,
+`Settlement.tick`'s real removal-to-scar wiring on a synthetic
+building), a 50-tick real-engine smoke run with the full `World.
+ruin_scars` -> `Population.tick` -> `_choose_build_site` chain live,
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+no native module touched, this pass is pure Python.
+
 ## [1.25.0] — A7 "Grammar-based procedural systems," first slice — three deterministic domains in one batch (roadmap Stage IV step 27)
 
 Explicit user instruction: "next step" — Stage IV step 27, docs/

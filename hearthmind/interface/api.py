@@ -68,7 +68,7 @@ class WorldBroadcaster:
     def set_terrain(
         self, terrain, width: int, height: int,
         mining_scars: dict | None = None, disaster_scars: dict | None = None,
-        ritual_activity: dict | None = None,
+        ritual_activity: dict | None = None, ruin_scars: dict | None = None,
     ) -> None:
         """Called when the engine starts, and again on any tick where
         terrain evolution changed a tile's biome (see
@@ -97,7 +97,12 @@ class WorldBroadcaster:
         state until some OTHER terrain-changing event happens to fire.
         Acceptable for a first slice — festivals are already rare
         events, and every existing terrain-changing category still
-        refreshes this whole payload including this field."""
+        refreshes this whole payload including this field.
+
+        `ruin_scars` (A3, roadmap Stage IV step 28): same shape/
+        rationale, for `building_reclaimed` events (already in
+        `TERRAIN_CHANGING_CATEGORIES`) — always resyncs alongside the
+        removal that created it, no lag."""
         self._terrain_payload = {
             "width": width,
             "height": height,
@@ -113,6 +118,10 @@ class WorldBroadcaster:
             "ritual_activity": (
                 {f"{x}:{y}": round(v, 3) for (x, y), v in ritual_activity.items()}
                 if ritual_activity else {}
+            ),
+            "ruin_scars": (
+                {f"{x}:{y}": round(v, 3) for (x, y), v in ruin_scars.items()}
+                if ruin_scars else {}
             ),
         }
 

@@ -232,7 +232,7 @@ let activeEventGroup = "all";
 const TERRAIN_CHANGING_CATEGORIES = new Set([
   "terrain_thinned", "terrain_reclaimed", "climate_drift",
   "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
-  "mining_scarred", "disaster_scarred",
+  "mining_scarred", "disaster_scarred", "building_reclaimed",
 ]);
 function categoryMeta(category) {
   return CATEGORY_META[category] || (category.endsWith("_migration") ? { icon: "🔧" } : { icon: "•" });
@@ -1426,6 +1426,25 @@ function paintRitualActivity(sctx, activity) {
   }
 }
 
+// A3 "Procedural generation as continuous runtime," first slice: a pale,
+// crumbled-stone tint left at a fully-reclaimed building's former site —
+// distinct from every other overlay, a mark of what the land WAS, not
+// current damage (mining/disaster) or current significance (ritual).
+function paintRuinScars(sctx, scars) {
+  if (!scars) return;
+  for (const key in scars) {
+    const intensity = scars[key];
+    if (!(intensity > 0)) continue;
+    const [xs, ys] = key.split(":");
+    const x = parseInt(xs, 10), y = parseInt(ys, 10);
+    sctx.fillStyle = `rgba(160,155,145,${(0.15 + intensity * 0.35).toFixed(3)})`;
+    sctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    sctx.strokeStyle = `rgba(110,105,95,${(0.2 + intensity * 0.25).toFixed(3)})`;
+    sctx.lineWidth = Math.max(1, CELL * 0.05);
+    sctx.strokeRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
+  }
+}
+
 function drawStaticTerrain() {
   staticCanvas = document.createElement("canvas");
   staticCanvas.width = terrain.width * CELL;
@@ -1441,6 +1460,7 @@ function drawStaticTerrain() {
   paintMiningScars(sctx, terrain.mining_scars);
   paintDisasterScars(sctx, terrain.disaster_scars);
   paintRitualActivity(sctx, terrain.ritual_activity);
+  paintRuinScars(sctx, terrain.ruin_scars);
   canvas.width = staticCanvas.width;
   canvas.height = staticCanvas.height;
   weatherCanvas.width = staticCanvas.width;
@@ -2752,6 +2772,10 @@ function renderTargetInspector() {
   if (graves.length) {
     bits.push(`<div class="npc-section"><h4>Resting here</h4><ul>${graves.map((m) => `<li>✝ ${m.name} — ${m.cause} (tick ${m.tick})</li>`).join("")}</ul></div>`);
   }
+  const ruin = (terrain && terrain.ruin_scars && terrain.ruin_scars[`${x}:${y}`]) || 0;
+  if (ruin > 0) {
+    bits.push(`<div class="npc-section"><h4>Ruins</h4><div>a settlement once stood here (${Math.round(ruin * 100)}% still visible)</div></div>`);
+  }
   npcContent.innerHTML = `
     <h3>${biome.replace(/_/g, " ")}</h3>
     <div class="npc-subtitle">tile (${x}, ${y})</div>
@@ -3166,6 +3190,14 @@ function renderStats(summary) {
         return ra.sites ? `${ra.sites} site${ra.sites === 1 ? "" : "s"} (avg ${ra.avg_intensity.toFixed(2)})` : "none yet";
       })(),
       "A shrine that has hosted festival gatherings before amplifies the boost of the NEXT one held there — a place's accumulated significance, not just a flat bonus. Fades slowly if left unused.",
+    ],
+    [
+      "Ruins",
+      (() => {
+        const rs = summary.ruin_scars || {};
+        return rs.sites ? `${rs.sites} site${rs.sites === 1 ? "" : "s"} (avg ${rs.avg_intensity.toFixed(2)})` : "none yet";
+      })(),
+      "A fully-abandoned, fully-decayed building leaves a real mark on the land long after it's gone — by far the slowest of these marks to fade. A new building staked out nearby leans toward a spot with old ruins, \"the village rebuilds on old foundations.\"",
     ],
     [
       "Soil moisture",

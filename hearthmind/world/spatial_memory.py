@@ -25,12 +25,15 @@ them is real follow-up work, flagged rather than silently attempted."""
 
 from __future__ import annotations
 
-LOCATION_HISTORY_CATEGORIES: tuple[str, ...] = ("mining", "disaster", "ritual")
+LOCATION_HISTORY_CATEGORIES: tuple[str, ...] = ("mining", "disaster", "ritual", "ruin")
 """The closed set of axes `location_character` currently reads —
-each backed by a real, already-existing per-tile dict. Deliberately
-NOT the spec's full nine-axis list (traffic/battles/pollution/
-fertility/ownership/construction/ecology remain unfolded, see this
-module's own docstring)."""
+each backed by a real, already-existing per-tile dict. `ruin` added
+in A3 (roadmap step 28, `World.ruin_scars`) — the same unification
+this module already provides, extended to the newest scar-shaped
+dict rather than left as a fourth independent silo. Deliberately NOT
+the spec's full nine-axis list (traffic/battles/pollution/fertility/
+ownership/construction/ecology remain unfolded, see this module's own
+docstring)."""
 
 
 def location_character(world, x: int, y: int) -> dict[str, float]:
@@ -51,4 +54,7 @@ def location_character(world, x: int, y: int) -> dict[str, float]:
     ritual = world.ritual_activity.get(pos)
     if ritual:
         character["ritual"] = ritual
+    ruin = world.ruin_scars.get(pos)
+    if ruin:
+        character["ruin"] = ruin
     return character

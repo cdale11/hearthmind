@@ -301,6 +301,53 @@ def decay_ritual_activity(activity: dict[tuple[int, int], float]) -> None:
             del activity[pos]
 
 
+RUIN_SCAR_GAIN_ON_REMOVAL = 0.5
+"""A3 "Procedural generation as continuous runtime" (roadmap Stage IV
+step 28, docs/MASTERCHECKLIST-2026-07-22.md), the spec's own worked
+example ("ruins should form where settlements die"): before this pass,
+a fully-decayed building was simply deleted (`RUIN_REMOVAL_TICKS`,
+`settlement/buildings.py`) — a settlement that died left literally no
+trace once its last ruin crumbled away, contradicting A3's own "world
+looks different after a sim-year even with no humans" framing. Real,
+much stronger than a single mining/disaster hit — a whole building's
+worth of foundation and rubble, not one tick of activity."""
+
+RUIN_SCAR_DECAY_PER_WEEK = 0.006
+"""By far the slowest of the four scar-shaped dicts (mining/disaster/
+ritual/ruin) — ~83 weeks (~1.6 years) to fully clear at full intensity,
+deliberately: the mark a whole vanished settlement leaves on the land
+plausibly long outlasts a worked-out mine or a single flood, but still
+eventually heals if truly never touched again, same "nature recovers"
+discipline every other scar-shaped dict in this module already has."""
+
+RUIN_SITE_BONUS_SCALE = 0.6
+"""`Population._choose_build_site`'s worked consequence of A3's ruin
+mechanism: a candidate tile with a full-intensity (1.0) ruin scar gets
+up to this much added score — "the village rebuilds on old
+foundations," a real callback loop between formation and consumption.
+Deliberately higher than `RITUAL_ACTIVITY_BOOST_SCALE` (0.5): a ruin
+scar is a much stronger physical signal (a whole former building's
+worth of cleared ground/rubble/foundation) than one festival's ritual
+activity."""
+
+
+def apply_ruin_scar(pos: tuple[int, int], scars: dict[tuple[int, int], float]) -> None:
+    """Called the instant a building is fully reclaimed/removed (see
+    `settlement/buildings.py`'s `Settlement.tick`) — mutates `scars` in
+    place, same shape as `apply_mining_scars`/`apply_disaster_scars`/
+    `apply_ritual_activity`."""
+    scars[pos] = min(1.0, scars.get(pos, 0.0) + RUIN_SCAR_GAIN_ON_REMOVAL)
+
+
+def decay_ruin_scars(scars: dict[tuple[int, int], float]) -> None:
+    """Called once per week, same cadence as the other three scar-
+    shaped dicts."""
+    for pos in list(scars.keys()):
+        scars[pos] -= RUIN_SCAR_DECAY_PER_WEEK
+        if scars[pos] <= 0.0:
+            del scars[pos]
+
+
 DEFOREST_CHANCE_PER_TICK = 0.02
 """Rolled only once a tile's heat clears the threshold — deforestation
 isn't instant even under sustained pressure."""

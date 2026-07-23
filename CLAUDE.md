@@ -527,6 +527,28 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.26.0)
+
+Explicit user instruction: "next step" — A3/A4 "Continuous procgen +
+scripted-event conversion," first slice (roadmap Stage IV step 28,
+docs/MASTERCHECKLIST-2026-07-22.md). A3's own worked example: "ruins
+should form where settlements die." Full detail: CHANGELOG.md's
+[1.26.0] entry.
+
+Root gap: `RUIN_REMOVAL_TICKS=1200` deleted a fully-decayed building
+with zero persistent trace. New `World.ruin_scars` (`world/terrain_
+evolution.py`, same scar-shaped-dict pattern as `mining_scars`/
+`disaster_scars`/`ritual_activity`, by far the slowest-decaying of the
+four — ~1.6 years to fully clear) gained at both building-removal code
+paths in `Settlement.tick`. Real consequence: `Population._choose_
+build_site` now biases toward a tile with a prior ruin — "the village
+rebuilds on old foundations." Added as a 4th axis to A19's `location_
+character` unification. Rivers/erosion (mutating immutable, native-
+store-backed `Tile.elevation`) and A4's economy/agriculture/
+information continuous-field conversion remain explicitly open,
+flagged. UI: new "Ruins" stat tile, map overlay, bare-tile inspector
+line.
+
 ## Current state (v1.25.0)
 
 Explicit user instruction: "next step" — A7 "Grammar-based procedural

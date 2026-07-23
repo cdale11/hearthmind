@@ -28,6 +28,7 @@ from hearthmind.world.terrain_evolution import (
     decay_disaster_scars,
     decay_mining_scars,
     decay_ritual_activity,
+    decay_ruin_scars,
     maybe_reclaim,
     nature_adaptation_bias,
     tick_climate,
@@ -115,7 +116,7 @@ way every other confidence-shaped value in this project is."""
 TERRAIN_CHANGING_CATEGORIES = frozenset({
     "terrain_thinned", "terrain_reclaimed", "climate_drift",
     "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
-    "mining_scarred", "disaster_scarred",
+    "mining_scarred", "disaster_scarred", "building_reclaimed",
 })
 """Life-event categories that mean at least one tile's biome changed
 this tick. Canonical home for this set (it used to live only in
@@ -213,6 +214,19 @@ class World:
     to a magnitude effect rather than literal movement-drawing). See
     world/terrain_evolution.py `apply_ritual_activity`/`decay_ritual_
     activity`, world/spatial_memory.py `location_character`."""
+    ruin_scars: dict[tuple[int, int], float] = field(default_factory=dict)
+    """A3 "Procedural generation as continuous runtime," first slice
+    (roadmap Stage IV step 28, docs/MASTERCHECKLIST-2026-07-22.md), the
+    spec's own worked example ("ruins should form where settlements
+    die"): before this pass a building fully reclaimed past `RUIN_
+    REMOVAL_TICKS` was just deleted, leaving no trace — a settlement
+    that died left literally nothing once its last ruin crumbled away.
+    Same shape as `mining_scars`/`disaster_scars`/`ritual_activity`,
+    by far the slowest-decaying of the four (see `world/terrain_
+    evolution.py`'s `RUIN_SCAR_DECAY_PER_WEEK`). The one real
+    consequence: a tile with prior ruin activity gets a real
+    construction-site bonus (`Population._choose_build_site`) — the
+    village rebuilds on old foundations, a genuine callback loop."""
     llm_calls_total: int = 0
     llm_fallback_total: int = 0
     """Cumulative counts of every LLM-backed decision (cognition +
@@ -702,7 +716,9 @@ class World:
         settlement_events: list[tuple[str, str]] = []
         self.newly_named_settlement_ids = []
         for stl in self.settlements:
-            settlement_events += stl.tick(weather=self.weather_at(stl.center()), season=self.clock.season)
+            settlement_events += stl.tick(
+                weather=self.weather_at(stl.center()), season=self.clock.season, ruin_scars=self.ruin_scars,
+            )
             has_standing_building = any(b.stage is BuildingStage.STANDING for b in stl.buildings)
             if not stl.name and has_standing_building:
                 rng = _namespaced_rng(
@@ -737,6 +753,7 @@ class World:
             storm_struck=storm_struck,
             outbreak_chance_multiplier=self.governor_tuning.get("disease_outbreak_chance", 1.0),
             hydrology_moisture=self.hydrology_field.moisture,
+            ruin_scars=self.ruin_scars,
         )
         self.fields.step_population_density(
             [(a.x, a.y) for a in self.population.agents], self.config.width, self.config.height,
@@ -853,6 +870,7 @@ class World:
             decay_mining_scars(self.mining_scars)
             decay_disaster_scars(self.disaster_scars, nature_adaptation_bias(self.nature_beliefs))
             decay_ritual_activity(self.ritual_activity)
+            decay_ruin_scars(self.ruin_scars)
 
         if "month_end" in calendar_events:
             climate_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "climate_drift")
@@ -939,6 +957,13 @@ class World:
                 "avg_intensity": (
                     round(sum(self.ritual_activity.values()) / len(self.ritual_activity), 3)
                     if self.ritual_activity else 0.0
+                ),
+            },
+            "ruin_scars": {
+                "sites": len(self.ruin_scars),
+                "avg_intensity": (
+                    round(sum(self.ruin_scars.values()) / len(self.ruin_scars), 3)
+                    if self.ruin_scars else 0.0
                 ),
             },
             "disaster_scars": {
@@ -1212,6 +1237,7 @@ class World:
             "disaster_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.disaster_scars.items()},
             "fallow_ticks": {f"{x}:{y}": v for (x, y), v in self.fallow_ticks.items()},
             "ritual_activity": {f"{x}:{y}": round(v, 4) for (x, y), v in self.ritual_activity.items()},
+            "ruin_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.ruin_scars.items()},
             "llm_calls_total": self.llm_calls_total,
             "llm_fallback_total": self.llm_fallback_total,
             "dialogue_total": self.dialogue_total,
@@ -1435,6 +1461,11 @@ class World:
             x_str, y_str = key.split(":")
             ritual_activity[(int(x_str), int(y_str))] = value
 
+        ruin_scars: dict[tuple[int, int], float] = {}
+        for key, value in data.get("ruin_scars", {}).items():
+            x_str, y_str = key.split(":")
+            ruin_scars[(int(x_str), int(y_str))] = value
+
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             weather_regions=weather_regions,
@@ -1446,6 +1477,7 @@ class World:
             disaster_scars=disaster_scars,
             fallow_ticks=fallow_ticks,
             ritual_activity=ritual_activity,
+            ruin_scars=ruin_scars,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),
             dialogue_total=data.get("dialogue_total", 0),

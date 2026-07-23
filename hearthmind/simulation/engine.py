@@ -1482,7 +1482,7 @@ class SimulationEngine:
             self._broadcaster.set_terrain(
                 world.terrain, world.config.width, world.config.height,
                 mining_scars=world.mining_scars, disaster_scars=world.disaster_scars,
-                ritual_activity=world.ritual_activity,
+                ritual_activity=world.ritual_activity, ruin_scars=world.ruin_scars,
             )
             self._broadcaster.set_diagnostics_provider(self.full_diagnostics)
             self._broadcaster.set_knowledge_tree_provider(self.world.knowledge_tree)

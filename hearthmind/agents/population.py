@@ -408,7 +408,11 @@ from hearthmind.world.roads import (
     road_condition_multiplier,
 )
 from hearthmind.world.terrain import Biome, Tile
-from hearthmind.world.terrain_evolution import RITUAL_ACTIVITY_BOOST_SCALE, apply_ritual_activity
+from hearthmind.world.terrain_evolution import (
+    RITUAL_ACTIVITY_BOOST_SCALE,
+    RUIN_SITE_BONUS_SCALE,
+    apply_ritual_activity,
+)
 from hearthmind.world.layout_grammar import layout_site_bonus, settlement_layout_style
 from hearthmind.world.weather import WeatherState
 from hearthmind.world.wildlife import (
@@ -1876,6 +1880,7 @@ class Population:
         storm_struck: bool = False,
         outbreak_chance_multiplier: float = 1.0,
         hydrology_moisture: list[list[float]] | None = None,
+        ruin_scars: "dict[tuple[int, int], float] | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -2158,7 +2163,9 @@ class Population:
         self._maybe_trade_tools(by_position, rng)
         self._maybe_trade_medicine(by_position, rng)
         life_events.extend(
-            self._maybe_start_construction(by_position, settlements, farms, rng, roads, resources, terrain)
+            self._maybe_start_construction(
+                by_position, settlements, farms, rng, roads, resources, terrain, ruin_scars=ruin_scars,
+            )
         )
         life_events.extend(
             self._maybe_plant(by_position, farms, settlements, terrain, rng, hydrology_moisture)
@@ -5101,6 +5108,7 @@ class Population:
         cls, by_position: dict[tuple[int, int], list[Agent]], settlements: list[Settlement],
         farms: FarmGrid, rng: random.Random, roads: RoadNetwork | None = None,
         resources: ResourceGrid | None = None, terrain: list[list[Tile]] | None = None,
+        ruin_scars: dict[tuple[int, int], float] | None = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         settlements_by_id = {s.id: s for s in settlements}
@@ -5124,6 +5132,7 @@ class Population:
             # its road/resource adjacency genuinely draws its own labor.
             bx, by = cls._choose_build_site(
                 x, y, terrain, settlements, farms, roads, resources, settlement.era, settlement=settlement,
+                ruin_scars=ruin_scars,
             )
             settle_chance = SETTLE_CHANCE_PER_TICK
             if settlement.current_priority == "growth":
@@ -5195,6 +5204,7 @@ class Population:
         cls, x: int, y: int, terrain: list[list[Tile]] | None, settlements: list[Settlement],
         farms: FarmGrid, roads: RoadNetwork | None, resources: "ResourceGrid | None",
         era: str = "industrial", settlement: Settlement | None = None,
+        ruin_scars: dict[tuple[int, int], float] | None = None,
     ) -> tuple[int, int]:
         """The best buildable tile within BUILD_SITE_SEARCH_RADIUS of the
         founders at (x, y) — scored by road/resource/water adjacency
@@ -5215,7 +5225,13 @@ class Population:
         style bonus on top of the existing road/resource score, so a
         settlement's own layout style (radial/linear/clustered, stable
         for its lifetime) genuinely steers where it grows, not just
-        road/resource adjacency."""
+        road/resource adjacency.
+
+        A3 (roadmap Stage IV step 28): `ruin_scars` (optional — `World.
+        ruin_scars`, `None` reproduces the exact pre-A3 behavior)
+        biases site choice toward a tile with a prior ruin — "the
+        village rebuilds on old foundations," a real callback loop
+        between A3's own ruin-formation mechanism and construction."""
         if terrain is None:
             return (x, y)
         height = len(terrain)
@@ -5257,6 +5273,8 @@ class Population:
                         score += layout_site_bonus(
                             layout_style, settlement.center_x, settlement.center_y, cx, cy, standing_positions,
                         )
+                    if ruin_scars is not None:
+                        score += ruin_scars.get((cx, cy), 0.0) * RUIN_SITE_BONUS_SCALE
                     if best_score is None or score > best_score:
                         best, best_score = (cx, cy), score
         return best
