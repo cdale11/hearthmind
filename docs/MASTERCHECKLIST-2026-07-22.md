@@ -433,48 +433,60 @@ through-line for nearly every PARTIAL below.
 Covered in depth in FIVE-PILLARS-REFACTOR-2026-07-22; summarized here so
 the master is complete, with the Body-dependencies made explicit.
 
-### B1 — The Pillar abstraction — PARTIAL (Nature only, v1.5.0) — the keystone
+### B1 — The Pillar abstraction — SHIPPED, all five pillars (v1.5.3) — the keystone
 
 - [x] Five persistent conscious entities (Humans, Village, Nature,
   Innovation, Reflection), each with identity, self-model, world-model
   (typed theories, confidence, observations-vs-hypotheses), living memory
   (consolidate/forget/reinforce/reinterpret), objectives, inbox/outbox.
   Refactor the ~55 scattered jobs into acts of these five. **Depends on
-  A22** (senses) and **A16** (structural perception). **Shipped, scoped
-  to ONE of five**: `cognition/pillar.py`'s `Pillar` class (identity,
-  self_model, typed world_model — status observation-vs-hypothesis,
-  memory — a capped FIFO list, not yet real consolidate/forget/
-  reinforce, objectives, inbox/outbox with B4's typed message
-  vocabulary) proven against `World.nature_pillar`, mirroring the
-  existing `nature_mind` belief job. Humans/Village/Innovation/
-  Reflection do NOT have a Pillar instance yet; the "refactor ~55
-  scattered jobs" is NOT attempted — only nature_mind's one job writes
-  through this shape so far.
+  A22** (senses) and **A16** (structural perception). **Shipped for all
+  five pillars** (explicit user directive: "you have only built nature
+  pillar up until now, build all the other pillars"): `cognition/
+  pillar.py` gained `default_village_pillar`/`default_humans_pillar`/
+  `default_innovation_pillar`/`default_reflection_pillar`; `World.
+  village_pillar`/`humans_pillar`/`innovation_pillar`/`reflection_
+  pillar` each proven against ONE existing representative job per
+  pillar (`_maybe_schedule_beliefs`, `_maybe_schedule_narrative_
+  direction`, `_maybe_schedule_ontology_proposal`, `_maybe_schedule_
+  reflection` respectively) — the same "prove the shape against a real
+  production call site" discipline B1 established for Nature, not
+  four independent designs. Still NOT attempted: real consolidate/
+  forget/reinforce memory semantics (still a capped FIFO), inbox/
+  outbox delivery (B4), and the full "refactor ~55 scattered jobs" —
+  each pillar has exactly one representative job wired, deliberately,
+  not all jobs touching that pillar's domain.
 
-### B2 — The continuous cognitive cycle — PARTIAL (Nature only, v1.5.1)
+### B2 — The continuous cognitive cycle — SHIPPED, all five pillars (v1.5.3)
 
 - [x] Each pillar runs observe→interpret→remember→plan→act→reflect,
   resumed across cognitive turns (not timer-fired jobs). Bounded
   attention, working memory, uncertainty, incomplete knowledge — a mind,
-  not an oracle. **Shipped, scoped to Nature only**: `_maybe_schedule_
-  nature_mind` now branches on `nature_pillar.cycle_stage` — a cheap
-  `observe` turn (reads A22's Emergence API into bounded `working_
-  memory`, zero LLM cost) and an `interpret` turn (the one real LLM
-  call, performing remember/plan/act/reflect synchronously before
-  returning to `observe`), genuinely resumed across season boundaries
-  rather than firing identically every time. Only two of the six named
-  stages are separately persisted stops (the other four are bundled
-  into `interpret`'s single call, matching the project's "one call
-  does everything" convention) — a real simplification, not the full
-  granular cycle. Humans/Village/Innovation/Reflection still have no
-  cycle at all.
+  not an oracle. **Shipped for all five pillars**: the observe/interpret
+  split, backpressure-scaled deferral, and cycle-close logic Nature's
+  `_maybe_schedule_nature_mind` originated were extracted into three
+  shared engine helpers (`_pillar_observe_turn`/`_pillar_interpret_
+  backpressured`/`_pillar_close_cycle`, parameterized by pillar name)
+  and reused, unchanged, by all five representative jobs — one real
+  mechanism, not five copies. Same "two of six named stages are
+  separately persisted stops, the other four bundle into `interpret`'s
+  single call" simplification as the Nature-only version, now applied
+  uniformly.
 
-### B3 — The Attention Scheduler — MISSING
+### B3 — The Attention Scheduler — SHIPPED, all five pillars (v1.5.3)
 
-- [ ] One budget arbiter over all five (round-robin deep + shallow-
+- [x] One budget arbiter over all five (round-robin deep + shallow-
   frequent), wired to the **existing dynamic pacing** so sim-time slows
   when cognition lags (verified present). Priority from A22 salience +
-  staleness + player focus + inter-pillar messages.
+  staleness + player focus + inter-pillar messages. **Shipped for all
+  five pillars**: `cognition/attention.py`'s `compute_priority()`/
+  `backpressure_fraction()` are consumed identically by all five
+  representative jobs via `_pillar_interpret_backpressured`. Round-
+  robin is still trivial in the sense that each pillar has exactly one
+  job checking in, not the full "~55 jobs" arbitration; `message_
+  count`/`player_focus` still both read 0 (no B4 message bus, no
+  player-focus mechanism) — real, ready inputs, unchanged from the
+  Nature-only pass.
 
 ### B4 — Inter-pillar consciousness bus — MISSING (the emergence engine)
 

@@ -41,7 +41,14 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_prompt(pattern: dict, open_hypotheses: list[dict]) -> str:
+def build_prompt(
+    pattern: dict, open_hypotheses: list[dict], emergence_observations: list[str] | None = None,
+) -> str:
+    """`emergence_observations` (B1-B3, docs/MASTERCHECKLIST-2026-07-
+    22.md, roadmap Stage II — same shape as `nature_mind.build_prompt`'s
+    param of the same name): curated Emergence API summaries gathered
+    during Reflection's prior `observe` turn. Optional and additive;
+    unset reads exactly as before this parameter existed."""
     if open_hypotheses:
         lines = [
             f"  [{i}] (confidence {h['confidence']:.2f}) {h['subject']}: {h['content']}"
@@ -50,8 +57,15 @@ def build_prompt(pattern: dict, open_hypotheses: list[dict]) -> str:
         existing_text = "\n".join(lines)
     else:
         existing_text = "  (none yet — this would be the first open hypothesis)"
+    observations_text = (
+        "\n".join(f"- {o}" for o in emergence_observations) if emergence_observations else ""
+    )
+    observations_block = (
+        f"What you noticed since last time:\n{observations_text}\n" if observations_text else ""
+    )
     return (
         f"Detected pattern ({pattern['subject']}): {pattern['description']}\n"
+        f"{observations_block}"
         f"Hypotheses already under consideration:\n{existing_text}\n"
         "Propose one new hypothesis explaining this pattern, distinct from the ones already listed."
     )

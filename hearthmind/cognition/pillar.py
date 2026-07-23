@@ -117,6 +117,7 @@ class Pillar:
         objectives: list[str] | None = None, inbox: list[dict] | None = None,
         outbox: list[dict] | None = None, next_world_model_id: int = 1, next_message_id: int = 1,
         cycle_stage: str = "observe", working_memory: list[str] | None = None,
+        last_turn_tick: int = -1,
     ) -> None:
         self.name = name
         self.description = description
@@ -126,6 +127,13 @@ class Pillar:
         self.objectives = objectives if objectives is not None else []
         self.inbox = inbox if inbox is not None else []
         self.outbox = outbox if outbox is not None else []
+        self.last_turn_tick = last_turn_tick
+        """B3 "The Attention Scheduler": the tick this pillar's cycle
+        last genuinely advanced (an `observe` read or an `interpret`
+        resolution) — `-1` until its first turn. `attention.compute_
+        priority`'s staleness input reads `tick_count - last_turn_tick`;
+        never written outside `SimulationEngine._maybe_schedule_nature_
+        mind`'s cycle-transition points."""
         self.next_world_model_id = next_world_model_id
         self.next_message_id = next_message_id
         self.cycle_stage = cycle_stage if cycle_stage in self.CYCLE_STAGES else "observe"
@@ -186,6 +194,7 @@ class Pillar:
             "outbox": [dict(m) for m in self.outbox],
             "next_world_model_id": self.next_world_model_id, "next_message_id": self.next_message_id,
             "cycle_stage": self.cycle_stage, "working_memory": list(self.working_memory),
+            "last_turn_tick": self.last_turn_tick,
         }
 
     @classmethod
@@ -198,6 +207,7 @@ class Pillar:
             objectives=list(data.get("objectives", [])),
             cycle_stage=data.get("cycle_stage", "observe"),
             working_memory=list(data.get("working_memory", [])),
+            last_turn_tick=data.get("last_turn_tick", -1),
             inbox=[dict(m) for m in data.get("inbox", [])],
             outbox=[dict(m) for m in data.get("outbox", [])],
             next_world_model_id=data.get("next_world_model_id", 1),
@@ -223,5 +233,100 @@ def default_nature_pillar() -> Pillar:
         objectives=[
             "notice what threatens or nourishes the land",
             "hold a real, sometimes-wrong sense of its own condition",
+        ],
+    )
+
+
+def default_village_pillar() -> Pillar:
+    """Village's seeded identity — the settlement's own collective
+    self-theory, mirroring `Settlement.beliefs`' existing subject/
+    belief/confidence shape (`_maybe_schedule_beliefs`, the same role
+    `nature_mind` plays for Nature)."""
+    return Pillar(
+        name="village",
+        description=(
+            "The settlement's own slowly-accumulating theory of itself — not any one "
+            "person's opinion, but what the community as a whole has come to believe "
+            "about its people, its troubles, and its fortunes."
+        ),
+        self_model={
+            "domain": "the settlement's people, institutions, disputes, and civic life",
+            "voice": "speaks in terms of the village, never a single named person",
+        },
+        objectives=[
+            "form and revise a real theory about the village's condition",
+            "notice what the village is actually living through, not what it wishes were true",
+        ],
+    )
+
+
+def default_humans_pillar() -> Pillar:
+    """Humans' seeded identity — the collective psychology B7 asks for
+    (mood/values/direction), mirroring `Settlement.narrative_themes`
+    (computed from `Settlement.mood`, itself the aggregate of living
+    agents' own `Agent.emotions` — "individual minds aggregate into
+    collective psychology," CLAUDE.md's own framing)."""
+    return Pillar(
+        name="humans",
+        description=(
+            "The felt shape of the village's collective mood — not a single villager's "
+            "voice, but what the accumulated feeling of everyone living there is "
+            "actually like right now, and the story that feeling seems to be telling."
+        ),
+        self_model={
+            "domain": "the settlement's collective mood and the narrative theme it forms",
+            "voice": "names a theme running through recent shared life, never a private thought",
+        },
+        objectives=[
+            "notice the theme the village's collective mood is actually living out",
+            "let genuinely new local language emerge when something real deserves a name",
+        ],
+    )
+
+
+def default_innovation_pillar() -> Pillar:
+    """Innovation's seeded identity — the ontology-origination job
+    (`_maybe_schedule_ontology_proposal`) is the closest existing
+    analog, mirroring `World.invented_concepts`' name/description/
+    category shape into `world_model` (mapped: name -> subject,
+    description -> belief)."""
+    return Pillar(
+        name="innovation",
+        description=(
+            "The village's capacity to originate something genuinely new — a custom, "
+            "a law, a saying, a role, an institution's flavor — grounded in what its "
+            "people have actually lived through, not invented from nothing."
+        ),
+        self_model={
+            "domain": "customs, laws, rituals, sayings, professions, institutional flavor",
+            "voice": "proposes one concrete new thing at a time, or proposes nothing",
+        },
+        objectives=[
+            "originate something new only when the village's real recent life suggests it",
+            "never invent the same thing twice",
+        ],
+    )
+
+
+def default_reflection_pillar() -> Pillar:
+    """Reflection's seeded identity — the meta-cognitive fifth
+    participant (`_maybe_schedule_reflection`) observing the other
+    four pillars' Body state and forming falsifiable hypotheses,
+    mirroring `World.reflection_notebook`'s subject/content/confidence
+    shape into `world_model` (mapped: content -> belief)."""
+    return Pillar(
+        name="reflection",
+        description=(
+            "The meta-cognitive intelligence watching all four other pillars' long-term "
+            "patterns, not their moment-to-moment state — the part of the town that asks "
+            "whether what it believes about itself is actually true."
+        ),
+        self_model={
+            "domain": "cross-pillar patterns in population, culture, ecology, and invention",
+            "voice": "proposes falsifiable hypotheses, never asserts certainty",
+        },
+        objectives=[
+            "form a real, testable hypothesis about a genuine cross-pillar pattern",
+            "let evidence confirm or refute what it previously believed, honestly",
         ],
     )

@@ -60,16 +60,28 @@ def compute_themes(mood: dict) -> list[str]:
 
 def build_prompt(
     settlement_name: str, themes: list[str], recent_events: list[dict], folklore: list[dict],
-    mood: dict, lexicon: list[dict] | None = None,
+    mood: dict, lexicon: list[dict] | None = None, emergence_observations: list[str] | None = None,
 ) -> str:
+    """`emergence_observations` (B1-B3, docs/MASTERCHECKLIST-2026-07-
+    22.md, roadmap Stage II — same shape as `nature_mind.build_prompt`'s
+    param of the same name): curated Emergence API summaries gathered
+    during the Humans pillar's prior `observe` turn. Optional and
+    additive; unset reads exactly as before this parameter existed."""
     events_text = "\n".join(f"- {e['description']}" for e in recent_events) or "A quiet stretch."
     folklore_text = "; ".join(f["tale"] for f in folklore[-3:]) or "None told."
     mood_text = ", ".join(f"{k} {v:+.2f}" for k, v in mood.items()) or "unremarkable"
     lexicon_text = (
         "; ".join(f"\"{e['term']}\" ({e['meaning']})" for e in (lexicon or [])) or "none coined yet"
     )
+    observations_text = (
+        "\n".join(f"- {o}" for o in emergence_observations) if emergence_observations else ""
+    )
+    observations_block = (
+        f"What you noticed since last time:\n{observations_text}\n" if observations_text else ""
+    )
     return (
         f"The village of {settlement_name}. What's happened lately:\n{events_text}\n"
+        f"{observations_block}"
         f"Its tales: {folklore_text}\n"
         f"Its current mood: {mood_text}\n"
         f"The theme already computed for this stretch of its life: {', '.join(themes)}.\n"

@@ -497,6 +497,100 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.6.0)
+
+Explicit multi-part user request: diagnose why `personal_belief`'s
+reasoning calls keep falling back; expose `raw_model_output`/`parsed_
+json`/`validation_errors`/`fallback_reason`/`fallback_result` in the
+dev console for every LLM fallback; refactor to a single-adapter,
+fully model-agnostic LLM layer; re-confirm/tune around Nemotron 3 Nano
+4B as default. Full detail: CHANGELOG.md's [1.6.0] entry.
+
+Root cause: `personal_belief` asks for a 14-field JSON contract (by far
+the largest `deep_reasoning=True` job in the codebase) but shared the
+same flat 1.5x token-budget multiplier every simple 2-4-field reasoning
+job gets, and can't use a `json_schema` grammar (deliberate, v1.3.37 —
+conflicts with the preceding `<think>` block) — a real reasoning trace
+over this much required output can plausibly exhaust the budget before
+any JSON is written, silently discarded as a generic `calls_errored`.
+New `PERSONAL_BELIEF_NUM_PREDICT_MULT=3.0` gives this one job real
+headroom (`_schedule_llm_job`'s new `num_predict_mult` param); its
+timeout now scales with whatever multiplier was actually used.
+
+Fallback diagnostics: `CognitionRunner.run` now returns a 4th `diag`
+element (`fallback_reason`/`raw_model_output`/`parsed_json`/
+`validation_errors`) on every failure path — the raw completion text
+was already captured by the client before a JSON-parse failure but was
+previously discarded by `_run_gated`'s exception handlers; it's now
+read straight off the same local `capture` dict already in scope.
+Threaded through `_schedule_llm_job` into `_last_llm_calls[name]`
+(reachable via `full_diagnostics()`'s existing raw-JSON dev-console
+dump — same precedent as `nature_pillar`/`reflection_notebook`, no new
+endpoint).
+
+Single-adapter refactor: new `llm.client.LLMAdapter` ABC (`generate_
+json`/`build_from_config`) both `OllamaClient`/`LlamaCppClient` now
+inherit; `ADAPTER_REGISTRY` is the one dispatch table `build_llm_client`
+reads. Adding a new backend = one class + one registry line; nothing
+else in the codebase changes (jobs.py/engine.py/every prompt module
+already only ever call `.generate_json(...)` on an opaque adapter).
+
+`Config.llm_model`/`llm_backend` already read `nemotron-3-nano-4b`/
+`"llamacpp"` (v1.3.36/v0.72.0) — `LlamaCppClient` IS the Nemotron-tuned
+default adapter, confirmed rather than duplicated into a parallel
+subclass. New `llm_top_p`/`llm_min_p` (both `None`/unset) wired but not
+defaulted — a model-card fetch attempt for recommended sampling values
+was blocked (403 on every huggingface.co URL tried in this
+environment), so no unverified number was guessed; ready for a future
+live-tuning pass per this project's standing discipline.
+
+## Current state (v1.5.3)
+
+Explicit user correction, mid-turn: "you have only built nature pillar
+up until now, build all the other pillars. Don't do half-jobs.
+Complete each and every checklist item fully." Generalizes B1/B2/B3
+(v1.5.0-v1.5.2, proven against Nature only by design) to all five
+pillars. New `cognition/pillar.py` factories (`default_village_/
+humans_/innovation_/reflection_pillar`) + matching new `World` fields,
+each pillar proven against ONE real representative existing job
+(Village: `_maybe_schedule_beliefs`; Humans: `_maybe_schedule_
+narrative_direction`; Innovation: `_maybe_schedule_ontology_proposal`;
+Reflection: `_maybe_schedule_reflection`) — same "one real production
+call site, not four new designs" discipline B1 established for Nature.
+B2/B3's observe/interpret/backpressure/close logic was extracted from
+Nature's original inline code into three shared `SimulationEngine`
+helpers (`_pillar_observe_turn`/`_pillar_interpret_backpressured`/
+`_pillar_close_cycle`, parameterized by pillar name) and Nature's own
+job refactored onto them first (verified no behavior change) before
+the four new pillars reused the identical helpers — one real
+mechanism, not five copies. `full_diagnostics()` gained all four new
+pillars, same dev-console-only depth as the existing `nature_pillar`.
+Still NOT attempted (unchanged from the Nature-only passes): real
+consolidate/forget/reinforce memory, B4 inbox/outbox delivery, and the
+full "refactor ~55 scattered jobs into acts of five pillars" — each
+pillar has exactly one representative job wired.
+
+## Current state (v1.5.2)
+
+Explicit user instruction: "Continue with roadmap" — Stage II step 6,
+B3 "The Attention Scheduler" (docs/MASTERCHECKLIST-2026-07-22.md).
+New `cognition/attention.py`: `pillar_salience()` (max `magnitude`
+among A22 entries tagged for a pillar since its last turn),
+`compute_priority()` (weighted salience/staleness/messages/player-
+focus, 0.5/0.3/0.15/0.05), `backpressure_fraction()` (priority ->
+0.5..1.0 fraction of the shared backpressure limit, never a full
+bypass). `Pillar.last_turn_tick` (persisted) feeds staleness.
+`_maybe_schedule_nature_mind`'s `interpret` branch now defers under
+backpressure using this priority-scaled fraction instead of the flat
+gate every other settlement job shares — quiet/fresh turns defer
+earlier, salient/overdue ones tolerate more backlog. Round-robin over
+five pillars is trivial with only Nature existing; `message_count`/
+`player_focus` both read 0 today (no second pillar or player-focus
+mechanism exists yet) but are real, ready inputs. Verified: direct
+smoke tests for the priority math's bounds/behavior, an engine-level
+test of the real observe-turn wiring and baseline priority computation,
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical.
+
 ## Current state (v1.5.1)
 
 Explicit user instruction: "Continue with roadmap" — Stage II step 5,

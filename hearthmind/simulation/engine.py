@@ -79,6 +79,7 @@ from hearthmind.world.sigils import generate_sigil_svg
 from hearthmind.world import ontology
 from hearthmind.world import emergence
 from hearthmind.world import graph_algorithms
+from hearthmind.cognition import attention
 from hearthmind.world.disasters import GOVERNOR_TUNING_BAND, WILDFIRE_CHANCE_PER_WEEK
 from hearthmind.world.wildlife import MAX_SPECIES_VARIANTS_STORED, SpeciesVariant
 from hearthmind.simulation.sandbox import run_counterfactual
@@ -453,6 +454,37 @@ brain, era_branch, geography — v1.3.35) or genuinely don't benefit from
 a reasoning trace (one-line narration, a single goal word). Every job
 NOT passing `deep_reasoning=True` is completely unaffected by this
 constant."""
+
+PERSONAL_BELIEF_NUM_PREDICT_MULT = 3.0
+"""Fallback-diagnosis follow-up (explicit user request: "see why the
+reasoning-based personal_belief LLM calls are still falling back"):
+`personal_belief` (`llm/beliefs.py`'s `PERSONAL_SYSTEM_PROMPT`) asks for
+by far the largest JSON contract of any `deep_reasoning=True` job in
+this codebase — 14 fields (subject/belief/confidence/revises/semantic_
+memory/secret/life_digest/lesson_situation/lesson/plan_intent/plan_
+horizon_days/plan_progress_note/long_term_goal, several with their own
+multi-clause instructions), versus 2-4 fields for every other reasoning
+job (dispute, tradition, invention, laws, ...). It ALSO can't use a
+`json_schema` grammar (deliberately — see `PERSONAL_SYSTEM_PROMPT`'s own
+"deliberately reasons rather than schema-constrains" note, v1.3.37),
+so its `<think>` trace and its unusually large free-form answer share
+the same flat `DEEP_REASONING_NUM_PREDICT_MULT` (1.5x) token budget
+every simple 2-field reasoning job also gets. On a small model, a
+genuine Nemotron 3 reasoning trace over this much required output can
+plausibly consume the whole budget before the JSON answer is ever
+written — `_UNCLOSED_THINK_RE` (client.py) then strips the entire
+dangling `<think>` block, leaving nothing for `json.loads`, a `calls_
+errored` fallback with no obvious cause in the aggregate counters alone
+(this is exactly what the new per-fallback `raw_model_output`/
+`fallback_reason` diagnostics above exist to make visible on a live
+run). `_schedule_llm_job`'s new `num_predict_mult` param lets a job ask
+for more headroom than the flat default without changing every other
+reasoning task's budget; `personal_belief`'s own call site passes this
+constant. Re-tune from a live `/diagnostics` reading of `last_llm_calls
+.personal_belief.fallback_reason` the same way every other constant in
+this file is tuned — this is a reasoned starting point (2x the fields
+of a typical reasoning job, rounded up with margin for the trace
+itself), not a live measurement."""
 
 MUSING_HISTORY_MAX = 60
 """Vision item 3.4: `World.musings` is daily-cadence texture (unlike
@@ -1696,7 +1728,7 @@ class SimulationEngine:
     def _schedule_llm_job(
         self, name: str, prompt: str, system: str, fallback: dict, apply, critical: bool = False,
         structured_input: dict | None = None, npc_ids: list | None = None, settlement: str | None = None,
-        deep_reasoning: bool = False,
+        deep_reasoning: bool = False, num_predict_mult: float | None = None,
     ) -> None:
         """Fire-and-forget one settlement-level LLM job (chronicle,
         tradition, town_brain, beliefs, omen, ...): run through the
@@ -1748,12 +1780,16 @@ class SimulationEngine:
         # no change this cadence rather than fabricating cognition, and
         # the deferral is counted for diagnosis (Constitution §3/§7).
         if not self._consume_llm_budget():
+            budget_diag = {
+                "fallback_reason": "daily_llm_budget_exhausted", "raw_model_output": None,
+                "parsed_json": None, "validation_errors": [],
+            }
             if critical:
                 self._cognition_runner.calls_deferred_critical += 1
                 self._record_llm_debug(
                     name, prompt, fallback, True,
                     structured_input=structured_input, npc_ids=npc_ids, settlement=settlement,
-                    outcome={"status": "deferred_critical", "apply_failed": False},
+                    outcome={"status": "deferred_critical", "apply_failed": False}, diag=budget_diag,
                 )
                 return
             apply_failed = False
@@ -1765,7 +1801,7 @@ class SimulationEngine:
             self._record_llm_debug(
                 name, prompt, fallback, True,
                 structured_input=structured_input, npc_ids=npc_ids, settlement=settlement,
-                outcome={"status": "fallback_used", "apply_failed": apply_failed},
+                outcome={"status": "fallback_used", "apply_failed": apply_failed}, diag=budget_diag,
             )
             return
 
@@ -1773,10 +1809,11 @@ class SimulationEngine:
             call_start = time.perf_counter()
             num_predict_override, temperature_override = None, None
             task_schema = schema_for_task(name)
+            effective_mult = num_predict_mult if num_predict_mult is not None else DEEP_REASONING_NUM_PREDICT_MULT
             if deep_reasoning:
                 base_num_predict = self.world.config.llm_num_predict
                 if base_num_predict is not None:
-                    num_predict_override = int(base_num_predict * DEEP_REASONING_NUM_PREDICT_MULT)
+                    num_predict_override = int(base_num_predict * effective_mult)
                 temperature_override = DEEP_REASONING_TEMPERATURE
             # Nemotron 3 "detailed thinking on": reserved for the same
             # deep_reasoning jobs that already get extra tokens/lower
@@ -1799,17 +1836,24 @@ class SimulationEngine:
             # num_predict was already scaled, so the socket timeout
             # doesn't cut off a call that's genuinely still working. A
             # live diagnostic showed reasoning-task p95 latency (146.7s)
-            # exceeding the un-scaled timeout (125s) outright.
+            # exceeding the un-scaled timeout (125s) outright. Scaled by
+            # `effective_mult` (not the flat `DEEP_REASONING_TIMEOUT_
+            # MULT`) so a job like `personal_belief` that requested extra
+            # token headroom via `num_predict_mult` also gets a
+            # proportionally longer socket timeout to actually use it —
+            # see `PERSONAL_BELIEF_NUM_PREDICT_MULT`'s docstring.
             timeout_override = None
             if reasoning:
                 base_timeout = self.world.config.llm_timeout_seconds
                 if base_timeout is not None:
-                    timeout_override = base_timeout * DEEP_REASONING_TIMEOUT_MULT
-            result, used_fallback, raw_completion = await self._cognition_runner.run(
+                    timeout_override = base_timeout * DEEP_REASONING_TIMEOUT_MULT * (effective_mult / DEEP_REASONING_NUM_PREDICT_MULT)
+            result, used_fallback, raw_completion, diag = await self._cognition_runner.run(
                 prompt, system, fallback=lambda: fallback, json_schema=task_schema,
                 num_predict_override=num_predict_override, temperature_override=temperature_override,
                 reasoning=reasoning, timeout_override=timeout_override,
             )
+            if used_fallback:
+                diag = dict(diag, fallback_result=fallback)
             elapsed_ms = (time.perf_counter() - call_start) * 1000
             apply_failed = False
             if critical and used_fallback:
@@ -1830,7 +1874,7 @@ class SimulationEngine:
                 raw_completion=raw_completion, structured_input=structured_input,
                 npc_ids=npc_ids, settlement=settlement,
                 outcome={"status": outcome_status, "apply_failed": apply_failed},
-                reasoning=reasoning,
+                reasoning=reasoning, diag=diag,
             )
             self._record_llm_call(used_fallback)
 
@@ -2540,13 +2584,15 @@ class SimulationEngine:
         scheduled_tick = self.world.clock.tick_count
         call_start = time.perf_counter()
         try:
-            result, used_fallback, raw_completion = await self._cognition_runner.run(
-                prompt, SYSTEM_PROMPT,
-                fallback=lambda: fallback_goal(
-                    hunger, energy, agent_id, traits, emotions, plan_intent, materials_critical,
-                ),
+            fallback_dict = fallback_goal(
+                hunger, energy, agent_id, traits, emotions, plan_intent, materials_critical,
+            )
+            result, used_fallback, raw_completion, diag = await self._cognition_runner.run(
+                prompt, SYSTEM_PROMPT, fallback=lambda: fallback_dict,
                 json_schema=schema_for_task("cognition"),
             )
+            if used_fallback:
+                diag = dict(diag, fallback_result=fallback_dict)
             self._record_llm_debug(
                 "cognition", prompt, result, used_fallback, (time.perf_counter() - call_start) * 1000,
                 system_prompt=SYSTEM_PROMPT, raw_completion=raw_completion, npc_ids=[agent_id],
@@ -2560,6 +2606,7 @@ class SimulationEngine:
                 # (Constitution §3/§7) — see the used_fallback branch just
                 # below, which is where "deferred_critical" is decided.
                 outcome={"status": "deferred_critical" if used_fallback else "queued_pending_apply"},
+                diag=diag,
             )
             if used_fallback:
                 # The real call failed (timeout/error). This path is only
@@ -3131,10 +3178,12 @@ class SimulationEngine:
         what was said."""
         scheduled_tick = self.world.clock.tick_count
         call_start = time.perf_counter()
-        result, used_fallback, raw_completion = await self._cognition_runner.run(
+        result, used_fallback, raw_completion, diag = await self._cognition_runner.run(
             prompt, dialogue.VOICE_SYSTEM_PROMPT, fallback=lambda: fallback,
             json_schema=schema_for_task("voice_dialogue"),
         )
+        if used_fallback:
+            diag = dict(diag, fallback_result=fallback)
         # v1.4.5: self-name stripping + per-speaker repetition backstop
         # (see parse_voice_dialogue's docstring and VOICE_LINE_DUPLICATE_
         # OVERLAP) — `recent_lines_*` reads the FULL stored `voice_
@@ -3166,7 +3215,7 @@ class SimulationEngine:
             "voice_dialogue", prompt, result, used_fallback, (time.perf_counter() - call_start) * 1000,
             system_prompt=dialogue.VOICE_SYSTEM_PROMPT, raw_completion=raw_completion,
             structured_input=structured_input, npc_ids=[agent_a_id, agent_b_id], settlement=settlement,
-            outcome={"status": "queued_pending_apply"},
+            outcome={"status": "queued_pending_apply"}, diag=diag,
         )
         self._record_llm_call(used_fallback)
 
@@ -3176,10 +3225,12 @@ class SimulationEngine:
     ) -> None:
         scheduled_tick = self.world.clock.tick_count
         call_start = time.perf_counter()
-        result, used_fallback, raw_completion = await self._cognition_runner.run(
+        result, used_fallback, raw_completion, diag = await self._cognition_runner.run(
             prompt, dialogue.SYSTEM_PROMPT, fallback=lambda: fallback,
             json_schema=schema_for_task("dialogue"),
         )
+        if used_fallback:
+            diag = dict(diag, fallback_result=fallback)
         parsed = dialogue.parse_dialogue(result, fallback)
         # P3.2: a genuinely LLM-authored line whose tail matches a tic
         # already spreading across other speakers degrades to the
@@ -3215,7 +3266,7 @@ class SimulationEngine:
             "dialogue", prompt, result, used_fallback, (time.perf_counter() - call_start) * 1000,
             system_prompt=dialogue.SYSTEM_PROMPT, raw_completion=raw_completion,
             structured_input=structured_input, npc_ids=[agent_a_id, agent_b_id], settlement=settlement,
-            outcome={"status": "queued_pending_apply"},
+            outcome={"status": "queued_pending_apply"}, diag=diag,
         )
         self._record_llm_call(used_fallback)
 
@@ -3671,14 +3722,19 @@ class SimulationEngine:
         settlement = self._job_target()
         if not self._season_year_gate(events, "ontology_proposal", "season_end") or not settlement.name:
             return
+        if self._pillar_observe_turn("innovation"):
+            self._mark_season_year_resolved("ontology_proposal")
+            return
+        if self._pillar_interpret_backpressured("innovation"):
+            return
         prosperous = (
             settlement.currency >= INVENTION_CURRENCY_THRESHOLD
             or settlement.materials >= MATERIALS_CAPACITY * INVENTION_MATERIALS_FRACTION
         )
         pressured = any(v >= PATTERN_SIGNAL_BELIEF_THRESHOLD for v in settlement.pattern_signal_counts.values())
         if not (prosperous or pressured):
-            return
-        if self._settlement_job_backpressured():
+            self._mark_season_year_resolved("ontology_proposal")
+            self._pillar_close_cycle("innovation")
             return
         self._mark_season_year_resolved("ontology_proposal")
         ontology.abandon_stale(self.world, self.world.clock.tick_count)
@@ -3687,11 +3743,13 @@ class SimulationEngine:
         # coherence, if any has ever been applied.
         chance = max(0.0, min(1.0, chance * self.world.governor_tuning.get("ontology_proposal_chance", 1.0)))
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "ontology_proposal_roll") >= chance:
+            self._pillar_close_cycle("innovation")
             return
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         existing_names = [c.name for c in self.world.invented_concepts.values()][-PROMPT_CULTURE_LIST_MAX:]
         prompt = ontology_llm.build_propose_prompt(
             settlement.name, recent, existing_names, settlement.era, settlement.tech_level,
+            emergence_observations=list(self.world.innovation_pillar.working_memory),
         )
         established_count = sum(1 for c in self.world.invented_concepts.values() if c.status == "established")
         fallback = ontology_llm.fallback_propose(established_count)
@@ -3700,6 +3758,7 @@ class SimulationEngine:
         def apply(result: dict, used_fallback: bool) -> None:
             parsed = ontology_llm.parse_propose(result, fallback)
             if ontology.is_near_duplicate(self.world, parsed["name"], parsed["description"]):
+                self._pillar_close_cycle("innovation")
                 return  # "nothing new" — same discipline as folklore's duplicate-tale guard
             target = self._settlement_by_id(settlement_id)
             local = [a for a in self.world.population.agents if a.settlement_id == settlement_id]
@@ -3715,6 +3774,16 @@ class SimulationEngine:
                 inventor_agent_id=inventor_id, mechanical_hook=parsed["hook"],
             )
             self._log("ontology", f"{target.name or 'The village'} originated {concept.name}: {concept.description}")
+            # B1 Pillar abstraction, generalized: always-additive
+            # mirror into Innovation's own world_model (no revision
+            # path exists for concepts — name/description -> subject/
+            # belief; 0.4 confidence for a freshly "proposed" concept,
+            # matching its real adoption-lifecycle starting point).
+            self.world.innovation_pillar.upsert_world_model(
+                self.world.clock.tick_count, concept.name, concept.description, 0.4, source="ontology_proposal",
+            )
+            self.world.innovation_pillar.remember(f"Originated {concept.name}: {concept.description}")
+            self._pillar_close_cycle("innovation")
 
         self._schedule_llm_job(
             "ontology_proposal", prompt, ontology_llm.SYSTEM_PROMPT_PROPOSE, fallback, apply,
@@ -3854,6 +3923,55 @@ class SimulationEngine:
 
         self._schedule_llm_job("composite_entity", prompt, composite_entity.SYSTEM_PROMPT, fallback, apply)
 
+    def _pillar_observe_turn(self, pillar_name: str) -> bool:
+        """B2 "The continuous cognitive cycle," shared across every
+        pillar job (roadmap Stage II): if `world.<pillar_name>_pillar`
+        is on an `observe` turn, read the Emergence API (A22) into its
+        bounded `working_memory` — zero LLM cost — advance to
+        `interpret`, and return True (the caller should stop here,
+        having done this turn's whole job). Returns False on an
+        `interpret` turn (the caller should proceed to its real LLM
+        call). Extracted from `_maybe_schedule_nature_mind`'s original
+        inline logic once a second pillar needed the identical shape."""
+        pillar = getattr(self.world, f"{pillar_name}_pillar")
+        if pillar.cycle_stage != "observe":
+            return False
+        for obs in self.world.emergence_log_recent(limit=40):
+            if pillar_name in obs.get("pillars", ()):
+                pillar.note_observation(obs["summary"])
+        pillar.set_cycle_stage("interpret")
+        pillar.last_turn_tick = self.world.clock.tick_count
+        return True
+
+    def _pillar_interpret_backpressured(self, pillar_name: str) -> bool:
+        """B3 "The Attention Scheduler," shared across every pillar job:
+        a priority-scaled backpressure check for a pillar's `interpret`
+        turn — salience of what it noticed since its last turn plus how
+        stale that turn is, mapped to a 0.5..1.0 fraction of the shared
+        backpressure limit this turn tolerates before deferring. Never
+        a full bypass. On deferral, increments the same `calls_dropped_
+        backpressure` counter `_settlement_job_backpressured()` does,
+        for diagnostic parity."""
+        pillar = getattr(self.world, f"{pillar_name}_pillar")
+        tick = self.world.clock.tick_count
+        priority = attention.compute_priority(
+            attention.pillar_salience(self.world.emergence_log, pillar_name, pillar.last_turn_tick),
+            tick - pillar.last_turn_tick, message_count=len(pillar.inbox),
+        )
+        if self._effective_backlog() >= self._current_backpressure_limit() * attention.backpressure_fraction(priority):
+            self._cognition_runner.calls_dropped_backpressure += 1
+            return True
+        return False
+
+    def _pillar_close_cycle(self, pillar_name: str) -> None:
+        """Closes a pillar's `interpret` turn, freeing `working_memory`
+        and returning `cycle_stage` to `observe` for the next season/
+        year this job's own gate opens again."""
+        pillar = getattr(self.world, f"{pillar_name}_pillar")
+        pillar.clear_working_memory()
+        pillar.set_cycle_stage("observe")
+        pillar.last_turn_tick = self.world.clock.tick_count
+
     def _maybe_schedule_nature_mind(self, events: list[str]) -> None:
         """Nature's Mind (Body/Mind framing, CLAUDE.md "Design
         priorities" — explicit user direction 2026-07-21): world-scoped
@@ -3881,18 +3999,26 @@ class SimulationEngine:
         Total LLM call volume for this job is now halved (one real call
         every other season instead of every season) — a real trade of
         volume for a genuinely resumable, perception-grounded cycle,
-        not a free lunch."""
+        not a free lunch.
+
+        B3 "The Attention Scheduler" (roadmap Stage II step 6): the
+        `interpret` turn's backpressure tolerance now scales with a
+        computed priority (`cognition.attention.compute_priority`) —
+        salience of what's been noticed since the pillar's last turn,
+        how stale that turn is, inbox message count (0 today, no
+        second pillar exists to message from yet) — instead of the
+        flat threshold every other settlement job shares. A quiet,
+        fresh turn defers earlier under pressure; a salient or
+        long-overdue one tolerates more backlog before deferring.
+        Never a full bypass — the tolerance is always a fraction (0.5
+        to 1.0) of the same shared limit."""
         if not self._season_year_gate(events, "nature_mind", "season_end"):
             return
         pillar = self.world.nature_pillar
-        if pillar.cycle_stage == "observe":
+        if self._pillar_observe_turn("nature"):
             self._mark_season_year_resolved("nature_mind")
-            for obs in self.world.emergence_log_recent(limit=40):
-                if "nature" in obs.get("pillars", ()):
-                    pillar.note_observation(obs["summary"])
-            pillar.set_cycle_stage("interpret")
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("nature"):
             return
         self._mark_season_year_resolved("nature_mind")
         recent = recent_events_diverse(self.conn, limit=30)
@@ -3934,8 +4060,7 @@ class SimulationEngine:
                     # still closes, or the pillar would retry the same
                     # interpret turn forever whenever the model tends
                     # to no-op.
-                    pillar.clear_working_memory()
-                    pillar.set_cycle_stage("observe")
+                    self._pillar_close_cycle("nature")
                     return
                 entry["belief"] = parsed["belief"]
                 entry["confidence"] = parsed["confidence"]
@@ -3988,8 +4113,7 @@ class SimulationEngine:
             # B2: interpret/remember/plan/act/reflect all completed
             # synchronously above — close the cycle, freeing the
             # working memory this turn consumed.
-            pillar.clear_working_memory()
-            pillar.set_cycle_stage("observe")
+            self._pillar_close_cycle("nature")
 
         # Nature's Mind is a pillar-cognition/ontology-origination task
         # (v1.3.37).
@@ -4721,11 +4845,23 @@ class SimulationEngine:
         directive) from `Settlement.mood`'s own real axes — applied
         immediately, before any LLM call. The LLM's remaining job is a
         grounded one-sentence summary, plus its genuinely creative side
-        task of coining a local term for a dominant event."""
+        task of coining a local term for a dominant event.
+
+        B1-B3 (roadmap Stage II, generalized from Nature): `World.
+        humans_pillar` mirrors this job's theme-naming into world_model
+        — B7's "collective consciousness (mood/values/direction)" read
+        literally, since `Settlement.mood` is itself the aggregate of
+        living agents' `Agent.emotions`. A quarterly `observe` turn
+        reads the Emergence API into bounded `working_memory`; the
+        FOLLOWING quarter is the real `interpret` call, grounded in
+        what was observed."""
         target = self._job_target()
         if not self._season_year_gate(events, "narrative_direction", "season_end") or not target.name:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_observe_turn("humans"):
+            self._mark_season_year_resolved("narrative_direction")
+            return
+        if self._pillar_interpret_backpressured("humans"):
             return
         self._mark_season_year_resolved("narrative_direction")
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
@@ -4736,19 +4872,34 @@ class SimulationEngine:
             target.narrative_themes = target.narrative_themes[-NARRATIVE_THEMES_MAX_STORED:]
         prompt = narrative_direction.build_prompt(
             target.name, themes, recent, target.folklore, mood, target.lexicon,
+            emergence_observations=list(self.world.humans_pillar.working_memory),
         )
         fallback = narrative_direction.fallback_summary()
         target_id = target.id
+        # B1 Pillar abstraction, generalized: no natural per-subject
+        # `revises` scheme exists here (`narrative_themes` is a plain
+        # append-only log, not a revisable belief list) — each turn's
+        # mirror is always a fresh world_model entry. Confidence has no
+        # native source either; the strongest mood axis's magnitude is
+        # the closest real signal for "how pronounced is this theme."
+        mood_confidence = max((abs(v) for v in mood.values()), default=0.5)
 
         def apply(result: dict, used_fallback: bool) -> None:
             stl = self._settlement_by_id(target_id)
             if stl is None:
+                self._pillar_close_cycle("humans")
                 return
             summary = narrative_direction.parse_summary(result, fallback)
             self._log(
                 "narrative_direction",
                 f"{stl.name}'s recent life reads as: {', '.join(themes)}." + (f" {summary}" if summary else ""),
             )
+            self.world.humans_pillar.upsert_world_model(
+                self.world.clock.tick_count, ", ".join(themes) or "the village's mood",
+                summary or f"{stl.name}'s recent life reads as: {', '.join(themes)}.",
+                mood_confidence, source="narrative_direction",
+            )
+            self.world.humans_pillar.remember(f"The village's mood read as: {', '.join(themes)}.")
             # §2 "dialect drift": a real answer only, never fabricated by
             # the fallback (fallback_summary has no coined_term field at
             # all) — rides this call for zero added LLM volume.
@@ -4760,6 +4911,7 @@ class SimulationEngine:
                     if len(stl.lexicon) > LEXICON_MAX_STORED:
                         stl.lexicon = stl.lexicon[-LEXICON_MAX_STORED:]
                     self._log("dialect_coined", f"{stl.name} has started calling it \"{term}\" — {meaning}")
+            self._pillar_close_cycle("humans")
 
         # Cultural evolution: naming the emergent theme is interpretation
         # over a real computed mood signal (v1.3.37).
@@ -5350,15 +5502,30 @@ class SimulationEngine:
         and generations," not "every tick"), `critical=False`
         (ambient self-improvement, real deterministic "skip this cycle"
         fallback like every other narrative job — reflection never
-        blocks or defers crucial per-pillar cognition)."""
+        blocks or defers crucial per-pillar cognition).
+
+        B1-B3 (roadmap Stage II, generalized from Nature): `World.
+        reflection_pillar` mirrors this job's hypothesis formation the
+        same way `nature_pillar` mirrors `nature_mind`. World-scoped
+        (no settlement round-robin, matching this job's own shape) —
+        a year-cadence `observe` turn reads the Emergence API into
+        bounded `working_memory`; the FOLLOWING year is the real
+        `interpret` turn (deterministic pattern detection/reevaluation
+        always runs there, an LLM call only fires if a genuinely new
+        pattern with no open hypothesis exists), closing back to
+        `observe` once this year's turn is fully resolved either way."""
         if not self._season_year_gate(events, "reflection", "year_end"):
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_observe_turn("reflection"):
+            self._mark_season_year_resolved("reflection")
+            return
+        if self._pillar_interpret_backpressured("reflection"):
             return
         self._mark_season_year_resolved("reflection")
         pattern = self._detect_reflection_pattern()
         self._reevaluate_reflection_hypotheses(pattern)
         if pattern is None:
+            self._pillar_close_cycle("reflection")
             return
         open_hypotheses = [
             e for e in self.world.reflection_notebook
@@ -5373,8 +5540,11 @@ class SimulationEngine:
         existing = next((e for e in open_hypotheses if e.get("subject") == pattern["subject"]), None)
         if existing is not None:
             self._maybe_schedule_reflection_question(pattern, existing)
+            self._pillar_close_cycle("reflection")
             return
-        prompt = reflection.build_prompt(pattern, open_hypotheses)
+        prompt = reflection.build_prompt(
+            pattern, open_hypotheses, emergence_observations=list(self.world.reflection_pillar.working_memory),
+        )
         fallback = reflection.fallback_hypothesis(pattern)
 
         def apply(result: dict, used_fallback: bool) -> None:
@@ -5398,6 +5568,18 @@ class SimulationEngine:
                 f"Hearthmind formed a hypothesis about {pattern['subject']}: {parsed['hypothesis']}",
                 pillars=("reflection",), magnitude=parsed["confidence"],
             )
+            # B1 Pillar abstraction, generalized: always-additive
+            # mirror into Reflection's own world_model (content ->
+            # belief; a fresh hypothesis is always new, no revision
+            # path — resolution/confidence changes happen via
+            # `_append_reflection_conclusion`, a separate deterministic
+            # write, not this LLM call).
+            self.world.reflection_pillar.upsert_world_model(
+                tick, pattern["subject"], parsed["hypothesis"], parsed["confidence"],
+                status="hypothesis", source="reflection",
+            )
+            self.world.reflection_pillar.remember(f"Hypothesized about {pattern['subject']}: {parsed['hypothesis']}")
+            self._pillar_close_cycle("reflection")
 
         # The game learning/improving itself: Reflection proposes a
         # grounded hypothesis from real cross-pillar pattern signals —
@@ -5750,11 +5932,24 @@ class SimulationEngine:
         LLM's own past interpretations shape its future ones. Monthly
         (not seasonal, like town_brain) since this is meant to
         accumulate faster and more granularly — a running theory, not a
-        rare civic decision."""
+        rare civic decision.
+
+        B1-B3 (roadmap Stage II, generalized from Nature): `World.
+        village_pillar` mirrors this job's real output the same way
+        `nature_pillar` mirrors `nature_mind` — a monthly `observe` slot
+        reads the Emergence API (A22) into bounded `working_memory`
+        (zero LLM cost), the FOLLOWING month is the real `interpret`
+        call (grounded in what was observed, via `beliefs.build_prompt`'s
+        `emergence_observations` param), and its priority-scaled
+        backpressure tolerance replaces the flat gate. Halves this job's
+        LLM call volume, same trade `nature_mind` made."""
         settlement = self._job_target()
         if not self._monthly_gate(events, "beliefs") or not settlement.name:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_observe_turn("village"):
+            self._mark_monthly_resolved("beliefs")
+            return
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_monthly_resolved("beliefs")
         recent = recent_events_diverse(self.conn, limit=30)
@@ -5812,7 +6007,7 @@ class SimulationEngine:
         )
         prompt = beliefs.build_prompt(
             settlement.name, recent_for_prompt, list(settlement.beliefs), population_summary, settlement_summary,
-            intervention_recent=intervention_recent,
+            intervention_recent=intervention_recent, emergence_observations=list(self.world.village_pillar.working_memory),
         )
         fallback = beliefs.fallback_belief(recent, list(settlement.beliefs), settlement_summary)
         existing_count = len(settlement.beliefs)
@@ -5862,6 +6057,7 @@ class SimulationEngine:
                     # or churn `push_belief_history`/`revision_count` for
                     # nothing. Same discipline as folklore's own-output
                     # dedup guard (v1.3.2).
+                    self._pillar_close_cycle("village")
                     return
                 beliefs.push_belief_history(entry, tick)  # H2: keep what it used to think, not just overwrite
                 entry["belief"] = parsed["belief"]
@@ -5872,6 +6068,12 @@ class SimulationEngine:
                 entry["revised_tick"] = tick
                 entry["revision_count"] = entry.get("revision_count", 0) + 1
                 self._log("belief_revised", f"The village revised its view of {entry['subject']}: {entry['belief']}")
+                # B1 Pillar abstraction, generalized: mirror the
+                # revision into Village's own world_model.
+                self.world.village_pillar.upsert_world_model(
+                    tick, entry["subject"], entry["belief"], entry["confidence"],
+                    source="beliefs", revises_id=entry.get("pillar_entry_id"),
+                )
             else:
                 entry = {
                     "subject": parsed["subject"], "belief": parsed["belief"], "confidence": parsed["confidence"],
@@ -5884,9 +6086,15 @@ class SimulationEngine:
                     weakest = min(settlement.beliefs, key=lambda b: b["confidence"])
                     settlement.beliefs.remove(weakest)
                 self._log("belief_formed", f"The village came to believe something about {entry['subject']}: {entry['belief']}")
+                pillar_entry = self.world.village_pillar.upsert_world_model(
+                    tick, entry["subject"], entry["belief"], entry["confidence"], source="beliefs",
+                )
+                entry["pillar_entry_id"] = pillar_entry["id"]
+                self.world.village_pillar.remember(f"Came to believe {entry['subject']}: {entry['belief']}")
             beliefs.sync_family_beliefs(entry, settlement.institutions)  # H2/H3 crossover
             beliefs.sync_council_beliefs(entry, settlement.institutions)  # integration milestone
             beliefs.sync_guild_beliefs(entry, settlement.institutions)  # continue expanding, round three
+            self._pillar_close_cycle("village")
 
         # Settlement-wide belief revision: genuine subjective judgment,
         # same reasoning-over-schema tradeoff as personal_belief
@@ -6107,7 +6315,7 @@ class SimulationEngine:
         # see json_schemas.py's docstring).
         self._schedule_llm_job(
             "personal_belief", prompt, beliefs.PERSONAL_SYSTEM_PROMPT, fallback, apply, critical=True,
-            deep_reasoning=True,
+            deep_reasoning=True, num_predict_mult=PERSONAL_BELIEF_NUM_PREDICT_MULT,
         )
 
     def _maybe_schedule_dream(self, events: list[str]) -> None:
@@ -7694,7 +7902,7 @@ class SimulationEngine:
         self, name: str, prompt: str, result: dict, used_fallback: bool, elapsed_ms: float | None = None,
         system_prompt: str | None = None, raw_completion: str | None = None,
         structured_input: dict | None = None, npc_ids: list | None = None, settlement: str | None = None,
-        outcome: dict | None = None, reasoning: bool = False,
+        outcome: dict | None = None, reasoning: bool = False, diag: dict | None = None,
     ) -> None:
         """Records the most recent prompt/result for one named LLM job
         — see `self._last_llm_calls`'s docstring — and folds size/
@@ -7715,11 +7923,29 @@ class SimulationEngine:
         `raw_completion`/`structured_input`/`npc_ids`/`settlement` are
         all optional — see recorder.py's own docstring for which task
         types currently supply real `structured_input` versus the `{}`
-        default."""
+        default.
+
+        `diag` (explicit user request — expose raw_model_output/
+        parsed_json/validation_errors/fallback_reason/fallback_result
+        whenever a fallback occurs for any LLM call): the `_diag()`-
+        shaped dict `CognitionRunner.run` returns (plus `fallback_
+        result`, added by the caller — see `_schedule_llm_job`'s
+        `_runner`). Folded into `_last_llm_calls[name]` below only when
+        `used_fallback` is true — a successful call has nothing to
+        diagnose, and `result` already IS the parsed answer in that
+        case."""
         self._last_llm_calls[name] = {
             "tick": self.world.clock.tick_count, "prompt": prompt,
             "result": result, "used_fallback": used_fallback, "reasoning": reasoning,
         }
+        if used_fallback and diag is not None:
+            self._last_llm_calls[name].update({
+                "fallback_reason": diag.get("fallback_reason"),
+                "raw_model_output": diag.get("raw_model_output"),
+                "parsed_json": diag.get("parsed_json"),
+                "validation_errors": diag.get("validation_errors") or [],
+                "fallback_result": diag.get("fallback_result", result),
+            })
         self._training_recorder.maybe_record(
             task=name, prompt=prompt, system_prompt=system_prompt, result=result,
             used_fallback=used_fallback, raw_completion=raw_completion,
@@ -8046,6 +8272,13 @@ class SimulationEngine:
             # them), but the shape should be inspectable while it's
             # being proven out.
             "nature_pillar": self.world.nature_pillar.to_dict(),
+            # B1, generalized to all five pillars (roadmap Stage II):
+            # same dev-console-only depth as nature_pillar above — none
+            # of these four are main-UI-worthy yet either.
+            "village_pillar": self.world.village_pillar.to_dict(),
+            "humans_pillar": self.world.humans_pillar.to_dict(),
+            "innovation_pillar": self.world.innovation_pillar.to_dict(),
+            "reflection_pillar": self.world.reflection_pillar.to_dict(),
             # Vision doc items 1.4/2.4: same dev-console depth as
             # reflection_notebook above — governor_tuning is the live
             # effective state, self_tuning_actions is the append-only

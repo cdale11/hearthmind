@@ -88,14 +88,26 @@ _FALLBACK_PROPOSALS: tuple[tuple[str, str, str, str, str], ...] = (
 
 def build_propose_prompt(
     settlement_name: str, recent_events: list[dict], existing_concept_names: list[str],
-    era: str, tech_level: int,
+    era: str, tech_level: int, emergence_observations: list[str] | None = None,
 ) -> str:
+    """`emergence_observations` (B1-B3, docs/MASTERCHECKLIST-2026-07-
+    22.md, roadmap Stage II — same shape as `nature_mind.build_prompt`'s
+    param of the same name): curated Emergence API summaries gathered
+    during the Innovation pillar's prior `observe` turn. Optional and
+    additive; unset reads exactly as before this parameter existed."""
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
     concepts_text = "; ".join(existing_concept_names) if existing_concept_names else "None yet."
+    observations_text = (
+        "\n".join(f"- {o}" for o in emergence_observations) if emergence_observations else ""
+    )
+    observations_block = (
+        f"What you noticed since last time:\n{observations_text}\n" if observations_text else ""
+    )
     return (
         f"The village of {settlement_name} (era: {era}, tech tier {tech_level}). "
         f"Recent history:\n{events_text}\n"
+        f"{observations_block}"
         f"Ideas the village already has: {concepts_text}\n"
         "Originate one new concept this village might genuinely have."
     )

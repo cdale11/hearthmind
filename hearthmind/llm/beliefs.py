@@ -335,9 +335,18 @@ def _subject_relevant_event_lines(subject: str, recent_events: list[dict]) -> li
 def build_prompt(
     settlement_name: str, recent_events: list[dict], existing_beliefs: list[dict],
     population_summary: dict, settlement_summary: dict, intervention_recent: bool = False,
+    emergence_observations: list[str] | None = None,
 ) -> str:
+    """`emergence_observations` (B1-B3, docs/MASTERCHECKLIST-2026-07-
+    22.md, roadmap Stage II — same shape as `nature_mind.build_prompt`'s
+    param of the same name): curated Emergence API summaries gathered
+    during the Village pillar's prior `observe` turn. Optional and
+    additive; unset reads exactly as before this parameter existed."""
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
+    observations_text = (
+        "\n".join(f"- {o}" for o in emergence_observations) if emergence_observations else ""
+    )
     if existing_beliefs:
         belief_lines = []
         for i, b in enumerate(existing_beliefs):
@@ -368,9 +377,13 @@ def build_prompt(
         "as if by an unseen hand — or by nothing at all."
         if intervention_recent else ""
     )
+    observations_block = (
+        f"What you noticed since last time:\n{observations_text}\n" if observations_text else ""
+    )
     return (
         f"The village of {settlement_name}, in its {settlement_summary.get('era', 'industrial')} days.\n"
         f"What people have been saying and seeing lately:\n{events_text}{intervention_line}\n"
+        f"{observations_block}"
         f"Theories the village already holds about itself:\n{beliefs_text}\n"
         "Form or revise one theory."
     )

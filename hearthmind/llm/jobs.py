@@ -15,12 +15,13 @@ Two responsibilities:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from collections import deque
 from typing import Callable
 
-from hearthmind.llm.client import LlamaCppClient, LLMTimeout, LLMUnavailable, OllamaClient
+from hearthmind.llm.client import LLMAdapter, LLMTimeout, LLMUnavailable, _extract_json_object
 
 logger = logging.getLogger("hearthmind.llm")
 
@@ -30,8 +31,45 @@ stats (see `stats()`) — a rolling window, not a full history, so this
 stays bounded on a long soak run."""
 
 
+def _diag(
+    fallback_reason: str | None, raw_model_output: str | None = None,
+    parsed_json: dict | None = None, validation_errors: list[str] | None = None,
+) -> dict:
+    """One shared shape for every fallback-diagnosis dict this module
+    produces — explicit user request: "expose raw_model_output,
+    parsed_json, validation_errors, fallback_reason, fallback_result...
+    whenever a fallback occurs for any LLM call." `fallback_reason=None`
+    marks a genuine success (no fallback). `parsed_json`/`validation_
+    errors` are best-effort: on a raw-text-available failure, this
+    module re-attempts the same parse the client already tried (cheap,
+    stdlib-only) purely so the dev console can show WHAT the model said
+    and WHY it didn't parse, not just that it failed."""
+    return {
+        "fallback_reason": fallback_reason, "raw_model_output": raw_model_output,
+        "parsed_json": parsed_json, "validation_errors": validation_errors or [],
+    }
+
+
+def _diagnose_raw_output(raw: str | None) -> tuple[dict | None, list[str]]:
+    """Best-effort re-parse of a failed call's raw completion text, for
+    diagnostic display only (the real parse already happened, and
+    failed, inside the client) — returns `(parsed_or_None, errors)`."""
+    if not raw:
+        return None, ["no raw completion text was captured (call failed before generating any output)"]
+    try:
+        return json.loads(raw), []
+    except json.JSONDecodeError as exc:
+        extracted = _extract_json_object(raw)
+        if extracted != raw:
+            try:
+                return json.loads(extracted), [f"required extracting JSON substring; original text was not bare JSON ({exc})"]
+            except json.JSONDecodeError as exc2:
+                return None, [f"raw completion is not valid JSON even after extraction: {exc2}"]
+        return None, [f"raw completion is not valid JSON: {exc}"]
+
+
 class CognitionRunner:
-    def __init__(self, client: OllamaClient | LlamaCppClient | None, max_concurrent: int):
+    def __init__(self, client: LLMAdapter | None, max_concurrent: int):
         self.client = client
         self.max_concurrent = max(1, max_concurrent)
         self._semaphore = asyncio.Semaphore(self.max_concurrent)
@@ -153,18 +191,34 @@ class CognitionRunner:
         json_schema: dict | None = None,
         num_predict_override: int | None = None, temperature_override: float | None = None,
         reasoning: bool = False, timeout_override: float | None = None,
-    ) -> tuple[dict, bool, str | None]:
-        """Return `(result, used_fallback, raw_completion)`: a parsed
-        JSON dict from the LLM with `used_fallback=False` and the exact
-        raw completion text, or `(fallback(), True, None)` if the LLM is
-        disabled, unreachable, times out, or misbehaves. Never raises —
-        this is the boundary where LLM failures get absorbed. The
-        `used_fallback` flag lets the caller track a fallback rate for
-        diagnosis (see docs/DECISIONS.md, D5) — it's otherwise invisible
-        from a saved snapshot. `raw_completion` (added for the training
-        recorder, llm/recorder.py — Layer 3) is the model's exact text
-        before JSON parsing; `None` on any fallback path since no real
-        completion exists to record.
+    ) -> tuple[dict, bool, str | None, dict]:
+        """Return `(result, used_fallback, raw_completion, diag)`: a
+        parsed JSON dict from the LLM with `used_fallback=False` and the
+        exact raw completion text, or `(fallback(), True, None, diag)` if
+        the LLM is disabled, unreachable, times out, or misbehaves. Never
+        raises — this is the boundary where LLM failures get absorbed.
+        The `used_fallback` flag lets the caller track a fallback rate
+        for diagnosis (see docs/DECISIONS.md, D5) — it's otherwise
+        invisible from a saved snapshot. `raw_completion` (added for the
+        training recorder, llm/recorder.py — Layer 3) is the model's
+        exact text before JSON parsing; `None` on any fallback path since
+        no real completion exists to record.
+
+        `diag` (explicit user request — "expose raw_model_output,
+        parsed_json, validation_errors, fallback_reason, fallback_result
+        ... whenever a fallback occurs for any LLM call"): a `_diag()`-
+        shaped dict. On success, `fallback_reason` is `None` and
+        `parsed_json` is the same dict as `result`. On any fallback path,
+        `fallback_reason` names WHY (llm disabled, outer/socket timeout,
+        the client's own error message, or an unexpected exception) and
+        `raw_model_output`/`parsed_json`/`validation_errors` are a best-
+        effort re-diagnosis of whatever raw text WAS captured before the
+        failure (`capture["raw"]` is set by the client before it even
+        attempts its own JSON parse — see `client.py`'s docstrings — so
+        it usually survives a parse failure even though the call still
+        raises). The caller (`_schedule_llm_job`) is the one place that
+        knows the fallback RESULT dict itself (`fallback()`'s return
+        value), so `fallback_result` is added there, not here.
 
         `json_schema` (optional, FT.0 — see `llm/json_schemas.py`):
         forwarded to the client's own `generate_json` to constrain
@@ -189,7 +243,7 @@ class CognitionRunner:
         `asyncio.wait_for` ceiling — `None` keeps `self.client.timeout_
         seconds` for both, same as before this param existed."""
         if self.client is None:
-            return fallback(), True, None
+            return fallback(), True, None, _diag("llm_disabled")
 
         self.backlog += 1
         try:
@@ -205,7 +259,7 @@ class CognitionRunner:
         json_schema: dict | None = None,
         num_predict_override: int | None = None, temperature_override: float | None = None,
         reasoning: bool = False, timeout_override: float | None = None,
-    ) -> tuple[dict, bool, str | None]:
+    ) -> tuple[dict, bool, str | None, dict]:
         queue_entered = time.perf_counter()
         effective_timeout = timeout_override if timeout_override is not None else self.client.timeout_seconds
         async with self._semaphore:
@@ -237,13 +291,17 @@ class CognitionRunner:
                 if reasoning:
                     self._reasoning_latencies_ms.append(elapsed_ms)
                     self.reasoning_calls_succeeded += 1
-                return result, False, capture.get("raw")
+                raw = capture.get("raw")
+                return result, False, raw, _diag(None, raw, result, [])
             except asyncio.TimeoutError as exc:
                 self.calls_timed_out += 1
                 if reasoning:
                     self.reasoning_calls_timed_out += 1
                 logger.warning("LLM call timed out (outer wait_for), using deterministic fallback: %s", exc)
-                return fallback(), True, None
+                raw = capture.get("raw")
+                parsed, errors = _diagnose_raw_output(raw)
+                reason = f"outer wait_for timed out after {effective_timeout + 5.0:.0f}s: {exc}"
+                return fallback(), True, None, _diag(reason, raw, parsed, errors)
             except LLMTimeout as exc:
                 # The client's own request-level socket timeout — see
                 # that class's docstring. Checked before the broader
@@ -253,16 +311,22 @@ class CognitionRunner:
                 if reasoning:
                     self.reasoning_calls_timed_out += 1
                 logger.warning("LLM call timed out, using deterministic fallback: %s", exc)
-                return fallback(), True, None
+                raw = capture.get("raw")
+                parsed, errors = _diagnose_raw_output(raw)
+                return fallback(), True, None, _diag(f"request timed out: {exc}", raw, parsed, errors)
             except LLMUnavailable as exc:
                 self.calls_errored += 1
                 if reasoning:
                     self.reasoning_calls_errored += 1
                 logger.warning("LLM call failed, using deterministic fallback: %s", exc)
-                return fallback(), True, None
+                raw = capture.get("raw")
+                parsed, errors = _diagnose_raw_output(raw)
+                return fallback(), True, None, _diag(str(exc), raw, parsed, errors)
             except Exception as exc:  # defense in depth: LLM failure must never propagate
                 self.calls_errored += 1
                 if reasoning:
                     self.reasoning_calls_errored += 1
                 logger.warning("Unexpected LLM error, using deterministic fallback: %s", exc)
-                return fallback(), True, None
+                raw = capture.get("raw")
+                parsed, errors = _diagnose_raw_output(raw)
+                return fallback(), True, None, _diag(f"unexpected error: {exc}", raw, parsed, errors)

@@ -33,7 +33,10 @@ from hearthmind.world.terrain_evolution import (
 )
 from hearthmind.world.daylight import night_factor as compute_night_factor
 from hearthmind.world.fields import FieldGrid
-from hearthmind.cognition.pillar import Pillar, default_nature_pillar
+from hearthmind.cognition.pillar import (
+    Pillar, default_nature_pillar, default_village_pillar, default_humans_pillar,
+    default_innovation_pillar, default_reflection_pillar,
+)
 from hearthmind.world.disasters import (
     DisasterState,
     WILDFIRE_IGNITION_HISTORY_MAX,
@@ -310,6 +313,29 @@ class World:
     into `nature_pillar.world_model` alongside it — `nature_beliefs`
     stays the source every existing consumer reads unchanged; this is
     additive, not a migration."""
+    village_pillar: Pillar = field(default_factory=default_village_pillar)
+    """B1, generalized (roadmap Stage II): Village's persistent
+    conscious-entity structure, mirroring `_maybe_schedule_beliefs`
+    (settlement-wide `Settlement.beliefs`, round-robin across named
+    settlements) — same additive-mirror discipline as `nature_pillar`."""
+    humans_pillar: Pillar = field(default_factory=default_humans_pillar)
+    """B1/B7, generalized: Humans' persistent conscious-entity
+    structure — the collective-mood/narrative-theme reading
+    (`_maybe_schedule_narrative_direction`, itself derived from
+    `Settlement.mood`, the aggregate of living agents' `Agent.
+    emotions`), mirrored into `world_model`."""
+    innovation_pillar: Pillar = field(default_factory=default_innovation_pillar)
+    """B1/B5, generalized: Innovation's persistent conscious-entity
+    structure, mirroring `_maybe_schedule_ontology_proposal`'s newly
+    registered `InventedConcept`s (`World.invented_concepts`) into
+    `world_model` — always additive (no revision path exists for
+    concepts the way beliefs support `revises`)."""
+    reflection_pillar: Pillar = field(default_factory=default_reflection_pillar)
+    """B1/B6, generalized: Reflection's persistent conscious-entity
+    structure, mirroring `_maybe_schedule_reflection`'s hypothesis
+    formation (`World.reflection_notebook`) into `world_model` —
+    Reflection is the one pillar that's world-scoped with no settlement
+    round-robin, matching its existing job's shape."""
     consciousness_memory: list[dict] = field(default_factory=list)
     """Phase N "Town Consciousness v2" (docs/VISION-2026-07.md, "The Town
     Awake"): bounded log of what the town's persistent inner awareness
@@ -1084,6 +1110,10 @@ class World:
             "next_emergence_id": self.next_emergence_id,
             "fields": self.fields.to_dict(),
             "nature_pillar": self.nature_pillar.to_dict(),
+            "village_pillar": self.village_pillar.to_dict(),
+            "humans_pillar": self.humans_pillar.to_dict(),
+            "innovation_pillar": self.innovation_pillar.to_dict(),
+            "reflection_pillar": self.reflection_pillar.to_dict(),
             "observer_attention": {
                 "agent_view_counts": {str(k): v for k, v in self.observer_attention.get("agent_view_counts", {}).items()},
                 "last_agent_id": self.observer_attention.get("last_agent_id"),
@@ -1289,6 +1319,20 @@ class World:
             fields=FieldGrid.from_dict(data.get("fields", {})),
             nature_pillar=(
                 Pillar.from_dict(data["nature_pillar"]) if data.get("nature_pillar") else default_nature_pillar()
+            ),
+            village_pillar=(
+                Pillar.from_dict(data["village_pillar"]) if data.get("village_pillar") else default_village_pillar()
+            ),
+            humans_pillar=(
+                Pillar.from_dict(data["humans_pillar"]) if data.get("humans_pillar") else default_humans_pillar()
+            ),
+            innovation_pillar=(
+                Pillar.from_dict(data["innovation_pillar"]) if data.get("innovation_pillar")
+                else default_innovation_pillar()
+            ),
+            reflection_pillar=(
+                Pillar.from_dict(data["reflection_pillar"]) if data.get("reflection_pillar")
+                else default_reflection_pillar()
             ),
             observer_attention=(
                 {

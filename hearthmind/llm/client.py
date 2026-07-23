@@ -11,6 +11,7 @@ import json
 import re
 import urllib.error
 import urllib.request
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
@@ -188,8 +189,81 @@ class LLMTimeout(LLMUnavailable):
     behavior."""
 
 
+class LLMAdapter(ABC):
+    """The ENTIRE contract between Hearthmind and any local LLM backend.
+
+    Explicit user directive: "adding a new LLM requires implementing only
+    a single adapter class. No changes should be needed anywhere else in
+    the codebase." This class IS that single seam — `CognitionRunner`
+    (llm/jobs.py), `_schedule_llm_job`/`_run_cognition`/`_run_dialogue`
+    (simulation/engine.py), and every prompt/parse module under `llm/`
+    only ever call `adapter.generate_json(...)` on whatever object
+    `build_llm_client(config)` handed them. None of them import
+    `OllamaClient`/`LlamaCppClient` by name, know a backend's wire
+    protocol, or branch on `config.llm_backend` themselves — that
+    dispatch lives ENTIRELY in `_ADAPTER_REGISTRY`/`build_llm_client`
+    below. A brand-new backend (a different local server, a hosted API,
+    a future in-process runtime) needs exactly three things: (1) a class
+    inheriting `LLMAdapter`, (2) a real `generate_json` implementing this
+    contract against that backend's actual wire format, (3) one line
+    registering it in `_ADAPTER_REGISTRY`. Simulation logic, cognition
+    prompts, JSON-schema validation, memory, and every game system stay
+    completely unaware — they only ever see "a dict came back, or it
+    didn't."
+
+    Every adapter must:
+    - Accept the exact `generate_json` signature below (positional-
+      compatible with every existing call site — `CognitionRunner._run_
+      gated` calls it via `asyncio.to_thread` with positional args).
+    - Do its own blocking I/O (no async) — the runner is what wraps this
+      in a thread; an adapter must never assume an event loop.
+    - Raise `LLMUnavailable` (or `LLMTimeout`, its more specific socket-
+      timeout subclass) on ANY failure — network error, malformed
+      response shape, non-JSON completion. Must NEVER raise anything
+      else out to the runner and must NEVER return a value that isn't a
+      plain `dict` (the parsed JSON answer).
+    - Fill `capture["raw"]` with the exact raw completion text, if a
+      `capture` dict was given, BEFORE attempting to parse it as JSON —
+      so a malformed-JSON response still leaves the raw text recoverable
+      for the training recorder and the fallback-diagnostics dev-console
+      panel even though the call still raises.
+    - Honor `reasoning` (whatever this model's own hybrid-thinking
+      toggle is, or a no-op if the model has none) and never combine a
+      `True` value with a non-`None` `json_schema` (grammar-constrained
+      decoding structurally suppresses a preceding `<think>` block —
+      `_schedule_llm_job` already enforces this at the call site, but an
+      adapter should not assume every future caller will).
+
+    `build_from_config` is the second half of the contract — a
+    classmethod that knows how to construct this adapter from the
+    project's own `Config` object, so `build_llm_client` never needs a
+    per-field constructor call hand-rolled for each backend."""
+
+    @abstractmethod
+    def generate_json(
+        self, prompt: str, system: str | None = None, capture: dict | None = None,
+        json_schema: dict | None = None,
+        num_predict_override: int | None = None, temperature_override: float | None = None,
+        reasoning: bool = False, timeout_override: float | None = None,
+    ) -> dict:
+        """Blocking call — issue one request to the backend and return
+        the parsed JSON response as a plain dict. See the class
+        docstring above for the full contract every implementation must
+        honor. Callers running inside the event loop must wrap this in
+        `asyncio.to_thread`; this method itself must do no async work."""
+        raise NotImplementedError
+
+    @classmethod
+    @abstractmethod
+    def build_from_config(cls, config) -> "LLMAdapter":
+        """Construct this adapter from the project's `Config` object.
+        The one place a new adapter's own config fields get read —
+        `build_llm_client` below never needs to know what they are."""
+        raise NotImplementedError
+
+
 @dataclass
-class OllamaClient:
+class OllamaClient(LLMAdapter):
     host: str
     model: str
     timeout_seconds: float
@@ -234,6 +308,17 @@ class OllamaClient:
     without adding a second concurrent call's worth of KV cache the
     way raising `llm_max_concurrent` would. `None` (the default) omits
     it, leaving Ollama's own heuristic in charge."""
+
+    @classmethod
+    def build_from_config(cls, config) -> "OllamaClient":
+        """See `LLMAdapter.build_from_config` — the one place this
+        adapter's own `Config` fields get read."""
+        return cls(
+            host=config.llm_host, model=config.llm_model, timeout_seconds=config.llm_timeout_seconds,
+            num_ctx=config.llm_num_ctx, num_predict=config.llm_num_predict,
+            keep_alive=config.llm_keep_alive, use_mmap=config.llm_use_mmap, num_gpu=config.llm_num_gpu,
+            num_thread=config.llm_num_thread, temperature=config.llm_temperature,
+        )
 
     def generate_json(
         self, prompt: str, system: str | None = None, capture: dict | None = None,
@@ -357,7 +442,7 @@ class OllamaClient:
 
 
 @dataclass
-class LlamaCppClient:
+class LlamaCppClient(LLMAdapter):
     """Client for a local `llama-server` (llama.cpp's own HTTP server,
     OpenAI-chat-compatible) — the default backend as of v0.72.0 (see
     docs/DECISIONS.md, "llama.cpp default backend"). Chosen as the
@@ -382,6 +467,29 @@ class LlamaCppClient:
     server-launch flags for the same reason — llama.cpp pins them for the
     life of the server process rather than allowing them to vary call to
     call the way Ollama's `options` do.
+
+    **This is the Nemotron 3 Nano 4B-tuned adapter** (the project default
+    model as of v1.3.36, `Config.llm_model`). It is deliberately NOT a
+    separate "NemotronAdapter" subclass — this class already IS the code
+    path every default install runs, and Nemotron's actual requirements
+    (the "detailed thinking on/off" system-prompt toggle, `reasoning_
+    budget`/`enable_thinking` request fields, letting llama-server's own
+    GGUF-embedded chat template handle role formatting rather than this
+    project hand-rolling one) are already implemented directly below —
+    adding a parallel, unused subclass would just be dead code duplicating
+    the one path that actually runs. Everything model-specific about
+    Nemotron 3 lives in `_REASONING_ON_PROMPT`/`_REASONING_OFF_PROMPT`
+    (module-level, both clients) and this class's own `generate_json`;
+    switching `Config.llm_model` to a different GGUF (or `Config.llm_
+    backend` to `"ollama"`) needs no further code change — see `LLMAdapter`'s
+    class docstring for the "one class, nothing else changes" contract
+    this whole module exists to satisfy. (The upstream model card's own
+    recommended sampling values could not be independently confirmed in
+    this environment — outbound fetches to huggingface.co were blocked —
+    so `temperature`/`top_p`/`min_p` below stay whatever this project's
+    own live-diagnostic tuning has already measured, per CLAUDE.md's
+    standing "live user reports over unverified specs" discipline, not a
+    number copied from an unread page.)
     """
 
     host: str
@@ -397,6 +505,29 @@ class LlamaCppClient:
     OpenAI-compatible `temperature` field. `None` omits it (server
     default). Lower values curb the rambling/off-shape output small
     models emit under the JSON grammar constraint."""
+    top_p: float | None = None
+    """Optional nucleus-sampling cutoff (see `Config.llm_top_p`), sent as
+    the OpenAI-compatible `top_p` field alongside `temperature`. `None`
+    (the default) omits it, leaving llama-server's own default (1.0, i.e.
+    off) in place — this project has no measured live-diagnostic basis
+    for a specific value yet (see the class docstring above), so it's
+    exposed as a real, wired lever rather than a guessed default."""
+    min_p: float | None = None
+    """Optional min-p sampling cutoff (see `Config.llm_min_p`) — sent as
+    a top-level `min_p` field, llama-server's own extension beyond the
+    bare OpenAI chat-completions schema (ignored by a server build that
+    doesn't recognize it). Same "wired but unset until measured" posture
+    as `top_p`."""
+
+    @classmethod
+    def build_from_config(cls, config) -> "LlamaCppClient":
+        """See `LLMAdapter.build_from_config` — the one place this
+        adapter's own `Config` fields get read."""
+        return cls(
+            host=config.llm_llamacpp_host, model=config.llm_model,
+            timeout_seconds=config.llm_timeout_seconds, num_predict=config.llm_num_predict,
+            temperature=config.llm_temperature, top_p=config.llm_top_p, min_p=config.llm_min_p,
+        )
 
     def generate_json(
         self, prompt: str, system: str | None = None, capture: dict | None = None,
@@ -480,6 +611,10 @@ class LlamaCppClient:
         effective_temperature = temperature_override if temperature_override is not None else self.temperature
         if effective_temperature is not None:
             payload["temperature"] = effective_temperature
+        if self.top_p is not None:
+            payload["top_p"] = self.top_p
+        if self.min_p is not None:
+            payload["min_p"] = self.min_p
 
         effective_timeout = timeout_override if timeout_override is not None else self.timeout_seconds
         request = urllib.request.Request(
@@ -570,20 +705,38 @@ def fetch_llama_server_metrics(host: str, timeout: float = 5.0) -> dict[str, flo
     return metrics or None
 
 
-def build_llm_client(config) -> "OllamaClient | LlamaCppClient":
+ADAPTER_REGISTRY: dict[str, type[LLMAdapter]] = {
+    "ollama": OllamaClient,
+    "llamacpp": LlamaCppClient,
+}
+"""The single-source-of-truth mapping `Config.llm_backend` -> adapter
+class — see `LLMAdapter`'s class docstring for the "one class, nothing
+else changes" contract this exists to satisfy. **Adding support for a
+new local LLM backend is exactly two steps**: (1) write a class
+inheriting `LLMAdapter` (implementing `generate_json`/`build_from_
+config`) anywhere importable, (2) add one line here:
+`ADAPTER_REGISTRY["my_backend"] = MyAdapter`. Nothing in `llm/jobs.py`,
+`simulation/engine.py`, or any prompt/parse module under `llm/` needs to
+change — they only ever hold an `LLMAdapter` reference and call
+`.generate_json(...)` on it. Set `Config.llm_backend = "my_backend"` to
+select it."""
+
+
+def build_llm_client(config) -> LLMAdapter:
     """Factory used by both `SimulationEngine` and `server.py` so the two
     call sites can't drift on which fields each backend actually
     consumes (see docs/DECISIONS.md, "llama.cpp default backend"). Only
-    ever called when `config.llm_enabled` is true."""
-    if config.llm_backend == "ollama":
-        return OllamaClient(
-            host=config.llm_host, model=config.llm_model, timeout_seconds=config.llm_timeout_seconds,
-            num_ctx=config.llm_num_ctx, num_predict=config.llm_num_predict,
-            keep_alive=config.llm_keep_alive, use_mmap=config.llm_use_mmap, num_gpu=config.llm_num_gpu,
-            num_thread=config.llm_num_thread, temperature=config.llm_temperature,
-        )
-    return LlamaCppClient(
-        host=config.llm_llamacpp_host, model=config.llm_model,
-        timeout_seconds=config.llm_timeout_seconds, num_predict=config.llm_num_predict,
-        temperature=config.llm_temperature,
-    )
+    ever called when `config.llm_enabled` is true. Looks up `config.
+    llm_backend` in `ADAPTER_REGISTRY` and delegates construction to that
+    adapter's own `build_from_config` — this function itself has no
+    per-backend branch or knowledge of any adapter's constructor fields,
+    which is what makes registering a brand-new adapter a one-line
+    change instead of a change here too."""
+    try:
+        adapter_cls = ADAPTER_REGISTRY[config.llm_backend]
+    except KeyError:
+        raise ValueError(
+            f"Unknown llm_backend {config.llm_backend!r} — must be one of {sorted(ADAPTER_REGISTRY)} "
+            "(or register a new adapter in hearthmind.llm.client.ADAPTER_REGISTRY)"
+        ) from None
+    return adapter_cls.build_from_config(config)

@@ -267,6 +267,19 @@ class Config:
     toward 0.9 for more variety on a stronger model. Kept above 0 so a
     stuck pair doesn't get the identical deterministic-looking line every
     time."""
+    llm_top_p: float | None = None
+    """Optional nucleus-sampling cutoff, sent by `LlamaCppClient` (see
+    its own `top_p` field docstring). `None` (the default) omits it —
+    this project has no live-diagnostic measurement backing a specific
+    value yet (an attempt to consult the Nemotron 3 model card for a
+    recommended default was blocked by an outbound-fetch failure in this
+    environment), so it stays unset rather than guessed; wired and ready
+    for a future live-tuning pass the same way every other `llm_*`
+    constant here was tuned, not copied from a spec."""
+    llm_min_p: float | None = None
+    """Optional min-p sampling cutoff, sent by `LlamaCppClient` (see its
+    own `min_p` field docstring). Same "wired but unmeasured" posture as
+    `llm_top_p` — `None` omits it."""
     llm_max_concurrent: int = 1
     """How many LLM requests may be in flight at once. History: 4 (E2) ->
     2 (v0.43.0) -> 1 (v0.43.1) -> 2 (v0.44.0, the "permanent floor") ->
