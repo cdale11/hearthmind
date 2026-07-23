@@ -4,6 +4,74 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.17.0] — A12 "Material science / physical properties," first slice (roadmap Stage IV step 19)
+
+Explicit user instruction: "Next step" — Stage IV step 19, docs/
+MASTERCHECKLIST-2026-07-22.md's A12, the direct continuation of v1.16.0's
+A5/A6 — "affordances start deriving from properties rather than being
+hand-tagged."
+
+New `world/materials.py`: `Material` (all ten spec-named properties —
+hardness, density, conductivity, elasticity, durability, decay_rate,
+flammability, toxicity, thermal_capacity, workability — each 0..1) and
+a small closed `MATERIALS` registry: wood, stone, clay, metal, fiber.
+Hand-authored (not measured), same discipline as A5's hand-tagging,
+with real-world-plausible relative ordering (stone harder/denser/less
+flammable than wood; metal most conductive; fiber most flammable-and-
+workable-but-least-durable) — the ordering is what makes derivation
+below produce sensible output, not literal material-science accuracy.
+`BUILDING_MATERIALS` assigns each of A5's tagged `BuildingKind`s its
+primary material, grounded in each kind's own existing docstring
+identity (wood huts/docks, stone forges/bridges, worked metal at a
+forge/factory/power-plant, fiber at pasture/hatchery fencing, clay at
+the shrine).
+
+The real bridge: `derive_affordances(material)` maps property
+thresholds to a subset of `world.affordances.AFFORDANCE_TAGS`
+(hardness+workability → `can_sharpen`; flammability → `can_burn`;
+conductivity OR thermal capacity → `can_conduct_heat`; hardness+density
+→ `can_support_weight`; toxicity → `can_poison`) — deliberately
+partial, since `can_store_food`/`can_carry_water`/`can_redirect_water`/
+`can_fertilize` are shape-derived, not raw-material-derived, and this
+function only ever derives what genuinely follows from material
+properties alone. New `building_affordances(kind)` is the real union
+point: `world.affordances.BUILDING_AFFORDANCES`'s existing hand-tagged
+set PLUS whatever the assigned material derives — hand-tagging never
+disappears, it's extended.
+
+Real consumer: `_maybe_schedule_ontology_proposal` (Innovation's A5/A6-
+wired generate-step, v1.16.0) now computes standing-building
+affordances via `materials.building_affordances` instead of the bare
+hand-tagged set, so a genuinely material-driven combination (e.g. a
+metal FORGE's `can_conduct_heat` following from conductivity, not just
+a hand tag) is reachable by the proposal prompt too. The dev-console
+`discoverable_affordance_combinations` diagnostic (v1.16.0) widened the
+same way.
+
+Scoped down from the full spec: per-instance `Entity.material:
+Material` (every tool/vehicle/agent-crafted good carrying its own
+material, not one closed per-`BuildingKind` lookup) and A13's
+chemistry/reaction system (`A + B + condition → C` over these
+properties) are real, larger follow-ups, explicitly flagged rather
+than attempted.
+
+UI: building click inspector gained a "Built of" line (client-side
+`BUILDING_MATERIAL` mirror of `BUILDING_MATERIALS`, same mirroring
+precedent as `daylight.py`'s `UK_DAYLIGHT_HOURS`) — plain
+environmental fact, not Phase-G-gated.
+
+Verified: direct tests (every `BUILDING_MATERIALS` entry resolves to a
+real registered material; every `derive_affordances` output stays
+within the closed vocabulary; metal derives `can_conduct_heat`/
+`can_sharpen`, fiber derives `can_burn` but not `can_support_weight`,
+stone derives `can_support_weight` but never `can_burn`;
+`material_for_building` known/unknown; `building_affordances` always a
+superset of the hand-tagged set, and empty for an untagged kind). A
+400-tick real production-path engine run (LLM disabled) completed with
+no error; a direct `_diagnostics_snapshot()` test confirms a standing
+FORGE now surfaces both `tempered_tools` and `kiln_process`.
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical.
+
 ## [1.16.0] — A5/A6 "Affordances + discovery query layer," first slice (roadmap Stage IV step 18)
 
 Explicit user instruction: "Next step" — Stage IV step 18, docs/

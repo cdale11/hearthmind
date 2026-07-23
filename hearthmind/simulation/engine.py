@@ -75,7 +75,8 @@ from hearthmind.llm import (
 )
 from hearthmind.llm import ontology as ontology_llm
 from hearthmind.llm import self_tuning
-from hearthmind.world.affordances import affordances_present, discover_combinations
+from hearthmind.world.affordances import discover_combinations
+from hearthmind.world.materials import building_affordances
 from hearthmind.world.sigils import generate_sigil_svg
 from hearthmind.world import ontology
 from hearthmind.world import emergence
@@ -3946,11 +3947,19 @@ class SimulationEngine:
         # step 18): a real query into what's physically standing right
         # now, not just prosperity/pressure — Innovation's generate-step
         # asking the affordance layer "what combination of affordances
-        # would achieve Y?" per the spec.
+        # would achieve Y?" per the spec. A12 (step 19) widens this
+        # further: `materials.building_affordances` unions each kind's
+        # hand-tagged set with what its assigned material's properties
+        # derive, so a genuinely material-driven combination (e.g. a
+        # metal FORGE's `can_conduct_heat` from conductivity, not just
+        # its hand tag) is reachable too.
         standing_kinds = {
             b.kind for b in settlement.buildings if b.stage is BuildingStage.STANDING
         }
-        discoverable = discover_combinations(affordances_present(standing_kinds))
+        present_tags: set[str] = set()
+        for kind in standing_kinds:
+            present_tags |= building_affordances(kind)
+        discoverable = discover_combinations(present_tags)
         prompt = ontology_llm.build_propose_prompt(
             settlement.name, recent, existing_names, settlement.era, settlement.tech_level,
             emergence_observations=list(self.world.innovation_pillar.working_memory),
@@ -8650,18 +8659,22 @@ class SimulationEngine:
             # by clicking its building, not read as a raw count).
             "composite_entities_total": len(self.world.composite_entities),
             # A5/A6 "Affordances + discovery query layer" (roadmap Stage
-            # IV step 18): what's genuinely discoverable right now per
-            # settlement, from what's actually standing — live-computed
-            # (not persisted state, so no snapshot field), dev-console
-            # depth same as `invented_concepts_by_category` above; a
-            # settlement with nothing standing that clears a known pair
-            # is simply absent from this dict.
+            # IV step 18, widened by A12/step 19's material-derived
+            # union — see `materials.building_affordances`): what's
+            # genuinely discoverable right now per settlement, from
+            # what's actually standing — live-computed (not persisted
+            # state, so no snapshot field), dev-console depth same as
+            # `invented_concepts_by_category` above; a settlement with
+            # nothing standing that clears a known pair is simply absent
+            # from this dict.
             "discoverable_affordance_combinations": {
                 stl.name or f"settlement_{stl.id}": combos
                 for stl in self.world.settlements
-                for combos in [discover_combinations(affordances_present(
-                    b.kind for b in stl.buildings if b.stage is BuildingStage.STANDING
-                ))]
+                for combos in [discover_combinations({
+                    tag
+                    for b in stl.buildings if b.stage is BuildingStage.STANDING
+                    for tag in building_affordances(b.kind)
+                })]
                 if combos
             },
             # Vision doc item 1.4/2.4's own signal — how close the

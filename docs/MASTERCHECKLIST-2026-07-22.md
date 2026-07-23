@@ -273,18 +273,36 @@ through-line for nearly every PARTIAL below.
 
 ### A12 — Material science / physical properties [det #12] — MISSING
 
-- [ ] **Status:** —
-- [ ] **Spec:** A material registry: each material has hardness, density,
-  conductivity, elasticity, durability, decay-rate, flammability,
-  toxicity, thermal-capacity, workability. Tools/buildings/vehicles are
-  *made of* materials and inherit derived capabilities (a hard+workable
-  material → good blade; flammable → fire risk).
-- [ ] **Data model:** `Material(props...)`; `Entity.material: Material`;
-  affordances (A5) *derive* from properties (`can_sharpen` if hardness >
-  τ).
-- [ ] **Feeds:** Innovation (B) discovers tools/tech by combining
-  material properties, not recipes — "new tools emerge from combining
-  properties." Prerequisite for real material-driven invention.
+- [x] **Status:** **Shipped a first slice, v1.17.0** (roadmap Stage IV
+  step 19). New `world/materials.py`: `Material` (all ten named
+  properties, each 0..1) and a small closed `MATERIALS` registry (wood/
+  stone/clay/metal/fiber), each hand-authored with real-world-plausible
+  relative ordering (stone harder/denser/less flammable than wood,
+  metal most conductive, fiber most flammable-and-workable-but-least-
+  durable).
+- [x] **Spec:** `BUILDING_MATERIALS` assigns each of A5's tagged
+  `BuildingKind`s its primary material (grounded in each kind's own
+  existing docstring identity — wood huts/docks, stone forges/bridges,
+  worked metal at a forge/factory). `derive_affordances(material)` is
+  the real "hard+workable → can_sharpen, flammable → can_burn" bridge
+  the spec names, deliberately partial (only the axes that genuinely
+  follow from raw material, not shape-derived affordances like
+  `can_store_food`).
+- [x] **Data model:** class-level `dict[BuildingKind, str]` +
+  `dict[str, Material]`, not the spec's literal per-instance `Entity.
+  material: Material` (a real generalization to every entity kind, not
+  just buildings — flagged follow-up, same scope-down A5 itself took).
+  `world.affordances.BUILDING_AFFORDANCES` (A5's hand-tagged set) now
+  has a real properties-derived UNION alongside it via `materials.
+  building_affordances(kind)` — hand-tagging never disappears, it's
+  extended.
+- [x] **Feeds:** wired — `_maybe_schedule_ontology_proposal`'s A5/A6
+  affordance query (step 18) now reads `materials.building_
+  affordances` instead of the bare hand-tagged set, so a material-
+  driven combination (e.g. a metal FORGE's `can_conduct_heat` genuinely
+  following from conductivity, not just a hand tag) is reachable by
+  Innovation's generate-step too. A13's chemistry/reaction system
+  actually consuming these properties remains open, flagged.
 
 ### A13 — Chemistry / reaction system [det #13] — MISSING
 
@@ -1057,7 +1075,9 @@ waiting for a later integration pass.
     and the validate-step half, remain open, flagged.
 19. **A12 Material science** — a material registry (hardness, density,
     flammability, etc.); affordances (18) start deriving from
-    properties rather than being hand-tagged.
+    properties rather than being hand-tagged. **Shipped a first slice,
+    v1.17.0**: see the A12 section above. Per-instance material
+    assignment and A13's chemistry/reaction rules remain open, flagged.
 20. **A13 Chemistry/reaction system** — `A + B + condition → C` rule
     table over materials (18/19); Innovation queries it instead of
     hardcoded recipes.

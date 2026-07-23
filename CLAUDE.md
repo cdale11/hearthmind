@@ -527,6 +527,27 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.17.0)
+
+Explicit user instruction: "Next step" — A12 "Material science /
+physical properties," first slice (roadmap Stage IV step 19, docs/
+MASTERCHECKLIST-2026-07-22.md), continuing directly off v1.16.0's
+A5/A6. Full detail: CHANGELOG.md's [1.17.0] entry.
+
+New `world/materials.py`: `Material` (ten spec-named 0..1 properties)
++ a small closed `MATERIALS` registry (wood/stone/clay/metal/fiber),
+hand-authored with real-world-plausible relative ordering.
+`BUILDING_MATERIALS` assigns each A5-tagged `BuildingKind` its primary
+material. `derive_affordances(material)` is the real "properties →
+affordances" bridge (hardness+workability → `can_sharpen`,
+flammability → `can_burn`, etc. — deliberately partial, only the
+raw-material-derived subset). `building_affordances(kind)` unions this
+with A5's existing hand-tagged set (never replaces it) — wired into
+Innovation's A5/A6 generate-step and the dev-console diagnostic from
+v1.16.0. Per-instance `Entity.material` and A13's chemistry/reaction
+system remain open, flagged. New "Built of" line in the building click
+inspector.
+
 ## Current state (v1.16.0)
 
 Explicit user instruction: "Next step" — A5/A6 "Affordances +

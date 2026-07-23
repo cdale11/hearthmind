@@ -2616,6 +2616,17 @@ function healthLabel(agent) {
 // Parity with the NPC inspector: click anything on the map and get a real
 // panel, not just a hover tooltip. Re-rendered per payload like the NPC one.
 
+// A12 "Material science" (roadmap Stage IV step 19): mirrors
+// hearthmind/world/materials.py's BUILDING_MATERIALS — same "small
+// constant mirrored client-side" precedent as daylight.py's UK_
+// DAYLIGHT_HOURS. A kind absent here (SCHOOL/UNIVERSITY/MARKET/
+// LIBRARY) has no assigned material there either.
+const BUILDING_MATERIAL = {
+  hut: "wood", granary: "wood", workshop: "wood", hospital: "stone",
+  factory: "metal", shrine: "clay", power_plant: "metal", pasture: "fiber",
+  hatchery: "fiber", dock: "wood", oil_rig: "metal", bridge: "stone", forge: "stone",
+};
+
 function renderTargetInspector() {
   if (!inspectedTarget || !latest) return;
   const { x, y } = inspectedTarget;
@@ -2651,6 +2662,7 @@ function renderTargetInspector() {
       <div class="npc-section"><h4>Condition</h4>
         <div>${conditionPct}%${b.stage === "under_construction" ? ` · progress ${Math.round((b.progress || 0) * 100)}%` : ""}</div>
       </div>
+      ${BUILDING_MATERIAL[b.kind] ? `<div class="npc-section"><h4>Built of</h4><div>${BUILDING_MATERIAL[b.kind]}</div></div>` : ""}
       <div class="npc-section"><h4>Ownership</h4><div>Belongs to ${owner}</div></div>
       ${b.stored_food ? `<div class="npc-section"><h4>Stores</h4><div>${b.stored_food.toFixed(1)} food</div></div>` : ""}
       <div class="npc-section"><h4>Right now</h4>
