@@ -117,35 +117,60 @@ through-line for nearly every PARTIAL below.
 
 ### A5 — Capabilities/affordances over object classes [det #5] — MISSING
 
-- [ ] **Status:** Object classes throughout (`BuildingKind` enum,
-  discrete tools, etc.). No affordance model.
-- [ ] **Spec:** Add an affordance tag-set to entities: a thing is defined
-  by *what it can do* (`can_burn`, `can_shelter`, `can_carry_water`,
-  `can_sharpen`, `can_store_food`, `can_redirect_water`, `can_fertilize`,
-  `can_poison`, `can_support_weight`, `can_conduct_heat`) plus physical
-  properties (A12). Keep the closed enums for the native store's sake,
-  but attach an open affordance set as data.
-- [ ] **Data model:** `Entity.affordances: set[str]`, `Entity.
-  properties: dict[str, float]`; a registry mapping affordance → the
-  deterministic effect it enables.
-- [ ] **Replaces/extends:** wraps existing classes rather than replacing
-  them (safe path: tag, don't rewrite).
-- [ ] **Feeds:** **Innovation** (B) — this is the prerequisite that lets
-  Innovation discover *unprogrammed combinations* (a thing that
-  can_carry_water + can_store_food → an irrigation store nobody coded)
-  instead of naming within closed hooks. Without A5/A6, Innovation can
-  never be what LLM_Pillars.md asks.
+- [x] **Status:** **Shipped a first slice, v1.16.0** (roadmap Stage IV
+  step 18). New `world/affordances.py`: the exact closed `AFFORDANCE_
+  TAGS` vocabulary named in this spec, plus `BUILDING_AFFORDANCES` —
+  `BuildingKind` (the one existing entity class with a real foundable/
+  standing lifecycle) hand-tagged with which affordances its own
+  existing identity/mechanics already imply (a GRANARY already
+  `can_store_food`, a FORGE already invokes heat/tools, etc.).
+- [x] **Spec:** Hand-tagged this pass (not yet derived from A12
+  properties — A12 doesn't exist yet, see below). `BuildingKind` stays
+  exactly as it is (closed enum, native-store-mirrored) — this attaches
+  an ADDITIONAL, purely-Python, purely-additive tag-set alongside it,
+  per the spec's own "wrap, don't replace" framing.
+- [ ] **Data model:** Scoped down from the spec's literal `Entity.
+  affordances`/`Entity.properties` per-instance fields (a real
+  generalization to every entity kind, not just buildings) — this pass
+  is a class-level `dict[BuildingKind, frozenset[str]]`, not per-
+  instance state. `Entity.properties` (physical properties feeding A12
+  material science) explicitly NOT built this pass — real, larger
+  follow-up, flagged.
+- [x] **Replaces/extends:** confirmed — zero changes to `BuildingKind`
+  or any native-store code; wraps it entirely as external data.
+- [x] **Feeds:** wired — see A6 below.
 
 ### A6 — Exposed affordances for discovery [det #6] — MISSING
 
-- [ ] **Status:** —
-- [ ] **Spec:** The query layer over A5: systems (especially Innovation)
-  can ask "what here can_X?" and "what combination of affordances would
-  achieve Y?" A deterministic affordance-matcher that validates whether
-  a proposed combination is physically coherent.
-- [ ] **Feeds:** Innovation's generate-step (B) queries this; the
-  validate-step checks against it. This is the "discover new combinations
-  without programmer-authored recipes" mechanism.
+- [x] **Status:** **Shipped a first slice, v1.16.0**, alongside A5 (same
+  module). `affordances_present(standing_kinds)` — "what here can_X?" —
+  aggregates affordance tags over a settlement's actually-standing
+  buildings. `discover_combinations(present_tags)` — "what combination
+  of affordances would achieve Y?" — a small closed `KNOWN_
+  COMBINATIONS` registry (5 entries: e.g. `can_carry_water` +
+  `can_store_food` → `irrigation_store`, `can_conduct_heat` +
+  `can_sharpen` → `tempered_tools`) returns every entry genuinely
+  achievable from what's standing right now.
+- [x] **Spec:** the query layer is real and deterministic — a
+  combination is only "discoverable" if both its required tags are
+  actually present among standing buildings, not asserted by the LLM.
+  The "physically coherent" validation is structural (the registry
+  itself only contains pairs judged coherent at authoring time), not a
+  runtime physics check — a real but narrower interpretation of
+  "validates whether a proposed combination is physically coherent"
+  than a general-purpose coherence engine would be.
+- [x] **Feeds:** Innovation's generate-step wired — `llm/ontology.py`'s
+  `build_propose_prompt` gained an optional `discoverable_combinations`
+  param, populated at `_maybe_schedule_ontology_proposal`'s call site
+  from the settlement's own standing buildings, grounding the proposal
+  prompt in real physical affordances alongside (not replacing) the
+  existing prosperity/pressure grounding. The validate-step half
+  (Innovation's deterministic re-verification, `validate_hook`, cross-
+  checking a PROPOSED concept's claimed mechanism against this layer)
+  is explicitly NOT attempted this pass — real follow-up, flagged; this
+  slice covers the harder/more novel generate-step half per the spec's
+  own framing ("the prerequisite that lets Innovation discover
+  unprogrammed combinations").
 
 ### A7 — Grammar-based procedural systems [det #7] — MISSING (deterministic form)
 
@@ -1024,6 +1049,12 @@ waiting for a later integration pass.
 18. **A5/A6 Affordances + discovery query layer** — tag entities with
     `can_X` capabilities and physical properties; the query/validate
     layer Innovation needs for real unprogrammed-combination discovery.
+    **Shipped a first slice, v1.16.0**: see the A5/A6 sections above.
+    `BuildingKind` hand-tagged with the spec's own closed affordance
+    vocabulary; `affordances_present`/`discover_combinations` are a
+    real query layer wired into Innovation's ontology-proposal generate-
+    step. Per-instance `Entity.affordances`/properties (A12-derived),
+    and the validate-step half, remain open, flagged.
 19. **A12 Material science** — a material registry (hardness, density,
     flammability, etc.); affordances (18) start deriving from
     properties rather than being hand-tagged.

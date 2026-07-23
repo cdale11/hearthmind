@@ -75,6 +75,7 @@ from hearthmind.llm import (
 )
 from hearthmind.llm import ontology as ontology_llm
 from hearthmind.llm import self_tuning
+from hearthmind.world.affordances import affordances_present, discover_combinations
 from hearthmind.world.sigils import generate_sigil_svg
 from hearthmind.world import ontology
 from hearthmind.world import emergence
@@ -3941,10 +3942,20 @@ class SimulationEngine:
             top_signal, top_value = max(settlement.pattern_signal_counts.items(), key=lambda kv: kv[1])
             if top_value >= PATTERN_SIGNAL_BELIEF_THRESHOLD:
                 pressure_signal = top_signal
+        # A5/A6 "Affordances + discovery query layer" (roadmap Stage IV
+        # step 18): a real query into what's physically standing right
+        # now, not just prosperity/pressure — Innovation's generate-step
+        # asking the affordance layer "what combination of affordances
+        # would achieve Y?" per the spec.
+        standing_kinds = {
+            b.kind for b in settlement.buildings if b.stage is BuildingStage.STANDING
+        }
+        discoverable = discover_combinations(affordances_present(standing_kinds))
         prompt = ontology_llm.build_propose_prompt(
             settlement.name, recent, existing_names, settlement.era, settlement.tech_level,
             emergence_observations=list(self.world.innovation_pillar.working_memory),
             pressure_signal=pressure_signal,
+            discoverable_combinations=discoverable,
         )
         established_count = sum(1 for c in self.world.invented_concepts.values() if c.status == "established")
         fallback = ontology_llm.fallback_propose(established_count, pressure_signal=pressure_signal)
@@ -8638,6 +8649,21 @@ class SimulationEngine:
             # inspector (a composite entity is meant to be discovered
             # by clicking its building, not read as a raw count).
             "composite_entities_total": len(self.world.composite_entities),
+            # A5/A6 "Affordances + discovery query layer" (roadmap Stage
+            # IV step 18): what's genuinely discoverable right now per
+            # settlement, from what's actually standing — live-computed
+            # (not persisted state, so no snapshot field), dev-console
+            # depth same as `invented_concepts_by_category` above; a
+            # settlement with nothing standing that clears a known pair
+            # is simply absent from this dict.
+            "discoverable_affordance_combinations": {
+                stl.name or f"settlement_{stl.id}": combos
+                for stl in self.world.settlements
+                for combos in [discover_combinations(affordances_present(
+                    b.kind for b in stl.buildings if b.stage is BuildingStage.STANDING
+                ))]
+                if combos
+            },
             # Vision doc item 1.4/2.4's own signal — how close the
             # governor-drift detector is to having enough samples, and
             # the same recent-window numbers `_detect_reflection_

@@ -527,6 +527,27 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.16.0)
+
+Explicit user instruction: "Next step" — A5/A6 "Affordances +
+discovery query layer," first slice (roadmap Stage IV step 18, docs/
+MASTERCHECKLIST-2026-07-22.md). Full detail: CHANGELOG.md's [1.16.0]
+entry.
+
+New `world/affordances.py`: the spec's own closed `can_X` vocabulary
+hand-tagged onto `BuildingKind` (`BUILDING_AFFORDANCES`) — deliberately
+wraps the existing closed/native-mirrored enum rather than touching
+it. Real query layer: `affordances_present` ("what here can_X?"),
+`discover_combinations` ("what combination would achieve Y?") over a
+small closed `KNOWN_COMBINATIONS` registry. Real consumer:
+`_maybe_schedule_ontology_proposal` grounds Innovation's proposal
+prompt in genuinely-standing-building affordances (`llm/ontology.py`'s
+new `discoverable_combinations` param), alongside the existing
+prosperity/pressure grounding. Per-instance `Entity.affordances`/A12
+material-derived properties, and the validate-step half (re-checking a
+proposed concept against this layer), remain open, explicitly flagged.
+New dev-console `discoverable_affordance_combinations` diagnostic.
+
 ## Current state (v1.15.0)
 
 Explicit user instruction: "Next step" — A10 "Ecology as interacting

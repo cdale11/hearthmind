@@ -4,6 +4,74 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.16.0] — A5/A6 "Affordances + discovery query layer," first slice (roadmap Stage IV step 18)
+
+Explicit user instruction: "Next step" — Stage IV step 18, docs/
+MASTERCHECKLIST-2026-07-22.md's A5/A6, the prerequisite the doc itself
+names for Innovation to discover unprogrammed combinations rather than
+only ever naming within its existing closed hook vocabulary.
+
+New `world/affordances.py`: `AFFORDANCE_TAGS`, the exact closed
+vocabulary named in det_sys.md's own A5 example (`can_burn`,
+`can_shelter`, `can_carry_water`, `can_sharpen`, `can_store_food`,
+`can_redirect_water`, `can_fertilize`, `can_poison`,
+`can_support_weight`, `can_conduct_heat`). `BUILDING_AFFORDANCES`
+hand-tags `BuildingKind` — deliberately the "wrap, don't replace"
+path the spec itself names: `BuildingKind` stays exactly as it is (a
+closed enum mirrored into the C++ native store's integer code
+tables — unsafe to touch mid-run), this attaches an ADDITIONAL,
+purely-Python, purely-additive tag-set as external data. Each tag
+reflects something that kind's existing identity/mechanics already
+imply (a GRANARY already `can_store_food` per its own docstring; a
+FORGE's description already invokes heat and tools).
+
+A6's query layer: `affordances_present(standing_kinds)` — "what here
+can_X?" — and `discover_combinations(present_tags)` — "what
+combination of affordances would achieve Y?" — over a small, closed
+`KNOWN_COMBINATIONS` registry (5 entries, e.g. `can_carry_water` +
+`can_store_food` → `irrigation_store`, `can_conduct_heat` +
+`can_sharpen` → `tempered_tools`). A combination surfaces only when
+both its required tags are genuinely present among a settlement's
+actually-standing buildings — deterministic, not LLM-asserted.
+
+Real consumer, wired into Innovation's generate-step per the spec's
+own "Feeds" line: `_maybe_schedule_ontology_proposal` now computes the
+settlement's standing-building affordances and passes `discover_
+combinations`'s result into `llm/ontology.py`'s `build_propose_prompt`
+(new optional `discoverable_combinations` param) — the proposal prompt
+is now grounded in real physical capability alongside (not replacing)
+the existing prosperity/pressure-signal grounding. The validate-step
+half named in the spec (re-checking a PROPOSED concept's claimed
+mechanism against this layer, the way `validate_hook` already
+re-verifies skill/goal targets) is explicitly NOT attempted this
+pass — flagged follow-up; this slice covers the harder, more novel
+generate-step half.
+
+Also scoped down from the full spec: `Entity.affordances`/`Entity.
+properties` as genuine PER-INSTANCE fields (any entity, not just
+buildings) and A12's material-property registry (affordances DERIVED
+from properties rather than hand-tagged) are real, larger follow-ups,
+not attempted. This pass is a class-level `dict[BuildingKind,
+frozenset[str]]` over the one entity class with an existing real
+foundable/standing lifecycle to ground a proposal in.
+
+New dev-console diagnostic: `full_diagnostics()`'s per-tick snapshot
+gained `discoverable_affordance_combinations` (per settlement, live-
+computed, not persisted state) — same depth as `invented_concepts_by_
+category`.
+
+Verified: direct tests for `affordances_present`/`discover_
+combinations` (aggregation across multiple standing kinds, an
+untagged kind contributing nothing, empty input, the exact-tag-pair-
+subset requirement, deterministic sort order) and every `BUILDING_
+AFFORDANCES`/`KNOWN_COMBINATIONS` tag confirmed to stay within the
+closed `AFFORDANCE_TAGS` vocabulary; a direct test of `build_propose_
+prompt`'s new param (grounding text present/absent). A 400-tick real
+production-path engine run (LLM disabled) completed with no error, and
+a direct `_diagnostics_snapshot()` test confirms the new field
+computes correctly against real standing buildings.
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical.
+
 ## [1.15.0] — A10 "Ecology as interacting populations / food webs," nutrient cycling (roadmap Stage IV step 17)
 
 Explicit user instruction: "Next step" — Stage IV step 17, docs/

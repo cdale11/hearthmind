@@ -116,7 +116,7 @@ def _pressure_label(pressure_signal: str) -> str:
 def build_propose_prompt(
     settlement_name: str, recent_events: list[dict], existing_concept_names: list[str],
     era: str, tech_level: int, emergence_observations: list[str] | None = None,
-    pressure_signal: str | None = None,
+    pressure_signal: str | None = None, discoverable_combinations: list[str] | None = None,
 ) -> str:
     """`emergence_observations` (B1-B3, docs/MASTERCHECKLIST-2026-07-
     22.md, roadmap Stage II — same shape as `nature_mind.build_prompt`'s
@@ -131,7 +131,16 @@ def build_propose_prompt(
     when its own prosperity/pressure gate had already fired on one.
     `None`/absent (village is prosperous, not specifically pressured,
     or has no dominant signal) reads exactly as before this parameter
-    existed — free invention, no named problem to answer."""
+    existed — free invention, no named problem to answer.
+
+    `discoverable_combinations` (A5/A6, roadmap Stage IV step 18): names
+    from `world.affordances.discover_combinations`, genuinely achievable
+    from what's actually standing in the settlement right now (e.g.
+    `["kiln_process", "tempered_tools"]`). Grounds the generate-step in
+    real physical affordances instead of pure free invention — Innovation
+    querying "what could we combine into something new?" over the world's
+    own capability layer. Optional/additive; empty/`None` reads exactly
+    as before this parameter existed."""
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
     concepts_text = "; ".join(existing_concept_names) if existing_concept_names else "None yet."
@@ -145,11 +154,21 @@ def build_propose_prompt(
         f"The village has been quietly straining under: {_pressure_label(pressure_signal)}.\n"
         if pressure_signal else ""
     )
+    discoverable_text = (
+        ", ".join(c.replace("_", " ") for c in discoverable_combinations)
+        if discoverable_combinations else ""
+    )
+    discoverable_block = (
+        f"What could physically be combined here right now: {discoverable_text}. "
+        "You don't have to use one of these, but a real technology idea "
+        "grounded in one is especially credible.\n" if discoverable_text else ""
+    )
     return (
         f"The village of {settlement_name} (era: {era}, tech tier {tech_level}). "
         f"Recent history:\n{events_text}\n"
         f"{observations_block}"
         f"{pressure_block}"
+        f"{discoverable_block}"
         f"Ideas the village already has: {concepts_text}\n"
         "Originate one new concept this village might genuinely have."
     )
