@@ -73,10 +73,36 @@ MATERIALS: dict[str, Material] = {
         durability=0.25, decay_rate=0.7, flammability=0.6, toxicity=0.0,
         thermal_capacity=0.1, workability=0.9,
     ),
+    "ore": Material(
+        hardness=0.6, density=0.75, conductivity=0.2, elasticity=0.1,
+        durability=0.5, decay_rate=0.2, flammability=0.0, toxicity=0.2,
+        thermal_capacity=0.35, workability=0.15,
+    ),
+    "ceramic": Material(
+        hardness=0.7, density=0.5, conductivity=0.05, elasticity=0.02,
+        durability=0.75, decay_rate=0.08, flammability=0.0, toxicity=0.0,
+        thermal_capacity=0.6, workability=0.1,
+    ),
+    "cured_fiber": Material(
+        hardness=0.15, density=0.2, conductivity=0.05, elasticity=0.45,
+        durability=0.55, decay_rate=0.25, flammability=0.5, toxicity=0.0,
+        thermal_capacity=0.12, workability=0.6,
+    ),
 }
-"""Property values are hand-authored, not measured — same "grounded
-estimate, not simulated physics" discipline as `world.affordances.
-BUILDING_AFFORDANCES`'s hand-tagging. Real-world-plausible relative
+"""`ore`/`ceramic`/`cured_fiber` are A13's reaction PRODUCTS (`world.
+chemistry.REACTION_RULES`) rather than anything `BUILDING_MATERIALS`
+assigns directly — kept in this same registry (not a separate one) so
+a discovered product is a real, fully-propertied, `derive_affordances`-
+capable material like any other, not a special second-class kind of
+value. `ore` is metal's raw, harder-to-work, less-conductive precursor;
+`ceramic` is fired clay (harder, far more durable, zero flammability,
+but far less workable — you shape clay, not ceramic); `cured_fiber` is
+fiber tanned/cured (real "plant + water + time" processing: notably
+more durable and decay-resistant than raw fiber, somewhat less
+flammable, at some cost to workability). Property values are hand-
+authored, not measured — same "grounded estimate, not simulated
+physics" discipline as `world.affordances.BUILDING_AFFORDANCES`'s
+hand-tagging. Real-world-plausible relative
 ordering (stone harder/denser/less flammable than wood, metal most
 conductive, fiber most flammable-and-workable-but-least-durable) is
 what makes `derive_affordances` produce sensible output, not literal

@@ -4,6 +4,66 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.18.0] — A13 "Chemistry / reaction system," first slice (roadmap Stage IV step 20)
+
+Explicit user instruction: "Next step" — Stage IV step 20, docs/
+MASTERCHECKLIST-2026-07-22.md's A13, the direct continuation of A12
+(v1.17.0) — "material science + chemistry together are the 'invent
+metallurgy without hardcoding metallurgy' engine."
+
+New `world/chemistry.py`: exactly the doc's own three worked examples,
+reinterpreted against A12's real `MATERIALS` registry — `clay` + `heat`
+→ `ceramic`, `ore` + `heat` → `metal`, `fiber` + `water_and_time` →
+`cured_fiber` (fiber tanning/curing, the real-world "plant + water +
+time" process the doc names). `world/materials.py`'s `MATERIALS`
+registry gained three new entries backing these: `ore` (metal's raw,
+harder-to-work, less-conductive precursor), `ceramic` (fired clay —
+harder, far more durable, zero flammability, but far less workable),
+`cured_fiber` (tanned/cured fiber — notably more durable and decay-
+resistant than raw fiber). Every reaction product is a real, fully-
+propertied `Material` like any other — a discovered reaction product
+is immediately `derive_affordances`-capable, not a special second-class
+output type.
+
+`discover_reactions(available_materials, present_affordances)` is the
+real "what does X produce under Y?" query the doc names — conditions
+(`heat`/`water_and_time`, closed vocabulary) are themselves derived
+from the SAME A5/A6/A12 affordance layer step 18/19 already built
+(`can_conduct_heat`/`can_burn` imply `heat`; `can_carry_water` implies
+`water_and_time`), so a settlement genuinely needs both the right
+material present AND the right kind of building standing, not a flag
+set by hand.
+
+Scoped down from the spec's literal `ReactionRule(reactants,
+conditions, products, rate)` + "a deterministic reactor that fires
+rules when conditions meet" (an automatic tick-loop mechanism that
+would mutate world state) — this ships the QUERY half only, same
+"query first, automatic effects later" scoping A5/A6 itself took with
+its own validate-step deferral. A real reactor changing a standing
+building's material after the fact needs its own design pass (what
+would that even change mechanically?) — explicitly flagged, not
+attempted.
+
+Real consumer, wired exactly like A5/A6's `discoverable_combinations`:
+`_maybe_schedule_ontology_proposal` computes standing-building
+materials/affordances (reusing the same query already built for step
+18/19) and passes `discover_reactions`'s result into `llm/ontology.py`'s
+`build_propose_prompt` (new optional `discoverable_reactions` param).
+New dev-console `discoverable_reactions` diagnostic, same shape/depth
+as `discoverable_affordance_combinations`.
+
+Verified: direct tests for `world/chemistry.py` (every rule's reactant/
+product/condition resolves against real closed vocabularies,
+`available_conditions`'s heat/water_and_time derivation from
+affordance tags, `discover_reactions` for each of the three worked
+examples individually and in combination, the "material present but
+no condition" negative case). A direct test of `build_propose_prompt`'s
+new param. A 400-tick real production-path engine run (LLM disabled)
+completed with no error; a direct `_diagnostics_snapshot()` test
+confirms a SHRINE (clay) + FORGE (heat-capable) settlement surfaces
+`ceramic` as discoverable. `scripts/verify_native_soak.py` (2 seeds x
+800 ticks) byte-identical.
+
 ## [1.17.0] — A12 "Material science / physical properties," first slice (roadmap Stage IV step 19)
 
 Explicit user instruction: "Next step" — Stage IV step 19, docs/

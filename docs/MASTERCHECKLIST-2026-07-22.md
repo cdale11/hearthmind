@@ -306,17 +306,34 @@ through-line for nearly every PARTIAL below.
 
 ### A13 — Chemistry / reaction system [det #13] — MISSING
 
-- [ ] **Status:** —
-- [ ] **Spec:** General reaction rules over materials/substances:
-  `A + B + condition → C` (clay + fire → ceramic; ore + heat → metal;
-  plant + water + time → fermentation) as a small rule table, not
-  per-recipe code. Reactions are discovered by Innovation querying "what
-  does X + Y under Z produce?"
-- [ ] **Data model:** `ReactionRule(reactants, conditions, products,
-  rate)`; a deterministic reactor that fires rules when conditions meet.
-- [ ] **Feeds:** Innovation discovers transformations from principles;
-  material science (A12) + chemistry (A13) together are the "invent
-  metallurgy without hardcoding metallurgy" engine.
+- [x] **Status:** **Shipped a first slice, v1.18.0** (roadmap Stage IV
+  step 20). New `world/chemistry.py`: exactly the doc's own three
+  worked examples, reinterpreted against A12's real registry — clay +
+  heat → ceramic, ore + heat → metal, fiber + water_and_time →
+  cured_fiber (the "plant + water + time" process, fiber
+  tanning/curing). All three products are real, fully-propertied
+  `Material` entries in `world.materials.MATERIALS`, not a special
+  second-class output type.
+- [x] **Spec:** `discover_reactions(available_materials, present_
+  affordances)` is the real "what does X produce under Y?" query —
+  conditions (`heat`/`water_and_time`) are themselves derived from the
+  A5/A6/A12 affordance layer (`can_conduct_heat`/`can_burn` imply
+  heat; `can_carry_water` implies water_and_time), so a settlement
+  needs the right MATERIAL and the right STANDING BUILDINGS, not a
+  flag set by hand.
+- [ ] **Data model:** Scoped down from the spec's literal `ReactionRule
+  (reactants, conditions, products, rate)` + "a deterministic reactor
+  that fires rules when conditions meet" (i.e. an automatic tick-loop
+  mechanism that mutates world state) — this ships the QUERY half only
+  (`ReactionRule(reactant, condition, product)`, one reactant per
+  rule, no rate/no automatic firing). A real reactor that changes a
+  standing building's actual material after the fact is flagged,
+  larger follow-up work needing its own design pass.
+- [x] **Feeds:** wired into Innovation's generate-step exactly like
+  A5/A6's `discoverable_combinations` — `llm/ontology.py`'s `build_
+  propose_prompt` gained a `discoverable_reactions` param, populated at
+  `_maybe_schedule_ontology_proposal`'s call site from the same
+  standing-building query already computed for step 18/19.
 
 ### A14 — Layered organism biology [det #14] — PARTIAL
 
@@ -1080,7 +1097,9 @@ waiting for a later integration pass.
     assignment and A13's chemistry/reaction rules remain open, flagged.
 20. **A13 Chemistry/reaction system** — `A + B + condition → C` rule
     table over materials (18/19); Innovation queries it instead of
-    hardcoded recipes.
+    hardcoded recipes. **Shipped a first slice, v1.18.0**: see the A13
+    section above. The automatic-firing reactor half (a rule actually
+    mutating world state on a tick) remains open, flagged.
 21. **A8 Evolutionary Innovation loop** — wrap Innovation's output in
     generate→evaluate→select using the fitness/lineage fields already
     on `InventedConcept`.

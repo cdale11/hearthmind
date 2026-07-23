@@ -527,6 +527,26 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.18.0)
+
+Explicit user instruction: "Next step" — A13 "Chemistry / reaction
+system," first slice (roadmap Stage IV step 20, docs/MASTERCHECKLIST-
+2026-07-22.md), continuing directly off v1.17.0's A12. Full detail:
+CHANGELOG.md's [1.18.0] entry.
+
+New `world/chemistry.py`: the doc's own three worked examples over
+A12's real registry — clay+heat→ceramic, ore+heat→metal, fiber+
+water_and_time→cured_fiber (fiber tanning/curing). `world/materials.py`
+gained the three product materials (`ore`/`ceramic`/`cured_fiber`) as
+real, fully-propertied entries. `discover_reactions` is the real
+"what does X produce under Y?" query — conditions are derived from the
+same A5/A6/A12 affordance layer, so both the right material AND the
+right standing building are genuinely required. Scoped down from the
+spec's literal automatic-firing reactor (query half only this pass,
+flagged follow-up). Wired into Innovation's generate-step (`llm/
+ontology.py`'s new `discoverable_reactions` param) and a matching
+dev-console diagnostic.
+
 ## Current state (v1.17.0)
 
 Explicit user instruction: "Next step" — A12 "Material science /

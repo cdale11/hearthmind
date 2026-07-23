@@ -76,7 +76,8 @@ from hearthmind.llm import (
 from hearthmind.llm import ontology as ontology_llm
 from hearthmind.llm import self_tuning
 from hearthmind.world.affordances import discover_combinations
-from hearthmind.world.materials import building_affordances
+from hearthmind.world.chemistry import discover_reactions
+from hearthmind.world.materials import BUILDING_MATERIALS, building_affordances
 from hearthmind.world.sigils import generate_sigil_svg
 from hearthmind.world import ontology
 from hearthmind.world import emergence
@@ -3960,11 +3961,21 @@ class SimulationEngine:
         for kind in standing_kinds:
             present_tags |= building_affordances(kind)
         discoverable = discover_combinations(present_tags)
+        # A13 "Chemistry / reaction system" (roadmap Stage IV step 20):
+        # what a genuinely available material would produce under a
+        # genuinely available condition — real materials from A12's
+        # `BUILDING_MATERIALS`, real conditions derived from the same
+        # affordance layer step 18/19 already computed above.
+        present_materials = {
+            BUILDING_MATERIALS[kind] for kind in standing_kinds if kind in BUILDING_MATERIALS
+        }
+        discoverable_reactions = discover_reactions(present_materials, present_tags)
         prompt = ontology_llm.build_propose_prompt(
             settlement.name, recent, existing_names, settlement.era, settlement.tech_level,
             emergence_observations=list(self.world.innovation_pillar.working_memory),
             pressure_signal=pressure_signal,
             discoverable_combinations=discoverable,
+            discoverable_reactions=discoverable_reactions,
         )
         established_count = sum(1 for c in self.world.invented_concepts.values() if c.status == "established")
         fallback = ontology_llm.fallback_propose(established_count, pressure_signal=pressure_signal)
@@ -8676,6 +8687,21 @@ class SimulationEngine:
                     for tag in building_affordances(b.kind)
                 })]
                 if combos
+            },
+            # A13 "Chemistry / reaction system" (roadmap Stage IV step
+            # 20): same dev-console depth/shape as the affordance
+            # combinations field directly above.
+            "discoverable_reactions": {
+                stl.name or f"settlement_{stl.id}": products
+                for stl in self.world.settlements
+                for standing in [{
+                    b.kind for b in stl.buildings if b.stage is BuildingStage.STANDING
+                }]
+                for products in [discover_reactions(
+                    {BUILDING_MATERIALS[k] for k in standing if k in BUILDING_MATERIALS},
+                    {tag for k in standing for tag in building_affordances(k)},
+                )]
+                if products
             },
             # Vision doc item 1.4/2.4's own signal — how close the
             # governor-drift detector is to having enough samples, and

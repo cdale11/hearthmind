@@ -117,6 +117,7 @@ def build_propose_prompt(
     settlement_name: str, recent_events: list[dict], existing_concept_names: list[str],
     era: str, tech_level: int, emergence_observations: list[str] | None = None,
     pressure_signal: str | None = None, discoverable_combinations: list[str] | None = None,
+    discoverable_reactions: list[str] | None = None,
 ) -> str:
     """`emergence_observations` (B1-B3, docs/MASTERCHECKLIST-2026-07-
     22.md, roadmap Stage II — same shape as `nature_mind.build_prompt`'s
@@ -140,7 +141,13 @@ def build_propose_prompt(
     real physical affordances instead of pure free invention — Innovation
     querying "what could we combine into something new?" over the world's
     own capability layer. Optional/additive; empty/`None` reads exactly
-    as before this parameter existed."""
+    as before this parameter existed.
+
+    `discoverable_reactions` (A13, roadmap Stage IV step 20): product
+    names from `world.chemistry.discover_reactions` — a real material
+    genuinely present, transformed under a real condition genuinely
+    available (e.g. `["ceramic"]` once clay and heat are both present).
+    Same additive/optional shape as `discoverable_combinations`."""
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
     concepts_text = "; ".join(existing_concept_names) if existing_concept_names else "None yet."
@@ -163,12 +170,22 @@ def build_propose_prompt(
         "You don't have to use one of these, but a real technology idea "
         "grounded in one is especially credible.\n" if discoverable_text else ""
     )
+    reactions_text = (
+        ", ".join(r.replace("_", " ") for r in discoverable_reactions)
+        if discoverable_reactions else ""
+    )
+    reactions_block = (
+        f"What could be produced here right now by working a material under the right "
+        f"conditions: {reactions_text}. Again, optional but especially credible if used.\n"
+        if reactions_text else ""
+    )
     return (
         f"The village of {settlement_name} (era: {era}, tech tier {tech_level}). "
         f"Recent history:\n{events_text}\n"
         f"{observations_block}"
         f"{pressure_block}"
         f"{discoverable_block}"
+        f"{reactions_block}"
         f"Ideas the village already has: {concepts_text}\n"
         "Originate one new concept this village might genuinely have."
     )
