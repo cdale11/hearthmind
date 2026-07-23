@@ -4,20 +4,19 @@ Explicit user request: "build an updated roadmap to implement all the
 features from all parts that you deferred for later and did not
 implement in the first pass. This includes porting to C++ as well."
 
-**Scope note, stated up front rather than assumed:** this document
-covers **Part A (the deterministic Body, det_sys.md's 25 items,
-`docs/MASTERCHECKLIST-2026-07-22.md`) plus the C++ native-porting
-backlog** — the two areas where nearly every open item actually lives.
-Part B (LLM_Pillars.md's five-pillar Mind) and Part C (the Body↔Mind
-seam) are, per that same checklist's own audit and this project's
-CLAUDE.md "Current state" history, substantially shipped already —
-Stage I-III of the roadmap (steps 1-14) all landed, B1-B9 and C1-C4 are
-real. Re-auditing them wasn't judged worth the length this pass would
-add; if you want that sweep too, say so and it'll be a second document
-in the same shape. Vision/audit docs outside the Master Checklist
-(`docs/VISION-*`, `docs/IDEAS-2026-07-EMERGENCE.md`, `docs/AUDIT-2026-
-07-20.md`) are each already internally marked "fully resolved" or
-"historical record" per CLAUDE.md and are not re-swept here either.
+**Scope note, updated:** this document now covers **Part A (the
+deterministic Body, det_sys.md's 25 items), Part B (the cognitive Mind,
+LLM_Pillars.md's five pillars), Part C (the Body↔Mind seam), and the
+C++ native-porting backlog** — all four sections of `docs/
+MASTERCHECKLIST-2026-07-22.md`. (The first filing of this document
+covered Part A + C++ only, on my own judgment call that B/C looked
+substantially shipped from CLAUDE.md's history — not something the user
+asked for. Corrected on request: B/C are shipped-a-first-version in
+most places, not fully closed, and the actual open items are worth
+recording just like Part A's.) Vision/audit docs outside the Master
+Checklist (`docs/VISION-*`, `docs/IDEAS-2026-07-EMERGENCE.md`, `docs/
+AUDIT-2026-07-20.md`) remain out of scope — each already internally
+marked "fully resolved" or "historical record" per CLAUDE.md.
 
 Every item below is a **real gap**, quoted or closely paraphrased from
 the Master Checklist's own "still open" language as of this filing —
@@ -35,6 +34,22 @@ Ranked by two things: (1) how many *other* open items each one unblocks
 discipline, pays off repeatedly), and (2) how directly it serves the
 project's own stated top priority, **emergence**. Sequencing inside a
 tier is arbitrary.
+
+**Tier 0 — the single biggest lever in the whole document**
+0. **B1/B2/B3/B7's shared open half: refactor the ~55 scattered LLM
+   jobs into real acts of the five pillars.** Every one of B1/B2/B3/B7
+   is marked "shipped" today on the strength of exactly ONE
+   representative job per pillar (Village=beliefs, Humans=narrative_
+   direction, Nature=nature_mind, Innovation=ontology_proposal,
+   Reflection=reflection) — the other ~50 LLM call sites in the
+   codebase (dialogue, chronicle, dispute, founding, omens, culture
+   jobs, etc.) still run exactly as they did before the pillar
+   abstraction existed, untouched by observe/interpret cycling,
+   attention-budget arbitration, or inbox/outbox messaging. This is
+   the actual "five conscious minds inhabiting the Body" vision, not
+   "five extra fields bolted onto business as usual." Bigger than any
+   single Part A item; sequence it whenever a real multi-week push is
+   available, not as a quick follow-up.
 
 **Tier 1 — substrate items other systems will lean on**
 1. **A9** — feedback-loop audit (every subsystem reads upstream AND
@@ -81,36 +96,61 @@ tier is arbitrary.
 14. **A17** — unify rumor/tradition/belief/song/technique onto
     `memetics.py`'s propagation-weight primitive; a shared mutate/
     decay/compete step; a real fitness-vs-truth axis for rumors.
+15. **B5** — Innovation's affordance/reaction query (A5/A6/A13) is now
+    actually buildable — those three Stage IV items shipped after B5's
+    own first version deliberately deferred "until the substrate
+    exists to query." Revisit: let Innovation's propose-step read
+    `discover_reactions`/`discover_combinations` for real, not just
+    `pattern_signal_counts` pressure.
+16. **C4** — the runtime-auditor half: nothing today automatically
+    retires persistent state with no reader ("reject state no system
+    observes"). Today's C4 is only the review-time human discipline;
+    the spec explicitly also wants a runtime check.
 
 **Tier 3 — deepen an already-real mechanism**
-15. **A5/A6** — per-instance `Entity.affordances`/`Entity.properties`
+17. **A5/A6** — per-instance `Entity.affordances`/`Entity.properties`
     (today: class-level `dict[BuildingKind, ...]` only); the validate-
     step half of A6 (re-checking a PROPOSED concept against this layer,
     not just grounding the generate-step).
-16. **A7** — a real recursive rewrite/production system in each domain
+18. **A7** — a real recursive rewrite/production system in each domain
     (today: layout is a scoring bias, architecture a fixed three-slot
     production, dialect one-rule-per-call); ritual/recipe-structure
     grammar (the spec's fourth named domain, deliberately left LLM-
     authored so far); rules themselves becoming LLM-proposable.
-17. **A8** — sandbox forward-simulation (`simulation/sandbox.py`) as a
+19. **A8** — sandbox forward-simulation (`simulation/sandbox.py`) as a
     fitness input; grammar-based mutation (A7) as an alternate generate
     path alongside the existing LLM propose/evolve/merge.
-18. **A10** — migration, competition, decomposition, pollination (→
+20. **A10** — migration, competition, decomposition, pollination (→
     vegetation), habitat formation; folding the food web onto A1's
     field substrate as one coupled system.
-19. **A12** — per-instance `Entity.material` (today: class-level, one
+21. **A12** — per-instance `Entity.material` (today: class-level, one
     material per `BuildingKind`).
-20. **A16** — trade-as-network-flow, tech-as-DAG, information-
+22. **A16** — trade-as-network-flow, tech-as-DAG, information-
     propagation-as-graph-algorithm (today: only centrality is shipped).
+23. **B4** — reverse-direction disagreement classification: only the
+    Nature→Village message site checks whether the receiver already
+    disagrees; Village→Innovation/Innovation→Village default to flat
+    `theory`/`discovery` tags without that check.
+24. **B8** — `reinforce`/`reinterpret` (today: `consolidate`/forget
+    only) — needs per-note salience/access tracking across all five
+    pillars.
+25. **C2** — most of the spec's named pillar-emitted intentions (invent
+    tech, set custom, change law, reorganize institution, shift land
+    use, domesticate, build, propose experiment) still aren't pillar-
+    emitted at all — they're separate deterministic/LLM mechanics
+    outside the five-pillar refactor's current reach. Real progress
+    here mostly waits on Tier 0's bigger refactor.
+26. **C3** — "pillars may initiate contact" (today: player-initiated
+    only, via `/ask/{pillar}`).
 
 **Tier 4 — standing discipline, re-audit periodically rather than
 "finish" once**
-21. **A23** — composability-over-content is a review-time rule, not a
+27. **A23** — composability-over-content is a review-time rule, not a
     ships-once feature: keep enforcing it on every new subsystem.
-22. **A24** — physical-consistency validation staying inviolable as
+28. **A24** — physical-consistency validation staying inviolable as
     Part B/C gain power — re-confirm whenever a pillar gains a new
     intention-writing capability.
-23. **A25** — periodically re-audit LLM call sites: has anything that
+29. **A25** — periodically re-audit LLM call sites: has anything that
     used to need genuine judgment become mechanically deterministic
     (a candidate for A7's grammars or A1's fields) since it was last
     checked?
@@ -264,6 +304,109 @@ rejecting isolated new mechanics at review. A24: re-confirm physical-
 consistency validation stays inviolable as Part B/C gain power. A25:
 periodically re-check whether an LLM call site has become a candidate
 for a grammar/field/propagation mechanism instead.
+
+---
+
+## Part B — The Cognitive Mind (LLM_Pillars.md, five pillars)
+
+Every item B1-B9 is marked "shipped"/"shipped a first version" in
+`docs/MASTERCHECKLIST-2026-07-22.md` — genuinely real, not stubs — but
+nearly every one carries the same asterisk: proven against exactly
+ONE representative production call site per pillar, not the full
+domain the spec names. See Tier 0 above for the one item that matters
+more than all the others combined.
+
+### B1 — The Pillar abstraction
+Real `consolidate`/`forget`/`reinforce`/`reinterpret` memory semantics
+(today: a capped FIFO, `consolidate` folds old notes but doesn't
+selectively reinforce/reinterpret by salience — that's B8's own listed
+gap). The full "refactor ~55 scattered jobs into acts of these five"
+— **the single largest open item in Part B**, see Tier 0.
+
+### B2 — The continuous cognitive cycle
+Structurally complete for the one job per pillar it covers; the open
+half is the same as B1's — extending observe→interpret→remember→plan→
+act→reflect cycling to every LLM call site, not just five.
+
+### B3 — The Attention Scheduler
+`message_count`/`player_focus` inputs to `compute_priority()` both
+still read a hardcoded 0 — real, ready inputs (B4's message bus and
+C3's player-chat both now exist and could feed them) that nothing
+populates yet. Round-robin arbitration is still trivial with one job
+per pillar; real arbitration needs Tier 0's broader refactor first.
+
+### B4 — Inter-pillar consciousness bus
+Reverse-direction disagreement classification (does the RECEIVER
+already hold a conflicting theory) is wired only at the Nature→Village
+send site; Village→Innovation and Innovation→Village default to flat
+`theory`/`discovery` tags without that check — see Tier 3.
+
+### B5 — Innovation as conscious scientist
+Evolve/merge untouched by this pass (only propose gained the
+hypothesis/outcome loop). The real affordance/reaction query this item
+always wanted was explicitly deferred "until Stage IV's substrate
+exists" — Stage IV (A5/A6/A13) has since shipped first slices, so this
+is now genuinely actionable, not blocked — see Tier 2 item 15.
+
+### B6 — Reflection as meta-scientist
+"Track whether its advice worked" for the advisory-proposal path was
+deliberately not attempted — there's no mechanical effect to measure
+an outcome against for free-text advice (unlike a governor nudge,
+which has a real before/after). The human's own accept/reject marking
+IS the tracked outcome by design, not a gap needing more automation.
+
+### B7 — Humans collective consciousness
+Scoped to making the collective mind AWARE of voice-pair rotation —
+the deeper "individual acts locally, collective sets the mood/
+direction" architecture is real but, like B1-B3, only wired at this
+one site. Broader coverage needs Tier 0's refactor.
+
+### B8 — Living memory & consolidation
+`reinforce` (a frequently-accessed note resists eviction) and
+`reinterpret` (an old note's meaning shifts in light of new
+experience) are both unbuilt — only `consolidate` (fold old notes into
+a digest) and the pre-existing FIFO `forget` exist. Needs per-note
+salience/access tracking across all five pillars — see Tier 3 item 24.
+
+### B9 — Self-model & world-model per pillar
+Effectively CLOSED — "how it relates to the others" was B9's one
+named gap when this section was written, and B4's inter-pillar message
+bus (shipped) already covers it. No further action needed here;
+flagged in case a fresh audit disagrees.
+
+---
+
+## Part C — The Seam (Body ↔ Mind co-evolution)
+
+### C1 — Perception channel (Body → Mind)
+CLOSED. Salience-ranking (the one real gap found) is shipped.
+
+### C2 — Intention channel (Mind → Body)
+Most of the spec's own named pillar-emitted intentions (invent tech,
+set custom, change law, reorganize institution, shift land use,
+domesticate, build, propose experiment) aren't pillar-emitted
+intentions at all yet — they're separate deterministic/LLM mechanics
+untouched by the five-pillar refactor. Not a validation gap (every
+Body-touching write that DOES exist today is validated) — a coverage
+gap that mostly waits on Tier 0's bigger refactor to even become
+relevant.
+
+### C3 — Player ↔ Pillar chat
+"Pillars may initiate contact" (today: strictly player-initiated via
+`/ask/{pillar}`) — flagged as real future scope in the doc itself, not
+silently dropped.
+
+### C4 — The acceptance gate as law
+The review-time half (reject isolated mechanics, reject state no
+system observes) is a standing human discipline, followed but never
+automated. The RUNTIME half — an auditor that actually retires
+persistent state nothing reads — doesn't exist. See Tier 2 item 16.
+
+### C5 — Co-evolution loop
+Not a discrete task — the emergent end-state every other item above
+feeds. Worth re-reading this item's own one-paragraph description
+after any major Tier 0/1 push, as a sanity check on whether the loop
+is genuinely turning unattended yet.
 
 ---
 

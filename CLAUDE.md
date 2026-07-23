@@ -527,6 +527,25 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.30.0)
+
+Explicit user follow-up: "add items from part B and C too why did you
+not include it in the roadmap?" — fair pushback on v1.29.0's own scope
+call (excluding B/C was my judgment, not requested). Full detail:
+CHANGELOG.md's [1.30.0] entry.
+
+`docs/ROADMAP-2026-07-REMAINING.md` extended with Part B (B1-B9)/Part
+C (C1-C5). Headline finding: B1/B2/B3/B7 are each "shipped" on the
+strength of exactly one representative job per pillar — the other ~50
+LLM call sites remain untouched by the pillar abstraction. New **Tier
+0** names this as the single biggest lever in the document, bigger
+than any Part A item. Other real gaps recorded: B4's one-sided
+disagreement check, B5's now-unblocked affordance/reaction query
+(Stage IV shipped since B5's deferral), B8's missing reinforce/
+reinterpret, C2's mostly-unbuilt intention coverage, C3's "pillars
+initiate contact," C4's missing runtime auditor. B9 noted as
+effectively closed (covered by B4).
+
 ## Current state (v1.29.0)
 
 Explicit user request, docs-only: "build an updated roadmap to

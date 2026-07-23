@@ -4,6 +4,32 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.30.0] — Remaining-work roadmap extended to Part B/C (docs only)
+
+Explicit user follow-up: "add items from part B and C too why did you
+not include it in the roadmap?" — a fair challenge to v1.29.0's own
+scoping choice, which excluded Part B (the five-pillar Mind) and Part
+C (the Body↔Mind seam) on my own judgment call, not something asked
+for.
+
+`docs/ROADMAP-2026-07-REMAINING.md` extended with full Part B (B1-B9)
+and Part C (C1-C5) sections, same "quoted close to verbatim from the
+Master Checklist" discipline as Part A. Real finding from actually
+reading both sections in full: nearly every one of B1/B2/B3/B7 is
+marked "shipped" on the strength of exactly ONE representative
+production job per pillar — the other ~50 LLM call sites in the
+codebase still run untouched by the pillar abstraction. Surfaced as a
+new **Tier 0** ("the single biggest lever in the whole document") —
+refactoring those scattered jobs into real acts of the five pillars is
+bigger than any single Part A item and was previously undocumented as
+a real, present gap. Other real B/C gaps folded into Tiers 2-3: B4's
+one-sided disagreement classification, B5's now-actionable affordance/
+reaction query (its Stage IV blocker has since shipped), B8's missing
+reinforce/reinterpret, C2's mostly-unbuilt pillar-emitted-intention
+coverage, C3's "pillars may initiate contact," and C4's missing
+runtime auditor (only the review-time discipline exists today). B9 is
+noted as effectively closed (B4 already covers its one named gap).
+
 ## [1.29.0] — Remaining-work roadmap filed (docs only)
 
 Explicit user request: "build an updated roadmap to implement all the
