@@ -4,6 +4,90 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.11.0] — B6 "Reflection as meta-scientist," first version (roadmap Stage III step 13)
+
+Explicit user instruction: "Continue with next roadmap" — Stage III
+step 13, docs/MASTERCHECKLIST-2026-07-22.md's B6.
+
+Root gap: `_maybe_schedule_self_tuning` matched a supported reflection
+hypothesis's subject against `self_tuning.TUNABLE_GOVERNORS` by EXACT
+equality against only two hardcoded global labels ("wildfire
+frequency", "ontology coherence"). But `_detect_reflection_pattern`'s
+other five signal families (materials bottleneck, dispute feud,
+starvation death, disease outbreak, wildlife recolonization, nature
+adaptation) all produce SETTLEMENT-scoped subjects
+(`f"{label} in {settlement_name}"`) — these could never match a fixed
+dict key regardless of what governor existed, so a real, evidence-
+backed, supported hypothesis about any of them was silently dropped
+every single time, with no response at all.
+
+Fixed with two pieces, matching the roadmap item's own two asks.
+First, "extend TUNABLE_GOVERNORS to the major levers": new
+`SimulationEngine._governor_key_for_subject` matches a hypothesis
+subject against `TUNABLE_GOVERNORS` by PREFIX (`subject.startswith
+(label)`), not exact equality — this alone makes every settlement-
+scoped pattern reachable, not just the two subjects that happened to
+be global. `TUNABLE_GOVERNORS` gained a real worked example for this
+path: `"disease outbreak" -> "disease_outbreak_chance"`, consumed by a
+new `chance_multiplier` param on `Population._maybe_outbreak` (applied
+to the base per-tick chance, before the existing small-settlement
+floor, which stays a real guarantee regardless of any governor nudge)
+— `World.governor_tuning.get("disease_outbreak_chance", 1.0)` is
+threaded through `Population.tick`'s call site in `world/state.py`
+exactly like the existing `wildfire_chance` wiring. `_maybe_outbreak`
+is ordinary per-tick Python logic, not native-ported, so this carries
+no native/fallback parity risk (unlike wildlife/predator mechanics,
+which stay untouched this pass for exactly that reason).
+
+Second, "add the human-reviewed advisory-proposal inbox (human-
+reviewed) for changes beyond governors": a supported hypothesis that
+STILL names no governor (even after the prefix-matching fix) is no
+longer silently skipped — `SimulationEngine._schedule_advisory` fires
+a real, `critical=True` LLM call (`llm/self_tuning.py`'s new
+`SYSTEM_PROMPT_ADVISORY`/`build_advisory_prompt`/`fallback_advisory`/
+`parse_advisory`) asking Reflection for one short, free-text piece of
+advice grounded in the hypothesis, logged into new `World.advisory_
+proposals` (`{id, tick, hypothesis_id, subject, advice, status}`,
+`status` starting `"pending"`). New `POST /advisory/{id}/review`
+(`{status: "accepted"|"rejected"}`) — routed through the existing
+`_apply_intervention` seam via a new `review_advisory` kind and
+`SimulationEngine._review_advisory` — is the ONLY way that status ever
+changes; nothing auto-applies an advisory to any real mechanic, kept
+strictly out-of-band from the sandboxed, bounded numeric self-tuning
+path that governors still use. "Track whether its advice worked" is
+deliberately NOT attempted as a further automated measurement — there
+is no mechanical effect from an advisory to score an outcome against
+(unlike a governor nudge, whose real multiplier IS the measurable
+thing); the human's own accepted/rejected marking on `POST /advisory/
+{id}/review` is itself the tracked outcome, not a placeholder for one.
+
+Both `self_tuning_actions` (governor path) and `advisory_proposals`
+(advisory path) are checked together for "already acted on this
+hypothesis" (`acted_hypothesis_ids` now unions both lists) so the same
+supported hypothesis can never trigger both an LLM job types across
+different firings. Surfaced: `advisory_proposals_recent` (last 10) in
+`full_diagnostics()`, same dev-console-only depth as `self_tuning_
+actions_recent` — this is Reflection's own internal record, not a
+player-facing feature, matching Phase G/self-tuning's existing
+precedent.
+
+Verified: direct tests for the new prefix-matching helper, the
+advisory prompt/fallback/parse layer, the outbreak-multiplier wiring
+(a `chance_multiplier=0.0` smoke test), and `World.advisory_proposals`/
+`next_advisory_id`'s `to_dict`/`from_dict` round trip including legacy-
+snapshot compatibility. Two real production-path tests (monkeypatched
+fake LLM client) exercise `_maybe_schedule_self_tuning`'s actual apply()
+end to end: one showing a settlement-scoped `"disease outbreak in
+Elmswick"` subject now correctly reaches the governor path via prefix
+match and applies a real bounded nudge; one showing a subject with no
+matching governor (`"predator pressure"`) correctly takes the advisory
+path instead, and that `POST /advisory/{id}/review`'s intervention
+dispatch correctly updates its status. `scripts/verify_native_soak.py`
+(2 seeds x 500 ticks) byte-identical — `_maybe_outbreak`'s multiplier
+only ever differs from 1.0 inside an async self-tuning apply() callback,
+never inside `_tick_once`'s deterministic path, and stays 1.0 (a true
+no-op) on every soak run since no governor tuning is ever applied there.
+
 ## [1.10.0] — B5 "Innovation as conscious scientist," first version (roadmap Stage III step 12)
 
 Explicit user instruction: "Continue with next roadmap" — Stage III

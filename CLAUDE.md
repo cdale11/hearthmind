@@ -527,6 +527,34 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.11.0)
+
+Explicit user instruction: "Continue with next roadmap" — B6
+"Reflection as meta-scientist," first version (roadmap Stage III step
+13, docs/MASTERCHECKLIST-2026-07-22.md). Full detail: CHANGELOG.md's
+[1.11.0] entry.
+
+`_maybe_schedule_self_tuning` used to match a supported hypothesis's
+subject against `TUNABLE_GOVERNORS` by exact equality against only two
+hardcoded global labels — every settlement-scoped pattern (`f"{label}
+in {settlement_name}"`, five of the six `_detect_reflection_pattern`
+signal families) could never match, so a real supported hypothesis
+about any of them was silently dropped. New `SimulationEngine.
+_governor_key_for_subject` matches by PREFIX instead; `TUNABLE_
+GOVERNORS` gained `"disease outbreak" -> "disease_outbreak_chance"` as
+the worked example, consumed by a new `chance_multiplier` param on
+`Population._maybe_outbreak` (ordinary per-tick Python, no native-port
+parity risk). A supported hypothesis that STILL names no governor now
+gets a real advisory instead of silence: `World.advisory_proposals` +
+`_schedule_advisory` (critical LLM call, free-text advice) + `POST
+/advisory/{id}/review` (accepted/rejected, the ONLY status mutator,
+never auto-applied — kept strictly out-of-band from the sandboxed
+numeric self-tuning path). "Track advice outcomes" scoped as the
+human's own accept/reject marking, not a further automated judgment
+(no mechanical effect exists to score against). Dev-console-only
+surfacing (`advisory_proposals_recent`), same depth as `self_tuning_
+actions_recent`.
+
 ## Current state (v1.10.0)
 
 Explicit user instruction: "Continue with next roadmap" — B5

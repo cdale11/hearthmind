@@ -470,6 +470,21 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
         broadcaster.enqueue_intervention({"type": "ask_pillar", "pillar": pillar, "question": question})
         return JSONResponse({"queued": True})
 
+    @app.post("/advisory/{advisory_id}/review")
+    async def review_advisory(advisory_id: int, payload: dict) -> JSONResponse:
+        """B6 "Reflection as meta-scientist" (roadmap Stage III step
+        13): the ONLY way an `advisory_proposals` entry's `status`
+        changes — a human marking it `accepted`/`rejected`. Never
+        auto-applied to any real mechanic; this is advice logged for a
+        person to act on outside the simulation. Dev-console-only
+        surfacing today (`World.advisory_proposals` reachable via
+        `/diagnostics`), same depth as `self_tuning_actions`."""
+        status = str(payload.get("status", "")).strip()
+        if status not in ("accepted", "rejected"):
+            return JSONResponse({"error": "status must be 'accepted' or 'rejected'"}, status_code=400)
+        broadcaster.enqueue_intervention({"type": "review_advisory", "advisory_id": advisory_id, "status": status})
+        return JSONResponse({"queued": True})
+
     @app.get("/digest")
     async def away_digest() -> JSONResponse:
         """§5 "While you were away" digest (docs/IDEAS-2026-07-

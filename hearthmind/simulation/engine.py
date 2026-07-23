@@ -2961,6 +2961,8 @@ class SimulationEngine:
             self._schedule_chronicler_answer(str(item.get("question", "")), item.get("settlement_id"))
         elif kind == "ask_pillar":
             self._schedule_pillar_answer(str(item.get("pillar", "")), str(item.get("question", "")))
+        elif kind == "review_advisory":
+            self._review_advisory(item.get("advisory_id"), str(item.get("status", "")))
         elif kind == "observer_attention":
             self._record_observer_attention(item.get("agent_id"))
         elif kind == "request_digest":
@@ -3535,6 +3537,29 @@ class SimulationEngine:
             pillar.note_observation(f"A visitor asked: \"{question}\" — I answered: {answer}")
 
         self._schedule_llm_job(f"pillar_chat_{pillar_name}", prompt, system_prompt, fallback, apply)
+
+    def _review_advisory(self, advisory_id, status: str) -> None:
+        """B6 "Reflection as meta-scientist" (roadmap Stage III step
+        13): applies `POST /advisory/{id}/review` — the ONLY way an
+        `advisory_proposals` entry's `status` ever changes. Deliberately
+        synchronous (no LLM call, no queue-then-apply-next-tick seam
+        needed) — a human marking their own review decision is not
+        cognition to defer or fake. `advisory_id` may arrive as a JSON
+        int or a stringified one depending on the request body; both
+        are accepted. An unknown id or a status outside the two real
+        review outcomes is a silent no-op, matching every other
+        intervention's tolerance of a stale/malformed queued item."""
+        if status not in ("accepted", "rejected"):
+            return
+        try:
+            advisory_id = int(advisory_id)
+        except (TypeError, ValueError):
+            return
+        for entry in self.world.advisory_proposals:
+            if entry["id"] == advisory_id:
+                entry["status"] = status
+                self._log("advisory_reviewed", f"Advisory #{advisory_id} marked {status}.")
+                return
 
     # --- §5 "While you were away" digest (on-demand) ---------------------------
 
@@ -5820,6 +5845,54 @@ class SimulationEngine:
             "reflection", prompt, reflection.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True,
         )
 
+    @staticmethod
+    def _governor_key_for_subject(subject: str) -> str | None:
+        """B6 "Reflection as meta-scientist" (roadmap Stage III step
+        13): `self_tuning.TUNABLE_GOVERNORS`'s global subjects
+        ("wildfire frequency", "ontology coherence") match a hypothesis
+        subject exactly; `_detect_reflection_pattern`'s SETTLEMENT-
+        scoped subjects are `f"{label} in {settlement_name}"` (varies
+        per settlement, so they can never appear verbatim in a fixed
+        dict) — matched by PREFIX instead, so any settlement-scoped
+        pattern reaches self-tuning once its own label is wired to a
+        governor, without special-casing every settlement name."""
+        for label, governor_key in self_tuning.TUNABLE_GOVERNORS.items():
+            if subject == label or subject.startswith(label):
+                return governor_key
+        return None
+
+    def _schedule_advisory(self, hypothesis: dict) -> None:
+        """B6 "Reflection as meta-scientist" (roadmap Stage III step
+        13): the "changes beyond governors" half — a supported
+        hypothesis that names no tunable governor still gets a real
+        response, just not a numeric nudge. `critical=True`, same
+        reasoning as `_maybe_schedule_self_tuning` itself (a genuine
+        judgment, not narrative texture); deferred rather than faked on
+        a spent budget or failed call."""
+        prompt = self_tuning.build_advisory_prompt(hypothesis["subject"], hypothesis["content"])
+        fallback = self_tuning.fallback_advisory()
+        hypothesis_id = hypothesis["id"]
+        hypothesis_subject = hypothesis["subject"]
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            parsed = self_tuning.parse_advisory(result, fallback)
+            advisory_id = self.world.next_advisory_id
+            self.world.next_advisory_id += 1
+            self.world.advisory_proposals.append({
+                "id": advisory_id, "tick": self.world.clock.tick_count,
+                "hypothesis_id": hypothesis_id, "subject": hypothesis_subject,
+                "advice": parsed["advice"], "status": "pending",
+            })
+            self._log(
+                "advisory",
+                f"Hearthmind's own advice about {hypothesis_subject}: {parsed['advice']}",
+            )
+
+        self._schedule_llm_job(
+            "self_tuning_advisory", prompt, self_tuning.SYSTEM_PROMPT_ADVISORY, fallback, apply,
+            critical=True, deep_reasoning=True,
+        )
+
     def _maybe_schedule_self_tuning(self, events: list[str]) -> None:
         """Vision doc items 1.4 + 2.4, docs/VISION-2026-07-22-
         LIVINGTERRARIUM.md: "self-tuning as bounded proposals" and "a
@@ -5828,30 +5901,51 @@ class SimulationEngine:
         never more often). Only fires when a `supported` hypothesis
         (survived `_reevaluate_reflection_hypotheses`'s deterministic
         evidence-nudging across multiple cycles, not a single-cycle
-        guess) names one of `self_tuning.TUNABLE_GOVERNORS`'s closed
-        vocabulary; `critical=True` — a genuine, real judgment about the
-        world's own balance, deferred rather than faked on a spent
-        budget or failed call. The proposal is validated on a disposable
-        forked copy of the world (item 1.3's sandbox) BEFORE ever
-        touching real state — see `apply`'s `_validate_and_tune`."""
+        guess) exists that hasn't been acted on yet; `critical=True` —
+        a genuine, real judgment about the world's own balance,
+        deferred rather than faked on a spent budget or failed call.
+
+        B6 (roadmap Stage III step 13): a supported hypothesis whose
+        subject names one of `self_tuning.TUNABLE_GOVERNORS` (by
+        prefix, see `_governor_key_for_subject`) still takes the
+        original bounded-nudge path, validated on a disposable forked
+        copy of the world (item 1.3's sandbox) BEFORE ever touching
+        real state — see `apply`'s `_validate_and_tune`. A supported
+        hypothesis that names NO governor is no longer silently
+        skipped: it takes the new advisory path instead — Reflection
+        writes one short piece of free-text advice into `World.
+        advisory_proposals` for a human to read and mark `accepted`/
+        `rejected` via `POST /advisory/{id}/review`. Never auto-applied
+        — this is the "changes beyond governors" half of the roadmap
+        item, kept strictly out-of-band from the sandboxed numeric
+        path."""
         if not self._season_year_gate(events, "self_tuning", "year_end"):
             return
         if self._settlement_job_backpressured():
             return
         self._mark_season_year_resolved("self_tuning")
         acted_hypothesis_ids = {a.get("hypothesis_id") for a in self.world.self_tuning_actions}
+        acted_hypothesis_ids |= {a.get("hypothesis_id") for a in self.world.advisory_proposals}
         candidate = None
+        governor_key = None
+        advisory_candidate = None
         for entry in self.world.reflection_notebook:
             if (
-                entry.get("kind") == "hypothesis" and entry.get("status") == "supported"
-                and entry.get("subject") in self_tuning.TUNABLE_GOVERNORS
-                and entry.get("id") not in acted_hypothesis_ids
+                entry.get("kind") != "hypothesis" or entry.get("status") != "supported"
+                or entry.get("id") in acted_hypothesis_ids
             ):
-                candidate = entry
+                continue
+            key = self._governor_key_for_subject(entry.get("subject", ""))
+            if key is not None:
+                candidate, governor_key = entry, key
                 break
+            if advisory_candidate is None:
+                advisory_candidate = entry
         if candidate is None:
+            if advisory_candidate is None:
+                return
+            self._schedule_advisory(advisory_candidate)
             return
-        governor_key = self_tuning.TUNABLE_GOVERNORS[candidate["subject"]]
         current_multiplier = self.world.governor_tuning.get(governor_key, 1.0)
         prompt = self_tuning.build_prompt(candidate["subject"], candidate["content"], current_multiplier)
         fallback = self_tuning.fallback_self_tuning()
@@ -8527,6 +8621,10 @@ class SimulationEngine:
             # decision log (applied/rejected/no_adjustment) behind it.
             "governor_tuning": dict(self.world.governor_tuning),
             "self_tuning_actions_recent": list(self.world.self_tuning_actions[-10:]),
+            # B6 (roadmap Stage III step 13): the human-reviewed
+            # counterpart to self_tuning_actions_recent above — advice
+            # for a supported hypothesis that named no governor.
+            "advisory_proposals_recent": list(self.world.advisory_proposals[-10:]),
             "llm_stats": self._cognition_runner.stats(),
             "llm_backlog_effective": self._effective_backlog(),
             "llm_backlog_reserved_this_tick": self._reserved_this_tick,

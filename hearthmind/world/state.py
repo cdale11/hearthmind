@@ -504,9 +504,13 @@ class World:
     governor_tuning: dict[str, float] = field(default_factory=dict)
     """Vision doc items 1.4/2.4: governor name -> effective multiplier,
     bounded to `disasters.GOVERNOR_TUNING_BAND` around 1.0. Missing key
-    means untouched (multiplier 1.0). The only consumer so far is
-    `tick_wildfire`'s `chance_multiplier` (key `"wildfire_chance"`) —
-    see `SimulationEngine._maybe_schedule_self_tuning`, the only writer."""
+    means untouched (multiplier 1.0). Consumers: `tick_wildfire`'s
+    `chance_multiplier` (key `"wildfire_chance"`), `_maybe_schedule_
+    ontology_proposal`'s invention-chance scale (key `"ontology_
+    proposal_chance"`), `Population._maybe_outbreak`'s `chance_
+    multiplier` (key `"disease_outbreak_chance"`, B6, roadmap Stage III
+    step 13) — see `SimulationEngine._maybe_schedule_self_tuning`, the
+    only writer."""
     musings: list[dict] = field(default_factory=list)
     """Vision doc item 3.4, "The world talks to you"
     (docs/VISION-2026-07-22-LIVINGTERRARIUM.md): a once-a-day line in
@@ -528,6 +532,25 @@ class World:
     `reflection_notebook`) — this IS the terrarium's own decision log,
     read by `_maybe_schedule_self_tuning` to avoid re-acting on a
     hypothesis it already tuned for."""
+    advisory_proposals: list[dict] = field(default_factory=list)
+    """B6 "Reflection as meta-scientist" (roadmap Stage III step 13):
+    the human-reviewed counterpart to `self_tuning_actions` above, for
+    a supported hypothesis whose subject names no `self_tuning.
+    TUNABLE_GOVERNORS` entry — Reflection still has something worth
+    saying, it just isn't a bounded numeric nudge the sandbox can
+    validate on its own. `{id, tick, hypothesis_id, subject, advice,
+    status}` — `status` starts `"pending"` and is the ONLY field a
+    human can change (`POST /advisory/{id}/review`, queued through the
+    same `_apply_intervention` seam as every other player action) to
+    `"accepted"`/`"rejected"` — never auto-applied, never auto-scored;
+    this is advice logged for a person to act on outside the
+    simulation, not a second self-tuning channel. Never pruned, same
+    append-only discipline as `self_tuning_actions`/`reflection_
+    notebook` (identical low natural volume — at most one per year-
+    cadence reflection cycle)."""
+    next_advisory_id: int = 1
+    """Monotonic id counter for `advisory_proposals` — never reused,
+    same discipline as every other id counter in this codebase."""
     _water_tiles: set = field(default=None, compare=False, repr=False)  # type: ignore[assignment]
     """Cached set of water-biome tile coords for `_tick_disasters` —
     previously rebuilt with a full terrain scan every tick even though
@@ -682,6 +705,7 @@ class World:
             flooded_tiles=self.disasters.flooded_tiles,
             active_wildfire_tiles=self.disasters.active_wildfire_tiles,
             storm_struck=storm_struck,
+            outbreak_chance_multiplier=self.governor_tuning.get("disease_outbreak_chance", 1.0),
         )
         self.fields.step_population_density(
             [(a.x, a.y) for a in self.population.agents], self.config.width, self.config.height,
@@ -1159,6 +1183,8 @@ class World:
             "wildfire_ignition_ticks": list(self.wildfire_ignition_ticks),
             "governor_tuning": dict(self.governor_tuning),
             "self_tuning_actions": list(self.self_tuning_actions),
+            "advisory_proposals": list(self.advisory_proposals),
+            "next_advisory_id": self.next_advisory_id,
             "consciousness_memory": list(self.consciousness_memory),
             "consciousness_personality": dict(self.consciousness_personality),
             "consciousness_objectives": list(self.consciousness_objectives),
@@ -1397,5 +1423,7 @@ class World:
             wildfire_ignition_ticks=list(data.get("wildfire_ignition_ticks", [])),
             governor_tuning=dict(data.get("governor_tuning", {})),
             self_tuning_actions=list(data.get("self_tuning_actions", [])),
+            advisory_proposals=list(data.get("advisory_proposals", [])),
+            next_advisory_id=data.get("next_advisory_id", 1),
             migrated_subsystems=migrated_subsystems,
         )

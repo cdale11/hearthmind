@@ -557,12 +557,38 @@ the master is complete, with the Body-dependencies made explicit.
   this pass) and a genuine affordance/reaction query remain open,
   explicitly deferred to when Stage IV's substrate exists to query.
 
-### B6 — Reflection as meta-scientist — PARTIAL
+### B6 — Reflection as meta-scientist — PARTIAL, first version shipped (roadmap Stage III step 13, v1.11.0)
 
-- [ ] Reflection + self_tuning exist (falsifiable hypotheses, bounded
+- [x] Reflection + self_tuning exist (falsifiable hypotheses, bounded
   sandbox-validated governor nudges). Extend `TUNABLE_GOVERNORS` to the
   major levers; add the advisory-proposal inbox (human-reviewed) for
-  changes beyond governors; track whether its advice worked.
+  changes beyond governors; track whether its advice worked. **Shipped,
+  scoped**: previously a supported hypothesis whose subject didn't
+  exactly match one of two hardcoded governor labels was silently
+  dropped — no governor to nudge meant no response at all, even though
+  Reflection had already formed a real, evidence-backed belief. Two
+  fixes, both real: (1) `SimulationEngine._governor_key_for_subject`
+  matches a hypothesis subject against `TUNABLE_GOVERNORS` by PREFIX,
+  not exact equality — `_detect_reflection_pattern`'s settlement-scoped
+  subjects (`f"{label} in {settlement_name}"`, varies per settlement)
+  can now reach self-tuning at all, not just the two global subjects
+  that happened to match verbatim; `disease_outbreak_chance` (consumed
+  by `Population._maybe_outbreak`'s new `chance_multiplier` param) is
+  the worked example proving this actually closes the loop end to end.
+  (2) `World.advisory_proposals` (new, capped-by-low-natural-volume
+  append-only list) + `_schedule_advisory`: a supported hypothesis that
+  STILL names no governor now gets a real LLM call asking Reflection
+  for one short piece of free-text advice, logged with `status=
+  "pending"`. `POST /advisory/{id}/review` (`status: accepted|
+  rejected`) is the ONLY way that status changes — a human decision,
+  never auto-applied to any mechanic, deliberately kept out-of-band
+  from the sandboxed numeric self-tuning path. "Track whether its
+  advice worked" is intentionally NOT attempted for the advisory path
+  (there's no mechanical effect to measure an outcome against, unlike
+  a governor nudge) — the human's own accepted/rejected marking IS the
+  tracked outcome, not a further automated judgment. Dev-console-only
+  surfacing (`advisory_proposals_recent` in `full_diagnostics()`), same
+  depth as `self_tuning_actions_recent`.
 
 ### B7 — Humans: collective consciousness + coordinator — PARTIAL
 
@@ -880,7 +906,11 @@ is not authorization to start executing it.
     real affordance/reaction query left for Stage IV).
 13. **B6 Reflection as meta-scientist** — extend `TUNABLE_GOVERNORS`,
     add the human-reviewed advisory-proposal inbox, track advice
-    outcomes.
+    outcomes. **Shipped a first version, v1.11.0** — see Part B's own
+    B6 entry above for full detail (prefix-matched governor lookup so
+    every settlement-scoped pattern is now governable, `disease_
+    outbreak_chance` as the worked example, plus a real human-reviewed
+    advisory inbox for a supported hypothesis that names no governor).
 14. **B7 Humans collective + coordinator** — one collective mind plus
     the capped per-NPC pool, folding in the existing voice-pair
     machinery rather than replacing it.

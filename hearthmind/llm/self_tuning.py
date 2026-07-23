@@ -14,7 +14,11 @@ world's own balance, not narrative texture) — deferred, never faked, on
 a spent budget or failed call, same as `nature_mind`/`beliefs`."""
 from __future__ import annotations
 
-TUNABLE_GOVERNORS = {"wildfire frequency": "wildfire_chance", "ontology coherence": "ontology_proposal_chance"}
+TUNABLE_GOVERNORS = {
+    "wildfire frequency": "wildfire_chance",
+    "ontology coherence": "ontology_proposal_chance",
+    "disease outbreak": "disease_outbreak_chance",
+}
 """Closed vocabulary: reflection hypothesis subject -> governor key
 consumed by `World.governor_tuning`. `wildfire_chance` is the vision
 doc's own worked example (`tick_wildfire`'s `chance_multiplier`).
@@ -26,9 +30,19 @@ supported, self-tuning may nudge this multiplier within the usual
 shape as every other governor (the model isn't forced to lower it, but
 a hypothesis grounded in "too much abandoned churn" gives it real
 reason to) — see `_maybe_schedule_ontology_proposal`'s consumption of
-`World.governor_tuning.get("ontology_proposal_chance", 1.0)`. Extending
-this dict is how a future governor joins self-tuning; the interpreter
-itself stays fixed."""
+`World.governor_tuning.get("ontology_proposal_chance", 1.0)`.
+`disease_outbreak_chance` (B6, roadmap Stage III step 13, "extend
+TUNABLE_GOVERNORS to the major levers") is the worked example for
+`_detect_reflection_pattern`'s SETTLEMENT-scoped signals — those
+subjects are `f"{label} in {settlement_name}"` (varies per
+settlement), so `SimulationEngine._maybe_schedule_self_tuning`
+matches a hypothesis subject against this dict by PREFIX
+(`subject.startswith(key)`), not exact equality; every settlement-
+scoped pattern is now governable this way, `disease_outbreak_chance`
+(consumed by `Population._maybe_outbreak`'s `chance_multiplier`) is
+just the first one actually wired to a real multiplier. Extending this
+dict (plus wiring the matching consumer) is how a future governor
+joins self-tuning; the interpreter itself stays fixed."""
 
 SYSTEM_PROMPT = (
     "You are Hearthmind's own reflective intelligence, now considering whether to "
@@ -85,3 +99,39 @@ def apply_bounded_nudge(magnitude: float, direction: str, band: float) -> float:
     structurally, regardless of what the LLM asked for."""
     signed = magnitude * band * (1.0 if direction == "raise" else -1.0)
     return max(1.0 - band, min(1.0 + band, 1.0 + signed))
+
+
+# --- advisory (B6 "Reflection as meta-scientist," roadmap Stage III step 13) ---
+
+SYSTEM_PROMPT_ADVISORY = (
+    "You are Hearthmind's own reflective intelligence. You hold a hypothesis you "
+    "already believe, grounded in the world's real numbers, but it does not name any "
+    "of the simulation's small set of tunable balance knobs — there is nothing you can "
+    "directly nudge. Instead, write ONE short piece of advice for the person who built "
+    "this world: what might genuinely help, or what is worth watching for. This is "
+    "advice for a human to consider, not an action you are taking yourself. "
+    'Respond with strict JSON only, no other text: {"advice": "one or two sentences, '
+    'under 40 words, concrete and grounded in the hypothesis given"}.'
+)
+
+
+def build_advisory_prompt(hypothesis_subject: str, hypothesis_text: str) -> str:
+    return (
+        f"Your supported hypothesis: {hypothesis_subject} — {hypothesis_text}\n"
+        "This does not match any governor you can directly tune. Offer your advice "
+        "about it to whoever built this world."
+    )
+
+
+def fallback_advisory() -> dict:
+    """Deterministic stand-in — used only for `_record_llm_debug`
+    bookkeeping (critical jobs never apply a fallback result, see
+    `_schedule_llm_job`'s docstring)."""
+    return {"advice": "no specific advice — this pattern is worth watching, not yet acting on."}
+
+
+def parse_advisory(result: dict, fallback: dict) -> dict:
+    advice = result.get("advice")
+    if not isinstance(advice, str) or not advice.strip():
+        advice = fallback["advice"]
+    return {"advice": advice.strip()[:220]}

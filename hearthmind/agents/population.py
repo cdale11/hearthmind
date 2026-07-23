@@ -1822,6 +1822,7 @@ class Population:
         flooded_tiles: "dict | None" = None,
         active_wildfire_tiles: "set | None" = None,
         storm_struck: bool = False,
+        outbreak_chance_multiplier: float = 1.0,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -2062,7 +2063,7 @@ class Population:
             self.agents, by_position, hospital_settlement_ids, primary.temperament, rng, tick,
         )
         life_events.extend(disease_events)
-        life_events.extend(self._maybe_outbreak(rng, crowded, roads))
+        life_events.extend(self._maybe_outbreak(rng, crowded, roads, outbreak_chance_multiplier))
         # Building-driven subsystems run once per settlement over the
         # global colocation map: each settlement's own structures get
         # worked/stocked/crafted-at by whoever is physically present —
@@ -2355,6 +2356,7 @@ class Population:
 
     def _maybe_outbreak(
         self, rng: random.Random, crowded: bool, roads: RoadNetwork | None = None,
+        chance_multiplier: float = 1.0,
     ) -> list[tuple[str, str]]:
         """Rolled once per tick, settlement-wide: a small chance a new,
         spontaneous case of illness appears among the currently-healthy
@@ -2376,11 +2378,19 @@ class Population:
 
         v2: a recently-recovered agent (`immune_ticks > 0`) can't become
         a fresh index case either — same temporary-resistance window
-        `_tick_disease` already exempts from person-to-person spread."""
+        `_tick_disease` already exempts from person-to-person spread.
+
+        `chance_multiplier` (B6, roadmap Stage III step 13): `World.
+        governor_tuning.get("disease_outbreak_chance", 1.0)` — Reflection's
+        self-tuning worked example for a settlement-scoped governor, see
+        `llm/self_tuning.py`'s `TUNABLE_GOVERNORS` docstring. Applied to
+        the base chance only, before the floor below — the floor exists
+        to guarantee a small settlement's first case isn't invisible and
+        should stay a real guarantee regardless of any governor nudge."""
         healthy = [a for a in self.agents if a.sick_ticks == 0 and a.immune_ticks == 0]
         if not healthy:
             return []
-        chance = OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK * len(self.agents)
+        chance = OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK * len(self.agents) * chance_multiplier
         if crowded:
             chance *= OUTBREAK_CROWDING_MULTIPLIER
         if roads is not None and self.agents:
