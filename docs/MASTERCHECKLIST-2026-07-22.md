@@ -472,13 +472,28 @@ through-line for nearly every PARTIAL below.
 
 ### A18 — Events as composable reactions [det #18] — PARTIAL
 
-- [ ] **Status:** Some composite events; no general composer.
+- [x] **Status:** Some composite events; no general composer.
+  **Shipped a first slice, v1.23.0**: new `world/reactions.py` +
+  `SimulationEngine._maybe_tick_composite_reactions` — a real,
+  general AND-combination engine (the fixed part) over a small closed
+  registry of hand-authored `CompositeReaction`s (the open-ended
+  part), same "engine is general, content is data" split `TriggerRule`
+  already established for single triggers. One worked reaction ships
+  ("Desperate Times": `drought` + `feud` + `food_shortage`, all
+  independently tracked Body signals, crossing simultaneously
+  escalates a family feud into an immediate relationship rupture
+  between the two families — real, bounded, deterministic).
 - [ ] **Spec:** An event is a *reaction* fired when a combination of
   field/social/economic conditions crosses a threshold — not a scripted
   incident. A drought-field + a feud-edge + a food-shortage compose into
   a raid nobody hand-authored. A small condition→consequence rule engine
   (the trigger→effect vocabulary from the terrarium doc, generalized to
   the Body).
+  **Still open**: only one hand-authored reaction exists (no general
+  authoring system yet — a village can't propose its OWN combinations
+  the way `TriggerRule` is LLM-authored); the doc's own "raid" example
+  is scoped down to a relationship-rupture consequence rather than a
+  new combat/raid mechanic, flagged as real follow-up work.
 - [ ] **Feeds:** "entirely new emergent situations without handcrafted
   event chains" — the combinatorial heart of Body-layer emergence.
 
@@ -1195,7 +1210,11 @@ waiting for a later integration pass.
     shared mutate/decay/compete, remain open, flagged.
 25. **A18 Events as composable reactions** — a condition→consequence
     rule engine generalizing the terrarium doc's trigger→effect
-    vocabulary from settlement-scoped to the whole Body.
+    vocabulary from settlement-scoped to the whole Body. **Shipped a
+    first slice, v1.23.0**: see the A18 section above — a general
+    AND-combination engine, proven against one worked composite
+    reaction. A real authoring system for new combinations, and
+    consequences beyond relationship rupture, remain open, flagged.
 26. **A19 Persistent spatial memory** — bounded per-location history
     vectors (traffic/battles/rituals/pollution/etc.), generalizing
     `mining_scars`/`disaster_scars`.

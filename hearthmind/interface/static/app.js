@@ -187,6 +187,7 @@ const CATEGORY_META = {
   pillar_answer: { icon: "🗣" },
   mining_scarred: { icon: "⛏️" },
   disaster_scarred: { icon: "🌋" },
+  composite_reaction: { icon: "💥" },
   // P2.3 (docs/AUDIT-2026-07-20.md): 296/16k events (18%) in a live run —
   // routine background texture already surfaced via the Exploration stat
   // tile (v0.87.45), same "recorded internally, not the main feed"
@@ -200,7 +201,7 @@ const EVENT_GROUP_OF = {
   birth: "people", death: "people", dialogue_surfaced: "people", voice_dialogue: "people", voice_pair_change: "people", rumor: "people",
   migrant_arrived: "people", migrant_departed: "people", inheritance: "people", dispute: "people",
   record_written: "people", illness: "people", recovery: "people", predator_attack: "people",
-  family_feud: "people", knowledge_lost: "people", theft: "people",
+  family_feud: "people", knowledge_lost: "people", theft: "people", composite_reaction: "people",
   letter_delivered: "people", letter_arrived_too_late: "people",
   construction_started: "town", building_completed: "town", building_ruined: "town",
   building_reclaimed: "town", farm_planted: "town", vehicle_started: "town",

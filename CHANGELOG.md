@@ -4,6 +4,63 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.23.0] — A18 "Events as composable reactions," first slice — a general AND-combination engine (roadmap Stage IV step 25)
+
+Explicit user instruction: "Next step" — Stage IV step 25, docs/
+MASTERCHECKLIST-2026-07-22.md's A18: "an event is a *reaction* fired
+when a combination of field/social/economic conditions crosses a
+threshold — not a scripted incident... a drought-field + a feud-edge
++ a food-shortage compose into [something] nobody hand-authored."
+
+Deliberately distinct from `world/ontology.py`'s `TriggerRule` (a
+SINGLE named trigger, LLM-authored per rule) — this is the doc's own
+"small condition->consequence rule engine," where the combinatorial
+part is real: three independently-tracked Body signals crossing their
+OWN thresholds *simultaneously* compose into a consequence no single
+condition would cause alone. New `world/reactions.py`: `CONDITION_
+KEYS` (`drought`/`feud`/`food_shortage`, each backed by an already-real
+or cheaply-computed signal — drought/food_shortage are edge-detected
+the same heat_pressure/granary-fill readings `TriggerRule`'s `on_
+drought`/`on_surplus` already use, just the opposite fill edge for
+`food_shortage`; `feud` reads `Institution.feuds` directly),
+`CompositeReaction` (an AND of `conditions`, matched via `matching_
+reactions`). New `SimulationEngine._maybe_tick_composite_reactions`
+(every tick, deliberately independent of `_maybe_tick_trigger_state_
+edges` which early-returns with no stored `TriggerRule`s — a composite
+reaction has nothing to do with village-authored rules): computes each
+settlement's active condition set, checks it against the registry,
+cooldown-gates (`COMPOSITE_REACTION_COOLDOWN_TICKS=1500`, longer than
+a single `TriggerRule`'s 500 — a composite firing is a stronger event),
+and applies via `_apply_composite_reaction`.
+
+Scoped down hard, per this project's standing "first slice, not the
+full spec" discipline: one hand-authored `CompositeReaction` ships
+("Desperate Times": `drought` + `feud` + `food_shortage`), proving the
+combinator itself works, not a general authoring system yet (a village
+can't propose its own combinations the way `TriggerRule` is
+LLM-authored — flagged follow-up). The doc's own worked example ("a
+raid nobody hand-authored") is scoped down to a buildable, already-real
+consequence rather than a new combat/raid mechanic: the two feuding
+families' living members take a bounded, immediate relationship hit
+(`COMPOSITE_REACTION_RELATIONSHIP_PENALTY=0.25`, smaller than a single
+LLM-mediated dispute's own worst-case swing) plus a real Emergence API
+`unexplained_shift` observation and a new `composite_reaction` event/
+highlight entry.
+
+UI: new `composite_reaction` event-log icon (💥) and filter-group
+mapping (alongside `family_feud`/`dispute` under "people") — reuses the
+existing event-log/highlights machinery rather than adding a new panel.
+
+Verified: a real production-path test (manufactured two feuding FAMILY
+institutions, forced `heat_pressure`/an empty granary to trigger
+`drought`/`food_shortage`, called `_maybe_tick_composite_reactions`
+directly) confirming the relationship penalty applies correctly, a
+real `unexplained_shift` Emergence entry is appended, and the cooldown
+correctly blocks an immediate re-fire. `scripts/verify_native_soak.py`
+(2 seeds x 800 ticks) byte-identical — `_composite_reaction_last_
+fired` is transient (same non-persisted precedent as `_prev_drought_
+state`), no persisted field touched.
+
 ## [1.22.0] — A17 "Information ecosystem unification," first slice — social-graph-weighted propagation (roadmap Stage IV step 24)
 
 Explicit user instruction: "Next step" — Stage IV step 24, docs/

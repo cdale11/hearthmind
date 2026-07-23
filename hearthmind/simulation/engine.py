@@ -81,6 +81,7 @@ from hearthmind.world.materials import BUILDING_MATERIALS, building_affordances
 from hearthmind.world.sigils import generate_sigil_svg
 from hearthmind.world import memetics
 from hearthmind.world import ontology
+from hearthmind.world import reactions
 from hearthmind.world import emergence
 from hearthmind.world import graph_algorithms
 from hearthmind.cognition import attention
@@ -1379,6 +1380,12 @@ class SimulationEngine:
         (same precedent as `_recent_line_tails`); re-derived cleanly on
         restart since the worst case is one missed/extra edge, not a
         correctness issue."""
+        self._composite_reaction_last_fired: dict[tuple[int, str], int] = {}
+        """(settlement_id, reaction_name) -> last-fired tick, A18's own
+        cooldown tracker (`_maybe_tick_composite_reactions`) — same
+        transient, re-derivable-on-restart shape as `_prev_drought_
+        state` above, just keyed on a composite instead of a single
+        edge."""
         self._materials_level_history: deque[tuple[int, float]] = deque(maxlen=MATERIALS_FLOW_WINDOW_TICKS)
         """(tick, total materials across all settlements) sampled once
         per tick — P3.4 (docs/AUDIT-2026-07-20.md): "materials inflow/
@@ -2092,6 +2099,7 @@ class SimulationEngine:
         ("_maybe_spread_concepts", _JOB_NO_ARGS),
         ("_apply_trigger_rules_from_life_events", _JOB_NO_ARGS),
         ("_maybe_tick_trigger_state_edges", _JOB_NO_ARGS),
+        ("_maybe_tick_composite_reactions", _JOB_NO_ARGS),
         ("_maybe_schedule_rule_proposal", _JOB_EVENTS),
         ("_maybe_schedule_festival", _JOB_EVENTS),
         ("_maybe_schedule_religion", _JOB_EVENTS),
@@ -4673,6 +4681,81 @@ class SimulationEngine:
             if surplus_now and not self._prev_surplus_state.get(settlement.id, False):
                 self._apply_trigger_rules_for("on_surplus", settlement)
             self._prev_surplus_state[settlement.id] = surplus_now
+
+    def _maybe_tick_composite_reactions(self) -> None:
+        """A18 first slice (roadmap Stage IV step 25, docs/MASTERCHECKLIST
+        -2026-07-22.md): the general AND-combination reaction check —
+        `world/reactions.py`'s registry is the open-ended part, this is
+        the fixed engine, same "engine is general, content is data"
+        split `_apply_trigger_rules_for` established for `TriggerRule`.
+        Deliberately independent of `_maybe_tick_trigger_state_edges`
+        (which early-returns with no `TriggerRule`s stored) — a
+        composite reaction has nothing to do with village-authored
+        trigger rules and must keep working with none stored."""
+        if not self.world.settlements:
+            return
+        drought_now = self.world.disasters.heat_pressure > TRIGGER_DROUGHT_HEAT_PRESSURE_THRESHOLD
+        now = self.world.clock.tick_count
+        for settlement in self.world.settlements:
+            granaries = [
+                b for b in settlement.buildings
+                if b.kind is BuildingKind.GRANARY and b.stage is BuildingStage.STANDING
+            ]
+            capacity = len(granaries) * GRANARY_CAPACITY
+            fill = (sum(b.stored_food for b in granaries) / capacity) if capacity else 0.0
+            food_shortage_now = fill < reactions.FOOD_SHORTAGE_FILL_THRESHOLD
+            families = [i for i in settlement.institutions if i.kind is InstitutionKind.FAMILY]
+            feuding_pair = next(
+                (
+                    (fam_a, fam_b)
+                    for fam_a in families for fam_b in families
+                    if fam_a.id < fam_b.id and Population.families_feuding(fam_a, fam_b)
+                ),
+                None,
+            )
+            active: set[str] = set()
+            if drought_now:
+                active.add("drought")
+            if food_shortage_now:
+                active.add("food_shortage")
+            if feuding_pair is not None:
+                active.add("feud")
+            for reaction in reactions.matching_reactions(active):
+                key = (settlement.id, reaction.name)
+                last_fired = self._composite_reaction_last_fired.get(key)
+                if last_fired is not None and now - last_fired < reactions.COMPOSITE_REACTION_COOLDOWN_TICKS:
+                    continue
+                self._composite_reaction_last_fired[key] = now
+                self._apply_composite_reaction(reaction, settlement, feuding_pair)
+
+    def _apply_composite_reaction(self, reaction, settlement, feuding_pair) -> None:
+        """The one real consequence this slice ships: escalates the
+        feuding pair's relationship rupture — a bounded, immediate
+        step, not a new combat/raid mechanic (see `world/reactions.py`'s
+        module docstring for why). `feuding_pair` is guaranteed non-None
+        whenever a reaction naming `"feud"` in its conditions matches
+        (the only reaction this pass ships does)."""
+        detail = f"{settlement.name or 'The village'}: {reaction.description}"
+        self._log("composite_reaction", detail)
+        self._append_highlight("composite_reaction", detail)
+        self._append_emergence(
+            "unexplained_shift", "village", detail,
+            pillars=("village", "humans"), settlement=settlement.name,
+            data={"reaction": reaction.name, "conditions": sorted(reaction.conditions)},
+        )
+        if feuding_pair is None:
+            return
+        fam_a, fam_b = feuding_pair
+        members_a = [a for a in self.world.population.agents if a.id in fam_a.member_agent_ids]
+        members_b = [a for a in self.world.population.agents if a.id in fam_b.member_agent_ids]
+        for a in members_a:
+            for b in members_b:
+                a.relationships[b.id] = clamp(
+                    a.relationships.get(b.id, 0.0) - reactions.COMPOSITE_REACTION_RELATIONSHIP_PENALTY, -1.0, 1.0,
+                )
+                b.relationships[a.id] = clamp(
+                    b.relationships.get(a.id, 0.0) - reactions.COMPOSITE_REACTION_RELATIONSHIP_PENALTY, -1.0, 1.0,
+                )
 
     def _maybe_schedule_rule_proposal(self, events: list[str]) -> None:
         """Vision doc item 1.2's origination half — one new trigger-

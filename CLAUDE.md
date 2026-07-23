@@ -527,6 +527,24 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.23.0)
+
+Explicit user instruction: "Next step" — A18 "Events as composable
+reactions," first slice (roadmap Stage IV step 25, docs/MASTERCHECKLIST
+-2026-07-22.md). Full detail: CHANGELOG.md's [1.23.0] entry.
+
+New `world/reactions.py` + `SimulationEngine._maybe_tick_composite_
+reactions`: a general AND-combination reaction engine, distinct from
+`TriggerRule` (single trigger, LLM-authored) — the engine is fixed and
+general, one hand-authored `CompositeReaction` ("Desperate Times":
+`drought` + `feud` + `food_shortage` crossing simultaneously) proves it
+works. Consequence: the two feuding families' relationships take a
+real, bounded, immediate hit, plus an Emergence API entry. The doc's
+own "raid" example is scoped down to this relationship-rupture
+consequence rather than a new combat mechanic. A real authoring system
+for new combinations remains open, flagged. UI: new event icon (💥) +
+filter-group mapping.
+
 ## Current state (v1.22.0)
 
 Explicit user instruction: "Next step" — A17 "Information ecosystem
