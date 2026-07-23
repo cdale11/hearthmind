@@ -123,6 +123,7 @@ const CATEGORY_META = {
   voice_pair_change: { icon: "🗣" }, // the town's one LLM-dialogue pair changed (death/rotation)
   rumor: { icon: "📣" },
   tradition: { icon: "🎭" },
+  legend: { icon: "🐉" },
   invention: { icon: "💡" },
   festival: { icon: "🎉" },
   predator_attack: { icon: "🐺" },
@@ -3431,6 +3432,14 @@ function renderStats(summary) {
     setInnerHTMLIfChanged(folkloreEl, folklore.length
       ? folklore.map((f) => `<li>${f.tale}</li>`).join("")
       : "<li>no tales told yet</li>");
+  }
+
+  const legendsEl = document.getElementById("legends-list");
+  if (legendsEl) {
+    const legendsList = (s.legends || []).slice().reverse(); // newest first
+    setInnerHTMLIfChanged(legendsEl, legendsList.length
+      ? legendsList.map((l) => `<li><span class="muted">${(l.subsystem || "").replace(/_/g, " ")}</span> — ${l.legend}</li>`).join("")
+      : "<li>no legends yet</li>");
   }
 
   const religionSummaryEl = document.getElementById("religion-summary");

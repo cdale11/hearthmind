@@ -527,6 +527,22 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.28.0)
+
+Explicit user instruction: "Start A21." Full detail: CHANGELOG.md's
+[1.28.0] entry. `Settlement.folklore` had no structured subject to
+detect legends against — resolved by building a separate pipeline off
+A22's Emergence API stream instead (`World.emergence_log`, already
+carries a real `subsystem` tag + `settlement` name). New `world/
+legends.py`'s deterministic `detect_legend_candidate` (N repeated
+same-subsystem observations for a settlement, zero LLM cost most
+months) → `llm/legend.py`'s LLM narration → new `Settlement.legends`
+(capped, one-legend-per-subsystem-lifetime). New monthly engine job,
+same shape as folklore. UI: "Legends" panel, 🐉 event icon. **Closes
+Stage IV** — all 16 originally-scoped roadmap steps now have at least
+a first slice. Legend→tradition/institution feedback and folklore
+unification remain open, flagged.
+
 ## Current state (v1.27.0)
 
 Explicit user instruction, follow-up to a live report ("I can't see

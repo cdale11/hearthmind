@@ -4,6 +4,55 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.28.0] — A21 "Temporal compression," first slice — Stage IV fully closed
+
+Explicit user instruction: "Start A21." A prior session's audit found
+the obvious path blocked: `Settlement.folklore` entries carry only a
+bare `{"tale": str}`, no structured subject a deterministic legend-
+detector could match against without a fragile text heuristic.
+Resolved by NOT touching folklore — new, separate pipeline reusing
+A22's Emergence API stream instead, whose entries already carry a real
+`subsystem` tag and `settlement` name.
+
+New `world/legends.py`: `detect_legend_candidate` — deterministic,
+zero LLM cost — scans `World.emergence_log`'s most recent entries for
+a settlement, groups by `subsystem`, and returns a candidate once any
+subsystem crosses `LEGEND_SUBSYSTEM_THRESHOLD=5` repeated observations
+(and hasn't already produced a legend for this settlement — a simple
+one-legend-per-subsystem-lifetime rule needing no extra state, since
+`Settlement.legends`' own `subsystem` values ARE the "already
+legendary" set). New `llm/legend.py`: narrates the accumulated pattern
+into one legend sentence — "it's said that..." — distinct in both
+content and cadence from folklore's monthly rumor-condensation.
+
+New `Settlement.legends` (`SettlementCulture`, same passthrough-
+property/to_dict/from_dict/summary wiring as `folklore`, capped at
+`LEGENDS_MAX_STORED=16`). New `_maybe_schedule_legend_detection`
+engine job, same monthly-rotation/backpressure/deterministic-first
+shape as folklore/invention (most months resolve for free — no
+subsystem has crossed threshold yet). UI: new "Legends" panel
+(distinct from "Folklore"), `legend` (🐉) event-feed icon.
+
+This closes Stage IV of the roadmap (docs/MASTERCHECKLIST-2026-07-22.
+md) — all 16 originally-scoped steps now have at least a real first
+slice shipped.
+
+Explicitly NOT attempted this pass, flagged: folding a formed legend
+back into tradition/religion/institution formation; using a legend as
+grounding context in other prompts (chronicle/dialogue/folklore) the
+way `place_names`/`beliefs` already ground other calls; any
+unification with folklore itself.
+
+Verified: direct smoke tests (`detect_legend_candidate`'s threshold/
+already-legendary/settlement-filter logic, `llm/legend.py`'s prompt/
+fallback/parse functions, `Settlement.legends` to_dict/from_dict/
+summary round-trip), a 2000-tick real-engine run with seeded Emergence
+API observations confirming the full detect -> LLM-schedule -> apply
+-> `Settlement.legends` chain fires end-to-end, `node --check` on the
+modified `app.js`, `scripts/verify_native_soak.py` (2 seeds x 800
+ticks) byte-identical — this pass touches only settlement-level Python
+state, no native module.
+
 ## [1.27.0] — Live map field overlays + A20 extension (Stage IV close-out pass)
 
 Explicit user instruction, follow-up to a live report ("I can't see the

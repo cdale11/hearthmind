@@ -68,6 +68,7 @@ from hearthmind.llm import (
     faction, fission, beliefs, caravan, chronicle, chronicler, composite_entity, consciousness, culture,
     culture_digest, dialogue,
     digest, dispute, documentary, dream, era_branch, festival, folklore, founding, geography, invention,
+    legend,
     memory_drift, migration, mind, musing,
     naming, narrative_direction, omens, pillar_chat, religion, rumor_interpret, skill_mastery, species_variant, summary,
     town_brain,
@@ -87,6 +88,7 @@ from hearthmind.world.layout_grammar import settlement_layout_style
 from hearthmind.world.dialect_grammar import drift_term
 from hearthmind.world import emergence
 from hearthmind.world import graph_algorithms
+from hearthmind.world import legends
 from hearthmind.cognition import attention
 from hearthmind.cognition.pillar import make_message
 from hearthmind.world.disasters import GOVERNOR_TUNING_BAND, WILDFIRE_CHANCE_PER_WEEK
@@ -137,6 +139,7 @@ from hearthmind.settlement.buildings import (
     FESTIVAL_CHANCE_PER_MONTH,
     FESTIVAL_HUNGER_GATE,
     FOLKLORE_MAX_STORED,
+    LEGENDS_MAX_STORED,
     GRANARY_CAPACITY,
     INVENTION_CHANCE_PER_SEASON,
     INVENTION_CURRENCY_THRESHOLD,
@@ -915,7 +918,7 @@ MONTHLY_JOB_DAY = {
     "town_brain": 10,
     "beliefs": 13, "personal_belief": 16, "guild_founding": 19,
     "institution_belief": 22, "geography": 25, "folklore": 20, "dream": 23, "omen": 27, "faction": 26,
-    "consciousness": 24, "memory_drift": 21, "noncore_nudge": 9,
+    "consciousness": 24, "memory_drift": 21, "noncore_nudge": 9, "legend_detection": 18,
 }
 """Day-of-month (0-based; every value <= 27 so it exists even in
 February) on which each monthly LLM job fires — the memory-pressure
@@ -938,7 +941,7 @@ boundaries — at most 3 coincident calls once a year versus the old
 monthly ~10."""
 
 MONTHLY_JOBS_WITH_RETRY = frozenset({
-    "chronicle", "folklore", "town_brain", "beliefs", "personal_belief",
+    "chronicle", "folklore", "legend_detection", "town_brain", "beliefs", "personal_belief",
     "dream", "faction", "guild_founding", "institution_belief", "fission",
     "geography", "consciousness", "memory_drift", "diplomacy", "laws", "noncore_nudge", "letter",
 })
@@ -2113,6 +2116,7 @@ class SimulationEngine:
         ("_maybe_schedule_documentary", _JOB_EVENTS),
         ("_maybe_schedule_tradition", _JOB_EVENTS),
         ("_maybe_schedule_folklore", _JOB_EVENTS),
+        ("_maybe_schedule_legend_detection", _JOB_EVENTS),
         ("_maybe_schedule_invention", _JOB_EVENTS),
         ("_maybe_schedule_ontology_proposal", _JOB_EVENTS),
         ("_maybe_schedule_ontology_evolution", _JOB_EVENTS),
@@ -3793,6 +3797,56 @@ class SimulationEngine:
 
         self._schedule_llm_job(
             "folklore", prompt, folklore.SYSTEM_PROMPT, fallback, apply, settlement=target.name,
+        )
+
+    def _maybe_schedule_legend_detection(self, events: list[str]) -> None:
+        """A21 "Temporal compression" (roadmap Stage IV step 30, docs/
+        MASTERCHECKLIST-2026-07-22.md), first slice. Same monthly
+        rotation shape as folklore, but a SEPARATE, more selective
+        mechanism — see `world/legends.py`'s module docstring for why
+        this reuses the Emergence API stream instead of folklore's raw
+        rumor text.
+
+        Deterministic-first, same "skip the call when the precondition
+        guarantees nothing" discipline `_maybe_schedule_folklore` and
+        `_maybe_schedule_invention` already use: `legends.detect_
+        legend_candidate` runs for free (no LLM call) every month: most
+        months no subsystem has crossed the threshold yet, and the job
+        resolves with zero cost, same as folklore's own common case."""
+        target = self._job_target()
+        if not self._monthly_gate(events, "legend_detection") or not target.name:
+            return
+        already_legendary = {entry["subsystem"] for entry in target.legends}
+        candidate = legends.detect_legend_candidate(
+            self.world.emergence_log, target.name, already_legendary,
+        )
+        if candidate is None:
+            self._mark_monthly_resolved("legend_detection")
+            return
+        if self._settlement_job_backpressured():
+            return
+        self._mark_monthly_resolved("legend_detection")
+        subsystem = candidate["subsystem"]
+        summaries = candidate["summaries"]
+        prompt = legend.build_prompt(target.name, subsystem, summaries)
+        fallback = legend.fallback_legend(target.name, subsystem, summaries)
+        target_id = target.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            settlement = self._settlement_by_id(target_id)
+            entry = legend.parse_legend(result, fallback)
+            entry["subsystem"] = subsystem
+            entry["tick"] = self.world.clock.tick_count
+            settlement.legends.append(entry)
+            if len(settlement.legends) > LEGENDS_MAX_STORED:
+                settlement.legends = settlement.legends[-LEGENDS_MAX_STORED:]
+            self._log(
+                "legend",
+                f"{settlement.name or 'The village'} now speaks of a legend — {entry['legend']}",
+            )
+
+        self._schedule_llm_job(
+            "legend", prompt, legend.SYSTEM_PROMPT, fallback, apply, settlement=target.name,
         )
 
     # --- Phase E3: inventions (tech-tier unlocks) -----------------------------

@@ -385,6 +385,15 @@ smaller than `CULTURE_LIST_MAX_STORED=300` — a village's enduring
 legends are meant to read as a curated handful of old tales, not
 hundreds; oldest dropped first, same eviction shape as traditions."""
 
+LEGENDS_MAX_STORED = 16
+"""Cap on `SettlementCulture.legends` — A21 "Temporal compression,"
+first slice (see the field's own docstring). Smaller than `FOLKLORE_
+MAX_STORED`: a legend is meant to be rarer and more significant than
+an ordinary folk tale (it takes `LEGEND_SUBSYSTEM_THRESHOLD` repeated
+noteworthy observations from the SAME subsystem to mint one), so a
+settlement realistically accumulates far fewer of them over its
+lifetime."""
+
 RITUAL_PROMOTION_THRESHOLD = 3
 """How many times a candidate pattern (a festival held, a death mourned
 at a standing shrine) must recur before `SimulationEngine._maybe_
@@ -2177,6 +2186,22 @@ class SettlementCulture:
     omen/chronicle prompts, the same "accumulated interpretation feeds
     future interpretation" loop `beliefs` already established, one
     layer more folk than formal theory."""
+    legends: list[dict] = field(default_factory=list)
+    """A21 "Temporal compression" (roadmap Stage IV step 30, docs/
+    MASTERCHECKLIST-2026-07-22.md), first slice: `{"subsystem": str,
+    "legend": str, "tick": int}` entries — DISTINCT from `folklore`
+    (which condenses raw rumor text). A legend forms from `World.
+    emergence_log`'s already-structured stream instead: `world/
+    legends.py`'s deterministic detector counts this settlement's
+    recent Emergence API observations by `subsystem`, and once one
+    subsystem crosses `LEGEND_SUBSYSTEM_THRESHOLD` the LLM narrates
+    the accumulated pattern into one short legend sentence — "event-
+    aggregate -> LLM-narrate-significant -> deterministic-legend-
+    detection," the doc's own worked pipeline shape, using data this
+    codebase already collects rather than a new raw-text corpus. Once
+    formed, that subsystem's counter resets so the same pattern
+    doesn't keep re-mining the identical legend. Capped at
+    `LEGENDS_MAX_STORED`."""
     beliefs: list[dict] = field(default_factory=list)
     """The village's own accumulated, revisable theories about itself
     (`{subject, belief, confidence, subject_agent_id, ...}`), capped at
@@ -2519,7 +2544,8 @@ class Settlement:
         era: str = "stone_age", era_branch: str = "",
         founding_scenario: str = "", llm_named: bool = False, temperament: float = 0.0,
         beliefs: list[dict] | None = None, belief_digest: str = "", culture_digest: str = "",
-        folklore: list[dict] | None = None, omen_history: list[dict] | None = None,
+        folklore: list[dict] | None = None, legends: list[dict] | None = None,
+        omen_history: list[dict] | None = None,
         player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
         institutions: list[Institution] | None = None, next_institution_id: int = 0,
         caravans_visited: int = 0, fish_caught: int = 0, market_prices: dict | None = None,
@@ -2596,6 +2622,7 @@ class Settlement:
             belief_digest=belief_digest,
             culture_digest=culture_digest,
             folklore=folklore if folklore is not None else [],
+            legends=legends if legends is not None else [],
             place_names=place_names if place_names is not None else {},
             records=records if records is not None else [],
             institutions=institutions if institutions is not None else [],
@@ -2871,6 +2898,14 @@ class Settlement:
     @folklore.setter
     def folklore(self, value: list[dict]) -> None:
         self.culture.folklore = value
+
+    @property
+    def legends(self) -> list[dict]:
+        return self.culture.legends
+
+    @legends.setter
+    def legends(self, value: list[dict]) -> None:
+        self.culture.legends = value
 
     @property
     def institutions(self) -> list[Institution]:
@@ -3555,6 +3590,7 @@ class Settlement:
             "belief_digest": self.belief_digest,
             "culture_digest": self.culture_digest,
             "folklore": list(self.folklore),
+            "legends": list(self.legends),
             "temperament": round(self.temperament, 3),
             "mood": {k: round(v, 3) for k, v in self.mood.items()},
             "omen_history": list(self.omen_history),
@@ -3687,6 +3723,7 @@ class Settlement:
             "belief_digest": self.belief_digest,
             "culture_digest": self.culture_digest,
             "folklore": list(self.folklore),
+            "legends": list(self.legends),
             "temperament": round(self.temperament, 4),
             "mood": {k: round(v, 4) for k, v in self.mood.items()},
             "omen_history": list(self.omen_history),
@@ -3759,6 +3796,7 @@ class Settlement:
             belief_digest=data.get("belief_digest", ""),
             culture_digest=data.get("culture_digest", ""),
             folklore=list(data.get("folklore", [])),
+            legends=list(data.get("legends", [])),
             temperament=data.get("temperament", 0.0),
             mood=dict(data.get("mood", {})),
             omen_history=list(data.get("omen_history", [])),

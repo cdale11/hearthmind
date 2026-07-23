@@ -608,15 +608,37 @@ through-line for nearly every PARTIAL below.
 - [ ] **Feeds:** coherent world-scale story from local rules; lets a
   pillar reason at the scale its attention is at.
 
-### A21 — Temporal compression (event→legend→myth) [det #21] — PRESENT-ish
+### A21 — Temporal compression (event→legend→myth) [det #21] — PARTIAL
 
-- [ ] **Status:** chronicle→documentary→culture-digest, folklore, era
+- [x] **Status: first slice shipped, v1.28.0** (roadmap Stage IV step
+  30). Prior audit found `Settlement.folklore` had no structured
+  subject to detect legends against — resolved by NOT touching
+  folklore at all: new `world/legends.py` + `llm/legend.py` build a
+  SEPARATE, parallel pipeline reusing A22's already-structured
+  Emergence API stream instead (`World.emergence_log`, whose entries
+  already carry a real `subsystem` tag and `settlement` name — no raw-
+  text heuristic needed). Deterministic aggregation (`detect_legend_
+  candidate`: N recent observations from the same subsystem, for the
+  same settlement) → LLM narrates the accumulated pattern into one
+  legend sentence → stored in new `Settlement.legends` (capped,
+  distinct from `folklore`) → deterministic one-legend-per-subsystem-
+  lifetime dedup (a subsystem that already produced a legend is
+  skipped in future detection passes). This is exactly the doc's own
+  "deterministic event-aggregate -> LLM-narrate-significant ->
+  deterministic-legend-detection" shape. New monthly job (`_maybe_
+  schedule_legend_detection`), zero LLM cost most months (same "skip
+  when the precondition guarantees nothing" discipline as folklore/
+  invention). UI: new "Legends" panel, `legend` event-feed icon.
+- [ ] **Status (pre-v1.28.0):** chronicle→documentary→culture-digest, folklore, era
   branches exist — a real strength.
-- [ ] **Spec (deepen):** make it a deterministic pipeline with LLM
-  seasoning, not LLM-per-step: events aggregate (deterministic) →
-  significant ones get LLM-narrated → repeated narratives crystallize
-  into legend (deterministic detection) → legends into myth/tradition/
-  institution. Preserve identity across long timescales cheaply.
+- [ ] **Spec (deepen):** the "legends into myth/tradition/institution"
+  half remains open — a formed legend doesn't yet feed back into
+  tradition/religion/institution formation, or ground future
+  chronicle/dialogue/folklore prompts as "already legendary" context
+  (the way `place_names`/`beliefs` already ground other prompts).
+  Folklore itself also remains untouched/un-unified with this new
+  mechanism — "replacing today's more ad-hoc chronicle/folklore
+  chain" is still aspirational, not attempted this pass.
 - [ ] **Feeds:** years remain cognitively manageable; the knowledge tree
   (terrarium doc 3.2) is this pipeline's output.
 
@@ -1329,16 +1351,14 @@ waiting for a later integration pass.
     dampening) plus live map visibility. A genuinely new second field
     and the "culture aggregates settlements' information-ecosystems"
     half of the spec remain open, flagged.
-30. **A21 Temporal compression pipeline** — deterministic event-
-    aggregate → LLM-narrate-significant → deterministic-legend-
-    detection → myth/tradition pipeline, replacing today's more ad-hoc
-    chronicle/folklore chain. **Not attempted this pass** — audited:
-    `Settlement.folklore` entries carry only a bare `{"tale": str}`,
-    no structured subject/entity field to detect a recurring legend
-    against without a fragile text-heuristic; a real slice needs
-    folklore/chronicle to first gain a grounded subject reference (own
-    follow-up), not a rushed keyword-matching stand-in. Explicitly
-    flagged rather than shipped half-built.
+30. **A21 Temporal compression pipeline — first slice shipped v1.28.0**:
+    deterministic event-aggregate (`world/legends.py`, reusing A22's
+    already-structured Emergence API stream instead of folklore's raw
+    text) → LLM-narrate-significant (`llm/legend.py`) → deterministic
+    one-legend-per-subsystem dedup → `Settlement.legends`. Folding
+    legends back into myth/tradition/institution formation, grounding
+    other prompts with "already legendary" context, and unifying with
+    folklore remain open, flagged — see the A21 section above.
 
 ### Standing discipline (not steps — enforced within every step above)
 
