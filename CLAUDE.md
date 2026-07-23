@@ -527,6 +527,24 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.29.0)
+
+Explicit user request, docs-only: "build an updated roadmap to
+implement all the features from all parts that you deferred for later
+and did not implement in the first pass. This includes porting to
+C++ as well." New `docs/ROADMAP-2026-07-REMAINING.md` — every "still
+open"/flagged item across Part A's 25 det_sys.md items (docs/
+MASTERCHECKLIST-2026-07-22.md), plus the R7 C++-porting backlog,
+extracted close to verbatim from that doc so it stays a faithful
+snapshot rather than a paraphrase that could drift. Includes a 4-tier
+priority ordering (substrate items first — A9's feedback-loop audit,
+A11's hydrology/erosion, A1's remaining fields, A2's diffusion
+operators — down to standing-discipline re-audit items A23-25).
+Explicit scope note in the doc itself: Part B/C and other vision docs
+are NOT re-swept (per CLAUDE.md's own record, substantially shipped
+already) — filed with that scope stated up front rather than assumed,
+since a broader sweep was a real option not silently declined.
+
 ## Current state (v1.28.0)
 
 Explicit user instruction: "Start A21." Full detail: CHANGELOG.md's

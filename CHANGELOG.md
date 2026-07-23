@@ -4,6 +4,31 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.29.0] — Remaining-work roadmap filed (docs only)
+
+Explicit user request: "build an updated roadmap to implement all the
+features from all parts that you deferred for later and did not
+implement in the first pass. This includes porting to C++ as well."
+
+New `docs/ROADMAP-2026-07-REMAINING.md`: every "still open"/flagged
+item across all 25 of Part A's det_sys.md items (docs/MASTERCHECKLIST-
+2026-07-22.md), extracted close to verbatim so it stays a faithful
+snapshot of the source doc, plus the R7 C++-porting backlog (per
+CLAUDE.md's own standing note). A 4-tier priority ordering ranks items
+by how many other open items they unblock and how directly they serve
+emergence — Tier 1 (substrate: A9's feedback-loop audit, A11's
+hydrology/erosion, A1's remaining fields, A2's diffusion operators)
+through Tier 4 (standing review-time discipline: A23-25).
+
+Scope stated explicitly in the doc rather than assumed: Part B (the
+five-pillar Mind) and Part C (the Body↔Mind seam) are NOT re-swept —
+per this project's own CLAUDE.md history, Stages I-III (steps 1-14)
+are substantially shipped already, and re-auditing them wasn't judged
+worth the length this pass would add. Same for other vision/audit docs
+(docs/VISION-*, docs/IDEAS-2026-07-EMERGENCE.md, docs/AUDIT-2026-07-
+20.md), each already marked resolved/historical elsewhere. Docs-only
+pass, no code changes.
+
 ## [1.28.0] — A21 "Temporal compression," first slice — Stage IV fully closed
 
 Explicit user instruction: "Start A21." A prior session's audit found
