@@ -4,6 +4,81 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.19.0] — A8 "Evolutionary Innovation loop," first slice (roadmap Stage IV step 21)
+
+Explicit user instruction: "Next step" — Stage IV step 21, docs/
+MASTERCHECKLIST-2026-07-22.md's A8. `world/ontology.py` already had
+propose/evolve/merge with a real lineage DAG (*generate*); this closes
+the loop with a real *evaluate* + *select* pass — concepts now spread
+AND retire by evaluated survival, not adoption count alone.
+
+*Evaluate*: `evaluate_fitness(world, concept)` — the doc's own "did
+adopters prosper?" — reads as the mean `Population.reputation` (Phase
+L, already-existing, already-cached monthly) of a concept's currently-
+LIVING adopters, relative to its origin settlement's living-population
+mean reputation. Returns `None` (not a faked 0.0) when there's nothing
+real to measure (no living adopters, or no living settlement members).
+
+*Select*: `run_selection(world, tick)`, paired at the exact same
+monthly cadence/call site as the existing `abandon_stale` sweep. Every
+`spreading`/`established` concept gets one fresh fitness reading
+appended to a bounded `fitness_history` (`FITNESS_HISTORY_MAX=8`,
+skipped not zero-padded when unevaluable). Only once at least
+`FITNESS_EVALUATION_MIN_READINGS=3` real readings exist does sustained
+mean fitness below `FITNESS_UNFIT_THRESHOLD=-0.05` retire the concept
+(`status = "retired"` — a new, distinct terminal state from
+`abandoned`: this concept DID catch on for a while, unlike a stale
+`proposed` one that never adopted at all) and revise Innovation's own
+mirrored world-model belief about its hypothesis, same mechanism
+`abandon_stale` already uses. `retired` concepts join `abandoned` ones
+as the first tier `prune_concepts` clears when `MAX_CONCEPTS_STORED`
+is exceeded.
+
+The real consumer wiring: `fit_established_concepts`/`concept_fitness_
+weight` make `_maybe_schedule_ontology_evolution`'s evolve/merge parent
+pick a genuine fitness-WEIGHTED draw (via `random.choices`) instead of
+a flat-uniform `rng.choice` — a concept with a real positive mean
+fitness reading is measurably more likely to become a parent, closing
+the spec's own "fit concepts spread and become parents" framing. An
+un-evaluated or mildly-below-average `established` concept is never
+categorically excluded (floored weight 0.1) — real evolutionary
+diversity, not a hard cutoff duplicating `run_selection`'s own
+retirement bar. `InventedConcept` gained `generation` (0 for an
+original proposal, `max(parents) + 1` for evolve/merge, threaded
+through `register_concept`'s new param) — `parent_ids` itself needed
+no new field, already covered by the existing `lineage` DAG.
+
+Scoped down from the spec's full generate→mutate→evaluate→select
+description: sandbox forward-simulation (`simulation/sandbox.py`,
+A-C) as a fitness input, and grammar-based mutation (A7) as a second
+*generate* path alongside LLM propose/evolve/merge, are real, larger
+follow-ups, explicitly flagged rather than attempted. Every concept
+category (technology/custom/law/ritual/saying/profession/institution_
+flavor/ecological) goes through the same mechanism — farming
+techniques/governance/customs weren't singled out for special
+treatment, matching how `InventedConcept` was already category-
+agnostic.
+
+UI: knowledge-tree entries for a concept with `generation > 0` now show
+a "generation N" marker in the same lineage-bits slot as "evolved
+from"/"merged from" — reachable in the existing 🌳 panel, no new UI
+surface needed.
+
+Verified: direct tests for `evaluate_fitness` (positive/negative
+signal, no-living-adopters, no-settlement-members), `run_selection`
+(sustained-unfitness retirement, history cap, neutral-fitness-stays-
+established, proposed/abandoned concepts never evaluated),
+`concept_fitness_weight`'s neutral/positive/floored-negative cases,
+`fit_established_concepts`' status filter, `register_concept`'s new
+`generation` param, and full `InventedConcept.to_dict`/`from_dict`
+round-trip (including legacy-snapshot backfill to 0/empty-list) plus a
+`World`-level `to_dict`/`from_dict` round trip. A 1500-tick real
+production-path engine run (LLM disabled) completed with no error; a
+direct `knowledge_tree()` test confirms the generation field surfaces
+correctly. `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical, re-run after both the ontology.py changes and the
+state.py/knowledge_tree() change.
+
 ## [1.18.0] — A13 "Chemistry / reaction system," first slice (roadmap Stage IV step 20)
 
 Explicit user instruction: "Next step" — Stage IV step 20, docs/

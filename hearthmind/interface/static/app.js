@@ -694,6 +694,9 @@ function renderKnowledgeTreeEntry(row) {
   if (row.lineage && row.lineage.merged_from) lineageBits.push(`merged from ${row.lineage.merged_from.map((id) => `#${id}`).join(" + ")}`);
   if (row.lineage && row.lineage.supersedes != null) lineageBits.push(`from hypothesis #${row.lineage.supersedes}`);
   if (row.lineage && row.lineage.herd_id != null) lineageBits.push(`herd #${row.lineage.herd_id}`);
+  // A8 "Evolutionary Innovation" (roadmap Stage IV step 21): a real
+  // generation marker on a descendant concept, same lineage-bits slot.
+  if (row.generation) lineageBits.push(`generation ${row.generation}`);
   const lineageText = lineageBits.length ? ` <span class="muted">(${lineageBits.join(", ")})</span>` : "";
   const confText = typeof row.confidence === "number" ? ` <span class="muted">(confidence ${row.confidence.toFixed(2)})</span>` : "";
   // 5.4 "provenance for everything": who/what originated this entry, next

@@ -56,12 +56,12 @@ comparable amount of live tuning behind it."""
 MAX_CONCEPTS_STORED = 400
 """Cap on `World.invented_concepts` — same "prune the least-load-
 bearing entries first" discipline as `INSTITUTION_LIST_MAX_STORED`/
-`CULTURE_LIST_MAX_STORED`: `abandoned` concepts are dropped first
-(oldest first), then (only if still over cap) the oldest `proposed`
-ones — `spreading`/`established` concepts and anything with a lineage
-child pointing at it are never pruned, since deleting a referenced
-parent would corrupt the DAG other concepts' `lineage` fields point
-into."""
+`CULTURE_LIST_MAX_STORED`: `abandoned`/`retired` concepts are dropped
+first (oldest first), then (only if still over cap) the oldest
+`proposed` ones — `spreading`/`established` concepts and anything with
+a lineage child pointing at it are never pruned, since deleting a
+referenced parent would corrupt the DAG other concepts' `lineage`
+fields point into."""
 
 MAX_ADOPTERS_STORED = 40
 """Cap on `InventedConcept.adopter_ids` — enough to comfortably clear
@@ -102,6 +102,28 @@ and reasoning as `folklore.FOLKLORE_DUPLICATE_OVERLAP`: a near-
 restatement of an existing concept's name+description is "nothing
 new," not a fresh entry."""
 
+FITNESS_HISTORY_MAX = 8
+"""Cap on `InventedConcept.fitness_history` — a rolling window, not a
+full lifetime ledger (same bounded-list discipline as every other
+per-entity history in this codebase); recent evaluations matter more
+than a concept's fitness from months ago."""
+
+FITNESS_EVALUATION_MIN_READINGS = 3
+"""A8 "Evolutionary Innovation" (roadmap Stage IV step 21): `run_
+selection` won't retire a concept off a single bad reading — noise in
+any one monthly reputation snapshot shouldn't end a concept's run.
+Only once at least this many real readings have accumulated does the
+selection pass judge sustained unfitness."""
+
+FITNESS_UNFIT_THRESHOLD = -0.05
+"""A concept whose adopters' mean recent reputation trails the origin
+settlement's own living-population mean reputation by at least this
+much, sustained across `FITNESS_EVALUATION_MIN_READINGS` readings, is
+judged genuinely unfit ("did adopters prosper?" — no) and retired.
+Deliberately a small negative margin, not zero — reputation is a noisy
+signal even averaged, and a concept merely tracking the settlement
+average shouldn't be punished."""
+
 
 def _overlap_tokens(text: str) -> set[str]:
     return {w for w in text.lower().split() if len(w) > 3}
@@ -112,10 +134,12 @@ class InventedConcept:
     """One first-class, persistent invented concept — see this
     module's docstring. `status` is the adoption lifecycle
     (`proposed -> spreading -> established`, or `-> abandoned` if it
-    never catches on); a concept is never deleted for having been
-    superseded — `lineage` lets later concepts point back at it
-    instead, so old ideas stay part of the walkable history even once
-    a village has moved past them."""
+    never catches on, or `-> retired` if A8's selection pass judges it
+    genuinely unfit after real adoption — see `run_selection`); a
+    concept is never deleted for having been superseded — `lineage`
+    lets later concepts point back at it instead, so old ideas stay
+    part of the walkable history even once a village has moved past
+    them."""
 
     id: int
     name: str
@@ -147,6 +171,19 @@ class InventedConcept:
     fate (established vs. abandoned) confirms or refutes the original
     hypothesis, instead of leaving Innovation's own belief frozen at
     its initial 0.4 "just proposed" confidence forever."""
+    fitness_history: list[float] = field(default_factory=list)
+    """A8 "Evolutionary Innovation" (roadmap Stage IV step 21): recent
+    `evaluate_fitness` readings, oldest first, capped at `FITNESS_
+    HISTORY_MAX` — the real "did adopters prosper?" evaluate step,
+    distinct from `status`'s adoption-COUNT-only promotion logic above.
+    Empty for a concept never yet evaluated (no living adopters at any
+    monthly sweep so far)."""
+    generation: int = 0
+    """0 for an originally-proposed concept; `max(parent.generation) +
+    1` for one created via `evolve`/`merge` (`register_concept`'s new
+    `generation` param) — a real, walkable "how many rounds of
+    selection produced this idea" counter alongside the existing
+    `lineage` DAG."""
 
     def to_dict(self) -> dict:
         return {
@@ -163,6 +200,8 @@ class InventedConcept:
             "lineage": dict(self.lineage),
             "hypothesis": self.hypothesis,
             "world_model_entry_id": self.world_model_entry_id,
+            "fitness_history": list(self.fitness_history),
+            "generation": self.generation,
         }
 
     @classmethod
@@ -181,6 +220,8 @@ class InventedConcept:
             lineage=dict(data.get("lineage", {})),
             hypothesis=data.get("hypothesis", ""),
             world_model_entry_id=data.get("world_model_entry_id"),
+            fitness_history=list(data.get("fitness_history", [])),
+            generation=data.get("generation", 0),
         )
 
 
@@ -415,12 +456,19 @@ def register_concept(
     world, name: str, description: str, category: str, origin_settlement_id: int,
     tick: int, inventor_agent_id: int | None = None, mechanical_hook: dict | None = None,
     lineage: dict | None = None, hypothesis: str = "", world_model_entry_id: int | None = None,
+    generation: int = 0,
 ) -> InventedConcept:
     """Mints a new `InventedConcept` with the next id, seeds the
     inventor as its first adopter (if any), and prunes the registry if
     it's now over cap. The one mutator that creates new concepts —
     every other write goes through `add_adopter`/`maybe_promote_
-    status`/`abandon_stale` below."""
+    status`/`abandon_stale` below.
+
+    `generation` (A8, roadmap Stage IV step 21): 0 for an original
+    proposal (the default — every existing call site keeps reading as
+    before); `_maybe_schedule_ontology_evolution` passes `parent.
+    generation + 1` (evolve) or `max(a.generation, b.generation) + 1`
+    (merge)."""
     concept_id = world.next_concept_id
     world.next_concept_id += 1
     concept = InventedConcept(
@@ -428,6 +476,7 @@ def register_concept(
         origin_settlement_id=origin_settlement_id, tick_invented=tick,
         inventor_agent_id=inventor_agent_id, mechanical_hook=mechanical_hook,
         lineage=lineage or {}, hypothesis=hypothesis, world_model_entry_id=world_model_entry_id,
+        generation=generation,
     )
     if inventor_agent_id is not None:
         concept.adopter_ids.add(inventor_agent_id)
@@ -529,6 +578,94 @@ def abandon_stale(world, tick: int) -> None:
             _record_hypothesis_outcome(world, concept, tick, confirmed=False)
 
 
+def evaluate_fitness(world, concept: InventedConcept) -> float | None:
+    """A8 "Evolutionary Innovation" (roadmap Stage IV step 21)'s real
+    *evaluate* step: "did adopters prosper?" — the mean `Population.
+    reputation` of a concept's still-LIVING adopters, relative to the
+    mean reputation of its origin settlement's current living
+    population. Positive means adopters are doing measurably better
+    than their neighbors on average; negative means worse. `None` (not
+    evaluable this cycle, not "neutral 0.0") when the concept has no
+    living adopters or its origin settlement currently has nobody
+    living in it — a real "nothing to measure," never faked as a
+    reading."""
+    living_adopters = [a for a in world.population.agents if a.id in concept.adopter_ids]
+    if not living_adopters:
+        return None
+    settlement_members = [
+        a for a in world.population.agents if a.settlement_id == concept.origin_settlement_id
+    ]
+    if not settlement_members:
+        return None
+    adopter_avg = sum(world.population.reputation(a.id) for a in living_adopters) / len(living_adopters)
+    settlement_avg = sum(world.population.reputation(a.id) for a in settlement_members) / len(settlement_members)
+    return adopter_avg - settlement_avg
+
+
+def run_selection(world, tick: int) -> None:
+    """A8's *select* step, paired at the same monthly cadence as
+    `abandon_stale` (see `SimulationEngine._maybe_schedule_ontology_
+    proposal`'s call site): every `spreading`/`established` concept
+    gets one fresh `evaluate_fitness` reading appended to its bounded
+    `fitness_history` (skipped, not zero-padded, when unevaluable this
+    cycle — see that function's docstring). Only once at least `FITNESS_
+    EVALUATION_MIN_READINGS` real readings have accumulated does
+    sustained mean unfitness below `FITNESS_UNFIT_THRESHOLD` retire the
+    concept (`status = "retired"`, distinct from `abandoned` — this
+    concept DID catch on for a while, unlike a stale `proposed` one)
+    and revise Innovation's own mirrored belief about its hypothesis.
+    `proposed`/`abandoned`/`retired` concepts are never evaluated —
+    there is nothing meaningful to select among until real adoption has
+    actually happened."""
+    for concept in world.invented_concepts.values():
+        if concept.status not in ("spreading", "established"):
+            continue
+        fitness = evaluate_fitness(world, concept)
+        if fitness is None:
+            continue
+        concept.fitness_history.append(fitness)
+        if len(concept.fitness_history) > FITNESS_HISTORY_MAX:
+            concept.fitness_history.pop(0)
+        if len(concept.fitness_history) < FITNESS_EVALUATION_MIN_READINGS:
+            continue
+        recent = concept.fitness_history[-FITNESS_EVALUATION_MIN_READINGS:]
+        if sum(recent) / len(recent) < FITNESS_UNFIT_THRESHOLD:
+            concept.status = "retired"
+            _record_hypothesis_outcome(world, concept, tick, confirmed=False)
+
+
+def fit_established_concepts(world) -> list[InventedConcept]:
+    """A8's *select* step, second half: the pool `_maybe_schedule_
+    ontology_evolution`'s evolve/merge should draw parents from —
+    every `established` concept, but weighted so ones with a real
+    positive mean fitness reading are more likely to be chosen (fit
+    concepts becoming parents, per the spec) without categorically
+    excluding an `established` concept that has no fitness reading yet
+    (freshly promoted, hasn't hit a monthly sweep) or a mildly-below-
+    average one that hasn't crossed the `run_selection` retirement bar.
+    Returns concepts in a stable id order; the caller does the actual
+    weighted pick."""
+    return sorted(
+        (c for c in world.invented_concepts.values() if c.status == "established"),
+        key=lambda c: c.id,
+    )
+
+
+def concept_fitness_weight(concept: InventedConcept) -> float:
+    """Selection weight for `fit_established_concepts`' pool — a
+    concept with no fitness reading yet reads as perfectly neutral
+    (weight 1.0, the same as if `evaluate_fitness` returned exactly
+    0.0), so it's neither favored nor penalized before it's had a
+    chance to be measured. Floored well above 0 so an unlucky/unfit
+    concept can still occasionally become a parent (real evolutionary
+    diversity, not a hard cutoff duplicating `run_selection`'s own
+    retirement threshold)."""
+    if not concept.fitness_history:
+        return 1.0
+    mean_fitness = sum(concept.fitness_history) / len(concept.fitness_history)
+    return max(0.1, 1.0 + mean_fitness)
+
+
 def _referenced_ids(world) -> set[int]:
     referenced: set[int] = set()
     for concept in world.invented_concepts.values():
@@ -549,7 +686,7 @@ def prune_concepts(world) -> None:
         return concept.id not in referenced
 
     abandoned = sorted(
-        (c for c in world.invented_concepts.values() if c.status == "abandoned" and prunable(c)),
+        (c for c in world.invented_concepts.values() if c.status in ("abandoned", "retired") and prunable(c)),
         key=lambda c: c.tick_invented,
     )
     for concept in abandoned:

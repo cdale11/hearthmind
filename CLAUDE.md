@@ -527,6 +527,29 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.19.0)
+
+Explicit user instruction: "Next step" — A8 "Evolutionary Innovation
+loop," first slice (roadmap Stage IV step 21, docs/MASTERCHECKLIST-
+2026-07-22.md). Full detail: CHANGELOG.md's [1.19.0] entry.
+
+`world/ontology.py` already had propose/evolve/merge with lineage
+(generate); this pass adds real evaluate + select. `evaluate_fitness`:
+mean `Population.reputation` of a concept's living adopters vs. its
+settlement's living-population mean ("did adopters prosper?").
+`run_selection` (same monthly cadence as `abandon_stale`): sustained
+unfitness over `FITNESS_EVALUATION_MIN_READINGS` readings retires a
+`spreading`/`established` concept to a new `"retired"` status (distinct
+from `abandoned`), revising Innovation's mirrored belief the same way
+`abandon_stale` already does. `_maybe_schedule_ontology_evolution`'s
+evolve/merge parent pick is now fitness-WEIGHTED (`fit_established_
+concepts`/`concept_fitness_weight`, floored so no established concept
+is ever categorically excluded) instead of flat-uniform. New
+`InventedConcept.generation` (0 original, `max(parents)+1` evolved/
+merged) threaded through `register_concept`. Sandbox-forward-sim-as-
+fitness and grammar-based mutation (A7) remain open, flagged. Knowledge
+tree UI gained a "generation N" marker on descendant concepts.
+
 ## Current state (v1.18.0)
 
 Explicit user instruction: "Next step" — A13 "Chemistry / reaction

@@ -194,22 +194,38 @@ through-line for nearly every PARTIAL below.
 
 ### A8 — Evolutionary Innovation (generate→mutate→evaluate→select) [det #8] — PARTIAL
 
-- [ ] **Status:** `ontology.py` has propose/evolve/merge with lineage —
-  but no *fitness/selection* loop; concepts spread by adoption, not by
-  evaluated survival.
-- [ ] **Spec:** Wrap Innovation's output in an evolutionary loop:
-  *generate* (LLM proposes, or grammar A7 mutates an existing concept),
-  *evaluate* (deterministic fitness: did adopters prosper? did the
-  hooked metric improve? sandbox A-C forward-sim), *select* (fit concepts
-  spread and become parents; unfit are abandoned — the status field
-  already exists). Farming techniques, building layouts, governance,
-  customs all evolve this way instead of one-off invention.
-- [ ] **Data model:** each `InventedConcept` gains `fitness_history`,
-  `generation`, `parent_ids` (lineage exists); a selection pass each
-  cycle promotes/retires.
-- [ ] **Feeds:** genuine open-ended tech/culture evolution — the thing
-  Innovation-the-pillar is *for*. Pairs with B-Innovation's cognition:
-  the LLM proposes creatively, the deterministic loop selects ruthlessly.
+- [x] **Status:** **Shipped a first slice, v1.19.0** (roadmap Stage IV
+  step 21). `ontology.py` already had propose/evolve/merge with lineage
+  (*generate*); this pass adds a real *evaluate* + *select* loop on top
+  — concepts now spread AND retire by evaluated survival, not adoption
+  count alone.
+- [x] **Spec:** *evaluate*: `evaluate_fitness(world, concept)` — "did
+  adopters prosper?" read as the mean `Population.reputation` of a
+  concept's living adopters relative to its origin settlement's living-
+  population mean, a real deterministic signal already computed
+  elsewhere in the codebase (Phase L). *select*: `run_selection`
+  (monthly cadence, paired with the existing `abandon_stale` sweep)
+  retires a `spreading`/`established` concept whose mean fitness over
+  its last `FITNESS_EVALUATION_MIN_READINGS` readings falls below
+  `FITNESS_UNFIT_THRESHOLD` (`status = "retired"`, distinct from
+  `abandoned`); `fit_established_concepts`/`concept_fitness_weight`
+  make `_maybe_schedule_ontology_evolution`'s evolve/merge parent pick
+  a real fitness-WEIGHTED draw instead of flat-uniform, so fit concepts
+  are genuinely more likely to become parents. Sandbox forward-sim
+  (A-C's `simulation/sandbox.py`) as a fitness input, and grammar-based
+  mutation (A7) as an alternate *generate* path, remain open — the
+  existing LLM propose/evolve/merge is still the only generate
+  mechanism.
+- [x] **Data model:** `InventedConcept` gained `fitness_history`
+  (bounded, `FITNESS_HISTORY_MAX`) and `generation` (0 for an original
+  proposal, `max(parents) + 1` for evolve/merge) — `parent_ids` itself
+  was already covered by the existing `lineage` DAG, not duplicated.
+- [x] **Feeds:** wired — a fit concept is now more likely to be evolved/
+  merged into a descendant, closing the "LLM proposes creatively, the
+  deterministic loop selects ruthlessly" loop the spec names. Farming
+  techniques/building layouts/governance/customs weren't singled out
+  for special treatment — every `InventedConcept` regardless of
+  category goes through the same real evaluate/select mechanism.
 
 ### A9 — Every subsystem producer + consumer (feedback loops) [det #9] — PARTIAL
 
@@ -1102,7 +1118,9 @@ waiting for a later integration pass.
     mutating world state on a tick) remains open, flagged.
 21. **A8 Evolutionary Innovation loop** — wrap Innovation's output in
     generate→evaluate→select using the fitness/lineage fields already
-    on `InventedConcept`.
+    on `InventedConcept`. **Shipped a first slice, v1.19.0**: see the
+    A8 section above. Sandbox-forward-sim-as-fitness and grammar-based
+    mutation (A7) as a second generate path remain open, flagged.
 22. **A15 Genetic inheritance** — genome vectors, sexual recombination,
     mutation, drift, real differential-fitness selection, replacing
     the current blend+noise trait inheritance.

@@ -1029,6 +1029,10 @@ class World:
                 "tick": concept.tick_invented, "settlement": concept.origin_settlement_id,
                 "lineage": dict(concept.lineage) if concept.lineage else None,
                 "who": _agent_name(concept.inventor_agent_id) or "the village",
+                # A8 "Evolutionary Innovation" (roadmap Stage IV step
+                # 21): 0 for an original proposal, so only a genuine
+                # evolve/merge descendant surfaces a generation marker.
+                "generation": concept.generation if concept.generation > 0 else None,
             })
         for settlement in self.settlements:
             for i, law in enumerate(settlement.laws):

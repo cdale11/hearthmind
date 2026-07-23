@@ -3925,6 +3925,10 @@ class SimulationEngine:
             return
         self._mark_season_year_resolved("ontology_proposal")
         ontology.abandon_stale(self.world, self.world.clock.tick_count)
+        # A8 "Evolutionary Innovation" (roadmap Stage IV step 21): the
+        # real *evaluate* step, same monthly cadence/call site as
+        # abandon_stale immediately above.
+        ontology.run_selection(self.world, self.world.clock.tick_count)
         chance = min(1.0, INVENTION_CHANCE_PER_SEASON * education_invention_bonus(settlement.education_level))
         # Vision item 5.3: self-tuning's bounded nudge on ontology
         # coherence, if any has ever been applied.
@@ -4043,19 +4047,39 @@ class SimulationEngine:
         if self._settlement_job_backpressured():
             return
         self._mark_season_year_resolved("ontology_evolution")
-        established = [c for c in self.world.invented_concepts.values() if c.status == "established"]
+        # A8 "Evolutionary Innovation" (roadmap Stage IV step 21)'s
+        # *select* step: draw from the fitness-weighted pool, not a
+        # flat uniform choice among every established concept — a
+        # concept with a real positive fitness reading is genuinely
+        # more likely to become a parent (see `ontology.concept_
+        # fitness_weight`'s docstring for why an un-evaluated or
+        # mildly-below-average concept still gets a real, non-zero
+        # chance).
+        established = ontology.fit_established_concepts(self.world)
         if not established:
             return
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "ontology_evolution_pick")
         do_merge = len(established) >= 2 and rng.random() < 0.5
+
+        def weighted_pick(count: int) -> list:
+            pool = list(established)
+            picked = []
+            for _ in range(min(count, len(pool))):
+                weights = [ontology.concept_fitness_weight(c) for c in pool]
+                choice = rng.choices(pool, weights=weights, k=1)[0]
+                picked.append(choice)
+                pool.remove(choice)
+            return picked
+
         settlement = self._settlement_by_id(established[0].origin_settlement_id) or self._job_target()
         if do_merge:
-            a, b = rng.sample(established, 2)
+            a, b = weighted_pick(2)
             prompt = ontology_llm.build_merge_prompt(a.name, a.description, b.name, b.description, settlement.name or "The village")
             fallback = ontology_llm.fallback_merge(a.name, b.name)
             system_prompt = ontology_llm.SYSTEM_PROMPT_MERGE
             parent_ids = [a.id, b.id]
             category, hook, origin_settlement_id = a.category, a.mechanical_hook, a.origin_settlement_id
+            child_generation = max(a.generation, b.generation) + 1
 
             def apply(result: dict, used_fallback: bool) -> None:
                 name, description = ontology_llm.parse_merge(result, fallback)
@@ -4064,16 +4088,17 @@ class SimulationEngine:
                 concept = ontology.register_concept(
                     self.world, name=name, description=description, category=category,
                     origin_settlement_id=origin_settlement_id, tick=self.world.clock.tick_count,
-                    mechanical_hook=hook, lineage={"merged_from": parent_ids},
+                    mechanical_hook=hook, lineage={"merged_from": parent_ids}, generation=child_generation,
                 )
                 self._log("ontology", f"Two ideas combined into {concept.name}: {concept.description}")
         else:
-            parent = rng.choice(established)
+            parent = weighted_pick(1)[0]
             prompt = ontology_llm.build_evolve_prompt(parent.name, parent.description, settlement.name or "The village", [])
             fallback = ontology_llm.fallback_evolve(parent.name)
             system_prompt = ontology_llm.SYSTEM_PROMPT_EVOLVE
             parent_id = parent.id
             category, hook, origin_settlement_id = parent.category, parent.mechanical_hook, parent.origin_settlement_id
+            child_generation = parent.generation + 1
 
             def apply(result: dict, used_fallback: bool) -> None:
                 name, description = ontology_llm.parse_evolve(result, fallback)
@@ -4082,7 +4107,7 @@ class SimulationEngine:
                 concept = ontology.register_concept(
                     self.world, name=name, description=description, category=category,
                     origin_settlement_id=origin_settlement_id, tick=self.world.clock.tick_count,
-                    mechanical_hook=hook, lineage={"evolved_from": parent_id},
+                    mechanical_hook=hook, lineage={"evolved_from": parent_id}, generation=child_generation,
                 )
                 self._log("ontology", f"An old idea evolved into {concept.name}: {concept.description}")
 
