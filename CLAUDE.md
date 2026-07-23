@@ -527,6 +527,23 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.32.0)
+
+Explicit user instruction: "start with tier 0" (docs/ROADMAP-2026-07-
+REMAINING.md's top item — B1/B2/B3/B7 each shipped on the strength of
+one representative job per pillar; ~50 other LLM call sites untouched
+by the pillar abstraction). First slice only (the full refactor is
+too large for one batch, per the roadmap's own note): one additional
+real production job per pillar now mirrors into that pillar's `world_
+model`/`memory` — invention -> Innovation, self_tuning -> Reflection
+(applied nudges only), institution_belief -> Village, dream -> Humans
+(memory-only, deliberately no world_model entry — a dream is symbolic
+content, not a collective theory). Doubles wired coverage from 1 to 2
+jobs/pillar. Verified via direct production-path smoke tests (fake
+LLM client driving each job's real gating conditions) confirming
+correct world_model/memory writes, plus a clean 4000-tick soak. Full
+detail: CHANGELOG.md's [1.32.0] entry.
+
 ## Current state (v1.31.0)
 
 Explicit user request: "audit the master checklist deep pass and see

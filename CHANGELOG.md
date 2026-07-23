@@ -4,6 +4,58 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.32.0] — Tier 0 first slice: widen pillar coverage beyond one job each
+
+Explicit user instruction: "start with tier 0" (`docs/ROADMAP-2026-07-
+REMAINING.md`'s own top-priority item — B1/B2/B3/B7 are each marked
+"shipped" on the strength of exactly ONE representative production job
+per pillar; the other ~50 LLM call sites in the codebase remain
+untouched by the pillar abstraction). The full item names refactoring
+all ~55 scattered jobs — genuinely too large for one batch, per the
+roadmap doc's own note ("sequence it whenever a real multi-week push
+is available, not as a quick follow-up"). This pass ships a real,
+honest FIRST SLICE: one additional real production job per pillar
+mirrors into that pillar's persistent `world_model`/`memory`, the same
+shape `nature_mind` already established for Nature — doubling wired
+coverage from 1 job/pillar to 2, not the full 55-job refactor.
+
+New second job per pillar (all pre-existing, unchanged mechanically —
+purely additive mirroring, zero new LLM calls):
+- **Innovation**: `_maybe_schedule_invention` — an established
+  invention is a settled fact, not a revisable theory, so it mirrors
+  as `status="observation"` (confidence 1.0), distinct from ontology_
+  proposal's `hypothesis` entries.
+- **Reflection**: `_maybe_schedule_self_tuning` — a genuinely APPLIED
+  governor nudge (sandbox-validated, not just proposed) mirrors as an
+  `observation` too; a rejected/no-op nudge does not (nothing changed).
+- **Village**: `_maybe_schedule_institution_belief` — an institution's
+  own theory (FAMILY/COUNCIL/GUILD) is real Village-domain civic life,
+  mirrored as a `hypothesis` alongside settlement-wide belief revision,
+  tagged `source="institution_belief:<label>"`.
+- **Humans**: `_maybe_schedule_dream` — deliberately memory-only, NOT a
+  `world_model` entry: a dream is symbolic content, not a theory the
+  collective holds (Phase G's ambiguity discipline stays intact).
+
+Verified via direct production-path smoke tests (a `SimulationEngine`
+built with `load_or_create` and a fake instant-responding LLM client,
+same shape as the project's other ad-hoc verification scripts): each
+of the four new mirror sites was driven through its own real gating
+conditions (settlement prosperity for invention, a real `Institution`
+member for institution_belief, a `supported` reflection hypothesis
+naming a real `TUNABLE_GOVERNORS` key for self_tuning, the existing
+monthly round-robin for dream) and confirmed to write the expected
+`world_model`/`memory` entry with correct subject/belief/confidence/
+source. A separate 4000-tick unattended soak (fake client, LLM
+"enabled") ran clean with zero exceptions. `scripts/verify_native_
+soak.py` not needed — no native module or persisted-field shape
+touched, this only appends to fields the persistence layer already
+round-trips generically.
+
+Remaining ~50 job sites, B4/B8's one-sided gaps, and the full "acts of
+five pillars" refactor stay open — recorded in `docs/ROADMAP-2026-07-
+REMAINING.md`'s Tier 0 entry, unchanged; this is a slice of it, not a
+close-out.
+
 ## [1.31.0] — Remaining-work roadmap: deep re-pass confirms completeness (docs only)
 
 Explicit user request: "audit the master checklist deep pass and see

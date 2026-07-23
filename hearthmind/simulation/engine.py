@@ -3972,6 +3972,18 @@ class SimulationEngine:
                     if category != "general" else None
                 ),
             )
+            # Tier 0 first slice (docs/ROADMAP-2026-07-REMAINING.md):
+            # invention becomes Innovation pillar's SECOND real wired
+            # job, alongside ontology_proposal — same mirror-into-
+            # world_model shape nature_mind established for Nature.
+            # An established invention is a settled fact, not a
+            # revisable theory, hence status="observation" (confidence
+            # 1.0) rather than "hypothesis".
+            self.world.innovation_pillar.upsert_world_model(
+                self.world.clock.tick_count, name, description, 1.0,
+                status="observation", source="invention",
+            )
+            self.world.innovation_pillar.remember(f"Invented {name}: {description}")
 
         # Innovation & discovery: naming/scoping a genuinely new idea
         # warrants a real reasoning trace, same treatment as ontology
@@ -6267,6 +6279,19 @@ class SimulationEngine:
                     f"Hearthmind adjusted {hypothesis_subject} on its own judgment: {parsed['rationale']} "
                     f"(multiplier {current_multiplier:.2f} -> {new_multiplier:.2f}).",
                 )
+                # Tier 0 first slice (docs/ROADMAP-2026-07-REMAINING.md):
+                # self_tuning becomes Reflection pillar's SECOND real
+                # wired job, alongside reflection itself — a genuinely
+                # APPLIED nudge (sandbox-validated, not just proposed)
+                # is a real fact about what Reflection did, not a
+                # revisable theory, hence "observation".
+                self.world.reflection_pillar.upsert_world_model(
+                    self.world.clock.tick_count, hypothesis_subject, parsed["rationale"], 0.8,
+                    status="observation", source="self_tuning",
+                )
+                self.world.reflection_pillar.remember(
+                    f"Acted on my own hypothesis about {hypothesis_subject}: {parsed['rationale']}"
+                )
 
             task = asyncio.create_task(_validate_and_tune())
             self._background_tasks.add(task)
@@ -6978,6 +7003,13 @@ class SimulationEngine:
                 return  # died between scheduling and resolution
             dream_text = dream.parse_dream(result, fallback)
             _remember(target, f"Dreamed: {dream_text}")
+            # Tier 0 first slice (docs/ROADMAP-2026-07-REMAINING.md):
+            # dream becomes Humans pillar's SECOND real wired job,
+            # alongside narrative_direction — a memory note only, never
+            # a world_model belief (a dream is symbolic content, not a
+            # theory the collective holds — Phase G's ambiguity
+            # discipline stays intact).
+            self.world.humans_pillar.remember(f"{target.name} dreamed: {dream_text}")
             if not used_fallback and self.world.settlement.dream_seed == symbol_seed:
                 self.world.settlement.dream_seed = ""
 
@@ -7712,6 +7744,16 @@ class SimulationEngine:
                 f"The {label} {'revised its view' if verb == 'revised' else 'came to believe something'}"
                 f" of {parsed['subject']}: {parsed['belief']}",
             )
+            # Tier 0 first slice (docs/ROADMAP-2026-07-REMAINING.md):
+            # institution_belief becomes Village pillar's SECOND real
+            # wired job, alongside beliefs — an institution's own
+            # theory genuinely is Village-domain civic life, mirrored
+            # the same way settlement-wide belief revision already is.
+            self.world.village_pillar.upsert_world_model(
+                self.world.clock.tick_count, parsed["subject"], parsed["belief"], parsed["confidence"],
+                source=f"institution_belief:{label}",
+            )
+            self.world.village_pillar.remember(f"The {label} came to believe of {parsed['subject']}: {parsed['belief']}")
 
         # Council deliberation (and FAMILY/GUILD's own equivalent):
         # institutional belief formation is genuine collective judgment

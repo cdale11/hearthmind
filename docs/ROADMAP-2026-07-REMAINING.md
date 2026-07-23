@@ -51,6 +51,19 @@ tier is arbitrary.
    single Part A item; sequence it whenever a real multi-week push is
    available, not as a quick follow-up.
 
+   **First slice shipped, v1.32.0**: a SECOND real production job per
+   pillar now mirrors into `world_model`/`memory` (invention ->
+   Innovation, self_tuning -> Reflection, institution_belief ->
+   Village, dream -> Humans, memory-only). 2 of ~55 jobs/pillar wired
+   per pillar now, not 1 — real progress, nowhere near closed. Still
+   fully open: observe/interpret CYCLING for any of these new sites
+   (they fire on their own existing cadence, not through `_pillar_
+   observe_turn`/`_pillar_interpret_backpressured`), attention-budget
+   arbitration for them, inbox/outbox participation, and the other
+   ~48 remaining call sites (dialogue, chronicle, dispute, founding,
+   omens, culture jobs, festival, religion, laws, diplomacy, letters,
+   migration, fission, caravan, etc.).
+
 **Tier 1 — substrate items other systems will lean on**
 1. **A9** — feedback-loop audit (every subsystem reads upstream AND
    writes downstream). Not a feature; a review pass that likely finds
