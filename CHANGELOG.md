@@ -4,6 +4,33 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.31.0] — Remaining-work roadmap: deep re-pass confirms completeness (docs only)
+
+Explicit user request: "audit the master checklist deep pass and see
+if there is anything else you have left out to implement and add that
+to roadmap too."
+
+Full verification pass: every `### A`/`### B`/`### C` heading in
+`docs/MASTERCHECKLIST-2026-07-22.md` cross-checked 1:1 against `docs/
+ROADMAP-2026-07-REMAINING.md`'s own section headings (all 25+9+5 = 39
+items present); every "remain(s) open, flagged"/"NOT attempted"/"NOT
+built" occurrence in the source doc located via direct search and
+traced back to something already recorded in the roadmap — none
+missing.
+
+Two genuine findings added as a new "Addenda" section: (1) A11's R7
+native-port deferral is justified differently than its neighbors
+(weather/terrain-evolution/disasters are low-density; hydrology is
+a from-scratch mechanism needing live shape-validation first) — worth
+distinguishing before assuming it's next-in-line for the same reason.
+(2) A loose thread in the SOURCE doc itself, not a code gap: its own
+footer states the Humans-collective-vs-individual disagreement
+question "needs an explicit user decision before step 14 ships," but
+step 14 (B7) shipped in v1.12.0 by adopting the doc's own stated
+default rather than a fresh confirmation — functionally resolved,
+footer never updated to say so. No code action; optional doc
+correction only.
+
 ## [1.30.0] — Remaining-work roadmap extended to Part B/C (docs only)
 
 Explicit user follow-up: "add items from part B and C too why did you

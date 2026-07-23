@@ -527,6 +527,24 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.31.0)
+
+Explicit user request: "audit the master checklist deep pass and see
+if there is anything else you have left out to implement and add that
+to roadmap too." Full detail: CHANGELOG.md's [1.31.0] entry.
+
+Verified `docs/ROADMAP-2026-07-REMAINING.md` covers all 39 Master
+Checklist items (25 Body + 9 Mind + 5 Seam) 1:1, and every "remain
+open"/"not attempted"/"not built" note in the source doc traces back
+to something already recorded — nothing missing. Two minor findings
+added as an "Addenda" section: A11's hydrology R7-deferral is
+justified differently than its neighbors (new-mechanism-needs-
+validation, not low-density); the Master Checklist's own footer never
+got updated to reflect that B7's "open design decision" was in fact
+resolved (by adopting the doc's own stated default) when step 14
+shipped in v1.12.0 — a documentation loose end in the source doc, not
+a code gap. Docs-only.
+
 ## Current state (v1.30.0)
 
 Explicit user follow-up: "add items from part B and C too why did you

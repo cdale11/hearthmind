@@ -410,6 +410,45 @@ is genuinely turning unattended yet.
 
 ---
 
+## Addenda from a deep re-pass of the checklist doc
+
+Two things the per-item sections above don't fully surface, found by
+reading the doc's own footer/roadmap-appendix sections end to end
+rather than stopping at the per-item write-ups:
+
+- **A11's R7 native-port deviation has a different justification than
+  most.** Every other flagged "not yet ported to C++" item in this
+  document (weather, terrain evolution, disasters) is deferred because
+  it's genuinely low-density/not-a-measured-hotspot. `world/hydrology_
+  field.py` is deferred for a DIFFERENT reason, per its own module
+  docstring: it's a from-scratch mechanism whose exact shape needs
+  live validation before locking into a compiled interface — worth
+  knowing before assuming it's just next-in-line for the same
+  low-density reasoning as its neighbors.
+- **A loose thread in the source doc itself, not a code gap:** the
+  Master Checklist's own closing section ("Open design decision")
+  states the Humans-collective-vs-individual-NPC disagreement question
+  formally "needs an explicit user decision before step 14 ships."
+  Step 14 (B7) DID ship (v1.12.0) — but by adopting the doc's own
+  stated *default* ("individual acts locally, collective sets the
+  mood/direction"), not via a fresh explicit confirmation matching
+  that footer's literal requirement. Functionally resolved (the
+  default is sound and already load-bearing in shipped code); flagged
+  here only because the checklist doc's own footer note was never
+  updated to reflect that resolution, and a future reader taking that
+  footer at face value could wrongly conclude B7 never really shipped.
+  No code action needed — an optional one-line correction to `docs/
+  MASTERCHECKLIST-2026-07-22.md`'s own footer, if that doc is ever
+  revised again.
+
+No further items were found beyond what's already recorded in the
+Part A/B/C sections above — every "remain(s) open, flagged"/"NOT
+attempted"/"NOT built" occurrence in the source doc (cross-checked via
+direct search, not sampling) traces back to something already listed
+in this roadmap.
+
+---
+
 ## C++ native-porting backlog
 
 Per CLAUDE.md's own standing R7 note (Engineering Constitution, "the CA
