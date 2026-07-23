@@ -77,6 +77,7 @@ from hearthmind.agents.agent import (
     MEMORY_REPETITION_DAMPING,
     MEMORY_REPETITION_OVERLAP_THRESHOLD,
     _overlap_tokens,
+    seed_founder_genome,
     DEATHBED_SECRET_HEIR_CHANCE,
     DEATHBED_SECRET_RUMOR_CHANCE,
     DEATHBED_SECRET_RUMOR_LISTENER_COUNT,
@@ -108,6 +109,9 @@ from hearthmind.agents.agent import (
     FORAGE_HUNGER_THRESHOLD,
     FORAGE_INVENTORY_SKIM,
     GATHER_TOOLS_YIELD_BONUS,
+    GENOME_MUTATION_CHANCE,
+    GENOME_MUTATION_STDDEV,
+    GENOME_TRAITS,
     GOSSIP_OPINION_CONTAGION,
     GOSSIP_OPINION_MAX_STEP,
     GRIEF_ENERGY_PENALTY,
@@ -182,7 +186,6 @@ from hearthmind.agents.agent import (
     TRAIT_AMBITION_FOUNDER_SELECTION_WEIGHT,
     TRAIT_AMBITION_FOUNDING_NUDGE,
     TRAIT_AMBITION_MASTERY_NUDGE,
-    TRAIT_INHERITANCE_MUTATION_STDDEV,
     TRAIT_FEUD_SOCIABILITY_NUDGE,
     TRAIT_GRIEF_NUDGE,
     TRAIT_MEAN_REVERSION_AMBITION,
@@ -1328,25 +1331,56 @@ the shared TRAIT_MEAN_REVERSION, since both now have real, frequent
 bidirectional event nudges and don't need a faster artificial pull."""
 
 
-_INHERITABLE_TRAITS = (TRAIT_RESILIENCE, TRAIT_SOCIABILITY, TRAIT_AMBITION, TRAIT_OPENNESS)
+_INHERITABLE_TRAITS = GENOME_TRAITS
+"""Kept as a population.py-local alias (some earlier call sites/reading
+this file expect the name here) — the actual closed vocabulary now
+lives once, in `agent.GENOME_TRAITS`, so the two can never drift apart."""
 
 
-def _inherited_traits(a: Agent, b: Agent, rng: random.Random) -> dict[str, float]:
-    """v0.87.6, "heritable temperament with mutation" — a newborn's
-    trait vector blends its two parents' values (average, since neither
-    parent should dominate) plus independent Gaussian mutation noise per
-    axis (TRAIT_INHERITANCE_MUTATION_STDDEV), clamped back to -1..1. Any
-    axis absent on a parent reads as its neutral 0.0 default, same as
-    every other trait read in this module. Called once per birth in
-    `_maybe_reproduce`; zero LLM cost."""
-    return {
-        trait: clamp(
-            (a.traits.get(trait, 0.0) + b.traits.get(trait, 0.0)) / 2.0
-            + rng.gauss(0.0, TRAIT_INHERITANCE_MUTATION_STDDEV),
-            -1.0, 1.0,
-        )
-        for trait in _INHERITABLE_TRAITS
-    }
+def _agent_allele_pair(agent: Agent, trait: str) -> tuple[float, float]:
+    """A15 (roadmap Stage IV step 22): an agent's two alleles for
+    `trait`, or — for an agent with no recorded genome (every pre-A15
+    snapshot, or a legacy code path that still constructs an `Agent`
+    without one) — both reading as its current expressed phenotype
+    value, i.e. "genome unknown, assume homozygous at the observed
+    trait." Keeps inheritance total: a genome-less parent still
+    contributes real (if less granular) heredity, never a crash or a
+    silently-skipped axis."""
+    pair = agent.genome.get(trait)
+    if pair is not None:
+        return pair
+    value = agent.traits.get(trait, 0.0)
+    return (value, value)
+
+
+def _inherited_genome_and_traits(
+    a: Agent, b: Agent, rng: random.Random,
+) -> tuple[dict[str, tuple[float, float]], dict[str, float]]:
+    """A15 "Genetic inheritance" (roadmap Stage IV step 22), replacing
+    v0.87.6's flat parent-average+noise blend with real Mendelian-style
+    inheritance: for each `GENOME_TRAITS` axis, the child receives ONE
+    allele independently drawn from each parent's own diploid pair
+    (real genetic drift — which of the two alleles gets passed on is
+    random per axis per parent), each independently subject to
+    `GENOME_MUTATION_CHANCE` of being replaced by a fresh mutated value
+    (`GENOME_MUTATION_STDDEV`) instead of copied verbatim (real
+    mutation, distinct from drift). The child's expressed `traits`
+    value for each axis is the mean of its own two new alleles — same
+    "-1..1, 0.0 neutral" phenotype convention every trait-consuming
+    call site already expects, so nothing downstream needs to change.
+    Called once per birth in `_maybe_reproduce`; zero LLM cost."""
+    genome: dict[str, tuple[float, float]] = {}
+    traits: dict[str, float] = {}
+    for trait in GENOME_TRAITS:
+        alleles = []
+        for parent in (a, b):
+            allele = rng.choice(_agent_allele_pair(parent, trait))
+            if rng.random() < GENOME_MUTATION_CHANCE:
+                allele = clamp(rng.gauss(0.0, GENOME_MUTATION_STDDEV), -1.0, 1.0)
+            alleles.append(allele)
+        genome[trait] = (alleles[0], alleles[1])
+        traits[trait] = clamp((alleles[0] + alleles[1]) / 2.0, -1.0, 1.0)
+    return genome, traits
 
 
 def _prune_extinct_families(settlement: Settlement, living_ids: set[int]) -> None:
@@ -1742,7 +1776,11 @@ class Population:
         for i in range(count):
             x, y = rng.choice(spots)
             max_age = rng.randint(MIN_LIFESPAN_TICKS, MAX_LIFESPAN_TICKS)
-            agents.append(Agent(id=i, name=names[i], x=x, y=y, max_age_ticks=max_age))
+            genome = seed_founder_genome(rng)
+            traits = {trait: (a + b) / 2.0 for trait, (a, b) in genome.items()}
+            agents.append(Agent(
+                id=i, name=names[i], x=x, y=y, max_age_ticks=max_age, genome=genome, traits=traits,
+            ))
         return cls(agents=agents, _next_id=count)
 
     def spawn_successor_founders(
@@ -1776,9 +1814,12 @@ class Population:
         for i in range(count):
             x, y = rng.choice(spots)
             max_age = rng.randint(MIN_LIFESPAN_TICKS, MAX_LIFESPAN_TICKS)
+            genome = seed_founder_genome(rng)
+            traits = {trait: (a + b) / 2.0 for trait, (a, b) in genome.items()}
             agent = Agent(
                 id=self._next_id, name=names[i], x=x, y=y,
                 max_age_ticks=max_age, settlement_id=settlement_id,
+                genome=genome, traits=traits,
             )
             self._next_id += 1
             self._adopt(agent)
@@ -4283,6 +4324,7 @@ class Population:
 
                 child_name = self._unique_name(rng, extra_taken=newborn_names)
                 newborn_names.add(child_name)
+                child_genome, child_traits = _inherited_genome_and_traits(a, b, rng)
                 child = Agent(
                     id=self._next_id,
                     name=child_name,
@@ -4291,7 +4333,8 @@ class Population:
                     max_age_ticks=rng.randint(MIN_LIFESPAN_TICKS, MAX_LIFESPAN_TICKS),
                     parents=(a.id, b.id),
                     settlement_id=home.id,
-                    traits=_inherited_traits(a, b, rng),
+                    genome=child_genome,
+                    traits=child_traits,
                 )
                 self._next_id += 1
                 newborns.append(child)

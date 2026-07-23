@@ -1082,21 +1082,13 @@ rather than by hardship/social contact like resilience/sociability —
 ambition is earned, not suffered or given."""
 
 TRAIT_INHERITANCE_MUTATION_STDDEV = 0.15
-"""How far a newborn's inherited trait axis (see `Population._maybe_
-reproduce`'s call to `_inherited_traits`) is allowed to drift from the
-exact average of its two parents' values — v0.87.6, "heritable
-temperament with mutation" (docs/IDEAS-2026-07-EMERGENCE.md §1).
-Sampled via `rng.gauss(0.0, TRAIT_INHERITANCE_MUTATION_STDDEV)` per
-axis, then clamped back into -1..1 alongside the parent-average. Small
-enough that a family's character is a real, recognizable statistical
-tendency across generations (the beliefs/folklore layer can notice and
-name "the stubborn Aldertons") rather than pure noise, but not so small
-that lineages become deterministic clones of their founders — every
-prior founder started at a neutral 0.0 on all four axes (traits are
-never rolled at spawn, only earned via lifetime event nudges — see
-TRAIT_RESILIENCE/TRAIT_SOCIABILITY below), so this is the first source
-of inherited (rather than purely lived) trait variance in the
-simulation."""
+"""v0.87.6, "heritable temperament with mutation" (docs/IDEAS-2026-07-
+EMERGENCE.md §1) — the original flat parent-average-plus-noise blend
+this constant sized. Superseded by A15's real Mendelian-style genome
+inheritance (`GENOME_MUTATION_CHANCE`/`GENOME_MUTATION_STDDEV`,
+`Population._inherited_genome_and_traits`) as of roadmap Stage IV step
+22 — kept only as a historical record of the value this project
+carried before genetics existed; no code reads it any longer."""
 
 TRAIT_OPENNESS = "openness"
 """H6 v4 (docs/DECISIONS.md "continue expanding" pass): a fourth axis,
@@ -1109,6 +1101,54 @@ TRAIT_OPENNESS_CARAVAN_NUDGE); unlike ambition (earned through
 achievement) or resilience (worn by hardship), openness is shaped by
 exposure — the one thing a small, mostly-isolated village rarely
 gets."""
+
+GENOME_FOUNDER_ALLELE_STDDEV = 0.35
+"""A15 "Genetic inheritance" (roadmap Stage IV step 22): a founder's two
+alleles per inheritable trait axis (`_INHERITABLE_TRAITS`, `Population.
+_inherited_genome_and_traits`) are each drawn independently from
+`N(0, this)`, clamped -1..1 — real initial genetic diversity a founding
+population never had before (every prior founder started flat 0.0 on
+all four axes; see `TRAIT_INHERITANCE_MUTATION_STDDEV`'s docstring for
+why that was previously the ONLY source of trait variance). Moderate
+spread: most founders land near-neutral, some noticeably lean one way,
+matching how a small real founding party would plausibly vary."""
+
+GENOME_MUTATION_CHANCE = 0.08
+"""Per-allele mutation probability at inheritance — real genetic drift/
+mutation, distinct from the deterministic parent-average blend it
+replaces. Each of a child's two alleles per trait is independently
+either a straight copy of one randomly-chosen parental allele (real
+Mendelian-style assortment) or, at this chance, a mutated value instead
+(`GENOME_MUTATION_STDDEV`)."""
+
+GENOME_MUTATION_STDDEV = 0.25
+"""Size of a mutation event when `GENOME_MUTATION_CHANCE` triggers —
+larger than the old flat `TRAIT_INHERITANCE_MUTATION_STDDEV` blend-
+noise since a real mutation is now a rare, allele-specific event rather
+than guaranteed small noise applied to every birth on every axis."""
+
+GENOME_TRAITS: tuple[str, ...] = (TRAIT_RESILIENCE, TRAIT_SOCIABILITY, TRAIT_AMBITION, TRAIT_OPENNESS)
+"""The heritable trait axes a genome covers — deliberately the exact
+same set as `Population._INHERITABLE_TRAITS` (kept as two names in two
+modules only because `_INHERITABLE_TRAITS` is population.py-private;
+they must never drift apart)."""
+
+
+def seed_founder_genome(rng) -> dict[str, tuple[float, float]]:
+    """A15 (roadmap Stage IV step 22): a fresh founder's diploid genome
+    — two independently-drawn alleles per `GENOME_TRAITS` axis, real
+    initial genetic diversity (see `GENOME_FOUNDER_ALLELE_STDDEV`'s
+    docstring). Called once per founder in `Population.spawn_initial`/
+    `spawn_successor_founders`; the expressed `Agent.traits` value for
+    each axis is the mean of its two alleles, computed by the caller."""
+    return {
+        trait: (
+            clamp(rng.gauss(0.0, GENOME_FOUNDER_ALLELE_STDDEV), -1.0, 1.0),
+            clamp(rng.gauss(0.0, GENOME_FOUNDER_ALLELE_STDDEV), -1.0, 1.0),
+        )
+        for trait in GENOME_TRAITS
+    }
+
 
 TRAIT_STEP_MAX = 0.02
 TRAIT_MEAN_REVERSION = 0.99
@@ -1740,6 +1780,7 @@ class Agent:
         life_event_since_goal: bool = False,
         hardened_traits: "set[str] | None" = None,
         extreme_event_count: int = 0,
+        genome: dict[str, tuple[float, float]] | None = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -2047,6 +2088,16 @@ class Agent:
         self.core_memory_salience: list[float] = (
             [] if core_memory_salience is None else core_memory_salience
         )
+        # A15 "Genetic inheritance" (roadmap Stage IV step 22): the
+        # heritable substrate `traits` (the EXPRESSED/phenotype value,
+        # unchanged in meaning or in every consuming call site) is
+        # derived from — `{trait_name: (allele_a, allele_b)}`, each
+        # allele -1..1. `{}` for an agent with no genome recorded
+        # (every pre-A15 snapshot, and any agent this pass doesn't
+        # explicitly seed) — `_inherited_genome` treats a missing
+        # genome as "homozygous at the current phenotype," so
+        # inheritance stays total even from a genome-less parent.
+        self.genome: dict[str, tuple[float, float]] = {} if genome is None else genome
 
     # --- native-store attach + scalar properties ---------------------------
 
@@ -2289,6 +2340,9 @@ class Agent:
             "core_memories": list(self.core_memories),
             "core_memory_salience": [round(v, 4) for v in self.core_memory_salience],
             "standing_penalty": round(self.standing_penalty, 4),
+            "genome": {
+                trait: [round(a, 4), round(b, 4)] for trait, (a, b) in self.genome.items()
+            },
         }
 
     @classmethod
@@ -2372,6 +2426,10 @@ class Agent:
             core_memories=list(data.get("core_memories", [])),
             core_memory_salience=list(data.get("core_memory_salience", [])),
             standing_penalty=data.get("standing_penalty", 0.0),
+            genome={
+                trait: (float(pair[0]), float(pair[1]))
+                for trait, pair in data.get("genome", {}).items()
+            },
         )
         for other_id_str, extra in data.get("ledger_extra", {}).items():
             edge = _agent.ledger.get_or_create(int(other_id_str))

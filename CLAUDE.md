@@ -527,6 +527,31 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.20.0)
+
+Explicit user instruction: "Next step" — A15 "Genetic inheritance,"
+first slice, scoped to humans (roadmap Stage IV step 22, docs/
+MASTERCHECKLIST-2026-07-22.md). Full detail: CHANGELOG.md's [1.20.0]
+entry.
+
+Replaces v0.87.6's flat parent-average+noise trait blend with real
+diploid genetics: `Agent.genome: dict[trait, (allele_a, allele_b)]`
+over the four existing psychology axes; `Agent.traits` (unchanged
+meaning, every consuming call site untouched) is now the mean of its
+two alleles. `Population._inherited_genome_and_traits` does real
+Mendelian-style inheritance — each child allele independently drawn
+from a randomly-chosen one of that parent's own two alleles (drift),
+each independently subject to `GENOME_MUTATION_CHANCE` of a fresh
+mutated value instead (mutation). Founders now draw a real diploid
+genome at spawn (`seed_founder_genome`) — every prior founder started
+flat 0.0 on all four axes; this closes that gap as a verified side
+effect. Natural selection needed no new code — these traits already
+causally affect survival/reproduction (H6), so genetics just gives
+that pre-existing pressure a real heritable substrate. Scoped to
+humans only; wildlife/animal genetics and A14 (physiological genes)
+remain open, flagged. NPC inspector gained a "mixed inheritance" line
+reading real allele divergence.
+
 ## Current state (v1.19.0)
 
 Explicit user instruction: "Next step" — A8 "Evolutionary Innovation

@@ -366,19 +366,41 @@ through-line for nearly every PARTIAL below.
 
 ### A15 — Genetic inheritance / mutation / drift / selection [det #15] — MISSING
 
-- [ ] **Status:** Trait inheritance is blend+noise (v0.87-era), not
-  genetics.
-- [ ] **Spec:** A genome per organism (a vector of genes → physiological/
-  behavioral traits via A14), with sexual recombination, mutation, drift,
-  and *natural selection* (differential survival/reproduction from real
-  fitness). Species adapt over generations with no authored progression;
-  humans slowly vary too.
-- [ ] **Data model:** `Organism.genome: ndarray`; expression function
-  genome → traits; inheritance at reproduction.
-- [ ] **Feeds:** Nature-the-pillar can *observe its species adapting*
-  (2.1 from the terrarium doc, done right); domestication becomes real
-  (selective pressure from humans). Emergent species variants (already
-  prototyped via LLM) get a deterministic substrate.
+- [x] **Status:** **Shipped a first slice, v1.20.0** (roadmap Stage IV
+  step 22), scoped to humans — the doc's own "humans slowly vary too"
+  half. Trait inheritance was blend+noise (v0.87.6); replaced with real
+  diploid genetics: `Agent.genome: dict[trait, (allele_a, allele_b)]`,
+  `traits` (the phenotype every consuming call site already reads)
+  now the mean of its two alleles.
+- [x] **Spec:** real sexual recombination (a child's allele per trait
+  per parent is independently drawn from that parent's OWN two
+  alleles — real genetic drift, not an average) + mutation
+  (`GENOME_MUTATION_CHANCE` per allele) + drift, over the four existing
+  `TRAIT_RESILIENCE`/`SOCIABILITY`/`AMBITION`/`OPENNESS` axes.
+  *Natural selection* (differential survival/reproduction from real
+  fitness) needed no new mechanism — these traits already causally
+  affect survival/reproduction odds (H6/"traits mechanically
+  consumed," resilience's starvation/predator-death tolerance,
+  sociability's reproduction pairing) — genetics just gives that
+  pre-existing selection pressure a real heritable substrate to act
+  on, closing "no authored progression" honestly rather than adding a
+  second parallel fitness system. Founders now genuinely vary at
+  spawn (`seed_founder_genome`) — every prior founder started flat
+  0.0 on all four axes; this closes that as a real side effect.
+- [x] **Data model:** `Agent.genome` (not a literal `ndarray` — a small
+  dict of `(float, float)` pairs, matching the existing trait-axis
+  shape rather than introducing a numpy dependency for four values);
+  `_agent_allele_pair`/`_inherited_genome_and_traits` are the
+  expression/inheritance functions. A genome-less legacy agent (any
+  pre-A15 snapshot) reads as "homozygous at its current phenotype" —
+  inheritance stays total, never a crash or skipped axis.
+- [ ] **Feeds:** scoped to humans this pass — wildlife/animal genetics
+  (the doc's "species adapt over generations"/domestication half,
+  A14's organism-biology layer as a prerequisite for non-trait genes)
+  remain open, explicitly flagged. `world.wildlife.SpeciesVariant`
+  (Vision item 4.2) stays descriptive-only, not wired to this — a real
+  future bridge, not attempted here to avoid `AnimalHerd`'s native-
+  index parity risk (same reasoning that deferred it originally).
 
 ### A16 — Graph representation + graph algorithms [det #16] — PARTIAL (scoped, v1.4.9)
 
@@ -1123,7 +1145,10 @@ waiting for a later integration pass.
     mutation (A7) as a second generate path remain open, flagged.
 22. **A15 Genetic inheritance** — genome vectors, sexual recombination,
     mutation, drift, real differential-fitness selection, replacing
-    the current blend+noise trait inheritance.
+    the current blend+noise trait inheritance. **Shipped a first
+    slice, v1.20.0**, scoped to humans: see the A15 section above.
+    Wildlife/animal genetics and A14-dependent physiological genes
+    remain open, flagged.
 23. **A14 Layered organism biology** — metabolism/nutrition/immune/
     stress/development as coupled continuous subsystems, replacing the
     current discrete hunger/energy/illness/aging state; genetics (22)

@@ -4,6 +4,90 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.20.0] — A15 "Genetic inheritance," first slice, scoped to humans (roadmap Stage IV step 22)
+
+Explicit user instruction: "Next step" — Stage IV step 22, docs/
+MASTERCHECKLIST-2026-07-22.md's A15. Direct target: `_inherited_
+traits`'s own docstring already confessed "Trait inheritance is
+blend+noise (v0.87-era), not genetics" — exactly this doc's own
+Status line for A15.
+
+Replaces v0.87.6's flat parent-average-plus-Gaussian-noise trait
+blend with real diploid genetics. New `Agent.genome: dict[trait,
+(allele_a, allele_b)]` over the four existing psychology axes
+(resilience/sociability/ambition/openness) — `Agent.traits` (the
+phenotype every existing trait-consuming call site already reads,
+completely unchanged in meaning) is now the mean of its two alleles,
+so zero downstream code needed to change.
+
+Inheritance (`Population._inherited_genome_and_traits`, replacing
+`_inherited_traits`): for each trait axis, a child's allele from each
+parent is independently drawn from THAT parent's own two alleles (real
+genetic drift — which allele passes on is random, not an average) and
+independently subject to `GENOME_MUTATION_CHANCE` of instead being
+replaced by a fresh mutated value (`GENOME_MUTATION_STDDEV`) — real
+Mendelian-style recombination + mutation, not the old deterministic
+blend. A parent with no recorded genome (any pre-A15 agent) is treated
+as "homozygous at its current phenotype," so inheritance stays total
+even from a genome-less parent — never a crash or a silently-skipped
+axis. `TRAIT_INHERITANCE_MUTATION_STDDEV` kept as a historical record,
+no longer read by any code.
+
+Founders (`Population.spawn_initial`/`spawn_successor_founders`) now
+draw a real diploid genome at spawn (`agent.seed_founder_genome`,
+`GENOME_FOUNDER_ALLELE_STDDEV`) — every prior founder started flat 0.0
+on all four axes (traits were "never rolled at spawn, only earned via
+lifetime event nudges," per `TRAIT_INHERITANCE_MUTATION_STDDEV`'s own
+old docstring); this closes that as a real, verified side effect
+(founder resiliences now spread genuinely, e.g. -0.43 to +0.43 in one
+12-founder test run) rather than a separate fix.
+
+*Natural selection* (the doc's third named mechanism, "differential
+survival/reproduction from real fitness") needed no new code: these
+four traits already causally affect survival/reproduction odds
+(H6/"traits mechanically consumed, not write-only" — resilience's
+starvation-tolerance and predator-death-chance influence, sociability's
+role in reproduction pairing) — genetics gives that PRE-EXISTING
+selection pressure a real heritable substrate to act on for the first
+time, rather than adding a second, parallel, redundant fitness
+mechanism. This is called out explicitly rather than silently assumed.
+
+Scoped deliberately to humans only. Wildlife/animal genetics (the
+doc's "species adapt over generations... no authored progression"
+half, and domestication as selective pressure from humans) remain
+open — `world.wildlife.SpeciesVariant` (Vision item 4.2) stays
+descriptive-only, not wired to a genome, for the same `AnimalHerd`
+native-index parity-risk reason it was originally deferred. A14
+("Layered organism biology," physiological genes beyond the existing
+psychology-trait axes) is a real prerequisite for a fuller genome and
+also remains open. `Organism.genome: ndarray` (the spec's literal data
+model) was deliberately not used — a `dict[str, tuple[float, float]]`
+matches the existing trait-axis shape exactly, with no numpy
+dependency needed for four scalar pairs.
+
+UI: NPC inspector's Personality section gained a plain-language "carries
+a mixed inheritance in ..." line when an agent's alleles for a trait are
+notably divergent (a real reading of the underlying genome, not raw
+allele numbers) — reachable wherever the existing trait display already
+is, no new panel needed.
+
+Verified: direct tests for `seed_founder_genome` (covers all four
+axes, values bounded), `_agent_allele_pair` (genome present/absent/
+neither), `_inherited_genome_and_traits` (bounded output, `traits`
+genuinely the mean of the returned `genome` alleles), a 2000-trial
+statistical test confirming ~93% of inherited alleles trace to an
+actual parental allele at the default mutation chance (matching
+`1 - GENOME_MUTATION_CHANCE`), `Agent.to_dict`/`from_dict` round-trip
+including legacy-snapshot backfill to `{}`, `spawn_initial` producing
+real founder trait variance. A 6000-tick real production-path engine
+run (LLM disabled) observed a real birth and inspected its genome
+directly. A full `World.to_dict`/`from_dict` round trip confirmed
+genome persistence (within the existing 4-decimal rounding convention
+every other float field already uses). `scripts/verify_native_soak.py`
+(2 seeds x 800 ticks) byte-identical — `genome`/`traits` are plain
+Python-side agent state, never native-store-backed, so this carries
+zero parity risk by construction, confirmed anyway.
+
 ## [1.19.0] — A8 "Evolutionary Innovation loop," first slice (roadmap Stage IV step 21)
 
 Explicit user instruction: "Next step" — Stage IV step 21, docs/

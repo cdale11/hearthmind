@@ -2448,6 +2448,17 @@ function renderNpcInspector() {
     <span>ambition ${(traits.ambition || 0).toFixed(2)} <span class="muted">(${traitLabel(traits.ambition)})</span></span>
     <span>openness ${(traits.openness || 0).toFixed(2)} <span class="muted">(${traitLabel(traits.openness)})</span></span>
   </div>`;
+  // A15 "Genetic inheritance" (roadmap Stage IV step 22): a real,
+  // plain-language reading of the heritable genome behind those traits
+  // — mixed heritage (two notably different alleles) reads as a
+  // recognizable "takes after both sides" fact, not raw allele numbers.
+  const genome = agent.genome || {};
+  const mixedTraits = Object.entries(genome)
+    .filter(([, pair]) => Array.isArray(pair) && Math.abs(pair[0] - pair[1]) >= 0.4)
+    .map(([trait]) => trait);
+  const genomeHtml = mixedTraits.length
+    ? `<div class="muted">carries a mixed inheritance in ${mixedTraits.join(", ")}</div>`
+    : "";
   const emotions = agent.emotions || {};
   const emotionMeta = {
     fear: { label: "afraid", icon: "😨" },
@@ -2552,6 +2563,7 @@ function renderNpcInspector() {
     <div class="npc-section">
       <h4>Personality</h4>
       ${traitsHtml}
+      ${genomeHtml}
     </div>
     <div class="npc-section">
       <h4>Skills</h4>
