@@ -210,6 +210,7 @@ class Pillar:
         cycle_stage: str = "observe", working_memory: list[str] | None = None,
         last_turn_tick: int = -1, conversation_log: list[dict] | None = None,
         last_question: str = "", last_answer: str = "", last_answer_tick: int = -1,
+        turns_processed: int = 0,
     ) -> None:
         self.name = name
         self.description = description
@@ -228,6 +229,18 @@ class Pillar:
         mind`'s cycle-transition points."""
         self.next_world_model_id = next_world_model_id
         self.next_message_id = next_message_id
+        self.turns_processed = turns_processed
+        """Explicit live-report follow-up ("Nature and especially
+        Reflection still feel disconnected... not forming any
+        hypothesis even after 13k ticks"): a plain count of real
+        season/year boundaries this pillar's cognition job has
+        processed since creation (bumped once per resolved observe OR
+        interpret turn — see `SimulationEngine._maybe_schedule_nature_
+        mind`/`_maybe_schedule_reflection`), independent of `cycle_
+        stage`. Exists purely so a diagnostic can answer "how close is
+        this pillar to its first real output" (needs 2: one observe,
+        one interpret) instead of that cold-start latency being
+        silently invisible."""
         self.cycle_stage = cycle_stage if cycle_stage in self.CYCLE_STAGES else "observe"
         self.working_memory = working_memory if working_memory is not None else []
         self.conversation_log = conversation_log if conversation_log is not None else []
@@ -379,7 +392,7 @@ class Pillar:
             "outbox": [dict(m) for m in self.outbox],
             "next_world_model_id": self.next_world_model_id, "next_message_id": self.next_message_id,
             "cycle_stage": self.cycle_stage, "working_memory": list(self.working_memory),
-            "last_turn_tick": self.last_turn_tick,
+            "last_turn_tick": self.last_turn_tick, "turns_processed": self.turns_processed,
             "conversation_log": [dict(c) for c in self.conversation_log],
             "last_question": self.last_question, "last_answer": self.last_answer,
             "last_answer_tick": self.last_answer_tick,
@@ -399,6 +412,7 @@ class Pillar:
             cycle_stage=data.get("cycle_stage", "observe"),
             working_memory=list(data.get("working_memory", [])),
             last_turn_tick=data.get("last_turn_tick", -1),
+            turns_processed=data.get("turns_processed", 0),
             inbox=[dict(m) for m in data.get("inbox", [])],
             outbox=[dict(m) for m in data.get("outbox", [])],
             next_world_model_id=data.get("next_world_model_id", 1),

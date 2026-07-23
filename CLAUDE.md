@@ -527,6 +527,22 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.23.1)
+
+Explicit live report: "Nature and especially Reflection still feel
+disconnected... not forming any hypothesis even after 13k ticks."
+Diagnosed — B2's observe/interpret halving means the first real
+output needs 2 boundaries (Nature: ~17.5k ticks; Reflection: ~70k
+ticks), invisible cold-start latency, not a bug. Explicit user
+decision: don't change the cadence, just make it visible. Full
+detail: CHANGELOG.md's [1.23.1] entry.
+
+New `Pillar.turns_processed` + `SimulationEngine._pillar_cognition_
+status()` (on-demand `full_diagnostics()` only — the pattern-detector
+read is too heavy for per-tick). New dev-console "Pillar cognition
+status" panel (real formatted text, not raw JSON), populated on "Full
+diagnostic report."
+
 ## Current state (v1.23.0)
 
 Explicit user instruction: "Next step" — A18 "Events as composable

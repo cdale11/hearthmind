@@ -624,6 +624,15 @@ this reads as "the granary is genuinely close to overflowing," the
 concrete condition the vision doc's own worked example ("when the
 granary overflows, hold a feast") describes."""
 
+PILLAR_COLD_START_BOUNDARIES = 2
+"""How many season/year boundaries Nature/Reflection's B2 observe-then-
+interpret cycle needs before its FIRST real belief/hypothesis can ever
+form (one observe turn, one interpret turn) — see `Pillar.turns_
+processed`'s docstring and `_pillar_cognition_status`. A live-report
+follow-up ("not forming any hypothesis even after 13k ticks") found
+this cold-start latency was previously invisible; this constant is the
+same 2 the code already implicitly required, just now named."""
+
 CONCEPT_SPREAD_CHANCE_PER_TICK = 0.02
 """Per-tick, per-growing-concept roll driving `_maybe_spread_concepts`
 — zero LLM cost, deliberately small (a concept's origin settlement
@@ -4361,10 +4370,12 @@ class SimulationEngine:
         pillar = self.world.nature_pillar
         if self._pillar_observe_turn("nature"):
             self._mark_season_year_resolved("nature_mind")
+            pillar.turns_processed += 1
             return
         if self._pillar_interpret_backpressured("nature"):
             return
         self._mark_season_year_resolved("nature_mind")
+        pillar.turns_processed += 1
         recent = recent_events_diverse(self.conn, limit=30)
         nature_events = [e for e in recent if e["category"] in nature_mind.NATURE_EVENT_CATEGORIES]
         wildlife_summary = self.world.wildlife.summary()
@@ -5968,10 +5979,12 @@ class SimulationEngine:
             return
         if self._pillar_observe_turn("reflection"):
             self._mark_season_year_resolved("reflection")
+            self.world.reflection_pillar.turns_processed += 1
             return
         if self._pillar_interpret_backpressured("reflection"):
             return
         self._mark_season_year_resolved("reflection")
+        self.world.reflection_pillar.turns_processed += 1
         pattern = self._detect_reflection_pattern()
         self._reevaluate_reflection_hypotheses(pattern)
         if pattern is None:
@@ -8726,6 +8739,43 @@ class SimulationEngine:
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
+    def _pillar_cognition_status(self) -> dict:
+        """Explicit live-report follow-up: "Nature and especially
+        Reflection still feel disconnected from the actual simulation
+        state. They are not forming any hypothesis even after 13k
+        ticks." Both jobs halve their own already-slow season/year
+        cadence via the B2 observe-then-interpret cycle (see `_maybe_
+        schedule_nature_mind`/`_maybe_schedule_reflection`) — their
+        FIRST real output needs two boundary crossings, not one. This
+        was previously invisible; makes that cold-start latency a
+        directly readable status instead."""
+        nature_pillar = self.world.nature_pillar
+        nature_stage = "Observation" if nature_pillar.cycle_stage == "observe" else "Interpretation"
+        belief_formed = len(self.world.nature_beliefs) > 0
+        reflection_pillar = self.world.reflection_pillar
+        reflection_stage = (
+            "Historical accumulation" if reflection_pillar.cycle_stage == "observe" else "Pattern analysis"
+        )
+        pattern_eligible = self._detect_reflection_pattern() is not None
+        hypothesis_formed = any(
+            e.get("kind") == "hypothesis" for e in self.world.reflection_notebook
+        )
+        return {
+            "nature": {
+                "stage": nature_stage,
+                "boundaries_observed": nature_pillar.turns_processed,
+                "boundaries_needed_for_first_belief": PILLAR_COLD_START_BOUNDARIES,
+                "belief_formation": "Formed" if belief_formed else "Pending",
+            },
+            "reflection": {
+                "stage": reflection_stage,
+                "years_observed": reflection_pillar.turns_processed,
+                "years_needed_for_first_hypothesis": PILLAR_COLD_START_BOUNDARIES,
+                "pattern_detector": "Eligible" if pattern_eligible else "Not yet eligible",
+                "hypothesis": "Formed" if hypothesis_formed else "Deferred",
+            },
+        }
+
     def _diagnostics_snapshot(self) -> dict:
         """Cheap, per-tick diagnostics — safe to compute every tick (no
         disk I/O, no DB queries). See `full_diagnostics` for the heavier,
@@ -9014,6 +9064,14 @@ class SimulationEngine:
         )
         return {
             **self._diagnostics_snapshot(),
+            # Explicit live-report follow-up ("Nature and especially
+            # Reflection still feel disconnected... not forming any
+            # hypothesis even after 13k ticks"): on-demand only, not
+            # per-tick — `_detect_reflection_pattern` scans every
+            # settlement's signal counts plus up to MAX_CONCEPTS_STORED
+            # invented concepts, the same "don't compute every tick"
+            # reasoning peak_memory_rss_mb/system_memory below follow.
+            "pillar_cognition_status": self._pillar_cognition_status(),
             "peak_memory_rss_mb": peak_rss_mb,
             "system_memory": system_memory_report(),
             "db_size_mb": db_size_mb,

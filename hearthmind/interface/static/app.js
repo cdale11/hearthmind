@@ -360,6 +360,7 @@ devFullReportBtn.addEventListener("click", async () => {
     const report = await fetchJSON("/diagnostics");
     const text = JSON.stringify(report, null, 2);
     devConsoleContent.textContent = text;
+    renderPillarCognitionStatus(report.pillar_cognition_status);
     try {
       await navigator.clipboard.writeText(text);
       devReportStatus.textContent = "copied to clipboard";
@@ -3417,6 +3418,29 @@ function renderInfrastructure(rows) {
       );
     })
     .join(""));
+}
+
+function renderPillarCognitionStatus(status) {
+  const el = document.getElementById("pillar-cognition-content");
+  if (!el) return;
+  if (!status) {
+    el.textContent = "no data yet";
+    return;
+  }
+  const n = status.nature, r = status.reflection;
+  el.textContent =
+`Nature
+--------
+Stage: ${n.stage}
+Season boundaries observed: ${n.boundaries_observed} / ${n.boundaries_needed_for_first_belief}
+Belief formation: ${n.belief_formation}
+
+Reflection
+------------
+Stage: ${r.stage}
+Years observed: ${r.years_observed} / ${r.years_needed_for_first_hypothesis}
+Pattern detector: ${r.pattern_detector}
+Hypothesis: ${r.hypothesis}`;
 }
 
 function renderDevConsole(payload) {

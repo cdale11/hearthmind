@@ -4,6 +4,68 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.23.1] — Pillar cognition cold-start visibility (live-report follow-up)
+
+Explicit live report: "Nature and especially Reflection still feel
+disconnected from the actual simulation state. They are not forming
+any hypothesis even after 13k ticks." Diagnosed (no code change to the
+cadence itself — explicit user decision via `AskUserQuestion`: "Just
+explain it, don't change code"): both jobs' B2 observe-then-interpret
+cycle halves their already-slow season/year cadence, so the FIRST real
+belief/hypothesis needs two boundary crossings, not one — ~17,520
+ticks minimum for Nature (2 seasons), ~70,080 ticks minimum for
+Reflection (2 years, and only if `_detect_reflection_pattern` finds a
+real signal that cycle). At 13k ticks neither had a mathematical
+chance yet. This was previously invisible; this pass makes it a
+directly readable status instead of a silent wait.
+
+New `Pillar.turns_processed`: a plain counter of real season/year
+boundaries a pillar's cognition job has processed since creation
+(bumped once per resolved observe OR interpret turn in `_maybe_
+schedule_nature_mind`/`_maybe_schedule_reflection`, independent of
+`cycle_stage`), persisted via `to_dict`/`from_dict` with legacy
+backfill to 0. New `SimulationEngine._pillar_cognition_status()`:
+computes a real live status for both pillars — stage (Observation/
+Interpretation for Nature, Historical accumulation/Pattern analysis
+for Reflection), boundaries observed vs. `PILLAR_COLD_START_
+BOUNDARIES=2`, belief/hypothesis formation state, and (Reflection
+only) whether `_detect_reflection_pattern()` would currently find a
+signal. Deliberately placed in `full_diagnostics()` (on-demand `GET
+/diagnostics` only), not the per-tick `_diagnostics_snapshot()` —
+`_detect_reflection_pattern` scans every settlement's signal counts
+plus up to `MAX_CONCEPTS_STORED` (400) invented concepts, the same
+"don't compute every tick" reasoning `peak_memory_rss_mb`/`system_
+memory` already follow.
+
+UI: new "Pillar cognition status" panel in the dev console (`⚙ dev`),
+populated when "Full diagnostic report" is clicked — a real formatted
+block (not the usual raw-JSON dump), matching the explicit format the
+user requested:
+```
+Nature
+--------
+Stage: Observation
+Season boundaries observed: 1 / 2
+Belief formation: Pending
+
+Reflection
+------------
+Stage: Historical accumulation
+Years observed: 0 / 2
+Pattern detector: Not yet eligible
+Hypothesis: Deferred
+```
+
+Verified: direct smoke tests of `_pillar_cognition_status()`'s initial
+state and its transition after a real `_maybe_schedule_nature_mind`/
+`_maybe_schedule_reflection` observe turn (via a live `SimulationEngine
+.load_or_create` instance), `Pillar`/`World` round-trip (`turns_
+processed` persists correctly), confirmed the field lives in `full_
+diagnostics()` and NOT `_diagnostics_snapshot()`. `scripts/verify_
+native_soak.py` (2 seeds x 800 ticks) byte-identical — `turns_
+processed` is a plain Python-side pillar counter, no native module
+touched.
+
 ## [1.23.0] — A18 "Events as composable reactions," first slice — a general AND-combination engine (roadmap Stage IV step 25)
 
 Explicit user instruction: "Next step" — Stage IV step 25, docs/
