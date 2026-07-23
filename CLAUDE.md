@@ -527,6 +527,21 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.1)
+
+Explicit user instruction: "do the second pass" — closes v1.34.0's
+own loudest flagged finding. `world/spatial_memory.py`'s `location_
+character` split into `location_character_from_dicts(...)` (the real
+logic) + a thin `World`-scoped wrapper; `Population._choose_build_
+site`'s mining/disaster/ruin scoring now reads from ONE call to the
+former instead of three duplicate `.get()` lookups — the read-side
+unification A19 built is now genuinely used, not a still-dead
+sibling. Behavior unchanged. Residual, honestly flagged: the `World`-
+scoped `location_character(world, x, y)` wrapper itself still has no
+caller (nothing with `World` in scope needs it yet) — a future
+dialogue/cognition/NPC-inspector consumer is the natural next step,
+not attempted. Full detail: CHANGELOG.md's [1.34.1] entry.
+
 ## Current state (v1.34.0)
 
 Explicit user instruction: "tier 1 - 1" — A9 feedback-loop audit

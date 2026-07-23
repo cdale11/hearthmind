@@ -4,6 +4,43 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.1] — A9 second pass: location_character becomes real
+
+Explicit user instruction: "do the second pass" — following up on
+v1.34.0's own flagged loudest finding, that `world/spatial_memory.py`'s
+`location_character()` (the intended A19 read-side unifier for
+mining/disaster/ritual/ruin scars) was itself never called anywhere,
+even after that pass gave `mining_scars`/`disaster_scars` a real
+consumer via direct duplicate `.get()` calls in `Population._choose_
+build_site` instead of routing through the unifier that already
+existed for exactly this purpose.
+
+Split `location_character` into `location_character_from_dicts(mining_
+scars, disaster_scars, ritual_activity, ruin_scars, x, y)` (the real
+logic, every dict optional) + `location_character(world, x, y)` (a
+thin wrapper for a future `World`-scoped caller — `_choose_build_site`
+is deliberately decoupled from `World`, same as `ruin_scars` already
+was, so it can't call the wrapper directly). `_choose_build_site`'s
+scoring loop now reads `ruin`/`mining`/`disaster` off ONE `location_
+character_from_dicts()` call instead of three separate duplicate
+lookups — the unification this module was built for is now the actual
+mechanism a real consumer reads from, not a still-unused sibling.
+Behavior unchanged (same three score terms, same constants); this is
+purely closing the read-side duplication the audit flagged.
+
+Residual, honestly noted rather than overclaimed: the `location_
+character(world, x, y)` convenience wrapper itself still has zero
+callers — no current caller happens to have `World` in scope where
+this fires (`Population`'s build-site logic never does). A future
+`World`-scoped consumer (dialogue/cognition location flavor, an NPC
+inspector "this ground remembers..." line) would be the natural next
+caller; not attempted this pass.
+
+Verified: direct unit checks of `location_character_from_dicts` (a
+mixed-axis case, an all-`None` case) and the `World`-scoped wrapper
+still functioning identically; a 3000-tick LLM-disabled engine smoke
+run, zero exceptions.
+
 ## [1.34.0] — A9: producer/consumer feedback-loop audit
 
 Explicit user instruction: "tier 1 - 1" — `docs/ROADMAP-2026-07-

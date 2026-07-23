@@ -36,25 +36,46 @@ ownership/construction/ecology remain unfolded, see this module's own
 docstring)."""
 
 
+def location_character_from_dicts(
+    mining_scars: dict[tuple[int, int], float] | None,
+    disaster_scars: dict[tuple[int, int], float] | None,
+    ritual_activity: dict[tuple[int, int], float] | None,
+    ruin_scars: dict[tuple[int, int], float] | None,
+    x: int, y: int,
+) -> dict[str, float]:
+    """The real read-side logic `location_character` below wraps — split
+    out so a caller that already has the four scar dicts on hand
+    individually (e.g. `Population._choose_build_site`, which is
+    intentionally decoupled from `World` and receives each dict as its
+    own parameter, same shape as `ruin_scars` before it) can use the
+    SAME unification this module exists for, instead of re-deriving it
+    with its own duplicate `.get()` calls. Any dict may be `None` (a
+    caller not passing that axis simply omits it from the result, same
+    "absence means neutral" convention as below)."""
+    pos = (x, y)
+    character: dict[str, float] = {}
+    mining = mining_scars.get(pos) if mining_scars else None
+    if mining:
+        character["mining"] = mining
+    disaster = disaster_scars.get(pos) if disaster_scars else None
+    if disaster:
+        character["disaster"] = disaster
+    ritual = ritual_activity.get(pos) if ritual_activity else None
+    if ritual:
+        character["ritual"] = ritual
+    ruin = ruin_scars.get(pos) if ruin_scars else None
+    if ruin:
+        character["ruin"] = ruin
+    return character
+
+
 def location_character(world, x: int, y: int) -> dict[str, float]:
-    """One tile's real accumulated history, read from the three
+    """One tile's real accumulated history, read from the four
     existing per-location dicts `World` already maintains. Only keys
     present are ones with non-zero real intensity — same "sparse,
     absence means neutral" convention the underlying dicts already
     use, so a caller can't mistake "not in this dict" for "explicitly
     zero.\""""
-    pos = (x, y)
-    character: dict[str, float] = {}
-    mining = world.mining_scars.get(pos)
-    if mining:
-        character["mining"] = mining
-    disaster = world.disaster_scars.get(pos)
-    if disaster:
-        character["disaster"] = disaster
-    ritual = world.ritual_activity.get(pos)
-    if ritual:
-        character["ritual"] = ritual
-    ruin = world.ruin_scars.get(pos)
-    if ruin:
-        character["ruin"] = ruin
-    return character
+    return location_character_from_dicts(
+        world.mining_scars, world.disaster_scars, world.ritual_activity, world.ruin_scars, x, y,
+    )

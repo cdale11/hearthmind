@@ -237,12 +237,14 @@ _choose_build_site` away from badly scarred ground (new `MINING_
 SCAR_SITE_PENALTY_SCALE`/`DISASTER_SCAR_SITE_PENALTY_SCALE`, `world/
 terrain_evolution.py`). Real gaps found and RECORDED, not yet fixed:
 
-- `world/spatial_memory.py`'s `location_character()` (the intended
-  A19 read-side unifier for exactly the scar dicts above) is itself
-  never called anywhere — the more "correct" fix than the direct
-  dict-threading this pass took; a real follow-up to wire it in
-  properly (e.g. as the actual mechanism the build-site penalty above
-  reads from, or a second consumer like agent mood/dialogue flavor).
+- `world/spatial_memory.py`'s `location_character()` — **closed,
+  v1.34.1**: split into `location_character_from_dicts(...)` (the real
+  logic) + a thin `World`-scoped wrapper; `Population._choose_build_
+  site` now reads its mining/disaster/ruin scoring from ONE call to
+  the former instead of three duplicate `.get()` lookups. The `World`-
+  scoped wrapper itself still has zero callers (nothing with `World`
+  in scope needs it yet) — a future dialogue/cognition/NPC-inspector
+  location-flavor consumer remains open, not attempted.
 - `world/architecture_grammar.py`'s per-building descriptor and
   `Settlement.legends` are both fully-formed producers whose only
   reader is the JSON/API export — display-only, no downstream

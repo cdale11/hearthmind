@@ -417,6 +417,7 @@ from hearthmind.world.terrain_evolution import (
 )
 from hearthmind.world.fields import FieldGrid
 from hearthmind.world.layout_grammar import layout_site_bonus, settlement_layout_style
+from hearthmind.world.spatial_memory import location_character_from_dicts
 from hearthmind.world.weather import WeatherState
 from hearthmind.world.wildlife import (
     HUNT_YIELD_PER_ANIMAL,
@@ -5320,12 +5321,19 @@ class Population:
                         score += layout_site_bonus(
                             layout_style, settlement.center_x, settlement.center_y, cx, cy, standing_positions,
                         )
-                    if ruin_scars is not None:
-                        score += ruin_scars.get((cx, cy), 0.0) * RUIN_SITE_BONUS_SCALE
-                    if mining_scars is not None:
-                        score -= mining_scars.get((cx, cy), 0.0) * MINING_SCAR_SITE_PENALTY_SCALE
-                    if disaster_scars is not None:
-                        score -= disaster_scars.get((cx, cy), 0.0) * DISASTER_SCAR_SITE_PENALTY_SCALE
+                    if ruin_scars is not None or mining_scars is not None or disaster_scars is not None:
+                        # A9 follow-up (docs/ROADMAP-2026-07-REMAINING.
+                        # md): routed through spatial_memory's real
+                        # read-side unification (A19) instead of three
+                        # separate ad-hoc `.get()` calls — this is now
+                        # the actual mechanism `location_character`
+                        # exists to back, not a still-unused sibling.
+                        character = location_character_from_dicts(
+                            mining_scars, disaster_scars, None, ruin_scars, cx, cy,
+                        )
+                        score += character.get("ruin", 0.0) * RUIN_SITE_BONUS_SCALE
+                        score -= character.get("mining", 0.0) * MINING_SCAR_SITE_PENALTY_SCALE
+                        score -= character.get("disaster", 0.0) * DISASTER_SCAR_SITE_PENALTY_SCALE
                     if best_score is None or score > best_score:
                         best, best_score = (cx, cy), score
         return best
