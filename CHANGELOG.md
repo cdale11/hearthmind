@@ -4,6 +4,54 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.7.1] — C1/C2 seam wiring (roadmap Stage II step 9)
+
+Explicit user instruction: "Build step 9." Part C of docs/
+MASTERCHECKLIST-2026-07-22.md ("THE SEAM") asks for the perception
+channel (C1, Body → Mind) and intention channel (C2, Mind → Body) to
+be made real for whichever pillars exist. Both were mostly already
+real by construction once B1-B3 generalized to all five pillars — this
+pass audited both against their exact spec wording and closed the two
+real gaps found.
+
+**C1 "bounded, salience-ranked, pillar-tagged"**: bounded (`Pillar.
+WORKING_MEMORY_MAX=5`) and pillar-tagged were already true for every
+pillar since B2. "Salience-ranked" was not — `_pillar_observe_turn`
+fed pillar-tagged candidates from the 40-entry Emergence API window
+into `working_memory` in plain recency order, so the FIFO cap could
+silently discard a genuinely high-`magnitude` observation in favor of
+a later, less salient one purely because it logged first. Fixed:
+candidates are now sorted by `magnitude` (descending, unranked-`None`
+sorted last) before only the top `WORKING_MEMORY_MAX` are noted — a
+pillar's small attention budget is now deliberately spent on what
+matters most this turn.
+
+**C2 "every pillar acts only by emitting intentions the Body
+validates and executes"**: audited every Body-touching write across
+all five representative jobs. Village (`beliefs`) and Reflection
+(`reflection`) write only their own Mind-state (theories/hypotheses),
+never Body — nothing to validate, correctly. Innovation (`ontology_
+proposal`) and Nature (`nature_mind`'s ecological-concept origination)
+already validate before writing (`ontology.validate_hook`/`is_near_
+duplicate`). Humans (`narrative_direction`'s dialect-drift term
+coining) was the one real gap: it created a brand-new persistent
+`Settlement.lexicon` entry with only a non-blank/length check, no Body-
+side validation at all. New `narrative_direction.validate_coined_
+term()` rejects an exact case-insensitive duplicate of an already-
+coined term before the write — same discipline `validate_hook` already
+enforces for Innovation. The spec's broader action list (invent tech,
+set custom, change law, reorganize institution, shift land use,
+domesticate, build, propose experiment) mostly isn't pillar-emitted at
+all yet — those remain separate deterministic/LLM mechanics outside
+the five-pillar refactor's current reach, correctly flagged PARTIAL
+rather than force-completed.
+
+Verified: direct smoke test of `_pillar_observe_turn`'s salience
+ranking (mixed-magnitude/mixed-order candidates → top-5-by-magnitude
+selected, unranked entries sorted last); direct `validate_coined_term`
+test (duplicate rejected case-insensitively, novel term accepted);
+`scripts/verify_native_soak.py` (2 seeds x 400 ticks) byte-identical.
+
 ## [1.7.0] — Symmetric idle speedup + B8 Living memory & consolidation (roadmap Stage II step 8)
 
 Two explicit user requests in one turn: "the adaptive slowing of the

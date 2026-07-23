@@ -554,20 +554,49 @@ the master is complete, with the Body-dependencies made explicit.
 
 Where LLM_Pillars.md and det_sys.md meet — the bidirectional interface.
 
-### C1 — Perception channel (Body → Mind) — MISSING
+### C1 — Perception channel (Body → Mind) — SHIPPED (roadmap Stage II step 9)
 
-- [ ] A22's Emergence API *is* this channel: curated observations flow to
+- [x] A22's Emergence API *is* this channel: curated observations flow to
   each pillar's observe() step. No pillar reads raw state; none is
-  omniscient. Bounded, salience-ranked, pillar-tagged.
+  omniscient. Bounded, salience-ranked, pillar-tagged. **Shipped**: this
+  was already structurally true for all five pillars since B2's
+  generalization (`_pillar_observe_turn` reads `World.emergence_log`,
+  never raw state) — bounded (`Pillar.WORKING_MEMORY_MAX=5`) and
+  pillar-tagged (`pillar_name in obs["pillars"]`) held from the start.
+  "Salience-ranked" did not: candidates were fed to `working_memory` in
+  plain recency order, so `WORKING_MEMORY_MAX`'s FIFO eviction could
+  silently discard a genuinely high-`magnitude` observation for a
+  later-but-less-salient one. Fixed: candidates are now sorted by
+  `magnitude` (descending, unranked last) before only the top
+  `WORKING_MEMORY_MAX` are noted — a pillar's bounded attention is now
+  deliberately spent on what matters most, not what happened to log
+  most recently.
 
-### C2 — Intention channel (Mind → Body) — PARTIAL
+### C2 — Intention channel (Mind → Body) — PARTIAL, one gap closed (roadmap Stage II step 9)
 
-- [ ] Every pillar acts *only* by emitting intentions the Body validates
+- [x] Every pillar acts *only* by emitting intentions the Body validates
   and executes (invent tech, set custom, change law, reorganize
   institution, shift land use, domesticate, build, propose experiment).
   The deterministic layer executes and validates per its own rules.
   Partly exists (LLM proposals are validated); generalize to all pillar
-  actions.
+  actions. **Audited every Body-touching write across all five
+  representative jobs**: Village (`beliefs`) and Reflection
+  (`reflection`) write only to their own Mind-state (theories/
+  hypotheses), never Body — nothing to validate. Innovation (`ontology_
+  proposal`) and Nature (`nature_mind`'s ecological-concept origination)
+  already validate before writing (`ontology.validate_hook`/`is_near_
+  duplicate`). Humans (`narrative_direction`'s dialect-drift term
+  coining, `Settlement.lexicon`) was the one real gap — it wrote a
+  brand-new persistent state entry with only a non-blank check, no Body
+  validation at all. Fixed: new `narrative_direction.validate_coined_
+  term()` rejects an exact case-insensitive duplicate of an
+  already-coined term before the write, same discipline as `validate_
+  hook`. Still PARTIAL in the sense the spec names (invent tech, set
+  custom, change law, reorganize institution, shift land use,
+  domesticate, build, propose experiment) — most of those aren't
+  pillar-emitted intentions yet at all (they're separate deterministic/
+  LLM mechanics outside the five-pillar refactor's current reach), not
+  a validation gap this pass could close.
 
 ### C3 — Player ↔ Pillar chat — PARTIAL
 
@@ -749,7 +778,18 @@ is not authorization to start executing it.
    attempted (needs per-note salience tracking) — flagged follow-up.
 9. **C1/C2 seam wiring** — perception channel (A22 → each pillar's
    observe()) and intention channel (pillar → Body validate/execute)
-   made real for whichever pillars exist by this point.
+   made real for whichever pillars exist by this point. **Shipped**
+   (explicit user instruction, "Build step 9"): C1 was already
+   structurally real for all five pillars since B2, missing only real
+   salience-ranking (fixed — `_pillar_observe_turn` now sorts candidate
+   observations by `magnitude` before filling bounded `working_memory`,
+   instead of plain recency order). C2 audit found Innovation/Nature
+   already validate their Body-touching proposals; Village/Reflection
+   have no Body-touching writes to validate; Humans' dialect-drift term
+   coining was the one real gap (wrote a new `Settlement.lexicon` entry
+   with no Body-side check at all) — closed with `narrative_direction.
+   validate_coined_term()`. See CHANGELOG.md's "C1/C2 seam wiring"
+   entry.
 
 ### Stage III — Player-facing + interaction (5 steps, emergence turns on)
 

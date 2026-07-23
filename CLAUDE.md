@@ -497,6 +497,27 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.7.1)
+
+Explicit user instruction: "Build step 9" — roadmap Stage II step 9,
+C1/C2 seam wiring (docs/MASTERCHECKLIST-2026-07-22.md, Part C). Full
+detail: CHANGELOG.md's [1.7.1] entry.
+
+C1 (perception channel): already bounded + pillar-tagged for all five
+pillars since B2; "salience-ranked" wasn't — `_pillar_observe_turn`
+now sorts candidate Emergence API observations by `magnitude`
+(descending) before filling the bounded `working_memory`, instead of
+plain recency order, so a pillar's small attention budget goes to
+what's actually most salient this turn.
+
+C2 (intention channel): audited every Body-touching write across all
+five pillars' representative jobs. Innovation/Nature already validate
+(`ontology.validate_hook`/`is_near_duplicate`); Village/Reflection
+have no Body-touching writes. Humans' dialect-drift term coining
+(`Settlement.lexicon`) was the one real gap — new `narrative_
+direction.validate_coined_term()` rejects an exact duplicate before
+the write, closing it.
+
 ## Current state (v1.7.0)
 
 Explicit user requests: "the adaptive slowing of the simulation should

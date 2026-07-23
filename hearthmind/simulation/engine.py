@@ -3980,13 +3980,32 @@ class SimulationEngine:
         having done this turn's whole job). Returns False on an
         `interpret` turn (the caller should proceed to its real LLM
         call). Extracted from `_maybe_schedule_nature_mind`'s original
-        inline logic once a second pillar needed the identical shape."""
+        inline logic once a second pillar needed the identical shape.
+
+        C1 "The perception channel" (docs/MASTERCHECKLIST-2026-07-22.md,
+        Part C, roadmap Stage II step 9) asks for this feed to be
+        "bounded, salience-ranked, pillar-tagged" — bounded and pillar-
+        tagged already held; salience-ranked did not. This used to feed
+        `note_observation` every pillar-tagged candidate in the 40-entry
+        window in plain recency order, letting `WORKING_MEMORY_MAX`'s
+        FIFO eviction silently discard a genuinely high-`magnitude`
+        observation in favor of a later but less salient one purely
+        because it happened to log first. Now sorts the pillar-tagged
+        candidates by `magnitude` (highest first, unranked observations
+        — `magnitude=None` — sorting last) and only notes the top
+        `WORKING_MEMORY_MAX`, so a pillar's bounded attention is
+        deliberately spent on what actually matters most this turn, not
+        whatever happened to be freshest."""
         pillar = getattr(self.world, f"{pillar_name}_pillar")
         if pillar.cycle_stage != "observe":
             return False
-        for obs in self.world.emergence_log_recent(limit=40):
-            if pillar_name in obs.get("pillars", ()):
-                pillar.note_observation(obs["summary"])
+        candidates = [
+            obs for obs in self.world.emergence_log_recent(limit=40)
+            if pillar_name in obs.get("pillars", ())
+        ]
+        candidates.sort(key=lambda obs: obs.get("magnitude") if obs.get("magnitude") is not None else -1.0, reverse=True)
+        for obs in candidates[: pillar.WORKING_MEMORY_MAX]:
+            pillar.note_observation(obs["summary"])
         pillar.set_cycle_stage("interpret")
         pillar.last_turn_tick = self.world.clock.tick_count
         return True
@@ -4962,10 +4981,17 @@ class SimulationEngine:
                 coined = narrative_direction.parse_coined_term(result)
                 if coined is not None:
                     term, meaning = coined
-                    stl.lexicon.append({"term": term, "meaning": meaning, "formed_tick": self.world.clock.tick_count})
-                    if len(stl.lexicon) > LEXICON_MAX_STORED:
-                        stl.lexicon = stl.lexicon[-LEXICON_MAX_STORED:]
-                    self._log("dialect_coined", f"{stl.name} has started calling it \"{term}\" — {meaning}")
+                    # C2 "The intention channel": the Body validates
+                    # this real state-creating proposal before executing
+                    # it — see validate_coined_term's docstring. An
+                    # exact duplicate coinage is silently dropped, same
+                    # "not every call produces visible output" discipline
+                    # as a rejected/near-duplicate ontology proposal.
+                    if narrative_direction.validate_coined_term(term, stl.lexicon):
+                        stl.lexicon.append({"term": term, "meaning": meaning, "formed_tick": self.world.clock.tick_count})
+                        if len(stl.lexicon) > LEXICON_MAX_STORED:
+                            stl.lexicon = stl.lexicon[-LEXICON_MAX_STORED:]
+                        self._log("dialect_coined", f"{stl.name} has started calling it \"{term}\" — {meaning}")
             self._pillar_close_cycle("humans")
 
         # Cultural evolution: naming the emergent theme is interpretation

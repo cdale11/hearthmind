@@ -115,3 +115,21 @@ def parse_coined_term(result: dict) -> tuple[str, str] | None:
     if not isinstance(meaning, str) or not meaning.strip():
         return None
     return term.strip()[:30], meaning.strip()[:100]
+
+
+def validate_coined_term(term: str, existing_lexicon: list[dict]) -> bool:
+    """C2 "The intention channel" (docs/MASTERCHECKLIST-2026-07-22.md,
+    Part C — "every pillar acts only by emitting intentions the Body
+    validates and executes"): a dialect-drift coinage is a real
+    persistent-state-creating intention (a new `Settlement.lexicon`
+    entry) the Body must check before executing, the same "never trust
+    the LLM's own claim unconditionally" discipline `ontology.validate_
+    hook` already enforces for Innovation's concept proposals — this
+    call site previously had no such check at all beyond `parse_coined_
+    term`'s own non-blank validation. Rejects an exact case-insensitive
+    duplicate of an already-coined term (the one concrete failure mode
+    this join site could actually produce — the model re-coining "the
+    white month" a second time, redundant with an existing entry);
+    returns True (the intention is valid, safe to execute) otherwise."""
+    term_lower = term.strip().lower()
+    return not any(entry.get("term", "").strip().lower() == term_lower for entry in existing_lexicon)
