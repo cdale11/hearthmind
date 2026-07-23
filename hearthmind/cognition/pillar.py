@@ -144,13 +144,22 @@ class Pillar:
     genuinely needs to pause between them, not yet exercised as
     separate persisted stops."""
 
+    CONVERSATION_LOG_MAX = 10
+    """C3 "Player <-> Pillar chat" (roadmap Stage III step 10): "a light
+    per-pillar player-model" — bounded so a long-running world's chat
+    history doesn't grow unbounded, per the standing memory-leak-audit
+    discipline. 10 exchanges is plenty for "does this read as a
+    continuing conversation," the only thing `recent_conversation`
+    (`llm/pillar_chat.py`) actually needs it for."""
+
     def __init__(
         self, name: str, description: str = "", self_model: dict | None = None,
         world_model: list[dict] | None = None, memory: list[str] | None = None,
         objectives: list[str] | None = None, inbox: list[dict] | None = None,
         outbox: list[dict] | None = None, next_world_model_id: int = 1, next_message_id: int = 1,
         cycle_stage: str = "observe", working_memory: list[str] | None = None,
-        last_turn_tick: int = -1,
+        last_turn_tick: int = -1, conversation_log: list[dict] | None = None,
+        last_question: str = "", last_answer: str = "", last_answer_tick: int = -1,
     ) -> None:
         self.name = name
         self.description = description
@@ -171,6 +180,17 @@ class Pillar:
         self.next_message_id = next_message_id
         self.cycle_stage = cycle_stage if cycle_stage in self.CYCLE_STAGES else "observe"
         self.working_memory = working_memory if working_memory is not None else []
+        self.conversation_log = conversation_log if conversation_log is not None else []
+        self.last_question = last_question
+        self.last_answer = last_answer
+        self.last_answer_tick = last_answer_tick
+        self.pending = False
+        """C3: True from the moment a `/ask/{pillar}` question is
+        applied until its answer resolves — same "in-flight state never
+        persists" discipline as `World.chronicler_pending`/`sim_
+        summary_pending` (see `to_dict`'s comment); always loads back
+        `False`, since a generation left in flight at shutdown never
+        resolves after restart."""
 
     def note_observation(self, text: str) -> None:
         """B2's `observe` stage: appends one curated observation (a
@@ -221,6 +241,19 @@ class Pillar:
         if len(self.memory) > self.MEMORY_MAX:
             self.memory = self.memory[-self.MEMORY_MAX:]
 
+    def record_conversation(self, question: str, answer: str, tick: int) -> None:
+        """C3 "Player <-> Pillar chat": appends one Q&A exchange to the
+        bounded `conversation_log` ("a light per-pillar player-model")
+        and updates `last_question`/`last_answer`/`last_answer_tick`
+        (the single most recent exchange, same shape `World.chronicler_
+        *` already used for the settlement-scoped predecessor)."""
+        self.conversation_log.append({"question": question, "answer": answer, "tick": tick})
+        if len(self.conversation_log) > self.CONVERSATION_LOG_MAX:
+            self.conversation_log = self.conversation_log[-self.CONVERSATION_LOG_MAX:]
+        self.last_question = question
+        self.last_answer = answer
+        self.last_answer_tick = tick
+
     def consolidate(self) -> bool:
         """B8 "Living memory & consolidation": folds the oldest `MEMORY_
         CONSOLIDATE_BATCH` raw notes into one condensed digest note once
@@ -246,6 +279,12 @@ class Pillar:
             "next_world_model_id": self.next_world_model_id, "next_message_id": self.next_message_id,
             "cycle_stage": self.cycle_stage, "working_memory": list(self.working_memory),
             "last_turn_tick": self.last_turn_tick,
+            "conversation_log": [dict(c) for c in self.conversation_log],
+            "last_question": self.last_question, "last_answer": self.last_answer,
+            "last_answer_tick": self.last_answer_tick,
+            # `pending` deliberately NOT persisted — same "in-flight
+            # state never survives a restart" reasoning as `World.
+            # chronicler_pending`/`sim_summary_pending`.
         }
 
     @classmethod
@@ -263,6 +302,10 @@ class Pillar:
             outbox=[dict(m) for m in data.get("outbox", [])],
             next_world_model_id=data.get("next_world_model_id", 1),
             next_message_id=data.get("next_message_id", 1),
+            conversation_log=[dict(c) for c in data.get("conversation_log", [])],
+            last_question=data.get("last_question", ""),
+            last_answer=data.get("last_answer", ""),
+            last_answer_tick=data.get("last_answer_tick", -1),
         )
 
 

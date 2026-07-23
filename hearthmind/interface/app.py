@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from hearthmind import __version__
 from hearthmind.config import Config
 from hearthmind.interface.api import DEFAULT_SPEED_MULTIPLIER, WorldBroadcaster
+from hearthmind.world.emergence import PILLARS
 from hearthmind.persistence.snapshot import (
     agent_memory_log_count,
     event_category_counts,
@@ -433,6 +434,40 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
         if "settlement_id" in payload:
             item["settlement_id"] = payload["settlement_id"]
         broadcaster.enqueue_intervention(item)
+        return JSONResponse({"queued": True})
+
+    @app.get("/pillar/{pillar}")
+    async def pillar_state(pillar: str) -> JSONResponse:
+        """C3 "Player <-> Pillar chat" (roadmap Stage III step 10): the
+        most recent question/answer for one cognitive pillar — same
+        `{question, answer, tick, pending}` shape as `GET /chronicler`,
+        read off `payload["summary"]["pillars"][pillar]` (see `World.
+        summary()`)."""
+        if pillar not in PILLARS:
+            return JSONResponse({"error": f"unknown pillar {pillar!r}, expected one of {list(PILLARS)}"}, status_code=404)
+        payload = broadcaster.get_state()
+        if payload is None:
+            return JSONResponse({"error": "no tick has completed yet"}, status_code=503)
+        pillars = payload.get("summary", {}).get("pillars", {})
+        return JSONResponse(pillars.get(pillar, {"question": "", "answer": "", "tick": -1, "pending": False}))
+
+    @app.post("/ask/{pillar}")
+    async def ask_pillar(pillar: str, payload: dict) -> JSONResponse:
+        """Queue an on-demand, subjective in-fiction answer from ONE
+        cognitive pillar — the C3 generalization of `POST /ask-
+        chronicler` to any of the five pillars (Nature today; Village/
+        Humans/Innovation/Reflection answer from their own real state
+        too, since B1's generalization gave every pillar the same
+        self_model/world_model/memory shape). Same enqueue-now/apply-
+        next-tick seam. See `SimulationEngine._schedule_pillar_answer`
+        for why the answer is built only from the pillar's own
+        persistent state, never raw World/Settlement stats."""
+        if pillar not in PILLARS:
+            return JSONResponse({"error": f"unknown pillar {pillar!r}, expected one of {list(PILLARS)}"}, status_code=404)
+        question = str(payload.get("question", "")).strip()
+        if not question:
+            return JSONResponse({"error": "question is required"}, status_code=400)
+        broadcaster.enqueue_intervention({"type": "ask_pillar", "pillar": pillar, "question": question})
         return JSONResponse({"queued": True})
 
     @app.get("/digest")

@@ -184,6 +184,7 @@ const CATEGORY_META = {
   prophecy_confirmed: { icon: "🔮" },
   prophecy_forgotten: { icon: "🔮" },
   chronicler_answer: { icon: "📖" },
+  pillar_answer: { icon: "🗣" },
   mining_scarred: { icon: "⛏️" },
   disaster_scarred: { icon: "🌋" },
   // P2.3 (docs/AUDIT-2026-07-20.md): 296/16k events (18%) in a live run —
@@ -219,6 +220,7 @@ const EVENT_GROUP_OF = {
   institution_belief: "mind", ritual_formed: "mind", religion_formed: "mind",
   narrative_direction: "mind", consciousness_intervention: "mind", dialect_coined: "mind",
   prophecy_formed: "mind", prophecy_confirmed: "mind", prophecy_forgotten: "mind", chronicler_answer: "mind",
+  pillar_answer: "mind",
 };
 let activeEventGroup = "all";
 
@@ -591,6 +593,87 @@ chroniclerForm.addEventListener("submit", async (e) => {
   } catch (e2) {
     chroniclerStatus.textContent = `failed: ${e2.message}`;
     chroniclerForm.querySelector("button").disabled = false;
+  }
+});
+
+// C3 "Player <-> Pillar chat" (roadmap Stage III step 10): same on-demand
+// request/poll shape as the chronicler above, generalized to any of the
+// five cognitive pillars via a select dropdown.
+
+const pillarChatPanel = document.getElementById("pillar-chat-panel");
+const pillarChatToggle = document.getElementById("pillar-chat-toggle");
+const pillarChatForm = document.getElementById("pillar-chat-form");
+const pillarChatSelect = document.getElementById("pillar-chat-select");
+const pillarChatInput = document.getElementById("pillar-chat-input");
+const pillarChatStatus = document.getElementById("pillar-chat-status");
+const pillarChatQuestionEcho = document.getElementById("pillar-chat-question-echo");
+const pillarChatAnswer = document.getElementById("pillar-chat-answer");
+let pillarChatPollTimer = null;
+
+function renderPillarChat(pillar, data) {
+  if (data.pending) {
+    pillarChatStatus.textContent = `${pillar} is thinking…`;
+  } else {
+    pillarChatStatus.textContent = data.tick >= 0 ? `as of tick ${data.tick}` : "";
+    pillarChatForm.querySelector("button").disabled = false;
+  }
+  if (data.question) {
+    pillarChatQuestionEcho.textContent = `"${data.question}"`;
+    pillarChatQuestionEcho.classList.remove("hidden");
+  }
+  if (data.answer) pillarChatAnswer.textContent = data.answer;
+}
+
+async function loadPillarChat() {
+  const pillar = pillarChatSelect.value;
+  try {
+    renderPillarChat(pillar, await fetchJSON(`/pillar/${pillar}`));
+  } catch (e) {
+    pillarChatStatus.textContent = `failed to load: ${e.message}`;
+  }
+}
+
+function pollPillarChatUntilDone(pillar) {
+  if (pillarChatPollTimer) clearInterval(pillarChatPollTimer);
+  pillarChatPollTimer = setInterval(async () => {
+    try {
+      const data = await fetchJSON(`/pillar/${pillar}`);
+      renderPillarChat(pillar, data);
+      if (!data.pending) clearInterval(pillarChatPollTimer);
+    } catch (e) {
+      clearInterval(pillarChatPollTimer);
+    }
+  }, 2000);
+}
+
+pillarChatToggle.addEventListener("click", () => {
+  pillarChatPanel.classList.toggle("hidden");
+  pillarChatToggle.classList.toggle("active");
+  if (!pillarChatPanel.classList.contains("hidden")) loadPillarChat();
+});
+
+pillarChatSelect.addEventListener("change", () => {
+  pillarChatQuestionEcho.classList.add("hidden");
+  pillarChatAnswer.textContent = "no question asked yet";
+  loadPillarChat();
+});
+
+pillarChatForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const question = pillarChatInput.value.trim();
+  if (!question) return;
+  const pillar = pillarChatSelect.value;
+  pillarChatForm.querySelector("button").disabled = true;
+  pillarChatStatus.textContent = `${pillar} is thinking…`;
+  try {
+    await fetch(`/ask/${pillar}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }),
+    });
+    pillarChatInput.value = "";
+    pollPillarChatUntilDone(pillar);
+  } catch (e2) {
+    pillarChatStatus.textContent = `failed: ${e2.message}`;
+    pillarChatForm.querySelector("button").disabled = false;
   }
 });
 

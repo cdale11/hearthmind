@@ -598,13 +598,27 @@ Where LLM_Pillars.md and det_sys.md meet — the bidirectional interface.
   LLM mechanics outside the five-pillar refactor's current reach), not
   a validation gap this pass could close.
 
-### C3 — Player ↔ Pillar chat — PARTIAL
+### C3 — Player ↔ Pillar chat — SHIPPED (roadmap Stage III step 10, v1.8.0)
 
-- [ ] Generalize `/ask-chronicler` (verified present) to `/ask/{pillar}`:
+- [x] Generalize `/ask-chronicler` (verified present) to `/ask/{pillar}`:
   ask any pillar what it believes/fears/plans/predicts/why, answered from
   its real self/world-model (can be wrong). Nudges enter cognition as
   weighable inputs, never commands; conversations are remembered (a light
-  per-pillar player-model). Pillars may initiate contact.
+  per-pillar player-model). Pillars may initiate contact. **Shipped**:
+  new `llm/pillar_chat.py` (one shared prompt template, voiced per-pillar
+  via `self_model["voice"]`), `GET /pillar/{pillar}`/`POST /ask/{pillar}`
+  (`interface/app.py`), `SimulationEngine._schedule_pillar_answer` (same
+  enqueue-now/apply-next-tick seam as the chronicler). `Pillar` gained
+  `conversation_log`/`last_question`/`last_answer`/`last_answer_tick`/
+  `pending` — "a light per-pillar player-model." The exchange is folded
+  into the SAME pillar's next real `interpret` cognition call via
+  `note_observation()` (the working_memory slot every representative
+  job's prompt already reads via `emergence_observations`) — a genuine
+  weighable input, never a direct belief write or overridden decision.
+  Main-UI panel (a select + ask form under the explore menu), per the
+  standing UI-surfacing workflow rule — this is explicitly player-
+  facing, not dev-console material. "Pillars may initiate contact" is
+  NOT attempted — flagged as real future scope, not silently dropped.
 
 ### C4 — The acceptance gate as law — PARTIAL
 
@@ -795,7 +809,8 @@ is not authorization to start executing it.
 
 10. **C3 `/ask/{pillar}` chat** — generalize the existing `/ask-
     chronicler` pattern to any pillar; cheap, high daily value, ship
-    early even if only Nature exists yet.
+    early even if only Nature exists yet. **Shipped v1.8.0** — see
+    Part C's own C3 entry above for full detail.
 11. **B4 Inter-pillar consciousness bus** — typed messages between
     pillars, the four influence-arrows made real.
 12. **B5 Innovation as conscious scientist** — extend `ontology.py`'s

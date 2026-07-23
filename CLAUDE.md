@@ -497,6 +497,41 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.8.0)
+
+Explicit user instruction: "Start [Stage] 3's first step" — C3
+"Player <-> Pillar chat" (roadmap Stage III step 10, docs/
+MASTERCHECKLIST-2026-07-22.md). Full detail: CHANGELOG.md's [1.8.0]
+entry.
+
+Generalizes Ask-the-Chronicler to `/ask/{pillar}` for any of the five
+cognitive pillars: new `llm/pillar_chat.py` (one shared prompt
+template, voiced per-pillar via `self_model["voice"]`), `Pillar`
+gained `conversation_log`/`last_question`/`last_answer`/`pending`,
+`GET /pillar/{pillar}`/`POST /ask/{pillar}` +
+`_schedule_pillar_answer` (same enqueue-now/apply-next-tick seam as
+the chronicler). Answers only from the pillar's own real self/world-
+model, never raw stats. A resolved exchange reaches that pillar's own
+next real cognition call as a `working_memory` note (the same
+`emergence_observations` channel B2 already established) — "nudges
+enter cognition as weighable inputs, never commands," genuinely wired
+rather than asserted. Main-UI panel under the explore menu ("🗣 ask a
+pillar"). "Pillars may initiate contact" (stretch goal) not attempted.
+
+Stage III steps 11-14 (B4 inter-pillar bus, B5 Innovation-as-scientist,
+B6 Reflection-as-meta-scientist, B7 Humans collective+coordinator) are
+queued via an autonomous Routine (see `mcp__Claude_Code_Remote__list_
+triggers` for the live trigger) that fires periodically, checks the
+roadmap doc for the next unshipped step, implements/verifies/ships it
+with the same discipline as every step in this file, and stops after
+one step per firing. Stage IV (16 steps, "Deepen the Body") is
+explicitly NOT queued into the same autonomous chain — each step there
+is a much larger, higher-blast-radius subsystem build (continuous
+hydrology, a chemistry/material-science engine, genetic inheritance
+replacing the current trait model, etc.) that warrants a human
+checkpoint before committing to, not batch-shipped unattended the way
+Stage II/III's smaller, well-scoped steps could be.
+
 ## Current state (v1.7.1)
 
 Explicit user instruction: "Build step 9" — roadmap Stage II step 9,

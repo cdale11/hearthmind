@@ -51,6 +51,7 @@
         <div class="header-menu-list hidden" id="explore-menu-list">
           <button id="summary-toggle" class="dev-toggle" title="LLM-generated summary of the simulation, on demand">🧭 summary</button>
           <button id="chronicler-toggle" class="dev-toggle" title="Ask the village chronicler a question, in character">📖 chronicler</button>
+          <button id="pillar-chat-toggle" class="dev-toggle" title="Ask any of the five cognitive pillars what it believes, fears, or plans">🗣 ask a pillar</button>
           <button id="digest-toggle" class="dev-toggle" title="A recap of what happened since you last looked">🕯 digest</button>
           <button id="highlights-toggle" class="dev-toggle" title="The simulation's own log of its most notable emergent moments">✨ highlights</button>
           <button id="knowledge-tree-toggle" class="dev-toggle" title="Everything the world has originated for itself — concepts, laws, hypotheses, beliefs — with lineage">🌳 knowledge tree</button>
@@ -151,6 +152,28 @@
         <span id="chronicler-status" class="muted"></span>
         <p id="chronicler-question-echo" class="muted hidden"></p>
         <p id="chronicler-answer" class="muted">no question asked yet</p>
+      </div>
+
+      <div class="panel hidden" id="pillar-chat-panel">
+        <h2>Ask a pillar</h2>
+        <div class="muted" style="font-size:11px; margin-bottom:6px;">
+          Each pillar answers only from its own real, sometimes-wrong understanding of itself — never from
+          ground-truth simulation state, and may honestly not know.
+        </div>
+        <form id="pillar-chat-form">
+          <select id="pillar-chat-select">
+            <option value="nature">Nature</option>
+            <option value="village">Village</option>
+            <option value="humans">Humans</option>
+            <option value="innovation">Innovation</option>
+            <option value="reflection">Reflection</option>
+          </select>
+          <input id="pillar-chat-input" type="text" maxlength="300" placeholder="Ask this pillar something…" />
+          <button type="submit">Ask</button>
+        </form>
+        <span id="pillar-chat-status" class="muted"></span>
+        <p id="pillar-chat-question-echo" class="muted hidden"></p>
+        <p id="pillar-chat-answer" class="muted">no question asked yet</p>
       </div>
 
       <div class="panel hidden" id="digest-panel">

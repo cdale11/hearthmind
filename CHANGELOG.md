@@ -4,6 +4,57 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.8.0] — C3 "Player <-> Pillar chat" (roadmap Stage III step 10)
+
+Explicit user instruction: "Start [Stage] 3's first step" — the first
+of Stage III's 5 steps, docs/MASTERCHECKLIST-2026-07-22.md.
+Generalizes the existing Ask-the-Chronicler pattern (settlement-scoped,
+narrative-only) to any of the five cognitive pillars.
+
+New `llm/pillar_chat.py`: one shared `SYSTEM_PROMPT_TEMPLATE` (not five
+hand-written prompts) — each pillar's answer is voiced through its own
+`self_model["voice"]`/`description`, so Nature "never speaks as a
+person" while Reflection "proposes hypotheses, never asserts
+certainty" without maintaining five near-duplicate prompt strings.
+Answers are built ONLY from the pillar's own real `objectives`/
+`world_model`/`memory` — same "never a ground-truth readout dressed up
+as in-character text" discipline the chronicler already holds.
+
+`Pillar` (`cognition/pillar.py`) gained `conversation_log` (bounded,
+`CONVERSATION_LOG_MAX=10` — "a light per-pillar player-model"),
+`last_question`/`last_answer`/`last_answer_tick` (persisted), `pending`
+(not persisted, same "in-flight state never survives a restart" reason
+as `World.chronicler_pending`). New `GET /pillar/{pillar}`/`POST /ask/
+{pillar}` (`interface/app.py`) and `SimulationEngine._schedule_pillar_
+answer`, same enqueue-now/apply-next-tick seam as `_schedule_
+chronicler_answer`.
+
+"Nudges enter cognition as weighable inputs, never commands" (the
+checklist's own phrasing): the resolved Q&A exchange is written into
+`working_memory` via `note_observation()` — the SAME list every
+representative pillar job's real `interpret` cognition call already
+reads via `emergence_observations=list(world.<pillar>_pillar.working_
+memory)` (the B2 mechanism). A recent question genuinely reaches that
+pillar's next real cognitive turn as one more thing it noticed,
+exactly like a salient Emergence API observation would — there is no
+path from a player's question to a direct belief write or a bypassed
+decision. "Pillars may initiate contact" (the checklist's own stretch
+goal) is explicitly NOT attempted — flagged as real future scope.
+
+UI: a new "🗣 ask a pillar" panel (pillar-select dropdown + question
+form) under the explore menu, mirroring the existing chronicler panel
+— per the standing workflow rule, this is explicitly player-facing
+(Stage III's own title), not dev-console material.
+
+Verified: direct engine-level test of the full `ask_pillar` ->
+`_schedule_pillar_answer` -> apply -> `Pillar` state round trip
+(pending clears, conversation recorded, working_memory updated,
+`World.summary()["pillars"]` reflects it, `to_dict`/`from_dict`
+survives with `pending` correctly resetting to `False`); an unknown-
+pillar/blank-question no-op test; `scripts/verify_native_soak.py` (2
+seeds x 400 ticks) byte-identical (a real-time-request-driven feature,
+no change to the deterministic tick path).
+
 ## [1.7.1] — C1/C2 seam wiring (roadmap Stage II step 9)
 
 Explicit user instruction: "Build step 9." Part C of docs/

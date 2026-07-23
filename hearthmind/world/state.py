@@ -33,6 +33,7 @@ from hearthmind.world.terrain_evolution import (
 )
 from hearthmind.world.daylight import night_factor as compute_night_factor
 from hearthmind.world.fields import FieldGrid
+from hearthmind.world import emergence
 from hearthmind.cognition.pillar import (
     Pillar, default_nature_pillar, default_village_pillar, default_humans_pillar,
     default_innovation_pillar, default_reflection_pillar,
@@ -899,6 +900,20 @@ class World:
                 "answer": self.chronicler_answer,
                 "tick": self.chronicler_answer_tick,
                 "pending": self.chronicler_pending,
+            },
+            # C3 "Player <-> Pillar chat" (roadmap Stage III step 10):
+            # same {question, answer, tick, pending} shape as
+            # "chronicler" above, one entry per cognitive pillar, so the
+            # UI/`/ask/{pillar}` polling logic can reuse the exact same
+            # pattern it already has for the chronicler.
+            "pillars": {
+                name: {
+                    "question": getattr(self, f"{name}_pillar").last_question,
+                    "answer": getattr(self, f"{name}_pillar").last_answer,
+                    "tick": getattr(self, f"{name}_pillar").last_answer_tick,
+                    "pending": getattr(self, f"{name}_pillar").pending,
+                }
+                for name in emergence.PILLARS
             },
             "away_digest": {
                 "text": self.away_digest_text,

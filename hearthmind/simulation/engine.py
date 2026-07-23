@@ -69,7 +69,7 @@ from hearthmind.llm import (
     culture_digest, dialogue,
     digest, dispute, documentary, dream, era_branch, festival, folklore, founding, geography, invention,
     memory_drift, migration, mind, musing,
-    naming, narrative_direction, omens, religion, rumor_interpret, skill_mastery, species_variant, summary,
+    naming, narrative_direction, omens, pillar_chat, religion, rumor_interpret, skill_mastery, species_variant, summary,
     town_brain,
     diplomacy, laws, letters, noncore_nudge, institution_culture, nature_mind, reflection, rule_propose,
 )
@@ -2944,6 +2944,8 @@ class SimulationEngine:
             self._schedule_summary()
         elif kind == "ask_chronicler":
             self._schedule_chronicler_answer(str(item.get("question", "")), item.get("settlement_id"))
+        elif kind == "ask_pillar":
+            self._schedule_pillar_answer(str(item.get("pillar", "")), str(item.get("question", "")))
         elif kind == "observer_attention":
             self._record_observer_attention(item.get("agent_id"))
         elif kind == "request_digest":
@@ -3470,6 +3472,54 @@ class SimulationEngine:
             self._log("chronicler_answer", f"Asked of the chronicler: \"{question}\" — {self.world.chronicler_answer}")
 
         self._schedule_llm_job("chronicler", prompt, chronicler.SYSTEM_PROMPT, fallback, apply)
+
+    # --- C3 "Player <-> Pillar chat" (roadmap Stage III step 10) ---------------
+
+    def _schedule_pillar_answer(self, pillar_name: str, question: str) -> None:
+        """Applied the tick after `POST /ask/{pillar}` enqueues an
+        `ask_pillar` intervention — same enqueue-now/apply-next-tick
+        seam as `_schedule_chronicler_answer`, generalized from one
+        settlement-scoped narrative voice to any of the five cognitive
+        pillars. Deliberately NOT gated by `_settlement_job_
+        backpressured()`/the attention scheduler, same reasoning as the
+        chronicler: a single user-triggered question is not part of the
+        coincident-job cluster those gates exist to smooth. Answers ONLY
+        from the pillar's own real `description`/`self_model`/
+        `objectives`/`world_model`/`memory` (see `llm/pillar_chat.py`'s
+        module docstring) — never raw World/Settlement stats."""
+        question = question.strip()[:300]
+        if pillar_name not in emergence.PILLARS or not question:
+            return
+        pillar = getattr(self.world, f"{pillar_name}_pillar")
+        voice_hint = pillar.self_model.get("voice", "") if isinstance(pillar.self_model, dict) else ""
+        system_prompt = pillar_chat.build_system_prompt(pillar.description, voice_hint)
+        prompt = pillar_chat.build_prompt(
+            pillar_name, question, list(pillar.objectives), list(pillar.world_model),
+            list(pillar.memory), list(pillar.conversation_log),
+        )
+        fallback = pillar_chat.fallback_answer(pillar_name)
+        pillar.last_question = question
+        pillar.pending = True
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            answer = pillar_chat.parse_answer(result, fallback)
+            tick = self.world.clock.tick_count
+            pillar.record_conversation(question, answer, tick)
+            pillar.pending = False
+            self._log("pillar_answer", f"Asked of {pillar_name}: \"{question}\" — {answer}")
+            # "Nudges enter cognition as weighable inputs, never
+            # commands" (C3's own phrasing): `note_observation` puts
+            # this exchange into `working_memory` — the SAME list every
+            # representative job's real `interpret` call already reads
+            # via `emergence_observations=list(world.<pillar>_pillar.
+            # working_memory)` (see `_pillar_observe_turn`). A recent
+            # question genuinely reaches this pillar's next real
+            # cognition call as one more thing it noticed, exactly like
+            # a salient Emergence API observation would — never a
+            # direct belief write or a bypassed decision.
+            pillar.note_observation(f"A visitor asked: \"{question}\" — I answered: {answer}")
+
+        self._schedule_llm_job(f"pillar_chat_{pillar_name}", prompt, system_prompt, fallback, apply)
 
     # --- §5 "While you were away" digest (on-demand) ---------------------------
 
