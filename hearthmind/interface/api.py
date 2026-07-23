@@ -69,6 +69,8 @@ class WorldBroadcaster:
         self, terrain, width: int, height: int,
         mining_scars: dict | None = None, disaster_scars: dict | None = None,
         ritual_activity: dict | None = None, ruin_scars: dict | None = None,
+        moisture: "list[list[float]] | None" = None, soil_fertility: dict | None = None,
+        population_density: "list[list[float]] | None" = None,
     ) -> None:
         """Called when the engine starts, and again on any tick where
         terrain evolution changed a tile's biome (see
@@ -102,7 +104,22 @@ class WorldBroadcaster:
         `ruin_scars` (A3, roadmap Stage IV step 28): same shape/
         rationale, for `building_reclaimed` events (already in
         `TERRAIN_CHANGING_CATEGORIES`) — always resyncs alongside the
-        removal that created it, no lag."""
+        removal that created it, no lag.
+
+        `moisture`/`soil_fertility`/`population_density` (explicit user
+        request, "the map should change and evolve... implement all
+        Part A items to be visible on the map itself"): three real
+        fields that had backend state but zero map representation —
+        `World.hydrology_field.moisture` (A11, full dense grid, only
+        ever updated weekly so this payload size is acceptable at this
+        resync cadence — same reasoning `biomes` already established),
+        `FarmGrid.soil_fertility` (sparse, farmed-tiles-only dict, same
+        shape as the scar dicts), and `World.fields` (A1/A20)'s
+        `population_density` (tiny 3x3 grid, always sent — negligible
+        size). `SimulationEngine._maybe_broadcast` now also resyncs on
+        a `week_end` calendar boundary specifically for these three,
+        since none of them fire a `TERRAIN_CHANGING_CATEGORIES` event
+        of their own."""
         self._terrain_payload = {
             "width": width,
             "height": height,
@@ -122,6 +139,17 @@ class WorldBroadcaster:
             "ruin_scars": (
                 {f"{x}:{y}": round(v, 3) for (x, y), v in ruin_scars.items()}
                 if ruin_scars else {}
+            ),
+            "moisture": (
+                [[round(v, 3) for v in row] for row in moisture] if moisture else []
+            ),
+            "soil_fertility": (
+                {f"{x}:{y}": round(v, 3) for (x, y), v in soil_fertility.items()}
+                if soil_fertility else {}
+            ),
+            "population_density": (
+                [[round(v, 3) for v in row] for row in population_density]
+                if population_density else []
             ),
         }
 

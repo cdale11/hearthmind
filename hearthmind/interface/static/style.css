@@ -76,6 +76,19 @@ main {
   pointer-events: none;
 }
 
+/* Explicit user request: "the map should change and evolve with the
+   simulation — implement Part A items to be visible on the map
+   itself." A toggleable heatmap over real continuous fields (soil
+   moisture, soil fertility, population density) that previously only
+   reached a hidden stat panel or nothing at all. Sits below the
+   weather particle layer, above the base terrain. */
+#field-canvas {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  pointer-events: none;
+}
+
 /* Vision doc item 3.6 ("Ambient generative presence" — "you feel the
    world darken before a hard winter you weren't told about"): a subtle
    seasonal color-grade over the map, keyed to the same `summary.season`

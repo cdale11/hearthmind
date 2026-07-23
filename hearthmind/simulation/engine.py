@@ -1483,6 +1483,8 @@ class SimulationEngine:
                 world.terrain, world.config.width, world.config.height,
                 mining_scars=world.mining_scars, disaster_scars=world.disaster_scars,
                 ritual_activity=world.ritual_activity, ruin_scars=world.ruin_scars,
+                moisture=world.hydrology_field.moisture, soil_fertility=world.farms.soil_fertility,
+                population_density=world.fields.ensure_field("population_density"),
             )
             self._broadcaster.set_diagnostics_provider(self.full_diagnostics)
             self._broadcaster.set_knowledge_tree_provider(self.world.knowledge_tree)
@@ -8654,11 +8656,24 @@ class SimulationEngine:
         if self._broadcaster is None:
             self._pending_broadcast_events = []  # nobody will ever read this buffer — don't let it grow unbounded
             return
-        if any(category in TERRAIN_CHANGING_CATEGORIES for category, _ in self.world.last_life_events):
+        if (
+            any(category in TERRAIN_CHANGING_CATEGORIES for category, _ in self.world.last_life_events)
+            or "week_end" in self.world.last_calendar_events
+        ):
+            # `week_end` resyncs even when nothing changed a tile's biome —
+            # moisture/soil_fertility/population_density (below) have no
+            # TERRAIN_CHANGING_CATEGORIES event of their own (they're
+            # continuous fields, not discrete scarring), so without this
+            # they'd only ever refresh as a side effect of an unrelated
+            # terrain-changing event. Weekly matches hydrology's own real
+            # tick cadence — no point resyncing more often than the
+            # underlying field actually changes.
             self._broadcaster.set_terrain(
                 self.world.terrain, self.world.config.width, self.world.config.height,
                 mining_scars=self.world.mining_scars, disaster_scars=self.world.disaster_scars,
-                ritual_activity=self.world.ritual_activity,
+                ritual_activity=self.world.ritual_activity, ruin_scars=self.world.ruin_scars,
+                moisture=self.world.hydrology_field.moisture, soil_fertility=self.world.farms.soil_fertility,
+                population_density=self.world.fields.ensure_field("population_density"),
             )
         tick_events = [
             {"category": category, "description": description}

@@ -4,6 +4,61 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.27.0] — Live map field overlays + A20 extension (Stage IV close-out pass)
+
+Explicit user instruction, follow-up to a live report ("I can't see the
+hydrology implementation"): confirmed hydrology/soil-fertility/
+population-density were real backend state (`World.hydrology_field.
+moisture`, `FarmGrid.soil_fertility`, `World.fields`) with zero map
+representation — only aggregate stat-tile numbers, or nothing at all.
+User's explicit directive: "finish stage 4 and implement all part A
+items to be visible on the live map itself. The map should change and
+evolve with the simulation — that was the whole point."
+
+New toggleable "🗺️ fields" header button cycles a live heatmap overlay
+directly on the map canvas: off → soil moisture (A11, full per-tile
+grid, blue tint) → soil fertility (sparse farmed-tile dict, amber-to-
+green) → population density (A1/A20, coarse 3x3 region blocks, pink).
+New `#field-canvas` layer between the base terrain and weather-particle
+canvases. `interface/api.py`'s `set_terrain` gained `moisture`/`soil_
+fertility`/`population_density` params, piggybacking on the existing
+terrain-resync channel (same one `mining_scars`/`ritual_activity`/
+`ruin_scars` already use) — `SimulationEngine._maybe_broadcast` now
+also resyncs on a `week_end` calendar boundary specifically for these
+three (none fire a `TERRAIN_CHANGING_CATEGORIES` event of their own),
+plus a client-side 20s periodic re-fetch as a freshness guarantee that
+doesn't require the frontend to understand calendar internals.
+
+A20 "Multi-scale aggregation" (roadmap Stage IV step 29): the field-
+visibility work exposed A1's `population_density` region field as
+having exactly one consumer (`_maybe_favor_uncrowded_fission_site`) —
+a thin claim for "multi-scale, cross-system state." New `MIGRANT_
+DENSITY_DAMPENING` (`agents/population.py`): the same field now also
+dampens migrant draw at an already-crowded settlement (`_maybe_
+welcome_migrant`'s new `region_population_density` param, threaded
+through `Population.tick`'s new `fields` param) — a genuine second,
+independent consumer in a different subsystem, plus the field is now
+directly visible on the map (see above). A brand-new second field and
+"culture aggregates settlements' information-ecosystems" remain open,
+flagged.
+
+A21 "Temporal compression pipeline" (Stage IV step 30, the batch's
+other requested item) explicitly NOT attempted: audited `Settlement.
+folklore` and found entries carry only a bare `{"tale": str}`, no
+structured subject/entity reference a deterministic legend-detector
+could match against without a fragile text-heuristic. Flagged as
+needing a real grounded-subject field on folklore/chronicle entries
+first (its own follow-up), rather than shipping something half-built
+under time pressure.
+
+Verified: direct smoke tests (`set_terrain` payload shape/sizes,
+`_maybe_welcome_migrant` with/without `region_population_density`), a
+300-tick real-engine smoke run with the full `fields` → `Population.
+tick` → `_maybe_welcome_migrant` chain live, `node --check` on the
+modified `app.js`, `scripts/verify_native_soak.py` (2 seeds x 800
+ticks) byte-identical — the new consumer reads a deterministic float,
+never touches the RNG call sequence.
+
 ## [1.26.0] — A3/A4 "Continuous procgen + scripted-event conversion," first slice (roadmap Stage IV step 28)
 
 Explicit user instruction: "next step" — Stage IV step 28, docs/

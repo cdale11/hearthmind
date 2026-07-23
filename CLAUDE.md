@@ -527,6 +527,33 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.27.0)
+
+Explicit user instruction, follow-up to a live report ("I can't see
+the hydrology implementation... are they visible on the live map
+itself?"): "finish stage 4 and implement all part A items to be
+visible on the live map itself. The map should change and evolve with
+the simulation — that was the whole point." Full detail: CHANGELOG.md's
+[1.27.0] entry.
+
+Root gap: hydrology moisture, soil fertility, and A1's population-
+density field were all real backend state with zero (or stat-tile-
+only) map representation. New toggleable "🗺️ fields" header button
+cycles a live heatmap directly on the map canvas (moisture/soil-
+fertility/population-density) — piggybacks on the existing terrain-
+resync channel plus a new `week_end`-triggered resync and a 20s
+client-side periodic re-fetch, since none of these three fields fire a
+`TERRAIN_CHANGING_CATEGORIES` event of their own. A20 "Multi-scale
+aggregation" (Stage IV step 29) extended in step: `population_density`
+gained a second real, independent consumer (`MIGRANT_DENSITY_
+DAMPENING` dampens migrant draw at an already-crowded region) beyond
+its original sole fission-site-avoidance consumer. A21 "Temporal
+compression pipeline" (step 30) explicitly NOT attempted — audited and
+flagged (`Settlement.folklore` has no structured subject field to
+detect legends against without a fragile heuristic; needs its own
+follow-up first). This closes Stage IV's originally-scoped 16 steps
+(one, A21, explicitly deferred with reason, not silently skipped).
+
 ## Current state (v1.26.0)
 
 Explicit user instruction: "next step" — A3/A4 "Continuous procgen +

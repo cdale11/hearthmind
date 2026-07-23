@@ -65,9 +65,24 @@ through-line for nearly every PARTIAL below.
   the fields allow them" (det #1) — vegetation, wildlife, farming,
   settlement siting all read fields. This is the single most load-
   bearing Body item; A2–A11 largely become field-update rules once this
-  exists. Only ONE real consumer shipped (fission-site selection reads
-  `population_density`) — vegetation/wildlife/farming do not read
-  fields yet.
+  exists. Two real consumers now shipped (fission-site selection AND
+  migrant-draw dampening both read `population_density`, v1.27.0, see
+  A20) — vegetation/wildlife/farming still do not read fields.
+- [x] **Map visibility, v1.27.0** (explicit user request: "the map
+  should change and evolve with the simulation... implement Part A
+  items to be visible on the map itself"): `population_density` was
+  real backend state with zero map representation. New toggleable
+  "🗺️ fields" header button cycles a live heatmap overlay (off / soil
+  moisture / soil fertility / population density) over the map canvas
+  — the first two are A11/soil-fertility fields, not A1's, grouped
+  into the same toggle since all three are DENSE fields (every tile/
+  region has a value) that would fight the map's readability shown
+  simultaneously, unlike the sparse scar overlays. `interface/api.py`'s
+  `set_terrain` gained `moisture`/`soil_fertility`/`population_density`
+  params; `_maybe_broadcast` now also resyncs on a `week_end` calendar
+  boundary (none of the three fire a `TERRAIN_CHANGING_CATEGORIES`
+  event of their own) plus a client-side 20s periodic re-fetch as a
+  belt-and-suspenders freshness guarantee.
 - [x] **Sequencing:** First. It's the substrate the rest of Part A
   writes to. Shipped ahead of A2-A11, per this line's own instruction.
 
@@ -323,6 +338,11 @@ through-line for nearly every PARTIAL below.
 - [ ] **Feeds:** agriculture (irrigation, drought), settlement siting,
   disasters (flood/drought as field extremes), ecology (moisture). One
   of the highest-leverage A-items: water touches everything.
+- [x] **Map visibility, v1.27.0**: `HydrologyField.moisture` was a
+  real full per-tile grid with zero map representation (only the
+  settlement-average "Soil moisture" stat tile existed). Now a live
+  map heatmap option under the same "🗺️ fields" toggle A1's note
+  describes — see that entry for the shared mechanism.
 
 ### A12 — Material science / physical properties [det #12] — MISSING
 
@@ -565,7 +585,20 @@ through-line for nearly every PARTIAL below.
 
 ### A20 — Multi-scale simulation [det #20] — PARTIAL
 
-- [ ] **Status:** agent/settlement/world scales exist as separate objects;
+- [x] **Status: extended, v1.27.0** (roadmap Stage IV step 29). A1's
+  `World.fields` `population_density` region field previously had
+  exactly one consumer (`_maybe_favor_uncrowded_fission_site`) and no
+  UI visibility — both real gaps for a "multi-scale" claim. New
+  `MIGRANT_DENSITY_DAMPENING` (`agents/population.py`): the same
+  region-level computed field now also dampens migrant draw at an
+  already-crowded settlement (`_maybe_welcome_migrant`'s new `region_
+  population_density` param), a genuinely independent second consumer
+  in a different subsystem. The field is also now a real live map
+  overlay (see A1/A11 note below) — the region aggregate is visible,
+  not just consumed. A brand-new second field, and the "culture
+  aggregates settlements' information-ecosystems" half of the spec,
+  remain open, flagged.
+- [ ] **Status (pre-v1.27.0):** agent/settlement/world scales exist as separate objects;
   higher scales aren't *emergent aggregations* of lower ones.
 - [ ] **Spec:** Regional/world behavior should *aggregate* from local
   fields/graphs rather than being separately simulated: a "region"
@@ -1290,13 +1323,22 @@ waiting for a later integration pass.
     re-carving via elevation/erosion (item 15) and A4's economy/
     agriculture/information continuous-field conversion remain open,
     explicitly not attempted this pass.
-29. **A20 Multi-scale aggregation** — region/culture-level state
-    becomes a computed summary over local fields/graphs instead of a
-    separately-simulated object.
+29. **A20 Multi-scale aggregation — extended, v1.27.0** (see the A20
+    section above): `population_density`'s existing region field
+    gained a second, independent real consumer (migrant-draw
+    dampening) plus live map visibility. A genuinely new second field
+    and the "culture aggregates settlements' information-ecosystems"
+    half of the spec remain open, flagged.
 30. **A21 Temporal compression pipeline** — deterministic event-
     aggregate → LLM-narrate-significant → deterministic-legend-
     detection → myth/tradition pipeline, replacing today's more ad-hoc
-    chronicle/folklore chain.
+    chronicle/folklore chain. **Not attempted this pass** — audited:
+    `Settlement.folklore` entries carry only a bare `{"tale": str}`,
+    no structured subject/entity field to detect a recurring legend
+    against without a fragile text-heuristic; a real slice needs
+    folklore/chronicle to first gain a grounded subject reference (own
+    follow-up), not a rushed keyword-matching stand-in. Explicitly
+    flagged rather than shipped half-built.
 
 ### Standing discipline (not steps — enforced within every step above)
 

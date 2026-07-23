@@ -1115,6 +1115,104 @@ detailsToggle.addEventListener("click", () => {
   detailsToggle.classList.toggle("active");
 });
 
+// --- live field overlays (explicit user request: "the map should change
+// and evolve with the simulation — implement Part A items to be visible
+// on the map itself") -------------------------------------------------------
+// Three real continuous fields that had backend state but no map
+// representation: A11 hydrology (World.hydrology_field.moisture, full
+// per-tile grid), soil fertility (FarmGrid.soil_fertility, sparse
+// farmed-tiles dict), and A1/A20 population density (World.fields,
+// coarse 3x3 region grid — the same field `_maybe_favor_uncrowded_
+// fission_site` already reads). A cycling toggle rather than three
+// separate always-on overlays: all three are DENSE (every tile/region
+// has a value, unlike the sparse scar overlays which are naturally
+// faint/rare) — showing them all at once would fight the map's own
+// readability, the same reasoning the Observatory UI direction already
+// applies to the details panel.
+const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density"];
+const FIELD_OVERLAY_LABELS = {
+  off: "off", moisture: "soil moisture", soil_fertility: "soil fertility",
+  population_density: "population density",
+};
+let fieldOverlayMode = "off";
+const fieldCanvas = document.getElementById("field-canvas");
+const fieldCtx = fieldCanvas.getContext("2d");
+const fieldOverlayToggle = document.getElementById("field-overlay-toggle");
+fieldOverlayToggle.addEventListener("click", () => {
+  const idx = FIELD_OVERLAY_MODES.indexOf(fieldOverlayMode);
+  fieldOverlayMode = FIELD_OVERLAY_MODES[(idx + 1) % FIELD_OVERLAY_MODES.length];
+  fieldOverlayToggle.textContent = `🗺️ fields: ${FIELD_OVERLAY_LABELS[fieldOverlayMode]}`;
+  fieldOverlayToggle.classList.toggle("active", fieldOverlayMode !== "off");
+  renderFieldOverlay();
+});
+
+function renderFieldOverlay() {
+  if (!terrain || fieldCanvas.width === 0) return;
+  fieldCtx.clearRect(0, 0, fieldCanvas.width, fieldCanvas.height);
+  if (fieldOverlayMode === "off") return;
+  if (fieldOverlayMode === "moisture") {
+    const grid = terrain.moisture;
+    if (!grid || !grid.length) return;
+    for (let y = 0; y < grid.length; y++) {
+      for (let x = 0; x < grid[y].length; x++) {
+        const v = grid[y][x];
+        fieldCtx.fillStyle = `rgba(60,110,200,${(v * 0.4).toFixed(3)})`;
+        fieldCtx.fillRect(x * CELL, y * CELL, CELL, CELL);
+      }
+    }
+  } else if (fieldOverlayMode === "soil_fertility") {
+    const sf = terrain.soil_fertility;
+    if (!sf) return;
+    for (const key in sf) {
+      const v = sf[key];
+      const [xs, ys] = key.split(":");
+      const x = parseInt(xs, 10), y = parseInt(ys, 10);
+      // Low fertility reads warm/tired (amber), high fertility reads
+      // rich (green) — a single hue wouldn't distinguish "depleted" from
+      // "thriving," and this is meant to answer "which fields are worn
+      // out?" at a glance.
+      const color = v < 0.5 ? `rgba(200,150,60,${((0.5 - v) * 0.7).toFixed(3)})`
+        : `rgba(80,180,70,${((v - 0.5) * 0.6).toFixed(3)})`;
+      fieldCtx.fillStyle = color;
+      fieldCtx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    }
+  } else if (fieldOverlayMode === "population_density") {
+    const grid = terrain.population_density;
+    if (!grid || !grid.length) return;
+    const regionW = Math.ceil(terrain.width / grid[0].length);
+    const regionH = Math.ceil(terrain.height / grid.length);
+    for (let ry = 0; ry < grid.length; ry++) {
+      for (let rx = 0; rx < grid[ry].length; rx++) {
+        const v = grid[ry][rx];
+        if (!(v > 0)) continue;
+        fieldCtx.fillStyle = `rgba(230,60,120,${(v * 0.35).toFixed(3)})`;
+        fieldCtx.fillRect(rx * regionW * CELL, ry * regionH * CELL, regionW * CELL, regionH * CELL);
+      }
+    }
+  }
+}
+
+// Moisture/soil_fertility/population_density resync weekly server-side
+// (see `SimulationEngine._maybe_broadcast`'s docstring) but that
+// happens on no life-event category the existing `refreshTerrainIfChanged`
+// watches for — a plain periodic re-fetch here is simpler than teaching
+// the frontend about calendar boundaries, and terrain is a single cheap
+// GET. Every 20s regardless of overlay mode, so mining/disaster/ritual/
+// ruin scars also stay fresher as a side effect.
+let fieldRefreshInFlight = false;
+setInterval(async () => {
+  if (fieldRefreshInFlight || !terrain) return;
+  fieldRefreshInFlight = true;
+  try {
+    terrain = await fetchJSON("/terrain");
+    drawStaticTerrain();
+  } catch (e) {
+    // non-fatal — retried on the next interval tick
+  } finally {
+    fieldRefreshInFlight = false;
+  }
+}, 20000);
+
 // --- relationship graph ------------------------------------------------------
 // Force-directed layout computed client-side (no backend change needed —
 // each agent already carries its own `relationships` map in the per-tick
@@ -1465,6 +1563,9 @@ function drawStaticTerrain() {
   canvas.height = staticCanvas.height;
   weatherCanvas.width = staticCanvas.width;
   weatherCanvas.height = staticCanvas.height;
+  fieldCanvas.width = staticCanvas.width;
+  fieldCanvas.height = staticCanvas.height;
+  renderFieldOverlay();
 }
 
 function drawFrame() {

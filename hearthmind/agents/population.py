@@ -413,6 +413,7 @@ from hearthmind.world.terrain_evolution import (
     RUIN_SITE_BONUS_SCALE,
     apply_ritual_activity,
 )
+from hearthmind.world.fields import FieldGrid
 from hearthmind.world.layout_grammar import layout_site_bonus, settlement_layout_style
 from hearthmind.world.weather import WeatherState
 from hearthmind.world.wildlife import (
@@ -664,6 +665,18 @@ able to draw newcomers from outside to rebuild toward it, not only once
 down to a handful of survivors."""
 
 MIGRANT_CHECK_CHANCE_PER_TICK = 0.003
+MIGRANT_DENSITY_DAMPENING = 0.3
+"""A20 "Multi-scale aggregation," first slice (roadmap Stage IV step
+29, docs/MASTERCHECKLIST-2026-07-22.md): a second real consumer of the
+`World.fields` `population_density` region field (A1), beyond its
+original sole consumer (`_maybe_favor_uncrowded_fission_site`) — the
+same region-level computed summary now also dampens migrant draw at a
+settlement sitting in an already-crowded region (up to 30% at the
+region's peak density), plausible on its own terms ("word travels that
+this place is already full") and a genuine second independent system
+reading the same field, the gap the roadmap item's own definition
+flags ("region-level state ... instead of a separately-simulated
+object" — one field, one consumer, was a thin first slice)."""
 MIGRANT_TEMPERAMENT_INFLUENCE = 0.2
 """Fractional nudge to migrant-arrival chance from `Settlement.
 temperament` — a village that's lately had a run of good fortune draws
@@ -1881,6 +1894,7 @@ class Population:
         outbreak_chance_multiplier: float = 1.0,
         hydrology_moisture: list[list[float]] | None = None,
         ruin_scars: "dict[tuple[int, int], float] | None" = None,
+        fields: "FieldGrid | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -2187,7 +2201,14 @@ class Population:
         life_events.extend(self._apply_deaths(killed_by_predator, settlements, died_of_disease, tick=tick, rng=rng))
         self._tick_mourning()
         self._tick_weddings()
-        life_events.extend(self._maybe_welcome_migrant(rng, primary, core_cast_target, terrain))
+        region_density = None
+        if fields is not None and terrain:
+            region_density = fields.get_at(
+                "population_density", (primary.center_x, primary.center_y), len(terrain[0]), len(terrain),
+            )
+        life_events.extend(
+            self._maybe_welcome_migrant(rng, primary, core_cast_target, terrain, region_density)
+        )
         for stl in settlements:
             members = [a for a in self.agents if home_of(a).id == stl.id]
             life_events.extend(self._maybe_form_council(stl, tick, members))
@@ -4870,6 +4891,7 @@ class Population:
         self, rng: random.Random, settlement: Settlement,
         core_cast_target: int = POPULATION_CRITICAL_THRESHOLD,
         terrain: list[list[Tile]] | None = None,
+        region_population_density: float | None = None,
     ) -> list[tuple[str, str]]:
         """The population equivalent of wildlife's `_maybe_recolonize` —
         a settlement crashed down to a handful of survivors (predation,
@@ -4910,7 +4932,12 @@ class Population:
         gentler trickle does (`MIGRANT_BELOW_CORE_CAST_CHANCE_MULT`) —
         filling out a thin roster is a much lower-stakes need than
         averting a dead end, and shouldn't feel like a sudden influx the
-        instant the core cast comes up one short."""
+        instant the core cast comes up one short.
+
+        `region_population_density` (A20, roadmap Stage IV step 29):
+        `World.fields`'s `population_density` region field (A1),
+        0..1 read at this settlement's own center — see `MIGRANT_
+        DENSITY_DAMPENING`'s docstring."""
         count = len(self.agents)
         floor = max(1, core_cast_target)
         if count >= floor:
@@ -4926,6 +4953,8 @@ class Population:
             # rather than dividing by zero.
             avg_openness = sum(a.traits.get(TRAIT_OPENNESS, 0.0) for a in self.agents) / count
             chance *= 1.0 + avg_openness * TRAIT_OPENNESS_MIGRANT_WELCOME_INFLUENCE
+        if region_population_density is not None:
+            chance *= 1.0 - region_population_density * MIGRANT_DENSITY_DAMPENING
         chance = max(0.0, chance)
         if rng.random() >= chance:
             return []
