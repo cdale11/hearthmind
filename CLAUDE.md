@@ -527,6 +527,25 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.22.0)
+
+Explicit user instruction: "Next step" — A17 "Information ecosystem
+unification," first slice (roadmap Stage IV step 24, docs/
+MASTERCHECKLIST-2026-07-22.md). Full detail: CHANGELOG.md's [1.22.0]
+entry.
+
+New `world/memetics.py`: a reusable social-graph propagation weight
+(`weighted_spread_target`/`propagation_weight`) — "who catches this
+next" now traces real fondness/trust ties (Phase 0's `Ledger`) instead
+of uniform random selection. Real production proof: ontology concept
+adoption spread (`_maybe_spread_concepts`) now spreads preferentially
+to people close to an existing adopter. Scoped deliberately narrow —
+this is the propagation-weight primitive a full A17 unification would
+need, not the unification itself; folding rumor/tradition/belief/song/
+technique onto it, plus a shared mutate/decay/compete step and a
+fitness-vs-truth axis for rumors, remain open, flagged. No UI change
+this pass (a selection-algorithm change, not new exposed state).
+
 ## Current state (v1.21.0)
 
 Explicit user instruction: "Next step" — A14 "Layered organism

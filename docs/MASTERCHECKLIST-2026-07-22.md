@@ -446,12 +446,27 @@ through-line for nearly every PARTIAL below.
 
 ### A17 — Information as a deterministic ecosystem [det #17] — PRESENT-ish
 
-- [ ] **Status:** Rumor spread/distortion + `invention_knowledge`
+- [x] **Status:** Rumor spread/distortion + `invention_knowledge`
   teach/lose/rediscover + ontology lineage exist — the closest to vision.
+  **Shipped a first slice, v1.22.0**: new `world/memetics.py`'s
+  `weighted_spread_target`/`propagation_weight` — the one piece every
+  future propagation mechanism needs and none of today's had, a
+  reusable "who catches this next" weighting over the real
+  relationship/trust graph (Phase 0's `Ledger`), replacing uniform
+  random selection. Real production proof: ontology concept adoption
+  spread (`SimulationEngine._maybe_spread_concepts`) now spreads
+  preferentially to people close to an existing adopter instead of a
+  flat `rng.choice` over every eligible core-cast member.
 - [ ] **Spec (deepen):** unify knowledge/rumor/tradition/belief/song/map/
   custom/technique into one propagation model on the social graph (A16):
   each unit spreads, mutates, decays, competes, merges, dies by the same
   rules. Truth is not privileged — false beliefs propagate if fit.
+  **Still open**: only ontology-concept spread uses the new weighting
+  this pass; rumor/tradition/belief/song/technique staying on their
+  own independent mechanisms (each mature and deliberately untouched)
+  is the explicitly flagged remainder — folding them onto
+  `memetics.py`, plus a shared mutate/decay/compete step and a real
+  fitness-vs-truth axis for rumors, is real follow-up work.
 - [ ] **Feeds:** Village/Humans pillars perceive a living memeticscape;
   cultural evolution becomes measurable.
 
@@ -1173,7 +1188,11 @@ waiting for a later integration pass.
     remain open, flagged.
 24. **A17 Information ecosystem unification** — one propagation model
     on the social graph (3) for knowledge/rumor/tradition/belief/song/
-    custom/technique, replacing several parallel mechanisms.
+    custom/technique, replacing several parallel mechanisms. **Shipped
+    a first slice, v1.22.0**: see the A17 section above — a reusable
+    social-graph propagation weight, proven against ontology concept
+    spread. Folding rumor/tradition/belief/song/technique onto it, plus
+    shared mutate/decay/compete, remain open, flagged.
 25. **A18 Events as composable reactions** — a condition→consequence
     rule engine generalizing the terrarium doc's trigger→effect
     vocabulary from settlement-scoped to the whole Body.

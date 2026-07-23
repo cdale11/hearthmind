@@ -4,6 +4,68 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.22.0] — A17 "Information ecosystem unification," first slice — social-graph-weighted propagation (roadmap Stage IV step 24)
+
+Explicit user instruction: "Next step" — Stage IV step 24, docs/
+MASTERCHECKLIST-2026-07-22.md's A17: "unify knowledge/rumor/tradition/
+belief/song/map/custom/technique into one propagation model on the
+social graph... each unit spreads... by the same rules."
+
+Scoped down hard, per this project's standing "first slice, not the
+full spec" discipline — the full unification is a large, genuinely
+risky rewrite of several independent mature mechanisms (rumor
+distortion, `invention_knowledge`'s teach/lose/rediscover, ontology
+lineage) and is explicitly NOT attempted here. What ships: the one
+piece every future propagation mechanism actually needs and none of
+today's have — new `world/memetics.py`'s `propagation_weight`/
+`weighted_spread_target`, a reusable "who catches this next" weighting
+that traces the real relationship graph (`Agent.relationships`/
+`.trust`, Phase 0's `Ledger`) instead of picking a next carrier
+uniformly at random. A candidate's pull is the strongest single tie
+among current carriers (`PROPAGATION_FONDNESS_WEIGHT=0.7`,
+`PROPAGATION_TRUST_WEIGHT=0.3`, floored at 0 — an existing carrier who
+dislikes a candidate exerts no pull, never a negative one) plus a
+`PROPAGATION_BASELINE_WEIGHT=0.15` floor so word can still travel
+beyond direct friendship, and so a concept with zero adopters yet
+(empty `carriers`) degrades cleanly to uniform selection rather than
+being unable to start spreading at all.
+
+Real production proof: `SimulationEngine._maybe_spread_concepts`
+(ontology concept adoption growth) previously picked a concept's next
+adopter via a flat `rng.choice` over every eligible core-cast member
+in the origin settlement, with zero regard for who was already an
+adopter — a real gap against A17's own "propagation on the social
+graph" framing, which had been true only of the docstring, not the
+code. Now spreads via `memetics.weighted_spread_target(candidates,
+carriers, rng)`, `carriers` being the concept's current living
+adopters — a friend of an adopter is now measurably more likely to
+pick up a new custom/technology next than a stranger is. Verified via
+a direct distribution test (a candidate with a 0.95 fondness/0.8 trust
+tie to the sole existing carrier was chosen ~55% of the time against 7
+candidates, vs. ~14% under the old uniform pick) and a real production-
+path test driving `_maybe_spread_concepts` itself through a live
+`SimulationEngine`.
+
+Deliberately NOT attempted this pass, flagged in docs/MASTERCHECKLIST-
+2026-07-22.md: folding rumor/tradition/belief/song/technique spread
+onto this same function, a shared mutate/decay/compete step, or "false
+beliefs propagate if fit" (no fitness-vs-truth axis exists yet for
+rumors) — `memetics.py` is the propagation-weight primitive the full
+unification would need next, not the unification itself. No UI
+surfacing this pass — this changes HOW an existing mechanism's next
+adopter is chosen, not what state is exposed; concept adoption counts
+were already reachable via the existing knowledge-tree panel.
+
+Verified: a direct smoke test of `weighted_spread_target`/
+`propagation_weight` (weighted pick skews correctly toward a strong
+tie, degrades to uniform with no carriers, `None` on an empty
+candidate list), a real production-path test exercising the actual
+`_maybe_spread_concepts` engine method through a live `SimulationEngine
+.load_or_create` instance. `scripts/verify_native_soak.py` (2 seeds x
+800 ticks) byte-identical — `memetics.py` touches only plain
+Python-side agent/world state already covered by the soak's full
+`World.to_dict()` comparison, no new persisted field.
+
 ## [1.21.0] — A14 "Layered organism biology," first slice — real immune state + full UI exposure pass (roadmap Stage IV step 23)
 
 Explicit user instruction: "Next step" — Stage IV step 23, docs/

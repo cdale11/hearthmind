@@ -79,6 +79,7 @@ from hearthmind.world.affordances import discover_combinations
 from hearthmind.world.chemistry import discover_reactions
 from hearthmind.world.materials import BUILDING_MATERIALS, building_affordances
 from hearthmind.world.sigils import generate_sigil_svg
+from hearthmind.world import memetics
 from hearthmind.world import ontology
 from hearthmind.world import emergence
 from hearthmind.world import graph_algorithms
@@ -4548,8 +4549,15 @@ class SimulationEngine:
             ]
             if not candidates:
                 continue
+            # A17 first slice: spread traces the real relationship graph
+            # (memetics.weighted_spread_target) instead of a uniform pick
+            # — a candidate close to an existing adopter is more likely
+            # to be next. Empty `carriers` (a concept's first-ever
+            # adopter) degrades to uniform via the baseline weight.
+            carriers = [a for a in self.world.population.agents if a.id in concept.adopter_ids]
+            chosen = memetics.weighted_spread_target(candidates, carriers, rng)
             status_before = concept.status
-            ontology.add_adopter(self.world, concept.id, rng.choice(candidates).id, self.world.clock.tick_count)
+            ontology.add_adopter(self.world, concept.id, chosen.id, self.world.clock.tick_count)
             if status_before != "established" and concept.status == "established":
                 # A22 Emergence API: a concept crossing into "established"
                 # is the one genuinely novel-combination moment in its
