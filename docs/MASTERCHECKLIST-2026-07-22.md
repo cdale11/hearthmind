@@ -488,12 +488,35 @@ the master is complete, with the Body-dependencies made explicit.
   player-focus mechanism) — real, ready inputs, unchanged from the
   Nature-only pass.
 
-### B4 — Inter-pillar consciousness bus — MISSING (the emergence engine)
+### B4 — Inter-pillar consciousness bus — SHIPPED (roadmap Stage III step 11, v1.9.0)
 
-- [ ] Typed messages (observation/question/theory/hypothesis/warning/
+- [x] Typed messages (observation/question/theory/hypothesis/warning/
   request/discovery/disagreement) between pillars; the four influence-
   arrows (Nature→Village→Innovation→Village, Reflection observing all)
-  made real; disagreement persists and drives behavior.
+  made real; disagreement persists and drives behavior. **Shipped**:
+  `Pillar.send_message`/`receive_message` (bounded `INBOX_MAX`/
+  `OUTBOX_MAX=8`) + `SimulationEngine._send_pillar_message` (builds via
+  `cognition.pillar.make_message`, validates `kind` against the closed
+  vocabulary). Delivery rides the existing B2/C1 perception channel:
+  `_pillar_observe_turn` now merges undelivered `inbox` messages into
+  the same salience-ranked competition for bounded `working_memory` as
+  Emergence API observations (a per-kind synthetic magnitude —
+  `disagreement`/`warning` outrank routine traffic); only messages that
+  actually get delivered are removed from `inbox`, so an outranked
+  message genuinely persists for a future turn. All three real arrows
+  wired at their natural existing trigger points: Nature→Village (a
+  genuinely new nature belief), Village→Innovation (a genuinely new,
+  confident settlement belief), Innovation→Village (a newly registered
+  concept). Reflection→"observing all" needed no new wiring — it
+  already reads all four pillars' Body state directly (`_detect_
+  reflection_pattern`), which already satisfies "observing all" without
+  a message bus. `Pillar.disagrees_with()` gives "disagreement" a
+  mechanical, non-semantic definition: does the receiving pillar already
+  hold a confident (>=0.5) theory whose SUBJECT LABEL substantially
+  overlaps the incoming one? Used at the Nature→Village send site
+  (Village→Innovation/Innovation→Village default to `theory`/
+  `discovery` — no natural "does the receiver already have an opinion"
+  check exists at those two sites yet, flagged as a smaller follow-up).
 
 ### B5 — Innovation as conscious scientist — PARTIAL
 
@@ -812,7 +835,8 @@ is not authorization to start executing it.
     early even if only Nature exists yet. **Shipped v1.8.0** — see
     Part C's own C3 entry above for full detail.
 11. **B4 Inter-pillar consciousness bus** — typed messages between
-    pillars, the four influence-arrows made real.
+    pillars, the four influence-arrows made real. **Shipped v1.9.0** —
+    see Part B's own B4 entry above for full detail.
 12. **B5 Innovation as conscious scientist** — extend `ontology.py`'s
     propose/evolve/merge to query the (still Stage IV) affordance/
     reaction layer once it lands; can ship a first version against

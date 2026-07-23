@@ -40,8 +40,35 @@ humans_pillar`/`default_innovation_pillar`/`default_reflection_pillar`
 below and `SimulationEngine`'s shared `_pillar_observe_turn`/`_pillar_
 interpret_backpressured`/`_pillar_close_cycle` helpers. B8 "Living
 memory & consolidation" (roadmap Stage II step 8) followed: `consolidate()`
-below, called once per closed cycle via `_pillar_close_cycle`."""
+below, called once per closed cycle via `_pillar_close_cycle`.
+
+B4 "Inter-pillar consciousness bus" (roadmap Stage III step 11) makes
+`inbox`/`outbox` real: `send_message`/`receive_message` below are the
+mutators, `SimulationEngine._send_pillar_message` is the one call site
+that constructs a `make_message()` and drives both sides of a send.
+`disagrees_with`/`word_overlap` give "disagreement persists and drives
+behavior" a concrete, mechanical definition — two pillars holding
+confident, substantially-overlapping-in-subject theories, not a
+semantic judgment call — see their own docstrings."""
 from __future__ import annotations
+
+import re
+
+_MESSAGE_WORD_RE = re.compile(r"[a-z']+")
+
+
+def word_overlap(a: str, b: str) -> float:
+    """Jaccard word overlap between two lowercased strings — the same
+    cheap "is this about the same thing" primitive `llm/beliefs.py`'s
+    `is_noop_belief_revision`/`llm/ontology.py`'s near-duplicate check
+    already use independently, pulled out here so `Pillar.disagrees_
+    with` (B4) doesn't need its own third copy. `0.0` if either string
+    has no recognizable words."""
+    words_a = set(_MESSAGE_WORD_RE.findall(a.lower()))
+    words_b = set(_MESSAGE_WORD_RE.findall(b.lower()))
+    if not words_a or not words_b:
+        return 0.0
+    return len(words_a & words_b) / len(words_a | words_b)
 
 WORLD_MODEL_STATUSES = ("observation", "hypothesis")
 """Distinguishes a directly-observed fact from a theory the pillar has
@@ -124,6 +151,29 @@ class Pillar:
     higher-level one) — not the full B8 spec (`reinforce`/`reinterpret`,
     which would need per-note salience/access tracking this pass doesn't
     add — flagged as a smaller follow-up, not attempted here)."""
+
+    INBOX_MAX = 8
+    OUTBOX_MAX = 8
+    """B4 "Inter-pillar consciousness bus": bounded, same standing
+    memory-leak-audit discipline as every other list on `Pillar`. A
+    message not yet delivered into `working_memory` (see `_pillar_
+    observe_turn`) survives across observe turns until it is — this is
+    the mechanism "disagreement persists" — but never grows unbounded;
+    a genuinely flooded inbox is exactly what B3's attention scheduler
+    (priority-scaled backpressure) exists to slow down at the source."""
+
+    DISAGREEMENT_OVERLAP_THRESHOLD = 0.2
+    """`disagrees_with`'s Jaccard word-overlap threshold, compared
+    against short SUBJECT labels (`"drought"`, `"the harvests"`), not
+    full belief sentences — free-text sentences independently phrased
+    by two different LLM calls about the same topic routinely overlap
+    well under 0.2 even when clearly about the same thing (a live
+    smoke test found ~0.1 for "drought and water scarcity" vs. "The
+    land is drying, water grows scarce"), while short subject labels
+    are both shorter and more likely to share their few actual content
+    words. Lower than `llm/beliefs.py`'s `BELIEF_NOOP_REVISION_OVERLAP`
+    (0.6, full-sentence, "says essentially the same thing") since
+    "about the same subject" is a much weaker bar."""
 
     WORKING_MEMORY_MAX = 5
     """B2's "bounded attention, working memory" line, taken literally —
@@ -253,6 +303,57 @@ class Pillar:
         self.last_question = question
         self.last_answer = answer
         self.last_answer_tick = tick
+
+    def send_message(self, message: dict) -> None:
+        """B4: appends to this pillar's own `outbox` (its sent-message
+        record), capped at `OUTBOX_MAX`. Call via `SimulationEngine.
+        _send_pillar_message`, which also delivers the same message
+        into the recipient's `inbox` via `receive_message` below —
+        never call this alone, or the message only ever shows up on
+        the sender's side."""
+        self.outbox.append(message)
+        if len(self.outbox) > self.OUTBOX_MAX:
+            self.outbox = self.outbox[-self.OUTBOX_MAX:]
+
+    def receive_message(self, message: dict) -> None:
+        """B4: appends to `inbox`, capped at `INBOX_MAX`. A received
+        message is NOT immediately consumed — it sits here until this
+        pillar's next `observe` turn (`SimulationEngine._pillar_
+        observe_turn`) delivers it into `working_memory` alongside
+        Emergence API observations, competing for the same bounded
+        attention by the same salience ranking. This persistence
+        (surviving across ticks until actually attended to) is what
+        makes a `disagreement` message genuinely "persist," not just
+        fire-and-forget."""
+        self.inbox.append(message)
+        if len(self.inbox) > self.INBOX_MAX:
+            self.inbox = self.inbox[-self.INBOX_MAX:]
+
+    def disagrees_with(self, subject_text: str) -> bool:
+        """B4's mechanical definition of "disagreement" — no semantic
+        judgment call, just: does this pillar already hold a confident
+        (>=0.5) theory whose SUBJECT LABEL substantially overlaps or
+        contains/is-contained-by the given incoming subject text? Two
+        minds independently forming confident theories about the
+        recognizably same thing is disagreement (or at least genuine
+        tension) worth surfacing, even without comparing what each
+        theory actually SAYS. Compares subjects (short labels like
+        `"drought"`), not full belief sentences — see `DISAGREEMENT_
+        OVERLAP_THRESHOLD`'s docstring for why."""
+        subject_lower = subject_text.strip().lower()
+        if not subject_lower:
+            return False
+        for entry in self.world_model[-6:]:
+            if entry.get("confidence", 0.0) < 0.5:
+                continue
+            existing_subject = str(entry.get("subject", "")).strip().lower()
+            if not existing_subject:
+                continue
+            if existing_subject in subject_lower or subject_lower in existing_subject:
+                return True
+            if word_overlap(subject_text, existing_subject) >= self.DISAGREEMENT_OVERLAP_THRESHOLD:
+                return True
+        return False
 
     def consolidate(self) -> bool:
         """B8 "Living memory & consolidation": folds the oldest `MEMORY_

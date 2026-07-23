@@ -519,18 +519,41 @@ rather than asserted. Main-UI panel under the explore menu ("🗣 ask a
 pillar"). "Pillars may initiate contact" (stretch goal) not attempted.
 
 Stage III steps 11-14 (B4 inter-pillar bus, B5 Innovation-as-scientist,
-B6 Reflection-as-meta-scientist, B7 Humans collective+coordinator) are
-queued via an autonomous Routine (see `mcp__Claude_Code_Remote__list_
-triggers` for the live trigger) that fires periodically, checks the
-roadmap doc for the next unshipped step, implements/verifies/ships it
-with the same discipline as every step in this file, and stops after
-one step per firing. Stage IV (16 steps, "Deepen the Body") is
-explicitly NOT queued into the same autonomous chain — each step there
-is a much larger, higher-blast-radius subsystem build (continuous
-hydrology, a chemistry/material-science engine, genetic inheritance
-replacing the current trait model, etc.) that warrants a human
-checkpoint before committing to, not batch-shipped unattended the way
-Stage II/III's smaller, well-scoped steps could be.
+B6 Reflection-as-meta-scientist, B7 Humans collective+coordinator) and
+all of Stage IV were considered for an autonomous Routine this pass;
+explicit user decision via `AskUserQuestion`: "Skip the routine, I'll
+ask you to continue manually" — no Routine was created. Every
+subsequent roadmap step (this file's v1.9.0 entry onward) is started
+only in direct response to an explicit user "next step"/"continue"
+message, never queued or auto-chained.
+
+## Current state (v1.9.0)
+
+Explicit user instruction: "Next step" — B4 "Inter-pillar consciousness
+bus" (roadmap Stage III step 11, docs/MASTERCHECKLIST-2026-07-22.md).
+Full detail: CHANGELOG.md's [1.9.0] entry.
+
+`Pillar.send_message`/`receive_message` (bounded inbox/outbox, cap 8)
+makes the B1-era structural message plumbing real. New `Pillar.
+disagrees_with(subject_text)`: confident (`>=0.5`) same-subject
+`world_model` overlap (substring or Jaccard `word_overlap()` >=0.2,
+compared against short `subject` labels, not full belief sentences —
+sentence-level comparison measured ~0.1 overlap on genuinely related
+text during development, unreliable). `SimulationEngine._send_pillar_
+message` wires three arrows at existing apply() sites: Nature->Village
+(disagreement-aware: `"disagreement"`/`"warning"`/`"observation"`),
+Village->Innovation (`"theory"`, confidence-gated), Innovation->Village
+(`"discovery"`, every new concept). `_pillar_observe_turn` merges
+undelivered inbox messages into the same magnitude-ranked candidate
+pool as Emergence API observations (`_PILLAR_MESSAGE_MAGNITUDE` per-
+kind table) — only delivered messages leave `inbox`, so an outranked
+message persists to compete again next cycle (the actual mechanism
+behind lasting disagreement, not just a flag). Reflection's own
+observe-all-four-Minds arrow needed no new code (`_detect_reflection_
+pattern` already reads every pillar's Body state directly).
+Reverse-direction disagreement classification (Village/Innovation
+checking whether the sender disagrees) flagged as follow-up — only the
+Nature->Village site does it this pass.
 
 ## Current state (v1.7.1)
 

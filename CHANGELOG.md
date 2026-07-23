@@ -4,6 +4,77 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.9.0] — B4 "Inter-pillar consciousness bus" (roadmap Stage III step 11)
+
+Explicit user instruction: "Next step" — Stage III step 11, docs/
+MASTERCHECKLIST-2026-07-22.md's B4. The five pillars' `inbox`/`outbox`/
+`MESSAGE_KINDS`/`make_message()` (`cognition/pillar.py`) had existed
+structurally since B1 (v1.5.0) but were never actually delivered
+between pillars — this ships real typed-message delivery, making a
+pillar's `inbox` a genuine second input channel alongside the
+Emergence API.
+
+`Pillar.send_message`/`receive_message` (bounded `OUTBOX_MAX`/
+`INBOX_MAX=8`, oldest dropped past cap — same discipline as `working_
+memory`/`conversation_log`). New `Pillar.disagrees_with(subject_text)`:
+a real mechanical definition of disagreement — does the pillar already
+hold a confident (`>=0.5`) `world_model` theory whose `subject` label
+substantially overlaps the incoming subject, via exact substring
+containment or Jaccard word overlap (`word_overlap()`, new module-level
+helper) at or above `DISAGREEMENT_OVERLAP_THRESHOLD=0.2`. Comparing
+short `subject` labels rather than full belief sentences was a
+deliberate correction made during development: an initial version
+compared full sentence text at a 0.3 threshold and a direct test showed
+two genuinely-related but independently-phrased sentences ("drought and
+water scarcity" vs. "The land is drying, water grows scarce.") overlap
+at only ~0.1 word-for-word — nowhere near enough to ever fire. Subject
+labels ("drought") are short and directly comparable, so the switch
+plus a lower threshold makes the check actually reliable against real
+LLM-authored phrasing, verified via both isolated tests and a real
+production-path test (monkeypatched fake LLM call) confirming correct
+`"disagreement"` vs. `"warning"`/`"observation"` classification.
+
+`SimulationEngine._send_pillar_message(from, to, kind, summary, data)`
+constructs a message via `make_message` and delivers it into both
+sides' outbox/inbox. Three concrete arrows wired at existing apply()
+call sites, each gated on a genuinely new belief/concept (not every
+tick): **Nature -> Village** (`_maybe_schedule_nature_mind`, kind is
+`"disagreement"` when `village_pillar.disagrees_with(subject)`, else
+`"warning"` at confidence >=0.6, else `"observation"`); **Village ->
+Innovation** (`_maybe_schedule_beliefs`, kind `"theory"`, confidence
+>=0.5 gate); **Innovation -> Village** (`_maybe_schedule_ontology_
+proposal`, kind `"discovery"`, fires on every newly registered
+concept). Reflection's "observes all four Minds" arrow needed no new
+code — `_detect_reflection_pattern` already reads every pillar's Body
+state directly, a one-way read not a message. The reverse disagreement-
+aware classification (Village/Innovation checking whether the SENDER
+disagrees) is flagged as a follow-up — only the Nature->Village site
+does real disagreement classification this pass.
+
+`_pillar_observe_turn` (the B3 salience scheduler) now merges
+undelivered `inbox` messages into the SAME magnitude-ranked candidate
+pool as Emergence API observations, via a new `_PILLAR_MESSAGE_
+MAGNITUDE` table giving each message kind a synthetic magnitude
+(`disagreement` 0.9 highest, down to `observation` 0.45) — a
+disagreement message competes for and usually wins one of the five
+`working_memory` slots on a pillar's next observe turn. Only messages
+that actually get delivered this turn are removed from `inbox`; an
+outranked message survives to compete again next cycle — this is the
+literal mechanism behind "disagreement persists" rather than being
+silently dropped or unconditionally force-fed regardless of priority.
+
+Verified: direct tests for `send_message`/`receive_message` bounds,
+`disagrees_with`'s subject-comparison correctness (substring + Jaccard
+paths, both true/false cases), the inbox-merge/delivery/survival logic
+in `_pillar_observe_turn`, a full `to_dict`/`from_dict` round trip with
+an undelivered message surviving persistence, and a real production-
+path test (monkeypatched fake LLM client) exercising `_maybe_schedule_
+nature_mind`'s actual apply() showing correct message-kind
+classification end to end. `scripts/verify_native_soak.py` (2 seeds x
+500 ticks) byte-identical — message delivery only occurs inside async
+LLM-job apply() callbacks, never inside `_tick_once`'s deterministic
+native-ported path.
+
 ## [1.8.0] — C3 "Player <-> Pillar chat" (roadmap Stage III step 10)
 
 Explicit user instruction: "Start [Stage] 3's first step" — the first

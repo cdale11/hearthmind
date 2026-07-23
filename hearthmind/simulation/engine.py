@@ -80,6 +80,7 @@ from hearthmind.world import ontology
 from hearthmind.world import emergence
 from hearthmind.world import graph_algorithms
 from hearthmind.cognition import attention
+from hearthmind.cognition.pillar import make_message
 from hearthmind.world.disasters import GOVERNOR_TUNING_BAND, WILDFIRE_CHANCE_PER_WEEK
 from hearthmind.world.wildlife import MAX_SPECIES_VARIANTS_STORED, SpeciesVariant
 from hearthmind.simulation.sandbox import run_counterfactual
@@ -485,6 +486,20 @@ constant. Re-tune from a live `/diagnostics` reading of `last_llm_calls
 this file is tuned — this is a reasoned starting point (2x the fields
 of a typical reasoning job, rounded up with margin for the trace
 itself), not a live measurement."""
+
+_PILLAR_MESSAGE_MAGNITUDE = {
+    "disagreement": 0.9, "warning": 0.8, "discovery": 0.6, "theory": 0.55,
+    "hypothesis": 0.5, "observation": 0.45, "question": 0.5, "request": 0.5,
+}
+"""B4 "Inter-pillar consciousness bus" (roadmap Stage III step 11): the
+synthetic salience `_pillar_observe_turn` assigns an inbox message by
+its `kind` (`cognition.pillar.MESSAGE_KINDS`), since a message has no
+natural `magnitude` scalar the way an Emergence API observation does.
+`disagreement`/`warning` outrank routine traffic so a genuinely
+contentious or urgent message reliably wins a bounded `working_memory`
+slot over an ordinary `observation`; every kind still competes fairly
+against real Emergence observations of comparable magnitude, rather
+than an unconditional bypass."""
 
 MUSING_HISTORY_MAX = 60
 """Vision item 3.4: `World.musings` is daily-cadence texture (unlike
@@ -3881,6 +3896,14 @@ class SimulationEngine:
                 self.world.clock.tick_count, concept.name, concept.description, 0.4, source="ontology_proposal",
             )
             self.world.innovation_pillar.remember(f"Originated {concept.name}: {concept.description}")
+            # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+            # step 11), the Innovation->Village arrow: a newly
+            # registered concept is real news for the village that
+            # will go on to adopt (or ignore) it.
+            self._send_pillar_message(
+                "innovation", "village", "discovery",
+                f"the village now has {concept.name}: {concept.description}",
+            )
             self._pillar_close_cycle("innovation")
 
         self._schedule_llm_job(
@@ -4045,17 +4068,41 @@ class SimulationEngine:
         — `magnitude=None` — sorting last) and only notes the top
         `WORKING_MEMORY_MAX`, so a pillar's bounded attention is
         deliberately spent on what actually matters most this turn, not
-        whatever happened to be freshest."""
+        whatever happened to be freshest.
+
+        B4 "Inter-pillar consciousness bus" (roadmap Stage III step 11):
+        undelivered `inbox` messages now compete for the same bounded
+        attention alongside Emergence API observations, using a
+        per-kind synthetic magnitude (`_PILLAR_MESSAGE_MAGNITUDE`) so a
+        `disagreement`/`warning` from another pillar reliably outranks
+        routine `observation`/`discovery` traffic. Only the messages
+        that actually made it into `working_memory` this turn are
+        removed from `inbox` — anything bumped by higher-priority
+        traffic stays queued for a future observe turn (this is the
+        mechanism that makes "disagreement persists" literally true,
+        not just a design intention)."""
         pillar = getattr(self.world, f"{pillar_name}_pillar")
         if pillar.cycle_stage != "observe":
             return False
-        candidates = [
-            obs for obs in self.world.emergence_log_recent(limit=40)
+        candidates: list[dict] = [
+            {"summary": obs["summary"], "magnitude": obs.get("magnitude"), "message_id": None}
+            for obs in self.world.emergence_log_recent(limit=40)
             if pillar_name in obs.get("pillars", ())
         ]
-        candidates.sort(key=lambda obs: obs.get("magnitude") if obs.get("magnitude") is not None else -1.0, reverse=True)
-        for obs in candidates[: pillar.WORKING_MEMORY_MAX]:
-            pillar.note_observation(obs["summary"])
+        for msg in pillar.inbox:
+            candidates.append({
+                "summary": f"{msg['from_pillar'].capitalize()} ({msg['kind']}): {msg['summary']}",
+                "magnitude": _PILLAR_MESSAGE_MAGNITUDE.get(msg["kind"], 0.5),
+                "message_id": msg["id"],
+            })
+        candidates.sort(key=lambda c: c["magnitude"] if c["magnitude"] is not None else -1.0, reverse=True)
+        delivered_message_ids = set()
+        for c in candidates[: pillar.WORKING_MEMORY_MAX]:
+            pillar.note_observation(c["summary"])
+            if c["message_id"] is not None:
+                delivered_message_ids.add(c["message_id"])
+        if delivered_message_ids:
+            pillar.inbox = [m for m in pillar.inbox if m["id"] not in delivered_message_ids]
         pillar.set_cycle_stage("interpret")
         pillar.last_turn_tick = self.world.clock.tick_count
         return True
@@ -4095,6 +4142,27 @@ class SimulationEngine:
         pillar.clear_working_memory()
         pillar.set_cycle_stage("observe")
         pillar.last_turn_tick = self.world.clock.tick_count
+
+    def _send_pillar_message(
+        self, from_name: str, to_name: str, kind: str, summary: str, data: dict | None = None,
+    ) -> None:
+        """B4 "Inter-pillar consciousness bus" (roadmap Stage III step
+        11): the one call site that actually sends a message — builds
+        it via `cognition.pillar.make_message` (validates `kind` against
+        the closed `MESSAGE_KINDS` vocabulary), records it on the
+        sender's `outbox`, and delivers it into the recipient's `inbox`
+        (`Pillar.send_message`/`receive_message`). The message is NOT
+        immediately visible to the recipient's cognition — it sits in
+        `inbox` until that pillar's own next `observe` turn delivers it
+        into `working_memory` via `_pillar_observe_turn`, competing for
+        that bounded attention by salience like anything else."""
+        from_pillar = getattr(self.world, f"{from_name}_pillar")
+        to_pillar = getattr(self.world, f"{to_name}_pillar")
+        tick = self.world.clock.tick_count
+        message = make_message(from_pillar.next_message_id, tick, from_name, to_name, kind, summary, data)
+        from_pillar.next_message_id += 1
+        from_pillar.send_message(dict(message))
+        to_pillar.receive_message(message)
 
     def _maybe_schedule_nature_mind(self, events: list[str]) -> None:
         """Nature's Mind (Body/Mind framing, CLAUDE.md "Design
@@ -4224,6 +4292,23 @@ class SimulationEngine:
                 # proposal the Village pillar didn't originate itself.
                 origin_settlement.pattern_signal_counts["nature_adaptation"] = (
                     origin_settlement.pattern_signal_counts.get("nature_adaptation", 0) + 1
+                )
+                # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+                # step 11), the Nature->Village arrow: the same genuine
+                # fresh insight that bumps the pattern-signal counter
+                # above is real enough to actually tell Village about.
+                # `disagrees_with` gives "disagreement persists" a
+                # mechanical trigger — Village already holding a
+                # confident theory about the recognizably same subject
+                # is real tension worth flagging as `disagreement`
+                # rather than a routine `warning`/`observation`.
+                message_kind = (
+                    "disagreement" if self.world.village_pillar.disagrees_with(entry["subject"])
+                    else ("warning" if entry["confidence"] >= 0.6 else "observation")
+                )
+                self._send_pillar_message(
+                    "nature", "village", message_kind,
+                    f"the land senses {entry['subject']}: {entry['belief']}",
                 )
             concept_data = nature_mind.parse_concept(result)
             if concept_data is not None and not ontology.is_near_duplicate(
@@ -6222,6 +6307,16 @@ class SimulationEngine:
                 )
                 entry["pillar_entry_id"] = pillar_entry["id"]
                 self.world.village_pillar.remember(f"Came to believe {entry['subject']}: {entry['belief']}")
+                # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+                # step 11), the Village->Innovation arrow: a genuinely
+                # new, reasonably-confident settlement theory is real
+                # grounding material for what the village might
+                # originate next — tell Innovation about it.
+                if entry["confidence"] >= 0.5:
+                    self._send_pillar_message(
+                        "village", "innovation", "theory",
+                        f"the village believes {entry['subject']}: {entry['belief']}",
+                    )
             beliefs.sync_family_beliefs(entry, settlement.institutions)  # H2/H3 crossover
             beliefs.sync_council_beliefs(entry, settlement.institutions)  # integration milestone
             beliefs.sync_guild_beliefs(entry, settlement.institutions)  # continue expanding, round three
