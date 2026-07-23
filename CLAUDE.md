@@ -527,6 +527,31 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.10.0)
+
+Explicit user instruction: "Continue with next roadmap" — B5
+"Innovation as conscious scientist," first version (roadmap Stage III
+step 12, docs/MASTERCHECKLIST-2026-07-22.md). Full detail: CHANGELOG.
+md's [1.10.0] entry.
+
+`_maybe_schedule_ontology_proposal` already gated on a settlement
+being "pressured" (`pattern_signal_counts` crossing `PATTERN_SIGNAL_
+BELIEF_THRESHOLD`) but never told the LLM which pressure — fixed by
+naming the dominant crossed signal in plain language (`llm/ontology.
+py`'s new `PRESSURE_SIGNAL_LABELS`) and asking for a real `hypothesis`
+field (the problem this idea might address, or "no specific problem").
+`InventedConcept.hypothesis`/`world_model_entry_id` (new fields) close
+the loop deterministically: `world/ontology.py`'s new `_record_
+hypothesis_outcome` revises Innovation's own mirrored `world_model`
+belief IN PLACE when the concept's real adoption fate later confirms
+it (`established` — confidence 0.85) or refutes it (`abandon_stale`'s
+existing sweep — confidence 0.1), zero added LLM cost. Scoped
+deliberately against today's closed-hook vocabulary per the roadmap
+item's own permission to do so — a real affordance/reaction query
+waits on Stage IV, not built yet; evolve/merge untouched this pass.
+Surfaced: `knowledge_tree()`'s concept entries append the hypothesis
+as plain-language context in the existing 🌳 panel.
+
 ## Current state (v1.9.0)
 
 Explicit user instruction: "Next step" — B4 "Inter-pillar consciousness

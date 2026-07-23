@@ -3860,12 +3860,23 @@ class SimulationEngine:
             return
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         existing_names = [c.name for c in self.world.invented_concepts.values()][-PROMPT_CULTURE_LIST_MAX:]
+        # B5 "Innovation as conscious scientist" (roadmap Stage III step
+        # 12): name the real problem, if any, this proposal should be
+        # treated as a hypothesis about — the dominant pattern-signal
+        # crossing its own promotion threshold, or None if the job only
+        # fired on prosperity (nothing specifically pressured).
+        pressure_signal = None
+        if settlement.pattern_signal_counts:
+            top_signal, top_value = max(settlement.pattern_signal_counts.items(), key=lambda kv: kv[1])
+            if top_value >= PATTERN_SIGNAL_BELIEF_THRESHOLD:
+                pressure_signal = top_signal
         prompt = ontology_llm.build_propose_prompt(
             settlement.name, recent, existing_names, settlement.era, settlement.tech_level,
             emergence_observations=list(self.world.innovation_pillar.working_memory),
+            pressure_signal=pressure_signal,
         )
         established_count = sum(1 for c in self.world.invented_concepts.values() if c.status == "established")
-        fallback = ontology_llm.fallback_propose(established_count)
+        fallback = ontology_llm.fallback_propose(established_count, pressure_signal=pressure_signal)
         settlement_id = settlement.id
 
         def apply(result: dict, used_fallback: bool) -> None:
@@ -3881,20 +3892,25 @@ class SimulationEngine:
             if candidates:
                 rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "ontology_inventor")
                 inventor_id = rng.choice(candidates).id
-            concept = ontology.register_concept(
-                self.world, name=parsed["name"], description=parsed["description"], category=parsed["category"],
-                origin_settlement_id=settlement_id, tick=self.world.clock.tick_count,
-                inventor_agent_id=inventor_id, mechanical_hook=parsed["hook"],
-            )
-            self._log("ontology", f"{target.name or 'The village'} originated {concept.name}: {concept.description}")
             # B1 Pillar abstraction, generalized: always-additive
             # mirror into Innovation's own world_model (no revision
             # path exists for concepts — name/description -> subject/
             # belief; 0.4 confidence for a freshly "proposed" concept,
             # matching its real adoption-lifecycle starting point).
-            self.world.innovation_pillar.upsert_world_model(
-                self.world.clock.tick_count, concept.name, concept.description, 0.4, source="ontology_proposal",
+            # B5: `entry["id"]` is threaded onto the concept itself so
+            # `world.ontology.add_adopter`/`abandon_stale` can revise
+            # this SAME belief in place once the concept's real fate
+            # (established/abandoned) confirms or refutes it.
+            entry = self.world.innovation_pillar.upsert_world_model(
+                self.world.clock.tick_count, parsed["name"], parsed["description"], 0.4, source="ontology_proposal",
             )
+            concept = ontology.register_concept(
+                self.world, name=parsed["name"], description=parsed["description"], category=parsed["category"],
+                origin_settlement_id=settlement_id, tick=self.world.clock.tick_count,
+                inventor_agent_id=inventor_id, mechanical_hook=parsed["hook"],
+                hypothesis=parsed["hypothesis"], world_model_entry_id=entry["id"],
+            )
+            self._log("ontology", f"{target.name or 'The village'} originated {concept.name}: {concept.description}")
             self.world.innovation_pillar.remember(f"Originated {concept.name}: {concept.description}")
             # B4 "Inter-pillar consciousness bus" (roadmap Stage III
             # step 11), the Innovation->Village arrow: a newly

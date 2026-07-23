@@ -963,9 +963,16 @@ class World:
 
         entries: list[dict] = []
         for concept in self.invented_concepts.values():
+            text = concept.description
+            if concept.hypothesis:
+                # B5 "Innovation as conscious scientist" (roadmap Stage
+                # III step 12): the hypothesis this concept was meant
+                # to test is real, player-legible context for "why does
+                # this idea exist," not dev-console-only detail.
+                text = f"{text} (a hopeful answer to: {concept.hypothesis})"
             entries.append({
                 "type": "concept", "id": f"concept_{concept.id}", "kind": concept.category,
-                "name": concept.name, "text": concept.description, "status": concept.status,
+                "name": concept.name, "text": text, "status": concept.status,
                 "tick": concept.tick_invented, "settlement": concept.origin_settlement_id,
                 "lineage": dict(concept.lineage) if concept.lineage else None,
                 "who": _agent_name(concept.inventor_agent_id) or "the village",

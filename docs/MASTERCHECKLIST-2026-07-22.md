@@ -518,12 +518,44 @@ the master is complete, with the Body-dependencies made explicit.
   `discovery` — no natural "does the receiver already have an opinion"
   check exists at those two sites yet, flagged as a smaller follow-up).
 
-### B5 — Innovation as conscious scientist — PARTIAL
+### B5 — Innovation as conscious scientist — PARTIAL, first version shipped (roadmap Stage III step 12, v1.10.0)
 
-- [ ] Ontology propose/evolve/merge exists; make it *query affordances
+- [x] Ontology propose/evolve/merge exists; make it *query affordances
   (A5/A6) and reactions (A13) to invent unprogrammed combinations*, and
   wrap in the evolutionary loop (A8). B-Innovation is the LLM half; A8 is
-  its deterministic selection.
+  its deterministic selection. **Shipped, scoped against today's closed-
+  hook vocabulary** (per this item's own note: "can ship a first version
+  against today's closed-hook vocabulary and re-target later" — A5/A6/A8/
+  A13 are Stage IV, not built yet). The real gap this pass closes:
+  `_maybe_schedule_ontology_proposal` already gated itself on the
+  settlement being "pressured" (`pattern_signal_counts` crossing
+  `PATTERN_SIGNAL_BELIEF_THRESHOLD`) but never told the LLM WHICH
+  pressure, so a genuinely pressured proposal was invented exactly as
+  freely as an unpressured, prosperity-driven one — no real hypothesis
+  was possible. Fixed: the dominant crossed signal (e.g.
+  `materials_bottleneck`, `dispute_feud`) is now named in the prompt in
+  plain language (`llm/ontology.py`'s new `PRESSURE_SIGNAL_LABELS`), and
+  the model is asked for a genuine `hypothesis` field — the real problem
+  or need its idea is meant to help with, or the literal "no specific
+  problem" when it's just culture for its own sake (a legitimate answer,
+  not a missing one). `InventedConcept.hypothesis` + `world_model_entry_
+  id` (new fields) make this a real hypothesize-observe-revise loop, not
+  a one-shot claim: when a concept's own real adoption lifecycle later
+  confirms it (`established`) or refutes it (`abandoned`, the existing
+  `abandon_stale` stale sweep), `world/ontology.py`'s new `_record_
+  hypothesis_outcome` revises Innovation's OWN `world_model` belief
+  about that exact concept in place (`revises_id`) — confidence up to
+  0.85/status `observation` on confirmation, down to 0.1 on refutation —
+  zero added LLM cost, the outcome is read off state (`status`,
+  `adopter_ids`) that already exists. This is the concrete "track
+  whether its own ideas actually worked" scientist behavior, scoped to
+  the registry Innovation already has rather than waiting on Stage IV's
+  affordance/reaction layer. Surfaced: `knowledge_tree()`'s concept
+  entries append the hypothesis as plain-language context ("a hopeful
+  answer to: ...") when one exists — real UI value in the existing
+  🌳 knowledge-tree panel, no new panel needed. Evolve/merge (untouched
+  this pass) and a genuine affordance/reaction query remain open,
+  explicitly deferred to when Stage IV's substrate exists to query.
 
 ### B6 — Reflection as meta-scientist — PARTIAL
 
@@ -840,7 +872,12 @@ is not authorization to start executing it.
 12. **B5 Innovation as conscious scientist** — extend `ontology.py`'s
     propose/evolve/merge to query the (still Stage IV) affordance/
     reaction layer once it lands; can ship a first version against
-    today's closed-hook vocabulary and re-target later.
+    today's closed-hook vocabulary and re-target later. **Shipped a
+    first version, v1.10.0** — see Part B's own B5 entry above for
+    full detail (hypothesis-driven proposals grounded in a named real
+    pressure signal, confirmed/refuted against Innovation's own belief
+    once the concept's adoption fate is known; evolve/merge and the
+    real affordance/reaction query left for Stage IV).
 13. **B6 Reflection as meta-scientist** — extend `TUNABLE_GOVERNORS`,
     add the human-reviewed advisory-proposal inbox, track advice
     outcomes.

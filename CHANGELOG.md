@@ -4,6 +4,83 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.10.0] — B5 "Innovation as conscious scientist," first version (roadmap Stage III step 12)
+
+Explicit user instruction: "Continue with next roadmap" — Stage III
+step 12, docs/MASTERCHECKLIST-2026-07-22.md's B5. The doc's own item
+names its full scope (query the Stage IV affordance/reaction layer)
+but explicitly permits "a first version against today's closed-hook
+vocabulary" — that's what ships here.
+
+Root gap: `_maybe_schedule_ontology_proposal` already gated itself on
+whether the settlement was "pressured" (any `Settlement.pattern_
+signal_counts` value crossing `PATTERN_SIGNAL_BELIEF_THRESHOLD`) but
+never told the LLM WHICH pressure was live — a proposal made under
+real strain was invented exactly as freely as one made purely from
+prosperity, so no genuine hypothesis was ever possible even when the
+gate had already fired on a specific problem.
+
+Fixed with two pieces. First, grounding: the engine now computes the
+dominant crossed signal (max value among `pattern_signal_counts`,
+e.g. `materials_bottleneck`, `dispute_feud`) and passes it to `llm/
+ontology.py`'s `build_propose_prompt` as `pressure_signal`, rendered
+in plain language via a new `PRESSURE_SIGNAL_LABELS` table ("a
+shortage of building materials," "a run of bitter disputes and
+feuding," ...). The model is now explicitly told: if a problem was
+named, treat your idea as a real hypothesis for it — a guess that
+might be wrong; if nothing was named, it's free to just be culture for
+its own sake. Second, a real `hypothesis` JSON field (parsed/validated
+same as every other field, "no specific problem" normalizes to an
+empty string — a legitimate value, not a missing one) is stored on
+`InventedConcept.hypothesis`.
+
+The scientist half — closing the loop, not just naming a claim once —
+is `world/ontology.py`'s new `_record_hypothesis_outcome`: the
+concept's mirrored entry in `World.innovation_pillar.world_model`
+(its id captured at proposal time as the new `InventedConcept.
+world_model_entry_id`) gets REVISED IN PLACE (`revises_id`, not a new
+entry) when the concept's real adoption lifecycle later confirms it
+(`add_adopter` promotes it to `established` — confidence raised to
+0.85, status `observation`) or refutes it (`abandon_stale`'s existing
+stale sweep marks it `abandoned` — confidence dropped to 0.1). Zero
+added LLM cost: the outcome is read straight off state that already
+exists (`status`, `adopter_ids`), not asked of the model a second
+time. A concept with no hypothesis (or, defensively, no captured
+`world_model_entry_id`) is a correct no-op — nothing to confirm or
+refute. This is the concrete "an idea is a testable guess, and the
+Innovation pillar tracks whether its own guesses actually panned out"
+mechanism the doc's "conscious scientist" framing asks for, scoped to
+the registry Innovation already has (not waiting on Stage IV's
+affordance/reaction substrate, which doesn't exist yet).
+
+UI: `World.knowledge_tree()`'s existing concept entries now append the
+hypothesis as plain-language context ("... (a hopeful answer to: a
+response to a shortage of building materials)") when one exists — real
+value in the already-shipped 🌳 knowledge-tree panel, no new panel
+needed since nothing else consumes this field yet.
+
+Deliberately NOT attempted this pass: evolve/merge (`_maybe_schedule_
+ontology_evolution`) stay unchanged — hypothesis-tracking wasn't
+extended to them; and any real query against affordances/reactions,
+since that substrate is Stage IV, not built. Both flagged as the
+re-targeting this item's own text anticipates once Stage IV lands.
+
+Verified: direct tests for the confirm path (adopters -> established
+-> confidence 0.85/status observation), the refute path (stale sweep
+-> abandoned -> confidence 0.1), the no-hypothesis no-op, `InventedConcept.
+to_dict`/`from_dict` round trip including legacy-snapshot compatibility
+(old dicts missing the two new fields load with correct defaults), and
+the prompt/fallback/parse layer's hypothesis wiring (pressure_signal
+grounding text, "no specific problem" normalization). A real
+production-path test (monkeypatched fake LLM client) exercises `_maybe_
+schedule_ontology_proposal`'s actual apply() end to end, confirming the
+hypothesis and `world_model_entry_id` land on the registered concept
+and the mirrored belief starts at 0.4/`hypothesis` as before.
+`scripts/verify_native_soak.py` (2 seeds x 500 ticks) byte-identical —
+the new mechanism only runs inside async LLM-job apply() callbacks and
+the existing monthly `abandon_stale`/`add_adopter` calls, never inside
+`_tick_once`'s deterministic native-ported path.
+
 ## [1.9.0] — B4 "Inter-pillar consciousness bus" (roadmap Stage III step 11)
 
 Explicit user instruction: "Next step" — Stage III step 11, docs/

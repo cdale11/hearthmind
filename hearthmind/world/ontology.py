@@ -131,6 +131,22 @@ class InventedConcept:
     """`{"evolved_from": id|None, "merged_from": [id, id]|None}` — at
     most one of the two keys is ever populated (a concept is either a
     mutation of one parent or a combination of two, never both)."""
+    hypothesis: str = ""
+    """B5 "Innovation as conscious scientist" (roadmap Stage III step
+    12): the real problem/need this concept was proposed to address —
+    empty string means "no specific problem, just culture for its own
+    sake," a legitimate answer, not a missing one. Set once at
+    proposal time (`llm/ontology.py`'s new `hypothesis` JSON field),
+    never revised afterward — the concept's `status` lifecycle is
+    itself the record of whether the hypothesis held up."""
+    world_model_entry_id: int | None = None
+    """The id of this concept's mirrored entry in `World.innovation_
+    pillar.world_model` (set by `SimulationEngine._maybe_schedule_
+    ontology_proposal`'s apply()) — lets `add_adopter`/`abandon_stale`
+    below revise that SAME entry in place when the concept's real-world
+    fate (established vs. abandoned) confirms or refutes the original
+    hypothesis, instead of leaving Innovation's own belief frozen at
+    its initial 0.4 "just proposed" confidence forever."""
 
     def to_dict(self) -> dict:
         return {
@@ -145,6 +161,8 @@ class InventedConcept:
             "mechanical_hook": dict(self.mechanical_hook) if self.mechanical_hook else None,
             "adopter_ids": sorted(self.adopter_ids),
             "lineage": dict(self.lineage),
+            "hypothesis": self.hypothesis,
+            "world_model_entry_id": self.world_model_entry_id,
         }
 
     @classmethod
@@ -161,6 +179,8 @@ class InventedConcept:
             mechanical_hook=dict(data["mechanical_hook"]) if data.get("mechanical_hook") else None,
             adopter_ids=set(data.get("adopter_ids", [])),
             lineage=dict(data.get("lineage", {})),
+            hypothesis=data.get("hypothesis", ""),
+            world_model_entry_id=data.get("world_model_entry_id"),
         )
 
 
@@ -394,7 +414,7 @@ def register_causal_thread(world, subject: str, chain: list[str], tick: int, set
 def register_concept(
     world, name: str, description: str, category: str, origin_settlement_id: int,
     tick: int, inventor_agent_id: int | None = None, mechanical_hook: dict | None = None,
-    lineage: dict | None = None,
+    lineage: dict | None = None, hypothesis: str = "", world_model_entry_id: int | None = None,
 ) -> InventedConcept:
     """Mints a new `InventedConcept` with the next id, seeds the
     inventor as its first adopter (if any), and prunes the registry if
@@ -407,7 +427,7 @@ def register_concept(
         id=concept_id, name=name, description=description, category=category,
         origin_settlement_id=origin_settlement_id, tick_invented=tick,
         inventor_agent_id=inventor_agent_id, mechanical_hook=mechanical_hook,
-        lineage=lineage or {},
+        lineage=lineage or {}, hypothesis=hypothesis, world_model_entry_id=world_model_entry_id,
     )
     if inventor_agent_id is not None:
         concept.adopter_ids.add(inventor_agent_id)
@@ -430,6 +450,40 @@ def is_near_duplicate(world, name: str, description: str) -> bool:
     return False
 
 
+def _record_hypothesis_outcome(world, concept: InventedConcept, tick: int, confirmed: bool) -> None:
+    """B5 "Innovation as conscious scientist" (roadmap Stage III step
+    12): closes the hypothesize -> observe -> revise loop. A concept
+    proposed as an answer to a real, named problem (`hypothesis`, set
+    once at proposal time) eventually either catches on
+    (`established`, `confirmed=True`) or doesn't (`abandoned`,
+    `confirmed=False`) — that real-world outcome is fed straight back
+    into Innovation's own `world_model` belief about it, in place
+    (`revises_id`), rather than leaving the belief frozen at its
+    initial 0.4 "just proposed" confidence forever. Zero LLM cost —
+    the outcome is read off state that already exists (`status`,
+    `adopter_ids`), not asked of the model a second time. A concept
+    with no `hypothesis` (pure culture, not a claimed fix for
+    anything) and/or no mirrored `world_model_entry_id` is a no-op —
+    nothing to confirm or refute."""
+    if not concept.hypothesis or concept.world_model_entry_id is None:
+        return
+    pillar = getattr(world, "innovation_pillar", None)
+    if pillar is None:
+        return
+    if confirmed:
+        belief = f"{concept.hypothesis} — {concept.name} caught on and confirmed it."
+        confidence = 0.85
+        status = "observation"
+    else:
+        belief = f"{concept.hypothesis} — {concept.name} never caught on; this idea did not hold up."
+        confidence = 0.1
+        status = "hypothesis"
+    pillar.upsert_world_model(
+        tick, concept.name, belief, confidence, status=status,
+        source="ontology_outcome", revises_id=concept.world_model_entry_id,
+    )
+
+
 def add_adopter(world, concept_id: int, agent_id: int, tick: int) -> None:
     concept = world.invented_concepts.get(concept_id)
     if concept is None or concept.status == "abandoned":
@@ -441,7 +495,10 @@ def add_adopter(world, concept_id: int, agent_id: int, tick: int) -> None:
         1 for a in world.population.agents
         if a.settlement_id == concept.origin_settlement_id and a.id in world.population.core_agent_ids
     )
+    was_established = concept.status == "established"
     maybe_promote_status(concept, core_cast_size)
+    if concept.status == "established" and not was_established:
+        _record_hypothesis_outcome(world, concept, tick, confirmed=True)
 
 
 def maybe_promote_status(concept: InventedConcept, core_cast_size: int = 0) -> None:
@@ -469,6 +526,7 @@ def abandon_stale(world, tick: int) -> None:
     for concept in world.invented_concepts.values():
         if concept.status == "proposed" and tick - concept.tick_invented > CONCEPT_STALE_TICKS:
             concept.status = "abandoned"
+            _record_hypothesis_outcome(world, concept, tick, confirmed=False)
 
 
 def _referenced_ids(world) -> set[int]:

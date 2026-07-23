@@ -57,7 +57,11 @@ SYSTEM_PROMPT_PROPOSE = (
     "a ritual, a saying, a profession, or a flavor of an existing "
     "institution. Ground it in what has "
     "actually happened to these people, not generic fantasy flavor. "
-    "Classify it as one of: " + ", ".join(VILLAGE_PROPOSE_CATEGORIES) + ". "
+    "If you were told the village is straining under something, treat "
+    "your idea as a genuine hypothesis for helping with it — a real "
+    "guess that might be wrong, not a guaranteed fix. If nothing "
+    "specific was named, your idea can simply be culture for its own "
+    "sake. Classify it as one of: " + ", ".join(VILLAGE_PROPOSE_CATEGORIES) + ". "
     "If the idea has a real mechanical effect, name it as one of: "
     + ", ".join(MECHANICAL_HOOK_TYPES) + " (use 'custom_text_only' if it's "
     "meaningful but shouldn't move any number). If the hook is "
@@ -69,10 +73,12 @@ SYSTEM_PROMPT_PROPOSE = (
     "target empty. "
     'Respond with strict JSON only, no other text: {"name": "a short '
     'name, under 8 words", "description": "one sentence, under 25 '
-    'words", "category": "one of the exact listed words", '
-    '"hook_type": "one of the exact listed words or custom_text_only", '
-    '"hook_target": "a valid target or empty string", "magnitude": a '
-    "number between 0 and 1}."
+    'words", "hypothesis": "one short sentence naming the real problem '
+    'or need this addresses, or the exact words \'no specific problem\' '
+    'if it is just culture for its own sake", "category": "one of the '
+    'exact listed words", "hook_type": "one of the exact listed words '
+    'or custom_text_only", "hook_target": "a valid target or empty '
+    'string", "magnitude": a number between 0 and 1}.'
 )
 
 _FALLBACK_PROPOSALS: tuple[tuple[str, str, str, str, str], ...] = (
@@ -85,16 +91,47 @@ _FALLBACK_PROPOSALS: tuple[tuple[str, str, str, str, str], ...] = (
     ("Rest Before Ruin", "A saying urging the tired to rest before they collapse.", "saying", "goal_flavor_bias", "rest"),
 )
 
+PRESSURE_SIGNAL_LABELS: dict[str, str] = {
+    "materials_bottleneck": "a shortage of building materials",
+    "dispute_feud": "a run of bitter disputes and feuding",
+    "starvation_death": "hunger and starvation",
+    "disease_outbreak": "sickness spreading through the village",
+    "wildlife_recolonization": "wildlife pressing back into the land",
+    "nature_adaptation": "the land itself changing under them",
+}
+"""B5 "Innovation as conscious scientist" (roadmap Stage III step 12):
+plain-language phrasing for `Settlement.pattern_signal_counts`' keys
+(see `simulation/engine.py`'s own writers of that dict) — the same
+closed-vocabulary-hosting-open-content discipline as everything else
+here, just for READING a signal name back out as prose instead of
+choosing one. An unmapped key (a future signal added without updating
+this table) falls back to its raw name with underscores replaced by
+spaces, never a crash."""
+
+
+def _pressure_label(pressure_signal: str) -> str:
+    return PRESSURE_SIGNAL_LABELS.get(pressure_signal, pressure_signal.replace("_", " "))
+
 
 def build_propose_prompt(
     settlement_name: str, recent_events: list[dict], existing_concept_names: list[str],
     era: str, tech_level: int, emergence_observations: list[str] | None = None,
+    pressure_signal: str | None = None,
 ) -> str:
     """`emergence_observations` (B1-B3, docs/MASTERCHECKLIST-2026-07-
     22.md, roadmap Stage II — same shape as `nature_mind.build_prompt`'s
     param of the same name): curated Emergence API summaries gathered
     during the Innovation pillar's prior `observe` turn. Optional and
-    additive; unset reads exactly as before this parameter existed."""
+    additive; unset reads exactly as before this parameter existed.
+
+    `pressure_signal` (B5, roadmap Stage III step 12): the name of the
+    real `Settlement.pattern_signal_counts` key that's currently
+    crossing its promotion threshold, if any — the concrete "genuine
+    problem to hypothesize about" this job was previously missing even
+    when its own prosperity/pressure gate had already fired on one.
+    `None`/absent (village is prosperous, not specifically pressured,
+    or has no dominant signal) reads exactly as before this parameter
+    existed — free invention, no named problem to answer."""
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
     concepts_text = "; ".join(existing_concept_names) if existing_concept_names else "None yet."
@@ -104,21 +141,27 @@ def build_propose_prompt(
     observations_block = (
         f"What you noticed since last time:\n{observations_text}\n" if observations_text else ""
     )
+    pressure_block = (
+        f"The village has been quietly straining under: {_pressure_label(pressure_signal)}.\n"
+        if pressure_signal else ""
+    )
     return (
         f"The village of {settlement_name} (era: {era}, tech tier {tech_level}). "
         f"Recent history:\n{events_text}\n"
         f"{observations_block}"
+        f"{pressure_block}"
         f"Ideas the village already has: {concepts_text}\n"
         "Originate one new concept this village might genuinely have."
     )
 
 
-def fallback_propose(established_count: int) -> dict:
+def fallback_propose(established_count: int, pressure_signal: str | None = None) -> dict:
     name, description, category, hook_type, hook_target = _FALLBACK_PROPOSALS[
         established_count % len(_FALLBACK_PROPOSALS)
     ]
+    hypothesis = f"a response to {_pressure_label(pressure_signal)}" if pressure_signal else "no specific problem"
     return {
-        "name": name, "description": description, "category": category,
+        "name": name, "description": description, "hypothesis": hypothesis, "category": category,
         "hook_type": hook_type, "hook_target": hook_target, "magnitude": 0.5,
     }
 
@@ -154,6 +197,7 @@ def validate_hook(hook_type: str, hook_target: str, magnitude: float, category: 
 def parse_propose(result: dict, fallback: dict) -> dict:
     name = result.get("name")
     description = result.get("description")
+    hypothesis = result.get("hypothesis")
     category = result.get("category")
     hook_type = result.get("hook_type")
     hook_target = result.get("hook_target")
@@ -162,6 +206,10 @@ def parse_propose(result: dict, fallback: dict) -> dict:
         name = fallback["name"]
     if not isinstance(description, str) or not description.strip():
         description = fallback["description"]
+    if not isinstance(hypothesis, str) or not hypothesis.strip():
+        hypothesis = fallback.get("hypothesis", "no specific problem")
+    if hypothesis.strip().lower() == "no specific problem":
+        hypothesis = ""
     if not isinstance(category, str) or category not in VILLAGE_PROPOSE_CATEGORIES:
         category = fallback["category"]
     if not isinstance(hook_type, str) or hook_type not in MECHANICAL_HOOK_TYPES:
@@ -172,6 +220,7 @@ def parse_propose(result: dict, fallback: dict) -> dict:
     return {
         "name": name.strip()[:80],
         "description": description.strip()[:200],
+        "hypothesis": hypothesis.strip()[:150],
         "category": category,
         "hook": validate_hook(hook_type, hook_target, float(magnitude), category),
     }
