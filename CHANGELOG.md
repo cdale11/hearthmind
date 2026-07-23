@@ -4,6 +4,67 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.7.0] — Symmetric idle speedup + B8 Living memory & consolidation (roadmap Stage II step 8)
+
+Two explicit user requests in one turn: "the adaptive slowing of the
+simulation should also adaptively speed up the simulation when LLM
+load is low and system is sitting idle," and "continue the roadmap."
+
+**Idle speedup.** `_llm_pressure_interval_multiplier()` (`simulation/
+engine.py`) previously only ever stretched the real-time gap between
+ticks (>= 1.0x) as LLM backlog pressure rose — a genuinely idle queue
+(a fresh world, a quiet stretch, or `llm_enabled=False` entirely) ran
+at exactly the user's configured/selected speed regardless of how much
+spare LLM/CPU capacity was sitting unused. New `LLM_PRESSURE_SPEEDUP_
+START_RATIO=0.15`/`LLM_PRESSURE_MIN_SPEEDUP_MULTIPLIER=0.4` mirror the
+existing slowdown shape on the low side: below a pressure ratio of
+0.15 (comfortably under the existing slowdown band's own 0.75 floor,
+so there's a real flat "just right" zone at 0.15-0.75 that behaves
+exactly as before), the multiplier scales linearly DOWN to 0.4 (up to
+2.5x faster ticks) as the ratio approaches 0. Faster ticks mean agents
+become cognition/dialogue-due sooner in real time (staggered-daily
+eligibility is tick-count-based, the same mechanism the slowdown side
+already leans on in reverse), converting idle LLM capacity into more
+calls per real second rather than a merely cosmetic faster clock.
+Purely a function of the existing `llm_pressure_ratio()` — no new
+"is the system idle" signal needed, since an idle queue (including
+`llm_enabled=False`) already reads as ratio 0.0 by construction. New
+`full_diagnostics()["llm_pressure_interval_multiplier"]` surfaces the
+live value (<1.0 sped up, 1.0 normal, >1.0 slowed) for the dev console.
+
+**B8 — Living memory & consolidation, all five pillars** (docs/
+MASTERCHECKLIST-2026-07-22.md, roadmap Stage II step 8). New `Pillar.
+consolidate()` (`cognition/pillar.py`): once a pillar's `memory` list
+reaches `MEMORY_CONSOLIDATE_THRESHOLD` (30, comfortably under the
+existing hard `MEMORY_MAX=40` FIFO safety-net cap), folds the oldest
+`MEMORY_CONSOLIDATE_BATCH` (8) raw notes into ONE condensed digest note
+instead of letting them sit until the blind evict-oldest cap silently
+drops them. Real forgetting (the individual raw notes are gone, not
+merely capped) plus a literal form of "connect into concepts" (several
+granular notes become one higher-level one) — deliberately zero LLM
+cost, matching "maximize emergence per LLM call" (a genuine LLM-
+authored summarization would be a real future upgrade, not this pass's
+scope). Wired into the shared `SimulationEngine._pillar_close_cycle`
+helper (already called once per closed cognitive cycle for all five
+pillars since the B1-B3 generalization pass), so every pillar gets
+real periodic consolidation automatically with no per-pillar wiring.
+Deliberately NOT `reinforce`/`reinterpret` (the rest of B8's spec) —
+that needs per-note salience/access tracking this pass doesn't add,
+flagged as a smaller follow-up. Also updates the roadmap doc: B9
+("self-model & world-model per pillar") is retroactively marked
+SHIPPED — it was effectively subsumed by the earlier B1-generalization
+pass (self_model/world_model have been part of `Pillar`'s shape for
+every pillar since v1.5.0/v1.5.3), not a separate step as the roadmap
+originally implied.
+
+Verified: direct smoke test of `_llm_pressure_interval_multiplier()`
+across idle/mid-zone/saturated backlog states (0.4x / 1.0x / 6.0x as
+expected); a direct `Pillar.consolidate()` test (35 notes → fold to
+28, correct digest content, no-op below threshold); `scripts/verify_
+native_soak.py` (2 seeds x 400 ticks) byte-identical (both changes are
+either real-time-pacing-only or a pillar-memory operation neither soak
+harness's deterministic `_tick_once()` path exercises differently).
+
 ## [1.6.0] — Per-fallback diagnostics + single-adapter model-agnostic LLM layer
 
 Explicit multi-part user request: (1) diagnose why `personal_belief`'s

@@ -30,7 +30,17 @@ alternates between two persisted stops — a cheap `observe` turn
 (reads the Emergence API into bounded `working_memory`, zero LLM cost)
 and an `interpret` turn (the one real LLM call, which performs
 remember/plan/act/reflect synchronously before returning to
-`observe`) — see `SimulationEngine._maybe_schedule_nature_mind`."""
+`observe`) — see `SimulationEngine._maybe_schedule_nature_mind`.
+
+B1/B2/B3 (this module's `Pillar` shape, the observe/interpret cycle,
+and the attention-scheduler backpressure fraction) were generalized
+from Nature-only to all five pillars (Village/Humans/Innovation/
+Reflection) in a later pass — see `default_village_pillar`/`default_
+humans_pillar`/`default_innovation_pillar`/`default_reflection_pillar`
+below and `SimulationEngine`'s shared `_pillar_observe_turn`/`_pillar_
+interpret_backpressured`/`_pillar_close_cycle` helpers. B8 "Living
+memory & consolidation" (roadmap Stage II step 8) followed: `consolidate()`
+below, called once per closed cycle via `_pillar_close_cycle`."""
 from __future__ import annotations
 
 WORLD_MODEL_STATUSES = ("observation", "hypothesis")
@@ -87,10 +97,33 @@ class Pillar:
     World-scoped store — no ORM, no separate schema per pillar type."""
 
     MEMORY_MAX = 40
-    """Bounded consolidated-memory cap — a plain FIFO list this pass
-    (B8's real consolidate/forget/reinforce cycle is a later step);
-    still needs a cap from day one per the standing memory-leak-audit
-    discipline (CLAUDE.md's "Memory-leak pattern to audit first")."""
+    """Hard FIFO safety-net cap on `memory` — should now rarely if ever
+    trigger in practice, since `consolidate()` (B8) proactively folds
+    entries well before this point; kept as defense-in-depth per the
+    standing memory-leak-audit discipline (CLAUDE.md's "Memory-leak
+    pattern to audit first") in case a pillar's cycle stalls for a long
+    stretch (deferred critical jobs, LLM disabled) and `consolidate()`
+    never gets called."""
+
+    MEMORY_CONSOLIDATE_THRESHOLD = 30
+    MEMORY_CONSOLIDATE_BATCH = 8
+    """B8 "Living memory & consolidation" (docs/MASTERCHECKLIST-2026-07-
+    22.md, roadmap Stage II step 8): "consolidate detailed experience
+    into higher-level knowledge periodically; forget trivia; ...
+    connect into concepts. Keeps years cognitively manageable while
+    preserving identity." Deliberately zero-LLM-cost, matching "maximize
+    emergence per LLM call" (CLAUDE.md) — a genuine LLM-authored
+    summarization would be a real feature but is a call this pass
+    doesn't spend; `consolidate()` below folds the oldest `MEMORY_
+    CONSOLIDATE_BATCH` raw notes into ONE condensed digest note once
+    `memory` reaches `MEMORY_CONSOLIDATE_THRESHOLD` (comfortably under
+    `MEMORY_MAX`, so this fires as a real periodic event well before the
+    hard cap's blind evict-oldest ever would). This is real forgetting
+    (the individual raw notes are gone, not merely capped) plus a literal
+    form of "connect into concepts" (several granular notes become one
+    higher-level one) — not the full B8 spec (`reinforce`/`reinterpret`,
+    which would need per-note salience/access tracking this pass doesn't
+    add — flagged as a smaller follow-up, not attempted here)."""
 
     WORKING_MEMORY_MAX = 5
     """B2's "bounded attention, working memory" line, taken literally —
@@ -179,12 +212,30 @@ class Pillar:
         return entry
 
     def remember(self, note: str) -> None:
-        """Appends one consolidated-memory note, capped at `MEMORY_MAX`
-        (oldest evicted) — the "keeps years cognitively manageable"
-        line from B8, in its simplest possible form."""
+        """Appends one consolidated-memory note. `consolidate()` (B8,
+        called once per closed cognitive cycle) is what actually keeps
+        this bounded in the common case; `MEMORY_MAX` below is only a
+        defense-in-depth hard FIFO cap for the case a pillar's cycle
+        stalls for a long stretch and consolidation never runs."""
         self.memory.append(note)
         if len(self.memory) > self.MEMORY_MAX:
             self.memory = self.memory[-self.MEMORY_MAX:]
+
+    def consolidate(self) -> bool:
+        """B8 "Living memory & consolidation": folds the oldest `MEMORY_
+        CONSOLIDATE_BATCH` raw notes into one condensed digest note once
+        `memory` reaches `MEMORY_CONSOLIDATE_THRESHOLD` — real periodic
+        forgetting-of-trivia plus concept-formation, not just a cap. See
+        the threshold/batch constants' docstring. Returns True if a
+        consolidation actually happened this call (the common no-op case
+        below threshold returns False, cheap to call unconditionally)."""
+        if len(self.memory) < self.MEMORY_CONSOLIDATE_THRESHOLD:
+            return False
+        batch = self.memory[: self.MEMORY_CONSOLIDATE_BATCH]
+        remaining = self.memory[self.MEMORY_CONSOLIDATE_BATCH :]
+        digest = f"[{len(batch)} earlier memories, folded together] " + " | ".join(batch)
+        self.memory = [digest[:280]] + remaining
+        return True
 
     def to_dict(self) -> dict:
         return {

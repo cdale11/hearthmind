@@ -497,6 +497,32 @@ real deployed model on an env-only switch); added `trigger_rules_*`/
 console already dumps raw (closes the last un-exposed Living Terrarium
 fields from v1.3.31-34).
 
+## Current state (v1.7.0)
+
+Explicit user requests: "the adaptive slowing of the simulation should
+also adaptively speed up the simulation when LLM load is low and
+system is sitting idle"; "continue the roadmap." Full detail:
+CHANGELOG.md's [1.7.0] entry.
+
+`_llm_pressure_interval_multiplier()` is now symmetric: below
+`LLM_PRESSURE_SPEEDUP_START_RATIO=0.15` it scales ticks DOWN toward
+`LLM_PRESSURE_MIN_SPEEDUP_MULTIPLIER=0.4` (up to 2.5x faster) as the
+LLM backlog approaches genuinely idle, mirroring the existing >=1.0x
+slowdown band on the low side — a flat 1.0x zone remains between 0.15
+and 0.75. Faster ticks convert idle LLM capacity into more real calls
+per second (staggered-daily eligibility is tick-count-based). Surfaced
+as `full_diagnostics()["llm_pressure_interval_multiplier"]`.
+
+Roadmap continuation: B8 "Living memory & consolidation" (Stage II
+step 8) shipped for all five pillars — `Pillar.consolidate()` folds
+the oldest few raw memory notes into one digest once a threshold is
+reached, zero LLM cost, called once per closed cognitive cycle via the
+existing shared `_pillar_close_cycle` helper (no per-pillar wiring
+needed). `reinforce`/`reinterpret` not attempted (needs per-note
+salience tracking, flagged follow-up). B9 (self/world-model per
+pillar) retroactively marked shipped in the roadmap doc — it was
+already subsumed by the earlier B1-generalization pass.
+
 ## Current state (v1.6.0)
 
 Explicit multi-part user request: diagnose why `personal_belief`'s

@@ -516,19 +516,37 @@ the master is complete, with the Body-dependencies made explicit.
   voice-pair machinery); everyone else deterministic. Individuality from
   the ledger + Body systems + occasional cheap calls.
 
-### B8 — Living memory & consolidation — PARTIAL
+### B8 — Living memory & consolidation — PARTIAL, all five pillars (roadmap Stage II step 8)
 
-- [ ] Per-pillar: consolidate detailed experience into higher-level
+- [x] Per-pillar: consolidate detailed experience into higher-level
   knowledge periodically; forget trivia; reinforce/reinterpret; connect
   into concepts. Keeps years cognitively manageable while preserving
   identity. (Human memory partly does this; generalize to all pillars.)
+  **Shipped, scoped**: `Pillar.consolidate()` (`cognition/pillar.py`) —
+  once `memory` reaches `MEMORY_CONSOLIDATE_THRESHOLD` (30, under the
+  hard `MEMORY_MAX=40` FIFO cap), folds the oldest `MEMORY_CONSOLIDATE_
+  BATCH` (8) raw notes into one condensed digest note. Real forgetting
+  (individual notes gone) + a literal "connect into concepts" (several
+  become one), zero LLM cost (matches "maximize emergence per LLM
+  call"). Called once per closed cognitive cycle via `SimulationEngine.
+  _pillar_close_cycle`, so all five pillars get it automatically.
+  Deliberately NOT `reinforce`/`reinterpret` — that needs per-note
+  salience/access tracking this pass doesn't add; flagged as a smaller
+  follow-up, not the full B8 spec.
 
-### B9 — Self-model & world-model per pillar — MISSING
+### B9 — Self-model & world-model per pillar — SHIPPED, all five pillars (roadmap Stage II step 4, generalized in the B1 pass)
 
-- [ ] Each pillar knows what it is, wants, how it changed, how it relates
-  to the others (self-model); holds revisable evidence-backed theories,
-  distinguishing observation from hypothesis, tracking uncertainty
-  (world-model). The substrate for genuine "it can be wrong."
+- [x] Each pillar knows what it is, wants, how it changed, how it
+  relates to the others (self-model); holds revisable evidence-backed
+  theories, distinguishing observation from hypothesis, tracking
+  uncertainty (world-model). The substrate for genuine "it can be
+  wrong." **Shipped as part of B1's generalization** (v1.5.3/1.6.0):
+  every pillar's `self_model`/`objectives` (identity/wants) and
+  `world_model` (revisable, confidence-tracked, `status` distinguishing
+  `observation`/`hypothesis`) shipped together with B1 — this item was
+  effectively subsumed rather than a separate later step. "How it
+  relates to the others" is NOT shipped — that's B4's inter-pillar
+  message bus (inbox/outbox stay structurally present but empty).
 
 ---
 
@@ -711,11 +729,24 @@ is not authorization to start executing it.
    names stay bundled into one call.
 6. **B3 Attention scheduler** — one budget arbiter across pillars,
    wired to the already-existing dynamic pacing (`llm_pressure_ratio`).
+   **Shipped v1.5.2 (Nature), generalized to all five v1.5.3/1.6.0.**
+   Steps 4-6 (B1/B2/B3) were then generalized from Nature-only to all
+   five pillars in one later pass, per explicit user correction — see
+   CLAUDE.md's "Current state (v1.5.3)"/"(v1.6.0)".
 7. **B9 Self/world-models** — generalized once Nature proves them out
-   (step 4), applied to the remaining four pillars.
+   (step 4), applied to the remaining four pillars. **Shipped** as part
+   of the same B1-generalization pass (step 4/6 above) rather than as
+   its own separate step — self_model/world_model were already part of
+   `Pillar`'s shape from v1.5.0 onward, so generalizing B1 to all five
+   pillars generalized B9 with it. The "relates to the others" half
+   stays open (needs B4).
 8. **B8 Living memory & consolidation** — per-pillar periodic
    consolidate/forget/reinforce, generalizing the human-memory pattern
-   that already exists.
+   that already exists. **Shipped, scoped** (explicit user instruction,
+   "Continue the roadmap"): `Pillar.consolidate()` — periodic fold-
+   oldest-into-one-digest, zero LLM cost, wired into `_pillar_close_
+   cycle` so all five pillars get it. `reinforce`/`reinterpret` NOT
+   attempted (needs per-note salience tracking) — flagged follow-up.
 9. **C1/C2 seam wiring** — perception channel (A22 → each pillar's
    observe()) and intention channel (pillar → Body validate/execute)
    made real for whichever pillars exist by this point.

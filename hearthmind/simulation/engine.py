@@ -801,6 +801,43 @@ fallbacks. Surfaced in diagnostics/broadcast as `llm_pressure_ratio`/
 distinct from the user's own pause button. See docs/DECISIONS.md,
 "LLM-pressure-aware tick pacing"."""
 
+LLM_PRESSURE_SPEEDUP_START_RATIO = 0.15
+LLM_PRESSURE_MIN_SPEEDUP_MULTIPLIER = 0.4
+"""Explicit user directive: "the adaptive slowing of the simulation
+should also adaptively speed up the simulation when LLM load is low and
+system is sitting idle." Everything above only ever stretches the
+real-time gap between ticks (multiplier >= 1.0) — a genuinely idle
+queue (a fresh world, a quiet stretch with few core-cast agents due, or
+`llm_enabled=False` entirely) always ran at exactly the user's
+configured/selected speed, leaving real spare LLM/CPU capacity unused
+even though nothing was competing for it. `_llm_pressure_interval_
+multiplier()` now mirrors the slowdown shape on the low side too:
+below `LLM_PRESSURE_SPEEDUP_START_RATIO` (0.15 — comfortably under
+`LLM_PRESSURE_SLOWDOWN_START_RATIO`'s own 0.75 floor, so the two bands
+never overlap and there's a real "just right" zone at ratio 0.15-0.75
+that stays at exactly 1.0x, matching a normal healthy-but-not-idle
+run), the multiplier scales linearly DOWN to `LLM_PRESSURE_MIN_
+SPEEDUP_MULTIPLIER` (0.4, i.e. up to 2.5x faster ticks) as the ratio
+approaches 0. Faster ticks mean agents become cognition/dialogue-due
+sooner in real time (staggered-daily eligibility is tick-count-based,
+same mechanism the slowdown side already leans on in reverse) — this
+is what actually converts idle LLM capacity into more calls per real
+second, not just a cosmetic faster clock. Bounded the same way the
+slowdown side is: `run_forever`'s own `max(0.05, ...)` floor on the
+final interval is the hard backstop regardless of how this multiplier
+or the user's own speed slider compose; a sufficiently pathological
+combination (e.g. 8x user speed already selected) still can't produce
+an unsafe interval. 0.4 (not lower) is deliberately conservative — a
+tick's own compute cost is negligible (~1ms, see the "C/C++ port"
+evaluation in this file's audit history) so the real bound on how much
+faster is safe is untested territory; 2.5x is a real, noticeable
+speedup without assuming the whole pacing model generalizes further
+than it's been verified to. Purely a function of `llm_pressure_ratio()`
+— no separate "is the system idle" signal needed, since a genuinely
+idle LLM queue (including `llm_enabled=False`, where `llm_pressure_
+ratio()` is always exactly 0.0) already reads as ratio 0 by
+construction."""
+
 IDLE_BROADCAST_EVERY_TICKS = 10
 """With zero WebSocket clients connected, the full broadcast payload
 (a to_dict() of every agent/building/farm/resource/wildlife entity plus
@@ -1500,20 +1537,31 @@ class SimulationEngine:
         return self.llm_pressure_ratio() >= LLM_PRESSURE_PAUSE_RATIO
 
     def _llm_pressure_interval_multiplier(self) -> float:
-        """How much longer than normal `run_forever` should wait before
-        the next tick, given current LLM backlog pressure — 1.0 below
-        `LLM_PRESSURE_SLOWDOWN_START_RATIO`, scaling linearly up to
-        `LLM_PRESSURE_MAX_SLOWDOWN` as pressure approaches `LLM_PRESSURE_
+        """How much longer (or shorter) than normal `run_forever` should
+        wait before the next tick, given current LLM backlog pressure —
+        symmetric around a flat 1.0x "just right" zone. Above `LLM_
+        PRESSURE_SLOWDOWN_START_RATIO`: scales linearly up to `LLM_
+        PRESSURE_MAX_SLOWDOWN` as pressure approaches `LLM_PRESSURE_
         PAUSE_RATIO` (at/beyond which `llm_pressure_paused()` takes over
-        and ticking stops outright, making this multiplier moot)."""
+        and ticking stops outright, making this multiplier moot). Below
+        `LLM_PRESSURE_SPEEDUP_START_RATIO`: scales linearly DOWN to
+        `LLM_PRESSURE_MIN_SPEEDUP_MULTIPLIER` as pressure approaches 0
+        (a genuinely idle queue) — see that constant's docstring. Between
+        the two thresholds (0.15-0.75 by default): exactly 1.0, the
+        normal healthy-load rate."""
         ratio = self.llm_pressure_ratio()
-        if ratio <= LLM_PRESSURE_SLOWDOWN_START_RATIO:
-            return 1.0
-        span = LLM_PRESSURE_PAUSE_RATIO - LLM_PRESSURE_SLOWDOWN_START_RATIO
-        if span <= 0:
-            return 1.0
-        progress = min(1.0, (ratio - LLM_PRESSURE_SLOWDOWN_START_RATIO) / span)
-        return 1.0 + progress * (LLM_PRESSURE_MAX_SLOWDOWN - 1.0)
+        if ratio > LLM_PRESSURE_SLOWDOWN_START_RATIO:
+            span = LLM_PRESSURE_PAUSE_RATIO - LLM_PRESSURE_SLOWDOWN_START_RATIO
+            if span <= 0:
+                return 1.0
+            progress = min(1.0, (ratio - LLM_PRESSURE_SLOWDOWN_START_RATIO) / span)
+            return 1.0 + progress * (LLM_PRESSURE_MAX_SLOWDOWN - 1.0)
+        if ratio < LLM_PRESSURE_SPEEDUP_START_RATIO:
+            if LLM_PRESSURE_SPEEDUP_START_RATIO <= 0:
+                return 1.0
+            progress = min(1.0, 1.0 - ratio / LLM_PRESSURE_SPEEDUP_START_RATIO)
+            return 1.0 - progress * (1.0 - LLM_PRESSURE_MIN_SPEEDUP_MULTIPLIER)
+        return 1.0
 
     def llama_server_restarting(self) -> bool:
         """True while `config.llm_restart_sentinel_path` exists on disk —
@@ -3966,8 +4014,15 @@ class SimulationEngine:
     def _pillar_close_cycle(self, pillar_name: str) -> None:
         """Closes a pillar's `interpret` turn, freeing `working_memory`
         and returning `cycle_stage` to `observe` for the next season/
-        year this job's own gate opens again."""
+        year this job's own gate opens again. Also runs B8 "Living
+        memory & consolidation" (roadmap Stage II step 8) once per
+        closed cycle — `Pillar.consolidate()` is cheap and a no-op below
+        its threshold, so calling it unconditionally here (rather than
+        only on cycles that actually wrote new memory) is simplest and
+        correct; a pillar that hasn't accumulated enough raw notes yet
+        just returns False and does nothing."""
         pillar = getattr(self.world, f"{pillar_name}_pillar")
+        pillar.consolidate()
         pillar.clear_working_memory()
         pillar.set_cycle_stage("observe")
         pillar.last_turn_tick = self.world.clock.tick_count
@@ -8299,6 +8354,13 @@ class SimulationEngine:
             # counts.
             "llm_pressure_ratio": round(self.llm_pressure_ratio(), 3),
             "llm_pressure_paused": self.llm_pressure_paused(),
+            # Explicit user directive: adaptive slowdown should have a
+            # symmetric speedup counterpart when the LLM queue is idle
+            # (see LLM_PRESSURE_SPEEDUP_START_RATIO's docstring) — this
+            # is the actual live multiplier `run_forever` is applying to
+            # the tick interval right now: <1.0 sped up, 1.0 normal,
+            # >1.0 slowed down.
+            "llm_pressure_interval_multiplier": round(self._llm_pressure_interval_multiplier(), 3),
             "training_recorder": self.training_recorder_status(),
             "llama_server_restarting": self._llama_server_restarting,
             "llama_server_restarts_total": self._llama_server_restarts,
