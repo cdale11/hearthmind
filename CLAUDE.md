@@ -527,6 +527,21 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.3)
+
+Explicit user request, docs-only: fold an uploaded checklist
+(HearthBench model-selection benchmark + the Adaptive Runtime
+execution layer) into the current roadmap, ordered to run after the
+previous roadmap items. Filed verbatim as docs/HEARTHBENCH-RUNTIME-
+2026-07-23.md (same convention as docs/MASTERCHECKLIST-2026-07-
+22.md); docs/ROADMAP-2026-07-REMAINING.md gained a new Tier 5
+pointer section preserving the source doc's own two-track SEQUENCE
+rather than re-deriving one. Sequenced strictly after Tiers 0-4 with
+explicit rationale (infrastructure for building/measuring Hearthmind,
+not a Hearthmind feature — building it before Body/Mind/Seam work
+stabilizes means re-benchmarking against a moving target). Full
+detail: CHANGELOG.md's [1.34.3] entry.
+
 ## Current state (v1.34.2)
 
 Explicit user instruction: "expand A9 further... completely close

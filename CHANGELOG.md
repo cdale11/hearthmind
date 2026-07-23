@@ -4,6 +4,41 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.3] — HearthBench & Adaptive Runtime checklist folded into roadmap (docs only)
+
+Explicit user request: fold an uploaded checklist
+(`HEARTHBENCHANDRUNTIME20260723.md` — Part A HearthBench, a standalone
+model-selection benchmark; Part B the Adaptive Runtime, an OS-like
+execution layer; Part C where they meet) into the current roadmap,
+ordered by how best to implement it after finishing the previous
+roadmap items. Docs-only.
+
+Filed the uploaded checklist verbatim as `docs/HEARTHBENCH-RUNTIME-
+2026-07-23.md`, same convention as `docs/MASTERCHECKLIST-2026-07-
+22.md`. `docs/ROADMAP-2026-07-REMAINING.md` gained a new **Tier 5**
+(after the existing Tier 4 standing-discipline items) summarizing
+scope and preserving the source doc's own two-track internal SEQUENCE
+(Runtime: replay-hash safety net first, then task declaration +
+"explain this tick," profiling, timescales/dirty-tracking, budgets/
+locality/dormancy, memory/history compression, reference-mode +
+escalation ladder, adaptive tuning last; HearthBench: skeleton +
+adapter, fixture export, deterministic scorers, CI regression guard,
+metrics/diagnostics, reports/score/UI/model-passport, judge scoring,
+world-level run last) rather than re-deriving a new ordering — the
+source doc's own sequencing already reflects real dependency analysis
+(e.g. A5.11's world-level run explicitly can't be meaningful without
+B15.5's reference mode existing first).
+
+Sequenced strictly after Tiers 0-4 per the user's own framing
+("after finishing the previous items") — explicit rationale recorded:
+this is infrastructure for building/measuring Hearthmind, not a
+Hearthmind feature itself, and building it before the Body/Mind/Seam
+work stabilizes would mean re-benchmarking against a moving target.
+Flagged one real overlap worth a fresh look when Tier 5 actually
+starts: B9's hierarchical-timescale enforcement covers territory
+already partly addressed by the existing B2/B3 attention-scheduler
+cadence work (Tier 0), not assumed resolved here.
+
 ## [1.34.2] — A9 closed: last real gap fixed, two findings corrected
 
 Explicit user instruction: "expand A9 further, whatever you have

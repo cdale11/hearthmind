@@ -16,7 +16,11 @@ most places, not fully closed, and the actual open items are worth
 recording just like Part A's.) Vision/audit docs outside the Master
 Checklist (`docs/VISION-*`, `docs/IDEAS-2026-07-EMERGENCE.md`, `docs/
 AUDIT-2026-07-20.md`) remain out of scope — each already internally
-marked "fully resolved" or "historical record" per CLAUDE.md.
+marked "fully resolved" or "historical record" per CLAUDE.md. As of
+v1.34.2, `docs/HEARTHBENCH-RUNTIME-2026-07-23.md` (a separately
+uploaded checklist, HearthBench model-benchmarking + the Adaptive
+Runtime) is explicitly folded in as this doc's own **Tier 5** — see
+the priority-ordering section below.
 
 Every item below is a **real gap**, quoted or closely paraphrased from
 the Master Checklist's own "still open" language as of this filing —
@@ -173,6 +177,45 @@ tier is arbitrary.
     used to need genuine judgment become mechanically deterministic
     (a candidate for A7's grammars or A1's fields) since it was last
     checked?
+
+**Tier 5 — HearthBench & the Adaptive Runtime (filed v1.34.2, a
+separate two-part program, sequenced strictly AFTER Tiers 0-4)**
+30. **The whole checklist in `docs/HEARTHBENCH-RUNTIME-2026-07-23.md`**
+    — folded in per explicit user request, ordered to run only once
+    every item above is done. Two independent programs sharing one
+    telemetry seam (Part C): **HearthBench** (Part A, a standalone
+    model-selection benchmark — mostly buildable on existing
+    foundations: `build_llm_client`, `eval_harness.py`, `recorder.py`,
+    `quality_labels.py`) and **the Adaptive Runtime** (Part B, an
+    OS-like execution layer deciding when/where/how work runs — nearly
+    all greenfield; today everything still runs every tick because
+    time passed, which the doc's own Hard Rule 3 forbids). See that
+    doc's own "SEQUENCE" section for the two tracks' internal step
+    ordering (Runtime: replay-hash test first, then B0/B1 task
+    declaration + B5.4 "explain this tick," then B5 profiling, B9/B3
+    timescales+dirty-tracking, B2/B10/B4 budgets+locality+dormancy,
+    B11/B12 memory+history, B15.5/B15.3/B15.6 reference-mode+
+    escalation-ladder+profile-recording, then B6-B8/B13 adaptive
+    tuning last. HearthBench: A1/A2 skeleton+adapter, A3.1 fixture
+    export, A4.1+A5.7/A5.8 deterministic scorers, A13 CI regression
+    guard, A7/A8 metrics+diagnostics, A9/A10/A12/C5 reports+score+UI+
+    passport, A4.2/A4.3 judge+human calibration, A5.11 world-level run
+    last). The two tracks run in parallel with each other, both
+    starting only after Tier 4.
+
+    **Why sequenced last, not folded into Tiers 0-4's own ordering**:
+    this is infrastructure FOR building/measuring Hearthmind, not a
+    Hearthmind feature itself — every earlier tier item changes what
+    the simulation IS; this changes how it's run and how a model
+    choice for it gets evaluated. Building it before the Body/Mind/
+    Seam work above stabilizes would mean re-profiling and re-
+    benchmarking against a moving target repeatedly. `B0`'s prime
+    invariant ("gameplay never makes scheduling decisions") and the
+    Tier 0 pillar refactor's own eventual per-pillar cadence work are
+    also natural neighbors (`B9` hierarchical timescales overlaps real
+    territory with B2/B3's attention-scheduler cadences already
+    shipped) — worth a fresh look at that overlap when Tier 5 actually
+    starts, not assumed away here.
 
 ---
 
