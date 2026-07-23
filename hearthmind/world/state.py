@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from hearthmind.agents.agent import AgentGoal, AgentState
 from hearthmind.agents.population import Population
 from hearthmind.config import Config
-from hearthmind.economy.farms import FarmGrid
+from hearthmind.economy.farms import FarmGrid, apply_nutrient_cycling
 from hearthmind.settlement.buildings import BuildingStage, Settlement
 from hearthmind.settlement.naming import generate_settlement_name
 from hearthmind.time_system import SimClock
@@ -790,6 +790,11 @@ class World:
             tick_hydrology(
                 self.hydrology_field, self.terrain, self.weather.precipitation, self.clock.season, hydro_rng,
             )
+            # A10 "Ecology as interacting populations / food webs," first
+            # slice (Stage IV step 17): nutrient cycling from wildlife
+            # into nearby farmland — weekly cadence, same reasoning as
+            # the hydrology tick immediately above.
+            apply_nutrient_cycling(self.farms, self.wildlife.herds.values())
         return events
 
     def _tick_terrain(self, calendar_events: list[str]) -> list[tuple[str, str]]:

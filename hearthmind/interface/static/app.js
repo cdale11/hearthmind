@@ -3040,6 +3040,11 @@ function renderStats(summary) {
     ["__section__", "World & environment"],
     ["Farms", `${f.total} (${f.growing} growing, ${f.ready} ready)`, null],
     [
+      "Soil fertility",
+      `${((f.avg_soil_fertility ?? 1.0) * 100).toFixed(0)}% average`,
+      "Continuous cultivation wears a plot down; resting it (leave it fallow) recovers fertility over time. Sustained wildlife activity near a farmed tile also enriches it — grazing herds and their leavings feed nutrients back into nearby soil, a real (small, capped) bonus on top of ordinary fallow recovery.",
+    ],
+    [
       "Wild resources", `${r.total_nodes} nodes (${r.depleted} depleted, ${r.fish_nodes || 0} fishing spots, ${s.fish_caught || 0} caught)`,
       "Wild forageable nodes (berries, fishing spots along water, ore veins) — the last-resort food source, behind farms, granaries, and hunting. Fishing spots yield a richer catch and replenish faster than a bush. \"Caught\" is the settlement's all-time count of meals relieved from a fishing spot specifically.",
     ],

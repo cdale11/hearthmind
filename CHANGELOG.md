@@ -4,6 +4,61 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.15.0] — A10 "Ecology as interacting populations / food webs," nutrient cycling (roadmap Stage IV step 17)
+
+Explicit user instruction: "Next step" — Stage IV step 17, docs/
+MASTERCHECKLIST-2026-07-22.md's A10. Scoped down from the full A10
+spec (migration, competition, decomposition, nutrient cycling,
+pollination, habitat formation, folding the food web onto the A1 field
+substrate) to a single well-justified first slice: nutrient cycling
+into farming, per the doc's own explicit "Feeds: nutrient cycling
+closes a loop into farming" line.
+
+New `economy/farms.apply_nutrient_cycling(farms, herds)`: any
+`FarmGrid.soil_fertility`-tracked tile (i.e. a tile that's ever been
+farmed) within `NUTRIENT_CYCLING_RADIUS=2` (Manhattan) of a
+`WildlifeGrid` herd gains a small per-tick fertility bonus scaled by
+`herd.count * NUTRIENT_CYCLING_BONUS_PER_ANIMAL`, summed across every
+nearby herd but capped at `NUTRIENT_CYCLING_MAX_BONUS_PER_TICK` per
+tile per call (several large overlapping herds can't instantly max a
+tile out) and by the existing 1.0 fertility ceiling — real grazing/
+dung enrichment, bounded the same way `SOIL_FERTILITY_MIN`/`_RECOVERY_
+PER_TICK` are already bounded. Called from `World._tick_disasters` on
+`"week_end" in calendar_events`, same cadence as A11's `tick_hydrology`
+and the same reasoning: bound the real-time cost of a full-grid-
+adjacent Python pass rather than running it every tick.
+
+Deliberately a standalone module function, not a `FarmGrid`/
+`WildlifeGrid` method: reads `WildlifeGrid.herds` read-only, writes
+only into tiles already present in `soil_fertility` (never expands the
+tracked-tile set), and never touches either grid's native fast path
+(`_native_farm_grid_tick`, `_native_soil_fertility_deplete_step`/
+`_recover_step`, or the wildlife grid's native-ported grazer branch) —
+zero native/fallback parity risk by construction, still confirmed via
+the soak run below. Migration, competition, decomposition (as a
+distinct nutrient source beyond live-herd enrichment), pollination, and
+habitat formation are explicitly NOT attempted this pass — real,
+larger follow-ups, flagged in docs/MASTERCHECKLIST-2026-07-22.md's A10
+section rather than silently dropped; the "fold the existing food web
+onto the A1 field substrate into one coupled system" framing item also
+remains open.
+
+UI: new "Soil fertility" main-UI stat tile (`summary.farms.avg_soil_
+fertility`, already computed, previously unsurfaced) — plain
+environmental state, not Phase-G-gated, tooltip explains both the
+existing fallow-recovery mechanic and the new nutrient-cycling bonus.
+
+Verified: direct tests for `apply_nutrient_cycling` (no-op on an
+untracked tile, in-radius bonus, out-of-radius no-effect, clamp to
+1.0, the per-tick max-bonus cap actually engaging with several large
+herds, and the exact Manhattan-radius boundary). A real production-
+path test drives a real `SimulationEngine`/`World` through ~8 real
+week boundaries with a large herd parked on a previously-depleted
+farmed tile, confirming `soil_fertility` measurably rises (0.3 -> 0.81
+over the run) beyond what ordinary fallow recovery alone would give
+it. `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical.
+
 ## [1.14.0] — A2 "CA/diffusion/reaction-diffusion operators" (roadmap Stage IV step 16)
 
 Explicit user instruction: "Next step" — Stage IV step 16, docs/

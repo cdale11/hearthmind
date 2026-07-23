@@ -527,6 +527,28 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.15.0)
+
+Explicit user instruction: "Next step" — A10 "Ecology as interacting
+populations / food webs," nutrient cycling only (roadmap Stage IV
+step 17, docs/MASTERCHECKLIST-2026-07-22.md). Full detail: CHANGELOG.
+md's [1.15.0] entry.
+
+New `economy/farms.apply_nutrient_cycling(farms, herds)`: any
+already-farmed `FarmGrid.soil_fertility` tile within `NUTRIENT_
+CYCLING_RADIUS` of a `WildlifeGrid` herd gains a small, herd-size-
+scaled, per-call-capped fertility bonus — real grazing/dung
+enrichment closing a loop into farming, per the roadmap doc's own
+"Feeds" line. Weekly cadence (`World._tick_disasters`, same reasoning
+as A11's `tick_hydrology`). Standalone, read-only-of-wildlife,
+never-expands-tracked-tiles by construction, so it carries zero
+native/fallback parity risk against either grid's native fast path.
+Migration, competition, decomposition, pollination, habitat
+formation, and folding the food web onto the A1 field substrate all
+remain open, explicitly flagged in the roadmap doc rather than
+silently dropped. New "Soil fertility" main-UI stat tile (`summary.
+farms.avg_soil_fertility`, previously computed but unsurfaced).
+
 ## Current state (v1.14.0)
 
 Explicit user instruction: "Next step" — A2 "CA/diffusion/reaction-

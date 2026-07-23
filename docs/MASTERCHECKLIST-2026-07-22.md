@@ -204,13 +204,32 @@ through-line for nearly every PARTIAL below.
 
 - [ ] **Status:** Food webs / predator-prey feedback shipped (v1.3.26,
   Phase 3.D). Closest-to-vision system in Part A.
-- [ ] **Spec (deepen):** add migration, competition, decomposition,
-  nutrient cycling (→ fertility field A1), pollination (→ vegetation),
-  habitat formation (reads fields, writes carrying capacity). Fold the
-  existing food web onto the A1 field substrate so ecology and
-  environment are one coupled system.
-- [ ] **Feeds:** nutrient cycling closes a loop into farming; migration
-  gives Nature-the-pillar something to perceive and react to.
+- [x] **Spec (deepen), nutrient cycling only:** **Shipped a first slice,
+  v1.15.0** (roadmap Stage IV step 17) — `economy/farms.
+  apply_nutrient_cycling(farms, herds)`: any `FarmGrid.soil_fertility`-
+  tracked tile within `NUTRIENT_CYCLING_RADIUS` (Manhattan) of a
+  `WildlifeGrid` herd gains a small per-tick fertility bonus scaled by
+  herd size, bounded by `NUTRIENT_CYCLING_MAX_BONUS_PER_TICK` (several
+  large overlapping herds can't instantly max out a tile) and by the
+  existing 1.0 fertility ceiling. Called at week_end cadence from
+  `World._tick_disasters` (same cadence as A11's `tick_hydrology`,
+  same reasoning: bound the real-time cost of a full-grid-adjacent
+  Python pass). Deliberately a standalone module function — reads
+  `WildlifeGrid.herds` read-only, only ever touches tiles already
+  present in `soil_fertility` (already-farmed-at-least-once tiles) —
+  so it never touches either grid's native fast path
+  (`_native_farm_grid_tick`/`_native_soil_fertility_*`/the wildlife
+  grazer native port) and carries zero native/fallback parity risk by
+  construction, verified anyway via `scripts/verify_native_soak.py`.
+  Migration, competition, decomposition, pollination (→ vegetation),
+  and habitat formation (reads fields, writes carrying capacity) are
+  explicitly NOT attempted this pass — real, larger follow-ups, not
+  silently dropped; "fold the existing food web onto the A1 field
+  substrate" as one coupled system also remains open.
+- [x] **Feeds:** nutrient cycling closes a loop into farming — a farm
+  sited near sustained wildlife activity now measurably out-recovers
+  ordinary fallow rest. Migration giving Nature-the-pillar something to
+  perceive and react to remains open (needs the migration sub-item).
 
 ### A11 — Continuous hydrology [det #11] — PARTIAL
 
@@ -997,7 +1016,11 @@ waiting for a later integration pass.
     so native/fallback parity is unaffected.
 17. **A10 Ecology on fields** — fold the existing food-web/predator-
     prey system onto the field substrate; add migration, competition,
-    decomposition, nutrient cycling, pollination.
+    decomposition, nutrient cycling, pollination. **Shipped a first
+    slice, v1.15.0**: nutrient cycling only — see the A10 section above
+    for full detail. Migration, competition, decomposition, pollination,
+    habitat formation, and the full field-substrate fold-in all remain
+    open, explicitly flagged.
 18. **A5/A6 Affordances + discovery query layer** — tag entities with
     `can_X` capabilities and physical properties; the query/validate
     layer Innovation needs for real unprogrammed-combination discovery.

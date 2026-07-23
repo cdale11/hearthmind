@@ -133,6 +133,67 @@ real crop-rotation practice (a season fallow undoes much more than a
 season of continuous cropping cost)."""
 
 
+NUTRIENT_CYCLING_RADIUS = 2
+"""A10 "Ecology as interacting populations / food webs" (roadmap Stage
+IV step 17), first slice — "nutrient cycling closes a loop into
+farming" per the roadmap doc's own Feeds line. Manhattan radius around
+a wildlife herd's tile within which grazing/browsing animal dung and
+carcass fall genuinely enrich nearby farmland — deliberately small
+(local manuring, not a settlement-wide effect)."""
+
+NUTRIENT_CYCLING_BONUS_PER_ANIMAL = 0.00004
+"""Fertility gained per tick, per animal in a herd, for each farmed
+tile within `NUTRIENT_CYCLING_RADIUS` of that herd — small enough that
+a lone passing herd is negligible, but a sustained large herd grazing
+near a farm over hundreds of ticks measurably outpaces `SOIL_FERTILITY_
+RECOVERY_PER_TICK`'s ordinary fallow recovery, rewarding a farm sited
+near (not on top of, since herds avoid farmed/settled tiles already)
+wildlife activity — the actual mechanical link this slice exists to
+create."""
+
+NUTRIENT_CYCLING_MAX_BONUS_PER_TICK = 0.0006
+"""Cap on the summed per-tile bonus from `apply_nutrient_cycling` in a
+single call, regardless of how many/how large the nearby herds are —
+several overlapping large herds shouldn't be able to instantly max out
+a tile's fertility; this keeps the effect bounded the same way `SOIL_
+FERTILITY_MIN`/`_RECOVERY_PER_TICK` bound depletion/recovery."""
+
+
+def apply_nutrient_cycling(farms: "FarmGrid", herds) -> None:
+    """Read-only over `herds` (any iterable of objects with `x`/`y`/
+    `count` attributes — `WildlifeGrid.herds.values()` in production),
+    additive on top of `FarmGrid.soil_fertility`. Deliberately a
+    standalone module function, not a `FarmGrid`/`WildlifeGrid` method
+    and not folded into `_tick_soil_fertility` or `WildlifeGrid.tick`'s
+    native-ported hot loop — this only ever touches tiles already
+    present in `soil_fertility` (i.e. already-farmed-at-least-once
+    tiles), so it carries zero native/fallback parity risk for either
+    grid. Intended to be called at week_end cadence (see `World.tick`),
+    not every tick — same reasoning as `tick_hydrology`/A2's succession
+    pressure: bounding the real-time cost of an un-ported full-grid-
+    adjacent Python pass.
+
+    Deliberately scoped to fertility enrichment only. Migration,
+    interspecies competition, decomposition of carcasses/plant matter
+    as a distinct nutrient source, pollination, and habitat formation
+    (the rest of A10's full spec) are explicitly NOT attempted this
+    pass — flagged follow-ups, see docs/MASTERCHECKLIST-2026-07-22.md's
+    A10 section."""
+    if not farms.soil_fertility:
+        return
+    for pos in list(farms.soil_fertility):
+        fx, fy = pos
+        bonus = 0.0
+        for herd in herds:
+            if abs(herd.x - fx) + abs(herd.y - fy) > NUTRIENT_CYCLING_RADIUS:
+                continue
+            bonus += herd.count * NUTRIENT_CYCLING_BONUS_PER_ANIMAL
+        if bonus <= 0.0:
+            continue
+        bonus = min(bonus, NUTRIENT_CYCLING_MAX_BONUS_PER_TICK)
+        farms.soil_fertility[pos] = min(1.0, farms.fertility_at(fx, fy) + bonus)
+
+
 IRRIGATION_GROWTH_MULTIPLIER = 1.35
 """Integration milestone ("infrastructure networks"): a plot adjacent
 to water (`world/resources.is_adjacent_to_water` — the same helper H-
