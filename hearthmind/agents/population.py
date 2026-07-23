@@ -409,6 +409,7 @@ from hearthmind.world.roads import (
 )
 from hearthmind.world.terrain import Biome, Tile
 from hearthmind.world.terrain_evolution import RITUAL_ACTIVITY_BOOST_SCALE, apply_ritual_activity
+from hearthmind.world.layout_grammar import layout_site_bonus, settlement_layout_style
 from hearthmind.world.weather import WeatherState
 from hearthmind.world.wildlife import (
     HUNT_YIELD_PER_ANIMAL,
@@ -5121,7 +5122,9 @@ class Population:
             # site (an under-construction building is a WANDER-goal
             # attractor, see _dispatch_movement), so a site chosen for
             # its road/resource adjacency genuinely draws its own labor.
-            bx, by = cls._choose_build_site(x, y, terrain, settlements, farms, roads, resources, settlement.era)
+            bx, by = cls._choose_build_site(
+                x, y, terrain, settlements, farms, roads, resources, settlement.era, settlement=settlement,
+            )
             settle_chance = SETTLE_CHANCE_PER_TICK
             if settlement.current_priority == "growth":
                 settle_chance *= SETTLE_CHANCE_GROWTH_PRIORITY_MULTIPLIER
@@ -5191,7 +5194,7 @@ class Population:
     def _choose_build_site(
         cls, x: int, y: int, terrain: list[list[Tile]] | None, settlements: list[Settlement],
         farms: FarmGrid, roads: RoadNetwork | None, resources: "ResourceGrid | None",
-        era: str = "industrial",
+        era: str = "industrial", settlement: Settlement | None = None,
     ) -> tuple[int, int]:
         """The best buildable tile within BUILD_SITE_SEARCH_RADIUS of the
         founders at (x, y) — scored by road/resource/water adjacency
@@ -5204,12 +5207,27 @@ class Population:
         technology (ERA_UNLOCKS_MOUNTAIN_BUILDING) — before that it's
         excluded exactly like water, a real geography constraint that
         eases with tech level rather than never applying at all
-        (v0.68.0 fix)."""
+        (v0.68.0 fix).
+
+        A7 (roadmap Stage IV step 27): `settlement` (optional — `None`
+        reproduces the exact pre-A7 behavior for any caller without one
+        in scope) adds `world/layout_grammar.py`'s deterministic layout-
+        style bonus on top of the existing road/resource score, so a
+        settlement's own layout style (radial/linear/clustered, stable
+        for its lifetime) genuinely steers where it grows, not just
+        road/resource adjacency."""
         if terrain is None:
             return (x, y)
         height = len(terrain)
         width = len(terrain[0]) if height else 0
         mountain_unlocked = era in ERA_UNLOCKS_MOUNTAIN_BUILDING
+        layout_style = None
+        standing_positions: frozenset[tuple[int, int]] = frozenset()
+        if settlement is not None:
+            layout_style = settlement_layout_style(settlement.id)
+            standing_positions = frozenset(
+                (b.x, b.y) for b in settlement.buildings if b.stage is BuildingStage.STANDING
+            )
         best = (x, y)
         best_score = None
         # Ring-by-ring from radius 0 outward so equal scores resolve to
@@ -5235,6 +5253,10 @@ class Population:
                         is_adjacent_to_water(terrain, cx, cy)
                     ):
                         score += BUILD_SITE_ADJACENCY_SCORE
+                    if settlement is not None and layout_style is not None:
+                        score += layout_site_bonus(
+                            layout_style, settlement.center_x, settlement.center_y, cx, cy, standing_positions,
+                        )
                     if best_score is None or score > best_score:
                         best, best_score = (cx, cy), score
         return best

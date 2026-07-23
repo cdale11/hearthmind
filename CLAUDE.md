@@ -527,6 +527,27 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.25.0)
+
+Explicit user instruction: "next step" — A7 "Grammar-based procedural
+systems," first slice (roadmap Stage IV step 27, docs/MASTERCHECKLIST-
+2026-07-22.md). This item's own checklist flagged a design decision
+needed first; resolved via `AskUserQuestion` — accepted the doc's own
+default split (layout/architecture/dialect deterministic, myth/custom/
+law stay LLM) and, per explicit user answer ("do everything"), shipped
+all three domains in one batch rather than the usual one-domain-at-a-
+time slice. Full detail: CHANGELOG.md's [1.25.0] entry.
+
+New `world/dialect_grammar.py` (rewrite rules over an existing LLM-
+coined term — a fissioning daughter settlement inherits a few of its
+origin's terms, each drift-mutated), `world/layout_grammar.py` (a
+settlement's stable radial/linear/clustered style biases the existing
+build-site scoring), `world/architecture_grammar.py` (a deterministic
+per-building-instance structural descriptor). None is a full rewrite/
+graph/shape grammar — each is a scoped-down first slice over existing
+mechanisms, flagged. UI: "Layout" stat tile, building-inspector
+"Character" line.
+
 ## Current state (v1.24.0)
 
 Explicit user instruction: "next step" — A19 "Persistent spatial

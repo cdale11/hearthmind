@@ -4,6 +4,89 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.25.0] — A7 "Grammar-based procedural systems," first slice — three deterministic domains in one batch (roadmap Stage IV step 27)
+
+Explicit user instruction: "next step" — Stage IV step 27, docs/
+MASTERCHECKLIST-2026-07-22.md's A7, which the checklist itself flags
+as needing a design decision resolved first: "which domains get
+grammars vs. stay LLM-authored." Asked via `AskUserQuestion`: (1)
+accept the doc's own default (layout/architecture/dialect
+deterministic; myth/custom/law stay LLM, "they need meaning, not just
+structure") — accepted as-is; (2) which ONE domain to ship first, same
+"smallest coherent milestone" discipline as every other Stage IV step
+— explicit user answer: "do everything," all three in one batch rather
+than one.
+
+New `world/dialect_grammar.py`: four deterministic rewrite rules
+(vowel_shift, apocope, epenthesis, consonant_soften) over an EXISTING
+LLM-coined term (`Settlement.lexicon` — the LLM still coins the
+original term/meaning, `llm/narrative_direction.py`, unchanged).
+`drift_term` picks a rule via a stable hash of the term text (never
+`random` — a pure function, zero native-soak-parity risk) and, if the
+chosen rule has nothing to act on for that specific term, tries the
+rest of the four in a fixed rotation until one actually changes it
+(rare full no-op: a term with no vowels and no soften-able consonant).
+Real production consumer: `SimulationEngine._maybe_schedule_fission`'s
+`apply()` — a daughter settlement now inherits `LEXICON_FISSION_DRIFT_
+COUNT=2` of its origin's most recent terms, each independently
+drift-mutated, instead of starting with an empty lexicon — "two
+related villages now say things slightly differently," a real
+emergent consequence of a real physical split.
+
+New `world/layout_grammar.py`: `settlement_layout_style(settlement_id)`
+picks one of `LAYOUT_STYLES = ("radial", "linear", "clustered")`
+deterministically (stable for a settlement's whole lifetime — a pure
+function of its own id). `layout_site_bonus` adds a real scoring term
+to `Population._choose_build_site`'s existing road/resource-adjacency
+scan — radial prefers a consistent ring-distance from the settlement's
+center, linear prefers staying on one axis, clustered prefers hugging
+already-standing buildings. Verified directly: the same founders'
+position resolves to a genuinely different best build site with the
+settlement's layout style applied vs. without it.
+
+New `world/architecture_grammar.py`: `building_descriptor(building_id,
+kind, material, layout_style)` — a three-slot production grammar
+(roof/wall/ornament, each filled from a small closed vocabulary via a
+stable per-building-id hash) generating ONE real distinguishing
+sentence per building INSTANCE, not just per kind — closing a real gap
+(`world/materials.py`'s existing "Built of" line reads identically for
+every HUT of the same material). The roof slot is lightly biased
+toward the settlement's own layout style ("a building echoes its
+village's tradition") without ever fully determining it. Wired into
+the live `buildings` broadcast payload (`SimulationEngine`'s per-tick
+payload construction, alongside the existing `settlement_id`
+computation).
+
+UI: new "Layout" per-settlement stat tile (`Settlement.summary()`
+gained `layout_style`, a pure computed field), a new "Character"
+section in the building click inspector showing the per-instance
+architecture descriptor.
+
+Scoped down hard from the spec's own framing (L-systems/graph
+grammars/production rules): none of the three is a full rewrite
+system — layout is a scoring bias over the EXISTING site search, not a
+graph grammar; architecture is a fixed three-slot production, not a
+recursive shape grammar; dialect drifts one existing term per call,
+not a generative lexicon. The spec's fourth named domain (ritual/
+recipe structure) explicitly NOT attempted — it's closer to "meaning"
+than "structure," the doc's own carve-out for staying LLM-authored.
+Rules being themselves LLM-proposable (ties to Innovation) also not
+attempted — every rule here is hand-authored, flagged in docs/
+MASTERCHECKLIST-2026-07-22.md.
+
+Verified: direct smoke tests for `drift_term` (determinism, the rule-
+rotation fallback actually eliminating no-ops across a range of real
+lexicon-shaped terms), `layout_site_bonus` (all three styles), `building_
+descriptor` (determinism, distinct output per building id). A real
+production-path test manually replaying the fission `apply()`'s exact
+drift+validate logic against a live settlement's lexicon confirming
+distinct daughter terms. A direct `_choose_build_site` call with vs.
+without a settlement argument confirming the layout bonus genuinely
+changes the chosen site. `scripts/verify_native_soak.py` (2 seeds x
+800 ticks) byte-identical — every new function is a pure, RNG-free
+computation over existing state, so none of it can perturb the
+existing RNG call sequence.
+
 ## [1.24.0] — A19 "Persistent spatial memory," first slice — a ritual-activity axis + read-side unification (roadmap Stage IV step 26)
 
 Explicit user instruction: "next step" — Stage IV step 26, docs/

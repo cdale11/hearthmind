@@ -82,6 +82,9 @@ from hearthmind.world.sigils import generate_sigil_svg
 from hearthmind.world import memetics
 from hearthmind.world import ontology
 from hearthmind.world import reactions
+from hearthmind.world.architecture_grammar import building_descriptor
+from hearthmind.world.layout_grammar import settlement_layout_style
+from hearthmind.world.dialect_grammar import drift_term
 from hearthmind.world import emergence
 from hearthmind.world import graph_algorithms
 from hearthmind.cognition import attention
@@ -632,6 +635,14 @@ processed`'s docstring and `_pillar_cognition_status`. A live-report
 follow-up ("not forming any hypothesis even after 13k ticks") found
 this cold-start latency was previously invisible; this constant is the
 same 2 the code already implicitly required, just now named."""
+
+LEXICON_FISSION_DRIFT_COUNT = 2
+"""A7 (roadmap Stage IV step 27), dialect domain: how many of the home
+settlement's most recently coined terms a fissioning daughter
+settlement inherits (each independently drift-mutated via `world.
+dialect_grammar.drift_term`) — small and recent, not the whole
+lexicon, so drift stays a a few distinguishing words, not a wholesale
+re-derivation."""
 
 CONCEPT_SPREAD_CHANCE_PER_TICK = 0.02
 """Per-tick, per-growing-concept roll driving `_maybe_spread_concepts`
@@ -8075,6 +8086,19 @@ class SimulationEngine:
                         "name": home.religion["name"], "tenets": list(home.religion["tenets"]),
                         "formed_tick": self.world.clock.tick_count, "schism_of": None,
                     }
+            # A7 (roadmap Stage IV step 27), dialect domain: the
+            # daughter settlement inherits a few of its origin's coined
+            # terms, each independently drift-mutated (zero LLM cost) —
+            # a real "two related villages now say things slightly
+            # differently" outcome, not a copy-paste of the parent's
+            # lexicon.
+            for entry in home.lexicon[-LEXICON_FISSION_DRIFT_COUNT:]:
+                drifted = drift_term(entry["term"])
+                if narrative_direction.validate_coined_term(drifted, new_settlement.lexicon):
+                    new_settlement.lexicon.append({
+                        "term": drifted, "meaning": entry["meaning"],
+                        "formed_tick": self.world.clock.tick_count,
+                    })
             self.world.settlements.append(new_settlement)
             population.depart_for_fission(
                 party, new_settlement, site, self.world.clock.tick_count, home.name,
@@ -8686,7 +8710,18 @@ class SimulationEngine:
             # itself — the frontend needs it only to look up
             # `architecture_styles` below and tint accordingly.
             "buildings": [
-                {**b.to_dict(), "settlement_id": s.id} for s in settlements for b in s.buildings
+                {
+                    **b.to_dict(), "settlement_id": s.id,
+                    # A7 (roadmap Stage IV step 27), architecture domain:
+                    # a deterministic per-instance structural descriptor,
+                    # distinct from materials.py's per-KIND "Built of"
+                    # line (which reads identically for every HUT).
+                    "descriptor": building_descriptor(
+                        b.id, b.kind.value, BUILDING_MATERIALS.get(b.kind, "wood"),
+                        settlement_layout_style(s.id),
+                    ),
+                }
+                for s in settlements for b in s.buildings
             ],
             "architecture_styles": {
                 str(s.id): {"name": concept.name, "category": concept.category, "concept_id": concept.id}

@@ -174,23 +174,43 @@ through-line for nearly every PARTIAL below.
 
 ### A7 — Grammar-based procedural systems [det #7] — MISSING (deterministic form)
 
-- [ ] **Status:** The LLM does architecture/ritual/language/myth
+- [x] **Status:** The LLM does architecture/ritual/language/myth
   creatively; there's no *deterministic* grammar layer.
+  **Shipped a first slice, v1.25.0**, all three deterministic domains
+  in one batch (explicit user decision — accepted the doc's own
+  default split below, and "do everything" rather than one domain):
+  `world/dialect_grammar.py` (rewrite rules over an existing coined
+  term — a fissioning daughter settlement inherits a few of its
+  origin's terms, each independently drift-mutated), `world/layout_
+  grammar.py` (a settlement's stable radial/linear/clustered style
+  biases `Population._choose_build_site`'s existing road/resource
+  scoring), `world/architecture_grammar.py` (a deterministic per-
+  building-instance structural descriptor, distinct from `world/
+  materials.py`'s per-KIND-only "Built of" line).
 - [ ] **Spec:** Add L-systems / graph grammars / production rules for the
   systems where deterministic generativity beats an LLM call:
   settlement layout (graph grammar over terrain+roads), architecture
   (shape grammar), language/dialect drift (rewrite rules over a lexicon),
   ritual/recipe structure (production grammar). The LLM *seeds and names*;
   the grammar *expands and varies* deterministically and cheaply.
+  **Still open**: none of the three are a full graph/shape grammar —
+  layout is a scoring bias over the EXISTING site-search, architecture
+  is a fixed three-slot production (roof/wall/ornament), dialect is
+  one-rule-per-call over a single term, not a recursive rewrite system.
+  Ritual/recipe structure (the spec's fourth named domain) explicitly
+  NOT attempted — it's closer to "meaning," the doc's own carve-out for
+  staying LLM-authored. Rules being themselves LLM-proposable (ties to
+  Innovation) also not attempted — every rule here is hand-authored.
 - [ ] **Data model:** per-domain grammar (axiom + production rules +
   constraints); rules can themselves be LLM-proposed (ties to Innovation)
   but expansion is deterministic.
 - [ ] **Feeds:** offloads infinite cheap variation from the LLM budget to
   deterministic generation — directly serves "all LLM budget to
   cognition" (LLM_Pillars).
-- [ ] **Design decision needed:** which domains get grammars vs. stay
+- [x] **Design decision needed:** which domains get grammars vs. stay
   LLM-authored. My default: layout/architecture/dialect deterministic;
   myth/custom/law stay LLM (they need meaning, not just structure).
+  **Resolved via `AskUserQuestion`**: accepted this default as-is.
 
 ### A8 — Evolutionary Innovation (generate→mutate→evaluate→select) [det #8] — PARTIAL
 
@@ -1241,7 +1261,12 @@ waiting for a later integration pass.
 27. **A7 Grammar-based procedural systems** — L-systems/graph grammars
     for settlement layout, architecture, dialect drift; needs the
     "which domains get grammars vs. stay LLM" design decision the
-    checklist flags, resolved before starting.
+    checklist flags, resolved before starting. **Shipped a first
+    slice, v1.25.0**: design decision resolved (accepted the doc's own
+    default), all three domains shipped in one batch — see the A7
+    section above. Not a full graph/shape grammar in any domain; a
+    genuine rewrite/production system (vs. the current single-slot/
+    single-rule scope) and LLM-proposable rules remain open, flagged.
 28. **A3/A4 Continuous procgen + scripted-event conversion** — audit
     every "generated once" call (rivers re-carving via 15, ruins
     forming, etc.) and every remaining scripted-event subsystem,

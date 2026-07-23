@@ -23,6 +23,7 @@ from hearthmind.settlement.vehicles import (
     VehicleStage,
 )
 from hearthmind.world.weather import WeatherState
+from hearthmind.world.layout_grammar import settlement_layout_style
 
 try:
     from hearthmind._native import building_decay_tick as _native_building_decay_tick
@@ -3473,6 +3474,7 @@ class Settlement:
         return {
             "id": self.id,
             "center": self.center(),
+            "layout_style": settlement_layout_style(self.id),
             "total": len(self.buildings),
             "under_construction": under_construction,
             "standing": len(standing),

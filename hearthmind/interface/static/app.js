@@ -2718,6 +2718,7 @@ function renderTargetInspector() {
         <div>${conditionPct}%${b.stage === "under_construction" ? ` · progress ${Math.round((b.progress || 0) * 100)}%` : ""}</div>
       </div>
       ${BUILDING_MATERIAL[b.kind] ? `<div class="npc-section"><h4>Built of</h4><div>${BUILDING_MATERIAL[b.kind]}</div></div>` : ""}
+      ${b.descriptor ? `<div class="npc-section"><h4>Character</h4><div>${b.descriptor}</div></div>` : ""}
       ${(() => {
         if (b.kind !== "shrine") return "";
         const activity = (terrain && terrain.ritual_activity && terrain.ritual_activity[`${x}:${y}`]) || 0;
@@ -3008,6 +3009,10 @@ function renderStats(summary) {
       "(era: electrical+) boost workshop/factory income settlement-wide and add a little carrying-capacity headroom. " +
       "Markets (foundable after the first caravan visit) get better terms on future caravan trades and draw traders " +
       `more often. ${s.caravans_visited || 0} caravan${(s.caravans_visited || 0) === 1 ? " has" : "s have"} visited so far.`,
+    ],
+    [
+      "Layout", s.layout_style ? s.layout_style.charAt(0).toUpperCase() + s.layout_style.slice(1) : "—",
+      "A7 (deterministic procedural generation): stable for this settlement's whole lifetime, not LLM-authored — radial settlements grow in rings around their center, linear ones follow an axis, clustered ones huddle tight around whatever's already standing. New buildings' construction sites are scored toward this pattern alongside the existing road/resource adjacency scoring.",
     ],
     [
       "Era", `${s.era} — ${s.era_description}` + (s.era_branch ? ` (leaning ${s.era_branch})` : "") + eraInfrastructureSuffix(s.era_infrastructure),
