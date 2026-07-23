@@ -590,12 +590,46 @@ the master is complete, with the Body-dependencies made explicit.
   surfacing (`advisory_proposals_recent` in `full_diagnostics()`), same
   depth as `self_tuning_actions_recent`.
 
-### B7 — Humans: collective consciousness + coordinator — PARTIAL
+### B7 — Humans: collective consciousness + coordinator — PARTIAL, first version shipped (roadmap Stage III step 14, v1.12.0)
 
-- [ ] One collective mind (mood/values/direction) + a capped pool of
+- [x] One collective mind (mood/values/direction) + a capped pool of
   cheap per-NPC calls on dramatically-salient individuals (fold in the
   voice-pair machinery); everyone else deterministic. Individuality from
-  the ledger + Body systems + occasional cheap calls.
+  the ledger + Body systems + occasional cheap calls. **Shipped a first
+  version, scoped**: the two mechanisms this item names were both
+  already real BEFORE this pass, just structurally unaware of each
+  other. "One collective mind (mood/values/direction)" is `humans_
+  pillar` itself, already B1-generalized against `_maybe_schedule_
+  narrative_direction` (that job's own docstring already reads this as
+  "B7's collective consciousness read literally," since `Settlement.
+  mood` is the real aggregate of every living agent's `Agent.
+  emotions`). "A capped pool of cheap per-NPC calls on dramatically-
+  salient individuals" is core-cast cognition (`Population.
+  core_agent_ids`, bounded by `llm_core_cast_size`) layered with the
+  voice pair's own narrative-significance selection (`Population.
+  maintain_voice_pair`) — also already real. The genuine gap this pass
+  closes: `SimulationEngine`'s voice-pair-rotation call site logged a
+  `voice_pair_change` event but never told the collective mind about
+  it at all — Humans' own `self_model` had no record of who currently
+  carries the village's voice, and the rotation never reached the
+  Emergence API, so the collective mind's own `observe` turn couldn't
+  perceive it either. Fixed: the rotation site now writes `humans_
+  pillar.self_model["current_protagonists"] = [name_a, name_b]`
+  directly (zero LLM cost — this is Humans' own persistent record of
+  its current salient individuals, per B9's self-model framing) and
+  emits a real `"opportunity"`-kind, `humans`-tagged Emergence API
+  observation, so the rotation reaches the collective mind's next real
+  `observe` turn as perceived context exactly like any other pillar's
+  genuine news. This doc's own standing design decision (§"Two flags
+  before building": "when the Humans collective consciousness and an
+  individual NPC disagree, who speaks... individual acts locally,
+  collective sets the mood/direction they're measured against") is
+  respected structurally — `current_protagonists` is the collective's
+  own AWARENESS of who's salient, never a channel that speaks or acts
+  on an individual's behalf. Dev-console-only surfacing (reachable via
+  `full_diagnostics()["humans_pillar"]`), matching every other pillar's
+  internals — the rotation itself already had real main-UI visibility
+  via the pre-existing `voice_pair_change` event log entry.
 
 ### B8 — Living memory & consolidation — PARTIAL, all five pillars (roadmap Stage II step 8)
 
@@ -913,7 +947,11 @@ is not authorization to start executing it.
     advisory inbox for a supported hypothesis that names no governor).
 14. **B7 Humans collective + coordinator** — one collective mind plus
     the capped per-NPC pool, folding in the existing voice-pair
-    machinery rather than replacing it.
+    machinery rather than replacing it. **Shipped a first version,
+    v1.12.0** — see Part B's own B7 entry above for full detail (both
+    named mechanisms already existed; this pass wired the missing
+    awareness link between them). **This closes Stage III** — all 5
+    steps (10-14) shipped.
 
 ### Stage IV — Deepen the Body (16 steps, ordered by leverage)
 

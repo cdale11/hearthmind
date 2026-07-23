@@ -2198,6 +2198,25 @@ class SimulationEngine:
             b = self.world.population.get(new_voice_pair[1])
             if a is not None and b is not None:
                 self._log("voice_pair_change", f"{a.name} and {b.name} now carry the village's voice.")
+                # B7 "Humans collective consciousness + coordinator"
+                # (roadmap Stage III step 14): the voice-pair machinery
+                # (dramatically-salient individuals, narrative-
+                # significance-selected) previously ran entirely
+                # separate from the collective mind that's supposed to
+                # be aware of them — this was the real "fold in the
+                # voice-pair machinery" gap, not a missing mechanism.
+                # `self_model` is Humans' own persistent record of who
+                # it currently is; an Emergence API observation also
+                # makes the rotation reach its next real `observe` turn
+                # as salient perceived context, same channel every
+                # other pillar's genuine news already uses.
+                self.world.humans_pillar.self_model["current_protagonists"] = [a.name, b.name]
+                self._append_emergence(
+                    "opportunity", "humans",
+                    f"{a.name} and {b.name} now carry the village's voice.",
+                    pillars=("humans",), magnitude=0.6,
+                    data={"agent_ids": [a.id, b.id]},
+                )
         # Per-tick scheduling jobs fire in a fixed order via a declarative
         # table (`_TICK_JOBS`, R2 in docs/REFACTOR-2026-07.md) instead of a
         # hand-maintained call list. Adding a job is one table entry; the

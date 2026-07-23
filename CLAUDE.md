@@ -527,6 +527,28 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.12.0)
+
+Explicit user instruction: "Continue with next roadmap" — B7 "Humans
+collective consciousness + coordinator," first version (roadmap Stage
+III step 14, docs/MASTERCHECKLIST-2026-07-22.md). **Closes Stage III**
+(steps 10-14 all shipped). Full detail: CHANGELOG.md's [1.12.0] entry.
+
+Both named mechanisms already existed: `humans_pillar` IS the
+collective mind (mood/values/direction, via `_maybe_schedule_
+narrative_direction`, already B1-generalized); core-cast cognition +
+the voice pair's narrative-significance selection IS the capped
+per-NPC pool. The real gap: they ran unaware of each other. Fixed —
+the voice-pair-rotation site now writes `humans_pillar.self_model[
+"current_protagonists"]` directly and emits a `humans`-tagged
+Emergence API observation, so a rotation reaches the collective mind's
+next real `observe` turn as perceived context. Respects the doc's
+standing design decision (individual acts locally, collective sets the
+mood/direction measured against) — `current_protagonists` is pure
+awareness, never a speaking/acting channel. Dev-console-only surfacing
+(`full_diagnostics()["humans_pillar"]`) — the rotation already had
+real main-UI visibility via the pre-existing `voice_pair_change` event.
+
 ## Current state (v1.11.0)
 
 Explicit user instruction: "Continue with next roadmap" — B6

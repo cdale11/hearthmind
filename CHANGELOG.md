@@ -4,6 +4,74 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.12.0] — B7 "Humans collective consciousness + coordinator," first version (roadmap Stage III step 14 — closes Stage III)
+
+Explicit user instruction: "Continue with next roadmap" — Stage III
+step 14, docs/MASTERCHECKLIST-2026-07-22.md's B7, the last of Stage
+III's 5 steps.
+
+Audit first: both mechanisms this item names already existed. "One
+collective mind (mood/values/direction)" is `humans_pillar` itself —
+`_maybe_schedule_narrative_direction`'s own docstring already reads
+this as "B7's collective consciousness read literally," since
+`Settlement.mood` is the real aggregate of every living agent's
+`Agent.emotions`. "A capped pool of cheap per-NPC calls on
+dramatically-salient individuals" is core-cast cognition
+(`Population.core_agent_ids`, bounded by `llm_core_cast_size`) plus
+the voice pair's own narrative-significance selection (`Population.
+maintain_voice_pair`) — also already real. The genuine gap: these two
+mechanisms ran entirely unaware of each other. `SimulationEngine`'s
+voice-pair-rotation call site logged a `voice_pair_change` event but
+never told the collective mind anything — Humans' `self_model` had no
+record of who currently carries the village's voice, and the rotation
+never reached the Emergence API, so the collective mind's own
+`observe` turn had no way to perceive it.
+
+Fixed: the rotation site now writes `humans_pillar.self_model[
+"current_protagonists"] = [name_a, name_b]` directly (zero LLM cost —
+Humans' own persistent record of its current salient individuals, per
+B9's self-model framing) and emits a real `"opportunity"`-kind,
+`humans`-tagged Emergence API observation, so a rotation reaches the
+collective mind's next real `observe` turn as perceived context,
+exactly like any other pillar's genuine news already does. This
+doc's own standing design decision (§"Two flags before building":
+"when the Humans collective consciousness and an individual NPC
+disagree, who speaks... individual acts locally, collective sets the
+mood/direction they're measured against") is respected structurally —
+`current_protagonists` is the collective's own AWARENESS of who's
+salient, never a channel that speaks or acts on an individual's
+behalf; the individual voice pair still speaks for itself via the
+existing dialogue machinery, untouched.
+
+`default_humans_pillar()`'s seeded `self_model` gained a
+`"current_protagonists": []` default key so every fresh world starts
+with the field present and empty rather than absent until the first
+rotation.
+
+Surfaced: dev-console-only (`full_diagnostics()["humans_pillar"]`),
+matching every other pillar's internals — the rotation itself already
+had real main-UI visibility via the pre-existing `voice_pair_change`
+event log entry, so no new panel was needed for this pass's actual
+delta.
+
+**This closes Stage III of the roadmap** — all 5 steps (10 C3, 11 B4,
+12 B5, 13 B6, 14 B7) are now shipped, each a real, scoped first
+version. Stage IV ("Deepen the Body," 16 steps) remains open.
+
+Verified: a direct engine-level test drives the actual voice-pair-
+rotation call site through a real multi-tick run (LLM disabled),
+confirming `Population.voice_pair_ids` gets selected, `humans_pillar.
+self_model["current_protagonists"]` is populated with the real
+selected names, and a matching `humans`-tagged Emergence API
+observation is appended — the full real production path, not an
+isolated unit test. `Pillar.self_model`'s `to_dict`/`from_dict` round
+trip re-verified with the new key present. `scripts/verify_native_
+soak.py` (2 seeds x 500 ticks) byte-identical — the new writes only
+occur inside the existing tick-loop voice-pair-maintenance call site
+(itself deterministic and already exercised identically by both
+native and fallback runs), never inside an async apply() callback or
+any native-ported path.
+
 ## [1.11.0] — B6 "Reflection as meta-scientist," first version (roadmap Stage III step 13)
 
 Explicit user instruction: "Continue with next roadmap" — Stage III

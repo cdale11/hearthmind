@@ -460,7 +460,19 @@ def default_humans_pillar() -> Pillar:
     (mood/values/direction), mirroring `Settlement.narrative_themes`
     (computed from `Settlement.mood`, itself the aggregate of living
     agents' own `Agent.emotions` — "individual minds aggregate into
-    collective psychology," CLAUDE.md's own framing)."""
+    collective psychology," CLAUDE.md's own framing). `self_model["
+    current_protagonists"]` (B7, roadmap Stage III step 14): the
+    collective mind's own awareness of which two individuals currently
+    carry `Population.voice_pair_ids` — "fold in the voice-pair
+    machinery," made real by `SimulationEngine`'s voice-pair-rotation
+    site writing here directly and emitting a matching Emergence API
+    observation, rather than the two mechanisms staying structurally
+    unaware of each other. Per this doc's own standing design decision
+    ("when the Humans collective consciousness and an individual NPC
+    disagree, who speaks... individual acts locally, collective sets
+    the mood/direction they're measured against"): this field is the
+    collective's OWN record of who's currently salient, never a
+    channel that speaks or acts on an individual's behalf."""
     return Pillar(
         name="humans",
         description=(
@@ -471,6 +483,7 @@ def default_humans_pillar() -> Pillar:
         self_model={
             "domain": "the settlement's collective mood and the narrative theme it forms",
             "voice": "names a theme running through recent shared life, never a private thought",
+            "current_protagonists": [],
         },
         objectives=[
             "notice the theme the village's collective mood is actually living out",
