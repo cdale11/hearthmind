@@ -499,12 +499,28 @@ through-line for nearly every PARTIAL below.
 
 ### A19 — Persistent spatial memory [det #19] — PARTIAL
 
-- [ ] **Status:** `terrain_activity`/`mining_scars`/`disaster_scars`
+- [x] **Status:** `terrain_activity`/`mining_scars`/`disaster_scars`
   track some per-location history; not general.
+  **Shipped a first slice, v1.24.0**: new `World.ritual_activity`
+  (same shape as `mining_scars`/`disaster_scars`) is a fourth tracked
+  axis, gained when a shrine-boosted festival gathering happens on a
+  tile. New `world/spatial_memory.py`'s `location_character(world, x,
+  y)` is the real unification the doc calls for — one read-side query
+  over the three existing per-tile dicts (`mining`/`disaster`/
+  `ritual`), not three independent lookups. Real consequence: a shrine
+  tile with prior ritual activity amplifies the NEXT festival held
+  there (`Population.hold_festival`) — the doc's own "a ritual site
+  draws ritual" worked example, scoped to a magnitude effect.
 - [ ] **Spec:** Every location accumulates a bounded history vector:
   traffic, battles, rituals, pollution, fertility, disasters, ownership,
   construction, ecology. Places gain *character* that influences future
   simulation (a battle site stays scarred; a ritual site draws ritual).
+  **Still open**: only 3 of the spec's 9 named axes are unified
+  (mining/disaster/ritual); traffic/pollution/fertility/ownership/
+  construction/ecology remain separate or unbuilt — `FarmGrid.soil_
+  fertility`/the A1 field substrate are a different shape (continuous
+  fields, not sparse per-event dicts) and folding them in is real
+  follow-up work, flagged in `world/spatial_memory.py`'s own docstring.
 - [ ] **Data model:** `fields['history_*']` or a per-tile bounded record;
   ties to A1.
 - [ ] **Feeds:** the "unlucky house," folklore sites, why settlements
@@ -1217,7 +1233,11 @@ waiting for a later integration pass.
     consequences beyond relationship rupture, remain open, flagged.
 26. **A19 Persistent spatial memory** — bounded per-location history
     vectors (traffic/battles/rituals/pollution/etc.), generalizing
-    `mining_scars`/`disaster_scars`.
+    `mining_scars`/`disaster_scars`. **Shipped a first slice, v1.24.0**:
+    see the A19 section above — a new ritual-activity axis plus a real
+    read-side unification (`location_character`) over mining/disaster/
+    ritual, proven against shrine festival boosts. The other six named
+    axes remain open, flagged.
 27. **A7 Grammar-based procedural systems** — L-systems/graph grammars
     for settlement layout, architecture, dialect drift; needs the
     "which domains get grammars vs. stay LLM" design decision the

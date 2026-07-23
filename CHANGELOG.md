@@ -4,6 +4,67 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.24.0] — A19 "Persistent spatial memory," first slice — a ritual-activity axis + read-side unification (roadmap Stage IV step 26)
+
+Explicit user instruction: "next step" — Stage IV step 26, docs/
+MASTERCHECKLIST-2026-07-22.md's A19: "every location accumulates a
+bounded history vector... places gain *character* that influences
+future simulation (a battle site stays scarred; a ritual site draws
+ritual)." Status before this pass, the doc's own words: "`terrain_
+activity`/`mining_scars`/`disaster_scars` track some per-location
+history; not general" — three real dicts, but nothing read them
+together.
+
+New `World.ritual_activity`: a fourth per-tile dict, same additive-
+overlay/weekly-decay shape as `mining_scars`/`disaster_scars`
+(`world/terrain_evolution.py`'s new `apply_ritual_activity`/`decay_
+ritual_activity`, `RITUAL_ACTIVITY_GAIN_PER_FESTIVAL=0.15`, `_DECAY_
+PER_WEEK=0.01` — slower than the two scar axes, a site's standing
+plausibly outlasts a worked quarry or scorched field). Gained when a
+shrine-boosted festival gathering happens on a tile (`Population.
+hold_festival`'s new optional `ritual_activity` param).
+
+New `world/spatial_memory.py`'s `location_character(world, x, y)`:
+the real read-side unification the spec calls for — one query over
+the three existing per-tile dicts (mining/disaster/ritual), sparse
+(only non-zero axes present). Deliberately NOT a new storage layer —
+each dict stays exactly where it is, written by its own existing
+mechanism; `location_character` is a read-only view. Scoped down hard
+from the spec's full 9-axis vector (traffic/battles/pollution/
+fertility/ownership/construction/ecology all remain separate or
+unbuilt — `FarmGrid.soil_fertility`/the A1 field substrate are a
+different shape, continuous fields not sparse per-event dicts, and
+unifying them is real follow-up work, flagged in the module's own
+docstring rather than silently attempted).
+
+Real consequence, the doc's own worked example ("a ritual site draws
+ritual") scoped to a buildable magnitude effect: a shrine tile that
+has hosted a festival before amplifies the boost of the NEXT one held
+there (`RITUAL_ACTIVITY_BOOST_SCALE=0.5` — up to 50% stronger at full
+accumulated activity). Verified directly: two consecutive festivals at
+the same shrine, second gain (0.161) measurably exceeds the first
+(0.150) purely from the first festival's residual activity.
+
+UI: new "Ritual sites" main-UI stat tile (same shape as "Mining
+scars"/"Disaster scars"), a new golden-glow map overlay
+(`paintRitualActivity`, piggybacking the existing terrain-resync
+channel — flagged limitation: no dedicated resync trigger for a NEW
+ritual site yet, so the overlay can lag until some OTHER terrain-
+changing event fires a resync), and a "Ritual significance" line in
+the SHRINE building click inspector reading the tile's own
+accumulated intensity in plain language.
+
+Verified: direct smoke tests for `apply_ritual_activity`/`decay_
+ritual_activity` (gain/cap/decay-to-removal) and `location_character`
+(sparse unification, absence-means-neutral), a real production-path
+test driving `Population.hold_festival` through a live `SimulationEngine`
+confirming the amplification effect, `World.to_dict`/`from_dict`
+round-trip, a real-tick test confirming the weekly decay wiring fires.
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+`ritual_activity` is a plain Python-side dict, same R7-deviation
+rationale as `mining_scars`/`disaster_scars` (low-density tile lookup,
+not yet worth a native port).
+
 ## [1.23.1] — Pillar cognition cold-start visibility (live-report follow-up)
 
 Explicit live report: "Nature and especially Reflection still feel

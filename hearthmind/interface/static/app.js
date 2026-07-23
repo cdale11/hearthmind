@@ -1410,6 +1410,22 @@ function paintDisasterScars(sctx, scars) {
   }
 }
 
+// A19 "Persistent spatial memory," first slice: a warm golden glow on a
+// tile that has accumulated ritual significance — distinct from the two
+// scar overlays above (this is a place gaining character FOR something,
+// not a mark of damage).
+function paintRitualActivity(sctx, activity) {
+  if (!activity) return;
+  for (const key in activity) {
+    const intensity = activity[key];
+    if (!(intensity > 0)) continue;
+    const [xs, ys] = key.split(":");
+    const x = parseInt(xs, 10), y = parseInt(ys, 10);
+    sctx.fillStyle = `rgba(220,180,80,${(0.12 + intensity * 0.3).toFixed(3)})`;
+    sctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+  }
+}
+
 function drawStaticTerrain() {
   staticCanvas = document.createElement("canvas");
   staticCanvas.width = terrain.width * CELL;
@@ -1424,6 +1440,7 @@ function drawStaticTerrain() {
   paintEraOverlay(sctx, currentEraTier());
   paintMiningScars(sctx, terrain.mining_scars);
   paintDisasterScars(sctx, terrain.disaster_scars);
+  paintRitualActivity(sctx, terrain.ritual_activity);
   canvas.width = staticCanvas.width;
   canvas.height = staticCanvas.height;
   weatherCanvas.width = staticCanvas.width;
@@ -2701,6 +2718,13 @@ function renderTargetInspector() {
         <div>${conditionPct}%${b.stage === "under_construction" ? ` · progress ${Math.round((b.progress || 0) * 100)}%` : ""}</div>
       </div>
       ${BUILDING_MATERIAL[b.kind] ? `<div class="npc-section"><h4>Built of</h4><div>${BUILDING_MATERIAL[b.kind]}</div></div>` : ""}
+      ${(() => {
+        if (b.kind !== "shrine") return "";
+        const activity = (terrain && terrain.ritual_activity && terrain.ritual_activity[`${x}:${y}`]) || 0;
+        if (!(activity > 0)) return "";
+        const label = activity >= 0.6 ? "a place of deep significance" : activity >= 0.25 ? "a well-worn site of ritual" : "beginning to feel sacred";
+        return `<div class="npc-section"><h4>Ritual significance</h4><div>${label} (${activity.toFixed(2)})</div></div>`;
+      })()}
       <div class="npc-section"><h4>Ownership</h4><div>Belongs to ${owner}</div></div>
       ${b.stored_food ? `<div class="npc-section"><h4>Stores</h4><div>${b.stored_food.toFixed(1)} food</div></div>` : ""}
       <div class="npc-section"><h4>Right now</h4>
@@ -3129,6 +3153,14 @@ function renderStats(summary) {
         return ds.scarred_tiles ? `${ds.scarred_tiles} tiles (avg ${ds.avg_intensity.toFixed(2)})` : "none yet";
       })(),
       "A tile repeatedly caught in a flood or wildfire bears a lasting visible mark (see the map itself) instead of always fully healing — weathers back to nothing if left undisturbed. Cosmetic, not a biome change.",
+    ],
+    [
+      "Ritual sites",
+      (() => {
+        const ra = summary.ritual_activity || {};
+        return ra.sites ? `${ra.sites} site${ra.sites === 1 ? "" : "s"} (avg ${ra.avg_intensity.toFixed(2)})` : "none yet";
+      })(),
+      "A shrine that has hosted festival gatherings before amplifies the boost of the NEXT one held there — a place's accumulated significance, not just a flat bonus. Fades slowly if left unused.",
     ],
     [
       "Soil moisture",

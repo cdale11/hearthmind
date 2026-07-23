@@ -1471,6 +1471,7 @@ class SimulationEngine:
             self._broadcaster.set_terrain(
                 world.terrain, world.config.width, world.config.height,
                 mining_scars=world.mining_scars, disaster_scars=world.disaster_scars,
+                ritual_activity=world.ritual_activity,
             )
             self._broadcaster.set_diagnostics_provider(self.full_diagnostics)
             self._broadcaster.set_knowledge_tree_provider(self.world.knowledge_tree)
@@ -5033,7 +5034,7 @@ class SimulationEngine:
             settlement.festivals_held += 1
             if len(settlement.festivals) > CULTURE_LIST_MAX_STORED:
                 settlement.festivals = settlement.festivals[-CULTURE_LIST_MAX_STORED:]
-            affected = self.world.population.hold_festival(settlement)
+            affected = self.world.population.hold_festival(settlement, ritual_activity=self.world.ritual_activity)
             self._log("festival", f"{settlement.name or 'The village'} held {entry} ({affected} bonds strengthened)")
 
         self._schedule_llm_job("festival", prompt, festival.SYSTEM_PROMPT, fallback, apply)
@@ -8633,6 +8634,7 @@ class SimulationEngine:
             self._broadcaster.set_terrain(
                 self.world.terrain, self.world.config.width, self.world.config.height,
                 mining_scars=self.world.mining_scars, disaster_scars=self.world.disaster_scars,
+                ritual_activity=self.world.ritual_activity,
             )
         tick_events = [
             {"category": category, "description": description}

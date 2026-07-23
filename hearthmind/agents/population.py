@@ -408,6 +408,7 @@ from hearthmind.world.roads import (
     road_condition_multiplier,
 )
 from hearthmind.world.terrain import Biome, Tile
+from hearthmind.world.terrain_evolution import RITUAL_ACTIVITY_BOOST_SCALE, apply_ritual_activity
 from hearthmind.world.weather import WeatherState
 from hearthmind.world.wildlife import (
     HUNT_YIELD_PER_ANIMAL,
@@ -7412,7 +7413,10 @@ class Population:
             return 0.0
         return sum(a.hunger for a in self.agents) / len(self.agents)
 
-    def hold_festival(self, settlement: Settlement | None = None) -> int:
+    def hold_festival(
+        self, settlement: Settlement | None = None,
+        ritual_activity: dict[tuple[int, int], float] | None = None,
+    ) -> int:
         """Apply a one-time relationship boost to every currently-
         colocated pair of awake agents — the mechanical effect of a
         festival (hearthmind/llm/festival.py): the village gathers,
@@ -7421,7 +7425,18 @@ class Population:
         settlement's own invented culture deepening its own festival.
         Returns how many pairs were affected. See docs/DECISIONS.md,
         collective-behaviour pass and "culture-specific building
-        types" pass."""
+        types" pass.
+
+        A19 "Persistent spatial memory" (roadmap Stage IV step 26):
+        `ritual_activity` (optional, `World.ritual_activity` — mutated
+        in place, same shape as every other terrain_evolution.py-
+        mutated dict this method's caller already passes down) is the
+        one real consequence this slice ships — a shrine tile that has
+        hosted rituals before amplifies the boost of the NEXT one
+        ("a ritual site draws ritual," scoped to a magnitude effect;
+        see `world/terrain_evolution.py`'s `RITUAL_ACTIVITY_BOOST_
+        SCALE`). `None` (the default) reproduces the exact pre-A19
+        behavior for any caller that doesn't have a `World` in scope."""
         by_position: dict[tuple[int, int], list[Agent]] = {}
         for agent in self.agents:
             if agent.state is AgentState.AWAKE:
@@ -7448,6 +7463,10 @@ class Population:
                     # stacks with the shrine's own flat boost.
                     if any(a.occupation == OCCUPATION_PRIEST for a in group):
                         boost *= PRIEST_RITUAL_BOOST_MULTIPLIER
+                    if ritual_activity is not None:
+                        prior = ritual_activity.get((x, y), 0.0)
+                        boost *= 1.0 + prior * RITUAL_ACTIVITY_BOOST_SCALE
+                        apply_ritual_activity((x, y), ritual_activity)
             for a, b in itertools.combinations(sorted(group, key=lambda ag: ag.id), 2):
                 a.relationships[b.id] = clamp(a.relationships.get(b.id, 0.0) + boost, -1.0, 1.0)
                 b.relationships[a.id] = clamp(b.relationships.get(a.id, 0.0) + boost, -1.0, 1.0)

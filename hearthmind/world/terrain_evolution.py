@@ -262,6 +262,45 @@ def decay_disaster_scars(scars: dict[tuple[int, int], float], adaptation_bias: f
         if scars[pos] <= 0.0:
             del scars[pos]
 
+
+RITUAL_ACTIVITY_GAIN_PER_FESTIVAL = 0.15
+"""A19 "Persistent spatial memory," first slice (roadmap Stage IV step
+26, docs/MASTERCHECKLIST-2026-07-22.md): intensity (0..1) a tile gains
+each time a shrine-boosted festival gathering happens there
+(`Population.hold_festival`) — a handful of festivals at the same
+shrine builds real accumulated significance, same order of magnitude
+as `DISASTER_SCAR_GAIN_PER_HIT`."""
+
+RITUAL_ACTIVITY_DECAY_PER_WEEK = 0.01
+"""Slower than `MINING_SCAR_DECAY_PER_WEEK`/`DISASTER_SCAR_DECAY_PER_
+WEEK` — a site's sacred standing plausibly outlasts a worked-out
+quarry or a scorched field; still bounded, not permanent."""
+
+RITUAL_ACTIVITY_BOOST_SCALE = 0.5
+"""`Population.hold_festival`'s worked example of A19's spec ("a
+ritual site draws ritual"): a tile at full accumulated activity
+(1.0) makes its own festival boost up to this fraction stronger —
+scoped to a magnitude effect (the doc's literal "draws ritual" read
+as attracting movement is out of scope; see `world/reactions.py`'s
+similarly-scoped A18 slice for the same discipline)."""
+
+
+def apply_ritual_activity(pos: tuple[int, int], activity: dict[tuple[int, int], float]) -> None:
+    """Called from `Population.hold_festival` the instant a shrine-
+    boosted gathering happens at `pos` — mutates `activity` in place,
+    same shape as `apply_mining_scars`/`apply_disaster_scars`."""
+    activity[pos] = min(1.0, activity.get(pos, 0.0) + RITUAL_ACTIVITY_GAIN_PER_FESTIVAL)
+
+
+def decay_ritual_activity(activity: dict[tuple[int, int], float]) -> None:
+    """Called once per week, same cadence as `decay_mining_scars`/
+    `decay_disaster_scars`."""
+    for pos in list(activity.keys()):
+        activity[pos] -= RITUAL_ACTIVITY_DECAY_PER_WEEK
+        if activity[pos] <= 0.0:
+            del activity[pos]
+
+
 DEFOREST_CHANCE_PER_TICK = 0.02
 """Rolled only once a tile's heat clears the threshold — deforestation
 isn't instant even under sustained pressure."""

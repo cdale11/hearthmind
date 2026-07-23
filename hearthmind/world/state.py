@@ -27,6 +27,7 @@ from hearthmind.world.terrain_evolution import (
     apply_mining_scars,
     decay_disaster_scars,
     decay_mining_scars,
+    decay_ritual_activity,
     maybe_reclaim,
     nature_adaptation_bias,
     tick_climate,
@@ -200,6 +201,18 @@ class World:
     (undeveloped grassland with enough forest neighbors); reset to 0 the
     moment it stops qualifying. See world/terrain_evolution.py
     `maybe_reclaim`/`_tick_fallow`, `REFOREST_MIN_FALLOW_WEEKS`."""
+    ritual_activity: dict[tuple[int, int], float] = field(default_factory=dict)
+    """A19 "Persistent spatial memory," first slice (roadmap Stage IV
+    step 26, docs/MASTERCHECKLIST-2026-07-22.md): per-tile accumulated
+    ritual significance (0..1), same shape as `mining_scars`/`disaster_
+    scars` — gained when a shrine-boosted festival gathering happens on
+    the tile (`Population.hold_festival`), decayed weekly like the
+    other two. The one real consequence this slice ships: a site that
+    has hosted rituals before amplifies the NEXT festival held there
+    ("a ritual site draws ritual," the doc's own worked example, scoped
+    to a magnitude effect rather than literal movement-drawing). See
+    world/terrain_evolution.py `apply_ritual_activity`/`decay_ritual_
+    activity`, world/spatial_memory.py `location_character`."""
     llm_calls_total: int = 0
     llm_fallback_total: int = 0
     """Cumulative counts of every LLM-backed decision (cognition +
@@ -839,6 +852,7 @@ class World:
             )
             decay_mining_scars(self.mining_scars)
             decay_disaster_scars(self.disaster_scars, nature_adaptation_bias(self.nature_beliefs))
+            decay_ritual_activity(self.ritual_activity)
 
         if "month_end" in calendar_events:
             climate_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "climate_drift")
@@ -918,6 +932,13 @@ class World:
                 "avg_intensity": (
                     round(sum(self.mining_scars.values()) / len(self.mining_scars), 3)
                     if self.mining_scars else 0.0
+                ),
+            },
+            "ritual_activity": {
+                "sites": len(self.ritual_activity),
+                "avg_intensity": (
+                    round(sum(self.ritual_activity.values()) / len(self.ritual_activity), 3)
+                    if self.ritual_activity else 0.0
                 ),
             },
             "disaster_scars": {
@@ -1190,6 +1211,7 @@ class World:
             "mining_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.mining_scars.items()},
             "disaster_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.disaster_scars.items()},
             "fallow_ticks": {f"{x}:{y}": v for (x, y), v in self.fallow_ticks.items()},
+            "ritual_activity": {f"{x}:{y}": round(v, 4) for (x, y), v in self.ritual_activity.items()},
             "llm_calls_total": self.llm_calls_total,
             "llm_fallback_total": self.llm_fallback_total,
             "dialogue_total": self.dialogue_total,
@@ -1408,6 +1430,11 @@ class World:
             x_str, y_str = key.split(":")
             fallow_ticks[(int(x_str), int(y_str))] = value
 
+        ritual_activity: dict[tuple[int, int], float] = {}
+        for key, value in data.get("ritual_activity", {}).items():
+            x_str, y_str = key.split(":")
+            ritual_activity[(int(x_str), int(y_str))] = value
+
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             weather_regions=weather_regions,
@@ -1418,6 +1445,7 @@ class World:
             mining_scars=mining_scars,
             disaster_scars=disaster_scars,
             fallow_ticks=fallow_ticks,
+            ritual_activity=ritual_activity,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),
             dialogue_total=data.get("dialogue_total", 0),

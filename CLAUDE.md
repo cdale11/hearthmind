@@ -527,6 +527,24 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.24.0)
+
+Explicit user instruction: "next step" — A19 "Persistent spatial
+memory," first slice (roadmap Stage IV step 26, docs/MASTERCHECKLIST-
+2026-07-22.md). Full detail: CHANGELOG.md's [1.24.0] entry.
+
+New `World.ritual_activity` (fourth per-tile scar-shaped dict, same
+additive-overlay/weekly-decay pattern as `mining_scars`/`disaster_
+scars`), gained when a shrine-boosted festival happens on a tile. New
+`world/spatial_memory.py`'s `location_character(world, x, y)` is the
+real read-side unification A19 calls for — one query over mining/
+disaster/ritual, not three independent lookups; the spec's other six
+named axes (traffic/pollution/fertility/ownership/construction/
+ecology) remain open, flagged. Real consequence: a shrine that's
+hosted a festival before amplifies the next one held there ("a ritual
+site draws ritual," scoped to magnitude). UI: new "Ritual sites" stat
+tile, map overlay, SHRINE inspector line.
+
 ## Current state (v1.23.1)
 
 Explicit live report: "Nature and especially Reflection still feel

@@ -68,6 +68,7 @@ class WorldBroadcaster:
     def set_terrain(
         self, terrain, width: int, height: int,
         mining_scars: dict | None = None, disaster_scars: dict | None = None,
+        ritual_activity: dict | None = None,
     ) -> None:
         """Called when the engine starts, and again on any tick where
         terrain evolution changed a tile's biome (see
@@ -85,7 +86,18 @@ class WorldBroadcaster:
 
         `disaster_scars` (Phase 3.D, docs/VISION-2026-07-21-
         SELFEVOLVING.md): same shape/rationale as `mining_scars`, for
-        `disaster_scarred` events instead."""
+        `disaster_scarred` events instead.
+
+        `ritual_activity` (A19, roadmap Stage IV step 26): same shape,
+        piggybacking on this same resync channel — a real limitation
+        flagged, not silently accepted: unlike the two scar dicts
+        above, nothing yet forces a resync specifically when a NEW
+        tile gains ritual activity (no `TERRAIN_CHANGING_CATEGORIES`
+        entry for it), so the map overlay can lag behind the real
+        state until some OTHER terrain-changing event happens to fire.
+        Acceptable for a first slice — festivals are already rare
+        events, and every existing terrain-changing category still
+        refreshes this whole payload including this field."""
         self._terrain_payload = {
             "width": width,
             "height": height,
@@ -97,6 +109,10 @@ class WorldBroadcaster:
             "disaster_scars": (
                 {f"{x}:{y}": round(v, 3) for (x, y), v in disaster_scars.items()}
                 if disaster_scars else {}
+            ),
+            "ritual_activity": (
+                {f"{x}:{y}": round(v, 3) for (x, y), v in ritual_activity.items()}
+                if ritual_activity else {}
             ),
         }
 
