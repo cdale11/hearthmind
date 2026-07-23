@@ -4,6 +4,47 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.33.0] — Tier 0 second slice: a third real job for four pillars
+
+Explicit user instruction: "continue with tier 0." Directly extends
+v1.32.0's first slice — same additive mirror-into-`world_model`/
+`memory` shape, four more pre-existing production jobs, zero new LLM
+calls, zero mechanical changes:
+
+- **Innovation** (now 3 jobs): `_maybe_schedule_ontology_evolution`
+  (both the merge and evolve branches) mirrors the newly-registered
+  concept as an `observation`, same treatment as `invention`.
+- **Nature** (now 2 jobs): `_maybe_schedule_species_variant` mirrors a
+  newly-named wildlife variant as an `observation` — a named variant
+  is a settled fact about the land, same as `nature_mind`'s own
+  belief-formation entries.
+- **Village** (now 3 jobs): `_maybe_schedule_dispute` mirrors EVERY
+  resolved dispute outcome (not just lasting ruptures) as a `remember()`
+  note — a specific dispute between two named people isn't a
+  settlement-wide theory, so this is memory-only, not `world_model`.
+- **Humans** (now 3 jobs): `_maybe_schedule_migration_decision`
+  mirrors a genuine departure decision as a `remember()` note —
+  memory-only, same reasoning as `dream`: an individual's own choice,
+  not a collective theory.
+
+Verified via direct production-path smoke tests: `ontology_evolution`
+and `species_variant` driven through their real gating conditions
+(an `established` `InventedConcept`, an unnamed wildlife herd) with a
+fake instant LLM client, confirmed correct `world_model` writes;
+`dispute` driven through a forced-souring pair, confirmed the
+`village_pillar.remember()` note; `migration_decision`'s empty-
+candidate path confirmed non-crashing (the mirror line itself matches
+the already-verified `dream`/`institution_belief` shape exactly — same
+structure, no new risk). A separate unattended 3000-tick soak (fake
+client, LLM "enabled") ran clean with zero exceptions. No native/
+persisted-shape change, `verify_native_soak.py` not needed.
+
+Coverage is now 2-3 jobs/pillar (was 1-2 after v1.32.0), still well
+short of the ~55-job full refactor `docs/ROADMAP-2026-07-REMAINING.md`
+names — none of these new sites participate in observe/interpret
+cycling or attention-budget arbitration either, same open gap noted
+in v1.32.0.
+
 ## [1.32.0] — Tier 0 first slice: widen pillar coverage beyond one job each
 
 Explicit user instruction: "start with tier 0" (`docs/ROADMAP-2026-07-

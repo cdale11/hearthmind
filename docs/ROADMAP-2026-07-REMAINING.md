@@ -55,14 +55,21 @@ tier is arbitrary.
    pillar now mirrors into `world_model`/`memory` (invention ->
    Innovation, self_tuning -> Reflection, institution_belief ->
    Village, dream -> Humans, memory-only). 2 of ~55 jobs/pillar wired
-   per pillar now, not 1 — real progress, nowhere near closed. Still
-   fully open: observe/interpret CYCLING for any of these new sites
-   (they fire on their own existing cadence, not through `_pillar_
-   observe_turn`/`_pillar_interpret_backpressured`), attention-budget
-   arbitration for them, inbox/outbox participation, and the other
-   ~48 remaining call sites (dialogue, chronicle, dispute, founding,
+   per pillar now, not 1 — real progress, nowhere near closed.
+
+   **Second slice shipped, v1.33.0**: a THIRD job per pillar for four
+   of the five (ontology_evolution -> Innovation, species_variant ->
+   Nature, dispute -> Village memory-only, migration_decision ->
+   Humans memory-only; Reflection stays at 2 — no obvious third
+   candidate found yet, `_maybe_schedule_reflection_question` is
+   already part of the SAME job as `reflection`, not a distinct site).
+   Still fully open: observe/interpret CYCLING for any of these new
+   sites (they fire on their own existing cadence, not through
+   `_pillar_observe_turn`/`_pillar_interpret_backpressured`),
+   attention-budget arbitration for them, inbox/outbox participation,
+   and the remaining ~45 call sites (dialogue, chronicle, founding,
    omens, culture jobs, festival, religion, laws, diplomacy, letters,
-   migration, fission, caravan, etc.).
+   fission, caravan, faction, guild_founding, rule_proposal, etc.).
 
 **Tier 1 — substrate items other systems will lean on**
 1. **A9** — feedback-loop audit (every subsystem reads upstream AND

@@ -527,6 +527,18 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.33.0)
+
+Explicit user instruction: "continue with tier 0." Directly extends
+v1.32.0: a THIRD real production job now mirrors into each of four
+pillars' `world_model`/`memory` — ontology_evolution -> Innovation
+(both merge/evolve branches), species_variant -> Nature, dispute ->
+Village (memory-only, every outcome), migration_decision -> Humans
+(memory-only). Coverage now 2-3 jobs/pillar (was 1-2). Verified via
+direct production-path smoke tests (fake LLM client through each
+job's real gating conditions) plus a clean 3000-tick soak. Full
+detail: CHANGELOG.md's [1.33.0] entry.
+
 ## Current state (v1.32.0)
 
 Explicit user instruction: "start with tier 0" (docs/ROADMAP-2026-07-

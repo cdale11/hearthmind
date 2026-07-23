@@ -4189,6 +4189,14 @@ class SimulationEngine:
                     mechanical_hook=hook, lineage={"merged_from": parent_ids}, generation=child_generation,
                 )
                 self._log("ontology", f"Two ideas combined into {concept.name}: {concept.description}")
+                # Tier 0 second slice (docs/ROADMAP-2026-07-REMAINING.md):
+                # ontology_evolution becomes Innovation pillar's THIRD
+                # real wired job, alongside ontology_proposal/invention.
+                self.world.innovation_pillar.upsert_world_model(
+                    self.world.clock.tick_count, name, description, 1.0,
+                    status="observation", source="ontology_evolution",
+                )
+                self.world.innovation_pillar.remember(f"Combined two ideas into {name}: {description}")
         else:
             parent = weighted_pick(1)[0]
             prompt = ontology_llm.build_evolve_prompt(parent.name, parent.description, settlement.name or "The village", [])
@@ -4208,6 +4216,14 @@ class SimulationEngine:
                     mechanical_hook=hook, lineage={"evolved_from": parent_id}, generation=child_generation,
                 )
                 self._log("ontology", f"An old idea evolved into {concept.name}: {concept.description}")
+                # Tier 0 second slice (docs/ROADMAP-2026-07-REMAINING.md):
+                # ontology_evolution becomes Innovation pillar's THIRD
+                # real wired job, alongside ontology_proposal/invention.
+                self.world.innovation_pillar.upsert_world_model(
+                    self.world.clock.tick_count, name, description, 1.0,
+                    status="observation", source="ontology_evolution",
+                )
+                self.world.innovation_pillar.remember(f"An old idea evolved into {name}: {description}")
 
         self._schedule_llm_job(
             "ontology_evolution", prompt, system_prompt, fallback, apply, deep_reasoning=True,
@@ -4620,6 +4636,15 @@ class SimulationEngine:
                 oldest_id = min(self.world.species_variants, key=lambda i: self.world.species_variants[i].tick_named)
                 del self.world.species_variants[oldest_id]
             self._log("species_variant_named", f"The land gave rise to {variant.name} — {variant.description}")
+            # Tier 0 second slice (docs/ROADMAP-2026-07-REMAINING.md):
+            # species_variant becomes Nature pillar's SECOND real wired
+            # job, alongside nature_mind — a named variant is a settled
+            # fact about the land, hence "observation".
+            self.world.nature_pillar.upsert_world_model(
+                tick, variant.name, variant.description, 1.0,
+                status="observation", source="species_variant",
+            )
+            self.world.nature_pillar.remember(f"The land gave rise to {variant.name}: {variant.description}")
 
         self._schedule_llm_job("species_variant", prompt, species_variant.SYSTEM_PROMPT, fallback, apply)
 
@@ -7528,6 +7553,15 @@ class SimulationEngine:
             if applied is None:
                 return  # one of them died while the decision was in flight
             self._log("dispute", narration)
+            # Tier 0 second slice (docs/ROADMAP-2026-07-REMAINING.md):
+            # dispute becomes Village pillar's THIRD real wired job,
+            # alongside beliefs/institution_belief — a memory note
+            # (not a world_model entry: a specific dispute between two
+            # people isn't a settlement-wide theory) every time, not
+            # just lasting ruptures — ordinary civic life either way.
+            self.world.village_pillar.remember(
+                f"{agent_a.name} and {agent_b.name}'s dispute ended in {outcome.replace('_', ' ')}: {narration}"
+            )
             # Vision doc item 3.3 ("Legible causal threads"): capture the
             # SAME grounding facts already computed above for the prompt
             # as a structured chain, for any outcome that represents a
@@ -8259,6 +8293,12 @@ class SimulationEngine:
                 return  # died, already moved, or already mid-journey while the decision was in flight
             description = population.depart_for_migration(target_agent, target_home, target_settlement)
             self._log("migrant_departed", f"{description} — \"{reason}\"")
+            # Tier 0 second slice (docs/ROADMAP-2026-07-REMAINING.md):
+            # migration_decision becomes Humans pillar's THIRD real
+            # wired job, alongside narrative_direction/dream — a real
+            # weighed life decision, memory-only (an individual's
+            # choice, not a collective theory).
+            self.world.humans_pillar.remember(f"{target_agent.name} chose to leave: {reason}")
 
         # Major life decision: weighing a real reason to leave against
         # roots/relationships (v1.3.37).
