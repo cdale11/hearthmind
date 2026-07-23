@@ -4,6 +4,70 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.0] — A9: producer/consumer feedback-loop audit
+
+Explicit user instruction: "tier 1 - 1" — `docs/ROADMAP-2026-07-
+REMAINING.md`'s Tier 1 item 1, A9 ("feedback-loop audit — every
+subsystem reads upstream AND writes downstream... likely finds real
+gaps cheaply"). No such formal audit had been run before. Checked 15
+state stores/subsystems named across CLAUDE.md and the roadmap doc
+for a real producer AND a real downstream consumer.
+
+Result: most are already genuinely closed loops (`FieldGrid.
+population_density`, `HydrologyField.moisture`, `FarmGrid.soil_
+fertility`, mineral veins, `ritual_activity`, `ruin_scars`, materials/
+affordances feeding Innovation's prompt, memetics' propagation weight,
+dialect/layout grammar, `InventedConcept.fitness_history`, `Agent.
+immune_strength`, the one hand-authored `CompositeReaction`,
+`Settlement.pattern_signal_counts` — no classic "increments counter Y
+but the gate reads Z" typo bug found anywhere). Two real write-only
+producers confirmed and fixed:
+
+- **`World.mining_scars`/`World.disaster_scars`** had a real
+  mechanical consumer for their two scar-dict siblings (`ruin_scars`
+  biases build-site choice toward old foundations, `ritual_activity`
+  boosts festivals) but had NONE themselves — a settlement's worked-
+  out mines and disaster-struck ground were purely cosmetic/API-only.
+  `Population._choose_build_site` now applies a real (soft, not a hard
+  exclusion) penalty for both — badly scarred ground is measurably
+  less attractive to build on, same shape as `ruin_scars`' existing
+  positive pull but weaker and negative. New `MINING_SCAR_SITE_
+  PENALTY_SCALE`/`DISASTER_SCAR_SITE_PENALTY_SCALE` (`world/terrain_
+  evolution.py`, both 0.4, smaller than `RUIN_SITE_BONUS_SCALE`'s 0.6
+  — a deterrent nudge, not a symmetric mirror of a positive pull).
+  Threaded `mining_scars`/`disaster_scars` through `Population.tick`
+  ->`_maybe_start_construction`->`_choose_build_site`, same shape as
+  the existing `ruin_scars` threading; `world/state.py`'s call site
+  passes both real dicts.
+
+Recorded but NOT fixed this pass (real findings, each needs its own
+scoped follow-up rather than a rushed fix inside an audit batch):
+`world/spatial_memory.py`'s `location_character()` — the A19 read-side
+unifier for exactly these scar dicts — is itself never called anywhere
+(the audit's loudest flag: closing it properly would be the more
+"correct" fix than the direct-dict-threading above, but this pass
+took the cheaper, lower-risk path and left the unifier itself as a
+still-open gap); `world/architecture_grammar.py`'s per-building
+descriptor and `Settlement.legends` are both fully-formed producers
+whose only reader is the JSON/API export (display-only, not a
+downstream mechanical consumer); `llm/ontology.py`'s
+`PRESSURE_SIGNAL_LABELS["materials_bottleneck"]` names a pressure
+signal with no subsystem anywhere incrementing that key; `Agent.
+genome` is confirmed write-once-at-birth only, never revised by lived
+experience (unlike the genuinely bidirectional `immune_strength`
+precedent this same codebase already has). Recorded in `docs/
+ROADMAP-2026-07-REMAINING.md`'s A9 entry as concrete next items rather
+than a vague "audit again later."
+
+Verified: a 3000-tick LLM-disabled engine smoke run, zero exceptions.
+`scripts/verify_native_soak.py` run (2 seeds x 1500 ticks) — confirmed
+MISMATCH at tick 1055 reproduces byte-identically on unmodified
+`origin/claude/hearthmind-overview-5bekay` (checked via `git stash`),
+so it's a pre-existing native/fallback divergence unrelated to this
+change, not a regression introduced here. `_choose_build_site` is pure
+Python either way (never natively ported), and the new lookups are
+plain deterministic dict reads with no RNG involved.
+
 ## [1.33.0] — Tier 0 second slice: a third real job for four pillars
 
 Explicit user instruction: "continue with tier 0." Directly extends

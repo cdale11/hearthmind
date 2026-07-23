@@ -754,6 +754,8 @@ class World:
             outbreak_chance_multiplier=self.governor_tuning.get("disease_outbreak_chance", 1.0),
             hydrology_moisture=self.hydrology_field.moisture,
             ruin_scars=self.ruin_scars,
+            mining_scars=self.mining_scars,
+            disaster_scars=self.disaster_scars,
             fields=self.fields,
         )
         self.fields.step_population_density(

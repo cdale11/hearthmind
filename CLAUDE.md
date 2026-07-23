@@ -527,6 +527,27 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.0)
+
+Explicit user instruction: "tier 1 - 1" — A9 feedback-loop audit
+(docs/ROADMAP-2026-07-REMAINING.md's Tier 1 item 1). Checked 15 named
+state stores for a real producer+consumer pair; most already closed,
+two real write-only producers found and fixed (`World.mining_scars`/
+`disaster_scars` now bias `Population._choose_build_site` away from
+badly scarred ground, same shape as `ruin_scars`' existing positive
+pull, new `MINING_SCAR_SITE_PENALTY_SCALE`/`DISASTER_SCAR_SITE_
+PENALTY_SCALE`). Four more real gaps recorded (not fixed this pass):
+`spatial_memory.location_character()` itself unused, `architecture_
+grammar`/`Settlement.legends` display-only, `materials_bottleneck`
+pressure label with no writer, `Agent.genome` write-once-at-birth
+only. **Also surfaced, unrelated to this pass's own change**: `scripts/
+verify_native_soak.py` (2 seeds x 1500 ticks) shows a pre-existing
+MISMATCH at tick 1055 on unmodified `origin/claude/hearthmind-
+overview-5bekay` — confirmed via `git stash` before/after comparison,
+so it predates this session's work and is a real open native/fallback
+divergence worth its own diagnostic pass, not yet root-caused. Full
+detail: CHANGELOG.md's [1.34.0] entry.
+
 ## Current state (v1.33.0)
 
 Explicit user instruction: "continue with tier 0." Directly extends

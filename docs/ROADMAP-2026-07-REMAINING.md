@@ -72,9 +72,8 @@ tier is arbitrary.
    fission, caravan, faction, guild_founding, rule_proposal, etc.).
 
 **Tier 1 — substrate items other systems will lean on**
-1. **A9** — feedback-loop audit (every subsystem reads upstream AND
-   writes downstream). Not a feature; a review pass that likely finds
-   several quiet one-way producers. Cheap, high-leverage, do first.
+1. **A9** — feedback-loop audit. **Done, v1.34.0** — see its full
+   entry below for findings/fixes/follow-ups.
 2. **A11** — hydrology as a real field: groundwater, and (the big one)
    erosion feeding back into `Tile.elevation` so A3's rivers-re-carve
    item becomes possible at all. Blocks A3's own remaining half.
@@ -231,9 +230,35 @@ Sandbox forward-simulation as a fitness input; grammar-based mutation
 propose/evolve/merge — both open.
 
 ### A9 — Producer/consumer feedback loops
-No formal audit has been run confirming every subsystem both reads
-upstream and writes downstream state. Recommended as the very first
-Tier-1 item — likely finds real gaps cheaply.
+**Audited, v1.34.0.** 15 named state stores checked; most already
+genuinely closed loops. Two real write-only producers found and
+FIXED: `World.mining_scars`/`disaster_scars` now bias `Population.
+_choose_build_site` away from badly scarred ground (new `MINING_
+SCAR_SITE_PENALTY_SCALE`/`DISASTER_SCAR_SITE_PENALTY_SCALE`, `world/
+terrain_evolution.py`). Real gaps found and RECORDED, not yet fixed:
+
+- `world/spatial_memory.py`'s `location_character()` (the intended
+  A19 read-side unifier for exactly the scar dicts above) is itself
+  never called anywhere — the more "correct" fix than the direct
+  dict-threading this pass took; a real follow-up to wire it in
+  properly (e.g. as the actual mechanism the build-site penalty above
+  reads from, or a second consumer like agent mood/dialogue flavor).
+- `world/architecture_grammar.py`'s per-building descriptor and
+  `Settlement.legends` are both fully-formed producers whose only
+  reader is the JSON/API export — display-only, no downstream
+  mechanical consumer.
+- `llm/ontology.py`'s `PRESSURE_SIGNAL_LABELS["materials_bottleneck"]`
+  names a pressure signal with no subsystem anywhere incrementing that
+  key — either add the increment or drop the label.
+- `Agent.genome` is write-once-at-birth only, never revised by lived
+  experience — `Agent.immune_strength` proves this codebase already
+  knows how to build a genuinely bidirectional biology loop; genome
+  doesn't have one yet.
+
+Also surfaced (unrelated finding, not an A9 item): `scripts/verify_
+native_soak.py` shows a pre-existing MISMATCH at tick 1055, confirmed
+via `git stash` to predate this pass — a real open native/fallback
+divergence needing its own diagnostic pass.
 
 ### A10 — Ecology / food webs
 Migration, competition, decomposition, pollination (→ vegetation), and

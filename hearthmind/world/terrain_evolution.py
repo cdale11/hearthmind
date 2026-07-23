@@ -330,6 +330,21 @@ scar is a much stronger physical signal (a whole former building's
 worth of cleared ground/rubble/foundation) than one festival's ritual
 activity."""
 
+MINING_SCAR_SITE_PENALTY_SCALE = 0.4
+DISASTER_SCAR_SITE_PENALTY_SCALE = 0.4
+"""A9 feedback-loop audit (docs/ROADMAP-2026-07-REMAINING.md, Tier 1
+item 1): before this pass, `mining_scars`/`disaster_scars` were
+confirmed real write-only producers — nothing downstream ever read
+them, unlike `ruin_scars` (`RUIN_SITE_BONUS_SCALE` above) or `ritual_
+activity` (`RITUAL_ACTIVITY_BOOST_SCALE`). `Population._choose_build_
+site` now SUBTRACTS up to this much score for a full-intensity (1.0)
+mining/disaster scar — a real deterrent, not a hard exclusion (badly
+scarred ground is still buildable, just less attractive than
+untouched land). Smaller than `RUIN_SITE_BONUS_SCALE`: a ruin is a
+positive "build here again" pull, these are merely a negative "avoid
+if a better spot exists" nudge — deliberately weaker than a positive
+signal of the same rough magnitude, not a symmetric mirror of it."""
+
 
 def apply_ruin_scar(pos: tuple[int, int], scars: dict[tuple[int, int], float]) -> None:
     """Called the instant a building is fully reclaimed/removed (see

@@ -409,6 +409,8 @@ from hearthmind.world.roads import (
 )
 from hearthmind.world.terrain import Biome, Tile
 from hearthmind.world.terrain_evolution import (
+    DISASTER_SCAR_SITE_PENALTY_SCALE,
+    MINING_SCAR_SITE_PENALTY_SCALE,
     RITUAL_ACTIVITY_BOOST_SCALE,
     RUIN_SITE_BONUS_SCALE,
     apply_ritual_activity,
@@ -1894,6 +1896,8 @@ class Population:
         outbreak_chance_multiplier: float = 1.0,
         hydrology_moisture: list[list[float]] | None = None,
         ruin_scars: "dict[tuple[int, int], float] | None" = None,
+        mining_scars: "dict[tuple[int, int], float] | None" = None,
+        disaster_scars: "dict[tuple[int, int], float] | None" = None,
         fields: "FieldGrid | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
@@ -2179,6 +2183,7 @@ class Population:
         life_events.extend(
             self._maybe_start_construction(
                 by_position, settlements, farms, rng, roads, resources, terrain, ruin_scars=ruin_scars,
+                mining_scars=mining_scars, disaster_scars=disaster_scars,
             )
         )
         life_events.extend(
@@ -5138,6 +5143,8 @@ class Population:
         farms: FarmGrid, rng: random.Random, roads: RoadNetwork | None = None,
         resources: ResourceGrid | None = None, terrain: list[list[Tile]] | None = None,
         ruin_scars: dict[tuple[int, int], float] | None = None,
+        mining_scars: dict[tuple[int, int], float] | None = None,
+        disaster_scars: dict[tuple[int, int], float] | None = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         settlements_by_id = {s.id: s for s in settlements}
@@ -5161,7 +5168,7 @@ class Population:
             # its road/resource adjacency genuinely draws its own labor.
             bx, by = cls._choose_build_site(
                 x, y, terrain, settlements, farms, roads, resources, settlement.era, settlement=settlement,
-                ruin_scars=ruin_scars,
+                ruin_scars=ruin_scars, mining_scars=mining_scars, disaster_scars=disaster_scars,
             )
             settle_chance = SETTLE_CHANCE_PER_TICK
             if settlement.current_priority == "growth":
@@ -5234,6 +5241,8 @@ class Population:
         farms: FarmGrid, roads: RoadNetwork | None, resources: "ResourceGrid | None",
         era: str = "industrial", settlement: Settlement | None = None,
         ruin_scars: dict[tuple[int, int], float] | None = None,
+        mining_scars: dict[tuple[int, int], float] | None = None,
+        disaster_scars: dict[tuple[int, int], float] | None = None,
     ) -> tuple[int, int]:
         """The best buildable tile within BUILD_SITE_SEARCH_RADIUS of the
         founders at (x, y) — scored by road/resource/water adjacency
@@ -5260,7 +5269,16 @@ class Population:
         ruin_scars`, `None` reproduces the exact pre-A3 behavior)
         biases site choice toward a tile with a prior ruin — "the
         village rebuilds on old foundations," a real callback loop
-        between A3's own ruin-formation mechanism and construction."""
+        between A3's own ruin-formation mechanism and construction.
+
+        A9 feedback-loop audit (docs/ROADMAP-2026-07-REMAINING.md,
+        Tier 1 item 1): `mining_scars`/`disaster_scars` were both
+        confirmed real write-only producers — nothing downstream ever
+        read them, unlike `ruin_scars` above. A small penalty (not a
+        hard exclusion — badly-scarred ground is still buildable, just
+        less attractive than untouched land) gives both a genuine
+        mechanical consumer, closing the loop the same way `ruin_scars`
+        already closes its own."""
         if terrain is None:
             return (x, y)
         height = len(terrain)
@@ -5304,6 +5322,10 @@ class Population:
                         )
                     if ruin_scars is not None:
                         score += ruin_scars.get((cx, cy), 0.0) * RUIN_SITE_BONUS_SCALE
+                    if mining_scars is not None:
+                        score -= mining_scars.get((cx, cy), 0.0) * MINING_SCAR_SITE_PENALTY_SCALE
+                    if disaster_scars is not None:
+                        score -= disaster_scars.get((cx, cy), 0.0) * DISASTER_SCAR_SITE_PENALTY_SCALE
                     if best_score is None or score > best_score:
                         best, best_score = (cx, cy), score
         return best
