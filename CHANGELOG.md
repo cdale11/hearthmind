@@ -4,6 +4,59 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.14.0] — A2 "CA/diffusion/reaction-diffusion operators" (roadmap Stage IV step 16)
+
+Explicit user instruction: "Next step" — Stage IV step 16, docs/
+MASTERCHECKLIST-2026-07-22.md's A2.
+
+New `world/ca_operators.py`: a small library of generic, pure field
+operators, per det_sys.md's own spec — `diffuse(grid, rate)` (spread
+toward neighbor average — heat, moisture, scent), `reaction_diffuse(a,
+b, rate_a_to_b, rate_b_to_a)` (two coupled fields exchange value,
+conserving mass at each cell), `cellular_step(grid, rule)` (the
+generic Conway-style per-cell rule, `rule(own_value, neighbor_values)
+-> new_value`). Each is a pure function over any `list[list[float]]` —
+not tied to `world/fields.py`'s coarse 3x3 `FieldGrid`, so any future
+full-resolution field can compose them, matching the spec's own
+"a per-tick pipeline lists which run in what order."
+
+Forest succession — det_sys.md's own worked example, "the first
+consumer" — is real, not a demo: new `terrain_evolution.compute_
+succession_pressure` builds a 0/1 forest-tile indicator grid, runs it
+through `diffuse` to get a genuine smoothed "how forested is my
+neighborhood" reading (not just a flat 4-neighbor count), and averages
+it against A11's real per-tile moisture field (v1.13.0's `Hydrology
+Field`) — a direct "systems interacting with existing systems" tie-in,
+not an isolated new field. The result MODULATES `_tick_fallow`'s
+existing `REFOREST_MIN_FALLOW_WEEKS` threshold per tile: a well-
+forested, moist neighborhood can reclaim in as few as `SUCCESSION_
+WEEKS_MIN=1` week; a poor one can take up to `REFOREST_MIN_FALLOW_
+WEEKS * SUCCESSION_WEEKS_MAX_MULTIPLIER` (2x) — bounded both
+directions, real det_sys.md "gated by ... moisture" behavior.
+
+Deliberately a MODULATION of the existing, already-tuned reclaim rate,
+not a wholesale replacement — `maybe_reclaim`'s reforest-CHANCE roll
+has a native C++ fast path (`_native_maybe_reclaim_tick`); rewriting
+that mechanic outright would have real regression risk on a live-tuned
+number. The eligibility computation this pass touches (`_tick_fallow`)
+stays pure Python regardless of which path the chance-roll takes, so
+native/fallback parity is structurally unaffected — confirmed by the
+soak run below. `moisture=None` (a caller without a hydrology field,
+or an old test) keeps the original flat-threshold behavior exactly,
+verified directly.
+
+Verified: direct tests for all three operators (`diffuse`'s spread
+and no-op-at-rate-0 behavior, `reaction_diffuse`'s mass conservation,
+`cellular_step`'s neighbor-rule application), `compute_succession_
+pressure`'s moisture-sensitivity, `_tick_fallow`'s flat-rate backward
+compatibility (unchanged when `succession_pressure` is omitted) and
+its modulated fast/slow paths (a well-forested+moist tile reclaims
+faster than the flat rate; a sparse+dry one reclaims slower), and a
+real production-path test through `maybe_reclaim`'s actual native-vs-
+fallback dispatch. A 700-tick full-engine run (LLM disabled) completed
+with no error. `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical.
+
 ## [1.13.0] — A11 "Continuous hydrology," first slice (roadmap Stage IV step 15 — starts Stage IV)
 
 Explicit user instruction: "Start Stage 4's first step" — the first

@@ -980,7 +980,21 @@ waiting for a later integration pass.
     "low-density").
 16. **A2 CA/diffusion/reaction-diffusion operators** — `diffuse`/
     `reaction_diffuse`/`cellular_step` library over A1's fields;
-    forest succession as the worked first consumer.
+    forest succession as the worked first consumer. **Shipped, v1.14.0**:
+    new `world/ca_operators.py` — three generic, pure, reusable
+    operators, none tied to one subsystem. Forest succession consumer:
+    `terrain_evolution.compute_succession_pressure` diffuses a 0/1
+    forest-indicator grid into a real "how forested is my neighborhood"
+    reading, averages it against A11's real per-tile moisture field,
+    and the result MODULATES (not replaces) the existing `REFOREST_
+    MIN_FALLOW_WEEKS` threshold per tile — a well-forested, moist
+    neighborhood reclaims in as few as 1 week, a poor one takes up to
+    2x longer, bounded both directions. Deliberately a modulation of
+    already-tuned behavior, not a wholesale replacement, to keep
+    regression risk low on a mechanic with a native fast path
+    (`maybe_reclaim`'s reforest-chance roll) — the eligibility
+    computation `_tick_fallow` modifies stays pure Python either way,
+    so native/fallback parity is unaffected.
 17. **A10 Ecology on fields** — fold the existing food-web/predator-
     prey system onto the field substrate; add migration, competition,
     decomposition, nutrient cycling, pollination.

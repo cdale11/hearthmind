@@ -527,6 +527,25 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.14.0)
+
+Explicit user instruction: "Next step" — A2 "CA/diffusion/reaction-
+diffusion operators" (roadmap Stage IV step 16, docs/MASTERCHECKLIST-
+2026-07-22.md). Full detail: CHANGELOG.md's [1.14.0] entry.
+
+New `world/ca_operators.py`: `diffuse`/`reaction_diffuse`/`cellular_
+step`, three generic pure field operators, not tied to one subsystem.
+Forest succession (det_sys.md's own worked "first consumer" example):
+`terrain_evolution.compute_succession_pressure` diffuses a forest-
+indicator grid into a real neighborhood-density reading, averages it
+against A11's moisture field (v1.13.0), and MODULATES (not replaces)
+the existing `REFOREST_MIN_FALLOW_WEEKS` threshold per tile — well-
+forested+moist reclaims in as few as 1 week, poor conditions take up
+to 2x longer. Deliberately a bounded modulation, not a rewrite, since
+`maybe_reclaim`'s chance-roll has a native fast path; the eligibility
+computation this pass touches stays pure Python either way, so native/
+fallback parity holds. `moisture=None` keeps old flat-rate behavior.
+
 ## Current state (v1.13.0)
 
 Explicit user instruction: "Start Stage 4's first step" — A11

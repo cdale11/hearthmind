@@ -29,6 +29,7 @@ import random
 from dataclasses import dataclass
 
 from hearthmind.util import clamp
+from hearthmind.world.ca_operators import diffuse
 from hearthmind.world.terrain import BIOME_ORDER, Biome, Tile, classify_with_bias
 
 try:
@@ -286,6 +287,27 @@ tile scan, not yet worth a native port) — a tile that stops qualifying
 resets to 0 rather than merely pausing, so an interrupted fallow period
 doesn't bank progress."""
 
+SUCCESSION_FOREST_DIFFUSE_RATE = 0.6
+"""A2 "CA / diffusion / reaction-diffusion operators" (roadmap Stage IV
+step 16), forest succession as the worked first consumer: how strongly
+`compute_succession_pressure` smooths the raw 0/1 forest-tile indicator
+grid via `ca_operators.diffuse` before reading it — a genuine "how
+forested is my neighborhood" reading (not just a 4-neighbor count),
+composed as one operator call per week."""
+
+SUCCESSION_WEEKS_MIN = 1
+SUCCESSION_WEEKS_MAX_MULTIPLIER = 2.0
+SUCCESSION_WEEKS_MIN_MULTIPLIER = 0.34
+"""A2: bounds on how much `compute_succession_pressure` can modulate
+`REFOREST_MIN_FALLOW_WEEKS` per tile — a tile with a dense, moist
+forest neighborhood can reclaim in as few as `SUCCESSION_WEEKS_MIN`
+weeks; a poor one (sparse forest, dry) can take up to `REFOREST_MIN_
+FALLOW_WEEKS * SUCCESSION_WEEKS_MAX_MULTIPLIER`. Real, bounded
+modulation of the existing tuned rate — not a wholesale replacement —
+so overall reforest pacing stays in the same order of magnitude while
+now genuinely responding to local conditions (det_sys.md's "gated by
+... moisture")."""
+
 CLIMATE_STEP_MAX = 0.05
 CLIMATE_MEAN_REVERSION = 0.95
 """Each year, `warming`/`drying` take a small random step and decay
@@ -422,16 +444,59 @@ def apply_local_activity(
     return events
 
 
+def compute_succession_pressure(
+    terrain: list[list[Tile]], moisture: list[list[float]] | None,
+) -> list[list[float]] | None:
+    """A2 "CA / diffusion / reaction-diffusion operators" (roadmap
+    Stage IV step 16): forest succession as the worked first consumer.
+    Builds a 0/1 forest-indicator grid and runs it through `ca_
+    operators.diffuse` — the result is a genuine smoothed "how forested
+    is my neighborhood" field, not just a 4-neighbor count — then
+    averages it against the (also real, per-tile) `moisture` field from
+    `world/hydrology_field.py` (A11). Returns `None` when no moisture
+    field is available (a caller with legacy/absent hydrology data) so
+    `_tick_fallow` can cleanly fall back to the flat, unmodulated rate."""
+    if moisture is None:
+        return None
+    height = len(terrain)
+    width = len(terrain[0]) if height else 0
+    if width == 0 or height == 0:
+        return None
+    forest_indicator = [
+        [1.0 if terrain[y][x].biome is Biome.FOREST else 0.0 for x in range(width)]
+        for y in range(height)
+    ]
+    forest_density = diffuse(forest_indicator, SUCCESSION_FOREST_DIFFUSE_RATE)
+    return [
+        [
+            clamp((forest_density[y][x] + moisture[y][x]) / 2.0, 0.0, 1.0)
+            for x in range(width)
+        ]
+        for y in range(height)
+    ]
+
+
 def _tick_fallow(
     terrain: list[list[Tile]], heat: dict[tuple[int, int], float],
     settlements, farms, excluded: set[tuple[int, int]],
     fallow_ticks: dict[tuple[int, int], int],
+    succession_pressure: list[list[float]] | None = None,
 ) -> set[tuple[int, int]]:
-    """Advances `fallow_ticks` one week and returns the set of tiles that
-    have now cleared `REFOREST_MIN_FALLOW_WEEKS` — the only tiles
-    `maybe_reclaim` is allowed to roll for this week. A tile that no
-    longer qualifies (developed, or fell below the forest-neighbor
-    count) is dropped from the dict entirely rather than paused."""
+    """Advances `fallow_ticks` one week and returns the set of tiles
+    that have now cleared their own effective fallow requirement — the
+    only tiles `maybe_reclaim` is allowed to roll for this week. A tile
+    that no longer qualifies (developed, or fell below the forest-
+    neighbor count) is dropped from the dict entirely rather than
+    paused.
+
+    `succession_pressure` (A2, optional): when given, a tile's
+    effective threshold is `REFOREST_MIN_FALLOW_WEEKS` scaled DOWN as
+    pressure rises toward 1 (a well-forested, moist neighborhood) and
+    UP as it falls toward 0, bounded to [`SUCCESSION_WEEKS_MIN`,
+    `REFOREST_MIN_FALLOW_WEEKS * SUCCESSION_WEEKS_MAX_MULTIPLIER`].
+    `None` (or an out-of-bounds tile) keeps the original flat rate —
+    existing callers/tests that don't pass this see unchanged
+    behavior."""
     height = len(terrain)
     width = len(terrain[0]) if height else 0
     eligible: set[tuple[int, int]] = set()
@@ -453,7 +518,14 @@ def _tick_fallow(
             seen.add((x, y))
             weeks = fallow_ticks.get((x, y), 0) + 1
             fallow_ticks[(x, y)] = weeks
-            if weeks >= REFOREST_MIN_FALLOW_WEEKS:
+            required_weeks = REFOREST_MIN_FALLOW_WEEKS
+            if succession_pressure is not None and 0 <= y < len(succession_pressure) and 0 <= x < len(succession_pressure[y]):
+                pressure = succession_pressure[y][x]
+                scale = SUCCESSION_WEEKS_MAX_MULTIPLIER - pressure * (
+                    SUCCESSION_WEEKS_MAX_MULTIPLIER - SUCCESSION_WEEKS_MIN_MULTIPLIER
+                )
+                required_weeks = max(SUCCESSION_WEEKS_MIN, round(REFOREST_MIN_FALLOW_WEEKS * scale))
+            if weeks >= required_weeks:
                 eligible.add((x, y))
     for pos in list(fallow_ticks.keys()):
         if pos not in seen:
@@ -465,16 +537,19 @@ def maybe_reclaim(
     terrain: list[list[Tile]], heat: dict[tuple[int, int], float],
     settlements, farms, excluded: set[tuple[int, int]], rng: random.Random,
     fallow_ticks: dict[tuple[int, int], int],
+    moisture: list[list[float]] | None = None,
 ) -> list[tuple[str, str]]:
     """Called once per week. An abandoned grassland tile bordered by
-    enough forest, and fallow for `REFOREST_MIN_FALLOW_WEEKS`
-    consecutive weeks, can revert to forest — nature reclaiming unused
-    land, the inverse of `apply_local_activity`'s deforestation."""
+    enough forest, and fallow for its own effective fallow requirement
+    (A2: modulated by local succession pressure when `moisture` is
+    given), can revert to forest — nature reclaiming unused land, the
+    inverse of `apply_local_activity`'s deforestation."""
     events: list[tuple[str, str]] = []
     height = len(terrain)
     width = len(terrain[0]) if height else 0
 
-    eligible = _tick_fallow(terrain, heat, settlements, farms, excluded, fallow_ticks)
+    succession_pressure = compute_succession_pressure(terrain, moisture)
+    eligible = _tick_fallow(terrain, heat, settlements, farms, excluded, fallow_ticks, succession_pressure)
     if not eligible:
         return events
 

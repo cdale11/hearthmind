@@ -827,7 +827,7 @@ class World:
             reclaim_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "terrain_reclaim")
             events += maybe_reclaim(
                 self.terrain, self.terrain_activity, self.settlements, self.farms, occupied_tiles, reclaim_rng,
-                self.fallow_ticks,
+                self.fallow_ticks, moisture=self.hydrology_field.moisture,
             )
             decay_mining_scars(self.mining_scars)
             decay_disaster_scars(self.disaster_scars, nature_adaptation_bias(self.nature_beliefs))
