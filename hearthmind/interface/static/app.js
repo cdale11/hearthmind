@@ -1654,6 +1654,18 @@ function drawFrame() {
       ctx.lineWidth = 1;
       ctx.arc(px, py, CELL / 3 + 2, 0, Math.PI * 2);
       ctx.stroke();
+    } else if ((a.immune_strength ?? 0.5) < 0.35) {
+      // A14 "Layered organism biology" (roadmap Stage IV step 23): a
+      // real reading of the continuous immune_strength state — not
+      // currently sick/recently-immune, but genuinely run down (low
+      // nutrition/rest over time) and visibly more vulnerable. A faint
+      // amber ring, distinct from the starving/sick/immune colors
+      // above, so this doesn't collide with any of them.
+      ctx.beginPath();
+      ctx.strokeStyle = "rgba(224, 168, 60, 0.55)";
+      ctx.lineWidth = 1;
+      ctx.arc(px, py, CELL / 3 + 2, 0, Math.PI * 2);
+      ctx.stroke();
     }
   }
 
@@ -2459,6 +2471,13 @@ function renderNpcInspector() {
   const genomeHtml = mixedTraits.length
     ? `<div class="muted">carries a mixed inheritance in ${mixedTraits.join(", ")}</div>`
     : "";
+  // A14 "Layered organism biology" (roadmap Stage IV step 23): a
+  // plain-language reading of the continuous immune_strength state —
+  // rises with good nutrition/rest, falls under hardship or while
+  // actively fighting an infection.
+  const immuneStrength = agent.immune_strength ?? 0.5;
+  const immuneLabel = immuneStrength >= 0.65 ? "robust" : immuneStrength <= 0.35 ? "run down" : "steady";
+  const immuneHtml = `<div class="muted">immune constitution: ${immuneLabel} (${immuneStrength.toFixed(2)})</div>`;
   const emotions = agent.emotions || {};
   const emotionMeta = {
     fear: { label: "afraid", icon: "😨" },
@@ -2564,6 +2583,7 @@ function renderNpcInspector() {
       <h4>Personality</h4>
       ${traitsHtml}
       ${genomeHtml}
+      ${immuneHtml}
     </div>
     <div class="npc-section">
       <h4>Skills</h4>
@@ -2624,6 +2644,7 @@ function renderMemoryLogSection(agentId) {
 function healthLabel(agent) {
   if ((agent.sick_ticks || 0) > 0) return `sick, ${agent.sick_ticks} ticks`;
   if ((agent.immune_ticks || 0) > 0) return `recently immune, ${agent.immune_ticks} ticks`;
+  if ((agent.immune_strength ?? 0.5) < 0.35) return "healthy, but run down";
   return "healthy";
 }
 
@@ -3065,6 +3086,22 @@ function renderStats(summary) {
       "Each invention permanently boosts construction/repair speed and cultivated-food yield (farm harvest, granary stock/withdraw) by 15% — wild foraging is unaffected. Rare: gated by settlement prosperity, rolled once a year.",
     ],
     ["__section__", "World & environment"],
+    [
+      "Discoverable",
+      (() => {
+        const settlements = summary.settlements || [];
+        const combos = new Set();
+        const reactions = new Set();
+        settlements.forEach((stl) => {
+          const d = stl.discoverable || {};
+          (d.combinations || []).forEach((c) => combos.add(c));
+          (d.reactions || []).forEach((r) => reactions.add(r));
+        });
+        const items = [...combos, ...reactions].map((s) => s.replace(/_/g, " "));
+        return items.length ? items.join(", ") : "nothing yet";
+      })(),
+      "What could physically be combined or produced right now, from the affordances and materials of whatever's actually standing (A5/A6/A12/A13) — a real, deterministic reading of the same layer Innovation's own proposals draw on, not a hint at what WILL be invented.",
+    ],
     ["Farms", `${f.total} (${f.growing} growing, ${f.ready} ready)`, null],
     [
       "Soil fertility",

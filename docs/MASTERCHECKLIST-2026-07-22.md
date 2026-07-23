@@ -353,16 +353,31 @@ through-line for nearly every PARTIAL below.
 
 ### A14 — Layered organism biology [det #14] — PARTIAL
 
-- [ ] **Status:** hunger/energy/illness/aging exist as fairly discrete
-  state; no metabolism/immune/stress/development layers.
-- [ ] **Spec:** Model each organism (human, animal) as coupled
-  subsystems: metabolism (energy in/out), nutrition (needs → deficiency
-  effects), immune response (illness resistance as state, not a coin
-  flip), stress, reproduction, development (life stages with changing
-  physiology), injury/recovery, sleep. Continuous, not a state machine.
-- [ ] **Feeds:** genetics (A15) acts on these; Nature/Humans pillars
-  perceive real physiological state; disease becomes an immune-vs-
-  pathogen dynamic, not a flag.
+- [x] **Status:** **Shipped a first slice, v1.21.0** (roadmap Stage IV
+  step 23), the doc's own worked example — "immune response (illness
+  resistance as state, not a coin flip)". Hunger/energy/illness/aging
+  are still discrete otherwise; this pass adds the one real coupled
+  subsystem named explicitly in the spec, not the full six-subsystem
+  model.
+- [x] **Spec:** `Agent.immune_strength`, a real continuous 0..1 state —
+  metabolism/nutrition (hunger) and rest (energy) pull it toward a
+  target each tick via exponential smoothing (a real physiological
+  lag, not instantaneous); actively fighting an infection drains it
+  further (the reverse coupling). Modulates (never replaces)
+  `SICKNESS_TRANSMISSION_CHANCE_PER_TICK`/`SICKNESS_DEATH_CHANCE_
+  PER_TICK`, centered so the neutral baseline is a true no-op against
+  every existing tuned rate. Stress/reproduction/development/injury-
+  recovery/sleep — the spec's other five named subsystems — remain
+  open, explicitly flagged, not silently folded into this one.
+- [x] **Feeds:** disease is now measurably immune-state-dependent, not
+  a flat coin flip, for the one axis (infection resistance/survival)
+  this slice covers. Genetics (A15, v1.20.0) already acts on the
+  trait layer immune_strength itself doesn't touch; a genetic
+  contribution to baseline immune_strength (rather than only
+  nutrition/rest) is a real, flagged future connection, not built
+  this pass. Nature/Humans pillars perceiving this new state directly
+  and a genuine immune-vs-pathogen (not just resistance-scalar)
+  dynamic remain open.
 
 ### A15 — Genetic inheritance / mutation / drift / selection [det #15] — MISSING
 
@@ -1152,7 +1167,10 @@ waiting for a later integration pass.
 23. **A14 Layered organism biology** — metabolism/nutrition/immune/
     stress/development as coupled continuous subsystems, replacing the
     current discrete hunger/energy/illness/aging state; genetics (22)
-    acts on this layer.
+    acts on this layer. **Shipped a first slice, v1.21.0**: real
+    continuous immune state coupled to nutrition/rest, modulating
+    disease. Stress/reproduction/development/injury-recovery/sleep
+    remain open, flagged.
 24. **A17 Information ecosystem unification** — one propagation model
     on the social graph (3) for knowledge/rumor/tradition/belief/song/
     custom/technique, replacing several parallel mechanisms.

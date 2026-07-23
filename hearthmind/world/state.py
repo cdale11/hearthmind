@@ -50,6 +50,9 @@ from hearthmind.world.disasters import (
 from hearthmind.world.hydrology import LakeState, generate_rivers, identify_lakes, tick_lakes
 from hearthmind.world.hydrology_field import HydrologyField, create_hydrology_field, tick_hydrology
 from hearthmind.world.minerals import MineralGrid
+from hearthmind.world.affordances import discover_combinations
+from hearthmind.world.chemistry import discover_reactions
+from hearthmind.world.materials import BUILDING_MATERIALS, building_affordances
 from hearthmind.world.ontology import CausalThread, CompositeEntity, InventedConcept, TriggerRule
 from hearthmind.world.weather import WeatherState, compute_weather
 from hearthmind.world.wildlife import SpeciesVariant, WildlifeGrid
@@ -857,6 +860,23 @@ class World:
             self._biome_counts_cache = biome_counts(self.terrain)
         return self._biome_counts_cache
 
+    def _discoverable_for_settlement(self, stl: Settlement) -> dict:
+        """A5/A6/A12/A13 (roadmap Stage IV steps 18-20): the exact same
+        live query `SimulationEngine._maybe_schedule_ontology_proposal`
+        grounds Innovation's prompt with, read here for the regular
+        per-tick broadcast so it's visible on the live map/settlement
+        panel, not only the dev console. `{"combinations": [...],
+        "reactions": [...]}`, both possibly empty."""
+        standing = {b.kind for b in stl.buildings if b.stage is BuildingStage.STANDING}
+        present_tags: set[str] = set()
+        for kind in standing:
+            present_tags |= building_affordances(kind)
+        present_materials = {BUILDING_MATERIALS[k] for k in standing if k in BUILDING_MATERIALS}
+        return {
+            "combinations": discover_combinations(present_tags),
+            "reactions": discover_reactions(present_materials, present_tags),
+        }
+
     def summary(self) -> dict:
         place_names = self.settlement.place_names
         return {
@@ -927,6 +947,12 @@ class World:
                     # once settlements are far enough apart to land in
                     # different WEATHER_REGION_GRID cells.
                     "local_weather": self.weather_at(stl.center()).describe(),
+                    # A5/A6/A12/A13 (roadmap Stage IV steps 18-20): the
+                    # same live query already grounding Innovation's
+                    # proposal prompt, now in the regular per-tick
+                    # broadcast (not dev-console-only) — "what could be
+                    # combined/produced here right now."
+                    "discoverable": self._discoverable_for_settlement(stl),
                 }
                 for stl in self.settlements
             ],

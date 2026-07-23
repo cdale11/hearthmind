@@ -113,6 +113,15 @@ from hearthmind.agents.agent import (
     GENOME_MUTATION_STDDEV,
     GENOME_TRAITS,
     GOSSIP_OPINION_CONTAGION,
+    IMMUNE_ADAPT_RATE,
+    IMMUNE_BASELINE,
+    IMMUNE_ENERGY_WEIGHT,
+    IMMUNE_HUNGER_WEIGHT,
+    IMMUNE_MODULATION_MAX_FACTOR,
+    IMMUNE_MODULATION_MIN_FACTOR,
+    IMMUNE_MODULATION_SENSITIVITY,
+    IMMUNE_STRENGTH_FLOOR,
+    SICKNESS_IMMUNE_DRAIN_PER_TICK,
     GOSSIP_OPINION_MAX_STEP,
     GRIEF_ENERGY_PENALTY,
     HUNGER_RATE,
@@ -2101,6 +2110,12 @@ class Population:
         if month_end:
             self._tick_traits(rng)
         hospital_settlement_ids = {sid for sid, has in has_hospital_by_id.items() if has}
+        # A14 "Layered organism biology," first slice (roadmap Stage IV
+        # step 23): immune state drifts from real current nutrition/
+        # rest before disease resolves this tick, so a just-updated
+        # hunger/energy reading (from _update_needs above) is what
+        # feeds it, not a stale value from last tick.
+        self._tick_immune_strength(self.agents)
         disease_events, died_of_disease = self._tick_disease(
             self.agents, by_position, hospital_settlement_ids, primary.temperament, rng, tick,
         )
@@ -2456,6 +2471,42 @@ class Population:
         return [("illness", f"{index_case.name} has fallen ill.")]
 
     @staticmethod
+    def _tick_immune_strength(agents: list[Agent]) -> None:
+        """A14 "Layered organism biology," first slice (roadmap Stage IV
+        step 23): drifts every agent's continuous `immune_strength`
+        toward a target derived from their CURRENT hunger/energy —
+        the real metabolism/nutrition -> immune coupling — via
+        exponential smoothing (`IMMUNE_ADAPT_RATE`), then applies a
+        small extra drain if they're actively sick (the reverse
+        coupling: fighting infection taxes immune reserve). Pure
+        Python, reads/writes only the plain (non-native-store-backed)
+        `immune_strength`/`hunger`/`energy`/`sick_ticks` attributes —
+        runs every tick, O(agents), same cost class as the trait/
+        emotion decay passes elsewhere in this file."""
+        for agent in agents:
+            # hunger/energy are already 0..1 with 0.5 as their own
+            # natural midpoint reading — center each around that so a
+            # merely-average agent's target sits exactly at baseline.
+            nutrition_pull = (0.5 - agent.hunger) * 2.0 * IMMUNE_HUNGER_WEIGHT
+            rest_pull = (agent.energy - 0.5) * 2.0 * IMMUNE_ENERGY_WEIGHT
+            target = clamp(IMMUNE_BASELINE + nutrition_pull + rest_pull, 0.0, 1.0)
+            agent.immune_strength += (target - agent.immune_strength) * IMMUNE_ADAPT_RATE
+            if agent.sick_ticks > 0:
+                agent.immune_strength -= SICKNESS_IMMUNE_DRAIN_PER_TICK
+            agent.immune_strength = clamp(agent.immune_strength, IMMUNE_STRENGTH_FLOOR, 1.0)
+
+    @staticmethod
+    def _immune_modulation_factor(agent: Agent) -> float:
+        """The real "not a coin flip" bridge: how much `agent`'s current
+        `immune_strength` should scale a base sickness rate, centered so
+        `IMMUNE_BASELINE` is a true no-op against every existing tuned
+        constant — see `IMMUNE_MODULATION_SENSITIVITY`'s docstring."""
+        return clamp(
+            1.0 + (IMMUNE_BASELINE - agent.immune_strength) * IMMUNE_MODULATION_SENSITIVITY,
+            IMMUNE_MODULATION_MIN_FACTOR, IMMUNE_MODULATION_MAX_FACTOR,
+        )
+
+    @staticmethod
     def _tick_disease(
         agents: list[Agent], by_position: dict[tuple[int, int], list[Agent]],
         hospital_settlement_ids: set[int], temperament: float, rng: random.Random, tick: int,
@@ -2503,6 +2554,11 @@ class Population:
             agent_death_chance = max(
                 0.0, agent_death_chance * (1.0 - resilience * TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE)
             )
+            # A14 (roadmap Stage IV step 23): the continuous immune-state
+            # modulation, stacking with resilience/medicine/hospital
+            # above rather than replacing any of them — see
+            # `_immune_modulation_factor`'s docstring.
+            agent_death_chance *= Population._immune_modulation_factor(agent)
             if rng.random() < agent_death_chance:
                 died_of_disease.add(agent.id)
                 continue
@@ -2534,7 +2590,13 @@ class Population:
                 if target.sick_ticks > 0 or target.id in died_of_disease or target.immune_ticks > 0:
                     continue
                 for carrier in sick:
-                    if rng.random() < SICKNESS_TRANSMISSION_CHANCE_PER_TICK:
+                    # A14: a well-fed, rested target resists infection
+                    # better than a starving, exhausted one — same
+                    # modulation shape as the death-chance side above.
+                    transmission_chance = (
+                        SICKNESS_TRANSMISSION_CHANCE_PER_TICK * Population._immune_modulation_factor(target)
+                    )
+                    if rng.random() < transmission_chance:
                         target.sick_ticks = 1
                         bump_emotion(target, EMOTION_FEAR, EMOTION_ILLNESS_FEAR_BUMP)
                         life_events.append(("illness", f"{target.name} caught the illness from {carrier.name}."))

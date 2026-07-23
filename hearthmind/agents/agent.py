@@ -954,6 +954,60 @@ immunity, matching how most real endemic illnesses work. Set on
 Agent.immune_ticks at recovery; see Population._tick_disease for the
 decay and Population._maybe_outbreak for the index-case exclusion."""
 
+# --- A14: immune strength — continuous, coupled to metabolism -------------
+
+IMMUNE_BASELINE = 0.5
+"""A14 "Layered organism biology," first slice (roadmap Stage IV step
+23): the doc's own worked example — "immune response (illness
+resistance as state, not a coin flip)". `Agent.immune_strength` is a
+real continuous 0..1 state, distinct from the flat SICKNESS_*_CHANCE
+rolls it modulates (never replaces — see `Population._tick_disease`).
+0.5 is deliberately neutral: at exactly this value, every existing
+tuned sickness constant behaves exactly as before this system existed
+— the modulation only ever pushes rates up or down from a well-
+calibrated center, never silently re-tunes the baseline."""
+
+IMMUNE_HUNGER_WEIGHT = 0.3
+IMMUNE_ENERGY_WEIGHT = 0.2
+"""How strongly nutrition (low hunger) and rest (high energy) pull an
+agent's immune TARGET above/below `IMMUNE_BASELINE` — the real
+metabolism/nutrition -> immune coupling the spec asks for. Hunger
+weighted higher than energy: chronic malnourishment is the more
+direct real-world immune suppressor of the two."""
+
+IMMUNE_ADAPT_RATE = 0.01
+"""Exponential-smoothing rate `immune_strength` closes the gap toward
+its nutrition/rest-derived target each tick — a real physiological lag
+(days, not instantaneous), distinct from `hunger`/`energy` themselves
+which move every tick. Slow enough that a single bad night doesn't
+crash immune state, fast enough that a sustained famine or a long
+healthy stretch is felt within a season."""
+
+SICKNESS_IMMUNE_DRAIN_PER_TICK = 0.0004
+"""The reverse coupling: fighting off an active infection taxes immune
+reserve directly, on top of (not instead of) the nutrition/rest target
+pull above — a real "being sick wears you down" feedback loop, not
+just illness draining hunger/energy (`SICKNESS_ENERGY_DRAIN_MULTIPLIER`/
+`SICKNESS_HUNGER_RATE_MULTIPLIER`, which already existed)."""
+
+IMMUNE_STRENGTH_FLOOR = 0.05
+"""`immune_strength` never reaches exactly 0 — a real organism retains
+some baseline resistance; also keeps the modulation formulas below
+numerically stable."""
+
+IMMUNE_MODULATION_SENSITIVITY = 0.8
+IMMUNE_MODULATION_MIN_FACTOR = 0.5
+IMMUNE_MODULATION_MAX_FACTOR = 1.5
+"""The multiplier applied to `SICKNESS_TRANSMISSION_CHANCE_PER_TICK`/
+`SICKNESS_DEATH_CHANCE_PER_TICK`: `1.0 + (IMMUNE_BASELINE -
+immune_strength) * IMMUNE_MODULATION_SENSITIVITY`, clamped to
+[MIN_FACTOR, MAX_FACTOR] — a well-fed, rested agent (immune_strength
+above baseline) catches illness less easily and survives it better; a
+starving, exhausted one is measurably more vulnerable. Bounded to a
+1.5x worst case / 0.5x best case swing around the existing tuned rate
+— a real, felt effect, never so wide it destabilizes the whole
+disease system's existing calibration."""
+
 GOSSIP_OPINION_CONTAGION = 0.15
 GOSSIP_OPINION_MAX_STEP = 0.05
 """When a rumor names a specific third villager, each listener's
@@ -1781,6 +1835,7 @@ class Agent:
         hardened_traits: "set[str] | None" = None,
         extreme_event_count: int = 0,
         genome: dict[str, tuple[float, float]] | None = None,
+        immune_strength: float = IMMUNE_BASELINE,
     ) -> None:
         self.id = id
         self.name = name
@@ -1909,6 +1964,14 @@ class Agent:
         # traits: compact bounded (-1..1) personality vector (resilience/
         # sociability/ambition/openness); absent keys read 0.0.
         self.traits: dict[str, float] = {} if traits is None else traits
+        # A14 "Layered organism biology," first slice (roadmap Stage IV
+        # step 23): continuous 0..1 immune state, coupled to hunger/
+        # energy each tick (Population._tick_immune_strength) and
+        # modulating (never replacing) SICKNESS_TRANSMISSION_CHANCE_
+        # PER_TICK/SICKNESS_DEATH_CHANCE_PER_TICK. Plain Python-side
+        # attribute, not native-store-backed (same as `traits`/`genome`
+        # above) — zero native/fallback parity risk.
+        self.immune_strength: float = immune_strength
         # travel_target: long-range destination that overrides goal-
         # directed movement until reached (fission journeys); a
         # critically hungry traveler still detours for food first.
@@ -2343,6 +2406,7 @@ class Agent:
             "genome": {
                 trait: [round(a, 4), round(b, 4)] for trait, (a, b) in self.genome.items()
             },
+            "immune_strength": round(self.immune_strength, 4),
         }
 
     @classmethod
@@ -2430,6 +2494,7 @@ class Agent:
                 trait: (float(pair[0]), float(pair[1]))
                 for trait, pair in data.get("genome", {}).items()
             },
+            immune_strength=data.get("immune_strength", IMMUNE_BASELINE),
         )
         for other_id_str, extra in data.get("ledger_extra", {}).items():
             edge = _agent.ledger.get_or_create(int(other_id_str))

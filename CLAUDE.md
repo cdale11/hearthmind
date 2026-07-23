@@ -527,6 +527,34 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.21.0)
+
+Explicit user instruction: "Next step" — A14 "Layered organism
+biology," first slice (roadmap Stage IV step 23, docs/MASTERCHECKLIST-
+2026-07-22.md), the spec's own worked example ("immune response as
+state, not a coin flip"). Followed by an explicit mid-turn user
+request: "All these new features should appear in the live map of UI
+as well, expose them to UI" — addressed same batch. Full detail:
+CHANGELOG.md's [1.21.0] entry.
+
+New `Agent.immune_strength` (continuous 0..1, plain Python-side):
+drifts toward a nutrition/rest-derived target each tick (exponential
+smoothing — real physiological lag), drains further while actively
+sick (reverse coupling). Modulates (never replaces) disease
+transmission/death-chance rolls, centered so the neutral baseline is a
+true no-op against every existing tuned rate. Scoped to the one named
+subsystem (immune response); stress/reproduction/development/injury-
+recovery/sleep remain open, flagged.
+
+UI exposure pass across steps 18-23: `World.summary()` (the regular
+broadcast) gained a real per-settlement `discoverable` field (same
+A5/A6/A12/A13 query Innovation's prompt uses) + a "Discoverable" main-
+UI stat tile; agent map markers gained a third status ring (faint
+amber, low immune_strength but not sick/immune); NPC inspector gained
+plain-language immune-state readings. Genetics (A15)/evolutionary
+innovation (A8) confirmed already reaching real UI from their own
+passes — no gap found there.
+
 ## Current state (v1.20.0)
 
 Explicit user instruction: "Next step" — A15 "Genetic inheritance,"

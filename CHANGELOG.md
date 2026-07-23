@@ -4,6 +4,75 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.21.0] — A14 "Layered organism biology," first slice — real immune state + full UI exposure pass (roadmap Stage IV step 23)
+
+Explicit user instruction: "Next step" — Stage IV step 23, docs/
+MASTERCHECKLIST-2026-07-22.md's A14, the spec's own worked example:
+"immune response (illness resistance as state, not a coin flip)."
+Followed immediately by an explicit user request mid-turn: "All these
+new features should appear in the live map of UI as well, expose them
+to UI" — addressed in the same batch (see the UI section below), not
+deferred.
+
+New `Agent.immune_strength`: a real continuous 0..1 state, plain
+Python-side (not native-store-backed, same as `traits`/`genome` —
+zero parity risk). `Population._tick_immune_strength` (every tick, all
+agents): hunger/energy pull it toward a nutrition/rest-derived target
+via exponential smoothing (`IMMUNE_ADAPT_RATE` — a real physiological
+lag, not instantaneous like hunger/energy themselves); an active
+infection drains it further (`SICKNESS_IMMUNE_DRAIN_PER_TICK`, the
+reverse coupling — fighting illness taxes the immune system). `_tick_
+disease` now multiplies both `SICKNESS_TRANSMISSION_CHANCE_PER_TICK`
+and the per-tick death-chance roll by `_immune_modulation_factor`,
+stacking with (never replacing) the existing resilience/medicine/
+hospital modifiers. Centered so `IMMUNE_BASELINE=0.5` is a true no-op
+against every already-tuned sickness rate — the modulation only ever
+pushes rates up or down from the well-calibrated center that existed
+before this system, never silently re-tunes the baseline.
+
+Scoped to the ONE subsystem the spec names explicitly (immune
+response); stress, reproduction, development/life-stages, injury-
+recovery, and sleep — the other five named subsystems — remain open,
+explicitly flagged rather than silently folded into this slice. A
+genetic contribution to baseline immune_strength (beyond nutrition/
+rest) is a real, flagged future connection to A15 (v1.20.0), not built
+here.
+
+**UI exposure pass** (explicit user request, this same batch): audited
+every feature shipped across the last several roadmap steps (18-23)
+for real main-UI/map visibility, not just dev-console/NPC-inspector
+reachability:
+- `World.summary()` (the regular per-tick broadcast, not `full_
+  diagnostics()`'s dev-console-only payload) now includes a real
+  `discoverable` field per settlement — the same A5/A6/A12/A13 query
+  Innovation's own proposal prompt already grounds on, computed live
+  from standing buildings. New "Discoverable" main-UI stat tile
+  aggregating combinations/reactions across all settlements.
+- Agent map markers gained a third status ring: a faint amber ring
+  when `immune_strength` is notably low (run down from nutrition/rest
+  neglect) but not currently sick/recently-immune — visually distinct
+  from the existing starving/sick/immune rings, a real glanceable
+  "this person is vulnerable" signal on the live map itself.
+- NPC inspector's health line (`healthLabel`) and Personality section
+  gained plain-language immune-state readings ("healthy, but run
+  down" / "immune constitution: robust/steady/run down").
+- Genetics (A15) and evolutionary innovation (A8) were confirmed
+  already reaching real UI (NPC inspector's "mixed inheritance" line,
+  knowledge-tree's "generation N" marker) — no gap found there.
+
+Verified: direct tests for `_tick_immune_strength` (nutrition/rest
+pull in both directions, sickness drain, floor clamping, average-
+hunger/energy staying at baseline) and `_immune_modulation_factor`
+(exactly 1.0 at baseline, bounded, correct direction at extremes);
+`Agent.to_dict`/`from_dict` round-trip including legacy backfill to
+`IMMUNE_BASELINE`; a 3000-tick real production-path engine run
+confirming genuine population-wide immune_strength drift; a full
+`World.to_dict`/`from_dict` round trip; a direct `World.summary()`
+test confirming the new `discoverable` field. `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical, re-run after both the
+population.py/agent.py changes and the state.py UI-exposure change. A
+Node syntax check confirmed the app.js edits parse cleanly.
+
 ## [1.20.0] — A15 "Genetic inheritance," first slice, scoped to humans (roadmap Stage IV step 22)
 
 Explicit user instruction: "Next step" — Stage IV step 22, docs/
