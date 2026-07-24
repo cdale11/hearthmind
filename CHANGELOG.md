@@ -4,6 +4,87 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.17] — Second slice: extend observe/interpret cycling to the remaining ~39 Tier 0 mirror sites
+
+Explicit user instruction: "Extend to 45 tier 0 sites" — directly
+following v1.34.16's own "deliberately NOT attempted this pass"
+note, which named this exact follow-up.
+
+Applied the same `_append_emergence` call v1.34.16 added to 6
+representative Tier 0 mirror sites to the remaining ~39: village
+(naming, town_brain, chronicle, documentary, chronicler, away_digest,
+tradition, folklore, legend_detection, rule_propose, festival,
+religion, institution_culture, caravan, beliefs, faction,
+institution_belief, diplomacy, laws), humans (narrative_direction,
+personal_belief, dream, memory_drift, skill_mastery, record, mind,
+noncore_nudge, letter, migration_decision, rumor_interpret,
+voice-pair dialogue), innovation (invention, ontology_proposal,
+ontology_evolution's combine/evolve branches, era_branch), nature
+(nature_mind, omen), reflection (musing, self_tuning, reflection_
+question). Every one of these now competes for its pillar's bounded
+`working_memory` on the next `observe` turn (B2), same as the six
+v1.34.16 sites — closing the gap that made a Tier 0 mirror's content,
+however significant, structurally invisible to its own pillar's
+observe/interpret cycle.
+
+Applied via a scripted pass (39 sites in one batch, not 39 individual
+edits) rather than 39 hand-written insertions — this surfaced two
+real bugs the script's own "success" output did not catch, both
+found and fixed via independent post-hoc verification, not trusted
+from the script:
+
+1. **Silent non-write**: the script's first run computed all 39
+   replacements correctly in memory but only wrote the file inside
+   an `if not missing: ...` branch — one of 40 candidate anchors
+   (`institution_belief`'s `remember()` call) was ambiguous, so the
+   whole file was never written despite the script printing "applied:
+   39 of 40." Fixed by rewriting the script to always write the file
+   and report failures separately.
+
+2. **Indentation/scope bugs** (two, both real, both would have
+   shipped silently without dedicated verification):
+   - `beliefs`' new-belief branch sits inside an `else:` block at
+     16-space indent; the inserted `_append_emergence` landed at 12
+     spaces, which parsed as valid Python but de-scoped the following
+     B4 `if entry["confidence"] >= 0.5: self._send_pillar_message(...)`
+     block out of the `else:` it belonged in. Caught via `ast.parse()`
+     raising `IndentationError`; fixed by re-indenting to 16 spaces.
+   - `rule_propose`'s apply() nests its rule-registration logic
+     inside an `async def _sandbox_and_register():` closure (gated on
+     the counterfactual-sandbox verdict). The inserted call landed
+     OUTSIDE that closure, at `apply()`'s own indent — syntactically
+     valid, but referencing `rule` (a name that only exists inside
+     the closure) and firing unconditionally regardless of the
+     sandbox verdict; this would have raised `NameError` on every
+     real firing. Caught via a scripted indent-consistency scan
+     (compare each inserted call's indent against its preceding
+     `remember()`/`upsert_world_model()` line); fixed by moving the
+     call inside the closure, correctly gated on `verdict["safe"]`.
+
+Verified: an automated indent-consistency scan across every
+`_append_emergence` call site in `engine.py` (0 real mismatches after
+the two fixes — the one remaining flagged case is a pre-existing,
+correctly-nested site in `_detect_social_hub`, unrelated to this
+pass); `ast.parse()` clean; direct production-path smoke tests for
+`naming`/`town_brain` (both confirmed writing a real emergence entry)
+and, specifically targeting the two fixed bugs, `rule_propose`
+(confirmed firing end-to-end through the real `_sandbox_and_register`
+closure with a fake always-safe counterfactual verdict) and `beliefs`
+(confirmed the new-belief branch fires correctly on a pillar's real
+`interpret` turn, after an `observe` turn correctly consumes the
+first call per B2's existing cycling); `scripts/verify_native_soak.
+py` (2 seeds x 800 ticks) byte-identical — no native module touched;
+a 4000-tick LLM-disabled engine soak plus a full `to_dict()`/
+`from_dict()` round-trip, both clean.
+
+Still fully open, unchanged from v1.34.16: attention-budget
+arbitration and inbox/outbox participation for these ~39 sites (this
+slice only extended observe/interpret cycling, matching the literal
+"extend to 45 tier 0 sites" ask) — `town_brain` remains the only
+site with real attention-budget arbitration, Reflection->Village
+remains the only new inbox/outbox arrow, and per-agent cognition
+stays the one deliberately-unmirrored gap.
+
 ## [1.34.16] — First slice: observe/interpret cycling, attention-budget arbitration, and inbox/outbox for Tier 0 mirrors
 
 Explicit user instruction: "Start observe/interpret cycling,

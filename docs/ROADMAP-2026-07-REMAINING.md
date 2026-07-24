@@ -317,6 +317,72 @@ tier is arbitrary.
    regression; `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
    byte-identical — no native module touched.
 
+   **Second slice shipped, v1.34.17** ("Extend to 45 tier 0 sites" —
+   explicit user instruction, directly following v1.34.16's own
+   "deliberately NOT attempted" note above). Applied the identical
+   `_append_emergence` observe/interpret-cycling pattern to the
+   remaining ~39 Tier 0 mirror sites across all five pillars —
+   village (naming, town_brain, chronicle, documentary, chronicler,
+   away_digest, tradition, folklore, legend_detection, rule_propose,
+   festival, religion, institution_culture, caravan, beliefs, faction,
+   institution_belief, diplomacy, laws), humans (narrative_direction,
+   personal_belief, dream, memory_drift, skill_mastery, record, mind,
+   noncore_nudge, letter, migration_decision, rumor_interpret,
+   voice-pair dialogue), innovation (invention, ontology_proposal,
+   ontology_evolution's combine/evolve branches, era_branch), nature
+   (nature_mind, omen), and reflection (musing, self_tuning,
+   reflection_question) — every one of these now competes for its
+   pillar's bounded `working_memory` on its next `observe` turn, same
+   as v1.34.16's first six sites.
+
+   Two real bugs caught and fixed while applying this mechanically
+   across so many sites at once (both via careful post-hoc
+   verification, not assumed from the applying script's own "success"
+   output): (1) the `beliefs` job's new-belief branch sits inside an
+   `else:` block at 16-space indent — the first attempt inserted its
+   `_append_emergence` call at 12 spaces, which parsed as valid Python
+   but silently de-scoped the following B4 `if entry["confidence"] >=
+   0.5: self._send_pillar_message(...)` block out of the `else:` it
+   was meant to be inside, caught via `ast.parse()` raising `Indentation
+   Error` and fixed by re-indenting to 16 spaces; (2) `rule_propose`'s
+   apply() nests its actual rule-registration logic inside an `async
+   def _sandbox_and_register():` closure (gated on the counterfactual-
+   sandbox verdict) — the first attempt placed `_append_emergence`
+   OUTSIDE that closure, at `apply()`'s own indent level, which is
+   syntactically valid but references `rule` (a name that only exists
+   inside the nested closure) and would raise `NameError` at runtime
+   on every real firing, plus fire unconditionally regardless of the
+   sandbox verdict; caught via a scripted indent-consistency scan
+   (compare each inserted call's indent against its preceding
+   `remember()`/`upsert_world_model()` line) and fixed by moving the
+   call inside the closure, correctly gated on `verdict["safe"]`.
+
+   Verified: an automated indent-consistency scan across every
+   `_append_emergence` call site in the file (0 real mismatches
+   remaining after the two fixes above — one flagged mismatch is a
+   pre-existing, correctly-nested `if hub_agent is not None:` site
+   from `_detect_social_hub`, unrelated to this pass); `ast.parse()`
+   clean; direct production-path smoke tests for `naming`/`town_brain`
+   (both confirmed writing a real `Emergence` entry) and, specifically
+   targeting the two fixed bugs, `rule_propose` (confirmed firing
+   end-to-end through the real `_sandbox_and_register` closure with a
+   fake always-safe counterfactual verdict) and `beliefs` (confirmed
+   its new-belief branch fires correctly on a pillar's real `interpret`
+   turn, after an `observe` turn correctly consumes the first call per
+   B2's existing cycling); `scripts/verify_native_soak.py` (2 seeds x
+   800 ticks) byte-identical — no native module touched; a 4000-tick
+   LLM-disabled engine soak plus a full `to_dict()`/`from_dict()`
+   round-trip, both clean.
+
+   Still fully open: attention-budget arbitration and inbox/outbox
+   participation for these ~39 sites (this slice only extended
+   observe/interpret cycling, matching the user's literal "extend to
+   45 tier 0 sites" ask against v1.34.16's own three-mechanism list) —
+   town_brain (v1.34.16) remains the only site with real attention-
+   budget arbitration, and Reflection->Village (v1.34.16) remains the
+   only new inbox/outbox arrow. Per-agent cognition stays the one
+   deliberately-unmirrored gap (v1.34.15's own note, unchanged).
+
    **Scoped, NOT shipped — a genuinely new Nature cognition job**
    (explicit user request, v1.34.10 pass: "Nature can have so many
    things though like ecology, forests, wildlife, geography are they

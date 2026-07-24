@@ -545,6 +545,37 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.17)
+
+Explicit user instruction: "Extend to 45 tier 0 sites" — directly
+following v1.34.16's own "deliberately NOT attempted this pass" note.
+Applied the same `_append_emergence` observe/interpret-cycling
+mirror to the remaining ~39 Tier 0 mirror sites across all five
+pillars (village/humans/innovation/nature/reflection jobs — see
+CHANGELOG.md's [1.34.17] entry for the full site list). Two real
+bugs caught and fixed while applying this mechanically across so
+many sites (both via independent post-hoc verification, not trusted
+from the applying script's own output): a `beliefs`-job indentation
+bug that would have de-scoped a downstream B4 message block, and a
+`rule_propose` bug that placed the new call OUTSIDE the `async def
+_sandbox_and_register()` closure it needed to be inside — referencing
+an out-of-scope `rule` variable (`NameError` on every real firing)
+and bypassing the counterfactual-sandbox safety gate. Full detail:
+CHANGELOG.md's [1.34.17] entry.
+
+Verified: an automated indent-consistency scan across every
+`_append_emergence` site (0 real mismatches after the fixes);
+`ast.parse()` clean; direct production-path smoke tests including
+ones specifically targeting both fixed bugs (`rule_propose` firing
+end-to-end through the real sandboxed closure, `beliefs`' new-belief
+branch firing correctly on its real `interpret` turn);
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical;
+a 4000-tick LLM-disabled engine soak plus a full round-trip, clean.
+
+Still fully open: attention-budget arbitration and inbox/outbox
+participation for these ~39 sites (this slice only extended
+observe/interpret cycling, per the literal request).
+
 ## Current state (v1.34.16)
 
 Explicit user instruction: "Start observe/interpret cycling,

@@ -2050,6 +2050,10 @@ class SimulationEngine:
                         self.world.clock.tick_count, "the settlement's name", new_name,
                         1.0, status="observation", source="naming",
                     )
+                    self._append_emergence(
+                        "opportunity", "settlement", f"{noun} came to be known as {new_name}.",
+                        ("village",),
+                    )
 
             self._schedule_llm_job(
                 "naming", prompt, naming.SYSTEM_PROMPT, fallback, apply,
@@ -2843,6 +2847,10 @@ class SimulationEngine:
                 self.world.humans_pillar.remember(
                     f'{agent_a.name}: "{parsed["line_a"]}" — {agent_b.name}: "{parsed["line_b"]}"'
                 )
+                self._append_emergence(
+                    "opportunity", "dialogue", f'{agent_a.name}: "{parsed["line_a"]}" — {agent_b.name}: "{parsed["line_b"]}"',
+                    ('humans',),
+                )
                 # v0.87.12 "dialogue novelty memory": only a genuine LLM
                 # answer ever supplies a real topic (parse_dialogue never
                 # fabricates one for the deterministic fallback).
@@ -2959,6 +2967,10 @@ class SimulationEngine:
                 retelling = rumor_interpret.parse_interpretation(result, fallback)
                 _remember(target, retelling)
                 self.world.humans_pillar.remember(f"{target.name} retold a rumor in their own way: {retelling}")
+                self._append_emergence(
+                    "unexplained_shift", "rumor", f"{target.name} retold a rumor in their own way: {retelling}",
+                    ('humans',),
+                )
 
         self._schedule_llm_job(
             "rumor_interpret", prompt, rumor_interpret.SYSTEM_PROMPT, fallback, apply,
@@ -3486,6 +3498,10 @@ class SimulationEngine:
             # memory-only, the monthly narrative itself isn't a single
             # standing fact the way a law/religion/faction is.
             self.world.village_pillar.remember(f"The chronicle recorded: {summary}")
+            self._append_emergence(
+                "opportunity", "narrative", f"The chronicle recorded: {summary}",
+                ('village',),
+            )
 
         self._schedule_llm_job(
             "chronicle", prompt, chronicle.SYSTEM_PROMPT, fallback, apply, settlement=settlement.name,
@@ -3528,6 +3544,10 @@ class SimulationEngine:
             # reasoning as chronicle (a yearly look-back, not a single
             # standing fact).
             self.world.village_pillar.remember(f"The year in review: {narration}")
+            self._append_emergence(
+                "opportunity", "narrative", f"The year in review: {narration}",
+                ('village',),
+            )
 
         self._schedule_llm_job("documentary", prompt, documentary.SYSTEM_PROMPT, fallback, apply)
 
@@ -3602,6 +3622,10 @@ class SimulationEngine:
             self.world.chronicler_pending = False
             self._log("chronicler_answer", f"Asked of the chronicler: \"{question}\" — {self.world.chronicler_answer}")
             self.world.village_pillar.remember(f"Asked \"{question}\" — {self.world.chronicler_answer}")
+            self._append_emergence(
+                "opportunity", "narrative", f"Asked \"{question}\" — {self.world.chronicler_answer}",
+                ('village',),
+            )
 
         self._schedule_llm_job("chronicler", prompt, chronicler.SYSTEM_PROMPT, fallback, apply)
 
@@ -3718,6 +3742,10 @@ class SimulationEngine:
             ]
             self._log("away_digest", self.world.away_digest_text)
             self.world.village_pillar.remember(f"Looking back: {self.world.away_digest_text}")
+            self._append_emergence(
+                "opportunity", "narrative", f"Looking back: {self.world.away_digest_text}",
+                ('village',),
+            )
 
         self._schedule_llm_job("away_digest", prompt, digest.SYSTEM_PROMPT, fallback, apply)
 
@@ -3768,6 +3796,10 @@ class SimulationEngine:
                 settlement.culture_effects[influence] = settlement.culture_effects.get(influence, 0) + 1
             self._log("tradition", f"{settlement.name or 'The village'} established a new tradition — {entry}")
             self.world.village_pillar.remember(f"Established a new tradition — {entry}")
+            self._append_emergence(
+                "novel_combination", "culture", f"Established a new tradition — {entry}",
+                ('village',),
+            )
 
         # Cultural evolution: a tradition is a genuine interpretive claim
         # about what the settlement's lived history means, worth a real
@@ -3827,6 +3859,10 @@ class SimulationEngine:
                 settlement.folklore = settlement.folklore[-FOLKLORE_MAX_STORED:]
             self._log("folklore", f"{settlement.name or 'The village'} now tells a new tale — {entry['tale']}")
             self.world.village_pillar.remember(f"A new tale is told — {entry['tale']}")
+            self._append_emergence(
+                "novel_combination", "culture", f"A new tale is told — {entry['tale']}",
+                ('village',),
+            )
 
         self._schedule_llm_job(
             "folklore", prompt, folklore.SYSTEM_PROMPT, fallback, apply, settlement=target.name,
@@ -3878,6 +3914,10 @@ class SimulationEngine:
                 f"{settlement.name or 'The village'} now speaks of a legend — {entry['legend']}",
             )
             self.world.village_pillar.remember(f"A legend has taken hold — {entry['legend']}")
+            self._append_emergence(
+                "novel_combination", "culture", f"A legend has taken hold — {entry['legend']}",
+                ('village',),
+            )
 
         self._schedule_llm_job(
             "legend", prompt, legend.SYSTEM_PROMPT, fallback, apply, settlement=target.name,
@@ -4018,6 +4058,10 @@ class SimulationEngine:
                 status="observation", source="invention",
             )
             self.world.innovation_pillar.remember(f"Invented {name}: {description}")
+            self._append_emergence(
+                "novel_combination", "innovation", f"Invented {name}: {description}",
+                ('innovation',),
+            )
 
         # Innovation & discovery: naming/scoping a genuinely new idea
         # warrants a real reasoning trace, same treatment as ontology
@@ -4150,6 +4194,10 @@ class SimulationEngine:
             )
             self._log("ontology", f"{target.name or 'The village'} originated {concept.name}: {concept.description}")
             self.world.innovation_pillar.remember(f"Originated {concept.name}: {concept.description}")
+            self._append_emergence(
+                "novel_combination", "innovation", f"Originated {concept.name}: {concept.description}",
+                ('innovation',),
+            )
             # B4 "Inter-pillar consciousness bus" (roadmap Stage III
             # step 11), the Innovation->Village arrow: a newly
             # registered concept is real news for the village that
@@ -4231,6 +4279,10 @@ class SimulationEngine:
                     status="observation", source="ontology_evolution",
                 )
                 self.world.innovation_pillar.remember(f"Combined two ideas into {name}: {description}")
+                self._append_emergence(
+                    "novel_combination", "innovation", f"Combined two ideas into {name}: {description}",
+                    ('innovation',),
+                )
         else:
             parent = weighted_pick(1)[0]
             prompt = ontology_llm.build_evolve_prompt(parent.name, parent.description, settlement.name or "The village", [])
@@ -4258,6 +4310,10 @@ class SimulationEngine:
                     status="observation", source="ontology_evolution",
                 )
                 self.world.innovation_pillar.remember(f"An old idea evolved into {name}: {description}")
+                self._append_emergence(
+                    "novel_combination", "innovation", f"An old idea evolved into {name}: {description}",
+                    ('innovation',),
+                )
 
         self._schedule_llm_job(
             "ontology_evolution", prompt, system_prompt, fallback, apply, deep_reasoning=True,
@@ -4596,6 +4652,10 @@ class SimulationEngine:
                 )
                 entry["pillar_entry_id"] = pillar_entry["id"]
                 self.world.nature_pillar.remember(f"Came to sense {entry['subject']}: {entry['belief']}")
+                self._append_emergence(
+                    "opportunity", "ecology", f"Came to sense {entry['subject']}: {entry['belief']}",
+                    ('nature',),
+                )
                 # Vision doc item 2.3 ("Nature and Village can surprise
                 # each other"): a genuinely NEW belief (not a revision
                 # of an existing one) is real fresh insight the land
@@ -5026,6 +5086,10 @@ class SimulationEngine:
                     status="observation", source="rule_propose",
                 )
                 self.world.village_pillar.remember(f"Adopted a new rule: {rule.name} — {rule.description}")
+                self._append_emergence(
+                    "opportunity", "institution", f"Adopted a new rule: {rule.name} — {rule.description}",
+                    ('village',),
+                )
 
             task = asyncio.create_task(_sandbox_and_register())
             self._background_tasks.add(task)
@@ -5168,6 +5232,10 @@ class SimulationEngine:
                 f"Leaning {branch} — {reason}", 1.0, status="observation", source="era_branch",
             )
             self.world.innovation_pillar.remember(f"{target.name or 'The village'} is leaning {branch}: {reason}")
+            self._append_emergence(
+                "opportunity", "innovation", f"{target.name or 'The village'} is leaning {branch}: {reason}",
+                ('innovation',),
+            )
 
         self._schedule_llm_job(
             "era_branch", prompt, era_branch.SYSTEM_PROMPT, fallback, apply,
@@ -5227,6 +5295,10 @@ class SimulationEngine:
             # pillar's eighth real wired job — memory-only, an
             # occurrence rather than a standing fact.
             self.world.village_pillar.remember(f"Held a festival — {entry}")
+            self._append_emergence(
+                "opportunity", "culture", f"Held a festival — {entry}",
+                ('village',),
+            )
 
         self._schedule_llm_job("festival", prompt, festival.SYSTEM_PROMPT, fallback, apply)
 
@@ -5483,6 +5555,10 @@ class SimulationEngine:
                 1.0, status="observation", source="religion",
             )
             self.world.village_pillar.remember(f"Came to share a faith called {parsed['name']}.")
+            self._append_emergence(
+                "opportunity", "culture", f"Came to share a faith called {parsed['name']}.",
+                ('village', 'humans'),
+            )
 
         # Cultural evolution: crystallizing a religion from a repeated
         # ritual is a real interpretive act (v1.3.37).
@@ -5555,6 +5631,10 @@ class SimulationEngine:
                 mood_confidence, source="narrative_direction",
             )
             self.world.humans_pillar.remember(f"The village's mood read as: {', '.join(themes)}.")
+            self._append_emergence(
+                "unexplained_shift", "population", f"The village's mood read as: {', '.join(themes)}.",
+                ('humans',),
+            )
             # §2 "dialect drift": a real answer only, never fabricated by
             # the fallback (fallback_summary has no coined_term field at
             # all) — rides this call for zero added LLM volume.
@@ -5680,6 +5760,10 @@ class SimulationEngine:
             if inst is not None:
                 inst.culture_digest = digest
                 self.world.village_pillar.remember(f"The {inst.name or inst.kind.value} came to see itself as: {digest}")
+                self._append_emergence(
+                    "novel_combination", "institution", f"The {inst.name or inst.kind.value} came to see itself as: {digest}",
+                    ('village',),
+                )
 
         # Cultural evolution: an institution's own independent character
         # (v1.3.37).
@@ -6179,6 +6263,10 @@ class SimulationEngine:
             self.world.reflection_pillar.remember(
                 f"Still wondering about {pattern['subject']}: {question_text}"
             )
+            self._append_emergence(
+                "opportunity", "reflection", f"Still wondering about {pattern['subject']}: {question_text}",
+                ('reflection',),
+            )
 
         self._schedule_llm_job(
             "reflection_question", prompt, reflection.SYSTEM_PROMPT_QUESTION, fallback, apply, deep_reasoning=True,
@@ -6467,6 +6555,10 @@ class SimulationEngine:
                 self.world.reflection_pillar.remember(
                     f"Acted on my own hypothesis about {hypothesis_subject}: {parsed['rationale']}"
                 )
+                self._append_emergence(
+                    "opportunity", "reflection", f"Acted on my own hypothesis about {hypothesis_subject}: {parsed['rationale']}",
+                    ('reflection', 'village'),
+                )
 
             task = asyncio.create_task(_validate_and_tune())
             self._background_tasks.add(task)
@@ -6548,6 +6640,10 @@ class SimulationEngine:
             # lives in reflection_notebook via _maybe_schedule_
             # reflection/_reflection_question).
             self.world.reflection_pillar.remember(f"Mused: {text}")
+            self._append_emergence(
+                "opportunity", "reflection", f"Mused: {text}",
+                ('reflection',),
+            )
 
         self._schedule_llm_job("musing", prompt, musing.SYSTEM_PROMPT, fallback, apply)
 
@@ -6630,6 +6726,10 @@ class SimulationEngine:
             description, rumor = caravan.parse_caravan(result, fallback)
             self._log("caravan", description)
             self.world.village_pillar.remember(f"A caravan came through — {description}")
+            self._append_emergence(
+                "opportunity", "economy", f"A caravan came through — {description}",
+                ('village',),
+            )
             if rumor and _namespaced_roll(
                 self.world.config.seed, self.world.clock.tick_count, "caravan_rumor_roll",
             ) < caravan.CARAVAN_RUMOR_CHANCE:
@@ -6711,6 +6811,11 @@ class SimulationEngine:
         self.world.village_pillar.upsert_world_model(
             self.world.clock.tick_count, f"{settlement.name or 'the village'}'s civic priority", priority,
             1.0, status="observation", source="town_brain",
+        )
+        self._append_emergence(
+            "opportunity", "settlement",
+            f"{settlement.name or 'The village'}'s priority is now {priority} — {decision['rationale']}",
+            ("village",),
         )
         prompt = town_brain.build_prompt(
             settlement.name, priority, recent, population_summary, settlement_summary, whispers_sent,
@@ -6929,6 +7034,10 @@ class SimulationEngine:
                 )
                 entry["pillar_entry_id"] = pillar_entry["id"]
                 self.world.village_pillar.remember(f"Came to believe {entry['subject']}: {entry['belief']}")
+                self._append_emergence(
+                    "opportunity", "belief", f"Came to believe {entry['subject']}: {entry['belief']}",
+                    ('village',),
+                )
                 # B4 "Inter-pillar consciousness bus" (roadmap Stage III
                 # step 11), the Village->Innovation arrow: a genuinely
                 # new, reasonably-confident settlement theory is real
@@ -7081,6 +7190,10 @@ class SimulationEngine:
                     self.conn, tick, target.id, "belief", f"(re: {parsed['subject']}) {parsed['belief']}",
                 )
                 self.world.humans_pillar.remember(f"{target.name} came to believe: {parsed['belief']}")
+                self._append_emergence(
+                    "opportunity", "belief", f"{target.name} came to believe: {parsed['belief']}",
+                    ('humans',),
+                )
             semantic_text = beliefs.parse_semantic_memory(result, fallback)
             beliefs.push_semantic_memory(target, semantic_text)
             if semantic_text:
@@ -7224,6 +7337,10 @@ class SimulationEngine:
             # theory the collective holds — Phase G's ambiguity
             # discipline stays intact).
             self.world.humans_pillar.remember(f"{target.name} dreamed: {dream_text}")
+            self._append_emergence(
+                "anomaly", "psychology", f"{target.name} dreamed: {dream_text}",
+                ('humans',),
+            )
             if not used_fallback and self.world.settlement.dream_seed == symbol_seed:
                 self.world.settlement.dream_seed = ""
 
@@ -7298,6 +7415,10 @@ class SimulationEngine:
             # individual's own reinterpreted memory, not a collective
             # theory.
             self.world.humans_pillar.remember(f"{target.name}'s memory shifted: {drifted_text}")
+            self._append_emergence(
+                "unexplained_shift", "psychology", f"{target.name}'s memory shifted: {drifted_text}",
+                ('humans',),
+            )
 
         self._schedule_llm_job("memory_drift", prompt, memory_drift.SYSTEM_PROMPT, fallback, apply, critical=False)
 
@@ -7357,6 +7478,10 @@ class SimulationEngine:
                 # reasoning as those: one individual's own achievement,
                 # not a collective theory.
                 self.world.humans_pillar.remember(f"{target.name} reflected on mastering {skill}: {reflection}")
+                self._append_emergence(
+                    "opportunity", "skill", f"{target.name} reflected on mastering {skill}: {reflection}",
+                    ('humans',),
+                )
 
             self._schedule_llm_job(
                 "skill_mastery", prompt, skill_mastery.SYSTEM_PROMPT, fallback, apply, critical=False,
@@ -7564,6 +7689,10 @@ class SimulationEngine:
                 status="hypothesis", source="omen",
             )
             self.world.nature_pillar.remember(f"The land offered an omen: {omen}")
+            self._append_emergence(
+                "anomaly", "ecology", f"The land offered an omen: {omen}",
+                ('nature',),
+            )
             if not used_fallback and self.world.settlement.omen_seed == seed_phrase:
                 self.world.settlement.omen_seed = ""
             if not used_fallback and roll_prophecy and target.prophecy is None:
@@ -7626,6 +7755,10 @@ class SimulationEngine:
         self._settlement_by_id(settlement_id).add_record(self.world.clock.tick_count, author, text)
         self._log("record_written", f'{author} left a written record behind: "{text}"')
         self.world.humans_pillar.remember(f"{author} left a written record behind: \"{text}\"")
+        self._append_emergence(
+            "opportunity", "narrative", f"{author} left a written record behind: \"{text}\"",
+            ('humans',),
+        )
 
     def _author_minds(self, agents: list) -> None:
         """One-time genesis-style permanent-identity authoring (Phase J,
@@ -7673,6 +7806,10 @@ class SimulationEngine:
             target.voice = mind.parse_voice(result, fallback)
             if not used_fallback:
                 self.world.humans_pillar.remember(f"{target.name} came into their own sense of self: {target.mind}")
+                self._append_emergence(
+                    "opportunity", "psychology", f"{target.name} came into their own sense of self: {target.mind}",
+                    ('humans',),
+                )
             if target.long_term_goal is None and not used_fallback:
                 initial_goal = mind.parse_initial_goal(result)
                 if initial_goal:
@@ -7897,6 +8034,10 @@ class SimulationEngine:
                 tick, f"the {name} faction", framing, 0.8, status="observation", source="faction",
             )
             self.world.village_pillar.remember(f"A faction calling itself {name} has formed: {framing}")
+            self._append_emergence(
+                "unexplained_shift", "population", f"A faction calling itself {name} has formed: {framing}",
+                ('village', 'humans'),
+            )
 
         # Cultural evolution: naming a real detected faction (v1.3.37).
         self._schedule_llm_job("faction", prompt, faction.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
@@ -8041,6 +8182,10 @@ class SimulationEngine:
                 source=f"institution_belief:{label}",
             )
             self.world.village_pillar.remember(f"The {label} came to believe of {parsed['subject']}: {parsed['belief']}")
+            self._append_emergence(
+                "opportunity", "institution", f"The {label} came to believe of {parsed['subject']}: {parsed['belief']}",
+                ("village",),
+            )
 
         # Council deliberation (and FAMILY/GUILD's own equivalent):
         # institutional belief formation is genuine collective judgment
@@ -8100,6 +8245,10 @@ class SimulationEngine:
             stl_b.relations[a_id] = new_relation
             self._log("diplomacy_event", f"Between {stl_a.name} and {stl_b.name}: {narration}")
             self.world.village_pillar.remember(f"Between {stl_a.name} and {stl_b.name}: {narration}")
+            self._append_emergence(
+                "unexplained_shift", "settlement", f"Between {stl_a.name} and {stl_b.name}: {narration}",
+                ('village',),
+            )
 
         self._schedule_llm_job(
             "diplomacy", prompt, diplomacy.SYSTEM_PROMPT, fallback, apply,
@@ -8171,6 +8320,10 @@ class SimulationEngine:
                 status="observation", source="laws",
             )
             self.world.village_pillar.remember(f"Came to hold a {parsed['kind']}: {parsed['text']}")
+            self._append_emergence(
+                "opportunity", "institution", f"Came to hold a {parsed['kind']}: {parsed['text']}",
+                ('village',),
+            )
 
         # Cultural evolution: a law/custom/taboo is a real normative
         # judgment about the settlement (v1.3.37).
@@ -8226,6 +8379,10 @@ class SimulationEngine:
                 # ordinary villager's own quiet moment, same reasoning
                 # as letter/skill_mastery.
                 self.world.humans_pillar.remember(f"{target_agent.name} had a quiet realization: {reflection}")
+                self._append_emergence(
+                    "unexplained_shift", "psychology", f"{target_agent.name} had a quiet realization: {reflection}",
+                    ('humans',),
+                )
             # Bounded episodic planning (§7 v0.87.15), extended to the
             # non-core cast here for the first time (see module
             # docstring) — reuses `beliefs.parse_plan` unchanged, the
@@ -8299,6 +8456,10 @@ class SimulationEngine:
             # sixth real wired job — memory-only, one individual's own
             # written words, not a collective theory.
             self.world.humans_pillar.remember(f"{sender_name} wrote to {recipient_name}: {text}")
+            self._append_emergence(
+                "opportunity", "relationship", f"{sender_name} wrote to {recipient_name}: {text}",
+                ('humans',),
+            )
 
         self._schedule_llm_job("letter", prompt, letters.SYSTEM_PROMPT, fallback, apply)
 
@@ -8512,6 +8673,10 @@ class SimulationEngine:
             self.world.humans_pillar.remember(
                 f"{leader.name} led {len(party)} settlers out of {home.name} — \"{reason}\""
             )
+            self._append_emergence(
+                "unexplained_shift", "settlement", f"{leader.name} led {len(party)} settlers out of {home.name} — \"{reason}\"",
+                ('humans', 'village'),
+            )
             self._log(
                 "settlement_founded",
                 f"{leader.name} led {len(party)} settlers out of {home.name}"
@@ -8584,6 +8749,10 @@ class SimulationEngine:
             # weighed life decision, memory-only (an individual's
             # choice, not a collective theory).
             self.world.humans_pillar.remember(f"{target_agent.name} chose to leave: {reason}")
+            self._append_emergence(
+                "unexplained_shift", "population", f"{target_agent.name} chose to leave: {reason}",
+                ('humans', 'village'),
+            )
 
         # Major life decision: weighing a real reason to leave against
         # roots/relationships (v1.3.37).
