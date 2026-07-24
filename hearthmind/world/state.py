@@ -50,7 +50,9 @@ from hearthmind.world.disasters import (
     tick_wildfire,
 )
 from hearthmind.world.hydrology import LakeState, generate_rivers, identify_lakes, tick_lakes
-from hearthmind.world.hydrology_field import HydrologyField, create_hydrology_field, tick_hydrology
+from hearthmind.world.hydrology_field import (
+    HydrologyField, create_hydrology_field, tick_erosion, tick_groundwater, tick_hydrology,
+)
 from hearthmind.world.minerals import MineralGrid
 from hearthmind.world.affordances import discover_combinations
 from hearthmind.world.chemistry import discover_reactions
@@ -116,7 +118,7 @@ way every other confidence-shaped value in this project is."""
 TERRAIN_CHANGING_CATEGORIES = frozenset({
     "terrain_thinned", "terrain_reclaimed", "climate_drift",
     "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
-    "mining_scarred", "disaster_scarred", "building_reclaimed",
+    "mining_scarred", "disaster_scarred", "building_reclaimed", "terrain_eroded",
 })
 """Life-event categories that mean at least one tile's biome changed
 this tick. Canonical home for this set (it used to live only in
@@ -543,6 +545,14 @@ class World:
     branch compares against `disasters.WILDFIRE_CHANCE_PER_WEEK`'s own
     theoretical rate to notice a real, sustained drift (vision doc item
     1.4's own example: "wildfires feel too rare to matter")."""
+    tiles_eroded_total: int = 0
+    """A11 erosion (`world/hydrology_field.py`'s `tick_erosion`):
+    cumulative count of tile-weeks where a tile's BIOME changed as a
+    result of erosion — not every eroded tile (most weeks' erosion is
+    a small elevation nudge with no biome crossing), just the visible
+    "the land genuinely became something else" moments. Never pruned
+    (a small monotonic counter, same shape as `Settlement.traditions_
+    established`), surfaced via `summary()`'s `hydrology` block."""
     governor_tuning: dict[str, float] = field(default_factory=dict)
     """Vision doc items 1.4/2.4: governor name -> effective multiplier,
     bounded to `disasters.GOVERNOR_TUNING_BAND` around 1.0. Missing key
@@ -819,13 +829,26 @@ class World:
             lake_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "lakes")
             events += tick_lakes(self.lakes, self.terrain, self.climate.drying, lake_rng, occupied_tiles)
         if "week_end" in calendar_events:
-            # A11 "Continuous hydrology," first slice (Stage IV step
-            # 15): weekly cadence, not per-tick — see hydrology_field.
-            # py's own R7-deviation docstring for why.
+            # A11 "Continuous hydrology" (Stage IV step 15): weekly
+            # cadence, not per-tick — see hydrology_field.py's own
+            # R7-deviation docstring for why. Groundwater and erosion
+            # (second slice) both read this week's freshly-updated
+            # moisture, so they run immediately after in the same
+            # order every time.
             hydro_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "hydrology")
             tick_hydrology(
                 self.hydrology_field, self.terrain, self.weather.precipitation, self.clock.season, hydro_rng,
             )
+            tick_groundwater(self.hydrology_field, self.terrain)
+            erosion_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "erosion")
+            eroded_tiles = tick_erosion(self.hydrology_field, self.terrain, erosion_rng)
+            if eroded_tiles:
+                self._biome_counts_cache = None
+                self.tiles_eroded_total += len(eroded_tiles)
+                events.append((
+                    "terrain_eroded",
+                    f"{len(eroded_tiles)} tile{'s' if len(eroded_tiles) != 1 else ''} of land reshaped by erosion this week.",
+                ))
             # A10 "Ecology as interacting populations / food webs," first
             # slice (Stage IV step 17): nutrient cycling from wildlife
             # into nearby farmland — weekly cadence, same reasoning as
@@ -976,7 +999,11 @@ class World:
                     if self.disaster_scars else 0.0
                 ),
             },
-            "hydrology": {"avg_moisture": round(self.hydrology_field.average(), 3)},
+            "hydrology": {
+                "avg_moisture": round(self.hydrology_field.average(), 3),
+                "avg_groundwater": round(self.hydrology_field.average_groundwater(), 3),
+                "tiles_eroded_recorded": self.tiles_eroded_total,
+            },
             "nature_beliefs": [
                 {"subject": b["subject"], "belief": b["belief"], "confidence": b["confidence"]}
                 for b in self.nature_beliefs
@@ -1292,6 +1319,7 @@ class World:
             "musings": list(self.musings),
             "next_reflection_entry_id": self.next_reflection_entry_id,
             "wildfire_ignition_ticks": list(self.wildfire_ignition_ticks),
+            "tiles_eroded_total": self.tiles_eroded_total,
             "governor_tuning": dict(self.governor_tuning),
             "self_tuning_actions": list(self.self_tuning_actions),
             "advisory_proposals": list(self.advisory_proposals),
@@ -1554,6 +1582,7 @@ class World:
             musings=list(data.get("musings", [])),
             next_reflection_entry_id=data.get("next_reflection_entry_id", 1),
             wildfire_ignition_ticks=list(data.get("wildfire_ignition_ticks", [])),
+            tiles_eroded_total=data.get("tiles_eroded_total", 0),
             governor_tuning=dict(data.get("governor_tuning", {})),
             self_tuning_actions=list(data.get("self_tuning_actions", [])),
             advisory_proposals=list(data.get("advisory_proposals", [])),

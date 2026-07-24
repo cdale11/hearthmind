@@ -4,6 +4,76 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.23] — A11: groundwater + erosion (continuous hydrology, second slice)
+
+Explicit user instruction: "Start next roadmap item" — A11 "Continuous
+hydrology" (docs/ROADMAP-2026-07-REMAINING.md, Tier 1 item 2), the
+roadmap's own highest-leverage remaining item: it blocks A3's rivers-
+re-carving and several Tier 1.5 "Living Map" items, all gated on
+`Tile.elevation` becoming mutable. First slice (surface moisture flow)
+shipped v1.13.0; this ships the two pieces that slice explicitly
+flagged unbuilt.
+
+**Groundwater**: new per-tile `HydrologyField.groundwater` reservoir,
+distinct from surface `moisture`. Wet land (`moisture` above a
+threshold) infiltrates a fraction into groundwater each week; dry land
+seeps a fraction back out — a real base-flow/spring effect where land
+that was recently wet resists drying out faster than land that never
+was, even at an identical surface reading right now. A small constant
+weekly percolation loss keeps it from ratcheting upward forever.
+
+**Erosion**: research first — `Tile.elevation` turned out to already
+be storage-layer mutable on both the native `TerrainGrid` and the
+Python fallback since v0.74.1 (`TerrainGrid._set_tile`/`TerrainRow.
+__setitem__` already accepted and stored any elevation value; every
+existing mutator just always echoed the unchanged value back). New
+`tick_erosion` is the first real writer of a genuinely new elevation
+value: reuses `tick_hydrology`'s own steepest-descent neighbor search
+— a tile whose surface moisture clears `EROSION_MOISTURE_THRESHOLD`
+(genuinely carrying flow, not just damp) moves a small, capped,
+mass-conserving fraction of its elevation excess to its lowest
+orthogonal neighbor, skipping any tile whose lowest neighbor is a
+pinned water/RIVER biome (siltation into standing water stays out of
+scope, flagged). Whenever a tile's elevation crosses a real biome
+threshold, `classify_with_bias` re-derives its biome in the same
+write — the one real coherence hazard, since nothing else in the
+codebase reads raw `.elevation` (everything keys off `.biome`).
+
+Weekly cadence, called right after `tick_hydrology` in `World.
+_tick_disasters` (both read that week's freshly-updated moisture).
+R7 deviation carried forward from `hydrology_field.py`'s existing
+docstring (pure Python, not yet natively ported — same "prove the
+shape live before compiling it" justification as the first slice);
+erosion's elevation writes go through the exact `TerrainGrid` storage
+API every other terrain mutator already uses, so this adds no new
+native-vs-fallback equivalence risk beyond what those modules already
+carry.
+
+New `terrain_eroded` event category (added to `TERRAIN_CHANGING_
+CATEGORIES` so the client map resyncs on a real erosion-driven biome
+change), a monotonic `World.tiles_eroded_total` counter, `summary()`'s
+`hydrology` block gained `avg_groundwater`/`tiles_eroded_recorded`.
+UI: "Soil moisture" stat tile extended to show groundwater alongside
+surface moisture; new "Erosion" stat tile.
+
+Verified: `ast.parse()`/`node --check` clean; direct smoke tests —
+sustained erosion smooths an artificial elevation gradient while
+exactly conserving total elevation mass over 400 simulated weeks,
+groundwater/moisture stay bounded [0,1] over 200 alternating wet/dry
+weeks, flat terrain produces zero erosion (no downhill neighbor),
+`to_dict`/`from_dict` round-trips exactly, a legacy pre-groundwater
+snapshot backfills at the default; a real 3000-tick engine run (LLM
+disabled) through `SimulationEngine._tick_once` confirmed both
+mechanisms fire through the actual production path (28 tiles eroded
+in that run) with a clean full-`World` round-trip;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical.
+
+This closes A11. A3's river-re-carving and Tier 1.5's M2/M8 (real
+erosion/flooding-reshapes-terrain map representation) are now
+unblocked but not yet attempted — recorded as the natural next step
+in docs/ROADMAP-2026-07-REMAINING.md, not queued or auto-chained per
+this project's standing convention.
+
 ## [1.34.22] — D6: Districts (collective NPCs at scale)
 
 Explicit user instruction: "For D6 at some number of villagers as

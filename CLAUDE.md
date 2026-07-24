@@ -545,6 +545,45 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.23)
+
+Explicit user instruction: "Start next roadmap item" — A11 "Continuous
+hydrology" (docs/ROADMAP-2026-07-REMAINING.md, Tier 1 item 2, the
+roadmap's own "highest-leverage remaining item": blocks A3's rivers-
+re-carving and Tier 1.5's mutable-elevation items). First slice
+(surface moisture flow, v1.13.0) explicitly flagged groundwater and
+erosion as unbuilt — both ship now.
+
+Groundwater: new per-tile `HydrologyField.groundwater` reservoir,
+distinct from surface moisture — wet land infiltrates into it weekly,
+dry land seeps back out (base-flow/spring effect), small constant
+percolation loss keeps it bounded. Erosion: `Tile.elevation` turned
+out already storage-layer mutable (native `TerrainGrid` and the Python
+fallback both accept/store any elevation value since v0.74.1) — no
+storage-layer change needed, `tick_erosion` is simply the first real
+writer of a new elevation value. Reuses `tick_hydrology`'s steepest-
+descent neighbor search: a genuinely wet tile moves a small, capped,
+mass-conserving fraction of its elevation to its lowest neighbor,
+skipping water/RIVER neighbors, re-deriving biome via `classify_with_
+bias` whenever elevation crosses a real threshold (the one real
+coherence hazard, since every other consumer keys off `.biome`, not
+raw elevation). Weekly, right after `tick_hydrology` in `World._tick_
+disasters`. New `terrain_eroded` event category, `World.tiles_eroded_
+total` counter, UI: groundwater added to the "Soil moisture" tile,
+new "Erosion" stat tile.
+
+Verified: direct smoke tests (elevation-gradient smoothing with exact
+mass conservation over 400 weeks, groundwater/moisture bounds under
+200 alternating wet/dry weeks, flat-terrain zero-erosion edge case,
+round-trip, legacy-snapshot backfill); a real 3000-tick engine run
+(LLM disabled) confirmed both mechanisms fire through the actual
+production path with a clean round-trip; `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical — erosion's elevation
+writes go through the same `TerrainGrid` API every other terrain
+mutator already uses, no new native-parity risk. Closes A11. A3
+(rivers re-carving) and Tier 1.5's M2/M8 are now unblocked but not
+attempted — natural next step, not auto-chained.
+
 ## Current state (v1.34.22)
 
 Explicit user instruction: "For D6 at some number of villagers as

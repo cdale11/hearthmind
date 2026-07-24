@@ -952,9 +952,9 @@ conclusions" framing:
 **Tier 1 — substrate items other systems will lean on**
 1. **A9** — feedback-loop audit. **Done, v1.34.0** — see its full
    entry below for findings/fixes/follow-ups.
-2. **A11** — hydrology as a real field: groundwater, and (the big one)
-   erosion feeding back into `Tile.elevation` so A3's rivers-re-carve
-   item becomes possible at all. Blocks A3's own remaining half.
+2. **A11** — **shipped, v1.34.23** (groundwater + erosion feeding back
+   into `Tile.elevation`) — see its own entry below for detail. Was
+   blocking A3's rivers-re-carve item; that item itself remains open.
 3. **A1** — the other eleven named fields (moisture is really A11's;
    fertility/nutrients/disease-pressure/pollution/scent/traffic/heat/
    cultural-influence/ownership/beauty/noise are still unbuilt) plus
@@ -1254,11 +1254,49 @@ cycling. Folding the whole food web onto A1's field substrate as one
 coupled system is real follow-up work.
 
 ### A11 — Continuous hydrology
-Groundwater and erosion (feeding back into `terrain.elevation`, now
-mutable) remain unbuilt — surface-water flow/evaporation is the only
-piece shipped. One of the highest-leverage remaining items: water
-touches agriculture, siting, disasters, and ecology, and unblocks A3's
-river-re-carving.
+**Shipped, second slice (v1.34.23).** Groundwater and erosion, the two
+pieces flagged unbuilt above, both landed in `world/hydrology_field.
+py`. Groundwater: a per-tile subsurface reservoir distinct from
+surface moisture — wet land infiltrates a fraction into it each week,
+dry land seeps a fraction back out (a real base-flow/spring effect,
+land that was recently wet resists drying faster than land that never
+was), with a small constant percolation loss so it settles to a real
+equilibrium rather than ratcheting upward. Erosion: `Tile.elevation`
+turned out to already be storage-layer mutable on both the native
+`TerrainGrid` and the Python fallback since v0.74.1 (`TerrainGrid.
+_set_tile` already accepted and stored any elevation value) — nothing
+needed to change there; `tick_erosion` is simply the first real WRITER
+of a new elevation value, reusing `tick_hydrology`'s own steepest-
+descent neighbor search: a genuinely wet (flow-carrying, not just
+damp) tile moves a small, capped, mass-conserving fraction of its
+elevation excess to its lowest neighbor, re-deriving biome via
+`classify_with_bias` whenever a tile's elevation crosses a real
+threshold (the one real coherence hazard — nothing else in the
+codebase reads raw `.elevation`, every consumer keys off `.biome`).
+Deliberately out of scope: siltation into standing water (erosion
+never transfers onto a pinned water/RIVER tile). Weekly cadence,
+called immediately after `tick_hydrology` (`World._tick_disasters`),
+same R7 pure-Python-first deviation `hydrology_field.py`'s own
+docstring already justified. New `terrain_eroded` event category (adds
+to `TERRAIN_CHANGING_CATEGORIES` so the map resyncs), a `World.tiles_
+eroded_total` counter, and `summary()`'s `hydrology` block gained
+`avg_groundwater`/`tiles_eroded_recorded`. UI: "Soil moisture" stat
+tile extended with a groundwater reading, new "Erosion" stat tile.
+Verified: direct smoke tests (terrain-gradient smoothing + exact mass
+conservation over 400 simulated weeks, groundwater/moisture bounds
+under 200 alternating wet/dry weeks, flat-terrain zero-erosion edge
+case, `to_dict`/`from_dict` round-trip, legacy-snapshot groundwater
+backfill); a real 3000-tick engine run (LLM disabled) through
+`SimulationEngine._tick_once` confirmed both mechanisms fire through
+the actual production path (28 tiles eroded) with a clean `World`-
+level round-trip; `scripts/verify_native_soak.py` (2 seeds x 800
+ticks) byte-identical — erosion's elevation writes go through the
+exact same `TerrainGrid` storage API every other terrain mutator
+already uses, so this re-confirms that path rather than introducing
+new native-parity risk. This closes A11, the roadmap's own "highest-
+leverage remaining item" — A3's river-re-carving and several Tier 1.5
+Living Map items (M2/M8) that were blocked on mutable elevation are
+now unblocked, not yet attempted.
 
 ### A12 — Material science
 Per-instance `Entity.material` (today: one material per `BuildingKind`

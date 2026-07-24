@@ -188,6 +188,7 @@ const CATEGORY_META = {
   pillar_answer: { icon: "🗣" },
   mining_scarred: { icon: "⛏️" },
   disaster_scarred: { icon: "🌋" },
+  terrain_eroded: { icon: "🏞️" },
   composite_reaction: { icon: "💥" },
   // P2.3 (docs/AUDIT-2026-07-20.md): 296/16k events (18%) in a live run —
   // routine background texture already surfaced via the Exploration stat
@@ -216,7 +217,7 @@ const EVENT_GROUP_OF = {
   wildlife_migrated: "nature", disaster_flood: "nature", disaster_wildfire: "nature",
   disaster_storm: "nature", disaster_heatwave: "nature", disaster_frost: "nature",
   lake_rose: "nature", lake_receded: "nature", season_end: "nature", year_end: "nature",
-  place_named: "nature", mining_scarred: "nature", disaster_scarred: "nature",
+  place_named: "nature", mining_scarred: "nature", disaster_scarred: "nature", terrain_eroded: "nature",
   chronicle: "mind", documentary: "mind", sim_summary: "mind", tradition: "mind", invention: "mind",
   festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind",
   institution_belief: "mind", ritual_formed: "mind", religion_formed: "mind",
@@ -233,7 +234,7 @@ let activeEventGroup = "all";
 const TERRAIN_CHANGING_CATEGORIES = new Set([
   "terrain_thinned", "terrain_reclaimed", "climate_drift",
   "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
-  "mining_scarred", "disaster_scarred", "building_reclaimed",
+  "mining_scarred", "disaster_scarred", "building_reclaimed", "terrain_eroded",
 ]);
 function categoryMeta(category) {
   return CATEGORY_META[category] || (category.endsWith("_migration") ? { icon: "🔧" } : { icon: "•" });
@@ -3319,9 +3320,19 @@ function renderStats(summary) {
       (() => {
         const h = summary.hydrology || {};
         const pct = ((h.avg_moisture ?? 0.35) * 100).toFixed(0);
-        return `${pct}% average`;
+        const gwPct = ((h.avg_groundwater ?? 0.3) * 100).toFixed(0);
+        return `${pct}% surface, ${gwPct}% groundwater`;
       })(),
-      "A real per-tile water field — rain soaks in, then flows downhill toward low ground, then evaporates, updated weekly. A planted field's yield now depends on how wet its own tile actually is, not just soil fertility.",
+      "A real per-tile water field — rain soaks in, then flows downhill toward low ground, then evaporates, updated weekly. A planted field's yield depends on how wet its own tile actually is, not just soil fertility. " +
+      "Groundwater is a separate, slower subsurface reservoir: sustained wet weather infiltrates into it, and it seeps back out during a dry stretch — land that was recently wet resists drying out faster than land that never was, even at the same surface reading right now.",
+    ],
+    [
+      "Erosion",
+      (() => {
+        const h = summary.hydrology || {};
+        return h.tiles_eroded_recorded ? `${h.tiles_eroded_recorded} tiles reshaped so far` : "none yet";
+      })(),
+      "Genuinely wet, flow-carrying land slowly moves a small fraction of its elevation downhill each week — mass-conserving, capped, and gradual, the same \"history becomes physically visible over the long run\" pace as the map's other scar-shaped marks. Occasionally a tile erodes far enough to cross into a different kind of land entirely.",
     ],
     [
       "Wildlife",

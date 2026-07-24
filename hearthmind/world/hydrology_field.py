@@ -1,7 +1,6 @@
 """A11 "Continuous hydrology" (docs/MASTERCHECKLIST-2026-07-22.md,
 Stage IV step 15 — the roadmap's own "highest-leverage single item:
-touches agriculture, siting, disasters, ecology at once"). This module
-is a deliberately scoped FIRST SLICE, not the full spec.
+touches agriculture, siting, disasters, ecology at once").
 
 The existing `world/hydrology.py` only answers "is this tile a river
 or a lake" — a one-time-carved, mostly-static classification. What A11
@@ -12,21 +11,45 @@ with real flow and feedback. This ships:
 
 as a real per-tile `moisture` field (`HydrologyField`), consumed by a
 real mechanic (farm planting yield, see `economy/farms.py`'s new
-`moisture` param on `plant()`). Two of A11's four named pieces are
-explicitly NOT attempted this pass, flagged rather than silently
-dropped:
+`moisture` param on `plant()`).
 
-  - **Groundwater**: no subsurface reservoir/aquifer layer — moisture
-    is a single surface quantity. A real second (slow-draining,
-    slow-recharging) layer feeding springs/wells is legitimate future
-    work once this surface layer's shape is validated live.
-  - **Erosion feeding back into now-mutable elevation**: `Tile.
-    elevation` stays immutable this pass. Real erosion (moisture/flow
-    magnitude gradually reshaping the terrain that then reshapes flow
-    right back) is the single biggest remaining piece of A11 and
-    deliberately deferred rather than rushed — it touches `TerrainGrid`
-    (already native-ported) and would need its own careful native-vs-
-    fallback equivalence pass.
+**Groundwater** (second slice, docs/ROADMAP-2026-07-REMAINING.md's A11
+entry): a per-tile `groundwater` reservoir, distinct from surface
+`moisture`. Land tiles above `GROUNDWATER_INFILTRATION_THRESHOLD`
+infiltrate a fraction of their surface moisture into groundwater each
+week (real rain "sinking in," not just running off/evaporating);
+tiles below `GROUNDWATER_SEEP_THRESHOLD` draw a small amount back OUT
+of groundwater into surface moisture — a spring/base-flow effect that
+gives dry stretches real resilience a surface-only model couldn't:
+land that was wet recently stays measurably less parched than land
+that never was. `GROUNDWATER_PERCOLATION_LOSS` is a small constant
+weekly drain (representing water sinking below the reachable zone
+entirely), so groundwater doesn't just ratchet upward forever.
+
+**Erosion** (second slice): `Tile.elevation` has been storage-layer
+mutable since v0.74.1 on both the native `TerrainGrid` and the plain-
+Python fallback (`TerrainGrid._set_tile`/`TerrainRow.__setitem__`
+already accept and store any elevation value — see `world/terrain.py`)
+— nothing here changed at that layer; this module is simply the first
+real WRITER of a new elevation value. `tick_erosion` reuses `tick_
+hydrology`'s own steepest-descent neighbor-finding (a tile whose
+surface moisture is above `EROSION_MOISTURE_THRESHOLD` — i.e.
+genuinely wet enough to be carrying flow, not just damp) moves a small,
+capped fraction of the elevation gap to its lowest orthogonal
+neighbor, mass-conserving (what erodes from the source tile deposits
+at the target), skipping any tile whose lowest neighbor is a pinned
+water/RIVER biome (siltation into standing water is real-world true
+but adds a second, harder-to-bound feedback loop — deliberately out of
+scope this pass, flagged). Whenever a tile's elevation genuinely
+crosses a biome threshold, its biome is re-derived via `classify_with_
+bias` in the SAME write — the one real coherence hazard here (nothing
+else in the codebase reads raw `.elevation`; every consumer keys off
+`.biome`, so biome drifting out of sync with elevation would be a
+silent, hard-to-notice bug, not a loud one). Capped to a small
+per-tile-per-week magnitude by design — this reshapes the map over
+real years of play, the same "history becomes physically visible over
+the long run" pace every other scar-shaped mechanism in this codebase
+already uses, not an instant rewrite.
 
 R7 deviation, flagged (docs/CONSTITUTION.md's "new physical-substrate
 code is C++-first" rule): this ships in pure Python, not yet natively
@@ -38,17 +61,22 @@ accumulation algorithm needs to prove itself against real gameplay
 before being locked into a compiled interface that's expensive to
 iterate on further. Computed on a WEEKLY cadence (not per-tick) to keep
 the real-time cost of an un-ported full-grid pass bounded in the
-meantime — see `SimulationEngine._maybe_tick_hydrology`. Port to C++
-once the shape is confirmed live, following `cpp/src/soil_fertility.
-cpp`'s precedent exactly (same "prove Python correctness first, then
-mirror the exact math into C++" discipline already used elsewhere in
-this codebase for a from-scratch mechanism)."""
+meantime — see `World._tick_disasters`. Port to C++ once the shape is
+confirmed live, following `cpp/src/soil_fertility.cpp`'s precedent
+exactly (same "prove Python correctness first, then mirror the exact
+math into C++" discipline already used elsewhere in this codebase for
+a from-scratch mechanism). Erosion's own elevation-write call goes
+through the exact same `TerrainGrid`/`TerrainRow` storage API every
+other terrain mutator (`terrain_evolution.py`, `hydrology.py`,
+`disasters.py`) already uses — no new native-vs-fallback equivalence
+risk beyond what those modules already carry, since the storage layer
+itself was proven at v0.74.1, not by this pass."""
 from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
 
-from hearthmind.world.terrain import Biome, Tile
+from hearthmind.world.terrain import Biome, Tile, classify_with_bias
 
 MOISTURE_MIN = 0.0
 MOISTURE_MAX = 1.0
@@ -80,43 +108,120 @@ established for building wear."""
 _ADJACENT_4 = ((0, -1), (0, 1), (-1, 0), (1, 0))
 _WATER_BIOMES = frozenset({Biome.DEEP_WATER, Biome.SHALLOW_WATER, Biome.RIVER})
 
+GROUNDWATER_MIN = 0.0
+GROUNDWATER_MAX = 1.0
+GROUNDWATER_DEFAULT = 0.3
+"""A never-farmed, non-water tile's starting groundwater — moderate,
+not empty or full, matching `MOISTURE_DEFAULT`'s own "real room to move
+either way" reasoning."""
+
+GROUNDWATER_INFILTRATION_THRESHOLD = 0.6
+GROUNDWATER_INFILTRATION_FRACTION = 0.08
+"""A land tile whose surface `moisture` (post-`tick_hydrology`) is
+above this threshold infiltrates this fraction of the excess into
+groundwater each week — real rain "sinking in" once the surface is
+already wet enough for it, not siphoning off a dry tile's own scant
+moisture."""
+
+GROUNDWATER_SEEP_THRESHOLD = 0.3
+GROUNDWATER_SEEP_FRACTION = 0.05
+"""A land tile whose surface `moisture` is below this threshold draws
+this fraction of the CURRENT groundwater deficit-to-threshold back out
+of groundwater into surface moisture each week — the base-flow/spring
+effect: a tile with a full groundwater reserve resists drying out as
+fast as one with none, even though both show the same surface
+moisture reading right now."""
+
+GROUNDWATER_PERCOLATION_LOSS = 0.01
+"""Small constant weekly drain applied to every land tile's groundwater
+regardless of infiltration/seep — water sinking below the reachable
+zone entirely. Without this, groundwater would only ever ratchet
+upward under any positive infiltration, never settling to a real
+equilibrium."""
+
+EROSION_MOISTURE_THRESHOLD = 0.55
+"""A tile's surface `moisture` (post-`tick_hydrology`) must be at or
+above this to erode at all this week — erosion needs genuine flow, not
+just ambient dampness. Land well below this threshold never erodes,
+regardless of slope."""
+
+EROSION_RATE = 0.05
+"""Fraction of the elevation excess to a tile's lowest orthogonal
+neighbor moved per week, for a tile that clears `EROSION_MOISTURE_
+THRESHOLD` — same "fraction of the excess, not the excess itself"
+shape as `MOISTURE_FLOW_FRACTION`."""
+
+EROSION_MAX_DELTA_PER_TILE_PER_WEEK = 0.01
+"""Hard cap on how much a single tile's elevation can change in one
+week, regardless of how large the computed excess/rate would otherwise
+allow — keeps erosion a "the map visibly reshapes over real years of
+play" mechanism, not an overnight rewrite. Elevation spans 0..1 across
+eight biome bands (`classify_with_bias`), so this caps roughly one
+biome-band crossing to several real years of sustained erosive
+conditions at one tile, not less."""
+
 
 @dataclass
 class HydrologyField:
-    """A single per-tile surface-moisture value for every tile on the
-    map. Water-biome tiles are always pinned to `MOISTURE_MAX` (they
-    ARE the water, not land holding moisture) — everything else is a
-    real, continuously-updated quantity."""
+    """Per-tile surface-moisture (`moisture`) and subsurface-reservoir
+    (`groundwater`) values for every tile on the map. Water-biome tiles
+    are always pinned to `MOISTURE_MAX` (they ARE the water, not land
+    holding moisture) — everything else is a real, continuously-updated
+    quantity. `groundwater` is not pinned for water tiles — a lake/
+    river bed still has a real subsurface reservoir underneath it,
+    distinct from the surface water itself."""
 
     moisture: list[list[float]] = field(default_factory=list)
+    groundwater: list[list[float]] = field(default_factory=list)
 
     def at(self, x: int, y: int) -> float:
         if 0 <= y < len(self.moisture) and 0 <= x < len(self.moisture[y]):
             return self.moisture[y][x]
         return MOISTURE_DEFAULT
 
+    def groundwater_at(self, x: int, y: int) -> float:
+        if 0 <= y < len(self.groundwater) and 0 <= x < len(self.groundwater[y]):
+            return self.groundwater[y][x]
+        return GROUNDWATER_DEFAULT
+
     def average(self) -> float:
         flat = [v for row in self.moisture for v in row]
         return sum(flat) / len(flat) if flat else MOISTURE_DEFAULT
 
+    def average_groundwater(self) -> float:
+        flat = [v for row in self.groundwater for v in row]
+        return sum(flat) / len(flat) if flat else GROUNDWATER_DEFAULT
+
     def to_dict(self) -> dict:
-        return {"moisture": [list(row) for row in self.moisture]}
+        return {
+            "moisture": [list(row) for row in self.moisture],
+            "groundwater": [list(row) for row in self.groundwater],
+        }
 
     @classmethod
     def from_dict(cls, data: dict) -> "HydrologyField":
-        return cls(moisture=[list(row) for row in data.get("moisture", [])])
+        moisture = [list(row) for row in data.get("moisture", [])]
+        groundwater = [list(row) for row in data.get("groundwater", [])]
+        if not groundwater and moisture:
+            # Legacy pre-groundwater snapshot: backfill at the default,
+            # same "derived state gets rebuilt on load" treatment
+            # `create_hydrology_field` already gives a brand-new world.
+            groundwater = [[GROUNDWATER_DEFAULT] * len(row) for row in moisture]
+        return cls(moisture=moisture, groundwater=groundwater)
 
 
 def create_hydrology_field(terrain: list[list[Tile]]) -> HydrologyField:
     """Seeds the field at world-creation time (or silently backfilled
     on loading a pre-A11 snapshot, same "derived state gets rebuilt on
     load" treatment as `_biome_counts_cache`) — water tiles start
-    saturated, everything else at `MOISTURE_DEFAULT`."""
+    saturated, everything else at `MOISTURE_DEFAULT`/`GROUNDWATER_
+    DEFAULT`."""
     moisture = [
         [MOISTURE_MAX if tile.biome in _WATER_BIOMES else MOISTURE_DEFAULT for tile in row]
         for row in terrain
     ]
-    return HydrologyField(moisture=moisture)
+    groundwater = [[GROUNDWATER_DEFAULT for _ in row] for row in terrain]
+    return HydrologyField(moisture=moisture, groundwater=groundwater)
 
 
 def tick_hydrology(
@@ -174,3 +279,100 @@ def tick_hydrology(
             if terrain[y][x].biome in _WATER_BIOMES:
                 continue
             grid[y][x] = max(MOISTURE_MIN, min(MOISTURE_MAX, grid[y][x] + deltas[y][x]))
+
+
+def tick_groundwater(field: HydrologyField, terrain: list[list[Tile]]) -> None:
+    """One weekly step, called immediately after `tick_hydrology` (reads
+    its already-updated `field.moisture`): infiltration on wet land ->
+    seep-back (base flow) on dry land -> constant percolation loss.
+    Mutates `field.groundwater` in place. Land only — water-biome tiles
+    still carry a real subsurface reservoir underneath them (not pinned
+    the way surface `moisture` is), so this runs over every tile."""
+    height = len(terrain)
+    width = len(terrain[0]) if height else 0
+    if width == 0 or height == 0:
+        return
+    moisture = field.moisture
+    ground = field.groundwater
+    for y in range(height):
+        for x in range(width):
+            m = moisture[y][x]
+            g = ground[y][x]
+            if m >= GROUNDWATER_INFILTRATION_THRESHOLD:
+                infiltrated = (m - GROUNDWATER_INFILTRATION_THRESHOLD) * GROUNDWATER_INFILTRATION_FRACTION
+                g += infiltrated
+                moisture[y][x] = max(MOISTURE_MIN, m - infiltrated)
+            elif m < GROUNDWATER_SEEP_THRESHOLD and g > GROUNDWATER_MIN:
+                seep = min(g, (GROUNDWATER_SEEP_THRESHOLD - m)) * GROUNDWATER_SEEP_FRACTION
+                g -= seep
+                moisture[y][x] = min(MOISTURE_MAX, m + seep)
+            ground[y][x] = max(GROUNDWATER_MIN, min(GROUNDWATER_MAX, g - GROUNDWATER_PERCOLATION_LOSS))
+
+
+def tick_erosion(
+    field: HydrologyField, terrain: list[list[Tile]], rng: random.Random,
+) -> list[tuple[int, int]]:
+    """One weekly step, called immediately after `tick_hydrology` (reads
+    its already-updated `field.moisture` to decide which tiles are
+    genuinely carrying flow this week). Reuses `tick_hydrology`'s own
+    steepest-descent neighbor-finding: a wet-enough land tile moves a
+    small, capped, mass-conserving fraction of its elevation excess to
+    its lowest orthogonal neighbor, skipping any tile whose lowest
+    neighbor is pinned water/RIVER (siltation into standing water is
+    out of scope, see module docstring). Mutates `terrain` in place via
+    the normal `Tile`-replacement pattern every other terrain mutator
+    in this codebase already uses, re-deriving biome via `classify_
+    with_bias` whenever elevation crosses a real threshold. Returns the
+    list of `(x, y)` positions whose BIOME changed as a result (for
+    narration/UI — most weeks this is empty; erosion is gradual by
+    design). `rng` is accepted for interface symmetry with the rest of
+    this domain (unused today — deterministic given `field`/`terrain`,
+    same as `tick_hydrology`)."""
+    height = len(terrain)
+    width = len(terrain[0]) if height else 0
+    if width == 0 or height == 0:
+        return []
+
+    moisture = field.moisture
+    deltas = [[0.0] * width for _ in range(height)]
+    for y in range(height):
+        for x in range(width):
+            if terrain[y][x].biome in _WATER_BIOMES or moisture[y][x] < EROSION_MOISTURE_THRESHOLD:
+                continue
+            lowest_pos = None
+            lowest_elevation = terrain[y][x].elevation
+            for dx, dy in _ADJACENT_4:
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < width and 0 <= ny < height and terrain[ny][nx].elevation < lowest_elevation:
+                    lowest_elevation = terrain[ny][nx].elevation
+                    lowest_pos = (nx, ny)
+            if lowest_pos is None:
+                continue
+            nx, ny = lowest_pos
+            if terrain[ny][nx].biome in _WATER_BIOMES:
+                continue
+            excess = terrain[y][x].elevation - terrain[ny][nx].elevation
+            if excess <= 0:
+                continue
+            transfer = min(excess * EROSION_RATE, EROSION_MAX_DELTA_PER_TILE_PER_WEEK)
+            deltas[y][x] -= transfer
+            deltas[ny][nx] += transfer
+
+    changed: list[tuple[int, int]] = []
+    for y in range(height):
+        for x in range(width):
+            delta = deltas[y][x]
+            if delta == 0.0:
+                continue
+            tile = terrain[y][x]
+            new_elevation = max(0.0, min(1.0, tile.elevation + delta))
+            new_biome = classify_with_bias(new_elevation)
+            if new_biome in _WATER_BIOMES or tile.biome in _WATER_BIOMES:
+                # Erosion never drowns a land tile into a water biome or
+                # dries out water outright — that's hydrology.py's
+                # river/lake carving's job, not this gradual mechanism's.
+                new_biome = tile.biome
+            terrain[y][x] = Tile(x=x, y=y, elevation=new_elevation, biome=new_biome)
+            if new_biome != tile.biome:
+                changed.append((x, y))
+    return changed
