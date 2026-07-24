@@ -4,6 +4,38 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.4] — Ten live-diagnostic findings folded into roadmap as Tier 0.5 (docs only)
+
+Explicit user request: fold ten specific live-run observations
+(Reflection/Nature pillar cadence, LLM call-volume/reasoning-tier
+audits, rule-generation malformed JSON, social-scaling limits,
+cumulative-culture strengthening, belief life cycle, cognition-level
+"why" diagnostics, long-horizon memory consolidation) into the current
+roadmap. Docs-only.
+
+Filed as a new **Tier 0.5** in `docs/ROADMAP-2026-07-REMAINING.md`,
+positioned right after Tier 0 and before Tier 1 — these are
+correctness/tuning questions about systems Tier 0 already targets
+(pillar cadence) plus A9-shaped audit items, cheaper and more urgent
+than starting Tier 1's substrate work. Every item carries the user's
+own explicit hard-stop constraint: no change may degrade cognition or
+sentience quality, full stop.
+
+Grounded each item against real prior code/history rather than
+restating the request verbatim: D1/D2 (Reflection/Nature cadence)
+cross-referenced against v1.23.1's own prior diagnosis (B2's observe/
+interpret halving, "cold-start latency, not a bug" — but this new
+report describes a MUCH longer run still showing the same symptom,
+so re-investigation is warranted, not an assumed-solved rehash). D5
+(rule-generation malformed JSON) confirmed as a real gap by direct
+code check: `rule_proposal` has no entry in `llm/json_schemas.py`'s
+constrained-decoding set, unlike the eleven tasks FT.0 already
+covers. D6/D8/D9 cross-referenced against real overlapping in-flight
+work (Tier 3's A16 graph-algorithms and B8's un-shipped reinforce/
+reinterpret, Tier 5's B10 spatial locality and B5.4 "explain this
+tick") so a future pass doesn't design the same mechanism twice under
+two different names.
+
 ## [1.34.3] — HearthBench & Adaptive Runtime checklist folded into roadmap (docs only)
 
 Explicit user request: fold an uploaded checklist

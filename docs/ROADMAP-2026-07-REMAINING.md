@@ -75,6 +75,137 @@ tier is arbitrary.
    omens, culture jobs, festival, religion, laws, diplomacy, letters,
    fission, caravan, faction, guild_founding, rule_proposal, etc.).
 
+**Tier 0.5 — live-diagnostic findings from a real long-running world
+(filed v1.34.3, explicit user report)**, sequenced right after Tier 0
+and before Tier 1: these are correctness/tuning questions about
+systems Tier 0 already targets (pillar cadence) plus a few cheap-
+audit-shaped findings in A9's own spirit, not new features — cheaper
+and more urgent than starting Tier 1's substrate work. **Every item
+below carries the user's own explicit constraint: if a change would
+degrade cognition or sentience quality, don't make it** — investigate
+first, only land a fix once it's confirmed genuinely free.
+
+D1. **Reflection pillar not accumulating evidence.** A live report:
+    "not yet meaningfully active despite a long simulation." Already
+    partly diagnosed once before (v1.23.1, a shorter-run report): B2's
+    observe/interpret cycling halves real call volume, so Reflection's
+    year_end cadence needs ~2 year boundaries even in the best case
+    (~70k ticks was the v1.23.1 estimate) before its first real
+    interpret turn resolves — that pass's fix was "make the cold-start
+    latency visible, don't change the cadence" (`Pillar.turns_
+    processed` + the dev-console panel), an explicit user decision at
+    the time. This new report describes a MUCH longer run still
+    showing it "almost empty" — re-investigate whether cold-start
+    latency alone actually explains this, or whether `_detect_
+    reflection_pattern`'s own signal thresholds are separately too
+    strict for a hypothesis to ever form even once interpret turns
+    are firing. Fix, if any, should widen the evidence funnel
+    (thresholds, what counts as a pattern) rather than force premature
+    conclusions — the user's own framing ("avoiding premature
+    conclusions") rules out just lowering the bar carelessly.
+D2. **Nature pillar progressing much slower than the other four.**
+    Same B2 halving applies (`_maybe_schedule_nature_mind`'s
+    season_end cadence), but Nature's OWN gating (belief-formation
+    frequency, what NATURE_EVENT_CATEGORIES counts as material) may
+    independently be starving it relative to Village/Humans/
+    Innovation, which don't share Nature's dependency on wildlife/
+    disaster/climate events specifically. Investigate whether Nature's
+    real bottleneck is the shared B2 cadence (in which case D1's fix
+    helps both) or something Nature-specific.
+D3. **Reduce unnecessary continuous-cadence LLM calls where event/
+    milestone-driven is equivalent.** A direct precursor to Tier 5's
+    Runtime Hard Rule 3 ("event-driven, not polling") but scoped to
+    what's cheaply reviewable in the CURRENT architecture, not waiting
+    on the full Adaptive Runtime. Audit every `_maybe_schedule_*` job's
+    trigger: which ones already gate on a real state change (most do,
+    via backpressure/roll chances) vs. which fire purely because a
+    calendar boundary passed regardless of whether anything material
+    happened since the last firing. **User's explicit constraint: any
+    conversion that would degrade cognition/sentience quality is a
+    hard stop, not a tradeoff to weigh.**
+D4. **Justify every `deep_reasoning=True` job individually, don't
+    assume all high-level cognition needs it.** v1.3.37 flagged ~20
+    tasks `deep_reasoning=True` (belief revision, major life decisions,
+    council deliberation, town consciousness, cultural evolution,
+    invention, self-tuning) in one batch, reasoning "reallocate freed
+    budget toward tasks that need genuine sentience/intelligence." That
+    batch justified the CATEGORY, not each task independently. Review
+    each site's actual measured latency/quality delta with vs. without
+    reasoning (the recorder/review-pack tooling already captures
+    `reasoning_calls_*` diagnostics for exactly this) and demote any
+    task where a live measurement shows no real quality loss.
+    **Same hard stop: don't demote a task if it visibly degrades
+    output quality, even if it's faster.**
+D5. **Rule-generation (`_maybe_schedule_rule_proposal`, `llm/rule_
+    proposal.py`) occasionally produces malformed JSON.** Confirmed
+    real gap: `rule_proposal` has no entry in `llm/json_schemas.py`'s
+    constrained-decoding set (FT.0, v1.3.12) — it's one of the
+    remaining unconstrained tasks, same class of bug FT.0 fixed for
+    the eleven highest-volume tasks at the time. Give it a real JSON
+    Schema (same `TriggerRule`/hook-type closed vocabulary the parser
+    already validates against post-hoc) so malformed output becomes
+    sampler-level near-impossible, not just retried/repaired after the
+    fact.
+D6. **Social scaling beyond several hundred/one thousand villagers.**
+    Every agent currently has O(population) potential social surface
+    (relationships/trust/debts dicts keyed by any other agent id, no
+    locality partition) — realistic at a few hundred, implausible at a
+    thousand+. Needs a real neighborhood/district/institution layer
+    that BOUNDS an individual's implicit social awareness to people
+    they'd plausibly know, with existing institutions (FAMILY/COUNCIL/
+    GUILD) and factions as natural building blocks already in place.
+    Real overlap with Tier 3 item 22 (A16, trade/tech/information as
+    graph algorithms) and Tier 5's B10 (spatial locality partitioning)
+    — this item is the SOCIAL-graph-locality counterpart to B10's
+    spatial one, and probably belongs paired with it rather than
+    solved twice independently.
+D7. **Strengthen cumulative-culture feedback loops** (beliefs,
+    inventions, traditions, institutions building on each other, not
+    staying independent). A live report already confirms encouraging
+    cumulative culture forming organically — this is "do more of what's
+    already working," not a gap-fix. Real continuation of Tier 0's
+    pillar-wiring work (more jobs feeding pillar `world_model`/memory,
+    inter-pillar messages referencing prior culture) and A17
+    (`world/memetics.py`'s propagation-weight primitive, still only
+    wired into ontology-concept spread, not rumor/tradition/belief/
+    song/technique per Tier 2 item 14).
+D8. **Village-level theories' life cycle: do they ever expire, weaken,
+    merge, or get accepted, or only accumulate?** `Settlement.beliefs`
+    forms/revises but has no explicit "this became settled fact" or
+    "this quietly faded" terminal state the way `InventedConcept` has
+    `established`/`retired` (A8's evaluate+select step, v1.19.0) or
+    `ReflectionEntry` has `supported`/`rejected`/`superseded`. Real
+    overlap with Tier 3 item 24 (B8's un-shipped `reinforce`/
+    `reinterpret`, needing per-note salience/access tracking) — a
+    belief life cycle and B8's memory life cycle are close enough in
+    shape that they should probably share a mechanism, not be designed
+    twice.
+D9. **Diagnostics should explain WHY a cognitive event happened, not
+    just THAT it happened.** When a belief/invention/tradition forms,
+    show which observations/memories/historical events actually fed
+    that specific call's prompt — the recorder already captures
+    `structured_input`/`context_snapshot` per call (v1.3.0's Context
+    Influence work), so this is largely a SURFACING gap (a per-event
+    "why this happened" reconstruction reading already-captured data),
+    not new instrumentation. Real sibling of Tier 5's B5.4 "explain
+    this tick" (execution-level why) — this is the cognition-level
+    counterpart (semantic-level why); worth building with shared
+    presentation conventions when both exist, not required to wait for
+    B5.4 itself.
+D10. **Memory consolidation over extremely long runs: still bounded
+     and still preserving what matters?** `Pillar.consolidate()` (B8),
+     `Agent.memories`' salience-based eviction, `Settlement.belief_
+     digest`/`culture_digest`, and event-log/metrics-table retention
+     are all real, already-shipped consolidation mechanisms — this
+     item is a RE-VERIFICATION at much longer horizons than they were
+     originally tuned/tested against (the project's longest soaks to
+     date are ~20k ticks; "extremely long" live reports are pushing
+     past that), not a new mechanism. Check whether any of these caps/
+     thresholds need retuning at real multi-hundred-thousand-tick
+     scale, and whether `Pillar.consolidate()`'s digest-of-a-digest
+     folding (repeated consolidation cycles) still reads coherently
+     after many rounds rather than degrading into mush.
+
 **Tier 1 — substrate items other systems will lean on**
 1. **A9** — feedback-loop audit. **Done, v1.34.0** — see its full
    entry below for findings/fixes/follow-ups.

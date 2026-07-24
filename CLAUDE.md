@@ -527,6 +527,22 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.4)
+
+Explicit user request, docs-only: fold ten live-diagnostic findings
+(Reflection/Nature pillar cadence, LLM call-volume/reasoning-tier
+audits, rule-generation malformed JSON, social scaling, cumulative-
+culture strengthening, belief life cycle, cognition-level "why"
+diagnostics, long-horizon memory consolidation) into the roadmap as a
+new Tier 0.5 (right after Tier 0, before Tier 1) — cheaper/more
+urgent than Tier 1's substrate work, and each carries an explicit
+user hard-stop: no change may degrade cognition/sentience quality.
+D1/D2 cross-reference v1.23.1's prior "cold-start latency, not a bug"
+diagnosis for re-investigation (this new report describes a much
+longer run with the same symptom). D5 confirmed as a real gap:
+`rule_proposal` has no `json_schemas.py` entry, unlike FT.0's eleven
+covered tasks. Full detail: CHANGELOG.md's [1.34.4] entry.
+
 ## Current state (v1.34.3)
 
 Explicit user request, docs-only: fold an uploaded checklist
