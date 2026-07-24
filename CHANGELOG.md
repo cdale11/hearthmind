@@ -4,6 +4,78 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.25] — A3: rivers re-carving their course via erosion
+
+Explicit user instruction: "Continue roadmap" — A3 (docs/ROADMAP-2026-
+07-REMAINING.md, Tier 2 item 5), unblocked now that A11's erosion
+(v1.34.23) made `Tile.elevation` a real, actively-written value rather
+than a static one.
+
+Rivers were carved once at world genesis (`hydrology.generate_
+rivers`) by steepest-descent from a handful of high-elevation sources,
+then left static — the module's own docstring said as much. Since
+erosion now genuinely reshapes elevation over real time, a river's
+actual course should genuinely reshape with it.
+
+New `hydrology.river_sources_used(seed, terrain)`: the exact
+deterministic source-position list `generate_rivers` carves from,
+factored out so it can be captured ONCE at genesis (`World.river_
+sources`) and reused for every future re-carve — re-deriving sources
+from current terrain later would drift if erosion has since changed
+the biome at a source position, so this persists the ORIGIN points,
+not the terrain reading that chose them.
+
+New `hydrology.recarve_rivers(sources, terrain, river_tiles_before,
+settlements, farms, excluded)`: re-walks each source by the identical
+steepest-descent rule against CURRENT elevation. A tile the new walk
+no longer visits reverts to whatever biome its current elevation
+actually classifies as (`classify_with_bias`) — a river that's moved
+on leaves dry former riverbed behind, not lingering phantom water. A
+newly-visited tile becomes `Biome.RIVER`. Never touches a developed
+tile (standing building/vehicle/farm) in either direction — same
+`_is_developed` discipline `apply_climate_drift` already applies
+(imported directly from `terrain_evolution.py`, no circular-import
+risk); a developed tile that would otherwise revert instead just
+stays classified as river, since no mechanic exists to un-found a
+building the river moved away from.
+
+Wired into `World._tick_terrain`'s `month_end` block, right after
+climate drift — monthly, since erosion itself only moves a capped
+amount per WEEK, so re-walking more often would mostly just reconfirm
+the same course. New `World.river_tiles`/`river_sources` persisted
+state (both captured at genesis in `create_new`, backfilled on legacy
+snapshots — either re-derived from a pre-A3 save that already has
+`lakes`/`Biome.RIVER` tiles carved, or generated fresh alongside lakes
+for a truly pre-hydrology-pass snapshot, neither path a narrated
+migration event since this is background bookkeeping). New `World.
+river_tiles_shifted_total` counter, `river_recarved` event category
+(added to `TERRAIN_CHANGING_CATEGORIES` so the client map resyncs).
+UI: the existing "Erosion" stat tile extended to also report riverbed
+shift count.
+
+Verified: `ast.parse()`/`node --check` clean; direct smoke tests —
+recarving unchanged terrain reproduces the identical river tiles
+byte-for-byte (determinism), a genuine elevation reshape shifts the
+course to different tiles while correctly reclassifying abandoned
+tiles away from `Biome.RIVER`, a dramatic elevation drop redirects a
+river straight into new standing water (a real, correct terminal
+case, not a bug — caught during test design when an overly aggressive
+first test edit produced an empty result and needed to be understood
+before being called a failure), a developed tile is never reverted
+even when excluded, and re-running against an already-stable course
+is a genuine no-op; a real 4000-tick engine run confirmed both
+`river_tiles`/`river_sources` persist correctly through a full
+`World.to_dict`/`from_dict` round-trip via the actual production tick
+path; both legacy-backfill branches (a snapshot with `lakes` already
+present, and a fully pre-hydrology-pass snapshot without `lakes`
+either) tested directly and confirmed to derive sensible state without
+crashing; `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical — no native module touched, same as A11.
+
+This closes A3. Settlements/cultures still evolving via LLM rather
+than deterministic procgen remains open, flagged in the item's own
+roadmap entry as an arguably-correct design question, not a gap.
+
 ## [1.34.24] — A1/A2: disease_pressure field + its diffusion consumer
 
 Explicit user instruction: "Start A1 and A2" — docs/ROADMAP-2026-07-

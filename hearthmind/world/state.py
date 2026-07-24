@@ -49,7 +49,9 @@ from hearthmind.world.disasters import (
     tick_storm,
     tick_wildfire,
 )
-from hearthmind.world.hydrology import LakeState, generate_rivers, identify_lakes, tick_lakes
+from hearthmind.world.hydrology import (
+    LakeState, generate_rivers, identify_lakes, recarve_rivers, river_sources_used, tick_lakes,
+)
 from hearthmind.world.hydrology_field import (
     HydrologyField, create_hydrology_field, tick_erosion, tick_groundwater, tick_hydrology,
 )
@@ -118,7 +120,7 @@ way every other confidence-shaped value in this project is."""
 TERRAIN_CHANGING_CATEGORIES = frozenset({
     "terrain_thinned", "terrain_reclaimed", "climate_drift",
     "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
-    "mining_scarred", "disaster_scarred", "building_reclaimed", "terrain_eroded",
+    "mining_scarred", "disaster_scarred", "building_reclaimed", "terrain_eroded", "river_recarved",
 })
 """Life-event categories that mean at least one tile's biome changed
 this tick. Canonical home for this set (it used to live only in
@@ -154,9 +156,19 @@ class World:
     lakes: list[LakeState] = field(default_factory=list)
     """Inland water bodies identified at world creation (world/hydrology.py)
     — distinct from the map-edge ocean, each with its own slowly-changing
-    water level. Rivers don't need an equivalent list: they're carved once
-    into `terrain` as Biome.RIVER tiles and persist through terrain's own
-    (de)serialization with no extra state to track."""
+    water level."""
+    river_tiles: set[tuple[int, int]] = field(default_factory=set)
+    """A3 "rivers re-carving their course": the set of tiles currently
+    classified Biome.RIVER — needed as an explicit set (not re-derived
+    by scanning `terrain` for the RIVER biome each time) because
+    `recarve_rivers` (`world/hydrology.py`) needs to know exactly which
+    tiles to revert when a river's course shifts away from them."""
+    river_sources: list[tuple[int, int]] = field(default_factory=list)
+    """The exact source positions rivers were carved from at genesis
+    (`hydrology.river_sources_used`) — persisted rather than re-derived,
+    since erosion can change the biome AT a source position over time,
+    and `recarve_rivers` must always re-walk from the SAME starting
+    points regardless."""
     disasters: DisasterState = field(default_factory=DisasterState)
     """Flood pressure/active-flood tiles and any in-progress wildfire —
     see world/disasters.py."""
@@ -545,6 +557,12 @@ class World:
     branch compares against `disasters.WILDFIRE_CHANCE_PER_WEEK`'s own
     theoretical rate to notice a real, sustained drift (vision doc item
     1.4's own example: "wildfires feel too rare to matter")."""
+    river_tiles_shifted_total: int = 0
+    """A3 "rivers re-carving their course": cumulative count of tile-
+    months where a river's course genuinely shifted (a tile joined or
+    left the current `river_tiles` set) — same monotonic-counter shape
+    as `tiles_eroded_total`, surfaced via `summary()`'s `hydrology`
+    block."""
     tiles_eroded_total: int = 0
     """A11 erosion (`world/hydrology_field.py`'s `tick_erosion`):
     cumulative count of tile-weeks where a tile's BIOME changed as a
@@ -663,7 +681,8 @@ class World:
         terrain = TerrainGrid.from_nested(
             generate_terrain(seed=config.seed, width=config.width, height=config.height)
         )
-        generate_rivers(seed=config.seed, terrain=terrain)
+        river_sources = river_sources_used(config.seed, terrain)
+        river_tiles = generate_rivers(seed=config.seed, terrain=terrain)
         lakes = identify_lakes(terrain)
         hydrology_field = create_hydrology_field(terrain)
         weather = compute_weather(seed=config.seed, tick=0, month=clock.month_name.lower(), previous=None)
@@ -682,7 +701,7 @@ class World:
             config=config, clock=clock, terrain=terrain, weather=weather,
             population=population, resources=resources, settlements=settlements, farms=farms,
             wildlife=wildlife, roads=roads, lakes=lakes, minerals=minerals,
-            hydrology_field=hydrology_field,
+            hydrology_field=hydrology_field, river_tiles=river_tiles, river_sources=river_sources,
         )
 
     # --- tick --------------------------------------------------------------
@@ -908,6 +927,26 @@ class World:
             events += apply_climate_drift(
                 self.terrain, self.climate, self.settlements, self.farms, occupied_tiles, climate_rng,
             )
+            # A3 "rivers re-carving their course": monthly, same cadence
+            # as climate drift — erosion itself only moves a small,
+            # capped amount of elevation per WEEK (hydrology_field.py's
+            # tick_erosion), so re-walking the river path more often
+            # than monthly would just re-confirm the same course almost
+            # every time.
+            if self.river_sources:
+                new_river_tiles = recarve_rivers(
+                    self.river_sources, self.terrain, self.river_tiles,
+                    self.settlements, self.farms, occupied_tiles,
+                )
+                shifted = len(new_river_tiles ^ self.river_tiles)
+                if shifted:
+                    self._biome_counts_cache = None
+                    self.river_tiles_shifted_total += shifted
+                    events.append((
+                        "river_recarved",
+                        f"{shifted} tile{'s' if shifted != 1 else ''} of riverbed shifted course this month.",
+                    ))
+                self.river_tiles = new_river_tiles
 
         return events
 
@@ -1007,6 +1046,7 @@ class World:
                 "avg_moisture": round(self.hydrology_field.average(), 3),
                 "avg_groundwater": round(self.hydrology_field.average_groundwater(), 3),
                 "tiles_eroded_recorded": self.tiles_eroded_total,
+                "river_tiles_shifted_recorded": self.river_tiles_shifted_total,
             },
             "nature_beliefs": [
                 {"subject": b["subject"], "belief": b["belief"], "confidence": b["confidence"]}
@@ -1264,6 +1304,8 @@ class World:
             "roads": self.roads.to_dict(),
             "climate": self.climate.to_dict(),
             "lakes": [lake.to_dict() for lake in self.lakes],
+            "river_tiles": [list(pos) for pos in self.river_tiles],
+            "river_sources": [list(pos) for pos in self.river_sources],
             "hydrology_field": self.hydrology_field.to_dict(),
             "disasters": self.disasters.to_dict(),
             "terrain_activity": {f"{x}:{y}": v for (x, y), v in self.terrain_activity.items()},
@@ -1324,6 +1366,7 @@ class World:
             "next_reflection_entry_id": self.next_reflection_entry_id,
             "wildfire_ignition_ticks": list(self.wildfire_ignition_ticks),
             "tiles_eroded_total": self.tiles_eroded_total,
+            "river_tiles_shifted_total": self.river_tiles_shifted_total,
             "governor_tuning": dict(self.governor_tuning),
             "self_tuning_actions": list(self.self_tuning_actions),
             "advisory_proposals": list(self.advisory_proposals),
@@ -1450,14 +1493,41 @@ class World:
 
         if "lakes" in data:
             lakes = [LakeState.from_dict(entry) for entry in data["lakes"]]
+            river_sources_from_lakes_branch = None
+            river_tiles_from_lakes_branch = None
         else:
             # Pre-hydrology-pass snapshot: carve rivers into the existing
             # terrain and identify lakes now, same one-time-backfill shape
             # as every other subsystem here — real geography added to a
             # world already in progress, not guessed at retroactively.
-            generate_rivers(seed=config.seed, terrain=terrain)
+            river_sources_from_lakes_branch = river_sources_used(config.seed, terrain)
+            river_tiles_from_lakes_branch = generate_rivers(seed=config.seed, terrain=terrain)
             lakes = identify_lakes(terrain)
             migrated_subsystems.append("lakes")
+
+        if "river_sources" in data:
+            river_sources = [tuple(pos) for pos in data["river_sources"]]
+        elif river_sources_from_lakes_branch is not None:
+            river_sources = river_sources_from_lakes_branch
+        else:
+            # A3 "rivers re-carving their course": silent backfill, same
+            # derived-state treatment as `hydrology_field` below — a
+            # snapshot from before this feature already has real
+            # Biome.RIVER tiles carved into `terrain` (from the "lakes"
+            # backfill above, or from a normal pre-A3 create_new), just
+            # no persisted source list. Re-deriving from CURRENT terrain
+            # is a graceful approximation, not exact, if erosion has
+            # already reshaped a source tile's biome by the time this
+            # snapshot was saved — acceptable degradation for a legacy
+            # save, not a narrated migration event.
+            river_sources = river_sources_used(config.seed, terrain)
+
+        if "river_tiles" in data:
+            river_tiles = {tuple(pos) for pos in data["river_tiles"]}
+        elif river_tiles_from_lakes_branch is not None:
+            river_tiles = river_tiles_from_lakes_branch
+        else:
+            river_tiles = {(t.x, t.y) for row in terrain for t in row if t.biome is Biome.RIVER}
 
         if "hydrology_field" in data:
             hydrology_field = HydrologyField.from_dict(data["hydrology_field"])
@@ -1507,6 +1577,7 @@ class World:
             population=population, resources=resources, settlements=settlements, farms=farms,
             wildlife=wildlife, roads=roads, climate=climate, lakes=lakes, disasters=disasters,
             minerals=minerals, hydrology_field=hydrology_field,
+            river_tiles=river_tiles, river_sources=river_sources,
             terrain_activity=terrain_activity,
             mining_scars=mining_scars,
             disaster_scars=disaster_scars,
@@ -1587,6 +1658,7 @@ class World:
             next_reflection_entry_id=data.get("next_reflection_entry_id", 1),
             wildfire_ignition_ticks=list(data.get("wildfire_ignition_ticks", [])),
             tiles_eroded_total=data.get("tiles_eroded_total", 0),
+            river_tiles_shifted_total=data.get("river_tiles_shifted_total", 0),
             governor_tuning=dict(data.get("governor_tuning", {})),
             self_tuning_actions=list(data.get("self_tuning_actions", [])),
             advisory_proposals=list(data.get("advisory_proposals", [])),

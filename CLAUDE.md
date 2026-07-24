@@ -545,6 +545,40 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.25)
+
+Explicit user instruction: "Continue roadmap" — A3 "rivers re-carving
+their course" (docs/ROADMAP-2026-07-REMAINING.md, Tier 2 item 5),
+unblocked by A11's erosion (v1.34.23) actually making `Tile.elevation`
+a live-written value.
+
+New `hydrology.river_sources_used(seed, terrain)` factors out
+`generate_rivers`'s deterministic source-selection so it can be
+captured once at genesis (`World.river_sources`) and reused for every
+future re-carve — sources must stay fixed at their ORIGIN even if
+erosion later changes the biome there. New `hydrology.recarve_rivers`:
+monthly (`World._tick_terrain`'s `month_end` block, alongside climate
+drift), re-walks each source by the same steepest-descent rule against
+CURRENT elevation. A tile no longer on the path reverts to its
+elevation-derived biome (`classify_with_bias`); a newly-visited tile
+becomes `Biome.RIVER`. Developed tiles (building/vehicle/farm) are
+protected both directions, reusing `terrain_evolution.py`'s
+`_is_developed` directly (no circular import). New `World.river_tiles`/
+`river_sources` persisted state (genesis-captured, legacy-backfilled),
+`river_tiles_shifted_total` counter, `river_recarved` event category.
+UI: "Erosion" stat tile extended to also report riverbed shifts.
+
+Verified: direct smoke tests (deterministic reproduction on unchanged
+terrain, genuine course-shift under a real elevation reshape including
+a correct water-terminus edge case caught during test design, reverted
+tiles correctly reclassified, developed-tile protection, idempotence
+on a stable course); a real 4000-tick engine run confirmed a clean
+`World.to_dict`/`from_dict` round-trip through the actual production
+path; both legacy-backfill branches tested directly; `scripts/
+verify_native_soak.py` (2 seeds x 800 ticks) byte-identical. Closes
+A3 — the LLM-vs-procgen settlement/culture question stays flagged
+open, not a gap.
+
 ## Current state (v1.34.24)
 
 Explicit user instruction: "Start A1 and A2" (docs/ROADMAP-2026-07-

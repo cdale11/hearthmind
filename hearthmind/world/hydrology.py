@@ -29,7 +29,8 @@ import random
 from dataclasses import dataclass, field
 
 from hearthmind.util import clamp
-from hearthmind.world.terrain import Biome, Tile
+from hearthmind.world.terrain import Biome, Tile, classify_with_bias
+from hearthmind.world.terrain_evolution import _is_developed
 
 try:
     from hearthmind._native import bounded_random_walk_step as _native_bounded_random_walk_step
@@ -66,22 +67,48 @@ def _hydro_rng(seed: int, namespace: str) -> random.Random:
     return random.Random(int(digest[:16], 16))
 
 
+def river_sources_used(seed: int, terrain: list[list[Tile]]) -> list[tuple[int, int]]:
+    """The exact source positions `generate_rivers` carves from, given
+    the same `(seed, terrain)` — a pure, deterministic function of the
+    map's genesis-time biome layout. Called once at world creation and
+    the result persisted (`World.river_sources`), because A3's re-
+    carving mechanism (`recarve_rivers`, below) needs to re-walk from
+    the SAME starting points every time, regardless of what elevation/
+    biome at those exact positions has since become under erosion — a
+    source tile that erodes from MOUNTAIN into HILLS is still where the
+    river originates, it just may carve a different course from there
+    now."""
+    height = len(terrain)
+    width = len(terrain[0]) if height else 0
+    if width == 0 or height == 0:
+        return []
+    rng = _hydro_rng(seed, "rivers")
+    sources = [(t.x, t.y) for row in terrain for t in row if t.biome in _RIVER_SOURCE_BIOMES]
+    rng.shuffle(sources)
+    num_rivers = max(1, int(width * height * RIVER_SOURCE_TILES_PER_1000 / 1000))
+    return sources[:num_rivers]
+
+
 def generate_rivers(seed: int, terrain: list[list[Tile]]) -> set[tuple[int, int]]:
     """Carves rivers by steepest-descent from randomly chosen high-
     elevation sources. Mutates `terrain` in place, replacing carved
-    tiles' biome with Biome.RIVER. Returns the set of carved positions."""
+    tiles' biome with Biome.RIVER. Returns the set of carved positions.
+
+    A3 (docs/ROADMAP-2026-07-REMAINING.md, "rivers re-carving their
+    course"): the actual SOURCE positions chosen this call are also
+    recoverable via `river_sources_used`, called with the same
+    `(seed, terrain)` right after this — see that function's docstring
+    for why sources need to be captured once, at genesis, rather than
+    re-derived later from a terrain that erosion has since reshaped."""
     height = len(terrain)
     width = len(terrain[0]) if height else 0
     if width == 0 or height == 0:
         return set()
 
-    rng = _hydro_rng(seed, "rivers")
-    sources = [(t.x, t.y) for row in terrain for t in row if t.biome in _RIVER_SOURCE_BIOMES]
-    rng.shuffle(sources)
-    num_rivers = max(1, int(width * height * RIVER_SOURCE_TILES_PER_1000 / 1000))
+    sources = river_sources_used(seed, terrain)
     river_tiles: set[tuple[int, int]] = set()
 
-    for x, y in sources[:num_rivers]:
+    for x, y in sources:
         pos = (x, y)
         visited: set[tuple[int, int]] = set()
         for _ in range(RIVER_MAX_LENGTH):
@@ -106,6 +133,81 @@ def generate_rivers(seed: int, terrain: list[list[Tile]]) -> set[tuple[int, int]
                 break  # nowhere lower to go — local basin, stop carving
             pos = (nx, ny)
     return river_tiles
+
+
+def recarve_rivers(
+    sources: list[tuple[int, int]], terrain: list[list[Tile]], river_tiles_before: set[tuple[int, int]],
+    settlements, farms, excluded: set[tuple[int, int]],
+) -> set[tuple[int, int]]:
+    """A3 "rivers re-carving their course" (docs/ROADMAP-2026-07-
+    REMAINING.md): re-walks each of the world's genesis-time river
+    sources by the exact same steepest-descent rule `generate_rivers`
+    used, but against CURRENT elevation — `world/hydrology_field.py`'s
+    `tick_erosion` genuinely reshapes the land over time now, so a
+    river's actual course should genuinely reshape with it, the same
+    way real rivers migrate as sediment builds up and banks erode.
+
+    A tile that was river before but the new walk no longer visits
+    reverts to whatever biome its CURRENT elevation actually classifies
+    as (`classify_with_bias`) — a river that has genuinely moved on
+    leaves dry former riverbed behind, not lingering phantom water. A
+    newly-visited tile becomes `Biome.RIVER`. Never touches a developed
+    tile (standing building, vehicle, or farm) in EITHER direction —
+    same `_is_developed` discipline `apply_climate_drift` already
+    applies, and the reason a developed tile that would otherwise
+    revert instead just stays classified as river: a farm or building
+    can't spontaneously be un-founded because the river moved away
+    from under it (no mechanic exists for that), so it keeps whatever
+    it already is rather than the map silently disagreeing with itself.
+
+    Deliberately does NOT call `_hydro_rng`/re-derive `sources` itself
+    — `sources` must be `World.river_sources`, captured once at genesis
+    via `river_sources_used`, so re-carving always starts from the same
+    origin points regardless of how much erosion has since changed
+    the biome AT those exact positions."""
+    height = len(terrain)
+    width = len(terrain[0]) if height else 0
+    if width == 0 or height == 0:
+        return set(river_tiles_before)
+
+    new_river_tiles: set[tuple[int, int]] = set()
+    for x, y in sources:
+        if not (0 <= x < width and 0 <= y < height):
+            continue
+        pos = (x, y)
+        visited: set[tuple[int, int]] = set()
+        for _ in range(RIVER_MAX_LENGTH):
+            visited.add(pos)
+            px, py = pos
+            tile = terrain[py][px]
+            if tile.biome in _WATER_BIOMES:
+                break
+            already_carvable = tile.biome in _RIVER_CARVABLE_BIOMES or tile.biome is Biome.RIVER
+            if already_carvable and pos not in new_river_tiles and not _is_developed(px, py, settlements, farms, excluded):
+                new_river_tiles.add(pos)
+            candidates = [
+                (terrain[py + dy][px + dx].elevation, px + dx, py + dy)
+                for dx, dy in _ADJACENT_8
+                if 0 <= px + dx < width and 0 <= py + dy < height and (px + dx, py + dy) not in visited
+            ]
+            if not candidates:
+                break
+            candidates.sort(key=lambda c: c[0])
+            lowest_elevation, nx, ny = candidates[0]
+            if lowest_elevation > tile.elevation:
+                break  # nowhere lower to go — local basin, stop carving
+            pos = (nx, ny)
+
+    for px, py in new_river_tiles - river_tiles_before:
+        tile = terrain[py][px]
+        terrain[py][px] = Tile(x=px, y=py, elevation=tile.elevation, biome=Biome.RIVER)
+    for px, py in river_tiles_before - new_river_tiles:
+        if _is_developed(px, py, settlements, farms, excluded):
+            new_river_tiles.add((px, py))
+            continue
+        tile = terrain[py][px]
+        terrain[py][px] = Tile(x=px, y=py, elevation=tile.elevation, biome=classify_with_bias(tile.elevation))
+    return new_river_tiles
 
 
 @dataclass

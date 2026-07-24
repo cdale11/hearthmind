@@ -189,6 +189,7 @@ const CATEGORY_META = {
   mining_scarred: { icon: "⛏️" },
   disaster_scarred: { icon: "🌋" },
   terrain_eroded: { icon: "🏞️" },
+  river_recarved: { icon: "🌊" },
   composite_reaction: { icon: "💥" },
   // P2.3 (docs/AUDIT-2026-07-20.md): 296/16k events (18%) in a live run —
   // routine background texture already surfaced via the Exploration stat
@@ -218,6 +219,7 @@ const EVENT_GROUP_OF = {
   disaster_storm: "nature", disaster_heatwave: "nature", disaster_frost: "nature",
   lake_rose: "nature", lake_receded: "nature", season_end: "nature", year_end: "nature",
   place_named: "nature", mining_scarred: "nature", disaster_scarred: "nature", terrain_eroded: "nature",
+  river_recarved: "nature",
   chronicle: "mind", documentary: "mind", sim_summary: "mind", tradition: "mind", invention: "mind",
   festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind",
   institution_belief: "mind", ritual_formed: "mind", religion_formed: "mind",
@@ -235,6 +237,7 @@ const TERRAIN_CHANGING_CATEGORIES = new Set([
   "terrain_thinned", "terrain_reclaimed", "climate_drift",
   "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
   "mining_scarred", "disaster_scarred", "building_reclaimed", "terrain_eroded",
+  "river_recarved",
 ]);
 function categoryMeta(category) {
   return CATEGORY_META[category] || (category.endsWith("_migration") ? { icon: "🔧" } : { icon: "•" });
@@ -3349,9 +3352,12 @@ function renderStats(summary) {
       "Erosion",
       (() => {
         const h = summary.hydrology || {};
-        return h.tiles_eroded_recorded ? `${h.tiles_eroded_recorded} tiles reshaped so far` : "none yet";
+        const parts = [];
+        parts.push(h.tiles_eroded_recorded ? `${h.tiles_eroded_recorded} tiles reshaped` : "no reshaping yet");
+        if (h.river_tiles_shifted_recorded) parts.push(`${h.river_tiles_shifted_recorded} riverbed tiles shifted`);
+        return parts.join(", ");
       })(),
-      "Genuinely wet, flow-carrying land slowly moves a small fraction of its elevation downhill each week — mass-conserving, capped, and gradual, the same \"history becomes physically visible over the long run\" pace as the map's other scar-shaped marks. Occasionally a tile erodes far enough to cross into a different kind of land entirely.",
+      "Genuinely wet, flow-carrying land slowly moves a small fraction of its elevation downhill each week — mass-conserving, capped, and gradual, the same \"history becomes physically visible over the long run\" pace as the map's other scar-shaped marks. Occasionally a tile erodes far enough to cross into a different kind of land entirely. Monthly, a river re-walks its own course against the CURRENT (eroded) elevation from its original source — its bed can genuinely migrate over the long run, leaving dry former riverbed behind where it moves away.",
     ],
     [
       "Wildlife",

@@ -1003,8 +1003,8 @@ forest reclaim). Real gaps, roughly by leverage:
   recorded in CLAUDE.md's Observatory UI direction section directly.
 
 **Tier 2 — real mechanism gaps, each self-contained**
-5. **A3** — rivers re-carving via erosion (needs A11's mutable
-   elevation first — sequence after Tier 1 item 2).
+5. **A3** — **shipped, v1.34.25** (rivers re-carving via erosion) —
+   see the item's own entry below for detail.
 6. **A4** — convert remaining scripted subsystems (agriculture,
    infrastructure, economy, information) to continuous field/threshold
    updates instead of discrete "fires."
@@ -1182,10 +1182,21 @@ step` still have no second consumer; the doc's other named example
 (fire spread) remains open.
 
 ### A3 — Procedural generation as continuous runtime
-Rivers/erosion (mutating immutable, native-store-backed `Tile.
-elevation`) — the biggest remaining piece. Settlements/cultures still
-evolve via LLM, not deterministic procgen (arguably correct per the
-Body/Mind split, flagged as an open question rather than a clear gap).
+**Rivers re-carving shipped (v1.34.25).** `hydrology.recarve_rivers`
+re-walks each of `World.river_sources` (captured once at genesis via
+the new `river_sources_used`) by the same steepest-descent rule
+`generate_rivers` used, but against CURRENT elevation — real
+consequence of A11's erosion (v1.34.23) actually changing `Tile.
+elevation` over time. Monthly cadence (same as climate drift). A tile
+no longer on the new path reverts to its elevation-derived biome
+(`classify_with_bias`); a newly-visited tile becomes `Biome.RIVER`.
+Developed tiles (standing building/vehicle/farm) are protected in
+both directions — never carved through, never reverted out from under
+a structure. New `World.river_tiles`/`river_sources` persisted state,
+`river_tiles_shifted_total` counter, `river_recarved` event category.
+Settlements/cultures still evolve via LLM, not deterministic procgen
+(arguably correct per the Body/Mind split, flagged as an open
+question rather than a clear gap) — that half remains open.
 
 ### A4 — Continuous systems vs. scripted events
 Agriculture, infrastructure, economy, and information subsystems are
