@@ -383,6 +383,64 @@ tier is arbitrary.
    only new inbox/outbox arrow. Per-agent cognition stays the one
    deliberately-unmirrored gap (v1.34.15's own note, unchanged).
 
+   **Third slice shipped, v1.34.18** ("Extend to other sites" —
+   explicit user instruction, following directly off v1.34.17's own
+   "still fully open" note above). Closes the attention-budget-
+   arbitration half of that gap for all 34 remaining flat-gated
+   settlement jobs, and adds three more real B4 inbox/outbox arrows:
+
+   - **Attention-budget arbitration**: every one of the 34 sites that
+     previously called the flat `_settlement_job_backpressured()` now
+     calls `_pillar_interpret_backpressured(pillar)` instead, mapped
+     to its owning pillar — village (chronicle, documentary,
+     tradition, folklore, legend_detection, rule_proposal, festival,
+     religion, culture_digest, institution_culture, caravan, faction,
+     guild_founding, institution_belief, diplomacy, laws), humans
+     (personal_belief, dream, memory_drift, record x2, mind-retry,
+     noncore_nudge, letter, fission, migration_decision), innovation
+     (invention, ontology_evolution, composite_entity), nature
+     (species_variant, omen), reflection (consciousness, self_tuning,
+     musing). `_maybe_interpret_rumor` was NOT touched — it already
+     has its own bespoke `RUMOR_INTERPRET_BACKPRESSURE_FRACTION`
+     threshold, a deliberate earlier design decision unrelated to this
+     gap. Every settlement job in the codebase that mirrors into a
+     pillar now genuinely shares B3's priority-scaled tolerance
+     (salience + staleness + inbox pressure), not just `town_brain`.
+     A pure expression swap at each site (no new lines/blocks), so
+     none of the indentation/scope risk the previous slice's
+     `_append_emergence` insertions carried applies here.
+   - **Inbox/outbox participation**: three new arrows, chosen for
+     genuinely useful cross-pillar content rather than mechanically
+     covering every site — Innovation->Reflection (`discovery`) on
+     `invention` (a new invention is real material for Reflection's
+     own pattern detection over Innovation's Body state), Nature-
+     >Innovation (`observation`) on `species_variant` (a new natural
+     variant is real grounding for what Innovation might notice/build
+     on next), and a second Village->Humans (`observation`) arrow on
+     `faction` (a newly-named faction is a real social fact about
+     specific living people). Brings the total B4 arrows to seven:
+     the original three (Nature->Village, Village->Innovation,
+     Innovation->Village), v1.34.16's Reflection->Village, and these
+     three.
+
+   Verified: a scripted line-by-line diff confirms every one of the
+   34 backpressure swaps changed only the gate call's argument, no
+   surrounding structure; `ast.parse()` clean; an indent-consistency
+   scan over every `_send_pillar_message` call site (0 mismatches —
+   the three new sites' indent matches their enclosing `apply()`
+   body); `scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-
+   identical; a 4000-tick LLM-disabled engine soak plus round-trip,
+   clean; direct production-path smoke tests confirming `invention`
+   and `species_variant` both fire through their real (unpatched)
+   `_pillar_interpret_backpressured` gate and correctly populate the
+   new arrows' outbox/inbox pairs.
+
+   Still open: 31 of the 34 attention-scaled sites don't yet have a
+   matching inbox/outbox arrow (only invention/species_variant/
+   faction gained one this pass — chosen for genuine content value,
+   not mechanical completeness); per-agent cognition remains the one
+   deliberately-unmirrored gap.
+
    **Scoped, NOT shipped — a genuinely new Nature cognition job**
    (explicit user request, v1.34.10 pass: "Nature can have so many
    things though like ecology, forests, wildlife, geography are they

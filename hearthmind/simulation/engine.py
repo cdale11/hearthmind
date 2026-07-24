@@ -3463,7 +3463,7 @@ class SimulationEngine:
         # See docs/DECISIONS.md, "cadence decoupling" pass.
         if not self._monthly_gate(events, "chronicle"):
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_monthly_resolved("chronicle")
         settlement = self._job_target()
@@ -3522,7 +3522,7 @@ class SimulationEngine:
         name (nothing yet to narrate)."""
         if not self._season_year_gate(events, "documentary", "year_end") or not self.world.settlement.name:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_season_year_resolved("documentary")
         milestones = history_events(self.conn, limit=40)
@@ -3763,7 +3763,7 @@ class SimulationEngine:
         target = self._job_target()
         if not self._season_year_gate(events, "tradition", "season_end") or not target.name:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_season_year_resolved("tradition")
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
@@ -3839,7 +3839,7 @@ class SimulationEngine:
         if not rumor_events:
             self._mark_monthly_resolved("folklore")
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_monthly_resolved("folklore")
         existing_folklore = list(target.folklore)
@@ -3892,7 +3892,7 @@ class SimulationEngine:
         if candidate is None:
             self._mark_monthly_resolved("legend_detection")
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_monthly_resolved("legend_detection")
         subsystem = candidate["subsystem"]
@@ -3943,7 +3943,7 @@ class SimulationEngine:
         )
         if not prosperous:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("innovation"):
             return
         self._mark_season_year_resolved("invention")
         # An educated town invents more — a real school/university, not
@@ -4061,6 +4061,14 @@ class SimulationEngine:
             self._append_emergence(
                 "novel_combination", "innovation", f"Invented {name}: {description}",
                 ('innovation',),
+            )
+            # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+            # step 11), a new Innovation->Reflection arrow: a genuine
+            # invention is real material for Reflection's own pattern
+            # detection over Innovation's Body state, not just a
+            # world_model entry it has to notice on its own.
+            self._send_pillar_message(
+                "innovation", "reflection", "discovery", f"invented {name}: {description}",
             )
 
         # Innovation & discovery: naming/scoping a genuinely new idea
@@ -4224,7 +4232,7 @@ class SimulationEngine:
         stays fully walkable."""
         if not self._season_year_gate(events, "ontology_evolution", "year_end"):
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("innovation"):
             return
         self._mark_season_year_resolved("ontology_evolution")
         # A8 "Evolutionary Innovation" (roadmap Stage IV step 21)'s
@@ -4353,7 +4361,7 @@ class SimulationEngine:
         building = self._composite_entity_candidate_building(settlement)
         if building is None:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("innovation"):
             return
         self._mark_season_year_resolved("composite_entity")
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
@@ -4723,7 +4731,7 @@ class SimulationEngine:
         if not candidates:
             return
         herd = min(candidates, key=lambda h: h.id)
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("nature"):
             return
         self._mark_season_year_resolved("species_variant")
         wildlife_summary = self.world.wildlife.summary()
@@ -4765,6 +4773,14 @@ class SimulationEngine:
             self._append_emergence(
                 "novel_combination", "ecology", f"The land gave rise to {variant.name} — {variant.description}",
                 ("nature",),
+            )
+            # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+            # step 11), a new Nature->Innovation arrow: a genuinely new
+            # natural variant is real grounding material for what
+            # Innovation might notice/build on next.
+            self._send_pillar_message(
+                "nature", "innovation", "observation",
+                f"the land gave rise to {variant.name}: {variant.description}",
             )
 
         self._schedule_llm_job("species_variant", prompt, species_variant.SYSTEM_PROMPT, fallback, apply)
@@ -5005,7 +5021,7 @@ class SimulationEngine:
         still goes through the same sandbox check as an LLM one)."""
         if not self._season_year_gate(events, "rule_propose", "season_end"):
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_season_year_resolved("rule_propose")
         # Item 5.1's runtime acceptance auditor: same "run it on this
@@ -5267,7 +5283,7 @@ class SimulationEngine:
             festival_chance *= 1.0 - FAMILY_FEUD_FESTIVAL_PENALTY
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "festival_roll") >= festival_chance:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         festivals = festival_target.festivals
@@ -5499,7 +5515,7 @@ class SimulationEngine:
             return
         if target.religion is not None or len(target.rituals) < 1:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_season_year_resolved("religion")
         omen_history = list(target.omen_history)
@@ -5676,7 +5692,7 @@ class SimulationEngine:
         target = self._job_target()
         if not self._season_year_gate(events, "culture_digest", "season_end") or not target.name:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_season_year_resolved("culture_digest")
         prompt = culture_digest.build_prompt(
@@ -5739,7 +5755,7 @@ class SimulationEngine:
         if not self._season_year_gate(events, "institution_culture", "season_end") or target is None:
             return
         settlement, institution = target
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_season_year_resolved("institution_culture")
         prompt = institution_culture.build_prompt(
@@ -5859,7 +5875,7 @@ class SimulationEngine:
         target = self.world.settlement
         if not self._monthly_gate(events, "consciousness") or not target.name:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("reflection"):
             return
         self._mark_monthly_resolved("consciousness")
         if not self.world.consciousness_personality:
@@ -6470,7 +6486,7 @@ class SimulationEngine:
         path."""
         if not self._season_year_gate(events, "self_tuning", "year_end"):
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("reflection"):
             return
         self._mark_season_year_resolved("self_tuning")
         acted_hypothesis_ids = {a.get("hypothesis_id") for a in self.world.self_tuning_actions}
@@ -6618,7 +6634,7 @@ class SimulationEngine:
         subject = self._musing_subject()
         if subject is None:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("reflection"):
             return
         prompt = musing.build_prompt(subject)
         fallback = musing.fallback_musing(subject)
@@ -6716,7 +6732,7 @@ class SimulationEngine:
         # applies; only the LLM/fallback narration is subject to
         # backpressure — a dropped narration still leaves the currency/
         # materials exchange in effect, just undescribed this month.
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         recent = recent_events_diverse(self.conn, limit=caravan.CARAVAN_RECENT_EVENTS)
         prompt = caravan.build_prompt(settlement.name, recent)
@@ -7090,7 +7106,7 @@ class SimulationEngine:
         candidates = significant or [a for a in self.world.population.agents if a.memories]
         if not candidates:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("humans"):
             return
         self._mark_monthly_resolved("personal_belief")
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "personal_belief")
@@ -7299,7 +7315,7 @@ class SimulationEngine:
         candidates = [a for a in self.world.population.agents if a.id in core_ids]
         if not candidates:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("humans"):
             return
         self._mark_monthly_resolved("dream")
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "dream")
@@ -7382,7 +7398,7 @@ class SimulationEngine:
         candidates = [a for a in self.world.population.agents if a.id in core_ids and len(a.memories) >= 2]
         if not candidates:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("humans"):
             return
         self._mark_monthly_resolved("memory_drift")
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "memory_drift")
@@ -7583,7 +7599,7 @@ class SimulationEngine:
         chance = min(1.0, chance)
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "omen_roll") >= chance:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("nature"):
             return
         recent = recent_events_diverse(self.conn, limit=10)
         # Deepened narrative payoff (roadmap follow-up): about half the
@@ -7726,7 +7742,7 @@ class SimulationEngine:
         fact); the LLM (or fallback, assembled from the same memories)
         authors its text in the background. See llm/artifacts.py."""
         for candidate in self.world.population.last_written_records:
-            if self._settlement_job_backpressured():
+            if self._pillar_interpret_backpressured("humans"):
                 # The letter still exists in-fiction; under saturation
                 # its text is authored by the fallback path instead of
                 # being dropped — a record is a one-time, unrepeatable
@@ -7787,7 +7803,7 @@ class SimulationEngine:
             # §7): rides this same one-time genesis call/schema, zero
             # added LLM volume — see llm/mind.py's widened SYSTEM_PROMPT.
             agent.voice = fallback["voice"]
-            if self._settlement_job_backpressured():
+            if self._pillar_interpret_backpressured("humans"):
                 if agent.id not in self._pending_mind_agent_ids:
                     self._pending_mind_agent_ids.append(agent.id)
                 continue
@@ -7841,7 +7857,7 @@ class SimulationEngine:
             if agent is None or agent_id not in core_ids:
                 self._pending_mind_agent_ids.pop(0)
                 continue
-            if self._settlement_job_backpressured():
+            if self._pillar_interpret_backpressured("humans"):
                 return
             self._pending_mind_agent_ids.pop(0)
             self._author_one_mind(agent)
@@ -8004,7 +8020,7 @@ class SimulationEngine:
         candidate = self.world.population._detect_faction_candidate(faction_target, members)
         if candidate is None:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_monthly_resolved("faction")
         prompt = faction.build_prompt(candidate, faction_target.name)
@@ -8038,6 +8054,15 @@ class SimulationEngine:
                 "unexplained_shift", "population", f"A faction calling itself {name} has formed: {framing}",
                 ('village', 'humans'),
             )
+            # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+            # step 11), a second Village->Humans arrow: a newly-named
+            # faction is a real social fact about specific living
+            # people — worth handing directly to Humans' pillar, not
+            # just left in the shared Emergence stream.
+            self._send_pillar_message(
+                "village", "humans", "observation",
+                f"a faction calling itself {name} has formed: {framing}",
+            )
 
         # Cultural evolution: naming a real detected faction (v1.3.37).
         self._schedule_llm_job("faction", prompt, faction.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
@@ -8054,7 +8079,7 @@ class SimulationEngine:
         candidate = self.world.population.deliberate_guild_candidate(guild_target, members)
         if candidate is None:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_monthly_resolved("guild_founding")
         founder, skill, masters = candidate
@@ -8114,7 +8139,7 @@ class SimulationEngine:
         ]
         if not candidates:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_monthly_resolved("institution_belief")
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "institution_belief")
@@ -8220,7 +8245,7 @@ class SimulationEngine:
         pair = self._diplomacy_pair_target()
         if not self._monthly_gate(events, "diplomacy") or pair is None:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_monthly_resolved("diplomacy")
         a, b = pair
@@ -8285,7 +8310,7 @@ class SimulationEngine:
         occurrences = candidates[pattern_key]
         if occurrences < LAW_SIGNAL_THRESHOLD:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_monthly_resolved("laws")
         pattern_text = self._LAW_PATTERN_TEXT.get(pattern_key, pattern_key)
@@ -8348,7 +8373,7 @@ class SimulationEngine:
         ]
         if not candidates:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("humans"):
             return
         self._mark_monthly_resolved("noncore_nudge")
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "noncore_nudge")
@@ -8433,7 +8458,7 @@ class SimulationEngine:
                 break
         if sender is None:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("humans"):
             return
         self._mark_monthly_resolved("letter")
         recipient_settlement = self._settlement_by_id(recipient.settlement_id)
@@ -8578,7 +8603,7 @@ class SimulationEngine:
         )
         if candidate is None:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("humans"):
             return
         self._mark_monthly_resolved("fission")
         leader, home = candidate
@@ -8714,7 +8739,7 @@ class SimulationEngine:
         candidates = self.world.population.core_migration_candidates(self.world.settlements)
         if not candidates:
             return
-        if self._settlement_job_backpressured():
+        if self._pillar_interpret_backpressured("humans"):
             return
         if _namespaced_roll(
             self.world.config.seed, self.world.clock.tick_count, "migration_decision_roll",

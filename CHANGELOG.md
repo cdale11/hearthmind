@@ -4,6 +4,57 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.18] — Third slice: attention-budget arbitration for 34 sites + three new B4 arrows
+
+Explicit user instruction: "Extend to other sites" — following
+directly off v1.34.17's own "still fully open" note (attention-
+budget arbitration and inbox/outbox participation for the ~39 Tier 0
+sites that gained observe/interpret cycling in that pass).
+
+**Attention-budget arbitration**: every one of the 34 settlement
+jobs that previously called the flat `_settlement_job_backpressured()`
+gate now calls `_pillar_interpret_backpressured(pillar)` instead —
+the same priority-scaled tolerance function `town_brain` got in
+v1.34.16, mapped to each job's owning pillar: village (chronicle,
+documentary, tradition, folklore, legend_detection, rule_proposal,
+festival, religion, culture_digest, institution_culture, caravan,
+faction, guild_founding, institution_belief, diplomacy, laws),
+humans (personal_belief, dream, memory_drift, record x2, mind-retry,
+noncore_nudge, letter, fission, migration_decision), innovation
+(invention, ontology_evolution, composite_entity), nature
+(species_variant, omen), reflection (consciousness, self_tuning,
+musing). `_maybe_interpret_rumor` deliberately untouched — it already
+has its own bespoke backpressure fraction, an earlier design decision
+unrelated to this gap. Applied as a pure expression swap (each site's
+`if self._settlement_job_backpressured():` became `if self.
+_pillar_interpret_backpressured("<pillar>"):`, same line, same
+indentation) rather than an insertion, so none of the indentation/
+scope risk v1.34.17's `_append_emergence` insertions carried applies
+here — verified via a line-by-line diff confirming only the call
+argument changed at each of the 34 sites.
+
+**Inbox/outbox participation**: three new B4 arrows, chosen for
+genuinely useful cross-pillar content rather than mechanically
+covering all 34 newly-scaled sites — Innovation->Reflection
+(`discovery`) on `invention`, Nature->Innovation (`observation`) on
+`species_variant`, and a second Village->Humans (`observation`)
+arrow on `faction`. Brings the total B4 arrows to seven: the
+original three (Nature->Village, Village->Innovation, Innovation-
+>Village), v1.34.16's Reflection->Village, and these three.
+
+Verified: `ast.parse()` clean; an indent-consistency scan over every
+`_send_pillar_message` call site (0 mismatches — the three new sites
+match their enclosing `apply()` body's indent); `scripts/verify_
+native_soak.py` (2 seeds x 800 ticks) byte-identical; a 4000-tick
+LLM-disabled engine soak plus round-trip, clean; direct production-
+path smoke tests confirming `invention` and `species_variant` both
+fire through their real (unpatched) `_pillar_interpret_backpressured`
+gate and correctly populate the new arrows' outbox/inbox pairs.
+
+Still open: 31 of the 34 attention-scaled sites don't yet have a
+matching inbox/outbox arrow; per-agent cognition remains the one
+deliberately-unmirrored Tier 0 gap.
+
 ## [1.34.17] — Second slice: extend observe/interpret cycling to the remaining ~39 Tier 0 mirror sites
 
 Explicit user instruction: "Extend to 45 tier 0 sites" — directly

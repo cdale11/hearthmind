@@ -545,6 +545,33 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.18)
+
+Explicit user instruction: "Extend to other sites" — following
+directly off v1.34.17's "still fully open" note (attention-budget
+arbitration and inbox/outbox participation for Tier 0's ~39 mirror
+sites). Closes the attention-budget half: all 34 settlement jobs that
+used the flat `_settlement_job_backpressured()` gate now call
+`_pillar_interpret_backpressured(pillar)` instead, mapped per job to
+its owning pillar — a pure expression swap at each site, not an
+insertion, so it carries none of the indentation/scope risk the
+previous slice's `_append_emergence` insertions did. Also adds three
+new B4 inbox/outbox arrows chosen for real content value: Innovation
+->Reflection on `invention`, Nature->Innovation on `species_variant`,
+a second Village->Humans on `faction` — seven B4 arrows total now.
+Full detail: CHANGELOG.md's [1.34.18] entry.
+
+Verified: `ast.parse()` clean, an indent-consistency scan over every
+`_send_pillar_message` site, `scripts/verify_native_soak.py` (2 seeds
+x 800 ticks) byte-identical, a 4000-tick LLM-disabled soak + round-
+trip, and direct production-path smoke tests confirming `invention`/
+`species_variant` fire through their real unpatched gate and
+correctly populate the new arrows.
+
+Still open: 31 of the 34 attention-scaled sites have no matching
+inbox/outbox arrow yet; per-agent cognition remains the one
+deliberately-unmirrored Tier 0 gap.
+
 ## Current state (v1.34.17)
 
 Explicit user instruction: "Extend to 45 tier 0 sites" — directly
