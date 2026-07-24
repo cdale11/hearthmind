@@ -5106,6 +5106,16 @@ class SimulationEngine:
                     "opportunity", "institution", f"Adopted a new rule: {rule.name} — {rule.description}",
                     ('village',),
                 )
+                # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+                # step 11), a new Village->Reflection arrow: a rule that
+                # survived the counterfactual sandbox and went live is
+                # exactly the kind of real self-modification event
+                # Reflection's meta-cognition should observe directly,
+                # not just notice secondhand via the Emergence stream.
+                self._send_pillar_message(
+                    "village", "reflection", "observation",
+                    f"adopted a new rule: {rule.name} — {rule.description}",
+                )
 
             task = asyncio.create_task(_sandbox_and_register())
             self._background_tasks.add(task)
@@ -5574,6 +5584,15 @@ class SimulationEngine:
             self._append_emergence(
                 "opportunity", "culture", f"Came to share a faith called {parsed['name']}.",
                 ('village', 'humans'),
+            )
+            # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+            # step 11), a third Village->Humans arrow: a crystallized
+            # faith is a real belief-shaping fact about specific living
+            # people, worth Humans' pillar knowing directly.
+            self._send_pillar_message(
+                "village", "humans", "observation",
+                f"the village came to share a faith called {parsed['name']}: "
+                f"{'; '.join(parsed['tenets'])}",
             )
 
         # Cultural evolution: crystallizing a religion from a repeated
@@ -6574,6 +6593,17 @@ class SimulationEngine:
                 self._append_emergence(
                     "opportunity", "reflection", f"Acted on my own hypothesis about {hypothesis_subject}: {parsed['rationale']}",
                     ('reflection', 'village'),
+                )
+                # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+                # step 11), a second Reflection->Village arrow: a real
+                # applied self-tuning nudge (sandbox-validated, not
+                # just proposed) is a settled fact about how Hearthmind
+                # adjusted itself — worth Village knowing directly,
+                # same treatment self_tuning_advisory's theory arrow
+                # already gets.
+                self._send_pillar_message(
+                    "reflection", "village", "observation",
+                    f"adjusted {hypothesis_subject} on its own judgment: {parsed['rationale']}",
                 )
 
             task = asyncio.create_task(_validate_and_tune())

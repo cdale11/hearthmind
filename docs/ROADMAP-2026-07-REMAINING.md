@@ -441,6 +441,46 @@ tier is arbitrary.
    not mechanical completeness); per-agent cognition remains the one
    deliberately-unmirrored gap.
 
+   **Fourth slice shipped, v1.34.19** ("Continue with next milestone"
+   — explicit user instruction, following directly off v1.34.18's own
+   "Next Milestone" note: extend inbox/outbox participation further).
+   Three more real B4 arrows, same "chosen for content value, not
+   mechanical coverage" discipline as v1.34.18's three: Village->
+   Reflection (`observation`) on `rule_propose` — a rule that survived
+   the counterfactual sandbox and went live is exactly the kind of
+   real self-modification event Reflection's meta-cognition should
+   see directly, not just notice secondhand; a third Village->Humans
+   (`observation`) arrow on `religion` — a crystallized faith is a
+   real belief-shaping fact about specific living people; a second
+   Reflection->Village (`observation`) arrow on `self_tuning` (the
+   numeric-nudge job, distinct from `self_tuning_advisory`'s existing
+   `theory` arrow) — a genuinely APPLIED, sandbox-validated governor
+   adjustment is a settled fact about how Hearthmind changed itself,
+   not a revisable theory. `omen` deliberately NOT given an arrow —
+   the v1.34.9 explicit user decision to "ignore Phase G for this one
+   completely" was scoped narrowly to that one `nature_pillar.
+   world_model` mirror, not a blanket license to route omens through
+   B4 messaging too. Brings the total B4 arrows to ten.
+
+   Verified: `ast.parse()` clean; an indent-consistency scan over
+   every `_send_pillar_message` site (0 real mismatches — the one
+   flagged case is the same pre-existing, correctly-nested `beliefs`
+   confidence-gated site from earlier passes); `scripts/verify_
+   native_soak.py` (2 seeds x 800 ticks) byte-identical; a 4000-tick
+   LLM-disabled engine soak plus round-trip, clean; direct production-
+   path smoke tests for all three new arrows — `rule_propose` through
+   its real sandboxed closure with a fake always-safe counterfactual
+   verdict, `religion` with a forced `forms: true` result (its
+   fallback always means "not yet" by design, so exercising the real
+   arrow needs a genuine crystallization answer), and `self_tuning`
+   with a seeded `supported` hypothesis naming a real tunable
+   governor — all three confirmed populating the correct outbox/inbox
+   pair with the correct `kind`.
+
+   Still open: 28 of the 34 attention-scaled sites have no matching
+   inbox/outbox arrow; per-agent cognition remains the one
+   deliberately-unmirrored Tier 0 gap.
+
    **Scoped, NOT shipped — a genuinely new Nature cognition job**
    (explicit user request, v1.34.10 pass: "Nature can have so many
    things though like ecology, forests, wildlife, geography are they

@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.19] — Fourth slice: three more B4 inbox/outbox arrows
+
+Explicit user instruction: "Continue with next milestone" — following
+directly off v1.34.18's own "Next Milestone" note (extend inbox/
+outbox participation further, 31 of the 34 attention-scaled sites had
+no arrow yet).
+
+Three more real B4 arrows, chosen for genuine content value rather
+than mechanical coverage of all 31 remaining sites:
+
+- **Village->Reflection** (`observation`) on `rule_propose`: a rule
+  that survived the counterfactual sandbox and went live is exactly
+  the kind of real self-modification event Reflection's meta-
+  cognition should observe directly, not just notice secondhand via
+  the shared Emergence stream.
+- **A third Village->Humans** (`observation`) arrow on `religion`: a
+  crystallized faith is a real belief-shaping fact about specific
+  living people.
+- **A second Reflection->Village** (`observation`) arrow on
+  `self_tuning` (the numeric-nudge job, distinct from
+  `self_tuning_advisory`'s existing `theory` arrow): a genuinely
+  APPLIED, sandbox-validated governor adjustment is a settled fact
+  about how Hearthmind changed itself, not a revisable theory.
+
+`omen` deliberately NOT given an arrow — the v1.34.9 explicit user
+decision to "ignore Phase G for this one completely" was scoped
+narrowly to that one `nature_pillar.world_model` mirror, not a
+blanket license to route omens through B4 messaging too. Total B4
+arrows now ten.
+
+Verified: `ast.parse()` clean; an indent-consistency scan over every
+`_send_pillar_message` site (0 real mismatches — the one flagged case
+is the same pre-existing, correctly-nested `beliefs` confidence-gated
+site from earlier passes); `scripts/verify_native_soak.py` (2 seeds x
+800 ticks) byte-identical; a 4000-tick LLM-disabled engine soak plus
+round-trip, clean; direct production-path smoke tests for all three
+new arrows — `rule_propose` through its real sandboxed closure with a
+fake always-safe counterfactual verdict, `religion` with a forced
+`forms: true` result (its fallback always means "not yet" by design),
+and `self_tuning` with a seeded `supported` hypothesis naming a real
+tunable governor — all three confirmed populating the correct
+outbox/inbox pair with the correct `kind`.
+
+Still open: 28 of the 34 attention-scaled sites have no matching
+inbox/outbox arrow; per-agent cognition remains the one deliberately-
+unmirrored Tier 0 gap.
+
 ## [1.34.18] — Third slice: attention-budget arbitration for 34 sites + three new B4 arrows
 
 Explicit user instruction: "Extend to other sites" — following

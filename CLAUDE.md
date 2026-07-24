@@ -545,6 +545,35 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.19)
+
+Explicit user instruction: "Continue with next milestone" — following
+directly off v1.34.18's own "Next Milestone" note. Three more real
+B4 inbox/outbox arrows, chosen for genuine content value rather than
+mechanical coverage: Village->Reflection on `rule_propose` (a rule
+that survived the counterfactual sandbox is a real self-modification
+event), a third Village->Humans on `religion` (a crystallized faith
+is a belief-shaping fact about specific living people), a second
+Reflection->Village on `self_tuning` (a genuinely applied governor
+adjustment, distinct from `self_tuning_advisory`'s existing `theory`
+arrow). `omen` deliberately skipped — the v1.34.9 "ignore Phase G for
+this one completely" decision was scoped to one `world_model` mirror,
+not a blanket license for B4 messaging too. Total B4 arrows now ten.
+Full detail: CHANGELOG.md's [1.34.19] entry.
+
+Verified: `ast.parse()` clean, indent-consistency scan over every
+`_send_pillar_message` site, `scripts/verify_native_soak.py` (2 seeds
+x 800 ticks) byte-identical, a 4000-tick LLM-disabled soak + round-
+trip, and direct production-path smoke tests for all three new
+arrows (`rule_propose` through its real sandboxed closure, `religion`
+with a forced `forms: true` result, `self_tuning` with a seeded
+supported hypothesis) — all three confirmed populating the correct
+outbox/inbox pair.
+
+Still open: 28 of the 34 attention-scaled sites have no matching
+inbox/outbox arrow; per-agent cognition remains the one deliberately-
+unmirrored Tier 0 gap.
+
 ## Current state (v1.34.18)
 
 Explicit user instruction: "Extend to other sites" — following
