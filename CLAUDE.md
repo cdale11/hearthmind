@@ -545,6 +545,31 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.16)
+
+Explicit user instruction: "Start observe/interpret cycling,
+attention-budget arbitration, and inbox/outbox participation." Root
+gap: every Tier 0 mirror writes directly into `pillar.world_model`/
+`memory`, bypassing `_pillar_observe_turn` (which only reads `World.
+emergence_log_recent()`, never populated by Tier 0 mirrors) — so that
+content never competed for bounded pillar attention or reached
+inter-pillar messaging. First slice, 5-6 concrete sites (same "one
+real representative site" discipline as every earlier B2/B3/B4 pass):
+`guild_founding`/`fission`/`composite_entity`/`species_variant`/
+`self_tuning_advisory` now also call `_append_emergence`, pillar-
+tagged (observe/interpret cycling); `town_brain` now uses
+`_pillar_interpret_backpressured("village")` instead of flat
+backpressure (attention-budget arbitration); a new Reflection ->
+Village `theory` message arrow fires on `self_tuning_advisory`
+(inbox/outbox), verified end-to-end through a real `_pillar_observe_
+turn` delivery. Deliberately not extended to the other ~45 Tier 0
+sites — mechanical repetition, not a new design question.
+
+Verified: all six changes confirmed via direct production-path smoke
+tests including a full B4 round-trip; a 4000-tick LLM-disabled engine
+soak; `scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-
+identical. Full detail: CHANGELOG.md's [1.34.16] entry.
+
 ## Current state (v1.34.15)
 
 Explicit user instruction: "Continue tier 0." Final audit slice:

@@ -4343,6 +4343,15 @@ class SimulationEngine:
                 status="observation", source="composite_entity",
             )
             self.world.innovation_pillar.remember(f"{target.name or 'The village'} named {parsed['name']}: {parsed['origin_story']}")
+            # Observe/interpret cycling, first slice: also feeds the
+            # Emergence API so Innovation's own observe turn can notice
+            # this on its own next cycle, not just have it written
+            # directly into world_model.
+            self._append_emergence(
+                "novel_combination", "innovation",
+                f"{target.name or 'The village'} named {parsed['name']} — {parsed['origin_story']}",
+                ("innovation",),
+            )
 
         self._schedule_llm_job("composite_entity", prompt, composite_entity.SYSTEM_PROMPT, fallback, apply)
 
@@ -4690,6 +4699,13 @@ class SimulationEngine:
                 status="observation", source="species_variant",
             )
             self.world.nature_pillar.remember(f"The land gave rise to {variant.name}: {variant.description}")
+            # Observe/interpret cycling, first slice: also feeds the
+            # Emergence API so Nature's own observe turn can notice
+            # this on its own next cycle.
+            self._append_emergence(
+                "novel_combination", "ecology", f"The land gave rise to {variant.name} — {variant.description}",
+                ("nature",),
+            )
 
         self._schedule_llm_job("species_variant", prompt, species_variant.SYSTEM_PROMPT, fallback, apply)
 
@@ -6312,6 +6328,26 @@ class SimulationEngine:
                 0.5, status="hypothesis", source="self_tuning_advisory",
             )
             self.world.reflection_pillar.remember(f"Gave advice about {hypothesis_subject}: {parsed['advice']}")
+            # Observe/interpret cycling, first slice: also feeds the
+            # Emergence API so Reflection's own observe turn can notice
+            # this on its own next cycle.
+            self._append_emergence(
+                "opportunity", "reflection", f"Advice about {hypothesis_subject}: {parsed['advice']}",
+                ("reflection", "village"),
+            )
+            # Inbox/outbox participation, first slice (docs/ROADMAP-
+            # 2026-07-REMAINING.md): Reflection's own free-standing
+            # advice — something it noticed but has no tunable governor
+            # for — is exactly the kind of thing worth handing to
+            # Village directly, not just leaving in the shared
+            # Emergence stream. A `theory` (Reflection's own genuinely
+            # uncertain read, not a settled fact) competes for Village's
+            # bounded attention on its next observe turn like any other
+            # inbox message.
+            self._send_pillar_message(
+                "reflection", "village", "theory",
+                f"I've been wondering about {hypothesis_subject}: {parsed['advice']}",
+            )
 
         self._schedule_llm_job(
             "self_tuning_advisory", prompt, self_tuning.SYSTEM_PROMPT_ADVISORY, fallback, apply,
@@ -6627,7 +6663,16 @@ class SimulationEngine:
         settlement = self._job_target()
         if not self._monthly_gate(events, "town_brain") or not settlement.name:
             return
-        if self._settlement_job_backpressured():
+        # Attention-budget arbitration, first slice (docs/ROADMAP-
+        # 2026-07-REMAINING.md): town_brain is Village's single most
+        # significant civic decision, so it earns the same priority-
+        # scaled backpressure tolerance the pillar's own `interpret`
+        # turn gets (B3, `_pillar_interpret_backpressured`) instead of
+        # the flat threshold every other settlement job shares — a
+        # quiet, fresh Village pillar defers this earlier under
+        # pressure; a salient or long-overdue one tolerates more
+        # backlog before deferring. Never a full bypass.
+        if self._pillar_interpret_backpressured("village"):
             return
         self._mark_monthly_resolved("town_brain")
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
@@ -7895,6 +7940,18 @@ class SimulationEngine:
                     tick, f"the {skill} guild", reason, 0.8, status="observation", source="guild_founding",
                 )
                 self.world.village_pillar.remember(f"A {skill} guild was founded — \"{reason}\"")
+                # Observe/interpret cycling, first slice (docs/ROADMAP-
+                # 2026-07-REMAINING.md): a Tier 0 mirror write now also
+                # feeds the Emergence API (A22), so it can reach
+                # Village's own observe/interpret cycle
+                # (`_pillar_observe_turn`/`_maybe_schedule_beliefs`) as
+                # a real perceived signal, not just a direct world_
+                # model write that bypasses the pillar's perception
+                # channel entirely.
+                self._append_emergence(
+                    "novel_combination", "institution", f"A {skill} guild was founded — \"{reason}\"",
+                    ("village",),
+                )
 
         # Major life decision: deliberately founding a guild (v1.3.37).
         self._schedule_llm_job("guild_founding", prompt, founding.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
@@ -8459,6 +8516,14 @@ class SimulationEngine:
                 "settlement_founded",
                 f"{leader.name} led {len(party)} settlers out of {home.name}"
                 f" toward a new home in the distance — \"{reason}\"",
+            )
+            # Observe/interpret cycling, first slice: also feeds the
+            # Emergence API so both Humans and Village can perceive it
+            # on their own next observe turn, not just record it.
+            self._append_emergence(
+                "unexplained_shift", "settlement",
+                f"{leader.name} led {len(party)} settlers out of {home.name} — \"{reason}\"",
+                ("humans", "village"),
             )
 
         # Major life decision: whether to leave and found a new

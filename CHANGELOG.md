@@ -4,6 +4,65 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.16] — First slice: observe/interpret cycling, attention-budget arbitration, and inbox/outbox for Tier 0 mirrors
+
+Explicit user instruction: "Start observe/interpret cycling,
+attention-budget arbitration, and inbox/outbox participation" —
+continuing directly off Tier 0's closing note (these three items were
+flagged as the next tier once mirroring hit its practical ceiling).
+
+Root gap found first: every Tier 0 mirror (the ~50 jobs wired across
+the last several passes) writes DIRECTLY into `pillar.world_model`/
+`memory`, bypassing `_pillar_observe_turn` entirely — that helper
+only ever reads `World.emergence_log_recent()` (A22), and none of the
+Tier 0 mirror sites populate it (only the original 8 `_append_
+highlight` kinds do). So however significant a Tier 0 mirror's
+content was, it was structurally invisible to its own pillar's
+observe/interpret cycle and to inter-pillar messaging — a direct
+write, never competing for bounded attention, never reachable by
+another pillar.
+
+Scoped a first slice touching all three named mechanisms on 5-6
+concrete sites, same "one real representative site, not a blind pass
+across all ~50" discipline every earlier B2/B3/B4 pass used:
+
+**Observe/interpret cycling**: `guild_founding` (Village), `fission`
+(Humans+Village), `composite_entity` (Innovation), `species_variant`
+(Nature), `self_tuning_advisory` (Reflection+Village) now also call
+`_append_emergence`, pillar-tagged — each genuinely competes for its
+pillar's bounded `working_memory` on the next `observe` turn,
+salience-ranked against everything else, not guaranteed visibility.
+
+**Attention-budget arbitration**: `_maybe_schedule_town_brain`
+(Village's single most significant civic decision) now uses
+`_pillar_interpret_backpressured("village")` — the same priority-
+scaled tolerance B3 built for the pillar's own `interpret` turn —
+instead of the flat `_settlement_job_backpressured()` gate. Reused
+directly (the function only reads/checks state, never mutates
+`cycle_stage`), not reimplemented.
+
+**Inbox/outbox participation**: a new Reflection -> Village arrow
+(`kind="theory"`) fires whenever `self_tuning_advisory` forms.
+Verified end-to-end, not just "message sent": a real `_pillar_
+observe_turn("village")` call delivers the queued message into
+`working_memory` and clears it from `inbox`, closing the full B4 loop
+with genuinely new content for the first time since the original
+three arrows (Nature->Village, Village->Innovation,
+Innovation->Village).
+
+Deliberately not attempted: extending this same pattern to the other
+~45 Tier 0 mirror sites (mechanical repetition, not a new design
+question — future direction can ask for "more of these" directly);
+reverse-direction disagreement classification for the new arrow (a
+pre-existing flagged gap on the original Nature->Village site too).
+
+Verified: all six changes confirmed via direct production-path smoke
+tests, including one exercising the full B4 round-trip (send -> inbox
+-> `_pillar_observe_turn` -> working_memory, inbox cleared). A
+4000-tick LLM-disabled engine soak confirms no regression; `scripts/
+verify_native_soak.py` (2 seeds x 800 ticks) byte-identical — no
+native module touched.
+
 ## [1.34.15] — Tier 0 final audit slice: voice-pair dialogue mirrored; cognition scoped as the one remaining gap
 
 Explicit user instruction: "Continue tier 0." A final audit pass over

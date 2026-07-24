@@ -253,6 +253,70 @@ tier is arbitrary.
    above or a different tier of work (observe/interpret cycling,
    attention-budget arbitration, inbox/outbox participation).
 
+   **First slice of the next tier shipped, v1.34.16** ("Start observe/
+   interpret cycling, attention-budget arbitration, and inbox/outbox
+   participation" — explicit user instruction). The root gap: every
+   Tier 0 mirror writes DIRECTLY into `pillar.world_model`/`memory`,
+   bypassing `_pillar_observe_turn` entirely — that helper only reads
+   `World.emergence_log_recent()` (A22), which none of the ~50 Tier 0
+   mirror sites ever populate (only the original 8 `_append_highlight`
+   kinds do). So a Tier 0 mirror's content, however significant, was
+   structurally invisible to its own pillar's observe/interpret cycle
+   and to inter-pillar messaging — it just sat in world_model/memory
+   as a direct write, never competing for bounded attention, never
+   reachable by another pillar. Scoped a first slice touching all
+   three named mechanisms rather than one, proven on 5-6 concrete
+   sites (same "one real representative site, not a blind mechanical
+   pass across all ~50" discipline every earlier B2/B3/B4 pass used):
+
+   - **Observe/interpret cycling**: one genuinely significant Tier 0
+     mirror site per pillar now ALSO calls `_append_emergence`,
+     tagged for its pillar — `guild_founding` (Village, `novel_
+     combination`/institution), `fission` (Humans+Village,
+     `unexplained_shift`/settlement), `composite_entity` (Innovation,
+     `novel_combination`), `species_variant` (Nature, `novel_
+     combination`/ecology), `self_tuning_advisory` (Reflection+
+     Village, `opportunity`). Each now genuinely competes for its
+     pillar's bounded `working_memory` on the next `observe` turn,
+     salience-ranked against everything else in the stream — not
+     guaranteed visibility, a real chance at it, same as any other
+     Emergence entry.
+   - **Attention-budget arbitration**: `_maybe_schedule_town_brain`
+     (Village's single most significant civic decision) now uses
+     `_pillar_interpret_backpressured("village")` — the SAME priority-
+     scaled tolerance function B3 built for the pillar's own
+     `interpret` turn — instead of the flat `_settlement_job_
+     backpressured()` every other settlement job shares. Reused
+     directly rather than reimplemented: the function only reads/
+     checks pillar state, never mutates `cycle_stage`, so it's safe
+     for a sibling job to call.
+   - **Inbox/outbox participation**: a new real arrow, Reflection ->
+     Village (`kind="theory"`), fires whenever `self_tuning_advisory`
+     forms — Reflection's own genuinely uncertain read on something it
+     has no tunable governor for is exactly the kind of content worth
+     handing directly to another pillar, not just leaving in the
+     shared Emergence stream. Verified end-to-end: the sent message
+     lands in `village_pillar.inbox`, then a real `_pillar_observe_
+     turn("village")` call delivers it into `working_memory` and
+     clears it from `inbox`, closing the full B4 loop with genuinely
+     new content for the first time since the original three arrows
+     (Nature->Village, Village->Innovation, Innovation->Village).
+
+   Deliberately NOT attempted this pass: extending emergence-tagging/
+   attention-scaling/messaging to the other ~45 Tier 0 mirror sites
+   (a mechanical repeat of this same pattern, not a new design
+   question — future explicit direction can ask for "more of these"
+   directly); reverse-direction disagreement classification for the
+   new Reflection->Village arrow (only the original Nature->Village
+   site does this, a pre-existing flagged gap, not new to this pass).
+
+   Verified: all six changes confirmed via direct production-path
+   smoke tests, including one exercising the FULL B4 round-trip (send
+   -> inbox -> a real `_pillar_observe_turn` call -> working_memory,
+   inbox cleared). A 4000-tick LLM-disabled engine soak confirms no
+   regression; `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+   byte-identical — no native module touched.
+
    **Scoped, NOT shipped — a genuinely new Nature cognition job**
    (explicit user request, v1.34.10 pass: "Nature can have so many
    things though like ecology, forests, wildlife, geography are they
