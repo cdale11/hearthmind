@@ -545,6 +545,22 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.13)
+
+Explicit user instruction: "Continue tier 0 with many steps at once"
+— second multi-job batch, twelve real jobs mirrored in one pass.
+Village pillar 11 -> 20 (`naming`/`culture_digest`/`town_brain` ->
+`world_model` observation; `tradition`/`folklore`/`legend_detection`/
+`institution_culture`/`caravan`/`diplomacy` memory-only). Humans
+pillar 7 -> 9 (`personal_belief`/`record`/`fission`, all memory-only).
+Coverage now: Innovation=5, Village=20, Humans=9, Nature=3,
+Reflection=4.
+
+Verified: all twelve mirrors confirmed via one combined direct
+production-path smoke test; a 4000-tick LLM-disabled engine soak;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical.
+Full detail: CHANGELOG.md's [1.34.13] entry.
+
 ## Current state (v1.34.12)
 
 Explicit user instruction: "Continue tier 0 but do many steps at

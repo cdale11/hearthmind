@@ -4,6 +4,47 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.13] — Tier 0 batch 2: nine more Village jobs, three more Humans jobs
+
+Explicit user instruction: "Continue tier 0 with many steps at once"
+— second multi-job batch, twelve real jobs mirrored in one pass.
+
+Village pillar (11 -> 20 real wired jobs): `naming` (`world_model`
+observation — a settlement's own name is a real settled fact),
+`tradition`/`folklore`/`legend_detection` (memory-only — an
+occurrence, tale, or legend, not a single revisable theory the way a
+law/religion is), `culture_digest` (`world_model` observation — the
+settlement's own condensed self-understanding), `institution_culture`
+(memory-only — one institution's own independently-authored
+character), `caravan` (memory-only — an occurrence), `town_brain`
+(`world_model` observation — THE central Village decision; mirrored
+the instant `town_brain.compute_priority` resolves deterministically,
+before the narration-only LLM call even schedules, since the decision
+itself doesn't need to wait on inference), `diplomacy` (memory-only —
+spans two settlements, so it lands in the one shared world-scoped
+Village pillar).
+
+Humans pillar (7 -> 9): `personal_belief` (memory-only — one
+individual's own private theory about their life), `record`
+(memory-only — mirrored once at the single `_apply_record` call both
+the LLM and fallback narration paths already share, so a dying
+villager's last words reach the pillar either way), `fission`
+(memory-only — a leader's own major life decision to found a new
+settlement, same treatment `migration_decision` already gets).
+
+Coverage now: Innovation=5, Village=20, Humans=9, Nature=3,
+Reflection=4.
+
+Verified: all twelve new mirrors confirmed via one combined direct
+production-path smoke test — a real `FakeClient` driving each job
+through its actual gating conditions, including season/year-cadence
+jobs called directly with a forced boundary event (same pattern
+`religion` used in an earlier slice) and monthly-cadence jobs driven
+through a real day-of-month retry loop. A 4000-tick LLM-disabled
+engine soak confirms no regression in the normal tick path; `scripts/
+verify_native_soak.py` (2 seeds x 800 ticks) byte-identical — no
+native module touched.
+
 ## [1.34.12] — Tier 0 batch: six more Village jobs, two more Humans jobs
 
 Explicit user instruction: "Continue tier 0 but do many steps at

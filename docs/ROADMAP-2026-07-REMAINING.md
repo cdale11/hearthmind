@@ -151,17 +151,44 @@ tier is arbitrary.
    Coverage now: Innovation=5, Village=11, Humans=7, Nature=3,
    Reflection=4.
 
+   **Nineteenth-through-thirtieth slice shipped, v1.34.13** ("continue
+   tier 0 with many steps at once," explicit user instruction — second
+   multi-job batch): twelve more real jobs mirrored in one pass, nine
+   into Village, three into Humans. Village (11 -> 20): `naming`
+   (`world_model` observation — a settlement's own name is a real
+   settled fact), `tradition`/`folklore`/`legend_detection` (all
+   memory-only — an occurrence/tale/legend, not a single revisable
+   theory), `culture_digest` (`world_model` observation — condenses
+   the settlement's own accumulated culture), `institution_culture`
+   (memory-only — one institution's own independently-authored
+   character, mentioning it by name), `caravan` (memory-only — an
+   occurrence), `town_brain` (`world_model` observation — THE central
+   Village decision, mirrored the instant `town_brain.compute_
+   priority` resolves deterministically, not waiting on the
+   narration-only LLM call below it), `diplomacy` (memory-only —
+   spans two settlements, so it lands in the one shared world-scoped
+   Village pillar rather than either settlement's alone). Humans
+   (7 -> 9): `personal_belief` (memory-only — one individual's own
+   private theory about their life), `record` (memory-only — a
+   dying villager's own written words, mirrored once at the single
+   `_apply_record` call both the LLM and fallback paths already share,
+   so it fires for either), `fission` (memory-only — a leader's own
+   major life decision to found a new settlement, same "major life
+   decision" treatment `migration_decision` already gets).
+
+   Coverage now: Innovation=5, Village=20, Humans=9, Nature=3,
+   Reflection=4.
+
    Still fully open: observe/interpret CYCLING for any of these new
    sites (they fire on their own existing cadence, not through
    `_pillar_observe_turn`/`_pillar_interpret_backpressured`),
    attention-budget arbitration for them, inbox/outbox participation,
-   and the remaining ~34 call sites (dialogue, founding's other half,
-   culture_digest, institution_culture, consciousness, self_tuning's
-   sibling calls, town_brain, record, diplomacy, fission, caravan,
-   geography — mostly deliberately untouched: `consciousness` sits
-   under Phase G/N's ambiguity discipline and wasn't mirrored without
-   an explicit decision the way `omen` got one; `geography` and a few
-   others have no LLM call to mirror at all).
+   and the remaining ~22 call sites (dialogue itself, founding's other
+   half, `consciousness`, `self_tuning`'s sibling calls, per-agent
+   cognition/dream/dialogue-adjacent jobs not yet covered, `geography`
+   — `consciousness` remains deliberately untouched under Phase G/N's
+   ambiguity discipline, same as before; `geography` has no LLM call
+   to mirror at all).
 
    **Scoped, NOT shipped — a genuinely new Nature cognition job**
    (explicit user request, v1.34.10 pass: "Nature can have so many

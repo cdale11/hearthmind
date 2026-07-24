@@ -2043,6 +2043,13 @@ class SimulationEngine:
                     target.name = new_name
                     noun = "The village" if sid == 0 else "The settlement"
                     self._log("settlement_named", f"{noun} came to be known as {new_name}.")
+                    # Tier 0 batch (docs/ROADMAP-2026-07-REMAINING.md):
+                    # naming joins Village pillar's wired jobs — a
+                    # settlement's own name is a real settled fact.
+                    self.world.village_pillar.upsert_world_model(
+                        self.world.clock.tick_count, "the settlement's name", new_name,
+                        1.0, status="observation", source="naming",
+                    )
 
             self._schedule_llm_job(
                 "naming", prompt, naming.SYSTEM_PROMPT, fallback, apply,
@@ -3748,6 +3755,7 @@ class SimulationEngine:
                 # (festival bonds, harvest relief, grief cost).
                 settlement.culture_effects[influence] = settlement.culture_effects.get(influence, 0) + 1
             self._log("tradition", f"{settlement.name or 'The village'} established a new tradition — {entry}")
+            self.world.village_pillar.remember(f"Established a new tradition — {entry}")
 
         # Cultural evolution: a tradition is a genuine interpretive claim
         # about what the settlement's lived history means, worth a real
@@ -3806,6 +3814,7 @@ class SimulationEngine:
             if len(settlement.folklore) > FOLKLORE_MAX_STORED:
                 settlement.folklore = settlement.folklore[-FOLKLORE_MAX_STORED:]
             self._log("folklore", f"{settlement.name or 'The village'} now tells a new tale — {entry['tale']}")
+            self.world.village_pillar.remember(f"A new tale is told — {entry['tale']}")
 
         self._schedule_llm_job(
             "folklore", prompt, folklore.SYSTEM_PROMPT, fallback, apply, settlement=target.name,
@@ -3856,6 +3865,7 @@ class SimulationEngine:
                 "legend",
                 f"{settlement.name or 'The village'} now speaks of a legend — {entry['legend']}",
             )
+            self.world.village_pillar.remember(f"A legend has taken hold — {entry['legend']}")
 
         self._schedule_llm_job(
             "legend", prompt, legend.SYSTEM_PROMPT, fallback, apply, settlement=target.name,
@@ -5578,6 +5588,10 @@ class SimulationEngine:
             if digest:
                 stl = self._settlement_by_id(target_id)
                 stl.culture_digest = digest
+                self.world.village_pillar.upsert_world_model(
+                    self.world.clock.tick_count, f"{stl.name or 'the village'}'s culture", digest,
+                    0.8, status="observation", source="culture_digest",
+                )
 
         # Cultural evolution (v1.3.37).
         self._schedule_llm_job("culture_digest", prompt, culture_digest.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
@@ -5637,6 +5651,7 @@ class SimulationEngine:
             inst = next((i for i in stl.institutions if i.id == institution_id), None)
             if inst is not None:
                 inst.culture_digest = digest
+                self.world.village_pillar.remember(f"The {inst.name or inst.kind.value} came to see itself as: {digest}")
 
         # Cultural evolution: an institution's own independent character
         # (v1.3.37).
@@ -6548,6 +6563,7 @@ class SimulationEngine:
         def apply(result: dict, used_fallback: bool) -> None:
             description, rumor = caravan.parse_caravan(result, fallback)
             self._log("caravan", description)
+            self.world.village_pillar.remember(f"A caravan came through — {description}")
             if rumor and _namespaced_roll(
                 self.world.config.seed, self.world.clock.tick_count, "caravan_rumor_roll",
             ) < caravan.CARAVAN_RUMOR_CHANCE:
@@ -6613,6 +6629,14 @@ class SimulationEngine:
         settlement.priority_rationale = decision["rationale"]
         settlement.record_priority(self.world.clock.tick_count, priority, decision["rationale"])
         self._log("town_brain", f"{settlement.name or 'The village'}'s priority is now {priority} — {decision['rationale']}")
+        # Tier 0 batch: town_brain joins Village pillar's wired jobs —
+        # the priority itself is already decided deterministically
+        # above, so this mirrors immediately rather than waiting on
+        # the narration-only LLM call below.
+        self.world.village_pillar.upsert_world_model(
+            self.world.clock.tick_count, f"{settlement.name or 'the village'}'s civic priority", priority,
+            1.0, status="observation", source="town_brain",
+        )
         prompt = town_brain.build_prompt(
             settlement.name, priority, recent, population_summary, settlement_summary, whispers_sent,
             beliefs=settlement.beliefs[-PROMPT_SETTLEMENT_BELIEFS_MAX:],
@@ -6981,6 +7005,7 @@ class SimulationEngine:
                 log_agent_memory_entry(
                     self.conn, tick, target.id, "belief", f"(re: {parsed['subject']}) {parsed['belief']}",
                 )
+                self.world.humans_pillar.remember(f"{target.name} came to believe: {parsed['belief']}")
             semantic_text = beliefs.parse_semantic_memory(result, fallback)
             beliefs.push_semantic_memory(target, semantic_text)
             if semantic_text:
@@ -7525,6 +7550,7 @@ class SimulationEngine:
     def _apply_record(self, author: str, text: str, settlement_id: int = 0) -> None:
         self._settlement_by_id(settlement_id).add_record(self.world.clock.tick_count, author, text)
         self._log("record_written", f'{author} left a written record behind: "{text}"')
+        self.world.humans_pillar.remember(f"{author} left a written record behind: \"{text}\"")
 
     def _author_minds(self, agents: list) -> None:
         """One-time genesis-style permanent-identity authoring (Phase J,
@@ -7984,6 +8010,7 @@ class SimulationEngine:
             stl_a.relations[b_id] = new_relation
             stl_b.relations[a_id] = new_relation
             self._log("diplomacy_event", f"Between {stl_a.name} and {stl_b.name}: {narration}")
+            self.world.village_pillar.remember(f"Between {stl_a.name} and {stl_b.name}: {narration}")
 
         self._schedule_llm_job(
             "diplomacy", prompt, diplomacy.SYSTEM_PROMPT, fallback, apply,
@@ -8392,6 +8419,9 @@ class SimulationEngine:
             self.world.settlements.append(new_settlement)
             population.depart_for_fission(
                 party, new_settlement, site, self.world.clock.tick_count, home.name,
+            )
+            self.world.humans_pillar.remember(
+                f"{leader.name} led {len(party)} settlers out of {home.name} — \"{reason}\""
             )
             self._log(
                 "settlement_founded",
