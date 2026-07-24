@@ -370,6 +370,24 @@ for each item's entry. Sim-speed pause/resume deliberately bypasses the
 queued-intervention seam (a paused sim never drains the queue — would
 deadlock); speed bounded [0.25x, 8x].
 
+**The Living Map (explicit user directive, 2026-07-24 — full text
+docs/VISION-2026-07-24-LIVINGMAP.md).** Standing philosophy, not a
+one-shot feature: Hearthmind should never read as "a static
+procedurally generated map with moving agents placed on top of it" —
+it should read as a living landscape continuously rewritten by
+civilization, nature, and time, where a player can reconstruct the
+world's history by looking at the map alone, with every overlay
+disabled if need be. Every deterministic system (hydrology, terrain
+evolution, ecology, climate, civilization growth, degradation) should
+have SOME real map representation, not diagnostics-only visibility —
+this is a completeness bar to keep checking against on every future
+batch that touches map rendering, same standing-discipline shape as
+A23-A25. When a new overlay is added, it must answer one specific,
+nameable gameplay question at a glance (per the vision doc's own
+worked examples — fertility -> where to farm, moisture -> irrigation/
+river influence) — never a raw uniform tint a player has to guess the
+meaning of.
+
 ## Calendar, climate, eras, genesis
 
 Real 365-day/12-month calendar (`time_system.py`); `season` stays a
@@ -526,6 +544,24 @@ ask you to continue manually" — no Routine was created. Every
 subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
+
+## Current state (v1.34.5)
+
+Explicit user directive, docs-only: the world map should visually
+communicate history rather than reading as a static procgen map with
+agents on top. Filed as docs/VISION-2026-07-24-LIVINGMAP.md (M1-M12);
+docs/ROADMAP-2026-07-REMAINING.md gained a new Tier 1.5, sequenced
+after Tier 1 (several of the biggest items — real erosion/flooding-
+reshapes-terrain, rivers re-carving — are blocked on A11's own
+already-recorded mutable-elevation item) and before Tier 2. Cross-
+referenced against real existing coverage (the four scar-shaped
+overlays, the "🗺️ fields" toggle, layout/architecture/dialect
+grammar) rather than treated as greenfield; confirmed by direct code
+check that a fully-decayed road leaves no persistent trace today
+(`RoadNetwork.wear` deletes the position on full decay). Also
+recorded the standing philosophy itself in CLAUDE.md's Observatory UI
+direction section directly, not just the vision doc. Full detail:
+CHANGELOG.md's [1.34.5] entry.
 
 ## Current state (v1.34.4)
 

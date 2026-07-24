@@ -221,6 +221,42 @@ D10. **Memory consolidation over extremely long runs: still bounded
    over A1's fields. Forest succession is the doc's own worked example
    and would give A1's future fields real consumers immediately.
 
+**Tier 1.5 — The Living Map (filed v1.34.4, full detail docs/VISION-
+2026-07-24-LIVINGMAP.md, explicit user vision)**, sequenced after
+Tier 1's substrate work (specifically A11's mutable-elevation item,
+which several of these depend on) and before Tier 2's mechanism gaps:
+the map should let a player read the world's history off it directly
+— today's rendering leans closer to "static procgen map with agents
+on top" than the living-landscape target. Cross-referenced against
+what's already real rather than treated as greenfield — a fair amount
+partially exists (the four scar-shaped overlays, the "🗺️ fields"
+toggle, layout/architecture/dialect grammar, ERA-styled cartography,
+forest reclaim). Real gaps, roughly by leverage:
+- **M2/M8** — `Tile.elevation` staying immutable is the single
+  biggest blocker: real erosion, flooding-reshapes-the-land, quarry
+  scars as actual terrain change (not a flat color tint), and rivers
+  re-carving their course (A3's own remaining half) are ALL gated on
+  this one item, already named in A11's own entry above.
+- **M6/M7** — the existing fields overlay (v1.27.0) is an honest first
+  slice, not the reference-game-quality target this vision names
+  (Cities: Skylines / Workers & Resources / Timberborn / Dwarf
+  Fortress conventions: gradients, hotspots, thresholds, legends).
+  Pure rendering work over data that already flows to the client —
+  no backend gap, a genuine UI redesign item.
+- **M1/M9** — extend the scar-shaped-dict pattern (already proven 4x:
+  mining/disaster/ritual/ruin) to old-road-beds, field boundaries, and
+  a labeled "environmental stress"/degradation reading — reusing the
+  mechanism, not inventing a new one each time.
+- **M4** — a wetland/marsh concept (hydrology drives moisture today,
+  not a distinct expanding/shrinking biome) and a migration-trail
+  accumulator (same shape as `ritual_activity`, different trigger).
+- **M10** — whether the BASE map (every overlay off) already reads as
+  alive, independent of overlay quality — needs a direct look before
+  scoping a fix.
+- **M11/M12** — folded into the standing-discipline items (A23-A25
+  above) as an ongoing completeness bar, not a one-shot task; also now
+  recorded in CLAUDE.md's Observatory UI direction section directly.
+
 **Tier 2 — real mechanism gaps, each self-contained**
 5. **A3** — rivers re-carving via erosion (needs A11's mutable
    elevation first — sequence after Tier 1 item 2).

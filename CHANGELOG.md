@@ -4,6 +4,45 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.5] — The Living Map vision folded into roadmap as Tier 1.5 (docs only)
+
+Explicit user directive: the world map should visually communicate
+history — civilization, nature, climate, disasters, and wildlife all
+leaving persistent marks — rather than reading as a static procgen
+map with agents on top. Twelve numbered points (terrain dynamism,
+civilization's visible footprint, nature reclaiming the world, real
+map representation for hydrology/ecology/climate, overlay redesign
+toward reference-game quality, per-overlay gameplay questions, rivers
+that visibly evolve, a visual-history layer, landmark-based base-map
+readability, universal system-to-visual coverage, and the standing
+philosophy itself). Docs-only.
+
+Filed as `docs/VISION-2026-07-24-LIVINGMAP.md` (M1-M12), same
+convention as the project's other large vision docs. Cross-referenced
+each point against what already ships rather than treated as
+greenfield: the four scar-shaped overlays (mining/disaster/ritual/
+ruin), the "🗺️ fields" toggle, layout/architecture/dialect grammar,
+and forest reclaim already cover real slices of this. Confirmed by
+direct code check (not assumed) that a fully-decayed road leaves no
+persistent trace (`RoadNetwork`'s wear dict deletes the position
+entirely on full decay) — a genuine gap, not a guess.
+
+`docs/ROADMAP-2026-07-REMAINING.md` gained a new **Tier 1.5**,
+sequenced after Tier 1's substrate work and before Tier 2 — several
+of the vision's biggest items (real erosion/flooding-reshapes-terrain,
+quarry scars as actual elevation change, rivers re-carving their
+course) are all blocked on A11's own already-recorded mutable-
+elevation item, so this tier can't meaningfully start before that one
+substrate item lands. The overlay-redesign half (M6/M7) has no such
+blocker — pure rendering work over data already flowing to the
+client — and could be pulled forward independently if prioritized
+that way later.
+
+Also recorded the standing philosophy itself (M12) directly in
+CLAUDE.md's Observatory UI direction section, not just the vision doc
+— a design directive should live where future work actually gets
+checked against it, same treatment the section's existing rules get.
+
 ## [1.34.4] — Ten live-diagnostic findings folded into roadmap as Tier 0.5 (docs only)
 
 Explicit user request: fold ten specific live-run observations
