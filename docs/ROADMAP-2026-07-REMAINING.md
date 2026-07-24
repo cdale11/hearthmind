@@ -816,19 +816,54 @@ conclusions" framing:
   demoting any of the ~20 `deep_reasoning=True` tasks on code
   inspection alone. Left as originally scoped: a live `/diagnostics`-
   driven pass, not attempted blind.
-- **D6 — scoped, not built.** Confirmed via code read: `Agent.
-  relationships`/`trust`/`debts` (the pairwise `Ledger`, Phase 0) are
-  genuinely O(population) per agent with no locality partition —
-  realistic today, not at population scales an order of magnitude
-  higher. Real design, not attempted this pass (a data-model change
-  touching the Ledger, FAMILY/COUNCIL/GUILD, and faction detection all
-  at once): a neighborhood/district layer bounding whom an agent can
-  plausibly maintain a live `Ledger` entry for, with existing
-  institutions/factions as the natural grouping primitive already in
-  place. Stays paired with Tier 5's B10 (spatial locality
-  partitioning) per the original entry's own note — the social-graph
-  counterpart to that spatial one, probably one design effort rather
-  than two.
+- **D6 — shipped (v1.34.22).** Explicit user directive: "at some
+  number of villagers as threshold promote them to collective NPCs
+  instead of single NPCs... districts, smaller towns." New `hearthmind/
+  settlement/district.py`: once a settlement's individually-simulated
+  non-core population crosses `DISTRICT_INDIVIDUAL_CAP=250`, the
+  least-prominent excess (`Population._prominence`, ascending) is
+  genuinely removed from `Population.agents`/the native `AgentStore`
+  AND from every surviving agent's `Ledger` entry for them
+  (relationships/trust/relationship_flags/grievances — the same
+  per-survivor cleanup `_apply_deaths` established, v0.42.0, but
+  without grief/memorial/inheritance since no one died) and folded
+  into a `District`'s aggregate population instead. This is what
+  actually bounds the social surface the original entry diagnosed — a
+  collectivized person no longer has a `Ledger` entry anyone can hold.
+  `DISTRICT_MAX_POPULATION=150` caps a single district before a new
+  one spins up (the "smaller towns" half of the directive — growth
+  reads as more named wards, e.g. "North Ward"/"Millgate", not one
+  unbounded blob). Core-cast agents and any living MAYOR are never
+  candidates (same "named cast stays named" boundary `core_agent_ids`
+  already draws for LLM budget). A `District` is deliberately NOT an
+  `Institution` or named character — no beliefs, no cognition, no LLM
+  authorship — closer to `FarmGrid`/`WildlifeGrid`: ticked daily
+  (`day_end`) via `tick_district` (fractional-accumulator births/
+  deaths scaled by a district `avg_hunger` that exponentially smooths
+  toward the settlement's individually-simulated average — a district
+  has no farms/foraging of its own), plus a small per-capita passive
+  materials contribution. Deliberate scope trim, recorded in `_tick_
+  districts`'s own docstring: `carrying_capacity()` is NOT adjusted for
+  collectivized population this pass — districts are tracked as a
+  separate, additive population figure so existing individually-
+  simulated population balance/tuning isn't disturbed without the
+  ability to live-test the impact; folding districts into carrying
+  capacity is flagged future work. Fully procedural naming (12-name
+  ward pool, zero LLM cost, same precedent as `world/geography.py`).
+  UI: new "Districts" main-UI stat tile. Verified: direct production-
+  path smoke tests (collectivization + Ledger cleanup + materials
+  contribution + starvation dissolution + core-cast protection +
+  below-cap no-op, all via the real `Population`/`Settlement` classes),
+  a real engine-level test (temporarily lowered thresholds, ran 3000
+  real ticks through `SimulationEngine._tick_once`, confirmed districts
+  form/narrate/round-trip through `to_dict`/`from_dict` via the actual
+  production code path — caught and fixed one real bug in the process,
+  `_append_emergence`'s `kind` argument used an invalid value
+  ("observation") not in `emergence.OBSERVATION_KINDS`, corrected to
+  "opportunity"/"unexplained_shift"), `scripts/verify_native_soak.py`
+  (2 seeds x 800 ticks) byte-identical — no native module touched.
+  Stays paired with Tier 5's B10 (spatial locality partitioning) as a
+  noted relationship, not a blocker — B10 remains open, unattempted.
 - **D7 — closed, no action needed.** The original live report already
   confirmed cumulative culture forming organically — this was always
   "do more of what's already working," not a gap-fix, and Tier 0's

@@ -545,6 +545,52 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.22)
+
+Explicit user instruction: "For D6 at some number of villagers as
+threshold promote them to collective NPCs instead of single NPCs.
+These can be districts, smaller towns or something like that. Take
+hints from the doc itself" — implements D6 (docs/ROADMAP-2026-07-
+REMAINING.md), the last open Tier 0.5 item, closed scoped-not-built in
+v1.34.21.
+
+New `hearthmind/settlement/district.py`: once a settlement's
+individually-simulated non-core population crosses `DISTRICT_
+INDIVIDUAL_CAP=250`, the least-prominent excess is genuinely removed
+from `Population.agents`/the native `AgentStore` AND from every
+surviving agent's `Ledger` entry for them (same per-survivor cleanup
+`_apply_deaths` established, v0.42.0, without grief/memorial/
+inheritance) and folded into a `District`'s aggregate population — the
+actual fix for D6's diagnosed O(population) social-surface problem, not
+a cosmetic count. `DISTRICT_MAX_POPULATION=150` caps a single district
+before a new named ward spins up (the "smaller towns" half of the
+directive). Core-cast agents and any living MAYOR are never
+candidates. A `District` has no beliefs/cognition/LLM authorship —
+closer to `FarmGrid`/`WildlifeGrid`: ticked daily via `tick_district`
+(fractional-accumulator births/deaths, `avg_hunger` exponentially
+smoothed toward the settlement's individually-simulated average),
+plus a small per-capita passive materials contribution; sustained
+famine can genuinely dissolve a district. Deliberate scope trim,
+recorded in `SimulationEngine._tick_districts`'s own docstring:
+`carrying_capacity()` is NOT adjusted for collectivized population
+this pass — districts are a separate, additive population figure so
+existing population-growth tuning isn't disturbed without live-test
+ability; folding districts into carrying capacity is flagged future
+work. UI: new "Districts" main-UI stat tile.
+
+Verified: direct production-path smoke tests against the real
+`Population`/`Settlement` classes (collectivization, Ledger cleanup,
+materials contribution, starvation dissolution, core-cast protection,
+below-cap no-op, `to_dict`/`from_dict` round-trip); a real engine-level
+test (temporarily lowered thresholds, 3000 real ticks through
+`SimulationEngine._tick_once`, LLM disabled) confirmed districts form/
+narrate/round-trip through the actual production path — caught and
+fixed one real bug in the process (`_append_emergence`'s `kind` used
+an invalid `"observation"` value, not a member of `emergence.
+OBSERVATION_KINDS`; corrected to `"opportunity"`/`"unexplained_
+shift"`); `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical — no native module touched.
+
 ## Current state (v1.34.21)
 
 Explicit user instruction: "Scope this problem for some other tier

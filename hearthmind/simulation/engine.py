@@ -2266,6 +2266,7 @@ class SimulationEngine:
             # letter was written) — daily is plenty granular against
             # LETTER_TRAVEL_TICKS' multi-day delay.
             self._deliver_letters()
+            self._tick_districts()
         if events:
             logger.info(
                 "Tick %s: %s | %s | %s",
@@ -8687,6 +8688,56 @@ class SimulationEngine:
                         f"word from {letter['from_settlement']}: {letter['text']}", 2, rumor_rng,
                     )
             stl.pending_letters = remaining
+
+    def _tick_districts(self) -> None:
+        """D6 "social scaling" (docs/ROADMAP-2026-07-REMAINING.md,
+        explicit user directive): daily (day_end) cadence for the
+        District mechanism — see `hearthmind.settlement.district`'s
+        module docstring for the full design. First collectivizes any
+        settlement's excess individually-simulated population past
+        `district.DISTRICT_INDIVIDUAL_CAP`, then ticks every existing
+        district's own demography/economy one day. Zero LLM cost —
+        same "cheap deterministic aggregate" treatment as FarmGrid/
+        WildlifeGrid, not a cognition job. Deliberate scope trim,
+        recorded here rather than left implicit: `carrying_capacity()`
+        is NOT adjusted for collectivized population this pass — a
+        district's residents are tracked as a separate, additive
+        population figure so existing individually-simulated population
+        balance/tuning isn't disturbed without the ability to live-test
+        the impact; folding districts into carrying capacity is
+        flagged future work, not an oversight."""
+        newly_founded = self.world.population._maybe_collectivize_excess_population(
+            self.world.settlements, self.world.clock.tick_count,
+        )
+        for settlement, district_name in newly_founded:
+            self._log(
+                "district_founded",
+                f"{settlement.name} has grown too large for every face to be known — "
+                f"a new quarter takes shape: {district_name}.",
+            )
+            self._append_highlight(
+                "district_founded",
+                f"{settlement.name} grows a new quarter, {district_name}, as its population "
+                "outgrows what any one person can know.",
+            )
+            self.world.village_pillar.remember(
+                f"{settlement.name} grew a new district, {district_name} — the settlement is "
+                "now too large for every resident to be known individually.",
+            )
+            self._append_emergence(
+                "opportunity", "settlement", f"{settlement.name} founded a new district: {district_name}",
+                ("village",), settlement=settlement.name,
+            )
+        dissolved = self.world.population.tick_districts(self.world.settlements)
+        for settlement, district_name in dissolved:
+            self._log(
+                "district_dissolved",
+                f"{district_name} in {settlement.name} has emptied out entirely.",
+            )
+            self._append_emergence(
+                "unexplained_shift", "settlement", f"{district_name} in {settlement.name} dissolved — its population is gone",
+                ("village",), settlement=settlement.name,
+            )
 
     def _choose_fission_site(
         self, origin: tuple[int, int] | None = None, home: "Settlement | None" = None,

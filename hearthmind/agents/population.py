@@ -369,6 +369,14 @@ from hearthmind.settlement.institutions import (
     Institution,
     InstitutionKind,
 )
+from hearthmind.settlement.district import (
+    DISTRICT_INDIVIDUAL_CAP,
+    DISTRICT_MATERIALS_PER_CAPITA_PER_DAY,
+    DISTRICT_MAX_POPULATION,
+    District,
+    fallback_district_name,
+    tick_district,
+)
 from hearthmind.settlement.vehicles import (
     AUTOMOBILE_MATERIALS_COST,
     BOAT_MATERIALS_COST,
@@ -7511,6 +7519,103 @@ class Population:
         if not self.agents:
             return 0.0
         return sum(a.hunger for a in self.agents) / len(self.agents)
+
+    # --- D6 "social scaling": districts (collective population) ----------------
+
+    def _assign_to_district(self, settlement: Settlement, tick: int) -> District:
+        """Returns the district a newly-collectivized person joins — the
+        settlement's last district if it still has room, otherwise a
+        freshly founded one (`district.DISTRICT_MAX_POPULATION`, the
+        "smaller towns" half of D6's directive: growth beyond one
+        district's cap reads as a new named ward, not an ever-growing
+        blob). Mutates `settlement.districts`/`next_district_id`."""
+        if settlement.districts and settlement.districts[-1].population < DISTRICT_MAX_POPULATION:
+            return settlement.districts[-1]
+        ordinal = settlement.next_district_id
+        district = District(
+            id=ordinal, settlement_id=settlement.id, name=fallback_district_name(ordinal),
+            population=0, founding_tick=tick, avg_hunger=self.avg_hunger(),
+        )
+        settlement.districts.append(district)
+        settlement.next_district_id += 1
+        return district
+
+    def _maybe_collectivize_excess_population(
+        self, settlements: list[Settlement], tick: int,
+    ) -> list[tuple[Settlement, str]]:
+        """D6 (docs/ROADMAP-2026-07-REMAINING.md): once a settlement's
+        individually-simulated non-core population crosses `district.
+        DISTRICT_INDIVIDUAL_CAP`, the least-prominent excess is
+        genuinely removed from individual simulation and folded into a
+        District — see `hearthmind.settlement.district`'s module
+        docstring for why this is the actual fix (bounds the pairwise
+        Ledger social surface), not a cosmetic population count. The
+        core cast and any living MAYOR are never candidates — same
+        "named cast stays named" boundary `core_agent_ids` already
+        draws for LLM budget, applied here to identity/social-surface
+        scaling instead. Reuses the exact per-survivor Ledger cleanup
+        `_apply_deaths` established (v0.42.0) — a collectivized person
+        is gone from every acquaintance's relationships/trust/flags/
+        grievances dict the same way a dead one is, since neither can
+        ever be colocated again. Deliberately NOT reusing `_apply_
+        deaths` itself: no grief, no memorial, no inheritance — this
+        person didn't die, they moved into a life this simulation no
+        longer tracks individually. Returns `(settlement, district_
+        name)` pairs for each settlement's FIRST district founded this
+        call, so the caller can narrate it once, not per person."""
+        newly_founded: list[tuple[Settlement, str]] = []
+        for settlement in settlements:
+            non_core = [
+                a for a in self.agents
+                if a.settlement_id == settlement.id and a.id not in self.core_agent_ids
+                and a.occupation != OCCUPATION_MAYOR
+            ]
+            excess = len(non_core) - DISTRICT_INDIVIDUAL_CAP
+            if excess <= 0:
+                continue
+            candidates = sorted(non_core, key=lambda a: self._prominence(a))[:excess]
+            candidate_ids = {a.id for a in candidates}
+            had_district = bool(settlement.districts)
+            for _ in candidates:
+                district = self._assign_to_district(settlement, tick)
+                district.population += 1
+            if not had_district and settlement.districts:
+                newly_founded.append((settlement, settlement.districts[0].name))
+            self.agents = [a for a in self.agents if a.id not in candidate_ids]
+            if self._store is not None:
+                for cid in candidate_ids:
+                    self._store.remove(cid)
+            # Same "dead weight" per-field cleanup _apply_deaths uses
+            # (v0.42.0/Tier 0.1) — a collectivized person can never be
+            # colocated again either.
+            for survivor in self.agents:
+                for cid in candidate_ids:
+                    survivor.relationships.pop(cid, None)
+                    survivor.trust.pop(cid, None)
+                    survivor.relationship_flags.pop(cid, None)
+                    survivor.grievances.pop(cid, None)
+        return newly_founded
+
+    def tick_districts(self, settlements: list[Settlement]) -> list[tuple[Settlement, str]]:
+        """Daily aggregate growth/shrink for every settlement's
+        districts (`district.tick_district`) plus a small passive
+        materials contribution to the settlement economy — a
+        collectivized population is still real background economic
+        activity, not narrative fluff (see `DISTRICT_MATERIALS_PER_
+        CAPITA_PER_DAY`'s docstring for why it's deliberately small).
+        Returns `(settlement, district_name)` for every district that
+        dissolved (population reached 0, e.g. sustained famine) this
+        call, so the caller can log it."""
+        settlement_hunger = self.avg_hunger()
+        dissolved: list[tuple[Settlement, str]] = []
+        for settlement in settlements:
+            for dist in list(settlement.districts):
+                tick_district(dist, settlement_hunger)
+                settlement.materials += dist.population * DISTRICT_MATERIALS_PER_CAPITA_PER_DAY
+                if dist.population <= 0:
+                    settlement.districts.remove(dist)
+                    dissolved.append((settlement, dist.name))
+        return dissolved
 
     def hold_festival(
         self, settlement: Settlement | None = None,

@@ -15,6 +15,7 @@ from enum import Enum
 from hearthmind.util import clamp
 from hearthmind.agents.agent import EMOTION_ANGER, EMOTION_FEAR, EMOTION_GRIEF, EMOTION_JOY
 from hearthmind.settlement.institutions import Institution, InstitutionKind
+from hearthmind.settlement.district import District
 from hearthmind.settlement.vehicles import (
     VEHICLE_DECAY_CATALYST_SCALE,
     VEHICLE_DECAY_PER_TICK_BASE,
@@ -2273,6 +2274,15 @@ class SettlementCulture:
     become," the same category traditions/beliefs already occupy, and
     this avoids a facade-wide passthrough churn for one new list."""
     next_institution_id: int = 0
+    districts: list["District"] = field(default_factory=list)
+    """D6 (docs/ROADMAP-2026-07-REMAINING.md, "social scaling beyond
+    several hundred/one thousand villagers"): once this settlement's
+    individually-simulated non-core population crosses `district.
+    DISTRICT_INDIVIDUAL_CAP`, the excess is collectivized here instead
+    — see `hearthmind.settlement.district`'s module docstring. Lives on
+    Culture next to `institutions` for the same reason that field does
+    (avoids a facade-wide passthrough churn for one new list)."""
+    next_district_id: int = 0
     rituals: list[dict] = field(default_factory=list)
     """Phase M (docs/VISION-2026-07.md, "Faith & Meaning"): `{"pattern":
     str, "description": str, "formed_tick": int}` — deterministic, free
@@ -2548,6 +2558,7 @@ class Settlement:
         omen_history: list[dict] | None = None,
         player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
         institutions: list[Institution] | None = None, next_institution_id: int = 0,
+        districts: list[District] | None = None, next_district_id: int = 0,
         caravans_visited: int = 0, fish_caught: int = 0, market_prices: dict | None = None,
         buildings_repaired: int = 0, vehicles_repaired: int = 0,
         relations: dict[int, float] | None = None,
@@ -2627,6 +2638,8 @@ class Settlement:
             records=records if records is not None else [],
             institutions=institutions if institutions is not None else [],
             next_institution_id=next_institution_id,
+            districts=districts if districts is not None else [],
+            next_district_id=next_district_id,
             rituals=rituals if rituals is not None else [],
             ritual_signal_counts=ritual_signal_counts if ritual_signal_counts is not None else {},
             pattern_signal_counts=pattern_signal_counts if pattern_signal_counts is not None else {},
@@ -2922,6 +2935,22 @@ class Settlement:
     @next_institution_id.setter
     def next_institution_id(self, value: int) -> None:
         self.culture.next_institution_id = value
+
+    @property
+    def districts(self) -> list[District]:
+        return self.culture.districts
+
+    @districts.setter
+    def districts(self, value: list[District]) -> None:
+        self.culture.districts = value
+
+    @property
+    def next_district_id(self) -> int:
+        return self.culture.next_district_id
+
+    @next_district_id.setter
+    def next_district_id(self, value: int) -> None:
+        self.culture.next_district_id = value
 
     @property
     def rituals(self) -> list[dict]:
@@ -3603,6 +3632,11 @@ class Settlement:
                 "guilds": [i.name for i in self.institutions if i.kind is InstitutionKind.GUILD],
                 "factions": [i.name for i in self.institutions if i.kind is InstitutionKind.FACTION],
             },
+            "districts": {
+                "count": len(self.districts),
+                "collectivized_population": sum(d.population for d in self.districts),
+                "names": [d.name for d in self.districts],
+            },
             "rituals": list(self.rituals),
             "religion": dict(self.religion) if self.religion is not None else None,
             "narrative_themes": list(self.narrative_themes),
@@ -3731,6 +3765,8 @@ class Settlement:
             "relations": {str(k): round(v, 4) for k, v in self.relations.items()},
             "institutions": [i.to_dict() for i in self.institutions],
             "next_institution_id": self.next_institution_id,
+            "districts": [d.to_dict() for d in self.districts],
+            "next_district_id": self.next_district_id,
             "caravans_visited": self.caravans_visited,
             "fish_caught": self.fish_caught,
             "buildings_repaired": self.buildings_repaired,
@@ -3804,6 +3840,8 @@ class Settlement:
             relations={int(k): v for k, v in data.get("relations", {}).items()},
             institutions=[Institution.from_dict(i) for i in data.get("institutions", [])],
             next_institution_id=data.get("next_institution_id", 0),
+            districts=[District.from_dict(d) for d in data.get("districts", [])],
+            next_district_id=data.get("next_district_id", 0),
             caravans_visited=data.get("caravans_visited", 0),
             fish_caught=data.get("fish_caught", 0),
             buildings_repaired=data.get("buildings_repaired", 0),

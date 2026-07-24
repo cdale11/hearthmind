@@ -4,6 +4,97 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.22] — D6: Districts (collective NPCs at scale)
+
+Explicit user instruction: "For D6 at some number of villagers as
+threshold promote them to collective NPCs instead of single NPCs.
+These can be districts, smaller towns or something like that. Take
+hints from the doc itself" — implements D6 (docs/ROADMAP-2026-07-
+REMAINING.md, filed scoped-not-built in v1.34.21), the last open Tier
+0.5 item.
+
+D6's diagnosed problem: every `Agent` carries an O(population) social
+surface via the pairwise `Ledger` (`agents/ledger.py`) — relationships/
+trust/debts/relationship_flags/grievances dicts keyed by any other
+living agent's id, with no locality bound. Realistic at a few hundred,
+implausible at a thousand+.
+
+**New `hearthmind/settlement/district.py`**: once a settlement's
+individually-simulated NON-core population crosses `DISTRICT_
+INDIVIDUAL_CAP=250`, the least-prominent excess (`Population.
+_prominence`, ascending) is genuinely removed from `Population.agents`
+and the native `AgentStore` (when present) AND from every surviving
+agent's `Ledger` entry for them — the same per-survivor cleanup
+`_apply_deaths` established (v0.42.0), deliberately NOT reused
+directly since collectivization skips grief/memorial/inheritance (no
+one died) — and folded into a `District`'s aggregate population
+instead. This is the actual fix: a collectivized person no longer has
+a `Ledger` entry anyone can hold, which is what bounds the social
+surface, not a cosmetic population count. `DISTRICT_MAX_
+POPULATION=150` caps a single district before a new one spins up — the
+"smaller towns" half of the directive: growth past a district's cap
+reads as a new named ward ("North Ward", "Millgate", ...; fully
+procedural, zero LLM cost, 12-name pool cycling with a numeric suffix),
+not one unbounded blob. Core-cast agents and any living MAYOR are never
+candidates — same "named cast stays named" boundary `core_agent_ids`
+already draws for LLM budget, applied here to identity/social-surface
+scaling instead.
+
+A `District` is deliberately NOT a named character or an `Institution`
+— no beliefs, no cognition, no LLM authorship. Closer to `FarmGrid`/
+`WildlifeGrid`: a cheap deterministic aggregate, ticked daily
+(`day_end`, `Population.tick_districts` -> `district.tick_district`)
+with its own fractional-accumulator births/deaths (the true expected
+rate is well under 1 person/day, so a naive `round()` would floor
+growth to zero forever — same pattern as terrain evolution's roll-
+batches) scaled by an `avg_hunger` that exponentially smooths toward
+the settlement's individually-simulated average (a district has no
+farms/foraging of its own — a documented simplification, flagged in
+`DISTRICT_HUNGER_SMOOTHING`'s docstring), plus a small per-capita
+passive `Settlement.materials` contribution — a collectivized resident
+is still real background economic activity, not narrative fluff.
+Sustained high hunger genuinely can dissolve a district to nothing,
+the same real consequence starvation already has for individuals.
+
+New `SimulationEngine._tick_districts` (day_end cadence, alongside
+`_deliver_letters`): calls the collectivization check, then ticks
+every district; narrates a first-district-founding and a dissolution
+via `_log`/`_append_highlight`, mirrors into `village_pillar.remember`
+(Tier 0's established pattern) and `_append_emergence` (`"opportunity"`
+for founding, `"unexplained_shift"` for dissolution — a real bug
+caught and fixed during engine-level verification: the first draft
+used `"observation"`, not a member of `emergence.OBSERVATION_KINDS`,
+which raised `ValueError` the first time collectivization actually
+fired through the real engine). Deliberate scope trim, recorded in
+`_tick_districts`'s own docstring rather than left implicit:
+`carrying_capacity()` is NOT adjusted for collectivized population this
+pass — districts are tracked as a separate, additive population figure
+so existing individually-simulated population balance/tuning isn't
+disturbed without the ability to live-test the impact; folding
+districts into carrying capacity is flagged future work.
+
+`Settlement` (`settlement/buildings.py`) gained `districts`/`next_
+district_id` as `SettlementCulture`-backed facade fields (same pattern
+as `institutions`), a `"districts"` block in `summary()`, and full
+`to_dict`/`from_dict` round-trip support.
+
+UI: new "Districts" main-UI stat tile (collectivized population + ward
+names), same placement discipline as "Institutions"/"Social hub."
+
+Verified: `ast.parse()` clean across all four touched/new files; direct
+production-path smoke tests against the real `Population`/`Settlement`
+classes (collectivization crossing the cap into two districts,
+per-survivor Ledger cleanup, materials contribution, starvation-driven
+dissolution via the real `tick_district` math, core-cast protection,
+below-cap no-op, `to_dict`/`from_dict` round-trip); a real engine-level
+test (temporarily lowered `DISTRICT_INDIVIDUAL_CAP`/`DISTRICT_MAX_
+POPULATION`, ran 3000 real ticks through `SimulationEngine._tick_once`
+with LLM disabled, confirmed districts formed/narrated/round-tripped
+through the actual production code path — this is where the
+`_append_emergence` kind bug above was caught and fixed);
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+no native module touched by this change.
+
 ## [1.34.21] — Tier 0.5 closed; per-agent cognition scoped to Tier 3
 
 Explicit user instruction: "Scope this problem for some other tier

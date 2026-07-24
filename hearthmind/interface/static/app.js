@@ -3093,6 +3093,19 @@ function renderStats(summary) {
       "not blood or trade.",
     ],
     [
+      "Districts",
+      (() => {
+        const d = s.districts;
+        if (!d || !d.count) return "(none yet)";
+        return `${d.collectivized_population} in ${d.count} ward${d.count === 1 ? "" : "s"}: ${d.names.join(", ")}`;
+      })(),
+      "D6 'social scaling': once a settlement's individually-simulated population outgrows what any one villager " +
+      "could know, the excess is folded into a district — a collective population figure with its own births/deaths " +
+      "and a small materials contribution, no longer a named individual with relationships of their own. New wards " +
+      "form once an existing one fills up, so a very large settlement reads as several named quarters, not one " +
+      "undifferentiated mass.",
+    ],
+    [
       "Social hub",
       (() => {
         if (!s.social_hub_agent_id) return "(none yet)";
