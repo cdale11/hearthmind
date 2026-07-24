@@ -545,6 +545,33 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.14)
+
+Explicit user instruction: "Continue tier 0 with many steps at once
+and ask about consciousness." Six real jobs mirrored: `away_digest`/
+`chronicler` -> Village (memory-only); `mind`/`rumor_interpret` ->
+Humans (memory-only, `mind` gated to a genuine non-fallback answer
+only); `self_tuning_advisory` -> Reflection (`world_model` hypothesis
++ memory). `consciousness`: asked via `AskUserQuestion` (mirror-with-
+content / occurrence-only / leave unmirrored); explicit answer
+"Mirror into Reflection, hypothesis-only" — implemented with real
+`kind`/`detail` content, justified since Reflection's world_model/
+memory sit at the same dev-console-only depth `consciousness_
+intervention_log` already has; the one player-visible `_log` line
+stays exactly as vague as before. `sim_summary` deliberately skipped
+(restates stats other mirrors already cover).
+
+Coverage now: Innovation=5, Village=22, Humans=11, Nature=3,
+Reflection=6 — closes out nearly every `_schedule_llm_job` site
+reachable by the mirroring pattern; what remains is observe/interpret
+cycling, attention-budget arbitration, and inbox/outbox participation,
+not more mirrors.
+
+Verified: all six mirrors confirmed via direct production-path smoke
+tests; a 4000-tick LLM-disabled engine soak; `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical. Full detail:
+CHANGELOG.md's [1.34.14] entry.
+
 ## Current state (v1.34.13)
 
 Explicit user instruction: "Continue tier 0 with many steps at once"

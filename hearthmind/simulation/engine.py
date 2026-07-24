@@ -2949,6 +2949,7 @@ class SimulationEngine:
             if target is not None:
                 retelling = rumor_interpret.parse_interpretation(result, fallback)
                 _remember(target, retelling)
+                self.world.humans_pillar.remember(f"{target.name} retold a rumor in their own way: {retelling}")
 
         self._schedule_llm_job(
             "rumor_interpret", prompt, rumor_interpret.SYSTEM_PROMPT, fallback, apply,
@@ -3591,6 +3592,7 @@ class SimulationEngine:
             self.world.chronicler_answer_tick = self.world.clock.tick_count
             self.world.chronicler_pending = False
             self._log("chronicler_answer", f"Asked of the chronicler: \"{question}\" — {self.world.chronicler_answer}")
+            self.world.village_pillar.remember(f"Asked \"{question}\" — {self.world.chronicler_answer}")
 
         self._schedule_llm_job("chronicler", prompt, chronicler.SYSTEM_PROMPT, fallback, apply)
 
@@ -3706,6 +3708,7 @@ class SimulationEngine:
                 entry for entry in self.world.knowledge_tree(limit=400) if entry["tick"] > since_tick
             ]
             self._log("away_digest", self.world.away_digest_text)
+            self.world.village_pillar.remember(f"Looking back: {self.world.away_digest_text}")
 
         self._schedule_llm_job("away_digest", prompt, digest.SYSTEM_PROMPT, fallback, apply)
 
@@ -5838,6 +5841,19 @@ class SimulationEngine:
             if kind != "none":
                 log_consciousness_entry(self.conn, tick, "intervention", f"{kind}: {detail}")
                 self._log("consciousness_intervention", f"Something in {target.name} quietly shifted.")
+                # Tier 0, explicit user decision via AskUserQuestion:
+                # mirror into Reflection, hypothesis-only — same narrow
+                # exception shape `omen` got for Phase G. Real content
+                # (kind/detail) is fine here because Reflection's
+                # world_model/memory, like `consciousness_intervention_
+                # log` itself, is dev-console-depth state, never
+                # surfaced in the main UI — the public `_log` line
+                # above stays exactly as vague as before this change.
+                self.world.reflection_pillar.upsert_world_model(
+                    tick, f"a change in {target.name}", f"{kind}: {detail}",
+                    0.4, status="hypothesis", source="consciousness",
+                )
+                self.world.reflection_pillar.remember(f"Something shifted in {target.name}: {kind} — {detail}")
 
         # Town consciousness: choosing at most one deniable intervention
         # is exactly the kind of long-horizon judgment reasoning helps
@@ -6282,6 +6298,11 @@ class SimulationEngine:
                 "advisory",
                 f"Hearthmind's own advice about {hypothesis_subject}: {parsed['advice']}",
             )
+            self.world.reflection_pillar.upsert_world_model(
+                self.world.clock.tick_count, hypothesis_subject, parsed["advice"],
+                0.5, status="hypothesis", source="self_tuning_advisory",
+            )
+            self.world.reflection_pillar.remember(f"Gave advice about {hypothesis_subject}: {parsed['advice']}")
 
         self._schedule_llm_job(
             "self_tuning_advisory", prompt, self_tuning.SYSTEM_PROMPT_ADVISORY, fallback, apply,
@@ -7596,6 +7617,8 @@ class SimulationEngine:
                 return  # died before the answer arrived
             target.mind = mind.parse_mind(result, fallback)
             target.voice = mind.parse_voice(result, fallback)
+            if not used_fallback:
+                self.world.humans_pillar.remember(f"{target.name} came into their own sense of self: {target.mind}")
             if target.long_term_goal is None and not used_fallback:
                 initial_goal = mind.parse_initial_goal(result)
                 if initial_goal:

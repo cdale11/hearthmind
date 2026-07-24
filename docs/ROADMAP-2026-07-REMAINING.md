@@ -179,16 +179,54 @@ tier is arbitrary.
    Coverage now: Innovation=5, Village=20, Humans=9, Nature=3,
    Reflection=4.
 
-   Still fully open: observe/interpret CYCLING for any of these new
+   **Thirty-first-through-thirty-sixth slice shipped, v1.34.14**
+   ("continue tier 0 with many steps at once," plus an explicit
+   request to ask about `consciousness`): six more real jobs, closing
+   out essentially every remaining `_schedule_llm_job` call site.
+   `away_digest`/`chronicler` -> Village (memory-only — an on-demand
+   recap/Q&A exchange, not a standing fact). `mind`/`rumor_interpret`
+   -> Humans (memory-only — `mind` gated to a real, non-fallback
+   answer only, since the fallback is just the existing template
+   restated; `rumor_interpret` is one core-cast agent's own distorted
+   retelling). `self_tuning_advisory` -> Reflection (`world_model`
+   hypothesis + memory — Reflection's own free-standing advice about
+   something it can't directly tune, genuinely uncertain by design
+   until a human reviews it). `consciousness` -> Reflection
+   (`world_model` hypothesis + memory, `source="consciousness"`):
+   asked directly via `AskUserQuestion` (three options: mirror with
+   real content hypothesis-only same as omen's exception, mirror
+   occurrence-only with no content, or leave permanently unmirrored);
+   explicit user answer: "Mirror into Reflection, hypothesis-only."
+   Implemented with the SAME real `kind`/`detail` content the existing
+   dev-console-only `consciousness_intervention_log` already carries
+   (Reflection's `world_model`/`memory` are equally dev-console-depth,
+   never main-UI) — the one already-public `_log` line stays exactly
+   as vague ("Something in {settlement} quietly shifted") as it was
+   before this change; nothing about what's shown to a player changed.
+
+   Coverage now: Innovation=5, Village=22, Humans=11, Nature=3,
+   Reflection=6.
+
+   `sim_summary` (on-demand user-triggered stat readout in prose) was
+   considered and deliberately NOT mirrored — it restates
+   population/settlement/mood stats already covered by town_brain and
+   other real mirrors, not a distinct piece of judgment or texture.
+
+   Still fully open: observe/interpret CYCLING for any of these
    sites (they fire on their own existing cadence, not through
    `_pillar_observe_turn`/`_pillar_interpret_backpressured`),
    attention-budget arbitration for them, inbox/outbox participation,
-   and the remaining ~22 call sites (dialogue itself, founding's other
-   half, `consciousness`, `self_tuning`'s sibling calls, per-agent
-   cognition/dream/dialogue-adjacent jobs not yet covered, `geography`
-   — `consciousness` remains deliberately untouched under Phase G/N's
-   ambiguity discipline, same as before; `geography` has no LLM call
-   to mirror at all).
+   and the remaining handful of call sites — dialogue itself (its own
+   `_run_dialogue` path, structurally distinct from `_schedule_llm_
+   job`), `self_tuning`'s numeric-nudge sibling call (distinct from
+   the now-mirrored `self_tuning_advisory`), per-agent cognition (its
+   own `_run_cognition` path), `pillar_chat` (already reaches its own
+   pillar directly via `note_observation`, not a mirror candidate),
+   `sim_summary` (deliberately skipped, see above), `geography` (no
+   LLM call to mirror at all). This is close to the practical ceiling
+   of "mirror an existing job's output" — further growth in pillar
+   depth from here is observe/interpret cycling, attention-budget
+   arbitration, and inbox/outbox participation, not more mirrors.
 
    **Scoped, NOT shipped — a genuinely new Nature cognition job**
    (explicit user request, v1.34.10 pass: "Nature can have so many

@@ -4,6 +4,57 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.14] — Tier 0 batch 3: closes out nearly every remaining job; consciousness mirrored (explicit user decision)
+
+Explicit user instruction: "Continue tier 0 with many steps at once
+and ask about consciousness" — third multi-job batch, plus a direct
+`AskUserQuestion` about the one flagged-but-unresolved pillar-mirror
+gap: `consciousness` (Phase G/N's ambiguity discipline).
+
+Six real jobs mirrored: `away_digest`/`chronicler` -> Village
+(memory-only — an on-demand recap/Q&A exchange). `mind`/`rumor_
+interpret` -> Humans (memory-only; `mind`'s mirror is gated to a
+genuine non-fallback answer only, since the fallback path just
+restates the agent's existing identity text, not new content).
+`self_tuning_advisory` -> Reflection (`world_model` hypothesis +
+memory — Reflection's own free-standing advice on something it has
+no tunable governor for, genuinely uncertain by design pending a
+human's accept/reject review).
+
+`consciousness`: asked directly via `AskUserQuestion` with three
+options — mirror with real content (hypothesis-only, same shape
+`omen` got), mirror occurrence-only with no content, or leave
+permanently unmirrored. Explicit user answer: "Mirror into
+Reflection, hypothesis-only." Implemented at the `if kind != "none"`
+branch inside `_maybe_schedule_consciousness`'s `apply()`, writing
+the actual `kind`/`detail` — justified because Reflection's `world_
+model`/`memory` sit at the same dev-console-only depth the existing
+`consciousness_intervention_log` already has (never main-UI); the one
+line that DOES reach players (`_log("consciousness_intervention", ...)`)
+is untouched and stays exactly as vague as before ("Something in
+{settlement} quietly shifted") — nothing player-visible changed.
+
+`sim_summary` considered and deliberately skipped — it's an on-demand
+restatement of population/settlement/mood stats already covered by
+`town_brain` and other real mirrors, not distinct judgment or texture.
+
+Coverage now: Innovation=5, Village=22, Humans=11, Nature=3,
+Reflection=6. This closes out nearly every `_schedule_llm_job` call
+site reachable by the mirroring pattern — what's left (dialogue's own
+`_run_dialogue` path, per-agent cognition's `_run_cognition` path,
+`self_tuning`'s numeric-nudge sibling, `pillar_chat` which already
+reaches its pillar directly, `geography` which has no LLM call) isn't
+further mirror work, it's the next tier: observe/interpret cycling,
+attention-budget arbitration, inbox/outbox participation.
+
+Verified: all six new mirrors confirmed via direct production-path
+smoke tests (a real `FakeClient` driving each job through its actual
+gating conditions, including `_author_one_mind` and `_maybe_interpret_
+rumor` called directly with synthetic agents). A 4000-tick LLM-
+disabled engine soak confirms no regression in the normal tick path;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical
+— no native module touched.
+
 ## [1.34.13] — Tier 0 batch 2: nine more Village jobs, three more Humans jobs
 
 Explicit user instruction: "Continue tier 0 with many steps at once"
