@@ -4,6 +4,63 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.10] — Tier 0 seventh/eighth slice: Village's fifth job (laws), Humans' fifth job (skill_mastery); Nature cognition gap scoped
+
+Explicit user instruction: "Nature can have some many things though
+like ecology, forests, wildlife, geography are they there?" followed
+by "Scope that out and continue tier 0" — a genuine question about
+Nature's domain coverage, then a dual instruction to (a) write a
+scoping/design doc for a new, genuinely reactive Nature cognition job
+and (b) keep widening pillar mirror coverage on other pillars.
+
+**Continue tier 0**: `_maybe_schedule_laws` (Village's fifth wired
+job) now mirrors a newly-formed law/custom/taboo into `village_
+pillar.world_model` (`status="observation"`, `source="laws"`) plus a
+memory note — same treatment `rule_propose` already gets, a codified
+norm is a real settled civic fact. `_maybe_schedule_skill_mastery`
+(Humans' fifth wired job) now writes a memory-only note into `humans_
+pillar.memory` when a core-cast agent's LLM-narrated mastery
+reflection lands — no `world_model` entry, matching `dream`'s existing
+"individual, not collective theory" reasoning. Caught and fixed a real
+closure late-binding risk while editing `_maybe_schedule_skill_
+mastery`'s existing `apply()` — its `skill` loop variable wasn't
+captured as a default argument like its four siblings already were,
+which would have read the wrong skill name if multiple masteries
+resolved out of order in the same tick.
+
+Coverage now: Innovation=4, Village=5, Humans=5, Nature=3,
+Reflection=3.
+
+**Nature domain question, answered**: `world/geography.py`'s naming
+is fully procedural (zero LLM, v1.3.35); `llm/nature_mind.py` already
+reasons over real wildlife/climate/scar/fallow Body state — so
+forests/wildlife/climate genuinely DO reach Nature's Mind already, just
+through one general seasonal belief-revision pass, never a reaction to
+one specific ecological event/anomaly. Scoped (not built) a new
+`_maybe_schedule_nature_causal_reasoning`-shaped job in docs/ROADMAP-
+2026-07-REMAINING.md's Tier 0 section: reactive (not cadence-gated,
+same shape `skill_mastery` already established), grounded in ONE
+specific detected Body-state anomaly (candidates: a wildlife
+herd/pack nearing local extinction, a regional disaster-scar spike, a
+forest-succession stall past its expected window), output written both
+to `nature_pillar.world_model` (`status="hypothesis"`, never
+`"observation"`) and to `world.ontology.CausalThread` (reusing the
+mechanism v1.3.41 built for dispute outcomes, surfaced via the
+existing "🔗 causal threads" panel — no new UI). `critical=True` per
+Constitution §3/§7. Full scoping rationale in the roadmap doc; build
+only on future explicit direction naming this item.
+
+Verified: both new mirrors confirmed via direct production-path smoke
+tests (a real `FakeClient` driving each job through its actual gating
+conditions end to end, including discovering and working around two
+test-setup gaps that were NOT product bugs — `parse_laws` legitimately
+returns `None` for an empty response per its own "not yet" design, and
+a fresh test settlement has no name until enough ticks pass for the
+existing placeholder-naming mechanism to fire); a 4000-tick LLM-
+disabled engine soak confirms no regression in the normal tick path;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+no native module touched.
+
 ## [1.34.9] — Tier 0 sixth slice: Nature's third job (omen), explicit Phase G exception
 
 Explicit user instruction: "continue tier 0," followed by a direct

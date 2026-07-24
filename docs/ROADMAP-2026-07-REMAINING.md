@@ -97,7 +97,19 @@ tier is arbitrary.
    omen consumer (stat tile, dev console, narration) is untouched and
    stays exactly as ambiguous as before.
 
-   Coverage now: Innovation=4, Village=4, Humans=4, Nature=3,
+   **Seventh/eighth slice shipped, v1.34.10**: Village's fifth job
+   (`laws` -> `world_model` observation + memory — a newly-enacted
+   law/custom/taboo is a real settled civic fact, same treatment
+   `rule_propose` already gets) and Humans' fifth job (`skill_mastery`
+   -> memory-only — one individual's own achievement, not a
+   collective theory). Also asked (separately, docs-only, see below):
+   the user's direct question about whether Nature's domain (ecology/
+   forests/wildlife/geography) has any real cognition presence beyond
+   the three mirrored jobs — answered "no, those stay deterministic
+   Body-only" and scoped out as a genuinely NEW Nature cognition job
+   design (not a mirror), filed separately.
+
+   Coverage now: Innovation=4, Village=5, Humans=5, Nature=3,
    Reflection=3.
 
    Still fully open: observe/interpret CYCLING for any of these new
@@ -107,6 +119,61 @@ tier is arbitrary.
    and the remaining ~44 call sites (dialogue, chronicle, founding,
    culture jobs, festival, religion, laws, diplomacy, letters,
    fission, caravan, faction, guild_founding, rule_proposal, etc.).
+
+   **Scoped, NOT shipped — a genuinely new Nature cognition job**
+   (explicit user request, v1.34.10 pass: "Nature can have so many
+   things though like ecology, forests, wildlife, geography are they
+   there?"). Answer given directly: geography naming is fully
+   procedural/zero-LLM (v1.3.35); forests/wildlife/climate/scars ARE
+   real Body state Nature's Mind (`llm/nature_mind.py`) already reads
+   — but that job is a *general seasonal belief-revision pass* (one
+   theory, any subject, `season_end` cadence), never a reaction to one
+   *specific* ecological event. This is the same "mirroring isn't a
+   new decision point" distinction the whole Tier 0 batch has been
+   careful about — a mirror duplicates an existing job's output into a
+   pillar; this would be a new job with its own genuine judgment call.
+   Design only, not implemented this pass:
+
+   - **Name**: `_maybe_schedule_nature_causal_reasoning` (or similar;
+     final name TBD at implementation time).
+   - **Trigger**: reactive, not cadence-gated — same shape `skill_
+     mastery`'s "fires the tick a `skill_mastered` life event actually
+     happens" already established, not a new pattern. Candidate real,
+     already-detected Body-state anomalies to react to (pick ONE for a
+     first slice, per this project's own "smallest coherent milestone"
+     discipline): a wildlife herd/pack crossing toward local
+     extinction (`WildlifeGrid` already tracks herd/pack counts), a
+     sudden multi-tile disaster-scar spike in one region within a
+     short window, or forest succession stalling well past `REFOREST_
+     MIN_FALLOW_WEEKS` despite favorable moisture (a real, currently
+     silent anomaly — `terrain_evolution.nature_adaptation_bias`
+     already reads confidence off Nature's beliefs but nothing
+     currently asks "why hasn't this reclaimed yet?").
+   - **Prompt**: grounds the LLM in the ONE specific anomaly (not a
+     generic seasonal digest) plus Nature's existing beliefs — "Why
+     might this specific thing be happening?" rather than nature_
+     mind's "form any theory about the land's current state."
+   - **Output**: a causal hypothesis, `status="hypothesis"` (never
+     `"observation"` — genuinely uncertain by design, same discipline
+     as the omen mirror), written to `nature_pillar.world_model` AND
+     to `world.ontology.CausalThread` (the mechanism v1.3.41 already
+     built for dispute outcomes) so the reasoning is legible via the
+     existing "🔗 causal threads" UI panel, not a new one.
+   - **Critical flag**: `critical=True` — this is genuine judgment
+     about *why* something happened, not ambient narration; a failed/
+     budget-exhausted call should defer, never fabricate a cause
+     (Constitution §3/§7, same as `nature_mind` itself).
+   - **Budget**: settlement-scoped-equivalent, not per-agent — an
+     anomaly is world/region-scoped, so this doesn't need core-cast
+     gating, but SHOULD still count against the shared daily LLM
+     ceiling and backpressure gate like every other settlement job.
+   - **Why not attempted this pass**: genuinely new judgment-call
+     design work (which anomaly, what "why" means for a wordless land-
+     intelligence, how CausalThread's dispute-shaped schema needs to
+     generalize to a Nature-authored cause) — the kind of decision
+     this project's standing rule says needs its own explicit-
+     direction pass, not folded into a mirroring batch already in
+     flight. Build only on future explicit direction naming this item.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

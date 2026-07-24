@@ -545,6 +545,37 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.10)
+
+Explicit user instruction: a direct question ("Nature can have some
+many things though like ecology, forests, wildlife, geography are
+they there?") followed by "Scope that out and continue tier 0."
+
+Continue tier 0: Village's fifth wired job (`laws` -> `world_model`
+observation + memory, same treatment `rule_propose` gets) and Humans'
+fifth wired job (`skill_mastery` -> memory-only). Caught and fixed a
+real closure late-binding risk in `_maybe_schedule_skill_mastery`'s
+existing `apply()` (`skill` wasn't captured as a default argument like
+its siblings). Coverage now: Innovation=4, Village=5, Humans=5,
+Nature=3, Reflection=3.
+
+Nature question, answered directly: geography naming is fully
+procedural/zero-LLM; `nature_mind.py` already reads real wildlife/
+climate/scar Body state, but only via one general seasonal belief-
+revision pass, never a reaction to one specific ecological event.
+Scoped (docs-only, docs/ROADMAP-2026-07-REMAINING.md's Tier 0
+section) a new reactive `_maybe_schedule_nature_causal_reasoning`-
+shaped job — grounded in one specific anomaly (wildlife local
+extinction, disaster-scar spike, or stalled forest succession),
+writing a `status="hypothesis"` belief plus a `world.ontology.
+CausalThread` entry, `critical=True`. Not implemented; build only on
+future explicit direction naming it.
+
+Verified: both mirrors confirmed via direct production-path smoke
+tests; a 4000-tick LLM-disabled engine soak; `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical. Full detail:
+CHANGELOG.md's [1.34.10] entry.
+
 ## Current state (v1.34.9)
 
 Explicit user instruction: "continue tier 0" + a direct answer to a

@@ -7190,6 +7190,7 @@ class SimulationEngine:
             def apply(
                 result: dict, used_fallback: bool, agent_id: int = agent_id,
                 mastery_index: int = mastery_index, old_memory: str = old_memory, fallback: dict = fallback,
+                skill: str = skill,
             ) -> None:
                 if used_fallback:
                     return  # the deterministic template already stands — see fallback_mastery's docstring
@@ -7205,6 +7206,13 @@ class SimulationEngine:
                 log_agent_memory_entry(
                     self.conn, self.world.clock.tick_count, target.id, "episodic_drifted", reflection,
                 )
+                # Tier 0 eighth slice (docs/ROADMAP-2026-07-REMAINING.
+                # md): skill_mastery becomes Humans pillar's FIFTH real
+                # wired job, alongside narrative_direction/dream/
+                # migration_decision/memory_drift — memory-only, same
+                # reasoning as those: one individual's own achievement,
+                # not a collective theory.
+                self.world.humans_pillar.remember(f"{target.name} reflected on mastering {skill}: {reflection}")
 
             self._schedule_llm_job(
                 "skill_mastery", prompt, skill_mastery.SYSTEM_PROMPT, fallback, apply, critical=False,
@@ -7976,6 +7984,17 @@ class SimulationEngine:
             else:
                 stl.pattern_signal_counts["dispute_feud"] = 0
             self._log("law_enacted", f"{stl.name} has come to hold a {parsed['kind']}: {parsed['text']}")
+            # Tier 0 seventh slice (docs/ROADMAP-2026-07-REMAINING.md):
+            # laws becomes Village pillar's FIFTH real wired job,
+            # alongside beliefs/institution_belief/dispute/rule_
+            # propose — a newly-enacted law/custom/taboo is a real
+            # settled civic fact, same "observation" treatment
+            # rule_propose already gets.
+            self.world.village_pillar.upsert_world_model(
+                tick, f"the {parsed['kind']} on {pattern_text}", parsed["text"], 1.0,
+                status="observation", source="laws",
+            )
+            self.world.village_pillar.remember(f"Came to hold a {parsed['kind']}: {parsed['text']}")
 
         # Cultural evolution: a law/custom/taboo is a real normative
         # judgment about the settlement (v1.3.37).
