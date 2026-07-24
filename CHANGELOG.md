@@ -4,6 +4,64 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.26] — M1/M9: old road beds ("The Living Map," Tier 1.5)
+
+Explicit user instruction: "Continue tier 1.5" — M1/M9 (docs/ROADMAP-
+2026-07-REMAINING.md, Tier 1.5, docs/VISION-2026-07-24-LIVINGMAP.md),
+the roadmap's own flagged gap: a fully-decayed ESTABLISHED road
+(`RoadNetwork.wear` reaching zero) was simply deleted from `self.wear`
+with no persistent trace — unlike mining/disaster/ritual/ruin, which
+all leave a real, slowly-decaying mark. Confirmed real via direct code
+read before starting.
+
+New `RoadNetwork.ever_established` (`world/roads.py`): tracks every
+position that has crossed `ROAD_ESTABLISHED_WEAR` at least once,
+independent of current wear — needed because `wear` alone can't
+distinguish "a real abandoned road" from "a tile that saw a few
+passing footsteps and faded without ever becoming a path." `tick()`
+now returns the list of positions abandoned THIS tick (only ones that
+were genuinely established), instead of `None`.
+
+New `terrain_evolution.apply_road_scar`/`decay_road_scars` (`ROAD_
+SCAR_GAIN_ON_ABANDONMENT=0.4`, `ROAD_SCAR_DECAY_PER_WEEK=0.008`, ~1
+year to fully clear) — same shape as `ruin_scars`, smaller gain/faster
+decay since a road bed is a fainter mark than a razed building.
+`World.road_scars` (new field, same additive-overlay-dict pattern),
+gained via `Population._update_roads` (now returns a real
+`road_scarred` life event) each time `roads.tick()` reports an
+abandonment, decayed weekly in `World._tick_terrain`'s existing
+`week_end` block.
+
+Real consumer (A9 "no write-only producers" discipline): `world/
+spatial_memory.py`'s `location_character`/`location_character_from_
+dicts` gained a 5th axis (`"road"`); `Population._choose_build_site`
+applies `ROAD_SCAR_SITE_BONUS_SCALE=0.3` (smaller than ruin's 0.6) to
+a tile with a prior old road bed — "the village rebuilds along its own
+old travel corridors," the same formation-to-consumption callback loop
+`ruin_scars` already has.
+
+UI: new "Old roads" main-UI stat tile, a faint worn-earth map overlay
+(`paintRoadScars`, distinct from both a standing road's own drawn line
+and `paintRuinScars`' stone tint), a bare-tile inspector line,
+`road_scarred` added to `TERRAIN_CHANGING_CATEGORIES` (both Python and
+JS) and `CATEGORY_META`/`EVENT_GROUP_OF`. `WorldBroadcaster.set_terrain`
+gained a `road_scars` parameter, wired at both call sites in
+`simulation/engine.py`.
+
+Verified: direct smoke tests (establish-then-abandon produces a scar
+only for a genuinely-established road, a briefly-visited tile does
+NOT scar, weekly decay clears it, `RoadNetwork`/`World` round-trip
+including legacy backfill for both `ever_established`, a `spatial_
+memory` unit check); a real production-path test through `World.
+create_new`/`World.tick()` (temporarily raised wear-gain/decay rates
+to force establishment and abandonment within the test's tick budget)
+confirmed `road_scarred` events fire and `World.road_scars` populates
+through the actual engine tick loop, with a clean `to_dict`/`from_dict`
+round-trip; `scripts/verify_native_soak.py` (2 seeds x 800 ticks, plus
+a follow-up 2 seeds x 400 after the `engine.py`/`api.py` broadcast
+changes) byte-identical — no native module touched, this is pure
+Python.
+
 ## [1.34.25] — A3: rivers re-carving their course via erosion
 
 Explicit user instruction: "Continue roadmap" — A3 (docs/ROADMAP-2026-

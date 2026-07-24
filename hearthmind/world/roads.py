@@ -8,6 +8,17 @@ path fades back to untouched terrain. Closes the "infrastructure" gap in
 the original feature list, and gives future systems (culture, trade,
 wildlife-avoidance) something spatial to react to besides raw tile
 biome. See docs/DECISIONS.md, C5.
+
+M1/M9 "The Living Map" (docs/VISION-2026-07-24-LIVINGMAP.md): a
+genuinely ESTABLISHED road (not just a tile that briefly saw a few
+footsteps) that fully decays away now leaves a real, persistent
+`World.road_scars` mark — see `tick()`'s return value and `world/
+terrain_evolution.py`'s `apply_road_scar`/`decay_road_scars`. Fading
+"back to untouched terrain" above describes the wear value itself
+returning to zero, not the tile's history — those are now two
+different things, same split every other scar-shaped dict in this
+codebase already has between its own live signal and its own
+persistent mark.
 """
 from __future__ import annotations
 
@@ -118,6 +129,17 @@ class RoadNetwork:
     not persisted-meaningful on its own (recomputed from live settlement
     state every tick the same way `mountain_unlocked` is, so a stale
     value on load is immediately overwritten before it's ever read)."""
+    ever_established: set[tuple[int, int]] = field(default_factory=set)
+    """M1/M9 "The Living Map" (docs/VISION-2026-07-24-LIVINGMAP.md):
+    tiles that have reached `ROAD_ESTABLISHED_WEAR` at least once —
+    tracked so `tick()` can tell the difference between "a tile that
+    saw a little passing traffic and faded" and "a genuinely
+    established road that's now been abandoned," only the latter of
+    which deserves a persistent `World.road_scars` mark. Pruned the
+    instant a tracked tile's wear fully decays back to zero (it's
+    either become a scar by then, or the caller chose not to record
+    one — either way, this set's only job is tracking CURRENTLY-worn
+    tiles' established-ness, not history)."""
 
     # --- queries -------------------------------------------------------------
 
@@ -135,35 +157,58 @@ class RoadNetwork:
 
     # --- tick ------------------------------------------------------------------
 
-    def tick(self, occupied_tiles: set[tuple[int, int]], paving_unlocked: bool = False) -> None:
+    def tick(self, occupied_tiles: set[tuple[int, int]], paving_unlocked: bool = False) -> list[tuple[int, int]]:
         """`occupied_tiles` are walkable, building-free, farm-free tiles
         with at least one awake agent present this tick — see
         Population.tick for the filtering. `paving_unlocked` (v0.87.43):
         whether any settlement has reached the era that unlocks the
-        paved road tier — see `Population._update_roads`."""
+        paved road tier — see `Population._update_roads`.
+
+        Returns positions where a genuinely ESTABLISHED road fully
+        decayed away this tick (M1/M9 "The Living Map") — the caller
+        (`World._tick_terrain`) turns each into a permanent `road_scars`
+        mark, same "a real thing was here and now it's gone" treatment
+        `apply_ruin_scar` already gives a removed building. A tile that
+        never reached `ROAD_ESTABLISHED_WEAR` before fading is NOT
+        included — a few passing footsteps that never became a real
+        path leave nothing behind, same as today."""
         self.paving_unlocked = paving_unlocked
+        abandoned: list[tuple[int, int]] = []
         if _native_road_wear_gain_step is not None:
             for pos in occupied_tiles:
-                self.wear[pos] = _native_road_wear_gain_step(self.wear.get(pos, 0.0), ROAD_WEAR_PER_TICK)
+                new_wear = _native_road_wear_gain_step(self.wear.get(pos, 0.0), ROAD_WEAR_PER_TICK)
+                self.wear[pos] = new_wear
+                if new_wear >= ROAD_ESTABLISHED_WEAR:
+                    self.ever_established.add(pos)
             for pos in list(self.wear):
                 if pos in occupied_tiles:
                     continue
                 remaining = _native_road_wear_decay_step(self.wear[pos], ROAD_DECAY_PER_TICK)
                 if remaining <= 0:
                     del self.wear[pos]
+                    if pos in self.ever_established:
+                        self.ever_established.discard(pos)
+                        abandoned.append(pos)
                 else:
                     self.wear[pos] = remaining
-            return
+            return abandoned
         for pos in occupied_tiles:
-            self.wear[pos] = min(1.0, self.wear.get(pos, 0.0) + ROAD_WEAR_PER_TICK)
+            new_wear = min(1.0, self.wear.get(pos, 0.0) + ROAD_WEAR_PER_TICK)
+            self.wear[pos] = new_wear
+            if new_wear >= ROAD_ESTABLISHED_WEAR:
+                self.ever_established.add(pos)
         for pos in list(self.wear):
             if pos in occupied_tiles:
                 continue
             remaining = self.wear[pos] - ROAD_DECAY_PER_TICK
             if remaining <= 0:
                 del self.wear[pos]
+                if pos in self.ever_established:
+                    self.ever_established.discard(pos)
+                    abandoned.append(pos)
             else:
                 self.wear[pos] = remaining
+        return abandoned
 
     # --- summary -------------------------------------------------------------
 
@@ -191,9 +236,23 @@ class RoadNetwork:
     # --- (de)serialization -----------------------------------------------------
 
     def to_dict(self) -> dict:
-        return {"wear": [[x, y, round(w, 4)] for (x, y), w in self.wear.items()]}
+        return {
+            "wear": [[x, y, round(w, 4)] for (x, y), w in self.wear.items()],
+            "ever_established": [[x, y] for x, y in self.ever_established],
+        }
 
     @classmethod
     def from_dict(cls, data: dict) -> "RoadNetwork":
         wear = {(x, y): w for x, y, w in data.get("wear", [])}
-        return cls(wear=wear)
+        if "ever_established" in data:
+            ever_established = {(x, y) for x, y in data["ever_established"]}
+        else:
+            # Legacy snapshot: silently backfill from current wear —
+            # any tile already at/above the established threshold is
+            # obviously established; a tile that WAS established but
+            # has since decayed below the threshold (without this set
+            # to remember it) is a real, accepted precision loss for a
+            # pre-M1/M9 save, same class of gap `river_sources`'
+            # legacy backfill already accepts elsewhere.
+            ever_established = {pos for pos, w in wear.items() if w >= ROAD_ESTABLISHED_WEAR}
+        return cls(wear=wear, ever_established=ever_established)

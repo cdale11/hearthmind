@@ -988,10 +988,11 @@ forest reclaim). Real gaps, roughly by leverage:
   Fortress conventions: gradients, hotspots, thresholds, legends).
   Pure rendering work over data that already flows to the client —
   no backend gap, a genuine UI redesign item.
-- **M1/M9** — extend the scar-shaped-dict pattern (already proven 4x:
-  mining/disaster/ritual/ruin) to old-road-beds, field boundaries, and
-  a labeled "environmental stress"/degradation reading — reusing the
-  mechanism, not inventing a new one each time.
+- **M1/M9** — **old-road-beds slice shipped, v1.34.26** (extends the
+  scar-shaped-dict pattern, already proven 4x: mining/disaster/ritual/
+  ruin, to a 5th axis). Field boundaries and a labeled "environmental
+  stress"/degradation reading remain unbuilt — same mechanism, future
+  slices, not attempted this pass.
 - **M4** — a wetland/marsh concept (hydrology drives moisture today,
   not a distinct expanding/shrinking biome) and a migration-trail
   accumulator (same shape as `ritual_activity`, different trigger).

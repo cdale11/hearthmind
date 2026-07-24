@@ -421,8 +421,10 @@ from hearthmind.world.terrain_evolution import (
     DISASTER_SCAR_SITE_PENALTY_SCALE,
     MINING_SCAR_SITE_PENALTY_SCALE,
     RITUAL_ACTIVITY_BOOST_SCALE,
+    ROAD_SCAR_SITE_BONUS_SCALE,
     RUIN_SITE_BONUS_SCALE,
     apply_ritual_activity,
+    apply_road_scar,
 )
 from hearthmind.world.fields import FieldGrid
 from hearthmind.world.layout_grammar import layout_site_bonus, settlement_layout_style
@@ -1908,6 +1910,7 @@ class Population:
         ruin_scars: "dict[tuple[int, int], float] | None" = None,
         mining_scars: "dict[tuple[int, int], float] | None" = None,
         disaster_scars: "dict[tuple[int, int], float] | None" = None,
+        road_scars: "dict[tuple[int, int], float] | None" = None,
         fields: "FieldGrid | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
@@ -2137,7 +2140,7 @@ class Population:
                     life_events.extend(self._mark_explored(agent, home, terrain, resources, minerals, settlements, tick))
             by_position.setdefault((agent.x, agent.y), []).append(agent)
 
-        self._update_roads(by_position, settlements, farms, roads)
+        life_events.extend(self._update_roads(by_position, settlements, farms, roads, road_scars))
         self._update_relationships(by_position)
         self._maybe_teach_skills(by_position, rng, settlements)
         self._maybe_commit_theft(by_position, rng, settlements, life_events)
@@ -2196,7 +2199,7 @@ class Population:
         life_events.extend(
             self._maybe_start_construction(
                 by_position, settlements, farms, rng, roads, resources, terrain, ruin_scars=ruin_scars,
-                mining_scars=mining_scars, disaster_scars=disaster_scars,
+                mining_scars=mining_scars, disaster_scars=disaster_scars, road_scars=road_scars,
             )
         )
         life_events.extend(
@@ -3818,10 +3821,18 @@ class Population:
     def _update_roads(
         by_position: dict[tuple[int, int], list[Agent]], settlements: list[Settlement],
         farms: FarmGrid, roads: RoadNetwork,
-    ) -> None:
+        road_scars: dict[tuple[int, int], float] | None = None,
+    ) -> list[tuple[str, str]]:
         """Tiles with at least one awake agent present, excluding
         building/farm tiles (paths form between things, not on top of
-        them) — see docs/DECISIONS.md, C5."""
+        them) — see docs/DECISIONS.md, C5.
+
+        M1/M9 "The Living Map": `road_scars` (optional — `World.
+        road_scars`, `None` reproduces the exact pre-M1/M9 behavior)
+        gets a real mark (`terrain_evolution.apply_road_scar`) for
+        every position `roads.tick()` reports as a just-abandoned
+        ESTABLISHED road — a fully-decayed road no longer vanishes
+        without a trace."""
         occupied = {
             (x, y) for (x, y), group in by_position.items()
             if any(a.state is AgentState.AWAKE for a in group)
@@ -3832,7 +3843,15 @@ class Population:
         # infrastructure, not settlement-private (same shape BRIDGE
         # already has), so no single settlement's era alone gates it.
         paving_unlocked = any(s.era in ERA_UNLOCKS_AUTOMOBILE for s in settlements)
-        roads.tick(occupied, paving_unlocked)
+        abandoned = roads.tick(occupied, paving_unlocked)
+        if not abandoned or road_scars is None:
+            return []
+        for pos in abandoned:
+            apply_road_scar(pos, road_scars)
+        return [(
+            "road_scarred",
+            f"{len(abandoned)} old road bed{'s' if len(abandoned) != 1 else ''} left behind as travel moved on.",
+        )]
 
     @staticmethod
     def _update_relationships(by_position: dict[tuple[int, int], list[Agent]]) -> None:
@@ -5178,6 +5197,7 @@ class Population:
         ruin_scars: dict[tuple[int, int], float] | None = None,
         mining_scars: dict[tuple[int, int], float] | None = None,
         disaster_scars: dict[tuple[int, int], float] | None = None,
+        road_scars: dict[tuple[int, int], float] | None = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         settlements_by_id = {s.id: s for s in settlements}
@@ -5202,6 +5222,7 @@ class Population:
             bx, by = cls._choose_build_site(
                 x, y, terrain, settlements, farms, roads, resources, settlement.era, settlement=settlement,
                 ruin_scars=ruin_scars, mining_scars=mining_scars, disaster_scars=disaster_scars,
+                road_scars=road_scars,
             )
             settle_chance = SETTLE_CHANCE_PER_TICK
             if settlement.current_priority == "growth":
@@ -5276,6 +5297,7 @@ class Population:
         ruin_scars: dict[tuple[int, int], float] | None = None,
         mining_scars: dict[tuple[int, int], float] | None = None,
         disaster_scars: dict[tuple[int, int], float] | None = None,
+        road_scars: dict[tuple[int, int], float] | None = None,
     ) -> tuple[int, int]:
         """The best buildable tile within BUILD_SITE_SEARCH_RADIUS of the
         founders at (x, y) — scored by road/resource/water adjacency
@@ -5353,17 +5375,25 @@ class Population:
                         score += layout_site_bonus(
                             layout_style, settlement.center_x, settlement.center_y, cx, cy, standing_positions,
                         )
-                    if ruin_scars is not None or mining_scars is not None or disaster_scars is not None:
+                    if (
+                        ruin_scars is not None or mining_scars is not None or disaster_scars is not None
+                        or road_scars is not None
+                    ):
                         # A9 follow-up (docs/ROADMAP-2026-07-REMAINING.
                         # md): routed through spatial_memory's real
                         # read-side unification (A19) instead of three
                         # separate ad-hoc `.get()` calls — this is now
                         # the actual mechanism `location_character`
                         # exists to back, not a still-unused sibling.
+                        # M1/M9: `road_scars` is the fourth axis added
+                        # to this same unification, same "the village
+                        # rebuilds along its own old paths" positive
+                        # pull `ruin_scars` already gets.
                         character = location_character_from_dicts(
-                            mining_scars, disaster_scars, None, ruin_scars, cx, cy,
+                            mining_scars, disaster_scars, None, ruin_scars, cx, cy, road_scars=road_scars,
                         )
                         score += character.get("ruin", 0.0) * RUIN_SITE_BONUS_SCALE
+                        score += character.get("road", 0.0) * ROAD_SCAR_SITE_BONUS_SCALE
                         score -= character.get("mining", 0.0) * MINING_SCAR_SITE_PENALTY_SCALE
                         score -= character.get("disaster", 0.0) * DISASTER_SCAR_SITE_PENALTY_SCALE
                     if best_score is None or score > best_score:

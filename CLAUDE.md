@@ -545,6 +545,35 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.26)
+
+Explicit user instruction: "Continue tier 1.5" — M1/M9 "old road
+beds" (docs/ROADMAP-2026-07-REMAINING.md, Tier 1.5 "The Living Map"),
+the roadmap's own flagged gap: a fully-decayed established road left
+zero trace, unlike mining/disaster/ritual/ruin scars.
+
+New `RoadNetwork.ever_established` (`world/roads.py`) distinguishes a
+genuinely-established road from a briefly-visited tile; `tick()` now
+returns positions abandoned this tick. New `terrain_evolution.apply_
+road_scar`/`decay_road_scars` + `World.road_scars` — same additive-
+decaying-dict shape as `mining_scars`/`disaster_scars`/`ruin_scars`,
+gained via `Population._update_roads`, decayed weekly alongside the
+other three. Real consumer (A9 discipline): `world/spatial_memory.py`'s
+5-axis `location_character` now includes `"road"`; `Population.
+_choose_build_site` applies a real (smaller-than-ruin) site bonus —
+"the village rebuilds along its old travel corridors." UI: "Old roads"
+stat tile, a faint map overlay, bare-tile inspector line, `road_
+scarred` wired into both Python and JS `TERRAIN_CHANGING_CATEGORIES`.
+
+Verified: direct smoke tests (establish-vs-pass-through distinction,
+decay, round-trip incl. legacy backfill); a real `World.create_new`/
+`tick()` production-path test confirming the mechanism fires end-to-
+end with a clean round-trip; `scripts/verify_native_soak.py` (2 seeds
+x 800 ticks, and again after the broadcast-layer changes) byte-
+identical — pure Python, no native module touched. Field boundaries
+and a labeled environmental-stress reading (the rest of M1/M9) remain
+open, flagged for a future slice.
+
 ## Current state (v1.34.25)
 
 Explicit user instruction: "Continue roadmap" — A3 "rivers re-carving

@@ -363,6 +363,56 @@ def decay_ruin_scars(scars: dict[tuple[int, int], float]) -> None:
             del scars[pos]
 
 
+ROAD_SCAR_GAIN_ON_ABANDONMENT = 0.4
+"""M1/M9 "The Living Map" (docs/VISION-2026-07-24-LIVINGMAP.md,
+docs/ROADMAP-2026-07-REMAINING.md's Tier 1.5): the item's own worked
+finding — "does a fully decayed road leave any lasting trace, or does
+it vanish cleanly? Needs a direct check — likely no." Confirmed: it
+vanished cleanly. This is the fix, same shape as `RUIN_SCAR_GAIN_ON_
+REMOVAL` — a real, previously-established road that fully decays away
+now leaves a persistent mark, an old road bed you can still find.
+Smaller than `RUIN_SCAR_GAIN_ON_REMOVAL` (0.5): a worn path is a
+weaker, more ephemeral trace than a whole vanished building's
+foundation/rubble."""
+
+ROAD_SCAR_DECAY_PER_WEEK = 0.008
+"""Faster to fade than `RUIN_SCAR_DECAY_PER_WEEK` (a road bed is just
+compacted/cleared ground, not a building's foundation) but still much
+slower than the wear value itself ever decayed (`ROAD_DECAY_PER_
+TICK`) — ~50 weeks (~1 year) to fully clear, "the old road is still
+faintly visible for a generation" territory."""
+
+ROAD_SCAR_VISIBLE_THRESHOLD = 0.35
+"""Same role as `MINING_SCAR_VISIBLE_THRESHOLD` et al. — a road scar
+starts at `ROAD_SCAR_GAIN_ON_ABANDONMENT` (0.4), already above this,
+so an abandonment is always immediately visible/eventable, never a
+silent internal-state-only change."""
+
+ROAD_SCAR_SITE_BONUS_SCALE = 0.3
+"""`Population._choose_build_site`'s consequence of an old road bed —
+"settlements form along old travel corridors," a real callback loop
+between M1/M9's mechanism and construction. Smaller than `RUIN_SITE_
+BONUS_SCALE` (0.6): an old path is a weaker positive signal than a
+whole former building's cleared foundation, but still a genuine pull,
+not a cosmetic-only mark."""
+
+
+def apply_road_scar(pos: tuple[int, int], scars: dict[tuple[int, int], float]) -> None:
+    """Called for each position `RoadNetwork.tick()` reports as a just-
+    abandoned ESTABLISHED road (see that method's return value) —
+    mutates `scars` in place, same shape as `apply_ruin_scar`."""
+    scars[pos] = min(1.0, scars.get(pos, 0.0) + ROAD_SCAR_GAIN_ON_ABANDONMENT)
+
+
+def decay_road_scars(scars: dict[tuple[int, int], float]) -> None:
+    """Called once per week, same cadence as the other scar-shaped
+    dicts."""
+    for pos in list(scars.keys()):
+        scars[pos] -= ROAD_SCAR_DECAY_PER_WEEK
+        if scars[pos] <= 0.0:
+            del scars[pos]
+
+
 DEFOREST_CHANCE_PER_TICK = 0.02
 """Rolled only once a tile's heat clears the threshold — deforestation
 isn't instant even under sustained pressure."""

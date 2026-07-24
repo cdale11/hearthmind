@@ -190,6 +190,7 @@ const CATEGORY_META = {
   disaster_scarred: { icon: "🌋" },
   terrain_eroded: { icon: "🏞️" },
   river_recarved: { icon: "🌊" },
+  road_scarred: { icon: "🛤️" },
   composite_reaction: { icon: "💥" },
   // P2.3 (docs/AUDIT-2026-07-20.md): 296/16k events (18%) in a live run —
   // routine background texture already surfaced via the Exploration stat
@@ -219,7 +220,7 @@ const EVENT_GROUP_OF = {
   disaster_storm: "nature", disaster_heatwave: "nature", disaster_frost: "nature",
   lake_rose: "nature", lake_receded: "nature", season_end: "nature", year_end: "nature",
   place_named: "nature", mining_scarred: "nature", disaster_scarred: "nature", terrain_eroded: "nature",
-  river_recarved: "nature",
+  river_recarved: "nature", road_scarred: "nature",
   chronicle: "mind", documentary: "mind", sim_summary: "mind", tradition: "mind", invention: "mind",
   festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind",
   institution_belief: "mind", ritual_formed: "mind", religion_formed: "mind",
@@ -237,7 +238,7 @@ const TERRAIN_CHANGING_CATEGORIES = new Set([
   "terrain_thinned", "terrain_reclaimed", "climate_drift",
   "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
   "mining_scarred", "disaster_scarred", "building_reclaimed", "terrain_eroded",
-  "river_recarved",
+  "river_recarved", "road_scarred",
 ]);
 function categoryMeta(category) {
   return CATEGORY_META[category] || (category.endsWith("_migration") ? { icon: "🔧" } : { icon: "•" });
@@ -1567,6 +1568,22 @@ function paintRuinScars(sctx, scars) {
   }
 }
 
+// M1/M9 "The Living Map": a faint worn-earth streak left where an
+// established road once ran before travel moved elsewhere — distinct
+// from a currently-standing road's own drawn line (see the "Path"
+// click-inspector section) and from `paintRuinScars`' stone tint.
+function paintRoadScars(sctx, scars) {
+  if (!scars) return;
+  for (const key in scars) {
+    const intensity = scars[key];
+    if (!(intensity > 0)) continue;
+    const [xs, ys] = key.split(":");
+    const x = parseInt(xs, 10), y = parseInt(ys, 10);
+    sctx.fillStyle = `rgba(150,130,95,${(0.1 + intensity * 0.25).toFixed(3)})`;
+    sctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+  }
+}
+
 function drawStaticTerrain() {
   staticCanvas = document.createElement("canvas");
   staticCanvas.width = terrain.width * CELL;
@@ -1583,6 +1600,7 @@ function drawStaticTerrain() {
   paintDisasterScars(sctx, terrain.disaster_scars);
   paintRitualActivity(sctx, terrain.ritual_activity);
   paintRuinScars(sctx, terrain.ruin_scars);
+  paintRoadScars(sctx, terrain.road_scars);
   canvas.width = staticCanvas.width;
   canvas.height = staticCanvas.height;
   weatherCanvas.width = staticCanvas.width;
@@ -2901,6 +2919,10 @@ function renderTargetInspector() {
   if (ruin > 0) {
     bits.push(`<div class="npc-section"><h4>Ruins</h4><div>a settlement once stood here (${Math.round(ruin * 100)}% still visible)</div></div>`);
   }
+  const roadScar = (terrain && terrain.road_scars && terrain.road_scars[`${x}:${y}`]) || 0;
+  if (roadScar > 0) {
+    bits.push(`<div class="npc-section"><h4>Old road bed</h4><div>a well-worn road once passed here (${Math.round(roadScar * 100)}% still visible)</div></div>`);
+  }
   npcContent.innerHTML = `
     <h3>${biome.replace(/_/g, " ")}</h3>
     <div class="npc-subtitle">tile (${x}, ${y})</div>
@@ -3336,6 +3358,14 @@ function renderStats(summary) {
         return rs.sites ? `${rs.sites} site${rs.sites === 1 ? "" : "s"} (avg ${rs.avg_intensity.toFixed(2)})` : "none yet";
       })(),
       "A fully-abandoned, fully-decayed building leaves a real mark on the land long after it's gone — by far the slowest of these marks to fade. A new building staked out nearby leans toward a spot with old ruins, \"the village rebuilds on old foundations.\"",
+    ],
+    [
+      "Old roads",
+      (() => {
+        const rds = summary.road_scars || {};
+        return rds.sites ? `${rds.sites} bed${rds.sites === 1 ? "" : "s"} (avg ${rds.avg_intensity.toFixed(2)})` : "none yet";
+      })(),
+      "A road worn in by real traffic, then abandoned as travel moved elsewhere, leaves a faint old road bed behind instead of vanishing without a trace — fades over about a year if never retraveled. A new building staked out nearby leans toward old travel corridors, a smaller pull than a ruin's.",
     ],
     [
       "Soil moisture",

@@ -25,15 +25,16 @@ them is real follow-up work, flagged rather than silently attempted."""
 
 from __future__ import annotations
 
-LOCATION_HISTORY_CATEGORIES: tuple[str, ...] = ("mining", "disaster", "ritual", "ruin")
+LOCATION_HISTORY_CATEGORIES: tuple[str, ...] = ("mining", "disaster", "ritual", "ruin", "road")
 """The closed set of axes `location_character` currently reads —
 each backed by a real, already-existing per-tile dict. `ruin` added
-in A3 (roadmap step 28, `World.ruin_scars`) — the same unification
-this module already provides, extended to the newest scar-shaped
-dict rather than left as a fourth independent silo. Deliberately NOT
-the spec's full nine-axis list (traffic/battles/pollution/fertility/
-ownership/construction/ecology remain unfolded, see this module's own
-docstring)."""
+in A3 (roadmap step 28, `World.ruin_scars`); `road` added in M1/M9
+"The Living Map" (`World.road_scars`) — the same unification this
+module already provides, extended to the newest scar-shaped dict
+rather than left as a fourth (now fifth) independent silo.
+Deliberately NOT the spec's full nine-axis list (traffic/battles/
+pollution/fertility/ownership/construction/ecology remain unfolded,
+see this module's own docstring)."""
 
 
 def location_character_from_dicts(
@@ -42,16 +43,20 @@ def location_character_from_dicts(
     ritual_activity: dict[tuple[int, int], float] | None,
     ruin_scars: dict[tuple[int, int], float] | None,
     x: int, y: int,
+    road_scars: dict[tuple[int, int], float] | None = None,
 ) -> dict[str, float]:
     """The real read-side logic `location_character` below wraps — split
-    out so a caller that already has the four scar dicts on hand
+    out so a caller that already has the scar dicts on hand
     individually (e.g. `Population._choose_build_site`, which is
     intentionally decoupled from `World` and receives each dict as its
     own parameter, same shape as `ruin_scars` before it) can use the
     SAME unification this module exists for, instead of re-deriving it
     with its own duplicate `.get()` calls. Any dict may be `None` (a
     caller not passing that axis simply omits it from the result, same
-    "absence means neutral" convention as below)."""
+    "absence means neutral" convention as below). `road_scars`
+    (M1/M9) is keyword-only-by-convention, appended after `x, y`
+    rather than inserted earlier, so every existing positional call
+    site keeps working unchanged."""
     pos = (x, y)
     character: dict[str, float] = {}
     mining = mining_scars.get(pos) if mining_scars else None
@@ -66,11 +71,14 @@ def location_character_from_dicts(
     ruin = ruin_scars.get(pos) if ruin_scars else None
     if ruin:
         character["ruin"] = ruin
+    road = road_scars.get(pos) if road_scars else None
+    if road:
+        character["road"] = road
     return character
 
 
 def location_character(world, x: int, y: int) -> dict[str, float]:
-    """One tile's real accumulated history, read from the four
+    """One tile's real accumulated history, read from the five
     existing per-location dicts `World` already maintains. Only keys
     present are ones with non-zero real intensity — same "sparse,
     absence means neutral" convention the underlying dicts already
@@ -78,4 +86,5 @@ def location_character(world, x: int, y: int) -> dict[str, float]:
     zero.\""""
     return location_character_from_dicts(
         world.mining_scars, world.disaster_scars, world.ritual_activity, world.ruin_scars, x, y,
+        road_scars=world.road_scars,
     )
