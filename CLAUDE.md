@@ -545,6 +545,22 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.11)
+
+Explicit user instruction: "Continue tier 0." Innovation's fifth
+wired job (`era_branch` -> `world_model` observation + memory — the
+branch lean is a real, already-computed decision by the time the
+narration-only LLM call fires) and Reflection's fourth wired job
+(`musing` -> memory-only). Nature re-checked for a fourth candidate;
+none found — every remaining unmirrored job belongs to another
+pillar's domain. Coverage now: Innovation=5, Village=5, Humans=5,
+Nature=3, Reflection=4.
+
+Verified: both mirrors confirmed via direct production-path smoke
+tests; a 4000-tick LLM-disabled engine soak; `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical. Full detail:
+CHANGELOG.md's [1.34.11] entry.
+
 ## Current state (v1.34.10)
 
 Explicit user instruction: a direct question ("Nature can have some

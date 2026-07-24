@@ -112,11 +112,25 @@ tier is arbitrary.
    Coverage now: Innovation=4, Village=5, Humans=5, Nature=3,
    Reflection=3.
 
+   **Ninth/tenth slice shipped, v1.34.11**: Innovation's fifth job
+   (`era_branch` -> `world_model` observation + memory — the branch
+   lean itself is a real, already-computed decision by the time the
+   one narration-only LLM call fires, so this is an observation, not
+   a hypothesis, same treatment `composite_entity` gets) and
+   Reflection's fourth job (`musing` -> memory-only — a musing is
+   Reflection's own passing voice, not a second copy of the theory
+   already tracked in `reflection_notebook`). Nature stays at 3 (no
+   new candidate found this pass either — every remaining unmirrored
+   job belongs to a different pillar's domain).
+
+   Coverage now: Innovation=5, Village=5, Humans=5, Nature=3,
+   Reflection=4.
+
    Still fully open: observe/interpret CYCLING for any of these new
    sites (they fire on their own existing cadence, not through
    `_pillar_observe_turn`/`_pillar_interpret_backpressured`),
    attention-budget arbitration for them, inbox/outbox participation,
-   and the remaining ~44 call sites (dialogue, chronicle, founding,
+   and the remaining ~42 call sites (dialogue, chronicle, founding,
    culture jobs, festival, religion, laws, diplomacy, letters,
    fission, caravan, faction, guild_founding, rule_proposal, etc.).
 

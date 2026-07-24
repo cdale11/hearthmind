@@ -5107,6 +5107,17 @@ class SimulationEngine:
             if target is None or not reason:
                 return
             self._log("era_branch", f"{target.name or 'The village'} is leaning {branch} — {reason}")
+            # Tier 0 ninth slice (docs/ROADMAP-2026-07-REMAINING.md):
+            # era_branch becomes Innovation pillar's FIFTH real wired
+            # job — the branch itself is a real, already-settled
+            # decision (computed deterministically above), so this is
+            # an observation, not a hypothesis, same treatment
+            # composite_entity gets.
+            self.world.innovation_pillar.upsert_world_model(
+                self.world.clock.tick_count, f"{target.name or 'the village'}'s tech-path lean",
+                f"Leaning {branch} — {reason}", 1.0, status="observation", source="era_branch",
+            )
+            self.world.innovation_pillar.remember(f"{target.name or 'The village'} is leaning {branch}: {reason}")
 
         self._schedule_llm_job(
             "era_branch", prompt, era_branch.SYSTEM_PROMPT, fallback, apply,
@@ -6423,6 +6434,14 @@ class SimulationEngine:
             if len(self.world.musings) > MUSING_HISTORY_MAX:
                 self.world.musings = self.world.musings[-MUSING_HISTORY_MAX:]
             self._log("musing", text)
+            # Tier 0 tenth slice (docs/ROADMAP-2026-07-REMAINING.md):
+            # musing becomes Reflection pillar's FOURTH real wired job
+            # — memory-only, same reasoning as dream/skill_mastery:
+            # a musing is Reflection's own passing voice, not a
+            # collective theory (the theory itself, if any, already
+            # lives in reflection_notebook via _maybe_schedule_
+            # reflection/_reflection_question).
+            self.world.reflection_pillar.remember(f"Mused: {text}")
 
         self._schedule_llm_job("musing", prompt, musing.SYSTEM_PROMPT, fallback, apply)
 

@@ -4,6 +4,41 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.11] — Tier 0 ninth/tenth slice: Innovation's fifth job (era_branch), Reflection's fourth job (musing)
+
+Explicit user instruction: "Continue tier 0."
+
+`_maybe_schedule_era_branch` (Innovation's fifth wired job) now
+mirrors the settlement's era-branch lean into `innovation_pillar.
+world_model` (`status="observation"`, `source="era_branch"`) plus a
+memory note — the branch itself (industrious/scholarly/devout/
+mercantile/agrarian) is computed deterministically before the one LLM
+call fires, and that call is narration-only, so this is a real
+settled fact, same treatment `composite_entity` already gets.
+`_maybe_schedule_musing` (Reflection's fourth wired job) now writes a
+memory-only note into `reflection_pillar.memory` when a musing forms
+— no `world_model` entry, since the underlying theory (if any) is
+already tracked in `reflection_notebook`; a musing is Reflection's own
+passing voice, same "individual moment, not a collective theory"
+reasoning `dream`/`skill_mastery` already established for their
+pillars.
+
+Nature re-checked for a fourth candidate; none found this pass either
+— every remaining unmirrored `_maybe_schedule_*` job belongs to
+another pillar's domain (dialogue/culture/politics/founding all
+Village- or Humans-flavored, caravan/diplomacy external-facing).
+
+Coverage now: Innovation=5, Village=5, Humans=5, Nature=3,
+Reflection=4.
+
+Verified: both new mirrors confirmed via direct production-path smoke
+tests (a real `FakeClient` driving each job through its actual gating
+conditions — `era_branch` called directly with a synthetic settlement/
+era, `musing` gated on a synthetic open `reflection_notebook`
+hypothesis entry); a 4000-tick LLM-disabled engine soak confirms no
+regression in the normal tick path; `scripts/verify_native_soak.py`
+(2 seeds x 800 ticks) byte-identical — no native module touched.
+
 ## [1.34.10] — Tier 0 seventh/eighth slice: Village's fifth job (laws), Humans' fifth job (skill_mastery); Nature cognition gap scoped
 
 Explicit user instruction: "Nature can have some many things though
