@@ -4,6 +4,52 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.12] — Tier 0 batch: six more Village jobs, two more Humans jobs
+
+Explicit user instruction: "Continue tier 0 but do many steps at
+once" — the first multi-job batch in this series instead of the usual
+one-or-two-job pass. Re-read each remaining `_maybe_schedule_*` call
+site's actual apply() logic (not just its name) to find genuine fits
+for the two pillars behind their domain's natural job count (Village
+was still at 5 despite having by far the largest number of culture/
+civic LLM jobs in the codebase; Humans had room too).
+
+Village pillar (5 -> 11 real wired jobs): `chronicle` and
+`documentary` (both memory-only — a monthly/yearly narrative is
+Village's own retelling, not a single standing fact the way a law or
+religion is), `festival` (memory-only — an occurrence), `religion`
+(`world_model` observation + memory — a crystallized faith is a real,
+high-confidence settled fact, same treatment `laws`/`rule_propose`
+already get), `faction` (`world_model` observation + memory — a
+detected, named faction is a real settled social fact), `guild_
+founding` (`world_model` observation + memory — a deliberately
+founded guild is a real settled institutional fact).
+
+Humans pillar (5 -> 7 real wired jobs): `letter` (memory-only — one
+individual's own written words to someone far away), `noncore_nudge`
+(memory-only — an ordinary villager's own quiet moment of change,
+gated inside the job's own `shifts=True` branch so a no-op nudge
+correctly writes nothing).
+
+Coverage now: Innovation=5, Village=11, Humans=7, Nature=3,
+Reflection=4.
+
+Verified: all eight new mirrors confirmed via one combined direct
+production-path smoke test — a real `FakeClient` driving each job
+through its actual gating conditions (including working around two
+real test-setup gaps that were NOT product bugs: a test harness that
+manually advances `World.clock.tick_count` without calling
+`_tick_once()` never clears `SimulationEngine._reserved_this_tick`,
+the same v1.3.2-documented same-tick reservation counter — real
+production ticking clears it every tick, only a hand-rolled test loop
+skipping `_tick_once()` needs a manual reset; and `guild_founding`'s
+own re-validation at apply time genuinely requires two agents at
+`GUILD_SKILL_MASTERY_THRESHOLD` in the named skill, not just a
+synthetic candidate tuple). A 4000-tick LLM-disabled engine soak
+confirms no regression in the normal tick path; `scripts/verify_
+native_soak.py` (2 seeds x 800 ticks) byte-identical — no native
+module touched.
+
 ## [1.34.11] — Tier 0 ninth/tenth slice: Innovation's fifth job (era_branch), Reflection's fourth job (musing)
 
 Explicit user instruction: "Continue tier 0."

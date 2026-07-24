@@ -126,13 +126,42 @@ tier is arbitrary.
    Coverage now: Innovation=5, Village=5, Humans=5, Nature=3,
    Reflection=4.
 
+   **Eleventh-through-eighteenth slice shipped, v1.34.12** ("continue
+   tier 0 but do many steps at once," explicit user instruction — the
+   first multi-job batch instead of the usual one-or-two-per-pass
+   cadence): eight more real jobs mirrored in one batch, six into
+   Village and two into Humans — every candidate whose content
+   genuinely fits an already-lower-coverage-relative-to-its-domain
+   pillar, found by re-reading each remaining `_maybe_schedule_*`
+   site's actual apply() logic rather than guessing from the name.
+   Village (5 -> 11): `chronicle` (memory-only — a monthly narrative,
+   not a single standing fact), `documentary` (memory-only, same
+   reasoning, yearly cadence), `festival` (memory-only — an occurrence,
+   not a standing fact), `religion` (`world_model` observation +
+   memory — a crystallized faith is a real, high-confidence settled
+   fact, same treatment `laws` gets), `faction` (`world_model`
+   observation + memory — a detected, named faction is a real settled
+   social fact), `guild_founding` (`world_model` observation + memory
+   — a deliberately founded guild is a real settled institutional
+   fact). Humans (5 -> 7): `letter` (memory-only — one individual's
+   own written words), `noncore_nudge` (memory-only — one ordinary
+   villager's own quiet moment, gated to only fire when the job's
+   `shifts=True` branch actually taken, not the no-op case).
+
+   Coverage now: Innovation=5, Village=11, Humans=7, Nature=3,
+   Reflection=4.
+
    Still fully open: observe/interpret CYCLING for any of these new
    sites (they fire on their own existing cadence, not through
    `_pillar_observe_turn`/`_pillar_interpret_backpressured`),
    attention-budget arbitration for them, inbox/outbox participation,
-   and the remaining ~42 call sites (dialogue, chronicle, founding,
-   culture jobs, festival, religion, laws, diplomacy, letters,
-   fission, caravan, faction, guild_founding, rule_proposal, etc.).
+   and the remaining ~34 call sites (dialogue, founding's other half,
+   culture_digest, institution_culture, consciousness, self_tuning's
+   sibling calls, town_brain, record, diplomacy, fission, caravan,
+   geography — mostly deliberately untouched: `consciousness` sits
+   under Phase G/N's ambiguity discipline and wasn't mirrored without
+   an explicit decision the way `omen` got one; `geography` and a few
+   others have no LLM call to mirror at all).
 
    **Scoped, NOT shipped — a genuinely new Nature cognition job**
    (explicit user request, v1.34.10 pass: "Nature can have so many

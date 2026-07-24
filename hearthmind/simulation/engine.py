@@ -3462,7 +3462,13 @@ class SimulationEngine:
         )
 
         def apply(result: dict, used_fallback: bool) -> None:
-            self._log("chronicle", chronicle.parse_summary(result, fallback))
+            summary = chronicle.parse_summary(result, fallback)
+            self._log("chronicle", summary)
+            # Tier 0 eleventh slice (docs/ROADMAP-2026-07-REMAINING.md):
+            # chronicle becomes Village pillar's sixth real wired job —
+            # memory-only, the monthly narrative itself isn't a single
+            # standing fact the way a law/religion/faction is.
+            self.world.village_pillar.remember(f"The chronicle recorded: {summary}")
 
         self._schedule_llm_job(
             "chronicle", prompt, chronicle.SYSTEM_PROMPT, fallback, apply, settlement=settlement.name,
@@ -3498,7 +3504,13 @@ class SimulationEngine:
         )
 
         def apply(result: dict, used_fallback: bool) -> None:
-            self._log("documentary", documentary.parse_narration(result, fallback))
+            narration = documentary.parse_narration(result, fallback)
+            self._log("documentary", narration)
+            # Tier 0 twelfth slice: documentary becomes Village
+            # pillar's seventh real wired job — memory-only, same
+            # reasoning as chronicle (a yearly look-back, not a single
+            # standing fact).
+            self.world.village_pillar.remember(f"The year in review: {narration}")
 
         self._schedule_llm_job("documentary", prompt, documentary.SYSTEM_PROMPT, fallback, apply)
 
@@ -5173,6 +5185,10 @@ class SimulationEngine:
                 settlement.festivals = settlement.festivals[-CULTURE_LIST_MAX_STORED:]
             affected = self.world.population.hold_festival(settlement, ritual_activity=self.world.ritual_activity)
             self._log("festival", f"{settlement.name or 'The village'} held {entry} ({affected} bonds strengthened)")
+            # Tier 0 thirteenth slice: festival becomes Village
+            # pillar's eighth real wired job — memory-only, an
+            # occurrence rather than a standing fact.
+            self.world.village_pillar.remember(f"Held a festival — {entry}")
 
         self._schedule_llm_job("festival", prompt, festival.SYSTEM_PROMPT, fallback, apply)
 
@@ -5420,6 +5436,15 @@ class SimulationEngine:
                     "first_religion",
                     f"The first faith in this world took root: {stl.name} now shares a belief called {parsed['name']}.",
                 )
+            # Tier 0 fourteenth slice: religion becomes Village
+            # pillar's ninth real wired job — a crystallized faith is a
+            # real, high-confidence settled fact, same treatment
+            # rule_propose/laws already get.
+            self.world.village_pillar.upsert_world_model(
+                tick, f"{stl.name or 'the village'}'s faith", f"{parsed['name']}: {'; '.join(parsed['tenets'])}",
+                1.0, status="observation", source="religion",
+            )
+            self.world.village_pillar.remember(f"Came to share a faith called {parsed['name']}.")
 
         # Cultural evolution: crystallizing a religion from a repeated
         # ritual is a real interpretive act (v1.3.37).
@@ -7762,6 +7787,13 @@ class SimulationEngine:
                     {"subject": "founding", "belief": framing, "confidence": 0.6, "revises": None},
                 )
             self._log(event[0], f"{event[1]} {framing}")
+            # Tier 0 fifteenth slice: faction becomes Village pillar's
+            # tenth real wired job — a detected, named faction is a
+            # real settled social fact.
+            self.world.village_pillar.upsert_world_model(
+                tick, f"the {name} faction", framing, 0.8, status="observation", source="faction",
+            )
+            self.world.village_pillar.remember(f"A faction calling itself {name} has formed: {framing}")
 
         # Cultural evolution: naming a real detected faction (v1.3.37).
         self._schedule_llm_job("faction", prompt, faction.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
@@ -7791,11 +7823,20 @@ class SimulationEngine:
             found, reason = founding.parse_founding(result, fallback)
             if not found:
                 return  # they weighed it and held back — a real decision, quietly made
+            tick = self.world.clock.tick_count
             event = self.world.population.found_guild(
-                self._settlement_by_id(guild_target_id), skill, founder_id, self.world.clock.tick_count,
+                self._settlement_by_id(guild_target_id), skill, founder_id, tick,
             )
             if event is not None:
                 self._log(event[0], f'{event[1]} — "{reason}"')
+                # Tier 0 sixteenth slice: guild_founding becomes
+                # Village pillar's eleventh real wired job — a
+                # deliberately founded guild is a real settled
+                # institutional fact.
+                self.world.village_pillar.upsert_world_model(
+                    tick, f"the {skill} guild", reason, 0.8, status="observation", source="guild_founding",
+                )
+                self.world.village_pillar.remember(f"A {skill} guild was founded — \"{reason}\"")
 
         # Major life decision: deliberately founding a guild (v1.3.37).
         self._schedule_llm_job("guild_founding", prompt, founding.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
@@ -8064,6 +8105,11 @@ class SimulationEngine:
                 _nudge_trait(target_agent, trait_key, delta)
                 _remember(target_agent, reflection, because="a quiet personal realization")
                 log_agent_memory_entry(self.conn, tick, agent_id, "episodic", reflection)
+                # Tier 0 eighteenth slice: noncore_nudge becomes Humans
+                # pillar's seventh real wired job — memory-only, one
+                # ordinary villager's own quiet moment, same reasoning
+                # as letter/skill_mastery.
+                self.world.humans_pillar.remember(f"{target_agent.name} had a quiet realization: {reflection}")
             # Bounded episodic planning (§7 v0.87.15), extended to the
             # non-core cast here for the first time (see module
             # docstring) — reuses `beliefs.parse_plan` unchanged, the
@@ -8133,6 +8179,10 @@ class SimulationEngine:
                 "to_id": recipient_id, "to_name": recipient_name,
                 "text": text, "deliver_tick": self.world.clock.tick_count + letters.LETTER_TRAVEL_TICKS,
             })
+            # Tier 0 seventeenth slice: letter becomes Humans pillar's
+            # sixth real wired job — memory-only, one individual's own
+            # written words, not a collective theory.
+            self.world.humans_pillar.remember(f"{sender_name} wrote to {recipient_name}: {text}")
 
         self._schedule_llm_job("letter", prompt, letters.SYSTEM_PROMPT, fallback, apply)
 
