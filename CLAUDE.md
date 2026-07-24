@@ -545,6 +545,23 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.9)
+
+Explicit user instruction: "continue tier 0" + a direct answer to a
+question raised about Nature's stuck-at-2-jobs status. Asked via
+`AskUserQuestion` whether `omen` (the best content fit for a Nature
+third job) should mirror into `nature_pillar.world_model` despite
+Phase G's "never confirm anything supernatural" discipline — user
+answered "ignore phase G for this one completely." `_maybe_schedule_
+omen` now mirrors as a `status="hypothesis"` (never `"observation"`)
+entry, scoped to this ONE mirror site only — every other omen
+consumer (stat tile, dev console, narration) stays exactly as
+ambiguous as before; Phase G's discipline is otherwise unchanged
+everywhere else. Nature now at 3 jobs. Verified via a direct
+production-path smoke test (temperament pushed high, driven through
+real gating conditions until it fired) plus a clean 4000-tick soak.
+Full detail: CHANGELOG.md's [1.34.9] entry.
+
 ## Current state (v1.34.8)
 
 Explicit user instruction: "continue tier 0." `_maybe_schedule_

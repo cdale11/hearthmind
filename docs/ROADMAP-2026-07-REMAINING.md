@@ -87,16 +87,25 @@ tier is arbitrary.
 
    **Fifth slice shipped, v1.34.8**: Innovation's fourth job
    (`composite_entity` -> `world_model` observation + memory).
-   Coverage now: Innovation=4, Village=4, Humans=4, Nature=2,
-   Reflection=3. Nature's stuck-at-2 status raised directly with the
-   user as an open question rather than guessed at further.
+
+   **Sixth slice shipped, v1.34.9**: Nature's third job (`omen` ->
+   `world_model` hypothesis + memory) — asked the user directly via
+   `AskUserQuestion` about the flagged Phase G conflict (an omen
+   world_model entry's status field would "confirm" something, which
+   Phase G forbids); explicit answer: "ignore phase G for this one
+   completely." Scoped narrowly to this ONE mirror site — every other
+   omen consumer (stat tile, dev console, narration) is untouched and
+   stays exactly as ambiguous as before.
+
+   Coverage now: Innovation=4, Village=4, Humans=4, Nature=3,
+   Reflection=3.
 
    Still fully open: observe/interpret CYCLING for any of these new
    sites (they fire on their own existing cadence, not through
    `_pillar_observe_turn`/`_pillar_interpret_backpressured`),
    attention-budget arbitration for them, inbox/outbox participation,
-   and the remaining ~45 call sites (dialogue, chronicle, founding,
-   omens, culture jobs, festival, religion, laws, diplomacy, letters,
+   and the remaining ~44 call sites (dialogue, chronicle, founding,
+   culture jobs, festival, religion, laws, diplomacy, letters,
    fission, caravan, faction, guild_founding, rule_proposal, etc.).
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world

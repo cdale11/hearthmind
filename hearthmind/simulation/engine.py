@@ -7394,6 +7394,24 @@ class SimulationEngine:
             self._log("omen", omen)
             target = self._settlement_by_id(omen_target_id)
             target.record_omen(self.world.clock.tick_count, omen, subject_name)
+            # Tier 0 sixth slice (docs/ROADMAP-2026-07-REMAINING.md):
+            # omen becomes Nature pillar's THIRD real wired job,
+            # alongside nature_mind/species_variant. Explicit user
+            # decision (2026-07-24, in response to a direct question):
+            # Phase G's standing "never confirm anything supernatural"
+            # discipline is deliberately set aside for this one site —
+            # every OTHER omen consumer (the settlement stat tile, dev
+            # console, narration) stays exactly as ambiguous as before;
+            # only this new pillar mirror treats the omen as a real
+            # sensed impression. `status="hypothesis"` (never
+            # "observation") since an omen is explicitly never a
+            # confirmed fact even by this relaxed treatment.
+            omen_subject = f"an omen about {subject_name}" if subject_name else "an omen the land offered"
+            self.world.nature_pillar.upsert_world_model(
+                self.world.clock.tick_count, omen_subject, omen, 0.3,
+                status="hypothesis", source="omen",
+            )
+            self.world.nature_pillar.remember(f"The land offered an omen: {omen}")
             if not used_fallback and self.world.settlement.omen_seed == seed_phrase:
                 self.world.settlement.omen_seed = ""
             if not used_fallback and roll_prophecy and target.prophecy is None:

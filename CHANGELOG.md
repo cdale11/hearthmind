@@ -4,6 +4,33 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.9] — Tier 0 sixth slice: Nature's third job (omen), explicit Phase G exception
+
+Explicit user instruction: "continue tier 0," followed by a direct
+question about the flagged Nature/omen conflict (`omen` is the best-
+fitting remaining content match for Nature, but sits under Phase G's
+"never confirm anything supernatural" discipline, which a pillar
+`world_model` entry's status field would violate). Presented three
+options via `AskUserQuestion`; explicit user answer: "You can ignore
+phase G for this one completely."
+
+`_maybe_schedule_omen`'s apply() now mirrors into `nature_pillar.
+world_model` as a `status="hypothesis"` entry (never `"observation"`
+— an omen still isn't a confirmed fact even under this relaxed
+treatment) plus a `remember()` note. Nature now at 3 jobs (nature_
+mind, species_variant, omen). Scoped narrowly per the user's answer:
+only this ONE mirror site treats the omen as a real sensed
+impression — every other omen consumer (the settlement stat tile, dev
+console, existing narration) is untouched and stays exactly as
+ambiguous as before. Phase G's discipline otherwise stands unchanged
+everywhere else in the codebase.
+
+Verified: a direct production-path smoke test (temperament pushed
+high to raise omen chance, driven through real gating conditions
+across many ticks until it fired, confirming the `world_model` entry
+and its `hypothesis` status) plus a separate clean 4000-tick
+unattended soak, zero exceptions.
+
 ## [1.34.8] — Tier 0 fifth slice: Innovation's fourth real job (composite_entity)
 
 Explicit user instruction: "continue tier 0." `_maybe_schedule_
