@@ -545,6 +545,17 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.8)
+
+Explicit user instruction: "continue tier 0." `_maybe_schedule_
+composite_entity` (a real standing building named + given an origin
+story, backed by a genuinely new registered `InventedConcept`) now
+mirrors into `innovation_pillar.world_model` as an `observation`,
+same treatment `invention`/`ontology_evolution` already get.
+Innovation now at 4 jobs. Verified via a direct production-path
+smoke test plus a clean 3000-tick soak. Full detail: CHANGELOG.md's
+[1.34.8] entry.
+
 ## Current state (v1.34.7)
 
 Explicit user instruction: "continue with tier 0." A fourth real

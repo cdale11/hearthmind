@@ -85,6 +85,12 @@ tier is arbitrary.
    a pillar `world_model` entry's status field would violate that,
    so it was deliberately left unmirrored rather than forced.
 
+   **Fifth slice shipped, v1.34.8**: Innovation's fourth job
+   (`composite_entity` -> `world_model` observation + memory).
+   Coverage now: Innovation=4, Village=4, Humans=4, Nature=2,
+   Reflection=3. Nature's stuck-at-2 status raised directly with the
+   user as an open question rather than guessed at further.
+
    Still fully open: observe/interpret CYCLING for any of these new
    sites (they fire on their own existing cadence, not through
    `_pillar_observe_turn`/`_pillar_interpret_backpressured`),

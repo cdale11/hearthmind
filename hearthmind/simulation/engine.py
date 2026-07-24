@@ -4298,6 +4298,17 @@ class SimulationEngine:
                 "composite_entity_named",
                 f"{target.name or 'The village'} now knows this place as {parsed['name']} — {parsed['origin_story']}",
             )
+            # Tier 0 fifth slice (docs/ROADMAP-2026-07-REMAINING.md):
+            # composite_entity becomes Innovation pillar's FOURTH real
+            # wired job, alongside ontology_proposal/invention/
+            # ontology_evolution — a named place backed by a genuinely
+            # new registered `InventedConcept` is a settled fact, same
+            # "observation" treatment as those three.
+            self.world.innovation_pillar.upsert_world_model(
+                self.world.clock.tick_count, parsed["name"], parsed["origin_story"], 1.0,
+                status="observation", source="composite_entity",
+            )
+            self.world.innovation_pillar.remember(f"{target.name or 'The village'} named {parsed['name']}: {parsed['origin_story']}")
 
         self._schedule_llm_job("composite_entity", prompt, composite_entity.SYSTEM_PROMPT, fallback, apply)
 

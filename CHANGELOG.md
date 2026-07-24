@@ -4,6 +4,22 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.8] — Tier 0 fifth slice: Innovation's fourth real job (composite_entity)
+
+Explicit user instruction: "continue tier 0." `_maybe_schedule_
+composite_entity` (a real standing building named + given an origin
+story, backed by a genuinely new registered `InventedConcept`) now
+mirrors into `innovation_pillar.world_model` as an `observation` (a
+named place is a settled fact, same treatment `invention`/`ontology_
+evolution` already get) plus a `remember()` note. Innovation now at
+4 jobs (ontology_proposal, invention, ontology_evolution, composite_
+entity).
+
+Verified: a direct production-path smoke test (a real standing HUT
+staked out, the job driven through its real gating conditions,
+confirming the `world_model` write and the underlying `CompositeEntity`
+registration) plus a clean 3000-tick unattended soak, zero exceptions.
+
 ## [1.34.7] — Tier 0 fourth slice: Humans' fourth real job (memory_drift)
 
 Explicit user instruction: "continue with tier 0." Extends v1.34.6's
