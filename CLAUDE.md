@@ -545,6 +545,30 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.21)
+
+Explicit user instruction: "Scope this problem for some other tier
+and finish tier0.5 now." Per-agent cognition's volume-safe mirroring
+design (the practical ceiling flagged since v1.34.7) is filed as Tier
+3 item 30 in docs/ROADMAP-2026-07-REMAINING.md — scoped with three
+named volume-gate candidates, not designed further. Every item in
+Tier 0.5 (D1-D10, filed v1.34.4) closed with a real decision: D5
+shipped (a `RULE_PROPOSE_NUM_PREDICT_MULT` token-headroom fix, same
+shape `PERSONAL_BELIEF_NUM_PREDICT_MULT` already uses — NOT the JSON
+schema the item originally proposed, which would have silently killed
+`rule_propose`'s deliberate reasoning trace); D1/D2/D3/D4/D9
+re-confirmed via code-level re-audit (no live LLM server in this
+environment to re-run the original live-measurement asks against);
+D6/D8 scoped-not-built with concrete design notes (D6 pairs with
+Tier 5's B10, D8 pairs with B8's reinforce/reinterpret); D7 closed as
+already-working; D10 attempted at a longer horizon (60k, then 30k
+ticks) but honestly incomplete — per-tick cost grows with population
+and this session's time budget ran out before either finished (killed
+~10k ticks in, no failure seen); the standing 4,000-tick soak shows no
+regression from D5's change, but a genuine 60k+-tick re-verification
+is still open, a rerun needing more wall-clock budget, not a design
+question. Full detail: CHANGELOG.md's [1.34.21] entry.
+
 ## Current state (v1.34.20)
 
 Explicit user instruction: "Continue and finish attention scaled site

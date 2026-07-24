@@ -4,6 +4,91 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.21] — Tier 0.5 closed; per-agent cognition scoped to Tier 3
+
+Explicit user instruction: "Scope this problem for some other tier
+and finish tier0.5 now" — the per-agent-cognition volume-safe design
+flagged as the practical ceiling of the Tier 0 mirror pattern (v1.34.7
+onward, most recently v1.34.20's own closing note), plus closing out
+every remaining item in Tier 0.5 (docs/ROADMAP-2026-07-REMAINING.md,
+filed v1.34.4 from a live-diagnostic report — ten items, D1-D10).
+
+**Per-agent cognition, scoped not built**: filed as Tier 3 item 30 —
+mirroring per-agent cognition wholesale would flood a pillar's bounded
+memory FIFO within days of sim time (once per core-cast member per
+day, unlike every settlement-level mirror's flat round-robin volume).
+Three volume-gate candidates named for a future pass to choose between
+(goal-change-only mirroring matching dialogue's own `surfaced`/`is_llm`
+shape; a per-agent significance threshold reusing `_is_significant_
+moment`; one settlement-level daily digest instead of one write per
+agent) — not designed further, a real decision for later.
+
+**Tier 0.5, item by item** (this environment has no live LLM server,
+so D1-D4/D9's live-measurement asks are re-confirmed via code-level
+re-audit against the same diagnosed mechanisms, not re-run against
+real Ollama traffic):
+
+- **D5 (shipped)**: `rule_propose`'s malformed-JSON reports re-
+  diagnosed. The original "give it a JSON schema" framing would have
+  silently killed its reasoning trace (`deep_reasoning=True` since
+  v1.3.37; `_schedule_llm_job`'s own rule makes reasoning and a schema
+  mutually exclusive) — exactly the tradeoff `beliefs`/`personal_
+  belief` deliberately avoided by having their schemas removed in that
+  same pass. Applied the `PERSONAL_BELIEF_NUM_PREDICT_MULT` fix shape
+  instead: new `RULE_PROPOSE_NUM_PREDICT_MULT=2.0` gives `rule_
+  propose`'s 10-field contract (close to `personal_belief`'s own
+  diagnosed shape) real token headroom without touching the schema
+  question. Verified via a direct production-path smoke test
+  confirming the real call site passes the multiplier through.
+- **D1/D2 (re-confirmed, no change)**: the B2 cold-start math and
+  every `_detect_reflection_pattern` threshold still read as
+  reasonable on inspection; lowering any of them without a live
+  long-run measurement would be the "premature conclusion" the item's
+  own framing warns against. Existing `Pillar.turns_processed`
+  visibility (v1.23.1) already makes the cold start legible.
+- **D3 (audited, no gap)**: the large majority of `_maybe_schedule_*`
+  jobs already gate on a real state change; the handful that don't
+  (chronicle/documentary/musing/town_brain's narration) are
+  deliberately ambient texture by design, the same class v1.34.20's
+  own skip list already declined to treat as a bug.
+- **D4 (audited, no demotion)**: the recorder tooling D4 asks to read
+  from already exists; no live archive exists here to read a real
+  measured delta from, and the item's own hard stop rules out
+  demoting any reasoning task on code inspection alone.
+- **D6 (scoped, not built)**: `Ledger` is genuinely O(population)
+  per agent with no locality partition, confirmed via code read.
+  Real design, paired with Tier 5's B10 (spatial locality
+  partitioning) per the original entry's own note.
+- **D7 (closed, no action)**: was always "do more of what's already
+  working" — Tier 0's pillar-wiring work through v1.34.20 already is
+  that.
+- **D8 (scoped, not built)**: a belief life-cycle terminal status is
+  real and buildable, but overlaps B8's own un-shipped `reinforce`/
+  `reinterpret` closely enough that they should be one design effort,
+  not two — left for a future pass naming either item.
+- **D9 (substantially already closed)**: `_last_llm_calls[name]`
+  already carries `structured_input` and is already exposed via
+  `full_diagnostics()` — "why did this happen" is already one dev-
+  console click away for a job's latest firing. The real residual
+  (linking it to a SPECIFIC formed entity, not just the task's latest
+  call) needs new per-entity provenance tagging, real future work.
+- **D10 (attempted, honestly incomplete)**: tried for a soak past the
+  prior ~20,000-tick longest (60k, then 30k ticks); per-tick cost
+  grows with population, and this session's time budget ran out
+  before either finished (killed ~10,000 ticks in, no failure
+  observed up to that point — not reported as a completed
+  re-verification). What's actually confirmed this pass: the standing
+  4,000-tick soak + round-trip shows no regression from D5's change.
+  A genuine 60k+-tick structural re-check is a straightforward rerun
+  needing more wall-clock budget than this pass had, not a design
+  question — still open. The content half (digest-of-digest
+  coherence) needs a real LLM regardless, unchanged from before.
+
+Verified: `ast.parse()` clean; a direct production-path smoke test for
+D5's fix; `scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-
+identical; the standing 4,000-tick LLM-disabled soak plus a full
+`to_dict()`/`from_dict()` round-trip.
+
 ## [1.34.20] — Fifth slice: closes out attention-scaled inbox/outbox coverage
 
 Explicit user instruction: "Continue and finish attention scaled site

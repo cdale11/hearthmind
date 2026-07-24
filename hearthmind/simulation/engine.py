@@ -498,6 +498,34 @@ this file is tuned — this is a reasoned starting point (2x the fields
 of a typical reasoning job, rounded up with margin for the trace
 itself), not a live measurement."""
 
+RULE_PROPOSE_NUM_PREDICT_MULT = 2.0
+"""Tier 0.5 item D5 (docs/ROADMAP-2026-07-REMAINING.md, live-diagnostic
+report: "rule-generation occasionally produces malformed JSON"). The
+original D5 framing proposed a `json_schema` grammar fix, the same
+shape FT.0 gave every other high-volume task — but `rule_propose`
+(`llm/rule_propose.py`) has run with `deep_reasoning=True` since
+v1.3.37 ("the game learning/improving itself... deserves genuine
+reasoning"), and `_schedule_llm_job`'s own structural rule (`reasoning
+= deep_reasoning and task_schema is None`) means adding a schema here
+would silently and permanently suppress that reasoning trace — exactly
+the tradeoff `beliefs`/`personal_belief` deliberately avoided by having
+their schemas REMOVED in the same v1.3.37 pass (see json_schemas.py's
+module docstring). Investigating instead: `rule_propose` asks for a
+10-field JSON contract (name/description/trigger/hook_type/hook_target/
+magnitude, plus a full second trigger-and-effect set), close to
+`personal_belief`'s own diagnosed shape (a large free-form answer
+sharing one flat reasoning-trace token budget with every simple 2-4
+field reasoning job) — the same failure class `PERSONAL_BELIEF_NUM_
+PREDICT_MULT` fixed above, not something a schema would fix without
+also silencing the reasoning `_schedule_llm_job` was deliberately
+switched on for. Applied the identical fix shape instead: extra token
+headroom via `num_predict_mult`, no schema. Sized lower than
+`personal_belief`'s 3.0x (10 fields vs. 14, and most of `rule_propose`'s
+fields are short closed-vocabulary tokens, not free prose) — a
+reasoned starting point, re-tune from a live `/diagnostics` reading of
+`last_llm_calls.rule_propose.fallback_reason` the same way every other
+constant here is tuned."""
+
 _PILLAR_MESSAGE_MAGNITUDE = {
     "disagreement": 0.9, "warning": 0.8, "discovery": 0.6, "theory": 0.55,
     "hypothesis": 0.5, "observation": 0.45, "question": 0.5, "request": 0.5,
@@ -5173,7 +5201,10 @@ class SimulationEngine:
         # The game learning/improving itself: a self-modifying trigger
         # rule is exactly the kind of proposal that should be reasoned
         # through, not narrated (v1.3.37).
-        self._schedule_llm_job("rule_propose", prompt, rule_propose.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
+        self._schedule_llm_job(
+            "rule_propose", prompt, rule_propose.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True,
+            num_predict_mult=RULE_PROPOSE_NUM_PREDICT_MULT,
+        )
 
     def _infra_counts(self, settlement) -> tuple[int, int, int, int]:
         """`(huts, established_roads, schools, ready_carts)` — the four

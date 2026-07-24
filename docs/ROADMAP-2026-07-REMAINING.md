@@ -743,6 +743,177 @@ D10. **Memory consolidation over extremely long runs: still bounded
      folding (repeated consolidation cycles) still reads coherently
      after many rounds rather than degrading into mush.
 
+**Tier 0.5 status (v1.34.21, "finish tier0.5 now" — explicit user
+instruction).** A real decision for every D-item, same "close the
+list, don't leave items ambiguously open" discipline the attention-
+scaled-sites work (v1.34.17-20) just established. This environment has
+no live LLM server, so D1-D4/D9's live-measurement asks couldn't be
+re-run against real Ollama traffic the way they originally were —
+each is closed via code-level re-audit against the SAME diagnosed
+mechanisms instead, honestly scoped as re-confirmation rather than
+new live data, respecting the section's own "avoid premature
+conclusions" framing:
+
+- **D5 — DONE, v1.34.21.** Root cause re-diagnosed: the original
+  framing ("give it a JSON schema") would have silently and
+  permanently killed `rule_propose`'s reasoning trace — it runs
+  `deep_reasoning=True` since v1.3.37, and `_schedule_llm_job`'s own
+  structural rule (`reasoning = deep_reasoning and task_schema is
+  None`) means a schema-constrained task can never reason, exactly
+  the tradeoff `beliefs`/`personal_belief` deliberately avoided by
+  having their schemas REMOVED in that same pass. Applied the
+  `PERSONAL_BELIEF_NUM_PREDICT_MULT` fix shape instead (new
+  `RULE_PROPOSE_NUM_PREDICT_MULT=2.0`): `rule_propose` asks for a
+  10-field JSON contract close to `personal_belief`'s own diagnosed
+  shape (a large free-form answer sharing one flat reasoning-trace
+  token budget with every simple 2-4 field reasoning job) — the same
+  failure class already fixed there, not something a schema would fix
+  without also silencing the reasoning the job was deliberately
+  switched on for. Verified via a direct production-path smoke test
+  confirming the real (unpatched) `_maybe_schedule_rule_proposal`
+  passes `num_predict_mult=2.0` through to `_schedule_llm_job`.
+- **D1/D2 — re-confirmed, no code change.** Re-read `_detect_
+  reflection_pattern`/`_maybe_schedule_nature_mind`'s gating against
+  the v1.23.1 diagnosis this report extended: the structural cold-
+  start math still holds (B2's observe/interpret halving means
+  Reflection's year_end cadence needs ~2 real year boundaries before
+  its first interpret turn even CAN fire, before any pattern-signal
+  threshold is checked) and every threshold in `_detect_reflection_
+  pattern` (`PATTERN_SIGNAL_BELIEF_THRESHOLD`, `REFLECTION_ONTOLOGY_
+  IMBALANCE_MIN_TOTAL`, `REFLECTION_COHERENCE_MIN_TOTAL`, `GOVERNOR_
+  DRIFT_MIN_SAMPLES`) reads as a reasonable accumulation bar on
+  inspection, not an obviously-too-strict one. Without a live long
+  run to re-measure against, lowering any of these would be exactly
+  the "premature conclusion" the report's own framing warns against —
+  the existing `Pillar.turns_processed` dev-console visibility
+  (v1.23.1) already makes the cold-start latency legible; no further
+  change made. Nature's OWN dependency on wildlife/disaster/climate
+  events (distinct from the shared B2 cadence) was re-checked and
+  still looks like a real, separate, smaller contributor, unchanged
+  from the original diagnosis — not independently fixed this pass.
+- **D3 — audited, no gap found.** Read every `_maybe_schedule_*`
+  job's trigger condition: the large majority already gate on a real
+  state change (a detected candidate, a crossed pattern-signal
+  threshold, a roll against a computed chance) before ever reaching
+  `_schedule_llm_job`, not a bare calendar boundary. The handful that
+  fire purely on cadence (`chronicle`, `documentary`, `musing`,
+  `town_brain`'s narration) are deliberately ambient/narrative texture
+  by design (same class this doc's own attention-scaled-sites pass
+  just declined to route through B4 messaging for the same reason —
+  see v1.34.20's skip list) — converting them to event-driven would
+  change what they ARE (a periodic town's-eye-view versus a reaction
+  to something specific), not fix a bug. No conversion made; this is
+  the CURRENT-architecture audit D3 asked for, Tier 5's Runtime Hard
+  Rule 3 remains the larger follow-on for when the Adaptive Runtime
+  itself is built.
+- **D4 — audited, no demotion made.** The recorder/review-pack
+  tooling (`reasoning_calls_*` diagnostics, per-call `reasoning: bool`
+  tagging) that D4 asks to read from already exists and already
+  captures exactly the per-task latency/quality signal needed — but
+  no live archive exists in this environment to read a real measured
+  delta from, and the item's own hard stop ("don't demote a task if
+  it visibly degrades output quality, even if it's faster") rules out
+  demoting any of the ~20 `deep_reasoning=True` tasks on code
+  inspection alone. Left as originally scoped: a live `/diagnostics`-
+  driven pass, not attempted blind.
+- **D6 — scoped, not built.** Confirmed via code read: `Agent.
+  relationships`/`trust`/`debts` (the pairwise `Ledger`, Phase 0) are
+  genuinely O(population) per agent with no locality partition —
+  realistic today, not at population scales an order of magnitude
+  higher. Real design, not attempted this pass (a data-model change
+  touching the Ledger, FAMILY/COUNCIL/GUILD, and faction detection all
+  at once): a neighborhood/district layer bounding whom an agent can
+  plausibly maintain a live `Ledger` entry for, with existing
+  institutions/factions as the natural grouping primitive already in
+  place. Stays paired with Tier 5's B10 (spatial locality
+  partitioning) per the original entry's own note — the social-graph
+  counterpart to that spatial one, probably one design effort rather
+  than two.
+- **D7 — closed, no action needed.** The original live report already
+  confirmed cumulative culture forming organically — this was always
+  "do more of what's already working," not a gap-fix, and Tier 0's
+  own pillar-wiring work (through v1.34.20) is exactly more of that.
+  A17's remaining scope (unifying rumor/tradition/belief/song/
+  technique onto `memetics.py`'s propagation-weight primitive) stays
+  where it already was, Tier 2 item 14 — not duplicated here.
+- **D8 — scoped, not built.** A real, buildable feature (add a
+  terminal `status` to `Settlement.beliefs` entries — `established`/
+  `faded`, the same shape `InventedConcept` already has for concepts
+  and `ReflectionEntry` for hypotheses) but genuinely overlaps B8's
+  own un-shipped `reinforce`/`reinterpret` (Tier 3 item 24, needs
+  per-note salience/access tracking) closely enough that designing a
+  belief life cycle without also touching B8's memory life cycle risks
+  building the same mechanism twice, exactly the risk the original
+  entry itself flagged. Left as one shared design effort for a future
+  pass naming either item specifically, not built partially now.
+- **D9 — substantially already closed, re-labeled rather than
+  rebuilt.** Confirmed via code read: `_record_llm_debug` already
+  folds every call's `structured_input` into `_last_llm_calls[name]`,
+  and `full_diagnostics()` already exposes the whole `last_llm_calls`
+  dict (same raw-JSON dev-console depth as `reflection_notebook`/
+  `nature_pillar`) — so "which observations/memories/historical events
+  fed THIS call's prompt" is already one dev-console click away for
+  the most recent firing of any named job, not a gap needing new
+  instrumentation, matching the item's own "largely a SURFACING gap"
+  framing. The one real residual: `_last_llm_calls` is keyed by task
+  NAME and overwritten each firing, so it shows the job's latest call,
+  not necessarily the specific belief/invention/tradition a player is
+  looking at on a timeline scrub. Closing that gap needs per-entity
+  provenance tagging (a new field stored alongside each formed
+  belief/concept/tradition, not a surfacing change) — real future
+  work, not attempted this pass.
+- **D10 — attempted at a longer horizon, honestly incomplete.** A
+  fresh soak past the project's prior ~20,000-tick longest was
+  attempted (target 60,000, then 30,000 ticks); per-tick cost grows
+  with population (observed ~25s/5,000 ticks early, ~66s/5,000 ticks
+  once population reached ~70), and this session's time budget ran out
+  before either attempt finished — killed at ~10,000 ticks with no
+  failure observed up to that point, but that's not a completed re-
+  verification and is NOT reported as one. What IS verified this pass,
+  cleanly: the standing 4,000-tick LLM-disabled soak + full `to_dict()`/
+  `from_dict()` round-trip (unchanged from every other slice's own
+  verification this session) shows no regression from D5's change.
+  Re-running a genuine 60k+-tick structural check (do the caps hold,
+  does the round-trip still match) remains open — a straightforward
+  rerun, just one that needs more wall-clock budget than this pass
+  had, not a design question. The CONTENT half (whether `Pillar.
+  consolidate()`'s digest-of-a-digest folding still reads coherently
+  after many rounds) needs a real LLM authoring real digests over real
+  wall-clock time regardless — that was always going to stay open
+  here, live-server-dependent per the item's own framing.
+- **D11 — new, filed this pass: per-agent cognition's volume-safe
+  mirroring design, scoped for a future tier rather than attempted
+  now** (per the explicit instruction accompanying this Tier 0.5
+  closure: "scope this problem for some other tier"). Every Tier 0
+  mirror shipped through v1.34.20 covers a SETTLEMENT-scoped job
+  (round-robin bounded, flat call volume regardless of population);
+  per-agent cognition (`_run_cognition`/`_apply_pending_cognition_
+  results`, once per core-cast member per day) is structurally
+  different — mirroring it wholesale would write one entry per core-
+  cast agent per day into Humans' bounded `memory`/`working_memory`
+  FIFO, which would evict every other pillar signal within days of
+  sim time on a full-size core cast (flagged this way as far back as
+  v1.34.7 and reconfirmed at every subsequent Tier 0 pass since).
+  Filed here as **Tier 3 item 30** (below) rather than left as a bare
+  note: the real design question isn't "should cognition be mirrored"
+  but "what's the volume gate" — candidates worth evaluating together
+  rather than picked blind: (a) mirror only a goal CHANGE with a
+  genuinely novel LLM-authored `reason`, not every daily resolution
+  (dialogue's own `surfaced`/`is_llm` flags gave dialogue this exact
+  volume gate for free; cognition has no equivalent field today); (b)
+  a per-agent salience threshold reusing `_is_significant_moment` (the
+  same significance gate `personal_belief`'s candidate selection
+  already uses) so only a core-cast member's genuinely notable daily
+  decision reaches the pillar, not the routine ones; (c) a settlement-
+  level DIGEST of the day's cognition resolutions (one mirror write
+  per settlement per day summarizing N agents' choices) instead of
+  one write per agent, trading per-agent specificity for the flat-
+  volume shape every other Tier 0 mirror already has. Not designed
+  further here — a future explicit pass naming this item should pick
+  between (a)/(b)/(c) (or a combination) before writing code, the same
+  "design before build" discipline B6/B7's own open decisions got
+  before they shipped.
+
 **Tier 1 — substrate items other systems will lean on**
 1. **A9** — feedback-loop audit. **Done, v1.34.0** — see its full
    entry below for findings/fixes/follow-ups.
@@ -881,10 +1052,28 @@ forest reclaim). Real gaps, roughly by leverage:
     used to need genuine judgment become mechanically deterministic
     (a candidate for A7's grammars or A1's fields) since it was last
     checked?
+30. **Per-agent cognition's volume-safe mirroring design** (filed
+    v1.34.21, Tier 0.5 item D11 — "scope this problem for some other
+    tier," explicit user instruction). Every Tier 0 settlement-level
+    mirror (through v1.34.20) is round-robin/flat-volume by
+    construction; per-agent cognition (`_run_cognition`/`_apply_
+    pending_cognition_results`) is once-per-core-cast-member-per-day —
+    mirroring it wholesale would flood a pillar's bounded `memory`/
+    `working_memory` FIFO within days of sim time. Real design
+    question: what's the volume gate, not whether to mirror. Three
+    candidates worth evaluating together before writing code (see
+    Tier 0.5's D11 entry above for detail): (a) mirror only a goal
+    CHANGE with a genuinely novel reason, dialogue's own `surfaced`/
+    `is_llm` shape; (b) a per-agent significance threshold reusing
+    `_is_significant_moment`; (c) one settlement-level daily digest of
+    N agents' resolutions instead of one write per agent. This is the
+    practical ceiling of "extend the existing pillar mirror pattern" —
+    everything else in Tier 0 was closable by extending that pattern
+    directly; this item needs a new one first.
 
 **Tier 5 — HearthBench & the Adaptive Runtime (filed v1.34.2, a
 separate two-part program, sequenced strictly AFTER Tiers 0-4)**
-30. **The whole checklist in `docs/HEARTHBENCH-RUNTIME-2026-07-23.md`**
+31. **The whole checklist in `docs/HEARTHBENCH-RUNTIME-2026-07-23.md`**
     — folded in per explicit user request, ordered to run only once
     every item above is done. Two independent programs sharing one
     telemetry seam (Part C): **HearthBench** (Part A, a standalone
