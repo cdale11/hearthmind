@@ -545,6 +545,21 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.7)
+
+Explicit user instruction: "continue with tier 0." A fourth real
+production job (`memory_drift`) now mirrors into Humans pillar's
+`memory` — memory-only, same shape as `dream`/`migration_decision`.
+Humans now at 4 jobs. Re-checked Nature for a third candidate again;
+`omen` is the closest by content but sits under Phase G's ambiguity
+discipline (its own docstring: never confirm anything supernatural),
+which a pillar `world_model` entry's `observation`/`hypothesis`
+status would violate — left unmirrored. Verified via a direct
+production-path smoke test (a real core-cast agent's memories via
+`_remember`, the job driven through its real gating conditions until
+it fired) plus a clean 4000-tick soak. Full detail: CHANGELOG.md's
+[1.34.7] entry.
+
 ## Current state (v1.34.6)
 
 Explicit user instruction: "continue with tier 0." A third real

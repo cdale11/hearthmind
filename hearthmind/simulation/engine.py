@@ -7136,6 +7136,13 @@ class SimulationEngine:
             log_agent_memory_entry(
                 self.conn, self.world.clock.tick_count, target.id, "episodic_drifted", drifted_text,
             )
+            # Tier 0 fourth slice (docs/ROADMAP-2026-07-REMAINING.md):
+            # memory_drift becomes Humans pillar's FOURTH real wired
+            # job, alongside narrative_direction/dream/migration_
+            # decision — memory-only, same reasoning as dream: an
+            # individual's own reinterpreted memory, not a collective
+            # theory.
+            self.world.humans_pillar.remember(f"{target.name}'s memory shifted: {drifted_text}")
 
         self._schedule_llm_job("memory_drift", prompt, memory_drift.SYSTEM_PROMPT, fallback, apply, critical=False)
 

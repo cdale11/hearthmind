@@ -78,6 +78,13 @@ tier is arbitrary.
    crashing on a `"question"` entry's `confidence=None`) was found and
    fixed while verifying this slice.
 
+   **Fourth slice shipped, v1.34.7**: Humans' fourth job
+   (`memory_drift` -> memory-only). Nature checked again for a third
+   candidate; `omen` is the closest by content but explicitly sits
+   under Phase G's ambiguity discipline (never confirm anything) —
+   a pillar `world_model` entry's status field would violate that,
+   so it was deliberately left unmirrored rather than forced.
+
    Still fully open: observe/interpret CYCLING for any of these new
    sites (they fire on their own existing cadence, not through
    `_pillar_observe_turn`/`_pillar_interpret_backpressured`),

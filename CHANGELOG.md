@@ -4,6 +4,32 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.7] — Tier 0 fourth slice: Humans' fourth real job (memory_drift)
+
+Explicit user instruction: "continue with tier 0." Extends v1.34.6's
+pillar-coverage widening: `_maybe_schedule_memory_drift` (a core-cast
+agent's older memory occasionally reinterpreted, "learns like a
+human," v0.87.0) now mirrors into `humans_pillar.memory` — memory-
+only, same reasoning as `dream`/`migration_decision`: a specific
+individual's own reinterpreted memory is not a collective theory.
+Humans is now at 4 jobs (narrative_direction, dream, migration_
+decision, memory_drift).
+
+Looked for a genuine third Nature job again this pass and found none
+worth forcing: `omen` is the closest remaining candidate by content
+(land/weather-adjacent flavor) but sits explicitly under Phase G's
+ambiguity discipline — its own module docstring says it must never
+confirm anything, and a pillar `world_model` entry's `status` field
+(`observation`/`hypothesis`) would do exactly that. Left unmirrored
+rather than forced.
+
+Verified: a direct production-path smoke test (a real core-cast agent
+given two memories via the actual `_remember` helper, the job driven
+through its real monthly-gate/day-of-month/chance-roll conditions
+until it fired, confirming the correct `humans_pillar.memory` write)
+plus a clean 4000-tick unattended soak (fake LLM client, LLM
+"enabled"), zero exceptions.
+
 ## [1.34.6] — Tier 0 third slice: Reflection/Village get one more real job each; a real bug fixed along the way
 
 Explicit user instruction: "continue with tier 0." Extends v1.32.0/
