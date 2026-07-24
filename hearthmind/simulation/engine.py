@@ -3800,6 +3800,13 @@ class SimulationEngine:
                 "novel_combination", "culture", f"Established a new tradition — {entry}",
                 ('village',),
             )
+            # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+            # step 11), a fourth Village->Humans arrow: a new tradition
+            # is a real cultural fact shaping specific living people's
+            # behavior, worth Humans' pillar knowing directly.
+            self._send_pillar_message(
+                "village", "humans", "observation", f"established a new tradition — {entry}",
+            )
 
         # Cultural evolution: a tradition is a genuine interpretive claim
         # about what the settlement's lived history means, worth a real
@@ -3863,6 +3870,14 @@ class SimulationEngine:
                 "novel_combination", "culture", f"A new tale is told — {entry['tale']}",
                 ('village',),
             )
+            # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+            # step 11), a fifth Village->Humans arrow: a new tale
+            # entering folklore is real cultural content about
+            # specific events/people, worth Humans' pillar knowing
+            # directly.
+            self._send_pillar_message(
+                "village", "humans", "observation", f"a new tale is told — {entry['tale']}",
+            )
 
         self._schedule_llm_job(
             "folklore", prompt, folklore.SYSTEM_PROMPT, fallback, apply, settlement=target.name,
@@ -3917,6 +3932,15 @@ class SimulationEngine:
             self._append_emergence(
                 "novel_combination", "culture", f"A legend has taken hold — {entry['legend']}",
                 ('village',),
+            )
+            # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+            # step 11), a new Village->Reflection arrow: a legend
+            # crystallizing from a repeated same-subsystem pattern IS
+            # literally what Reflection's own pattern detection cares
+            # about — a naturally-occurring instance of the same kind
+            # of signal, worth handing over directly.
+            self._send_pillar_message(
+                "village", "reflection", "observation", f"a legend has taken hold — {entry['legend']}",
             )
 
         self._schedule_llm_job(
@@ -4291,6 +4315,14 @@ class SimulationEngine:
                     "novel_combination", "innovation", f"Combined two ideas into {name}: {description}",
                     ('innovation',),
                 )
+                # B4 "Inter-pillar consciousness bus" (roadmap Stage
+                # III step 11), a fourth Innovation->Village arrow: a
+                # genuinely new merged concept is real discovery
+                # material, same treatment ontology_proposal's existing
+                # Innovation->Village arrow already gets.
+                self._send_pillar_message(
+                    "innovation", "village", "discovery", f"combined two ideas into {name}: {description}",
+                )
         else:
             parent = weighted_pick(1)[0]
             prompt = ontology_llm.build_evolve_prompt(parent.name, parent.description, settlement.name or "The village", [])
@@ -4321,6 +4353,14 @@ class SimulationEngine:
                 self._append_emergence(
                     "novel_combination", "innovation", f"An old idea evolved into {name}: {description}",
                     ('innovation',),
+                )
+                # B4 "Inter-pillar consciousness bus" (roadmap Stage
+                # III step 11), a fifth Innovation->Village arrow: a
+                # genuinely evolved concept is real discovery material,
+                # same treatment ontology_proposal's existing arrow
+                # already gets.
+                self._send_pillar_message(
+                    "innovation", "village", "discovery", f"an old idea evolved into {name}: {description}",
                 )
 
         self._schedule_llm_job(
@@ -4415,6 +4455,15 @@ class SimulationEngine:
                 "novel_combination", "innovation",
                 f"{target.name or 'The village'} named {parsed['name']} — {parsed['origin_story']}",
                 ("innovation",),
+            )
+            # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+            # step 11), a sixth Innovation->Village arrow: a named
+            # composite entity is a real civic landmark backed by a
+            # genuinely new concept — worth Village's pillar knowing
+            # directly.
+            self._send_pillar_message(
+                "innovation", "village", "discovery",
+                f"{target.name or 'the village'} now knows this place as {parsed['name']} — {parsed['origin_story']}",
             )
 
         self._schedule_llm_job("composite_entity", prompt, composite_entity.SYSTEM_PROMPT, fallback, apply)
@@ -5324,6 +5373,13 @@ class SimulationEngine:
             self._append_emergence(
                 "opportunity", "culture", f"Held a festival — {entry}",
                 ('village',),
+            )
+            # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+            # step 11), a sixth Village->Humans arrow: a festival is a
+            # real communal event with specific bonds strengthened —
+            # worth Humans' pillar knowing directly.
+            self._send_pillar_message(
+                "village", "humans", "observation", f"held a festival — {entry}",
             )
 
         self._schedule_llm_job("festival", prompt, festival.SYSTEM_PROMPT, fallback, apply)
@@ -7240,6 +7296,15 @@ class SimulationEngine:
                     "opportunity", "belief", f"{target.name} came to believe: {parsed['belief']}",
                     ('humans',),
                 )
+                # B4 "Inter-pillar consciousness bus" (roadmap Stage
+                # III step 11), a new Humans->Reflection arrow: an
+                # individual's own private belief revision is real
+                # psychological material for Reflection's pattern
+                # detection over Humans' Body state.
+                self._send_pillar_message(
+                    "humans", "reflection", "observation",
+                    f"{target.name} came to believe: {parsed['belief']}",
+                )
             semantic_text = beliefs.parse_semantic_memory(result, fallback)
             beliefs.push_semantic_memory(target, semantic_text)
             if semantic_text:
@@ -8148,6 +8213,16 @@ class SimulationEngine:
                     "novel_combination", "institution", f"A {skill} guild was founded — \"{reason}\"",
                     ("village",),
                 )
+                # B4 "Inter-pillar consciousness bus" (roadmap Stage
+                # III step 11), a new Village->Innovation arrow: a
+                # deliberately founded guild is itself an institution
+                # organized around a skill — real grounding material
+                # for what Innovation might notice/build on next, same
+                # reasoning as Nature->Innovation's species_variant
+                # arrow.
+                self._send_pillar_message(
+                    "village", "innovation", "discovery", f"a {skill} guild was founded — \"{reason}\"",
+                )
 
         # Major life decision: deliberately founding a guild (v1.3.37).
         self._schedule_llm_job("guild_founding", prompt, founding.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
@@ -8241,6 +8316,15 @@ class SimulationEngine:
                 "opportunity", "institution", f"The {label} came to believe of {parsed['subject']}: {parsed['belief']}",
                 ("village",),
             )
+            # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+            # step 11), a seventh Village->Humans arrow: an
+            # institution's own theory is a real belief held by its
+            # specific living members — worth Humans' pillar knowing
+            # directly.
+            self._send_pillar_message(
+                "village", "humans", "observation",
+                f"the {label} came to believe of {parsed['subject']}: {parsed['belief']}",
+            )
 
         # Council deliberation (and FAMILY/GUILD's own equivalent):
         # institutional belief formation is genuine collective judgment
@@ -8303,6 +8387,15 @@ class SimulationEngine:
             self._append_emergence(
                 "unexplained_shift", "settlement", f"Between {stl_a.name} and {stl_b.name}: {narration}",
                 ('village',),
+            )
+            # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+            # step 11), an eighth Village->Humans arrow: a named
+            # diplomatic moment shifts a real relationship between
+            # settlements' populations — worth Humans' pillar knowing
+            # directly.
+            self._send_pillar_message(
+                "village", "humans", "observation",
+                f"between {stl_a.name} and {stl_b.name}: {narration}",
             )
 
         self._schedule_llm_job(
@@ -8378,6 +8471,16 @@ class SimulationEngine:
             self._append_emergence(
                 "opportunity", "institution", f"Came to hold a {parsed['kind']}: {parsed['text']}",
                 ('village',),
+            )
+            # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+            # step 11), a second Village->Reflection arrow: a newly-
+            # enacted law/custom/taboo (like a trigger rule) is a real
+            # normative self-modification of the settlement's own
+            # behavior, worth Reflection's meta-cognition seeing
+            # directly.
+            self._send_pillar_message(
+                "village", "reflection", "observation",
+                f"came to hold a {parsed['kind']}: {parsed['text']}",
             )
 
         # Cultural evolution: a law/custom/taboo is a real normative
@@ -8745,6 +8848,15 @@ class SimulationEngine:
                 f"{leader.name} led {len(party)} settlers out of {home.name} — \"{reason}\"",
                 ("humans", "village"),
             )
+            # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+            # step 11), a fourth Humans->Village arrow: a departing
+            # party is a real settlement-shaping fact — worth Village
+            # knowing directly, not just perceiving via the shared
+            # Emergence stream.
+            self._send_pillar_message(
+                "humans", "village", "observation",
+                f"{leader.name} led {len(party)} settlers out of {home.name} — \"{reason}\"",
+            )
 
         # Major life decision: whether to leave and found a new
         # settlement (v1.3.37).
@@ -8807,6 +8919,14 @@ class SimulationEngine:
             self._append_emergence(
                 "unexplained_shift", "population", f"{target_agent.name} chose to leave: {reason}",
                 ('humans', 'village'),
+            )
+            # B4 "Inter-pillar consciousness bus" (roadmap Stage III
+            # step 11), a fifth Humans->Village arrow: an individual's
+            # weighed decision to leave is a real fact shaping the
+            # settlement's own population — worth Village knowing
+            # directly.
+            self._send_pillar_message(
+                "humans", "village", "observation", f"{target_agent.name} chose to leave: {reason}",
             )
 
         # Major life decision: weighing a real reason to leave against

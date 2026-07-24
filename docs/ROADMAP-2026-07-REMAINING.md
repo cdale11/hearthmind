@@ -481,6 +481,82 @@ tier is arbitrary.
    inbox/outbox arrow; per-agent cognition remains the one
    deliberately-unmirrored Tier 0 gap.
 
+   **Fifth slice shipped, v1.34.20 — closes out attention-scaled
+   inbox/outbox coverage** ("Continue and finish attention scaled
+   site in one go" — explicit user instruction). Fourteen more real
+   B4 arrows, one per remaining job judged to carry genuine cross-
+   pillar content, closing the decision for every one of the 34
+   attention-scaled sites rather than leaving the rest ambiguously
+   "still open":
+
+   - Village->Humans (`observation`): `tradition`, `folklore`,
+     `festival`, `institution_belief`, `diplomacy` — each a real
+     cultural/civic/social fact shaping specific living people.
+   - Village->Reflection (`observation`): `legend_detection` (a
+     legend crystallizing from a repeated pattern IS an instance of
+     Reflection's own pattern-detection signal), `laws` (a newly-
+     enacted law/custom/taboo is a real normative self-modification,
+     same reasoning as `rule_propose`'s existing arrow).
+   - Village->Innovation (`discovery`): `guild_founding` (a
+     deliberately founded guild is an institution organized around a
+     skill — real grounding for Innovation).
+   - Humans->Reflection (`observation`): `personal_belief` (an
+     individual's own private theory revision — real psychological
+     material, monthly-bounded volume, not the daily per-agent-
+     cognition problem).
+   - Humans->Village (`observation`): `fission`, `migration_decision`
+     — both real settlement-population-shaping facts.
+   - Innovation->Village (`discovery`): `ontology_evolution` (both
+     merge and evolve branches), `composite_entity` — each a genuine
+     new/combined concept, same treatment `ontology_proposal`'s
+     existing arrow already gets.
+
+   Deliberately, explicitly NOT given an arrow (a real decision for
+   each, not a silent omission): `chronicle`/`documentary`/`musing` —
+   pure narration recapping what other arrows (or the settlement's
+   own state) already carry, no new cross-pillar fact; `culture_
+   digest`/`institution_culture` — reflexive self-model digests,
+   already mirrored into `world_model`, nothing new for another
+   pillar; `caravan` — economic exchange with no single clear-cut
+   pillar recipient beyond Village itself, already mechanically
+   consequential and narrated; `dream` — its own docstring states
+   "Phase G/omens' ambiguity discipline applies here too," the same
+   discipline that kept `omen`/`consciousness` out of B4 messaging
+   in earlier passes; `memory_drift`/`record`/the `mind`-retry job/
+   `noncore_nudge`/`letter` — per-agent jobs judged to carry narrower
+   individual content than `personal_belief`'s got this pass, kept
+   out to avoid setting a precedent of an arrow-per-per-agent-job
+   that could eventually approach the same inbox-flooding risk that
+   keeps per-agent cognition itself unmirrored. Total B4 arrows now
+   24.
+
+   Verified: `ast.parse()` clean; an indent-consistency scan across
+   every `_send_pillar_message` call site in the file (0 real
+   mismatches — the one flagged case is the same pre-existing,
+   correctly-nested `beliefs` confidence-gated site from earlier
+   passes); a variable-scope sanity scan (every f-string variable
+   referenced in a new call also appears in its immediately-enclosing
+   context — one flagged false positive, the pre-existing Nature-
+   >Village arrow's `entry` variable, defined slightly outside the
+   scan's fixed lookback window, confirmed fine by direct read);
+   `scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-
+   identical — no native module touched; a 4000-tick LLM-disabled
+   engine soak plus round-trip, clean; direct production-path smoke
+   tests for `tradition`, `personal_belief` (via `_run_personal_
+   belief` directly), and `ontology_evolution`'s merge branch (with
+   two seeded `established` concepts) — all three confirmed
+   populating the correct outbox/inbox pair with the correct `kind`.
+
+   This closes out attention-budget arbitration (all 34 sites,
+   v1.34.18) and inbox/outbox coverage decisions (all 34 sites now
+   have either a real arrow or a documented reason not to, v1.34.19-
+   20) for the Tier 0 mirror sites named in v1.34.16's original
+   scoping. Remaining genuinely open: per-agent cognition's own
+   volume-safe design (unchanged since v1.34.15's flagging) — the
+   practical ceiling of "extend the existing pillar mechanisms to
+   more sites" as a pattern; anything past that needs a new design,
+   not another mechanical pass.
+
    **Scoped, NOT shipped — a genuinely new Nature cognition job**
    (explicit user request, v1.34.10 pass: "Nature can have so many
    things though like ecology, forests, wildlife, geography are they

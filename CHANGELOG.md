@@ -4,6 +4,48 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.20] — Fifth slice: closes out attention-scaled inbox/outbox coverage
+
+Explicit user instruction: "Continue and finish attention scaled site
+in one go." Fourteen more real B4 arrows in a single batch, one per
+remaining job judged to carry genuine cross-pillar content — closes
+the decision for every one of the 34 attention-scaled sites (v1.34.18)
+rather than leaving the rest ambiguously open.
+
+New arrows: Village->Humans (`tradition`, `folklore`, `festival`,
+`institution_belief`, `diplomacy`), Village->Reflection
+(`legend_detection`, `laws`), Village->Innovation (`guild_founding`),
+Humans->Reflection (`personal_belief`), Humans->Village (`fission`,
+`migration_decision`), Innovation->Village (`ontology_evolution`'s
+merge and evolve branches, `composite_entity`).
+
+Deliberately, explicitly NOT given an arrow: `chronicle`/
+`documentary`/`musing` (pure narration, no new cross-pillar fact);
+`culture_digest`/`institution_culture` (reflexive self-model digests,
+already mirrored); `caravan` (no single clear pillar recipient);
+`dream` (its own docstring invokes the same Phase G ambiguity
+discipline that kept `omen`/`consciousness` out of B4 messaging);
+`memory_drift`/`record`/`mind`-retry/`noncore_nudge`/`letter`
+(per-agent jobs judged narrower than `personal_belief`, kept out to
+avoid setting an arrow-per-per-agent-job precedent). Total B4 arrows
+now 24.
+
+Verified: `ast.parse()` clean; an indent-consistency scan across
+every `_send_pillar_message` site (0 real mismatches — the one
+flagged case is the same pre-existing, correctly-nested `beliefs`
+confidence-gated site); a variable-scope sanity scan (one flagged
+false positive confirmed fine by direct read); `scripts/verify_
+native_soak.py` (2 seeds x 800 ticks) byte-identical; a 4000-tick
+LLM-disabled engine soak plus round-trip, clean; direct production-
+path smoke tests for `tradition`, `personal_belief`, and `ontology_
+evolution`'s merge branch — all three confirmed populating the
+correct outbox/inbox pair.
+
+This closes out attention-budget arbitration and inbox/outbox
+coverage decisions for the Tier 0 mirror sites named in v1.34.16's
+original scoping. Remaining genuinely open: per-agent cognition's own
+volume-safe design — the practical ceiling of this pattern.
+
 ## [1.34.19] — Fourth slice: three more B4 inbox/outbox arrows
 
 Explicit user instruction: "Continue with next milestone" — following

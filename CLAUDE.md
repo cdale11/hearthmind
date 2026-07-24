@@ -545,6 +545,39 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.20)
+
+Explicit user instruction: "Continue and finish attention scaled site
+in one go." Fourteen more real B4 inbox/outbox arrows, chosen for
+genuine content value, closing the decision for every one of the 34
+attention-scaled sites (v1.34.18) rather than leaving them
+ambiguously open — either a real arrow or a documented reason not to.
+Village->Humans on tradition/folklore/festival/institution_belief/
+diplomacy; Village->Reflection on legend_detection/laws; Village-
+>Innovation on guild_founding; Humans->Reflection on personal_belief;
+Humans->Village on fission/migration_decision; Innovation->Village on
+ontology_evolution (both branches) and composite_entity. Deliberately
+skipped, each with a documented reason: chronicle/documentary/musing
+(pure narration), culture_digest/institution_culture (reflexive
+digests), caravan (no clear recipient), dream (shares omen/
+consciousness's Phase G ambiguity discipline — its own docstring says
+so), memory_drift/record/mind-retry/noncore_nudge/letter (per-agent
+jobs judged narrower than personal_belief, kept out to avoid an
+arrow-per-per-agent-job precedent). Total B4 arrows now 24. Full
+detail: CHANGELOG.md's [1.34.20] entry.
+
+Verified: `ast.parse()` clean, indent-consistency scan across every
+`_send_pillar_message` site, a variable-scope sanity scan,
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical,
+a 4000-tick LLM-disabled soak + round-trip, and direct production-
+path smoke tests for tradition/personal_belief/ontology_evolution's
+merge branch.
+
+This closes out attention-budget arbitration and inbox/outbox
+coverage decisions for Tier 0's mirror sites. Remaining genuinely
+open: per-agent cognition's own volume-safe design — the practical
+ceiling of this pattern; anything past it needs a new design.
+
 ## Current state (v1.34.19)
 
 Explicit user instruction: "Continue with next milestone" — following
