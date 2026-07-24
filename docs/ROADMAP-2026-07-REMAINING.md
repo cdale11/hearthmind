@@ -64,9 +64,20 @@ tier is arbitrary.
    **Second slice shipped, v1.33.0**: a THIRD job per pillar for four
    of the five (ontology_evolution -> Innovation, species_variant ->
    Nature, dispute -> Village memory-only, migration_decision ->
-   Humans memory-only; Reflection stays at 2 — no obvious third
-   candidate found yet, `_maybe_schedule_reflection_question` is
-   already part of the SAME job as `reflection`, not a distinct site).
+   Humans memory-only; Reflection stayed at 2 that pass — flagged
+   `_maybe_schedule_reflection_question` as "part of the same job as
+   `reflection`," which on closer look in the next pass turned out
+   wrong: it's its own distinct `_schedule_llm_job` call site).
+
+   **Third slice shipped, v1.34.6**: Reflection's real third job
+   (`reflection_question` -> memory-only, correcting v1.33.0's own
+   misjudgment above) and Village's fourth (`rule_propose` ->
+   `world_model` observation + memory). Nature stays at 2 — still no
+   obvious third candidate. A real pre-existing bug (`_musing_
+   subject()` not filtering `reflection_notebook` entries by `kind`,
+   crashing on a `"question"` entry's `confidence=None`) was found and
+   fixed while verifying this slice.
+
    Still fully open: observe/interpret CYCLING for any of these new
    sites (they fire on their own existing cadence, not through
    `_pillar_observe_turn`/`_pillar_interpret_backpressured`),

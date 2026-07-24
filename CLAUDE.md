@@ -545,6 +545,23 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.6)
+
+Explicit user instruction: "continue with tier 0." A third real
+production job now mirrors into each of Reflection and Village's
+pillar state — `reflection_question` -> Reflection (memory-only, now
+3 jobs), `rule_propose` -> Village (`world_model` observation +
+memory, now 4 jobs). Found and fixed a real pre-existing bug while
+verifying: `_musing_subject()` picked the newest open `reflection_
+notebook` entry without filtering by `kind`, so a `"question"` entry
+(`confidence=None` by design) could reach `llm/musing.py`'s prompt
+builder and crash formatting `None` as a float — now filtered to
+`kind == "hypothesis"`, matching the method's own stated intent.
+Verified via direct production-path smoke tests for both new mirrors
+plus the exact crash repro (confirmed fixed), and a clean 4000-tick
+soak. Nature stays at 2 jobs — no obvious third candidate found.
+Full detail: CHANGELOG.md's [1.34.6] entry.
+
 ## Current state (v1.34.5)
 
 Explicit user directive, docs-only: the world map should visually

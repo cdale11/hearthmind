@@ -4954,6 +4954,17 @@ class SimulationEngine:
                 if rule.secondary_trigger:
                     message += f" — also bound to {rule.secondary_trigger.replace('_', ' ')}"
                 self._log("rule_originated", message)
+                # Tier 0 third slice (docs/ROADMAP-2026-07-REMAINING.
+                # md): rule_propose becomes Village pillar's FOURTH
+                # real wired job, alongside beliefs/institution_belief/
+                # dispute — a rule that survived the counterfactual
+                # sandbox and went live is a real settled civic fact,
+                # hence "observation" rather than "hypothesis".
+                self.world.village_pillar.upsert_world_model(
+                    self.world.clock.tick_count, rule.name, rule.description, 1.0,
+                    status="observation", source="rule_propose",
+                )
+                self.world.village_pillar.remember(f"Adopted a new rule: {rule.name} — {rule.description}")
 
             task = asyncio.create_task(_sandbox_and_register())
             self._background_tasks.add(task)
@@ -6054,6 +6065,17 @@ class SimulationEngine:
                 "status": "open", "supersedes": hypothesis_id,
             })
             self._log("reflection_question", f"Hearthmind is still wondering: {question_text}")
+            # Tier 0 third slice (docs/ROADMAP-2026-07-REMAINING.md):
+            # reflection_question becomes Reflection pillar's THIRD
+            # real wired job, alongside reflection/self_tuning — a
+            # genuinely distinct call site (own job name, own prompt/
+            # apply), not the same job as `reflection` reused. Memory-
+            # only: an open question is explicitly not a settled
+            # belief (status="open", confidence=None on the notebook
+            # entry itself), so no world_model entry.
+            self.world.reflection_pillar.remember(
+                f"Still wondering about {pattern['subject']}: {question_text}"
+            )
 
         self._schedule_llm_job(
             "reflection_question", prompt, reflection.SYSTEM_PROMPT_QUESTION, fallback, apply, deep_reasoning=True,
@@ -6338,7 +6360,19 @@ class SimulationEngine:
         the world hasn't learned or hypothesized anything yet (a fresh
         world) — the caller skips the call entirely rather than
         fabricating a subject."""
-        open_hyps = [e for e in self.world.reflection_notebook if e.get("status") == "open"]
+        # Bug fix, found while verifying Tier 0's reflection_question
+        # mirroring (docs/ROADMAP-2026-07-REMAINING.md): a "question"
+        # entry (kind="question", status="open", confidence=None by
+        # design — see `_maybe_schedule_reflection_question`) used to
+        # slip through this filter and crash `musing.build_prompt`'s
+        # `{subject['confidence']:.2f}` on `None`. Musing is explicitly
+        # about HYPOTHESES per this method's own docstring — a genuine
+        # pre-existing bug, not introduced by this pass, just surfaced
+        # by it.
+        open_hyps = [
+            e for e in self.world.reflection_notebook
+            if e.get("status") == "open" and e.get("kind") == "hypothesis"
+        ]
         if open_hyps:
             latest = max(open_hyps, key=lambda e: e.get("created_tick", 0))
             return {

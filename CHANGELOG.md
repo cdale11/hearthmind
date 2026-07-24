@@ -4,6 +4,46 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.6] — Tier 0 third slice: Reflection/Village get one more real job each; a real bug fixed along the way
+
+Explicit user instruction: "continue with tier 0." Extends v1.32.0/
+v1.33.0's pillar-coverage widening to the two pillars still trailing:
+
+- **Reflection** (now 3 jobs): `_maybe_schedule_reflection_question`
+  (its own distinct job name/prompt/apply, called from within
+  `_maybe_schedule_reflection`'s flow but a genuinely separate
+  production call site) now mirrors into `reflection_pillar.memory` —
+  memory-only, since an open question is explicitly not a settled
+  belief (the notebook entry itself carries `status="open"`,
+  `confidence=None`).
+- **Village** (now 4 jobs): `_maybe_schedule_rule_proposal` mirrors a
+  rule that survived the counterfactual sandbox and went live into
+  `village_pillar.world_model` as an `observation` (a real settled
+  civic fact, not a theory) plus a `remember()` note.
+
+**Real bug found and fixed while verifying the above**, unrelated to
+this session's own change but surfaced by it: `_musing_subject()`
+selected the newest `reflection_notebook` entry with `status="open"`
+without filtering by `kind`. A `"question"` entry (real, pre-existing
+shape — `confidence=None` by design) could slip through and reach
+`llm/musing.py`'s `build_prompt`, which formats `{subject['confidence']
+:.2f}` assuming a hypothesis — a genuine `TypeError` crash on `None`.
+This method's own docstring says "prefer the newest OPEN hypothesis,"
+so the fix is a one-line filter narrowing the query to `kind ==
+"hypothesis"`, matching stated intent rather than changing behavior.
+
+Verified: direct production-path smoke tests for both new mirror
+sites (a synthetic `reflection_question` call confirming the memory
+note, a real `rule_propose` call through the counterfactual sandbox
+confirming the `world_model` entry and the underlying `TriggerRule`
+itself), plus the exact repro that surfaced the musing bug (re-run
+post-fix, no crash). A separate unattended 4000-tick soak (fake LLM
+client, LLM "enabled") ran clean with zero exceptions.
+
+Pillar coverage is now Innovation=3, Village=4, Humans=3, Nature=2,
+Reflection=3 — Nature remains the one pillar without an obvious third
+distinct production job; not forced this pass.
+
 ## [1.34.5] — The Living Map vision folded into roadmap as Tier 1.5 (docs only)
 
 Explicit user directive: the world map should visually communicate
