@@ -1516,6 +1516,7 @@ class SimulationEngine:
                 ritual_activity=world.ritual_activity, ruin_scars=world.ruin_scars,
                 moisture=world.hydrology_field.moisture, soil_fertility=world.farms.soil_fertility,
                 population_density=world.fields.ensure_field("population_density"),
+                disease_pressure=world.fields.ensure_field("disease_pressure"),
             )
             self._broadcaster.set_diagnostics_provider(self.full_diagnostics)
             self._broadcaster.set_knowledge_tree_provider(self.world.knowledge_tree)
@@ -9534,6 +9535,7 @@ class SimulationEngine:
                 ritual_activity=self.world.ritual_activity, ruin_scars=self.world.ruin_scars,
                 moisture=self.world.hydrology_field.moisture, soil_fertility=self.world.farms.soil_fertility,
                 population_density=self.world.fields.ensure_field("population_density"),
+                disease_pressure=self.world.fields.ensure_field("disease_pressure"),
             )
         tick_events = [
             {"category": category, "description": description}

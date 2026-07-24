@@ -1120,21 +1120,24 @@ detailsToggle.addEventListener("click", () => {
 // --- live field overlays (explicit user request: "the map should change
 // and evolve with the simulation — implement Part A items to be visible
 // on the map itself") -------------------------------------------------------
-// Three real continuous fields that had backend state but no map
+// Four real continuous fields that had backend state but no map
 // representation: A11 hydrology (World.hydrology_field.moisture, full
 // per-tile grid), soil fertility (FarmGrid.soil_fertility, sparse
-// farmed-tiles dict), and A1/A20 population density (World.fields,
+// farmed-tiles dict), A1/A20 population density (World.fields,
 // coarse 3x3 region grid — the same field `_maybe_favor_uncrowded_
-// fission_site` already reads). A cycling toggle rather than three
-// separate always-on overlays: all three are DENSE (every tile/region
-// has a value, unlike the sparse scar overlays which are naturally
-// faint/rare) — showing them all at once would fight the map's own
-// readability, the same reasoning the Observatory UI direction already
-// applies to the details panel.
-const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density"];
+// fission_site` already reads), and A1/A2 disease pressure (World.
+// fields, same coarse grid, diffused via ca_operators.diffuse —
+// `Population._maybe_outbreak` reads it to weight where the next
+// spontaneous case is more likely to appear). A cycling toggle rather
+// than four separate always-on overlays: all four are DENSE (every
+// tile/region has a value, unlike the sparse scar overlays which are
+// naturally faint/rare) — showing them all at once would fight the
+// map's own readability, the same reasoning the Observatory UI
+// direction already applies to the details panel.
+const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure"];
 const FIELD_OVERLAY_LABELS = {
   off: "off", moisture: "soil moisture", soil_fertility: "soil fertility",
-  population_density: "population density",
+  population_density: "population density", disease_pressure: "disease pressure",
 };
 let fieldOverlayMode = "off";
 const fieldCanvas = document.getElementById("field-canvas");
@@ -1188,6 +1191,22 @@ function renderFieldOverlay() {
         const v = grid[ry][rx];
         if (!(v > 0)) continue;
         fieldCtx.fillStyle = `rgba(230,60,120,${(v * 0.35).toFixed(3)})`;
+        fieldCtx.fillRect(rx * regionW * CELL, ry * regionH * CELL, regionW * CELL, regionH * CELL);
+      }
+    }
+  } else if (fieldOverlayMode === "disease_pressure") {
+    const grid = terrain.disease_pressure;
+    if (!grid || !grid.length) return;
+    const regionW = Math.ceil(terrain.width / grid[0].length);
+    const regionH = Math.ceil(terrain.height / grid.length);
+    for (let ry = 0; ry < grid.length; ry++) {
+      for (let rx = 0; rx < grid[ry].length; rx++) {
+        const v = grid[ry][rx];
+        if (!(v > 0)) continue;
+        // Sickly yellow-green — deliberately distinct from population
+        // density's pink so the two "coarse region" overlays never read
+        // as the same signal at a glance.
+        fieldCtx.fillStyle = `rgba(170,190,40,${(v * 0.5).toFixed(3)})`;
         fieldCtx.fillRect(rx * regionW * CELL, ry * regionH * CELL, regionW * CELL, regionH * CELL);
       }
     }

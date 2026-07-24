@@ -771,6 +771,10 @@ class World:
         self.fields.step_population_density(
             [(a.x, a.y) for a in self.population.agents], self.config.width, self.config.height,
         )
+        self.fields.step_disease_pressure(
+            [(a.x, a.y) for a in self.population.agents if a.sick_ticks > 0],
+            len(self.population.agents), self.config.width, self.config.height,
+        )
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (
             wildlife_events + settlement_events + population_events + terrain_events + disaster_events

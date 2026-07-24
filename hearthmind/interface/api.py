@@ -71,6 +71,7 @@ class WorldBroadcaster:
         ritual_activity: dict | None = None, ruin_scars: dict | None = None,
         moisture: "list[list[float]] | None" = None, soil_fertility: dict | None = None,
         population_density: "list[list[float]] | None" = None,
+        disease_pressure: "list[list[float]] | None" = None,
     ) -> None:
         """Called when the engine starts, and again on any tick where
         terrain evolution changed a tile's biome (see
@@ -150,6 +151,10 @@ class WorldBroadcaster:
             "population_density": (
                 [[round(v, 3) for v in row] for row in population_density]
                 if population_density else []
+            ),
+            "disease_pressure": (
+                [[round(v, 3) for v in row] for row in disease_pressure]
+                if disease_pressure else []
             ),
         }
 

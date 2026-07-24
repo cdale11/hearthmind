@@ -955,14 +955,16 @@ conclusions" framing:
 2. **A11** — **shipped, v1.34.23** (groundwater + erosion feeding back
    into `Tile.elevation`) — see its own entry below for detail. Was
    blocking A3's rivers-re-carve item; that item itself remains open.
-3. **A1** — the other eleven named fields (moisture is really A11's;
-   fertility/nutrients/disease-pressure/pollution/scent/traffic/heat/
-   cultural-influence/ownership/beauty/noise are still unbuilt) plus
-   migrating `mining_scars`/`disaster_scars`/the climate grid onto
-   `FieldGrid` properly instead of staying separate stores.
-4. **A2** — the diffuse/reaction-diffuse/cellular-step operator library
-   over A1's fields. Forest succession is the doc's own worked example
-   and would give A1's future fields real consumers immediately.
+3. **A1** — **second field shipped, v1.34.24** (`disease_pressure`).
+   Ten of the other eleven named fields (fertility/nutrients/pollution/
+   scent/traffic/heat/cultural-influence/ownership/beauty/noise) remain
+   unbuilt, plus migrating `mining_scars`/`disaster_scars`/the climate
+   grid onto `FieldGrid` properly instead of staying separate stores —
+   see the item's own entry below.
+4. **A2** — **second real consumer shipped, v1.34.24** (`disease_
+   pressure`'s `diffuse` call, feeding `Population._maybe_outbreak`'s
+   index-case weighting). `reaction_diffuse`/`cellular_step` still have
+   no second consumer — see the item's own entry below.
 
 **Tier 1.5 — The Living Map (filed v1.34.4, full detail docs/VISION-
 2026-07-24-LIVINGMAP.md, explicit user vision)**, sequenced after
@@ -1155,19 +1157,29 @@ drift from the source of truth. Consult that doc directly for full
 context/rationale on any item — this is the "what's left" extract.
 
 ### A1 — Continuous environmental fields
-Only `population_density` is a real field; the other eleven named
-(moisture — really A11's, fertility, nutrients, disease-pressure,
-pollution, scent, traffic, heat, cultural-influence, ownership, beauty,
-noise) are unbuilt. `terrain_activity`/`mining_scars`/`disaster_scars`
-and the climate grid remain separate stores, not migrated onto
-`FieldGrid`. Vegetation/wildlife/farming still don't read any field.
+**Second field shipped (v1.34.24): `disease_pressure`.** `population_
+density` was the only real field before; ten of the remaining eleven
+named (fertility, nutrients, pollution, scent, traffic, heat,
+cultural-influence, ownership, beauty, noise — moisture is really
+A11's, already shipped there) are still unbuilt. `terrain_activity`/
+`mining_scars`/`disaster_scars` and the climate grid remain separate
+stores, not migrated onto `FieldGrid`. Vegetation/wildlife/farming
+still don't read any field. See A2's entry below and the v1.34.24
+CHANGELOG entry for `disease_pressure`'s full design — chosen because
+contagion is the single most natural `diffuse()` consumer in the
+codebase, giving A1 and A2 a real second slice together rather than
+separately.
 
 ### A2 — CA / diffusion / reaction-diffusion operators
-No `diffuse`/`reaction_diffuse`/`cellular_step` library exists yet
-beyond A2's own already-shipped worked example (forest succession, via
-`world/ca_operators.py`, v1.14.0) — the doc calls for a small general
-operator library other systems (disease spread, fire) can reuse; today
-only succession uses it.
+**Second real consumer shipped (v1.34.24).** `diffuse`/`reaction_
+diffuse`/`cellular_step` existed with one consumer (forest succession,
+`world/ca_operators.py`, v1.14.0); `FieldGrid.step_disease_pressure`
+now calls `diffuse` on a raw regional sick-fraction census each tick,
+spreading contagion risk into neighboring regions — `Population.
+_maybe_outbreak` reads the result to weight which healthy agent
+becomes the next spontaneous index case. `reaction_diffuse`/`cellular_
+step` still have no second consumer; the doc's other named example
+(fire spread) remains open.
 
 ### A3 — Procedural generation as continuous runtime
 Rivers/erosion (mutating immutable, native-store-backed `Tile.

@@ -899,6 +899,19 @@ crowd diseases originate and spread more readily in dense, under-housed
 populations. Deliberately reuses the existing housing-pressure signal
 rather than a second, disconnected density metric."""
 
+OUTBREAK_DISEASE_PRESSURE_WEIGHT = 4.0
+"""A1/A2 (docs/ROADMAP-2026-07-REMAINING.md Tier 1 items 3-4): once an
+outbreak roll succeeds, a healthy agent's own region's `disease_
+pressure` (`World.fields`, `world/fields.py`) scales their weight in
+the index-case draw as `1.0 + pressure * this` — a region bordering a
+real outbreak becomes measurably more likely to seed the next case
+than one nowhere near sickness, without a floor weight below 1.0 (a
+region at zero pressure is never excluded outright, just less
+favored). Does NOT change whether/how OFTEN an outbreak fires — only
+WHO it picks once one already has, same "affects the roll's outcome,
+never the roll itself" discipline the crowding/road multipliers above
+apply to the chance instead."""
+
 OUTBREAK_ROAD_CONTACT_MULTIPLIER = 1.5
 """Integration milestone: scales OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK
 by `1.0 + (fraction of the population on an established road tile) *

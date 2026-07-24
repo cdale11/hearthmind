@@ -545,6 +545,40 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.24)
+
+Explicit user instruction: "Start A1 and A2" (docs/ROADMAP-2026-07-
+REMAINING.md, Tier 1 items 3-4) — both had exactly one real consumer/
+field before (`population_density` for A1, forest succession for A2);
+this ships their second slice together, as one mechanism rather than
+two, since the natural next field and the natural next diffusion
+consumer turned out to be the same thing.
+
+New `FieldGrid.step_disease_pressure` (`world/fields.py`): recomputes
+a raw regional sick-fraction census each tick, then spreads it via
+`world/ca_operators.py`'s `diffuse` into neighboring regions —
+contagion risk is regional, not confined to exactly where sick agents
+stand right now. Real consumer: `Population._maybe_outbreak`'s
+index-case draw now weights each healthy agent by their own region's
+`disease_pressure` (`weight = 1.0 + pressure * OUTBREAK_DISEASE_
+PRESSURE_WEIGHT`) instead of a flat uniform choice — a region
+bordering a real outbreak becomes measurably more likely to seed the
+next spontaneous case, never a certainty (floor weight 1.0). Only
+changes WHO an outbreak picks once it's already rolled true — never
+whether/how often it fires. UI: fourth mode on the existing "🗺️
+fields" map overlay toggle.
+
+Verified: direct smoke tests (diffusion spreads from a forced sick
+cluster into neighbor regions, empty world stays zero); a genuine
+20,000-trial weighted-distribution test with a real (not mocked)
+`random.Random` confirmed a 5x-weighted region was picked ~4.97x more
+often, matching the design almost exactly — an earlier attempt using
+a rigged always-return-0 RNG produced a degenerate 100/0 split and was
+caught and redone properly; a real engine run with agents forced sick
+mid-run confirmed the field populates through the actual production
+tick path; a 4000-tick round-trip and `scripts/verify_native_soak.py`
+(2 seeds x 800 ticks) both clean.
+
 ## Current state (v1.34.23)
 
 Explicit user instruction: "Start next roadmap item" — A11 "Continuous

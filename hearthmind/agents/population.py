@@ -148,6 +148,7 @@ from hearthmind.agents.agent import (
     MOVE_CHANCE,
     OUTBREAK_BASE_CHANCE_PER_AGENT_PER_TICK,
     OUTBREAK_CROWDING_MULTIPLIER,
+    OUTBREAK_DISEASE_PRESSURE_WEIGHT,
     OUTBREAK_FLOOR_SICK_FRACTION_CAP,
     OUTBREAK_MIN_CHANCE_PER_TICK,
     OUTBREAK_ROAD_CONTACT_MULTIPLIER,
@@ -2154,7 +2155,10 @@ class Population:
             self.agents, by_position, hospital_settlement_ids, primary.temperament, rng, tick,
         )
         life_events.extend(disease_events)
-        life_events.extend(self._maybe_outbreak(rng, crowded, roads, outbreak_chance_multiplier))
+        map_size = (len(terrain[0]), len(terrain)) if terrain else None
+        life_events.extend(self._maybe_outbreak(
+            rng, crowded, roads, outbreak_chance_multiplier, fields=fields, map_size=map_size,
+        ))
         # Building-driven subsystems run once per settlement over the
         # global colocation map: each settlement's own structures get
         # worked/stocked/crafted-at by whoever is physically present —
@@ -2460,6 +2464,7 @@ class Population:
     def _maybe_outbreak(
         self, rng: random.Random, crowded: bool, roads: RoadNetwork | None = None,
         chance_multiplier: float = 1.0,
+        fields: "FieldGrid | None" = None, map_size: tuple[int, int] | None = None,
     ) -> list[tuple[str, str]]:
         """Rolled once per tick, settlement-wide: a small chance a new,
         spontaneous case of illness appears among the currently-healthy
@@ -2489,7 +2494,18 @@ class Population:
         `llm/self_tuning.py`'s `TUNABLE_GOVERNORS` docstring. Applied to
         the base chance only, before the floor below — the floor exists
         to guarantee a small settlement's first case isn't invisible and
-        should stay a real guarantee regardless of any governor nudge."""
+        should stay a real guarantee regardless of any governor nudge.
+
+        A1/A2 (docs/ROADMAP-2026-07-REMAINING.md Tier 1 items 3-4): once
+        `fields`/`map_size` are given, WHICH healthy agent becomes the
+        index case is weighted by their own region's `disease_pressure`
+        (`World.fields`, written last tick by `FieldGrid.step_disease_
+        pressure` — one-tick stale, same accepted staleness `population_
+        density`'s own consumer already has) instead of a flat uniform
+        draw — a region bordering a real outbreak is measurably more
+        likely to seed the NEXT spontaneous case than one nowhere near
+        any sickness, without ever making it a certainty (every healthy
+        agent keeps a real floor weight)."""
         healthy = [a for a in self.agents if a.sick_ticks == 0 and a.immune_ticks == 0]
         if not healthy:
             return []
@@ -2509,7 +2525,15 @@ class Population:
             chance = max(chance, OUTBREAK_MIN_CHANCE_PER_TICK)
         if rng.random() >= chance:
             return []
-        index_case = rng.choice(healthy)
+        if fields is not None and map_size is not None:
+            width, height = map_size
+            weights = [
+                1.0 + fields.get_at("disease_pressure", (a.x, a.y), width, height) * OUTBREAK_DISEASE_PRESSURE_WEIGHT
+                for a in healthy
+            ]
+            index_case = rng.choices(healthy, weights=weights, k=1)[0]
+        else:
+            index_case = rng.choice(healthy)
         index_case.sick_ticks = 1
         bump_emotion(index_case, EMOTION_FEAR, EMOTION_ILLNESS_FEAR_BUMP)
         return [("illness", f"{index_case.name} has fallen ill.")]

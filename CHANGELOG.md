@@ -4,6 +4,66 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.24] — A1/A2: disease_pressure field + its diffusion consumer
+
+Explicit user instruction: "Start A1 and A2" — docs/ROADMAP-2026-07-
+REMAINING.md's Tier 1 items 3-4. Both had exactly one real
+consumer/field before this pass (`population_density` for A1,
+forest succession for A2); this ships their SECOND real slice
+together, deliberately as one unit rather than two separate passes,
+because the natural second field for A1 and the natural second
+consumer for A2 turned out to be the same mechanism.
+
+**`disease_pressure`** (`world/fields.py`'s `FieldGrid.step_disease_
+pressure`): recomputes a raw regional sick-fraction census each tick
+(same "live census, not accumulating" shape `population_density`
+already established), then spreads it into neighboring regions via
+`world/ca_operators.py`'s `diffuse` — contagion risk is a regional
+property, not confined to the exact region sick agents currently
+stand in, which is the whole point of using a diffusion operator here
+rather than a bare census. `DISEASE_PRESSURE_DIFFUSE_RATE=0.35`
+governs how strongly it spreads.
+
+Real consumer: `Population._maybe_outbreak`'s index-case draw
+(previously a flat `rng.choice(healthy)`) now weights each healthy
+agent by their own region's `disease_pressure` via `new OUTBREAK_
+DISEASE_PRESSURE_WEIGHT=4.0` constant — `weight = 1.0 + pressure *
+4.0`, applied with `rng.choices(..., weights=...)`. A region bordering
+a real outbreak becomes measurably more likely to seed the NEXT
+spontaneous case than one nowhere near any sickness, without ever
+excluding any healthy agent outright (every region keeps a real floor
+weight of 1.0). This changes WHO an outbreak roll picks once it
+already succeeded — never whether or how often an outbreak fires;
+that stays exactly as tuned by the existing crowding/road-contact
+multipliers.
+
+`Population.tick`'s existing `fields` param (already threaded through
+for `population_density`) now also reaches `_maybe_outbreak` via a new
+`map_size` param; `World._tick_disasters` calls `step_disease_
+pressure` right after `step_population_density`, same one-tick-stale
+read pattern `population_density`'s own consumer already has (the
+field for THIS tick reflects last tick's write). UI: `disease_
+pressure` added as a fourth mode on the existing "🗺️ fields" map
+overlay toggle (sickly yellow-green, distinct from population
+density's pink) and threaded through `WorldBroadcaster.set_terrain`/
+`GET /terrain`.
+
+Verified: `ast.parse()`/`node --check` clean; direct smoke tests
+(diffusion spreads outward from a forced sick cluster into orthogonal
+neighbor regions while the source stays highest, empty world stays
+all-zero); a real weighted-distribution test (20,000 forced-success
+outbreak rolls with a real `random.Random`, not a rigged one — a
+first attempt using a mocked always-return-0 RNG produced a degenerate
+100%-vs-0% result and was caught and redone properly) confirmed the
+region weighted 5x more likely to be the source of pressure was
+picked ~4.97x more often than the zero-pressure region, matching the
+designed 5.0-vs-1.0 weight ratio almost exactly; a real 200+-tick
+engine run with agents forced sick mid-run confirmed the field
+populates through the actual production tick path, not just the
+isolated function; a 4000-tick engine run (LLM disabled) confirmed a
+clean full-`World` round-trip; `scripts/verify_native_soak.py` (2
+seeds x 800 ticks) byte-identical — no native module touched.
+
 ## [1.34.23] — A11: groundwater + erosion (continuous hydrology, second slice)
 
 Explicit user instruction: "Start next roadmap item" — A11 "Continuous
