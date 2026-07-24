@@ -545,6 +545,30 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.15)
+
+Explicit user instruction: "Continue tier 0." Final audit slice:
+`_apply_pending_dialogue_results`'s `is_llm` branch mirrors into
+Humans' memory — volume-safe by construction, since `is_llm` can only
+ever be the one dedicated voice pair since v1.4.0's redesign. Humans
+11 -> 12. Coverage now: Innovation=5, Village=22, Humans=12, Nature=3,
+Reflection=6.
+
+Corrected a stale note in v1.34.14's own changelog: `self_tuning`'s
+numeric-nudge path was already mirrored (Tier 0's first slice), not
+still open as previously described.
+
+Audited, not mirrored: per-agent cognition — the one real remaining
+gap, but mirroring it wholesale would flood the bounded pillar
+`memory` FIFO with daily per-agent noise; needs its own scoped design
+(a volume gate cognition doesn't have today) before attempting. This
+is the practical ceiling of "mirror an existing job's output."
+
+Verified: the new mirror confirmed via a direct production-path smoke
+test; a 4000-tick LLM-disabled engine soak; `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical. Full detail:
+CHANGELOG.md's [1.34.15] entry.
+
 ## Current state (v1.34.14)
 
 Explicit user instruction: "Continue tier 0 with many steps at once

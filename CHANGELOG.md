@@ -4,6 +4,57 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.15] — Tier 0 final audit slice: voice-pair dialogue mirrored; cognition scoped as the one remaining gap
+
+Explicit user instruction: "Continue tier 0." A final audit pass over
+every `_schedule_llm_job`/structurally-distinct call site found one
+real remaining candidate and corrected one stale note from the prior
+pass's own changelog.
+
+`_apply_pending_dialogue_results`'s `is_llm` branch now mirrors into
+Humans' memory. Genuinely volume-safe, unlike dialogue in general:
+`is_llm` can ONLY ever be the one dedicated voice pair (`Population.
+voice_pair_ids`, since v1.4.0's redesign collapsed all LLM dialogue to
+a single ongoing conversation thread) — every other pair resolves
+deterministically and structurally never reaches this branch, so this
+reads Humans' actual protagonists' conversation without any new
+volume gate needed. Humans=11 -> 12.
+
+Correction: v1.34.14's changelog described `self_tuning`'s numeric-
+nudge path as still unmirrored ("self_tuning's numeric-nudge sibling
+call"). Re-checked while auditing this slice: it was already mirrored
+— Tier 0's very first slice (`_maybe_schedule_self_tuning`'s `applied`
+outcome already writes to `reflection_pillar`). No code change; the
+prior changelog entry was simply wrong on this one point.
+
+Coverage now: Innovation=5, Village=22, Humans=12, Nature=3,
+Reflection=6.
+
+Audited but NOT mirrored: per-agent cognition (`_run_cognition`/
+`_apply_pending_cognition_results`) is the one real remaining gap —
+genuine per-agent judgment, once a day, for every core-cast agent,
+that Humans' pillar currently has zero visibility into. Deliberately
+not attempted: mirroring it wholesale would flood the small bounded
+`memory` FIFO with routine goal-of-the-day noise within days of sim
+time and evict everything else — dialogue's `is_llm`/`surfaced` flags
+gave that same problem a volume gate for free, cognition has no
+equivalent signal today. Needs its own scoped design (e.g., mirror
+only a goal change carrying a genuinely novel LLM-authored `reason`)
+before attempting, same standing "build only on future explicit
+direction" rule as the scoped-not-built Nature causal-reasoning job.
+
+This is the practical ceiling of "mirror an existing job's output" —
+everything else left is either the cognition-volume design problem
+above, or a different tier of work entirely (observe/interpret
+cycling, attention-budget arbitration, inbox/outbox participation).
+
+Verified: the new mirror confirmed via a direct production-path smoke
+test (a synthetic `_pending_dialogue_results` entry with `is_llm=True`
+driven through the real `_apply_pending_dialogue_results` code path).
+A 4000-tick LLM-disabled engine soak confirms no regression; `scripts/
+verify_native_soak.py` (2 seeds x 800 ticks) byte-identical — no
+native module touched.
+
 ## [1.34.14] — Tier 0 batch 3: closes out nearly every remaining job; consciousness mirrored (explicit user decision)
 
 Explicit user instruction: "Continue tier 0 with many steps at once

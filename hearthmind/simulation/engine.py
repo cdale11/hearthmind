@@ -2834,6 +2834,15 @@ class SimulationEngine:
                 self._log(
                     category, f'{agent_a.name}: "{parsed["line_a"]}" — {agent_b.name}: "{parsed["line_b"]}"',
                 )
+                # Tier 0: the voice pair is the ONE dialogue thread that
+                # ever reaches here (`is_llm` can only be them since
+                # v1.4.0's redesign — see this block's own docstring
+                # above), so mirroring it into Humans' memory is
+                # naturally volume-bounded, unlike mirroring dialogue in
+                # general would be.
+                self.world.humans_pillar.remember(
+                    f'{agent_a.name}: "{parsed["line_a"]}" — {agent_b.name}: "{parsed["line_b"]}"'
+                )
                 # v0.87.12 "dialogue novelty memory": only a genuine LLM
                 # answer ever supplies a real topic (parse_dialogue never
                 # fabricates one for the deterministic fallback).

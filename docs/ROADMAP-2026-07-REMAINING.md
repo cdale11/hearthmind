@@ -211,22 +211,47 @@ tier is arbitrary.
    considered and deliberately NOT mirrored — it restates
    population/settlement/mood stats already covered by town_brain and
    other real mirrors, not a distinct piece of judgment or texture.
+   Re-checked `self_tuning`'s numeric-nudge path while auditing for
+   this slice: it was ALREADY mirrored (Tier 0's very first slice,
+   the `if not verdict["safe"]` branch's sibling `applied` outcome) —
+   the prior pass's own notes had mis-described it as still open.
+
+   **Thirty-seventh slice shipped, v1.34.15** ("continue tier 0," a
+   final audit pass): `_apply_pending_dialogue_results`' `is_llm`
+   branch now mirrors into Humans' memory. Genuinely volume-safe
+   unlike dialogue in general: `is_llm` can ONLY ever be the one
+   dedicated voice pair (`Population.voice_pair_ids`, since v1.4.0's
+   redesign collapsed LLM dialogue to a single ongoing conversation
+   thread) — every other pair resolves deterministically and never
+   reaches this branch, so this is bounded by construction, not by a
+   new gate. Humans=11 -> 12.
+
+   Coverage now: Innovation=5, Village=22, Humans=12, Nature=3,
+   Reflection=6.
 
    Still fully open: observe/interpret CYCLING for any of these
    sites (they fire on their own existing cadence, not through
    `_pillar_observe_turn`/`_pillar_interpret_backpressured`),
-   attention-budget arbitration for them, inbox/outbox participation,
-   and the remaining handful of call sites — dialogue itself (its own
-   `_run_dialogue` path, structurally distinct from `_schedule_llm_
-   job`), `self_tuning`'s numeric-nudge sibling call (distinct from
-   the now-mirrored `self_tuning_advisory`), per-agent cognition (its
-   own `_run_cognition` path), `pillar_chat` (already reaches its own
-   pillar directly via `note_observation`, not a mirror candidate),
-   `sim_summary` (deliberately skipped, see above), `geography` (no
-   LLM call to mirror at all). This is close to the practical ceiling
-   of "mirror an existing job's output" — further growth in pillar
-   depth from here is observe/interpret cycling, attention-budget
-   arbitration, and inbox/outbox participation, not more mirrors.
+   attention-budget arbitration for them, inbox/outbox participation.
+   The one remaining real mirror candidate, deliberately NOT
+   attempted: per-agent cognition (`_run_cognition`/`_apply_pending_
+   cognition_results`) — every core-cast agent, once a day, is genuine
+   per-agent judgment Humans' pillar currently has zero visibility
+   into, but mirroring it wholesale would flood the small bounded
+   `memory` FIFO with routine goal-of-the-day noise and evict
+   everything else within a few days of sim time; dialogue's own
+   `surfaced`/`is_llm` flags gave this same problem a natural volume
+   gate for free, cognition has no equivalent today. Needs its own
+   scoped design (e.g. mirror only a goal change with a genuinely
+   novel LLM-authored `reason`, not every daily resolution) before
+   attempting — same "needs its own explicit-direction pass" standing
+   rule as the scoped-not-built Nature causal-reasoning job below.
+   `pillar_chat` (already reaches its own pillar directly via `note_
+   observation`) and `geography` (no LLM call) are not candidates.
+   This is the practical ceiling of "mirror an existing job's output"
+   — everything left is either the cognition-volume design problem
+   above or a different tier of work (observe/interpret cycling,
+   attention-budget arbitration, inbox/outbox participation).
 
    **Scoped, NOT shipped — a genuinely new Nature cognition job**
    (explicit user request, v1.34.10 pass: "Nature can have so many
