@@ -4,6 +4,58 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.34] — Tier 0: two final slices (D11 per-agent cognition mirror, new Nature causal-reasoning job)
+
+Explicit user instruction: "As many slice of tier 0 as you can in this
+turn." Tier 0's mechanical mirror/observe-interpret/attention-budget/
+inbox-outbox extension work closed fully at v1.34.20 — the two items
+genuinely still open under Tier 0's umbrella were D11 (per-agent
+cognition's volume-safe mirror, explicitly scoped-not-built pending a
+design pick) and a scoped-but-not-built new Nature causal-reasoning
+job. Both ship this pass.
+
+**D11**: `SimulationEngine._apply_pending_cognition_results` now
+mirrors a core-cast agent's goal CHANGE into `humans_pillar.memory` +
+an Emergence entry — option (a) of the design note's three named
+candidates. The volume gate is free: every entry reaching this loop
+is already a genuine LLM-authored result (fallback never queues into
+`_pending_goal_results`), and only an actual goal change (captured
+via the previous goal before `apply_goal` runs) mirrors, not a same-
+goal reaffirmation — far less than once/agent/day in practice. A
+forced survival-override goal still mirrors (it's what really
+happened), using the LLM's own reason text.
+
+**Nature causal reasoning**: new `llm/nature_causal_reasoning.py` +
+`SimulationEngine._maybe_schedule_nature_causal_reasoning` — a
+genuinely NEW cognition point, not a mirror. Reactive (not cadence-
+gated, same shape `skill_mastery` established): fires the tick
+`world.wildlife.summary()["predator_packs"]` crosses from >0 to 0 (an
+already-tracked Body-state anomaly nothing before this asked "why"
+about), edge-triggered via new `_nature_predator_extinction_flagged`
+(flag only latches once the job is actually SCHEDULED, so a
+backpressured tick retries next tick rather than losing the anomaly).
+Grounded in the specific anomaly plus real Nature Body state (predator
+pressure ratio, prey scarcity, grazer herd count, disaster scars,
+season). `critical=True` (a failed/budget-exhausted call defers, never
+fabricates a cause); output always `status="hypothesis"`, written to
+both `nature_pillar.world_model` and a new `world.ontology.
+CausalThread` (`settlement_id=None`, reusing the existing dispute-
+authored record shape — legible via the existing "🔗 causal threads"
+panel, no new UI needed). Deliberately does not call `_pillar_close_
+cycle("nature")` — this job doesn't own Nature's own observe/interpret
+`cycle_stage`.
+
+Verified: direct production-path smoke tests for both (D11: goal-
+change mirrors, no-change doesn't, forced-survival-override still
+mirrors with the real reason text; Nature causal reasoning: a fake-
+LLM-client test driving the full trigger/schedule/apply/round-trip
+path, confirming exactly-once scheduling on the falling edge, correct
+`world_model`/`CausalThread`/Emergence content, and flag-clear on
+recovery); a real 4000-tick LLM-disabled engine soak (async, actual
+`_tick_once` loop) confirmed no regression through the production
+tick path; `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical — pure Python, no native module touched.
+
 ## [1.34.33] — M6/M7: responsive-canvas redesign (closes M6/M7)
 
 Explicit user instruction: "Implement that and do as many slices as

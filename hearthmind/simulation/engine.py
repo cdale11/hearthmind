@@ -72,7 +72,8 @@ from hearthmind.llm import (
     memory_drift, migration, mind, musing,
     naming, narrative_direction, omens, pillar_chat, religion, rumor_interpret, skill_mastery, species_variant, summary,
     town_brain,
-    diplomacy, laws, letters, noncore_nudge, institution_culture, nature_mind, reflection, rule_propose,
+    diplomacy, laws, letters, noncore_nudge, institution_culture, nature_causal_reasoning, nature_mind,
+    reflection, rule_propose,
 )
 from hearthmind.llm import ontology as ontology_llm
 from hearthmind.llm import self_tuning
@@ -1346,6 +1347,16 @@ class SimulationEngine:
         settlement) since the moisture field is map-wide, not tied to
         settlement boundaries. Never persisted — same re-baseline-on-
         restart reasoning as every other edge-trigger flag here."""
+        self._nature_predator_extinction_flagged: bool = False
+        """Tier 0's scoped-then-shipped Nature causal-reasoning job
+        (`_maybe_schedule_nature_causal_reasoning`): edge-trigger flag,
+        same shape as `_hydrology_drought_flagged` — `predator_packs`
+        crossing from >0 to 0 fires the reactive LLM job once on the
+        falling edge; the rising edge (recolonization, `world.wildlife.
+        maybe_recolonize`) silently clears the flag with no LLM call.
+        World-scoped (one shared wildlife grid, not per-settlement).
+        Never persisted — re-baselines from the first post-restart
+        reading, same as every other edge-trigger flag here."""
         self._monthly_job_scheduled_month: dict[str, int] = {}
         """job name -> absolute month ordinal (year * months_per_year +
         month_index) it last got past its own backpressure check — lets
@@ -2244,6 +2255,7 @@ class SimulationEngine:
         self._detect_ritual_signals()
         self._resolve_prophecies()
         self._maybe_schedule_skill_mastery()
+        self._maybe_schedule_nature_causal_reasoning()
         if "season_end" in events:
             self._detect_social_hub()
         if "week_end" in events:
@@ -2406,12 +2418,34 @@ class SimulationEngine:
             # correctly; 'reason' (the model's real contribution) is
             # kept untouched either way.
             agent = self.world.population.get(agent_id)
+            previous_goal = agent.goal if agent is not None else None
             if agent is not None:
                 if agent.hunger > SURVIVAL_HUNGER_THRESHOLD:
                     goal = AgentGoal.FORAGE
                 elif agent.energy < SURVIVAL_ENERGY_THRESHOLD:
                     goal = AgentGoal.REST
             self.world.population.apply_goal(agent_id, goal, reason, seek_candidate_id)
+            # D11 (Tier 3 item 30, docs/ROADMAP-2026-07-REMAINING.md):
+            # per-agent cognition's volume-safe mirror into Humans'
+            # pillar — option (a) of the doc's three named candidates.
+            # Every entry reaching this loop is already a genuine
+            # LLM-authored result (a fallback never queues into
+            # `_pending_goal_results` — see `_run_cognition`'s
+            # `used_fallback` branch, which defers instead), so the one
+            # remaining volume gate is "did the goal actually CHANGE" —
+            # same shape dialogue's own `is_llm`/`surfaced` flags gave
+            # dialogue for free. A core-cast member reconsiders their
+            # goal on most due cognition calls but doesn't always ACT on
+            # it, so this fires far less than once/agent/day, unlike a
+            # blind per-call mirror which would flood Humans' bounded
+            # `memory`/`working_memory` FIFO (the reason this was left
+            # unmirrored through every earlier Tier 0 pass).
+            if agent is not None and previous_goal is not None and goal != previous_goal and reason.strip():
+                self.world.humans_pillar.remember(f"{agent.name} decided to {goal.value}: {reason}")
+                self._append_emergence(
+                    "unexplained_shift", "cognition", f"{agent.name} decided to {goal.value}: {reason}",
+                    ("humans",),
+                )
             # Phase 1.C "self-evolving world" (docs/VISION-2026-07-21-
             # SELFEVOLVING.md): tally every REAL per-agent goal
             # decision — the single choke point every LLM-decided or
@@ -7632,6 +7666,90 @@ class SimulationEngine:
             self._schedule_llm_job(
                 "skill_mastery", prompt, skill_mastery.SYSTEM_PROMPT, fallback, apply, critical=False,
             )
+
+    def _maybe_schedule_nature_causal_reasoning(self) -> None:
+        """Tier 0's scoped-then-shipped Nature causal-reasoning job
+        (docs/ROADMAP-2026-07-REMAINING.md) — a genuinely NEW cognition
+        point, not a mirror of an existing job's output. Reactive, not
+        cadence-gated (same shape `_maybe_schedule_skill_mastery`
+        already established): fires the tick `world.wildlife.summary()`
+        ["predator_packs"] crosses from >0 to 0, an already-detected
+        Body-state anomaly (`WildlifeGrid` tracked this count from the
+        start; nothing before this asked "why"). World-scoped — a
+        wildlife extinction isn't any one settlement's event.
+
+        Grounded ONLY in the specific anomaly plus real, already-
+        computed Nature Body state (predator pressure ratio right before
+        the extinction, prey scarcity, disaster/mining scar counts,
+        season) — never settlement prosperity or era, same discipline
+        `nature_mind` already holds. Output always `status="hypothesis"`
+        (a wordless land has no ground truth to confirm) written to
+        BOTH `nature_pillar.world_model` (so it's reachable the same way
+        every other Nature belief is) AND a new `world.ontology.
+        CausalThread` (`settlement_id=None` — this is a Nature-authored
+        cause, not the existing dispute-authored shape, but the same
+        record type so it's legible via the existing "🔗 causal
+        threads" UI panel without a new one). `critical=True`: a
+        failed/budget-exhausted call defers rather than fabricating a
+        cause (Constitution §3/§7)."""
+        packs_now = self.world.wildlife.summary()["predator_packs"]
+        if packs_now > 0:
+            self._nature_predator_extinction_flagged = False
+            return
+        if self._nature_predator_extinction_flagged:
+            return  # already scheduled/reasoned about this same extinction
+        if self._pillar_interpret_backpressured("nature"):
+            # Backpressured this tick — flag stays False, so this same
+            # still-zero-packs anomaly gets re-checked (and a real
+            # chance at scheduling) on a later tick instead of being
+            # silently lost the one time it happened to land on a busy
+            # tick — same "no data loss on a backpressured attempt"
+            # spirit as the monthly-job retry windows elsewhere in this
+            # file, done per-tick here since this trigger has no fixed
+            # cadence to retry within.
+            return
+        self._nature_predator_extinction_flagged = True
+        wildlife_summary = self.world.wildlife.summary()
+        anomaly_text = "The predator packs that once roamed this land have vanished entirely."
+        context_bits = [
+            f"predator pressure ratio before this was {wildlife_summary['predator_pressure_ratio']}",
+            f"prey scarcity: {'yes' if wildlife_summary['prey_scarce'] else 'no'}",
+            f"grazer herds remaining: {wildlife_summary['grazer_herds']}",
+            f"disaster scars on the land: {len(self.world.disaster_scars)}",
+            f"season: {self.world.clock.season}",
+        ]
+        existing_beliefs = list(self.world.nature_beliefs)
+        prompt = nature_causal_reasoning.build_prompt(anomaly_text, context_bits, existing_beliefs)
+        fallback = nature_causal_reasoning.fallback_cause()
+        tick = self.world.clock.tick_count
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            cause = nature_causal_reasoning.parse_cause(result)
+            if not cause:
+                return
+            subject = "the vanished predator packs"
+            entry = self.world.nature_pillar.upsert_world_model(
+                tick, subject, cause, 0.4, status="hypothesis", source="nature_causal_reasoning",
+            )
+            self.world.nature_pillar.remember(f"Wondered why the predator packs vanished: {cause}")
+            ontology.register_causal_thread(
+                self.world, subject=subject, chain=context_bits + [cause], tick=tick, settlement_id=None,
+            )
+            self._append_emergence(
+                "anomaly", "ecology", f"The land wonders why its predators vanished: {cause}",
+                ('nature',), data={"pillar_entry_id": entry["id"]},
+            )
+            # Deliberately does NOT call `_pillar_close_cycle("nature")`
+            # — unlike `nature_mind`, this job doesn't own Nature's own
+            # observe/interpret cycle_stage (it's a separate reactive
+            # trigger, not that cycle's `interpret` turn); force-closing
+            # the cycle here could stomp a concurrently in-flight
+            # nature_mind call's own stage transition.
+
+        self._schedule_llm_job(
+            "nature_causal_reasoning", prompt, nature_causal_reasoning.SYSTEM_PROMPT, fallback, apply,
+            critical=True,
+        )
 
     # --- Phase G v1: temperament and omens (deliberately subtle) ---------------
 

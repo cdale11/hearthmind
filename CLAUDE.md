@@ -545,6 +545,37 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.34)
+
+Explicit user instruction: "As many slice of tier 0 as you can in this
+turn." Tier 0's mechanical mirror/observe-interpret/attention-budget/
+inbox-outbox extension work was already fully closed (v1.34.20) — the
+two items genuinely still open under Tier 0 were D11 (per-agent
+cognition's volume-safe mirror, scoped-not-built pending a design
+pick) and a scoped-but-not-built new Nature causal-reasoning job. Both
+ship this pass.
+
+D11: `_apply_pending_cognition_results` mirrors a core-cast agent's
+goal CHANGE into `humans_pillar.memory` — option (a) of the design
+note's three candidates. Volume gate is free: every entry reaching
+this loop is already a genuine LLM-authored result (fallback never
+queues into `_pending_goal_results`), and only an actual change (not
+a same-goal reaffirmation) mirrors.
+
+Nature causal reasoning: new `llm/nature_causal_reasoning.py` +
+`_maybe_schedule_nature_causal_reasoning` — a genuinely NEW cognition
+point, not a mirror. Reactive: fires when `wildlife.summary()
+["predator_packs"]` crosses from >0 to 0, grounded in the specific
+anomaly plus real Nature Body state (predator pressure ratio, prey
+scarcity, disaster scars, season). `critical=True`; output always
+`status="hypothesis"`, written to `nature_pillar.world_model` and a
+new `world.ontology.CausalThread` (`settlement_id=None`).
+
+Verified via direct production-path smoke tests for both (fake-LLM-
+client driven for the Nature job, confirming exactly-once scheduling
+and correct content) plus a real 4000-tick LLM-disabled engine soak
+and a clean `scripts/verify_native_soak.py` run.
+
 ## Current state (v1.34.33)
 
 Explicit user instruction: "Implement that and do as many slices as

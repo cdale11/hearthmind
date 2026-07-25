@@ -612,6 +612,44 @@ tier is arbitrary.
      direction pass, not folded into a mirroring batch already in
      flight. Build only on future explicit direction naming this item.
 
+   **Shipped, v1.34.34** ("As many slice of tier 0 as you can in this
+   turn" — explicit user instruction). Picked the first named
+   candidate (a wildlife herd/pack local extinction) as the smallest
+   coherent first slice: new `llm/nature_causal_reasoning.py` +
+   `SimulationEngine._maybe_schedule_nature_causal_reasoning`, reactive
+   (not cadence-gated, same shape `skill_mastery` established), fires
+   the tick `world.wildlife.summary()["predator_packs"]` crosses from
+   >0 to 0 (edge-triggered via new `_nature_predator_extinction_
+   flagged`, same shape `_hydrology_drought_flagged` established —
+   flag is only set once the job is actually SCHEDULED, not on a
+   backpressured attempt, so a busy tick retries on the next tick
+   instead of silently losing the anomaly). Grounded in the specific
+   anomaly plus real Nature Body state (predator pressure ratio,
+   prey-scarcity flag, grazer herd count, disaster-scar count, season)
+   — never settlement prosperity. `critical=True`: a failed/budget-
+   exhausted call defers, never fabricates a cause. Output always
+   `status="hypothesis"`, written to BOTH `nature_pillar.world_model`
+   AND a new `world.ontology.CausalThread` (`settlement_id=None` —
+   reuses the existing dispute-authored record shape rather than a
+   parallel one, so it's legible via the existing "🔗 causal threads"
+   panel with no new UI). Deliberately does NOT call `_pillar_close_
+   cycle("nature")` — this job doesn't own Nature's observe/interpret
+   `cycle_stage` (that's `nature_mind`'s), and force-closing it here
+   could stomp a concurrently in-flight `nature_mind` call.
+
+   Verified: a direct production-path smoke test (fake LLM client)
+   confirming the full trigger/schedule/apply/round-trip path — no
+   job on packs>0, correctly schedules exactly once on the falling
+   edge (not re-scheduled on a repeat still-zero check), the resulting
+   `world_model`/`CausalThread`/Emergence entries all populate with
+   the right content and `settlement_id=None`, and the flag clears on
+   recovery; a real 4000-tick LLM-disabled engine soak (async, real
+   `_tick_once` loop) confirmed zero regressions through the actual
+   production tick path; `scripts/verify_native_soak.py` (2 seeds x
+   800 ticks) byte-identical — pure Python, no native module touched.
+   Grazer/forest-succession-stall anomalies (the design note's other
+   two candidates) remain open for a future slice.
+
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0
 and before Tier 1: these are correctness/tuning questions about
@@ -948,6 +986,34 @@ conclusions" framing:
   between (a)/(b)/(c) (or a combination) before writing code, the same
   "design before build" discipline B6/B7's own open decisions got
   before they shipped.
+
+  **Shipped, v1.34.34** ("As many slice of tier 0 as you can in this
+  turn" — explicit user instruction, read as the "future explicit
+  pass naming this item" the design note above called for). Picked
+  option (a): `SimulationEngine._apply_pending_cognition_results`
+  mirrors a core-cast agent's goal CHANGE into `humans_pillar.memory`
+  + an `unexplained_shift`/`cognition` Emergence entry. The volume
+  gate falls out for free from two already-true facts rather than a
+  new mechanism: every entry reaching this loop is ALREADY a genuine
+  LLM-authored result (a fallback never queues into `_pending_goal_
+  results` — `_run_cognition`'s `used_fallback` branch defers instead,
+  see `_schedule_llm_job`'s `critical` docstring), and the previous
+  goal is captured before applying the new one, so only an actual
+  CHANGE (not a same-goal reaffirmation) mirrors — a core-cast member
+  reconsiders on most due cognition calls but doesn't always act
+  differently, so this fires far less than once/agent/day, unlike a
+  blind per-call mirror. The forced-survival-override branch (hunger/
+  energy past threshold overrides the LLM's raw goal) still mirrors —
+  the FORCED goal is what actually happened, using the LLM's own
+  reason text, same as everywhere else in the codebase this override
+  already applies.
+
+  Verified: a direct production-path smoke test against the real
+  `_apply_pending_cognition_results` (goal-change mirrors + emits an
+  Emergence entry; no-change goal mirrors nothing; a forced survival
+  override still mirrors using the real reason text); `scripts/
+  verify_native_soak.py` (2 seeds x 800 ticks) byte-identical — pure
+  Python, no native module or persisted schema touched.
 
 **Tier 1 — substrate items other systems will lean on**
 1. **A9** — feedback-loop audit. **Done, v1.34.0** — see its full
