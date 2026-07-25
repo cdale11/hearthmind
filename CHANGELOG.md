@@ -4,6 +4,54 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.35] — Tier 1: A1/A2 third field, `pollution`
+
+Explicit user instruction: "Implement as many slices of tier 1 as
+possible." Ships a third `FieldGrid` field (A1) with a third real
+`ca_operators.diffuse` consumer (A2) in one slice, same "field and
+consumer together" shape `disease_pressure` established (v1.34.24).
+
+`FieldGrid.step_pollution` (`world/fields.py`) sources from two
+already-real Body-state producers rather than anything new: standing
+FACTORY/POWER_PLANT/OIL_RIG buildings (`World.POLLUTION_SOURCE_
+KINDS`, `POLLUTION_BUILDING_WEIGHT=1.0`) and `World.mining_scars`
+intensity (`POLLUTION_MINING_SCAR_WEIGHT=0.3`, secondary to an actual
+standing factory), normalized against the region with the most, then
+spread via `ca_operators.diffuse` (`POLLUTION_DIFFUSE_RATE=0.3`) —
+fumes/runoff aren't confined to the exact source region. Real
+consumer: `economy.farms.FarmGrid.plant()` gained a `pollution`
+parameter scaling `max_yield` down to a bounded floor
+(`FARM_POLLUTION_YIELD_MIN_FACTOR=0.6`, same inverse shape `moisture`'s
+existing yield factor already has) — "industry chokes the fields
+nearby" is now a mechanical fact, not just a name on A1's unbuilt
+list. Threaded through `Population._maybe_plant` (reads `world.fields`,
+already passed into `Population.tick`) and `World.tick()` (censuses
+standing industrial buildings + `mining_scars` each tick, same cadence
+`population_density`/`disease_pressure` already use).
+
+UI surfacing (same batch, per the standing workflow rule): `pollution`
+is now a 5th "🗺️ fields" map overlay mode (`interface/static/app.js`)
+— its own color ramp (pale grey-green -> sickly olive -> smog purple-
+grey, deliberately outside every other mode's red/orange hue family
+since this is the one field whose story is man-made), legend labels
+("clean" -> "fouled"), and broadcast wiring (`interface/api.py`'s
+`WorldBroadcaster.set_terrain` gained a `pollution` param, both engine
+call sites updated) — rides the same weekly/terrain-change resync
+`population_density`/`disease_pressure` already use, no new channel.
+
+Verified: direct unit tests for `FieldGrid.step_pollution` (empty-
+world all-zero, a lone building source normalizes/diffuses correctly,
+mining-scar-only sources contribute) and `FarmGrid.plant()`'s
+pollution yield penalty (exact `FARM_POLLUTION_YIELD_MIN_FACTOR` ratio
+at full pollution, unaffected default behavior when `pollution=0.0`
+is omitted); a real 4000-tick LLM-disabled engine soak (async,
+production `_tick_once` loop) confirmed the field forms organically
+and round-trips cleanly through `to_dict`/`from_dict`; a real dev
+server + Playwright pass confirmed all five field modes cycle
+correctly with the right legend text and a clean render; `scripts/
+verify_native_soak.py` (2 seeds x 800 ticks) byte-identical — pure
+Python, no native module touched.
+
 ## [1.34.34] — Tier 0: two final slices (D11 per-agent cognition mirror, new Nature causal-reasoning job)
 
 Explicit user instruction: "As many slice of tier 0 as you can in this

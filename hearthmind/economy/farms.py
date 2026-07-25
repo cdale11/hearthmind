@@ -117,6 +117,17 @@ a dry reading); this is the actual mechanical lever that makes
 `world/hydrology_field.py`'s moisture field matter to a planting
 decision, not just a number nothing reads."""
 
+FARM_POLLUTION_YIELD_MIN_FACTOR = 0.6
+"""A1's `pollution` field, third slice (Tier 1, docs/ROADMAP-2026-07-
+REMAINING.md): floor on the pollution-scaled yield multiplier in
+`FarmGrid.plant()`, same bounded-floor shape `FARM_MOISTURE_YIELD_MIN_
+FACTOR` already has. A tile in the most-polluted region on the map
+still yields 60% of clean-air potential (crops still grow near a
+factory, just worse) — this is the actual mechanical lever that makes
+`world.fields.FieldGrid`'s `pollution` reading matter to a planting
+decision, "industry chokes the fields nearby" as a real number, not
+just a name on a list."""
+
 SOIL_FERTILITY_DEPLETION_PER_TICK = 0.00015
 """Fertility lost per tick a tile has an active plot (GROWING or READY)
 on it — continuous cultivation without rest exhausts the soil. At this
@@ -296,7 +307,7 @@ class FarmGrid:
 
     # --- planting ------------------------------------------------------------
 
-    def plant(self, x: int, y: int, tooled: bool = False, moisture: float = 1.0) -> FarmPlot:
+    def plant(self, x: int, y: int, tooled: bool = False, moisture: float = 1.0, pollution: float = 0.0) -> FarmPlot:
         """`moisture` (A11, roadmap Stage IV step 15): the real per-tile
         surface-moisture reading from `World.hydrology_field` at plant
         time, 0..1. Scaled into a bounded `FARM_MOISTURE_YIELD_MIN_
@@ -304,13 +315,21 @@ class FarmGrid:
         something (there's always SOME residual soil water), a
         well-watered one yields at full potential. Defaults to `1.0`
         (best case) so every existing call site/test that doesn't pass
-        a real reading keeps its old behavior exactly."""
+        a real reading keeps its old behavior exactly.
+
+        `pollution` (A1's third field, Tier 1): the region's `world.
+        fields.FieldGrid` `"pollution"` reading, 0..1. Scaled into a
+        bounded `1.0..FARM_POLLUTION_YIELD_MIN_FACTOR` multiplier — the
+        inverse shape of `moisture`'s (more pollution is worse, not
+        better). Defaults to `0.0` (clean) so every existing call site/
+        test keeps its old behavior exactly."""
         base_max_yield = MAX_FARM_YIELD * FARM_TOOL_YIELD_MULTIPLIER if tooled else MAX_FARM_YIELD
         fertility = self.fertility_at(x, y)
         moisture_factor = FARM_MOISTURE_YIELD_MIN_FACTOR + max(0.0, min(1.0, moisture)) * (
             1.0 - FARM_MOISTURE_YIELD_MIN_FACTOR
         )
-        plot = FarmPlot(x=x, y=y, max_yield=base_max_yield * fertility * moisture_factor)
+        pollution_factor = 1.0 - max(0.0, min(1.0, pollution)) * (1.0 - FARM_POLLUTION_YIELD_MIN_FACTOR)
+        plot = FarmPlot(x=x, y=y, max_yield=base_max_yield * fertility * moisture_factor * pollution_factor)
         self.plots[(x, y)] = plot
         self.soil_fertility.setdefault((x, y), fertility)
         return plot

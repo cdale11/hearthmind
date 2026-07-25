@@ -545,6 +545,29 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.35)
+
+Explicit user instruction: "Implement as many slices of tier 1 as
+possible." A9/A11/A3 were already shipped; the two genuinely open Tier
+1 items (A1/A2) ship a THIRD `FieldGrid` field + `ca_operators.diffuse`
+consumer together, `pollution` — same "field and consumer in one
+slice" shape `disease_pressure` established.
+
+`FieldGrid.step_pollution` sources from two already-real producers:
+standing FACTORY/POWER_PLANT/OIL_RIG buildings and `World.mining_
+scars` intensity (buildings weighted dominant), normalized and spread
+via `diffuse`. Real consumer: `FarmGrid.plant()` gained a `pollution`
+yield-penalty factor (bounded floor 0.6, same inverse shape
+`moisture`'s factor has) — "industry chokes the fields nearby" is now
+mechanical. UI: 5th "🗺️ fields" map overlay mode, own color ramp
+(grey-green -> olive -> smog purple-grey), same weekly resync channel
+as `population_density`/`disease_pressure`.
+
+Verified via direct unit tests, a real 4000-tick LLM-disabled engine
+soak confirming organic field formation + clean round-trip, a real
+dev server + Playwright pass confirming all five field modes cycle
+correctly, and a clean `scripts/verify_native_soak.py` run.
+
 ## Current state (v1.34.34)
 
 Explicit user instruction: "As many slice of tier 0 as you can in this

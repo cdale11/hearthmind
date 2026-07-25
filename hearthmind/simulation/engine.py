@@ -1528,6 +1528,7 @@ class SimulationEngine:
                 moisture=world.hydrology_field.moisture, soil_fertility=world.farms.soil_fertility,
                 population_density=world.fields.ensure_field("population_density"),
                 disease_pressure=world.fields.ensure_field("disease_pressure"),
+                pollution=world.fields.ensure_field("pollution"),
                 road_scars=world.road_scars,
                 migration_trails=world.migration_trails,
             )
@@ -9656,6 +9657,7 @@ class SimulationEngine:
                 moisture=self.world.hydrology_field.moisture, soil_fertility=self.world.farms.soil_fertility,
                 population_density=self.world.fields.ensure_field("population_density"),
                 disease_pressure=self.world.fields.ensure_field("disease_pressure"),
+                pollution=self.world.fields.ensure_field("pollution"),
                 road_scars=self.world.road_scars,
                 migration_trails=self.world.migration_trails,
             )

@@ -42,12 +42,22 @@ genuinely wet-adjacent regions of the map (regions bordering an
 already-sick one) become measurably more likely to seed the NEXT
 spontaneous case, not just the literally-already-sick region itself.
 
-The other ten named fields (fertility, nutrients, pollution, scent,
+Third slice (Tier 1, docs/ROADMAP-2026-07-REMAINING.md) ships
+`pollution` — sourced from two already-real Body-state producers
+(standing FACTORY/POWER_PLANT/OIL_RIG buildings, `World.mining_scars`)
+rather than anything new, then spread via `ca_operators.diffuse` the
+same way `disease_pressure` is (industrial fumes/runoff don't respect
+the coarse region boundary either). Real consumer: `economy.farms.
+FarmGrid.plant()` gained a `pollution` yield-penalty factor, same
+bounded-floor shape `moisture` already has — "industry chokes the
+fields nearby" is now a mechanical fact, not just a name on a list.
+
+The remaining nine named fields (fertility, nutrients, scent,
 traffic, heat, cultural-influence, ownership, beauty, noise) and
-migrating `mining_scars`/`disaster_scars`/the climate grid onto
-`FieldGrid` proper remain explicitly NOT built here — each is its own
-follow-up step against the same `FieldGrid`/`ca_operators` shape now
-proven against two real fields, not one."""
+migrating `disaster_scars`/the climate grid onto `FieldGrid` proper
+remain explicitly NOT built here — each is its own follow-up step
+against the same `FieldGrid`/`ca_operators` shape now proven against
+three real fields."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -68,6 +78,35 @@ of ticks (contagion risk is a regional property, not confined to the
 exact region sick agents currently stand in), low enough that pressure
 still visibly concentrates near its real source rather than smearing
 flat across the whole map."""
+
+POLLUTION_BUILDING_WEIGHT = 1.0
+"""Each standing FACTORY/POWER_PLANT/OIL_RIG contributes this much to
+its region's raw pollution reading before normalization — the
+dominant source; industry is the point-source, mining scars (below)
+are the secondary, more diffuse one."""
+
+POLLUTION_MINING_SCAR_WEIGHT = 0.3
+"""Each unit of `World.mining_scars` intensity in a region contributes
+this fraction as much as one standing industrial building — real but
+secondary; a heavily-scarred hillside alone shouldn't read as
+polluted as an actual standing factory."""
+
+POLLUTION_DIFFUSE_RATE = 0.3
+"""Same role as `DISEASE_PRESSURE_DIFFUSE_RATE` — fumes/runoff from an
+industrial region measurably affect its neighbors, not just the exact
+region the source sits in, while still concentrating near the real
+source rather than smearing flat."""
+
+
+def _normalize_peak(raw: list[list[float]]) -> list[list[float]]:
+    """Scales a raw non-negative grid to 0..1 against its own peak cell
+    — same "normalize against whichever region currently holds the
+    most" shape `step_population_density` already established. An
+    all-zero grid stays all-zero (no source anywhere yet)."""
+    peak = max((v for row in raw for v in row), default=0.0)
+    if peak <= 0.0:
+        return [[0.0 for _ in row] for row in raw]
+    return [[v / peak for v in row] for row in raw]
 
 
 @dataclass
@@ -145,6 +184,30 @@ class FieldGrid:
             for ry in range(FIELD_GRID_SIZE)
         ]
         self.fields["disease_pressure"] = diffuse(raw, DISEASE_PRESSURE_DIFFUSE_RATE)
+
+    def step_pollution(
+        self, industrial_positions: list[tuple[int, int]],
+        mining_scar_items: list[tuple[tuple[int, int], float]], width: int, height: int,
+    ) -> None:
+        """Third concrete field. Unlike `population_density`/`disease_
+        pressure` (both live per-tick censuses), pollution's two
+        sources are already slow-changing state elsewhere (standing
+        buildings, `World.mining_scars`) — this just re-reads them each
+        call (still cheap, same O(buildings + scarred tiles) either
+        way) rather than accumulating its own separate history, keeping
+        the same "recompute fresh, never drift" discipline every other
+        field here follows. Normalizes against the region with the
+        most raw pollution, then spreads via `ca_operators.diffuse` —
+        real industrial impact isn't confined to the exact region a
+        factory's tile falls in."""
+        raw = [[0.0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+        for pos in industrial_positions:
+            rx, ry = self.region_of(pos, width, height)
+            raw[ry][rx] += POLLUTION_BUILDING_WEIGHT
+        for pos, intensity in mining_scar_items:
+            rx, ry = self.region_of(pos, width, height)
+            raw[ry][rx] += intensity * POLLUTION_MINING_SCAR_WEIGHT
+        self.fields["pollution"] = diffuse(_normalize_peak(raw), POLLUTION_DIFFUSE_RATE)
 
     def to_dict(self) -> dict:
         return {name: [list(row) for row in grid] for name, grid in self.fields.items()}

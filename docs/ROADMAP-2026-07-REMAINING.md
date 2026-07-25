@@ -1021,16 +1021,17 @@ conclusions" framing:
 2. **A11** — **shipped, v1.34.23** (groundwater + erosion feeding back
    into `Tile.elevation`) — see its own entry below for detail. Was
    blocking A3's rivers-re-carve item; that item itself remains open.
-3. **A1** — **second field shipped, v1.34.24** (`disease_pressure`).
-   Ten of the other eleven named fields (fertility/nutrients/pollution/
-   scent/traffic/heat/cultural-influence/ownership/beauty/noise) remain
-   unbuilt, plus migrating `mining_scars`/`disaster_scars`/the climate
-   grid onto `FieldGrid` properly instead of staying separate stores —
-   see the item's own entry below.
-4. **A2** — **second real consumer shipped, v1.34.24** (`disease_
-   pressure`'s `diffuse` call, feeding `Population._maybe_outbreak`'s
-   index-case weighting). `reaction_diffuse`/`cellular_step` still have
-   no second consumer — see the item's own entry below.
+3. **A1** — **third field shipped, v1.34.35** (`pollution`, joining
+   `population_density`/`disease_pressure`). Nine of the other ten
+   named fields (fertility/nutrients/scent/traffic/heat/cultural-
+   influence/ownership/beauty/noise) remain unbuilt, plus migrating
+   `mining_scars`/`disaster_scars`/the climate grid onto `FieldGrid`
+   properly instead of staying separate stores — see the item's own
+   entry below.
+4. **A2** — **third real consumer shipped, v1.34.35** (`pollution`'s
+   `diffuse` call, joining `disease_pressure`'s). `reaction_diffuse`/
+   `cellular_step` still have no second consumer — see the item's own
+   entry below.
 
 **Tier 1.5 — The Living Map (filed v1.34.4, full detail docs/VISION-
 2026-07-24-LIVINGMAP.md, explicit user vision)**, sequenced after
@@ -1293,27 +1294,36 @@ drift from the source of truth. Consult that doc directly for full
 context/rationale on any item — this is the "what's left" extract.
 
 ### A1 — Continuous environmental fields
-**Second field shipped (v1.34.24): `disease_pressure`.** `population_
-density` was the only real field before; ten of the remaining eleven
-named (fertility, nutrients, pollution, scent, traffic, heat,
+**Third field shipped (v1.34.35): `pollution`.** `population_density`
+and `disease_pressure` were the only two real fields before; nine of
+the remaining ten named (fertility, nutrients, scent, traffic, heat,
 cultural-influence, ownership, beauty, noise — moisture is really
 A11's, already shipped there) are still unbuilt. `terrain_activity`/
-`mining_scars`/`disaster_scars` and the climate grid remain separate
-stores, not migrated onto `FieldGrid`. Vegetation/wildlife/farming
-still don't read any field. See A2's entry below and the v1.34.24
-CHANGELOG entry for `disease_pressure`'s full design — chosen because
-contagion is the single most natural `diffuse()` consumer in the
-codebase, giving A1 and A2 a real second slice together rather than
-separately.
+`disaster_scars` and the climate grid remain separate stores, not
+migrated onto `FieldGrid` (`mining_scars` is now a real `pollution`
+input, see below, though the store itself stays separate). `pollution`
+sources from two already-real Body-state producers — standing
+FACTORY/POWER_PLANT/OIL_RIG buildings (`World.POLLUTION_SOURCE_
+KINDS`) and `World.mining_scars` intensity, weighted so a standing
+factory dominates over a scarred hillside alone — then spreads via
+`ca_operators.diffuse`, same shape `disease_pressure` already
+established. Real consumer: `economy.farms.FarmGrid.plant()` gained a
+`pollution` yield-penalty factor (bounded floor
+`FARM_POLLUTION_YIELD_MIN_FACTOR=0.6`, same shape `moisture`'s yield
+factor already has) — "industry chokes the fields nearby" is now a
+mechanical fact. Also given a real map overlay (5th "🗺️ fields" mode,
+`interface/static/app.js`) in the same batch, per the standing
+workflow rule that a new feature gets UI surfacing in the batch it
+lands in.
 
 ### A2 — CA / diffusion / reaction-diffusion operators
-**Second real consumer shipped (v1.34.24).** `diffuse`/`reaction_
-diffuse`/`cellular_step` existed with one consumer (forest succession,
-`world/ca_operators.py`, v1.14.0); `FieldGrid.step_disease_pressure`
-now calls `diffuse` on a raw regional sick-fraction census each tick,
-spreading contagion risk into neighboring regions — `Population.
-_maybe_outbreak` reads the result to weight which healthy agent
-becomes the next spontaneous index case. `reaction_diffuse`/`cellular_
+**Third real consumer shipped (v1.34.35).** `diffuse`/`reaction_
+diffuse`/`cellular_step` already had two consumers (forest succession
+since v1.14.0; `disease_pressure` since v1.34.24); `FieldGrid.step_
+pollution` (A1, above) is the third, spreading a raw per-region
+pollution census (industrial buildings + mining scars) into
+neighboring regions — real industrial impact isn't confined to the
+exact region a factory's tile falls in. `reaction_diffuse`/`cellular_
 step` still have no second consumer; the doc's other named example
 (fire spread) remains open.
 

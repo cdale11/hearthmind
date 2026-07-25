@@ -2203,7 +2203,7 @@ class Population:
             )
         )
         life_events.extend(
-            self._maybe_plant(by_position, farms, settlements, terrain, rng, hydrology_moisture)
+            self._maybe_plant(by_position, farms, settlements, terrain, rng, hydrology_moisture, fields)
         )
         established_roads = roads.summary()["established_roads"]
         capacity_by_id = {
@@ -2893,6 +2893,7 @@ class Population:
         by_position: dict[tuple[int, int], list[Agent]], farms: FarmGrid,
         settlements: list[Settlement], terrain: list[list[Tile]], rng: random.Random,
         hydrology_moisture: list[list[float]] | None = None,
+        fields: "FieldGrid | None" = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         settlements_by_id = {s.id: s for s in settlements}
@@ -2927,7 +2928,10 @@ class Population:
             moisture = 1.0
             if hydrology_moisture is not None and 0 <= y < len(hydrology_moisture) and 0 <= x < len(hydrology_moisture[y]):
                 moisture = hydrology_moisture[y][x]
-            farms.plant(x, y, tooled=tooled, moisture=moisture)
+            pollution = 0.0
+            if fields is not None and terrain:
+                pollution = fields.get_at("pollution", (x, y), len(terrain[0]), len(terrain))
+            farms.plant(x, y, tooled=tooled, moisture=moisture, pollution=pollution)
             note = (
                 f"A field was planted at ({x}, {y}), using tools for a richer harvest."
                 if tooled else f"A field was planted at ({x}, {y})."

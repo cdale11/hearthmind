@@ -13,7 +13,7 @@ from hearthmind.agents.agent import AgentGoal, AgentState
 from hearthmind.agents.population import Population
 from hearthmind.config import Config
 from hearthmind.economy.farms import FarmGrid, apply_nutrient_cycling
-from hearthmind.settlement.buildings import BuildingStage, Settlement
+from hearthmind.settlement.buildings import BuildingKind, BuildingStage, Settlement
 from hearthmind.settlement.naming import generate_settlement_name
 from hearthmind.time_system import SimClock
 from hearthmind.world.resources import ResourceGrid
@@ -81,6 +81,14 @@ is a private running theory, not a growing dossier."""
 
 CONSCIOUSNESS_INTERVENTION_LOG_MAX = 12
 """Cap on `World.consciousness_intervention_log`."""
+
+POLLUTION_SOURCE_KINDS = frozenset({BuildingKind.FACTORY, BuildingKind.POWER_PLANT, BuildingKind.OIL_RIG})
+"""A1's third `FieldGrid` field, `pollution` (Tier 1, docs/ROADMAP-
+2026-07-REMAINING.md): the real standing-building sources it censuses
+each tick — the codebase's three genuinely industrial-scale kinds,
+same "presence-driven" reasoning their own income mechanics already
+use. WORKSHOP/DOCK are deliberately excluded (smaller-scale, era-
+earlier trades, not modeled as polluting)."""
 
 WEATHER_REGION_GRID = 3
 """§6 "Spatial weather" (docs/IDEAS-2026-07-EMERGENCE.md): the map is
@@ -834,6 +842,13 @@ class World:
         self.fields.step_disease_pressure(
             [(a.x, a.y) for a in self.population.agents if a.sick_ticks > 0],
             len(self.population.agents), self.config.width, self.config.height,
+        )
+        self.fields.step_pollution(
+            [
+                (b.x, b.y) for s in self.settlements for b in s.buildings
+                if b.kind in POLLUTION_SOURCE_KINDS and b.stage is BuildingStage.STANDING
+            ],
+            list(self.mining_scars.items()), self.config.width, self.config.height,
         )
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (

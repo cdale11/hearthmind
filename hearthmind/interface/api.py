@@ -72,6 +72,7 @@ class WorldBroadcaster:
         moisture: "list[list[float]] | None" = None, soil_fertility: dict | None = None,
         population_density: "list[list[float]] | None" = None,
         disease_pressure: "list[list[float]] | None" = None,
+        pollution: "list[list[float]] | None" = None,
         road_scars: dict | None = None,
         migration_trails: dict | None = None,
     ) -> None:
@@ -122,7 +123,13 @@ class WorldBroadcaster:
         size). `SimulationEngine._maybe_broadcast` now also resyncs on
         a `week_end` calendar boundary specifically for these three,
         since none of them fire a `TERRAIN_CHANGING_CATEGORIES` event
-        of their own."""
+        of their own.
+
+        `pollution` (Tier 1, docs/ROADMAP-2026-07-REMAINING.md): same
+        tiny 3x3 `World.fields` shape as `population_density`/`disease_
+        pressure`, riding the same `week_end` resync — "industry
+        chokes the fields nearby" as a real map overlay, not just a
+        farm-yield number nothing on screen shows."""
         self._terrain_payload = {
             "width": width,
             "height": height,
@@ -165,6 +172,9 @@ class WorldBroadcaster:
             "disease_pressure": (
                 [[round(v, 3) for v in row] for row in disease_pressure]
                 if disease_pressure else []
+            ),
+            "pollution": (
+                [[round(v, 3) for v in row] for row in pollution] if pollution else []
             ),
         }
 
