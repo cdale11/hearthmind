@@ -545,6 +545,31 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.29)
+
+Explicit user instruction: "Continue" — M10 "base map readability"
+(docs/ROADMAP-2026-07-REMAINING.md, Tier 1.5), the roadmap's own
+flagged item needing "a direct look before scoping a fix." Took that
+look: launched a real dev server, ticked a real world forward, and
+screenshotted the default UI via Playwright.
+
+Real finding: at the old `CELL=8`, the default 64x64 world's map
+canvas was a fixed 512x512px element — a small corner of any real
+browser window, contradicting this file's own standing Observatory UI
+direction ("the map is the primary interface, read at a glance").
+Fixed the one safe lever available without a full responsive-canvas
+rewrite: `interface/static/app.js`'s `CELL` raised 8 -> 12 — every
+draw call and every mouse-position calculation already derives from
+this one constant, so the change is uniform and low-risk.
+
+Verified via screenshot (map now visibly dominates the layout) and a
+real Playwright click test (a known screen position resolved to the
+correct tile, inspector opened with real content — including a live
+migration-trail reading, confirming v1.34.27's mechanism is genuinely
+visible) plus a zoom/hover/minimap check. Closes Tier 1.5's M1/M9 + M4
++ M10 batch — only M6/M7 (the larger responsive-canvas/reference-game-
+quality overlay redesign) remains open in "The Living Map."
+
 ## Current state (v1.34.28)
 
 Explicit user instruction: "Continue" — closes M4 "The Living Map"

@@ -4,6 +4,47 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.29] — M10: base map readability ("The Living Map," Tier 1.5)
+
+Explicit user instruction: "Continue" — M10 (docs/ROADMAP-2026-07-
+REMAINING.md, Tier 1.5), the roadmap's own flagged item: "whether the
+BASE map (every overlay off) already reads as alive... needs a direct
+look before scoping a fix." Took that direct look this pass: launched
+a real dev server (`--llm-disabled`, so no external LLM dependency),
+let a real world tick forward ~2400 ticks, and screenshotted the
+default UI (no overlays toggled) via Playwright.
+
+The real finding: at the old `CELL=8`, the default 64x64-tile world's
+map canvas rendered as a fixed 512x512px element — a small corner of
+any real browser window, with no responsive resizing. This directly
+contradicts CLAUDE.md's own standing Observatory UI direction ("the
+map is the primary interface, read at a glance like an observatory
+instrument... prefer overlays... over sidebar panels") — the base map
+did not read that way; it read as a small inset next to a dominant
+sidebar.
+
+Fixed the one safe, self-contained lever available without touching
+the zoom/pan coordinate system (`view.scale`, `screenToGrid`) or
+building real viewport-responsive resize handling: `CELL` raised from
+8 to 12 (interface/static/app.js). Every draw call and every mouse-
+position calculation in the file already derives from this single
+constant, so the change is uniform and low-risk — no coordinate-system
+rewrite, no backend touch.
+
+Verified: a before/after screenshot pair confirming the map now
+visibly dominates the layout; a real Playwright click test (clicked a
+known screen position, confirmed it resolved to the correct tile
+coordinate — (19, 19) — and the tile inspector opened with real
+content, including a live migration-trail reading, confirming v1.34.27's
+M4 mechanism is genuinely visible in the running UI); a zoom test
+(mousewheel zoom, hover tooltip, and minimap viewport rectangle all
+still track correctly post-change). A full responsive canvas (resize-
+to-viewport, gradients/hotspots/thresholds/legends matching reference-
+game conventions) is explicitly flagged as the larger, still-open M6/
+M7 UI redesign item — this is the smallest coherent step in that
+direction, not a substitute for it. With M1/M9, M4, and M10 all closed
+this batch, only M6/M7 remains open in Tier 1.5 "The Living Map."
+
 ## [1.34.28] — M4: wetlands (closes "The Living Map," Tier 1.5's M4)
 
 Explicit user instruction: "Continue" — the wetland/marsh half of M4,

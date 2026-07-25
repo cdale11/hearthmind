@@ -1002,9 +1002,20 @@ forest reclaim). Real gaps, roughly by leverage:
   dries out; real consequence via existing biome-gated systems, WETLAND
   is in neither `FARMABLE_BIOMES` nor `WALKABLE_BIOMES`, no bespoke
   consumer needed). M4 fully closed.
-- **M10** — whether the BASE map (every overlay off) already reads as
-  alive, independent of overlay quality — needs a direct look before
-  scoping a fix.
+- **M10** — **direct look taken + shipped, v1.34.29**: a real
+  Playwright screenshot of the base map (default 64x64 world, every
+  overlay off) at the old `CELL=8` showed the actual problem — a fixed
+  512x512px canvas element, a small corner of any real browser window,
+  contradicting CLAUDE.md's own standing Observatory UI direction
+  ("the map is the primary interface, read at a glance"). Fixed the
+  safe, self-contained lever available without touching the zoom/pan
+  coordinate system: `CELL` raised 8 -> 12 (every draw call and every
+  mouse-position calculation already derives from this one constant).
+  Verified via screenshot (map now visibly dominates the layout) and a
+  real Playwright click test (tile (19,19) correctly resolved, inspector
+  opened with real content) confirming click/hover/zoom/minimap math
+  still lines up. A full responsive canvas (resize-to-viewport) remains
+  the rest of M6/M7's larger redesign, not attempted here.
 - **M11/M12** — folded into the standing-discipline items (A23-A25
   above) as an ongoing completeness bar, not a one-shot task; also now
   recorded in CLAUDE.md's Observatory UI direction section directly.

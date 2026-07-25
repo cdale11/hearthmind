@@ -5,7 +5,21 @@
 // GET /state (initial paint) and then a WebSocket stream, one message per
 // tick, in the exact same shape.
 
-const CELL = 8; // px per terrain tile
+const CELL = 12; // px per terrain tile
+// M10 "The Living Map" (docs/ROADMAP-2026-07-REMAINING.md, Tier 1.5):
+// direct-look finding — at the old CELL=8, the default 64x64 map's
+// canvas element was a fixed 512x512px, a small corner of a typical
+// browser window with no responsive resize; CLAUDE.md's own standing
+// Observatory UI direction says "the map is the primary interface,
+// read at a glance" but the base map (every overlay off) didn't read
+// that way. Raising CELL is the single safe, self-contained lever
+// available without touching the zoom/pan coordinate system (`view.
+// scale`, screenToGrid) or adding real responsive-resize handling —
+// every draw call and every mouse-position calculation already derives
+// from this one constant, so a real fix and a real risk-free change.
+// A full responsive canvas (resize-to-viewport) is the rest of M6/M7's
+// larger, still-open UI redesign — this is the smallest coherent step
+// toward the same direction, not a substitute for it.
 
 // Shared upward-pointing triangle path (predator packs, and the LLM
 // core-cast agent marker, v0.72.0) — fill/stroke style is the caller's
