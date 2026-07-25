@@ -545,6 +545,32 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.32)
+
+Explicit user instruction: "Continue that" — the "thresholds" quarter
+of M6/M7's four-part ask (docs/ROADMAP-2026-07-REMAINING.md, Tier
+1.5), left open by v1.34.31's gradients+hotspots slice.
+
+Audited all four field overlay modes against their real backend
+constants before drawing anything, per the standing "no cosmetic-only
+marks" discipline: `farms.SOIL_FERTILITY_MIN` is an asymptotic floor,
+not a decision boundary; `MIGRANT_DENSITY_DAMPENING`/`OUTBREAK_
+DISEASE_PRESSURE_WEIGHT` are continuous multipliers with no
+qualitative cutoff. Moisture alone has a genuine two-sided mechanical
+threshold — `hydrology.WETLAND_FORM_MOISTURE_THRESHOLD` (0.75) — a
+tile sustained above it can convert to a real different biome (M4's
+`tick_wetlands`). New `drawFieldContour` traces a real isoline via
+per-cell edge-crossing detection, wired only into moisture mode; the
+field legend gains a matching "wetland-forming threshold (0.75)" line,
+shown only there. Deliberately did not fabricate a threshold line for
+the other three modes.
+
+Verified via `node --check` plus a real dev server + Playwright pass
+confirming correct show/hide of the legend threshold line across all
+four modes and a clean contour render with no regression to v1.34.31's
+gradients/hotspots. A full responsive-canvas redesign remains the one
+still-open rest of M6/M7.
+
 ## Current state (v1.34.31)
 
 Explicit user instruction: "Continue larger remaining scope" — the

@@ -4,6 +4,41 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.32] — M6/M7: field-overlay threshold contours
+
+Explicit user instruction: "Continue that" — the "thresholds" quarter
+of M6/M7's four-part ask (docs/ROADMAP-2026-07-REMAINING.md, Tier
+1.5), left open by v1.34.31's gradients+hotspots slice.
+
+Audited all four field overlay modes against their real backend-
+consumed constants before drawing anything, per the project's standing
+"never draw a meaningless mark" discipline: `economy.farms.
+SOIL_FERTILITY_MIN` is an asymptotic floor the depletion math can
+approach but never cross, not a decision boundary; `agents.population.
+MIGRANT_DENSITY_DAMPENING`/`OUTBREAK_DISEASE_PRESSURE_WEIGHT` are both
+continuous multipliers applied smoothly across the whole 0..1 domain,
+no qualitative cutoff. Moisture is the one mode with a genuine
+two-sided mechanical threshold: `world.hydrology.WETLAND_FORM_
+MOISTURE_THRESHOLD` (0.75) — a tile sustained above this line can
+convert GRASSLAND to `Biome.WETLAND` (M4's `tick_wetlands`, already
+shipped this session), a real different biome, not cosmetic.
+
+New `drawFieldContour(grid, threshold, color)` (interface/static/
+app.js): traces a real isoline via per-cell right/bottom neighbor
+threshold-crossing detection — a lightweight edge-crossing tracer
+sufficient at this map's tile resolution, not a full marching-squares
+implementation. Wired only into the moisture branch of `renderField
+Overlay()`. `#field-legend` gains a matching "wetland-forming
+threshold (0.75)" readout line, shown only in moisture mode — deli-
+berately not fabricated for the other three modes, which have no real
+threshold to show.
+
+Verified: `node --check` clean; a real dev server + Playwright pass
+confirmed the legend threshold line renders correctly only in moisture
+mode (hidden in soil_fertility/population_density/disease_pressure)
+and the contour traces visibly on the live moisture map with no
+rendering regression to v1.34.31's gradients/hotspots.
+
 ## [1.34.31] — M6/M7: field-overlay gradients + hotspots
 
 Explicit user instruction: "Continue larger remaining scope" — the

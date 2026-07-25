@@ -1006,11 +1006,26 @@ forest reclaim). Real gaps, roughly by leverage:
   real as a notable high) gets a genuine hotspot marker (a white ring)
   on the map plus a "hotspot at (x, y)" legend line, floored at
   `FIELD_HOTSPOT_MIN_VALUE` so an all-empty field doesn't get a
-  meaningless marker. A real responsive-canvas redesign (viewport-
-  based resize, decoupling logical tile grid from physical canvas
-  pixels) remains the larger, still-open rest of M6/M7 — "thresholds"
-  (contour-line banding at meaningful value boundaries) also not
-  attempted this pass.
+  meaningless marker.
+  **Thresholds shipped, v1.34.32**: audited all four field modes
+  against their real backend constants before drawing anything —
+  `farms.SOIL_FERTILITY_MIN` is an asymptotic floor, not a decision
+  line; `MIGRANT_DENSITY_DAMPENING`/`OUTBREAK_DISEASE_PRESSURE_WEIGHT`
+  are both continuous multipliers with no qualitative cutoff in their
+  0..1 domain. Moisture is the one mode with a genuine two-sided
+  mechanical threshold — `hydrology.WETLAND_FORM_MOISTURE_THRESHOLD`
+  (0.75) — a tile sustained above this line can convert to a real
+  different biome (M4's `tick_wetlands`, already shipped). New
+  `drawFieldContour` traces a real isoline (edge-crossing detection
+  against each dense-grid cell's right/bottom neighbor, not full
+  marching-squares — sufficient at this map's resolution) only in
+  moisture mode; the legend gains a matching "wetland-forming
+  threshold (0.75)" line, shown only for moisture. Drawing a contour
+  on the other three modes would be exactly the "raw tint a player has
+  to guess the meaning of" the vision doc's own worked examples warn
+  against — deliberately not done. A real responsive-canvas redesign
+  (viewport-based resize, decoupling logical tile grid from physical
+  canvas pixels) remains the one still-open rest of M6/M7.
 - **M1/M9** — **old-road-beds slice shipped, v1.34.26** (extends the
   scar-shaped-dict pattern, already proven 4x: mining/disaster/ritual/
   ruin, to a 5th axis). Field boundaries and a labeled "environmental

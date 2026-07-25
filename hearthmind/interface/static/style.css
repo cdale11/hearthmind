@@ -597,7 +597,7 @@ body.subjective-mode #stat-grid { display: none; }
   color: var(--muted);
 }
 
-#field-legend-peak {
+#field-legend-peak, #field-legend-threshold {
   margin-top: 4px;
   padding-top: 4px;
   border-top: 1px solid var(--border);

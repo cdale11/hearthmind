@@ -1184,6 +1184,7 @@ const fieldLegendBar = document.getElementById("field-legend-bar");
 const fieldLegendMin = document.getElementById("field-legend-min");
 const fieldLegendMax = document.getElementById("field-legend-max");
 const fieldLegendPeak = document.getElementById("field-legend-peak");
+const fieldLegendThreshold = document.getElementById("field-legend-threshold");
 
 function updateFieldLegend() {
   const labels = FIELD_LEGEND_LABELS[fieldOverlayMode];
@@ -1198,6 +1199,15 @@ function updateFieldLegend() {
     fieldLegendPeak.classList.remove("hidden");
   } else {
     fieldLegendPeak.classList.add("hidden");
+  }
+  // "Thresholds" — only moisture has a real backend-consumed cutoff
+  // worth a contour line (see `drawFieldContour`'s own docstring for
+  // why the other three modes deliberately don't get one).
+  if (fieldOverlayMode === "moisture") {
+    fieldLegendThreshold.textContent = `⎯ line: wetland-forming threshold (${MOISTURE_WETLAND_THRESHOLD})`;
+    fieldLegendThreshold.classList.remove("hidden");
+  } else {
+    fieldLegendThreshold.classList.add("hidden");
   }
 }
 
@@ -1293,6 +1303,56 @@ function paintFieldHotspot(mode, hotspot) {
 
 let fieldHotspotReading = null;
 
+// M6/M7 "The Living Map," "thresholds" — deliberately NOT built for
+// every mode. Audited each field for a real backend-CONSUMED cutoff
+// (not an arbitrary aesthetic line) before drawing anything:
+// `MIGRANT_DENSITY_DAMPENING`/`OUTBREAK_DISEASE_PRESSURE_WEIGHT` are
+// both continuous multipliers with no qualitative value-domain
+// boundary; `SOIL_FERTILITY_MIN` is an asymptotic floor, not a
+// decision line. Moisture is the one mode with a genuine two-sided
+// mechanical threshold — `hydrology.WETLAND_FORM_MOISTURE_THRESHOLD`
+// — a tile sustained above this line can turn into a real different
+// biome (M4, already shipped). Drawing a contour anywhere else would
+// be exactly the "raw tint a player has to guess the meaning of" this
+// vision doc's own worked examples warn against.
+const MOISTURE_WETLAND_THRESHOLD = 0.75;
+
+function drawFieldContour(grid, threshold, color) {
+  fieldCtx.save();
+  fieldCtx.strokeStyle = color;
+  fieldCtx.lineWidth = Math.max(1.5, CELL * 0.12);
+  fieldCtx.beginPath();
+  const h = grid.length, w = grid[0] ? grid[0].length : 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const v = grid[y][x];
+      // A right or bottom neighbor crossing the threshold means the
+      // real isoline passes through the shared edge — draw it there,
+      // which naturally traces the field's own contour without a full
+      // marching-squares implementation (one segment per crossing is
+      // enough at this map resolution to read as a clean boundary).
+      if (x + 1 < w) {
+        const vr = grid[y][x + 1];
+        if ((v >= threshold) !== (vr >= threshold)) {
+          const ex = (x + 1) * CELL;
+          fieldCtx.moveTo(ex, y * CELL);
+          fieldCtx.lineTo(ex, (y + 1) * CELL);
+        }
+      }
+      if (y + 1 < h) {
+        const vb = grid[y + 1][x];
+        if ((v >= threshold) !== (vb >= threshold)) {
+          const ey = (y + 1) * CELL;
+          fieldCtx.moveTo(x * CELL, ey);
+          fieldCtx.lineTo((x + 1) * CELL, ey);
+        }
+      }
+    }
+  }
+  fieldCtx.stroke();
+  fieldCtx.restore();
+}
+
 function renderFieldOverlay() {
   if (!terrain || fieldCanvas.width === 0) return;
   fieldCtx.clearRect(0, 0, fieldCanvas.width, fieldCanvas.height);
@@ -1309,6 +1369,7 @@ function renderFieldOverlay() {
         if (!peak || v > peak.value) peak = { x, y, w: CELL, h: CELL, value: v };
       }
     }
+    drawFieldContour(grid, MOISTURE_WETLAND_THRESHOLD, "rgba(255,255,255,0.55)");
   } else if (fieldOverlayMode === "soil_fertility") {
     const sf = terrain.soil_fertility;
     if (!sf) return;
