@@ -545,6 +545,35 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.33)
+
+Explicit user instruction: "Implement that and do as many slices as
+you can per turn" — the responsive-canvas redesign, the one item left
+open in M6/M7 after v1.34.30-.32's legends/gradients/hotspots/
+thresholds. **Closes M6/M7 and all of "The Living Map" (Tier 1.5).**
+
+The map's drawing buffer (`canvas.width`/`.height`, world pixels =
+tiles * `CELL`) stays the one true coordinate system, untouched — only
+the CSS display size now tracks the actual viewport (new `resizeCanvas
+Display()`, bounded `[0.3x, 1.5x]` of the buffer), wired at every
+`drawStaticTerrain()` call plus a debounced `window.resize` listener.
+New `canvasEventPoint()` gives mouse handlers both raw CSS-pixel
+offsets (tooltip position) and buffer-scaled offsets (`screenToGrid`/
+zoom-around-cursor math) — same pattern the relationship-graph
+canvas's hover handler already used elsewhere in this file
+(`scale = relCanvas.width / rect.width`); drag-pan's delta gets the
+same scale correction so panning stays pinned to the cursor regardless
+of display scale. `#map-panel`'s `flex: 0 0 auto` auto-tracks the new
+canvas size with no extra panel-sizing code; the minimap/season-
+vignette overlays needed no changes (already fraction-/`inset`-based).
+
+Verified via `node --check`, a real dev server + Playwright pass
+across three viewport sizes confirming the canvas actually resizes to
+fit each one, a dedicated click-accuracy test (exact expected tile hit
+at a 1.15x display/buffer scale), and a zoom+pan+click sequence
+confirming no coordinate drift from the buffer/display scale
+correction.
+
 ## Current state (v1.34.32)
 
 Explicit user instruction: "Continue that" — the "thresholds" quarter

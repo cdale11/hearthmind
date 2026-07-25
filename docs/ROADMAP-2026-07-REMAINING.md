@@ -1023,9 +1023,23 @@ forest reclaim). Real gaps, roughly by leverage:
   threshold (0.75)" line, shown only for moisture. Drawing a contour
   on the other three modes would be exactly the "raw tint a player has
   to guess the meaning of" the vision doc's own worked examples warn
-  against — deliberately not done. A real responsive-canvas redesign
-  (viewport-based resize, decoupling logical tile grid from physical
-  canvas pixels) remains the one still-open rest of M6/M7.
+  against — deliberately not done.
+  **Responsive canvas shipped, v1.34.33 — closes M6/M7.** The drawing
+  BUFFER (`canvas.width`/`.height`, world pixels = tiles * `CELL`)
+  stays the map's one coordinate system, untouched — only the CSS
+  DISPLAY size now tracks the actual viewport via new `resizeCanvas
+  Display()`, bounded `[0.3x, 1.5x]` of the buffer so a huge map never
+  forces page scroll and a small map never sits as a tiny fixed block.
+  Wired at every `drawStaticTerrain()` call (buffer-size changes) and a
+  debounced `window.resize` listener. Mouse-event math (`wheel`/`mouse
+  move` pan/`click`) now derives a buffer/display scale factor via new
+  `canvasEventPoint()`, the same pattern `relCanvas`'s hover handler
+  already established (`scale = relCanvas.width / rect.width`) — hit
+  testing, zoom-around-cursor, and drag-pan all stay pixel-accurate
+  even when the two sizes diverge. `#map-panel`'s `flex: 0 0 auto`
+  auto-tracks the new CSS canvas size with no separate panel-sizing
+  code needed; the minimap/season-vignette overlays needed no change
+  (already fraction- or `inset`-based, not buffer-pixel-based).
 - **M1/M9** — **old-road-beds slice shipped, v1.34.26** (extends the
   scar-shaped-dict pattern, already proven 4x: mining/disaster/ritual/
   ruin, to a 5th axis). Field boundaries and a labeled "environmental

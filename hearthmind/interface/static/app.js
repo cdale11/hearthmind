@@ -293,6 +293,26 @@ function screenToGrid(px, py) {
   };
 }
 
+// M6/M7 "The Living Map," the responsive-canvas redesign (docs/
+// ROADMAP-2026-07-REMAINING.md, Tier 1.5) — the last open item after
+// legends/gradients/hotspots/thresholds all shipped. `canvas.width`/
+// `.height` (the drawing BUFFER, in world pixels = tiles * CELL) stay
+// the map's one true coordinate system; every draw call and the zoom/
+// pan `view` transform already key off it and are untouched. Only the
+// element's CSS DISPLAY size changes here, via `resizeCanvasDisplay`,
+// so the map fills the actual viewport instead of rendering at a fixed
+// buffer-pixel size regardless of window size (M10's `CELL` bump was
+// the smallest safe lever toward this; this is the rest of it).
+// Mouse-event math needs a matching buffer/display scale factor
+// whenever the two sizes diverge — same pattern `relCanvas`'s hover
+// handler already established (`scale = relCanvas.width / rect.width`).
+function canvasEventPoint(ev) {
+  const rect = canvas.getBoundingClientRect();
+  const cssX = ev.clientX - rect.left, cssY = ev.clientY - rect.top;
+  const scale = rect.width > 0 ? canvas.width / rect.width : 1;
+  return { cssX, cssY, bufX: cssX * scale, bufY: cssY * scale, scale };
+}
+
 function centerViewOn(gx, gy) {
   view.x = canvas.width / 2 - (gx * CELL + CELL / 2) * view.scale;
   view.y = canvas.height / 2 - (gy * CELL + CELL / 2) * view.scale;
@@ -1830,7 +1850,44 @@ function drawStaticTerrain() {
   fieldCanvas.width = staticCanvas.width;
   fieldCanvas.height = staticCanvas.height;
   renderFieldOverlay();
+  resizeCanvasDisplay();
 }
+
+// Responsive-canvas redesign: shrinks (rarely grows) the map's CSS
+// display size to fit the actual viewport, independent of the drawing
+// buffer set above — a large map no longer forces the page to scroll,
+// a small map no longer sits as a tiny fixed block regardless of
+// window size. Bounded both directions: MIN keeps a huge map from
+// shrinking past readability, MAX keeps a small map from blowing up
+// into blurry/oversized tiles (`image-rendering: pixelated` keeps
+// whichever scale it lands on crisp, not smeared).
+const MAP_DISPLAY_MIN_SCALE = 0.3;
+const MAP_DISPLAY_MAX_SCALE = 1.5;
+
+function resizeCanvasDisplay() {
+  if (!staticCanvas) return;
+  const panel = document.getElementById("map-panel");
+  if (!panel) return;
+  const bufferW = staticCanvas.width, bufferH = staticCanvas.height;
+  if (!bufferW || !bufferH) return;
+  const rect = panel.getBoundingClientRect();
+  const availW = Math.max(240, window.innerWidth - rect.left - 24);
+  const availH = Math.max(240, window.innerHeight - rect.top - 24);
+  let scale = Math.min(availW / bufferW, availH / bufferH);
+  scale = Math.max(MAP_DISPLAY_MIN_SCALE, Math.min(MAP_DISPLAY_MAX_SCALE, scale));
+  const displayW = Math.round(bufferW * scale);
+  const displayH = Math.round(bufferH * scale);
+  for (const el of [canvas, weatherCanvas, fieldCanvas]) {
+    el.style.width = `${displayW}px`;
+    el.style.height = `${displayH}px`;
+  }
+}
+
+let mapResizeRAF = null;
+window.addEventListener("resize", () => {
+  if (mapResizeRAF) cancelAnimationFrame(mapResizeRAF);
+  mapResizeRAF = requestAnimationFrame(resizeCanvasDisplay);
+});
 
 function drawFrame() {
   if (!staticCanvas) return;
@@ -2560,8 +2617,7 @@ let panState = null; // {startX, startY, viewX, viewY, moved}
 
 canvas.addEventListener("wheel", (ev) => {
   ev.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
+  const { bufX: px, bufY: py } = canvasEventPoint(ev);
   const factor = ev.deltaY < 0 ? 1.2 : 1 / 1.2;
   const before = view.scale;
   view.scale = Math.max(VIEW_MIN_SCALE, Math.min(VIEW_MAX_SCALE, view.scale * factor));
@@ -2587,21 +2643,24 @@ window.addEventListener("mouseup", () => {
 // UI direction, CLAUDE.md): agent, then building, then bare terrain — each
 // with its own tooltip content, cheapest/most-specific check first.
 canvas.addEventListener("mousemove", (ev) => {
-  const rect = canvas.getBoundingClientRect();
-  const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
+  const { cssX: px, cssY: py, bufX, bufY, scale } = canvasEventPoint(ev);
   if (panState) {
     const dx = ev.clientX - panState.startX, dy = ev.clientY - panState.startY;
     if (panState.moved || Math.hypot(dx, dy) > 4) {
       panState.moved = true;
       stopFollowing(); // a manual pan takes the camera back
-      view.x = panState.viewX + dx;
-      view.y = panState.viewY + dy;
+      // dx/dy are CSS pixels; view.x/y live in buffer-pixel space, so a
+      // drag must scale up by the same factor a shrunk/enlarged display
+      // size introduced (responsive-canvas redesign) to keep the point
+      // under the cursor pinned while dragging.
+      view.x = panState.viewX + dx * scale;
+      view.y = panState.viewY + dy * scale;
       clampView();
       tooltip.classList.add("hidden");
       return;
     }
   }
-  const { gx, gy } = screenToGrid(px, py);
+  const { gx, gy } = screenToGrid(bufX, bufY);
   tooltip.style.left = `${px + 12}px`;
   tooltip.style.top = `${py + 12}px`;
   if (ghost.active) {
@@ -2688,8 +2747,8 @@ canvas.addEventListener("mouseleave", () => {
 canvas.addEventListener("click", (ev) => {
   if (panState && panState.moved) return; // that was a drag, not a click
   if (ghost.active) return;
-  const rect = canvas.getBoundingClientRect();
-  const { gx, gy } = screenToGrid(ev.clientX - rect.left, ev.clientY - rect.top);
+  const { bufX, bufY } = canvasEventPoint(ev);
+  const { gx, gy } = screenToGrid(bufX, bufY);
   const a = findAgentAt(gx, gy);
   if (a) return openNpcInspector(a.id);
   const b = findBuildingAt(gx, gy);

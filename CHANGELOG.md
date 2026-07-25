@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.33] — M6/M7: responsive-canvas redesign (closes M6/M7)
+
+Explicit user instruction: "Implement that and do as many slices as
+you can per turn" — the responsive-canvas redesign, the one item left
+open in M6/M7 after v1.34.30-.32 shipped legends/gradients/hotspots/
+thresholds. Closes M6/M7 and "The Living Map" (Tier 1.5) entirely.
+
+The map's drawing BUFFER (`canvas.width`/`.height`, world pixels =
+tiles * `CELL`) stays untouched as the one true coordinate system —
+every existing draw call and the `view` zoom/pan transform still key
+off it exactly as before. Only the element's CSS DISPLAY size is new:
+`resizeCanvasDisplay()` fits it to the actual viewport (`window.
+innerWidth/innerHeight` minus the panel's own offset and a margin),
+bounded `[MAP_DISPLAY_MIN_SCALE=0.3, MAP_DISPLAY_MAX_SCALE=1.5]` of
+the buffer so a large map never forces page scroll and a small map
+never sits as a tiny fixed block regardless of window size — the
+actual problem M10 (v1.34.29) could only partially address by raising
+`CELL`. Wired at the end of `drawStaticTerrain()` (every buffer-size
+change: initial load, era changes, terrain resync) and a debounced
+`window.resize` listener (`requestAnimationFrame`-throttled).
+
+Mouse-event math needed a matching fix wherever CSS display size can
+now diverge from buffer size: new `canvasEventPoint(ev)` returns both
+raw CSS-pixel offsets (for tooltip positioning, which tracks the
+cursor in screen space) and buffer-scaled offsets (for `screenToGrid`/
+zoom-around-cursor math, which operate in the buffer's world-pixel
+space) — same pattern the relationship-graph canvas's hover handler
+already established (`scale = relCanvas.width / rect.width`), applied
+here to `wheel`/`mousemove`/`click`. Drag-pan's `dx`/`dy` (CSS pixels)
+now also scale by the same factor before being added to `view.x`/`.y`
+(buffer pixels), so a drag stays pinned to the cursor at any display
+scale. `#map-panel` (`flex: 0 0 auto`) auto-tracks the new canvas CSS
+size with no separate panel-sizing code; the minimap (fraction-based
+click math) and season-vignette (`inset: 8px`, tracks the panel)
+overlays needed no changes.
+
+Verified: `node --check` clean; a real dev server + Playwright pass
+across three viewport sizes (1800x1000, 900x700, 640x900) confirmed
+the canvas CSS size actually tracks the viewport in each case and
+click-to-tile-inspector opens correctly; a dedicated click-accuracy
+test clicked a known fractional canvas position at a 880px-CSS/768px-
+buffer (1.15x) scale and got the exact expected tile coordinate; a
+zoom+pan+click sequence (6 wheel notches, a 120x80px drag, then a
+click) confirmed `view.scale`/`view.x`/`.y` update sensibly and the
+final click still resolves to a valid in-bounds tile — no drift from
+the buffer/display scale correction.
+
 ## [1.34.32] — M6/M7: field-overlay threshold contours
 
 Explicit user instruction: "Continue that" — the "thresholds" quarter
