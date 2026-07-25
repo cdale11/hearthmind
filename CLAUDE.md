@@ -545,6 +545,38 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.31)
+
+Explicit user instruction: "Continue larger remaining scope" — the
+larger, explicitly-flagged rest of M6/M7 left open by v1.34.30's
+legend-only slice. Ships two of the doc's three remaining asks
+("gradients" and "hotspots") in one pass since they share the field
+overlay's own paint loop; "thresholds" (contour banding) and a full
+responsive-canvas redesign stay open.
+
+`FIELD_COLOR_STOPS` (interface/static/app.js) replaces each of the
+four field modes' flat single-hue alpha with a real 3-stop RGB
+gradient (`lerpColorStops`) — moisture tan->green->blue, soil
+fertility red->tan->green genuinely centered on 0.5, population
+density/disease pressure both pale->orange->red heat ramps.
+`paintFieldCell` is the one shared helper all four `renderFieldOverlay`
+branches now call. Each render pass also tracks the field's own real
+peak (soil fertility tracks whichever value is furthest from the 0.5
+neutral point, not the raw max) and draws a genuine hotspot marker
+(white ring) there, floored at `FIELD_HOTSPOT_MIN_VALUE` so an empty
+field doesn't get a meaningless marker. The legend bar is generated
+live from the exact same `FIELD_COLOR_STOPS` array the overlay paints
+from (`stopsToCssGradient`), so legend and overlay can never drift
+apart; new `#field-legend-peak` line surfaces the live hotspot
+coordinate.
+
+Verified via a real dev server + Playwright pass: confirmed both
+gradients render correctly, confirmed a real hotspot ring appears on
+a genuinely-saturated moisture tile with a matching legend line, and
+confirmed soil fertility correctly shows NO hotspot on a fresh
+unfarmed map rather than a spurious one. Frontend-only, no backend/
+native-soak surface touched.
+
 ## Current state (v1.34.30)
 
 Explicit user instruction: "Continue" — M6/M7 "field-overlay legend"

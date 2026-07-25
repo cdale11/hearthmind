@@ -993,10 +993,24 @@ forest reclaim). Real gaps, roughly by leverage:
   right) after a real collision was caught in verification — the
   natural bottom-left spot is already `#consequences-strip`'s home.
   This is the "legends" quarter of the doc's four-part ask
-  (gradients/hotspots/thresholds/legends); a fuller reference-game-
-  quality pass (true multi-stop gradients instead of flat alpha,
-  hotspot markers, a real responsive-canvas redesign) remains the
-  larger, still-open rest of M6/M7.
+  (gradients/hotspots/thresholds/legends).
+  **Gradients + hotspots shipped, v1.34.31**: `FIELD_COLOR_STOPS`
+  replaces each mode's flat single-hue alpha with a real 3-stop RGB
+  interpolated gradient (moisture: tan -> green -> blue; soil
+  fertility: red -> tan -> green around the real 0.5 midpoint;
+  population density/disease pressure: pale -> orange -> red heat
+  ramps) — the legend bar is generated live from the SAME stops array
+  the overlay itself paints from, so the two can never drift apart.
+  Each mode's peak cell/region (soil fertility tracks the extreme
+  furthest from 0.5, not the raw max, since a notable LOW is just as
+  real as a notable high) gets a genuine hotspot marker (a white ring)
+  on the map plus a "hotspot at (x, y)" legend line, floored at
+  `FIELD_HOTSPOT_MIN_VALUE` so an all-empty field doesn't get a
+  meaningless marker. A real responsive-canvas redesign (viewport-
+  based resize, decoupling logical tile grid from physical canvas
+  pixels) remains the larger, still-open rest of M6/M7 — "thresholds"
+  (contour-line banding at meaningful value boundaries) also not
+  attempted this pass.
 - **M1/M9** — **old-road-beds slice shipped, v1.34.26** (extends the
   scar-shaped-dict pattern, already proven 4x: mining/disaster/ritual/
   ruin, to a 5th axis). Field boundaries and a labeled "environmental

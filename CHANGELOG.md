@@ -4,6 +4,58 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.31] — M6/M7: field-overlay gradients + hotspots
+
+Explicit user instruction: "Continue larger remaining scope" — the
+larger, explicitly-flagged rest of M6/M7 (docs/ROADMAP-2026-07-
+REMAINING.md, Tier 1.5) left open by v1.34.30's legend-only slice.
+Ships two of the doc's remaining three asks ("gradients, hotspots,
+thresholds" against Cities: Skylines/Timberborn/Dwarf Fortress
+conventions) in one pass since they share the same underlying data
+structure; "thresholds" (contour-line banding) and a full responsive-
+canvas redesign remain the still-open rest.
+
+**Gradients**: `FIELD_COLOR_STOPS` (interface/static/app.js) replaces
+each of the four field modes' flat single-hue alpha ramp with a real
+3-stop RGB-interpolated gradient (`lerpColorStops`) — moisture goes
+tan (dry) -> green -> saturated blue; soil fertility goes red-amber
+(depleted) -> neutral tan -> rich green, genuinely centered on the
+real 0.5 midpoint rather than two independent alpha ramps meeting at
+a hard edge; population density and disease pressure both get
+conventional pale-to-orange-to-red heat ramps (distinct hue families
+from each other, same discipline the flat-alpha version already had).
+`paintFieldCell` is the one shared paint helper all four branches of
+`renderFieldOverlay` now call, replacing four near-duplicate inline
+`fillStyle` computations.
+
+**Hotspots**: each render pass now tracks the field's own genuine
+peak cell/region while painting (soil fertility tracks whichever
+value is furthest from the real 0.5 neutral point, not the raw
+maximum, since a notable LOW reads as a real signal too) and, once
+painting finishes, draws a real marker (`paintFieldHotspot`, a white
+ring + center dot) directly on the map at that position —
+`FIELD_HOTSPOT_MIN_VALUE=0.12` floors this so an all-empty field
+(e.g. disease_pressure before any outbreak has ever occurred) doesn't
+get a meaningless marker on its technically-nonzero minimum cell.
+
+**Legend stays honest by construction**: `FIELD_LEGEND_LABELS` now
+holds only the plain-language min/max labels — the gradient bar
+itself is generated live via `stopsToCssGradient(FIELD_COLOR_STOPS[
+mode])` in `updateFieldLegend()`, reading the exact same array
+`renderFieldOverlay` paints from, so legend and overlay can never
+silently drift apart the way two independently-hand-written color
+strings eventually would. A new `#field-legend-peak` line surfaces
+the live hotspot coordinate when one exists.
+
+Verified: a real dev server + Playwright pass across all four modes —
+confirmed the tan-green-blue moisture gradient and the bidirectional
+red-tan-green fertility gradient render correctly, confirmed a real
+hotspot ring appears on a genuinely-saturated moisture tile with a
+matching "hotspot at (x, y)" legend line, and confirmed soil fertility
+correctly shows NO hotspot on a fresh, entirely-unfarmed map (nothing
+clears `FIELD_HOTSPOT_MIN_VALUE` yet) rather than a spurious marker.
+Frontend-only change, no backend/native-soak surface touched.
+
 ## [1.34.30] — M6/M7: field-overlay legend ("The Living Map," Tier 1.5)
 
 Explicit user instruction: "Continue" — M6/M7 (docs/ROADMAP-2026-07-

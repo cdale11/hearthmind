@@ -1166,30 +1166,39 @@ const fieldCtx = fieldCanvas.getContext("2d");
 const fieldOverlayToggle = document.getElementById("field-overlay-toggle");
 
 // M6/M7 "The Living Map": each mode's legend mirrors its own real color
-// mapping in `renderFieldOverlay` below exactly — a gradient CSS string
-// plus the plain-language low/high labels a player would actually ask
-// ("where can I farm?" -> fertility; "where should I irrigate?" ->
-// moisture), not raw axis names.
-const FIELD_LEGEND = {
-  moisture: { gradient: "linear-gradient(90deg, rgba(60,110,200,0.05), rgba(60,110,200,0.4))", min: "dry", max: "saturated" },
-  soil_fertility: { gradient: "linear-gradient(90deg, rgba(200,150,60,0.55), rgba(120,120,120,0.05), rgba(80,180,70,0.5))", min: "depleted", max: "rich" },
-  population_density: { gradient: "linear-gradient(90deg, rgba(230,60,120,0.03), rgba(230,60,120,0.35))", min: "empty", max: "crowded" },
-  disease_pressure: { gradient: "linear-gradient(90deg, rgba(170,190,40,0.05), rgba(170,190,40,0.5))", min: "low risk", max: "high risk" },
+// mapping in `renderFieldOverlay` below exactly — the gradient bar is
+// generated live from the SAME `FIELD_COLOR_STOPS` array the overlay
+// itself paints from (see `stopsToCssGradient`, defined further down),
+// so the two can never silently drift apart. Only the plain-language
+// low/high labels a player would actually ask ("where can I farm?" ->
+// fertility; "where should I irrigate?" -> moisture) live here.
+const FIELD_LEGEND_LABELS = {
+  moisture: { min: "dry", max: "saturated" },
+  soil_fertility: { min: "depleted", max: "rich" },
+  population_density: { min: "empty", max: "crowded" },
+  disease_pressure: { min: "low risk", max: "high risk" },
 };
 const fieldLegend = document.getElementById("field-legend");
 const fieldLegendTitle = document.getElementById("field-legend-title");
 const fieldLegendBar = document.getElementById("field-legend-bar");
 const fieldLegendMin = document.getElementById("field-legend-min");
 const fieldLegendMax = document.getElementById("field-legend-max");
+const fieldLegendPeak = document.getElementById("field-legend-peak");
 
 function updateFieldLegend() {
-  const spec = FIELD_LEGEND[fieldOverlayMode];
-  fieldLegend.classList.toggle("hidden", !spec);
-  if (!spec) return;
+  const labels = FIELD_LEGEND_LABELS[fieldOverlayMode];
+  fieldLegend.classList.toggle("hidden", !labels);
+  if (!labels) return;
   fieldLegendTitle.textContent = FIELD_OVERLAY_LABELS[fieldOverlayMode];
-  fieldLegendBar.style.background = spec.gradient;
-  fieldLegendMin.textContent = spec.min;
-  fieldLegendMax.textContent = spec.max;
+  fieldLegendBar.style.background = stopsToCssGradient(FIELD_COLOR_STOPS[fieldOverlayMode]);
+  fieldLegendMin.textContent = labels.min;
+  fieldLegendMax.textContent = labels.max;
+  if (fieldHotspotReading) {
+    fieldLegendPeak.textContent = `hotspot at (${fieldHotspotReading.x}, ${fieldHotspotReading.y})`;
+    fieldLegendPeak.classList.remove("hidden");
+  } else {
+    fieldLegendPeak.classList.add("hidden");
+  }
 }
 
 fieldOverlayToggle.addEventListener("click", () => {
@@ -1201,18 +1210,103 @@ fieldOverlayToggle.addEventListener("click", () => {
   renderFieldOverlay();
 });
 
+// M6/M7 "The Living Map," second slice: true multi-stop gradients (not
+// flat single-hue alpha) plus a hotspot marker on the field canvas.
+// Each mode's stops are RGB triples at evenly-spaced positions across
+// the real 0..1 value range — `FIELD_LEGEND`'s CSS gradients below are
+// generated from these SAME arrays (`stopsToCssGradient`), so the
+// legend can never silently drift out of sync with what's actually
+// painted, the discipline the v1.34.30 legend slice already
+// established for the flat-alpha version.
+const FIELD_COLOR_STOPS = {
+  // Dry ground reads warm/parched (tan), a well-watered tile shifts
+  // through green toward a saturated blue — the same low-to-high
+  // story a real soil-moisture map tells.
+  moisture: [[150, 120, 70], [110, 150, 95], [50, 110, 190]],
+  // Bidirectional around the real midpoint (0.5): depleted reads as a
+  // tired red-amber, healthy midground a neutral tan, thriving a rich
+  // green — three real stops instead of two independent single-hue
+  // alpha ramps meeting at a hard edge.
+  soil_fertility: [[190, 80, 60], [150, 140, 110], [70, 170, 80]],
+  // A conventional "heat" ramp (pale -> orange -> red) — crowded reads
+  // as visually hot, matching every reference convention this item
+  // names (Cities: Skylines/Timberborn density overlays).
+  population_density: [[255, 225, 140], [230, 120, 60], [200, 40, 55]],
+  // Pale sickly yellow-green through orange to a danger red — distinct
+  // hue family from population density's pink-to-red ramp so the two
+  // coarse-region overlays never read as the same signal.
+  disease_pressure: [[210, 220, 130], [225, 140, 60], [200, 45, 45]],
+};
+
+function lerpColorStops(stops, t) {
+  const clamped = Math.max(0, Math.min(1, t));
+  const segments = stops.length - 1;
+  const pos = clamped * segments;
+  const i = Math.min(segments - 1, Math.floor(pos));
+  const frac = pos - i;
+  const a = stops[i], b = stops[i + 1];
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * frac),
+    Math.round(a[1] + (b[1] - a[1]) * frac),
+    Math.round(a[2] + (b[2] - a[2]) * frac),
+  ];
+}
+
+function stopsToCssGradient(stops) {
+  const n = stops.length - 1;
+  const parts = stops.map((s, i) => `rgb(${s[0]},${s[1]},${s[2]}) ${Math.round((i / n) * 100)}%`);
+  return `linear-gradient(90deg, ${parts.join(", ")})`;
+}
+
+// Below this value a field-mode's peak is treated as "nothing notable
+// yet" (an all-zero disease_pressure field shouldn't get a hotspot
+// marker just because SOME cell is technically the maximum of a flat
+// zero array).
+const FIELD_HOTSPOT_MIN_VALUE = 0.12;
+
+function paintFieldCell(mode, x, y, w, h, v, alphaFn) {
+  const [r, g, b] = lerpColorStops(FIELD_COLOR_STOPS[mode], v);
+  fieldCtx.fillStyle = `rgba(${r},${g},${b},${alphaFn(v).toFixed(3)})`;
+  fieldCtx.fillRect(x, y, w, h);
+}
+
+function paintFieldHotspot(mode, hotspot) {
+  if (!hotspot || hotspot.value < FIELD_HOTSPOT_MIN_VALUE) {
+    fieldHotspotReading = null;
+    return;
+  }
+  fieldHotspotReading = hotspot;
+  const cx = hotspot.x * CELL + hotspot.w / 2, cy = hotspot.y * CELL + hotspot.h / 2;
+  const r = Math.max(CELL * 0.8, 8);
+  fieldCtx.save();
+  fieldCtx.strokeStyle = "rgba(255,255,255,0.9)";
+  fieldCtx.lineWidth = 2;
+  fieldCtx.beginPath();
+  fieldCtx.arc(cx, cy, r, 0, Math.PI * 2);
+  fieldCtx.stroke();
+  fieldCtx.beginPath();
+  fieldCtx.arc(cx, cy, 2, 0, Math.PI * 2);
+  fieldCtx.fillStyle = "rgba(255,255,255,0.95)";
+  fieldCtx.fill();
+  fieldCtx.restore();
+}
+
+let fieldHotspotReading = null;
+
 function renderFieldOverlay() {
   if (!terrain || fieldCanvas.width === 0) return;
   fieldCtx.clearRect(0, 0, fieldCanvas.width, fieldCanvas.height);
-  if (fieldOverlayMode === "off") return;
+  fieldHotspotReading = null;
+  if (fieldOverlayMode === "off") { updateFieldLegend(); return; }
+  let peak = null;
   if (fieldOverlayMode === "moisture") {
     const grid = terrain.moisture;
     if (!grid || !grid.length) return;
     for (let y = 0; y < grid.length; y++) {
       for (let x = 0; x < grid[y].length; x++) {
         const v = grid[y][x];
-        fieldCtx.fillStyle = `rgba(60,110,200,${(v * 0.4).toFixed(3)})`;
-        fieldCtx.fillRect(x * CELL, y * CELL, CELL, CELL);
+        paintFieldCell("moisture", x * CELL, y * CELL, CELL, CELL, v, (v) => v * 0.4);
+        if (!peak || v > peak.value) peak = { x, y, w: CELL, h: CELL, value: v };
       }
     }
   } else if (fieldOverlayMode === "soil_fertility") {
@@ -1222,14 +1316,13 @@ function renderFieldOverlay() {
       const v = sf[key];
       const [xs, ys] = key.split(":");
       const x = parseInt(xs, 10), y = parseInt(ys, 10);
-      // Low fertility reads warm/tired (amber), high fertility reads
-      // rich (green) — a single hue wouldn't distinguish "depleted" from
-      // "thriving," and this is meant to answer "which fields are worn
-      // out?" at a glance.
-      const color = v < 0.5 ? `rgba(200,150,60,${((0.5 - v) * 0.7).toFixed(3)})`
-        : `rgba(80,180,70,${((v - 0.5) * 0.6).toFixed(3)})`;
-      fieldCtx.fillStyle = color;
-      fieldCtx.fillRect(x * CELL, y * CELL, CELL, CELL);
+      // Distance from the neutral midpoint (0.5) drives alpha in both
+      // directions — a tile can be a notable LOW just as easily as a
+      // notable high, so the hotspot below tracks whichever extreme is
+      // furthest from neutral, not just the raw maximum.
+      paintFieldCell("soil_fertility", x * CELL, y * CELL, CELL, CELL, v, (v) => Math.abs(v - 0.5) * 1.3);
+      const extremity = Math.abs(v - 0.5);
+      if (!peak || extremity > peak.value) peak = { x, y, w: CELL, h: CELL, value: extremity };
     }
   } else if (fieldOverlayMode === "population_density") {
     const grid = terrain.population_density;
@@ -1240,8 +1333,11 @@ function renderFieldOverlay() {
       for (let rx = 0; rx < grid[ry].length; rx++) {
         const v = grid[ry][rx];
         if (!(v > 0)) continue;
-        fieldCtx.fillStyle = `rgba(230,60,120,${(v * 0.35).toFixed(3)})`;
-        fieldCtx.fillRect(rx * regionW * CELL, ry * regionH * CELL, regionW * CELL, regionH * CELL);
+        paintFieldCell(
+          "population_density", rx * regionW * CELL, ry * regionH * CELL, regionW * CELL, regionH * CELL,
+          v, (v) => v * 0.35,
+        );
+        if (!peak || v > peak.value) peak = { x: rx, y: ry, w: regionW * CELL, h: regionH * CELL, value: v };
       }
     }
   } else if (fieldOverlayMode === "disease_pressure") {
@@ -1253,14 +1349,16 @@ function renderFieldOverlay() {
       for (let rx = 0; rx < grid[ry].length; rx++) {
         const v = grid[ry][rx];
         if (!(v > 0)) continue;
-        // Sickly yellow-green — deliberately distinct from population
-        // density's pink so the two "coarse region" overlays never read
-        // as the same signal at a glance.
-        fieldCtx.fillStyle = `rgba(170,190,40,${(v * 0.5).toFixed(3)})`;
-        fieldCtx.fillRect(rx * regionW * CELL, ry * regionH * CELL, regionW * CELL, regionH * CELL);
+        paintFieldCell(
+          "disease_pressure", rx * regionW * CELL, ry * regionH * CELL, regionW * CELL, regionH * CELL,
+          v, (v) => v * 0.5,
+        );
+        if (!peak || v > peak.value) peak = { x: rx, y: ry, w: regionW * CELL, h: regionH * CELL, value: v };
       }
     }
   }
+  paintFieldHotspot(fieldOverlayMode, peak);
+  updateFieldLegend();
 }
 
 // Moisture/soil_fertility/population_density resync weekly server-side
