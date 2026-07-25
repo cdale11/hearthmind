@@ -1021,17 +1021,17 @@ conclusions" framing:
 2. **A11** — **shipped, v1.34.23** (groundwater + erosion feeding back
    into `Tile.elevation`) — see its own entry below for detail. Was
    blocking A3's rivers-re-carve item; that item itself remains open.
-3. **A1** — **third field shipped, v1.34.35** (`pollution`, joining
-   `population_density`/`disease_pressure`). Nine of the other ten
-   named fields (fertility/nutrients/scent/traffic/heat/cultural-
+3. **A1** — **fourth field shipped, v1.34.36** (`traffic`, joining
+   `population_density`/`disease_pressure`/`pollution`). Eight of the
+   other nine named fields (fertility/nutrients/scent/heat/cultural-
    influence/ownership/beauty/noise) remain unbuilt, plus migrating
    `mining_scars`/`disaster_scars`/the climate grid onto `FieldGrid`
    properly instead of staying separate stores — see the item's own
    entry below.
-4. **A2** — **third real consumer shipped, v1.34.35** (`pollution`'s
-   `diffuse` call, joining `disease_pressure`'s). `reaction_diffuse`/
-   `cellular_step` still have no second consumer — see the item's own
-   entry below.
+4. **A2** — **fourth real consumer shipped, v1.34.36** (`traffic`'s
+   `diffuse` call, joining `disease_pressure`'s/`pollution`'s).
+   `reaction_diffuse`/`cellular_step` still have no second consumer —
+   see the item's own entry below.
 
 **Tier 1.5 — The Living Map (filed v1.34.4, full detail docs/VISION-
 2026-07-24-LIVINGMAP.md, explicit user vision)**, sequenced after
@@ -1294,38 +1294,38 @@ drift from the source of truth. Consult that doc directly for full
 context/rationale on any item — this is the "what's left" extract.
 
 ### A1 — Continuous environmental fields
-**Third field shipped (v1.34.35): `pollution`.** `population_density`
-and `disease_pressure` were the only two real fields before; nine of
-the remaining ten named (fertility, nutrients, scent, traffic, heat,
+**Fourth field shipped (v1.34.36): `traffic`.** `population_density`/
+`disease_pressure`/`pollution` were the only three real fields before;
+eight of the remaining nine named (fertility, nutrients, scent, heat,
 cultural-influence, ownership, beauty, noise — moisture is really
 A11's, already shipped there) are still unbuilt. `terrain_activity`/
 `disaster_scars` and the climate grid remain separate stores, not
-migrated onto `FieldGrid` (`mining_scars` is now a real `pollution`
-input, see below, though the store itself stays separate). `pollution`
-sources from two already-real Body-state producers — standing
-FACTORY/POWER_PLANT/OIL_RIG buildings (`World.POLLUTION_SOURCE_
-KINDS`) and `World.mining_scars` intensity, weighted so a standing
-factory dominates over a scarred hillside alone — then spreads via
-`ca_operators.diffuse`, same shape `disease_pressure` already
-established. Real consumer: `economy.farms.FarmGrid.plant()` gained a
-`pollution` yield-penalty factor (bounded floor
-`FARM_POLLUTION_YIELD_MIN_FACTOR=0.6`, same shape `moisture`'s yield
-factor already has) — "industry chokes the fields nearby" is now a
-mechanical fact. Also given a real map overlay (5th "🗺️ fields" mode,
-`interface/static/app.js`) in the same batch, per the standing
-workflow rule that a new feature gets UI surfacing in the batch it
-lands in.
+migrated onto `FieldGrid`. `traffic` sources from `World.roads.wear`
+(already-real per-tile road-wear state, `RoadNetwork.tick`'s own
+accumulator) summed per region, normalized against the busiest region,
+then spread via `ca_operators.diffuse` (`TRAFFIC_DIFFUSE_RATE=0.3`) —
+same "re-read already-real slow-changing state" shape `pollution`
+established, a region just off a busy corridor reads real elevated
+traffic too, not just the exact wear-bearing tiles. Real consumer:
+`simulation.engine._maybe_schedule_caravan`'s monthly visit chance
+gained a `traffic`-scaled multiplier (`TRAFFIC_CARAVAN_CHANCE_WEIGHT=
+0.5` — a fully-trafficked region draws 1.5x as often as one with none),
+stacking with the existing `has_market()`/`caravan_relation_factor`
+multipliers on the same `chance` value — "trade follows roads" is now
+a mechanical fact, not flavor text. Also given a real map overlay (6th
+"🗺️ fields" mode, `interface/static/app.js`) in the same batch, per
+the standing workflow rule.
 
 ### A2 — CA / diffusion / reaction-diffusion operators
-**Third real consumer shipped (v1.34.35).** `diffuse`/`reaction_
-diffuse`/`cellular_step` already had two consumers (forest succession
-since v1.14.0; `disease_pressure` since v1.34.24); `FieldGrid.step_
-pollution` (A1, above) is the third, spreading a raw per-region
-pollution census (industrial buildings + mining scars) into
-neighboring regions — real industrial impact isn't confined to the
-exact region a factory's tile falls in. `reaction_diffuse`/`cellular_
-step` still have no second consumer; the doc's other named example
-(fire spread) remains open.
+**Fourth real consumer shipped (v1.34.36).** `diffuse`/`reaction_
+diffuse`/`cellular_step` already had three consumers (forest succession
+since v1.14.0; `disease_pressure` since v1.34.24; `pollution` since
+v1.34.35); `FieldGrid.step_traffic` (A1, above) is the fourth,
+spreading a raw per-region road-wear census into neighboring regions —
+real trade pull from a busy corridor isn't confined to the exact
+region carrying the wear. `reaction_diffuse`/`cellular_step` still
+have no second consumer; the doc's other named example (fire spread)
+remains open.
 
 ### A3 — Procedural generation as continuous runtime
 **Rivers re-carving shipped (v1.34.25).** `hydrology.recarve_rivers`

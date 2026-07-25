@@ -1529,6 +1529,7 @@ class SimulationEngine:
                 population_density=world.fields.ensure_field("population_density"),
                 disease_pressure=world.fields.ensure_field("disease_pressure"),
                 pollution=world.fields.ensure_field("pollution"),
+                traffic=world.fields.ensure_field("traffic"),
                 road_scars=world.road_scars,
                 migration_trails=world.migration_trails,
             )
@@ -6821,6 +6822,14 @@ class SimulationEngine:
 
     # --- caravans: a first, scoped step toward "external settlements and trade" ---
 
+    TRAFFIC_CARAVAN_CHANCE_WEIGHT = 0.5
+    """A1's `traffic` field (Tier 1, docs/ROADMAP-2026-07-REMAINING.md):
+    the maximum boost a fully-trafficked region gives `_maybe_schedule_
+    caravan`'s monthly visit chance (a region with `traffic == 1.0`
+    draws 1.5x as often as one with none) — real but bounded, same
+    "meaningful, never dominant" scale `caravan_relation_factor`/
+    `MARKET_CARAVAN_CHANCE_MULTIPLIER` already apply to this value."""
+
     def _maybe_schedule_caravan(self, events: list[str]) -> None:
         """Integration milestone (docs/ROADMAP.md): a rare monthly
         contact with the wider world — see llm/caravan.py's module
@@ -6847,6 +6856,18 @@ class SimulationEngine:
         # neighbors — the deterministic caravan-frequency lever the idea
         # names, riding the existing relations mechanism.
         chance = min(1.0, chance * caravan_relation_factor(settlement))
+        # A1's fourth field, `traffic` (Tier 1, docs/ROADMAP-2026-07-
+        # REMAINING.md): a settlement sitting in a well-traveled region
+        # (real road wear nearby, not just its own tile) draws more
+        # outside trade — "trade follows roads" as a mechanical fact,
+        # the same kind of real multiplier `has_market()`/`caravan_
+        # relation_factor` already apply to this exact `chance` value.
+        if settlement.center_x >= 0 and settlement.center_y >= 0:
+            traffic = self.world.fields.get_at(
+                "traffic", (settlement.center_x, settlement.center_y),
+                self.world.config.width, self.world.config.height,
+            )
+            chance = min(1.0, chance * (1.0 + traffic * self.TRAFFIC_CARAVAN_CHANCE_WEIGHT))
         if _namespaced_roll(
             self.world.config.seed, self.world.clock.tick_count, "caravan_roll",
         ) >= chance:
@@ -9658,6 +9679,7 @@ class SimulationEngine:
                 population_density=self.world.fields.ensure_field("population_density"),
                 disease_pressure=self.world.fields.ensure_field("disease_pressure"),
                 pollution=self.world.fields.ensure_field("pollution"),
+                traffic=self.world.fields.ensure_field("traffic"),
                 road_scars=self.world.road_scars,
                 migration_trails=self.world.migration_trails,
             )

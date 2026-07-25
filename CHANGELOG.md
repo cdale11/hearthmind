@@ -4,6 +4,46 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.36] — Tier 1: A1/A2 fourth field, `traffic`
+
+Explicit user instruction: "Tier 1 as many slices as you can build in
+this turn." Second slice this turn (following `pollution`, v1.34.35),
+same "field and consumer together" shape.
+
+`FieldGrid.step_traffic` (`world/fields.py`) sources from `World.
+roads.wear` (already-real per-tile road-wear state) rather than
+anything new — summed per region, normalized against the busiest
+region, then spread via `ca_operators.diffuse` (`TRAFFIC_DIFFUSE_
+RATE=0.3`). Real consumer: `simulation.engine._maybe_schedule_caravan`
+gained a `traffic`-scaled multiplier on its monthly visit chance
+(`TRAFFIC_CARAVAN_CHANCE_WEIGHT=0.5` — a fully-trafficked region draws
+1.5x as often as one with none), stacking with the existing `has_
+market()`/`caravan_relation_factor` multipliers already applied to
+that same value — "trade follows roads" is now a mechanical fact.
+
+UI surfacing (same batch): `traffic` is now a 6th "🗺️ fields" map
+overlay mode (`interface/static/app.js`) — a cool blue-to-cyan-to-
+white color ramp (deliberately outside every other mode's danger/
+organic hue families, since traffic is neutral, not good or bad on its
+own), legend labels ("quiet" -> "busy"), and broadcast wiring
+(`interface/api.py`'s `WorldBroadcaster.set_terrain` gained a
+`traffic` param, both engine call sites updated) — rides the same
+weekly/terrain-change resync every other field already uses.
+
+Verified: direct unit tests for `FieldGrid.step_traffic` (empty-world
+all-zero, a lone wear source normalizes/diffuses correctly, two
+different-intensity regions normalize to distinct nonzero values); a
+deterministic threshold-crossing test of the caravan consumer (a fixed
+roll landing between the un-boosted and boosted chance thresholds,
+proving the multiplier alone flips no-visit to visit); a real 4000-
+tick LLM-disabled engine soak (async, production `_tick_once` loop)
+confirmed the field forms organically from real road usage and round-
+trips cleanly through `to_dict`/`from_dict`; a real dev server +
+Playwright pass confirmed all six field modes (plus off) cycle
+correctly with the right legend text and a clean render; `scripts/
+verify_native_soak.py` (2 seeds x 800 ticks) byte-identical — pure
+Python, no native module touched.
+
 ## [1.34.35] — Tier 1: A1/A2 third field, `pollution`
 
 Explicit user instruction: "Implement as many slices of tier 1 as

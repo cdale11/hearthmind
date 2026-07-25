@@ -545,6 +545,27 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.36)
+
+Explicit user instruction: "Tier 1 as many slices as you can build in
+this turn." Second slice this turn (following v1.34.35's `pollution`):
+a FOURTH `FieldGrid` field + `ca_operators.diffuse` consumer, `traffic`.
+
+`FieldGrid.step_traffic` sources from `World.roads.wear` (already-real
+per-tile road-wear state), normalized per region and spread via
+`diffuse`. Real consumer: `_maybe_schedule_caravan`'s monthly visit
+chance gained a `traffic`-scaled multiplier (up to 1.5x at full
+traffic), stacking with the existing market/relation multipliers —
+"trade follows roads" is now mechanical. UI: 6th "🗺️ fields" map
+overlay mode, own blue-cyan-white color ramp, same weekly resync
+channel as the other three fields.
+
+Verified via direct unit tests, a deterministic threshold-crossing
+test of the caravan consumer, a real 4000-tick LLM-disabled engine
+soak confirming organic field formation + clean round-trip, a real
+dev server + Playwright pass confirming all six field modes cycle
+correctly, and a clean `scripts/verify_native_soak.py` run.
+
 ## Current state (v1.34.35)
 
 Explicit user instruction: "Implement as many slices of tier 1 as

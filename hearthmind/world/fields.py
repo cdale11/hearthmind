@@ -52,12 +52,22 @@ FarmGrid.plant()` gained a `pollution` yield-penalty factor, same
 bounded-floor shape `moisture` already has — "industry chokes the
 fields nearby" is now a mechanical fact, not just a name on a list.
 
-The remaining nine named fields (fertility, nutrients, scent,
-traffic, heat, cultural-influence, ownership, beauty, noise) and
-migrating `disaster_scars`/the climate grid onto `FieldGrid` proper
-remain explicitly NOT built here — each is its own follow-up step
-against the same `FieldGrid`/`ca_operators` shape now proven against
-three real fields."""
+Fourth slice (Tier 1, docs/ROADMAP-2026-07-REMAINING.md) ships
+`traffic` — sourced from `World.roads.wear` (already-real per-tile
+road-usage state, same shape `mining_scars` gave `pollution`), spread
+via `ca_operators.diffuse`. Real consumer: `SimulationEngine._maybe_
+schedule_caravan`'s monthly visit chance now scales up with the
+target settlement's own region traffic reading — "trade follows
+roads" as a mechanical fact, the same kind of real multiplier
+`has_market()`/`caravan_relation_factor` already apply to that same
+`chance` value.
+
+The remaining eight named fields (fertility, nutrients, scent, heat,
+cultural-influence, ownership, beauty, noise) and migrating `disaster_
+scars`/the climate grid onto `FieldGrid` proper remain explicitly NOT
+built here — each is its own follow-up step against the same
+`FieldGrid`/`ca_operators` shape now proven against four real
+fields."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -96,6 +106,11 @@ POLLUTION_DIFFUSE_RATE = 0.3
 industrial region measurably affect its neighbors, not just the exact
 region the source sits in, while still concentrating near the real
 source rather than smearing flat."""
+
+TRAFFIC_DIFFUSE_RATE = 0.3
+"""Same role as `POLLUTION_DIFFUSE_RATE` — a busy road corridor's
+traffic naturally reads as elevated in the regions it passes through
+and touches, not just the exact tiles carrying the heaviest wear."""
 
 
 def _normalize_peak(raw: list[list[float]]) -> list[list[float]]:
@@ -208,6 +223,20 @@ class FieldGrid:
             rx, ry = self.region_of(pos, width, height)
             raw[ry][rx] += intensity * POLLUTION_MINING_SCAR_WEIGHT
         self.fields["pollution"] = diffuse(_normalize_peak(raw), POLLUTION_DIFFUSE_RATE)
+
+    def step_traffic(self, road_wear_items: list[tuple[tuple[int, int], float]], width: int, height: int) -> None:
+        """Fourth concrete field. Same "re-read already-real slow-
+        changing state" shape `step_pollution` established: `World.
+        roads.wear` (per-tile, already accumulated by `RoadNetwork.
+        tick`) is summed per region, normalized against the region
+        with the most, then spread via `ca_operators.diffuse` — a
+        region just off a busy road corridor reads real, elevated
+        traffic too, not just the exact tiles carrying wear."""
+        raw = [[0.0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+        for pos, wear in road_wear_items:
+            rx, ry = self.region_of(pos, width, height)
+            raw[ry][rx] += wear
+        self.fields["traffic"] = diffuse(_normalize_peak(raw), TRAFFIC_DIFFUSE_RATE)
 
     def to_dict(self) -> dict:
         return {name: [list(row) for row in grid] for name, grid in self.fields.items()}

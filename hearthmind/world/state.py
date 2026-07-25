@@ -850,6 +850,7 @@ class World:
             ],
             list(self.mining_scars.items()), self.config.width, self.config.height,
         )
+        self.fields.step_traffic(list(self.roads.wear.items()), self.config.width, self.config.height)
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (
             wildlife_events + settlement_events + population_events + terrain_events + disaster_events

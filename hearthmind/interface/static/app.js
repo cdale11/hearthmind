@@ -1175,11 +1175,11 @@ detailsToggle.addEventListener("click", () => {
 // naturally faint/rare) — showing them all at once would fight the
 // map's own readability, the same reasoning the Observatory UI
 // direction already applies to the details panel.
-const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution"];
+const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic"];
 const FIELD_OVERLAY_LABELS = {
   off: "off", moisture: "soil moisture", soil_fertility: "soil fertility",
   population_density: "population density", disease_pressure: "disease pressure",
-  pollution: "pollution",
+  pollution: "pollution", traffic: "traffic",
 };
 let fieldOverlayMode = "off";
 const fieldCanvas = document.getElementById("field-canvas");
@@ -1199,6 +1199,7 @@ const FIELD_LEGEND_LABELS = {
   population_density: { min: "empty", max: "crowded" },
   disease_pressure: { min: "low risk", max: "high risk" },
   pollution: { min: "clean", max: "fouled" },
+  traffic: { min: "quiet", max: "busy" },
 };
 const fieldLegend = document.getElementById("field-legend");
 const fieldLegendTitle = document.getElementById("field-legend-title");
@@ -1273,6 +1274,11 @@ const FIELD_COLOR_STOPS = {
   // from every other mode's hue family (no red/orange), since this is
   // the one field whose story is "man-made," not organic/biological.
   pollution: [[210, 215, 200], [150, 150, 90], [70, 60, 75]],
+  // A cool, energetic blue-to-cyan-to-white ramp — reads as "activity/
+  // motion" rather than any of the danger/organic hue families the
+  // other modes use, since traffic is neutral (neither good nor bad
+  // on its own, unlike pollution/disease).
+  traffic: [[60, 70, 120], [70, 150, 200], [190, 230, 240]],
 };
 
 function lerpColorStops(stops, t) {
@@ -1456,6 +1462,22 @@ function renderFieldOverlay() {
         paintFieldCell(
           "pollution", rx * regionW * CELL, ry * regionH * CELL, regionW * CELL, regionH * CELL,
           v, (v) => v * 0.45,
+        );
+        if (!peak || v > peak.value) peak = { x: rx, y: ry, w: regionW * CELL, h: regionH * CELL, value: v };
+      }
+    }
+  } else if (fieldOverlayMode === "traffic") {
+    const grid = terrain.traffic;
+    if (!grid || !grid.length) return;
+    const regionW = Math.ceil(terrain.width / grid[0].length);
+    const regionH = Math.ceil(terrain.height / grid.length);
+    for (let ry = 0; ry < grid.length; ry++) {
+      for (let rx = 0; rx < grid[ry].length; rx++) {
+        const v = grid[ry][rx];
+        if (!(v > 0)) continue;
+        paintFieldCell(
+          "traffic", rx * regionW * CELL, ry * regionH * CELL, regionW * CELL, regionH * CELL,
+          v, (v) => v * 0.4,
         );
         if (!peak || v > peak.value) peak = { x: rx, y: ry, w: regionW * CELL, h: regionH * CELL, value: v };
       }
