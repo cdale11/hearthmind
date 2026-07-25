@@ -72,6 +72,7 @@ const BIOME_COLORS = {
   mountain: "#6b6b73",
   snowcap: "#e8ecf2",
   river: "#3a7fbf",
+  wetland: "#4d6e4a",
 };
 
 const BUILDING_COLORS = {
@@ -191,6 +192,8 @@ const CATEGORY_META = {
   terrain_eroded: { icon: "🏞️" },
   river_recarved: { icon: "🌊" },
   road_scarred: { icon: "🛤️" },
+  wetland_formed: { icon: "🪷" },
+  wetland_dried: { icon: "🪷" },
   composite_reaction: { icon: "💥" },
   // P2.3 (docs/AUDIT-2026-07-20.md): 296/16k events (18%) in a live run —
   // routine background texture already surfaced via the Exploration stat
@@ -220,7 +223,7 @@ const EVENT_GROUP_OF = {
   disaster_storm: "nature", disaster_heatwave: "nature", disaster_frost: "nature",
   lake_rose: "nature", lake_receded: "nature", season_end: "nature", year_end: "nature",
   place_named: "nature", mining_scarred: "nature", disaster_scarred: "nature", terrain_eroded: "nature",
-  river_recarved: "nature", road_scarred: "nature",
+  river_recarved: "nature", road_scarred: "nature", wetland_formed: "nature", wetland_dried: "nature",
   chronicle: "mind", documentary: "mind", sim_summary: "mind", tradition: "mind", invention: "mind",
   festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind",
   institution_belief: "mind", ritual_formed: "mind", religion_formed: "mind",
@@ -3395,6 +3398,14 @@ function renderStats(summary) {
         return mt.sites ? `${mt.sites} crossing${mt.sites === 1 ? "" : "s"} (avg ${mt.avg_intensity.toFixed(2)})` : "none yet";
       })(),
       "A grazer herd reusing the same crossing wears a faint trail into the land — and a real trail then draws more herds to reuse it, a genuine feedback loop, not just a cosmetic record. Fades over a couple of months if left unused.",
+    ],
+    [
+      "Wetlands",
+      (() => {
+        const w = (summary.biome_counts && summary.biome_counts.wetland) || 0;
+        return w ? `${w} tile${w === 1 ? "" : "s"}` : "none yet";
+      })(),
+      "Low ground that stays near-saturated — both surface moisture and groundwater — for months at a stretch genuinely turns to wetland, a real biome (unfarmable, unwalkable, see the map) rather than just a wetter reading. Dries back to open ground if the water table drops.",
     ],
     [
       "Soil moisture",

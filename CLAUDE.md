@@ -545,6 +545,40 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.28)
+
+Explicit user instruction: "Continue" — closes M4 "The Living Map"
+(docs/ROADMAP-2026-07-REMAINING.md, Tier 1.5), the wetland/marsh half
+flagged open in v1.34.27's own entry.
+
+New `Biome.WETLAND` (appended LAST in the enum — the native `Terrain
+Grid` backend encodes biome as an int index into `tuple(Biome)`, so a
+new member must only ever append, never insert). `world/hydrology.py`'s
+new `tick_wetlands` (monthly): a GRASSLAND tile whose moisture AND
+groundwater both stay near-saturated for 6 CONSECUTIVE months converts
+to WETLAND; reverts once it dries below a lower hysteresis threshold.
+Progress resets to absent (not paused) on any interruption — genuinely
+sustained conditions required, same discipline as the scar-shaped
+dicts. New `World.wetland_progress` tracks the streak. Real consequence
+needed no bespoke consumer: WETLAND is deliberately in neither
+`WALKABLE_BIOMES` nor `FARMABLE_BIOMES`, so it's an immediate real
+constraint on movement/farm siting through existing biome-gated
+systems — the same class of consequence any terrain reclassification
+already has. UI: "Wetlands" stat tile (reads the existing `biome_
+counts` field), map color, `wetland_formed`/`wetland_dried` wired into
+`TERRAIN_CHANGING_CATEGORIES`.
+
+Verified: direct smoke tests (sustained-streak formation, interrupted-
+streak reset, reversion, developed-tile protection); a `WALKABLE_
+BIOMES`/`FARMABLE_BIOMES` exclusion check; a real `World.create_new`/
+`tick()` production test (lowered thresholds to force formation) with
+a clean round-trip incl. legacy backfill; an unmodified-defaults 4000-
+tick soak confirming no crash; `scripts/verify_native_soak.py` (2
+seeds x 800 ticks, twice) byte-identical — the new Biome member's
+native int-index mapping is derived automatically (`_BIOME_LIST`),
+exercised by every soak run. Closes Tier 1.5's M1/M9 + M4 batch; M6/M7
+(UI redesign) and M10 (base-map audit) remain open.
+
 ## Current state (v1.34.27)
 
 Explicit user instruction: "Continue" — M4 "wildlife migration

@@ -210,6 +210,105 @@ def recarve_rivers(
     return new_river_tiles
 
 
+WETLAND_FORM_MOISTURE_THRESHOLD = 0.75
+WETLAND_FORM_GROUNDWATER_THRESHOLD = 0.7
+"""M4 "The Living Map" (docs/VISION-2026-07-24-LIVINGMAP.md, docs/
+ROADMAP-2026-07-REMAINING.md's Tier 1.5): "wetlands expand/shrink with
+hydrology" — the real gap this closes is that moisture/groundwater
+drove FarmGrid yield but never a distinct biome. A GRASSLAND tile
+needs BOTH surface moisture and groundwater sustained above these
+(near-saturated) levels — a genuinely soggy tile, not just a rainy
+week — before it's even a candidate."""
+
+WETLAND_FORM_MONTHS_REQUIRED = 6
+"""How many CONSECUTIVE qualifying months (see `wetland_progress`)
+before a candidate tile actually converts — half a year of sustained
+saturation, so a wetland reads as a real slow landscape change, not a
+biome that flickers with the weather."""
+
+WETLAND_DRY_MOISTURE_THRESHOLD = 0.4
+"""An existing WETLAND tile reverts once surface moisture drops below
+this — deliberately far below `WETLAND_FORM_MOISTURE_THRESHOLD`
+(hysteresis) so a wetland doesn't form and dry out again within the
+same season's normal moisture swings."""
+
+
+def tick_wetlands(
+    terrain: list[list[Tile]], moisture: list[list[float]], groundwater: list[list[float]],
+    wetland_progress: dict[tuple[int, int], int], settlements, farms, excluded: set[tuple[int, int]],
+) -> list[tuple[int, int]]:
+    """Monthly (`World._tick_terrain`'s `month_end` block, alongside
+    climate drift/river re-carving). Two independent passes:
+
+    Formation: every GRASSLAND tile whose current `moisture`/
+    `groundwater` both clear the FORM thresholds this month has its
+    `wetland_progress` counter bumped; any tile that doesn't qualify
+    has its counter reset to 0 (removed from the dict — same "absence
+    means zero" convention as `fallow_ticks`) rather than merely
+    paused, so a genuine wetland needs SUSTAINED wet conditions, not
+    just `WETLAND_FORM_MONTHS_REQUIRED` wet months spread across a
+    drought-interrupted decade. A tile that reaches the requirement
+    converts to `Biome.WETLAND` and drops out of the progress dict —
+    once formed, wetness is tracked implicitly by staying WETLAND.
+
+    Reversion: every WETLAND tile whose moisture has fallen below the
+    (lower, hysteresis) DRY threshold reverts to GRASSLAND.
+
+    Never touches a developed tile (standing building, vehicle, or
+    farm) in either direction — same `_is_developed` discipline
+    `recarve_rivers`/`apply_climate_drift` already apply; `WETLAND` is
+    in neither `FARMABLE_BIOMES` nor `WALKABLE_BIOMES` (see agents/
+    population.py, economy/farms.py), so a formed wetland is a real,
+    immediate constraint on farm siting and routine agent movement
+    through existing biome-gated systems — no bespoke consumer needed.
+    Returns the list of positions whose biome changed this call, for
+    the caller's own event/cache-invalidation bookkeeping."""
+    height = len(terrain)
+    width = len(terrain[0]) if height else 0
+    if width == 0 or height == 0:
+        return []
+
+    changed: list[tuple[int, int]] = []
+
+    for y in range(height):
+        for x in range(width):
+            tile = terrain[y][x]
+            if tile.biome is not Biome.GRASSLAND:
+                continue
+            pos = (x, y)
+            if _is_developed(x, y, settlements, farms, excluded):
+                continue
+            qualifies = (
+                moisture[y][x] >= WETLAND_FORM_MOISTURE_THRESHOLD
+                and groundwater[y][x] >= WETLAND_FORM_GROUNDWATER_THRESHOLD
+            )
+            if not qualifies:
+                wetland_progress.pop(pos, None)
+                continue
+            progress = wetland_progress.get(pos, 0) + 1
+            if progress >= WETLAND_FORM_MONTHS_REQUIRED:
+                terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.WETLAND)
+                wetland_progress.pop(pos, None)
+                changed.append(pos)
+            else:
+                wetland_progress[pos] = progress
+
+    for y in range(height):
+        for x in range(width):
+            tile = terrain[y][x]
+            if tile.biome is not Biome.WETLAND:
+                continue
+            if moisture[y][x] >= WETLAND_DRY_MOISTURE_THRESHOLD:
+                continue
+            pos = (x, y)
+            if _is_developed(x, y, settlements, farms, excluded):
+                continue
+            terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.GRASSLAND)
+            changed.append(pos)
+
+    return changed
+
+
 @dataclass
 class LakeState:
     id: int

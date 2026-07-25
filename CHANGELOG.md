@@ -4,6 +4,67 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.28] — M4: wetlands (closes "The Living Map," Tier 1.5's M4)
+
+Explicit user instruction: "Continue" — the wetland/marsh half of M4,
+flagged open in v1.34.27's own entry: "hydrology drives moisture
+today, not a distinct expanding/shrinking biome."
+
+New `Biome.WETLAND`, appended LAST in the enum's declaration order
+(not inserted between existing members) — the native `TerrainGrid`
+storage backend encodes biome as an int index into `tuple(Biome)`, so
+a new member must only ever append, never insert, or every already-
+persisted native-backed snapshot's biome indices would silently shift.
+`world/hydrology.py`'s new `tick_wetlands` (monthly, same cadence as
+river re-carving): a GRASSLAND tile whose surface moisture AND
+groundwater both stay near-saturated for `WETLAND_FORM_MONTHS_
+REQUIRED=6` CONSECUTIVE months (progress resets to absent, not just
+paused, the moment either drops below threshold — same "sustained,
+not merely accumulated" discipline as the scar-shaped dicts) converts
+to WETLAND; an existing WETLAND tile reverts to GRASSLAND once
+moisture falls below a deliberately lower `WETLAND_DRY_MOISTURE_
+THRESHOLD` (hysteresis, so a wetland doesn't form-and-dry within one
+season's normal swings). Never touches a developed tile in either
+direction (`_is_developed`, same discipline `recarve_rivers`/`apply_
+climate_drift` already apply). New `World.wetland_progress` (self-
+bounded like `fallow_ticks`) tracks the streak.
+
+Real consequence needed no bespoke consumer (a genuine biome value,
+unlike a scar-shaped overlay dict, already flows into every existing
+biome-gated system): `Biome.WETLAND` is deliberately in neither
+`agents/population.py`'s `WALKABLE_BIOMES` nor `economy/farms.py`'s
+`FARMABLE_BIOMES` — a formed wetland is an immediate, real constraint
+on routine agent movement and farm siting, same class of consequence
+as any other terrain reclassification. `world/terrain_evolution.py`'s
+`_skip_climate_drift` extended to also skip WETLAND (same reason it
+already skips RIVER — neither has a `BIOME_ORDER` entry, since neither
+is elevation-classified).
+
+UI: new "Wetlands" main-UI stat tile (reads the existing `biome_
+counts.wetland` the broadcast payload already carries — no new field
+needed there), a distinct map fill color, `wetland_formed`/`wetland_
+dried` life-event categories wired into `TERRAIN_CHANGING_CATEGORIES`
+(both Python and JS) for the map resync, `CATEGORY_META`/`EVENT_GROUP_
+OF` entries.
+
+Verified: direct smoke tests (formation only after the full required
+streak, an interrupted streak genuinely resets rather than pausing,
+reversion on drying, developed-tile protection); a `WALKABLE_BIOMES`/
+`FARMABLE_BIOMES` exclusion check; a real `World.create_new`/`tick()`
+production-path test (temporarily lowered thresholds/months to force
+formation within budget) confirming wetlands form end-to-end with a
+clean `to_dict`/`from_dict` round-trip (including legacy-snapshot
+backfill of `wetland_progress` to `{}`); a separate unmodified-
+defaults 4000-tick soak confirming no crash at real production
+thresholds; `scripts/verify_native_soak.py` (2 seeds x 800 ticks, and
+again after the `_skip_climate_drift` change) byte-identical — the new
+Biome member and its native int-index mapping are exercised by every
+existing soak run, not just a dedicated toggle, since `_BIOME_LIST`/
+`_BIOME_TO_INDEX` are derived automatically from the enum. This closes
+M4 and, with it, every item explicitly scoped for Tier 1.5 "The Living
+Map" this pass (M1/M9 and M4) — M6/M7 (UI redesign) and M10 (base-map
+readability audit) remain open, not attempted.
+
 ## [1.34.27] — M4: wildlife migration trails ("The Living Map," Tier 1.5)
 
 Explicit user instruction: "Continue" — following directly off

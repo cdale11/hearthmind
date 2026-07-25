@@ -32,6 +32,17 @@ class Biome(str, Enum):
     so a river tile is skipped by climate drift rather than crashing on
     a missing BIOME_ORDER.index() lookup. See _is_developed in
     terrain_evolution.py."""
+    WETLAND = "wetland"
+    """M4 "The Living Map" (world/hydrology.py's `tick_wetlands`): a
+    GRASSLAND tile whose moisture/groundwater stay sustained near-
+    saturated for months converts here, and reverts once it dries out
+    — same "not elevation-classified, absent from BIOME_ORDER" shape
+    as RIVER above (climate drift also skips it). Deliberately added
+    LAST in this enum's declaration order, not inserted earlier — the
+    native `TerrainGrid` storage backend encodes biome as an int index
+    into `tuple(Biome)`, so a new member must only ever append, never
+    insert, or every already-persisted native-backed snapshot's biome
+    indices would silently shift."""
 
 
 @dataclass(frozen=True)

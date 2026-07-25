@@ -53,6 +53,7 @@ from hearthmind.world.disasters import (
 )
 from hearthmind.world.hydrology import (
     LakeState, generate_rivers, identify_lakes, recarve_rivers, river_sources_used, tick_lakes,
+    tick_wetlands,
 )
 from hearthmind.world.hydrology_field import (
     HydrologyField, create_hydrology_field, tick_erosion, tick_groundwater, tick_hydrology,
@@ -123,7 +124,7 @@ TERRAIN_CHANGING_CATEGORIES = frozenset({
     "terrain_thinned", "terrain_reclaimed", "climate_drift",
     "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
     "mining_scarred", "disaster_scarred", "building_reclaimed", "terrain_eroded", "river_recarved",
-    "road_scarred",
+    "road_scarred", "wetland_formed", "wetland_dried",
 })
 """Life-event categories that mean at least one tile's biome changed
 this tick. Canonical home for this set (it used to live only in
@@ -271,6 +272,14 @@ class World:
     herds tend to reuse the same crossings, which is what makes the
     mark a real "trail" rather than a scattered record of every step
     ever taken."""
+
+    wetland_progress: dict[tuple[int, int], int] = field(default_factory=dict)
+    """M4 "The Living Map": how many CONSECUTIVE qualifying months a
+    candidate GRASSLAND tile has stayed near-saturated (see `hydrology.
+    tick_wetlands`) — resets to absent (not paused) the moment a tile
+    stops qualifying, so only genuinely sustained wet conditions ever
+    convert a tile to `Biome.WETLAND`. Self-bounded like `fallow_
+    ticks`: only holds positions currently trending toward wetland."""
     llm_calls_total: int = 0
     llm_fallback_total: int = 0
     """Cumulative counts of every LLM-backed decision (cognition +
@@ -982,6 +991,29 @@ class World:
                     ))
                 self.river_tiles = new_river_tiles
 
+            # M4 "The Living Map": monthly, same cadence as river re-
+            # carving — moisture/groundwater are only ticked weekly, so
+            # a wetland candidacy check needs no finer granularity than
+            # that either.
+            wetland_changed = tick_wetlands(
+                self.terrain, self.hydrology_field.moisture, self.hydrology_field.groundwater,
+                self.wetland_progress, self.settlements, self.farms, occupied_tiles,
+            )
+            if wetland_changed:
+                self._biome_counts_cache = None
+                formed = sum(1 for (x, y) in wetland_changed if self.terrain[y][x].biome is Biome.WETLAND)
+                dried = len(wetland_changed) - formed
+                if formed:
+                    events.append((
+                        "wetland_formed",
+                        f"{formed} tile{'s' if formed != 1 else ''} of low ground turned to wetland this month.",
+                    ))
+                if dried:
+                    events.append((
+                        "wetland_dried",
+                        f"{dried} wetland tile{'s' if dried != 1 else ''} dried back to open ground.",
+                    ))
+
         return events
 
     # --- summary for humans / the future interface ------------------------
@@ -1364,6 +1396,7 @@ class World:
             "ruin_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.ruin_scars.items()},
             "road_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.road_scars.items()},
             "migration_trails": {f"{x}:{y}": round(v, 4) for (x, y), v in self.migration_trails.items()},
+            "wetland_progress": {f"{x}:{y}": v for (x, y), v in self.wetland_progress.items()},
             "llm_calls_total": self.llm_calls_total,
             "llm_fallback_total": self.llm_fallback_total,
             "dialogue_total": self.dialogue_total,
@@ -1631,6 +1664,11 @@ class World:
             x_str, y_str = key.split(":")
             migration_trails[(int(x_str), int(y_str))] = value
 
+        wetland_progress: dict[tuple[int, int], int] = {}
+        for key, value in data.get("wetland_progress", {}).items():
+            x_str, y_str = key.split(":")
+            wetland_progress[(int(x_str), int(y_str))] = value
+
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             weather_regions=weather_regions,
@@ -1646,6 +1684,7 @@ class World:
             ruin_scars=ruin_scars,
             road_scars=road_scars,
             migration_trails=migration_trails,
+            wetland_progress=wetland_progress,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),
             dialogue_total=data.get("dialogue_total", 0),

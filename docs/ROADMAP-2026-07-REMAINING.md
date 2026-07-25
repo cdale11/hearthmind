@@ -993,11 +993,15 @@ forest reclaim). Real gaps, roughly by leverage:
   ruin, to a 5th axis). Field boundaries and a labeled "environmental
   stress"/degradation reading remain unbuilt — same mechanism, future
   slices, not attempted this pass.
-- **M4** — **migration-trail slice shipped, v1.34.27** (`World.
+- **M4** — **shipped, v1.34.27-.28** (migration-trail slice: `World.
   migration_trails`, gained from GRAZER movement, a real feedback loop
-  via move-candidate weighting rather than a downstream consumer). A
-  wetland/marsh concept (hydrology drives moisture today, not a
-  distinct expanding/shrinking biome) remains unbuilt.
+  via move-candidate weighting rather than a downstream consumer;
+  wetland/marsh slice, v1.34.28: new `Biome.WETLAND`, `world/hydrology.
+  py`'s `tick_wetlands` — a GRASSLAND tile sustained near-saturated for
+  `WETLAND_FORM_MONTHS_REQUIRED` months converts, and reverts once it
+  dries out; real consequence via existing biome-gated systems, WETLAND
+  is in neither `FARMABLE_BIOMES` nor `WALKABLE_BIOMES`, no bespoke
+  consumer needed). M4 fully closed.
 - **M10** — whether the BASE map (every overlay off) already reads as
   alive, independent of overlay quality — needs a direct look before
   scoping a fix.

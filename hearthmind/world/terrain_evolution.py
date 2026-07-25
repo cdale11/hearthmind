@@ -564,10 +564,11 @@ def _is_developed(x: int, y: int, settlements, farms, excluded: set[tuple[int, i
 
 
 def _skip_climate_drift(tile: Tile) -> bool:
-    """Biome.RIVER is carved post-generation, not elevation-classified,
-    so it has no entry in BIOME_ORDER — climate drift must never sample
-    it (BIOME_ORDER.index() would raise). See world/hydrology.py."""
-    return tile.biome is Biome.RIVER
+    """Biome.RIVER and Biome.WETLAND are both carved/formed post-
+    generation, not elevation-classified, so neither has an entry in
+    BIOME_ORDER — climate drift must never sample either
+    (BIOME_ORDER.index() would raise). See world/hydrology.py."""
+    return tile.biome in (Biome.RIVER, Biome.WETLAND)
 
 
 def apply_local_activity(
