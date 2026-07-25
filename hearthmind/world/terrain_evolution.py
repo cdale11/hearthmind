@@ -413,6 +413,41 @@ def decay_road_scars(scars: dict[tuple[int, int], float]) -> None:
             del scars[pos]
 
 
+MIGRATION_TRAIL_GAIN_PER_STEP = 0.08
+"""M4 (docs/VISION-2026-07-24-LIVINGMAP.md, "migration creates
+recognizable paths"): the mark left by ONE grazer-herd move onto a
+tile — deliberately small (unlike a road, worn in by many agents every
+tick, a single herd only passes rarely), so a real trail needs the
+same crossing reused repeatedly, not one herd's single trip."""
+
+MIGRATION_TRAIL_DECAY_PER_WEEK = 0.02
+"""~9 weeks to fully clear an unused crossing — faster than a road
+scar (~1 year): wildlife trails are far fainter and more easily
+reclaimed by vegetation than a genuinely built road bed."""
+
+MIGRATION_TRAIL_VISIBLE_THRESHOLD = 0.2
+"""Same role as the other scar dicts' visible thresholds — a single
+step's gain (0.08) is below this, so a trail only becomes map-visible
+after several herds have genuinely reused the same crossing."""
+
+
+def apply_migration_trail(pos: tuple[int, int], trails: dict[tuple[int, int], float]) -> None:
+    """Called for the tile a GRAZER herd just moved onto (see
+    `WildlifeGrid.tick`'s `migration_trails` param) — mutates `trails`
+    in place, same additive-capped shape as every other scar dict
+    here."""
+    trails[pos] = min(1.0, trails.get(pos, 0.0) + MIGRATION_TRAIL_GAIN_PER_STEP)
+
+
+def decay_migration_trails(trails: dict[tuple[int, int], float]) -> None:
+    """Called once per week, same cadence as the other scar-shaped
+    dicts."""
+    for pos in list(trails.keys()):
+        trails[pos] -= MIGRATION_TRAIL_DECAY_PER_WEEK
+        if trails[pos] <= 0.0:
+            del trails[pos]
+
+
 DEFOREST_CHANCE_PER_TICK = 0.02
 """Rolled only once a tile's heat clears the threshold — deforestation
 isn't instant even under sustained pressure."""

@@ -17,6 +17,7 @@ from enum import Enum
 
 from hearthmind.world.resources import ResourceGrid, ResourceKind
 from hearthmind.world.terrain import Biome, Tile
+from hearthmind.world.terrain_evolution import apply_migration_trail
 
 try:
     from hearthmind._native import GrazerHerdIndex as _NativeGrazerHerdIndex
@@ -68,6 +69,15 @@ keeps predators a real but not overwhelming pressure."""
 MOVE_CHANCE = 0.3
 """Per-tick probability a herd/pack takes one step — slower than agent
 wandering (MOVE_CHANCE 0.5), so migration reads as drift, not chaos."""
+
+MIGRATION_TRAIL_PREFERENCE_WEIGHT = 3.0
+"""M4 (docs/VISION-2026-07-24-LIVINGMAP.md, "migration creates
+recognizable paths"): a GRAZER herd choosing among its move candidates
+weights a tile with existing trail intensity `1.0 + trail *
+MIGRATION_TRAIL_PREFERENCE_WEIGHT` — herds genuinely tend to reuse the
+same crossings over time, a real feedback loop (movement creates the
+trail, the trail then draws more movement) rather than a one-way
+cosmetic. Scoped to GRAZER only — predators track prey, not paths."""
 
 GRAZE_CONSUMPTION_PER_TICK = 0.015
 GRAZE_REPRODUCE_MIN_FOOD = 0.1
@@ -384,12 +394,21 @@ class WildlifeGrid:
     def tick(
         self, seed: int, tick: int, terrain: list[list[Tile]], resources: ResourceGrid | None = None,
         temperament: float = 0.0, season: str = "summer",
+        migration_trails: "dict[tuple[int, int], float] | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every herd/pack by one tick. Returns (category,
         description) events for a successful hunt or a pack/herd going
         fully extinct — animal-vs-animal interaction visible in the
         event log, not just silent numbers. See docs/DECISIONS.md,
-        "LLM-as-brain batch.\""""
+        "LLM-as-brain batch."
+
+        `migration_trails` (M4, `World.migration_trails`, optional —
+        `None` reproduces the exact pre-M4 behavior): a GRAZER herd
+        that actually moves this tick leaves a small mark at its new
+        position (see `terrain_evolution.apply_migration_trail`) and,
+        when choosing among move candidates, weights toward tiles that
+        already carry trail intensity — the two halves of one real
+        feedback loop, not just a one-way cosmetic overlay."""
         rng = _wildlife_tick_rng(seed, tick)
         height = len(terrain)
         width = len(terrain[0]) if height else 0
@@ -444,7 +463,20 @@ class WildlifeGrid:
                     if safe:
                         candidates = safe
                 if candidates:
-                    herd.x, herd.y = rng.choice(candidates)
+                    if herd.species is Species.GRAZER and migration_trails:
+                        # M4: reuse an established crossing over a fresh
+                        # one when several are otherwise equally valid —
+                        # the trail-preference half of the feedback loop
+                        # (the gain half is right below).
+                        weights = [
+                            1.0 + migration_trails.get(c, 0.0) * MIGRATION_TRAIL_PREFERENCE_WEIGHT
+                            for c in candidates
+                        ]
+                        herd.x, herd.y = rng.choices(candidates, weights=weights, k=1)[0]
+                    else:
+                        herd.x, herd.y = rng.choice(candidates)
+                    if herd.species is Species.GRAZER and migration_trails is not None:
+                        apply_migration_trail((herd.x, herd.y), migration_trails)
 
             if herd.species is Species.GRAZER:
                 # Seasonal migration pressure: a cold-season herd may

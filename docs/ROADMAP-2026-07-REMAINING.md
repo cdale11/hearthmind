@@ -993,9 +993,11 @@ forest reclaim). Real gaps, roughly by leverage:
   ruin, to a 5th axis). Field boundaries and a labeled "environmental
   stress"/degradation reading remain unbuilt — same mechanism, future
   slices, not attempted this pass.
-- **M4** — a wetland/marsh concept (hydrology drives moisture today,
-  not a distinct expanding/shrinking biome) and a migration-trail
-  accumulator (same shape as `ritual_activity`, different trigger).
+- **M4** — **migration-trail slice shipped, v1.34.27** (`World.
+  migration_trails`, gained from GRAZER movement, a real feedback loop
+  via move-candidate weighting rather than a downstream consumer). A
+  wetland/marsh concept (hydrology drives moisture today, not a
+  distinct expanding/shrinking biome) remains unbuilt.
 - **M10** — whether the BASE map (every overlay off) already reads as
   alive, independent of overlay quality — needs a direct look before
   scoping a fix.

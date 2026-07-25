@@ -545,6 +545,38 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.27)
+
+Explicit user instruction: "Continue" — M4 "wildlife migration
+trails" (docs/ROADMAP-2026-07-REMAINING.md, Tier 1.5), the natural
+next slice after v1.34.26's M1/M9, per the roadmap's own note that
+migration trails are "same shape as `ritual_activity`, different
+trigger."
+
+New `terrain_evolution.apply_migration_trail`/`decay_migration_trails`
++ `World.migration_trails` — the 6th scar-shaped dict, gained via
+`WildlifeGrid.tick`'s new optional `migration_trails` param (`None`
+default reproduces the exact pre-M4 behavior/RNG stream, verified).
+Real consequence is a genuine feedback loop rather than a downstream
+consumer: a GRAZER herd's move-candidate selection weights toward
+tiles with existing trail intensity — herds reuse the same crossings,
+so the mark-forming code and its own consumer are one mechanism.
+Scoped to GRAZER only ("grazing patterns," not predator paths). UI:
+"Migration trails" stat tile, a faint map overlay, bare-tile inspector
+line — rides the existing 20s `/terrain` periodic refetch (same
+channel as moisture/soil_fertility) rather than a new life-event
+category, since trails accumulate across many roaming tiles rather
+than a few discrete sites.
+
+Verified: direct smoke tests (gain/cap/decay, real grazer-movement
+trail formation over 500 ticks); a `migration_trails=None` parity test
+confirming byte-identical behavior against the pre-M4 code path; a
+real `World.create_new`/`tick()` production test (4000 ticks) with a
+clean round-trip incl. legacy backfill; `scripts/verify_native_soak.py`
+(2 seeds x 800 ticks, and again after the broadcast-layer changes)
+byte-identical — pure Python. M4's wetland/marsh concept remains open,
+flagged for a future slice.
+
 ## Current state (v1.34.26)
 
 Explicit user instruction: "Continue tier 1.5" — M1/M9 "old road

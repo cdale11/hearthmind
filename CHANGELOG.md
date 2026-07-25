@@ -4,6 +4,57 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.27] — M4: wildlife migration trails ("The Living Map," Tier 1.5)
+
+Explicit user instruction: "Continue" — following directly off
+v1.34.26's own M1/M9 slice, the natural next Tier 1.5 item per the
+roadmap's own note: M4's migration-trail accumulator is "same shape as
+`ritual_activity`, different trigger — real reuse opportunity."
+
+New `terrain_evolution.apply_migration_trail`/`decay_migration_trails`
+(`MIGRATION_TRAIL_GAIN_PER_STEP=0.08`, `MIGRATION_TRAIL_DECAY_PER_
+WEEK=0.02`, ~9 weeks to clear — fainter and faster-fading than a road
+scar, since one herd's single pass is a much weaker mark than agent
+traffic) + `World.migration_trails`, the 6th scar-shaped dict. Gained
+via `WildlifeGrid.tick`'s new optional `migration_trails` param
+(`None` reproduces the exact pre-M4 RNG stream and behavior — verified
+byte-identical): a GRAZER herd that actually moves this tick leaves a
+mark at its new position.
+
+Real consequence is a genuine feedback loop, not a one-way downstream
+consumer (the A9 "no write-only producers" discipline, satisfied
+differently than the other five scar dicts): when a GRAZER chooses
+among its move candidates, it weights toward a tile with existing
+trail intensity (`wildlife.MIGRATION_TRAIL_PREFERENCE_WEIGHT=3.0`) —
+herds genuinely tend to reuse the same crossings, so the trail-forming
+mechanism and its own consumer are the same code path. Scoped to
+GRAZER only, per the vision doc's own "grazing patterns" framing —
+predators track prey, not paths.
+
+UI: new "Migration trails" main-UI stat tile, a faint worn-path map
+overlay (`paintMigrationTrails`, a distinct green-brown tone from
+`paintRoadScars`' worn-earth — animal traffic reads differently from
+civilization's), a bare-tile inspector line. No dedicated life-event
+category — migration trails accumulate across many roaming tiles
+rather than a few discrete sites (unlike mining/road, where a
+threshold-crossing event is a rare, meaningful occurrence), so this
+rides the existing 20s periodic `/terrain` refetch (the same channel
+moisture/soil_fertility/population_density already use) rather than
+adding to `TERRAIN_CHANGING_CATEGORIES`.
+
+Verified: direct smoke tests (`apply_migration_trail`/`decay_
+migration_trails` gain/cap/decay); a real `WildlifeGrid.tick()` test
+over 500 ticks confirming trails form from actual grazer movement
+through the production call path; a parity test confirming `migration_
+trails=None` (the default) reproduces byte-identical herd position/
+count against the pre-M4 code path over 300 ticks (same RNG stream,
+zero behavior change for existing worlds); a real `World.create_new`/
+`World.tick()` production-path test (4000 ticks) confirming trails
+form end-to-end with a clean `to_dict`/`from_dict` round-trip
+(including legacy-snapshot backfill to `{}`); `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks, and again after the broadcast-layer
+changes) byte-identical — pure Python, no native module touched.
+
 ## [1.34.26] — M1/M9: old road beds ("The Living Map," Tier 1.5)
 
 Explicit user instruction: "Continue tier 1.5" — M1/M9 (docs/ROADMAP-

@@ -73,6 +73,7 @@ class WorldBroadcaster:
         population_density: "list[list[float]] | None" = None,
         disease_pressure: "list[list[float]] | None" = None,
         road_scars: dict | None = None,
+        migration_trails: dict | None = None,
     ) -> None:
         """Called when the engine starts, and again on any tick where
         terrain evolution changed a tile's biome (see
@@ -145,6 +146,10 @@ class WorldBroadcaster:
             "road_scars": (
                 {f"{x}:{y}": round(v, 3) for (x, y), v in road_scars.items()}
                 if road_scars else {}
+            ),
+            "migration_trails": (
+                {f"{x}:{y}": round(v, 3) for (x, y), v in migration_trails.items()}
+                if migration_trails else {}
             ),
             "moisture": (
                 [[round(v, 3) for v in row] for row in moisture] if moisture else []

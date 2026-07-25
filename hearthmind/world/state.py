@@ -30,6 +30,7 @@ from hearthmind.world.terrain_evolution import (
     decay_ritual_activity,
     decay_ruin_scars,
     decay_road_scars,
+    decay_migration_trails,
     maybe_reclaim,
     nature_adaptation_bias,
     tick_climate,
@@ -256,6 +257,20 @@ class World:
     road bed gets a real (smaller than ruin's) construction-site bonus
     — "settlements form along old travel corridors," the same
     formation-to-consumption callback loop `ruin_scars` already has."""
+
+    migration_trails: dict[tuple[int, int], float] = field(default_factory=dict)
+    """M4 "The Living Map" (docs/VISION-2026-07-24-LIVINGMAP.md,
+    docs/ROADMAP-2026-07-REMAINING.md's Tier 1.5): "migration creates
+    recognizable paths/grazing patterns" — same additive-decaying-dict
+    shape as `road_scars`, but gained from `WildlifeGrid.tick`'s GRAZER
+    movement (see `terrain_evolution.apply_migration_trail`/`decay_
+    migration_trails`) rather than agent traffic. Real consequence is
+    a genuine feedback loop, not a downstream consumer: a herd
+    choosing among move candidates weights toward a tile with existing
+    trail intensity (`wildlife.MIGRATION_TRAIL_PREFERENCE_WEIGHT`) —
+    herds tend to reuse the same crossings, which is what makes the
+    mark a real "trail" rather than a scattered record of every step
+    ever taken."""
     llm_calls_total: int = 0
     llm_fallback_total: int = 0
     """Cumulative counts of every LLM-backed decision (cognition +
@@ -756,6 +771,7 @@ class World:
         wildlife_events = self.wildlife.tick(
             seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain, resources=self.resources,
             temperament=self.settlement.temperament, season=self.clock.season,
+            migration_trails=self.migration_trails,
         )
         settlement_events: list[tuple[str, str]] = []
         self.newly_named_settlement_ids = []
@@ -937,6 +953,7 @@ class World:
             decay_ritual_activity(self.ritual_activity)
             decay_ruin_scars(self.ruin_scars)
             decay_road_scars(self.road_scars)
+            decay_migration_trails(self.migration_trails)
 
         if "month_end" in calendar_events:
             climate_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "climate_drift")
@@ -1057,6 +1074,13 @@ class World:
                 "avg_intensity": (
                     round(sum(self.road_scars.values()) / len(self.road_scars), 3)
                     if self.road_scars else 0.0
+                ),
+            },
+            "migration_trails": {
+                "sites": len(self.migration_trails),
+                "avg_intensity": (
+                    round(sum(self.migration_trails.values()) / len(self.migration_trails), 3)
+                    if self.migration_trails else 0.0
                 ),
             },
             "disaster_scars": {
@@ -1339,6 +1363,7 @@ class World:
             "ritual_activity": {f"{x}:{y}": round(v, 4) for (x, y), v in self.ritual_activity.items()},
             "ruin_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.ruin_scars.items()},
             "road_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.road_scars.items()},
+            "migration_trails": {f"{x}:{y}": round(v, 4) for (x, y), v in self.migration_trails.items()},
             "llm_calls_total": self.llm_calls_total,
             "llm_fallback_total": self.llm_fallback_total,
             "dialogue_total": self.dialogue_total,
@@ -1601,6 +1626,11 @@ class World:
             x_str, y_str = key.split(":")
             road_scars[(int(x_str), int(y_str))] = value
 
+        migration_trails: dict[tuple[int, int], float] = {}
+        for key, value in data.get("migration_trails", {}).items():
+            x_str, y_str = key.split(":")
+            migration_trails[(int(x_str), int(y_str))] = value
+
         return cls(
             config=config, clock=clock, terrain=terrain, weather=weather,
             weather_regions=weather_regions,
@@ -1615,6 +1645,7 @@ class World:
             ritual_activity=ritual_activity,
             ruin_scars=ruin_scars,
             road_scars=road_scars,
+            migration_trails=migration_trails,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),
             dialogue_total=data.get("dialogue_total", 0),

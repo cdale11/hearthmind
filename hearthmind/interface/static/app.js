@@ -1584,6 +1584,22 @@ function paintRoadScars(sctx, scars) {
   }
 }
 
+// M4 "The Living Map": a faint worn path where grazer herds have
+// repeatedly reused the same crossing — distinct color from a road
+// bed (`paintRoadScars`, human-worn/straighter) since this is animal
+// traffic, not civilization's footprint.
+function paintMigrationTrails(sctx, trails) {
+  if (!trails) return;
+  for (const key in trails) {
+    const intensity = trails[key];
+    if (!(intensity > 0)) continue;
+    const [xs, ys] = key.split(":");
+    const x = parseInt(xs, 10), y = parseInt(ys, 10);
+    sctx.fillStyle = `rgba(120,140,80,${(0.08 + intensity * 0.22).toFixed(3)})`;
+    sctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+  }
+}
+
 function drawStaticTerrain() {
   staticCanvas = document.createElement("canvas");
   staticCanvas.width = terrain.width * CELL;
@@ -1601,6 +1617,7 @@ function drawStaticTerrain() {
   paintRitualActivity(sctx, terrain.ritual_activity);
   paintRuinScars(sctx, terrain.ruin_scars);
   paintRoadScars(sctx, terrain.road_scars);
+  paintMigrationTrails(sctx, terrain.migration_trails);
   canvas.width = staticCanvas.width;
   canvas.height = staticCanvas.height;
   weatherCanvas.width = staticCanvas.width;
@@ -2923,6 +2940,10 @@ function renderTargetInspector() {
   if (roadScar > 0) {
     bits.push(`<div class="npc-section"><h4>Old road bed</h4><div>a well-worn road once passed here (${Math.round(roadScar * 100)}% still visible)</div></div>`);
   }
+  const trail = (terrain && terrain.migration_trails && terrain.migration_trails[`${x}:${y}`]) || 0;
+  if (trail > 0) {
+    bits.push(`<div class="npc-section"><h4>Migration trail</h4><div>a well-worn wildlife crossing (${Math.round(trail * 100)}% still visible)</div></div>`);
+  }
   npcContent.innerHTML = `
     <h3>${biome.replace(/_/g, " ")}</h3>
     <div class="npc-subtitle">tile (${x}, ${y})</div>
@@ -3366,6 +3387,14 @@ function renderStats(summary) {
         return rds.sites ? `${rds.sites} bed${rds.sites === 1 ? "" : "s"} (avg ${rds.avg_intensity.toFixed(2)})` : "none yet";
       })(),
       "A road worn in by real traffic, then abandoned as travel moved elsewhere, leaves a faint old road bed behind instead of vanishing without a trace — fades over about a year if never retraveled. A new building staked out nearby leans toward old travel corridors, a smaller pull than a ruin's.",
+    ],
+    [
+      "Migration trails",
+      (() => {
+        const mt = summary.migration_trails || {};
+        return mt.sites ? `${mt.sites} crossing${mt.sites === 1 ? "" : "s"} (avg ${mt.avg_intensity.toFixed(2)})` : "none yet";
+      })(),
+      "A grazer herd reusing the same crossing wears a faint trail into the land — and a real trail then draws more herds to reuse it, a genuine feedback loop, not just a cosmetic record. Fades over a couple of months if left unused.",
     ],
     [
       "Soil moisture",
