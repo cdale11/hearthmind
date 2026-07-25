@@ -545,6 +545,34 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.30)
+
+Explicit user instruction: "Continue" — M6/M7 "field-overlay legend"
+(docs/ROADMAP-2026-07-REMAINING.md, Tier 1.5), the last open item in
+"The Living Map" after M1/M9, M4, and M10 closed this session. The
+doc's own four-part ask ("gradients, hotspots, thresholds, legends"
+against Cities: Skylines/Timberborn/Dwarf Fortress conventions) is a
+genuine larger UI redesign — this ships the "legends" quarter only,
+the smallest self-contained slice: the "🗺️ fields" overlay (moisture/
+soil fertility/population density/disease pressure) had no legend at
+all, so a color never said what value it represented.
+
+New `#field-legend`: shown only while a field mode is active,
+mirroring each mode's real color mapping (not a generic scale) with
+plain-language low/high labels ("depleted -> rich" for fertility).
+Real collision caught in verification, not assumed: the first
+placement (bottom-left) overlapped `#consequences-strip`'s existing
+home there — repositioned to stack above the minimap instead.
+
+Verified via a real dev server + Playwright pass: clicked all four
+overlay modes, confirmed correct show/hide and labels, screenshotted
+two modes directly (soil moisture, soil fertility's bidirectional
+amber-to-green gradient) confirming clean, non-overlapping rendering.
+True multi-stop gradients/hotspot markers/a full responsive-canvas
+redesign remain the larger, still-open rest of M6/M7 — flagged, not
+attempted. This closes every fully-scoped item this pass found in
+Tier 1.5 "The Living Map."
+
 ## Current state (v1.34.29)
 
 Explicit user instruction: "Continue" — M10 "base map readability"

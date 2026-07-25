@@ -1164,11 +1164,40 @@ let fieldOverlayMode = "off";
 const fieldCanvas = document.getElementById("field-canvas");
 const fieldCtx = fieldCanvas.getContext("2d");
 const fieldOverlayToggle = document.getElementById("field-overlay-toggle");
+
+// M6/M7 "The Living Map": each mode's legend mirrors its own real color
+// mapping in `renderFieldOverlay` below exactly — a gradient CSS string
+// plus the plain-language low/high labels a player would actually ask
+// ("where can I farm?" -> fertility; "where should I irrigate?" ->
+// moisture), not raw axis names.
+const FIELD_LEGEND = {
+  moisture: { gradient: "linear-gradient(90deg, rgba(60,110,200,0.05), rgba(60,110,200,0.4))", min: "dry", max: "saturated" },
+  soil_fertility: { gradient: "linear-gradient(90deg, rgba(200,150,60,0.55), rgba(120,120,120,0.05), rgba(80,180,70,0.5))", min: "depleted", max: "rich" },
+  population_density: { gradient: "linear-gradient(90deg, rgba(230,60,120,0.03), rgba(230,60,120,0.35))", min: "empty", max: "crowded" },
+  disease_pressure: { gradient: "linear-gradient(90deg, rgba(170,190,40,0.05), rgba(170,190,40,0.5))", min: "low risk", max: "high risk" },
+};
+const fieldLegend = document.getElementById("field-legend");
+const fieldLegendTitle = document.getElementById("field-legend-title");
+const fieldLegendBar = document.getElementById("field-legend-bar");
+const fieldLegendMin = document.getElementById("field-legend-min");
+const fieldLegendMax = document.getElementById("field-legend-max");
+
+function updateFieldLegend() {
+  const spec = FIELD_LEGEND[fieldOverlayMode];
+  fieldLegend.classList.toggle("hidden", !spec);
+  if (!spec) return;
+  fieldLegendTitle.textContent = FIELD_OVERLAY_LABELS[fieldOverlayMode];
+  fieldLegendBar.style.background = spec.gradient;
+  fieldLegendMin.textContent = spec.min;
+  fieldLegendMax.textContent = spec.max;
+}
+
 fieldOverlayToggle.addEventListener("click", () => {
   const idx = FIELD_OVERLAY_MODES.indexOf(fieldOverlayMode);
   fieldOverlayMode = FIELD_OVERLAY_MODES[(idx + 1) % FIELD_OVERLAY_MODES.length];
   fieldOverlayToggle.textContent = `🗺️ fields: ${FIELD_OVERLAY_LABELS[fieldOverlayMode]}`;
   fieldOverlayToggle.classList.toggle("active", fieldOverlayMode !== "off");
+  updateFieldLegend();
   renderFieldOverlay();
 });
 

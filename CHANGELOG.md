@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.30] — M6/M7: field-overlay legend ("The Living Map," Tier 1.5)
+
+Explicit user instruction: "Continue" — M6/M7 (docs/ROADMAP-2026-07-
+REMAINING.md, Tier 1.5), the last item open in "The Living Map" after
+M1/M9, M4, and M10 all closed this session. The doc's own four-part
+ask for the "🗺️ fields" overlay (moisture/soil fertility/population
+density/disease pressure) is "gradients, hotspots, thresholds,
+legends" against reference-game conventions (Cities: Skylines/
+Workers & Resources/Timberborn/Dwarf Fortress) — a genuine UI
+redesign item, explicitly larger than a single pass. This ships the
+"legends" quarter only, the smallest coherent, self-contained,
+frontend-only slice: today's overlay had literally no legend — a
+color alone never told a player whether they were looking at 0.3 or
+0.7, or even which direction was good.
+
+New `#field-legend` (`interface/index.html`/`style.css`/`app.js`):
+shown only while a field overlay mode is active, mirroring each
+mode's real `renderFieldOverlay` color mapping exactly rather than a
+generic scale — a gradient swatch plus plain-language low/high labels
+answering the actual gameplay question each mode exists for ("where
+can I farm?" -> soil fertility's "depleted -> rich", not "0.0 -> 1.0").
+`updateFieldLegend()` runs on every toggle click, one new small
+function, no change to the existing four color-mapping branches.
+
+Real collision caught during verification, not assumed: the legend's
+first placement (bottom-left, mirroring the minimap's bottom-right)
+collided with `#consequences-strip`'s existing home in that exact
+corner — a real Playwright screenshot showed the overlap before it
+shipped. Repositioned to stack above `#minimap` (same right edge,
+`bottom: 168px`) instead.
+
+Verified: a real dev server + Playwright end-to-end pass — clicked
+through all four overlay modes, confirmed the legend shows/hides
+correctly and each mode's title/min/max labels match the design, then
+screenshotted all four (soil moisture and soil fertility visually
+inspected directly, confirming the bidirectional amber-to-green
+fertility gradient renders correctly and no longer overlaps the event
+banner).
+
+This is the "legends" piece only — true multi-stop gradients (today's
+overlays are still flat per-tile alpha, not smoothed), hotspot
+markers, and a full reference-game-quality responsive-canvas redesign
+remain the larger, still-open rest of M6/M7, not attempted this pass.
+With M1/M9, M4, M10, and this legend slice all shipped, Tier 1.5 "The
+Living Map" has no fully-unaddressed item left — only M6/M7's larger
+remaining scope, explicitly flagged rather than silently dropped.
+
 ## [1.34.29] — M10: base map readability ("The Living Map," Tier 1.5)
 
 Explicit user instruction: "Continue" — M10 (docs/ROADMAP-2026-07-

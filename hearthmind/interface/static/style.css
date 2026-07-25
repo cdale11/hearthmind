@@ -558,6 +558,45 @@ body.subjective-mode #stat-grid { display: none; }
   z-index: 5;
 }
 
+/* M6/M7 "The Living Map" (docs/ROADMAP-2026-07-REMAINING.md, Tier 1.5):
+   a dense field overlay (moisture/soil fertility/population density/
+   disease pressure) is unreadable without a scale — a color alone
+   doesn't say whether it's showing 0.3 or 0.7. Bottom-left, mirroring
+   the minimap's own bottom-right corner placement; only shown while a
+   field overlay is actually active. */
+#field-legend {
+  position: absolute;
+  right: 10px;
+  bottom: 168px; /* stacks above the 150px-tall #minimap, same right edge */
+  background: rgba(27, 30, 39, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 11px;
+  z-index: 5;
+  min-width: 120px;
+}
+
+#field-legend-title {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+#field-legend-bar {
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+}
+
+#field-legend-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  color: var(--muted);
+}
+
 #ghost-banner, #follow-banner {
   position: absolute;
   top: 10px;

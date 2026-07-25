@@ -982,12 +982,21 @@ forest reclaim). Real gaps, roughly by leverage:
   scars as actual terrain change (not a flat color tint), and rivers
   re-carving their course (A3's own remaining half) are ALL gated on
   this one item, already named in A11's own entry above.
-- **M6/M7** — the existing fields overlay (v1.27.0) is an honest first
-  slice, not the reference-game-quality target this vision names
-  (Cities: Skylines / Workers & Resources / Timberborn / Dwarf
-  Fortress conventions: gradients, hotspots, thresholds, legends).
-  Pure rendering work over data that already flows to the client —
-  no backend gap, a genuine UI redesign item.
+- **M6/M7** — **legend slice shipped, v1.34.30**: the "🗺️ fields"
+  toggle (moisture/soil fertility/population density/disease pressure)
+  had no legend at all — a color alone never said whether it was
+  showing 0.3 or 0.7, or even which direction was "good." New
+  `#field-legend` (mirrors each mode's real color mapping exactly:
+  gradient + plain-language low/high labels, e.g. "depleted -> rich"
+  for soil fertility, not raw axis names), shown only while a field
+  overlay is active. Positioned to stack above the minimap (bottom-
+  right) after a real collision was caught in verification — the
+  natural bottom-left spot is already `#consequences-strip`'s home.
+  This is the "legends" quarter of the doc's four-part ask
+  (gradients/hotspots/thresholds/legends); a fuller reference-game-
+  quality pass (true multi-stop gradients instead of flat alpha,
+  hotspot markers, a real responsive-canvas redesign) remains the
+  larger, still-open rest of M6/M7.
 - **M1/M9** — **old-road-beds slice shipped, v1.34.26** (extends the
   scar-shaped-dict pattern, already proven 4x: mining/disaster/ritual/
   ruin, to a 5th axis). Field boundaries and a labeled "environmental
