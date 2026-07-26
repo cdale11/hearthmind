@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.40] — A14 third organism-biology subsystem, `injury-recovery`
+
+Explicit user instruction: "Continue A14," following v1.34.37's
+`stress`. Predator attacks previously resolved to a flat death-or-
+nothing binary — a surviving agent took an energy/hunger hit and
+walked away with zero lasting trace, unlike sickness (which has
+`sick_ticks` state) or the two prior A14 subsystems.
+
+`Agent.injury` (0.0 = unhurt, `agents/agent.py`) is bumped by
+`PREDATOR_ATTACK_INJURY=0.35` on `Population._maybe_predator_attack`'s
+non-lethal outcome, and heals every tick (`Population._tick_injury_
+recovery`) via exponential smoothing at `INJURY_RECOVERY_RATE=0.006`,
+scaled 1.5x faster for a well-fed/rested agent and 0.5x for a
+starving, exhausted one (`INJURY_RECOVERY_HUNGER_WEIGHT`/`_ENERGY_
+WEIGHT`) — the same nutrition/rest physiology coupling `immune_
+strength` already established, applied to the healing RATE instead of
+a target. Real consumer: an already-injured agent surviving a FURTHER
+predator attack has its kill chance scaled by `1.0 + injury *
+INJURY_VULNERABILITY_WEIGHT` (0.6), capped at `INJURY_VULNERABILITY_
+MAX_FACTOR` (1.6x) — applied in pure Python AFTER the existing
+native-or-fallback kill-chance computation (`_native_predator_kill_
+chance`), zero native/fallback parity risk, same "modulate after the
+fact" pattern `stress`'s reproduction-penalty already established.
+
+UI surfacing (same batch): a conditional "injury: healing/badly hurt"
+line in the NPC inspector's Personality section, shown only once an
+agent has actually been hurt (no line at all while `injury` is ~0).
+
+Verified: direct unit tests for `_tick_injury_recovery` (round-trip,
+default baseline, faster healing for well-fed/rested vs. starving/
+exhausted, converges exactly to 0, no-op at 0) and a deterministic
+threshold-crossing test of the predator-attack consumer (a fixed roll
+landing between the base and injury-modulated kill chance, proving the
+vulnerability multiplier alone flips survive to death); a real 5000-
+tick LLM-disabled engine soak (async, production `_tick_once` loop)
+confirmed 3 real `predator_attack` events fired through the actual
+production path, injury formed and partially healed organically, and
+the state round-trips cleanly through `to_dict`/`from_dict`;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical
+— pure Python, no native module touched; a real dev server +
+Playwright pass confirmed the NPC inspector renders the injury line
+correctly (present and correctly labeled at 0.62, absent for an
+uninjured agent).
+
+Reproduction and development (the spec's two remaining named
+subsystems) remain open.
+
 ## [1.34.39] — A4 closed: infrastructure/information audit
 
 Explicit user instruction: "Finish A4" (docs/ROADMAP-2026-07-

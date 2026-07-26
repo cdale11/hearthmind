@@ -122,6 +122,13 @@ from hearthmind.agents.agent import (
     IMMUNE_MODULATION_SENSITIVITY,
     IMMUNE_STRENGTH_FLOOR,
     SICKNESS_IMMUNE_DRAIN_PER_TICK,
+    INJURY_BASELINE,
+    INJURY_RECOVERY_ENERGY_WEIGHT,
+    INJURY_RECOVERY_HUNGER_WEIGHT,
+    INJURY_RECOVERY_RATE,
+    INJURY_VULNERABILITY_MAX_FACTOR,
+    INJURY_VULNERABILITY_WEIGHT,
+    PREDATOR_ATTACK_INJURY,
     STRESS_ADAPT_RATE,
     STRESS_BASELINE,
     STRESS_FEAR_WEIGHT,
@@ -2175,6 +2182,9 @@ class Population:
         # A14 "Layered organism biology," second slice: stress reads the
         # same just-updated emotions/hunger/sick_ticks state.
         self._tick_stress(self.agents)
+        # A14 "Layered organism biology," third slice: injury heals
+        # from the same just-updated hunger/energy state.
+        self._tick_injury_recovery(self.agents)
         disease_events, died_of_disease = self._tick_disease(
             self.agents, by_position, hospital_settlement_ids, primary.temperament, rng, tick,
         )
@@ -2485,10 +2495,22 @@ class Population:
                 kill_chance *= (1.0 - HOSPITAL_KILL_CHANCE_REDUCTION)
             kill_chance = max(0.0, kill_chance * (1.0 - temperament * TEMPERAMENT_KILL_CHANCE_INFLUENCE))
             kill_chance = max(0.0, kill_chance * (1.0 - resilience * TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE))
+        # A14 "Layered organism biology," third slice: an already-
+        # injured agent surviving a FURTHER attack is measurably more
+        # likely to die from it — applied in pure Python after the
+        # native-or-fallback kill_chance above, zero native/fallback
+        # parity risk. See INJURY_VULNERABILITY_WEIGHT's docstring.
+        if agent.injury > 0.0:
+            kill_chance = min(
+                1.0, kill_chance * min(
+                    INJURY_VULNERABILITY_MAX_FACTOR, 1.0 + agent.injury * INJURY_VULNERABILITY_WEIGHT,
+                ),
+            )
         if rng.random() < kill_chance:
             return (("death", f"{agent.name} was killed by predators."), True)
         agent.energy = max(0.0, agent.energy - PREDATOR_ATTACK_ENERGY_DRAIN)
         agent.hunger = min(1.0, agent.hunger + PREDATOR_ATTACK_HUNGER_INCREASE)
+        agent.injury = min(1.0, agent.injury + PREDATOR_ATTACK_INJURY)
         return (("predator_attack", f"{agent.name} was attacked by predators and barely escaped."), False)
 
     def _maybe_outbreak(
@@ -2618,6 +2640,25 @@ class Population:
             target = clamp(target, 0.0, 1.0)
             agent.stress += (target - agent.stress) * STRESS_ADAPT_RATE
             agent.stress = clamp(agent.stress, 0.0, 1.0)
+
+    @staticmethod
+    def _tick_injury_recovery(agents: list[Agent]) -> None:
+        """A14 "Layered organism biology," third slice (roadmap Tier 1
+        item 8): heals every agent's continuous `injury` toward 0 each
+        tick via exponential smoothing, at a rate scaled up to 1.5x by
+        good nutrition/rest and down to 0.5x for a starving, exhausted
+        agent (`INJURY_RECOVERY_HUNGER_WEIGHT`/`_ENERGY_WEIGHT`) — real
+        convalescence, not an instant reset. Injury itself is only ever
+        GAINED elsewhere (`_maybe_predator_attack`'s non-lethal
+        outcome); this is the recovery half only. Pure Python,
+        O(agents), same cost class as `_tick_stress`."""
+        for agent in agents:
+            if agent.injury <= 0.0:
+                continue
+            nutrition_factor = 1.0 + (0.5 - agent.hunger) * 2.0 * INJURY_RECOVERY_HUNGER_WEIGHT
+            rest_factor = 1.0 + (agent.energy - 0.5) * 2.0 * INJURY_RECOVERY_ENERGY_WEIGHT
+            rate = INJURY_RECOVERY_RATE * (nutrition_factor + rest_factor) / 2.0
+            agent.injury = clamp(agent.injury - rate, 0.0, 1.0)
 
     @staticmethod
     def _immune_modulation_factor(agent: Agent) -> float:

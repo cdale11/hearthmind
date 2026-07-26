@@ -1063,6 +1063,45 @@ bounded, never-dominant physiological coupling — the same "meaningful,
 never a hard block" scale every other reproduction gate already uses
 (REPRODUCTION_AFFINITY_THRESHOLD, the settlement hunger ceiling)."""
 
+# --- A14: injury — continuous, coupled to real physical trauma ------------
+
+INJURY_BASELINE = 0.0
+"""A14 "Layered organism biology," third slice (roadmap Tier 1 item
+8): the doc's own third named subsystem, "injury-recovery." `Agent.
+injury` is a real continuous 0..1 state — 0.0 (unhurt) is the genuine
+neutral floor, same convention `stress` uses (unlike `immune_
+strength`'s centered baseline)."""
+
+PREDATOR_ATTACK_INJURY = 0.35
+"""How much `Agent.injury` jumps on surviving a predator attack
+(`Population._maybe_predator_attack`'s non-lethal outcome) — a real,
+felt wound, not a full incapacitation. The one real injury SOURCE this
+slice wires; other plausible sources (disaster survival, disputes)
+are flagged future connections, not attempted here."""
+
+INJURY_RECOVERY_RATE = 0.006
+INJURY_RECOVERY_HUNGER_WEIGHT = 0.5
+INJURY_RECOVERY_ENERGY_WEIGHT = 0.5
+"""Injury heals every tick via exponential smoothing toward 0 (real
+convalescence, not an instant reset) at `INJURY_RECOVERY_RATE`, scaled
+up to 1.5x faster for a well-fed, rested agent and down to 0.5x for a
+starving, exhausted one — the same nutrition/rest -> physiology
+coupling `immune_strength`'s target-pull already established, applied
+here to the RATE instead of a target (an open wound closes faster on a
+well-fed body)."""
+
+INJURY_VULNERABILITY_WEIGHT = 0.6
+INJURY_VULNERABILITY_MAX_FACTOR = 1.6
+"""The real consumer: an already-injured agent surviving a FURTHER
+predator attack is measurably more likely to die from it — `kill_
+chance *= 1.0 + injury * INJURY_VULNERABILITY_WEIGHT`, capped at
+`INJURY_VULNERABILITY_MAX_FACTOR` (a fully-injured agent's death
+chance on a repeat attack is at most 1.6x the ordinary rate, never
+unbounded). Applied in pure Python AFTER `Population._maybe_predator_
+attack`'s existing native-or-fallback `kill_chance` computation — zero
+native/fallback parity risk, same "modulate after the fact" pattern
+`stress`'s reproduction-penalty already uses."""
+
 GOSSIP_OPINION_CONTAGION = 0.15
 GOSSIP_OPINION_MAX_STEP = 0.05
 """When a rumor names a specific third villager, each listener's
@@ -1892,6 +1931,7 @@ class Agent:
         genome: dict[str, tuple[float, float]] | None = None,
         immune_strength: float = IMMUNE_BASELINE,
         stress: float = STRESS_BASELINE,
+        injury: float = INJURY_BASELINE,
     ) -> None:
         self.id = id
         self.name = name
@@ -2035,6 +2075,14 @@ class Agent:
         # STRESS_REPRODUCTION_PENALTY_WEIGHT above. Plain Python-side
         # attribute, not native-store-backed (same as `immune_strength`).
         self.stress: float = stress
+        # A14 "Layered organism biology," third slice: continuous 0..1
+        # injury state, bumped by surviving a predator attack
+        # (Population._maybe_predator_attack) and healed each tick
+        # (Population._tick_injury_recovery) at a nutrition/rest-scaled
+        # rate. Modulates (never replaces) a FURTHER predator attack's
+        # kill chance — see INJURY_VULNERABILITY_WEIGHT above. Plain
+        # Python-side attribute, not native-store-backed.
+        self.injury: float = injury
         # travel_target: long-range destination that overrides goal-
         # directed movement until reached (fission journeys); a
         # critically hungry traveler still detours for food first.
@@ -2471,6 +2519,7 @@ class Agent:
             },
             "immune_strength": round(self.immune_strength, 4),
             "stress": round(self.stress, 4),
+            "injury": round(self.injury, 4),
         }
 
     @classmethod
@@ -2560,6 +2609,7 @@ class Agent:
             },
             immune_strength=data.get("immune_strength", IMMUNE_BASELINE),
             stress=data.get("stress", STRESS_BASELINE),
+            injury=data.get("injury", INJURY_BASELINE),
         )
         for other_id_str, extra in data.get("ledger_extra", {}).items():
             edge = _agent.ledger.get_or_create(int(other_id_str))

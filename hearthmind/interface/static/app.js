@@ -3015,6 +3015,13 @@ function renderNpcInspector() {
   const stress = agent.stress ?? 0.0;
   const stressLabel = stress >= 0.6 ? "under real strain" : stress >= 0.25 ? "on edge" : "at ease";
   const stressHtml = `<div class="muted">stress: ${stressLabel} (${stress.toFixed(2)})</div>`;
+  // A14 "Layered organism biology," third slice: a plain-language
+  // reading of the continuous injury state — set by surviving a
+  // predator attack, heals gradually with rest and food.
+  const injury = agent.injury ?? 0.0;
+  const injuryHtml = injury > 0.02
+    ? `<div class="muted">injury: ${injury >= 0.5 ? "badly hurt" : "healing"} (${injury.toFixed(2)})</div>`
+    : "";
   const emotions = agent.emotions || {};
   const emotionMeta = {
     fear: { label: "afraid", icon: "😨" },
@@ -3122,6 +3129,7 @@ function renderNpcInspector() {
       ${genomeHtml}
       ${immuneHtml}
       ${stressHtml}
+      ${injuryHtml}
     </div>
     <div class="npc-section">
       <h4>Skills</h4>

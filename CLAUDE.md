@@ -545,6 +545,33 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.40)
+
+Explicit user instruction: "Continue A14." Third of the six named
+organism-biology subsystems: `injury-recovery`, following v1.34.37's
+`stress`.
+
+Predator attacks previously left surviving agents with zero lasting
+trace. `Agent.injury` (0..1) is now bumped on a non-lethal predator
+attack and heals every tick via exponential smoothing, scaled 1.5x
+faster for a well-fed/rested agent and 0.5x for a starving/exhausted
+one — same nutrition/rest coupling `immune_strength` established,
+applied to the healing rate. Real consumer: an already-injured agent
+is more vulnerable to a FURTHER attack (kill chance scaled up to
+1.6x), applied in pure Python after the existing native-or-fallback
+kill-chance computation — zero native/fallback parity risk. UI: a
+conditional "injury: healing/badly hurt" line in the NPC inspector,
+shown only when an agent has actually been hurt.
+
+Verified via direct unit tests (recovery-rate scaling, round-trip),
+a deterministic threshold-crossing test of the predator-attack
+consumer, a real 5000-tick LLM-disabled engine soak confirming real
+`predator_attack` events fired through production and injury formed/
+healed organically with a clean round-trip, a clean `scripts/
+verify_native_soak.py` run, and a real dev server + Playwright pass.
+Reproduction and development (A14's last two named subsystems)
+remain open.
+
 ## Current state (v1.34.39)
 
 Explicit user instruction: "Finish A4." Docs-only — direct code

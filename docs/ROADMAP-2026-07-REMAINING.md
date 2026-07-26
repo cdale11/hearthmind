@@ -1152,10 +1152,10 @@ forest reclaim). Real gaps, roughly by leverage:
    below for the full audit.
 7. **A15** — wildlife/animal genetics (humans-only today); bridge to
    `world.wildlife.SpeciesVariant`, which stays purely descriptive.
-8. **A14** — **first of the other five named organism-biology
-   subsystems shipped, v1.34.37** (`stress`) — see the item's own
-   entry below for detail. Reproduction, development, injury-recovery,
-   and sleep remain open.
+8. **A14** — **third of the six named organism-biology subsystems
+   shipped, v1.34.40** (`stress` v1.34.37, `injury-recovery` v1.34.40,
+   joining `immune_strength`) — see the item's own entry below for
+   detail. Reproduction, development, and sleep remain open.
 9. **A18** — a real authoring system for new composite reactions (today
    exactly one hand-authored `CompositeReaction` exists); the doc's own
    "raid" example scoped down to relationship-rupture, a real combat/
@@ -1558,10 +1558,33 @@ already uses. UI: a plain-language "stress: at ease/on edge/under real
 strain" line in the NPC inspector's Personality section, alongside the
 existing immune-constitution reading.
 
-Reproduction, development, injury-recovery, and sleep (four of the
-spec's six named subsystems) remain open. A genetic contribution to
-baseline `immune_strength` (today: nutrition/rest only) is a flagged
-future connection to A15.
+**Third subsystem shipped (v1.34.40): `injury-recovery`.** Same
+"real continuous 0..1 state, coupled to already-real signals,
+modulating an existing tuned mechanism" shape. Predator attacks
+previously resolved to a flat death-or-nothing binary — a survivor
+took an energy/hunger hit and walked away with zero lasting trace.
+`Agent.injury` (0.0 = unhurt) is now bumped by `PREDATOR_ATTACK_
+INJURY=0.35` on `Population._maybe_predator_attack`'s non-lethal
+outcome, and heals every tick (`Population._tick_injury_recovery`)
+via exponential smoothing at `INJURY_RECOVERY_RATE=0.006`, scaled
+1.5x faster for a well-fed/rested agent and 0.5x for a starving,
+exhausted one — the same nutrition/rest physiology coupling `immune_
+strength` already established, applied to the healing RATE instead
+of a target. Real consumer: an already-injured agent surviving a
+FURTHER predator attack has its kill chance scaled up by `1.0 +
+injury * INJURY_VULNERABILITY_WEIGHT` (0.6), capped at `INJURY_
+VULNERABILITY_MAX_FACTOR` (1.6x) — applied in pure Python AFTER the
+existing native-or-fallback kill-chance computation, zero native/
+fallback parity risk. "A wounded animal is easier prey" is now
+mechanical, a genuine compounding-danger feedback loop distinct from
+`stress`'s reproduction-penalty consumer. UI: a conditional "injury:
+healing/badly hurt" line in the NPC inspector, shown only once an
+agent has actually been hurt.
+
+Reproduction, development, and sleep (three of the spec's six named
+subsystems) remain open. A genetic contribution to baseline `immune_
+strength` (today: nutrition/rest only) is a flagged future connection
+to A15.
 
 ### A15 — Genetic inheritance
 Wildlife/animal genetics (scoped to humans this pass). `world.wildlife.
