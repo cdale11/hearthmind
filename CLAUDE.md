@@ -545,6 +545,53 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.41)
+
+Explicit user instruction: "Do that as well" — implements A14's
+remaining two named subsystems together, `development` and
+`fertility`/reproduction, following v1.34.40's `injury-recovery`.
+Closes A14 down to a single remaining subsystem: `sleep`.
+
+Deliberate architectural split: `development` is a genuine STORED,
+ticked accumulator (real state with history-dependence, round-tripped
+like `stress`/`injury`); `fertility` is a PURE DERIVED `@property` — a
+direct function of `age_ticks` alone, recomputed fresh on every
+access, never stored, zero round-trip surface (chronological age has
+no physiological lag against itself).
+
+`Agent.development` (0.0 at birth) grows every tick toward 1.0 by
+`DEVELOPMENT_FULL_TICKS` (a bit past `MATURITY_TICKS`), scaled
+0.5x-1.2x by nutrition — real childhood stunting under sustained
+famine. Deliberately distinct from the existing binary `_is_mature`
+gate: that gate still decides WHETHER an agent can reproduce/work/hold
+office at all; `development` is a slower "how fully grown are they"
+reading underneath it. A migrant starts at `development=1.0` (already
+an adult); a newborn starts at 0.0. Real consumer:
+`Population.carrying_capacity`'s labor term now sums each mature/
+healthy adult's own `development` reading instead of a flat +1 — a
+chronologically-mature young adult who grew up through a hard famine
+contributes measurably less labor capacity than a fully-grown peer.
+
+`compute_fertility(age_ticks)` is the real age-based reproductive
+curve: 0 before maturity, rises 0->1.0, plateaus at 1.0, then declines
+to a floor of 0.15 (never exactly 0, matching every other reproduction
+gate's "meaningful, never a hard block" scale). Real consumer:
+`_maybe_reproduce`'s roll is now also scaled by the courting pair's
+average fertility, stacking with `stress`'s existing psychological-
+drag factor — two independent real signals on one mechanic.
+
+UI: a conditional "still growing" line and a conditional plain-
+language fertility reading, both in the NPC inspector's Personality
+section.
+
+Verified: direct unit tests (fertility curve at every phase boundary,
+the property, development's round-trip), deterministic threshold-
+crossing tests for both real consumers, a real 5000-tick LLM-disabled
+engine soak confirming organic formation through production + clean
+round-trip, a clean `scripts/verify_native_soak.py` run, and a real
+dev server + Playwright pass confirming both new inspector lines
+render correctly.
+
 ## Current state (v1.34.40)
 
 Explicit user instruction: "Continue A14." Third of the six named

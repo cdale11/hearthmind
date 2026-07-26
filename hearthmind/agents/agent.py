@@ -1102,6 +1102,114 @@ attack`'s existing native-or-fallback `kill_chance` computation — zero
 native/fallback parity risk, same "modulate after the fact" pattern
 `stress`'s reproduction-penalty already uses."""
 
+# --- A14: development — continuous physical/cognitive growth ---------------
+
+DEVELOPMENT_BASELINE = 0.0
+"""A14 "Layered organism biology," fourth slice (roadmap Tier 1 item
+8): the doc's own fourth named subsystem, "development." `Agent.
+development` is a real continuous 0..1 growth-accumulator — 0.0 at
+birth, same neutral-floor convention `stress`/`injury` use. Distinct
+from the existing binary `_is_mature` gate (age_ticks >= MATURITY_
+TICKS): that gate still decides WHETHER an agent can reproduce/work/
+hold office at all; `development` is a slower-resolving "how fully
+grown are they" reading underneath it — a freshly-matured young adult
+isn't necessarily as fully developed as a peer who had an easier
+childhood."""
+
+DEVELOPMENT_FULL_TICKS = int(MATURITY_TICKS * 1.2)
+"""Age (in ticks, well-fed) at which `Agent.development` reaches 1.0 —
+deliberately a bit past `MATURITY_TICKS` (4,800 vs. 4,000): physical/
+cognitive development in reality continues into young adulthood past
+the age of reproductive/social maturity, so a freshly-matured agent is
+already substantially (not fully) grown."""
+
+DEVELOPMENT_GROWTH_PER_TICK = 1.0 / DEVELOPMENT_FULL_TICKS
+"""Base per-tick growth accumulated toward `development`'s 1.0 ceiling
+— under perfect nutrition an agent reaches full development at almost
+exactly `DEVELOPMENT_FULL_TICKS` old. A flat accumulator (not an
+exponential-smoothing pull toward an age-derived target, unlike
+`stress`/`injury`) since a body's chronological growth doesn't need a
+physiological lag against itself — the real lag this subsystem models
+is against NUTRITION, below."""
+
+DEVELOPMENT_NUTRITION_WEIGHT = 0.4
+DEVELOPMENT_NUTRITION_MIN_FACTOR = 0.5
+DEVELOPMENT_NUTRITION_MAX_FACTOR = 1.2
+"""Real physiological coupling (same family as `immune_strength`'s
+nutrition pull, applied to a RATE instead of a target like `injury`'s
+recovery): a chronically hungry child's growth accumulates at as
+little as half the base rate (real-world childhood stunting), while a
+consistently well-fed one grows up to 20% faster than the nominal
+schedule — bounded both directions so neither famine nor plenty
+produces an implausible swing."""
+
+DEVELOPMENT_LABOR_WEIGHT = 1.0
+"""The real consumer: `Population.carrying_capacity`'s `working_age`
+term previously counted every mature, healthy adult as a flat +1
+laborer — now sums each one's own `development` (capped at 1.0)
+instead. A chronologically-mature young adult who grew up through a
+hard famine contributes measurably LESS labor capacity than a
+peer who didn't, even though both pass the same binary maturity gate
+— "history becomes physically visible" (CLAUDE.md's own standing
+design priority) applied to demographic capacity, not just narration."""
+
+# --- A14: fertility — continuous age-based reproductive biology ------------
+
+FERTILITY_FLOOR = 0.15
+"""A14 "Layered organism biology," fifth and final slice (roadmap
+Tier 1 item 8): the doc's own sixth named subsystem's real biological
+half — reproductive readiness genuinely varies with age, not just the
+existing social/economic gates (`_maybe_reproduce`'s affinity/surplus/
+hunger-ceiling checks, `stress`'s psychological drag). `Agent.
+fertility` never reaches exactly 0 past this floor — an older couple
+is far less likely to conceive, never flatly incapable, matching the
+"meaningful, never a hard block" scale every other reproduction gate
+in this codebase already uses."""
+
+FERTILITY_RISE_TICKS = 2_000
+FERTILITY_PLATEAU_TICKS = 8_000
+FERTILITY_DECLINE_TICKS = 10_000
+"""The real age-based curve, in ticks past `MATURITY_TICKS` (absolute,
+like `MATURITY_TICKS` itself — real reproductive decline tracks
+chronological age, not what fraction of an individual's own eventual
+randomized lifespan has passed): fertility rises 0 -> 1.0 over
+`FERTILITY_RISE_TICKS` after maturity, holds at 1.0 for `FERTILITY_
+PLATEAU_TICKS`, then declines 1.0 -> `FERTILITY_FLOOR` over
+`FERTILITY_DECLINE_TICKS`, and stays at the floor for the remainder of
+a long life. Computed fresh each tick as a direct function of
+`age_ticks` (no smoothing needed — chronological age has no
+physiological lag against itself, the same reasoning `development`'s
+growth-accumulator docstring gives)."""
+
+FERTILITY_REPRODUCTION_WEIGHT = 1.0
+"""The real consumer: `Population._maybe_reproduce`'s per-tick roll is
+scaled by the courting pair's average fertility, stacking with the
+existing `stress` psychological-drag factor on the same roll — two
+independent real signals (biological readiness, psychological
+burden) modulating one mechanic, not competing single-cause gates."""
+
+
+def compute_fertility(age_ticks: int) -> float:
+    """The real age-based reproductive curve — a pure function of
+    `age_ticks`, recomputed fresh wherever needed (no stored/persisted
+    field, no round-trip surface, no smoothing lag: chronological age
+    has no physiological lag against itself). See `FERTILITY_RISE_
+    TICKS`/`_PLATEAU_TICKS`/`_DECLINE_TICKS`/`FERTILITY_FLOOR`'s
+    docstrings for the curve's shape and rationale."""
+    if age_ticks < MATURITY_TICKS:
+        return 0.0
+    since_maturity = age_ticks - MATURITY_TICKS
+    if since_maturity < FERTILITY_RISE_TICKS:
+        return since_maturity / FERTILITY_RISE_TICKS
+    since_rise = since_maturity - FERTILITY_RISE_TICKS
+    if since_rise < FERTILITY_PLATEAU_TICKS:
+        return 1.0
+    since_plateau = since_rise - FERTILITY_PLATEAU_TICKS
+    if since_plateau < FERTILITY_DECLINE_TICKS:
+        return 1.0 - (since_plateau / FERTILITY_DECLINE_TICKS) * (1.0 - FERTILITY_FLOOR)
+    return FERTILITY_FLOOR
+
+
 GOSSIP_OPINION_CONTAGION = 0.15
 GOSSIP_OPINION_MAX_STEP = 0.05
 """When a rumor names a specific third villager, each listener's
@@ -1932,6 +2040,7 @@ class Agent:
         immune_strength: float = IMMUNE_BASELINE,
         stress: float = STRESS_BASELINE,
         injury: float = INJURY_BASELINE,
+        development: float = DEVELOPMENT_BASELINE,
     ) -> None:
         self.id = id
         self.name = name
@@ -2083,6 +2192,14 @@ class Agent:
         # kill chance — see INJURY_VULNERABILITY_WEIGHT above. Plain
         # Python-side attribute, not native-store-backed.
         self.injury: float = injury
+        # A14 "Layered organism biology," fourth slice: continuous
+        # 0..1 growth accumulator, incremented every tick
+        # (Population._tick_development) at a nutrition-scaled rate
+        # toward DEVELOPMENT_FULL_TICKS. Consumed by Population.
+        # carrying_capacity's labor term — see DEVELOPMENT_LABOR_
+        # WEIGHT above. Plain Python-side attribute, not native-store-
+        # backed.
+        self.development: float = development
         # travel_target: long-range destination that overrides goal-
         # directed movement until reached (fission journeys); a
         # critically hungry traveler still detours for food first.
@@ -2371,6 +2488,13 @@ class Agent:
             s.set_age_ticks(self.id, v)
 
     @property
+    def fertility(self) -> float:
+        """A14's fifth subsystem — a pure derived reading, never
+        stored, never round-tripped. See `compute_fertility`'s own
+        docstring."""
+        return compute_fertility(self.age_ticks)
+
+    @property
     def max_age_ticks(self) -> int:
         s = self._store
         return self._max_age_ticks if s is None else s.get_max_age_ticks(self.id)
@@ -2520,6 +2644,13 @@ class Agent:
             "immune_strength": round(self.immune_strength, 4),
             "stress": round(self.stress, 4),
             "injury": round(self.injury, 4),
+            "development": round(self.development, 4),
+            # A14's fifth slice: a pure derived reading (see the
+            # `fertility` property's own docstring) — included here for
+            # API/broadcast reachability only, never consumed by
+            # `from_dict` (there's no field to restore; it's
+            # recomputed fresh from `age_ticks` on every access).
+            "fertility": round(self.fertility, 4),
         }
 
     @classmethod
@@ -2610,6 +2741,7 @@ class Agent:
             immune_strength=data.get("immune_strength", IMMUNE_BASELINE),
             stress=data.get("stress", STRESS_BASELINE),
             injury=data.get("injury", INJURY_BASELINE),
+            development=data.get("development", DEVELOPMENT_BASELINE),
         )
         for other_id_str, extra in data.get("ledger_extra", {}).items():
             edge = _agent.ledger.get_or_create(int(other_id_str))

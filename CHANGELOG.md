@@ -4,6 +4,95 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.41] — A14 fourth and fifth organism-biology subsystems, `development` and `fertility`
+
+Explicit user instruction: "Do that as well," following v1.34.40's own
+"Next Milestone" note naming both remaining subsystems. Ships
+`development` and `fertility`/reproduction together, closing A14 down
+to only `sleep`.
+
+A deliberate architectural split, unlike every prior A14 slice:
+`development` is a genuine STORED, ticked accumulator (real state with
+history-dependence, round-tripped like `stress`/`injury`); `fertility`
+is a PURE DERIVED `@property` — a direct function of `age_ticks`
+alone, recomputed fresh on every access, never stored, zero
+round-trip surface (chronological age has no physiological lag against
+itself, unlike the emotion/nutrition-driven targets `stress`/`injury`/
+`immune_strength` smooth toward).
+
+`Agent.development` (0.0 at birth, `agents/agent.py`) grows every tick
+(`Population._tick_development`) at `DEVELOPMENT_GROWTH_PER_TICK`
+toward 1.0 by `DEVELOPMENT_FULL_TICKS` (a bit past `MATURITY_TICKS` —
+physical/cognitive growth continues into young adulthood past the age
+of reproductive/social maturity), scaled 0.5x-1.2x by nutrition
+(`DEVELOPMENT_NUTRITION_WEIGHT`/`_MIN_FACTOR`/`_MAX_FACTOR`) — real
+childhood stunting under sustained famine, distinct from `injury`'s
+acute-trauma coupling. Deliberately distinct from the existing binary
+`_is_mature` gate: that gate still decides WHETHER an agent can
+reproduce/work/hold office at all; `development` is a slower "how
+fully grown are they" reading underneath it. A migrant
+(`_maybe_welcome_migrant`) now starts at `development=1.0` (an
+already-grown adult arriving from outside, not a homegrown child); a
+newborn correctly inherits the 0.0 default; founders' existing
+`age_ticks=0` default is self-consistent with it (left untouched, an
+unrelated pre-existing quirk). Real consumer:
+`Population.carrying_capacity`'s `working_age` labor term now sums
+each mature/healthy adult's own `development` reading (capped 1.0,
+`DEVELOPMENT_LABOR_WEIGHT`) instead of counting a flat +1 — a
+chronologically-mature young adult who grew up through a hard famine
+contributes measurably less labor capacity than a fully-grown peer,
+even past the same binary maturity gate. "History becomes physically
+visible" (CLAUDE.md's own standing design priority) applied to
+demographic capacity, not just narration.
+
+`compute_fertility(age_ticks)` is the real age-based reproductive
+curve: 0 before `MATURITY_TICKS`, rises 0->1.0 over `FERTILITY_
+RISE_TICKS` (2,000 ticks) after maturity, holds at 1.0 for `FERTILITY_
+PLATEAU_TICKS` (8,000), then declines 1.0->`FERTILITY_FLOOR` (0.15,
+never exactly 0 — "meaningful, never a hard block," matching every
+other reproduction gate in the codebase) over `FERTILITY_DECLINE_
+TICKS` (10,000). Absolute tick offsets from `MATURITY_TICKS`, matching
+`MATURITY_TICKS`'s own convention — real reproductive decline tracks
+chronological age, not an individual's own randomized eventual
+lifespan. Real consumer: `Population._maybe_reproduce`'s roll is now
+also scaled by the courting pair's average `fertility`
+(`FERTILITY_REPRODUCTION_WEIGHT`), stacking with `stress`'s existing
+psychological-drag factor on the same roll — two independent real
+signals (biological readiness, psychological burden) modulating one
+mechanic, not competing single-cause gates.
+
+`Agent.to_dict()` includes `fertility` for API/broadcast reachability
+only (never consumed by `from_dict` — there's no field to restore, it
+recomputes fresh from `age_ticks` on every access).
+
+UI surfacing (same batch): a conditional "still growing (development
+N)" line while `development < 1.0` (nothing shown once fully grown,
+same "don't clutter with a settled fact" treatment `injury`'s
+uninjured case gets), and a conditional "in their prime years / past
+their prime / well past childbearing years (fertility N)" line once
+mature, both in the NPC inspector's Personality section.
+
+Verified: direct unit tests for `compute_fertility` (curve shape at
+every phase boundary: pre-maturity, rise-midpoint, plateau start/mid,
+decline start/midpoint, floor), the `Agent.fertility` property, and
+`development`'s `to_dict`/`from_dict` round-trip; a deterministic
+threshold-crossing test for both real consumers (a low- vs.
+fully-developed population yielding measurably different
+`carrying_capacity`, and a young vs. old pair's fertility average
+differing as expected); a real 5000-tick LLM-disabled engine soak
+(async, production `_tick_once` loop) confirmed `development` grows
+organically for real agents through the actual production path
+(newborns starting near 0.0, values bounded [0,1]) and both fields
+round-trip cleanly through `to_dict`/`from_dict` (`fertility`
+recomputing identically from `age_ticks` on reload, as designed);
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+pure Python, no native module touched; a real dev server + Playwright
+pass confirmed the NPC inspector renders both new lines correctly
+(present and correctly labeled at forced values, absent for a
+fully-grown/zero-fertility agent).
+
+This closes A14 down to a single remaining named subsystem: `sleep`.
+
 ## [1.34.40] — A14 third organism-biology subsystem, `injury-recovery`
 
 Explicit user instruction: "Continue A14," following v1.34.37's

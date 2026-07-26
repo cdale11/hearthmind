@@ -3022,6 +3022,26 @@ function renderNpcInspector() {
   const injuryHtml = injury > 0.02
     ? `<div class="muted">injury: ${injury >= 0.5 ? "badly hurt" : "healing"} (${injury.toFixed(2)})</div>`
     : "";
+  // A14 "Layered organism biology," fourth slice: a plain-language
+  // reading of the continuous development accumulator — grows from
+  // birth toward 1.0, faster when well-fed, slower under chronic
+  // hunger. Only shown while still growing; a fully-grown adult
+  // (>= 1.0) shows nothing, same "don't clutter with a settled fact"
+  // treatment injury's healthy-agent case gets.
+  const development = agent.development ?? 1.0;
+  const developmentHtml = development < 1.0
+    ? `<div class="muted">still growing (development ${development.toFixed(2)})</div>`
+    : "";
+  // A14 "Layered organism biology," fifth slice: a plain-language
+  // reading of the derived fertility curve — rises after maturity,
+  // plateaus, then gradually declines with age. Shown only once
+  // mature (fertility is a real 0 before that, same "not yet
+  // relevant" treatment as injury/development's conditionals).
+  const fertility = agent.fertility ?? 0.0;
+  const fertilityLabel = fertility >= 0.75 ? "in their prime years" : fertility >= 0.3 ? "past their prime" : "well past childbearing years";
+  const fertilityHtml = fertility > 0.0
+    ? `<div class="muted">${fertilityLabel} (fertility ${fertility.toFixed(2)})</div>`
+    : "";
   const emotions = agent.emotions || {};
   const emotionMeta = {
     fear: { label: "afraid", icon: "😨" },
@@ -3130,6 +3150,8 @@ function renderNpcInspector() {
       ${immuneHtml}
       ${stressHtml}
       ${injuryHtml}
+      ${developmentHtml}
+      ${fertilityHtml}
     </div>
     <div class="npc-section">
       <h4>Skills</h4>

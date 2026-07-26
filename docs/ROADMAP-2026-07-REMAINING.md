@@ -1152,10 +1152,11 @@ forest reclaim). Real gaps, roughly by leverage:
    below for the full audit.
 7. **A15** — wildlife/animal genetics (humans-only today); bridge to
    `world.wildlife.SpeciesVariant`, which stays purely descriptive.
-8. **A14** — **third of the six named organism-biology subsystems
-   shipped, v1.34.40** (`stress` v1.34.37, `injury-recovery` v1.34.40,
-   joining `immune_strength`) — see the item's own entry below for
-   detail. Reproduction, development, and sleep remain open.
+8. **A14** — **fifth of the six named organism-biology subsystems
+   shipped, v1.34.41** (`development` and `fertility`/reproduction,
+   joining `immune_strength`, `stress` v1.34.37, `injury-recovery`
+   v1.34.40) — see the item's own entry below for detail. Only `sleep`
+   remains open.
 9. **A18** — a real authoring system for new composite reactions (today
    exactly one hand-authored `CompositeReaction` exists); the doc's own
    "raid" example scoped down to relationship-rupture, a real combat/
@@ -1581,10 +1582,59 @@ mechanical, a genuine compounding-danger feedback loop distinct from
 healing/badly hurt" line in the NPC inspector, shown only once an
 agent has actually been hurt.
 
-Reproduction, development, and sleep (three of the spec's six named
-subsystems) remain open. A genetic contribution to baseline `immune_
-strength` (today: nutrition/rest only) is a flagged future connection
-to A15.
+**Fourth and fifth subsystems shipped (v1.34.41): `development` and
+`fertility`.** A deliberate architectural split, unlike every prior
+slice: `development` is a genuine STORED, ticked accumulator (real
+state with history-dependence, round-tripped like `stress`/`injury`);
+`fertility` is a PURE DERIVED `@property` — a direct function of
+`age_ticks` alone, recomputed fresh on every access, never stored,
+zero round-trip surface (chronological age has no physiological lag
+against itself, unlike the emotion/nutrition-driven targets `stress`/
+`injury`/`immune_strength` smooth toward).
+
+`Agent.development` (0.0 at birth) grows every tick
+(`Population._tick_development`) at `DEVELOPMENT_GROWTH_PER_TICK`
+toward 1.0 by `DEVELOPMENT_FULL_TICKS` (a bit past `MATURITY_TICKS` —
+physical/cognitive growth continues into young adulthood past the age
+of reproductive/social maturity), scaled 0.5x-1.2x by nutrition
+(`DEVELOPMENT_NUTRITION_WEIGHT`) — real childhood stunting under
+sustained famine, distinct from `injury`'s acute-trauma coupling.
+Deliberately distinct from the existing binary `_is_mature` gate: that
+gate still decides WHETHER an agent can reproduce/work/hold office at
+all; `development` is a slower "how fully grown are they" reading
+underneath it. A migrant (`_maybe_welcome_migrant`) starts at
+`development=1.0` (an already-grown adult arriving from outside, not a
+homegrown child); a newborn correctly inherits the 0.0 default. Real
+consumer: `Population.carrying_capacity`'s `working_age` labor term
+now sums each mature/healthy adult's own `development` reading instead
+of counting a flat +1 — a chronologically-mature young adult who grew
+up through a hard famine contributes measurably less labor capacity
+than a fully-grown peer, even past the same binary maturity gate.
+"History becomes physically visible" (CLAUDE.md's own standing design
+priority) applied to demographic capacity, not just narration.
+
+`compute_fertility(age_ticks)` is the real age-based reproductive
+curve: 0 before `MATURITY_TICKS`, rises 0->1.0 over `FERTILITY_
+RISE_TICKS` after maturity, holds at 1.0 for `FERTILITY_PLATEAU_
+TICKS`, then declines 1.0->`FERTILITY_FLOOR` (0.15, never exactly 0 —
+"meaningful, never a hard block," matching every other reproduction
+gate in the codebase) over `FERTILITY_DECLINE_TICKS`. Absolute tick
+offsets from `MATURITY_TICKS`, matching `MATURITY_TICKS`'s own
+convention — real reproductive decline tracks chronological age, not
+an individual's own randomized eventual lifespan. Real consumer:
+`Population._maybe_reproduce`'s roll is now also scaled by the
+courting pair's average `fertility`, stacking with `stress`'s existing
+psychological-drag factor on the same roll — two independent real
+signals (biological readiness, psychological burden) modulating one
+mechanic, not competing single-cause gates. UI: a conditional "still
+growing (development N)" line while `development < 1.0`, and a
+conditional "in their prime years / past their prime / well past
+childbearing years (fertility N)" line once mature, both in the NPC
+inspector's Personality section.
+
+Only `sleep` (the spec's sixth named subsystem) remains open. A
+genetic contribution to baseline `immune_strength` (today:
+nutrition/rest only) is a flagged future connection to A15.
 
 ### A15 — Genetic inheritance
 Wildlife/animal genetics (scoped to humans this pass). `world.wildlife.

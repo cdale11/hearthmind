@@ -82,10 +82,17 @@ from hearthmind.agents.agent import (
     DEATHBED_SECRET_RUMOR_CHANCE,
     DEATHBED_SECRET_RUMOR_LISTENER_COUNT,
     DEBT_PRUNE_THRESHOLD,
+    DEVELOPMENT_BASELINE,
+    DEVELOPMENT_GROWTH_PER_TICK,
+    DEVELOPMENT_LABOR_WEIGHT,
+    DEVELOPMENT_NUTRITION_MAX_FACTOR,
+    DEVELOPMENT_NUTRITION_MIN_FACTOR,
+    DEVELOPMENT_NUTRITION_WEIGHT,
     DIALOGUE_MISUNDERSTANDING_TRUST_PENALTY,
     DIALOGUE_SENTIMENT_DELTA,
     DIALOGUE_TOPICS_RING_MAX,
     ELDER_AGE_FRACTION,
+    FERTILITY_REPRODUCTION_WEIGHT,
     EMOTION_ANGER,
     EMOTION_BIRTH_JOY_BUMP,
     EMOTION_DEATH_GRIEF_BUMP,
@@ -2185,6 +2192,9 @@ class Population:
         # A14 "Layered organism biology," third slice: injury heals
         # from the same just-updated hunger/energy state.
         self._tick_injury_recovery(self.agents)
+        # A14 "Layered organism biology," fourth slice: development
+        # grows from the same just-updated hunger state.
+        self._tick_development(self.agents)
         disease_events, died_of_disease = self._tick_disease(
             self.agents, by_position, hospital_settlement_ids, primary.temperament, rng, tick,
         )
@@ -2659,6 +2669,29 @@ class Population:
             rest_factor = 1.0 + (agent.energy - 0.5) * 2.0 * INJURY_RECOVERY_ENERGY_WEIGHT
             rate = INJURY_RECOVERY_RATE * (nutrition_factor + rest_factor) / 2.0
             agent.injury = clamp(agent.injury - rate, 0.0, 1.0)
+
+    @staticmethod
+    def _tick_development(agents: list[Agent]) -> None:
+        """A14 "Layered organism biology," fourth slice (roadmap Tier 1
+        item 8): accumulates every agent's continuous `development`
+        toward 1.0 each tick at `DEVELOPMENT_GROWTH_PER_TICK`, scaled
+        up to 1.2x by good nutrition and down to 0.5x under chronic
+        hunger (`DEVELOPMENT_NUTRITION_WEIGHT`) — real childhood
+        stunting under sustained famine, distinct from `injury`'s
+        acute-trauma coupling. Runs for every agent regardless of age
+        (a fully-grown adult just stays pinned at 1.0 once reached).
+        Real consumer: `carrying_capacity`'s labor term. Pure Python,
+        O(agents), same cost class as `_tick_stress`."""
+        for agent in agents:
+            if agent.development >= 1.0:
+                continue
+            nutrition_factor = clamp(
+                1.0 + (0.5 - agent.hunger) * 2.0 * DEVELOPMENT_NUTRITION_WEIGHT,
+                DEVELOPMENT_NUTRITION_MIN_FACTOR, DEVELOPMENT_NUTRITION_MAX_FACTOR,
+            )
+            agent.development = clamp(
+                agent.development + DEVELOPMENT_GROWTH_PER_TICK * nutrition_factor, 0.0, 1.0,
+            )
 
     @staticmethod
     def _immune_modulation_factor(agent: Agent) -> float:
@@ -4439,7 +4472,17 @@ class Population:
             sick_fraction * 2.0 + (0.3 if predator_pressure else 0.0)
         ) * CARRYING_CAPACITY_SECURITY_WEIGHT
 
-        working_age = sum(1 for a in members if self._is_mature(a) and self._is_healthy(a))
+        # A14 "Layered organism biology," fourth slice: each mature,
+        # healthy adult contributes their own real `development`
+        # reading (capped 1.0) instead of a flat +1 — a chronologically
+        # mature young adult who grew up through a hard famine
+        # contributes measurably less labor capacity than a fully-
+        # grown peer, even though both pass the same binary maturity
+        # gate. See DEVELOPMENT_LABOR_WEIGHT's docstring.
+        working_age = sum(
+            min(1.0, a.development) * DEVELOPMENT_LABOR_WEIGHT
+            for a in members if self._is_mature(a) and self._is_healthy(a)
+        )
         labor_fraction = (working_age / total) if total else 1.0
         labor_term = (labor_fraction - 0.5) * CARRYING_CAPACITY_LABOR_WEIGHT
 
@@ -4571,9 +4614,15 @@ class Population:
                 # reproduction roll — see STRESS_REPRODUCTION_PENALTY_
                 # WEIGHT's docstring.
                 avg_stress = (a.stress + b.stress) / 2.0
+                # A14 "Layered organism biology," fifth slice: real
+                # age-based reproductive biology stacks with the
+                # psychological stress drag above — two independent
+                # signals on the same roll, not competing gates. See
+                # FERTILITY_REPRODUCTION_WEIGHT's docstring.
+                avg_fertility = (a.fertility + b.fertility) / 2.0
                 effective_chance = REPRODUCTION_CHANCE_PER_TICK * (
                     1.0 - avg_stress * STRESS_REPRODUCTION_PENALTY_WEIGHT
-                )
+                ) * avg_fertility * FERTILITY_REPRODUCTION_WEIGHT
                 if rng.random() >= effective_chance:
                     continue
 
@@ -5143,6 +5192,12 @@ class Population:
         migrant = Agent(
             id=self._next_id, name=name, x=x, y=y, age_ticks=MATURITY_TICKS,
             max_age_ticks=rng.randint(MIN_LIFESPAN_TICKS, MAX_LIFESPAN_TICKS),
+            # A14 "development": a migrant is an already-grown adult
+            # arriving from outside, not a homegrown child — unlike a
+            # newborn (development=0.0 default), they start fully
+            # developed, matching their explicit age_ticks=MATURITY_
+            # TICKS above.
+            development=1.0,
         )
         self._next_id += 1
         self._adopt(migrant)
