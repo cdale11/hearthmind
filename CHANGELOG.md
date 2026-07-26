@@ -4,6 +4,50 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.37] — Tier 1: A14 second organism-biology subsystem, `stress`
+
+Explicit user instruction: "Continue as many remaining tier 1 items as
+possible in this turn." Third slice this turn (following v1.34.36's
+`traffic`): A14's second named subsystem, `stress` — same "real
+continuous state, coupled to already-real signals, modulating not
+replacing an existing tuned mechanism" shape `immune_strength`
+established for A14's first slice.
+
+`Agent.stress` (0..1, `agents/agent.py`) drifts toward a target built
+from already-tracked acute-threat signals via exponential smoothing
+(`STRESS_ADAPT_RATE=0.03`, faster than `IMMUNE_ADAPT_RATE` — a real
+stress response is a much quicker physiological reaction than immune
+adaptation): current fear/grief emotions (`STRESS_FEAR_WEIGHT=0.5`/
+`STRESS_GRIEF_WEIGHT=0.4`), a hunger crisis at `CRITICAL_HUNGER_
+THRESHOLD` (`STRESS_HUNGER_CRISIS_PULL=0.3`), active illness
+(`STRESS_SICKNESS_PULL=0.2`), and a hardened feud in `relationship_
+flags` (`STRESS_FEUD_PULL=0.2`) — `Population._tick_stress`, run every
+tick right after `_tick_immune_strength`. Real consumer:
+`Population._maybe_reproduce`'s per-tick reproduction roll is scaled
+by `1.0 - avg_stress * STRESS_REPRODUCTION_PENALTY_WEIGHT` (0.5) for
+the courting pair — a fully stressed couple reproduces at half the
+ordinary rate, never zero. "Chronic stress suppresses fertility" is a
+real, bounded, never-dominant physiological coupling, the same scale
+every other reproduction gate (affinity threshold, settlement hunger
+ceiling) already uses.
+
+UI surfacing (same batch): a plain-language "stress: at ease / on edge
+/ under real strain" reading in the NPC inspector's Personality
+section, right after the existing immune-constitution line
+(`interface/static/app.js`).
+
+Verified: direct unit tests for `_tick_stress` (a calm agent stays at
+0, fear/grief/hunger-crisis/sickness/feud each converge to their
+correct target under repeated ticks, round-trip through `to_dict`/
+`from_dict`, the reproduction-penalty formula); a real 4000-tick
+LLM-disabled engine soak (async, production `_tick_once` loop)
+confirmed stress forms organically within real bounds and round-trips
+cleanly; `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical — pure Python, no native module touched (deliberately,
+same parity-safety discipline `SpeciesVariant`/A15 already flagged); a
+real dev server + Playwright pass confirmed the NPC inspector renders
+the new stress line with a live, real (non-zero) value.
+
 ## [1.34.36] — Tier 1: A1/A2 fourth field, `traffic`
 
 Explicit user instruction: "Tier 1 as many slices as you can build in

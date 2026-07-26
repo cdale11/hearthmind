@@ -1021,6 +1021,48 @@ starving, exhausted one is measurably more vulnerable. Bounded to a
 — a real, felt effect, never so wide it destabilizes the whole
 disease system's existing calibration."""
 
+# --- A14: stress — continuous, coupled to real acute threats ---------------
+
+STRESS_BASELINE = 0.0
+"""A14 "Layered organism biology," second slice (roadmap Tier 1 item
+8): the doc's own second named subsystem, "stress." `Agent.stress` is
+a real continuous 0..1 state, distinct from any single flat-chance
+roll — 0.0 (calm) is the neutral floor a well-off agent settles at;
+unlike `immune_strength`'s centered baseline, stress has no "too calm"
+penalty, so 0.0 is a genuine rest state, not a midpoint."""
+
+STRESS_FEAR_WEIGHT = 0.5
+STRESS_GRIEF_WEIGHT = 0.4
+"""How strongly an agent's own CURRENT fear/grief emotions (already
+tracked, `Agent.emotions`) pull their stress TARGET upward — acute
+threat/loss reads as acute stress, the direct real-world coupling."""
+
+STRESS_HUNGER_CRISIS_PULL = 0.3
+STRESS_SICKNESS_PULL = 0.2
+STRESS_FEUD_PULL = 0.2
+"""Additional flat pulls toward the stress target from three other
+already-real conditions: hunger past `CRITICAL_HUNGER_THRESHOLD`
+(a genuine survival crisis), an active bout of illness (`sick_ticks`
+> 0), and standing in a hardened feud (`relationship_flags` contains
+`"feud"`, Tier 0.1's decay-lock) — each a real, already-tracked source
+of chronic strain, not a new detection mechanism."""
+
+STRESS_ADAPT_RATE = 0.03
+"""Exponential-smoothing rate `stress` closes the gap toward its
+target each tick — faster than `IMMUNE_ADAPT_RATE` (0.01): a real
+stress response is a much quicker physiological reaction than immune
+adaptation, felt within days rather than a season."""
+
+STRESS_REPRODUCTION_PENALTY_WEIGHT = 0.5
+"""The real consumer: `Population._maybe_reproduce`'s per-tick
+reproduction roll is scaled down by `1.0 - avg_stress *
+STRESS_REPRODUCTION_PENALTY_WEIGHT` for the courting pair — a fully
+stressed couple (both at `stress=1.0`) reproduces at half the ordinary
+rate, never zero. "Chronic stress suppresses fertility" is a real,
+bounded, never-dominant physiological coupling — the same "meaningful,
+never a hard block" scale every other reproduction gate already uses
+(REPRODUCTION_AFFINITY_THRESHOLD, the settlement hunger ceiling)."""
+
 GOSSIP_OPINION_CONTAGION = 0.15
 GOSSIP_OPINION_MAX_STEP = 0.05
 """When a rumor names a specific third villager, each listener's
@@ -1849,6 +1891,7 @@ class Agent:
         extreme_event_count: int = 0,
         genome: dict[str, tuple[float, float]] | None = None,
         immune_strength: float = IMMUNE_BASELINE,
+        stress: float = STRESS_BASELINE,
     ) -> None:
         self.id = id
         self.name = name
@@ -1985,6 +2028,13 @@ class Agent:
         # attribute, not native-store-backed (same as `traits`/`genome`
         # above) — zero native/fallback parity risk.
         self.immune_strength: float = immune_strength
+        # A14 "Layered organism biology," second slice: continuous 0..1
+        # stress state, coupled to real fear/grief emotions plus hunger
+        # crisis/sickness/feud state each tick (Population._tick_stress)
+        # and modulating (never replacing) the reproduction roll — see
+        # STRESS_REPRODUCTION_PENALTY_WEIGHT above. Plain Python-side
+        # attribute, not native-store-backed (same as `immune_strength`).
+        self.stress: float = stress
         # travel_target: long-range destination that overrides goal-
         # directed movement until reached (fission journeys); a
         # critically hungry traveler still detours for food first.
@@ -2420,6 +2470,7 @@ class Agent:
                 trait: [round(a, 4), round(b, 4)] for trait, (a, b) in self.genome.items()
             },
             "immune_strength": round(self.immune_strength, 4),
+            "stress": round(self.stress, 4),
         }
 
     @classmethod
@@ -2508,6 +2559,7 @@ class Agent:
                 for trait, pair in data.get("genome", {}).items()
             },
             immune_strength=data.get("immune_strength", IMMUNE_BASELINE),
+            stress=data.get("stress", STRESS_BASELINE),
         )
         for other_id_str, extra in data.get("ledger_extra", {}).items():
             edge = _agent.ledger.get_or_create(int(other_id_str))

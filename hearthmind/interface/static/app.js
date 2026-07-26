@@ -2986,6 +2986,12 @@ function renderNpcInspector() {
   const immuneStrength = agent.immune_strength ?? 0.5;
   const immuneLabel = immuneStrength >= 0.65 ? "robust" : immuneStrength <= 0.35 ? "run down" : "steady";
   const immuneHtml = `<div class="muted">immune constitution: ${immuneLabel} (${immuneStrength.toFixed(2)})</div>`;
+  // A14 "Layered organism biology," second slice: a plain-language
+  // reading of the continuous stress state — rises with fear/grief,
+  // hunger crisis, sickness, or a hardened feud; eases as those pass.
+  const stress = agent.stress ?? 0.0;
+  const stressLabel = stress >= 0.6 ? "under real strain" : stress >= 0.25 ? "on edge" : "at ease";
+  const stressHtml = `<div class="muted">stress: ${stressLabel} (${stress.toFixed(2)})</div>`;
   const emotions = agent.emotions || {};
   const emotionMeta = {
     fear: { label: "afraid", icon: "😨" },
@@ -3092,6 +3098,7 @@ function renderNpcInspector() {
       ${traitsHtml}
       ${genomeHtml}
       ${immuneHtml}
+      ${stressHtml}
     </div>
     <div class="npc-section">
       <h4>Skills</h4>

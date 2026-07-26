@@ -122,6 +122,14 @@ from hearthmind.agents.agent import (
     IMMUNE_MODULATION_SENSITIVITY,
     IMMUNE_STRENGTH_FLOOR,
     SICKNESS_IMMUNE_DRAIN_PER_TICK,
+    STRESS_ADAPT_RATE,
+    STRESS_BASELINE,
+    STRESS_FEAR_WEIGHT,
+    STRESS_FEUD_PULL,
+    STRESS_GRIEF_WEIGHT,
+    STRESS_HUNGER_CRISIS_PULL,
+    STRESS_REPRODUCTION_PENALTY_WEIGHT,
+    STRESS_SICKNESS_PULL,
     GOSSIP_OPINION_MAX_STEP,
     GRIEF_ENERGY_PENALTY,
     HUNGER_RATE,
@@ -2154,6 +2162,9 @@ class Population:
         # hunger/energy reading (from _update_needs above) is what
         # feeds it, not a stale value from last tick.
         self._tick_immune_strength(self.agents)
+        # A14 "Layered organism biology," second slice: stress reads the
+        # same just-updated emotions/hunger/sick_ticks state.
+        self._tick_stress(self.agents)
         disease_events, died_of_disease = self._tick_disease(
             self.agents, by_position, hospital_settlement_ids, primary.temperament, rng, tick,
         )
@@ -2565,6 +2576,32 @@ class Population:
             if agent.sick_ticks > 0:
                 agent.immune_strength -= SICKNESS_IMMUNE_DRAIN_PER_TICK
             agent.immune_strength = clamp(agent.immune_strength, IMMUNE_STRENGTH_FLOOR, 1.0)
+
+    @staticmethod
+    def _tick_stress(agents: list[Agent]) -> None:
+        """A14 "Layered organism biology," second slice (roadmap Tier 1
+        item 8): drifts every agent's continuous `stress` toward a
+        target built from real, already-tracked acute-threat signals —
+        current fear/grief emotions, a hunger crisis
+        (`CRITICAL_HUNGER_THRESHOLD`), active illness (`sick_ticks`),
+        and a hardened feud (`relationship_flags`) — via exponential
+        smoothing (`STRESS_ADAPT_RATE`). Pure Python, reads only plain
+        (non-native-store-backed) attributes — O(agents), same cost
+        class as `_tick_immune_strength`."""
+        for agent in agents:
+            target = (
+                agent.emotions.get(EMOTION_FEAR, 0.0) * STRESS_FEAR_WEIGHT
+                + agent.emotions.get(EMOTION_GRIEF, 0.0) * STRESS_GRIEF_WEIGHT
+            )
+            if agent.hunger >= CRITICAL_HUNGER_THRESHOLD:
+                target += STRESS_HUNGER_CRISIS_PULL
+            if agent.sick_ticks > 0:
+                target += STRESS_SICKNESS_PULL
+            if any(flag == "feud" for flag in agent.relationship_flags.values()):
+                target += STRESS_FEUD_PULL
+            target = clamp(target, 0.0, 1.0)
+            agent.stress += (target - agent.stress) * STRESS_ADAPT_RATE
+            agent.stress = clamp(agent.stress, 0.0, 1.0)
 
     @staticmethod
     def _immune_modulation_factor(agent: Agent) -> float:
@@ -4472,7 +4509,15 @@ class Population:
                 )
                 if not has_surplus:
                     continue
-                if rng.random() >= REPRODUCTION_CHANCE_PER_TICK:
+                # A14 "Layered organism biology," second slice: chronic
+                # stress is a real, bounded (never total) drag on the
+                # reproduction roll — see STRESS_REPRODUCTION_PENALTY_
+                # WEIGHT's docstring.
+                avg_stress = (a.stress + b.stress) / 2.0
+                effective_chance = REPRODUCTION_CHANCE_PER_TICK * (
+                    1.0 - avg_stress * STRESS_REPRODUCTION_PENALTY_WEIGHT
+                )
+                if rng.random() >= effective_chance:
                     continue
 
                 child_name = self._unique_name(rng, extra_taken=newborn_names)

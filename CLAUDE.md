@@ -545,6 +545,28 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.37)
+
+Explicit user instruction: "Continue as many remaining tier 1 items as
+possible in this turn." Third slice this turn: A14's second organism-
+biology subsystem, `stress` (following v1.34.36's `traffic`).
+
+`Agent.stress` (0..1) drifts toward a target from real, already-
+tracked acute-threat signals — fear/grief emotions, a hunger crisis,
+active illness, a hardened feud — same "continuous state modulating an
+existing tuned mechanism, never replacing it" shape `immune_strength`
+established. Real consumer: `_maybe_reproduce`'s roll is scaled down
+by up to 50% for a fully-stressed courting pair — "chronic stress
+suppresses fertility," bounded, never a hard block. UI: a plain-
+language stress reading in the NPC inspector, next to the existing
+immune-constitution line.
+
+Verified via direct unit tests (target convergence per driver, round-
+trip, the reproduction-penalty formula), a real 4000-tick LLM-disabled
+engine soak confirming organic formation + clean round-trip, a clean
+`scripts/verify_native_soak.py` run, and a real dev server + Playwright
+pass confirming the inspector renders a live value.
+
 ## Current state (v1.34.36)
 
 Explicit user instruction: "Tier 1 as many slices as you can build in

@@ -1147,9 +1147,10 @@ forest reclaim). Real gaps, roughly by leverage:
    updates instead of discrete "fires."
 7. **A15** — wildlife/animal genetics (humans-only today); bridge to
    `world.wildlife.SpeciesVariant`, which stays purely descriptive.
-8. **A14** — the other five named organism-biology subsystems (stress,
-   reproduction, development, injury-recovery, sleep) beyond immune
-   response.
+8. **A14** — **first of the other five named organism-biology
+   subsystems shipped, v1.34.37** (`stress`) — see the item's own
+   entry below for detail. Reproduction, development, injury-recovery,
+   and sleep remain open.
 9. **A18** — a real authoring system for new composite reactions (today
    exactly one hand-authored `CompositeReaction` exists); the doc's own
    "raid" example scoped down to relationship-rupture, a real combat/
@@ -1478,9 +1479,26 @@ mutates a standing building's actual material — remains unbuilt; today
 ships the query half only (`discover_reactions`, read-only).
 
 ### A14 — Layered organism biology
-Stress, reproduction, development, injury-recovery, and sleep (five of
-the spec's six named subsystems) remain open — only immune response
-(the doc's own worked example) shipped. A genetic contribution to
+**Second subsystem shipped (v1.34.37): `stress`.** Same "real
+continuous 0..1 state, coupled to already-real signals, modulating —
+never replacing — an existing tuned mechanism" shape `immune_strength`
+established. `Agent.stress` drifts (`STRESS_ADAPT_RATE=0.03`) toward a
+target built from real, already-tracked acute-threat signals: current
+fear/grief emotions (`STRESS_FEAR_WEIGHT`/`STRESS_GRIEF_WEIGHT`), a
+hunger crisis (`CRITICAL_HUNGER_THRESHOLD`), active illness
+(`sick_ticks`), and a hardened feud (`relationship_flags`) —
+`Population._tick_stress`. Real consumer: `Population._maybe_
+reproduce`'s per-tick reproduction roll is scaled down by `1.0 -
+avg_stress * STRESS_REPRODUCTION_PENALTY_WEIGHT` (0.5) for the
+courting pair — a fully stressed couple reproduces at half the
+ordinary rate, never zero. "Chronic stress suppresses fertility,"
+bounded and never dominant, same scale every other reproduction gate
+already uses. UI: a plain-language "stress: at ease/on edge/under real
+strain" line in the NPC inspector's Personality section, alongside the
+existing immune-constitution reading.
+
+Reproduction, development, injury-recovery, and sleep (four of the
+spec's six named subsystems) remain open. A genetic contribution to
 baseline `immune_strength` (today: nutrition/rest only) is a flagged
 future connection to A15.
 
