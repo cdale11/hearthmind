@@ -545,6 +545,34 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.42)
+
+Explicit user instruction: "Finish A14" — implements the sixth and
+final named organism-biology subsystem, `sleep`, closing A14 entirely.
+
+`Agent.sleep_debt` (0.0 = well-rested) is deliberately distinct from
+the existing `energy` field: `energy` already swings tick-to-tick with
+activity/rest, but `sleep_debt` tracks a much slower-resolving chronic
+deficit — it drifts toward `1.0 - energy` at a rate slower than
+`immune_strength`'s own adaptation, so a single tired tick barely
+moves it; only sustained low energy across many ticks builds real
+debt. Real consumer: `_tick_immune_strength`'s target gains a further
+drag from `sleep_debt`, on top of (not replacing) its existing
+momentary hunger/energy pull — "chronic sleep deprivation wears down
+the immune system in a way a single tired day doesn't" is now
+mechanical.
+
+UI: a conditional "under-rested/chronically sleep-deprived" line in
+the NPC inspector's Personality section, shown only once real debt has
+accumulated.
+
+Verified: direct unit tests (drift direction, slow convergence,
+bounds, round-trip), a deterministic threshold-crossing test of the
+immune_strength consumer, a real 5000-tick LLM-disabled engine soak
+confirming organic formation through production + clean round-trip, a
+clean `scripts/verify_native_soak.py` run, and a real dev server +
+Playwright pass confirming the inspector line renders correctly.
+
 ## Current state (v1.34.41)
 
 Explicit user instruction: "Do that as well" — implements A14's

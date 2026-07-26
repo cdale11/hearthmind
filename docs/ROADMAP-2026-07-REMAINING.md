@@ -1152,11 +1152,11 @@ forest reclaim). Real gaps, roughly by leverage:
    below for the full audit.
 7. **A15** — wildlife/animal genetics (humans-only today); bridge to
    `world.wildlife.SpeciesVariant`, which stays purely descriptive.
-8. **A14** — **fifth of the six named organism-biology subsystems
-   shipped, v1.34.41** (`development` and `fertility`/reproduction,
-   joining `immune_strength`, `stress` v1.34.37, `injury-recovery`
-   v1.34.40) — see the item's own entry below for detail. Only `sleep`
-   remains open.
+8. **A14 — CLOSED, v1.34.42.** All six named organism-biology
+   subsystems shipped (`immune_strength`, `stress` v1.34.37,
+   `injury-recovery` v1.34.40, `development`/`fertility` v1.34.41,
+   `sleep`/`sleep_debt` v1.34.42) — see the item's own entry below for
+   detail.
 9. **A18** — a real authoring system for new composite reactions (today
    exactly one hand-authored `CompositeReaction` exists); the doc's own
    "raid" example scoped down to relationship-rupture, a real combat/
@@ -1632,9 +1632,28 @@ conditional "in their prime years / past their prime / well past
 childbearing years (fertility N)" line once mature, both in the NPC
 inspector's Personality section.
 
-Only `sleep` (the spec's sixth named subsystem) remains open. A
-genetic contribution to baseline `immune_strength` (today:
-nutrition/rest only) is a flagged future connection to A15.
+**Sixth and final subsystem shipped (v1.34.42): `sleep`.** `Agent.
+sleep_debt` (0.0 = well-rested) is deliberately distinct from `energy`
+itself: `energy` already swings tick-to-tick with activity/rest, but
+`sleep_debt` (`Population._tick_sleep_debt`) tracks a much
+SLOWER-resolving chronic deficit — it drifts toward `1.0 - energy` via
+exponential smoothing at `SLEEP_DEBT_ADAPT_RATE` (0.005), deliberately
+slower than `immune_strength`'s own `IMMUNE_ADAPT_RATE` (0.01), so a
+single tired tick barely moves it; only SUSTAINED low energy builds
+real debt. Real consumer: `_tick_immune_strength`'s target gains a
+further drag of `-sleep_debt * SLEEP_DEBT_IMMUNE_WEIGHT`, on TOP of
+(not replacing) its existing momentary hunger/energy pull — "chronic
+sleep deprivation wears down the immune system in a way a single tired
+day doesn't" is now mechanical, a genuinely distinct signal from the
+momentary `rest_pull` already in that same target. UI: a conditional
+"under-rested / chronically sleep-deprived (sleep debt N)" line in the
+NPC inspector's Personality section, shown only once real debt has
+accumulated.
+
+This closes A14 entirely — all six named organism-biology subsystems
+are now real, mechanically consumed state. A genetic contribution to
+baseline `immune_strength` (today: nutrition/rest only) is a flagged
+future connection to A15.
 
 ### A15 — Genetic inheritance
 Wildlife/animal genetics (scoped to humans this pass). `world.wildlife.

@@ -4,6 +4,58 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.42] — A14 closed: sixth and final organism-biology subsystem, `sleep`
+
+Explicit user instruction: "Finish A14," following v1.34.41's own
+"Next Milestone" note. Closes A14 entirely — all six named
+organism-biology subsystems (`immune_strength`, `stress`,
+`injury-recovery`, `development`, `fertility`, `sleep`) are now real,
+mechanically consumed state.
+
+`Agent.sleep_debt` (0.0 = well-rested, `agents/agent.py`) is
+deliberately distinct from the existing `energy` field: `energy`
+already swings tick-to-tick with activity/rest, but `sleep_debt`
+(`Population._tick_sleep_debt`) tracks a much SLOWER-resolving chronic
+deficit — it drifts toward `1.0 - energy` via exponential smoothing at
+`SLEEP_DEBT_ADAPT_RATE=0.005`, deliberately slower than `immune_
+strength`'s own `IMMUNE_ADAPT_RATE=0.01` (which already tracks a
+medium-term nutrition/rest reading) — a single tired tick barely moves
+it; only SUSTAINED low energy across many ticks builds real debt,
+matching the "history-dependence, not momentary state" shape every
+other A14 subsystem established. Ticked before `_tick_immune_strength`
+each tick so the same-tick reading feeds straight into its consumer.
+
+Real consumer: `_tick_immune_strength`'s target gains a further drag
+of `-sleep_debt * SLEEP_DEBT_IMMUNE_WEIGHT` (0.25), on TOP of (not
+replacing) its existing momentary hunger/energy pull —
+`nutrition_pull`/`rest_pull` stay untouched. "Chronic sleep
+deprivation wears down the immune system in a way a single tired day
+doesn't" is now mechanical, a genuinely distinct signal from the
+momentary `rest_pull` already in that same target, same "modulate an
+existing tuned mechanism, never replace it" discipline every A14 slice
+has followed. `Agent.to_dict()`/`from_dict()` round-trip `sleep_debt`
+like `stress`/`injury`/`development`.
+
+UI surfacing (same batch): a conditional "under-rested / chronically
+sleep-deprived (sleep debt N)" line in the NPC inspector's Personality
+section, shown only once real debt has accumulated (no line at all
+near 0, same "don't clutter with a settled fact" treatment
+`injury`/`development`'s conditionals use).
+
+Verified: direct unit tests for `_tick_sleep_debt` (drift direction,
+slow convergence over many ticks, bounds, round-trip) and a
+deterministic threshold-crossing test of the `_tick_immune_strength`
+consumer (a zero- vs. fully-debted agent with identical hunger/energy
+yielding measurably different immune_strength); a real 5000-tick
+LLM-disabled engine soak (async, production `_tick_once` loop)
+confirmed real, varied `sleep_debt` values formed organically through
+the actual production path and the state round-trips cleanly through
+`to_dict`/`from_dict`; `scripts/verify_native_soak.py` (2 seeds x 800
+ticks) byte-identical — pure Python, no native module touched; a real
+dev server + Playwright pass confirmed the NPC inspector renders the
+new line correctly (present and correctly labeled at a forced 0.62,
+absent for a forced well-rested agent).
+
 ## [1.34.41] — A14 fourth and fifth organism-biology subsystems, `development` and `fertility`
 
 Explicit user instruction: "Do that as well," following v1.34.40's own

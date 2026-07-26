@@ -3042,6 +3042,17 @@ function renderNpcInspector() {
   const fertilityHtml = fertility > 0.0
     ? `<div class="muted">${fertilityLabel} (fertility ${fertility.toFixed(2)})</div>`
     : "";
+  // A14 "Layered organism biology," sixth and final slice: a plain-
+  // language reading of the chronic sleep_debt state — distinct from
+  // momentary energy, this only rises under sustained rest deprivation.
+  // Shown only once it's actually accumulated (same "don't clutter
+  // with a settled fact" treatment injury/development's conditionals
+  // use).
+  const sleepDebt = agent.sleep_debt ?? 0.0;
+  const sleepDebtLabel = sleepDebt >= 0.5 ? "chronically sleep-deprived" : "under-rested";
+  const sleepDebtHtml = sleepDebt > 0.05
+    ? `<div class="muted">${sleepDebtLabel} (sleep debt ${sleepDebt.toFixed(2)})</div>`
+    : "";
   const emotions = agent.emotions || {};
   const emotionMeta = {
     fear: { label: "afraid", icon: "😨" },
@@ -3152,6 +3163,7 @@ function renderNpcInspector() {
       ${injuryHtml}
       ${developmentHtml}
       ${fertilityHtml}
+      ${sleepDebtHtml}
     </div>
     <div class="npc-section">
       <h4>Skills</h4>

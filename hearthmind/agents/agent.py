@@ -1210,6 +1210,37 @@ def compute_fertility(age_ticks: int) -> float:
     return FERTILITY_FLOOR
 
 
+# --- A14: sleep — chronic rest deficit, distinct from momentary energy -----
+
+SLEEP_DEBT_BASELINE = 0.0
+"""A14 "Layered organism biology," sixth and final slice (roadmap Tier
+1 item 8): the doc's own sixth named subsystem, "sleep." `Agent.
+sleep_debt` (0.0 = well-rested) is a real continuous 0..1 state,
+deliberately distinct from `energy` itself: `energy` already swings
+tick-to-tick with activity/rest, but `sleep_debt` tracks a much
+SLOWER-resolving deficit (see `SLEEP_DEBT_ADAPT_RATE`) — a person
+who's merely tired right now is not the same as one who's been
+chronically short on rest for weeks. Same neutral-floor convention
+`stress`/`injury` use."""
+
+SLEEP_DEBT_ADAPT_RATE = 0.005
+"""`sleep_debt` drifts via exponential smoothing toward `1.0 - energy`
+at this rate — deliberately slower than `IMMUNE_ADAPT_RATE` (0.01),
+which already tracks a "medium-term" nutrition/rest reading. Chronic
+sleep debt is a longer-window signal still: it only rises meaningfully
+under SUSTAINED low energy, and only falls back down under sustained
+real rest, not a single good night."""
+
+SLEEP_DEBT_IMMUNE_WEIGHT = 0.25
+"""The real consumer: `_tick_immune_strength`'s target gains a further
+drag of `-sleep_debt * SLEEP_DEBT_IMMUNE_WEIGHT`, on top of (not
+replacing) its existing momentary hunger/energy pull — comparable
+magnitude to `IMMUNE_HUNGER_WEIGHT`/`IMMUNE_ENERGY_WEIGHT`. "Chronic
+sleep deprivation wears down the immune system in a way a single tired
+day doesn't" is now mechanical, a genuinely distinct signal from the
+momentary rest_pull already in that same target."""
+
+
 GOSSIP_OPINION_CONTAGION = 0.15
 GOSSIP_OPINION_MAX_STEP = 0.05
 """When a rumor names a specific third villager, each listener's
@@ -2041,6 +2072,7 @@ class Agent:
         stress: float = STRESS_BASELINE,
         injury: float = INJURY_BASELINE,
         development: float = DEVELOPMENT_BASELINE,
+        sleep_debt: float = SLEEP_DEBT_BASELINE,
     ) -> None:
         self.id = id
         self.name = name
@@ -2200,6 +2232,13 @@ class Agent:
         # WEIGHT above. Plain Python-side attribute, not native-store-
         # backed.
         self.development: float = development
+        # A14 "Layered organism biology," sixth slice: continuous 0..1
+        # chronic rest deficit, distinct from momentary `energy`,
+        # ticked by Population._tick_sleep_debt. Consumed by
+        # _tick_immune_strength's target — see SLEEP_DEBT_IMMUNE_
+        # WEIGHT above. Plain Python-side attribute, not native-store-
+        # backed.
+        self.sleep_debt: float = sleep_debt
         # travel_target: long-range destination that overrides goal-
         # directed movement until reached (fission journeys); a
         # critically hungry traveler still detours for food first.
@@ -2651,6 +2690,7 @@ class Agent:
             # `from_dict` (there's no field to restore; it's
             # recomputed fresh from `age_ticks` on every access).
             "fertility": round(self.fertility, 4),
+            "sleep_debt": round(self.sleep_debt, 4),
         }
 
     @classmethod
@@ -2742,6 +2782,7 @@ class Agent:
             stress=data.get("stress", STRESS_BASELINE),
             injury=data.get("injury", INJURY_BASELINE),
             development=data.get("development", DEVELOPMENT_BASELINE),
+            sleep_debt=data.get("sleep_debt", SLEEP_DEBT_BASELINE),
         )
         for other_id_str, extra in data.get("ledger_extra", {}).items():
             edge = _agent.ledger.get_or_create(int(other_id_str))

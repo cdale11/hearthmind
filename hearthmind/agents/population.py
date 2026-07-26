@@ -202,6 +202,9 @@ from hearthmind.agents.agent import (
     SKILL_TEACHING_CHANCE_PER_TICK,
     SKILL_TEACHING_GAIN,
     SKILL_TEACHING_MIN_GAP,
+    SLEEP_DEBT_ADAPT_RATE,
+    SLEEP_DEBT_BASELINE,
+    SLEEP_DEBT_IMMUNE_WEIGHT,
     STARVATION_HUNGER_THRESHOLD,
     STARVATION_TICKS_TO_DEATH,
     INHERITANCE_BIAS_THRESHOLD,
@@ -2180,6 +2183,11 @@ class Population:
         if month_end:
             self._tick_traits(rng)
         hospital_settlement_ids = {sid for sid, has in has_hospital_by_id.items() if has}
+        # A14 "Layered organism biology," sixth and final slice: sleep
+        # debt drifts from the same just-updated energy reading, BEFORE
+        # immune_strength ticks below (which now reads it as a further
+        # chronic drag on top of its own momentary energy pull).
+        self._tick_sleep_debt(self.agents)
         # A14 "Layered organism biology," first slice (roadmap Stage IV
         # step 23): immune state drifts from real current nutrition/
         # rest before disease resolves this tick, so a just-updated
@@ -2601,6 +2609,21 @@ class Population:
         return [("illness", f"{index_case.name} has fallen ill.")]
 
     @staticmethod
+    def _tick_sleep_debt(agents: list[Agent]) -> None:
+        """A14 "Layered organism biology," sixth and final slice
+        (roadmap Tier 1 item 8): drifts every agent's continuous
+        `sleep_debt` toward `1.0 - energy` via exponential smoothing at
+        `SLEEP_DEBT_ADAPT_RATE` — deliberately much slower than
+        `IMMUNE_ADAPT_RATE`, so this tracks a CHRONIC rest deficit
+        across many ticks, not the same-tick tiredness `energy` already
+        captures on its own. Pure Python, O(agents), same cost class as
+        `_tick_immune_strength`."""
+        for agent in agents:
+            target = clamp(1.0 - agent.energy, 0.0, 1.0)
+            agent.sleep_debt += (target - agent.sleep_debt) * SLEEP_DEBT_ADAPT_RATE
+            agent.sleep_debt = clamp(agent.sleep_debt, 0.0, 1.0)
+
+    @staticmethod
     def _tick_immune_strength(agents: list[Agent]) -> None:
         """A14 "Layered organism biology," first slice (roadmap Stage IV
         step 23): drifts every agent's continuous `immune_strength`
@@ -2608,18 +2631,22 @@ class Population:
         the real metabolism/nutrition -> immune coupling — via
         exponential smoothing (`IMMUNE_ADAPT_RATE`), then applies a
         small extra drain if they're actively sick (the reverse
-        coupling: fighting infection taxes immune reserve). Pure
-        Python, reads/writes only the plain (non-native-store-backed)
-        `immune_strength`/`hunger`/`energy`/`sick_ticks` attributes —
-        runs every tick, O(agents), same cost class as the trait/
-        emotion decay passes elsewhere in this file."""
+        coupling: fighting infection taxes immune reserve). Also
+        drags the target down by their chronic `sleep_debt` (A14's
+        sixth slice) — a distinct, slower-resolving signal from the
+        momentary rest_pull below. Pure Python, reads/writes only the
+        plain (non-native-store-backed) `immune_strength`/`hunger`/
+        `energy`/`sick_ticks`/`sleep_debt` attributes — runs every
+        tick, O(agents), same cost class as the trait/emotion decay
+        passes elsewhere in this file."""
         for agent in agents:
             # hunger/energy are already 0..1 with 0.5 as their own
             # natural midpoint reading — center each around that so a
             # merely-average agent's target sits exactly at baseline.
             nutrition_pull = (0.5 - agent.hunger) * 2.0 * IMMUNE_HUNGER_WEIGHT
             rest_pull = (agent.energy - 0.5) * 2.0 * IMMUNE_ENERGY_WEIGHT
-            target = clamp(IMMUNE_BASELINE + nutrition_pull + rest_pull, 0.0, 1.0)
+            sleep_drag = agent.sleep_debt * SLEEP_DEBT_IMMUNE_WEIGHT
+            target = clamp(IMMUNE_BASELINE + nutrition_pull + rest_pull - sleep_drag, 0.0, 1.0)
             agent.immune_strength += (target - agent.immune_strength) * IMMUNE_ADAPT_RATE
             if agent.sick_ticks > 0:
                 agent.immune_strength -= SICKNESS_IMMUNE_DRAIN_PER_TICK
