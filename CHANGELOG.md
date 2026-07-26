@@ -4,6 +4,44 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.39] — A4 closed: infrastructure/information audit
+
+Explicit user instruction: "Finish A4" (docs/ROADMAP-2026-07-
+REMAINING.md's "Continuous systems vs. scripted events"), following
+v1.34.38's economy slice (`scarcity`). Docs-only — no code changes;
+direct code inspection found both remaining named sub-domains were
+already satisfied by existing mechanisms, contrary to the item's own
+stale "still fully unconverted" note.
+
+**Infrastructure**: `RoadNetwork.tick()` (`world/roads.py`) already
+gains/decays per-tile `wear` every tick (`ROAD_WEAR_PER_TICK`/`ROAD_
+DECAY_PER_TICK`) — a real continuous local rule, not a discrete "build
+road" event. `Settlement.tick()` (`settlement/buildings.py`) likewise
+decrements `Building.condition`/`Vehicle.condition` by a per-tick decay
+rate every tick. Construction/founding correctly stays a genuine
+one-time event — a building coming into existence is an actual
+discrete fact, same as a birth or death; A4 never asked for those to
+dissolve into a field.
+
+**Information**: gossip contagion (`Population._apply_gossip_
+contagion`, shipped v1.3.6) already relaxes a listener's opinion of a
+named third party toward the speaker's view every qualifying dialogue
+exchange, gated by trust — a real continuous social-graph propagation
+rule. `world/memetics.py`'s `weighted_spread_target` (A17) already
+generalizes "who catches this next" to any content type via real
+ledger closeness. `Population.spread_rumor` (a caravan's one-time news
+arrival) was checked as a candidate for wiring onto `memetics.
+weighted_spread_target` and found NOT to benefit: it has no existing
+"carriers" at the moment of first arrival (the rumor doesn't exist in
+anyone's memory yet), so weighting against zero carriers degrades to
+the exact same uniform selection it already performs — a real audit
+finding, not a skipped attempt.
+
+Fixed a stale duplicate/contradictory "### A4" section left over in
+docs/ROADMAP-2026-07-REMAINING.md from the v1.34.38 edit (an old
+"still fully unconverted" stub sat directly above the new detailed
+entry, never removed). This closes A4 entirely.
+
 ## [1.34.38] — Tier 1: A4 first slice, `scarcity` field
 
 Explicit user instruction: "Continue with A4" (docs/ROADMAP-2026-07-

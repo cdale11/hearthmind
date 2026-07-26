@@ -1142,12 +1142,14 @@ forest reclaim). Real gaps, roughly by leverage:
 **Tier 2 — real mechanism gaps, each self-contained**
 5. **A3** — **shipped, v1.34.25** (rivers re-carving via erosion) —
    see the item's own entry below for detail.
-6. **A4** — **first slice shipped, v1.34.38** (economy's own literal
-   ask, "resource/price fields that flow": a `scarcity` `FieldGrid`
-   field + a real migrant-arrival consumer) — see the item's own entry
-   below for detail. Infrastructure and information remain fully
-   unconverted; agriculture is largely already covered by A11's
-   moisture field + `FarmGrid.soil_fertility`.
+6. **A4** — **closed, v1.34.39.** Economy shipped a real slice
+   (v1.34.38: a `scarcity` `FieldGrid` field + a real migrant-arrival
+   consumer); agriculture was already covered by A11's moisture field
+   + `FarmGrid.soil_fertility`; infrastructure (`RoadNetwork.wear`,
+   `Building.condition` decay) and information (gossip contagion,
+   `memetics.weighted_spread_target`) were both found ALREADY
+   continuous on direct code inspection — see the item's own entry
+   below for the full audit.
 7. **A15** — wildlife/animal genetics (humans-only today); bridge to
    `world.wildlife.SpeciesVariant`, which stays purely descriptive.
 8. **A14** — **first of the other five named organism-biology
@@ -1349,13 +1351,6 @@ Settlements/cultures still evolve via LLM, not deterministic procgen
 question rather than a clear gap) — that half remains open.
 
 ### A4 — Continuous systems vs. scripted events
-Agriculture, infrastructure, economy, and information subsystems are
-still partly event-driven rather than continuous field/threshold
-updates. Economy → resource/price fields that flow; agriculture →
-fertility/moisture field consumption; information → propagation on the
-social graph (A17) are all still unconverted.
-
-### A4 — Continuous systems vs. scripted events
 **First slice shipped (v1.34.38): `scarcity`.** Weather/climate/
 wildlife/disasters were already continuous; agriculture already has a
 real field-consumption shape via A11's `hydrology_field.moisture` +
@@ -1381,11 +1376,42 @@ density — "newcomers are less drawn to a visibly struggling town" is
 now mechanical. UI: 7th "🗺️ fields" map overlay mode, own green-amber-
 red "want" color ramp.
 
-Infrastructure (roads/buildings as continuous wear/decay fields
-rather than discrete construction/repair events) and information
-(rumor/tradition/belief propagation as a true continuous field rather
-than discrete spread events — A17's own remaining gap) stay fully
-unconverted, explicitly flagged for a future slice.
+**Infrastructure and information closed as an audit conclusion
+(v1.34.39, explicit user instruction "Finish A4")**, not new code —
+direct inspection found both are ALREADY continuous, contrary to this
+item's own prior "still fully unconverted" note:
+
+- **Infrastructure**: `RoadNetwork.tick()` (`world/roads.py`) already
+  gains/decays `wear` per-tile every tick via `ROAD_WEAR_PER_TICK`/
+  `ROAD_DECAY_PER_TICK` — a real continuous local rule, not a discrete
+  "build road" event (construction/founding stays a genuine one-time
+  event, correctly so — a building coming into existence is an actual
+  discrete fact, same as a birth or a death; A4 never asked for those
+  to dissolve into a field). `Settlement.tick()` (`settlement/
+  buildings.py`) likewise decrements `Building.condition`/`Vehicle.
+  condition` by a per-tick decay rate every tick, not a scripted
+  maintenance event — confirmed by direct code read, not assumed from
+  the old summary line.
+- **Information**: gossip contagion (`Population._apply_gossip_
+  contagion`, P0.2/v1.3.6) already relaxes a listener's opinion of a
+  named third party toward the speaker's view EVERY qualifying dialogue
+  exchange, gated by trust — a real continuous social-graph
+  propagation rule, not a discrete broadcast. `world/memetics.py`'s
+  `weighted_spread_target` (A17) already generalizes "who catches this
+  next" to any content type via real ledger closeness. `spread_rumor`
+  (a caravan's one-time news arrival) was checked as a candidate for
+  wiring onto `memetics.weighted_spread_target` and found NOT to
+  benefit: it has no existing "carriers" at the moment of first arrival
+  (the rumor doesn't exist in anyone's memory yet), so weighting
+  against zero carriers degrades to the exact same uniform selection
+  it already does — a real audit finding, not a skipped attempt.
+
+The doc's own "Feeds" line ("events become threshold-crossings of
+continuous state") is satisfied for both — this closes A4 entirely.
+Migrating `RoadNetwork.wear`/gossip contagion onto `FieldGrid` proper
+(vs. their current, independently-correct per-tick local-rule shape)
+remains a real but purely structural follow-up, not required to
+satisfy the item's own stated intent.
 
 ### A5/A6 — Affordances
 `Entity.properties`/per-instance `Entity.affordances` (today: class-

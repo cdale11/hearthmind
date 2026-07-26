@@ -545,6 +545,21 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.39)
+
+Explicit user instruction: "Finish A4." Docs-only — direct code
+inspection found A4's remaining two named sub-domains already
+satisfied, contrary to the item's own stale note:
+`RoadNetwork.tick()`/`Settlement.tick()` already decay `wear`/
+`condition` continuously every tick (infrastructure); gossip
+contagion + `memetics.weighted_spread_target` already propagate on
+the real social graph every dialogue exchange (information).
+`spread_rumor` was checked as a candidate for the memetics weighting
+and found to genuinely not benefit (no carriers exist at first
+arrival, so it already degrades to the same uniform selection). Also
+fixed a stale duplicate "### A4" doc section left over from v1.34.38's
+edit. This closes A4 entirely.
+
 ## Current state (v1.34.38)
 
 Explicit user instruction: "Continue with A4" ("Continuous systems vs.
