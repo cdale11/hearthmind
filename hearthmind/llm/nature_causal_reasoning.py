@@ -1,14 +1,18 @@
 """Nature's causal reasoning (docs/ROADMAP-2026-07-REMAINING.md, Tier
 0's "scoped, NOT shipped — a genuinely new Nature cognition job",
-implemented on explicit direction: "as many slices of tier 0 as you
-can"). `llm/nature_mind.py` is a general seasonal belief-revision pass
-("form any theory about the land's current state"); this is different
-in kind, not just cadence — a REACTIVE job that fires only when one
-specific, already-detected anomaly happens (first slice: a local
-predator-pack extinction, `WildlifeGrid.summary()["predator_packs"]`
-falling to 0), asking "why might THIS specific thing be happening?"
-grounded in the real Body-state signals available at that moment, not
-a generic digest.
+implemented across two explicit-direction passes: "as many slices of
+tier 0 as you can" shipped the first trigger, a later "as many slices
+as possible" pass shipped the other two named candidates from the
+same design note). `llm/nature_mind.py` is a general seasonal belief-
+revision pass ("form any theory about the land's current state"); this
+is different in kind, not just cadence — a REACTIVE job that fires
+only when one of three specific, already-detected anomalies happens
+(a local predator-pack extinction, a local grazer-herd extinction, or
+a forest tile stalled well past its own fallow requirement despite
+favorable moisture — see `SimulationEngine._maybe_schedule_nature_
+causal_reasoning`'s three trigger methods), asking "why might THIS
+specific thing be happening?" grounded in the real Body-state signals
+available at that moment, not a generic digest.
 
 Genuine judgment, not narration: `critical=True` (Constitution §3/§7)
 — a failed/budget-exhausted call defers rather than fabricating a

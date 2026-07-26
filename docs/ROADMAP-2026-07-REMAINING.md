@@ -650,6 +650,46 @@ tier is arbitrary.
    Grazer/forest-succession-stall anomalies (the design note's other
    two candidates) remain open for a future slice.
 
+   **Shipped, v1.34.43** ("I thought you have closed tier 0. Please do
+   as many slices of it in this turn as possible" — explicit user
+   instruction). Ships the design note's other two named candidates,
+   both now real: `_maybe_schedule_nature_causal_reasoning` is now a
+   thin dispatcher over three trigger methods (`_maybe_react_to_
+   predator_extinction` — the original logic, extracted unchanged —
+   `_maybe_react_to_grazer_extinction`, `_maybe_react_to_succession_
+   stall`), checked in that fixed order, at most ONE scheduling per
+   tick even if more than one anomaly happens to be live at once.
+   Grazer extinction is a direct mirror of the predator trigger's own
+   shape (`world.wildlife.summary()["grazer_herds"]` crossing >0 to 0)
+   — worth its own real cause since a grazer collapse plausibly
+   explains a LATER predator collapse, two independently-noticeable
+   ecological facts, not duplicated content. Succession stall is
+   genuinely different in kind: continuous, not binary — a fallow
+   tile in `World.fallow_ticks` whose weeks-eligible count has reached
+   `REFOREST_MIN_FALLOW_WEEKS * NATURE_SUCCESSION_STALL_WEEKS_
+   MULTIPLIER` (12 weeks at the default 3x4) despite locally favorable
+   moisture (`HydrologyField.at(x, y) >= NATURE_SUCCESSION_STALL_
+   MOISTURE_MIN`, 0.45) — the doc's own "despite favorable moisture"
+   framing taken literally: a stalled tile on genuinely dry ground is
+   skipped (not flagged), not treated as anomalous, since dry ground
+   is an obvious mundane explanation for slow succession. Picks the
+   single worst-stalled QUALIFYING tile each check.
+
+   Verified: a direct production-path smoke test (fake LLM client,
+   extending the existing predator-extinction test's own harness)
+   confirming grazer extinction schedules exactly once on the falling
+   edge and clears on recovery, succession stall schedules for a
+   forced favorable-moisture stalled tile but correctly skips (without
+   flagging) both a dry stalled tile and a below-threshold tile, and
+   the fixed-priority dispatcher schedules at most one job when
+   predator+grazer+stall are all simultaneously live (predator wins,
+   confirmed via each flag's state after the call); a real 5000-tick
+   LLM-disabled engine soak (async, real `_tick_once` loop) through
+   the actual production path with no regression; `scripts/verify_
+   native_soak.py` (2 seeds x 800 ticks) byte-identical — pure Python,
+   no native module touched. This closes every named candidate in the
+   Nature causal-reasoning design note.
+
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0
 and before Tier 1: these are correctness/tuning questions about

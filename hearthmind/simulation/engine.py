@@ -93,6 +93,7 @@ from hearthmind.world import legends
 from hearthmind.cognition import attention
 from hearthmind.cognition.pillar import make_message
 from hearthmind.world.disasters import GOVERNOR_TUNING_BAND, WILDFIRE_CHANCE_PER_WEEK
+from hearthmind.world.terrain_evolution import REFOREST_MIN_FALLOW_WEEKS
 from hearthmind.world.wildlife import MAX_SPECIES_VARIANTS_STORED, SpeciesVariant
 from hearthmind.simulation.sandbox import run_counterfactual
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
@@ -658,6 +659,25 @@ settlement's granary fill fraction (`stored_food / capacity`) crossing
 this reads as "the granary is genuinely close to overflowing," the
 concrete condition the vision doc's own worked example ("when the
 granary overflows, hold a feast") describes."""
+
+NATURE_SUCCESSION_STALL_WEEKS_MULTIPLIER = 4
+"""Tier 0's Nature causal-reasoning job, third trigger (docs/ROADMAP-
+2026-07-REMAINING.md's design note, "forest succession stalling well
+past REFOREST_MIN_FALLOW_WEEKS"): a fallow tile whose `World.fallow_
+ticks` count has reached `REFOREST_MIN_FALLOW_WEEKS * this` — 12 weeks
+at the default 3 — has been eligible to reclaim for a long stretch and
+just keeps losing its `REFOREST_CHANCE_PER_WEEK` roll; genuinely
+unlucky, not stalled by a bad structural reason, but a real anomaly a
+land-intelligence might wonder about."""
+
+NATURE_SUCCESSION_STALL_MOISTURE_MIN = 0.45
+"""The "despite favorable moisture" half of the same trigger — only a
+stalled tile whose local `HydrologyField.at(x, y)` reading is at or
+above this counts as the genuinely puzzling case (a stall on genuinely
+DRY ground has an obvious mundane explanation and isn't worth asking
+about); a tile stalled with poor moisture is skipped, not flagged, so
+a future tick can still react once either a wetter tile crosses the
+week threshold or this same tile's own moisture later improves."""
 
 PILLAR_COLD_START_BOUNDARIES = 2
 """How many season/year boundaries Nature/Reflection's B2 observe-then-
@@ -1357,6 +1377,19 @@ class SimulationEngine:
         World-scoped (one shared wildlife grid, not per-settlement).
         Never persisted — re-baselines from the first post-restart
         reading, same as every other edge-trigger flag here."""
+        self._nature_grazer_extinction_flagged: bool = False
+        """Second Nature causal-reasoning trigger: same shape as
+        `_nature_predator_extinction_flagged`, applied to `world.
+        wildlife.summary()["grazer_herds"]` crossing from >0 to 0
+        instead of predator packs."""
+        self._nature_succession_stall_flagged: bool = False
+        """Third Nature causal-reasoning trigger: True once a currently-
+        stalled, favorable-moisture fallow tile has already been
+        reasoned about (see `NATURE_SUCCESSION_STALL_WEEKS_MULTIPLIER`/
+        `_MOISTURE_MIN`); clears once no such tile remains (reclaimed,
+        dropped from `World.fallow_ticks`, or its moisture/weeks no
+        longer qualify). Never persisted, same reasoning as every other
+        edge-trigger flag here."""
         self._monthly_job_scheduled_month: dict[str, int] = {}
         """job name -> absolute month ordinal (year * months_per_year +
         month_index) it last got past its own backpressure check — lets
@@ -7695,32 +7728,48 @@ class SimulationEngine:
         (docs/ROADMAP-2026-07-REMAINING.md) — a genuinely NEW cognition
         point, not a mirror of an existing job's output. Reactive, not
         cadence-gated (same shape `_maybe_schedule_skill_mastery`
-        already established): fires the tick `world.wildlife.summary()`
-        ["predator_packs"] crosses from >0 to 0, an already-detected
-        Body-state anomaly (`WildlifeGrid` tracked this count from the
-        start; nothing before this asked "why"). World-scoped — a
-        wildlife extinction isn't any one settlement's event.
+        already established): fires on one of three already-detected
+        Body-state anomalies (the design note's own three named
+        candidates, all now shipped) — a predator-pack local
+        extinction, a grazer-herd local extinction, or a forest tile
+        stalled well past its own effective fallow requirement despite
+        favorable moisture. World-scoped — none of these is any one
+        settlement's event. At most ONE of the three schedules per
+        tick (checked in this fixed order, first hit wins) — Nature's
+        own LLM budget stays a single reactive call per tick even if
+        more than one anomaly happens to be live simultaneously.
 
-        Grounded ONLY in the specific anomaly plus real, already-
-        computed Nature Body state (predator pressure ratio right before
-        the extinction, prey scarcity, disaster/mining scar counts,
-        season) — never settlement prosperity or era, same discipline
-        `nature_mind` already holds. Output always `status="hypothesis"`
-        (a wordless land has no ground truth to confirm) written to
-        BOTH `nature_pillar.world_model` (so it's reachable the same way
-        every other Nature belief is) AND a new `world.ontology.
-        CausalThread` (`settlement_id=None` — this is a Nature-authored
-        cause, not the existing dispute-authored shape, but the same
-        record type so it's legible via the existing "🔗 causal
-        threads" UI panel without a new one). `critical=True`: a
-        failed/budget-exhausted call defers rather than fabricating a
-        cause (Constitution §3/§7)."""
+        Every trigger grounds ONLY in the specific anomaly plus real,
+        already-computed Nature Body state — never settlement
+        prosperity or era, same discipline `nature_mind` already holds.
+        Output always `status="hypothesis"` (a wordless land has no
+        ground truth to confirm) written to BOTH `nature_pillar.
+        world_model` (so it's reachable the same way every other Nature
+        belief is) AND a new `world.ontology.CausalThread`
+        (`settlement_id=None` — this is a Nature-authored cause, not
+        the existing dispute-authored shape, but the same record type
+        so it's legible via the existing "🔗 causal threads" UI panel
+        without a new one). `critical=True`: a failed/budget-exhausted
+        call defers rather than fabricating a cause (Constitution
+        §3/§7)."""
+        if self._maybe_react_to_predator_extinction():
+            return
+        if self._maybe_react_to_grazer_extinction():
+            return
+        self._maybe_react_to_succession_stall()
+
+    def _maybe_react_to_predator_extinction(self) -> bool:
+        """First Nature causal-reasoning trigger: `world.wildlife.
+        summary()["predator_packs"]` crossing from >0 to 0. Returns
+        True if a reasoning call was actually scheduled this tick (so
+        the dispatcher above doesn't also check the other two
+        triggers)."""
         packs_now = self.world.wildlife.summary()["predator_packs"]
         if packs_now > 0:
             self._nature_predator_extinction_flagged = False
-            return
+            return False
         if self._nature_predator_extinction_flagged:
-            return  # already scheduled/reasoned about this same extinction
+            return False  # already scheduled/reasoned about this same extinction
         if self._pillar_interpret_backpressured("nature"):
             # Backpressured this tick — flag stays False, so this same
             # still-zero-packs anomaly gets re-checked (and a real
@@ -7730,7 +7779,7 @@ class SimulationEngine:
             # spirit as the monthly-job retry windows elsewhere in this
             # file, done per-tick here since this trigger has no fixed
             # cadence to retry within.
-            return
+            return False
         self._nature_predator_extinction_flagged = True
         wildlife_summary = self.world.wildlife.summary()
         anomaly_text = "The predator packs that once roamed this land have vanished entirely."
@@ -7773,6 +7822,132 @@ class SimulationEngine:
             "nature_causal_reasoning", prompt, nature_causal_reasoning.SYSTEM_PROMPT, fallback, apply,
             critical=True,
         )
+        return True
+
+    def _maybe_react_to_grazer_extinction(self) -> bool:
+        """Second Nature causal-reasoning trigger, the design note's
+        second named candidate: `world.wildlife.summary()
+        ["grazer_herds"]` crossing from >0 to 0 — same reactive shape
+        as `_maybe_react_to_predator_extinction`, just the other
+        trophic level, and worth a real cause of its own (a grazer
+        collapse plausibly starves out the very predators the first
+        trigger reasons about, a real ecological chain the two
+        triggers can each independently notice)."""
+        grazers_now = self.world.wildlife.summary()["grazer_herds"]
+        if grazers_now > 0:
+            self._nature_grazer_extinction_flagged = False
+            return False
+        if self._nature_grazer_extinction_flagged:
+            return False
+        if self._pillar_interpret_backpressured("nature"):
+            return False
+        self._nature_grazer_extinction_flagged = True
+        wildlife_summary = self.world.wildlife.summary()
+        anomaly_text = "The grazing herds that once roamed this land have vanished entirely."
+        context_bits = [
+            f"predator packs remaining: {wildlife_summary['predator_packs']}",
+            f"prey scarcity was already flagged: {'yes' if wildlife_summary['prey_scarce'] else 'no'}",
+            f"disaster scars on the land: {len(self.world.disaster_scars)}",
+            f"season: {self.world.clock.season}",
+        ]
+        existing_beliefs = list(self.world.nature_beliefs)
+        prompt = nature_causal_reasoning.build_prompt(anomaly_text, context_bits, existing_beliefs)
+        fallback = nature_causal_reasoning.fallback_cause()
+        tick = self.world.clock.tick_count
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            cause = nature_causal_reasoning.parse_cause(result)
+            if not cause:
+                return
+            subject = "the vanished grazing herds"
+            entry = self.world.nature_pillar.upsert_world_model(
+                tick, subject, cause, 0.4, status="hypothesis", source="nature_causal_reasoning",
+            )
+            self.world.nature_pillar.remember(f"Wondered why the grazing herds vanished: {cause}")
+            ontology.register_causal_thread(
+                self.world, subject=subject, chain=context_bits + [cause], tick=tick, settlement_id=None,
+            )
+            self._append_emergence(
+                "anomaly", "ecology", f"The land wonders why its grazing herds vanished: {cause}",
+                ('nature',), data={"pillar_entry_id": entry["id"]},
+            )
+            # Same reasoning as the predator trigger's apply(): doesn't
+            # own Nature's observe/interpret cycle_stage, so it never
+            # calls _pillar_close_cycle("nature").
+
+        self._schedule_llm_job(
+            "nature_causal_reasoning", prompt, nature_causal_reasoning.SYSTEM_PROMPT, fallback, apply,
+            critical=True,
+        )
+        return True
+
+    def _maybe_react_to_succession_stall(self) -> bool:
+        """Third Nature causal-reasoning trigger, the design note's
+        third named candidate: a fallow grassland tile that's stayed
+        eligible-to-reclaim for well past its own effective fallow
+        requirement (`NATURE_SUCCESSION_STALL_WEEKS_MULTIPLIER *
+        REFOREST_MIN_FALLOW_WEEKS`) despite locally favorable moisture
+        (`NATURE_SUCCESSION_STALL_MOISTURE_MIN`) — genuinely puzzling
+        bad luck on `REFOREST_CHANCE_PER_WEEK`'s own weekly roll, not
+        an obvious dry-ground explanation. Picks the single
+        worst-stalled QUALIFYING tile (favorable moisture, past
+        threshold) each check; a tile stalled on genuinely dry ground
+        is skipped entirely (not flagged), so a later tick can still
+        react once either a wetter qualifying tile appears or this
+        same tile's own moisture improves."""
+        threshold = REFOREST_MIN_FALLOW_WEEKS * NATURE_SUCCESSION_STALL_WEEKS_MULTIPLIER
+        candidates = [
+            (pos, weeks) for pos, weeks in self.world.fallow_ticks.items()
+            if weeks >= threshold and self.world.hydrology_field.at(*pos) >= NATURE_SUCCESSION_STALL_MOISTURE_MIN
+        ]
+        if not candidates:
+            self._nature_succession_stall_flagged = False
+            return False
+        if self._nature_succession_stall_flagged:
+            return False
+        if self._pillar_interpret_backpressured("nature"):
+            return False
+        self._nature_succession_stall_flagged = True
+        (x, y), weeks = max(candidates, key=lambda item: item[1])
+        moisture = self.world.hydrology_field.at(x, y)
+        anomaly_text = (
+            f"A stretch of open grassland at ({x}, {y}) has stood ready to become forest again for "
+            f"{weeks} weeks now, surrounded by trees and soaked with rain, yet nothing has taken root there."
+        )
+        context_bits = [
+            f"local soil moisture there: {round(moisture, 2)}",
+            f"weeks stalled: {weeks}",
+            f"season: {self.world.clock.season}",
+        ]
+        existing_beliefs = list(self.world.nature_beliefs)
+        prompt = nature_causal_reasoning.build_prompt(anomaly_text, context_bits, existing_beliefs)
+        fallback = nature_causal_reasoning.fallback_cause()
+        tick = self.world.clock.tick_count
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            cause = nature_causal_reasoning.parse_cause(result)
+            if not cause:
+                return
+            subject = f"the stalled clearing at ({x}, {y})"
+            entry = self.world.nature_pillar.upsert_world_model(
+                tick, subject, cause, 0.4, status="hypothesis", source="nature_causal_reasoning",
+            )
+            self.world.nature_pillar.remember(f"Wondered why the clearing at ({x}, {y}) hasn't regrown: {cause}")
+            ontology.register_causal_thread(
+                self.world, subject=subject, chain=context_bits + [cause], tick=tick, settlement_id=None,
+            )
+            self._append_emergence(
+                "anomaly", "ecology", f"The land wonders why a clearing at ({x}, {y}) won't regrow: {cause}",
+                ('nature',), data={"pillar_entry_id": entry["id"]},
+            )
+            # Same reasoning as the other two triggers' apply(): no
+            # _pillar_close_cycle("nature") call here either.
+
+        self._schedule_llm_job(
+            "nature_causal_reasoning", prompt, nature_causal_reasoning.SYSTEM_PROMPT, fallback, apply,
+            critical=True,
+        )
+        return True
 
     # --- Phase G v1: temperament and omens (deliberately subtle) ---------------
 

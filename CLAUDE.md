@@ -545,6 +545,37 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.43)
+
+Explicit user instruction: "I thought you have closed tier 0. Please
+do as many slices of if in this turn as possible" — corrected the
+premise (Tier 0's own biggest lever, the ~55-scattered-LLM-job pillar
+refactor, is real progress but genuinely not closed) and shipped the
+one concretely-scoped remainder that was: the Nature causal-reasoning
+design note's other two named anomaly candidates (grazer herd local
+extinction, forest succession stall), joining the already-shipped
+predator-pack extinction trigger. Per-agent cognition's own volume-
+safe mirror (Tier 0's other flagged gap) was already closed at
+v1.34.34, corrected as a stale note in the roadmap.
+
+`_maybe_schedule_nature_causal_reasoning` is now a thin dispatcher
+over three trigger methods, checked in a fixed order (predator, then
+grazer, then succession stall), at most one scheduling per tick.
+Grazer extinction mirrors the predator trigger's shape exactly.
+Succession stall is a real new mechanism: a fallow tile stalled well
+past its own effective fallow requirement despite locally favorable
+moisture — a genuinely puzzling case (bad luck on the weekly reclaim
+roll), distinct from an obviously-dry tile that's skipped rather than
+flagged.
+
+Verified: direct production-path smoke tests (fake LLM client) for
+both new triggers plus the fixed-priority dispatcher; a real 5000-tick
+LLM-disabled engine soak through the actual production path; a clean
+`scripts/verify_native_soak.py` run (a full `to_dict()` equality check
+hit a pre-existing, unrelated set-serialization ordering quirk in
+`roads.ever_established`/`river_tiles`, confirmed present on
+unmodified code too — this batch's own fields round-trip clean).
+
 ## Current state (v1.34.42)
 
 Explicit user instruction: "Finish A14" — implements the sixth and

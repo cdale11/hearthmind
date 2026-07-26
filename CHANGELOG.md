@@ -4,6 +4,65 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.43] — Tier 0's Nature causal-reasoning job: last two design-note triggers
+
+Explicit user instruction: "I thought you have closed tier 0. Please
+do as many slices of if in this turn as possible" — corrected the
+premise (Tier 0's own biggest lever, the ~55-scattered-LLM-job
+refactor, is real progress but not closed; per-agent cognition's
+volume-safe mirror WAS already closed at v1.34.34) and shipped the one
+genuinely open, concretely scoped remainder: the Nature causal-
+reasoning design note's other two named anomaly candidates (grazer
+herd local extinction, forest succession stall), alongside the
+already-shipped predator-pack extinction trigger.
+
+`_maybe_schedule_nature_causal_reasoning` is now a thin dispatcher
+over three trigger methods (`_maybe_react_to_predator_extinction` —
+the original logic, extracted unchanged — `_maybe_react_to_grazer_
+extinction`, `_maybe_react_to_succession_stall`), checked in that
+fixed order; at most ONE schedules per tick even if more than one
+anomaly happens to be live simultaneously. Grazer extinction mirrors
+the predator trigger's own shape (`world.wildlife.summary()
+["grazer_herds"]` crossing >0 to 0) — a real, distinct cause worth
+asking about (a grazer collapse plausibly explains a LATER predator
+collapse the other trigger separately reasons about). Succession
+stall is genuinely different in kind — continuous, not binary: a
+fallow tile in `World.fallow_ticks` whose weeks-eligible count has
+reached `REFOREST_MIN_FALLOW_WEEKS * NATURE_SUCCESSION_STALL_WEEKS_
+MULTIPLIER` (12 weeks at the default 3x4) despite locally favorable
+moisture (`HydrologyField.at(x, y) >= NATURE_SUCCESSION_STALL_
+MOISTURE_MIN`, 0.45) — taking the design note's own "despite favorable
+moisture" framing literally: a tile stalled on genuinely dry ground is
+skipped, not flagged, since dry ground is an obvious mundane
+explanation and isn't the puzzling case worth Nature's own reasoning.
+Picks the single worst-stalled QUALIFYING tile each check.
+
+Verified: a direct production-path smoke test (fake LLM client,
+extending the existing predator-extinction test's own harness)
+confirming grazer extinction schedules exactly once on the falling
+edge and clears on recovery; succession stall schedules for a forced
+favorable-moisture stalled tile but correctly skips (without flagging)
+both a dry stalled tile and a below-threshold tile; the fixed-priority
+dispatcher schedules at most one job when predator+grazer+stall are
+all simultaneously live (predator wins, confirmed via each flag's
+post-call state); a real 5000-tick LLM-disabled engine soak (async,
+real `_tick_once` loop) through the actual production path with no
+regression; `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical — pure Python, no native module touched (a full
+`to_dict()` equality check hit a pre-existing, unrelated set-
+serialization ordering quirk in `roads.ever_established`/`river_
+tiles`, confirmed present on unmodified `origin/claude/hearthmind-
+overview-5bekay` too via `git stash`; verified this batch's own
+fields — `fallow_ticks`, `causal_threads`, `nature_pillar.world_
+model` — round-trip byte-identical instead).
+
+This closes every named candidate in the Nature causal-reasoning
+design note. Tier 0's own larger, still-open lever (extending observe/
+interpret cycling, attention-budget arbitration, and inbox/outbox
+messaging to the ~50 settlement-scoped LLM jobs beyond their current
+one-representative-per-mechanism coverage) remains exactly as
+documented — a real multi-week push, not a quick slice.
+
 ## [1.34.42] — A14 closed: sixth and final organism-biology subsystem, `sleep`
 
 Explicit user instruction: "Finish A14," following v1.34.41's own
