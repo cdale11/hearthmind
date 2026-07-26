@@ -3810,8 +3810,24 @@ function renderStats(summary) {
     [
       "Wildlife",
       `${w.grazer_total} grazers (${w.grazer_herds} herds), ${w.predator_total} predators (${w.predator_packs} packs)`
-      + (w.prey_scarce ? " — prey scarce" : w.predator_pressure_ratio > 0.25 ? " — heavy predation" : ""),
-      "Grazer herds roam grassland/forest and can be hunted for food; predator packs roam forest/hills and hunt grazers, starving without a kill. A real trophic loop: heavy predation pressure suppresses grazer breeding map-wide, and scarce prey suppresses predator breeding/survival in turn — not just direct per-tile kills.",
+      + (w.prey_scarce ? " — prey scarce" : w.predator_pressure_ratio > 0.25 ? " — heavy predation" : "")
+      + (() => {
+          // A15 "Genetic inheritance," wildlife slice: a plain-language
+          // reading of the real heritable hardiness gene, averaged
+          // across each trophic level's living population — only
+          // shown when notably above/below the 0.5 neutral baseline,
+          // same "don't clutter with an unremarkable reading" as the
+          // NPC inspector's own trait labels.
+          const bits = [];
+          if (w.avg_grazer_hardiness != null && Math.abs(w.avg_grazer_hardiness - 0.5) >= 0.1) {
+            bits.push(`grazer stock ${w.avg_grazer_hardiness >= 0.5 ? "hardy" : "fragile"}`);
+          }
+          if (w.avg_predator_hardiness != null && Math.abs(w.avg_predator_hardiness - 0.5) >= 0.1) {
+            bits.push(`predator stock ${w.avg_predator_hardiness >= 0.5 ? "hardy" : "fragile"}`);
+          }
+          return bits.length ? ` — ${bits.join(", ")}` : "";
+        })(),
+      "Grazer herds roam grassland/forest and can be hunted for food; predator packs roam forest/hills and hunt grazers, starving without a kill. A real trophic loop: heavy predation pressure suppresses grazer breeding map-wide, and scarce prey suppresses predator breeding/survival in turn — not just direct per-tile kills. Each herd/pack also carries a real heritable \"hardiness\" gene (population-level, not per-animal) that measurably scales its own reproduction rate — passed down with mutation when a locally-extinct species recolonizes from a nearby surviving gene pool, occasionally boosted when Nature itself names a herd's variant \"hardier.\"",
     ],
     [
       "The land's own sense",

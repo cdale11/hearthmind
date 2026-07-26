@@ -545,6 +545,37 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.44)
+
+Explicit user instruction: "Make a separate list in the roadmap for
+just tier 0... Start and A15 for this turn and complete as much as
+possible." Docs-only Tier 0 reorganization plus a real A15 slice.
+
+`docs/ROADMAP-2026-07-REMAINING.md` gained a flat "Tier 0 — standalone
+checklist" (149 numbered steps, min/max step-size documented from this
+doc's own history) — every box checked as of this filing; what's left
+needs a fresh design pass (mirror-write -> pillar-authored decision),
+not another item at the same size.
+
+A15: `AnimalHerd.hardiness` — a real heritable population-level gene
+(a herd is an aggregate, not an individual, so one continuous number
+suffices, unlike `Agent.genome`'s diploid system). Seeded with genesis
+diversity; inherited with mutation from the surviving local gene pool
+on recolonization (falls back to baseline on genuine total extinction).
+Scales reproduction rate 0.7x-1.3x, applied in pure Python before the
+native grazer-tick fast path — zero native/index parity risk, the
+exact concern that previously deferred this item. Bridges
+`SpeciesVariant`'s "hardier" trait to this real gene. UI: Wildlife
+stat tile gains a conditional hardy/fragile stock reading.
+
+Verified: unit tests (bounds, gene-pool inheritance statistics,
+genesis diversity, round-trip), a deterministic threshold-crossing
+test of recolonization inheritance, a production-path smoke test of
+the SpeciesVariant bridge, a real 5000-tick engine soak with clean
+round-trip, a clean `scripts/verify_native_soak.py` run, and a live
+dev-server + Playwright pass. Closes A15 for both human and wildlife
+domains.
+
 ## Current state (v1.34.43)
 
 Explicit user instruction: "I thought you have closed tier 0. Please

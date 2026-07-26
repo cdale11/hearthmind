@@ -217,6 +217,73 @@ def _wildlife_tick_rng(seed: int, tick: int) -> random.Random:
     return random.Random(int(digest[:16], 16))
 
 
+HARDINESS_BASELINE = 0.5
+"""A15 "Genetic inheritance," wildlife slice (roadmap Tier 2 item 7):
+`AnimalHerd.hardiness` is a real heritable 0..1 trait — the first
+piece of real wildlife genetics (previously humans-only, `Agent.
+genome`). Unlike a human's diploid two-allele genome, a herd/pack is
+already a POPULATION aggregate, not an individual, so its "genome" is
+one continuous number representing the population's own average
+constitution — genuinely heritable (see `_maybe_recolonize`'s gene-
+pool inheritance) without needing per-animal allele bookkeeping."""
+
+HARDINESS_GENESIS_STDDEV = 0.12
+"""Spread of `hardiness` across herds/packs seeded at world genesis
+(`WildlifeGrid.generate`) — real starting genetic diversity, not every
+founding herd identical. Small enough that `HARDINESS_REPRODUCE_MIN_
+FACTOR`/`_MAX_FACTOR` below stay meaningful, not saturated."""
+
+HARDINESS_MUTATION_STDDEV = 0.08
+"""Drift applied when a NEW herd/pack inherits its `hardiness` from
+the surviving local gene pool on recolonization (`_maybe_recolonize`)
+— smaller than the genesis spread (an already-adapted population drifts
+gradually generation to generation, it doesn't reset to random)."""
+
+HARDINESS_REPRODUCE_MIN_FACTOR = 0.7
+HARDINESS_REPRODUCE_MAX_FACTOR = 1.3
+"""The real consumer: `hardiness_reproduce_factor` scales a herd's own
+`reproduce_chance` between these bounds (hardiness=0 -> 0.7x, =0.5 ->
+1.0x/no-op, =1 -> 1.3x) — a genuinely hardier population reproduces
+measurably better under the SAME predator-pressure/prey-scarcity
+penalty every herd already contends with, never a hard override of
+those existing tuned rates. Applied in pure Python to the scalar
+`reproduce_chance` BEFORE it reaches `_native_grazer_tick_step` (which
+only ever sees the final float) — zero native/index parity risk, the
+same "modulate after the fact" discipline A14's `injury` consumer
+established."""
+
+HARDINESS_VARIANT_BUMP = 0.15
+"""Bridges `SpeciesVariant`'s existing descriptive-only "hardier" trait
+(`SPECIES_VARIANT_TRAITS`) to this real numeric gene — the specific
+gap flagged in `SPECIES_VARIANT_TRAITS`'s own docstring. When Nature
+names a herd's variant as "hardier" (`SimulationEngine._maybe_
+schedule_species_variant`), that herd's `hardiness` genuinely rises by
+this much, clamped to 1.0 — an LLM-authored identity now has one real,
+bounded mechanical consequence, not just flavor text."""
+
+
+def hardiness_reproduce_factor(hardiness: float) -> float:
+    """See `HARDINESS_REPRODUCE_MIN_FACTOR`/`_MAX_FACTOR`'s docstring."""
+    hardiness = max(0.0, min(1.0, hardiness))
+    return HARDINESS_REPRODUCE_MIN_FACTOR + hardiness * (
+        HARDINESS_REPRODUCE_MAX_FACTOR - HARDINESS_REPRODUCE_MIN_FACTOR
+    )
+
+
+def _inherit_hardiness(rng: random.Random, gene_pool: list[float]) -> float:
+    """A15's real inheritance mechanism: a recolonizing herd/pack draws
+    its `hardiness` from the surviving local gene pool's own average
+    (founder-effect realism — a new colony largely reflects the source
+    population's genetics) plus a small mutation, rather than a flat
+    reset to baseline. An empty pool (the species is genuinely, fully
+    gone map-wide) has no gene pool to draw from, so a fresh founder
+    population starts at the neutral baseline instead."""
+    if not gene_pool:
+        return HARDINESS_BASELINE
+    avg = sum(gene_pool) / len(gene_pool)
+    return max(0.0, min(1.0, avg + rng.gauss(0.0, HARDINESS_MUTATION_STDDEV)))
+
+
 @dataclass
 class AnimalHerd:
     id: int
@@ -227,11 +294,15 @@ class AnimalHerd:
     ticks_since_meal: int = 0
     """Predator-only: ticks since the pack's last successful hunt — see
     PREDATOR_STARVE_CHANCE."""
+    hardiness: float = HARDINESS_BASELINE
+    """A15: real heritable population-level trait — see its own
+    docstring above."""
 
     def to_dict(self) -> dict:
         return {
             "id": self.id, "species": self.species.value, "x": self.x, "y": self.y,
             "count": self.count, "ticks_since_meal": self.ticks_since_meal,
+            "hardiness": round(self.hardiness, 4),
         }
 
     @classmethod
@@ -239,6 +310,7 @@ class AnimalHerd:
         return cls(
             id=data["id"], species=Species(data["species"]), x=data["x"], y=data["y"],
             count=data["count"], ticks_since_meal=data.get("ticks_since_meal", 0),
+            hardiness=data.get("hardiness", HARDINESS_BASELINE),
         )
 
 
@@ -324,6 +396,10 @@ class WildlifeGrid:
                 if tile.biome in GRAZER_BIOMES and rng.random() < HERD_DENSITY:
                     herds[next_id] = AnimalHerd(
                         id=next_id, species=Species.GRAZER, x=tile.x, y=tile.y, count=INITIAL_HERD_SIZE,
+                        # A15: real starting genetic diversity, not every
+                        # founding herd identical — see HARDINESS_
+                        # GENESIS_STDDEV's docstring.
+                        hardiness=max(0.0, min(1.0, rng.gauss(HARDINESS_BASELINE, HARDINESS_GENESIS_STDDEV))),
                     )
                     next_id += 1
 
@@ -337,6 +413,7 @@ class WildlifeGrid:
             herds[next_id] = AnimalHerd(
                 id=next_id, species=Species.PREDATOR, x=x, y=y,
                 count=rng.randint(MIN_PREDATOR_PACK, MAX_PREDATOR_PACK),
+                hardiness=max(0.0, min(1.0, rng.gauss(HARDINESS_BASELINE, HARDINESS_GENESIS_STDDEV))),
             )
             next_id += 1
 
@@ -494,7 +571,7 @@ class WildlifeGrid:
                 grazing_food = node is not None and node.kind is ResourceKind.FOOD
                 reproduce_chance = (
                     GRAZER_REPRODUCE_CHANCE * SEASON_GRAZER_REPRODUCE_MULTIPLIER.get(season, 1.0)
-                    * grazer_reproduce_penalty
+                    * grazer_reproduce_penalty * hardiness_reproduce_factor(herd.hardiness)
                 )
                 reproduce_roll = rng.random()
                 if _native_grazer_tick_step is not None:
@@ -532,7 +609,7 @@ class WildlifeGrid:
                 herd.ticks_since_meal = 0
                 reproduce_chance = GRAZER_REPRODUCE_CHANCE * (
                     PREY_SCARCITY_REPRODUCE_PENALTY if prey_scarce else 1.0
-                )
+                ) * hardiness_reproduce_factor(herd.hardiness)
                 if herd.count < MAX_PREDATOR_PACK and rng.random() < reproduce_chance:
                     herd.count += 1
                 if prey.count <= 0:
@@ -582,8 +659,16 @@ class WildlifeGrid:
         target_herds = max(1, int(len(grazer_spots) * HERD_DENSITY * GRAZER_RECOLONIZE_TARGET_HERDS_FRACTION))
         if len(grazer_herds) < target_herds and grazer_spots:
             x, y = rng.choice(grazer_spots)
+            # A15: the new herd inherits its hardiness from the
+            # surviving (count > 0) local gene pool (founder-effect
+            # realism), not a flat reset — see _inherit_hardiness's
+            # docstring. `grazer_herds` itself isn't count-filtered
+            # (pre-existing `target_herds` sizing behavior, unchanged
+            # here) so the gene pool re-filters locally.
+            hardiness = _inherit_hardiness(rng, [h.hardiness for h in grazer_herds if h.count > 0])
             self.herds[self._next_id] = AnimalHerd(
                 id=self._next_id, species=Species.GRAZER, x=x, y=y, count=INITIAL_HERD_SIZE,
+                hardiness=hardiness,
             )
             self._next_id += 1
             events.append(("wildlife_recolonized", f"A new grazer herd was seen near ({x}, {y})."))
@@ -606,9 +691,11 @@ class WildlifeGrid:
             predator_spots = [(t.x, t.y) for row in terrain for t in row if t.biome in PREDATOR_BIOMES]
             if predator_spots:
                 x, y = rng.choice(predator_spots)
+                hardiness = _inherit_hardiness(rng, [h.hardiness for h in predator_packs if h.count > 0])
                 self.herds[self._next_id] = AnimalHerd(
                     id=self._next_id, species=Species.PREDATOR, x=x, y=y,
                     count=rng.randint(MIN_PREDATOR_PACK, MAX_PREDATOR_PACK),
+                    hardiness=hardiness,
                 )
                 self._next_id += 1
                 events.append(("wildlife_recolonized", f"A predator pack has moved into the area near ({x}, {y})."))
@@ -629,6 +716,20 @@ class WildlifeGrid:
         predator_pressure_ratio = predator_total / max(1, grazer_total)
         expected_grazer_herds = len(predators) * GRAZER_TO_PREDATOR_RATIO
         prey_scarce = len(predators) > 0 and len(grazers) < expected_grazer_herds * PREY_SCARCITY_RATIO_THRESHOLD
+        # A15: population-genetics readout — the average heritable
+        # hardiness across each trophic level's LIVING herds/packs
+        # only (a dead entry can lingers in `self.herds` until GC'd
+        # elsewhere; its stale hardiness shouldn't skew this reading).
+        # `None` when that level is fully extinct (nothing to average).
+        living_grazers = [h for h in grazers if h.count > 0]
+        living_predators = [h for h in predators if h.count > 0]
+        avg_grazer_hardiness = (
+            round(sum(h.hardiness for h in living_grazers) / len(living_grazers), 3) if living_grazers else None
+        )
+        avg_predator_hardiness = (
+            round(sum(h.hardiness for h in living_predators) / len(living_predators), 3)
+            if living_predators else None
+        )
         return {
             "grazer_herds": len(grazers),
             "grazer_total": grazer_total,
@@ -636,6 +737,8 @@ class WildlifeGrid:
             "predator_total": predator_total,
             "predator_pressure_ratio": round(predator_pressure_ratio, 3),
             "prey_scarce": prey_scarce,
+            "avg_grazer_hardiness": avg_grazer_hardiness,
+            "avg_predator_hardiness": avg_predator_hardiness,
         }
 
     # --- (de)serialization -----------------------------------------------------

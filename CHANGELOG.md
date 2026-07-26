@@ -4,6 +4,61 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.44] — A15 wildlife genetics + Tier 0 standalone checklist
+
+Explicit user instruction: "Make a separate list in the roadmap for
+just tier 0 and divide into to minimum possible steps and maximum
+possible amount of work done in one turn. Start and A15 for this turn
+and complete as much as possible." Two independent pieces: a docs-only
+reorganization of Tier 0's existing history into a flat checklist, and
+a real A15 implementation slice.
+
+**Tier 0 standalone checklist**: `docs/ROADMAP-2026-07-REMAINING.md`
+gained a new "Tier 0 — standalone checklist" subsection, a flat index
+over every atomic unit Tier 0 has ever been broken into (149 numbered
+steps across 8 grouped entries), with the minimum step size this
+doc's own history established (one job/site mirrored, one Emergence-
+tag, one attention-swap, one B4 arrow decision) and the maximum single-
+turn batch actually demonstrated (14 sites, v1.34.20). Every checked
+box is done as of this filing; what's left needs a fresh un-scoped
+design pass (mirror-write -> pillar-authored decision), not another
+item at the checklist's own size — recorded honestly rather than
+inventing steps that don't exist yet.
+
+**A15 (wildlife genetics)**: `AnimalHerd.hardiness` (0..1, 0.5
+baseline, `world/wildlife.py`) — a herd/pack is already a POPULATION
+aggregate, not an individual, so unlike `Agent.genome`'s diploid
+two-allele system, hardiness is one continuous number representing the
+population's own average constitution. Seeded with real genesis
+diversity (`WildlifeGrid.generate`); on recolonization
+(`_maybe_recolonize`) a new herd/pack inherits from the surviving
+LOCAL gene pool's average plus mutation (founder-effect realism — a
+genuine total extinction with no survivors falls back to the neutral
+baseline). Real consumer: `hardiness_reproduce_factor` scales a herd's
+`reproduce_chance` 0.7x-1.3x, applied in pure Python BEFORE the scalar
+reaches `_native_grazer_tick_step` — zero native/index parity risk,
+directly addressing the reason this item was previously deferred.
+Also bridges `SpeciesVariant`'s existing descriptive-only "hardier"
+trait to this real gene (`_maybe_schedule_species_variant`'s `apply()`
+bumps the named herd's hardiness by `HARDINESS_VARIANT_BUMP`) — the
+specific gap `SPECIES_VARIANT_TRAITS`'s own docstring flagged. UI: the
+Wildlife stat tile gains a conditional "grazer/predator stock hardy/
+fragile" suffix from `WildlifeGrid.summary()`'s new `avg_grazer_
+hardiness`/`avg_predator_hardiness` (living herds only).
+
+Verified: direct unit tests (`hardiness_reproduce_factor` bounds,
+gene-pool inheritance centering near the pool average over 500 trials,
+genesis diversity, round-trip excluding dead entries); a deterministic
+threshold-crossing test of recolonization inheritance (surviving-
+gene-pool bias vs. genuine-extinction baseline fallback); a direct
+production-path smoke test of the SpeciesVariant bridge; a real
+5000-tick LLM-disabled engine soak confirming organic hardiness
+diversity + clean round-trip through the actual production path;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical;
+a real dev server + Playwright pass confirming the stat tile renders
+the new suffix correctly. Closes A15 for both domains this project
+models heritability for (human, wildlife).
+
 ## [1.34.43] — Tier 0's Nature causal-reasoning job: last two design-note triggers
 
 Explicit user instruction: "I thought you have closed tier 0. Please

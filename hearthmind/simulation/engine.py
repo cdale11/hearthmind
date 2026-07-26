@@ -94,7 +94,7 @@ from hearthmind.cognition import attention
 from hearthmind.cognition.pillar import make_message
 from hearthmind.world.disasters import GOVERNOR_TUNING_BAND, WILDFIRE_CHANCE_PER_WEEK
 from hearthmind.world.terrain_evolution import REFOREST_MIN_FALLOW_WEEKS
-from hearthmind.world.wildlife import MAX_SPECIES_VARIANTS_STORED, SpeciesVariant
+from hearthmind.world.wildlife import HARDINESS_VARIANT_BUMP, MAX_SPECIES_VARIANTS_STORED, SpeciesVariant
 from hearthmind.simulation.sandbox import run_counterfactual
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
@@ -4908,6 +4908,14 @@ class SimulationEngine:
             if len(self.world.species_variants) > MAX_SPECIES_VARIANTS_STORED:
                 oldest_id = min(self.world.species_variants, key=lambda i: self.world.species_variants[i].tick_named)
                 del self.world.species_variants[oldest_id]
+            # A15: bridges this LLM-authored trait to the real numeric
+            # gene it names — the specific gap SPECIES_VARIANT_TRAITS'
+            # own docstring used to flag. Only "hardier" has a matching
+            # real gene today; the other four traits stay descriptive.
+            if parsed["trait"] == "hardier":
+                herd = self.world.wildlife.herds.get(herd_id)
+                if herd is not None:
+                    herd.hardiness = min(1.0, herd.hardiness + HARDINESS_VARIANT_BUMP)
             self._log("species_variant_named", f"The land gave rise to {variant.name} — {variant.description}")
             # Tier 0 second slice (docs/ROADMAP-2026-07-REMAINING.md):
             # species_variant becomes Nature pillar's SECOND real wired

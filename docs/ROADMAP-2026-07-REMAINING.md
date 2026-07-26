@@ -53,7 +53,12 @@ tier is arbitrary.
    the actual "five conscious minds inhabiting the Body" vision, not
    "five extra fields bolted onto business as usual." Bigger than any
    single Part A item; sequence it whenever a real multi-week push is
-   available, not as a quick follow-up.
+   available, not as a quick follow-up. **See "Tier 0 — standalone
+   checklist" below for a flat step-by-step index over everything
+   this item has ever been broken into** — as of v1.34.44, every
+   checked box on that list is done; what remains is real un-scoped
+   design work (mirror-write -> pillar-authored decision), not another
+   item at the checklist's own step size.
 
    **First slice shipped, v1.32.0**: a SECOND real production job per
    pillar now mirrors into `world_model`/`memory` (invention ->
@@ -690,6 +695,75 @@ tier is arbitrary.
    no native module touched. This closes every named candidate in the
    Nature causal-reasoning design note.
 
+#### Tier 0 — standalone checklist (filed v1.34.44, explicit user request)
+
+The narrative history above is the source of truth; this is a flat,
+skimmable index over it — every atomic unit Tier 0 has ever been
+broken into, in the smallest step-size this doc's own history actually
+used, plus what a single turn realistically covers at each size. Kept
+separate from the prose so "what's left" never requires re-reading the
+whole narrative.
+
+**Minimum possible step size** (established by this doc's own
+one-slice-at-a-time early passes, v1.32.0-v1.34.15): ONE representative
+job mirrored into ONE pillar's `world_model`/`memory`, or ONE new
+`_append_emergence`/attention-swap/B4-arrow site. This is the smallest
+unit of real, verifiable progress the pattern supports — smaller than
+this isn't a separate step (e.g. "mirror half a job" isn't meaningful).
+
+**Maximum demonstrated in one turn**: 14 sites in one pass (v1.34.20,
+"Continue and finish attention scaled site in one go") — the largest
+single-turn batch this doc's history actually recorded. Batch size in
+practice was gated by how many sites shared the SAME mechanical pattern
+(e.g. "swap this one gate function call") rather than an artificial
+cap — a batch of pure mechanical repeats (like v1.34.18's 34-site
+backpressure swap) can be larger than a batch requiring one real
+content judgment per site (like the B4 arrow decisions).
+
+Checklist, dependency-ordered:
+
+- [x] Steps 1-5: one real second/third/fourth/fifth job mirrored per
+  pillar (v1.32.0-v1.34.11) — established the pattern per-pillar.
+- [x] Steps 6-37: remaining ~50 settlement-scoped `_schedule_llm_job`
+  call sites mirrored into their owning pillar's `world_model`/`memory`
+  (v1.34.12-v1.34.15, batches of 1-12 sites/turn) — closes "does every
+  real job reach its pillar at all."
+- [x] Step 38: observe/interpret Emergence-tagging, first 6 sites
+  (v1.34.16) — establishes `_append_emergence` as the mechanism.
+- [x] Steps 39-77: observe/interpret Emergence-tagging, remaining ~39
+  sites (v1.34.17, one 39-site batch) — closes "does every mirror
+  compete for its pillar's bounded attention."
+- [x] Steps 78-111: attention-budget arbitration, all 34 settlement
+  jobs swapped from flat to priority-scaled backpressure (v1.34.18, one
+  34-site batch) — closes "does every job respect B3's real priority
+  math, not just a flat gate."
+- [x] Steps 112-145: B4 inbox/outbox DECISION for all 34
+  attention-scaled sites — a real arrow (24 total) or a documented
+  reason not to, never left ambiguous (v1.34.16, v1.34.18-20, batches
+  of 1-14 sites/turn) — closes "has every site's cross-pillar
+  messaging question actually been decided."
+- [x] Step 146: per-agent cognition's volume-safe mirror, the one
+  gap every prior pass explicitly flagged and deferred (v1.34.34,
+  picked design option (a): mirror only a goal CHANGE) — closes the
+  LAST structurally-different (not settlement-scoped) mirror site.
+- [x] Steps 147-149: Nature causal-reasoning, a genuinely NEW cognition
+  point (not a mirror) — predator-pack extinction (v1.34.34), grazer
+  extinction + forest-succession-stall (v1.34.43) — closes every named
+  candidate in that design note.
+
+**Nothing on this checklist is currently unstarted.** What's left is
+NOT another atomic step at this size — it's the doc's own item-0
+categorical distinction ("five conscious minds inhabiting the Body"
+vs. "mirrors bolted onto business as usual"): turning a mirror-write
+into a pillar-AUTHORED decision (the pillar's own accumulated
+`world_model`/memory actually steering what a settlement job decides,
+not just recording its outcome afterward) is real, un-scoped design
+work — genuinely different in kind from every checked box above, not
+a bigger version of the same step. It needs its own explicit-direction
+pass naming a first concrete site before it can be broken into new
+minimum-size steps, the same standing discipline every other
+un-scoped item in this document already follows.
+
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0
 and before Tier 1: these are correctness/tuning questions about
@@ -1190,8 +1264,12 @@ forest reclaim). Real gaps, roughly by leverage:
    `memetics.weighted_spread_target`) were both found ALREADY
    continuous on direct code inspection — see the item's own entry
    below for the full audit.
-7. **A15** — wildlife/animal genetics (humans-only today); bridge to
-   `world.wildlife.SpeciesVariant`, which stays purely descriptive.
+7. **A15 — CLOSED, v1.34.44.** Wildlife genetics shipped (`AnimalHerd.
+   hardiness`, a real heritable population-level gene, inherited with
+   mutation on recolonization, consumed by reproduction rate, bridged
+   to `SpeciesVariant`'s "hardier" trait) — see the item's own entry
+   below for detail. Both domains this project models heritability for
+   (human, wildlife) are now real.
 8. **A14 — CLOSED, v1.34.42.** All six named organism-biology
    subsystems shipped (`immune_strength`, `stress` v1.34.37,
    `injury-recovery` v1.34.40, `development`/`fertility` v1.34.41,
@@ -1696,10 +1774,48 @@ baseline `immune_strength` (today: nutrition/rest only) is a flagged
 future connection to A15.
 
 ### A15 — Genetic inheritance
-Wildlife/animal genetics (scoped to humans this pass). `world.wildlife.
-SpeciesVariant` stays descriptive-only, not wired to real heritable
-genes — deferred specifically to avoid `AnimalHerd`'s native-index
-parity risk.
+**Wildlife slice shipped, v1.34.44** (explicit user instruction: "Start
+and A15 for this turn and complete as much as possible"). A herd/pack
+is already a POPULATION aggregate, not an individual, so unlike a
+human's diploid two-allele genome (`Agent.genome`), `AnimalHerd.
+hardiness` (0..1, 0.5 baseline) is one continuous number representing
+the population's own average constitution — genuinely heritable
+without per-animal allele bookkeeping. Seeded with real genesis
+diversity (`WildlifeGrid.generate`, `rng.gauss`); on recolonization
+(`_maybe_recolonize`) a new herd/pack draws its hardiness from the
+surviving LOCAL gene pool's own average plus a small mutation
+(founder-effect realism — a fully-extinct species with no survivors
+falls back to the neutral baseline instead). Real consumer:
+`hardiness_reproduce_factor` scales a herd's `reproduce_chance`
+0.7x-1.3x, applied in pure Python to the scalar chance BEFORE it
+reaches `_native_grazer_tick_step` — zero native/index parity risk,
+the exact concern the item's own prior note flagged as the reason to
+defer. Also bridges `SpeciesVariant`'s existing descriptive-only
+"hardier" trait to this real gene (`SimulationEngine._maybe_schedule_
+species_variant`'s `apply()` bumps the named herd's `hardiness` by
+`HARDINESS_VARIANT_BUMP` when that trait fires) — the specific gap
+`SPECIES_VARIANT_TRAITS`'s own docstring used to flag; the other four
+descriptive traits stay flavor-only. UI: the existing Wildlife stat
+tile gains a conditional "grazer/predator stock hardy/fragile" suffix
+(`WildlifeGrid.summary()`'s new `avg_grazer_hardiness`/`avg_predator_
+hardiness`, living herds only, shown only when notably off the 0.5
+neutral baseline).
+
+Verified: direct unit tests (`hardiness_reproduce_factor` bounds,
+gene-pool inheritance centering near the pool average across 500
+trials, genesis diversity, `AnimalHerd`/`summary()` round-trip
+excluding dead entries); a deterministic threshold-crossing test of
+recolonization inheritance (a surviving high-hardiness herd biases the
+new herd's own inherited value, vs. a genuine total-extinction fallback
+to baseline); a direct production-path smoke test of the SpeciesVariant
+"hardier" bridge; a real 5000-tick LLM-disabled engine soak confirming
+organic hardiness diversity + clean round-trip through the actual
+production path; `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical; a real dev server + Playwright pass confirming the
+Wildlife stat tile renders the new hardy/fragile suffix correctly.
+
+Human genetics (`Agent.genome`) unchanged. A15 is now closed for both
+domains this project models population-level heritability for.
 
 ### A16 — Graph algorithms
 Trade-as-network-flow, tech-as-DAG, and information-propagation-as-
