@@ -548,7 +548,7 @@ message, never queued or auto-chained.
 ## Current state (v1.34.37)
 
 Explicit user instruction: "Continue as many remaining tier 1 items as
-possible in this turn." Third slice this turn: A14's second organism-
+possible in this turn." First slice this turn: A14's second organism-
 biology subsystem, `stress` (following v1.34.36's `traffic`).
 
 `Agent.stress` (0..1) drifts toward a target from real, already-

@@ -7,7 +7,7 @@ to `hearthmind.__version__`.
 ## [1.34.37] — Tier 1: A14 second organism-biology subsystem, `stress`
 
 Explicit user instruction: "Continue as many remaining tier 1 items as
-possible in this turn." Third slice this turn (following v1.34.36's
+possible in this turn." First slice this turn (following v1.34.36's
 `traffic`): A14's second named subsystem, `stress` — same "real
 continuous state, coupled to already-real signals, modulating not
 replacing an existing tuned mechanism" shape `immune_strength`
