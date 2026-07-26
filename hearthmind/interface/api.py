@@ -74,6 +74,7 @@ class WorldBroadcaster:
         disease_pressure: "list[list[float]] | None" = None,
         pollution: "list[list[float]] | None" = None,
         traffic: "list[list[float]] | None" = None,
+        scarcity: "list[list[float]] | None" = None,
         road_scars: dict | None = None,
         migration_trails: dict | None = None,
     ) -> None:
@@ -126,10 +127,11 @@ class WorldBroadcaster:
         since none of them fire a `TERRAIN_CHANGING_CATEGORIES` event
         of their own.
 
-        `pollution`/`traffic` (Tier 1, docs/ROADMAP-2026-07-REMAINING.
-        md): same tiny 3x3 `World.fields` shape as `population_
-        density`/`disease_pressure`, riding the same `week_end` resync
-        — "industry chokes the fields nearby"/"trade follows roads" as
+        `pollution`/`traffic`/`scarcity` (Tier 1, docs/ROADMAP-2026-07-
+        REMAINING.md): same tiny 3x3 `World.fields` shape as
+        `population_density`/`disease_pressure`, riding the same
+        `week_end` resync — "industry chokes the fields nearby"/"trade
+        follows roads"/"a struggling town draws fewer newcomers" as
         real map overlays, not just numbers nothing on screen shows."""
         self._terrain_payload = {
             "width": width,
@@ -179,6 +181,9 @@ class WorldBroadcaster:
             ),
             "traffic": (
                 [[round(v, 3) for v in row] for row in traffic] if traffic else []
+            ),
+            "scarcity": (
+                [[round(v, 3) for v in row] for row in scarcity] if scarcity else []
             ),
         }
 

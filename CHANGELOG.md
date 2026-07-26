@@ -4,6 +4,56 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.38] — Tier 1: A4 first slice, `scarcity` field
+
+Explicit user instruction: "Continue with A4" (docs/ROADMAP-2026-07-
+REMAINING.md's "Continuous systems vs. scripted events" item). Weather/
+climate/wildlife/disasters were already continuous; agriculture
+already has a real field-consumption shape via A11's `hydrology_
+field.moisture` + `FarmGrid.soil_fertility`. Economy — the spec's own
+literal "resource/price fields that flow" — had zero field
+representation: `tick_market_prices` computes a real per-settlement
+scalar (already continuous, not event-fired) but never flowed
+spatially or fed anything beyond its own price multiplier.
+
+`settlement.buildings.compute_resource_fill` factors the granary/
+materials fill-ratio math out of `tick_market_prices` (behavior
+unchanged) so both it and the new field can share one read instead of
+duplicating the logic. New `FieldGrid.step_scarcity` (fifth `FieldGrid`
+field, `world/fields.py`) sources `1 - avg(food_fill, materials_fill)`
+per settlement, averages per region, then spreads via `ca_operators.
+diffuse` (`SCARCITY_DIFFUSE_RATE=0.35`) — same shape every prior field
+established. Real consumer: `Population._maybe_welcome_migrant`'s
+chance now dampens with the settlement's own region scarcity reading
+(`MIGRANT_SCARCITY_DAMPENING=0.3`, up to 30% at maximum scarcity),
+same bounded shape `MIGRANT_DENSITY_DAMPENING` already established for
+population density — "newcomers are less drawn to a visibly
+struggling town" is now a mechanical fact, not just narration.
+
+UI surfacing (same batch): `scarcity` is now a 7th "🗺️ fields" map
+overlay mode (`interface/static/app.js`) — a green-amber-red "want"
+color ramp (abundant -> struggling), legend labels, and broadcast
+wiring (`interface/api.py`'s `WorldBroadcaster.set_terrain` gained a
+`scarcity` param, both engine call sites updated).
+
+Verified: direct unit tests for `FieldGrid.step_scarcity` (empty-world
+all-zero, single-settlement diffusion, per-region weighted average
+across settlements) and `compute_resource_fill` (neutral food-fill
+default, real materials-fill reading); a deterministic threshold-
+crossing test of the migrant-welcome consumer (a fixed roll landing
+between the un-dampened and fully-dampened chance thresholds, proving
+the multiplier alone flips welcome to no-welcome); a real 4000-tick
+LLM-disabled engine soak (async, production `_tick_once` loop)
+confirmed the field forms organically from real settlement economics
+and round-trips cleanly through `to_dict`/`from_dict`; a real dev
+server + Playwright pass confirmed all seven field modes (plus off)
+cycle correctly with the right legend text and a clean render;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+pure Python, no native module touched.
+
+Infrastructure and information (A4's other two named sub-domains)
+remain fully unconverted, explicitly flagged for a future slice.
+
 ## [1.34.37] — Tier 1: A14 second organism-biology subsystem, `stress`
 
 Explicit user instruction: "Continue as many remaining tier 1 items as

@@ -1175,11 +1175,11 @@ detailsToggle.addEventListener("click", () => {
 // naturally faint/rare) — showing them all at once would fight the
 // map's own readability, the same reasoning the Observatory UI
 // direction already applies to the details panel.
-const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic"];
+const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic", "scarcity"];
 const FIELD_OVERLAY_LABELS = {
   off: "off", moisture: "soil moisture", soil_fertility: "soil fertility",
   population_density: "population density", disease_pressure: "disease pressure",
-  pollution: "pollution", traffic: "traffic",
+  pollution: "pollution", traffic: "traffic", scarcity: "economic scarcity",
 };
 let fieldOverlayMode = "off";
 const fieldCanvas = document.getElementById("field-canvas");
@@ -1200,6 +1200,7 @@ const FIELD_LEGEND_LABELS = {
   disease_pressure: { min: "low risk", max: "high risk" },
   pollution: { min: "clean", max: "fouled" },
   traffic: { min: "quiet", max: "busy" },
+  scarcity: { min: "abundant", max: "struggling" },
 };
 const fieldLegend = document.getElementById("field-legend");
 const fieldLegendTitle = document.getElementById("field-legend-title");
@@ -1279,6 +1280,12 @@ const FIELD_COLOR_STOPS = {
   // other modes use, since traffic is neutral (neither good nor bad
   // on its own, unlike pollution/disease).
   traffic: [[60, 70, 120], [70, 150, 200], [190, 230, 240]],
+  // A4 "economy -> resource/price fields that flow" (Tier 1). Abundant
+  // reads as a calm, prosperous green; struggling shifts through a
+  // dull amber toward a stark warning red — a "want" ramp, deliberately
+  // distinct from disease_pressure's pink-orange-red hue family since
+  // this is economic want, not biological/danger risk.
+  scarcity: [[80, 170, 110], [200, 175, 90], [190, 60, 50]],
 };
 
 function lerpColorStops(stops, t) {
@@ -1477,6 +1484,22 @@ function renderFieldOverlay() {
         if (!(v > 0)) continue;
         paintFieldCell(
           "traffic", rx * regionW * CELL, ry * regionH * CELL, regionW * CELL, regionH * CELL,
+          v, (v) => v * 0.4,
+        );
+        if (!peak || v > peak.value) peak = { x: rx, y: ry, w: regionW * CELL, h: regionH * CELL, value: v };
+      }
+    }
+  } else if (fieldOverlayMode === "scarcity") {
+    const grid = terrain.scarcity;
+    if (!grid || !grid.length) return;
+    const regionW = Math.ceil(terrain.width / grid[0].length);
+    const regionH = Math.ceil(terrain.height / grid.length);
+    for (let ry = 0; ry < grid.length; ry++) {
+      for (let rx = 0; rx < grid[ry].length; rx++) {
+        const v = grid[ry][rx];
+        if (!(v > 0)) continue;
+        paintFieldCell(
+          "scarcity", rx * regionW * CELL, ry * regionH * CELL, regionW * CELL, regionH * CELL,
           v, (v) => v * 0.4,
         );
         if (!peak || v > peak.value) peak = { x: rx, y: ry, w: regionW * CELL, h: regionH * CELL, value: v };

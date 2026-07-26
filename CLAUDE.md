@@ -545,6 +545,30 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.38)
+
+Explicit user instruction: "Continue with A4" ("Continuous systems vs.
+scripted events," docs/ROADMAP-2026-07-REMAINING.md). First slice:
+economy's own literal ask, "resource/price fields that flow" — a
+`scarcity` field (fifth `FieldGrid` field).
+
+`settlement.buildings.compute_resource_fill` factors the granary/
+materials fill math out of the existing `tick_market_prices` (behavior
+unchanged); `FieldGrid.step_scarcity` sources `1 - avg(food_fill,
+materials_fill)` per settlement, averages per region, spreads via
+`diffuse`. Real consumer: `_maybe_welcome_migrant`'s chance now dampens
+up to 30% in a visibly struggling region, same bounded shape
+`MIGRANT_DENSITY_DAMPENING` already established. UI: 7th "🗺️ fields"
+map overlay mode, own green-amber-red color ramp.
+
+Verified via direct unit tests, a deterministic threshold-crossing
+test of the migrant-welcome consumer, a real 4000-tick LLM-disabled
+engine soak confirming organic field formation + clean round-trip, a
+real dev server + Playwright pass confirming all seven field modes
+cycle correctly, and a clean `scripts/verify_native_soak.py` run.
+Infrastructure/information (A4's other two named sub-domains) remain
+open.
+
 ## Current state (v1.34.37)
 
 Explicit user instruction: "Continue as many remaining tier 1 items as

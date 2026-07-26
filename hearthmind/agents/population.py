@@ -699,6 +699,16 @@ this place is already full") and a genuine second independent system
 reading the same field, the gap the roadmap item's own definition
 flags ("region-level state ... instead of a separately-simulated
 object" — one field, one consumer, was a thin first slice)."""
+MIGRANT_SCARCITY_DAMPENING = 0.3
+"""A4 "Continuous systems vs. scripted events" (Tier 1, docs/ROADMAP-
+2026-07-REMAINING.md): a real consumer of `World.fields`'s `scarcity`
+region field — a settlement sitting in a visibly struggling region
+(low granary/materials fill, `settlement.buildings.compute_resource_
+fill`) draws newcomers less readily, same bounded shape and same
+magnitude `MIGRANT_DENSITY_DAMPENING` already established for
+population density (up to 30% dampening at maximum regional
+scarcity). "Word travels that a place is struggling" is the same
+plausible framing that field's own docstring uses."""
 MIGRANT_TEMPERAMENT_INFLUENCE = 0.2
 """Fractional nudge to migrant-arrival chance from `Settlement.
 temperament` — a village that's lately had a run of good fortune draws
@@ -2234,12 +2244,18 @@ class Population:
         self._tick_mourning()
         self._tick_weddings()
         region_density = None
+        region_scarcity = None
         if fields is not None and terrain:
             region_density = fields.get_at(
                 "population_density", (primary.center_x, primary.center_y), len(terrain[0]), len(terrain),
             )
+            region_scarcity = fields.get_at(
+                "scarcity", (primary.center_x, primary.center_y), len(terrain[0]), len(terrain),
+            )
         life_events.extend(
-            self._maybe_welcome_migrant(rng, primary, core_cast_target, terrain, region_density)
+            self._maybe_welcome_migrant(
+                rng, primary, core_cast_target, terrain, region_density, region_scarcity,
+            )
         )
         for stl in settlements:
             members = [a for a in self.agents if home_of(a).id == stl.id]
@@ -4998,6 +5014,7 @@ class Population:
         core_cast_target: int = POPULATION_CRITICAL_THRESHOLD,
         terrain: list[list[Tile]] | None = None,
         region_population_density: float | None = None,
+        region_scarcity: float | None = None,
     ) -> list[tuple[str, str]]:
         """The population equivalent of wildlife's `_maybe_recolonize` —
         a settlement crashed down to a handful of survivors (predation,
@@ -5043,7 +5060,9 @@ class Population:
         `region_population_density` (A20, roadmap Stage IV step 29):
         `World.fields`'s `population_density` region field (A1),
         0..1 read at this settlement's own center — see `MIGRANT_
-        DENSITY_DAMPENING`'s docstring."""
+        DENSITY_DAMPENING`'s docstring. `region_scarcity` (A4, Tier 1):
+        `World.fields`'s `scarcity` region field, same shape — see
+        `MIGRANT_SCARCITY_DAMPENING`'s docstring."""
         count = len(self.agents)
         floor = max(1, core_cast_target)
         if count >= floor:
@@ -5061,6 +5080,8 @@ class Population:
             chance *= 1.0 + avg_openness * TRAIT_OPENNESS_MIGRANT_WELCOME_INFLUENCE
         if region_population_density is not None:
             chance *= 1.0 - region_population_density * MIGRANT_DENSITY_DAMPENING
+        if region_scarcity is not None:
+            chance *= 1.0 - region_scarcity * MIGRANT_SCARCITY_DAMPENING
         chance = max(0.0, chance)
         if rng.random() >= chance:
             return []

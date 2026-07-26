@@ -1530,6 +1530,7 @@ class SimulationEngine:
                 disease_pressure=world.fields.ensure_field("disease_pressure"),
                 pollution=world.fields.ensure_field("pollution"),
                 traffic=world.fields.ensure_field("traffic"),
+                scarcity=world.fields.ensure_field("scarcity"),
                 road_scars=world.road_scars,
                 migration_trails=world.migration_trails,
             )
@@ -9680,6 +9681,7 @@ class SimulationEngine:
                 disease_pressure=self.world.fields.ensure_field("disease_pressure"),
                 pollution=self.world.fields.ensure_field("pollution"),
                 traffic=self.world.fields.ensure_field("traffic"),
+                scarcity=self.world.fields.ensure_field("scarcity"),
                 road_scars=self.world.road_scars,
                 migration_trails=self.world.migration_trails,
             )

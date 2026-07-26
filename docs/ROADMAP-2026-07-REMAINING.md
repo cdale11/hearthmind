@@ -1142,9 +1142,12 @@ forest reclaim). Real gaps, roughly by leverage:
 **Tier 2 — real mechanism gaps, each self-contained**
 5. **A3** — **shipped, v1.34.25** (rivers re-carving via erosion) —
    see the item's own entry below for detail.
-6. **A4** — convert remaining scripted subsystems (agriculture,
-   infrastructure, economy, information) to continuous field/threshold
-   updates instead of discrete "fires."
+6. **A4** — **first slice shipped, v1.34.38** (economy's own literal
+   ask, "resource/price fields that flow": a `scarcity` `FieldGrid`
+   field + a real migrant-arrival consumer) — see the item's own entry
+   below for detail. Infrastructure and information remain fully
+   unconverted; agriculture is largely already covered by A11's
+   moisture field + `FarmGrid.soil_fertility`.
 7. **A15** — wildlife/animal genetics (humans-only today); bridge to
    `world.wildlife.SpeciesVariant`, which stays purely descriptive.
 8. **A14** — **first of the other five named organism-biology
@@ -1351,6 +1354,38 @@ still partly event-driven rather than continuous field/threshold
 updates. Economy → resource/price fields that flow; agriculture →
 fertility/moisture field consumption; information → propagation on the
 social graph (A17) are all still unconverted.
+
+### A4 — Continuous systems vs. scripted events
+**First slice shipped (v1.34.38): `scarcity`.** Weather/climate/
+wildlife/disasters were already continuous; agriculture already has a
+real field-consumption shape via A11's `hydrology_field.moisture` +
+`FarmGrid.soil_fertility` (not migrated onto `FieldGrid` proper, but
+genuinely continuous, not scripted). Economy — the spec's own literal
+"resource/price fields that flow" — was the one sub-domain with zero
+field representation: `tick_market_prices` computes a real per-
+settlement scalar (already continuous, not event-fired) but never
+flowed spatially or fed anything beyond its own price multiplier.
+
+New `FieldGrid.step_scarcity` (fifth `FieldGrid` field, same `ca_
+operators.diffuse` shape A1/A2 already established): sourced from
+each settlement's real granary/materials fill ratio (`settlement.
+buildings.compute_resource_fill`, factored out of the existing
+monthly `tick_market_prices` so both share one read instead of
+duplicating the math — `1 - avg(food_fill, materials_fill)`), summed/
+averaged per region, then spread into neighboring regions. Real
+consumer: `Population._maybe_welcome_migrant`'s chance now dampens
+with the settlement's own region scarcity reading (`MIGRANT_
+SCARCITY_DAMPENING=0.3`, up to 30% at maximum scarcity), same bounded
+shape `MIGRANT_DENSITY_DAMPENING` already established for population
+density — "newcomers are less drawn to a visibly struggling town" is
+now mechanical. UI: 7th "🗺️ fields" map overlay mode, own green-amber-
+red "want" color ramp.
+
+Infrastructure (roads/buildings as continuous wear/decay fields
+rather than discrete construction/repair events) and information
+(rumor/tradition/belief propagation as a true continuous field rather
+than discrete spread events — A17's own remaining gap) stay fully
+unconverted, explicitly flagged for a future slice.
 
 ### A5/A6 — Affordances
 `Entity.properties`/per-instance `Entity.affordances` (today: class-

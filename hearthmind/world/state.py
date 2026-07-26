@@ -13,7 +13,7 @@ from hearthmind.agents.agent import AgentGoal, AgentState
 from hearthmind.agents.population import Population
 from hearthmind.config import Config
 from hearthmind.economy.farms import FarmGrid, apply_nutrient_cycling
-from hearthmind.settlement.buildings import BuildingKind, BuildingStage, Settlement
+from hearthmind.settlement.buildings import BuildingKind, BuildingStage, Settlement, compute_resource_fill
 from hearthmind.settlement.naming import generate_settlement_name
 from hearthmind.time_system import SimClock
 from hearthmind.world.resources import ResourceGrid
@@ -851,6 +851,13 @@ class World:
             list(self.mining_scars.items()), self.config.width, self.config.height,
         )
         self.fields.step_traffic(list(self.roads.wear.items()), self.config.width, self.config.height)
+        self.fields.step_scarcity(
+            [
+                ((s.center_x, s.center_y), 1.0 - sum(compute_resource_fill(s)) / 2.0)
+                for s in self.settlements if s.center_x >= 0 and s.center_y >= 0
+            ],
+            self.config.width, self.config.height,
+        )
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (
             wildlife_events + settlement_events + population_events + terrain_events + disaster_events

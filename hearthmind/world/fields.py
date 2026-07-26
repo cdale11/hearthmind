@@ -62,11 +62,24 @@ roads" as a mechanical fact, the same kind of real multiplier
 `has_market()`/`caravan_relation_factor` already apply to that same
 `chance` value.
 
-The remaining eight named fields (fertility, nutrients, scent, heat,
+Fifth slice ships `scarcity` — A4's ("Continuous systems vs. scripted
+events," docs/ROADMAP-2026-07-REMAINING.md) own literal ask, "economy
+-> resource/price fields that flow." Sourced from each settlement's
+already-real granary/materials fill ratios (`settlement.buildings.
+compute_resource_fill`, factored out of the existing monthly `tick_
+market_prices` so both share one read rather than duplicating the
+math) rather than anything new, then spread via `ca_operators.diffuse`
+the same way every prior field is. Real consumer: `Population._maybe_
+welcome_migrant`'s chance now dampens with the settlement's own region
+scarcity reading, same bounded shape `MIGRANT_DENSITY_DAMPENING`
+already established for population density — "newcomers are less
+drawn to a visibly struggling town" is now a mechanical fact.
+
+The remaining seven named fields (fertility, nutrients, scent, heat,
 cultural-influence, ownership, beauty, noise) and migrating `disaster_
 scars`/the climate grid onto `FieldGrid` proper remain explicitly NOT
 built here — each is its own follow-up step against the same
-`FieldGrid`/`ca_operators` shape now proven against four real
+`FieldGrid`/`ca_operators` shape now proven against five real
 fields."""
 from __future__ import annotations
 
@@ -111,6 +124,12 @@ TRAFFIC_DIFFUSE_RATE = 0.3
 """Same role as `POLLUTION_DIFFUSE_RATE` — a busy road corridor's
 traffic naturally reads as elevated in the regions it passes through
 and touches, not just the exact tiles carrying the heaviest wear."""
+
+SCARCITY_DIFFUSE_RATE = 0.35
+"""Same role as `DISEASE_PRESSURE_DIFFUSE_RATE` — a region neighboring
+a struggling settlement reads real, elevated scarcity too, not just
+the settlement's own home region. A hungry town's economic strain
+radiates outward the same way contagion risk does."""
 
 
 def _normalize_peak(raw: list[list[float]]) -> list[list[float]]:
@@ -237,6 +256,33 @@ class FieldGrid:
             rx, ry = self.region_of(pos, width, height)
             raw[ry][rx] += wear
         self.fields["traffic"] = diffuse(_normalize_peak(raw), TRAFFIC_DIFFUSE_RATE)
+
+    def step_scarcity(
+        self, settlement_scarcity_items: list[tuple[tuple[int, int], float]], width: int, height: int,
+    ) -> None:
+        """Fifth concrete field (A4 "economy -> resource/price fields
+        that flow," docs/ROADMAP-2026-07-REMAINING.md). Unlike traffic/
+        pollution (unbounded raw sums normalized against a peak), each
+        item here already IS a real 0..1 reading (`1 - avg(food_fill,
+        materials_fill)` — `settlement.buildings.compute_resource_
+        fill`) — same "already-real slow-changing state, re-read fresh
+        each call" shape `step_pollution` established, just no
+        normalization step needed since the source is already bounded.
+        A region containing more than one settlement averages their
+        readings. Spread via `ca_operators.diffuse` — a struggling
+        settlement's strain radiates into neighboring regions too, not
+        just its own home region."""
+        totals = [[0.0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+        counts = [[0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+        for pos, scarcity in settlement_scarcity_items:
+            rx, ry = self.region_of(pos, width, height)
+            totals[ry][rx] += scarcity
+            counts[ry][rx] += 1
+        raw = [
+            [(totals[ry][rx] / counts[ry][rx]) if counts[ry][rx] > 0 else 0.0 for rx in range(FIELD_GRID_SIZE)]
+            for ry in range(FIELD_GRID_SIZE)
+        ]
+        self.fields["scarcity"] = diffuse(raw, SCARCITY_DIFFUSE_RATE)
 
     def to_dict(self) -> dict:
         return {name: [list(row) for row in grid] for name, grid in self.fields.items()}

@@ -1193,6 +1193,26 @@ flat constants forever. Without a standing market, prices reset to
 1.0: informal barter has no price discovery."""
 
 
+def compute_resource_fill(settlement: "Settlement") -> tuple[float, float]:
+    """The real supply/demand read `tick_market_prices` uses — factored
+    out (A4, "economy -> resource/price fields that flow," docs/
+    ROADMAP-2026-07-REMAINING.md) so `World.tick()`'s new `FieldGrid.
+    step_scarcity` can read the SAME granary/materials fill ratios
+    without duplicating the logic or requiring a standing MARKET (a
+    settlement's actual stores are real economic reality regardless of
+    whether it has price discovery yet). Returns (food_fill,
+    materials_fill), each 0..1 (0.5 neutral default with no granaries/
+    zero capacity, same fallback `tick_market_prices` always used)."""
+    granaries = [
+        b for b in settlement.buildings
+        if b.kind is BuildingKind.GRANARY and b.stage is BuildingStage.STANDING
+    ]
+    granary_capacity = len(granaries) * GRANARY_CAPACITY
+    food_fill = (sum(b.stored_food for b in granaries) / granary_capacity) if granary_capacity else 0.5
+    materials_fill = settlement.materials / MATERIALS_CAPACITY if MATERIALS_CAPACITY else 0.5
+    return food_fill, materials_fill
+
+
 def tick_market_prices(settlement: "Settlement", population_hint: int = 0) -> None:
     """Called on month boundaries (SimulationEngine). Mutates
     `settlement.economy.market_prices` in place — see MARKET_PRICE_MIN's
@@ -1202,13 +1222,7 @@ def tick_market_prices(settlement: "Settlement", population_hint: int = 0) -> No
         if prices:
             prices.clear()
         return
-    granaries = [
-        b for b in settlement.buildings
-        if b.kind is BuildingKind.GRANARY and b.stage is BuildingStage.STANDING
-    ]
-    granary_capacity = len(granaries) * GRANARY_CAPACITY
-    food_fill = (sum(b.stored_food for b in granaries) / granary_capacity) if granary_capacity else 0.5
-    materials_fill = settlement.materials / MATERIALS_CAPACITY if MATERIALS_CAPACITY else 0.5
+    food_fill, materials_fill = compute_resource_fill(settlement)
     # Cross-settlement relations (v0.67.0) add a small, ambient regional-
     # trade nudge on top of the supply/demand target — see
     # market_relation_factor/RELATION_MARKET_INFLUENCE.
