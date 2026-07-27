@@ -8750,7 +8750,10 @@ class SimulationEngine:
             self.world.population.council_disposition(institution)
             if institution.kind is InstitutionKind.COUNCIL else None
         )
-        objective = institutions.compute_objective(institution, inst_target.summary(), council_disposition)
+        objective = institutions.compute_objective(
+            institution, inst_target.summary(), council_disposition,
+            village_pillar_lean=self._village_priority_lean(),
+        )
         # Vision item 2.2: track how long this institution has wanted
         # the SAME thing — a real, persistent frustration, not a fresh
         # one each check.

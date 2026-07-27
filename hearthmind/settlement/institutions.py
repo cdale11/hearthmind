@@ -209,6 +209,7 @@ FAMILY_OBJECTIVE_SMALL_THRESHOLD = 3
 
 def compute_objective(
     institution: "Institution", settlement_summary: dict, council_disposition: dict | None = None,
+    village_pillar_lean: float = 0.0,
 ) -> str:
     """Deterministic (explicit user directive: "Institution objectives:
     these can be deterministic. The LLM should explain the motivation.")
@@ -236,6 +237,22 @@ def compute_objective(
                 return "see the village grow and its reach widen"
             if avg_resilience - avg_ambition > COUNCIL_OBJECTIVE_DISPOSITION_THRESHOLD:
                 return "keep the village secure and at peace"
+        # Tier 0's mirror-write -> pillar-authored conversion, third
+        # site (docs/ROADMAP-2026-07-REMAINING.md) — the SAME slot
+        # `council_disposition`'s own bounded nudge just occupied above
+        # (never the materials-need check earlier in this branch),
+        # consulted whenever there's no sitting council or its own
+        # disposition came back tied. `village_pillar_lean` is the
+        # exact precomputed value `SimulationEngine._village_priority_
+        # lean()` already builds for `town_brain.compute_priority` —
+        # reused here rather than a second parallel signal, since it's
+        # the same real question ("does the village's own accumulated
+        # sense of itself lean toward growth or safety") asked at a
+        # different scope.
+        if village_pillar_lean > COUNCIL_OBJECTIVE_DISPOSITION_THRESHOLD:
+            return "see the village grow and its reach widen"
+        if village_pillar_lean < -COUNCIL_OBJECTIVE_DISPOSITION_THRESHOLD:
+            return "keep the village secure and at peace"
         return "keep the village steady"
     if institution.kind is InstitutionKind.GUILD:
         currency_frac = (

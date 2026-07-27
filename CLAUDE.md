@@ -545,6 +545,35 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.48)
+
+Explicit user instruction: "Start the next one and complete as many
+as you can this turn" — third mirror-write -> pillar-authored
+conversion, chosen to keep the pattern spreading across pillars/scopes
+rather than only town_brain.
+
+`institutions.compute_objective`'s COUNCIL branch had the EXACT SAME
+`council_disposition` tiebreak shape v1.34.46 already converted for
+`town_brain.compute_priority` — unsurprising, both read the same real
+per-institution disposition signal at different scope. Reused the SAME
+precomputed `village_pillar_lean` value `SimulationEngine._village_
+priority_lean()` already builds, rather than inventing a second
+parallel signal — one real question ("does the village's own
+accumulated sense of itself lean toward growth or safety") asked at a
+second scope. Consulted only in the branch's final catchall (no
+sitting council, or its disposition itself tied); the materials-need
+arm above it and any live council disposition are never overridden.
+FAMILY/GUILD branches untouched — neither has an equivalent soft/
+tiebreak point yet.
+
+Verified: unit tests (materials-need/live-disposition never
+overridden, lean deciding only in the true no-signal case, FAMILY/
+GUILD unaffected), a production-path smoke test through the real
+`_maybe_schedule_institution_belief` call path, a 4000-tick
+LLM-disabled soak with clean round-trip, `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical. ~52 Tier 0 mirror sites
+remain unconverted.
+
 ## Current state (v1.34.47)
 
 Explicit user instruction: "Pick the next Tier 0 site to convert" —

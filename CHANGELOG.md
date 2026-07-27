@@ -4,6 +4,37 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.48] — Tier 0's third mirror-write -> pillar-authored site
+
+Explicit user instruction: "Start the next one and complete as many
+as you can this turn." Third conversion site: `institutions.compute_
+objective`'s COUNCIL branch.
+
+Found that this branch already had the EXACT SAME `council_
+disposition` tiebreak shape v1.34.46 converted for `town_brain.
+compute_priority` — unsurprising, since both read the same real
+per-institution disposition signal at different decision scope.
+Rather than invent a second, parallel Village-lean computation just
+for this site, the SAME precomputed `village_pillar_lean` value
+`SimulationEngine._village_priority_lean()` already builds is reused
+here — one real question ("does the village's own accumulated sense
+of itself lean toward growth or safety") asked at a second scope, not
+two competing signals. Consulted only in the branch's final catchall
+(no sitting council, or its own disposition came back tied); the
+materials-need arm above it and any live council disposition are
+never overridden. FAMILY/GUILD branches untouched — neither has an
+equivalent soft/tiebreak point yet.
+
+Verified: direct unit tests (materials-need arm never overridden;
+live council_disposition never overridden; pillar lean deciding only
+in the true no-signal case, in the correct direction; FAMILY/GUILD
+branches unaffected by the new param); a production-path smoke test
+confirming a pre-seeded Village-pillar entry reaches the real
+`_maybe_schedule_institution_belief` call path through the actual
+engine; a 4000-tick LLM-disabled soak with a clean round-trip;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical
+— pure Python, no native module touched.
+
 ## [1.34.47] — Tier 0's second mirror-write -> pillar-authored site
 
 Explicit user instruction: "Pick the next Tier 0 site to convert."

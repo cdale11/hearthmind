@@ -800,7 +800,24 @@ it against Village. Same self-referential-echo-chamber avoidance as the
 first site: `era_branch`'s own mirror writes a subject of `"{settlement}
 's tech-path lean"`, which never itself matches a branch-name keyword.
 
-Every other of the ~53 remaining Tier 0 sites stays mirror-write-only.
+**Third site (v1.34.48, explicit user instruction: "Start the next one
+and complete as many as you can this turn").** `institutions.compute_
+objective`'s COUNCIL branch had the exact same `council_disposition`
+tiebreak shape as `town_brain.compute_priority` itself (unsurprising —
+both read the same real per-institution disposition signal at
+different scope). Rather than compute a second, parallel Village lean
+just for this site, the SAME precomputed `village_pillar_lean` value
+`SimulationEngine._village_priority_lean()` already builds for
+`town_brain` is reused here — one real question ("does the village's
+own accumulated sense of itself lean toward growth or safety") asked
+at a second scope, not two competing signals. Consulted only in the
+COUNCIL branch's final catchall (when there's no sitting council, or
+its own disposition came back tied) — the materials-need arm above it,
+and any live council disposition, are never overridden. FAMILY/GUILD's
+branches are untouched (no equivalent soft/tiebreak point exists in
+either yet).
+
+Every other of the ~52 remaining Tier 0 sites stays mirror-write-only.
 Converting further sites is real, un-scoped follow-up work — each needs
 its own judgment call about where in an existing decision a pillar
 lean can enter without overriding a hard/urgent branch — not another
