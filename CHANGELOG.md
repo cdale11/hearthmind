@@ -4,6 +4,65 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.58] — A13 CLOSED: the real automatic reaction reactor
+
+Explicit user instruction: "update roadmap if A20 is closed otherwise
+complete it. Start A13." A20 was already closed in v1.34.57 — fixed a
+stale summary-index line the prior batch missed. A13 ("Chemistry /
+reaction system") previously shipped the query half only
+(`discover_reactions`, read-only); this ships the spec's own literally-
+named remainder — a `ReactionRule(reactants, conditions, products,
+rate)` engine that fires automatically on the tick loop and mutates a
+standing building's actual material.
+
+`ReactionRule` gains a `rate` field (consecutive ticks required,
+default 500, comparable order of magnitude to `terrain_evolution.
+MINING_SCAR_QUARRY_TICKS`). New `Building.material`/`reaction_
+progress` (per-INSTANCE fields — `material=None` means "use `world.
+materials.BUILDING_MATERIALS[kind]`'s default," the state of every
+building that was never converted). New `world.chemistry.tick_
+building_reactions`, called once per settlement per tick from `World.
+tick()`: settlement-wide condition presence (same affordance-union
+model `discover_reactions` already used) but per-BUILDING reactant
+match and sustained-progress counter — a standing building whose
+effective material (`world.materials.effective_material_name`)
+matches a rule's reactant, held under that rule's condition for `rate`
+consecutive ticks uninterrupted (reset, not paused, on any
+interruption — same discipline as `terrain_evolution.maybe_form_
+quarries`), genuinely converts. Only clay (SHRINE) and fiber
+(PASTURE/HATCHERY) can ever fire this way — no `BuildingKind` defaults
+to `ore`, so ore->metal stays reachable only through the query half,
+an honest gap, not silently worked around.
+
+Two real consequences, both chosen specifically to carry ZERO native-
+parity risk (this function runs entirely outside the native-ported
+building-decay tick, never inside it): a one-time `REACTION_
+CONDITION_BOOST` to the building's `condition` on conversion, and new
+`world.materials.building_instance_affordances` — every future
+affordance/material query for that specific instance now reflects the
+NEW material's real derived properties, not the kind's stale default.
+Wired into Innovation's `discover_reactions`/`discover_combinations`
+query (now per-instance, was per-kind) and the building-descriptor UI
+line. UI: the click inspector's "Built of" line reads the real
+per-instance material (flagging a converted building explicitly), new
+🏺 `material_converted` event icon/filter group.
+
+Verified: direct unit tests (full conversion cycle for both real
+reactant paths, interruption resets not pauses progress, no re-firing
+once converted since the product has no further `REACTION_RULES`
+entry); a production-path test driving the real `World.tick()` loop to
+a genuine conversion; a `to_dict()`/`from_dict()` round-trip (material
+preserved) plus a legacy-backfill test (missing keys default to
+`material=None`/`reaction_progress=0`); a production-path smoke test
+confirming `_maybe_schedule_ontology_proposal` doesn't crash with a
+converted building present; a 5000-tick organic LLM-disabled engine
+soak with a clean round-trip (the one surviving diff, `river_tiles`
+set-ordering, reproduced identically on unmodified code via `git
+stash` — the same pre-existing quirk CLAUDE.md's v1.34.0 entry already
+documents, not introduced here); `scripts/verify_native_soak.py` (2
+seeds x 800 ticks) byte-identical; a live dev server + Playwright pass
+confirming no console errors.
+
 ## [1.34.57] — A20 CLOSED: culture aggregates settlements' information-ecosystems
 
 Explicit user instruction: "Unify folklore/legend pipeline and continue

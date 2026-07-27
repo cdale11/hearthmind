@@ -131,6 +131,7 @@ const CATEGORY_META = {
   building_ruined: { icon: "🏚️" },
   building_reclaimed: { icon: "🌿" },
   farm_planted: { icon: "🌱" },
+  material_converted: { icon: "🏺" }, // A13's real automatic reactor: a standing building's material genuinely converted (e.g. clay -> ceramic under sustained heat)
   birth: { icon: "👶" },
   death: { icon: "💀" },
   dialogue: { skip: true }, // routine crowd background chatter (deterministic fallback, never LLM-authored) — recorded internally (/events, dev console) but not the main feed
@@ -229,6 +230,7 @@ const EVENT_GROUP_OF = {
   letter_delivered: "people", letter_arrived_too_late: "people",
   construction_started: "town", building_completed: "town", building_ruined: "town",
   building_reclaimed: "town", farm_planted: "town", vehicle_started: "town",
+  material_converted: "town",
   vehicle_completed: "town", vehicle_broken: "town", era_advance: "town",
   settlement_named: "town", guild_formed: "town", guild_joined: "town", faction_formed: "town",
   council_formed: "town", council_seat_filled: "town", council_seat_contested: "town", family_formed: "town",
@@ -3327,7 +3329,18 @@ function renderTargetInspector() {
       <div class="npc-section"><h4>Condition</h4>
         <div>${conditionPct}%${b.stage === "under_construction" ? ` · progress ${Math.round((b.progress || 0) * 100)}%` : ""}</div>
       </div>
-      ${BUILDING_MATERIAL[b.kind] ? `<div class="npc-section"><h4>Built of</h4><div>${BUILDING_MATERIAL[b.kind]}</div></div>` : ""}
+      ${(() => {
+        // A13's real automatic reactor (v1.34.58): a converted
+        // building's own material (b.material, from world.chemistry.
+        // tick_building_reactions) genuinely differs from its kind's
+        // default — prefer it when present, same "per-instance beats
+        // per-kind default" resolution the backend's own effective_
+        // material_name uses.
+        const material = b.material || BUILDING_MATERIAL[b.kind];
+        if (!material) return "";
+        const converted = b.material && b.material !== BUILDING_MATERIAL[b.kind];
+        return `<div class="npc-section"><h4>Built of</h4><div>${material}${converted ? " (converted from its original material)" : ""}</div></div>`;
+      })()}
       ${b.descriptor ? `<div class="npc-section"><h4>Character</h4><div>${b.descriptor}</div></div>` : ""}
       ${(() => {
         if (b.kind !== "shrine") return "";

@@ -1375,17 +1375,18 @@ forest reclaim). Real gaps, roughly by leverage:
     traffic/pollution/fertility/construction/ownership — see the item's
     own entry below for detail). Battles is the one axis that stays
     genuinely open — no combat mechanic exists to source it.
-11. **A21 — CLOSED, v1.34.56.** Legend feedback into tradition/
-    religion formation and "already legendary" grounding in chronicle/
-    folklore prompts are both real now — see the item's own entry
-    below for detail. Only unifying with folklore's own pipeline
-    remains open, flagged as aspirational by the doc's own source
-    checklist.
-12. **A20** — a second real multi-scale field beyond `population_
-    density`; "culture aggregates settlements' information-ecosystems."
-13. **A13** — a real automatic reactor (today: query-only, nothing
-    actually fires a reaction and mutates a standing building's
-    material after the fact).
+11. **A21 — CLOSED, v1.34.57.** Legend feedback into tradition/
+    religion formation, "already legendary" grounding in chronicle/
+    folklore prompts, and folklore/legend pipeline unification (a
+    folk tale that endures unsuperseded long enough deterministically
+    graduates into a legend) are all real now — see the item's own
+    entry below for detail. Nothing left open.
+12. **A20 — CLOSED, v1.34.57.** Both named gaps real now — see the
+    item's own entry below for detail.
+13. **A13 — CLOSED, v1.34.58.** The real automatic reactor now exists
+    — see the item's own entry below for detail. Reachable only for
+    clay/fiber (no `BuildingKind` defaults to `ore`), an honest,
+    flagged gap.
 14. **A17** — unify rumor/tradition/belief/song/technique onto
     `memetics.py`'s propagation-weight primitive; a shared mutate/
     decay/compete step; a real fitness-vs-truth axis for rumors.
@@ -1749,10 +1750,26 @@ Per-instance `Entity.material` (today: one material per `BuildingKind`
 at the class level, not per physical instance).
 
 ### A13 — Chemistry / reaction system
-A real automatic reactor — the spec's literal `ReactionRule(reactants,
-conditions, products, rate)` with automatic tick-loop firing that
-mutates a standing building's actual material — remains unbuilt; today
-ships the query half only (`discover_reactions`, read-only).
+**CLOSED, second slice, v1.34.58** (explicit user instruction: "Start
+A13"). The real automatic reactor now exists: `ReactionRule` gained a
+`rate` field (consecutive ticks required), and new `world.chemistry.
+tick_building_reactions` fires it every tick — a standing building
+whose EFFECTIVE material (`Building.material` if ever converted, else
+the per-kind default) matches a rule's reactant, held under that
+rule's condition for `rate` consecutive ticks uninterrupted, genuinely
+converts: `Building.material` is overwritten with the product, a real
+per-instance change (clay SHRINE -> ceramic under sustained heat;
+fiber HATCHERY -> cured_fiber under sustained water_and_time — no
+`BuildingKind` defaults to `ore`, so ore->metal stays reachable only
+through the query half, an honest, flagged gap). Two real, zero-
+native-parity-risk consequences: a one-time `condition` boost on
+conversion, and every future affordance/material query for that
+instance (`world.materials.building_instance_affordances`/`effective_
+material_name`, threaded into Innovation's discovery prompt AND the
+building-descriptor UI line) reflects the new material, not the
+kind's stale default. UI: the building click inspector's "Built of"
+line now reads the real per-instance material and flags a converted
+building; new 🏺 `material_converted` event icon.
 
 ### A14 — Layered organism biology
 **Second subsystem shipped (v1.34.37): `stress`.** Same "real

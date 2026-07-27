@@ -186,3 +186,30 @@ def building_affordances(kind: BuildingKind) -> frozenset[str]:
     if material is not None:
         tags |= derive_affordances(material)
     return frozenset(tags)
+
+
+def effective_material_name(building) -> str | None:
+    """A13's per-instance resolution point: `Building.material` if the
+    reactor (`world.chemistry.tick_building_reactions`) has ever
+    converted this specific building, else the per-kind default from
+    `BUILDING_MATERIALS`. Every other reader of "what is this building
+    made of" (queries, prompts, affordance derivation) should go
+    through this, not `BUILDING_MATERIALS[kind]` directly, once an
+    individual instance can genuinely differ from its kind's default."""
+    return building.material if building.material is not None else BUILDING_MATERIALS.get(building.kind)
+
+
+def building_instance_affordances(building) -> frozenset[str]:
+    """`building_affordances(kind)`'s per-INSTANCE counterpart — reads
+    `effective_material_name` instead of always the per-kind default,
+    so a converted building (ceramic instead of clay, cured_fiber
+    instead of fiber) genuinely presents different derived affordances
+    to Innovation's discovery queries, not just a silent internal
+    label change. Hand-tagged affordances (`BUILDING_AFFORDANCES`)
+    never depend on material, so those are identical either way."""
+    tags = set(BUILDING_AFFORDANCES.get(building.kind, frozenset()))
+    name = effective_material_name(building)
+    material = MATERIALS.get(name) if name else None
+    if material is not None:
+        tags |= derive_affordances(material)
+    return frozenset(tags)

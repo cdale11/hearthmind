@@ -1967,6 +1967,26 @@ class Building:
     (`Population._find_bridge_span`) and fixed thereafter — the bridge
     doesn't grow/shrink, it's either standing (its span is walkable) or
     it isn't. Empty for every other kind."""
+    material: str | None = None
+    """A13 "Chemistry / reaction system" (roadmap Stage IV step 20):
+    per-INSTANCE material override, `None` meaning "use `world.
+    materials.BUILDING_MATERIALS[kind]`'s default" (every building
+    that was never converted, i.e. almost all of them). Only ever set
+    by `world.chemistry.tick_building_reactions` — a standing
+    building whose effective material matches a `ReactionRule`'s
+    reactant, held under that rule's condition for `rate` consecutive
+    ticks, genuinely converts (e.g. a SHRINE's clay firing into
+    ceramic under sustained heat). See `world.materials.
+    effective_material_name`, the one place that resolves this
+    override against the per-kind default."""
+    reaction_progress: int = 0
+    """Consecutive ticks this building's effective material has sat
+    under a matching `ReactionRule`'s condition, uninterrupted — reset
+    to 0 the instant the condition or material stops matching (same
+    "sustained, not cumulative-forever" discipline as `World.mining_
+    scar_sustained_ticks`). Meaningless (stays 0) once a conversion has
+    already happened for this reactant, since the CONVERTED material
+    (e.g. ceramic) has no further `REACTION_RULES` entry of its own."""
 
     def to_dict(self) -> dict:
         return {
@@ -1981,6 +2001,8 @@ class Building:
             "stored_food": round(self.stored_food, 4),
             "owner_agent_id": self.owner_agent_id,
             "bridge_span": [[x, y] for x, y in self.bridge_span],
+            "material": self.material,
+            "reaction_progress": self.reaction_progress,
         }
 
     @classmethod
@@ -1997,6 +2019,8 @@ class Building:
             ruined_ticks=data.get("ruined_ticks", 0),
             stored_food=data.get("stored_food", 0.0),
             owner_agent_id=data.get("owner_agent_id"),
+            material=data.get("material"),
+            reaction_progress=data.get("reaction_progress", 0),
         )
 
 

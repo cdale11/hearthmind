@@ -80,7 +80,9 @@ from hearthmind.llm import ontology as ontology_llm
 from hearthmind.llm import self_tuning
 from hearthmind.world.affordances import discover_combinations
 from hearthmind.world.chemistry import discover_reactions
-from hearthmind.world.materials import BUILDING_MATERIALS, building_affordances
+from hearthmind.world.materials import (
+    BUILDING_MATERIALS, building_affordances, building_instance_affordances, effective_material_name,
+)
 from hearthmind.world.sigils import generate_sigil_svg
 from hearthmind.world import memetics
 from hearthmind.world import ontology
@@ -4350,12 +4352,17 @@ class SimulationEngine:
         # derive, so a genuinely material-driven combination (e.g. a
         # metal FORGE's `can_conduct_heat` from conductivity, not just
         # its hand tag) is reachable too.
-        standing_kinds = {
-            b.kind for b in settlement.buildings if b.stage is BuildingStage.STANDING
-        }
+        standing = [b for b in settlement.buildings if b.stage is BuildingStage.STANDING]
+        # A13's second slice (the real automatic reactor) means an
+        # individual building's material can now genuinely differ from
+        # its kind's default — reading per-INSTANCE affordances/
+        # material (`building_instance_affordances`/`effective_
+        # material_name`) rather than always the per-kind default keeps
+        # this query honest about a converted building (e.g. a fired
+        # ceramic SHRINE), not just its original clay state.
         present_tags: set[str] = set()
-        for kind in standing_kinds:
-            present_tags |= building_affordances(kind)
+        for b in standing:
+            present_tags |= building_instance_affordances(b)
         discoverable = discover_combinations(present_tags)
         # A13 "Chemistry / reaction system" (roadmap Stage IV step 20):
         # what a genuinely available material would produce under a
@@ -4363,7 +4370,7 @@ class SimulationEngine:
         # `BUILDING_MATERIALS`, real conditions derived from the same
         # affordance layer step 18/19 already computed above.
         present_materials = {
-            BUILDING_MATERIALS[kind] for kind in standing_kinds if kind in BUILDING_MATERIALS
+            name for b in standing if (name := effective_material_name(b)) is not None
         }
         discoverable_reactions = discover_reactions(present_materials, present_tags)
         prompt = ontology_llm.build_propose_prompt(
@@ -10145,7 +10152,7 @@ class SimulationEngine:
                     # distinct from materials.py's per-KIND "Built of"
                     # line (which reads identically for every HUT).
                     "descriptor": building_descriptor(
-                        b.id, b.kind.value, BUILDING_MATERIALS.get(b.kind, "wood"),
+                        b.id, b.kind.value, effective_material_name(b) or "wood",
                         settlement_layout_style(s.id),
                     ),
                 }

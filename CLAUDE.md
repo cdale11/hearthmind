@@ -545,6 +545,41 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.58)
+
+Explicit user instruction: "update roadmap if A20 is closed otherwise
+complete it. Start A13" — A20 was already closed (v1.34.57); fixed a
+stale roadmap summary-index line the prior batch missed. A13
+("Chemistry / reaction system") previously shipped the query half
+only; this ships the real automatic reactor the spec always named.
+
+`ReactionRule` gains a `rate` field; new `Building.material`/
+`reaction_progress` (per-instance, `material=None` = "use the kind's
+default"); new `world.chemistry.tick_building_reactions`, called once
+per settlement per tick — a standing building whose EFFECTIVE material
+matches a rule's reactant, held under that rule's condition for `rate`
+consecutive ticks uninterrupted, genuinely converts (clay SHRINE ->
+ceramic under sustained heat; fiber HATCHERY -> cured_fiber under
+sustained water_and_time). Only clay/fiber can ever fire this way — no
+`BuildingKind` defaults to `ore`, an honest, flagged gap. Two
+consequences chosen for zero native-parity risk: a one-time
+`condition` boost, and `world.materials.building_instance_affordances`
+— every future query for that instance reflects the real new material,
+wired into Innovation's discovery prompt and the building-descriptor
+UI line. UI: click-inspector "Built of" line now reads the real
+per-instance material; new 🏺 event icon.
+
+Verified: direct unit tests (full conversion cycle for both real
+reactant paths, interruption resets not pauses, no re-firing post-
+conversion); a production-path `World.tick()` test to a genuine
+conversion; round-trip + legacy backfill; a smoke test confirming the
+ontology-proposal query doesn't crash with a converted building
+present; a 5000-tick organic soak (the one surviving round-trip diff,
+`river_tiles` set-ordering, reproduced identically on unmodified code
+— the same pre-existing quirk already documented, not introduced
+here); `scripts/verify_native_soak.py` byte-identical; a live dev
+server + Playwright pass.
+
 ## Current state (v1.34.57)
 
 Explicit user instruction: "Unify folklore/legend pipeline and
