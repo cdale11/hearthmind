@@ -4,6 +4,41 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.47] — Tier 0's second mirror-write -> pillar-authored site
+
+Explicit user instruction: "Pick the next Tier 0 site to convert."
+Chose `era_branch.compute_branch` — a second pillar (Innovation, not
+Village again) and the same recognizable shape v1.34.46's first site
+had: a primary deterministic score that's never overridden, followed by
+a previously-arbitrary tiebreak.
+
+`compute_branch`'s tie for "which named branch (industrious/scholarly/
+devout/mercantile/agrarian) does this settlement lean toward" already
+favored a sticky current branch, then fell back to a bare namespaced
+random pick with zero real signal behind it. New optional `pillar_
+leans` param (precomputed by the caller via `Pillar.subject_
+confidence` per branch name) breaks that random tie toward whichever
+tied branch Innovation's own accumulated `world_model` already leans
+toward — falling back to random only once genuinely no signal exists
+anywhere. `SimulationEngine._maybe_schedule_era_branch` precomputes the
+per-branch lean dict before calling `compute_branch`. Same self-
+referential-echo-chamber avoidance as the first site: `era_branch`'s
+own mirror writes a subject of `"{settlement}'s tech-path lean"`, which
+never itself matches a branch-name keyword, so a settlement can't just
+deterministically repeat its own last narrated lean forever.
+
+Verified: direct unit tests (no-signal random fallback across the full
+tie; sticky-branch precedence over pillar lean; a single pillar-leaning
+branch winning a genuine tie; a still-tied pillar lean falling back to
+random among that narrower subset; a REAL non-tied primary score never
+overridden by even a maximal pillar lean); a production-path smoke test
+confirming a pre-seeded Innovation-pillar entry reaches `_maybe_
+schedule_era_branch`'s real tiebreak through the actual engine; a 4000-
+tick LLM-disabled soak with a clean `innovation_pillar` round-trip;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical.
+No UI change — `settlement.era_branch` already surfaces via the
+existing Era stat tile, unchanged shape.
+
 ## [1.34.46] — Tier 0's mirror-write -> pillar-authored conversion, first slice
 
 Explicit user request: "how to go about closing Tier 0," followed by

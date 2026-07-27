@@ -545,6 +545,29 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.47)
+
+Explicit user instruction: "Pick the next Tier 0 site to convert" —
+second mirror-write -> pillar-authored conversion, chosen to spread
+the pattern to a second pillar (Innovation) rather than only Village.
+
+`era_branch.compute_branch`'s tiebreak had the same shape as v1.34.46's
+`town_brain.compute_priority` site: a primary deterministic score
+(a settlement's real standing-building mix) never overridden, followed
+by a genuinely arbitrary random pick when tied. New optional `pillar_
+leans` param breaks that tie toward whichever tied branch Innovation's
+own accumulated `world_model` already leans toward (via `Pillar.
+subject_confidence`), falling back to random only once no signal
+exists anywhere. `SimulationEngine._maybe_schedule_era_branch`
+precomputes the per-branch lean before calling `compute_branch`. Same
+echo-chamber avoidance as v1.34.46: `era_branch`'s own mirror subject
+never matches a branch-name keyword.
+
+Verified: unit tests (fallback/sticky/tiebreak/never-overrides-a-real-
+score cases), a production-path smoke test, a 4000-tick LLM-disabled
+soak with clean round-trip, `scripts/verify_native_soak.py` (2 seeds x
+800 ticks) byte-identical. ~53 Tier 0 mirror sites remain unconverted.
+
 ## Current state (v1.34.46)
 
 Explicit user request: "how to go about closing Tier 0," resolved via

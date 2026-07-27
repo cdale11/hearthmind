@@ -5494,7 +5494,10 @@ class SimulationEngine:
         this still schedules is narration-only: one sentence explaining
         the already-computed lean, never a second vote on what it is."""
         rng = namespaced_rng(self.world.config.seed, self.world.clock.tick_count, f"era_branch_{settlement.id}")
-        branch, scores = era_branch.compute_branch(settlement, rng)
+        pillar_leans = {
+            b: self.world.innovation_pillar.subject_confidence(b) for b in era_branch.ERA_BRANCH_KIND_WEIGHTS
+        }
+        branch, scores = era_branch.compute_branch(settlement, rng, pillar_leans)
         settlement.era_branch = branch
         fallback = era_branch.fallback_reason()
         prompt = era_branch.build_prompt(settlement.name, new_era, branch, scores)

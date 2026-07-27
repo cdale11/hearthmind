@@ -784,14 +784,27 @@ deliberately excluded from ever satisfying its own lean (its subject
 is `"{settlement}'s civic priority"`, which doesn't match either
 keyword set) — no self-referential echo chamber.
 
-Every other of the ~55 Tier 0 sites remains mirror-write-only; this is
-the FIRST converted, proving the pattern against one real, previously-
-flagged-as-out-of-reach site (compute_priority's determinism was
-explicitly protected by an earlier user directive) rather than an easy
-one. Converting further sites is real, un-scoped follow-up work — each
-needs its own judgment call about where in an existing decision a
-pillar lean can enter without overriding a hard/urgent branch — not
-another item at this checklist's own minimum step size.
+**Second site (v1.34.47, explicit user instruction: "pick the next
+Tier 0 site to convert").** `era_branch.compute_branch`'s own tiebreak
+had the identical shape as `compute_priority`'s catchall — a primary
+deterministic score (a settlement's real standing-building mix) that's
+NEVER overridden, followed by a genuinely arbitrary fallback (sticky-
+current-branch, then a bare namespaced random pick) for the tied case.
+`pillar_leans` (precomputed by the caller via `Pillar.subject_
+confidence` per branch name) now breaks that random tie toward
+whichever tied branch Innovation's own accumulated `world_model`
+already leans toward, if any does — falling back to random only once
+genuinely no signal exists anywhere. Chosen deliberately over a Village
+site to spread the pattern to a second pillar rather than only proving
+it against Village. Same self-referential-echo-chamber avoidance as the
+first site: `era_branch`'s own mirror writes a subject of `"{settlement}
+'s tech-path lean"`, which never itself matches a branch-name keyword.
+
+Every other of the ~53 remaining Tier 0 sites stays mirror-write-only.
+Converting further sites is real, un-scoped follow-up work — each needs
+its own judgment call about where in an existing decision a pillar
+lean can enter without overriding a hard/urgent branch — not another
+item at this checklist's own minimum step size.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

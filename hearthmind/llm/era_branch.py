@@ -24,17 +24,26 @@ SYSTEM_PROMPT = (
 )
 
 
-def compute_branch(settlement, rng) -> tuple[str, dict[str, float]]:
+def compute_branch(settlement, rng, pillar_leans: dict[str, float] | None = None) -> tuple[str, dict[str, float]]:
     """Deterministic: score each branch by the weighted count of its
     matching STANDING buildings (the same `ERA_BRANCH_KIND_WEIGHTS`
     `choose_building_kind` itself reads) — the settlement's own
     already-built character decides its lean, not a free-text guess.
+    This primary score is NEVER overridden by anything below it.
+
     Ties (including the common all-zero case for a settlement that just
     entered its first branch-eligible era with nothing matching built
-    yet) favor the settlement's current branch if it has one, then fall
-    back to a namespaced random pick among the tied branches — a real
-    choice, not an arbitrary fixed default, when there's genuinely no
-    signal yet."""
+    yet) favor the settlement's current branch if it has one; failing
+    that, Tier 0's mirror-write -> pillar-authored conversion (docs/
+    ROADMAP-2026-07-REMAINING.md, item 0's closing note, second site
+    after `town_brain.compute_priority`) gets a real say: `pillar_leans`
+    (optional, precomputed by the caller via `Pillar.subject_
+    confidence` per branch name) breaks the tie toward whichever tied
+    branch the Innovation pillar's own accumulated world_model already
+    leans toward, if any does. Only falls back to a namespaced random
+    pick among the (possibly still-tied) branches once genuinely no
+    signal exists anywhere — a real choice, never an arbitrary fixed
+    default, when there's nothing to go on."""
     standing_kinds = [b.kind.value for b in settlement.buildings if b.stage is BuildingStage.STANDING]
     scores = {
         branch: sum(weights.get(kind, 0.0) for kind in standing_kinds)
@@ -46,6 +55,14 @@ def compute_branch(settlement, rng) -> tuple[str, dict[str, float]]:
         return tied[0], scores
     if settlement.era_branch in tied:
         return settlement.era_branch, scores
+    if pillar_leans:
+        tied_leans = {b: pillar_leans.get(b, 0.0) for b in tied}
+        best_lean = max(tied_leans.values())
+        if best_lean > 0.0:
+            leaning_tied = [b for b, v in tied_leans.items() if v == best_lean]
+            if len(leaning_tied) == 1:
+                return leaning_tied[0], scores
+            return rng.choice(leaning_tied), scores
     return rng.choice(tied), scores
 
 
