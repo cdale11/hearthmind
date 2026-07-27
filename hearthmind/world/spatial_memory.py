@@ -25,16 +25,20 @@ them is real follow-up work, flagged rather than silently attempted."""
 
 from __future__ import annotations
 
-LOCATION_HISTORY_CATEGORIES: tuple[str, ...] = ("mining", "disaster", "ritual", "ruin", "road", "migration")
+LOCATION_HISTORY_CATEGORIES: tuple[str, ...] = (
+    "mining", "disaster", "ritual", "ruin", "road", "migration", "dry_lakebed",
+)
 """The closed set of axes `location_character` currently reads —
 each backed by a real, already-existing per-tile dict. `ruin` added
 in A3 (roadmap step 28, `World.ruin_scars`); `road` added in M1/M9
 "The Living Map" (`World.road_scars`); `migration` added closing A19
 (`World.migration_trails`, M4 "wildlife migration trails" — the
 closest real existing data to the spec's named "ecology" axis: a
-GRAZER herd's own worn crossing points) — the same unification this
-module already provides, extended to the newest scar-shaped dict
-rather than left as a sixth independent silo.
+GRAZER herd's own worn crossing points); `dry_lakebed` added in a
+Tier 1.5 pass (`World.dry_lakebed_scars` — M1/M9's own explicit
+"dried lakes... remain genuinely unbuilt" line) — the same
+unification this module already provides, extended to the newest
+scar-shaped dict rather than left as a seventh independent silo.
 Deliberately NOT the spec's full nine-axis list (traffic/battles/
 pollution/fertility/ownership/construction remain unfolded — traffic/
 pollution/fertility are a different shape, continuous `FieldGrid`
@@ -52,6 +56,7 @@ def location_character_from_dicts(
     x: int, y: int,
     road_scars: dict[tuple[int, int], float] | None = None,
     migration_trails: dict[tuple[int, int], float] | None = None,
+    dry_lakebed_scars: dict[tuple[int, int], float] | None = None,
 ) -> dict[str, float]:
     """The real read-side logic `location_character` below wraps — split
     out so a caller that already has the scar dicts on hand
@@ -62,9 +67,10 @@ def location_character_from_dicts(
     with its own duplicate `.get()` calls. Any dict may be `None` (a
     caller not passing that axis simply omits it from the result, same
     "absence means neutral" convention as below). `road_scars`
-    (M1/M9) and `migration_trails` (closing A19) are keyword-only-by-
-    convention, appended after `x, y` rather than inserted earlier, so
-    every existing positional call site keeps working unchanged."""
+    (M1/M9), `migration_trails` (closing A19), and `dry_lakebed_scars`
+    (a later Tier 1.5 pass) are keyword-only-by-convention, appended
+    after `x, y` rather than inserted earlier, so every existing
+    positional call site keeps working unchanged."""
     pos = (x, y)
     character: dict[str, float] = {}
     mining = mining_scars.get(pos) if mining_scars else None
@@ -85,11 +91,14 @@ def location_character_from_dicts(
     migration = migration_trails.get(pos) if migration_trails else None
     if migration:
         character["migration"] = migration
+    dry_lakebed = dry_lakebed_scars.get(pos) if dry_lakebed_scars else None
+    if dry_lakebed:
+        character["dry_lakebed"] = dry_lakebed
     return character
 
 
 def location_character(world, x: int, y: int) -> dict[str, float]:
-    """One tile's real accumulated history, read from the six
+    """One tile's real accumulated history, read from the seven
     existing per-location dicts `World` already maintains. Only keys
     present are ones with non-zero real intensity — same "sparse,
     absence means neutral" convention the underlying dicts already
@@ -98,13 +107,14 @@ def location_character(world, x: int, y: int) -> dict[str, float]:
     return location_character_from_dicts(
         world.mining_scars, world.disaster_scars, world.ritual_activity, world.ruin_scars, x, y,
         road_scars=world.road_scars, migration_trails=world.migration_trails,
+        dry_lakebed_scars=world.dry_lakebed_scars,
     )
 
 
 LOCATION_CHARACTER_LABELS: dict[str, str] = {
     "mining": "old mining activity", "disaster": "a past disaster", "ritual": "past rituals held here",
     "ruin": "the ruin of an older structure", "road": "an old well-traveled road bed",
-    "migration": "a wildlife migration crossing",
+    "migration": "a wildlife migration crossing", "dry_lakebed": "the bed of a lake that once reached here",
 }
 """Plain-language label per `LOCATION_HISTORY_CATEGORIES` axis — closes
 A19's own "Feeds" checklist item ("places as actors... rich pillar

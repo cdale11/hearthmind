@@ -4,6 +4,59 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.50] — Tier 1.5: dry lakebeds + docs-accuracy pass
+
+Explicit user instruction: "Start tier 1.5 and finish as many tasks
+as possible in 1 turn." Found Tier 1.5 ("The Living Map") was already
+almost entirely closed (M4/M6/M7/M10/M11-M12 all shipped in earlier
+passes) — audited what genuinely remains rather than assuming
+greenfield.
+
+**Docs-accuracy fix**: the roadmap's own Tier 1 summary index still
+said A3's rivers-re-carving "remains open" after A11 unblocked it —
+stale; A3's own dedicated entry already recorded it shipped at
+v1.34.25. Fixed the summary line. Also corrected Tier 1.5's M2/M8
+status: the item's own named blocker (`Tile.elevation` immutability)
+is resolved (A11 + A3), but its other two named examples ("flooding
+reshapes the land," "quarry scars as actual terrain change") are
+EXPLICITLY documented elsewhere as cosmetic-only by deliberate design
+(`MINING_SCAR_GAIN_PER_TICK`'s and `apply_disaster_scars`'s own
+docstrings) — reversing either is a real product decision, not a
+mechanical continuation, so it's flagged for an explicit call rather
+than silently attempted.
+
+**Shipped**: M1/M9's own explicit "dried lakes... remain genuinely
+unbuilt" line. `hydrology.tick_lakes`'s `lake_receded` branch used to
+flip a vacated shoreline tile straight to BEACH with zero lasting
+trace. New `World.dry_lakebed_scars` (same additive-decaying-dict
+shape as `mining_scars`/`disaster_scars`/`ritual_activity`/
+`ruin_scars`/`road_scars`/`migration_trails` — the sixth instance of
+this exact pattern) marks a vacated tile; `tick_lakes` gained an
+optional `dry_lakebed_scars` param (`None` reproduces the exact
+pre-existing behavior/RNG stream for any caller without one in
+scope). Seventh axis in `world/spatial_memory.py`'s `location_
+character` unification. `hydrology.LAKE_MIN_TILES` means a lake never
+fully vanishes, so this only ever marks individual vacated shoreline
+tiles, never "a whole dried lake" — same honest, bounded scope as
+every sibling axis. UI: new map overlay color (`paintDryLakebedScars`,
+pale silty grey-blue, distinct from the road/migration tints), bare-
+tile inspector line, "Dry lakebeds" stat tile — same full pattern as
+every prior scar-axis slice.
+
+Verified: direct unit tests (`apply_dry_lakebed_scar`/`decay_dry_
+lakebed_scars`, `location_character_from_dicts`'s new param,
+`location_character_text` rendering); a production-path test driving
+`hydrology.tick_lakes` directly with a real shrinking lake, confirming
+a genuine `lake_receded` event forms a real scar entry; a byte-
+identical backward-compatibility check confirming `dry_lakebed_
+scars=None` reproduces the EXACT prior RNG stream/outcome for any
+caller without the new param; a 4000-tick LLM-disabled engine soak
+with a clean round-trip (incl. legacy-snapshot backfill);
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical
+— pure Python, no native module touched; a live dev-server +
+Playwright pass confirming the new stat tile renders and the map
+canvas draws cleanly with no new JS errors.
+
 ## [1.34.49] — A19 closed: sixth spatial-memory axis + a real consumer
 
 Explicit user instruction: "finish A19." `world/spatial_memory.py`'s

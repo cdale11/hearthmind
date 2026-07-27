@@ -1193,7 +1193,9 @@ conclusions" framing:
    entry below for findings/fixes/follow-ups.
 2. **A11** — **shipped, v1.34.23** (groundwater + erosion feeding back
    into `Tile.elevation`) — see its own entry below for detail. Was
-   blocking A3's rivers-re-carve item; that item itself remains open.
+   blocking A3's rivers-re-carve item; **that item itself shipped,
+   v1.34.25** (see A3's own entry below — this line was stale, caught
+   during a v1.34.50 docs-accuracy pass).
 3. **A1** — **fourth field shipped, v1.34.36** (`traffic`, joining
    `population_density`/`disease_pressure`/`pollution`). Eight of the
    other nine named fields (fertility/nutrients/scent/heat/cultural-
@@ -1217,11 +1219,19 @@ what's already real rather than treated as greenfield — a fair amount
 partially exists (the four scar-shaped overlays, the "🗺️ fields"
 toggle, layout/architecture/dialect grammar, ERA-styled cartography,
 forest reclaim). Real gaps, roughly by leverage:
-- **M2/M8** — `Tile.elevation` staying immutable is the single
-  biggest blocker: real erosion, flooding-reshapes-the-land, quarry
-  scars as actual terrain change (not a flat color tint), and rivers
-  re-carving their course (A3's own remaining half) are ALL gated on
-  this one item, already named in A11's own entry above.
+- **M2/M8** — the item's own named blocker (`Tile.elevation` staying
+  immutable) is resolved: A11 (v1.34.23) made elevation a genuinely
+  live-written value and A3's rivers-re-carving (v1.34.25) already
+  proved a second real consumer of that mutability. **Still open**:
+  the item's other two named examples, "flooding reshapes the land"
+  and "quarry scars as actual terrain change (not a flat color tint)"
+  — both are currently EXPLICITLY documented as cosmetic-only by
+  design (`MINING_SCAR_GAIN_PER_TICK`'s own docstring: "stays HILLS,
+  walkable and re-minable"; `apply_disaster_scars`'s own docstring:
+  "No terrain/biome mutation... cosmetic-only"). Building either would
+  reverse a real, twice-repeated, explicit prior design decision (not
+  an oversight) — flagged for an explicit product call before
+  attempting either, not silently overridden.
 - **M6/M7** — **legend slice shipped, v1.34.30**: the "🗺️ fields"
   toggle (moisture/soil fertility/population density/disease pressure)
   had no legend at all — a color alone never said whether it was

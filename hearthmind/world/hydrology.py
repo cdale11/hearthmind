@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 
 from hearthmind.util import clamp
 from hearthmind.world.terrain import Biome, Tile, classify_with_bias
-from hearthmind.world.terrain_evolution import _is_developed
+from hearthmind.world.terrain_evolution import _is_developed, apply_dry_lakebed_scar
 
 try:
     from hearthmind._native import bounded_random_walk_step as _native_bounded_random_walk_step
@@ -391,10 +391,16 @@ def identify_lakes(terrain: list[list[Tile]]) -> list[LakeState]:
 def tick_lakes(
     lakes: list[LakeState], terrain: list[list[Tile]], drying: float,
     rng: random.Random, excluded: set[tuple[int, int]],
+    dry_lakebed_scars: dict[tuple[int, int], float] | None = None,
 ) -> list[tuple[str, str]]:
     """Called once per month. Nudges each lake's level, and grows/shrinks
     its shoreline by one ring tile if the level crossed a threshold.
-    Mutates `terrain`/`lakes` in place."""
+    Mutates `terrain`/`lakes` in place. `dry_lakebed_scars` (M1/M9,
+    optional — `None` reproduces the exact pre-M1/M9 behavior for any
+    caller without one in scope, same "additive, zero-risk-to-existing-
+    callers" precedent `WildlifeGrid.tick`'s own `migration_trails`
+    param set) marks a vacated shoreline tile so its history survives
+    even after the water returns and the biome flips back to land."""
     height = len(terrain)
     width = len(terrain[0]) if height else 0
     events: list[tuple[str, str]] = []
@@ -434,5 +440,7 @@ def tick_lakes(
                 tile = terrain[y][x]
                 terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.BEACH)
                 lake.tiles.discard((x, y))
+                if dry_lakebed_scars is not None:
+                    apply_dry_lakebed_scar((x, y), dry_lakebed_scars)
                 events.append(("lake_receded", f"The lake receded, leaving bare ground at ({x}, {y})."))
     return events

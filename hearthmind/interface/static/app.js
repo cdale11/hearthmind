@@ -1893,6 +1893,23 @@ function paintMigrationTrails(sctx, trails) {
   }
 }
 
+// Tier 1.5 "The Living Map": a pale, silty tint left where a lake's
+// shoreline once reached before receding — distinct color from a road
+// bed or migration trail (cool grey-blue, evoking bare water-smoothed
+// ground) since this is water's own former footprint, not a land
+// creature's or civilization's.
+function paintDryLakebedScars(sctx, scars) {
+  if (!scars) return;
+  for (const key in scars) {
+    const intensity = scars[key];
+    if (!(intensity > 0)) continue;
+    const [xs, ys] = key.split(":");
+    const x = parseInt(xs, 10), y = parseInt(ys, 10);
+    sctx.fillStyle = `rgba(150,175,190,${(0.1 + intensity * 0.25).toFixed(3)})`;
+    sctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+  }
+}
+
 function drawStaticTerrain() {
   staticCanvas = document.createElement("canvas");
   staticCanvas.width = terrain.width * CELL;
@@ -1911,6 +1928,7 @@ function drawStaticTerrain() {
   paintRuinScars(sctx, terrain.ruin_scars);
   paintRoadScars(sctx, terrain.road_scars);
   paintMigrationTrails(sctx, terrain.migration_trails);
+  paintDryLakebedScars(sctx, terrain.dry_lakebed_scars);
   canvas.width = staticCanvas.width;
   canvas.height = staticCanvas.height;
   weatherCanvas.width = staticCanvas.width;
@@ -3325,6 +3343,10 @@ function renderTargetInspector() {
   if (trail > 0) {
     bits.push(`<div class="npc-section"><h4>Migration trail</h4><div>a well-worn wildlife crossing (${Math.round(trail * 100)}% still visible)</div></div>`);
   }
+  const lakebed = (terrain && terrain.dry_lakebed_scars && terrain.dry_lakebed_scars[`${x}:${y}`]) || 0;
+  if (lakebed > 0) {
+    bits.push(`<div class="npc-section"><h4>Dry lakebed</h4><div>a lake's shoreline once reached here (${Math.round(lakebed * 100)}% still visible)</div></div>`);
+  }
   npcContent.innerHTML = `
     <h3>${biome.replace(/_/g, " ")}</h3>
     <div class="npc-subtitle">tile (${x}, ${y})</div>
@@ -3776,6 +3798,14 @@ function renderStats(summary) {
         return mt.sites ? `${mt.sites} crossing${mt.sites === 1 ? "" : "s"} (avg ${mt.avg_intensity.toFixed(2)})` : "none yet";
       })(),
       "A grazer herd reusing the same crossing wears a faint trail into the land — and a real trail then draws more herds to reuse it, a genuine feedback loop, not just a cosmetic record. Fades over a couple of months if left unused.",
+    ],
+    [
+      "Dry lakebeds",
+      (() => {
+        const dl = summary.dry_lakebed_scars || {};
+        return dl.sites ? `${dl.sites} site${dl.sites === 1 ? "" : "s"} (avg ${dl.avg_intensity.toFixed(2)})` : "none yet";
+      })(),
+      "When a lake's shoreline recedes, the vacated ground doesn't just vanish into bare land without a trace — the site keeps a faint memory of once being underwater, fading over several months if the water never returns.",
     ],
     [
       "Wetlands",

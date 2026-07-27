@@ -413,6 +413,48 @@ def decay_road_scars(scars: dict[tuple[int, int], float]) -> None:
             del scars[pos]
 
 
+DRY_LAKEBED_SCAR_GAIN_ON_RECEDE = 0.35
+"""M1/M9 "The Living Map" (docs/VISION-2026-07-24-LIVINGMAP.md's own
+explicit "dried lakes... remain genuinely unbuilt" line): the same
+gap `ROAD_SCAR_GAIN_ON_ABANDONMENT` closed for roads — `hydrology.
+tick_lakes`'s `lake_receded` branch flips a vacated shoreline tile to
+BEACH with zero lasting trace, so a lake's own shrinking history was
+invisible once the shoreline moved back. Smaller than `ROAD_SCAR_
+GAIN_ON_ABANDONMENT` (0.4): bare, water-smoothed ground fades faster
+than a road bed. `LAKE_MIN_TILES` means a lake never fully vanishes,
+so this only ever marks individual VACATED shoreline tiles, never "a
+whole dried-up lake" — same honest, bounded scope as every other scar
+axis here."""
+
+DRY_LAKEBED_SCAR_DECAY_PER_WEEK = 0.01
+"""~35 weeks to fully clear — between `MIGRATION_TRAIL_DECAY_PER_WEEK`
+(~9 weeks, the faintest mark) and `ROAD_SCAR_DECAY_PER_WEEK` (~50
+weeks, the most durable): a lake's former edge is more visible than a
+wildlife crossing (bare, compacted, often silt-marked ground) but less
+durable than a deliberately built road bed."""
+
+DRY_LAKEBED_SCAR_VISIBLE_THRESHOLD = 0.2
+"""Same role as `MIGRATION_TRAIL_GAIN_PER_STEP`'s sibling thresholds —
+`DRY_LAKEBED_SCAR_GAIN_ON_RECEDE` (0.35) already clears this, so a
+recede is always immediately visible/eventable, never silent."""
+
+
+def apply_dry_lakebed_scar(pos: tuple[int, int], scars: dict[tuple[int, int], float]) -> None:
+    """Called for each position `hydrology.tick_lakes` reports as a
+    just-vacated shoreline tile (`lake_receded`) — mutates `scars` in
+    place, same shape as `apply_road_scar`."""
+    scars[pos] = min(1.0, scars.get(pos, 0.0) + DRY_LAKEBED_SCAR_GAIN_ON_RECEDE)
+
+
+def decay_dry_lakebed_scars(scars: dict[tuple[int, int], float]) -> None:
+    """Called once per week, same cadence as the other scar-shaped
+    dicts."""
+    for pos in list(scars.keys()):
+        scars[pos] -= DRY_LAKEBED_SCAR_DECAY_PER_WEEK
+        if scars[pos] <= 0.0:
+            del scars[pos]
+
+
 MIGRATION_TRAIL_GAIN_PER_STEP = 0.08
 """M4 (docs/VISION-2026-07-24-LIVINGMAP.md, "migration creates
 recognizable paths"): the mark left by ONE grazer-herd move onto a

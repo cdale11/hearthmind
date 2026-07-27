@@ -545,6 +545,59 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.50)
+
+Explicit user instruction: "Start tier 1.5 and finish as many tasks as
+possible in 1 turn" (docs/ROADMAP-2026-07-REMAINING.md's Tier 1.5,
+"The Living Map"). Most of Tier 1.5 (M4, M6/M7, M10, M11/M12) was
+already shipped in earlier sessions; this pass audited the rest,
+caught two stale docs-accuracy bugs, and shipped M1/M9's one
+remaining un-built named example.
+
+Docs-accuracy: Tier 1's own summary index (item 2, the A11 entry)
+still said A3's rivers-re-carving "remains open" after A11 shipped —
+A3's own detailed entry further down the same doc already recorded it
+shipped at v1.34.25; fixed the stale summary line. Tier 1.5's M2/M8
+status line still framed `Tile.elevation` immutability as "the single
+biggest blocker... ALL gated on this one item," when A11 (v1.34.23) +
+A3 (v1.34.25) had already resolved that specific blocker — rewrote to
+separate "blocker resolved" from what's still genuinely open (flooding
+reshapes the land, quarry scars as terrain change). Both of those
+remaining M2/M8 examples are flagged, not attempted: `mining_scars`'s
+and `disaster_scars`' own docstrings explicitly document a prior
+deliberate design decision ("cosmetic state, not a biome change...
+stays HILLS, walkable and re-minable" / "No terrain/biome mutation...
+cosmetic-only") — building either would reverse that twice-documented
+choice, a product call for the user, not a silent code change.
+
+Shipped: `World.dry_lakebed_scars`, a 7th scar-shaped dict (same
+additive-gain/weekly-decay/delete-at-zero pattern as `mining_scars`/
+`disaster_scars`/`ritual_activity`/`ruin_scars`/`road_scars`/
+`migration_trails`) — `hydrology.tick_lakes`'s existing `lake_receded`
+branch (a shrinking lake exposing bare ground) now optionally marks
+the vacated shoreline tile via `terrain_evolution.apply_dry_lakebed_
+scar`, gated by a new keyword-only `dry_lakebed_scars` param that
+defaults to `None` and reproduces prior behavior exactly when omitted.
+`location_character`'s axis count is now 7 (`dry_lakebed` added to
+`LOCATION_HISTORY_CATEGORIES`/`LOCATION_CHARACTER_LABELS`). Bounded by
+`hydrology.LAKE_MIN_TILES` — a lake never fully dries up, so this can
+only ever mark individual receded edge tiles, never "a whole dried
+lake," same honest scoping as every other scar axis. UI: map overlay
+(pale silty grey-blue), bare-tile inspector line, "Dry lakebeds" stat
+tile — reuses the existing `lake_receded`-triggered terrain resync,
+no new event category needed.
+
+Verified: direct unit tests (`apply_dry_lakebed_scar`/`decay_dry_
+lakebed_scars`, the new `location_character` axis), a production-path
+test driving `hydrology.tick_lakes` with a real shrinking lake
+confirming a genuine scar forms, a backward-compatibility test
+confirming `tick_lakes(...)` called without the new kwarg reproduces
+byte-identical prior behavior, a 4000-tick LLM-disabled engine soak
+with clean round-trip + legacy-backfill, `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical, and a live dev server +
+Playwright pass confirming the stat tile renders and the map loads
+cleanly.
+
 ## Current state (v1.34.49)
 
 Explicit user instruction: "finish A19" (docs/ROADMAP-2026-07-

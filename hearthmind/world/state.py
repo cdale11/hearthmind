@@ -31,6 +31,8 @@ from hearthmind.world.terrain_evolution import (
     decay_ruin_scars,
     decay_road_scars,
     decay_migration_trails,
+    apply_dry_lakebed_scar,
+    decay_dry_lakebed_scars,
     maybe_reclaim,
     nature_adaptation_bias,
     tick_climate,
@@ -281,6 +283,20 @@ class World:
     herds tend to reuse the same crossings, which is what makes the
     mark a real "trail" rather than a scattered record of every step
     ever taken."""
+
+    dry_lakebed_scars: dict[tuple[int, int], float] = field(default_factory=dict)
+    """M1/M9 "The Living Map" — the vision doc's own explicit "dried
+    lakes... remain genuinely unbuilt" line. Before this pass, `hydro
+    logy.tick_lakes`'s `lake_receded` branch flipped a vacated
+    shoreline tile straight to BEACH with zero lasting trace. Same
+    additive-decaying-dict shape as `road_scars`/`migration_trails`
+    (see `terrain_evolution.apply_dry_lakebed_scar`/`decay_dry_
+    lakebed_scars`) — seventh axis in `world/spatial_memory.py`'s
+    `location_character` unification. `hydrology.LAKE_MIN_TILES` means
+    a lake never fully vanishes, so this only ever marks individual
+    vacated shoreline tiles as the water genuinely recedes and returns
+    over the lake's own real level fluctuations, never "a whole dried
+    lake.\""""
 
     wetland_progress: dict[tuple[int, int], int] = field(default_factory=dict)
     """M4 "The Living Map": how many CONSECUTIVE qualifying months a
@@ -923,7 +939,10 @@ class World:
         if "month_end" in calendar_events and self.lakes:
             occupied_tiles = {(a.x, a.y) for a in self.population.agents}
             lake_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "lakes")
-            events += tick_lakes(self.lakes, self.terrain, self.climate.drying, lake_rng, occupied_tiles)
+            events += tick_lakes(
+                self.lakes, self.terrain, self.climate.drying, lake_rng, occupied_tiles,
+                dry_lakebed_scars=self.dry_lakebed_scars,
+            )
         if "week_end" in calendar_events:
             # A11 "Continuous hydrology" (Stage IV step 15): weekly
             # cadence, not per-tick — see hydrology_field.py's own
@@ -995,6 +1014,7 @@ class World:
             decay_ruin_scars(self.ruin_scars)
             decay_road_scars(self.road_scars)
             decay_migration_trails(self.migration_trails)
+            decay_dry_lakebed_scars(self.dry_lakebed_scars)
 
         if "month_end" in calendar_events:
             climate_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "climate_drift")
@@ -1145,6 +1165,13 @@ class World:
                 "avg_intensity": (
                     round(sum(self.migration_trails.values()) / len(self.migration_trails), 3)
                     if self.migration_trails else 0.0
+                ),
+            },
+            "dry_lakebed_scars": {
+                "sites": len(self.dry_lakebed_scars),
+                "avg_intensity": (
+                    round(sum(self.dry_lakebed_scars.values()) / len(self.dry_lakebed_scars), 3)
+                    if self.dry_lakebed_scars else 0.0
                 ),
             },
             "disaster_scars": {
@@ -1428,6 +1455,7 @@ class World:
             "ruin_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.ruin_scars.items()},
             "road_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.road_scars.items()},
             "migration_trails": {f"{x}:{y}": round(v, 4) for (x, y), v in self.migration_trails.items()},
+            "dry_lakebed_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.dry_lakebed_scars.items()},
             "wetland_progress": {f"{x}:{y}": v for (x, y), v in self.wetland_progress.items()},
             "llm_calls_total": self.llm_calls_total,
             "llm_fallback_total": self.llm_fallback_total,
@@ -1698,6 +1726,11 @@ class World:
             x_str, y_str = key.split(":")
             migration_trails[(int(x_str), int(y_str))] = value
 
+        dry_lakebed_scars: dict[tuple[int, int], float] = {}
+        for key, value in data.get("dry_lakebed_scars", {}).items():
+            x_str, y_str = key.split(":")
+            dry_lakebed_scars[(int(x_str), int(y_str))] = value
+
         wetland_progress: dict[tuple[int, int], int] = {}
         for key, value in data.get("wetland_progress", {}).items():
             x_str, y_str = key.split(":")
@@ -1718,6 +1751,7 @@ class World:
             ruin_scars=ruin_scars,
             road_scars=road_scars,
             migration_trails=migration_trails,
+            dry_lakebed_scars=dry_lakebed_scars,
             wetland_progress=wetland_progress,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),
