@@ -70,21 +70,53 @@ def _apply_rule(rule: str, term: str) -> str | None:
     return None
 
 
-def drift_term(term: str) -> str:
-    """Applies the first rule (starting from a deterministically-chosen
-    one, then trying the rest of `DRIFT_RULES` in order) that actually
-    changes `term`, returning a plausible variant spelling. Only falls
+MAX_DRIFT_STEPS = 4
+"""Cap on `drift_term`'s `steps` param (A7 follow-up, Tier 3 item 18):
+compounding drift genuinely diminishes in per-step legibility — by the
+fifth or sixth round a term has usually cycled through every rule at
+least once with nothing left to visibly change, so there's no real
+payoff in letting `Settlement.lineage_depth` drive the round count
+unbounded. A grandchild many fissions removed still reads as "the same
+family of word, further along," not gibberish."""
+
+
+def _drift_once(term: str) -> str:
+    """One rule application — the original single-step behavior,
+    factored out so `drift_term` can chain it. Applies the first rule
+    (starting from a deterministically-chosen one, then trying the rest
+    of `DRIFT_RULES` in order) that actually changes `term`. Only falls
     back to the term unchanged if NONE of the four rules have anything
     to act on (e.g. a term with no vowels and no soften-able
     consonant) — rare, and still a real, deterministic, never-raising
     function."""
-    term = term.strip().lower()
-    if not term:
-        return term
     start = DRIFT_RULES.index(_stable_choice(term, DRIFT_RULES))
     for offset in range(len(DRIFT_RULES)):
         rule = DRIFT_RULES[(start + offset) % len(DRIFT_RULES)]
         drifted = _apply_rule(rule, term)
         if drifted is not None:
             return drifted
+    return term
+
+
+def drift_term(term: str, steps: int = 1) -> str:
+    """A7 follow-up (roadmap Tier 3 item 18, docs/ROADMAP-2026-07-
+    REMAINING.md): what was a single rule application is now a genuine
+    RECURSIVE rewrite system — each of `steps` rounds re-seeds the next
+    round's rule choice off the STRING PRODUCED BY THE PREVIOUS ROUND
+    (`_stable_choice` reads the current term, not the original), so
+    compounding drift is a real chain of productions, not the same rule
+    applied N times. `steps=1` (the default) reproduces the original
+    single-application behavior exactly — every pre-existing call site
+    is unaffected. `steps` is clamped to `[1, MAX_DRIFT_STEPS]`, and a
+    round that can't change the current string (every rule exhausted)
+    simply stops early rather than looping uselessly."""
+    term = term.strip().lower()
+    if not term:
+        return term
+    steps = max(1, min(MAX_DRIFT_STEPS, steps))
+    for _ in range(steps):
+        drifted = _drift_once(term)
+        if drifted == term:
+            break
+        term = drifted
     return term

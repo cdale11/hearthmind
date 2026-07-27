@@ -545,6 +545,27 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.63)
+
+Explicit user instruction: "Start 18" (Tier 3 item 18, A7 "Grammar-
+based procedural systems"). Ships the one unambiguous piece of the
+item's three-part bundle: `world/dialect_grammar.py`'s `drift_term`
+gained a `steps` param, chaining rule applications where each round is
+re-seeded off the PREVIOUS ROUND'S OUTPUT — a genuine recursive rewrite
+system, not a flat single mutation. New `Settlement.lineage_depth`
+(0 at founding, `+1` per fission) drives the round count at the one
+real consumer (`_maybe_schedule_fission`'s inherited-lexicon drift) —
+a granddaughter settlement's words now drift measurably further than a
+daughter's. `steps=1` (default) is byte-identical to the old behavior.
+UI: conditional "Lineage" stat tile.
+
+Layout/architecture staying single-application is left open (a
+genuinely bigger lift each). Ritual/recipe-structure grammar: on
+inspection, actually contradicts a real prior design decision
+(`docs/MASTERCHECKLIST-2026-07-22.md`'s own A7 entry framed it as
+"closer to meaning... stays LLM-authored") — correctly left
+unattempted, not overlooked. Rules-as-LLM-proposable unattempted.
+
 ## Current state (v1.34.62)
 
 Explicit user instruction: "Start tier 3 and queue tier 4 and 5"

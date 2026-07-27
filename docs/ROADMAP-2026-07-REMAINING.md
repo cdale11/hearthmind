@@ -1448,11 +1448,28 @@ in this document; nothing in either was started this pass)
     per-instance field generalized beyond buildings (today: class-level
     `dict[BuildingKind, ...]` only, unchanged this pass) — a larger,
     separate piece of this item, not attempted.
-18. **A7** — a real recursive rewrite/production system in each domain
-    (today: layout is a scoring bias, architecture a fixed three-slot
-    production, dialect one-rule-per-call); ritual/recipe-structure
-    grammar (the spec's fourth named domain, deliberately left LLM-
-    authored so far); rules themselves becoming LLM-proposable.
+18. **A7 — dialect domain made genuinely recursive, v1.34.63.**
+    `world/dialect_grammar.py`'s `drift_term` gained a `steps` param: a
+    chain of rule applications, each round re-seeded off the STRING THE
+    PREVIOUS ROUND PRODUCED, not the same single mutation applied N
+    times — a real recursive rewrite system, matching the spec's own
+    literal ask. New `Settlement.lineage_depth` (0 for a founding
+    settlement, `parent.lineage_depth + 1` at fission) drives the round
+    count at the one real consumer (`_maybe_schedule_fission`'s
+    inherited-lexicon drift) — a granddaughter settlement's vocabulary
+    has now genuinely drifted further from the original coinage than a
+    first-generation daughter's, not the same flat mutation regardless
+    of lineage distance. `steps=1` (the default) reproduces the
+    original single-application behavior exactly. Layout/architecture
+    stay single-application scoring biases/fixed-slot productions,
+    unchanged this pass — a genuinely bigger lift each (a real graph
+    grammar over terrain/roads; a real shape grammar with recursive
+    subdivision) than dialect's much smaller, self-contained fix.
+    Ritual/recipe-structure grammar remains explicitly NOT attempted —
+    on inspection this actually contradicts a real prior design
+    decision (`MASTERCHECKLIST-2026-07-22.md`'s own A7 entry: "closer
+    to meaning, the doc's own carve-out for staying LLM-authored"), not
+    a gap to close. Rules becoming LLM-proposable also unattempted.
 19. **A8** — sandbox forward-simulation (`simulation/sandbox.py`) as a
     fitness input; grammar-based mutation (A7) as an alternate generate
     path alongside the existing LLM propose/evolve/merge.

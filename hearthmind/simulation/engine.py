@@ -9525,9 +9525,14 @@ class SimulationEngine:
             # terms, each independently drift-mutated (zero LLM cost) —
             # a real "two related villages now say things slightly
             # differently" outcome, not a copy-paste of the parent's
-            # lexicon.
+            # lexicon. Tier 3 item 18 follow-up: `lineage_depth` makes
+            # this a genuine recursive rewrite chain — a granddaughter
+            # settlement (depth 2) drifts its inherited terms TWO
+            # compounding rounds, not the same single mutation no matter
+            # how many fissions removed from the original coinage.
+            new_settlement.lineage_depth = home.lineage_depth + 1
             for entry in home.lexicon[-LEXICON_FISSION_DRIFT_COUNT:]:
-                drifted = drift_term(entry["term"])
+                drifted = drift_term(entry["term"], steps=new_settlement.lineage_depth)
                 if narrative_direction.validate_coined_term(drifted, new_settlement.lexicon):
                     new_settlement.lexicon.append({
                         "term": drifted, "meaning": entry["meaning"],

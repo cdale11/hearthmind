@@ -4,6 +4,65 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.63] — Tier 3 item 18: dialect grammar made genuinely recursive
+
+Explicit user instruction: "Start 18" (docs/ROADMAP-2026-07-
+REMAINING.md, Tier 3 item 18, A7 "Grammar-based procedural systems").
+The item bundles three asks; this ships the one unambiguous, self-
+contained piece — a real recursive rewrite system, not a single rule
+application — over the smallest of the three existing domains.
+
+`world/dialect_grammar.py`'s `drift_term` gained an optional `steps`
+param (default 1, reproducing the prior single-application behavior
+exactly for every existing call site). Internally, `_drift_once` is
+the original rule-application logic factored out; `drift_term` now
+chains `steps` rounds, each round choosing its rule off the STRING
+PRODUCED BY THE PREVIOUS ROUND (`_stable_choice` reads the current
+term, not the origin term) — a genuine production chain, not the same
+mutation repeated. Clamped to `[1, MAX_DRIFT_STEPS=4]`; a round that
+can't further change the current string stops early.
+
+New `SettlementCulture.lineage_depth` (0 for the founding settlement,
+`Settlement` gained a matching facade property + `to_dict`/`from_dict`
+round-trip, legacy-backfill-safe): `SimulationEngine._maybe_schedule_
+fission`'s apply() now sets `new_settlement.lineage_depth = home.
+lineage_depth + 1` and passes it as `drift_term`'s `steps` — the one
+real consumer this domain already had (a daughter settlement's
+inherited lexicon terms). A granddaughter settlement (lineage_depth 2)
+now genuinely drifts its inherited words two compounding rounds,
+reading as further removed from the original coinage than a first-
+generation daughter's one round — real lineage distance, not a flat
+mutation regardless of how many fissions removed. UI: a conditional
+"Lineage" stat tile (`N fissions from the founding settlement`),
+alongside the existing A7 "Layout" tile.
+
+The other two named A7 pieces were re-examined, not silently dropped:
+layout/architecture staying single-application (a real graph grammar
+over terrain/roads, a real recursive shape grammar) is a genuinely
+larger lift each, left open; ritual/recipe-structure grammar, on
+inspection, actually contradicts an earlier real design decision
+(`docs/MASTERCHECKLIST-2026-07-22.md`'s own A7 entry: "ritual/recipe...
+closer to meaning, the doc's own carve-out for staying LLM-authored")
+rather than being an overlooked gap — left unattempted for that
+reason, not effort. Rules becoming LLM-proposable also unattempted.
+
+Verified: direct unit tests (`drift_term`'s `steps=1` exact backward
+compatibility, genuine multi-round divergence across six sample terms,
+clamping past `MAX_DRIFT_STEPS`, empty/whitespace safety); a `Settlement`
+round-trip test for `lineage_depth` (including legacy-snapshot
+backfill to 0); an isolated but real-function reproduction of the
+fission call site's exact two-line addition (constructing daughter/
+granddaughter `Settlement`s and confirming `drift_term(term, steps=
+lineage_depth)` produces genuinely different, correctly-ordered
+results) — a full live trigger of `_maybe_schedule_fission` through
+every one of its real preconditions (crowding, an ambitious leader,
+party assembly, a qualifying distant site) proved too many-precondition
+to force reliably in this environment, same class of difficulty as
+other multi-gated jobs; the call-site logic itself was verified
+directly instead. A 4000-tick LLM-disabled engine soak with a clean
+round-trip; `scripts/verify_native_soak.py` (seeds 1,2 x 800 ticks)
+byte-identical — pure Python, no native module touched.
+
 ## [1.34.62] — Tier 3 started: A5/A6's validate-step half; Tier 4/5 queued
 
 Explicit user instruction: "Start tier 3 and queue tier 4 and 5"

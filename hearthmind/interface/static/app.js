@@ -3674,6 +3674,13 @@ function renderStats(summary) {
       "Layout", s.layout_style ? s.layout_style.charAt(0).toUpperCase() + s.layout_style.slice(1) : "—",
       "A7 (deterministic procedural generation): stable for this settlement's whole lifetime, not LLM-authored — radial settlements grow in rings around their center, linear ones follow an axis, clustered ones huddle tight around whatever's already standing. New buildings' construction sites are scored toward this pattern alongside the existing road/resource adjacency scoring.",
     ],
+    ...(s.lineage_depth
+      ? [[
+          "Lineage",
+          `${s.lineage_depth} fission${s.lineage_depth === 1 ? "" : "s"} from the founding settlement`,
+          "A7's dialect grammar (world/dialect_grammar.py) is a genuine recursive rewrite system: this settlement's inherited words have drifted one compounding round per fission its lineage has passed through, so a granddaughter settlement's vocabulary has drifted further from the original coinage than a first-generation daughter's.",
+        ]]
+      : []),
     [
       "Era", `${s.era} — ${s.era_description}` + (s.era_branch ? ` (leaning ${s.era_branch})` : "") + eraInfrastructureSuffix(s.era_infrastructure),
       "Advances with tech level (inventions) AND real infrastructure — see docs/IDEAS-2026-07-EMERGENCE.md §9: " +

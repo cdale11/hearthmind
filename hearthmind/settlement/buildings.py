@@ -2466,6 +2466,16 @@ class SettlementCulture:
     `record_dialogue_topic` call, capped at RECENT_TOPICS_MAX_STORED.
     `top_topics()` derives frequency counts from this on demand — no
     separate counter dict to keep in sync."""
+    lineage_depth: int = 0
+    """A7 follow-up (roadmap Tier 3 item 18, docs/ROADMAP-2026-07-
+    REMAINING.md): 0 for the founding settlement, `parent.lineage_
+    depth + 1` for a daughter born by fission — makes `dialect_grammar.
+    drift_term`'s single-application rule into a genuine RECURSIVE
+    rewrite system: a term inherited N fissions removed from its
+    origin has drifted N compounding rounds by the time it's grounded
+    in a granddaughter's own lexicon, not just one flat mutation no
+    matter how far removed. See `SimulationEngine._maybe_schedule_
+    fission`'s apply()."""
 
     def record_topic(self, topic: str) -> None:
         if not topic:
@@ -2649,6 +2659,7 @@ class Settlement:
         thefts_committed: int = 0,
         lexicon: list[dict] | None = None,
         recent_topics: list[str] | None = None,
+        lineage_depth: int = 0,
         pending_letters: list[dict] | None = None,
         prophecy: dict | None = None, last_intervention_tick: int = -1,
         predecessor_id: int | None = None,
@@ -2724,6 +2735,7 @@ class Settlement:
             law_signal_counts=law_signal_counts if law_signal_counts is not None else {},
             lexicon=lexicon if lexicon is not None else [],
             recent_topics=recent_topics if recent_topics is not None else [],
+            lineage_depth=lineage_depth,
             explored_tiles=set(tuple(t) for t in explored_tiles) if explored_tiles is not None else set(),
             exploration_findings=exploration_findings if exploration_findings is not None else [],
         )
@@ -3112,6 +3124,14 @@ class Settlement:
     @lexicon.setter
     def lexicon(self, value: list[dict]) -> None:
         self.culture.lexicon = value
+
+    @property
+    def lineage_depth(self) -> int:
+        return self.culture.lineage_depth
+
+    @lineage_depth.setter
+    def lineage_depth(self, value: int) -> None:
+        self.culture.lineage_depth = value
 
     @property
     def recent_topics(self) -> list[str]:
@@ -3734,6 +3754,7 @@ class Settlement:
             "laws": list(self.laws),
             "thefts_committed": self.thefts_committed,
             "lexicon": list(self.lexicon),
+            "lineage_depth": self.lineage_depth,
             "top_topics": self.top_topics(),
             "prophecy": dict(self.prophecy) if self.prophecy is not None else None,
             "predecessor_id": self.predecessor_id,
@@ -3882,6 +3903,7 @@ class Settlement:
             "law_signal_counts": dict(self.law_signal_counts),
             "thefts_committed": self.thefts_committed,
             "lexicon": list(self.lexicon),
+            "lineage_depth": self.lineage_depth,
             "recent_topics": list(self.recent_topics),
             "pending_letters": list(self.pending_letters),
             "prophecy": dict(self.prophecy) if self.prophecy is not None else None,
@@ -3961,6 +3983,7 @@ class Settlement:
             law_signal_counts=dict(data.get("law_signal_counts", {})),
             thefts_committed=data.get("thefts_committed", 0),
             lexicon=list(data.get("lexicon", [])),
+            lineage_depth=data.get("lineage_depth", 0),
             recent_topics=list(data.get("recent_topics", [])),
             pending_letters=list(data.get("pending_letters", [])),
             prophecy=dict(data["prophecy"]) if data.get("prophecy") is not None else None,
