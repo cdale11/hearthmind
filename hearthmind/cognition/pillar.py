@@ -368,6 +368,45 @@ class Pillar:
                 return True
         return False
 
+    def subject_confidence(self, subject_substring: str) -> float:
+        """Tier 0's mirror-write -> pillar-AUTHORED-decision conversion
+        (docs/ROADMAP-2026-07-REMAINING.md, item 0's own closing note):
+        the general, reusable primitive any future settlement job can
+        call to let this pillar's own accumulated `world_model` actually
+        WEIGH an already-existing decision, not just record its outcome
+        afterward. Same mechanical scan-and-match shape `disagrees_with`
+        already established (recent entries only, substring/word-overlap
+        match on the short SUBJECT label, never comparing full belief
+        text) but returns the best-matching entry's own `confidence`
+        (0.0 if nothing recent matches) instead of a bool — a bounded
+        magnitude a caller can fold into an existing soft/tiebreak
+        decision point, deliberately NOT a mechanism for handing a
+        pillar a whole decision outright. This keeps every consuming
+        site fully deterministic and legible (a plain read of already-
+        persisted state, no LLM call in the decision itself) — see
+        `town_brain.compute_priority`'s own docstring for why that
+        matters at its first consuming site: "just compute, highest
+        wins" and "pillar-authored" are compatible exactly because the
+        pillar's *lean* is itself computed, never a fresh LLM opinion
+        overriding the numbers."""
+        subject_lower = subject_substring.strip().lower()
+        if not subject_lower:
+            return 0.0
+        best = 0.0
+        for entry in self.world_model[-6:]:
+            confidence = entry.get("confidence", 0.0)
+            if confidence <= best:
+                continue
+            existing_subject = str(entry.get("subject", "")).strip().lower()
+            if not existing_subject:
+                continue
+            if (
+                existing_subject in subject_lower or subject_lower in existing_subject
+                or word_overlap(subject_substring, existing_subject) >= self.DISAGREEMENT_OVERLAP_THRESHOLD
+            ):
+                best = confidence
+        return best
+
     def consolidate(self) -> bool:
         """B8 "Living memory & consolidation": folds the oldest `MEMORY_
         CONSOLIDATE_BATCH` raw notes into one condensed digest note once

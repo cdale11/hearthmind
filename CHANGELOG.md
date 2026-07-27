@@ -4,6 +4,58 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.46] — Tier 0's mirror-write -> pillar-authored conversion, first slice
+
+Explicit user request: "how to go about closing Tier 0," followed by
+`AskUserQuestion` answers "town_brain priority (Village)" as the first
+conversion site and "design the general pattern first" as the scope.
+
+Every Tier 0 mirror to date writes a settlement job's ALREADY-DECIDED
+outcome into a pillar's `world_model`/`memory` after the fact — the
+pillar observes its own history but never steers the decision. This
+ships the general reusable primitive plus a first real proof site.
+
+New `Pillar.subject_confidence(subject_substring)` (`cognition/
+pillar.py`): a deterministic, zero-LLM-cost scan of this pillar's own
+`world_model` (same recent-entries/substring/word-overlap match shape
+`disagrees_with` already established) returning the best-matching
+entry's own confidence, 0.0 if nothing matches. Any future settlement
+job can fold this magnitude into an ALREADY-EXISTING soft/tiebreak
+decision point — never a mechanism handing a pillar a whole decision.
+
+First site: `town_brain.compute_priority` gained an optional `village_
+pillar_lean` param, consumed ONLY at the function's existing final
+catchall tie (the same place `council_disposition`'s own bounded nudge
+already lives, same threshold magnitude) — every urgent arm earlier in
+the function (hunger/illness/coffers/materials) is never overridden by
+pillar lean, preserving v1.3.35's "just compute, highest wins, never
+let the LLM override the numbers" directive exactly; the lean itself is
+a plain deterministic read of already-persisted state, not a fresh LLM
+opinion. `SimulationEngine._village_priority_lean()` precomputes the
+value (max growth-leaning subject confidence minus max safety-leaning
+one, several keyword candidates per side since a real LLM-authored
+subject label is free text). Village pillar's OWN `town_brain` mirror
+is deliberately excluded from ever satisfying its own lean (its subject
+is `"{settlement}'s civic priority"`, which matches neither keyword
+set) — no self-referential echo chamber.
+
+Verified: direct unit tests (`subject_confidence`'s match/no-match/
+best-of-several-entries behavior; `compute_priority`'s new arm firing
+only past threshold, in the correct direction, and never overriding an
+urgent arm); a production-path smoke test confirming `_village_
+priority_lean()` reads real `village_pillar.world_model` state through
+the actual engine; a real 4000-tick LLM-disabled engine soak with a
+clean `village_pillar` round-trip; `scripts/verify_native_soak.py` (2
+seeds x 800 ticks) byte-identical. No UI change needed — `settlement.
+current_priority`/`priority_rationale` already surface through the
+existing stat tile, unchanged shape.
+
+Every other of the ~55 Tier 0 mirror sites remains write-only; docs/
+ROADMAP-2026-07-REMAINING.md's Tier 0 checklist entry records this as
+the first converted site, not a closed category — converting further
+sites is real, un-scoped follow-up, each needing its own judgment call
+about where in an existing decision a lean can safely enter.
+
 ## [1.34.45] — A18 composite reaction authoring system
 
 Explicit user instruction: "Start A18." Ships the general authoring

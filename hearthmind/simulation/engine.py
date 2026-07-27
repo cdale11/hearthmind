@@ -7074,6 +7074,25 @@ class SimulationEngine:
 
     # --- the "town brain": monthly civic-priority LLM decision -----------------
 
+    def _village_priority_lean(self) -> float:
+        """Precomputes `town_brain.compute_priority`'s optional pillar-
+        authored tiebreak input (Tier 0's mirror-write -> pillar-
+        authored conversion, docs/ROADMAP-2026-07-REMAINING.md, item
+        0's closing note) — the max confidence the Village pillar holds
+        about ANY growth-leaning subject, minus the max confidence it
+        holds about ANY safety-leaning one (`Pillar.subject_
+        confidence`). Several keyword candidates per side since a real
+        LLM-authored `world_model` subject label is free text, never
+        guaranteed to literally say "growth"/"defense" — this stays a
+        best-effort, zero-LLM-cost read of whatever the pillar has
+        actually accumulated, correctly returning 0.0 (a genuine no-op
+        at the caller's tiebreak) for a settlement whose Village pillar
+        hasn't yet formed anything matching either side."""
+        pillar = self.world.village_pillar
+        growth = max(pillar.subject_confidence(k) for k in ("growth", "expansion", "prosperity"))
+        caution = max(pillar.subject_confidence(k) for k in ("defense", "safety", "security", "caution"))
+        return growth - caution
+
     def _maybe_schedule_town_brain(self, events: list[str]) -> None:
         """Once per month (was once per season — a real season is ~91
         days, and a whisper submitted via POST /intervene/town-brain
@@ -7130,7 +7149,10 @@ class SimulationEngine:
         # compute_priority's docstring. Applied immediately, before any
         # LLM call, so the mechanical effect (choose_building_kind's
         # weighting) never waits on or depends on inference.
-        decision = town_brain.compute_priority(population_summary, settlement_summary, council_disposition)
+        decision = town_brain.compute_priority(
+            population_summary, settlement_summary, council_disposition,
+            village_pillar_lean=self._village_priority_lean(),
+        )
         priority = decision["priority"]
         settlement.current_priority = priority
         settlement.priority_rationale = decision["rationale"]

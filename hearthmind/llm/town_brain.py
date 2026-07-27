@@ -181,6 +181,7 @@ uses (temperament's *_INFLUENCE constants, trait step sizes)."""
 
 def compute_priority(
     population_summary: dict, settlement_summary: dict, council_disposition: dict | None = None,
+    village_pillar_lean: float = 0.0,
 ) -> dict:
     """THE decision — not a fallback. "Instead of asking Food? Health?
     Construction? Just compute. Highest wins." A plain, legible,
@@ -248,6 +249,23 @@ def compute_priority(
             return {"priority": "growth", "rationale": "The council of elders is eager to see the village grow."}
         if avg_resilience - avg_ambition > COUNCIL_DISPOSITION_TIEBREAK_THRESHOLD:
             return {"priority": "defense", "rationale": "The council of elders would rather see the village secure than grow further."}
+    # Tier 0's first mirror-write -> pillar-AUTHORED-decision conversion
+    # (docs/ROADMAP-2026-07-REMAINING.md, item 0's closing note): the
+    # Village pillar's own accumulated confidence about growth-leaning
+    # vs. safety-leaning subjects gets the SAME bounded, secondary-only
+    # say `council_disposition` already has just above — never
+    # overriding an urgent arm earlier in this function, only breaking
+    # the final catchall tie. `village_pillar_lean` is precomputed by
+    # the caller (positive = pillar leans growth, negative = leans
+    # safety/caution) via `Pillar.subject_confidence` — a plain read of
+    # already-persisted state, so this stays fully deterministic and
+    # legible ("just compute, highest wins" and "pillar-authored" are
+    # compatible exactly because the lean itself is computed, never a
+    # fresh LLM opinion overriding the numbers).
+    if village_pillar_lean > COUNCIL_DISPOSITION_TIEBREAK_THRESHOLD:
+        return {"priority": "growth", "rationale": "The village's own accumulated sense of itself leans toward growth."}
+    if village_pillar_lean < -COUNCIL_DISPOSITION_TIEBREAK_THRESHOLD:
+        return {"priority": "defense", "rationale": "The village's own accumulated sense of itself leans toward caution."}
     return {"priority": "defense", "rationale": "The essentials are covered; time to look after the village's safety."}
 
 

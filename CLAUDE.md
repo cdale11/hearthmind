@@ -545,6 +545,34 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.46)
+
+Explicit user request: "how to go about closing Tier 0," resolved via
+`AskUserQuestion` — first conversion site "town_brain priority
+(Village)," scope "design the general pattern first." Ships Tier 0's
+first genuine mirror-write -> pillar-AUTHORED-decision conversion (the
+categorical gap the standalone checklist's v1.34.44 filing flagged as
+NOT closeable by another mechanical mirror step).
+
+New `Pillar.subject_confidence(subject_substring)` (`cognition/
+pillar.py`): deterministic, zero-LLM-cost read of this pillar's own
+`world_model` returning the best-matching entry's confidence (same
+scan shape `disagrees_with` established) — the reusable primitive any
+future site can fold into an existing soft/tiebreak decision, never a
+mechanism handing a pillar a whole decision. First site: `town_brain.
+compute_priority`'s existing final catchall tie (same slot `council_
+disposition`'s own bounded nudge already occupies) now also weighs
+`SimulationEngine._village_priority_lean()` — every urgent arm earlier
+in the function stays untouched, preserving v1.3.35's "just compute,
+highest wins" directive exactly, since the lean is itself a
+deterministic read, never a fresh LLM opinion.
+
+Verified: unit tests, a production-path smoke test, a 4000-tick
+LLM-disabled soak with clean round-trip, `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical. Every other Tier 0
+mirror site remains write-only — converting further sites is real,
+un-scoped follow-up.
+
 ## Current state (v1.34.45)
 
 Explicit user instruction: "Start A18." A18 ("Composable event

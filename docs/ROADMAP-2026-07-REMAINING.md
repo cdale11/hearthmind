@@ -56,9 +56,13 @@ tier is arbitrary.
    available, not as a quick follow-up. **See "Tier 0 — standalone
    checklist" below for a flat step-by-step index over everything
    this item has ever been broken into** — as of v1.34.44, every
-   checked box on that list is done; what remains is real un-scoped
-   design work (mirror-write -> pillar-authored decision), not another
-   item at the checklist's own step size.
+   checked box on that list is done. As of v1.34.46, the mirror-write
+   -> pillar-authored conversion itself has begun for real: a general
+   primitive (`Pillar.subject_confidence`) plus its first converted
+   site (`town_brain.compute_priority`'s existing catchall tiebreak) —
+   see the checklist's own entry below for detail. What remains is
+   converting further sites, real un-scoped judgment work each time,
+   not another item at the checklist's own step size.
 
    **First slice shipped, v1.32.0**: a SECOND real production job per
    pillar now mirrors into `world_model`/`memory` (invention ->
@@ -751,18 +755,43 @@ Checklist, dependency-ordered:
   extinction + forest-succession-stall (v1.34.43) — closes every named
   candidate in that design note.
 
-**Nothing on this checklist is currently unstarted.** What's left is
-NOT another atomic step at this size — it's the doc's own item-0
-categorical distinction ("five conscious minds inhabiting the Body"
-vs. "mirrors bolted onto business as usual"): turning a mirror-write
-into a pillar-AUTHORED decision (the pillar's own accumulated
-`world_model`/memory actually steering what a settlement job decides,
-not just recording its outcome afterward) is real, un-scoped design
-work — genuinely different in kind from every checked box above, not
-a bigger version of the same step. It needs its own explicit-direction
-pass naming a first concrete site before it can be broken into new
-minimum-size steps, the same standing discipline every other
-un-scoped item in this document already follows.
+**Mirror-write -> pillar-authored, general pattern + first site
+(v1.34.46, explicit user direction via `AskUserQuestion`: "design the
+general pattern first," first site = town_brain priority).** New
+`Pillar.subject_confidence(subject_substring)` (`cognition/pillar.py`)
+is the reusable primitive: a deterministic, zero-LLM-cost scan of this
+pillar's own `world_model` (same recent-entries/substring/word-overlap
+match shape `disagrees_with` already established) returning the best-
+matching entry's own confidence, 0.0 if nothing matches. Any future
+settlement job can fold this magnitude into an ALREADY-EXISTING soft/
+tiebreak decision point — never a mechanism for handing a pillar a
+whole decision outright, and never in tension with a job's "just
+compute" discipline, since the lean itself is a plain read of already-
+persisted state, not a fresh LLM opinion.
+
+First site: `town_brain.compute_priority` gained an optional
+`village_pillar_lean` param, consumed ONLY at the function's existing
+final catchall tie (same place `council_disposition`'s own bounded nudge
+already lives, same `COUNCIL_DISPOSITION_TIEBREAK_THRESHOLD` magnitude)
+— an urgent arm (hunger/illness/coffers/materials) earlier in the
+function is NEVER overridden by pillar lean, preserving the v1.3.35
+"instead of asking, just compute, highest wins" directive exactly.
+`SimulationEngine._village_priority_lean()` precomputes the value
+(max growth-leaning subject confidence minus max safety-leaning one,
+several keyword candidates per side since a real subject label is
+free text). Village pillar's `town_brain` mirror itself is
+deliberately excluded from ever satisfying its own lean (its subject
+is `"{settlement}'s civic priority"`, which doesn't match either
+keyword set) — no self-referential echo chamber.
+
+Every other of the ~55 Tier 0 sites remains mirror-write-only; this is
+the FIRST converted, proving the pattern against one real, previously-
+flagged-as-out-of-reach site (compute_priority's determinism was
+explicitly protected by an earlier user directive) rather than an easy
+one. Converting further sites is real, un-scoped follow-up work — each
+needs its own judgment call about where in an existing decision a
+pillar lean can enter without overriding a hard/urgent branch — not
+another item at this checklist's own minimum step size.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0
