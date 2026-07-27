@@ -1428,11 +1428,26 @@ forest reclaim). Real gaps, roughly by leverage:
     still not attempted — this closes the item by giving the pattern a
     real second instance, not by generalizing the mechanism itself.
 
-**Tier 3 — deepen an already-real mechanism**
-17. **A5/A6** — per-instance `Entity.affordances`/`Entity.properties`
-    (today: class-level `dict[BuildingKind, ...]` only); the validate-
-    step half of A6 (re-checking a PROPOSED concept against this layer,
-    not just grounding the generate-step).
+**Tier 3 — deepen an already-real mechanism** (started v1.34.62,
+explicit user instruction "Start tier 3 and queue tier 4 and 5" — Tier
+4/Tier 5 are formally queued for a future turn's explicit "next"/
+"continue" instruction, same standing convention as every other tier
+in this document; nothing in either was started this pass)
+17. **A5/A6 — validate-step half shipped, v1.34.62.** `llm/ontology.
+    py`'s `validate_hook` gained an optional `present_tags` param: an
+    `invention_specialization_category` claim of `agricultural`/
+    `structural` with zero overlap against the settlement's own
+    standing-building affordances (`SPECIALIZATION_AFFORDANCE_HINTS`)
+    is now rejected (degrades to no mechanical effect) instead of
+    trusted outright — the "re-check a PROPOSED concept against this
+    layer" half the doc's own A6 entry flagged as unattempted.
+    `mercantile`/`general` have no meaningful affordance mapping (same
+    "MARKET/BANK correctly carry no affordance tag" reasoning `world/
+    affordances.py` already documents) and stay unchecked. Still open:
+    per-instance `Entity.affordances`/`Entity.properties` as a genuine
+    per-instance field generalized beyond buildings (today: class-level
+    `dict[BuildingKind, ...]` only, unchanged this pass) — a larger,
+    separate piece of this item, not attempted.
 18. **A7** — a real recursive rewrite/production system in each domain
     (today: layout is a scoring bias, architecture a fixed three-slot
     production, dialect one-rule-per-call); ritual/recipe-structure

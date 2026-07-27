@@ -40,10 +40,14 @@ grounding text handed to Innovation's generate-step (`llm/ontology.py`'s
 so a proposal can be "physically coherent" (respond to something
 actually buildable from what's standing) rather than pure unconstrained
 invention. A6's other named half — the validate-step re-checking a
-proposal against this layer — is flagged as a follow-up: this pass
-only wires the generate-step query, the harder/more novel half of the
-two per the spec's own framing ("the prerequisite that lets Innovation
-discover unprogrammed combinations")."""
+proposal against this layer — shipped later (Tier 3 item 17, docs/
+ROADMAP-2026-07-REMAINING.md): `llm/ontology.py`'s `validate_hook`
+gained an optional `present_tags` param that rejects an `agricultural`/
+`structural` `invention_specialization_category` claim with zero real
+affordance overlap (see that module's `SPECIALIZATION_AFFORDANCE_
+HINTS`) — `mercantile`/`general` have no meaningful affordance mapping
+and stay unchecked, same reasoning as MARKET/BANK correctly carrying no
+tag in `BUILDING_AFFORDANCES` above."""
 from __future__ import annotations
 
 from hearthmind.settlement.buildings import BuildingKind

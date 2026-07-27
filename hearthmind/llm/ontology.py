@@ -47,6 +47,26 @@ prompts already reference in prose (not the full `AgentGoal` enum,
 several of which — e.g. EXPLORE, the surveyor-only goal — wouldn't
 make sense as a village-wide cultural bias)."""
 
+SPECIALIZATION_AFFORDANCE_HINTS: dict[str, frozenset[str]] = {
+    "agricultural": frozenset({"can_store_food", "can_carry_water", "can_redirect_water", "can_fertilize"}),
+    "structural": frozenset({"can_support_weight", "can_shelter", "can_sharpen", "can_conduct_heat", "can_burn"}),
+}
+"""A6's validate-step half (roadmap Tier 3 item 17, docs/ROADMAP-2026-
+07-REMAINING.md — the generate-step grounding shipped v1.16.0/v1.18.0;
+this closes the "deterministic re-verification" half the doc's own
+entry flagged as not attempted). Only `agricultural`/`structural` get a
+real physical-affordance check: `mercantile`/`general` have no
+meaningful mapping onto `world.affordances.AFFORDANCE_TAGS` (trade/
+currency isn't a physical affordance, and MARKET/BANK-shaped buildings
+correctly carry no affordance tag at all per that module's own
+docstring — treating their absence as a validation failure would be a
+category error, not a real check) and so always pass unchecked, same
+as before this pass. Deliberately a *hint* set, not an exhaustive
+mapping: a settlement claiming an agricultural/structural specialization
+needs SOME real physical grounding among its standing buildings, not a
+specific exact combination — see `validate_hook`'s `present_tags`
+param."""
+
 # --- propose --------------------------------------------------------------
 
 SYSTEM_PROMPT_PROPOSE = (
@@ -202,13 +222,31 @@ def fallback_propose(established_count: int, pressure_signal: str | None = None)
     }
 
 
-def validate_hook(hook_type: str, hook_target: str, magnitude: float, category: str) -> dict | None:
+def validate_hook(
+    hook_type: str, hook_target: str, magnitude: float, category: str,
+    present_tags: "frozenset[str] | set[str] | None" = None,
+) -> dict | None:
     """Deterministic — never trusts the LLM's own claim that a target
     is valid. Returns `None` for `custom_text_only` (pure flavor, a
     legitimate real outcome, see `world.ontology.MECHANICAL_HOOK_
     TYPES`'s docstring) or an unrecognized/invalid combination — a
     concept that fails validation still persists (see `parse_propose`),
-    it just carries no mechanical effect rather than a fabricated one."""
+    it just carries no mechanical effect rather than a fabricated one.
+
+    `present_tags` (A6's validate-step half, Tier 3 item 17): the
+    settlement's own currently-standing affordance tags (`world.
+    affordances.affordances_present`/`building_instance_affordances`),
+    same live query already used to GROUND `invention_specialization_
+    category` proposals in `build_propose_prompt`. `None` (the default,
+    and every call site that predates this param) skips the check
+    entirely — unchanged behavior. When provided, an `agricultural`/
+    `structural` specialization claim with zero overlap against
+    `SPECIALIZATION_AFFORDANCE_HINTS` is rejected (degrades to no
+    mechanical effect, same as any other invalid hook) — a village with
+    nothing agricultural/structural actually standing can't claim a
+    mechanical bonus in that domain. `mercantile`/`general` have no
+    real affordance mapping (see that dict's own docstring) and always
+    pass, same as before this param existed."""
     if hook_type not in MECHANICAL_HOOK_TYPES or hook_type == "custom_text_only":
         return None
     magnitude = max(0.0, min(1.0, magnitude)) if isinstance(magnitude, (int, float)) else 0.5
@@ -226,11 +264,16 @@ def validate_hook(hook_type: str, hook_target: str, magnitude: float, category: 
         from hearthmind.settlement.buildings import INVENTION_CATEGORIES
         if hook_target not in INVENTION_CATEGORIES:
             return None
+        hints = SPECIALIZATION_AFFORDANCE_HINTS.get(hook_target)
+        if present_tags is not None and hints is not None and not (hints & present_tags):
+            return None
         return {"type": hook_type, "target": hook_target, "magnitude": magnitude}
     return None
 
 
-def parse_propose(result: dict, fallback: dict) -> dict:
+def parse_propose(
+    result: dict, fallback: dict, present_tags: "frozenset[str] | set[str] | None" = None,
+) -> dict:
     name = result.get("name")
     description = result.get("description")
     hypothesis = result.get("hypothesis")
@@ -258,7 +301,7 @@ def parse_propose(result: dict, fallback: dict) -> dict:
         "description": description.strip()[:200],
         "hypothesis": hypothesis.strip()[:150],
         "category": category,
-        "hook": validate_hook(hook_type, hook_target, float(magnitude), category),
+        "hook": validate_hook(hook_type, hook_target, float(magnitude), category, present_tags=present_tags),
     }
 
 

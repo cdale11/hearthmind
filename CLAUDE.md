@@ -545,6 +545,25 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.62)
+
+Explicit user instruction: "Start tier 3 and queue tier 4 and 5"
+(docs/ROADMAP-2026-07-REMAINING.md). Tier 4 (standing re-audit
+discipline)/Tier 5 (HearthBench & the Adaptive Runtime) formally
+queued, nothing built from either this pass.
+
+Tier 3 item 17 (A5/A6): shipped the validate-step half explicitly
+flagged unattempted at v1.16.0/v1.18.0. `llm/ontology.py`'s `validate_
+hook` gained an optional `present_tags` param — an `invention_
+specialization_category` claim of `agricultural`/`structural` with
+zero real affordance overlap against the settlement's own standing
+buildings is now rejected instead of trusted outright; `mercantile`/
+`general` have no meaningful physical mapping and stay unchecked.
+Wired at the one real call site (`_maybe_schedule_ontology_proposal`,
+reusing the SAME `present_tags` already computed for the generate-step
+grounding). Per-instance `Entity.affordances`/`Entity.properties` (the
+item's other, larger named piece) remains open, not attempted.
+
 ## Current state (v1.34.61)
 
 Explicit user instruction: "Start B5 and C4" (docs/ROADMAP-2026-07-

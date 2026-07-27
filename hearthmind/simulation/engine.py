@@ -4401,7 +4401,12 @@ class SimulationEngine:
         settlement_id = settlement.id
 
         def apply(result: dict, used_fallback: bool) -> None:
-            parsed = ontology_llm.parse_propose(result, fallback)
+            # A6's validate-step half (Tier 3 item 17): re-verify a
+            # claimed invention_specialization_category against the
+            # SAME present_tags already computed above for the
+            # generate-step's grounding — a closure capture, not a
+            # second query.
+            parsed = ontology_llm.parse_propose(result, fallback, present_tags=present_tags)
             if ontology.is_near_duplicate(self.world, parsed["name"], parsed["description"]):
                 self._pillar_close_cycle("innovation")
                 return  # "nothing new" — same discipline as folklore's duplicate-tale guard

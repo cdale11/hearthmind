@@ -4,6 +4,59 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.62] — Tier 3 started: A5/A6's validate-step half; Tier 4/5 queued
+
+Explicit user instruction: "Start tier 3 and queue tier 4 and 5"
+(docs/ROADMAP-2026-07-REMAINING.md). Tier 4 ("standing discipline,
+re-audit periodically") and Tier 5 (HearthBench & the Adaptive
+Runtime) are formally queued for a future turn's explicit instruction
+— no code from either attempted this pass, per the doc's own standing
+convention.
+
+Tier 3 item 17 (A5/A6, "Capabilities/affordances over object
+classes"/"Exposed affordances for discovery"): the generate-step half
+(grounding Innovation's proposal prompt in real standing-building
+affordances/reactions) shipped at v1.16.0/v1.18.0; the validate-step
+half — "Innovation's deterministic re-verification, cross-checking a
+PROPOSED concept's claimed mechanism against this layer," explicitly
+flagged as unattempted in both `world/affordances.py`'s own module
+docstring and the roadmap doc — ships now.
+
+`llm/ontology.py`'s `validate_hook` gained an optional `present_tags`
+param (default `None`, every pre-existing call site unchanged): an
+`invention_specialization_category` hook claiming `agricultural`/
+`structural` is now rejected (degrades to no mechanical effect, same
+as any other invalid hook) when the settlement has zero real
+affordance overlap against a new `SPECIALIZATION_AFFORDANCE_HINTS`
+mapping. `mercantile`/`general` have no meaningful physical-affordance
+mapping (trade/currency isn't a physical affordance, and MARKET/BANK-
+shaped buildings correctly carry no affordance tag at all per that
+module's own docstring — gating them would be a category error, not a
+real check) and stay unchecked, same as before this pass. `parse_
+propose` threads the param through; `SimulationEngine._maybe_schedule_
+ontology_proposal`'s `apply()` passes the SAME `present_tags` already
+computed for the generate-step's grounding (a closure capture, not a
+second query) — zero added cost. `llm/composite_entity.py`'s own
+`validate_hook` call site is left at the default (unwired) — flagged,
+not attempted, out of this pass's scope.
+
+Still open, explicitly not attempted this pass: per-instance `Entity.
+affordances`/`Entity.properties` as a genuine per-instance field
+generalized beyond buildings (today: class-level `dict[BuildingKind,
+...]` only) — a larger, separate piece of item 17.
+
+Verified: direct unit tests (`validate_hook`'s `present_tags` param —
+no-overlap-rejects, real-overlap-accepts, `mercantile`/`general`
+always-pass, other hook types unaffected, `None` reproduces old
+behavior); two production-path tests scheduling the real
+`_maybe_schedule_ontology_proposal` against a forced fallback claiming
+an `agricultural` specialization — once against a settlement with no
+matching standing buildings (hook correctly rejected) and once with a
+real standing GRANARY added (hook correctly accepted); a 4000-tick
+LLM-disabled engine soak with a clean round-trip (no new persisted
+state — this is a pure prompt/validation-logic change); `scripts/
+verify_native_soak.py` (seeds 1,2 x 800 ticks) byte-identical.
+
 ## [1.34.61] — B5 + C4: evolve/merge hypothesis loop, a second acceptance-gate auditor
 
 Explicit user instruction: "Start B5 and C4" (docs/ROADMAP-2026-07-
