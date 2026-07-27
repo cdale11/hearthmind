@@ -33,16 +33,32 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_prompt(settlement_name: str, rumor_events: list[dict], existing_folklore: list[dict]) -> str:
+def build_prompt(
+    settlement_name: str, rumor_events: list[dict], existing_folklore: list[dict],
+    legends: list[dict] | None = None,
+) -> str:
     lines = [f"- {event['description']}" for event in rumor_events]
     rumors_text = "\n".join(lines) if lines else "No rumors have been circulating lately."
     if existing_folklore:
         tales_text = "; ".join(entry["tale"] for entry in existing_folklore[-5:])
     else:
         tales_text = "None yet."
+    legends_line = ""
+    if legends:
+        # A21 "Temporal compression": a crystallized legend (`world/
+        # legends.py`) is a step ABOVE an ordinary folk tale — telling
+        # folklore about it too would just re-mint the same story one
+        # rung down, the exact "same old story being retold" case the
+        # system prompt above already asks the model to decline. Named
+        # explicitly so the model can tell the difference between "no
+        # new material" and "this is already a full legend, not folk
+        # tale material."
+        legends_text = "; ".join(e["legend"] for e in legends[-2:])
+        legends_line = f"Already a full legend, not just a tale: {legends_text}\n"
     return (
         f"The village of {settlement_name}. Rumors heard lately:\n{rumors_text}\n"
         f"Old tales already told: {tales_text}\n"
+        f"{legends_line}"
         "Condense this into one new folk tale, or say there's nothing worth telling yet."
     )
 

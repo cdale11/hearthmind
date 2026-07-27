@@ -1979,10 +1979,25 @@ aggregates settlements' information-ecosystems" (the spec's other
 named example), remain open.
 
 ### A21 — Temporal compression
-Legend → tradition/religion/institution feedback; using a formed
-legend as "already legendary" grounding context in other prompts
-(chronicle/dialogue/folklore); any unification with folklore itself —
-all open, see CHANGELOG.md's [1.28.0] entry for exactly what shipped.
+**Second slice, v1.34.54** (explicit user instruction, "continue
+a21"). Legend -> tradition/religion/institution feedback: a formed
+legend bumps `Settlement.pattern_signal_counts[f"legend_{subsystem}"]`
+to `PATTERN_SIGNAL_BELIEF_THRESHOLD` — the SAME pressure gate `_maybe_
+schedule_ontology_proposal` already reads, so a crystallized legend
+measurably biases the village's next invented concept/rule proposal
+toward its own myth's theme, no new mechanism needed. "Already
+legendary" grounding: `llm/chronicle.py` and `llm/folklore.py` both
+gained a `legends` param (folklore's explicitly distinguishes "already
+a full legend" from ordinary retellable material, closing the
+"restating a legend as a fresh folk tale" gap folklore's own dedup
+logic couldn't see). `llm/dialogue.py` deliberately NOT touched — its
+general `build_prompt`/opportunity-candidate machinery is dead code
+since v1.4.0's voice-pair redesign; real LLM dialogue only ever uses
+the separate, deliberately minimal `build_voice_prompt`, and an
+explicit prior user directive ("a very concise summary," not the full
+grounding apparatus) argues against widening it here. Any unification
+with folklore itself remains open. See CHANGELOG.md's [1.28.0] entry
+for the first slice, [1.34.54] for this one.
 
 ### A22 — Emergence API
 Not literally "every deterministic subsystem" produces observations

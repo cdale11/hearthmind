@@ -3590,6 +3590,7 @@ class SimulationEngine:
             place_names=dict(settlement.place_names),
             folklore=list(settlement.folklore),
             narrative_theme=self._narrative_theme_bias(settlement),
+            legends=list(settlement.legends),
         )
         fallback = chronicle.fallback_summary(
             recent, population_summary, previous_season, year,
@@ -3956,7 +3957,7 @@ class SimulationEngine:
             return
         self._mark_monthly_resolved("folklore")
         existing_folklore = list(target.folklore)
-        prompt = folklore.build_prompt(target.name, rumor_events, existing_folklore)
+        prompt = folklore.build_prompt(target.name, rumor_events, existing_folklore, legends=list(target.legends))
         fallback = folklore.fallback_folklore(target.name, rumor_events)
         target_id = target.id
 
@@ -4030,6 +4031,19 @@ class SimulationEngine:
             settlement.legends.append(entry)
             if len(settlement.legends) > LEGENDS_MAX_STORED:
                 settlement.legends = settlement.legends[-LEGENDS_MAX_STORED:]
+            # A21 "Temporal compression": legend -> tradition/religion/
+            # institution feedback. A legend forming is itself strong
+            # evidence its theme is genuinely significant to the
+            # village — reuses the EXISTING pattern-signal pressure gate
+            # (`pattern_signal_counts`, already read by `_maybe_
+            # schedule_ontology_proposal`'s "pressured" check and its
+            # `pressure_signal` naming) rather than a new mechanism, so
+            # a crystallized legend measurably biases what the village
+            # invents/proposes next toward its own myth's own theme.
+            # Namespaced `legend_` so it never collides with an
+            # unrelated signal that happens to share the raw subsystem
+            # name.
+            settlement.pattern_signal_counts[f"legend_{subsystem}"] = PATTERN_SIGNAL_BELIEF_THRESHOLD
             self._log(
                 "legend",
                 f"{settlement.name or 'The village'} now speaks of a legend — {entry['legend']}",

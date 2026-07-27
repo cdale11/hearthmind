@@ -545,6 +545,33 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.54)
+
+Explicit user instruction: "continue a21" (docs/ROADMAP-2026-07-
+REMAINING.md's Tier 2, "Temporal compression") — redirected from the
+Tier 3/Tier 0/Tier 5 sequence queued the prior turn; that sequence
+stays queued next.
+
+A21's first slice shipped legend detection/narration; this ships its
+two remaining named gaps. Feedback: a formed legend now bumps
+`Settlement.pattern_signal_counts[f"legend_{subsystem}"]` to
+`PATTERN_SIGNAL_BELIEF_THRESHOLD` — the same pressure gate `_maybe_
+schedule_ontology_proposal` already reads, so a crystallized legend
+measurably biases what the village invents/proposes next, no new
+mechanism. Grounding: `llm/chronicle.py`/`llm/folklore.py` both gained
+a `legends` param (folklore's distinguishes "already a full legend"
+from ordinary folk-tale material, closing a real dedup gap). `llm/
+dialogue.py` deliberately NOT touched — audited and found its general
+`build_prompt` machinery has been dead code since v1.4.0's voice-pair
+redesign; real dialogue only reaches the separate, deliberately
+minimal `build_voice_prompt` (an explicit prior user directive this
+pass respects rather than works against).
+
+Verified: unit tests (grounding present/absent in both prompts), a
+real engine production-path test confirming the exact `pattern_
+signal_counts` write makes a settlement read as pressured, a 4000-tick
+soak with clean round-trip, native soak byte-identical.
+
 ## Current state (v1.34.53)
 
 Explicit user instruction: "start A19" (docs/ROADMAP-2026-07-

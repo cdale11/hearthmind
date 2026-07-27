@@ -25,7 +25,7 @@ def build_prompt(
     recent_events: list[dict], population_summary: dict, season: str, year: int,
     settlement_name: str = "", traditions: list[str] | None = None, beliefs: list[dict] | None = None,
     place_names: dict | None = None, folklore: list[dict] | None = None, narrative_theme: str = "",
-    belief_digest: str = "", culture_digest: str = "",
+    belief_digest: str = "", culture_digest: str = "", legends: list[dict] | None = None,
 ) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened."
@@ -71,6 +71,13 @@ def build_prompt(
             # Phase M "Narrative Direction": ambient interpretive lens,
             # same "if it fits" treatment as folklore above.
             culture += f"The recent theme of its life has been {narrative_theme}. "
+        if legends:
+            # A21 "Temporal compression": a crystallized legend is
+            # already-legendary grounding, distinct from folklore's raw
+            # tales — the chronicler may treat it as established lore
+            # the village already tells itself, same "if it fits, use
+            # it" invitation the system prompt gives folklore above.
+            culture += f"Legends already told of this place: {'; '.join(e['legend'] for e in legends[-2:])}. "
     return (
         f"{culture}The season just ended: {season}, year {year}. "
         f"Current population: {population_summary['total']} inhabitants "

@@ -4,6 +4,54 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.54] — A21 second slice: legend feedback + "already legendary" grounding
+
+Explicit user instruction: "continue a21" (docs/ROADMAP-2026-07-
+REMAINING.md's Tier 2, "Temporal compression"), redirecting from the
+queued Tier 3/Tier 0/Tier 5 sequence.
+
+A21's first slice (v1.28.0) shipped legend detection/narration
+(`world/legends.py`, `Settlement.legends`) but left both of the doc's
+remaining named gaps open: legend feedback into tradition/religion/
+institution formation, and using a formed legend as "already
+legendary" grounding in other prompts. Both ship now.
+
+Feedback: `_maybe_schedule_legend_detection`'s `apply()` now bumps
+`Settlement.pattern_signal_counts[f"legend_{subsystem}"]` to
+`PATTERN_SIGNAL_BELIEF_THRESHOLD` the moment a legend crystallizes —
+the SAME pressure gate `_maybe_schedule_ontology_proposal` already
+reads (`pressured`, `pressure_signal` naming), reused rather than
+duplicated. A legend forming is real evidence its theme matters to the
+village, so it now measurably biases what Innovation proposes next.
+
+Grounding: `llm/chronicle.py` and `llm/folklore.py` both gained a
+`legends` param. Chronicle's system prompt already invited using
+folklore "if it fits" — legends get the same treatment, one more
+optional lens. Folklore's is a real dedup signal: the model is told
+explicitly which subjects are ALREADY a full legend (distinct from an
+ordinary retellable tale), closing the gap where folklore's own
+existing-tale dedup logic had no way to know a subject had already
+been promoted a rung up.
+
+`llm/dialogue.py` explicitly NOT touched — audited and found its
+general `build_prompt`/`build_opportunity_candidates`/
+`select_opportunities` machinery has been dead code since v1.4.0's
+voice-pair redesign (real LLM dialogue only ever reaches the separate
+`build_voice_prompt`, deliberately minimal per an explicit prior user
+directive — "a very concise summary of the town," not the full
+grounding apparatus). Widening it here would work against that
+decision rather than extend it; recorded as a real finding, not a
+silently skipped item.
+
+Verified: unit tests (legend grounding present/absent in both
+chronicle/folklore prompts), a real engine production-path test
+(`SimulationEngine` with a forced 5-observation legend candidate,
+confirming the exact `pattern_signal_counts` key/value the real
+`apply()` closure writes correctly makes the settlement read as
+"pressured"), a 4000-tick LLM-disabled engine soak with clean
+round-trip, `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical — pure Python, no native module touched.
+
 ## [1.34.53] — A19 second slice: traffic/pollution/fertility join location_character
 
 Explicit user instruction: "start A19" (docs/ROADMAP-2026-07-

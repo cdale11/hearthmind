@@ -20,7 +20,28 @@ a second, parallel, more selective mechanism rather than touching the
 existing one). A "legend" here is rarer and more significant than an
 ordinary folk tale: it takes several repeated noteworthy observations
 from the SAME subsystem, for the SAME settlement, before the pattern
-is legend-worthy — see LEGEND_SUBSYSTEM_THRESHOLD."""
+is legend-worthy — see LEGEND_SUBSYSTEM_THRESHOLD.
+
+Second slice (explicit user instruction, "continue a21"): the doc's
+other two named gaps for this item — a formed legend feeding back into
+tradition/religion/institution formation, and grounding other prompts
+in "already legendary" material — both ship here too. Feedback reuses
+`Settlement.pattern_signal_counts`, the EXISTING pressure gate `_maybe_
+schedule_ontology_proposal` already reads (see `simulation/engine.py`'s
+`_maybe_schedule_legend_detection`), rather than a new mechanism — a
+crystallized legend is real evidence its theme matters, so it directly
+biases what the village invents/proposes next. Grounding reaches
+`llm/chronicle.py` (a `legends` param, "already established lore the
+chronicler may lean on") and `llm/folklore.py` (a `legends` param,
+explicitly distinguishing "already a full legend" from ordinary folk-
+tale material so the model doesn't re-mint the same story one rung
+down). `llm/dialogue.py` deliberately NOT touched: its general
+`build_prompt`/`build_opportunity_candidates` machinery has been dead
+code since v1.4.0's voice-pair redesign (real LLM dialogue today only
+ever uses the separate, deliberately minimal `build_voice_prompt` —
+"a very concise summary," an explicit prior user directive this pass
+respects rather than works against). Any unification with folklore
+itself remains open, unattempted."""
 from __future__ import annotations
 
 LEGEND_SUBSYSTEM_THRESHOLD = 5
