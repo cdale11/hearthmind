@@ -4,6 +4,40 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.59] — A17 re-audit: three blockers filed, no code shipped
+
+Explicit user instruction: "Continue A17." Docs-only — investigation
+found each of the item's three remaining named pieces carries a real,
+flagged blocker rather than being simply unattempted, and forcing code
+through any of them this pass would have meant either inventing a
+mechanism with no real content-type home or contradicting a standing
+design principle. Filed as an explicit audit finding rather than
+guessed at:
+
+1. A second consumer for `memetics.weighted_spread_target` (folding
+   rumor/tradition/song/technique onto the propagation weighting
+   ontology already uses): re-checked every `rng.choice`/`rng.sample`
+   site in `population.py`/`engine.py` — none match the needed shape
+   (pick one next carrier from a candidate list weighted by closeness
+   to existing carriers). No second site of this shape exists today;
+   one would need to be designed from scratch.
+2. A fitness-vs-truth axis for rumors needs a real ground-truth value
+   per rumor to demonstrate against — directly in tension with Phase
+   G's standing principle that belief is never required to reconcile
+   with objective reality (CLAUDE.md, "per-person beliefs, trust,
+   gossip"). Needs an explicit user call, not a unilateral code change.
+3. A shared mutate/decay/compete step: `Settlement.lexicon`'s only
+   live consumer is `llm/dialogue.py`'s general `build_prompt`, dead
+   code since v1.4.0 (real dialogue only uses `build_voice_prompt`) —
+   not a meaningful production proof. `recent_topics`/`top_topics()`
+   is genuinely live but reworking its FIFO eviction risks
+   destabilizing the topic-diversity tuning v0.87.35 fixed against
+   monoculture — not attempted without a live-diagnostic read first.
+
+`docs/ROADMAP-2026-07-REMAINING.md`'s A17 entry updated with the full
+findings; work resumes only on an explicit user decision naming one of
+these three paths (or a new angle).
+
 ## [1.34.58] — A13 CLOSED: the real automatic reaction reactor
 
 Explicit user instruction: "update roadmap if A20 is closed otherwise

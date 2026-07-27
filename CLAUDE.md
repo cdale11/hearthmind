@@ -545,6 +545,26 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.59)
+
+Explicit user instruction: "Continue A17" — docs-only, no code
+shipped. Investigation found each of the item's three remaining named
+pieces carries a real, flagged blocker: (1) no second real site
+matching `memetics.weighted_spread_target`'s "pick a next carrier from
+a candidate list, weighted by closeness to existing carriers" shape
+exists in the codebase today (every `rng.choice`/`rng.sample` site was
+re-checked); (2) a fitness-vs-truth axis for rumors needs a ground-
+truth value per rumor that would contradict Phase G's standing "belief
+never has to reconcile with objective reality" principle; (3) the one
+safe-looking site for a shared decay/compete step (`Settlement.
+lexicon`) has no genuinely live consumer (only `dialogue.py`'s dead-
+code general `build_prompt` reads it), and the one genuinely live site
+(`recent_topics`/`top_topics()`) risks destabilizing the topic-
+diversity tuning v0.87.35 fixed without a live-diagnostic read first.
+Filed as an explicit audit finding in the roadmap rather than forcing
+code through any of the three; resumes only on an explicit user
+decision naming a path.
+
 ## Current state (v1.34.58)
 
 Explicit user instruction: "update roadmap if A20 is closed otherwise
