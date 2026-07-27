@@ -37,12 +37,26 @@ _FALLBACK_NAMES: tuple[tuple[str, str], ...] = (
 )
 
 
-def build_prompt(settlement_name: str, building_kind: str, event_description: str, existing_names: list[str]) -> str:
+def build_prompt(
+    settlement_name: str, building_kind: str, event_description: str, existing_names: list[str],
+    location_history: str = "",
+) -> str:
+    """`location_history` (closing A19, `world.spatial_memory.
+    location_character_text`): what this SPECIFIC tile itself
+    remembers (old mining activity, a past disaster, a wildlife
+    migration crossing...), distinct from `event_description`'s
+    single most recent settlement-wide event — grounds the origin
+    story in the site's own accumulated character when it has one,
+    same "places as actors" the module exists for. Empty for a tile
+    with no notable history, the common case, in which case the
+    prompt reads exactly as it did before this parameter existed."""
     kind_spaced = building_kind.replace("_", " ")
     names_text = "; ".join(existing_names) if existing_names else "None yet."
+    history_text = f"\nThis particular spot has also seen {location_history}.\n" if location_history else ""
     return (
         f"The village of {settlement_name}. A standing {kind_spaced} stands here, unnamed.\n"
         f"Something that actually happened: {event_description}\n"
+        f"{history_text}"
         f"Places already named: {names_text}\n"
         "Give this building a name and origin story, distinct from the ones already named."
     )

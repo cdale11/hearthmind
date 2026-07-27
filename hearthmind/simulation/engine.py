@@ -91,6 +91,7 @@ from hearthmind.world.dialect_grammar import drift_term
 from hearthmind.world import emergence
 from hearthmind.world import graph_algorithms
 from hearthmind.world import legends
+from hearthmind.world import spatial_memory
 from hearthmind.cognition import attention
 from hearthmind.cognition.pillar import make_message
 from hearthmind.world.disasters import GOVERNOR_TUNING_BAND, WILDFIRE_CHANCE_PER_WEEK
@@ -4511,7 +4512,17 @@ class SimulationEngine:
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
         event_description = recent[0]["description"] if recent else "The village has simply endured, season after season."
         existing_names = [e.name for e in self.world.composite_entities.values()]
-        prompt = composite_entity.build_prompt(settlement.name, building.kind.value, event_description, existing_names)
+        # Closing A19 ("places as actors"): ground the origin story in
+        # what this SPECIFIC tile itself remembers, not just the
+        # settlement-wide latest event — the first real consumer of
+        # `location_character` beyond bare build-site scoring.
+        location_history = spatial_memory.location_character_text(
+            spatial_memory.location_character(self.world, building.x, building.y)
+        )
+        prompt = composite_entity.build_prompt(
+            settlement.name, building.kind.value, event_description, existing_names,
+            location_history=location_history,
+        )
         fallback = composite_entity.fallback_entity(len(existing_names))
         settlement_id, building_id, building_kind = settlement.id, building.id, building.kind.value
 

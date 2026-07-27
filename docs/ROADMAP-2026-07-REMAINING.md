@@ -1909,12 +1909,22 @@ bespoke `relationship_rupture` consequence unchanged (the doc's own
 mechanic remains out of scope, unaffected by this slice.
 
 ### A19 — Persistent spatial memory
-Only 3 of the spec's 9 named axes are unified (mining/disaster/ritual,
-plus ruin as a 4th added later) — traffic/pollution/fertility/
-ownership/construction/ecology remain separate or unbuilt. `FarmGrid.
-soil_fertility`/the A1 field substrate are a different shape
-(continuous fields vs. sparse per-event dicts) and folding them in is
-real follow-up work.
+**CLOSED, v1.34.49.** Six real per-tile axes now unified in `world.
+spatial_memory.location_character` (mining/disaster/ritual/ruin/road,
+plus a new sixth `migration` axis reading `World.migration_trails` —
+the closest real existing data to the spec's named "ecology" axis).
+The module's own residual gap (`location_character(world, x, y)`'s
+World-scoped wrapper had no caller since v1.34.1) is closed too: it
+now grounds a newly-named composite entity's origin story in what the
+specific SITE itself remembers (`llm/composite_entity.py`'s new
+`location_history` param, via a new `location_character_text` plain-
+language renderer), not just the settlement's single latest event —
+the doc's own "places as actors"/"unlucky house" Feeds example, now
+real. Traffic/pollution/fertility remain a genuinely different shape
+(continuous `FieldGrid` regions, not sparse per-tile dicts) and
+ownership/construction have no dedicated per-tile store at all — both
+explicitly flagged, not attempted; battles has no data source since
+Hearthmind has no combat mechanic (same note as A18).
 
 ### A20 — Multi-scale simulation
 A brand-new second field beyond `population_density`, and "culture

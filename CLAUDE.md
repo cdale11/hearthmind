@@ -545,6 +545,31 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.49)
+
+Explicit user instruction: "finish A19" (docs/ROADMAP-2026-07-
+REMAINING.md, "Persistent spatial memory"). `world/spatial_memory.py`'s
+`location_character` unification gained a sixth axis (`migration`,
+reading `World.migration_trails` — the closest real existing data to
+the spec's "ecology" axis) and, more importantly, its own long-flagged
+residual gap closed: the `location_character(world, x, y)` wrapper had
+had no caller since v1.34.1 — new `location_character_text()` renders
+a tile's strongest 1-2 axes as plain language, consumed by `llm/
+composite_entity.py`'s new `location_history` param so a newly-named
+place's origin story is grounded in what the SPECIFIC site remembers
+("also seen a past disaster and old mining activity"), not just the
+settlement's single latest event. Closes A19's own "places as actors"
+Feeds item. Traffic/pollution/fertility (different shape, continuous
+fields) and ownership/construction (no per-tile store) remain
+explicitly unfolded; battles has no data source (no combat mechanic).
+
+Verified: unit tests, a production-path smoke test, a full end-to-end
+test with a fake LLM client confirming the grounding reaches both the
+prompt and the registered entity, a 4000-tick soak with clean round-
+trip, `scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-
+identical. No UI change — `migration_trails` was already fully
+surfaced at v1.34.27. Closes A19.
+
 ## Current state (v1.34.48)
 
 Explicit user instruction: "Start the next one and complete as many

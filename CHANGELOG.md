@@ -4,6 +4,48 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.49] — A19 closed: sixth spatial-memory axis + a real consumer
+
+Explicit user instruction: "finish A19." `world/spatial_memory.py`'s
+`location_character` unified 5 axes (mining/disaster/ritual/ruin/
+road); this pass adds the sixth (`migration`, reading `World.
+migration_trails`, M4 — the closest real existing data to the spec's
+"ecology" axis) and gives the module's own long-flagged residual gap
+(the `location_character(world, x, y)` World-scoped wrapper had no
+caller since v1.34.1) its first real consumer.
+
+New `spatial_memory.location_character_text()`: renders the strongest
+1-2 axes of a tile's history as a plain-language clause. New
+`llm/composite_entity.py` `location_history` param grounds a newly-
+named place's origin story in what the SPECIFIC tile itself remembers
+("this particular spot has also seen a past disaster and old mining
+activity"), not just the settlement's single latest event —
+`SimulationEngine._maybe_schedule_composite_entity` now computes this
+via the real `World` state before building the prompt. Closes A19's
+own "Feeds" checklist item ("the 'unlucky house'... places as actors,
+and rich pillar perception").
+
+Traffic/pollution/fertility remain genuinely unfolded (continuous
+`FieldGrid` regions, not sparse per-tile dicts — a different shape,
+real follow-up work, not attempted); ownership/construction have no
+dedicated per-tile store; battles has no data source (no combat
+mechanic exists, same note A18 already carries). This closes A19.
+
+Verified: direct unit tests (`location_character_from_dicts`'s new
+`migration_trails` param, backward-compat with the old positional
+call shape, `location_character_text`'s strongest-2-axes ordering and
+empty-history case, `composite_entity.build_prompt`'s new grounding
+clause present/absent); a production-path smoke test confirming real
+`World.mining_scars`/`migration_trails` state reaches the text
+renderer through the actual engine; a full end-to-end test driving
+`_maybe_schedule_composite_entity` with a fake LLM client, confirming
+the grounding clause reaches the real prompt AND the entity registers
+correctly; a 4000-tick LLM-disabled engine soak with a clean round-
+trip; `scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-
+identical — pure Python, no native module touched. No UI change
+needed: `migration_trails` was already fully surfaced (map overlay +
+inspector line) at v1.34.27; this batch is a backend-only consumer.
+
 ## [1.34.48] — Tier 0's third mirror-write -> pillar-authored site
 
 Explicit user instruction: "Start the next one and complete as many
