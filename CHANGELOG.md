@@ -4,6 +4,74 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.51] — M2/M8 closed: quarries + flooding permanently reshape the land
+
+Explicit user instruction: "Complete M2/M8" — the one Tier 1.5 item
+left flagged (not attempted) after v1.34.50's own docs-accuracy pass,
+because building either of its two remaining named examples would
+reverse a real, twice-documented prior design decision ("mining
+scars/disaster scars are deliberately cosmetic-only, never a biome
+change"). This explicit instruction is the product call that decision
+was waiting on.
+
+**Quarry scars as actual terrain change**: new `Biome.QUARRY`
+(appended last in the enum, same native-storage-safe convention as
+`RIVER`/`WETLAND`). `terrain_evolution.maybe_form_quarries` — a HILLS
+tile mined CONTINUOUSLY, with no interruption, long enough to both
+reach and then HOLD `MINING_SCAR_QUARRY_THRESHOLD` (0.95) for
+`MINING_SCAR_QUARRY_TICKS` (400) converts permanently, with a real
+elevation drop (`MINING_SCAR_QUARRY_ELEVATION_DROP`) — real quarrying
+digs a pit. Deliberately scoped tight (well past ordinary mining's
+existing cosmetic scarring) so this is a genuine reversal only for
+sustained extreme extraction, not a blanket change to how mining
+works. QUARRY is sticky against both climate drift (`_skip_climate_
+drift`) and erosion's own elevation-driven reclassification (`hydro
+logy_field.tick_erosion`'s `classify_with_bias` branch) — it never
+silently reverts to HILLS. Skips a developed tile like every other
+terrain mutator (`_is_developed`).
+
+**Flooding reshapes the land**: every flood already had a temporary
+submerge/restore cycle (a tile flips to `Biome.SHALLOW_WATER` for
+`FLOOD_DURATION_TICKS`, then fully restores) — but that always fully
+reverted, leaving no lasting trace no matter how many times a tile
+flooded. `disasters.tick_flood` gained an optional `recurrence`
+counter (per-tile flood count); once the SAME tile has flooded
+`FLOOD_RECURRENCE_EROSION_THRESHOLD` (3) separate times, its next
+recede applies a real, permanent elevation drop (`FLOOD_EROSION_
+ELEVATION_DROP`) and reclassifies via `classify_with_bias` instead of
+restoring the pre-flood biome — the same reclassification mechanism
+A11's own `tick_erosion` already established, reused rather than
+duplicated. `recurrence=None` (the default) reproduces the exact
+prior always-fully-restores behavior byte-for-byte.
+
+New `World` state: `mining_scar_sustained_ticks`/`flood_recurrence_
+counts` (small, self-pruning progress dicts, same shape as every
+other scar-tracking dict in this codebase), `tiles_flood_eroded_
+total`/`quarries_formed_total` (monotonic counters, same shape as
+`tiles_eroded_total`/`river_tiles_shifted_total`). New `quarry_
+formed`/`flood_eroded` event categories, wired into `TERRAIN_
+CHANGING_CATEGORIES` (Python + JS) so the map resyncs and the biome-
+count cache invalidates correctly. UI: "Quarries" stat tile (a
+currently-standing count plus an ever-formed total), a distinct map
+color, the flood-erosion count folded into the existing "Erosion"
+stat tile's readout, `quarry_formed`/`flood_eroded` event icons.
+
+Verified: direct unit tests (`maybe_form_quarries`'s full lifecycle —
+sustained-threshold gating, interruption resetting progress to 0 not
+pausing it, developed-tile skip, the actual biome+elevation mutation;
+`tick_flood`'s recurrence-triggered erosion firing after exactly three
+floods of the same tile, confirmed via a real forced-flood scenario);
+a `recurrence=None` backward-compatibility test confirming `tick_
+flood`'s prior always-restores behavior is byte-for-byte unchanged
+when the new param is omitted; a real `World.create_new`/`tick()`
+production-path run (4000 ticks) with a clean round-trip and legacy-
+backfill (both new dicts/counters default cleanly on a snapshot
+missing the new keys); `scripts/verify_native_soak.py` (2 seeds x 800
+ticks) byte-identical — pure Python, no native module touched; a live
+dev server + Playwright pass confirming the "Quarries" stat tile
+renders and the map loads cleanly with no new console errors. Closes
+Tier 1.5 "The Living Map" entirely — M2/M8 was its last open item.
+
 ## [1.34.50] — Tier 1.5: dry lakebeds + docs-accuracy pass
 
 Explicit user instruction: "Start tier 1.5 and finish as many tasks

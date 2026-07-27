@@ -43,6 +43,15 @@ class Biome(str, Enum):
     into `tuple(Biome)`, so a new member must only ever append, never
     insert, or every already-persisted native-backed snapshot's biome
     indices would silently shift."""
+    QUARRY = "quarry"
+    """M2/M8 "The Living Map" (world/terrain_evolution.py's `maybe_form_
+    quarries`): a HILLS tile mined continuously long enough converts
+    here permanently — the one deliberate, explicit reversal of mining
+    scars' original "cosmetic-only, stays HILLS" design (shipped only
+    on an explicit later user direction to do so). Same "not elevation-
+    classified, absent from BIOME_ORDER, appended last" shape as RIVER/
+    WETLAND above — climate drift and erosion's own reclassification
+    both skip it, so it never spontaneously reverts to HILLS."""
 
 
 @dataclass(frozen=True)

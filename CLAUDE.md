@@ -545,6 +545,49 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.51)
+
+Explicit user instruction: "Complete M2/M8" — the one Tier 1.5 item
+v1.34.50 left flagged, not attempted, because its two remaining named
+examples ("flooding reshapes the land," "quarry scars as actual
+terrain change") would reverse a real, twice-documented prior design
+decision (mining/disaster scars deliberately cosmetic-only, never a
+biome change). This instruction is the explicit product call that
+decision was waiting on — ships both.
+
+New `Biome.QUARRY` (appended last, native-storage-safe): `terrain_
+evolution.maybe_form_quarries` converts a HILLS tile mined
+CONTINUOUSLY, with no interruption, long enough to both reach and hold
+`MINING_SCAR_QUARRY_THRESHOLD` (0.95) for `MINING_SCAR_QUARRY_TICKS`
+(400) — a real, permanent conversion with an elevation drop, scoped
+tight to sustained extreme extraction so ordinary mining stays exactly
+as cosmetic as before. Sticky against both climate drift and erosion's
+own elevation-driven reclassification, so it never silently reverts.
+
+`disasters.tick_flood` gained an optional `recurrence` counter: a tile
+that has flooded the SAME way `FLOOD_RECURRENCE_EROSION_THRESHOLD` (3)
+separate times gets a real, permanent elevation erosion on its next
+recede instead of always fully restoring the pre-flood biome — reuses
+A11's own `classify_with_bias` reclassification rather than a parallel
+mechanism. `recurrence=None` (default) reproduces prior behavior
+byte-for-byte.
+
+New `World.mining_scar_sustained_ticks`/`flood_recurrence_counts`
+(small, self-pruning progress dicts) + `tiles_flood_eroded_total`/
+`quarries_formed_total` counters, `quarry_formed`/`flood_eroded` event
+categories wired into `TERRAIN_CHANGING_CATEGORIES` both sides. UI:
+"Quarries" stat tile, distinct map color, flood-erosion folded into
+the existing "Erosion" tile, new event icons.
+
+Verified: direct unit tests (full `maybe_form_quarries` lifecycle incl.
+interruption-resets-not-pauses and developed-tile skip; `tick_flood`'s
+recurrence-triggered erosion via a real forced-flood scenario), a
+`recurrence=None` backward-compatibility test, a real 4000-tick
+`World.tick()` production-path run with clean round-trip + legacy
+backfill, `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical, and a live dev server + Playwright pass. Closes Tier
+1.5 "The Living Map" entirely.
+
 ## Current state (v1.34.50)
 
 Explicit user instruction: "Start tier 1.5 and finish as many tasks as

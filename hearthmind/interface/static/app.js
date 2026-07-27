@@ -87,6 +87,7 @@ const BIOME_COLORS = {
   snowcap: "#e8ecf2",
   river: "#3a7fbf",
   wetland: "#4d6e4a",
+  quarry: "#4a4238",
 };
 
 const BUILDING_COLORS = {
@@ -208,6 +209,8 @@ const CATEGORY_META = {
   road_scarred: { icon: "🛤️" },
   wetland_formed: { icon: "🪷" },
   wetland_dried: { icon: "🪷" },
+  quarry_formed: { icon: "⛏️" },
+  flood_eroded: { icon: "🌊" },
   composite_reaction: { icon: "💥" },
   // P2.3 (docs/AUDIT-2026-07-20.md): 296/16k events (18%) in a live run —
   // routine background texture already surfaced via the Exploration stat
@@ -238,6 +241,7 @@ const EVENT_GROUP_OF = {
   lake_rose: "nature", lake_receded: "nature", season_end: "nature", year_end: "nature",
   place_named: "nature", mining_scarred: "nature", disaster_scarred: "nature", terrain_eroded: "nature",
   river_recarved: "nature", road_scarred: "nature", wetland_formed: "nature", wetland_dried: "nature",
+  quarry_formed: "nature", flood_eroded: "nature",
   chronicle: "mind", documentary: "mind", sim_summary: "mind", tradition: "mind", invention: "mind",
   festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind",
   institution_belief: "mind", ritual_formed: "mind", religion_formed: "mind",
@@ -255,7 +259,7 @@ const TERRAIN_CHANGING_CATEGORIES = new Set([
   "terrain_thinned", "terrain_reclaimed", "climate_drift",
   "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
   "mining_scarred", "disaster_scarred", "building_reclaimed", "terrain_eroded",
-  "river_recarved", "road_scarred",
+  "river_recarved", "road_scarred", "quarry_formed", "flood_eroded",
 ]);
 function categoryMeta(category) {
   return CATEGORY_META[category] || (category.endsWith("_migration") ? { icon: "🔧" } : { icon: "•" });
@@ -3816,6 +3820,14 @@ function renderStats(summary) {
       "Low ground that stays near-saturated — both surface moisture and groundwater — for months at a stretch genuinely turns to wetland, a real biome (unfarmable, unwalkable, see the map) rather than just a wetter reading. Dries back to open ground if the water table drops.",
     ],
     [
+      "Quarries",
+      (() => {
+        const q = summary.quarries || {};
+        return q.standing ? `${q.standing} tile${q.standing === 1 ? "" : "s"} (${q.formed_total} ever formed)` : "none yet";
+      })(),
+      "Hills mined continuously, without interruption, for a very long stretch stop being cosmetic scarring and genuinely become a quarry — a real, permanent biome change (still walkable and workable, but no longer ordinary hills, and it never reverts on its own).",
+    ],
+    [
       "Soil moisture",
       (() => {
         const h = summary.hydrology || {};
@@ -3833,9 +3845,10 @@ function renderStats(summary) {
         const parts = [];
         parts.push(h.tiles_eroded_recorded ? `${h.tiles_eroded_recorded} tiles reshaped` : "no reshaping yet");
         if (h.river_tiles_shifted_recorded) parts.push(`${h.river_tiles_shifted_recorded} riverbed tiles shifted`);
+        if (h.tiles_flood_eroded_recorded) parts.push(`${h.tiles_flood_eroded_recorded} tiles worn down by repeated flooding`);
         return parts.join(", ");
       })(),
-      "Genuinely wet, flow-carrying land slowly moves a small fraction of its elevation downhill each week — mass-conserving, capped, and gradual, the same \"history becomes physically visible over the long run\" pace as the map's other scar-shaped marks. Occasionally a tile erodes far enough to cross into a different kind of land entirely. Monthly, a river re-walks its own course against the CURRENT (eroded) elevation from its original source — its bed can genuinely migrate over the long run, leaving dry former riverbed behind where it moves away.",
+      "Genuinely wet, flow-carrying land slowly moves a small fraction of its elevation downhill each week — mass-conserving, capped, and gradual, the same \"history becomes physically visible over the long run\" pace as the map's other scar-shaped marks. Occasionally a tile erodes far enough to cross into a different kind of land entirely. Monthly, a river re-walks its own course against the CURRENT (eroded) elevation from its original source — its bed can genuinely migrate over the long run, leaving dry former riverbed behind where it moves away. A tile flooded the same way three separate times stops fully healing on recede and instead permanently erodes a little further.",
     ],
     [
       "Wildlife",

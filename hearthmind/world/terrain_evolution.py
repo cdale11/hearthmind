@@ -117,10 +117,12 @@ MINING_SCAR_GAIN_PER_TICK = 0.006
 """Scar intensity (0..1) added to a HILLS tile per tick a GATHER-goal
 agent works an ORE/mineral node there — v0.87.27, docs/IDEAS-2026-07-
 EMERGENCE.md §8 ("mining should visibly pit/scar hills over time, not
-just deplete an invisible ResourceNode.amount"). Deliberately visual/
-cosmetic state, not a biome change: unlike deforestation, mining a
-hill doesn't turn it into a different terrain type in this project's
-model — it stays HILLS, walkable and re-minable, just visibly worked.
+just deplete an invisible ResourceNode.amount"). Originally deliberately
+visual/cosmetic-only, never a biome change (stayed HILLS forever,
+however heavily worked) — reversed for the sustained-continuous-extreme
+case only by `maybe_form_quarries` below (M2/M8, docs/ROADMAP-2026-07-
+REMAINING.md, shipped on explicit later user direction). Below that
+much higher bar, ordinary mining stays exactly as cosmetic as before.
 ~165 ticks of continuous single-agent mining to reach full (1.0) scar."""
 
 MINING_SCAR_DECAY_PER_WEEK = 0.05
@@ -173,6 +175,84 @@ def decay_mining_scars(scars: dict[tuple[int, int], float]) -> None:
         )
         if scars[pos] <= 0.0:
             del scars[pos]
+
+
+MINING_SCAR_QUARRY_THRESHOLD = 0.95
+"""M2/M8 "quarry scars as actual terrain change" (docs/ROADMAP-2026-07-
+REMAINING.md, docs/VISION-2026-07-24-LIVINGMAP.md) — how close to
+fully-scarred (1.0) a HILLS tile must stay while continuously worked
+before quarry formation even starts counting (see MINING_SCAR_QUARRY_
+TICKS below). Deliberately near the cap: this is the one explicit
+reversal of MINING_SCAR_GAIN_PER_TICK's original cosmetic-only design,
+scoped tightly to genuinely sustained extreme extraction so ordinary
+mining stays exactly as before."""
+
+MINING_SCAR_QUARRY_TICKS = 400
+"""Consecutive ticks a tile must stay actively mined at/above MINING_
+SCAR_QUARRY_THRESHOLD before it converts to `Biome.QUARRY` — on top of
+the ~165 ticks MINING_SCAR_GAIN_PER_TICK already takes to reach full
+scar, so genuine quarry formation is a real, months-long, uninterrupted
+communal effort, not incidental. Resets to 0 (not paused) the instant
+mining stops on that tile, or the scar dips back below the threshold —
+same "sustained, not paused" discipline `hydrology.tick_wetlands`
+already established for its own streak-based conversion."""
+
+MINING_SCAR_QUARRY_ELEVATION_DROP = 0.05
+"""Permanent elevation lost the moment a tile converts to `Biome.
+QUARRY` — real quarrying digs a pit into the hillside. Larger than a
+single erosion step (see `disasters.FLOOD_EROSION_ELEVATION_DROP`)
+since this is one deliberate excavation event, not gradual weathering."""
+
+
+def maybe_form_quarries(
+    active_mining_tiles: set[tuple[int, int]],
+    scars: dict[tuple[int, int], float],
+    sustained_ticks: dict[tuple[int, int], int],
+    terrain: list[list[Tile]],
+    settlements,
+    farms,
+) -> list[tuple[str, str]]:
+    """Called every tick immediately after `apply_mining_scars`. A HILLS
+    tile mined CONTINUOUSLY (no interruption) long enough to both reach
+    and then hold MINING_SCAR_QUARRY_THRESHOLD for MINING_SCAR_QUARRY_
+    TICKS converts to a real `Biome.QUARRY` with a permanent elevation
+    drop — see MINING_SCAR_GAIN_PER_TICK's docstring for why this is a
+    deliberate, scoped reversal of the prior cosmetic-only design, not
+    an oversight. Skips a developed tile exactly like every other
+    terrain mutator in this module (`_is_developed`). Mutates `scars`/
+    `sustained_ticks`/`terrain` in place; once a tile converts it's
+    dropped from both `scars` and `sustained_ticks` — the biome itself
+    is now the permanent mark, no cosmetic scar needed underneath it."""
+    events: list[tuple[str, str]] = []
+    height = len(terrain)
+    width = len(terrain[0]) if height else 0
+    for pos in list(sustained_ticks.keys()):
+        if pos not in active_mining_tiles:
+            del sustained_ticks[pos]
+    for pos in active_mining_tiles:
+        if scars.get(pos, 0.0) < MINING_SCAR_QUARRY_THRESHOLD:
+            sustained_ticks.pop(pos, None)
+            continue
+        sustained_ticks[pos] = sustained_ticks.get(pos, 0) + 1
+        if sustained_ticks[pos] < MINING_SCAR_QUARRY_TICKS:
+            continue
+        x, y = pos
+        if not (0 <= x < width and 0 <= y < height):
+            sustained_ticks.pop(pos, None)
+            continue
+        tile = terrain[y][x]
+        if tile.biome is not Biome.HILLS or _is_developed(x, y, settlements, farms, set()):
+            sustained_ticks.pop(pos, None)
+            continue
+        new_elevation = max(0.0, tile.elevation - MINING_SCAR_QUARRY_ELEVATION_DROP)
+        terrain[y][x] = Tile(x=x, y=y, elevation=new_elevation, biome=Biome.QUARRY)
+        scars.pop(pos, None)
+        sustained_ticks.pop(pos, None)
+        events.append((
+            "quarry_formed",
+            f"Sustained excavation has carved a true quarry into the hillside at ({x}, {y}).",
+        ))
+    return events
 
 
 DISASTER_SCAR_GAIN_PER_HIT = 0.2
@@ -606,11 +686,12 @@ def _is_developed(x: int, y: int, settlements, farms, excluded: set[tuple[int, i
 
 
 def _skip_climate_drift(tile: Tile) -> bool:
-    """Biome.RIVER and Biome.WETLAND are both carved/formed post-
-    generation, not elevation-classified, so neither has an entry in
-    BIOME_ORDER — climate drift must never sample either
-    (BIOME_ORDER.index() would raise). See world/hydrology.py."""
-    return tile.biome in (Biome.RIVER, Biome.WETLAND)
+    """Biome.RIVER, Biome.WETLAND, and Biome.QUARRY are all carved/
+    formed/excavated post-generation, not elevation-classified, so none
+    has an entry in BIOME_ORDER — climate drift must never sample any of
+    them (BIOME_ORDER.index() would raise). See world/hydrology.py and
+    `maybe_form_quarries` above."""
+    return tile.biome in (Biome.RIVER, Biome.WETLAND, Biome.QUARRY)
 
 
 def apply_local_activity(

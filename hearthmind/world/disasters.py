@@ -39,7 +39,8 @@ from dataclasses import dataclass, field
 
 from hearthmind.economy.farms import FarmGrid, FarmStage
 from hearthmind.settlement.buildings import BuildingStage, Settlement
-from hearthmind.world.terrain import Biome, Tile
+from hearthmind.world.terrain import Biome, Tile, classify_with_bias
+from hearthmind.world.terrain_evolution import _is_developed
 from hearthmind.world.weather import WeatherState
 
 try:
@@ -104,6 +105,27 @@ FLOOD_PRESSURE_THRESHOLD, each tick rolls a small chance to submerge
 low ground bordering an existing river/lake tile for FLOOD_DURATION_TICKS,
 knocking FLOOD_DAMAGE off any building/vehicle caught in it and
 destroying any farm plot there — real damage, not narration."""
+
+FLOOD_RECURRENCE_EROSION_THRESHOLD = 3
+"""M2/M8 "flooding reshapes the land" (docs/ROADMAP-2026-07-REMAINING.
+md, docs/VISION-2026-07-24-LIVINGMAP.md). A tile already gets a
+temporary submerge/restore cycle every single flood (see the Biome.
+SHALLOW_WATER conversion below) — but that always fully reverts, never
+leaving a lasting mark. Once the SAME tile has flooded this many
+separate times, its next recede applies a real, PERMANENT elevation
+drop (FLOOD_EROSION_ELEVATION_DROP) instead of fully restoring the
+pre-flood biome — repeated scouring genuinely wears the land down."""
+
+FLOOD_EROSION_ELEVATION_DROP = 0.02
+"""Permanent elevation lost on a recurrence-triggered erosion event —
+small enough that one or two such events just leave a tile lower-lying
+within its existing biome band (and more flood-prone next time), while
+enough repeated erosion can genuinely push it down into BEACH or
+SHALLOW_WATER permanently via the existing `classify_with_bias` bands
+— same permanence discipline as A11's own `hydrology_field.tick_
+erosion`. Deliberately smaller than `terrain_evolution.MINING_SCAR_
+QUARRY_ELEVATION_DROP` — this fires far more often (every third flood
+recurrence vs. one rare sustained-mining event)."""
 
 WILDFIRE_CHANCE_PER_WEEK = 0.015
 WILDFIRE_TEMPERAMENT_INFLUENCE = 0.5
@@ -309,11 +331,18 @@ def _damage_at(settlements: list[Settlement], farms: FarmGrid, x: int, y: int, a
 def tick_flood(
     state: DisasterState, terrain: list[list[Tile]], weather: WeatherState,
     settlements: list[Settlement], farms: FarmGrid, water_tiles: set[tuple[int, int]], rng: random.Random,
+    recurrence: dict[tuple[int, int], int] | None = None,
 ) -> list[tuple[str, str]]:
     """Called every tick. Builds/decays flood pressure from sustained
     rain, occasionally triggers a new flood along a random water-adjacent
     low tile, and recedes any already-flooded tile whose duration expired
-    (restoring its original biome)."""
+    (restoring its original biome). `recurrence` (M2/M8, optional,
+    keyword-only in effect) counts how many separate times each tile has
+    flooded — once a tile crosses FLOOD_RECURRENCE_EROSION_THRESHOLD, its
+    next recede permanently erodes it instead of fully restoring the
+    pre-flood biome, see FLOOD_RECURRENCE_EROSION_THRESHOLD's docstring.
+    `None` (the default) reproduces the exact prior always-fully-restores
+    behavior."""
     events: list[tuple[str, str]] = []
     height = len(terrain)
     width = len(terrain[0]) if height else 0
@@ -353,6 +382,8 @@ def tick_flood(
             _damage_at(settlements, farms, x, y, FLOOD_DAMAGE)
             events.append(("disaster_flood", _pick_template(rng, _FLOOD_ONSET_TEMPLATES).format(x=x, y=y)))
             state.flood_pressure *= 0.5  # one flood relieves some of the built-up pressure
+            if recurrence is not None:
+                recurrence[(x, y)] = recurrence.get((x, y), 0) + 1
 
     for pos in list(state.flooded_tiles.keys()):
         original, ticks_left = state.flooded_tiles[pos]
@@ -360,9 +391,25 @@ def tick_flood(
         if ticks_left <= 0:
             x, y = pos
             elevation = terrain[y][x].elevation
-            terrain[y][x] = Tile(x=x, y=y, elevation=elevation, biome=Biome(original))
+            if (
+                recurrence is not None
+                and recurrence.get(pos, 0) >= FLOOD_RECURRENCE_EROSION_THRESHOLD
+                and not _is_developed(x, y, settlements, farms, set())
+            ):
+                # M2/M8 "flooding reshapes the land": a permanent mark
+                # instead of the usual full restore, see FLOOD_
+                # RECURRENCE_EROSION_THRESHOLD's docstring.
+                new_elevation = max(0.0, elevation - FLOOD_EROSION_ELEVATION_DROP)
+                terrain[y][x] = Tile(x=x, y=y, elevation=new_elevation, biome=classify_with_bias(new_elevation))
+                recurrence[pos] = 0
+                events.append((
+                    "flood_eroded",
+                    f"Repeated flooding has permanently worn down the ground at ({x}, {y}).",
+                ))
+            else:
+                terrain[y][x] = Tile(x=x, y=y, elevation=elevation, biome=Biome(original))
+                events.append(("disaster_flood", f"The floodwater at ({x}, {y}) receded."))
             del state.flooded_tiles[pos]
-            events.append(("disaster_flood", f"The floodwater at ({x}, {y}) receded."))
         else:
             state.flooded_tiles[pos] = (original, ticks_left)
     return events

@@ -25,6 +25,7 @@ from hearthmind.world.terrain_evolution import (
     apply_local_activity,
     apply_disaster_scars,
     apply_mining_scars,
+    maybe_form_quarries,
     decay_disaster_scars,
     decay_mining_scars,
     decay_ritual_activity,
@@ -135,7 +136,7 @@ TERRAIN_CHANGING_CATEGORIES = frozenset({
     "terrain_thinned", "terrain_reclaimed", "climate_drift",
     "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
     "mining_scarred", "disaster_scarred", "building_reclaimed", "terrain_eroded", "river_recarved",
-    "road_scarred", "wetland_formed", "wetland_dried",
+    "road_scarred", "wetland_formed", "wetland_dried", "quarry_formed", "flood_eroded",
 })
 """Life-event categories that mean at least one tile's biome changed
 this tick. Canonical home for this set (it used to live only in
@@ -297,6 +298,22 @@ class World:
     vacated shoreline tiles as the water genuinely recedes and returns
     over the lake's own real level fluctuations, never "a whole dried
     lake.\""""
+
+    mining_scar_sustained_ticks: dict[tuple[int, int], int] = field(default_factory=dict)
+    """M2/M8 "The Living Map": consecutive ticks a tile has stayed
+    actively mined at/above `terrain_evolution.MINING_SCAR_QUARRY_
+    THRESHOLD` — feeds `maybe_form_quarries`'s HILLS -> `Biome.QUARRY`
+    conversion, the one deliberate reversal of mining scars' original
+    cosmetic-only design. Small and self-pruning: an entry is dropped
+    the instant mining stops on that tile or it converts."""
+    flood_recurrence_counts: dict[tuple[int, int], int] = field(default_factory=dict)
+    """M2/M8 "The Living Map": how many separate times a tile has
+    flooded — feeds `disasters.tick_flood`'s recurrence-triggered
+    permanent erosion (see `FLOOD_RECURRENCE_EROSION_THRESHOLD`'s
+    docstring), the flood-side counterpart to `mining_scar_sustained_
+    ticks` above. Reset to 0 once a tile actually erodes, not deleted —
+    a tile that keeps reflooding keeps eroding further in the same
+    three-flood cycle."""
 
     wetland_progress: dict[tuple[int, int], int] = field(default_factory=dict)
     """M4 "The Living Map": how many CONSECUTIVE qualifying months a
@@ -643,6 +660,19 @@ class World:
     "the land genuinely became something else" moments. Never pruned
     (a small monotonic counter, same shape as `Settlement.traditions_
     established`), surfaced via `summary()`'s `hydrology` block."""
+    tiles_flood_eroded_total: int = 0
+    """M2/M8 "flooding reshapes the land": cumulative count of tiles
+    permanently eroded by `disasters.tick_flood`'s recurrence-triggered
+    branch — same monotonic-counter shape as `tiles_eroded_total`,
+    surfaced alongside it in `summary()`'s `hydrology` block."""
+    quarries_formed_total: int = 0
+    """M2/M8 "quarry scars as actual terrain change": cumulative count
+    of HILLS tiles that have ever converted to `Biome.QUARRY` via
+    `terrain_evolution.maybe_form_quarries` — a currently-standing
+    quarry count is separately derivable live from `summary()`'s
+    `biome_counts["quarry"]`; this is the "how many times has this ever
+    happened" historical counterpart, same shape as `river_tiles_
+    shifted_total`."""
     governor_tuning: dict[str, float] = field(default_factory=dict)
     """Vision doc items 1.4/2.4: governor name -> effective multiplier,
     bounded to `disasters.GOVERNOR_TUNING_BAND` around 1.0. Missing key
@@ -917,7 +947,9 @@ class World:
         flood_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_flood")
         events = tick_flood(
             self.disasters, self.terrain, self.weather, self.settlements, self.farms, water_tiles, flood_rng,
+            recurrence=self.flood_recurrence_counts,
         )
+        self.tiles_flood_eroded_total += sum(1 for category, _ in events if category == "flood_eroded")
         heat_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_heatwave")
         events += tick_heatwave(self.disasters, self.weather, self.farms, heat_rng)
         fire_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "disaster_wildfire")
@@ -995,6 +1027,12 @@ class World:
         rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "terrain_activity")
         events = apply_local_activity(self.terrain, active_forest_tiles, self.terrain_activity, rng)
         events += apply_mining_scars(active_mining_tiles, self.mining_scars)
+        quarry_events = maybe_form_quarries(
+            active_mining_tiles, self.mining_scars, self.mining_scar_sustained_ticks,
+            self.terrain, self.settlements, self.farms,
+        )
+        self.quarries_formed_total += len(quarry_events)
+        events += quarry_events
         # Phase 3.D: `self.disasters.flooded_tiles`/`active_wildfire_
         # tiles` are already updated for THIS tick by `_tick_disasters`,
         # which runs before `_tick_terrain` in `tick()` — no staleness.
@@ -1186,6 +1224,11 @@ class World:
                 "avg_groundwater": round(self.hydrology_field.average_groundwater(), 3),
                 "tiles_eroded_recorded": self.tiles_eroded_total,
                 "river_tiles_shifted_recorded": self.river_tiles_shifted_total,
+                "tiles_flood_eroded_recorded": self.tiles_flood_eroded_total,
+            },
+            "quarries": {
+                "standing": self.cached_biome_counts().get("quarry", 0),
+                "formed_total": self.quarries_formed_total,
             },
             "nature_beliefs": [
                 {"subject": b["subject"], "belief": b["belief"], "confidence": b["confidence"]}
@@ -1456,6 +1499,12 @@ class World:
             "road_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.road_scars.items()},
             "migration_trails": {f"{x}:{y}": round(v, 4) for (x, y), v in self.migration_trails.items()},
             "dry_lakebed_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.dry_lakebed_scars.items()},
+            "mining_scar_sustained_ticks": {
+                f"{x}:{y}": v for (x, y), v in self.mining_scar_sustained_ticks.items()
+            },
+            "flood_recurrence_counts": {
+                f"{x}:{y}": v for (x, y), v in self.flood_recurrence_counts.items()
+            },
             "wetland_progress": {f"{x}:{y}": v for (x, y), v in self.wetland_progress.items()},
             "llm_calls_total": self.llm_calls_total,
             "llm_fallback_total": self.llm_fallback_total,
@@ -1512,6 +1561,8 @@ class World:
             "wildfire_ignition_ticks": list(self.wildfire_ignition_ticks),
             "tiles_eroded_total": self.tiles_eroded_total,
             "river_tiles_shifted_total": self.river_tiles_shifted_total,
+            "tiles_flood_eroded_total": self.tiles_flood_eroded_total,
+            "quarries_formed_total": self.quarries_formed_total,
             "governor_tuning": dict(self.governor_tuning),
             "self_tuning_actions": list(self.self_tuning_actions),
             "advisory_proposals": list(self.advisory_proposals),
@@ -1731,6 +1782,16 @@ class World:
             x_str, y_str = key.split(":")
             dry_lakebed_scars[(int(x_str), int(y_str))] = value
 
+        mining_scar_sustained_ticks: dict[tuple[int, int], int] = {}
+        for key, value in data.get("mining_scar_sustained_ticks", {}).items():
+            x_str, y_str = key.split(":")
+            mining_scar_sustained_ticks[(int(x_str), int(y_str))] = value
+
+        flood_recurrence_counts: dict[tuple[int, int], int] = {}
+        for key, value in data.get("flood_recurrence_counts", {}).items():
+            x_str, y_str = key.split(":")
+            flood_recurrence_counts[(int(x_str), int(y_str))] = value
+
         wetland_progress: dict[tuple[int, int], int] = {}
         for key, value in data.get("wetland_progress", {}).items():
             x_str, y_str = key.split(":")
@@ -1752,6 +1813,8 @@ class World:
             road_scars=road_scars,
             migration_trails=migration_trails,
             dry_lakebed_scars=dry_lakebed_scars,
+            mining_scar_sustained_ticks=mining_scar_sustained_ticks,
+            flood_recurrence_counts=flood_recurrence_counts,
             wetland_progress=wetland_progress,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),
@@ -1833,6 +1896,8 @@ class World:
             wildfire_ignition_ticks=list(data.get("wildfire_ignition_ticks", [])),
             tiles_eroded_total=data.get("tiles_eroded_total", 0),
             river_tiles_shifted_total=data.get("river_tiles_shifted_total", 0),
+            tiles_flood_eroded_total=data.get("tiles_flood_eroded_total", 0),
+            quarries_formed_total=data.get("quarries_formed_total", 0),
             governor_tuning=dict(data.get("governor_tuning", {})),
             self_tuning_actions=list(data.get("self_tuning_actions", [])),
             advisory_proposals=list(data.get("advisory_proposals", [])),

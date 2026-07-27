@@ -367,10 +367,15 @@ def tick_erosion(
             tile = terrain[y][x]
             new_elevation = max(0.0, min(1.0, tile.elevation + delta))
             new_biome = classify_with_bias(new_elevation)
-            if new_biome in _WATER_BIOMES or tile.biome in _WATER_BIOMES:
+            if new_biome in _WATER_BIOMES or tile.biome in _WATER_BIOMES or tile.biome is Biome.QUARRY:
                 # Erosion never drowns a land tile into a water biome or
                 # dries out water outright — that's hydrology.py's
                 # river/lake carving's job, not this gradual mechanism's.
+                # QUARRY is likewise sticky (M2/M8, world/terrain_
+                # evolution.py's `maybe_form_quarries`) — a real
+                # excavated quarry doesn't silently reclassify back to
+                # HILLS just because gradual erosion nudged its
+                # elevation across a classify_with_bias band.
                 new_biome = tile.biome
             terrain[y][x] = Tile(x=x, y=y, elevation=new_elevation, biome=new_biome)
             if new_biome != tile.biome:

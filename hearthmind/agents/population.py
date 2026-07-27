@@ -466,7 +466,10 @@ from hearthmind.world.wildlife import (
     WildlifeGrid,
 )
 
-WALKABLE_BIOMES = frozenset({Biome.GRASSLAND, Biome.FOREST, Biome.HILLS, Biome.BEACH})
+WALKABLE_BIOMES = frozenset({Biome.GRASSLAND, Biome.FOREST, Biome.HILLS, Biome.BEACH, Biome.QUARRY})
+"""QUARRY (M2/M8, world/terrain_evolution.py's `maybe_form_quarries`)
+stays walkable/re-workable — a real quarry is worked ground, not an
+impassable pit, same as HILLS was before conversion."""
 MOUNTAIN_WALKABLE_BIOMES = WALKABLE_BIOMES | frozenset({Biome.MOUNTAIN})
 WATER_CROSSABLE_BIOMES = frozenset({Biome.SHALLOW_WATER, Biome.DEEP_WATER, Biome.RIVER})
 """Every open-water biome a BOAT-mounted agent can cross (v0.87.42) —

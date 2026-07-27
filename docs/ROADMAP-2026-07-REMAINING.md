@@ -1219,19 +1219,24 @@ what's already real rather than treated as greenfield — a fair amount
 partially exists (the four scar-shaped overlays, the "🗺️ fields"
 toggle, layout/architecture/dialect grammar, ERA-styled cartography,
 forest reclaim). Real gaps, roughly by leverage:
-- **M2/M8** — the item's own named blocker (`Tile.elevation` staying
-  immutable) is resolved: A11 (v1.34.23) made elevation a genuinely
-  live-written value and A3's rivers-re-carving (v1.34.25) already
-  proved a second real consumer of that mutability. **Still open**:
-  the item's other two named examples, "flooding reshapes the land"
-  and "quarry scars as actual terrain change (not a flat color tint)"
-  — both are currently EXPLICITLY documented as cosmetic-only by
-  design (`MINING_SCAR_GAIN_PER_TICK`'s own docstring: "stays HILLS,
-  walkable and re-minable"; `apply_disaster_scars`'s own docstring:
-  "No terrain/biome mutation... cosmetic-only"). Building either would
-  reverse a real, twice-repeated, explicit prior design decision (not
-  an oversight) — flagged for an explicit product call before
-  attempting either, not silently overridden.
+- **M2/M8 — closed, v1.34.51.** The item's own named blocker (`Tile.
+  elevation` staying immutable) was resolved by A11 (v1.34.23)/A3
+  (v1.34.25); this pass shipped the item's other two named examples,
+  on explicit user direction to reverse the prior cosmetic-only design
+  decision rather than leave it flagged. "Quarry scars as actual
+  terrain change": new `Biome.QUARRY` — a HILLS tile mined
+  CONTINUOUSLY, without interruption, long enough (`terrain_evolution.
+  maybe_form_quarries`, `MINING_SCAR_QUARRY_THRESHOLD`/`_TICKS`)
+  permanently converts, with a real elevation drop, and never reverts
+  on its own (sticky against both climate drift and erosion's own
+  reclassification). "Flooding reshapes the land": `disasters.tick_
+  flood` gained an optional `recurrence` counter — a tile that has now
+  flooded the same way `FLOOD_RECURRENCE_EROSION_THRESHOLD` (3)
+  separate times gets a real, permanent elevation erosion on its next
+  recede instead of always fully restoring the pre-flood biome, same
+  `classify_with_bias` reclassification erosion (A11) already uses.
+  UI: "Quarries" stat tile, a distinct map color, `quarry_formed`/
+  `flood_eroded` event categories + icons.
 - **M6/M7** — **legend slice shipped, v1.34.30**: the "🗺️ fields"
   toggle (moisture/soil fertility/population density/disease pressure)
   had no legend at all — a color alone never said whether it was
