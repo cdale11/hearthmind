@@ -4,6 +4,64 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.60] — A17: a second real memetics consumer, personal tradition-keeping
+
+Explicit user decision, via `AskUserQuestion` after the v1.34.59
+re-audit: "Design a new memetics consumer" — invent a genuinely new
+candidate-list-shaped propagation mechanism from scratch (no existing
+site had the right shape) so `world/memetics.py`'s `weighted_spread_
+target` gets a second real production consumer, matching how ontology
+concept adoption already uses it.
+
+New `Agent.kept_traditions` (`agents/agent.py`, plain Python list,
+FIFO-capped at `KEPT_TRADITIONS_CAP=5`, round-tripped): `Settlement.
+traditions` are settlement-wide strings with no notion of who
+personally lives by one — this is that missing per-person layer. New
+`SimulationEngine._maybe_spread_tradition_keeping` (`simulation/
+engine.py`, wired into `_TICK_JOBS` right after `_maybe_spread_
+concepts`): a small per-tick, per-named-settlement roll (`TRADITION_
+KEEPING_SPREAD_CHANCE_PER_TICK=0.02`, same order of magnitude as
+`CONCEPT_SPREAD_CHANCE_PER_TICK`) picks one of that settlement's
+traditions and uses `memetics.weighted_spread_target` to choose its
+next personal keeper from candidates who don't already keep it,
+weighted by real social-graph closeness (fondness/trust) to existing
+keepers — carriers empty (a tradition's very first personal keeper)
+degrades to uniform via memetics' own baseline weight, same as
+ontology's proven mechanism.
+
+Real consequence, not flavor: `world/culture_aggregate.py`'s
+`compute_civilization_culture` gained an optional `agents` param and a
+new `tradition_keeping_rate` field — the fraction of a named
+settlement's living population who personally keep at least one
+tradition, distinct from `total_traditions_established`'s bare paper
+count. It nudges `cultural_cohesion` up by at most `TRADITION_
+ENGAGEMENT_COHESION_WEIGHT=0.15`, never dominating the existing
+settlement-level dominant-category agreement signal. Both call sites
+(`World.summary()`'s broadcast, `SimulationEngine._maybe_schedule_
+consciousness`'s Town Consciousness grounding) now pass `self.world.
+population.agents` through. UI: the main-UI "Civilization" stat tile
+gained a "(N% personally keep a tradition)" suffix; the NPC inspector's
+Personality section gained a conditional "keeps: ..." line.
+
+The other two A17 pieces (a fitness-vs-truth axis for rumors; a shared
+mutate/decay/compete step over lexicon/topics) were out of scope of
+this specific decision and remain exactly as flagged in v1.34.59 —
+docs/ROADMAP-2026-07-REMAINING.md's A17 section records both.
+
+Verified: direct unit tests for `compute_civilization_culture`'s new
+`agents` param (rate computation, cohesion nudge bounded, backward-
+compatible `agents=None`/omitted), a production-path test scheduling
+the real `_maybe_spread_tradition_keeping` job against a settlement
+with a real tradition and multiple agents confirming a keeper is chosen
+and capped correctly, a 4000-tick LLM-disabled engine soak with a clean
+`to_dict()`/`from_dict()` round-trip (including a legacy-snapshot
+backfill check for agents with no `kept_traditions` key), `scripts/
+verify_native_soak.py` (2 seeds x 800 ticks) byte-identical — pure
+Python, no native module touched (`Agent.kept_traditions` is a plain
+compatibility-shim attribute, not store-backed, same as `hardened_
+traits`) — and a live dev server + Playwright pass confirming the
+Civilization tile suffix and NPC inspector line both render correctly.
+
 ## [1.34.59] — A17 re-audit: three blockers filed, no code shipped
 
 Explicit user instruction: "Continue A17." Docs-only — investigation

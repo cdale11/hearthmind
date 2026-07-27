@@ -708,6 +708,21 @@ CONCEPT_SPREAD_CHANCE_PER_TICK = 0.02
 will see roughly one new adopter every ~50 ticks a candidate is
 available) so adoption reads as gradual uptake, not an instant flip."""
 
+TRADITION_KEEPING_SPREAD_CHANCE_PER_TICK = 0.02
+"""A17 follow-up (docs/ROADMAP-2026-07-REMAINING.md, "Information
+ecosystem unification"): per-tick, per-named-settlement roll driving
+`_maybe_spread_tradition_keeping` — same order of magnitude and same
+"gradual uptake, not an instant flip" reasoning as `CONCEPT_SPREAD_
+CHANCE_PER_TICK` above, deliberately unchanged from it rather than
+independently tuned (no live signal yet to justify a different rate)."""
+
+KEPT_TRADITIONS_CAP = 5
+"""Cap on `Agent.kept_traditions` — a person can meaningfully hold onto
+a handful of traditions as their own, not the whole settlement list;
+oldest-kept is evicted FIFO past this, same small-personal-cap shape as
+`MAX_CORE_MEMORIES`/`Agent.secrets`, not `ontology.MAX_ADOPTERS_
+STORED`'s much larger settlement-wide-registry scale."""
+
 PROMPT_RECENT_EVENTS = 40
 """How many recent events reach a settlement-level LLM prompt
 (chronicle, tradition, invention, town-brain, etc.). Lowered 50 -> 30 in
@@ -2220,6 +2235,7 @@ class SimulationEngine:
         ("_maybe_schedule_nature_mind", _JOB_EVENTS),
         ("_maybe_schedule_species_variant", _JOB_EVENTS),
         ("_maybe_spread_concepts", _JOB_NO_ARGS),
+        ("_maybe_spread_tradition_keeping", _JOB_NO_ARGS),
         ("_apply_trigger_rules_from_life_events", _JOB_NO_ARGS),
         ("_maybe_tick_trigger_state_edges", _JOB_NO_ARGS),
         ("_maybe_tick_composite_reactions", _JOB_NO_ARGS),
@@ -5092,6 +5108,44 @@ class SimulationEngine:
                     data={"concept_id": concept.id, "category": concept.category},
                 )
 
+    def _maybe_spread_tradition_keeping(self) -> None:
+        """A17 follow-up (docs/ROADMAP-2026-07-REMAINING.md, "Information
+        ecosystem unification") — `world/memetics.py`'s SECOND real
+        production consumer, following the same "candidates weighted by
+        social-graph closeness to existing carriers" shape `_maybe_
+        spread_concepts` established, over a genuinely new content type:
+        a `Settlement.traditions` entry existing is not the same thing as
+        anyone actually LIVING by it — `Agent.kept_traditions` is that
+        missing personal layer. Zero LLM cost, deliberately rare (see
+        `TRADITION_KEEPING_SPREAD_CHANCE_PER_TICK`)."""
+        named_with_traditions = [s for s in self.world.settlements if s.name and s.traditions]
+        if not named_with_traditions:
+            return
+        rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "tradition_keeping_spread")
+        for settlement in named_with_traditions:
+            if rng.random() >= TRADITION_KEEPING_SPREAD_CHANCE_PER_TICK:
+                continue
+            tradition = rng.choice(settlement.traditions)
+            candidates = [
+                a for a in self.world.population.agents
+                if a.settlement_id == settlement.id and tradition not in a.kept_traditions
+            ]
+            if not candidates:
+                continue
+            # Carriers already keeping this SPECIFIC tradition — a
+            # candidate close to an existing keeper is more likely to
+            # take it up next. Empty carriers (this tradition's very
+            # first personal keeper) degrades to uniform via memetics'
+            # own baseline weight.
+            carriers = [
+                a for a in self.world.population.agents
+                if a.settlement_id == settlement.id and tradition in a.kept_traditions
+            ]
+            chosen = memetics.weighted_spread_target(candidates, carriers, rng)
+            chosen.kept_traditions.append(tradition)
+            if len(chosen.kept_traditions) > KEPT_TRADITIONS_CAP:
+                del chosen.kept_traditions[0]
+
     # --- vision doc item 1.2: trigger→effect rules as data ---------------------
 
     def _apply_trigger_rules_for(self, trigger: str, settlement) -> None:
@@ -6275,7 +6329,9 @@ class SimulationEngine:
             else "intrusive, arriving without any real cause" if ledger < -0.3
             else "hard to read either way"
         )
-        civilization_aggregate = culture_aggregate.compute_civilization_culture(self.world.settlements)
+        civilization_aggregate = culture_aggregate.compute_civilization_culture(
+            self.world.settlements, agents=self.world.population.agents,
+        )
         prompt = consciousness.build_prompt(
             target.name, self.world.consciousness_personality, self.world.consciousness_memory,
             self.world.consciousness_objectives, self.world.consciousness_player_model,

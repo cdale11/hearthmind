@@ -12,11 +12,31 @@ already exists (`Settlement.culture_effects`, `.religion`, `.legends`,
 `.traditions_established`) — this is a pure aggregation function over
 already-real state, the same "compute, don't simulate" shape
 `step_population_density` established for tiles.
+
+A17 follow-up (docs/ROADMAP-2026-07-REMAINING.md, "Information
+ecosystem unification"): the optional `agents` param folds in
+`Agent.kept_traditions` (`SimulationEngine._maybe_spread_tradition_
+keeping`, `world/memetics.py`'s second real production consumer) —
+how many people actually personally keep a tradition, distinct from
+`total_traditions_established`'s bare count of how many exist on
+paper. A settlement can have traditions nobody really lives by; this
+is the reading that tells the two apart.
 """
 from __future__ import annotations
 
+TRADITION_ENGAGEMENT_COHESION_WEIGHT = 0.15
+"""How much personal tradition-keeping can raise `cultural_cohesion`
+above what the settlement-level dominant-influence agreement alone
+gives it — real but deliberately modest: a civilization where everyone
+personally lives by their local traditions reads as somewhat MORE
+unified than the bare settlement-level category-agreement number
+alone would say, but this should never be the dominant signal (a
+single, tiny founding party where everyone happens to keep the same
+one tradition shouldn't read as a fully cohesive civilization on its
+own)."""
 
-def compute_civilization_culture(settlements: list) -> dict:
+
+def compute_civilization_culture(settlements: list, agents: list | None = None) -> dict:
     """One world-scale reading of the collective culture every named
     settlement has independently accumulated. Unnamed settlements (no
     standing building yet, no culture to speak of) are excluded, same
@@ -33,12 +53,21 @@ def compute_civilization_culture(settlements: list) -> dict:
     `religions_formed`/`total_legends`/`total_traditions_established`:
     straightforward world-wide sums/counts over already-real per-
     settlement state — the "coherent world-scale story from local
-    rules" the spec's own Feeds line asks for."""
+    rules" the spec's own Feeds line asks for.
+    `tradition_keeping_rate`: 0..1, the fraction of living agents in a
+    named settlement who personally keep at least one tradition
+    (`Agent.kept_traditions`, only computed when `agents` is passed) —
+    0.0 (not "no data") when `agents` is omitted, same "absence reads
+    as neutral" discipline every other optional axis in this codebase
+    holds. Nudges `cultural_cohesion` up by at most `TRADITION_
+    ENGAGEMENT_COHESION_WEIGHT`, never replacing the settlement-level
+    agreement signal."""
     named = [s for s in settlements if s.name]
     if not named:
         return {
             "settlements_considered": 0, "dominant_influence": "", "cultural_cohesion": 0.0,
             "religions_formed": 0, "total_legends": 0, "total_traditions_established": 0,
+            "tradition_keeping_rate": 0.0,
         }
 
     world_influence_totals: dict[str, int] = {}
@@ -57,6 +86,18 @@ def compute_civilization_culture(settlements: list) -> dict:
         sharing = sum(1 for v in settlement_dominant.values() if v == dominant_influence)
         cultural_cohesion = round(sharing / len(named), 3)
 
+    named_ids = {s.id for s in named}
+    tradition_keeping_rate = 0.0
+    if agents:
+        counted = [a for a in agents if a.settlement_id in named_ids]
+        if counted:
+            keepers = sum(1 for a in counted if a.kept_traditions)
+            tradition_keeping_rate = round(keepers / len(counted), 3)
+    if tradition_keeping_rate > 0.0:
+        cultural_cohesion = min(
+            1.0, round(cultural_cohesion + TRADITION_ENGAGEMENT_COHESION_WEIGHT * tradition_keeping_rate, 3),
+        )
+
     return {
         "settlements_considered": len(named),
         "dominant_influence": dominant_influence,
@@ -64,6 +105,7 @@ def compute_civilization_culture(settlements: list) -> dict:
         "religions_formed": sum(1 for s in named if s.religion is not None),
         "total_legends": sum(len(s.legends) for s in named),
         "total_traditions_established": sum(s.traditions_established for s in named),
+        "tradition_keeping_rate": tradition_keeping_rate,
     }
 
 

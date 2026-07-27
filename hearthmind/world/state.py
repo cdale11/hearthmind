@@ -148,14 +148,16 @@ drift apart. Part of the July 2026 review's stringly-typed-events
 cleanup."""
 
 
-def _civilization_culture_summary(settlements: list) -> dict:
+def _civilization_culture_summary(settlements: list, agents: list | None = None) -> dict:
     """A20 "Multi-scale simulation" (docs/MASTERCHECKLIST-2026-07-22.md
     #20): `World.summary()`'s broadcast-facing wrapper over `world.
     culture_aggregate`'s pure aggregation, folding in a plain-language
     `"text"` field so the frontend can render a sentence directly
     rather than re-deriving one from the raw category/cohesion numbers
-    client-side."""
-    aggregate = culture_aggregate.compute_civilization_culture(settlements)
+    client-side. `agents` (A17 follow-up) feeds `tradition_keeping_
+    rate` — optional, defaults to the pre-existing settlement-only
+    reading when omitted."""
+    aggregate = culture_aggregate.compute_civilization_culture(settlements, agents=agents)
     return {**aggregate, "text": culture_aggregate.civilization_culture_text(aggregate)}
 
 
@@ -1207,7 +1209,7 @@ class World:
             },
             "world_size": f"{self.config.width}x{self.config.height}",
             "population": self.population.summary(),
-            "civilization_culture": _civilization_culture_summary(self.settlements),
+            "civilization_culture": _civilization_culture_summary(self.settlements, self.population.agents),
             "resources": self.resources.summary(),
             "minerals": self.minerals.summary(),
             "mining_scars": {

@@ -545,6 +545,32 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.60)
+
+Explicit user decision via `AskUserQuestion` (following v1.34.59's
+audit): "Design a new memetics consumer" — `world/memetics.py`'s
+`weighted_spread_target` gets a second real production consumer, a
+genuinely new content type designed from scratch (no existing site had
+the right candidate-list shape).
+
+New `Agent.kept_traditions` (plain, FIFO-capped list, `KEPT_
+TRADITIONS_CAP=5`): the missing personal-adoption layer over
+`Settlement.traditions` — a tradition existing settlement-wide isn't
+the same as anyone actually living by it. New `SimulationEngine.
+_maybe_spread_tradition_keeping` (zero-LLM-cost, small per-tick roll,
+wired into `_TICK_JOBS` right after `_maybe_spread_concepts`) picks a
+settlement's tradition and spreads personal keeping of it via `memetics.
+weighted_spread_target`, same "candidates weighted by social closeness
+to existing carriers" shape ontology concept adoption already proved.
+Real consequence: `world/culture_aggregate.py`'s civilization reading
+gained a `tradition_keeping_rate` field (agents personally keeping a
+tradition, not just its paper existence), nudging `cultural_cohesion`
+up by a small bounded amount — reaches the Town Consciousness prompt
+and a "Civilization" stat-tile suffix; NPC inspector gained a
+conditional "keeps: ..." line. The other two A17 pieces (rumor
+fitness-vs-truth, a shared decay/compete step) were out of scope of
+this decision and remain flagged exactly as in v1.34.59.
+
 ## Current state (v1.34.59)
 
 Explicit user instruction: "Continue A17" — docs-only, no code

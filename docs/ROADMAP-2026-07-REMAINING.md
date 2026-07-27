@@ -1938,46 +1938,52 @@ name).
 
 ### A17 — Information ecosystem
 Rumor/tradition/belief/song/technique each stay on their own
-independent, mature, deliberately-untouched mechanisms — only ontology-
-concept spread uses the new `memetics.py` propagation weighting.
+independent, mature, deliberately-untouched mechanisms — this is
+deliberate, not a gap; see the three still-flagged blockers below.
 
-**Re-audited, explicit user instruction "Continue A17" (no code
-shipped this pass — see below).** Each of the item's three remaining
-named pieces carries a real, flagged blocker rather than being simply
-unattempted:
+**Second `weighted_spread_target` consumer shipped, v1.34.60** (explicit
+user decision via `AskUserQuestion`, "Design a new memetics consumer" —
+the prior pass's audit found no EXISTING site of the right shape, so
+one was designed from scratch rather than found). New `Agent.kept_
+traditions`: `Settlement.traditions` are strings on the settlement with
+no notion of who actually lives by one — this is that missing personal
+layer. `SimulationEngine._maybe_spread_tradition_keeping` (new,
+zero-LLM-cost, `TRADITION_KEEPING_SPREAD_CHANCE_PER_TICK`-gated, same
+order of magnitude as `_maybe_spread_concepts`) picks a random
+tradition from a settlement that has one, then uses `memetics.
+weighted_spread_target` to choose the next personal keeper from
+candidates who don't already keep it, weighted by real social closeness
+to existing keepers — the SAME shape ontology concept adoption already
+proved, over a genuinely new content type. Capped small per agent
+(`KEPT_TRADITIONS_CAP=5`, FIFO).
 
-- *A second `weighted_spread_target` consumer.* Every `rng.choice`/
-  `rng.sample` site across `population.py`/`engine.py` was checked
-  again — none match the shape memetics needs (pick ONE next carrier
-  from a candidate list, weighted by social closeness to EXISTING
-  carriers). `spread_rumor` was already ruled out in an earlier pass;
-  skill-teaching, gossip contagion, and lesson inheritance are all
-  colocation-pair-driven, not candidate-list selection. No second site
-  of this shape currently exists — one would need to be designed from
-  scratch, not just found.
+Real consequence, not just flavor: `world/culture_aggregate.py`'s
+`compute_civilization_culture` (A20) gained an optional `agents` param
+and a `tradition_keeping_rate` field — the fraction of a named
+settlement's living population who personally keep at least one
+tradition, distinct from `total_traditions_established`'s bare count of
+how many exist on paper. It nudges `cultural_cohesion` up by at most
+`TRADITION_ENGAGEMENT_COHESION_WEIGHT=0.15`, never dominating the
+existing settlement-level agreement signal — reaches the Town
+Consciousness prompt and the main-UI "Civilization" stat tile (now
+shows a "N% personally keep a tradition" suffix). NPC inspector gained
+a conditional "keeps: ..." Personality-section line.
+
+The other two named A17 pieces stay exactly as flagged in the prior
+re-audit — neither was in scope of this decision:
+
 - *A fitness-vs-truth axis for rumors* ("false beliefs propagate if
   fit, not suppressed for being false") needs a real ground-truth
-  value per rumor to demonstrate against. This cuts against Phase G's
-  own standing design principle (CLAUDE.md, "per-person beliefs, trust,
-  gossip") that belief is never required to reconcile with objective
-  reality — building a truth layer just to prove this axis would
-  contradict that discipline, not extend it. Needs an explicit user
-  call before attempting.
-- *A shared mutate/decay/compete step*, checked against every content
-  type for a safe place to land it: `Settlement.lexicon` (dialect
-  terms) looked like the lowest-risk candidate, but its only LIVE
-  consumer is `llm/dialogue.py`'s general `build_prompt`, dead code
-  since v1.4.0 (real dialogue only ever uses the separate, minimal
-  `build_voice_prompt`) — a decay/compete mechanism there wouldn't be a
-  meaningful production proof. `recent_topics`/`top_topics()` is a
-  real, live consumer (dialogue steering + the main-UI "Village
-  storylines" tile) but reworking its FIFO eviction risks destabilizing
-  the topic-diversity tuning v0.87.35 specifically fixed against
-  monoculture — not attempted without a live-diagnostic read first.
+  value per rumor to demonstrate against, cutting against Phase G's own
+  standing design principle that belief is never required to reconcile
+  with objective reality. Needs its own explicit user call.
+- *A shared mutate/decay/compete step* over `Settlement.lexicon`/
+  `top_topics()` — the only two candidates found, both carrying real
+  risk (dead-code consumer / destabilizing v0.87.35's topic-diversity
+  tuning without a live-diagnostic read first). Unattempted.
 
-Work from this item again only on an explicit user decision naming one
-of these three paths (or a genuinely new angle), same standing
-convention as every other vision doc here.
+Work from either of those two on an explicit user decision naming a
+path, same standing convention as every other vision doc here.
 
 ### A18 — Composable event reactions
 **CLOSED, second slice, v1.34.45.** The general authoring system this

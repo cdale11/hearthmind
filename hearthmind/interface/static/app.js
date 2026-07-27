@@ -3104,6 +3104,13 @@ function renderNpcInspector() {
   const sleepDebtHtml = sleepDebt > 0.05
     ? `<div class="muted">${sleepDebtLabel} (sleep debt ${sleepDebt.toFixed(2)})</div>`
     : "";
+  // A17 follow-up: `Agent.kept_traditions` — the personal-adoption
+  // layer over `Settlement.traditions`, spread via `world/memetics.py`
+  // (see CLAUDE.md). Shown only once the agent actually keeps one.
+  const keptTraditions = agent.kept_traditions || [];
+  const traditionsKeptHtml = keptTraditions.length
+    ? `<div class="muted" title="personally lives by these, not just knows they exist">keeps: ${keptTraditions.join(", ")}</div>`
+    : "";
   const emotions = agent.emotions || {};
   const emotionMeta = {
     fear: { label: "afraid", icon: "😨" },
@@ -3215,6 +3222,7 @@ function renderNpcInspector() {
       ${developmentHtml}
       ${fertilityHtml}
       ${sleepDebtHtml}
+      ${traditionsKeptHtml}
     </div>
     <div class="npc-section">
       <h4>Skills</h4>
@@ -3752,8 +3760,11 @@ function renderStats(summary) {
       "Civilization",
       (summary.civilization_culture && summary.civilization_culture.text)
         ? summary.civilization_culture.text
+          + (summary.civilization_culture.tradition_keeping_rate > 0
+            ? ` (${Math.round(summary.civilization_culture.tradition_keeping_rate * 100)}% personally keep a tradition)`
+            : "")
         : "no shared cultural leaning yet",
-      "A world-scale reading, aggregated (not separately simulated) from every named settlement's own traditions/religion/legends — cultural cohesion is how many settlements share the SAME dominant tradition category, distinct from any one settlement's own storylines above.",
+      "A world-scale reading, aggregated (not separately simulated) from every named settlement's own traditions/religion/legends — cultural cohesion is how many settlements share the SAME dominant tradition category, distinct from any one settlement's own storylines above. The percentage is how many living villagers personally keep a tradition (spreads person-to-person via real social closeness), distinct from how many traditions merely exist on paper.",
     ],
     ["__section__", "Economy"],
     [

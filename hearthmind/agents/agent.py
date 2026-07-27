@@ -2073,6 +2073,7 @@ class Agent:
         injury: float = INJURY_BASELINE,
         development: float = DEVELOPMENT_BASELINE,
         sleep_debt: float = SLEEP_DEBT_BASELINE,
+        kept_traditions: list[str] | None = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -2409,6 +2410,20 @@ class Agent:
         # side" discipline as `life_event_since_goal` above.
         self.hardened_traits: set[str] = set() if hardened_traits is None else hardened_traits
         self.extreme_event_count: int = extreme_event_count
+        # kept_traditions (A17 second memetics consumer, roadmap step 24):
+        # settlement `traditions` are strings on `Settlement` with no
+        # notion of who personally practices one — this is that missing
+        # per-person layer. Written only by `SimulationEngine._maybe_
+        # spread_tradition_keeping` via `memetics.weighted_spread_
+        # target` (a candidate who isn't already a keeper is chosen by
+        # real social-graph closeness to existing keepers, same shape as
+        # ontology concept adoption), small FIFO-capped list (see
+        # `KEPT_TRADITIONS_CAP`), never LLM-authored, zero added call
+        # volume. Consumed by `world/culture_aggregate.py`'s civilization
+        # reading — how many people actually personally keep a tradition,
+        # not just how many traditions exist on paper, feeds `cultural_
+        # cohesion`.
+        self.kept_traditions: list[str] = [] if kept_traditions is None else kept_traditions
         # core_memories/core_memory_salience: v0.87.16, "deepen long-
         # term historical identity" — see MAX_CORE_MEMORIES's docstring.
         # Index-aligned pair, same discipline as memories/memory_
@@ -2691,6 +2706,7 @@ class Agent:
             # recomputed fresh from `age_ticks` on every access).
             "fertility": round(self.fertility, 4),
             "sleep_debt": round(self.sleep_debt, 4),
+            "kept_traditions": list(self.kept_traditions),
         }
 
     @classmethod
@@ -2783,6 +2799,7 @@ class Agent:
             injury=data.get("injury", INJURY_BASELINE),
             development=data.get("development", DEVELOPMENT_BASELINE),
             sleep_debt=data.get("sleep_debt", SLEEP_DEBT_BASELINE),
+            kept_traditions=list(data.get("kept_traditions", [])),
         )
         for other_id_str, extra in data.get("ledger_extra", {}).items():
             edge = _agent.ledger.get_or_create(int(other_id_str))
