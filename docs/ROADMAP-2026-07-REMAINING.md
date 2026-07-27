@@ -1390,16 +1390,43 @@ forest reclaim). Real gaps, roughly by leverage:
 14. **A17** — unify rumor/tradition/belief/song/technique onto
     `memetics.py`'s propagation-weight primitive; a shared mutate/
     decay/compete step; a real fitness-vs-truth axis for rumors.
-15. **B5** — Innovation's affordance/reaction query (A5/A6/A13) is now
-    actually buildable — those three Stage IV items shipped after B5's
-    own first version deliberately deferred "until the substrate
-    exists to query." Revisit: let Innovation's propose-step read
-    `discover_reactions`/`discover_combinations` for real, not just
-    `pattern_signal_counts` pressure.
-16. **C4** — the runtime-auditor half: nothing today automatically
-    retires persistent state with no reader ("reject state no system
-    observes"). Today's C4 is only the review-time human discipline;
-    the spec explicitly also wants a runtime check.
+15. **B5 — CLOSED, v1.34.61.** Direct code inspection found the
+    affordance/reaction query half of this item ALREADY wired
+    (`_maybe_schedule_ontology_proposal`'s `discoverable_combinations`/
+    `discoverable_reactions` grounding, shipped v1.16.0/v1.18.0, well
+    before this item's own text was written) — a stale note, not a real
+    gap. The genuinely open half was `evolve`/`merge`: only `propose`
+    closed the hypothesize -> observe -> revise loop (`InventedConcept.
+    hypothesis`/`world_model_entry_id`, `_record_hypothesis_outcome`).
+    `llm/ontology.py`'s evolve/merge prompts now ask for the same
+    optional `hypothesis` field `propose` already does ("no specific
+    reason" sentinel = pure natural drift, a legitimate common answer);
+    `_maybe_schedule_ontology_evolution`'s two branches now mirror-
+    then-register in the same order `propose` does, so an evolved/
+    merged concept's own later real adoption fate (established/
+    abandoned/retired) can revise Innovation's initial belief about it
+    in place, exactly like a proposed concept already does. Zero new
+    LLM call volume — reuses the existing evolve/merge job's own
+    response shape with one more field.
+16. **C4 — CLOSED (second real instance), v1.34.61.** The runtime
+    auditor half already existed for `TriggerRule` (`ontology.retire_
+    stale_rules`, item 5.1) but had no second instance — `world.
+    reactions.CompositeReaction` is its structural sibling (same
+    `status`/`fire_count`/`last_fired_tick` shape, LLM-plus-sandbox
+    authored the same way) and had none. New `reactions.retire_stale_
+    composite_reactions` (mirrors `retire_stale_rules` closely,
+    `COMPOSITE_REACTION_STALE_TICKS=40_000`, same value/reasoning),
+    run on `_maybe_schedule_composite_reaction_propose`'s own gated
+    cadence — same "run it on this job's own cadence" precedent
+    `rule_propose` established for its sibling auditor. "Desperate
+    Times" (the one hand-authored, `origin_settlement_id=None`
+    reaction) is exempt, same reasoning as every other "world-original,
+    not a failed village proposal" carve-out in this codebase. New
+    `composite_reactions_total`/`_by_status` dev-console diagnostic
+    fields, same depth as `trigger_rules_total`/`_by_status`. A general
+    auditor covering EVERY persistent-state type this codebase has is
+    still not attempted — this closes the item by giving the pattern a
+    real second instance, not by generalizing the mechanism itself.
 
 **Tier 3 — deepen an already-real mechanism**
 17. **A5/A6** — per-instance `Entity.affordances`/`Entity.properties`
@@ -2172,11 +2199,10 @@ send site; Village→Innovation and Innovation→Village default to flat
 `theory`/`discovery` tags without that check — see Tier 3.
 
 ### B5 — Innovation as conscious scientist
-Evolve/merge untouched by this pass (only propose gained the
-hypothesis/outcome loop). The real affordance/reaction query this item
-always wanted was explicitly deferred "until Stage IV's substrate
-exists" — Stage IV (A5/A6/A13) has since shipped first slices, so this
-is now genuinely actionable, not blocked — see Tier 2 item 15.
+**CLOSED, v1.34.61.** Both named gaps resolved: the affordance/reaction
+query was already wired (a stale note, not a real gap — see Tier 2 item
+15's entry for the correction); evolve/merge now close the same
+hypothesize -> observe -> revise loop `propose` already had.
 
 ### B6 — Reflection as meta-scientist
 "Track whether its advice worked" for the advisory-proposal path was
@@ -2227,10 +2253,11 @@ relevant.
 silently dropped.
 
 ### C4 — The acceptance gate as law
-The review-time half (reject isolated mechanics, reject state no
-system observes) is a standing human discipline, followed but never
-automated. The RUNTIME half — an auditor that actually retires
-persistent state nothing reads — doesn't exist. See Tier 2 item 16.
+**CLOSED (second real instance), v1.34.61.** The runtime auditor half
+now has two real instances (`TriggerRule`, `CompositeReaction`) instead
+of one — see Tier 2 item 16's entry for detail. The review-time half
+stays a standing human discipline, unautomated by design (see that
+item's own note on why a fully general auditor isn't attempted).
 
 ### C5 — Co-evolution loop
 Not a discrete task — the emergent end-state every other item above

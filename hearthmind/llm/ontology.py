@@ -272,7 +272,10 @@ SYSTEM_PROMPT_EVOLVE = (
     "changed — not a restatement of the original. "
     'Respond with strict JSON only, no other text: {"name": "a short '
     'name, under 8 words", "description": "one sentence, under 25 '
-    'words, describing how it has evolved"}.'
+    'words, describing how it has evolved", "hypothesis": "one short '
+    'sentence naming why the village genuinely believes this change '
+    "will help, or the exact words 'no specific reason' if it's just "
+    'natural drift"}.'
 )
 
 
@@ -287,17 +290,35 @@ def build_evolve_prompt(parent_name: str, parent_description: str, settlement_na
 
 
 def fallback_evolve(parent_name: str) -> dict:
-    return {"name": f"{parent_name}, Refined", "description": "Long practice has quietly improved on the original idea."}
+    return {
+        "name": f"{parent_name}, Refined",
+        "description": "Long practice has quietly improved on the original idea.",
+        "hypothesis": "no specific reason",
+    }
 
 
-def parse_evolve(result: dict, fallback: dict) -> tuple[str, str]:
+def parse_evolve(result: dict, fallback: dict) -> tuple[str, str, str]:
+    """Returns `(name, description, hypothesis)` — B5 "Innovation as
+    conscious scientist" (roadmap Stage III step 12, Tier 2 item 15's
+    follow-up): the same hypothesize -> observe -> revise loop `propose`
+    already closes, extended to evolve/merge. `hypothesis` empty string
+    (from the 'no specific reason' sentinel, same convention as
+    `parse_propose`) is a legitimate common answer — most evolutions/
+    merges are natural drift, not a claimed fix for anything — and
+    correctly no-ops `world.ontology._record_hypothesis_outcome`'s later
+    confirm/refute revision via its existing empty-hypothesis guard."""
     name = result.get("name")
     description = result.get("description")
+    hypothesis = result.get("hypothesis")
     if not isinstance(name, str) or not name.strip():
         name = fallback["name"]
     if not isinstance(description, str) or not description.strip():
         description = fallback["description"]
-    return name.strip()[:80], description.strip()[:200]
+    if not isinstance(hypothesis, str) or not hypothesis.strip():
+        hypothesis = fallback.get("hypothesis", "no specific reason")
+    if hypothesis.strip().lower() == "no specific reason":
+        hypothesis = ""
+    return name.strip()[:80], description.strip()[:200], hypothesis.strip()[:150]
 
 
 # --- merge --------------------------------------------------------------
@@ -309,7 +330,10 @@ SYSTEM_PROMPT_MERGE = (
     "restated together. "
     'Respond with strict JSON only, no other text: {"name": "a short '
     'name, under 8 words", "description": "one sentence, under 25 '
-    'words, describing the combined idea"}.'
+    'words, describing the combined idea", "hypothesis": "one short '
+    'sentence naming why the village genuinely believes this combination '
+    "will help, or the exact words 'no specific reason' if it's just "
+    'a natural pairing"}.'
 )
 
 
@@ -323,8 +347,12 @@ def build_merge_prompt(a_name: str, a_description: str, b_name: str, b_descripti
 
 
 def fallback_merge(a_name: str, b_name: str) -> dict:
-    return {"name": f"{a_name} and {b_name}, Combined", "description": "Two old ideas, practiced together, have become one."}
+    return {
+        "name": f"{a_name} and {b_name}, Combined",
+        "description": "Two old ideas, practiced together, have become one.",
+        "hypothesis": "no specific reason",
+    }
 
 
-def parse_merge(result: dict, fallback: dict) -> tuple[str, str]:
+def parse_merge(result: dict, fallback: dict) -> tuple[str, str, str]:
     return parse_evolve(result, fallback)

@@ -545,6 +545,30 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.61)
+
+Explicit user instruction: "Start B5 and C4" (docs/ROADMAP-2026-07-
+REMAINING.md, Part B/Part C, Tier 2 items 15/16).
+
+B5 "Innovation as conscious scientist": CLOSED. Found the item's own
+"affordance/reaction query" gap already shipped (v1.16.0/v1.18.0, a
+stale roadmap note). The real remaining gap — only `propose` closed
+the hypothesize -> observe -> revise loop, not `evolve`/`merge` — is
+fixed: both now carry an optional `hypothesis` field (empty = natural
+drift, a legitimate answer) and mirror-then-register in the same order
+`propose` does, so an evolved/merged concept's own later real adoption
+fate can revise Innovation's belief about it in place, just like a
+proposed one already can.
+
+C4 "The acceptance gate as law": CLOSED (second real instance). The
+runtime-retirement auditor (`ontology.retire_stale_rules`, item 5.1)
+only ever covered `TriggerRule` — new `reactions.retire_stale_
+composite_reactions` gives `CompositeReaction` (its structural
+sibling) the same treatment, run on `composite_reaction_propose`'s own
+gated cadence. A fully general state-auditor remains unattempted;
+this is a second concrete instance of the pattern, not a
+generalization of it.
+
 ## Current state (v1.34.60)
 
 Explicit user decision via `AskUserQuestion` (following v1.34.59's

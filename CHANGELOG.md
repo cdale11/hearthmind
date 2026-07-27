@@ -4,6 +4,75 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.61] — B5 + C4: evolve/merge hypothesis loop, a second acceptance-gate auditor
+
+Explicit user instruction: "Start B5 and C4" (docs/ROADMAP-2026-07-
+REMAINING.md, Part B/Part C, Tier 2 items 15/16).
+
+B5 "Innovation as conscious scientist": direct code inspection found
+the item's own text stale — the affordance/reaction query half
+(`discoverable_combinations`/`discoverable_reactions` grounding
+`_maybe_schedule_ontology_proposal`'s prompt) was already wired at
+v1.16.0/v1.18.0, well before this roadmap section was written; not a
+real gap. The genuinely open half: only `propose` closed the
+hypothesize -> observe -> revise loop (`InventedConcept.hypothesis`/
+`world_model_entry_id`, `world.ontology._record_hypothesis_outcome`) —
+`evolve`/`merge` registered their concepts with no hypothesis and no
+mirrored entry to later revise. `llm/ontology.py`'s `SYSTEM_PROMPT_
+EVOLVE`/`SYSTEM_PROMPT_MERGE` now ask for the same optional
+`hypothesis` field `propose` already does (`parse_evolve`/`parse_merge`
+now return `(name, description, hypothesis)`; `fallback_evolve`/
+`fallback_merge` carry a matching "no specific reason" sentinel —
+empty-string is a legitimate common answer, most evolutions/merges are
+natural drift, not a claimed fix). `SimulationEngine._maybe_schedule_
+ontology_evolution`'s two branches now mirror-then-register in the same
+order `ontology_proposal`'s apply() does (confidence 0.4, not the
+prior flat 1.0 "observation" — a real behavioral change: an evolved/
+merged concept's initial belief is now framed as a genuine hypothesis,
+consistent with how a proposed concept already reads), so the child
+concept's own later real adoption fate can revise Innovation's belief
+about it in place exactly like `propose` already does. Zero added LLM
+call volume — one more field on an existing response shape.
+
+C4 "The acceptance gate as law": the runtime-auditor half ("reject
+persistent state no system observes") already existed for one type
+(`TriggerRule`, via `ontology.retire_stale_rules`, item 5.1) but had
+no second instance. `world.reactions.CompositeReaction` is its
+structural sibling — same `status`/`fire_count`/`last_fired_tick`
+shape, LLM-plus-sandbox authored the same way (A18's second slice) —
+and had none. New `reactions.retire_stale_composite_reactions`
+(`COMPOSITE_REACTION_STALE_TICKS=40_000`, same value/reasoning as
+`TRIGGER_RULE_STALE_TICKS`) retires an `active` reaction whose
+condition-set has never once matched past the stale window; "Desperate
+Times" (`origin_settlement_id=None`, the one hand-authored reaction) is
+exempt, same "world-original, not a failed proposal" carve-out this
+codebase already uses elsewhere. Run on `_maybe_schedule_composite_
+reaction_propose`'s own gated cadence — the same "run it on this job's
+own cadence" precedent `rule_propose` established for its sibling
+auditor. New `composite_reactions_total`/`_by_status` dev-console
+diagnostic fields, same depth as `trigger_rules_total`/`_by_status`. A
+fully general auditor covering every persistent-state type in the
+codebase remains unattempted — this closes the item by giving the
+pattern a real second instance, not by generalizing the mechanism.
+
+Verified: direct unit tests (`parse_evolve`/`parse_merge`'s hypothesis
+field incl. the empty-sentinel case; a fake-pillar `_record_hypothesis_
+outcome` confirm-path test for a merge-originated concept reaching
+`established`; `retire_stale_composite_reactions`' stale/not-stale/
+already-fired/`origin_settlement_id=None`-exempt cases); two
+production-path tests scheduling the real `_maybe_schedule_ontology_
+evolution`/`_maybe_schedule_composite_reaction_propose` methods against
+a real `SimulationEngine`, confirming a genuinely evolved/merged
+concept carries a real `world_model_entry_id` and a genuinely stale
+composite reaction gets retired through the actual job cadence; a
+4000-tick LLM-disabled engine soak with a clean round-trip; `scripts/
+verify_native_soak.py` (seeds 1,2 x 800 ticks) byte-identical — pure
+Python, no native module touched. A seed-3 divergence at tick 383 was
+investigated and confirmed pre-existing on unmodified `origin/claude/
+hearthmind-overview-5bekay` via `git stash`, not introduced by this
+batch (same documented `river_tiles`/`roads.ever_established` set-
+ordering class of quirk noted since v1.34.0).
+
 ## [1.34.60] — A17: a second real memetics consumer, personal tradition-keeping
 
 Explicit user decision, via `AskUserQuestion` after the v1.34.59

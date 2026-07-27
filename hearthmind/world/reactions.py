@@ -77,6 +77,19 @@ TICKS`'s 500, since a composite firing is a stronger event than a
 single trigger) prevents a re-fire on every tick a still-true
 combination happens to re-cross an edge."""
 
+COMPOSITE_REACTION_STALE_TICKS = 40_000
+"""C4 "The acceptance gate as law" (docs/ROADMAP-2026-07-REMAINING.md,
+Part C, Tier 2 item 16): the runtime half of the acceptance gate —
+"reject state no system observes" — only existed for `TriggerRule`
+(`world.ontology.retire_stale_rules`); this is the same discipline
+applied to `CompositeReaction`, its structural sibling (same `status`/
+`fire_count`/`last_fired_tick` shape, authored the same LLM-plus-
+sandbox way). Same value as `ontology.TRIGGER_RULE_STALE_TICKS` — no
+live signal yet to justify tuning them independently, and a composite
+reaction's own combinations are at least as rare as a single trigger's
+(see `MAX_COMPOSITE_REACTIONS_STORED`'s docstring on how small the
+whole condition-set space is)."""
+
 MAX_COMPOSITE_REACTIONS_STORED = 30
 """Cap on `World.composite_reactions` — smaller than `MAX_TRIGGER_
 RULES_STORED` (60): with only 3 condition keys and a `MIN_REACTION_
@@ -191,6 +204,30 @@ def register_composite_reaction(
             retired_first = sorted(prunable, key=lambda r: (r.status != "retired", r.tick_created))
             del world.composite_reactions[retired_first[0].id]
     return reaction
+
+
+def retire_stale_composite_reactions(world, tick: int) -> None:
+    """C4's runtime auditor, applied to `CompositeReaction` — see
+    `COMPOSITE_REACTION_STALE_TICKS`'s docstring. An `active` reaction
+    whose condition-set has never once matched (`fire_count == 0`) for
+    longer than the stale window is genuine isolated state: proposed,
+    sandbox-validated, stored, but never once consumed by `_maybe_tick_
+    composite_reactions`. Retired, never deleted — same "preserve as
+    historical record" discipline as `ontology.retire_stale_rules`;
+    `register_composite_reaction`'s own prune step is the only thing
+    that ever actually removes a retired reaction, and only once the
+    registry is over its storage cap. "Desperate Times" (`origin_
+    settlement_id=None`, the one hand-authored reaction) is exempt —
+    it's a deliberate always-available mechanism proof, not a village
+    proposal that failed to catch on."""
+    for reaction in world.composite_reactions.values():
+        if reaction.origin_settlement_id is None:
+            continue
+        if (
+            reaction.status == "active" and reaction.fire_count == 0
+            and tick - reaction.tick_created > COMPOSITE_REACTION_STALE_TICKS
+        ):
+            reaction.status = "retired"
 
 
 def matching_reactions(active_conditions: set[str], reactions) -> list[CompositeReaction]:

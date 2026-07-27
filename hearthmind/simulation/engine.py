@@ -4501,22 +4501,30 @@ class SimulationEngine:
             child_generation = max(a.generation, b.generation) + 1
 
             def apply(result: dict, used_fallback: bool) -> None:
-                name, description = ontology_llm.parse_merge(result, fallback)
+                name, description, hypothesis = ontology_llm.parse_merge(result, fallback)
                 if ontology.is_near_duplicate(self.world, name, description):
                     return
+                # B5 "Innovation as conscious scientist" follow-up (Tier 2
+                # item 15): extends the hypothesize -> observe -> revise
+                # loop `ontology_proposal` already closes to `merge` too
+                # — same shape as that job's own mirror-then-register
+                # order, so `world.ontology._record_hypothesis_outcome`
+                # can later revise this SAME entry once the merged
+                # concept's own real adoption fate (established/
+                # abandoned/retired) confirms or refutes it. An empty
+                # `hypothesis` ("just a natural pairing," the common
+                # case) is a legitimate answer that no-ops the later
+                # revision via that function's own guard.
+                entry = self.world.innovation_pillar.upsert_world_model(
+                    self.world.clock.tick_count, name, description, 0.4, source="ontology_evolution",
+                )
                 concept = ontology.register_concept(
                     self.world, name=name, description=description, category=category,
                     origin_settlement_id=origin_settlement_id, tick=self.world.clock.tick_count,
                     mechanical_hook=hook, lineage={"merged_from": parent_ids}, generation=child_generation,
+                    hypothesis=hypothesis, world_model_entry_id=entry["id"],
                 )
                 self._log("ontology", f"Two ideas combined into {concept.name}: {concept.description}")
-                # Tier 0 second slice (docs/ROADMAP-2026-07-REMAINING.md):
-                # ontology_evolution becomes Innovation pillar's THIRD
-                # real wired job, alongside ontology_proposal/invention.
-                self.world.innovation_pillar.upsert_world_model(
-                    self.world.clock.tick_count, name, description, 1.0,
-                    status="observation", source="ontology_evolution",
-                )
                 self.world.innovation_pillar.remember(f"Combined two ideas into {name}: {description}")
                 self._append_emergence(
                     "novel_combination", "innovation", f"Combined two ideas into {name}: {description}",
@@ -4540,22 +4548,23 @@ class SimulationEngine:
             child_generation = parent.generation + 1
 
             def apply(result: dict, used_fallback: bool) -> None:
-                name, description = ontology_llm.parse_evolve(result, fallback)
+                name, description, hypothesis = ontology_llm.parse_evolve(result, fallback)
                 if ontology.is_near_duplicate(self.world, name, description):
                     return
+                # B5 follow-up (Tier 2 item 15) — see the merge branch's
+                # matching comment above for the full rationale; same
+                # mirror-then-register order and empty-hypothesis
+                # discipline, applied to `evolve` instead of `merge`.
+                entry = self.world.innovation_pillar.upsert_world_model(
+                    self.world.clock.tick_count, name, description, 0.4, source="ontology_evolution",
+                )
                 concept = ontology.register_concept(
                     self.world, name=name, description=description, category=category,
                     origin_settlement_id=origin_settlement_id, tick=self.world.clock.tick_count,
                     mechanical_hook=hook, lineage={"evolved_from": parent_id}, generation=child_generation,
+                    hypothesis=hypothesis, world_model_entry_id=entry["id"],
                 )
                 self._log("ontology", f"An old idea evolved into {concept.name}: {concept.description}")
-                # Tier 0 second slice (docs/ROADMAP-2026-07-REMAINING.md):
-                # ontology_evolution becomes Innovation pillar's THIRD
-                # real wired job, alongside ontology_proposal/invention.
-                self.world.innovation_pillar.upsert_world_model(
-                    self.world.clock.tick_count, name, description, 1.0,
-                    status="observation", source="ontology_evolution",
-                )
                 self.world.innovation_pillar.remember(f"An old idea evolved into {name}: {description}")
                 self._append_emergence(
                     "novel_combination", "innovation", f"An old idea evolved into {name}: {description}",
@@ -5464,6 +5473,10 @@ class SimulationEngine:
         if self._pillar_interpret_backpressured("village"):
             return
         self._mark_season_year_resolved("composite_reaction_propose")
+        # C4's runtime acceptance auditor (Tier 2 item 16): same "run it
+        # on this job's own gated cadence" precedent as rule_propose's
+        # own ontology.retire_stale_rules call.
+        reactions.retire_stale_composite_reactions(self.world, self.world.clock.tick_count)
         settlement = self._job_target()
         if not settlement.name:
             return
@@ -10357,6 +10370,16 @@ class SimulationEngine:
                 status: sum(1 for r in self.world.trigger_rules.values() if r.status == status)
                 for status in ("active", "retired")
                 if any(r.status == status for r in self.world.trigger_rules.values())
+            },
+            # C4 "The acceptance gate as law" (Tier 2 item 16): same
+            # dev-console depth as trigger_rules_* above — a `retired`
+            # count rising over time is the live signal that `retire_
+            # stale_composite_reactions` is actually doing its job.
+            "composite_reactions_total": len(self.world.composite_reactions),
+            "composite_reactions_by_status": {
+                status: sum(1 for r in self.world.composite_reactions.values() if r.status == status)
+                for status in ("active", "retired")
+                if any(r.status == status for r in self.world.composite_reactions.values())
             },
             # Vision doc item 4.1 — same dev-console depth as trigger
             # rules above; the main-UI surfacing is the building click
