@@ -545,6 +545,33 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.45)
+
+Explicit user instruction: "Start A18." A18 ("Composable event
+reactions") had one hand-authored `CompositeReaction` and no general
+authoring system — this ships the second slice: a village can now
+LLM-propose its own composite reactions, mirroring `TriggerRule`'s
+own authoring pattern (`SimulationEngine._maybe_schedule_composite_
+reaction_propose`, `llm/composite_reaction_propose.py`,
+`world.reactions.register_composite_reaction`), sandbox-validated
+(`simulation/sandbox.py`'s `run_counterfactual`) before going live,
+never an LLM self-check. New `CompositeReaction` fields (`hook_type`/
+`hook_target`/`magnitude`/`origin_settlement_id`/`status`/
+`fire_count`) reuse `world.ontology.MECHANICAL_HOOK_TYPES` verbatim
+through the existing `_apply_trigger_rule_hook` consumer — no second
+effect system; the original "Desperate Times" keeps its own bespoke
+`relationship_rupture` consequence unchanged. `World.composite_
+reactions`/`next_composite_reaction_id` persisted, legacy-backfill-
+aware. Closes A18.
+
+Verified: direct production-path smoke tests (full schedule -> sandbox
+-> register pipeline with a fake LLM client; a forced-unsafe sandbox
+verdict confirmed rejected/never registered); unit tests for
+`validate_conditions`/`matching_reactions`/the cap-and-prune registry
+behavior; a 4000-tick LLM-disabled engine soak with a clean round-trip
+(incl. legacy backfill); `scripts/verify_native_soak.py` (2 seeds x
+800 ticks) byte-identical — pure Python, no native module touched.
+
 ## Current state (v1.34.44)
 
 Explicit user instruction: "Make a separate list in the roadmap for

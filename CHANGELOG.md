@@ -4,6 +4,62 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.45] — A18 composite reaction authoring system
+
+Explicit user instruction: "Start A18." Ships the general authoring
+system A18's own doc entry flagged as missing: a village can now
+propose ITS OWN `CompositeReaction` combinations, the way `TriggerRule`
+is already LLM-authored, closing the item's last open gap.
+
+`world/reactions.py`'s `CompositeReaction` gained a real registry
+shape (`id`, `hook_type`/`hook_target`/`magnitude`,
+`origin_settlement_id`, `tick_created`, `status`, `fire_count`,
+`last_fired_tick`; `to_dict()`/`from_dict()`) — mirroring `TriggerRule`
+closely. `hook_type` is drawn straight from `world.ontology.
+MECHANICAL_HOOK_TYPES`, the SAME closed vocabulary a trigger rule
+uses, applied through the SAME general consumer
+(`SimulationEngine._apply_trigger_rule_hook`) rather than inventing a
+second effect system; the original hand-authored "Desperate Times"
+keeps its own bespoke `relationship_rupture` consequence unchanged.
+
+New `World.composite_reactions`/`next_composite_reaction_id`
+(`world/state.py`, seeded via `reactions.default_composite_reactions()`,
+legacy-snapshot-backfill-aware). New `llm/composite_reaction_
+propose.py` (SYSTEM_PROMPT/build_prompt/fallback_propose/parse_propose,
+same closed-vocabulary-hosting-open-content shape as `llm/rule_
+propose.py`). New `SimulationEngine._maybe_schedule_composite_reaction_
+propose`: season cadence, Village-pillar backpressure gate, deep-
+reasoning LLM call, deterministic re-verification
+(`reactions.validate_conditions`, never an LLM self-check), and the
+SAME counterfactual-sandbox safety gate (`simulation/sandbox.py`'s
+`run_counterfactual`) `rule_propose` already established — an unsafe
+proposal is discarded (`composite_reaction_rejected` event), never
+registered. A successfully-registered reaction mirrors into `village_
+pillar.upsert_world_model()`/`remember()`, an Emergence API entry, and
+a B4 Village->Reflection message arrow, same treatment `rule_propose`'s
+own registration gets.
+
+`_maybe_tick_composite_reactions`/`_apply_composite_reaction` now
+operate over the real `World.composite_reactions` registry instead of
+a single hardcoded reaction — `matching_reactions` gained a `reactions`
+parameter (any iterable) instead of a fixed module-level tuple.
+
+Verified: direct production-path smoke tests (fake LLM client driving
+the full schedule -> sandbox -> register pipeline end to end, confirming
+correct settlement/condition/hook_type on the registered reaction;
+sandbox-rejection path confirmed via a forced-unsafe verdict — the
+proposal is discarded and never registered); direct unit tests for
+`validate_conditions`/`matching_reactions`/`register_composite_
+reaction`'s cap-and-prune behavior (the world-original "Desperate
+Times," `origin_settlement_id=None`, is never pruned); a real 4000-tick
+LLM-disabled engine soak with a clean `World.to_dict()`/`from_dict()`
+round-trip (including a legacy-snapshot-backfill check); `scripts/
+verify_native_soak.py` (2 seeds x 800 ticks) byte-identical — pure
+Python, no native module touched. UI: no bespoke icon needed for
+`composite_reaction_originated`/`composite_reaction_rejected` — same
+default-fallback-icon precedent `rule_originated`/`trigger_rule_
+rejected` already established.
+
 ## [1.34.44] — A15 wildlife genetics + Tier 0 standalone checklist
 
 Explicit user instruction: "Make a separate list in the roadmap for

@@ -65,6 +65,7 @@ from hearthmind.config import Config
 from hearthmind.util import clamp, namespaced_rng, namespaced_roll
 from hearthmind.llm import (
     artifacts,
+    composite_reaction_propose,
     faction, fission, beliefs, caravan, chronicle, chronicler, composite_entity, consciousness, culture,
     culture_digest, dialogue,
     digest, dispute, documentary, dream, era_branch, festival, folklore, founding, geography, invention,
@@ -2217,6 +2218,7 @@ class SimulationEngine:
         ("_maybe_tick_trigger_state_edges", _JOB_NO_ARGS),
         ("_maybe_tick_composite_reactions", _JOB_NO_ARGS),
         ("_maybe_schedule_rule_proposal", _JOB_EVENTS),
+        ("_maybe_schedule_composite_reaction_propose", _JOB_EVENTS),
         ("_maybe_schedule_festival", _JOB_EVENTS),
         ("_maybe_schedule_religion", _JOB_EVENTS),
         ("_maybe_schedule_narrative_direction", _JOB_EVENTS),
@@ -5132,21 +5134,26 @@ class SimulationEngine:
                 active.add("food_shortage")
             if feuding_pair is not None:
                 active.add("feud")
-            for reaction in reactions.matching_reactions(active):
+            for reaction in reactions.matching_reactions(active, self.world.composite_reactions.values()):
                 key = (settlement.id, reaction.name)
                 last_fired = self._composite_reaction_last_fired.get(key)
                 if last_fired is not None and now - last_fired < reactions.COMPOSITE_REACTION_COOLDOWN_TICKS:
                     continue
                 self._composite_reaction_last_fired[key] = now
+                reaction.fire_count += 1
+                reaction.last_fired_tick = now
                 self._apply_composite_reaction(reaction, settlement, feuding_pair)
 
     def _apply_composite_reaction(self, reaction, settlement, feuding_pair) -> None:
-        """The one real consequence this slice ships: escalates the
-        feuding pair's relationship rupture — a bounded, immediate
-        step, not a new combat/raid mechanic (see `world/reactions.py`'s
-        module docstring for why). `feuding_pair` is guaranteed non-None
-        whenever a reaction naming `"feud"` in its conditions matches
-        (the only reaction this pass ships does)."""
+        """The real consequence: `"relationship_rupture"` (the original
+        hand-authored "Desperate Times" reaction's own bespoke effect —
+        escalates the feuding pair's relationship, a bounded, immediate
+        step, not a new combat/raid mechanic, see `world/reactions.py`'s
+        module docstring) needs `feuding_pair` non-None; every OTHER
+        `hook_type` (A18's second slice — village-proposed reactions,
+        `world.ontology.MECHANICAL_HOOK_TYPES`) goes through the SAME
+        general consumer `TriggerRule` already uses, `_apply_trigger_
+        rule_hook`, rather than a second bespoke effect system."""
         detail = f"{settlement.name or 'The village'}: {reaction.description}"
         self._log("composite_reaction", detail)
         self._append_highlight("composite_reaction", detail)
@@ -5155,19 +5162,22 @@ class SimulationEngine:
             pillars=("village", "humans"), settlement=settlement.name,
             data={"reaction": reaction.name, "conditions": sorted(reaction.conditions)},
         )
-        if feuding_pair is None:
-            return
-        fam_a, fam_b = feuding_pair
-        members_a = [a for a in self.world.population.agents if a.id in fam_a.member_agent_ids]
-        members_b = [a for a in self.world.population.agents if a.id in fam_b.member_agent_ids]
-        for a in members_a:
-            for b in members_b:
-                a.relationships[b.id] = clamp(
-                    a.relationships.get(b.id, 0.0) - reactions.COMPOSITE_REACTION_RELATIONSHIP_PENALTY, -1.0, 1.0,
-                )
-                b.relationships[a.id] = clamp(
-                    b.relationships.get(a.id, 0.0) - reactions.COMPOSITE_REACTION_RELATIONSHIP_PENALTY, -1.0, 1.0,
-                )
+        if reaction.hook_type == "relationship_rupture":
+            if feuding_pair is None:
+                return
+            fam_a, fam_b = feuding_pair
+            members_a = [a for a in self.world.population.agents if a.id in fam_a.member_agent_ids]
+            members_b = [a for a in self.world.population.agents if a.id in fam_b.member_agent_ids]
+            for a in members_a:
+                for b in members_b:
+                    a.relationships[b.id] = clamp(
+                        a.relationships.get(b.id, 0.0) - reaction.magnitude, -1.0, 1.0,
+                    )
+                    b.relationships[a.id] = clamp(
+                        b.relationships.get(a.id, 0.0) - reaction.magnitude, -1.0, 1.0,
+                    )
+        elif reaction.hook_type:
+            self._apply_trigger_rule_hook(reaction.hook_type, reaction.magnitude, settlement)
 
     def _maybe_schedule_rule_proposal(self, events: list[str]) -> None:
         """Vision doc item 1.2's origination half — one new trigger-
@@ -5286,6 +5296,93 @@ class SimulationEngine:
         self._schedule_llm_job(
             "rule_propose", prompt, rule_propose.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True,
             num_predict_mult=RULE_PROPOSE_NUM_PREDICT_MULT,
+        )
+
+    def _maybe_schedule_composite_reaction_propose(self, events: list[str]) -> None:
+        """A18's second slice (docs/ROADMAP-2026-07-REMAINING.md,
+        explicit user instruction "Start A18"): the real authoring
+        system a village needs to propose its OWN `CompositeReaction`
+        combinations, mirroring `_maybe_schedule_rule_proposal` almost
+        exactly — same season cadence, same village-pillar backpressure
+        gate, same counterfactual-sandbox-before-registration safety
+        gate, same deep-reasoning genuine self-modification treatment.
+        `critical=False`: ambient village imagination, same tier as
+        `rule_propose` itself — the sandbox is the real safety gate."""
+        if not self._season_year_gate(events, "composite_reaction_propose", "season_end"):
+            return
+        if self._pillar_interpret_backpressured("village"):
+            return
+        self._mark_season_year_resolved("composite_reaction_propose")
+        settlement = self._job_target()
+        if not settlement.name:
+            return
+        recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
+        existing_condition_sets = [
+            ", ".join(sorted(r.conditions)) for r in self.world.composite_reactions.values()
+        ]
+        prompt = composite_reaction_propose.build_prompt(settlement.name, recent, existing_condition_sets)
+        fallback = composite_reaction_propose.fallback_propose(len(self.world.composite_reactions))
+        origin_settlement_id = settlement.id
+
+        def apply(result: dict, used_fallback: bool) -> None:
+            parsed = composite_reaction_propose.parse_propose(result, fallback)
+            target = self._settlement_by_id(origin_settlement_id)
+            if target is None:
+                return
+            if not reactions.validate_conditions(set(parsed["conditions"])):
+                return
+
+            async def _sandbox_and_register() -> None:
+                # Same discipline as rule_propose's item 1.3: never let
+                # a proposed reaction go live without first proving it
+                # doesn't crash the population on a disposable fork.
+                verdict = await run_counterfactual(self.world, self.world.config)
+                if not verdict["safe"]:
+                    self._log(
+                        "composite_reaction_rejected",
+                        f"A proposed composite reaction ({parsed['name']}) was discarded by the "
+                        f"counterfactual sandbox: {verdict['reason']}.",
+                    )
+                    return
+                reaction = reactions.register_composite_reaction(
+                    self.world, name=parsed["name"], conditions=frozenset(parsed["conditions"]),
+                    description=parsed["description"], hook_type=parsed["hook_type"],
+                    hook_target=parsed["hook_target"], magnitude=parsed["magnitude"],
+                    origin_settlement_id=origin_settlement_id, tick=self.world.clock.tick_count,
+                )
+                condition_text = " + ".join(sorted(reaction.conditions))
+                message = (
+                    f"{target.name or 'The village'} imagined a new composite reaction: "
+                    f"{reaction.name} (when {condition_text} coincide) — {reaction.description}"
+                )
+                self._log("composite_reaction_originated", message)
+                self.world.village_pillar.upsert_world_model(
+                    self.world.clock.tick_count, reaction.name, reaction.description, 1.0,
+                    status="observation", source="composite_reaction_propose",
+                )
+                self.world.village_pillar.remember(
+                    f"Imagined a new composite reaction: {reaction.name} — {reaction.description}"
+                )
+                self._append_emergence(
+                    "opportunity", "village", message, ("village", "reflection"),
+                    settlement=target.name, data={"reaction": reaction.name, "conditions": condition_text},
+                )
+                # B4 arrow, same Village->Reflection precedent rule_
+                # propose's own registration established: a reaction
+                # that survived the sandbox and went live is a real
+                # self-modification event worth Reflection's attention.
+                self._send_pillar_message(
+                    "village", "reflection", "observation",
+                    f"imagined a new composite reaction: {reaction.name} — {reaction.description}",
+                )
+
+            task = asyncio.create_task(_sandbox_and_register())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+        self._schedule_llm_job(
+            "composite_reaction_propose", prompt, composite_reaction_propose.SYSTEM_PROMPT, fallback, apply,
+            deep_reasoning=True,
         )
 
     def _infra_counts(self, settlement) -> tuple[int, int, int, int]:

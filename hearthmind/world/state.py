@@ -63,6 +63,7 @@ from hearthmind.world.affordances import discover_combinations
 from hearthmind.world.chemistry import discover_reactions
 from hearthmind.world.materials import BUILDING_MATERIALS, building_affordances
 from hearthmind.world.ontology import CausalThread, CompositeEntity, InventedConcept, TriggerRule
+from hearthmind.world.reactions import CompositeReaction, default_composite_reactions
 from hearthmind.world.weather import WeatherState, compute_weather
 from hearthmind.world.wildlife import SpeciesVariant, WildlifeGrid
 from hearthmind.util import namespaced_rng
@@ -563,6 +564,14 @@ class World:
     _maybe_schedule_species_variant` originates new ones, naming a real
     existing wildlife herd via `llm/species_variant.py`."""
     next_species_variant_id: int = 1
+    composite_reactions: dict[int, CompositeReaction] = field(default_factory=default_composite_reactions)
+    """A18 second slice (docs/ROADMAP-2026-07-REMAINING.md) — world-
+    scoped like `trigger_rules`/`invented_concepts`. Seeded with the
+    one hand-authored "Desperate Times" reaction (`origin_settlement_
+    id=None`); `SimulationEngine._maybe_schedule_composite_reaction_
+    propose` originates new ones, sandbox-validated before going live,
+    see world/reactions.py."""
+    next_composite_reaction_id: int = 1
     causal_threads: dict[int, CausalThread] = field(default_factory=dict)
     """Vision doc item 3.3 ("Legible causal threads") — world-scoped
     like `composite_entities`. `SimulationEngine._maybe_schedule_
@@ -1464,6 +1473,8 @@ class World:
             "next_composite_entity_id": self.next_composite_entity_id,
             "species_variants": {str(k): v.to_dict() for k, v in self.species_variants.items()},
             "next_species_variant_id": self.next_species_variant_id,
+            "composite_reactions": {str(k): v.to_dict() for k, v in self.composite_reactions.items()},
+            "next_composite_reaction_id": self.next_composite_reaction_id,
             "causal_threads": {str(k): v.to_dict() for k, v in self.causal_threads.items()},
             "next_causal_thread_id": self.next_causal_thread_id,
             "nature_beliefs": list(self.nature_beliefs),
@@ -1772,6 +1783,11 @@ class World:
                 int(k): SpeciesVariant.from_dict(v) for k, v in data.get("species_variants", {}).items()
             },
             next_species_variant_id=data.get("next_species_variant_id", 1),
+            composite_reactions=(
+                {int(k): CompositeReaction.from_dict(v) for k, v in data["composite_reactions"].items()}
+                if "composite_reactions" in data else default_composite_reactions()
+            ),
+            next_composite_reaction_id=data.get("next_composite_reaction_id", 1),
             causal_threads={
                 int(k): CausalThread.from_dict(v) for k, v in data.get("causal_threads", {}).items()
             },

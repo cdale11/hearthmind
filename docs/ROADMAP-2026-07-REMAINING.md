@@ -1275,10 +1275,12 @@ forest reclaim). Real gaps, roughly by leverage:
    `injury-recovery` v1.34.40, `development`/`fertility` v1.34.41,
    `sleep`/`sleep_debt` v1.34.42) — see the item's own entry below for
    detail.
-9. **A18** — a real authoring system for new composite reactions (today
-   exactly one hand-authored `CompositeReaction` exists); the doc's own
-   "raid" example scoped down to relationship-rupture, a real combat/
-   raid mechanic remains unbuilt.
+9. **A18 — CLOSED, second slice, v1.34.45.** A real village-proposable
+   authoring system for `CompositeReaction`s now exists, mirroring
+   `TriggerRule`'s LLM-authoring + sandbox-validation pattern; the
+   doc's own "raid" example stays scoped to relationship-rupture, a
+   real combat/raid mechanic remains unbuilt — see the item's own
+   entry below for detail.
 10. **A19** — the six remaining named history axes (traffic, pollution,
     fertility, ownership, construction, ecology) beyond mining/
     disaster/ritual/ruin.
@@ -1832,11 +1834,20 @@ fitness-vs-truth axis for rumors (false beliefs propagate if fit, not
 suppressed for being false), is real follow-up work.
 
 ### A18 — Composable event reactions
-Only one hand-authored `CompositeReaction` exists — no general
-authoring system yet (a village can't propose its own combinations the
-way `TriggerRule` is LLM-authored). The doc's own "raid" example is
-scoped down to a relationship-rupture consequence; a real combat/raid
-mechanic remains unbuilt.
+**CLOSED, second slice, v1.34.45.** The general authoring system this
+item flagged as missing is real now: `SimulationEngine._maybe_
+schedule_composite_reaction_propose` lets a village LLM-propose its
+own `CompositeReaction` (2-3 conditions from `world.reactions.
+CONDITION_KEYS`), sandbox-validated (`simulation/sandbox.py`) before
+going live, mirroring `_maybe_schedule_rule_proposal`'s pattern
+closely. New `CompositeReaction` fields (`hook_type`/`hook_target`/
+`magnitude`/`origin_settlement_id`/`status`/`fire_count`) reuse
+`world.ontology.MECHANICAL_HOOK_TYPES` verbatim and route through the
+existing `_apply_trigger_rule_hook` consumer — no second effect
+system. The original hand-authored "Desperate Times" keeps its own
+bespoke `relationship_rupture` consequence unchanged (the doc's own
+"raid" example, scoped to that one effect); a real combat/raid
+mechanic remains out of scope, unaffected by this slice.
 
 ### A19 — Persistent spatial memory
 Only 3 of the spec's 9 named axes are unified (mining/disaster/ritual,
