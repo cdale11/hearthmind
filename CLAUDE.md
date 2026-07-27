@@ -545,6 +545,33 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.52)
+
+Explicit user follow-up on v1.34.51: "Make elevation render on the
+map somehow and hence the erosion. Irrespective of biome boundary."
+`Tile.elevation` was never rendered on the map at all — every
+elevation-writing mechanism (A11's weekly hydrology erosion, v1.34.51's
+quarry formation and flood-recurrence erosion) was only visible when a
+change happened to cross a `classify_with_bias` biome band.
+
+`interface/api.py`'s `set_terrain()` payload gained a full dense
+`elevation` grid straight off `terrain` (same source `biomes` already
+reads — no new backend state). `app.js`'s `drawStaticTerrain` blends
+this into a subtle, always-on relief tint (`elevationShadeStyle`,
+centered near 0.6, capped so it never overwrites a tile's own biome
+color) — a permanent map layer, not a togglable mode, matching the
+standing "map is the primary interface" discipline. Cumulative erosion
+below a single band-crossing threshold is now genuinely visible as a
+gradually shifting shade instead of invisible until it crosses a band.
+
+Verified: `/terrain` payload directly inspected (dense elevation grid
+present, matching `World.terrain`); a live dev server + Playwright
+pass with a screenshot confirming visible relief shading (dark
+deep-water basin, lighter highlands) and no new console errors;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical
+— pure payload/rendering change, no native module or persisted state
+touched.
+
 ## Current state (v1.34.51)
 
 Explicit user instruction: "Complete M2/M8" — the one Tier 1.5 item

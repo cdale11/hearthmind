@@ -133,11 +133,22 @@ class WorldBroadcaster:
         `population_density`/`disease_pressure`, riding the same
         `week_end` resync — "industry chokes the fields nearby"/"trade
         follows roads"/"a struggling town draws fewer newcomers" as
-        real map overlays, not just numbers nothing on screen shows."""
+        real map overlays, not just numbers nothing on screen shows.
+
+        `elevation` (M2/M8 follow-up, explicit user request: "Make
+        elevation render on the map... hence the erosion, irrespective
+        of biome boundary"): a full dense 0..1 grid, straight off
+        `terrain` itself (the same source `biomes` already reads) —
+        every erosion/quarry/flood-erosion elevation write becomes
+        visible on this resync even when the change doesn't cross a
+        `classify_with_bias` band and therefore leaves `biomes`
+        unchanged. `app.js`'s `drawStaticTerrain` blends this into a
+        subtle always-on relief shade, not a separate toggle mode."""
         self._terrain_payload = {
             "width": width,
             "height": height,
             "biomes": [[tile.biome.value for tile in row] for row in terrain],
+            "elevation": [[round(tile.elevation, 3) for tile in row] for row in terrain],
             "mining_scars": (
                 {f"{x}:{y}": round(v, 3) for (x, y), v in mining_scars.items()}
                 if mining_scars else {}

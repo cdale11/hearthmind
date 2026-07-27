@@ -1236,7 +1236,22 @@ forest reclaim). Real gaps, roughly by leverage:
   recede instead of always fully restoring the pre-flood biome, same
   `classify_with_bias` reclassification erosion (A11) already uses.
   UI: "Quarries" stat tile, a distinct map color, `quarry_formed`/
-  `flood_eroded` event categories + icons.
+  `flood_eroded` event categories + icons. **Follow-up, v1.34.52**:
+  the map itself never rendered `Tile.elevation` at all — every
+  elevation write (A11's own weekly hydrology erosion included, not
+  just this pass's two mechanisms) was only ever visible when it
+  happened to cross a `classify_with_bias` biome band, invisible
+  otherwise. Explicit user request ("make elevation render on the
+  map... irrespective of biome boundary") closed that gap: the
+  `/terrain` payload now carries a full dense `elevation` grid
+  straight from `terrain` (same source `biomes` already reads), and
+  `app.js`'s `drawStaticTerrain` blends it into a subtle always-on
+  relief tint (centered near the grassland/forest elevation boundary,
+  capped so it never overwrites a tile's own biome color) — a
+  permanent map layer, not a togglable mode. This is the real fix for
+  "irrespective of biome boundary": cumulative erosion below a single
+  band-crossing threshold now visibly darkens/lightens a tile over
+  time instead of being invisible until it happens to cross a band.
 - **M6/M7** — **legend slice shipped, v1.34.30**: the "🗺️ fields"
   toggle (moisture/soil fertility/population density/disease pressure)
   had no legend at all — a color alone never said whether it was

@@ -1914,15 +1914,42 @@ function paintDryLakebedScars(sctx, scars) {
   }
 }
 
+// Explicit user request, following M2/M8: elevation should render on
+// the map irrespective of biome boundary, so gradual erosion (quarry
+// formation, flood-recurrence erosion, A11's own weekly hydrology
+// erosion) stays visible even on ticks where the elevation change
+// doesn't cross a classify_with_bias band and therefore leaves
+// `biomes` itself unchanged. A subtle always-on relief tint, not a
+// separate toggle mode — every tile gets one regardless of overlay
+// state, same "the map itself is the primary interface" discipline as
+// the rest of the Living Map work. Centered near 0.6 (roughly the
+// grassland/forest boundary — the "sea level" of ordinary visible
+// land) so typical terrain reads close to neutral and only genuinely
+// low or high ground is visibly tinted; deliberately capped so it
+// never fully overwrites a tile's own biome color identity.
+const ELEVATION_SHADE_CENTER = 0.6;
+const ELEVATION_SHADE_SCALE = 0.9;
+const ELEVATION_SHADE_MAX_ALPHA = 0.4;
+function elevationShadeStyle(elevation) {
+  const centered = elevation - ELEVATION_SHADE_CENTER;
+  const alpha = Math.min(ELEVATION_SHADE_MAX_ALPHA, Math.abs(centered) * ELEVATION_SHADE_SCALE);
+  return centered >= 0 ? `rgba(255,255,255,${alpha.toFixed(3)})` : `rgba(0,0,0,${alpha.toFixed(3)})`;
+}
+
 function drawStaticTerrain() {
   staticCanvas = document.createElement("canvas");
   staticCanvas.width = terrain.width * CELL;
   staticCanvas.height = terrain.height * CELL;
   const sctx = staticCanvas.getContext("2d");
+  const elevation = terrain.elevation;
   for (let y = 0; y < terrain.height; y++) {
     for (let x = 0; x < terrain.width; x++) {
       sctx.fillStyle = BIOME_COLORS[terrain.biomes[y][x]] || "#000";
       sctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+      if (elevation && elevation[y]) {
+        sctx.fillStyle = elevationShadeStyle(elevation[y][x]);
+        sctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+      }
     }
   }
   paintEraOverlay(sctx, currentEraTier());
@@ -3848,7 +3875,7 @@ function renderStats(summary) {
         if (h.tiles_flood_eroded_recorded) parts.push(`${h.tiles_flood_eroded_recorded} tiles worn down by repeated flooding`);
         return parts.join(", ");
       })(),
-      "Genuinely wet, flow-carrying land slowly moves a small fraction of its elevation downhill each week — mass-conserving, capped, and gradual, the same \"history becomes physically visible over the long run\" pace as the map's other scar-shaped marks. Occasionally a tile erodes far enough to cross into a different kind of land entirely. Monthly, a river re-walks its own course against the CURRENT (eroded) elevation from its original source — its bed can genuinely migrate over the long run, leaving dry former riverbed behind where it moves away. A tile flooded the same way three separate times stops fully healing on recede and instead permanently erodes a little further.",
+      "Genuinely wet, flow-carrying land slowly moves a small fraction of its elevation downhill each week — mass-conserving, capped, and gradual, the same \"history becomes physically visible over the long run\" pace as the map's other scar-shaped marks. The map itself shades every tile by its real elevation now (a subtle relief tint, always on), so this shows up as a gradually shifting shade even on ticks where a tile doesn't cross into a different kind of land entirely. Monthly, a river re-walks its own course against the CURRENT (eroded) elevation from its original source — its bed can genuinely migrate over the long run, leaving dry former riverbed behind where it moves away. A tile flooded the same way three separate times stops fully healing on recede and instead permanently erodes a little further.",
     ],
     [
       "Wildlife",

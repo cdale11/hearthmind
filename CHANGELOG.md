@@ -4,6 +4,44 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.52] — Elevation renders on the map, irrespective of biome boundary
+
+Explicit user follow-up on v1.34.51: "Make elevation render on the
+map somehow and hence the erosion. Irrespective of biome boundary."
+Root gap: `Tile.elevation` was never rendered on the map at all —
+every elevation-writing mechanism (A11's own weekly hydrology erosion,
+v1.34.51's new quarry formation and flood-recurrence erosion) was only
+ever visible when the change happened to cross a `classify_with_bias`
+biome band; the much more common small nudge left zero map trace.
+
+`interface/api.py`'s `set_terrain()` payload gained a full dense
+`elevation` grid, read straight off `terrain` (the same source
+`biomes` already reads — no new backend state, no new call-site
+threading). `app.js`'s `drawStaticTerrain` now blends a subtle,
+always-on relief tint into every tile — `elevationShadeStyle`,
+centered near 0.6 (roughly the grassland/forest elevation boundary,
+so ordinary mid-elevation land reads close to neutral), capped at
+`ELEVATION_SHADE_MAX_ALPHA` (0.4) so it never overwrites a tile's own
+biome color identity. A permanent map layer, not a togglable overlay
+mode — matches the standing "the map is the primary interface" and
+"every deterministic system should have SOME real map representation"
+disciplines. Cumulative erosion below a single band-crossing threshold
+is now genuinely visible as a gradually shifting shade rather than
+invisible until (if ever) it crosses a band.
+
+Docs: `docs/ROADMAP-2026-07-REMAINING.md`'s M2/M8 entry gained a
+follow-up note; the "Erosion" stat tile's tooltip text updated to
+describe the new always-visible relief shading instead of only
+mentioning band-crossing.
+
+Verified: `/terrain` payload directly inspected (dense 32x32 float
+grid present, values matching `World.terrain`); a live dev server +
+Playwright pass with a screenshot confirming visible relief shading
+(dark deep-water basin, lighter highland patches) and no new console
+errors; `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical — pure payload/rendering change, no native module or
+persisted-state touched.
+
 ## [1.34.51] — M2/M8 closed: quarries + flooding permanently reshape the land
 
 Explicit user instruction: "Complete M2/M8" — the one Tier 1.5 item
