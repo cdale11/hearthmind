@@ -1370,9 +1370,12 @@ forest reclaim). Real gaps, roughly by leverage:
    doc's own "raid" example stays scoped to relationship-rupture, a
    real combat/raid mechanic remains unbuilt — see the item's own
    entry below for detail.
-10. **A19** — the six remaining named history axes (traffic, pollution,
-    fertility, ownership, construction, ecology) beyond mining/
-    disaster/ritual/ruin.
+10. **A19 — closed for real progress, v1.34.53.** Nine of the spec's
+    named axes are now real (mining/disaster/ritual/ruin/road/
+    migration/traffic/pollution/fertility — see the item's own entry
+    below for detail). Only ownership/construction remain unfolded, and
+    both need a genuinely new per-tile HISTORY store built first (real,
+    unscoped follow-up), not another read-side unification step.
 11. **A21** — legend feedback into tradition/religion/institution
     formation; using a formed legend as grounding context in other
     prompts; unifying with folklore.
@@ -1939,22 +1942,36 @@ bespoke `relationship_rupture` consequence unchanged (the doc's own
 mechanic remains out of scope, unaffected by this slice.
 
 ### A19 — Persistent spatial memory
-**CLOSED, v1.34.49.** Six real per-tile axes now unified in `world.
-spatial_memory.location_character` (mining/disaster/ritual/ruin/road,
-plus a new sixth `migration` axis reading `World.migration_trails` —
-the closest real existing data to the spec's named "ecology" axis).
-The module's own residual gap (`location_character(world, x, y)`'s
-World-scoped wrapper had no caller since v1.34.1) is closed too: it
-now grounds a newly-named composite entity's origin story in what the
-specific SITE itself remembers (`llm/composite_entity.py`'s new
-`location_history` param, via a new `location_character_text` plain-
+**CLOSED, v1.34.49** (first slice). Six real per-tile axes unified in
+`world.spatial_memory.location_character` (mining/disaster/ritual/
+ruin/road, plus a sixth `migration` axis reading `World.migration_
+trails` — the closest real existing data to the spec's named "ecology"
+axis). The module's own residual gap (`location_character(world, x,
+y)`'s World-scoped wrapper had no caller since v1.34.1) closed too: it
+grounds a newly-named composite entity's origin story in what the
+specific SITE itself remembers (`llm/composite_entity.py`'s
+`location_history` param, via `location_character_text`'s plain-
 language renderer), not just the settlement's single latest event —
-the doc's own "places as actors"/"unlucky house" Feeds example, now
-real. Traffic/pollution/fertility remain a genuinely different shape
-(continuous `FieldGrid` regions, not sparse per-tile dicts) and
-ownership/construction have no dedicated per-tile store at all — both
-explicitly flagged, not attempted; battles has no data source since
-Hearthmind has no combat mechanic (same note as A18).
+the doc's own "places as actors"/"unlucky house" Feeds example.
+
+**Second slice, v1.34.53** (explicit user instruction: "start A19"):
+`traffic`/`pollution` (`World.fields`, A1's `FieldGrid`, read via
+`FieldGrid.get_at` at the caller's own resolved-for-this-tile value)
+and `fertility` (`FarmGrid.soil_fertility`) now fold in too, despite
+genuinely being a different SHAPE than the sparse per-event scar dicts
+— each surfaces only past a real notability threshold (`FERTILITY_
+NOTABLE_THRESHOLD`/`TRAFFIC_NOTABLE_THRESHOLD`/`POLLUTION_NOTABLE_
+THRESHOLD`, all 0.5), same "absence means neutral" discipline the
+other axes already hold; a pristine/never-farmed tile or an ordinary-
+traffic region stays silent rather than cluttering every tile's
+character with a near-neutral reading. Nine of the spec's named axes
+now real (mining/disaster/ritual/ruin/road/migration/traffic/
+pollution/fertility). Ownership/construction remain explicitly NOT
+folded — neither has a real per-tile HISTORY store (a building's
+current owner/stage is instantaneous state, not accumulated memory);
+building one would be new, unscoped follow-up work, not a read-side
+unification of something that already exists. Battles has no data
+source since Hearthmind has no combat mechanic (same note as A18).
 
 ### A20 — Multi-scale simulation
 A brand-new second field beyond `population_density`, and "culture

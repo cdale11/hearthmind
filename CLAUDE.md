@@ -545,6 +545,35 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.53)
+
+Explicit user instruction: "start A19" (docs/ROADMAP-2026-07-
+REMAINING.md's Tier 2), followed by "queue tier3 and tier 0 and then
+tier 5" for subsequent turns — this pass ships A19's second slice
+only; Tier 3/Tier 0/Tier 5 are queued next, one complete batch per
+turn as established.
+
+A19's first slice (v1.34.49) explicitly flagged traffic/pollution/
+fertility as "a different shape" (continuous `FieldGrid` regions / a
+farmed-tiles-only dict) and left them unfolded. `world/spatial_
+memory.py`'s `location_character_from_dicts` now folds all three in
+for real via new `soil_fertility`/`traffic_at`/`pollution_at`
+keyword params, each surfacing only past a real notability threshold
+(`FERTILITY_NOTABLE_THRESHOLD`/`TRAFFIC_NOTABLE_THRESHOLD`/
+`POLLUTION_NOTABLE_THRESHOLD`, all 0.5) — same "absence means
+neutral" discipline every other axis holds. `location_character`
+resolves `traffic`/`pollution` for the specific tile via `FieldGrid.
+get_at`. Nine of the spec's named axes are now real; ownership/
+construction remain unfolded (no per-tile HISTORY store exists for
+either — real, unscoped follow-up, not another read-side unification).
+
+Verified: direct unit tests (forced-value surfacing, below-threshold
+absence, never-farmed-tile absence, category/label completeness), a
+production-path test against a real `World` with forced field/farm
+state, a 4000-tick engine soak with clean round-trip (no new
+persisted state — read-side only), `scripts/verify_native_soak.py`
+(2 seeds x 800 ticks) byte-identical.
+
 ## Current state (v1.34.52)
 
 Explicit user follow-up on v1.34.51: "Make elevation render on the

@@ -4,6 +4,42 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.53] — A19 second slice: traffic/pollution/fertility join location_character
+
+Explicit user instruction: "start A19" (docs/ROADMAP-2026-07-
+REMAINING.md's Tier 2 item 10), followed by "queue tier3 and tier 0
+and then tier 5" for subsequent turns.
+
+A19's first slice (v1.34.49) unified six sparse per-tile scar/activity
+dicts into `world.spatial_memory.location_character`, explicitly
+flagging traffic/pollution/fertility as "a genuinely different shape"
+(continuous `FieldGrid` regions / a farmed-tiles-only dict defaulting
+to pristine, not sparse per-event dicts) and leaving them unfolded.
+This pass folds all three in for real: `location_character_from_dicts`
+gained `soil_fertility`/`traffic_at`/`pollution_at` keyword params
+(new `FERTILITY_NOTABLE_THRESHOLD`/`TRAFFIC_NOTABLE_THRESHOLD`/
+`POLLUTION_NOTABLE_THRESHOLD`, all 0.5 — only a genuinely worked-out/
+busy/fouled reading surfaces, same "absence means neutral" discipline
+every other axis already holds); `location_character(world, x, y)`
+resolves `traffic`/`pollution` via `FieldGrid.get_at` for that
+specific tile before calling through. Nine of the spec's named axes
+are now real. Ownership/construction remain explicitly unfolded —
+both need a genuinely new per-tile HISTORY store (a building's current
+owner/stage is instantaneous state, not accumulated memory the way
+every other axis is), real unscoped follow-up rather than another
+read-side unification step. `Population._choose_build_site`'s existing
+positional call site is untouched (all new params keyword-only,
+defaulting to `None`).
+
+Verified: direct unit tests (forced-value axis surfacing, below-
+threshold absence, never-farmed-tile absence, category/label registry
+completeness), a production-path test against a real `World` with
+forced field/farm state confirming the correct region/tile values
+reach `location_character`, a 4000-tick LLM-disabled engine soak with
+clean round-trip (no new persisted state — read-side only, so nothing
+new to serialize), `scripts/verify_native_soak.py` (2 seeds x 800
+ticks) byte-identical — pure Python, no native module touched.
+
 ## [1.34.52] — Elevation renders on the map, irrespective of biome boundary
 
 Explicit user follow-up on v1.34.51: "Make elevation render on the
