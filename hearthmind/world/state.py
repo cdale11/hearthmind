@@ -315,6 +315,24 @@ class World:
     a tile that keeps reflooding keeps eroding further in the same
     three-flood cycle."""
 
+    construction_history: dict[tuple[int, int], int] = field(default_factory=dict)
+    """A19 "Persistent spatial memory," closing the last two named
+    axes: how many times a NEW building has been staked out at this
+    exact tile (`Population._maybe_start_construction`'s real call to
+    `Settlement.start_construction`) — never decremented, never decays
+    (unlike the scar dicts, this is meant to be a permanent record: a
+    site rebuilt three times over the settlement's life genuinely has
+    more history than one built once). See `world/spatial_memory.py`'s
+    `construction` axis."""
+    ownership_history: dict[tuple[int, int], int] = field(default_factory=dict)
+    """A19's other closing axis: how many times a standing HUT at this
+    exact tile has changed hands via inheritance (`Population._apply_
+    inheritance`, H7) — same permanent-record shape as `construction_
+    history` above. A tile that has passed through several owners over
+    the settlement's life has real character a currently-instantaneous
+    `Building.owner_agent_id` reading can't express on its own. See
+    `world/spatial_memory.py`'s `ownership` axis."""
+
     wetland_progress: dict[tuple[int, int], int] = field(default_factory=dict)
     """M4 "The Living Map": how many CONSECUTIVE qualifying months a
     candidate GRASSLAND tile has stayed near-saturated (see `hydrology.
@@ -890,6 +908,8 @@ class World:
             disaster_scars=self.disaster_scars,
             road_scars=self.road_scars,
             fields=self.fields,
+            construction_history=self.construction_history,
+            ownership_history=self.ownership_history,
         )
         self.fields.step_population_density(
             [(a.x, a.y) for a in self.population.agents], self.config.width, self.config.height,
@@ -1505,6 +1525,12 @@ class World:
             "flood_recurrence_counts": {
                 f"{x}:{y}": v for (x, y), v in self.flood_recurrence_counts.items()
             },
+            "construction_history": {
+                f"{x}:{y}": v for (x, y), v in self.construction_history.items()
+            },
+            "ownership_history": {
+                f"{x}:{y}": v for (x, y), v in self.ownership_history.items()
+            },
             "wetland_progress": {f"{x}:{y}": v for (x, y), v in self.wetland_progress.items()},
             "llm_calls_total": self.llm_calls_total,
             "llm_fallback_total": self.llm_fallback_total,
@@ -1792,6 +1818,16 @@ class World:
             x_str, y_str = key.split(":")
             flood_recurrence_counts[(int(x_str), int(y_str))] = value
 
+        construction_history: dict[tuple[int, int], int] = {}
+        for key, value in data.get("construction_history", {}).items():
+            x_str, y_str = key.split(":")
+            construction_history[(int(x_str), int(y_str))] = value
+
+        ownership_history: dict[tuple[int, int], int] = {}
+        for key, value in data.get("ownership_history", {}).items():
+            x_str, y_str = key.split(":")
+            ownership_history[(int(x_str), int(y_str))] = value
+
         wetland_progress: dict[tuple[int, int], int] = {}
         for key, value in data.get("wetland_progress", {}).items():
             x_str, y_str = key.split(":")
@@ -1815,6 +1851,8 @@ class World:
             dry_lakebed_scars=dry_lakebed_scars,
             mining_scar_sustained_ticks=mining_scar_sustained_ticks,
             flood_recurrence_counts=flood_recurrence_counts,
+            construction_history=construction_history,
+            ownership_history=ownership_history,
             wetland_progress=wetland_progress,
             llm_calls_total=data.get("llm_calls_total", 0),
             llm_fallback_total=data.get("llm_fallback_total", 0),

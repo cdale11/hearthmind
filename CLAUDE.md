@@ -545,6 +545,38 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.55)
+
+Explicit user instruction: "Continue with A19" (docs/ROADMAP-2026-07-
+REMAINING.md's Tier 2, "Persistent spatial memory") — closes A19's
+third and final slice, following the second slice's own flagged gap
+("ownership/construction remain unfolded... needs a genuinely new
+per-tile HISTORY store").
+
+New `World.construction_history`/`ownership_history`: permanent,
+non-decaying per-tile integer counts (deliberately unlike the scar
+dicts, which decay — how many times a site has been rebuilt or passed
+down is real accumulated history, not a cosmetic mark that should
+fade). Written at two already-existing real events, not new ones
+invented to source the axis: `construction_history` increments in
+`Population._maybe_start_construction` right after its real call to
+`Settlement.start_construction`; `ownership_history` increments in
+`Population._apply_inheritance` (H7) at the exact point a HUT's
+`owner_agent_id` hands off to a living heir. `world/spatial_memory.py`
+gains matching `CONSTRUCTION_NOTABLE_COUNT=2`/`OWNERSHIP_NOTABLE_
+COUNT=1` thresholds (a rebuild is notable, a first build isn't; a
+single inheritance hand-off already is, since H7 requires a death with
+a living family heir), normalized 0..1 same as every other axis. Closes
+every axis A19's spec names except battles (no combat mechanic exists
+to source it — stays genuinely open).
+
+Verified: direct unit tests for both new axes' threshold surfacing;
+two production-path tests calling the real `_maybe_start_construction`/
+`_apply_inheritance` classmethods with a forced scenario, confirming
+the dicts populate through the actual mechanism; a 4000-tick LLM-
+disabled soak with a clean round-trip incl. legacy backfill;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical.
+
 ## Current state (v1.34.54)
 
 Explicit user instruction: "continue a21" (docs/ROADMAP-2026-07-

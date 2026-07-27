@@ -4,6 +4,58 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.55] — A19 third slice: construction/ownership close the spatial-memory axis list
+
+Explicit user instruction: "Continue with A19" (docs/ROADMAP-2026-07-
+REMAINING.md's Tier 2, "Persistent spatial memory"). v1.34.53's second
+slice explicitly flagged `construction`/`ownership` as needing "a
+genuinely new per-tile HISTORY store" not yet built — this slice builds
+it, closing the item.
+
+New `World.construction_history`/`ownership_history`: permanent,
+non-decaying `dict[(x, y), int]` counts — deliberately NOT shaped like
+the scar dicts (`mining_scars`/`disaster_scars`/etc., which decay
+weekly), since "how many times built" and "how many times passed down"
+are genuine accumulated history that shouldn't fade the way a cosmetic
+mark should (same permanent-count shape `flood_recurrence_counts`/
+`mining_scar_sustained_ticks` already established). Each is written at
+an already-existing real mechanical event, not a new one invented to
+populate the axis: `construction_history` increments in `Population.
+_maybe_start_construction`, immediately after its real call to
+`Settlement.start_construction`; `ownership_history` increments in
+`Population._apply_inheritance` (H7), at the exact point a HUT's
+`owner_agent_id` hands off to a living heir. Both dicts are threaded
+through `Population.tick()` as optional keyword params (same pattern
+`ruin_scars`/`road_scars` already use), `World.tick()` passes its own
+instances, and both round-trip through `to_dict()`/`from_dict()` with
+legacy-snapshot backfill (absent key -> empty dict).
+
+`world/spatial_memory.py`'s `LOCATION_HISTORY_CATEGORIES` gains
+`construction`/`ownership`; new `CONSTRUCTION_NOTABLE_COUNT=2` (a
+single first-ever build is ordinary — it takes a real rebuild to be
+worth naming) and `OWNERSHIP_NOTABLE_COUNT=1` (a real inheritance
+hand-off is already rare — H7 needs a death with a living family heir —
+so even the first occurrence is notable), each normalized 0..1 via
+`min(1.0, count / threshold)`, same "absence means neutral" discipline
+every other axis holds. `location_character_from_dicts`/`location_
+character`/`LOCATION_CHARACTER_LABELS` all extended. This closes every
+axis A19's own spec names except battles — no combat mechanic exists to
+source it, the one axis that genuinely stays open (same note A18
+already carries for its own "raid" example).
+
+Verified: direct unit tests (below/at/above-threshold surfacing for
+both new axes, absent-dict handling); two production-path tests
+calling the real `Population._maybe_start_construction`/`_apply_
+inheritance` classmethods directly with a forced scenario (two mature
+founders staked into one construction site; a dying agent with a real
+FAMILY-institution heir and an owned HUT) confirming both dicts
+populate correctly through the actual mechanism and `location_
+character` reflects the result; a 4000-tick LLM-disabled `World.tick()`
+soak with a clean `to_dict()`/`from_dict()` round-trip, including a
+legacy-backfill test against a snapshot missing both new keys;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+pure Python, no native module touched.
+
 ## [1.34.54] — A21 second slice: legend feedback + "already legendary" grounding
 
 Explicit user instruction: "continue a21" (docs/ROADMAP-2026-07-

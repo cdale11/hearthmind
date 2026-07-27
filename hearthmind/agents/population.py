@@ -1950,6 +1950,8 @@ class Population:
         disaster_scars: "dict[tuple[int, int], float] | None" = None,
         road_scars: "dict[tuple[int, int], float] | None" = None,
         fields: "FieldGrid | None" = None,
+        construction_history: "dict[tuple[int, int], int] | None" = None,
+        ownership_history: "dict[tuple[int, int], int] | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -2252,6 +2254,7 @@ class Population:
             self._maybe_start_construction(
                 by_position, settlements, farms, rng, roads, resources, terrain, ruin_scars=ruin_scars,
                 mining_scars=mining_scars, disaster_scars=disaster_scars, road_scars=road_scars,
+                construction_history=construction_history,
             )
         )
         life_events.extend(
@@ -2271,7 +2274,12 @@ class Population:
         life_events.extend(
             self._maybe_reproduce(by_position, rng, capacity_by_id, settlements, tick)
         )
-        life_events.extend(self._apply_deaths(killed_by_predator, settlements, died_of_disease, tick=tick, rng=rng))
+        life_events.extend(
+            self._apply_deaths(
+                killed_by_predator, settlements, died_of_disease, tick=tick, rng=rng,
+                ownership_history=ownership_history,
+            )
+        )
         self._tick_mourning()
         self._tick_weddings()
         region_density = None
@@ -5394,6 +5402,7 @@ class Population:
         mining_scars: dict[tuple[int, int], float] | None = None,
         disaster_scars: dict[tuple[int, int], float] | None = None,
         road_scars: dict[tuple[int, int], float] | None = None,
+        construction_history: dict[tuple[int, int], int] | None = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         settlements_by_id = {s.id: s for s in settlements}
@@ -5471,6 +5480,12 @@ class Population:
             else:
                 owner_agent_id = None
             settlement.start_construction(bx, by, kind=kind, owner_agent_id=owner_agent_id)
+            if construction_history is not None:
+                # A19 "Persistent spatial memory": a real, permanent
+                # per-tile record of how many times something has been
+                # built here — never decays, unlike the scar dicts (see
+                # World.construction_history's own docstring for why).
+                construction_history[(bx, by)] = construction_history.get((bx, by), 0) + 1
             # H6 extension: founding a building is a tangible
             # achievement for its founders — see TRAIT_AMBITION_FOUNDING_NUDGE.
             for a in eligible:
@@ -6345,6 +6360,7 @@ class Population:
     def _apply_inheritance(
         self, agent: Agent, settlement: Settlement, dying_ids: set[int], tick: int = 0,
         rng: random.Random | None = None,
+        ownership_history: dict[tuple[int, int], int] | None = None,
     ) -> list[tuple[str, str]]:
         """H7 (docs/ROADMAP.md "Phase H"): a death moves what a person
         had to a living heir instead of it simply vanishing — land
@@ -6377,6 +6393,13 @@ class Population:
             if building.owner_agent_id == agent.id:
                 building.owner_agent_id = heir.id
                 homes_inherited += 1
+                if ownership_history is not None:
+                    # A19 "Persistent spatial memory": a real, permanent
+                    # per-tile record of how many times this exact site
+                    # has changed hands — see World.ownership_history's
+                    # own docstring.
+                    pos = (building.x, building.y)
+                    ownership_history[pos] = ownership_history.get(pos, 0) + 1
         if homes_inherited == 1:
             inherited.append("a home")
         elif homes_inherited > 1:
@@ -6483,6 +6506,7 @@ class Population:
     def _apply_deaths(
         self, killed_by_predator: set[int] = frozenset(), settlements: list[Settlement] | None = None,
         died_of_disease: set[int] = frozenset(), tick: int = 0, rng: random.Random | None = None,
+        ownership_history: dict[tuple[int, int], int] | None = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         settlements = settlements or []
@@ -6640,7 +6664,11 @@ class Population:
                                 "knowledge_lost",
                                 f"The craft behind {entry.split(':')[0]} died with {agent.name}.",
                             ))
-                life_events.extend(self._apply_inheritance(agent, home, dying_ids, tick, rng))
+                life_events.extend(
+                    self._apply_inheritance(
+                        agent, home, dying_ids, tick, rng, ownership_history=ownership_history,
+                    )
+                )
         self.agents = survivors
         if self._store is not None:
             # Drop the dead from the native store too, keeping it in

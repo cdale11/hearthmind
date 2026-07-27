@@ -1370,12 +1370,11 @@ forest reclaim). Real gaps, roughly by leverage:
    doc's own "raid" example stays scoped to relationship-rupture, a
    real combat/raid mechanic remains unbuilt — see the item's own
    entry below for detail.
-10. **A19 — closed for real progress, v1.34.53.** Nine of the spec's
-    named axes are now real (mining/disaster/ritual/ruin/road/
-    migration/traffic/pollution/fertility — see the item's own entry
-    below for detail). Only ownership/construction remain unfolded, and
-    both need a genuinely new per-tile HISTORY store built first (real,
-    unscoped follow-up), not another read-side unification step.
+10. **A19 — CLOSED, v1.34.55.** All eleven of the spec's sourceable
+    axes are now real (mining/disaster/ritual/ruin/road/migration/
+    traffic/pollution/fertility/construction/ownership — see the item's
+    own entry below for detail). Battles is the one axis that stays
+    genuinely open — no combat mechanic exists to source it.
 11. **A21** — legend feedback into tradition/religion/institution
     formation; using a formed legend as grounding context in other
     prompts; unifying with folklore.
@@ -1972,6 +1971,34 @@ current owner/stage is instantaneous state, not accumulated memory);
 building one would be new, unscoped follow-up work, not a read-side
 unification of something that already exists. Battles has no data
 source since Hearthmind has no combat mechanic (same note as A18).
+
+**CLOSED, third slice, v1.34.55** (explicit user instruction: "Continue
+with A19"). The last two named axes, closed for real via two genuinely
+new — but minimal, event-driven — per-tile stores: `World.construction_
+history`/`ownership_history` (permanent, non-decaying integer counts,
+unlike the scar dicts — a site rebuilt three times or a home passed
+through several owners has real accumulated history that shouldn't
+fade). Each is written at an already-existing real mechanical event,
+not a new one invented to populate the axis: `construction_history`
+increments in `Population._maybe_start_construction`, right after its
+real call to `Settlement.start_construction`; `ownership_history`
+increments in `Population._apply_inheritance` (H7), at the exact point
+a HUT's `owner_agent_id` hands off to a living heir. `CONSTRUCTION_
+NOTABLE_COUNT=2` (a first-ever build is ordinary; it takes a real
+rebuild to be worth naming) and `OWNERSHIP_NOTABLE_COUNT=1` (an
+inheritance hand-off is already rare and notable on its first
+occurrence) set each axis's own threshold, normalized 0..1 by `min(1.0,
+count / threshold)`. Closes every axis A19's own spec names except
+battles (no combat mechanic exists to source it — the one axis that
+genuinely stays open). Verified: direct unit tests (below/at/above-
+threshold surfacing, absent-dict handling), two production-path tests
+calling the real `Population._maybe_start_construction`/`_apply_
+inheritance` classmethods directly and confirming both dicts populate
+correctly and `location_character` reflects them, a 4000-tick LLM-
+disabled `World.tick()` soak with a clean `to_dict()`/`from_dict()`
+round-trip (including legacy-backfill on a snapshot missing the two new
+keys), `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical — pure Python, no native module touched.
 
 ### A20 — Multi-scale simulation
 A brand-new second field beyond `population_density`, and "culture

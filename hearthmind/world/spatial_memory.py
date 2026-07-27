@@ -28,19 +28,28 @@ own already-resolved-for-this-tile value rather than forcing them into
 the sparse-dict calling convention, and only surfaces a reading past a
 real notability threshold (heavily depleted soil, elevated traffic/
 pollution), same "absence means neutral" discipline the other axes
-already hold. Ownership/construction remain explicitly NOT folded —
-neither has any real per-tile HISTORY store (a building's current
-owner/stage is instantaneous state, not an accumulated memory the way
-every other axis here is); building one would be new, unscoped
-follow-up, not a read-side unification of something that already
-exists. Battles remains unfolded (no combat mechanic exists to
-source it, same note A18 already carries)."""
+already hold.
+
+Third slice (explicit user instruction, "continue A19"): ownership/
+construction close too. Both needed a genuinely new per-tile HISTORY
+store (a building's current owner/stage was only ever instantaneous
+state) — `World.construction_history`/`ownership_history`, written at
+the two real events that already exist for each (`Population._maybe_
+start_construction`'s call to `Settlement.start_construction`;
+`Population._apply_inheritance`'s owner hand-off, H7) rather than
+anything new invented just to populate this axis. Both are permanent,
+non-decaying counts (unlike the scar dicts) — a site rebuilt three
+times or passed through several owners has genuinely more history than
+one that hasn't, and that shouldn't fade the way a mining scar's
+cosmetic mark should. Battles remains unfolded (no combat mechanic
+exists to source it, same note A18 already carries) — this closes
+every other axis the spec names."""
 
 from __future__ import annotations
 
 LOCATION_HISTORY_CATEGORIES: tuple[str, ...] = (
     "mining", "disaster", "ritual", "ruin", "road", "migration", "dry_lakebed",
-    "traffic", "pollution", "fertility",
+    "traffic", "pollution", "fertility", "construction", "ownership",
 )
 """The closed set of axes `location_character` currently reads —
 each backed by a real, already-existing per-tile/per-region store.
@@ -55,11 +64,13 @@ own explicit "dried lakes... remain genuinely unbuilt" line); `traffic`
 (`FarmGrid.soil_fertility`) added closing A19's second slice — the
 same unification this module already provides, extended past the
 sparse-scar-dict shape to the field/farm substrate rather than left
-as three independent silos. Deliberately still NOT the spec's full
-nine-axis list: ownership/construction remain unfolded (no dedicated
-per-tile HISTORY store exists for either — real, unscoped follow-up);
-battles has no data source since Hearthmind has no combat mechanic,
-see A18's own note."""
+as three independent silos. `construction`/`ownership` (`World.
+construction_history`/`ownership_history`) added closing A19's third
+slice — permanent per-tile counts, written at `Population._maybe_
+start_construction`/`_apply_inheritance`'s real events, closing the
+last of the spec's named axes this codebase can actually source.
+Battles has no data source since Hearthmind has no combat mechanic,
+see A18's own note — the one axis that genuinely stays open."""
 
 
 FERTILITY_NOTABLE_THRESHOLD = 0.5
@@ -79,6 +90,21 @@ relative to the rest of the map right now) surfaces as a location-
 character axis, same "notable, not just present" discipline
 `FERTILITY_NOTABLE_THRESHOLD` uses."""
 
+CONSTRUCTION_NOTABLE_COUNT = 2
+"""`World.construction_history` is a raw, unbounded integer count (how
+many times something has been built at this exact tile) — a single
+first-ever construction is completely ordinary, so it takes at least
+one REBUILD (count >= 2) before a site's construction history is worth
+naming. Normalized 0..1 by `min(1.0, count / CONSTRUCTION_NOTABLE_
+COUNT)` the same way every other axis here caps its own intensity."""
+
+OWNERSHIP_NOTABLE_COUNT = 1
+"""`World.ownership_history` counts real inheritance hand-offs only
+(H7, far rarer than construction — bounded by deaths with a living
+family heir) — even a single transfer is already a real, nameable fact
+("this home has passed to a new family"), so unlike `CONSTRUCTION_
+NOTABLE_COUNT` the floor is the first occurrence, not the second."""
+
 
 def location_character_from_dicts(
     mining_scars: dict[tuple[int, int], float] | None,
@@ -92,6 +118,8 @@ def location_character_from_dicts(
     soil_fertility: dict[tuple[int, int], float] | None = None,
     traffic_at: float | None = None,
     pollution_at: float | None = None,
+    construction_history: dict[tuple[int, int], int] | None = None,
+    ownership_history: dict[tuple[int, int], int] | None = None,
 ) -> dict[str, float]:
     """The real read-side logic `location_character` below wraps — split
     out so a caller that already has the scar dicts on hand
@@ -103,10 +131,11 @@ def location_character_from_dicts(
     caller not passing that axis simply omits it from the result, same
     "absence means neutral" convention as below). `road_scars`
     (M1/M9), `migration_trails` (closing A19's first slice), `dry_
-    lakebed_scars` (a later Tier 1.5 pass), and `soil_fertility`/
-    `traffic_at`/`pollution_at` (closing A19's second slice) are all
-    keyword-only-by-convention, appended after `x, y` rather than
-    inserted earlier, so every existing positional call site keeps
+    lakebed_scars` (a later Tier 1.5 pass), `soil_fertility`/
+    `traffic_at`/`pollution_at` (closing A19's second slice), and
+    `construction_history`/`ownership_history` (closing A19's third)
+    are all keyword-only-by-convention, appended after `x, y` rather
+    than inserted earlier, so every existing positional call site keeps
     working unchanged. `traffic_at`/`pollution_at` are the CALLER's own
     already-resolved region reading for this specific tile (via
     `FieldGrid.get_at`) — this function has no `World`/width/height to
@@ -141,17 +170,23 @@ def location_character_from_dicts(
         character["traffic"] = traffic_at
     if pollution_at is not None and pollution_at >= POLLUTION_NOTABLE_THRESHOLD:
         character["pollution"] = pollution_at
+    construction = construction_history.get(pos) if construction_history else None
+    if construction is not None and construction >= CONSTRUCTION_NOTABLE_COUNT:
+        character["construction"] = min(1.0, construction / CONSTRUCTION_NOTABLE_COUNT)
+    ownership = ownership_history.get(pos) if ownership_history else None
+    if ownership is not None and ownership >= OWNERSHIP_NOTABLE_COUNT:
+        character["ownership"] = min(1.0, ownership / (OWNERSHIP_NOTABLE_COUNT + 1))
     return character
 
 
 def location_character(world, x: int, y: int) -> dict[str, float]:
-    """One tile's real accumulated history/character, read from the ten
-    existing per-location/per-region stores `World` already maintains.
-    Only keys present are ones with non-zero real intensity (or, for
-    fertility/traffic/pollution, past their own notability threshold)
-    — same "sparse, absence means neutral" convention the underlying
-    stores already use, so a caller can't mistake "not in this dict"
-    for "explicitly zero.\""""
+    """One tile's real accumulated history/character, read from the
+    twelve existing per-location/per-region stores `World` already
+    maintains. Only keys present are ones with non-zero real intensity
+    (or, for fertility/traffic/pollution/construction/ownership, past
+    their own notability threshold) — same "sparse, absence means
+    neutral" convention the underlying stores already use, so a caller
+    can't mistake "not in this dict" for "explicitly zero.\""""
     traffic_at = world.fields.get_at("traffic", (x, y), world.config.width, world.config.height)
     pollution_at = world.fields.get_at("pollution", (x, y), world.config.width, world.config.height)
     return location_character_from_dicts(
@@ -159,6 +194,7 @@ def location_character(world, x: int, y: int) -> dict[str, float]:
         road_scars=world.road_scars, migration_trails=world.migration_trails,
         dry_lakebed_scars=world.dry_lakebed_scars, soil_fertility=world.farms.soil_fertility,
         traffic_at=traffic_at, pollution_at=pollution_at,
+        construction_history=world.construction_history, ownership_history=world.ownership_history,
     )
 
 
@@ -168,6 +204,7 @@ LOCATION_CHARACTER_LABELS: dict[str, str] = {
     "migration": "a wildlife migration crossing", "dry_lakebed": "the bed of a lake that once reached here",
     "traffic": "heavy foot traffic", "pollution": "the fouled air of nearby industry",
     "fertility": "soil worn thin by hard farming",
+    "construction": "a site rebuilt many times over", "ownership": "a home passed down through generations",
 }
 """Plain-language label per `LOCATION_HISTORY_CATEGORIES` axis — closes
 A19's own "Feeds" checklist item ("places as actors... rich pillar
