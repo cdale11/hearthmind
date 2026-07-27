@@ -92,6 +92,7 @@ from hearthmind.world import emergence
 from hearthmind.world import graph_algorithms
 from hearthmind.world import legends
 from hearthmind.world import spatial_memory
+from hearthmind.world import culture_aggregate
 from hearthmind.cognition import attention
 from hearthmind.cognition.pillar import make_message
 from hearthmind.world.disasters import GOVERNOR_TUNING_BAND, WILDFIRE_CHANCE_PER_WEEK
@@ -142,6 +143,7 @@ from hearthmind.settlement.buildings import (
     FAMILY_FEUD_FESTIVAL_PENALTY,
     FESTIVAL_CHANCE_PER_MONTH,
     FESTIVAL_HUNGER_GATE,
+    FOLKLORE_LEGEND_PERSISTENCE_THRESHOLD,
     FOLKLORE_MAX_STORED,
     LEGENDS_MAX_STORED,
     GRANARY_CAPACITY,
@@ -3953,6 +3955,11 @@ class SimulationEngine:
         rumor_events = events_by_category(self.conn, "rumor", limit=20)
         if not rumor_events:
             self._mark_monthly_resolved("folklore")
+            # A21 third slice, "unify folklore/legend pipeline": a
+            # month with literally nothing new to draw on is still a
+            # month the village's current tale endured unchallenged —
+            # see `_note_folklore_persistence`'s own docstring.
+            self._note_folklore_persistence(target)
             return
         if self._pillar_interpret_backpressured("village"):
             return
@@ -3967,11 +3974,19 @@ class SimulationEngine:
             prior_tales = [e["tale"] for e in settlement.folklore]
             entry = folklore.parse_folklore(result, fallback, existing_tales=prior_tales)
             if entry is None:
-                return  # nothing worth telling this month, or a near-restatement of an existing tale
+                # Nothing worth telling this month, or a near-
+                # restatement of an existing tale — the current
+                # dominant tale endures another month unchallenged.
+                self._note_folklore_persistence(settlement)
+                return
             entry["tick"] = self.world.clock.tick_count
             settlement.folklore.append(entry)
             if len(settlement.folklore) > FOLKLORE_MAX_STORED:
                 settlement.folklore = settlement.folklore[-FOLKLORE_MAX_STORED:]
+            # A genuinely new tale supersedes whatever was enduring
+            # before it — reset the persistence clock.
+            settlement.folklore_persistence_count = 0
+            settlement.folklore_persistence_promoted = False
             self._log("folklore", f"{settlement.name or 'The village'} now tells a new tale — {entry['tale']}")
             self.world.village_pillar.remember(f"A new tale is told — {entry['tale']}")
             self._append_emergence(
@@ -3990,6 +4005,54 @@ class SimulationEngine:
         self._schedule_llm_job(
             "folklore", prompt, folklore.SYSTEM_PROMPT, fallback, apply, settlement=target.name,
         )
+
+    def _note_folklore_persistence(self, settlement: "Settlement") -> None:
+        """A21 third slice (explicit user instruction, "unify folklore/
+        legend pipeline"): folklore's rumor-condensation chain and
+        `legends`' Emergence-API chain were two totally parallel
+        mechanisms that never fed each other, despite this roadmap
+        item's own spec literally naming their unification as the
+        target. The real fold: a folk tale that keeps being retold
+        (or, more precisely, that keeps NOT being superseded by
+        something newer) across many months without new material is
+        exactly what "temporal compression" describes — repetition
+        without change is how a tale becomes a legend. Deterministic,
+        zero LLM cost, called only from `_maybe_schedule_folklore`'s
+        own two "nothing new this month" paths."""
+        if not settlement.folklore:
+            return  # nothing to endure yet
+        settlement.folklore_persistence_count += 1
+        if (
+            settlement.folklore_persistence_count >= FOLKLORE_LEGEND_PERSISTENCE_THRESHOLD
+            and not settlement.folklore_persistence_promoted
+        ):
+            self._promote_folklore_to_legend(settlement)
+
+    def _promote_folklore_to_legend(self, settlement: "Settlement") -> None:
+        """The deterministic promotion itself — no LLM call, since the
+        tale's own wording is already settled; graduating it to
+        `Settlement.legends` is a status change, not a new narration.
+        Tagged `subsystem="folklore"` (distinct from any real Emergence
+        API subsystem name) so `_maybe_schedule_legend_detection`'s own
+        `already_legendary` set naturally leaves this lane alone."""
+        tale_entry = settlement.folklore[-1]
+        legend_entry = {
+            "legend": tale_entry["tale"], "subsystem": "folklore",
+            "tick": self.world.clock.tick_count,
+        }
+        settlement.legends.append(legend_entry)
+        if len(settlement.legends) > LEGENDS_MAX_STORED:
+            settlement.legends = settlement.legends[-LEGENDS_MAX_STORED:]
+        settlement.folklore_persistence_promoted = True
+        # Same pressure-gate feedback v1.34.54 wired for Emergence-
+        # sourced legends — a folklore-sourced legend biases Innovation's
+        # next proposal toward its own theme too, no separate mechanism.
+        settlement.pattern_signal_counts["legend_folklore"] = PATTERN_SIGNAL_BELIEF_THRESHOLD
+        detail = f"{settlement.name or 'The village'}'s own tale has endured long enough to become legend — {tale_entry['tale']}"
+        self._log("legend_formed", detail)
+        self.world.village_pillar.remember(detail)
+        self._append_emergence("novel_combination", "culture", detail, ('village',))
+        self._send_pillar_message("village", "humans", "observation", detail)
 
     def _maybe_schedule_legend_detection(self, events: list[str]) -> None:
         """A21 "Temporal compression" (roadmap Stage IV step 30, docs/
@@ -6205,6 +6268,7 @@ class SimulationEngine:
             else "intrusive, arriving without any real cause" if ledger < -0.3
             else "hard to read either way"
         )
+        civilization_aggregate = culture_aggregate.compute_civilization_culture(self.world.settlements)
         prompt = consciousness.build_prompt(
             target.name, self.world.consciousness_personality, self.world.consciousness_memory,
             self.world.consciousness_objectives, self.world.consciousness_player_model,
@@ -6213,6 +6277,7 @@ class SimulationEngine:
             self._player_intervention_trend(),
             observer_favorite_name=favorite.name if favorite is not None else "",
             grudge_text=grudge_text,
+            civilization_culture_text=culture_aggregate.civilization_culture_text(civilization_aggregate),
         )
         fallback = consciousness.fallback_consciousness()
 

@@ -69,6 +69,7 @@ from hearthmind.world.ontology import CausalThread, CompositeEntity, InventedCon
 from hearthmind.world.reactions import CompositeReaction, default_composite_reactions
 from hearthmind.world.weather import WeatherState, compute_weather
 from hearthmind.world.wildlife import SpeciesVariant, WildlifeGrid
+from hearthmind.world import culture_aggregate
 from hearthmind.util import namespaced_rng
 
 # Shared helper (hearthmind/util.py) under its historical private name so
@@ -144,6 +145,17 @@ simulation/engine.py for broadcast invalidation) — now also used by
 `World._tick_disasters`' water-tile cache, so the two consumers can't
 drift apart. Part of the July 2026 review's stringly-typed-events
 cleanup."""
+
+
+def _civilization_culture_summary(settlements: list) -> dict:
+    """A20 "Multi-scale simulation" (docs/MASTERCHECKLIST-2026-07-22.md
+    #20): `World.summary()`'s broadcast-facing wrapper over `world.
+    culture_aggregate`'s pure aggregation, folding in a plain-language
+    `"text"` field so the frontend can render a sentence directly
+    rather than re-deriving one from the raw category/cohesion numbers
+    client-side."""
+    aggregate = culture_aggregate.compute_civilization_culture(settlements)
+    return {**aggregate, "text": culture_aggregate.civilization_culture_text(aggregate)}
 
 
 @dataclass
@@ -1188,6 +1200,7 @@ class World:
             },
             "world_size": f"{self.config.width}x{self.config.height}",
             "population": self.population.summary(),
+            "civilization_culture": _civilization_culture_summary(self.settlements),
             "resources": self.resources.summary(),
             "minerals": self.minerals.summary(),
             "mining_scars": {

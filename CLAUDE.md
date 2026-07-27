@@ -545,6 +545,41 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.57)
+
+Explicit user instruction: "Unify folklore/legend pipeline and
+continue A20." Two independent slices, one batch.
+
+Folklore/legend unification (A21's last flagged-open gap): new
+`Settlement.folklore_persistence_count`/`folklore_persistence_
+promoted` — a folk tale that endures unsuperseded across `FOLKLORE_
+LEGEND_PERSISTENCE_THRESHOLD=6` consecutive monthly folklore firings
+deterministically graduates into `Settlement.legends` (`_promote_
+folklore_to_legend`, zero LLM cost — the wording is already settled).
+The real fold between the two previously-parallel pipelines: a tale
+that keeps being retold long enough without new material IS a legend.
+
+A20 "Multi-scale simulation" — CLOSED. Audit found the doc's own
+status line stale: `FieldGrid` gained five more region-aggregated
+fields since v1.27.0, already satisfying the "brand-new second field"
+gap several times over. The genuinely open half — "'culture'
+aggregates settlements' information-ecosystems" — ships now: new
+`world/culture_aggregate.py` (pure aggregation, zero new simulation)
+reads every named settlement's already-real culture state into one
+world-scale reading (dominant tradition-influence category, cultural
+cohesion, religions formed, legend/tradition counts). Consumer:
+`llm/consciousness.py`'s Town Consciousness prompt (the one genuinely
+world-scoped Mind) gains this as optional grounding. UI: a new
+"Civilization" main-UI stat tile.
+
+Verified: direct unit tests for both mechanisms; production-path tests
+through the real `_maybe_schedule_folklore`/`_note_folklore_
+persistence`/`_promote_folklore_to_legend`/`_maybe_schedule_
+consciousness` call paths; a 5000-tick LLM-disabled soak with clean
+round-trip; `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
+byte-identical; a live dev server + Playwright pass confirming the new
+stat tile renders correctly.
+
 ## Current state (v1.34.56)
 
 Explicit user instruction: "Continue A21" (docs/ROADMAP-2026-07-

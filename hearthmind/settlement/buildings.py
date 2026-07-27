@@ -395,6 +395,18 @@ noteworthy observations from the SAME subsystem to mint one), so a
 settlement realistically accumulates far fewer of them over its
 lifetime."""
 
+FOLKLORE_LEGEND_PERSISTENCE_THRESHOLD = 6
+"""A21 "Temporal compression," third slice ("unify folklore/legend
+pipeline"): how many CONSECUTIVE monthly folklore-job firings must
+pass with the current newest `folklore` tale left unsuperseded before
+`SimulationEngine._promote_folklore_to_legend` graduates it into
+`SettlementCulture.legends` — see `SettlementCulture.folklore_
+persistence_count`'s own docstring. Six months (half a year) is
+deliberately longer than `RITUAL_PROMOTION_THRESHOLD`'s three: a
+ritual only needs to recur, but a tale earning legend status needs to
+have genuinely outlasted several real chances to be replaced by
+something newer, the actual "temporal compression" signal."""
+
 RITUAL_PROMOTION_THRESHOLD = 3
 """How many times a candidate pattern (a festival held, a death mourned
 at a standing shrine) must recur before `SimulationEngine._maybe_
@@ -2217,6 +2229,26 @@ class SettlementCulture:
     formed, that subsystem's counter resets so the same pattern
     doesn't keep re-mining the identical legend. Capped at
     `LEGENDS_MAX_STORED`."""
+    folklore_persistence_count: int = 0
+    """A21 "Temporal compression," third slice (explicit user
+    instruction, "unify folklore/legend pipeline"): the real fold
+    between folklore's rumor-condensation chain and `legends`'
+    Emergence-API chain — previously two totally parallel mechanisms
+    that never fed each other, despite this item's own spec literally
+    naming their unification. Counts consecutive monthly folklore-job
+    firings that produced NOTHING new (empty rumor window, an LLM "not
+    worth telling" answer, or a near-duplicate rejected by `folklore.
+    parse_folklore`'s dedup) while the newest `folklore` tale stood
+    unchanged — i.e. the village's current dominant tale enduring
+    without being supplanted, the temporal-compression signal itself:
+    something repeated/retold long enough without new material IS a
+    legend. Resets to 0 the moment a genuinely new tale forms. See
+    `FOLKLORE_LEGEND_PERSISTENCE_THRESHOLD`."""
+    folklore_persistence_promoted: bool = False
+    """Guards `_promote_folklore_to_legend` from re-promoting the SAME
+    enduring tale every month once it first crosses `FOLKLORE_LEGEND_
+    PERSISTENCE_THRESHOLD` — cleared back to False only when a new
+    folklore tale actually forms (see `folklore_persistence_count`)."""
     beliefs: list[dict] = field(default_factory=list)
     """The village's own accumulated, revisable theories about itself
     (`{subject, belief, confidence, subject_agent_id, ...}`), capped at
@@ -2569,6 +2601,7 @@ class Settlement:
         founding_scenario: str = "", llm_named: bool = False, temperament: float = 0.0,
         beliefs: list[dict] | None = None, belief_digest: str = "", culture_digest: str = "",
         folklore: list[dict] | None = None, legends: list[dict] | None = None,
+        folklore_persistence_count: int = 0, folklore_persistence_promoted: bool = False,
         omen_history: list[dict] | None = None,
         player_standing: float = 0.0, traditions_established: int = 0, festivals_held: int = 0,
         institutions: list[Institution] | None = None, next_institution_id: int = 0,
@@ -2648,6 +2681,8 @@ class Settlement:
             culture_digest=culture_digest,
             folklore=folklore if folklore is not None else [],
             legends=legends if legends is not None else [],
+            folklore_persistence_count=folklore_persistence_count,
+            folklore_persistence_promoted=folklore_persistence_promoted,
             place_names=place_names if place_names is not None else {},
             records=records if records is not None else [],
             institutions=institutions if institutions is not None else [],
@@ -2933,6 +2968,22 @@ class Settlement:
     @legends.setter
     def legends(self, value: list[dict]) -> None:
         self.culture.legends = value
+
+    @property
+    def folklore_persistence_count(self) -> int:
+        return self.culture.folklore_persistence_count
+
+    @folklore_persistence_count.setter
+    def folklore_persistence_count(self, value: int) -> None:
+        self.culture.folklore_persistence_count = value
+
+    @property
+    def folklore_persistence_promoted(self) -> bool:
+        return self.culture.folklore_persistence_promoted
+
+    @folklore_persistence_promoted.setter
+    def folklore_persistence_promoted(self, value: bool) -> None:
+        self.culture.folklore_persistence_promoted = value
 
     @property
     def institutions(self) -> list[Institution]:
@@ -3772,6 +3823,8 @@ class Settlement:
             "culture_digest": self.culture_digest,
             "folklore": list(self.folklore),
             "legends": list(self.legends),
+            "folklore_persistence_count": self.folklore_persistence_count,
+            "folklore_persistence_promoted": self.folklore_persistence_promoted,
             "temperament": round(self.temperament, 4),
             "mood": {k: round(v, 4) for k, v in self.mood.items()},
             "omen_history": list(self.omen_history),
@@ -3847,6 +3900,8 @@ class Settlement:
             culture_digest=data.get("culture_digest", ""),
             folklore=list(data.get("folklore", [])),
             legends=list(data.get("legends", [])),
+            folklore_persistence_count=data.get("folklore_persistence_count", 0),
+            folklore_persistence_promoted=data.get("folklore_persistence_promoted", False),
             temperament=data.get("temperament", 0.0),
             mood=dict(data.get("mood", {})),
             omen_history=list(data.get("omen_history", [])),

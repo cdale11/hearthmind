@@ -2004,9 +2004,27 @@ keys), `scripts/verify_native_soak.py` (2 seeds x 800 ticks)
 byte-identical — pure Python, no native module touched.
 
 ### A20 — Multi-scale simulation
-A brand-new second field beyond `population_density`, and "culture
-aggregates settlements' information-ecosystems" (the spec's other
-named example), remain open.
+**CLOSED, v1.34.57** (explicit user instruction: "continue A20"). Both
+named gaps close together, and a direct code audit found the first was
+already stale: `world/fields.py`'s `FieldGrid` gained five more
+region-aggregated fields since v1.27.0's filing (disease_pressure/
+pollution/traffic/scarcity, on top of population_density) — each is
+exactly the same "region is a computed summary of its tiles" shape the
+spec's own first example asks for, just never reflected back into this
+doc's own status line. The genuinely open half — "'culture' aggregates
+settlements' information-ecosystems" — ships now: new `world/culture_
+aggregate.py`'s `compute_civilization_culture` (pure aggregation, zero
+new simulation, zero LLM cost) reads every named settlement's already-
+real `culture_effects`/`religion`/`legends`/`traditions_established`
+into one world-scale reading — dominant tradition-influence category,
+cultural cohesion (how many settlements share it), religions formed,
+total legends, total traditions. Real consumer: the Town Consciousness
+prompt (`llm/consciousness.py`, the one genuinely world-scoped Mind)
+gains an optional `civilization_culture_text` grounding line. UI:
+`World.summary()`'s new `civilization_culture` field, surfaced as a
+main-UI "Civilization" stat tile (plain-language sentence, not raw
+numbers) — the "coherent world-scale story from local rules" the
+spec's own Feeds line asks for.
 
 ### A21 — Temporal compression
 **Second slice, v1.34.54** (explicit user instruction, "continue

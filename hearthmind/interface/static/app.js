@@ -3735,6 +3735,13 @@ function renderStats(summary) {
         : "nothing dominant yet",
       "What real NPC-to-NPC conversation has actually been about lately, most-talked-about first — several may run at once rather than one unifying theme, distinct from the quarterly narrative theme below.",
     ],
+    [
+      "Civilization",
+      (summary.civilization_culture && summary.civilization_culture.text)
+        ? summary.civilization_culture.text
+        : "no shared cultural leaning yet",
+      "A world-scale reading, aggregated (not separately simulated) from every named settlement's own traditions/religion/legends — cultural cohesion is how many settlements share the SAME dominant tradition category, distinct from any one settlement's own storylines above.",
+    ],
     ["__section__", "Economy"],
     [
       "Materials", `${s.materials.toFixed(1)} / ${s.materials_capacity.toFixed(1)}`,

@@ -4,6 +4,60 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.57] — A20 CLOSED: culture aggregates settlements' information-ecosystems
+
+Explicit user instruction: "Unify folklore/legend pipeline and continue
+A20." Two independent slices in one batch.
+
+**Folklore/legend unification (A21's last flagged-open gap).** New
+`Settlement.folklore_persistence_count`/`folklore_persistence_
+promoted`: a folk tale that endures — keeps NOT being superseded by
+something newer, across `FOLKLORE_LEGEND_PERSISTENCE_THRESHOLD=6`
+consecutive monthly folklore-job firings (empty rumor window, an LLM
+"not worth telling" answer, or a near-duplicate rejected by `folklore.
+parse_folklore`'s dedup) — deterministically graduates into `Settlement.
+legends` via new `SimulationEngine._promote_folklore_to_legend`, zero
+LLM cost (the tale's wording is already settled; this is a status
+change, not a new narration). Feeds the same `pattern_signal_counts`
+pressure gate v1.34.54 wired for Emergence-sourced legends. This is the
+real fold the two previously-parallel pipelines (folklore's rumor-
+condensation chain, `legends`' Emergence-API chain) never had — a tale
+that keeps being retold long enough IS a legend, exactly the "temporal
+compression" the item names.
+
+**A20 "Multi-scale simulation" — CLOSED.** Direct code audit found the
+doc's own status line stale: `world/fields.py`'s `FieldGrid` gained
+five more region-aggregated fields since v1.27.0 (disease_pressure/
+pollution/traffic/scarcity), each the same "region is a computed
+summary of its tiles" shape as `population_density` — the spec's first
+named gap was already satisfied several times over, just never
+reflected back into the doc. The genuinely open half ships now: new
+`world/culture_aggregate.py`'s `compute_civilization_culture` (pure
+aggregation over already-real per-settlement `culture_effects`/
+`religion`/`legends`/`traditions_established`, zero new simulation,
+zero LLM cost) — dominant tradition-influence category world-wide,
+cultural cohesion (fraction of settlements sharing it), religions
+formed, total legends, total traditions established. Real consumer:
+`llm/consciousness.py`'s Town Consciousness prompt (the one genuinely
+world-scoped Mind) gains an optional `civilization_culture_text`
+grounding line. UI: `World.summary()`'s new `civilization_culture`
+field, a plain-language "Civilization" main-UI stat tile.
+
+Verified: direct unit tests for both new mechanisms (persistence/
+promotion threshold crossing, cohesion math across cohesive/divergent
+settlement mixes, empty-world/no-settlement edge cases); production-
+path tests through the real `_maybe_schedule_folklore`/`_note_
+folklore_persistence`/`_promote_folklore_to_legend` and `_maybe_
+schedule_consciousness` call paths (including the real `Population.
+_maybe_start_construction`-shaped forced-scenario pattern this
+project's tests already use); a 5000-tick LLM-disabled engine soak
+with a clean `to_dict()`/`from_dict()` round-trip and legacy backfill
+(civilization_culture is summary-only, never persisted); `scripts/
+verify_native_soak.py` (2 seeds x 800 ticks) byte-identical — pure
+Python, no native module touched; a live dev server + Playwright pass
+confirming the "Civilization" stat tile renders with the correct
+plain-language text.
+
 ## [1.34.56] — A21 third slice: legend grounding reaches tradition/religion formation
 
 Explicit user instruction: "Continue A21" (docs/ROADMAP-2026-07-

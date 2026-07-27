@@ -76,6 +76,7 @@ def build_prompt(
     player_model: list[dict], mood: dict, temperament: float, narrative_theme: str,
     player_standing: float, recent_events: list[dict], recent_interventions: list[dict],
     player_intervention_trend: str = "", observer_favorite_name: str = "", grudge_text: str = "",
+    civilization_culture_text: str = "",
 ) -> str:
     personality_text = ", ".join(f"{k} {v:.2f}" for k, v in personality.items()) or "not yet settled"
     memory_text = "; ".join(m["note"] for m in memory[-6:]) or "Nothing remembered yet."
@@ -111,6 +112,16 @@ def build_prompt(
     # nudged, distinct from `player_standing` above (which is the
     # SETTLEMENT's own separate feeling).
     grudge_line = f"\nPrivately, being nudged has come to feel: {grudge_text}." if grudge_text else ""
+    # A20 "Multi-scale simulation" (docs/MASTERCHECKLIST-2026-07-22.md
+    # #20): the Town Consciousness is the one genuinely world-scoped
+    # Mind here, not tied to a single settlement's own local culture —
+    # a real place for the wider civilization's own computed cultural
+    # reading (`world/culture_aggregate.py`, a pure aggregation over
+    # every named settlement's real state) to ground its noticing,
+    # beyond just this one settlement's temperament/mood above.
+    civilization_line = (
+        f"\nAcross the wider world, {civilization_culture_text}." if civilization_culture_text else ""
+    )
     return (
         f"You have been watching {settlement_name} for a long time. Your own settled nature: "
         f"{personality_text}.\n"
@@ -121,7 +132,7 @@ def build_prompt(
         f"(-1 resentful, +1 grateful).{trend_line}{grudge_line}\n"
         f"This place's own temperament right now: {temperament:+.2f}, mood: {mood_text}.{theme_line}\n"
         f"What you've quietly done before: {interventions_text}\n"
-        f"What's happened lately:\n{events_text}{favorite_line}\n"
+        f"What's happened lately:\n{events_text}{favorite_line}{civilization_line}\n"
         "What do you notice this month, and is there anything small worth quietly doing about it?"
     )
 
