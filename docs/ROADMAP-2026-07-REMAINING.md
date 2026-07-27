@@ -1375,9 +1375,12 @@ forest reclaim). Real gaps, roughly by leverage:
     traffic/pollution/fertility/construction/ownership — see the item's
     own entry below for detail). Battles is the one axis that stays
     genuinely open — no combat mechanic exists to source it.
-11. **A21** — legend feedback into tradition/religion/institution
-    formation; using a formed legend as grounding context in other
-    prompts; unifying with folklore.
+11. **A21 — CLOSED, v1.34.56.** Legend feedback into tradition/
+    religion formation and "already legendary" grounding in chronicle/
+    folklore prompts are both real now — see the item's own entry
+    below for detail. Only unifying with folklore's own pipeline
+    remains open, flagged as aspirational by the doc's own source
+    checklist.
 12. **A20** — a second real multi-scale field beyond `population_
     density`; "culture aggregates settlements' information-ecosystems."
 13. **A13** — a real automatic reactor (today: query-only, nothing
@@ -2025,6 +2028,23 @@ explicit prior user directive ("a very concise summary," not the full
 grounding apparatus) argues against widening it here. Any unification
 with folklore itself remains open. See CHANGELOG.md's [1.28.0] entry
 for the first slice, [1.34.54] for this one.
+
+**CLOSED, third slice, v1.34.56** (explicit user instruction: "Continue
+A21"). The literal "tradition/religion... formation" half of the second
+slice's own gap, closed for real: `llm/culture.py`'s tradition-
+authoring `build_prompt` and `llm/religion.py`'s crystallization
+`build_prompt` both gained an optional `legends` param — a new
+tradition or a coalescing religion can now genuinely ground itself in a
+legend the village already holds as true, not just recent raw events,
+same additive shape chronicle/folklore already established. Institution
+formation (COUNCIL/GUILD/FACTION) has no equivalent LLM-authoring hook
+to extend — those form from deterministic triggers, not narrative
+context — so that piece of the checklist's wording stays covered by the
+second slice's `pattern_signal_counts` feedback, the nearest real
+"institution-adjacent" decision point. Folklore/legend pipeline
+unification is the one piece that remains genuinely open, per the
+checklist's own "aspirational, not attempted this pass" framing — see
+CHANGELOG.md's [1.34.56] entry.
 
 ### A22 — Emergence API
 Not literally "every deterministic subsystem" produces observations

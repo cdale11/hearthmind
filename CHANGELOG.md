@@ -4,6 +4,48 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.56] — A21 third slice: legend grounding reaches tradition/religion formation
+
+Explicit user instruction: "Continue A21" (docs/ROADMAP-2026-07-
+REMAINING.md's Tier 2, "Temporal compression"). v1.34.54's second
+slice grounded chronicle/folklore in "already legendary" context and
+fed legend formation into `pattern_signal_counts` (Innovation's
+ontology-proposal pressure gate) but left the checklist's own literal
+wording — "a formed legend doesn't yet feed back into tradition/
+religion/institution formation" — only partially closed: nothing that
+actually AUTHORS a tradition or a religion ever read a settlement's
+own legends.
+
+`llm/culture.py`'s `build_prompt` (the tradition-authoring job) and
+`llm/religion.py`'s `build_prompt` (ritual->religion crystallization)
+both gained an optional `legends` param, same additive "omitted or
+empty reproduces the prior prompt exactly" shape chronicle/folklore
+already established — a new tradition or a crystallizing religion can
+now genuinely ground itself in a legend the village already holds as
+true ("a festival honoring the subject of a real myth," "a religion
+coalescing around what the village already believes happened"), not
+just recent raw events. Wired at both real call sites (`_maybe_
+schedule_tradition`/`_maybe_schedule_religion` in `simulation/
+engine.py`) via `list(target.legends)`. Institution formation itself
+(COUNCIL/GUILD/FACTION) has no natural grounding hook to extend this
+way — those form from deterministic triggers (trust-graph clustering,
+skill mastery counts), not an LLM authoring step reading settlement
+narrative context — so that piece of the checklist's wording stays
+covered by v1.34.54's `pattern_signal_counts` feedback into ontology
+proposals, the nearest real "institution-adjacent" LLM decision point.
+Folklore/legend pipeline unification remains explicitly open, per the
+checklist's own "aspirational, not attempted this pass" framing.
+
+Verified: direct unit tests for both `build_prompt` functions (legend
+text present when supplied, byte-identical prompt when omitted); a
+production-path smoke test scheduling both real jobs
+(`_maybe_schedule_tradition`/`_maybe_schedule_religion`) against a
+settlement with a real legend, LLM disabled, confirming no crash and
+correct fallback application; a 4000-tick LLM-disabled engine soak
+with a clean `to_dict()`/`from_dict()` round-trip (no new persisted
+state — pure prompt-construction change); `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical.
+
 ## [1.34.55] — A19 third slice: construction/ownership close the spatial-memory axis list
 
 Explicit user instruction: "Continue with A19" (docs/ROADMAP-2026-07-

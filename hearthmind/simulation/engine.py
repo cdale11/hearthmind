@@ -3877,6 +3877,7 @@ class SimulationEngine:
         traditions = target.traditions
         prompt = culture.build_prompt(
             target.name, recent, traditions[-PROMPT_CULTURE_LIST_MAX:], self.world.clock.year,
+            legends=list(target.legends),
         )
         # `traditions_established` (a persistent, never-decremented
         # counter) rather than len(traditions) — the stored list is
@@ -5825,7 +5826,9 @@ class SimulationEngine:
         self._mark_season_year_resolved("religion")
         omen_history = list(target.omen_history)
         folklore_entries = list(target.folklore)
-        prompt = religion.build_prompt(target.name, target.rituals, omen_history, folklore_entries)
+        prompt = religion.build_prompt(
+            target.name, target.rituals, omen_history, folklore_entries, legends=list(target.legends),
+        )
         fallback = religion.fallback_religion()
         target_id = target.id
 

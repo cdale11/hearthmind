@@ -50,15 +50,30 @@ _FALLBACK_POOL: tuple[tuple[str, str, str], ...] = (
 
 
 def build_prompt(
-    settlement_name: str, recent_events: list[dict], existing_traditions: list[str], year: int
+    settlement_name: str, recent_events: list[dict], existing_traditions: list[str], year: int,
+    legends: list[dict] | None = None,
 ) -> str:
+    """`legends` (A21 "Temporal compression," third slice, explicit user
+    instruction "Continue A21"): a settlement's own crystallized legends
+    (`Settlement.legends`, `world/legends.py`) are a real, already-
+    decided piece of what the village believes about itself — grounding
+    a new tradition in an existing legend (a festival honoring the
+    subject of a real myth, say) closes the checklist's own named gap
+    ("a formed legend doesn't yet feed back into tradition... formation").
+    Optional and additive: omitted or empty reproduces the prior
+    prompt exactly."""
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
     traditions_text = "; ".join(existing_traditions) if existing_traditions else "None yet."
+    legends_line = ""
+    if legends:
+        legends_text = "; ".join(entry["legend"] for entry in legends[-3:])
+        legends_line = f"Legends the village already tells of itself: {legends_text}\n"
     return (
         f"The village of {settlement_name} has completed year {year}. "
         f"Recent history:\n{events_text}\n"
         f"Traditions already established: {traditions_text}\n"
+        f"{legends_line}"
         "Invent one new tradition this village now keeps."
     )
 

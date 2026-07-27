@@ -545,6 +545,35 @@ subsequent roadmap step (this file's v1.9.0 entry onward) is started
 only in direct response to an explicit user "next step"/"continue"
 message, never queued or auto-chained.
 
+## Current state (v1.34.56)
+
+Explicit user instruction: "Continue A21" (docs/ROADMAP-2026-07-
+REMAINING.md's Tier 2, "Temporal compression") — closes A21 for real:
+v1.34.54's second slice grounded chronicle/folklore in "already
+legendary" context and fed legends into Innovation's ontology-proposal
+pressure gate, but nothing that actually AUTHORS a tradition or a
+religion ever read a settlement's own legends, leaving the checklist's
+literal "feed back into tradition/religion... formation" wording only
+partially closed.
+
+`llm/culture.py`'s tradition-authoring `build_prompt` and `llm/
+religion.py`'s crystallization `build_prompt` both gained an optional
+`legends` param (same additive, omitted-reproduces-prior-prompt shape
+chronicle/folklore already established) — a new tradition or a
+coalescing religion can now genuinely ground itself in a legend the
+village already holds as true. Wired at both real call sites. COUNCIL/
+GUILD/FACTION institution formation has no equivalent LLM-authoring
+hook (deterministic triggers, not narrative context) — that piece
+stays covered by the prior slice's pressure-gate feedback. Folklore/
+legend pipeline unification remains the one genuinely open piece, per
+the source checklist's own "aspirational" framing.
+
+Verified: direct unit tests for both `build_prompt` functions; a
+production-path smoke test scheduling both real jobs against a
+settlement with a real legend, LLM disabled; a 4000-tick soak with a
+clean round-trip (no new persisted state); `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical.
+
 ## Current state (v1.34.55)
 
 Explicit user instruction: "Continue with A19" (docs/ROADMAP-2026-07-

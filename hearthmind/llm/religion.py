@@ -29,14 +29,27 @@ SYSTEM_PROMPT = (
 
 def build_prompt(
     settlement_name: str, rituals: list[dict], omen_history: list[dict], folklore: list[dict],
+    legends: list[dict] | None = None,
 ) -> str:
+    """`legends` (A21 "Temporal compression," third slice, explicit user
+    instruction "Continue A21"): a village's own crystallized legends
+    (`Settlement.legends`) are stronger, already-decided grounding than
+    an ordinary folk tale — a religion crystallizing around a subject
+    the village already has a real legend about is a more coherent read
+    than one grounded only in habit and rumor. Optional and additive:
+    omitted or empty reproduces the prior prompt exactly."""
     rituals_text = "\n".join(f"- {r['description']}" for r in rituals) or "None yet."
     omens_text = "; ".join(o.get("text", "") for o in omen_history[-4:]) or "None noticed."
     folklore_text = "; ".join(f["tale"] for f in folklore[-4:]) or "None told."
+    legends_line = ""
+    if legends:
+        legends_text = "; ".join(e["legend"] for e in legends[-3:])
+        legends_line = f"Legends the village already holds as true: {legends_text}\n"
     return (
         f"The village of {settlement_name}. Practices it repeats without being told to:\n{rituals_text}\n"
         f"Omens noticed over the years: {omens_text}\n"
         f"Tales the village tells: {folklore_text}\n"
+        f"{legends_line}"
         "Do these coalesce into a shared belief, or is it too soon to say?"
     )
 
