@@ -510,6 +510,32 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.73)
+
+Explicit user instruction: "Continue A1." Shipped `fertility`, the
+12th real `FieldGrid` field — `FieldGrid.step_fertility` averages
+`FarmGrid.soil_fertility` per region (same already-bounded-average
+shape `step_scarcity` established), spread via `ca_operators.diffuse`.
+Deliberately NOT a duplicate of `world/spatial_memory.py`'s
+`location_character` (a per-tile flavor read of the same underlying
+dict) — the real consumer is region-scoped:
+`SimulationEngine._choose_fission_site` prefers a fertile region over
+a non-fertile one when a qualifying candidate exists
+(`FERTILITY_FISSION_PREFER_THRESHOLD=0.4`, never a hard block, applied
+after the existing density/scent filters). 12th "🗺️ fields" UI mode.
+
+Verified: 2 direct unit tests, a production-path test through the real
+`World.tick()` confirming organic formation + clean round-trip, a
+30-trial deterministic consumer test (every draw landed in the forced
+fertile region), a 4000-tick LLM-disabled soak with clean round-trip,
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical,
+and a live dev server + Playwright pass.
+
+Remaining under A1: `beauty` and the mining_scars/disaster_scars/
+climate-grid migration, both still deferred on the v1.34.72
+recommended-default judgment (unanswered `AskUserQuestion`) — not
+re-asked this pass since nothing changed.
+
 ## Current state (v1.34.72)
 
 Explicit user instruction: "Continue A1 and ask questions if your are

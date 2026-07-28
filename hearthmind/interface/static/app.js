@@ -1181,14 +1181,14 @@ detailsToggle.addEventListener("click", () => {
 // naturally faint/rare) — showing them all at once would fight the
 // map's own readability, the same reasoning the Observatory UI
 // direction already applies to the details panel.
-const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic", "scarcity", "ownership", "noise", "heat", "nutrients", "scent", "cultural_influence"];
+const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic", "scarcity", "ownership", "noise", "heat", "nutrients", "scent", "cultural_influence", "fertility"];
 const FIELD_OVERLAY_LABELS = {
   off: "off", moisture: "soil moisture", soil_fertility: "soil fertility",
   population_density: "population density", disease_pressure: "disease pressure",
   pollution: "pollution", traffic: "traffic", scarcity: "economic scarcity",
   ownership: "settledness", noise: "disturbance",
   heat: "heat", nutrients: "wild forage", scent: "predator scent",
-  cultural_influence: "cultural influence",
+  cultural_influence: "cultural influence", fertility: "regional fertility",
 };
 let fieldOverlayMode = "off";
 const fieldCanvas = document.getElementById("field-canvas");
@@ -1216,6 +1216,7 @@ const FIELD_LEGEND_LABELS = {
   nutrients: { min: "sparse", max: "bountiful" },
   scent: { min: "safe", max: "dangerous" },
   cultural_influence: { min: "no adopters", max: "cultural hub" },
+  fertility: { min: "no farmland", max: "prime farmland" },
 };
 const fieldLegend = document.getElementById("field-legend");
 const fieldLegendTitle = document.getElementById("field-legend-title");
@@ -1338,6 +1339,15 @@ const FIELD_COLOR_STOPS = {
   // "roots" ramp (this is intellectual/cultural presence, not
   // physical settledness) and from every warning-red mode above.
   cultural_influence: [[215, 210, 215], [175, 140, 200], [160, 50, 190]],
+  // A1 (Tier 1, "fertility" — regional aggregate of `FarmGrid.soil_
+  // fertility`, distinct from the existing tile-level "soil_fertility"
+  // mode). No farmland reads as a bare dusty tan, prime farmland shifts
+  // through a golden wheat tone to a lush deep green — an "abundance"
+  // hue family close to `soil_fertility`'s own tan-to-green ramp
+  // (deliberately similar, since both tell an agricultural story) but
+  // shifted warmer at the low end since this field's floor is "nothing
+  // farmed here" rather than soil_fertility's "farmed but depleted."
+  fertility: [[195, 175, 140], [215, 180, 90], [60, 150, 70]],
 };
 
 function lerpColorStops(stops, t) {
@@ -1602,7 +1612,7 @@ function renderFieldOverlay() {
         if (!peak || v > peak.value) peak = { x: rx, y: ry, w: regionW * CELL, h: regionH * CELL, value: v };
       }
     }
-  } else if (fieldOverlayMode === "heat" || fieldOverlayMode === "nutrients" || fieldOverlayMode === "scent" || fieldOverlayMode === "cultural_influence") {
+  } else if (fieldOverlayMode === "heat" || fieldOverlayMode === "nutrients" || fieldOverlayMode === "scent" || fieldOverlayMode === "cultural_influence" || fieldOverlayMode === "fertility") {
     const grid = terrain[fieldOverlayMode];
     if (!grid || !grid.length) return;
     const regionW = Math.ceil(terrain.width / grid[0].length);

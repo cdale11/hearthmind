@@ -974,6 +974,9 @@ class World:
             [(a.x, a.y) for a in self.population.agents if a.id in adopter_ids],
             self.config.width, self.config.height,
         )
+        self.fields.step_fertility(
+            list(self.farms.soil_fertility.items()), self.config.width, self.config.height,
+        )
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (
             wildlife_events + settlement_events + population_events + terrain_events + disaster_events

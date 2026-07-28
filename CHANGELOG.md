@@ -4,6 +4,45 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.73] — A1: fertility field (12th, closes the field-count checklist)
+
+Explicit user instruction: "Continue A1." Ships the last named field
+this doc's own checklist ever tracked, `fertility` — a genuine
+`FieldGrid` region aggregate, distinct from `FarmGrid.soil_fertility`'s
+existing dense per-farmed-tile dict and from `world/spatial_memory.py`'s
+`location_character` (which reads that same dict for ONE tile's flavor
+text). `FieldGrid.step_fertility` averages `soil_fertility` per region
+(same already-bounded-average shape `step_scarcity` established, no
+`_normalize_peak` needed since the source is already 0..1), spread via
+`ca_operators.diffuse`. Real consumer, deliberately NOT a duplicate of
+`location_character`'s tile-level read: `SimulationEngine._choose_
+fission_site` gains a third region-field filter, `FERTILITY_FISSION_
+PREFER_THRESHOLD=0.4` — a candidate site in a region already reading as
+good farmland is preferred over one that isn't, when a qualifying
+candidate exists (never a hard block, applied last after the existing
+density/scent filters). UI: 12th "🗺️ fields" overlay mode ("regional
+fertility"), own tan-to-gold-to-green color ramp distinct from the
+existing tile-level "soil fertility" mode's own ramp.
+
+Only `beauty` and the mining_scars/disaster_scars/climate-grid
+`FieldGrid` migration remain open under A1 — both per the same
+unanswered-`AskUserQuestion` defaults recorded at v1.34.72 (skip
+`beauty`, leave the migration deferred); neither was re-asked this
+pass since nothing changed about either since the last answer.
+
+Verified: 2 direct unit tests for `step_fertility` (region with farmed
+tiles reads higher than a bare one; empty input stays all-zero), a
+production-path test through the real `World.tick()` with forced
+`soil_fertility` confirming organic formation plus a clean round-trip,
+a 30-trial deterministic consumer test (forced fertility field, every
+one of 30 `_choose_fission_site` draws landed in the fertile region), a
+4000-tick LLM-disabled soak with clean round-trip, `scripts/verify_
+native_soak.py` (2 seeds x 800 ticks) byte-identical, and a live dev
+server + Playwright pass confirming the overlay cycles to "regional
+fertility" with a matching legend and no new console errors (one
+pre-existing unrelated `favicon.ico` 404 confirmed via direct `curl`,
+same as prior passes).
+
 ## [1.34.72] — A1: cultural_influence field (11th) + correction of v1.34.71's own scope note
 
 Explicit user instruction: "Continue A1 and ask questions if your are

@@ -628,6 +628,19 @@ AVOID_THRESHOLD` established. Applied AFTER the density filter, so a
 founding party first avoids crowding, then (among what's left) avoids
 visibly dangerous ground."""
 
+FERTILITY_FISSION_PREFER_THRESHOLD = 0.4
+"""A1 FieldGrid `fertility` field's real consumer: a candidate fission
+site in a region at or above this reading (`FieldGrid.step_fertility`,
+regional average of `FarmGrid.soil_fertility`) is PREFERRED over one in
+a less fertile region, when at least one qualifying candidate exists —
+the one POSITIVE preference among `_choose_fission_site`'s three
+region-field filters (density/scent both only ever avoid); "a founding
+party seeks good farmland when it exists," never a hard block — an
+unfarmed map (every region reads 0.0, the honest "nothing planted
+anywhere yet" default) falls through to the unfiltered candidate list
+exactly like every other filter here. Applied LAST, after density/
+scent, so it only narrows what survives those two."""
+
 REFLECTION_COHERENCE_MIN_TOTAL = 10
 REFLECTION_COHERENCE_ABANDONED_RATIO = 0.5
 """Vision doc item 5.3 ("Coherence/drift detection... the immune system
@@ -1599,6 +1612,7 @@ class SimulationEngine:
                 nutrients=world.fields.ensure_field("nutrients"),
                 scent=world.fields.ensure_field("scent"),
                 cultural_influence=world.fields.ensure_field("cultural_influence"),
+                fertility=world.fields.ensure_field("fertility"),
                 road_scars=world.road_scars,
                 migration_trails=world.migration_trails,
                 dry_lakebed_scars=world.dry_lakebed_scars,
@@ -9463,6 +9477,18 @@ class SimulationEngine:
             ]
             if safe:
                 spots = safe
+            # A1 FieldGrid: prefer a region the live `fertility` field
+            # already reads as good farmland, when one exists — never a
+            # hard block, and the one POSITIVE region-field preference
+            # here (density/scent both only ever avoid).
+            fertile = [
+                pos for pos in spots
+                if self.world.fields.get_at(
+                    "fertility", pos, self.world.config.width, self.world.config.height,
+                ) >= FERTILITY_FISSION_PREFER_THRESHOLD
+            ]
+            if fertile:
+                spots = fertile
         if origin is not None and spots:
             # Never point the party at land it can't walk to — rivers/
             # lakes genuinely disconnect regions on this generator.
@@ -10226,6 +10252,7 @@ class SimulationEngine:
                 nutrients=self.world.fields.ensure_field("nutrients"),
                 scent=self.world.fields.ensure_field("scent"),
                 cultural_influence=self.world.fields.ensure_field("cultural_influence"),
+                fertility=self.world.fields.ensure_field("fertility"),
                 road_scars=self.world.road_scars,
                 migration_trails=self.world.migration_trails,
                 dry_lakebed_scars=self.world.dry_lakebed_scars,

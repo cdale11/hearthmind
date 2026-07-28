@@ -175,6 +175,11 @@ CULTURAL_INFLUENCE_DIFFUSE_RATE = 0.3
 culturally active one reads as somewhat influenced too, not just the
 exact tiles where an adopter happens to be standing this tick."""
 
+FERTILITY_DIFFUSE_RATE = 0.3
+"""Same role as `SCARCITY_DIFFUSE_RATE` — a region bordering rich
+farmland reads as somewhat fertile too, not just the exact tiles under
+plow this tick."""
+
 
 def _normalize_peak(raw: list[list[float]]) -> list[list[float]]:
     """Scales a raw non-negative grid to 0..1 against its own peak cell
@@ -449,6 +454,39 @@ class FieldGrid:
             rx, ry = self.region_of(pos, width, height)
             raw[ry][rx] += 1
         self.fields["cultural_influence"] = diffuse(_normalize_peak(raw), CULTURAL_INFLUENCE_DIFFUSE_RATE)
+
+    def step_fertility(
+        self, soil_fertility_items: list[tuple[tuple[int, int], float]], width: int, height: int,
+    ) -> None:
+        """Twelfth concrete field (A1). Sourced from `FarmGrid.soil_
+        fertility` — already a real, already-real-tracked, already-0..1
+        per-farmed-tile dict — averaged per region (same already-bounded
+        shape `step_scarcity` established, no `_normalize_peak` needed),
+        then spread via `ca_operators.diffuse`.
+
+        Deliberately NOT the same read `world/spatial_memory.py`'s
+        `location_character` already makes: that function looks up ONE
+        specific tile's own farmed history for flavor text (a bare-tile
+        inspector line, an origin story). This is a REGION-scale
+        aggregate consumed by a region-scoped mechanic — see
+        `SimulationEngine._choose_fission_site`'s new fertility
+        preference — a genuinely different question ("which broad area
+        of the map is good farmland right now") than "what happened on
+        this exact tile." An unfarmed region (no tiles in `soil_
+        fertility` at all) reads as 0.0, not neutral — matching every
+        other region-average field's own "nothing here yet" convention
+        (`step_scarcity`)."""
+        totals = [[0.0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+        counts = [[0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+        for pos, fertility in soil_fertility_items:
+            rx, ry = self.region_of(pos, width, height)
+            totals[ry][rx] += fertility
+            counts[ry][rx] += 1
+        raw = [
+            [(totals[ry][rx] / counts[ry][rx]) if counts[ry][rx] > 0 else 0.0 for rx in range(FIELD_GRID_SIZE)]
+            for ry in range(FIELD_GRID_SIZE)
+        ]
+        self.fields["fertility"] = diffuse(raw, FERTILITY_DIFFUSE_RATE)
 
     def to_dict(self) -> dict:
         return {name: [list(row) for row in grid] for name, grid in self.fields.items()}

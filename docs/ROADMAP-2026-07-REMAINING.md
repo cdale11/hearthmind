@@ -72,15 +72,15 @@ starts on an explicit instruction naming an item.
       `nutrients`/`scent` (v1.34.71), then `cultural_influence`
       (v1.34.72, sourced from `InventedConcept.adopter_ids` — real
       data source, correcting v1.34.71's own claim that one didn't
-      exist) shipped — eleven of the twelve named continuous fields
-      are now real (`population_density`, `disease_pressure`,
-      `pollution`, `traffic`, `scarcity` (A4), `ownership`, `noise`,
-      `heat`, `nutrients`, `scent`, `cultural_influence`). Two remain
-      unbuilt: `fertility`-as-a-FieldGrid-aggregate (would duplicate an
-      axis `location_character` already reads from `FarmGrid`
-      directly), `beauty` (an `AskUserQuestion` about its mechanical
-      meaning went unanswered at v1.34.72 — defaulted to skip, not a
-      user-confirmed decision, re-raise on a future pass).
+      exist), then `fertility` (v1.34.73, a region average of
+      `FarmGrid.soil_fertility` — closes the field-count checklist)
+      shipped — all twelve originally-named continuous fields are now
+      real (`population_density`, `disease_pressure`, `pollution`,
+      `traffic`, `scarcity` (A4), `ownership`, `noise`, `heat`,
+      `nutrients`, `scent`, `cultural_influence`, `fertility`). Only
+      `beauty` remains unbuilt — an `AskUserQuestion` about its
+      mechanical meaning went unanswered at v1.34.72 — defaulted to
+      skip, not a user-confirmed decision, re-raise on a future pass.
 - [ ] **A1** — migrate `mining_scars`/`disaster_scars`/the 3x3 climate
       grid onto `FieldGrid` properly instead of staying separate stores
       — explicitly considered and deferred at v1.34.71 (a real refactor
@@ -1427,17 +1427,17 @@ conclusions" framing:
    blocking A3's rivers-re-carve item; **that item itself shipped,
    v1.34.25** (see A3's own entry below — this line was stale, caught
    during a v1.34.50 docs-accuracy pass).
-3. **A1** — **eleven real fields as of v1.34.72** (`ownership`/`noise`
-   at v1.34.67/.70, `heat`/`nutrients`/`scent` at v1.34.71,
-   `cultural_influence` at v1.34.72, joining `population_density`/
-   `disease_pressure`/`pollution`/`traffic`/`scarcity`).
-   `fertility`-as-a-FieldGrid-aggregate and `beauty` remain unbuilt
-   (each with a concrete reason, not silently dropped — see the item's
-   own entry below), plus migrating `mining_scars`/`disaster_scars`/the
-   climate grid onto `FieldGrid` properly instead of staying separate
-   stores (explicitly considered and deferred at v1.34.71, re-asked and
-   again deferred at v1.34.72 — too large/risky to bundle with a
-   field-adding batch).
+3. **A1** — **all twelve originally-named fields real as of v1.34.73**
+   (`ownership`/`noise` at v1.34.67/.70, `heat`/`nutrients`/`scent` at
+   v1.34.71, `cultural_influence` at v1.34.72, `fertility` at v1.34.73,
+   joining `population_density`/`disease_pressure`/`pollution`/
+   `traffic`/`scarcity`). Only `beauty` remains unbuilt (an
+   `AskUserQuestion` about its mechanical meaning went unanswered at
+   v1.34.72, defaulted to skip — see the item's own entry below), plus
+   migrating `mining_scars`/`disaster_scars`/the climate grid onto
+   `FieldGrid` properly instead of staying separate stores (explicitly
+   considered and deferred at v1.34.71, re-asked and again deferred at
+   v1.34.72 — too large/risky to bundle with a field-adding batch).
 4. **A2** — **`diffuse`'s fifth consumer shipped, v1.34.67**
    (`ownership`'s `diffuse` call, joining `traffic`'s/`disease_
    pressure`'s/`pollution`'s); **`cellular_step`'s first real consumer
@@ -1871,12 +1871,12 @@ context/rationale on any item — this is the "what's left" extract.
 **Sixth field shipped (v1.34.67): `ownership`. Seventh shipped
 (v1.34.70): `noise`. Eighth/ninth/tenth shipped (v1.34.71): `heat`/
 `nutrients`/`scent`. Eleventh shipped (v1.34.72): `cultural_
-influence`.** `population_density`/`disease_pressure`/`pollution`/
-`traffic`/`scarcity` (A4) were the only five real fields before
-`ownership`; two of the remaining named fields (`fertility`-as-a-
-FieldGrid-aggregate, `beauty` — moisture is really A11's, already
-shipped there) are still unbuilt, each with a concrete reason (see
-below) rather than silently dropped. `terrain_activity`/`disaster_
+influence`. Twelfth shipped (v1.34.73): `fertility` — closes the
+field-count checklist.** `population_density`/`disease_pressure`/
+`pollution`/`traffic`/`scarcity` (A4) were the only five real fields
+before `ownership`; only `beauty` (moisture is really A11's, already
+shipped there) is still unbuilt, per an unanswered `AskUserQuestion`
+(see below) rather than silently dropped. `terrain_activity`/`disaster_
 scars` and the climate grid remain separate stores, not migrated onto
 `FieldGrid` — considered and explicitly deferred at v1.34.71, re-asked
 via `AskUserQuestion` at v1.34.72 and again went unanswered, still
@@ -1951,14 +1951,26 @@ alongside `ownership`/`heat`'s siblings, "word travels that a place has
 real ideas." Given a real map overlay (11th "🗺️ fields" mode) in the
 same batch.
 
-**Explicitly NOT attempted, each with a concrete reason:**
-`fertility` as a genuine FieldGrid region aggregate (distinct from
-`FarmGrid.soil_fertility`'s existing dense per-farmed-tile dict) would
-largely duplicate an axis `location_character` already reads directly
-from `FarmGrid` — no clear new value over the existing read path.
-`beauty` was asked about via `AskUserQuestion` at v1.34.72 (what would
-its mechanical meaning even be) and went unanswered — defaulted to
-skip on the recommended-default judgment stated at the time, not a
+**`fertility` (v1.34.73)** — closes the field-count checklist.
+`FieldGrid.step_fertility` averages `FarmGrid.soil_fertility` per
+region (same already-bounded-average shape `step_scarcity`
+established, no `_normalize_peak` needed), spread via `ca_operators.
+diffuse`. Deliberately NOT the duplicate of `location_character` it
+looked like on first read: that function looks up ONE tile's own
+farmed history for flavor text; this is a REGION-scale aggregate
+consumed by a region-scoped mechanic — `SimulationEngine._choose_
+fission_site` gains a third region-field filter,
+`FERTILITY_FISSION_PREFER_THRESHOLD=0.4` (a candidate site in a region
+already reading as good farmland is preferred, applied last, never a
+hard block) — "a founding party seeks good farmland when it exists,"
+distinct from `location_character`'s "what happened on this exact
+tile" question. Given a real map overlay (12th "🗺️ fields" mode) in
+the same batch.
+
+**Explicitly NOT attempted, with a concrete reason:** `beauty` was
+asked about via `AskUserQuestion` at v1.34.72 (what would its
+mechanical meaning even be) and went unanswered — defaulted to skip on
+the recommended-default judgment stated at the time, not a
 user-confirmed decision; re-raise on a future pass rather than treating
 this as settled design.
 
