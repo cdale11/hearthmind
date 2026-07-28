@@ -118,9 +118,18 @@ Closed as a tier (v1.34.51). One residual named example never built:
       buildings (per-*building*-instance material shipped v1.34.58).
 - [ ] **A16** — trade-as-network-flow, tech-as-DAG, information-
       propagation-as-graph-algorithm (only centrality is shipped).
-- [ ] **B4** — reverse-direction disagreement classification: only the
-      Nature→Village arrow checks whether the receiver already
-      disagrees; every other arrow defaults to a flat kind tag.
+- [x] **B4** — reverse-direction disagreement classification —
+      **CLOSED, v1.34.65.** Extended to the Village→Innovation `theory`
+      arrow and all four Innovation→Village `discovery` arrows
+      (propose/merge/evolve/composite_entity — the last deliberately
+      excluded, see the item's own entry below), reusing the exact
+      `disagrees_with` check the Nature→Village arrow already had.
+      Every remaining B4 arrow (Village→Humans, Humans→Reflection, etc.)
+      only ever sends ONE tag unconditionally by design — a tale
+      entering folklore, say, isn't a "theory" the receiver could hold a
+      competing one about — so this closes every arrow where the check
+      is actually meaningful, not just the two named in the item's
+      original text.
 - [ ] **B8** — `reinforce`/`reinterpret` (only `consolidate`/forget
       exist); needs per-note salience/access tracking in all five
       pillars.
@@ -1677,10 +1686,21 @@ in this document; nothing in either was started this pass)
     material per `BuildingKind`).
 22. **A16** — trade-as-network-flow, tech-as-DAG, information-
     propagation-as-graph-algorithm (today: only centrality is shipped).
-23. **B4** — reverse-direction disagreement classification: only the
-    Nature→Village message site checks whether the receiver already
-    disagrees; Village→Innovation/Innovation→Village default to flat
-    `theory`/`discovery` tags without that check.
+23. **B4 — CLOSED, v1.34.65.** Reverse-direction disagreement
+    classification, previously only on the Nature→Village site, now
+    also covers the Village→Innovation `theory` arrow and the four
+    Innovation→Village `discovery` arrows sourced from `ontology.
+    register_concept` (propose/merge/evolve) — same mechanical
+    `pillar.disagrees_with(subject)` check, reused verbatim, not
+    reimplemented. `composite_entity`'s Innovation→Village arrow
+    (a named place/landmark, not a competing theory about a subject)
+    was deliberately left as a flat `discovery` tag — the check is
+    meaningless there, not merely unattempted. Verified via two direct
+    production-path tests driving the real `_maybe_schedule_ontology_
+    proposal` job end to end: one with a pre-seeded conflicting Village
+    theory (confirmed `disagreement`), one without (confirmed the
+    original flat `discovery` still applies) — same real gating/RNG/
+    season-boundary path a live world uses, no gate bypassed.
 24. **B8** — `reinforce`/`reinterpret` (today: `consolidate`/forget
     only) — needs per-note salience/access tracking across all five
     pillars.

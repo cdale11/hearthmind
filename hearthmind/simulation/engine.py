@@ -4444,9 +4444,19 @@ class SimulationEngine:
             # B4 "Inter-pillar consciousness bus" (roadmap Stage III
             # step 11), the Innovation->Village arrow: a newly
             # registered concept is real news for the village that
-            # will go on to adopt (or ignore) it.
+            # will go on to adopt (or ignore) it. Tier 3 item 23
+            # ("reverse-direction disagreement classification"): the
+            # Nature->Village arrow has always checked whether the
+            # RECEIVER already holds a confident opposing theory about
+            # the recognizably same subject; the four Innovation-
+            # >Village discovery arrows never did, defaulting to a flat
+            # "discovery" tag even when Village already believes
+            # something that contradicts the new concept. Same
+            # mechanical `disagrees_with` check, applied here for the
+            # first time.
+            message_kind = "disagreement" if self.world.village_pillar.disagrees_with(concept.name) else "discovery"
             self._send_pillar_message(
-                "innovation", "village", "discovery",
+                "innovation", "village", message_kind,
                 f"the village now has {concept.name}: {concept.description}",
             )
             self._pillar_close_cycle("innovation")
@@ -4538,9 +4548,12 @@ class SimulationEngine:
                 # III step 11), a fourth Innovation->Village arrow: a
                 # genuinely new merged concept is real discovery
                 # material, same treatment ontology_proposal's existing
-                # Innovation->Village arrow already gets.
+                # Innovation->Village arrow already gets — including,
+                # as of Tier 3 item 23, the same reverse-direction
+                # disagreement check.
+                message_kind = "disagreement" if self.world.village_pillar.disagrees_with(name) else "discovery"
                 self._send_pillar_message(
-                    "innovation", "village", "discovery", f"combined two ideas into {name}: {description}",
+                    "innovation", "village", message_kind, f"combined two ideas into {name}: {description}",
                 )
         else:
             parent = weighted_pick(1)[0]
@@ -4578,9 +4591,11 @@ class SimulationEngine:
                 # III step 11), a fifth Innovation->Village arrow: a
                 # genuinely evolved concept is real discovery material,
                 # same treatment ontology_proposal's existing arrow
-                # already gets.
+                # already gets — including Tier 3 item 23's reverse-
+                # direction disagreement check.
+                message_kind = "disagreement" if self.world.village_pillar.disagrees_with(name) else "discovery"
                 self._send_pillar_message(
-                    "innovation", "village", "discovery", f"an old idea evolved into {name}: {description}",
+                    "innovation", "village", message_kind, f"an old idea evolved into {name}: {description}",
                 )
 
         self._schedule_llm_job(
@@ -7572,10 +7587,21 @@ class SimulationEngine:
                 # step 11), the Village->Innovation arrow: a genuinely
                 # new, reasonably-confident settlement theory is real
                 # grounding material for what the village might
-                # originate next — tell Innovation about it.
+                # originate next — tell Innovation about it. Tier 3
+                # item 23: the same reverse-direction disagreement
+                # check the Nature->Village arrow has always done —
+                # Innovation may already hold a confident theory about
+                # the recognizably same subject (e.g. a concept whose
+                # hypothesis this belief now contradicts), which is
+                # real tension worth flagging as `disagreement` rather
+                # than a flat `theory` tag.
                 if entry["confidence"] >= 0.5:
+                    message_kind = (
+                        "disagreement" if self.world.innovation_pillar.disagrees_with(entry["subject"])
+                        else "theory"
+                    )
                     self._send_pillar_message(
-                        "village", "innovation", "theory",
+                        "village", "innovation", message_kind,
                         f"the village believes {entry['subject']}: {entry['belief']}",
                     )
             beliefs.sync_family_beliefs(entry, settlement.institutions)  # H2/H3 crossover

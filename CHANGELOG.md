@@ -4,6 +4,45 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.65] — B4 reverse-direction disagreement classification (Tier 3 item 23)
+
+Explicit user instruction: "Start completing items from roadmap." Picked
+Tier 3 item 23, the roadmap's own named gap: only the Nature→Village B4
+message arrow checked whether the RECEIVING pillar already held a
+confident, conflicting theory about the same subject — every other
+arrow defaulted to a flat kind tag regardless of what the receiver
+already believed.
+
+Extended the same mechanical `pillar.disagrees_with(subject)` check
+(reused verbatim, not reimplemented) to five more arrows:
+
+- Village→Innovation's `theory` arrow (`_maybe_schedule_beliefs`):
+  checks `innovation_pillar.disagrees_with(entry["subject"])`.
+- Innovation→Village's three `discovery` arrows sourced from `world.
+  ontology.register_concept` — propose (`_maybe_schedule_ontology_
+  proposal`), merge and evolve (both inside `_maybe_schedule_ontology_
+  evolution`): each checks `village_pillar.disagrees_with(name)`.
+
+`composite_entity`'s Innovation→Village arrow (naming an existing
+standing building after a place/landmark) was deliberately left as a
+flat `discovery` — it isn't a competing THEORY about a subject in the
+sense `disagrees_with` means, so the check would be meaningless there,
+not merely unattempted.
+
+Verified via two direct production-path tests driving the real
+`_maybe_schedule_ontology_proposal` job end to end (real season-
+boundary gate, real backpressure/pillar-cycle checks, real RNG roll,
+a stubbed synchronous `LLMAdapter.generate_json`) rather than calling
+internals directly: one with a pre-seeded conflicting Village theory
+confirmed the arrow now sends `disagreement`; one without confirmed it
+still sends the original flat `discovery`. `MESSAGE_KINDS` already
+included `"disagreement"`; no schema change.
+
+Verified: pyflakes clean (same 4 known false positives); 4,000-tick
+LLM-disabled soak with clean `to_dict`/`from_dict` round-trip;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical —
+no native module touched.
+
 ## [1.34.64] — Full codebase + docs audit: two real bugs fixed, docs reorganized, roadmap checklist
 
 Explicit user request: "audit the whole codebase and the docs as well.

@@ -510,6 +510,22 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.65)
+
+Explicit user instruction: "Start completing items from roadmap." Shipped
+docs/ROADMAP-2026-07-REMAINING.md's Tier 3 item 23, B4 reverse-direction
+disagreement classification — CLOSED. Extended the Nature->Village
+arrow's existing `pillar.disagrees_with(subject)` check to Village->
+Innovation's `theory` arrow and all three `ontology.register_concept`-
+sourced Innovation->Village `discovery` arrows (propose/merge/evolve).
+`composite_entity`'s Innovation->Village arrow deliberately excluded —
+a named landmark isn't a competing theory the check applies to.
+Verified via two production-path tests through the real `_maybe_
+schedule_ontology_proposal` job (real gating/RNG/season-boundary path,
+a stubbed synchronous `LLMAdapter`): with vs. without a pre-seeded
+conflicting Village theory, confirming `disagreement` vs. the original
+flat `discovery`. Full detail: CHANGELOG.md's [1.34.65] entry.
+
 ## Current state (v1.34.64)
 
 Explicit user request: "audit the whole codebase and the docs as well.
