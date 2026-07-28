@@ -119,6 +119,7 @@ from hearthmind.agents.agent import (
     GENOME_MUTATION_STDDEV,
     GENOME_TRAITS,
     GOSSIP_OPINION_CONTAGION,
+    RUMOR_FITNESS_POLARIZE_SCALE,
     IMMUNE_ADAPT_RATE,
     IMMUNE_BASELINE,
     IMMUNE_ENERGY_WEIGHT,
@@ -7542,6 +7543,34 @@ class Population:
             step = max(-GOSSIP_OPINION_MAX_STEP, min(GOSSIP_OPINION_MAX_STEP, step))
             if step:
                 listener.relationships[subject.id] = clamp(listener_view + step, -1.0, 1.0)
+
+    def _apply_rumor_retelling_fitness(self, agent: Agent, retelling: str, fitness: float) -> str | None:
+        """A17's "false beliefs propagate if fit, not suppressed for
+        being false" axis (`world.memetics.rumor_fitness`). Distinct
+        from `_apply_gossip_contagion` above (a two-listener exchange
+        pulling toward the speaker's view): this is the RETELLER's own
+        opinion of whoever their retelling names polarizing FURTHER in
+        whichever direction it already leans, scaled by the retelling's
+        dramatic fitness alone. See RUMOR_FITNESS_POLARIZE_SCALE's
+        docstring for why truth never enters this calculation — a
+        rehearsed, embellished retelling entrenches the reteller's own
+        view exactly as readily whether or not it stayed faithful to
+        what was actually heard. Returns the named subject's name (for
+        dev-console diagnostics) or None if nobody nameable was found."""
+        tokens = {token.strip(".,!?;:'\"") for token in retelling.lower().split()}
+        subjects = [
+            other for other in self.agents
+            if other.id != agent.id and other.name.split()[0].lower() in tokens
+        ]
+        if len(subjects) != 1:
+            return None
+        subject = subjects[0]
+        view = agent.relationships.get(subject.id, 0.0)
+        if view == 0.0:
+            return None  # nothing to polarize yet — never invents a direction
+        step = RUMOR_FITNESS_POLARIZE_SCALE * fitness * (1.0 if view > 0 else -1.0)
+        agent.relationships[subject.id] = clamp(view + step, -1.0, 1.0)
+        return subject.name
 
     # --- disputes: rare LLM-mediated resolution of a festered feud (v0.64.0) ----
 

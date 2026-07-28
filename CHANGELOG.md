@@ -4,6 +4,75 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.77] — A17: fitness-vs-truth axis for rumors + shared decay/compete step
+
+Explicit user instruction: "A17", resolved via `AskUserQuestion` into
+"both remaining pieces" (docs/ROADMAP-2026-07-REMAINING.md) — the two
+items a prior audit (v1.34.59) found and explicitly flagged as needing
+a user decision rather than an implementation judgment call, since
+each carried a real risk the audit wasn't willing to take unilaterally.
+
+**Fitness-vs-truth axis for rumors** ("false beliefs propagate if fit,
+not suppressed for being false"). The blocking concern: a fitness
+score needs a ground-truth value per rumor to demonstrate against,
+which would cut against Phase G's standing principle that belief never
+has to reconcile with objective reality. Resolved by never measuring
+against objective reality at all — new `world/memetics.py`'s
+`rumor_truth_score` measures textual fidelity to what was ORIGINALLY
+SAID (the rumor as first heard), never against the state of the world;
+`rumor_fitness` is an independent closed-vocabulary "how dramatic does
+this read" heuristic. Wired at `SimulationEngine._maybe_interpret_
+rumor`'s `apply()` — after InterpretRumor() produces a listener's own
+distorted retelling, `fitness`/`truth_score` are computed against it.
+Real consequence: new `Population._apply_rumor_retelling_fitness`
+polarizes the RETELLER's own existing opinion of whoever their
+retelling names, scaled by `fitness` alone — `truth_score` is tracked
+(new `SimulationEngine._rumor_retellings_recent`, capped, transient,
+dev-console/`full_diagnostics()` only) but deliberately plays no role
+in the nudge, so a dramatic-but-distorted retelling entrenches opinion
+exactly as readily as a faithful-but-dull one would. A fully-neutral
+opinion is left untouched rather than given an invented direction.
+
+**Shared decay/compete step** (the other named A17 gap). The prior
+audit found two candidate sites and flagged both: `Settlement.lexicon`
+because its only reader was confirmed dead code, `recent_topics`/
+`top_topics()` because touching it risked destabilizing v0.87.35's
+live-tuned topic-diversity mechanism without a fresh live-diagnostic
+read (unavailable in this environment). Resolved by wiring the safe
+direction only. New `world/memetics.py`'s `find_near_duplicate`
+("compete": a near-restatement of something already tracked collapses
+to the established phrasing) and `prune_aged_entries` ("decay": an
+age-based prune distinct from a flat count cap) are the shared
+primitives. `SettlementCulture.record_topic` now calls `find_near_
+duplicate` before appending — a topic phrased two ways no longer
+dilutes its own frequency count, which if anything makes the existing
+exact-string dominant-topic gate in `_apply_pending_dialogue_results`
+MORE accurate, reasoned through without touching any of v0.87.35's
+actual tuned constants (novelty thresholds, category weights, pick
+counts). `Settlement.lexicon`'s coinage site gets both: `find_near_
+duplicate` on a proposed coinage's MEANING (a near-synonymous idea
+competes with, rather than duplicates, an already-coined term,
+alongside the existing exact-TERM duplicate check) and `prune_aged_
+entries` as a genuine age-based decay (`LEXICON_MAX_AGE_TICKS`,
+~3 years) — both riding the lexicon's own existing quarterly append
+call site, zero new cadence.
+
+Verified: direct unit tests for all four new `world/memetics.py`
+functions (including an explicit fitness-vs-truth independence
+demonstration — a distorted-but-dramatic retelling scoring HIGH
+fitness/LOW truth, a faithful-but-dull one scoring the reverse);
+production-path tests for `SettlementCulture.record_topic`'s compete
+step and `Population._apply_rumor_retelling_fitness` (including the
+neutral-opinion no-op case) against real `Agent`/`SettlementCulture`
+instances; a full end-to-end test driving the real `_maybe_interpret_
+rumor` -> `_schedule_llm_job` -> `apply()` pipeline with a fake LLM
+adapter, confirming the retelling, fitness/truth computation, opinion
+polarization, and diagnostics ring all fire through the actual
+production scheduling path; a 4000-tick LLM-disabled soak with clean
+round-trip (no new persisted state); `scripts/verify_native_soak.py`
+(3 seeds x 3000 ticks) byte-identical — pure Python, no native module
+touched.
+
 ## [1.34.76] — M1/M9: field boundaries drawn on the map
 
 Explicit user instruction: "Build M1/M9 and ask questions if stuck"

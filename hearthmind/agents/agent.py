@@ -1241,6 +1241,19 @@ day doesn't" is now mechanical, a genuinely distinct signal from the
 momentary rest_pull already in that same target."""
 
 
+RUMOR_FITNESS_POLARIZE_SCALE = 0.05
+"""A17's "false beliefs propagate if fit, not suppressed for being
+false" axis (`world.memetics.rumor_fitness`). When a core-cast agent
+retells a rumor (InterpretRumor(), `Population._apply_rumor_
+retelling_fitness`) and the retelling names a specific living third
+villager, the RETELLER's own existing opinion of that person polarizes
+further in whichever direction it already leans, scaled by the
+retelling's `rumor_fitness` alone — how dramatic/gossip-worthy it
+reads, never how faithful it stayed to what was actually heard
+(`rumor_truth_score` is tracked separately and plays no role here by
+design). A fully-neutral opinion (0.0, nothing to polarize yet) is
+left untouched rather than given an invented direction."""
+
 GOSSIP_OPINION_CONTAGION = 0.15
 GOSSIP_OPINION_MAX_STEP = 0.05
 """When a rumor names a specific third villager, each listener's

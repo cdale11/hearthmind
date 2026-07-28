@@ -16,6 +16,7 @@ from hearthmind.util import clamp
 from hearthmind.agents.agent import EMOTION_ANGER, EMOTION_FEAR, EMOTION_GRIEF, EMOTION_JOY
 from hearthmind.settlement.institutions import Institution, InstitutionKind
 from hearthmind.settlement.district import District
+from hearthmind.world.memetics import find_near_duplicate
 from hearthmind.settlement.vehicles import (
     VEHICLE_DECAY_CATALYST_SCALE,
     VEHICLE_DECAY_PER_TICK_BASE,
@@ -431,11 +432,37 @@ LEXICON_MAX_STORED = 6
 """Cap on `SettlementCulture.lexicon` — a village's coined terms are
 meant to read as a short, memorable handful, same shape as `laws`."""
 
+LEXICON_MEANING_MERGE_OVERLAP = 0.5
+"""A17's shared "compete" step: a newly-coined term whose MEANING
+overlaps an already-coined entry's meaning this much is treated as a
+second word for the same idea, not a genuinely new one — the earlier
+coinage wins, the new one is dropped rather than appended. Distinct
+from `validate_coined_term`'s existing exact-TERM duplicate check
+(which catches the same word coined twice); this catches two
+different words for the same underlying idea."""
+
+LEXICON_MAX_AGE_TICKS = 100_000
+"""A17's shared "decay" step: a coined term nobody has reinforced (no
+matching or near-duplicate coinage) in this many ticks (~3 years at
+the default 15-sim-min tick) quietly falls out of use — distinct from
+`LEXICON_MAX_STORED`'s flat count cap, a genuine age-based decay a
+small, rarely-refreshed lexicon would otherwise never trigger."""
+
 RECENT_TOPICS_MAX_STORED = 40
 """Cap on `SettlementCulture.recent_topics` — a rolling window wide
 enough for `top_topics()` to read as a genuine "what's been talked
 about lately" signal (roughly the last several days of core-cast
 dialogue) without growing unbounded across a long-running world."""
+
+TOPIC_MERGE_OVERLAP = 0.55
+"""A17's shared "compete" step (`world.memetics.find_near_duplicate`):
+a freshly-recorded topic whose word overlap against something already
+in `recent_topics` clears this bar collapses to the EXISTING phrasing
+instead of being tallied as a second, separately-counted entry — "the
+tools shortage" and "the town's need for tools" read as the same
+recurring topic, not two different ones diluting each other's count.
+Doesn't touch `RECENT_TOPICS_MAX_STORED`/`top_topics()`'s own math at
+all, only what gets appended."""
 
 LAWS_MAX_STORED = 6
 """Cap on `SettlementCulture.laws` — a village's codified norms are
@@ -2480,7 +2507,12 @@ class SettlementCulture:
     def record_topic(self, topic: str) -> None:
         if not topic:
             return
-        self.recent_topics.append(topic)
+        # A17's shared "compete" step: a near-restatement of a recently
+        # seen topic collapses to the existing phrasing rather than
+        # being tracked as a genuinely separate entry — see TOPIC_
+        # MERGE_OVERLAP's docstring.
+        merged = find_near_duplicate(topic, self.recent_topics, TOPIC_MERGE_OVERLAP)
+        self.recent_topics.append(merged if merged is not None else topic)
         if len(self.recent_topics) > RECENT_TOPICS_MAX_STORED:
             del self.recent_topics[: len(self.recent_topics) - RECENT_TOPICS_MAX_STORED]
 

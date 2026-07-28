@@ -510,6 +510,40 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.77)
+
+Explicit user instruction: "A17", resolved via `AskUserQuestion` into
+"both remaining pieces" (docs/ROADMAP-2026-07-REMAINING.md) — the two
+items v1.34.59's audit found and explicitly flagged as needing a user
+decision rather than an implementation judgment call.
+
+Fitness-vs-truth axis for rumors: sidesteps the flagged risk (needing
+a ground-truth value per rumor, cutting against Phase G's "belief
+never has to reconcile with reality" principle) by never measuring
+against objective reality — `world/memetics.py`'s `rumor_truth_score`
+measures fidelity to what was ORIGINALLY SAID (via InterpretRumor()'s
+retelling), never the state of the world; `rumor_fitness` is an
+independent dramatic-keyword heuristic. Real consumer: `Population.
+_apply_rumor_retelling_fitness` polarizes the reteller's own opinion
+of whoever their retelling names, scaled by fitness alone — truth_score
+is tracked (dev-console only) but plays no role in the nudge.
+
+Shared decay/compete step: `world/memetics.py`'s `find_near_duplicate`
+("compete")/`prune_aged_entries` ("decay") wired to the two previously-
+flagged sites. `SettlementCulture.record_topic` merges near-duplicate
+topic phrasings (makes the existing dominant-topic gate MORE accurate,
+doesn't touch v0.87.35's tuned constants — the risk that had kept this
+site flagged). `Settlement.lexicon`'s coinage site gets both a meaning-
+level near-duplicate check and a genuine age-based decay, riding its
+existing quarterly append call site.
+
+Verified: direct unit tests for all four new memetics functions
+(including an explicit fitness-vs-truth independence demonstration),
+production-path tests, a full end-to-end test through the real
+`_maybe_interpret_rumor` scheduling pipeline with a fake LLM adapter,
+a 4000-tick LLM-disabled soak with clean round-trip, `scripts/verify_
+native_soak.py` (3 seeds x 3000 ticks) byte-identical.
+
 ## Current state (v1.34.76)
 
 Explicit user instruction: "Build M1/M9 and ask questions if stuck"

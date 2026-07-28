@@ -157,7 +157,9 @@ from hearthmind.settlement.buildings import (
     INVENTION_SPECIALIZATION_STEP,
     LAWS_MAX_STORED,
     LAW_SIGNAL_THRESHOLD,
+    LEXICON_MAX_AGE_TICKS,
     LEXICON_MAX_STORED,
+    LEXICON_MEANING_MERGE_OVERLAP,
     MARKET_CARAVAN_CHANCE_MULTIPLIER,
     MARKET_CARAVAN_YIELD_MULTIPLIER,
     MATERIALS_CAPACITY,
@@ -1552,6 +1554,16 @@ class SimulationEngine:
         not the export's full per-field breakdown — that stays an
         archive-analysis job, this is just the dev-console's canary."""
         self._background_tasks: set[asyncio.Task] = set()
+        self._rumor_retellings_recent: list[dict] = []
+        """A17's fitness-vs-truth axis (`world.memetics.rumor_fitness`/
+        `rumor_truth_score`) — a small capped, transient (not persisted,
+        same treatment `_last_llm_calls` gets) diagnostic ring so the
+        mechanism is observable: each entry is `{reteller, subject,
+        fitness, truth_score, tick}`. Dev-console/`full_diagnostics()`
+        depth only — not Phase G's ambiguity discipline (this is an
+        internal propagation mechanic, not a supernatural reading), just
+        the same internal-numeric-diagnostic depth `self_tuning_actions_
+        recent` gets."""
         self._last_llm_calls: dict[str, dict] = {}
         """Most recent prompt/result/fallback-flag for each named LLM
         job (town_brain, beliefs, omen, naming, chronicle, tradition,
@@ -3138,6 +3150,22 @@ class SimulationEngine:
                     "unexplained_shift", "rumor", f"{target.name} retold a rumor in their own way: {retelling}",
                     ('humans',),
                 )
+                # A17 "false beliefs propagate if fit, not suppressed
+                # for being false" — fitness and truth_score are
+                # computed independently (see memetics.rumor_fitness/
+                # rumor_truth_score's docstrings); only fitness feeds
+                # the real mechanical consequence below, truth_score is
+                # tracked for dev-console observability only.
+                fitness = memetics.rumor_fitness(retelling)
+                truth_score = memetics.rumor_truth_score(rumor, retelling)
+                subject_name = self.world.population._apply_rumor_retelling_fitness(target, retelling, fitness)
+                self._rumor_retellings_recent.append({
+                    "reteller": target.name, "subject": subject_name,
+                    "fitness": round(fitness, 3), "truth_score": round(truth_score, 3),
+                    "tick": self.world.clock.tick_count,
+                })
+                if len(self._rumor_retellings_recent) > 20:
+                    del self._rumor_retellings_recent[:-20]
 
         self._schedule_llm_job(
             "rumor_interpret", prompt, rumor_interpret.SYSTEM_PROMPT, fallback, apply,
@@ -6178,7 +6206,20 @@ class SimulationEngine:
                     # exact duplicate coinage is silently dropped, same
                     # "not every call produces visible output" discipline
                     # as a rejected/near-duplicate ontology proposal.
-                    if narrative_direction.validate_coined_term(term, stl.lexicon):
+                    # A17's shared "compete" step, second consumer: a
+                    # near-duplicate MEANING (not just an exact-term
+                    # repeat) is also silently dropped — see LEXICON_
+                    # MEANING_MERGE_OVERLAP's docstring.
+                    is_meaning_duplicate = memetics.find_near_duplicate(
+                        meaning, [e["meaning"] for e in stl.lexicon], LEXICON_MEANING_MERGE_OVERLAP,
+                    ) is not None
+                    if narrative_direction.validate_coined_term(term, stl.lexicon) and not is_meaning_duplicate:
+                        # A17's shared "decay" step: age out anything
+                        # nobody has coined a related term for in a very
+                        # long while, before appending the new one.
+                        stl.lexicon = memetics.prune_aged_entries(
+                            stl.lexicon, lambda e: e["formed_tick"], self.world.clock.tick_count, LEXICON_MAX_AGE_TICKS,
+                        )
                         stl.lexicon.append({"term": term, "meaning": meaning, "formed_tick": self.world.clock.tick_count})
                         if len(stl.lexicon) > LEXICON_MAX_STORED:
                             stl.lexicon = stl.lexicon[-LEXICON_MAX_STORED:]
@@ -10768,6 +10809,7 @@ class SimulationEngine:
             "oldest_pending_goal_ticks": oldest_pending_goal_ticks,
             "oldest_pending_dialogue_ticks": oldest_pending_dialogue_ticks,
             "last_llm_calls": self._last_llm_calls,
+            "rumor_retellings_recent": list(self._rumor_retellings_recent),
             "llm_prompt_stats": self.llm_prompt_stats_summary(),
             "memory_retrieval": retrieval_diagnostics(),
             "llama_server_metrics": self._llama_server_metrics,

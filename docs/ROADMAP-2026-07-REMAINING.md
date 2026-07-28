@@ -120,16 +120,22 @@ starts on an explicit instruction naming an item.
 
 ### Tier 2 — self-contained mechanism gaps
 
-- [ ] **A17** — two of three named pieces remain, each with a real
-      flagged blocker (audited v1.34.59, not forced): a **fitness-vs-
-      truth axis for rumors** would need a ground-truth value per rumor,
-      contradicting Phase G's "belief never has to reconcile with
-      objective reality"; a **shared decay/compete step** has no safe
-      site (`Settlement.lexicon` has no live consumer, `recent_topics`
-      risks destabilizing v0.87.35's topic-diversity tuning without a
-      live read first). Resumes only on an explicit decision naming a
-      path. The third piece (a second `memetics.weighted_spread_target`
-      consumer) shipped v1.34.60.
+- [x] **A17** — **CLOSED, v1.34.77.** Explicit user instruction "A17",
+      resolved via `AskUserQuestion` into "both remaining pieces."
+      Fitness-vs-truth axis: sidesteps the flagged risk (a ground-truth
+      value per rumor, contradicting Phase G) by measuring `rumor_truth_
+      score` against what was ORIGINALLY SAID, never against the state
+      of the world; `rumor_fitness` (dramatic-keyword heuristic) alone
+      drives the real consequence (`Population._apply_rumor_retelling_
+      fitness` polarizes the reteller's own opinion of whoever their
+      retelling names). Shared decay/compete step: `world/memetics.py`'s
+      `find_near_duplicate`/`prune_aged_entries` wired to BOTH
+      previously-flagged sites — `SettlementCulture.record_topic`
+      (compete only, doesn't touch v0.87.35's tuned constants) and
+      `Settlement.lexicon`'s coinage site (both compete on meaning and
+      genuine age-based decay). The third piece (a second `memetics.
+      weighted_spread_target` consumer) shipped v1.34.60. **A17 is
+      fully closed.**
 
 ### Tier 3 — deepen an already-real mechanism
 
@@ -1656,9 +1662,15 @@ forest reclaim). Real gaps, roughly by leverage:
     — see the item's own entry below for detail. Reachable only for
     clay/fiber (no `BuildingKind` defaults to `ore`), an honest,
     flagged gap.
-14. **A17** — unify rumor/tradition/belief/song/technique onto
-    `memetics.py`'s propagation-weight primitive; a shared mutate/
-    decay/compete step; a real fitness-vs-truth axis for rumors.
+14. **A17 — CLOSED, v1.34.77.** The propagation-weight primitive
+    (v1.34.17), a second real consumer (v1.34.60), a shared decay/
+    compete step (`find_near_duplicate`/`prune_aged_entries`, wired to
+    `recent_topics` and `Settlement.lexicon`), and a real fitness-vs-
+    truth axis for rumors — see the item's own entry below for detail.
+    Unifying rumor/tradition/belief/song/technique onto ONE shared
+    pipeline (the doc's full original vision) remains explicitly out of
+    scope — each named item under A17 is closed, the full cross-type
+    unification was never one of them.
 15. **B5 — CLOSED, v1.34.61.** Direct code inspection found the
     affordance/reaction query half of this item ALREADY wired
     (`_maybe_schedule_ontology_proposal`'s `discoverable_combinations`/
@@ -2448,9 +2460,11 @@ shipped (plus community detection, already present under the `FACTION`
 name).
 
 ### A17 — Information ecosystem
-Rumor/tradition/belief/song/technique each stay on their own
-independent, mature, deliberately-untouched mechanisms — this is
-deliberate, not a gap; see the three still-flagged blockers below.
+**CLOSED, v1.34.77.** Rumor/tradition/belief/song/technique each stay
+on their own independent, mature, deliberately-untouched mechanisms —
+this is deliberate, not a gap; unifying them onto ONE shared pipeline
+was never one of the three named pieces this item actually tracked,
+and all three of THOSE are now real.
 
 **Second `weighted_spread_target` consumer shipped, v1.34.60** (explicit
 user decision via `AskUserQuestion`, "Design a new memetics consumer" —
@@ -2480,21 +2494,57 @@ Consciousness prompt and the main-UI "Civilization" stat tile (now
 shows a "N% personally keep a tradition" suffix). NPC inspector gained
 a conditional "keeps: ..." Personality-section line.
 
-The other two named A17 pieces stay exactly as flagged in the prior
-re-audit — neither was in scope of this decision:
+**Fitness-vs-truth axis + shared decay/compete step shipped, v1.34.77**
+(explicit user instruction "A17," resolved via `AskUserQuestion` into
+"both remaining pieces, in this batch").
 
-- *A fitness-vs-truth axis for rumors* ("false beliefs propagate if
-  fit, not suppressed for being false") needs a real ground-truth
-  value per rumor to demonstrate against, cutting against Phase G's own
-  standing design principle that belief is never required to reconcile
-  with objective reality. Needs its own explicit user call.
-- *A shared mutate/decay/compete step* over `Settlement.lexicon`/
-  `top_topics()` — the only two candidates found, both carrying real
-  risk (dead-code consumer / destabilizing v0.87.35's topic-diversity
-  tuning without a live-diagnostic read first). Unattempted.
+*Fitness-vs-truth axis for rumors* ("false beliefs propagate if fit,
+not suppressed for being false"): the flagged blocker was needing a
+real ground-truth value per rumor, cutting against Phase G's own
+standing design principle that belief is never required to reconcile
+with objective reality. Sidestepped rather than overridden: new
+`world/memetics.py`'s `rumor_truth_score` measures fidelity to what
+was ORIGINALLY SAID (the rumor as first heard, via `Simulation
+Engine._maybe_interpret_rumor`'s InterpretRumor() retelling), never
+against the state of the world — Phase G's principle is untouched, not
+worked around. `rumor_fitness` (a small closed dramatic-keyword
+vocabulary) is computed independently. Real consequence: `Population.
+_apply_rumor_retelling_fitness` polarizes the RETELLER's own existing
+opinion of whoever their retelling names, scaled by `fitness` alone —
+`truth_score` is tracked (new `SimulationEngine._rumor_retellings_
+recent`, dev-console/`full_diagnostics()` only) but deliberately plays
+no role in the nudge.
 
-Work from either of those two on an explicit user decision naming a
-path, same standing convention as every other vision doc here.
+*A shared mutate/decay/compete step* over `Settlement.lexicon`/
+`top_topics()`: the flagged blocker was that both candidate sites
+carried real risk (lexicon's only reader confirmed dead code, nothing
+to prove the mechanism against; `top_topics()` risked destabilizing
+v0.87.35's live-tuned topic-diversity mechanism without a fresh
+live-diagnostic read, unavailable in this environment). Resolved by
+wiring the SAFE direction at both sites rather than picking one:
+`find_near_duplicate`/`prune_aged_entries` (`world/memetics.py`) are
+the shared "compete"/"decay" primitives. `SettlementCulture.record_
+topic` now merges a near-restatement of a recently-seen topic into the
+existing phrasing before appending — reasoned through as a genuine
+improvement, not a risk, since it makes the existing exact-string
+dominant-topic gate in `_apply_pending_dialogue_results` MORE accurate
+(a topic phrased two ways no longer silently evades it) without
+touching any of v0.87.35's own tuned constants (novelty thresholds,
+category weights, pick counts). `Settlement.lexicon`'s coinage site
+gets both a meaning-level near-duplicate check (alongside the existing
+exact-TERM check) and a genuine age-based decay (`LEXICON_MAX_AGE_
+TICKS`), riding the site's own existing quarterly append call — zero
+new cadence for either mechanism.
+
+Verified: direct unit tests for all four new functions (including an
+explicit fitness-vs-truth independence demonstration), production-path
+tests against real `Agent`/`SettlementCulture` instances, a full
+end-to-end test through the real `_maybe_interpret_rumor` scheduling
+pipeline with a fake LLM adapter, a 4000-tick soak with clean
+round-trip, `scripts/verify_native_soak.py` (3 seeds x 3000 ticks)
+byte-identical.
+
+**A17 is now fully closed.**
 
 ### A18 — Composable event reactions
 **CLOSED, second slice, v1.34.45.** The general authoring system this
