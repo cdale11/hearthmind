@@ -4,6 +4,65 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.74] — A1: beauty field (13th, closes A1 entirely)
+
+Explicit user instruction: "Ask the beauty phase of A1 and finish it."
+Asked via `AskUserQuestion` for a real design decision on `beauty`'s
+mechanical meaning (the only genuinely open item under A1 as of
+v1.34.73), offering three options: a deterministic composite of
+already-real state (fertility/pollution/scars/shrines), skip entirely,
+or a genuinely new per-agent subjective-vote mechanic. **Explicit user
+answer: "New subjective agent-vote signal."** This ships that answer —
+the one `FieldGrid` field in the whole system that is NOT a live
+re-read of already-real deterministic state.
+
+New `world/aesthetics.py`: `compute_aesthetic_appraisal` — a pure
+function scoring the tile a voting agent stands on (0..1) from real
+environmental cues (water-adjacency, a scenic biome underfoot,
+neighborhood biome variety, mining/disaster scar penalties), then
+nudged by the voting agent's own `TRAIT_OPENNESS` — the genuinely
+SUBJECTIVE half, the same real trait that already shapes how readily a
+settlement welcomes strangers (`TRAIT_OPENNESS_MIGRANT_WELCOME_
+INFLUENCE`). `tick_aesthetic_votes` gives every living agent a cheap
+`BEAUTY_APPRAISAL_CHANCE_PER_TICK=0.02` roll each tick; an agent who
+votes folds their appraisal into `World.aesthetic_appraisal`, a new
+persistent 3x3 per-region exponential moving average — genuinely
+different from every sibling field's "raw already-real state, re-read
+fresh each tick" shape: this is a running belief that accumulates and
+drifts as opinion shifts, seeded at a neutral 0.5 (not "absence means
+zero," since an unvoted region has no opinion yet, not an objectively
+ugly one). `FieldGrid.step_beauty` spreads it via `ca_operators.
+diffuse`, the same spatial-bleed treatment every other field gets, on
+top of (not instead of) the accumulator's own separate temporal
+smoothing.
+
+Real consumer, reusing the proven `_maybe_welcome_migrant` shape one
+more time: `MIGRANT_BEAUTY_PULL=0.2`, a fourth POSITIVE region-field
+pull (alongside `ownership`/`cultural_influence`) — "word travels that
+a place is beautiful." UI: 13th and final "🗺️ fields" overlay mode
+("beauty (villagers' own opinion)"), own coral/rose-gold color ramp
+distinct from every warning/organic/roots hue family the other twelve
+modes use, since this is the one field literally measuring collective
+affection for a place.
+
+**This closes A1 entirely** — all thirteen named fields (twelve
+originally-scoped plus `beauty`) are now real, with real consumers, and
+real map overlays. No open items remain under this roadmap entry.
+
+Verified: 5 direct unit tests (scenic-vs-plain scoring, scar penalty,
+openness trait shift, many-vote convergence toward the voted score,
+diffusion into the field), a production-path test through the real
+`World.tick()` over 300 ticks confirming organic formation, a clean
+`to_dict`/`from_dict` round-trip, AND a legacy-backfill test (a
+snapshot missing the new `aesthetic_appraisal` key loads back to the
+neutral 0.5 default rather than crashing), a 4000-tick LLM-disabled
+soak with clean round-trip, `scripts/verify_native_soak.py` (2 seeds x
+800 ticks) byte-identical — pure Python, no native module touched —
+and a live dev server + Playwright pass confirming the overlay cycles
+to "beauty" with a matching legend and no new console errors (the same
+pre-existing unrelated `favicon.ico` 404 as every prior pass, confirmed
+via direct `curl`).
+
 ## [1.34.73] — A1: fertility field (12th, closes the field-count checklist)
 
 Explicit user instruction: "Continue A1." Ships the last named field

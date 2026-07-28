@@ -82,6 +82,7 @@ class WorldBroadcaster:
         scent: "list[list[float]] | None" = None,
         cultural_influence: "list[list[float]] | None" = None,
         fertility: "list[list[float]] | None" = None,
+        beauty: "list[list[float]] | None" = None,
         road_scars: dict | None = None,
         migration_trails: dict | None = None,
         dry_lakebed_scars: dict | None = None,
@@ -230,6 +231,9 @@ class WorldBroadcaster:
             ),
             "fertility": (
                 [[round(v, 3) for v in row] for row in fertility] if fertility else []
+            ),
+            "beauty": (
+                [[round(v, 3) for v in row] for row in beauty] if beauty else []
             ),
         }
 

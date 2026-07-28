@@ -38,7 +38,8 @@ from hearthmind.world.terrain_evolution import (
     tick_climate,
 )
 from hearthmind.world.daylight import night_factor as compute_night_factor
-from hearthmind.world.fields import FieldGrid
+from hearthmind.world.fields import FIELD_GRID_SIZE, FieldGrid
+from hearthmind.world.aesthetics import tick_aesthetic_votes
 from hearthmind.world import emergence
 from hearthmind.cognition.pillar import (
     Pillar, default_nature_pillar, default_village_pillar, default_humans_pillar,
@@ -472,6 +473,18 @@ class World:
     field's own `step_*` method — today just `population_density`, the
     one field this pass ships as a real consumer proof; more fields are
     additive follow-ups onto the same grid. See `world/fields.py`."""
+    aesthetic_appraisal: list = field(
+        default_factory=lambda: [[0.5 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)],
+    )
+    """A1's `beauty` field source (`world/aesthetics.py`): a persistent
+    3x3 per-region running average of genuinely new per-agent subjective
+    votes, seeded at a neutral 0.5 everywhere (an unvoted region has no
+    opinion yet, deliberately NOT the "absence means zero" convention
+    every other `FieldGrid` field's own raw source uses — see that
+    module's docstring for the full rationale, an explicit
+    `AskUserQuestion` decision, v1.34.74). Ticked in `World.tick()` via
+    `aesthetics.tick_aesthetic_votes`, then spread into `FieldGrid`'s
+    `beauty` field via `FieldGrid.step_beauty`."""
     nature_pillar: Pillar = field(default_factory=default_nature_pillar)
     """B1 "The Pillar abstraction" (docs/MASTERCHECKLIST-2026-07-22.md,
     Part B, Stage II step 4 — the keystone): Nature's persistent
@@ -977,6 +990,12 @@ class World:
         self.fields.step_fertility(
             list(self.farms.soil_fertility.items()), self.config.width, self.config.height,
         )
+        beauty_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "aesthetic_vote")
+        tick_aesthetic_votes(
+            self.aesthetic_appraisal, self.population.agents, self.terrain,
+            self.mining_scars, self.disaster_scars, self.config.width, self.config.height, beauty_rng,
+        )
+        self.fields.step_beauty(self.aesthetic_appraisal)
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (
             wildlife_events + settlement_events + population_events + terrain_events + disaster_events
@@ -1606,6 +1625,7 @@ class World:
             "emergence_log": list(self.emergence_log),
             "next_emergence_id": self.next_emergence_id,
             "fields": self.fields.to_dict(),
+            "aesthetic_appraisal": [list(row) for row in self.aesthetic_appraisal],
             "nature_pillar": self.nature_pillar.to_dict(),
             "village_pillar": self.village_pillar.to_dict(),
             "humans_pillar": self.humans_pillar.to_dict(),
@@ -1920,6 +1940,11 @@ class World:
             emergence_log=list(data.get("emergence_log", [])),
             next_emergence_id=data.get("next_emergence_id", 1),
             fields=FieldGrid.from_dict(data.get("fields", {})),
+            aesthetic_appraisal=(
+                [list(row) for row in data["aesthetic_appraisal"]]
+                if data.get("aesthetic_appraisal")
+                else [[0.5 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+            ),
             nature_pillar=(
                 Pillar.from_dict(data["nature_pillar"]) if data.get("nature_pillar") else default_nature_pillar()
             ),

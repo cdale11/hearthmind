@@ -180,6 +180,15 @@ FERTILITY_DIFFUSE_RATE = 0.3
 farmland reads as somewhat fertile too, not just the exact tiles under
 plow this tick."""
 
+BEAUTY_DIFFUSE_RATE = 0.3
+"""Same spatial-bleed role as `FERTILITY_DIFFUSE_RATE`. Applied on TOP
+of `World.aesthetic_appraisal`'s own separate temporal smoothing
+(`world/aesthetics.py`'s `BEAUTY_VOTE_SMOOTHING`) — two different axes
+of smoothing, not a duplicate of one another: the source accumulator
+smooths a region's opinion over TIME as new votes arrive, this diffuse
+call smooths across SPACE so a lovely region's neighbors read as a
+little lovely too, not just the exact region where the vote landed."""
+
 
 def _normalize_peak(raw: list[list[float]]) -> list[list[float]]:
     """Scales a raw non-negative grid to 0..1 against its own peak cell
@@ -487,6 +496,20 @@ class FieldGrid:
             for ry in range(FIELD_GRID_SIZE)
         ]
         self.fields["fertility"] = diffuse(raw, FERTILITY_DIFFUSE_RATE)
+
+    def step_beauty(self, aesthetic_appraisal: list[list[float]]) -> None:
+        """Thirteenth field (A1), and the one field in this class that
+        is NOT a live re-read of already-real deterministic state — see
+        `world/aesthetics.py`'s module docstring for the full design
+        rationale (explicit `AskUserQuestion` decision, v1.34.74:
+        "New subjective agent-vote signal"). `aesthetic_appraisal` is
+        `World.aesthetic_appraisal`, itself a persistent per-region
+        running average of genuinely new per-agent subjective votes,
+        already 0..1 and already smoothed over TIME — this method's own
+        job is purely the spatial half every other field gets, spread
+        via `ca_operators.diffuse` so a lovely region's neighbors read
+        as a little lovely too."""
+        self.fields["beauty"] = diffuse([list(row) for row in aesthetic_appraisal], BEAUTY_DIFFUSE_RATE)
 
     def to_dict(self) -> dict:
         return {name: [list(row) for row in grid] for name, grid in self.fields.items()}

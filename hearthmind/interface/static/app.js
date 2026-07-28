@@ -1181,7 +1181,7 @@ detailsToggle.addEventListener("click", () => {
 // naturally faint/rare) — showing them all at once would fight the
 // map's own readability, the same reasoning the Observatory UI
 // direction already applies to the details panel.
-const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic", "scarcity", "ownership", "noise", "heat", "nutrients", "scent", "cultural_influence", "fertility"];
+const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic", "scarcity", "ownership", "noise", "heat", "nutrients", "scent", "cultural_influence", "fertility", "beauty"];
 const FIELD_OVERLAY_LABELS = {
   off: "off", moisture: "soil moisture", soil_fertility: "soil fertility",
   population_density: "population density", disease_pressure: "disease pressure",
@@ -1189,6 +1189,7 @@ const FIELD_OVERLAY_LABELS = {
   ownership: "settledness", noise: "disturbance",
   heat: "heat", nutrients: "wild forage", scent: "predator scent",
   cultural_influence: "cultural influence", fertility: "regional fertility",
+  beauty: "beauty (villagers' own opinion)",
 };
 let fieldOverlayMode = "off";
 const fieldCanvas = document.getElementById("field-canvas");
@@ -1217,6 +1218,7 @@ const FIELD_LEGEND_LABELS = {
   scent: { min: "safe", max: "dangerous" },
   cultural_influence: { min: "no adopters", max: "cultural hub" },
   fertility: { min: "no farmland", max: "prime farmland" },
+  beauty: { min: "no opinion", max: "beloved" },
 };
 const fieldLegend = document.getElementById("field-legend");
 const fieldLegendTitle = document.getElementById("field-legend-title");
@@ -1348,6 +1350,16 @@ const FIELD_COLOR_STOPS = {
   // shifted warmer at the low end since this field's floor is "nothing
   // farmed here" rather than soil_fertility's "farmed but depleted."
   fertility: [[195, 175, 140], [215, 180, 90], [60, 150, 70]],
+  // A1 (Tier 1, "beauty" — the one field sourced from genuinely NEW
+  // per-agent subjective votes, world/aesthetics.py, not a re-read of
+  // already-real state; see CHANGELOG.md's v1.34.74 entry for the
+  // AskUserQuestion decision behind this). No opinion yet reads as a
+  // neutral pale rose-grey (the field's own neutral 0.5 prior, not
+  // "objectively ugly"), a beloved region shifts through a warm coral
+  // to a rich rose-gold — a distinct "affection" hue family from every
+  // other mode, since this is the one field literally measuring the
+  // village's own feelings about a place.
+  beauty: [[210, 195, 195], [225, 155, 140], [200, 90, 120]],
 };
 
 function lerpColorStops(stops, t) {
@@ -1612,7 +1624,7 @@ function renderFieldOverlay() {
         if (!peak || v > peak.value) peak = { x: rx, y: ry, w: regionW * CELL, h: regionH * CELL, value: v };
       }
     }
-  } else if (fieldOverlayMode === "heat" || fieldOverlayMode === "nutrients" || fieldOverlayMode === "scent" || fieldOverlayMode === "cultural_influence" || fieldOverlayMode === "fertility") {
+  } else if (fieldOverlayMode === "heat" || fieldOverlayMode === "nutrients" || fieldOverlayMode === "scent" || fieldOverlayMode === "cultural_influence" || fieldOverlayMode === "fertility" || fieldOverlayMode === "beauty") {
     const grid = terrain[fieldOverlayMode];
     if (!grid || !grid.length) return;
     const regionW = Math.ceil(terrain.width / grid[0].length);

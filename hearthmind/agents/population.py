@@ -750,6 +750,14 @@ a third POSITIVE region-field pull alongside `MIGRANT_OWNERSHIP_PULL`
 (density/scarcity/heat all only ever dampen) — "word travels that a
 place has real ideas," the same plausible-word-of-mouth framing every
 other region-field migrant term here already uses."""
+MIGRANT_BEAUTY_PULL = 0.2
+"""A1 (Tier 1): a real consumer of `World.fields`'s `beauty` region
+field — the one field sourced from genuinely NEW per-agent subjective
+votes (`world/aesthetics.py`), not a re-read of already-real state. A
+region the settlement's own people have rated as lovely draws newcomers
+somewhat more readily (up to 20% more at peak), a fourth POSITIVE
+region-field pull alongside `MIGRANT_OWNERSHIP_PULL`/`MIGRANT_
+CULTURAL_PULL` — "word travels that a place is beautiful.\""""
 MIGRANT_TEMPERAMENT_INFLUENCE = 0.2
 """Fractional nudge to migrant-arrival chance from `Settlement.
 temperament` — a village that's lately had a run of good fortune draws
@@ -2308,6 +2316,7 @@ class Population:
         region_ownership = None
         region_heat = None
         region_cultural_influence = None
+        region_beauty = None
         if fields is not None and terrain:
             region_density = fields.get_at(
                 "population_density", (primary.center_x, primary.center_y), len(terrain[0]), len(terrain),
@@ -2324,10 +2333,14 @@ class Population:
             region_cultural_influence = fields.get_at(
                 "cultural_influence", (primary.center_x, primary.center_y), len(terrain[0]), len(terrain),
             )
+            region_beauty = fields.get_at(
+                "beauty", (primary.center_x, primary.center_y), len(terrain[0]), len(terrain),
+            )
         life_events.extend(
             self._maybe_welcome_migrant(
                 rng, primary, core_cast_target, terrain,
                 region_density, region_scarcity, region_ownership, region_heat, region_cultural_influence,
+                region_beauty,
             )
         )
         for stl in settlements:
@@ -5180,6 +5193,7 @@ class Population:
         region_ownership: float | None = None,
         region_heat: float | None = None,
         region_cultural_influence: float | None = None,
+        region_beauty: float | None = None,
     ) -> list[tuple[str, str]]:
         """The population equivalent of wildlife's `_maybe_recolonize` —
         a settlement crashed down to a handful of survivors (predation,
@@ -5255,6 +5269,8 @@ class Population:
             chance *= 1.0 - region_heat * MIGRANT_HEAT_DAMPENING
         if region_cultural_influence is not None:
             chance *= 1.0 + region_cultural_influence * MIGRANT_CULTURAL_PULL
+        if region_beauty is not None:
+            chance *= 1.0 + region_beauty * MIGRANT_BEAUTY_PULL
         chance = max(0.0, chance)
         if rng.random() >= chance:
             return []

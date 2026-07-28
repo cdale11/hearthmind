@@ -510,6 +510,36 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.74)
+
+Explicit user instruction: "Ask the beauty phase of A1 and finish
+it." `AskUserQuestion` on `beauty`'s mechanical meaning — explicit
+user answer: "New subjective agent-vote signal" (over a deterministic
+composite or skipping the field entirely). Ships that answer, closing
+A1 entirely.
+
+New `world/aesthetics.py`: `compute_aesthetic_appraisal` scores the
+tile a voting agent stands on from real cues (water-adjacency, scenic
+biome, neighborhood variety, mining/disaster scar penalties), nudged
+by the voting agent's own `TRAIT_OPENNESS` — the genuinely subjective
+half. `tick_aesthetic_votes` gives every agent a cheap per-tick roll
+(`BEAUTY_APPRAISAL_CHANCE_PER_TICK=0.02`); a vote folds into
+`World.aesthetic_appraisal`, a new persistent 3x3 per-region EMA — the
+one `FieldGrid` field NOT sourced from a live re-read of already-real
+state, seeded neutral (0.5) rather than the usual "absence means
+zero." `FieldGrid.step_beauty` spreads it via `diffuse` same as every
+sibling field. Real consumer: `Population._maybe_welcome_migrant`
+gains a fourth positive region-field term, `MIGRANT_BEAUTY_PULL=0.2`.
+13th "🗺️ fields" UI mode.
+
+Verified: 5 direct unit tests, a production-path test through the
+real `World.tick()` confirming organic formation, a clean round-trip,
+a legacy-backfill test, a 4000-tick soak, `scripts/verify_native_
+soak.py` byte-identical, and a live dev server + Playwright pass.
+
+**A1 is now fully closed** — all thirteen named fields real, each
+with a real consumer and a real map overlay.
+
 ## Current state (v1.34.73)
 
 Explicit user instruction: "Continue A1." Shipped `fertility`, the

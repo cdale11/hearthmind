@@ -1613,6 +1613,7 @@ class SimulationEngine:
                 scent=world.fields.ensure_field("scent"),
                 cultural_influence=world.fields.ensure_field("cultural_influence"),
                 fertility=world.fields.ensure_field("fertility"),
+                beauty=world.fields.ensure_field("beauty"),
                 road_scars=world.road_scars,
                 migration_trails=world.migration_trails,
                 dry_lakebed_scars=world.dry_lakebed_scars,

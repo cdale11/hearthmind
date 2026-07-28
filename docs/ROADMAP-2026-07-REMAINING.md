@@ -68,19 +68,19 @@ starts on an explicit instruction naming an item.
 
 ### Tier 1 — substrate
 
-- [ ] **A1** — `ownership`/`noise` (v1.34.67/.70), then `heat`/
+- [x] **A1** — `ownership`/`noise` (v1.34.67/.70), then `heat`/
       `nutrients`/`scent` (v1.34.71), then `cultural_influence`
       (v1.34.72, sourced from `InventedConcept.adopter_ids` — real
       data source, correcting v1.34.71's own claim that one didn't
-      exist), then `fertility` (v1.34.73, a region average of
-      `FarmGrid.soil_fertility` — closes the field-count checklist)
-      shipped — all twelve originally-named continuous fields are now
-      real (`population_density`, `disease_pressure`, `pollution`,
-      `traffic`, `scarcity` (A4), `ownership`, `noise`, `heat`,
-      `nutrients`, `scent`, `cultural_influence`, `fertility`). Only
-      `beauty` remains unbuilt — an `AskUserQuestion` about its
-      mechanical meaning went unanswered at v1.34.72 — defaulted to
-      skip, not a user-confirmed decision, re-raise on a future pass.
+      exist), then `fertility` (v1.34.73), then `beauty` (v1.34.74,
+      explicit `AskUserQuestion` answer: "New subjective agent-vote
+      signal" — the one field NOT sourced from already-real state, see
+      `world/aesthetics.py`) shipped — **all thirteen named continuous
+      fields are now real** (`population_density`, `disease_pressure`,
+      `pollution`, `traffic`, `scarcity` (A4), `ownership`, `noise`,
+      `heat`, `nutrients`, `scent`, `cultural_influence`, `fertility`,
+      `beauty`), each with a real consumer and a real map overlay.
+      **A1 is closed.**
 - [ ] **A1** — migrate `mining_scars`/`disaster_scars`/the 3x3 climate
       grid onto `FieldGrid` properly instead of staying separate stores
       — explicitly considered and deferred at v1.34.71 (a real refactor
@@ -1427,17 +1427,18 @@ conclusions" framing:
    blocking A3's rivers-re-carve item; **that item itself shipped,
    v1.34.25** (see A3's own entry below — this line was stale, caught
    during a v1.34.50 docs-accuracy pass).
-3. **A1** — **all twelve originally-named fields real as of v1.34.73**
+3. **A1** — **CLOSED, v1.34.74.** All thirteen named fields are real
    (`ownership`/`noise` at v1.34.67/.70, `heat`/`nutrients`/`scent` at
    v1.34.71, `cultural_influence` at v1.34.72, `fertility` at v1.34.73,
+   `beauty` at v1.34.74 — explicit `AskUserQuestion` answer, "New
+   subjective agent-vote signal," see the item's own entry below —
    joining `population_density`/`disease_pressure`/`pollution`/
-   `traffic`/`scarcity`). Only `beauty` remains unbuilt (an
-   `AskUserQuestion` about its mechanical meaning went unanswered at
-   v1.34.72, defaulted to skip — see the item's own entry below), plus
-   migrating `mining_scars`/`disaster_scars`/the climate grid onto
-   `FieldGrid` properly instead of staying separate stores (explicitly
-   considered and deferred at v1.34.71, re-asked and again deferred at
-   v1.34.72 — too large/risky to bundle with a field-adding batch).
+   `traffic`/`scarcity`), each with a real consumer and a real map
+   overlay. Migrating `mining_scars`/`disaster_scars`/the climate grid
+   onto `FieldGrid` properly instead of staying separate stores remains
+   a SEPARATE open item (explicitly considered and deferred at
+   v1.34.71, re-asked and again deferred at v1.34.72 — too large/risky
+   to bundle with a field-adding batch).
 4. **A2** — **`diffuse`'s fifth consumer shipped, v1.34.67**
    (`ownership`'s `diffuse` call, joining `traffic`'s/`disease_
    pressure`'s/`pollution`'s); **`cellular_step`'s first real consumer
@@ -1867,20 +1868,23 @@ this document stays a faithful snapshot, not a paraphrase that could
 drift from the source of truth. Consult that doc directly for full
 context/rationale on any item — this is the "what's left" extract.
 
-### A1 — Continuous environmental fields
+### A1 — Continuous environmental fields — CLOSED (v1.34.74)
 **Sixth field shipped (v1.34.67): `ownership`. Seventh shipped
 (v1.34.70): `noise`. Eighth/ninth/tenth shipped (v1.34.71): `heat`/
 `nutrients`/`scent`. Eleventh shipped (v1.34.72): `cultural_
-influence`. Twelfth shipped (v1.34.73): `fertility` — closes the
-field-count checklist.** `population_density`/`disease_pressure`/
-`pollution`/`traffic`/`scarcity` (A4) were the only five real fields
-before `ownership`; only `beauty` (moisture is really A11's, already
-shipped there) is still unbuilt, per an unanswered `AskUserQuestion`
-(see below) rather than silently dropped. `terrain_activity`/`disaster_
-scars` and the climate grid remain separate stores, not migrated onto
-`FieldGrid` — considered and explicitly deferred at v1.34.71, re-asked
-via `AskUserQuestion` at v1.34.72 and again went unanswered, still
-deferred on the same recommended-default judgment.
+influence`. Twelfth shipped (v1.34.73): `fertility`. Thirteenth and
+final shipped (v1.34.74): `beauty` — explicit `AskUserQuestion`
+answer, "New subjective agent-vote signal," `world/aesthetics.py`.**
+`population_density`/`disease_pressure`/`pollution`/`traffic`/
+`scarcity` (A4) were the only five real fields before `ownership`; all
+thirteen named fields are now real, each with a real consumer and a
+real map overlay. `terrain_activity`/`disaster_scars` and the climate
+grid remain separate stores, not migrated onto `FieldGrid` — considered
+and explicitly deferred at v1.34.71, re-asked via `AskUserQuestion` at
+v1.34.72 and again went unanswered, still deferred on the same
+recommended-default judgment. This is now a SEPARATE, standalone open
+item (see the Tier 1 checklist above) — not part of A1, which is
+closed.
 
 `ownership` sources from `World.ownership_history` (A19, v1.34.55 —
 already-real permanent per-tile count of how many times a HUT has
@@ -1967,12 +1971,26 @@ distinct from `location_character`'s "what happened on this exact
 tile" question. Given a real map overlay (12th "🗺️ fields" mode) in
 the same batch.
 
-**Explicitly NOT attempted, with a concrete reason:** `beauty` was
-asked about via `AskUserQuestion` at v1.34.72 (what would its
-mechanical meaning even be) and went unanswered — defaulted to skip on
-the recommended-default judgment stated at the time, not a
-user-confirmed decision; re-raise on a future pass rather than treating
-this as settled design.
+**`beauty` (v1.34.74) — closes A1.** Asked again via `AskUserQuestion`
+("Ask the beauty phase of A1 and finish it") — explicit user answer:
+"New subjective agent-vote signal," over a deterministic composite of
+already-real state or skipping the field entirely. New `world/
+aesthetics.py`: `compute_aesthetic_appraisal` scores the tile a voting
+agent stands on (water-adjacency, scenic biome, neighborhood biome
+variety, mining/disaster scar penalties) then nudges it by the voting
+agent's own `TRAIT_OPENNESS` — the genuinely subjective half, real per
+the same trait that already shapes migrant-welcome chance elsewhere.
+`tick_aesthetic_votes` gives every agent a cheap per-tick roll
+(`BEAUTY_APPRAISAL_CHANCE_PER_TICK=0.02`); an accepted vote folds into
+new `World.aesthetic_appraisal`, a persistent 3x3 per-region
+exponential moving average — the ONE `FieldGrid` field not sourced from
+a live re-read of already-real state, seeded neutral (0.5, not the
+usual "absence means zero," since an unvoted region has no opinion yet
+rather than an objectively ugly one). `FieldGrid.step_beauty` spreads
+it via `diffuse` same as every sibling field. Real consumer:
+`Population._maybe_welcome_migrant` gains a fourth positive
+region-field term, `MIGRANT_BEAUTY_PULL=0.2`. 13th "🗺️ fields" mode.
+**All thirteen named A1 fields are now real — A1 is closed.**
 
 **Fourth field shipped (v1.34.36): `traffic`.** See above for the
 fifth; `traffic` sources from `World.roads.wear` (already-real per-tile
