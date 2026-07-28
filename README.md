@@ -899,8 +899,15 @@ right now) with full rationale/verification detail in `CHANGELOG.md`.
 Deliberate, still-open deferrals are also tracked there — check
 `CLAUDE.md` rather than this file for "what's not done yet."
 
+**`docs/README.md` is the index to the documentation** — which document
+answers which question, which are still authoritative, and which are
+finished history kept in `docs/archive/`. Start there rather than
+guessing from filenames.
+
 See `CHANGELOG.md` for the version-by-version history (older entries
-live in `docs/CHANGELOG-ARCHIVE.md` to keep the live file readable),
-`docs/DECISIONS.md` for the reasoning behind non-obvious choices (older
-entries in `docs/DECISIONS-ARCHIVE.md`), and `docs/ROADMAP.md` for the
-original phase plan's status.
+live in `docs/archive/CHANGELOG-ARCHIVE.md` to keep the live file
+readable), `docs/DECISIONS.md` for the reasoning behind non-obvious
+choices (older entries in `docs/archive/DECISIONS-ARCHIVE.md`),
+`docs/ROADMAP-2026-07-REMAINING.md` for what is still open (its
+"Open-task checklist" section is the fastest read), and
+`docs/archive/ROADMAP.md` for the original phase plan's status.

@@ -1096,7 +1096,7 @@ get enforced *within* every other step, not built once and done.
 **Do not start any step without an explicit go-ahead naming it** — same
 convention as every other vision doc filed here (docs/VISION-2026-07-
 21-SELFEVOLVING.md, docs/VISION-2026-07-22-LIVINGTERRARIUM.md,
-docs/IDEAS-2026-07-EMERGENCE.md): this document records the plan, it
+docs/archive/IDEAS-2026-07-EMERGENCE.md): this document records the plan, it
 is not authorization to start executing it.
 
 ### Stage I — Senses & substrate (3 steps, unblocks everything)

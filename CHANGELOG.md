@@ -4,6 +4,188 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.64] — Full codebase + docs audit: two real bugs fixed, docs reorganized, roadmap checklist
+
+Explicit user request: "audit the whole codebase and the docs as well.
+Find and fix errors that have not been noticed, obvious bugs and subtle
+bugs. Moreover, clean up the written documents, there are so many and
+so confusing, clean them and remove the unnecessary ones. Finally,
+update the roadmap file with a checklist of remaining open tasks."
+
+Three deliverables. No feature work.
+
+### Bug 1 — floods were structurally impossible (real, high impact)
+
+`disasters.FLOOD_HEAVY_RAIN_PRECIPITATION` was `0.65`. Measured across
+328,500 real `compute_weather` samples (3 seeds x 3 FULL years),
+precipitation clears that bar on **0.01% of ticks**, `flood_pressure`
+never left `0.0`, and no flood ever fired — a fully-built subsystem
+(tile submersion, building/vehicle damage, farm destruction, A11
+recurrence erosion, M2/M8's flood-reshapes-terrain work) guarded by
+dead code.
+
+Root cause is a textbook instance of this codebase's own standing
+"unreachable threshold" lesson. The original `0.4` genuinely *was*
+broken — it ratcheted `flood_pressure` to its cap and held it there,
+so flooding read as constant background weather. v0.88.0's "v1 audit"
+fixed that by changing **two** things at once: raising the bar to
+`0.65` AND rebalancing `FLOOD_PRESSURE_GAIN`/`DECAY` from
+`0.05/0.02` to `0.04/0.03`. Only the second change was needed; the
+first overshot past what `compute_weather`'s EMA smoothing can reach.
+
+Re-derived by simulating flood pressure against the real weather
+sequences at the current gain/decay:
+
+    bar   precip clears   pressure elevated   crossings   flood rolls
+    0.65      0.01%             0.00%              0             0
+    0.55      2.90%             0.00%              0             0
+    0.50      9.99%             2.44%            272          ~13/yr
+    0.45     22.90%            24.64%            122         ~136/yr
+    0.40     40.94%            41.77%            243         ~228/yr
+
+(The last column is an upper bound — the model omits the
+`flood_pressure *= 0.5` relief a real flood applies on firing.)
+
+`0.55` is also structurally dead (a 2.9% duty cycle never accumulates
+25 net gains in a row); `0.45` and below re-create the original
+ratchet. **Set to `0.50`** — the only value producing a real,
+self-clearing flood season. The constant's docstring now carries the
+full table.
+
+**Methodology correction, recorded because it nearly shipped two wrong
+fixes.** The first probes in this pass used 9,000-tick runs. At 100
+ticks/day that is ~90 days — **spring only**, the driest quarter — and
+`SimClock.month_name` is capitalized while `_MONTH_BASELINES` is
+lowercase-keyed, so a per-month breakdown came back silently empty.
+On that bad sample this pass had concluded `0.40` was correct (it is
+not; it ratchets) and that `weather.py`'s six sky bands had drifted
+out of calibration and needed retuning. Re-measured over full years,
+the sky bands land at clear 30.07% / partly_cloudy 24.82% / overcast
+22.11% / drizzle 12.86% / light_rain 7.17% / heavy_rain 2.97%,
+dry 77% / rain 23% — matching v0.87.12's stated intent (29/24/21/12/
+7/3, dry ~74%) almost exactly. **The sky bands were correct and the
+proposed retune was reverted**; it would have made the world rain 43%
+of the time. Both the flood docstring and the roadmap now record that
+any threshold work here must sample all twelve months.
+
+### Bug 2 — native/fallback float divergence (misdiagnosed since v1.34.0)
+
+`scripts/verify_native_soak.py` has reported a permanent MISMATCH on
+seed 3 since v1.34.0, annotated in every release since as "a known
+pre-existing `river_tiles`/`roads.ever_established` set-ordering
+quirk." **That attribution was wrong.**
+
+Both sets were serialized in iteration order, which is genuinely not
+meaningful, so both are now sorted at their `to_dict` sites — but that
+did not clear the mismatch. Bisecting the actual `World.to_dict()`
+diff at the first diverging tick isolated a single field,
+`hydrology_field.moisture`, differing by exactly 1 ULP
+(`0.41714033920812077` vs `0.4171403392081207`).
+
+Traced upstream to `cpp/src/weather.cpp`. Built with `-march=native`
+and GCC's default `-ffp-contract=fast`, the EMA blend
+`prev*s + target*(1-s)` is fused into a single FMA, which retains more
+intermediate precision than the two separately-rounded multiplies the
+Python fallback performs. Weather feeds `HydrologyField.moisture`,
+which is serialized unrounded, so a 1-ULP arithmetic difference became
+a visible full-state divergence.
+
+Fixed by adding **`-ffp-contract=off`** to `setup.py`'s
+`_EXTRA_COMPILE_ARGS`. The surrounding comment there already worried
+about floating-point semantics but stopped at `-Ofast`, missing that
+contraction is on by default. Direct verification: `compute_weather`
+native-vs-fallback is now bit-identical across 2,000 consecutive
+ticks (it diverged at tick **1** before), and seed 3 — the reference
+failing case — now MATCHes at 1500 ticks. **This flag is load-bearing
+for every current and future native module doing `a*b + c*d`.**
+
+### Dead code removed
+
+Verified unreferenced across the whole package before removal
+(pyflakes clean afterwards, only the four known string-annotation
+false positives remain):
+
+- `agents/population.py` — `DEVELOPMENT_BASELINE`, `INJURY_BASELINE`,
+  `STRESS_BASELINE`, `SLEEP_DEBT_BASELINE`, `TRAIT_NOTABLE_THRESHOLD`,
+  `OCCUPATION_DIALOGUE_REGISTER`, `OCCUPATION_SHOPKEEPER`,
+  `OCCUPATION_WORKPLACES`, and an unused `MineralKind` import.
+- `simulation/engine.py` — `agent_memory_log_count`,
+  `recent_agent_memory_log`, `INVENTION_REDISCOVERY_CHANCE`, and a dead
+  `festivals = festival_target.festivals` assignment.
+- `world/state.py` — unused `apply_dry_lakebed_scar` import (the
+  feature itself is correctly wired; `hydrology.py` does the applying).
+- `llm/recorder.py` — unused `import zipfile`.
+
+### Checked and deliberately NOT "fixed"
+
+Recorded so a future audit doesn't re-flag them: four pyflakes
+"undefined name" hits are string type annotations (`"Agent | None"`,
+`"Building | None"`, `"Institution"`); `engine.py:2138`'s closure
+correctly captures `sid`/`fb` as default args; `Agent.fertility` is a
+documented derived property, correct to be write-free;
+`World::settlement` / `WildlifeGrid::id` are nested/legacy keys, not
+asymmetries. Four custom AST checkers written for this pass (closure
+late-binding in loops, `to_dict`/`from_dict` key asymmetry, collection
+mutation during iteration, out-of-range probability constants) came
+back clean or false-positive-only.
+
+Also verified reachable, not a bug: `STORM_WIND_THRESHOLD=0.55` fires
+on 3.18% of ticks over a full year. The spring-only probe made it look
+like 0.48%; it is fine.
+
+### Docs cleanup
+
+`docs/` went from 20 top-level files to 11 plus an `archive/`
+subdirectory. **Nothing was deleted** — nine finished documents moved
+to `docs/archive/` via `git mv`, preserving history:
+`AUDIT-2026-07-20.md`, `IDEAS-2026-07-EMERGENCE.md`,
+`DEFINITIVECHECKLIST-2026-07-21.md`, `REVIEW-2026-07.md`,
+`VISION-2026-07.md`, `VISION-2026-07-LEARNING.md`, `ROADMAP.md`,
+`CHANGELOG-ARCHIVE.md`, `DECISIONS-ARCHIVE.md`. Each is internally
+marked fully shipped or historical record; each still explains why a
+large part of the system looks the way it does, which is why they are
+archived rather than removed.
+
+New **`docs/README.md`** is the index the user's "so many and so
+confusing" complaint actually asked for: a "start here" table (which
+file answers which question), a live-documents section separating
+still-governing docs from vision docs kept only for the standing rules
+CLAUDE.md cites, an archive table with a status column, and the
+project's own filing conventions.
+
+Path references were updated in **live** documents (CLAUDE.md,
+README.md, the roadmap and its siblings), including four that a plain
+`sed` missed because the path was wrapped across two lines. References
+inside `CHANGELOG.md` and the archives themselves were **deliberately
+left alone** — those are historical statements about where a file was
+at the time, and rewriting them would falsify the record.
+
+### Roadmap checklist
+
+`docs/ROADMAP-2026-07-REMAINING.md` gained an **"Open-task checklist"**
+section near the top — the fast read the 2,400-line document never had.
+Only open items appear, grouped by the doc's existing tiers (0, 0.5, 1,
+1.5, 2, 3, 4, 5, the C++ backlog), plus two sections that did not exist
+before: **"Known scope trims"** (real deliberate decisions recorded so
+they are not rediscovered as gaps — districts outside
+`carrying_capacity`, A19's battles axis having no combat mechanic to
+source it, A13's ore reactant, LoRA staying data-collection-only) and
+**"Standing verification debt"** (this pass's own findings). Derived by
+re-reading every per-item status note against current source; two stale
+notes were caught and corrected in the process.
+
+### Verification
+
+- pyflakes clean across `hearthmind/` (four known false positives).
+- 4,000-tick LLM-disabled soak with a clean `to_dict`/`from_dict`
+  round-trip.
+- `scripts/verify_native_soak.py` — seeds 1,2 at 800 ticks MATCH, and
+  seed 3 at 1500 ticks now MATCHes for the first time since v1.34.0.
+- `compute_weather` native-vs-fallback bit-identical over 2,000 ticks.
+- Flood threshold re-derived against 328,500 full-year weather samples;
+  sky bands re-verified against the same sample before reverting the
+  proposed retune.
+
 ## [1.34.63] — Tier 3 item 18: dialect grammar made genuinely recursive
 
 Explicit user instruction: "Start 18" (docs/ROADMAP-2026-07-

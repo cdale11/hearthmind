@@ -238,7 +238,14 @@ class RoadNetwork:
     def to_dict(self) -> dict:
         return {
             "wear": [[x, y, round(w, 4)] for (x, y), w in self.wear.items()],
-            "ever_established": [[x, y] for x, y in self.ever_established],
+            # Sorted deliberately: `ever_established` is a set, so its
+            # iteration order depends on insertion/removal history, which
+            # legitimately differs between the native and pure-Python road
+            # paths even when the CONTENT is identical. An unsorted dump made
+            # `scripts/verify_native_soak.py` report a permanent false
+            # mismatch here, which in turn masked any real divergence in this
+            # field. `from_dict` rebuilds a set, so order carries no meaning.
+            "ever_established": sorted(self.ever_established),
         }
 
     @classmethod

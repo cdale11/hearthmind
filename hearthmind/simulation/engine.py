@@ -111,9 +111,9 @@ from hearthmind.llm.cognition import (
 from hearthmind.llm.jobs import CognitionRunner
 from hearthmind.llm.recorder import TrainingRecorder
 from hearthmind.persistence.snapshot import (
-    agent_memory_log_count, consciousness_log_count, events_by_category, events_since_tick, history_events,
+    consciousness_log_count, events_by_category, events_since_tick, history_events,
     load_latest_snapshot, log_agent_memory_entry, log_consciousness_entry, log_event, log_metrics,
-    recent_agent_memory_log, recent_events, recent_events_diverse, recent_metrics, save_snapshot,
+    recent_events, recent_events_diverse, recent_metrics, save_snapshot,
 )
 from hearthmind.agents.population import (
     DISPUTE_COOLDOWN_TICKS,
@@ -153,7 +153,6 @@ from hearthmind.settlement.buildings import (
     INVENTION_CURRENCY_THRESHOLD,
     INVENTION_KNOWLEDGE_MAX_TRACKED,
     INVENTION_MATERIALS_FRACTION,
-    INVENTION_REDISCOVERY_CHANCE,
     INVENTION_SPECIALIZATION_CAP,
     INVENTION_SPECIALIZATION_STEP,
     LAWS_MAX_STORED,
@@ -5727,7 +5726,6 @@ class SimulationEngine:
         if self._pillar_interpret_backpressured("village"):
             return
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
-        festivals = festival_target.festivals
         prompt = festival.build_prompt(
             festival_target.name, recent, self.world.clock.season,
             beliefs=festival_target.beliefs[-PROMPT_BELIEFS_MAX:],

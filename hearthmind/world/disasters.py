@@ -83,28 +83,54 @@ FLOOD_PRESSURE_THRESHOLD = 1.0
 FLOOD_CHANCE_PER_TICK = 0.015
 FLOOD_DURATION_TICKS = 40
 FLOOD_DAMAGE = 0.35
-FLOOD_HEAVY_RAIN_PRECIPITATION = 0.65
-"""v1 audit fix: was 0.4, the exact same value documented elsewhere
-(population.py's WEATHER_HARSH_PRECIPITATION) as clearing ~40-50% of
-all ticks — the same duty cycle that forced DECAY_PER_TICK_BASE down in
-buildings.py's own history. At that duty cycle, with the old
-GAIN=0.05/DECAY=0.02, expected per-tick pressure drift was strongly
-positive (p*GAIN - (1-p)*DECAY > 0 once p exceeds DECAY/(GAIN+DECAY) =
-~28.6%), so flood_pressure ratcheted to its 2.0 cap and stayed there —
-flooding read as a near-constant background event rather than the
-"rare, consequential" framing this module's docstring claims (the
-inverse of the usual "unreachable threshold" bug class: this one was
-too *easily* and *permanently* reachable). Raised to 0.65 — genuinely
-heavy rain, above weather.py's own LIGHT_RAIN_PRECIPITATION_THRESHOLD
-(0.55), not just "any measurable rain" — and GAIN/DECAY rebalanced
-(0.05/0.02 -> 0.04/0.03) so the never-ratchet duty-cycle ceiling rises
-to ~42.9%, a comfortable margin above the much rarer real frequency of
-genuinely heavy rain. Builds flood pressure each tick precipitation
-clears this bar, decaying otherwise. Once pressure clears
-FLOOD_PRESSURE_THRESHOLD, each tick rolls a small chance to submerge
-low ground bordering an existing river/lake tile for FLOOD_DURATION_TICKS,
-knocking FLOOD_DAMAGE off any building/vehicle caught in it and
-destroying any farm plot there — real damage, not narration."""
+FLOOD_HEAVY_RAIN_PRECIPITATION = 0.50
+"""Builds flood pressure each tick precipitation clears this bar,
+decaying otherwise. Once pressure clears FLOOD_PRESSURE_THRESHOLD, each
+tick rolls a small chance to submerge low ground bordering an existing
+river/lake tile for FLOOD_DURATION_TICKS, knocking FLOOD_DAMAGE off any
+building/vehicle caught in it and destroying any farm plot there — real
+damage, not narration.
+
+History — this constant has now been wrong in BOTH directions:
+
+- Originally 0.4 with GAIN=0.05/DECAY=0.02. Real problem: at that duty
+  cycle expected pressure drift was positive, so pressure ratcheted to
+  its cap and STAYED there — flooding read as constant background
+  weather, not the rare event this module describes.
+- v0.88.0 ("v1 audit") fixed that by changing two things at once:
+  raising the bar to 0.65 AND rebalancing GAIN/DECAY to 0.04/0.03. Only
+  the GAIN/DECAY half was needed; the 0.65 half overshot into this
+  codebase's own standing "unreachable threshold" bug class (CLAUDE.md),
+  because `compute_weather`'s EMA smoothing keeps realized precipitation
+  far narrower than the raw jitter suggests. Result: floods became
+  structurally impossible, dead code guarding a fully-built subsystem.
+
+Re-derived for the v1.34.64 audit against 328,500 samples (3 seeds x 3
+FULL years — an earlier probe in the same pass sampled only ~90 ticks-
+per-day-scaled days, i.e. spring alone, and reached a wrong answer;
+threshold work here must span all twelve months). Realized precipitation
+over that sample: min 0.105, p50 0.378, p99 0.580, max 0.670. Simulated
+flood pressure against those same real weather sequences, with the
+current GAIN/DECAY:
+
+    bar   precip clears   pressure elevated   crossings   flood rolls
+    0.65      0.01%             0.00%              0             0
+    0.55      2.90%             0.00%              0             0
+    0.50      9.99%             2.44%            272          ~13/yr
+    0.45     22.90%            24.64%            122         ~136/yr
+    0.40     40.94%            41.77%            243         ~228/yr
+
+(The "flood rolls" column is an upper bound: the model above omits the
+`flood_pressure *= 0.5` relief a real flood applies when it fires, so
+live rates land somewhat lower. The relative ordering is what matters.)
+
+0.65 and 0.55 are both structurally dead (a 2.9% duty cycle never
+accumulates 25 net gains in a row). 0.45 and below re-create the
+original ratchet. 0.50 is the only value that produces a real,
+self-clearing flood season — pressure elevated on ~2.4% of ticks, each
+flood localized to low ground bordering water. Do not move this without
+re-running that full-year measurement; the usable window is narrow and
+one-sided."""
 
 FLOOD_RECURRENCE_EROSION_THRESHOLD = 3
 """M2/M8 "flooding reshapes the land" (docs/ROADMAP-2026-07-REMAINING.

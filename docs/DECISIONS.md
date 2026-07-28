@@ -3,7 +3,93 @@
 A running log of non-obvious choices and why they were made, so future
 contributors (including future us) don't relitigate them without context.
 
-**Older entries have been moved to [docs/DECISIONS-ARCHIVE.md](docs/DECISIONS-ARCHIVE.md) to keep this file readable** — full detail preserved there, nothing lost. This file keeps the most recent decisions.
+**Older entries have been moved to [docs/archive/DECISIONS-ARCHIVE.md](docs/archive/DECISIONS-ARCHIVE.md) to keep this file readable** — full detail preserved there, nothing lost. This file keeps the most recent decisions.
+
+---
+
+## Two audit findings: an unreachable flood threshold, and FMA contraction in the native build (v1.34.64)
+
+Explicit user request for a full codebase + docs audit. Two real bugs
+came out of it, both subtle, both live for many versions.
+
+**1. Floods were structurally impossible, and the fix that caused it
+was itself a fix for a real bug.** `FLOOD_HEAVY_RAIN_PRECIPITATION`
+sat at `0.65`. Measured across 328,500 real `compute_weather` samples
+(3 seeds x 3 full years), precipitation clears that on 0.01% of ticks;
+`flood_pressure` never left zero. Everything downstream — tile
+submersion, building/vehicle damage, farm destruction, A11's
+recurrence erosion, M2/M8's "flooding reshapes the land" work — was
+dead code behind a gate nothing could open.
+
+The instructive part is *how* it got there. The original `0.4` really
+was broken: at that duty cycle, with the then-current
+`GAIN=0.05/DECAY=0.02`, expected per-tick pressure drift was positive,
+so pressure ratcheted to its cap and stayed there. v0.88.0 fixed that
+correctly but changed **two** variables in one step — the threshold
+(0.4 → 0.65) *and* the gain/decay balance (0.05/0.02 → 0.04/0.03).
+The gain/decay change alone was sufficient. The threshold change
+carried it past what the EMA smoothing can physically reach, swapping
+one failure mode for its exact inverse. **When a fix has two parts,
+verify each one is load-bearing separately.**
+
+Re-derived at the current gain/decay: 0.65 and 0.55 both produce zero
+pressure crossings (2.9% duty never accumulates 25 net gains in a
+row); 0.45 and below re-create the ratchet (24.6% / 41.8% of ticks
+elevated). `0.50` is the only value in between — 2.44% of ticks
+elevated, ~13 flood events a year, each localized to low ground
+bordering water. Set there.
+
+**Methodology, recorded because it nearly shipped two wrong fixes.**
+The first probes in this pass ran 9,000 ticks. At 100 ticks/day that
+is ~90 days — **spring only**, the driest quarter of a UK maritime
+climate — and `SimClock.month_name` returns capitalized names while
+`_MONTH_BASELINES` is lowercase-keyed, so a per-month sanity table
+came back silently empty instead of erroring. On that sample this pass
+concluded that `0.40` was the right flood value (it is not) and that
+`weather.py`'s six sky bands had drifted out of calibration and needed
+retuning downward. Re-measured over full years, the sky bands land
+within a point or two of v0.87.12's stated intent on every band; the
+proposed retune would have made the world rain 43% of the time instead
+of 23%. It was reverted. **Threshold work against `compute_weather`
+must sample all twelve months** — drive it directly with a real
+`SimClock` rather than ticking a world, and beware the month-name
+casing mismatch.
+
+**2. The native/fallback soak divergence was never set ordering.**
+`scripts/verify_native_soak.py` had reported a permanent MISMATCH on
+seed 3 since v1.34.0, confirmed pre-existing via `git stash` at the
+time and thereafter annotated in every release's verification notes as
+"a known `river_tiles`/`roads.ever_established` set-ordering quirk."
+
+That explanation was plausible — both fields are `set`s dumped in
+iteration order, and iteration order does depend on insertion history
+rather than content — but it was never actually tested. Sorting both
+at their `to_dict` sites (correct on its own merits, and kept) did not
+clear the mismatch. Bisecting the real `World.to_dict()` diff at the
+first diverging tick isolated exactly one field,
+`hydrology_field.moisture`, off by a single ULP.
+
+Upstream cause: `cpp/src/weather.cpp` is compiled with `-march=native`,
+and GCC defaults to `-ffp-contract=fast`, so the EMA blend
+`prev*s + target*(1-s)` is fused into one FMA. An FMA carries more
+intermediate precision than the two separately-rounded multiplies
+CPython performs, so the two paths legitimately computed different
+doubles for the same formula. Weather feeds `HydrologyField.moisture`,
+serialized unrounded, and the difference surfaced as full-state
+divergence. Fixed with `-ffp-contract=off` in `setup.py`.
+
+Two things worth carrying forward. First, `setup.py`'s own comment
+already reasoned about floating-point semantics — it explicitly
+rejected `-Ofast` for exactly this concern — but stopped there, not
+realizing contraction is on by default at any optimization level with
+FMA available. Second, **a long-lived "known quirk" annotation is a
+smell, not a resolution.** This one had been carried in release notes
+for dozens of versions and was masking a genuine parity bug in a
+verification harness whose entire purpose is catching parity bugs.
+
+Verified: `compute_weather` native-vs-fallback is now bit-identical
+across 2,000 consecutive ticks (it diverged at tick 1 before), and
+seed 3 MATCHes at 1500 ticks for the first time since v1.34.0.
 
 ---
 

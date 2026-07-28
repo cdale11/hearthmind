@@ -73,7 +73,6 @@ import random
 import threading
 import time
 import uuid
-import zipfile
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path

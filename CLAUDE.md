@@ -12,6 +12,11 @@ lives in `docs/DECISIONS.md` and `CHANGELOG.md` — consolidated here in
 v0.63.0 per an explicit user cleanup request; see "Diagnostic history
 index" below for pointers.
 
+**`docs/README.md` is the index to every other document** (filed
+v1.34.64): which one answers which question, which are still
+authoritative, and which are finished history now under `docs/archive/`.
+Consult it before opening a doc by filename guess.
+
 **`docs/CONSTITUTION.md` is the canonical priority/architecture guide**
 (user-uploaded, v0.86.0) and supersedes prior audit reports where they
 conflict. Priority order when trade-offs arise: **Emergence > Memory
@@ -226,7 +231,7 @@ copies on FAMILY/COUNCIL/GUILD institutions. A belief is not guaranteed
 correct and can be revised or superseded. The supernatural/
 ambiguous-consciousness framing stays implicit everywhere.
 
-## Long-term design vision (2026-07, standing — full text in docs/VISION-2026-07.md)
+## Long-term design vision (2026-07, standing — full text in docs/archive/VISION-2026-07.md)
 
 Explicit user directive (2026-07-16): Hearthmind's objective is a
 **living civilization simulator** whose guiding rule is **"maximize
@@ -254,13 +259,13 @@ ones; every mechanic must interact with multiple others; design test:
 "will this make the world feel more alive even if the player never
 interacts with it?" Roadmap = phases I–N (Inner Life → Deeper Minds →
 Knowledge & Story → Society & Power → Faith & Meaning → The Town
-Awake) — see docs/VISION-2026-07.md (now trimmed to a status pointer)
+Awake) — see docs/archive/VISION-2026-07.md (now trimmed to a status pointer)
 for the phase-by-phase shipping record and the two flagged conflicts'
 resolutions. **All six phases (I-N) are fully shipped** (v0.76.1
 through v0.84.4) — this is no longer a design-only document, it
 describes the shape the engine actually has.
 
-**`docs/IDEAS-2026-07-EMERGENCE.md`** (filed v0.87.6, an externally-
+**`docs/archive/IDEAS-2026-07-EMERGENCE.md`** (filed v0.87.6, an externally-
 submitted "what's still missing" audit, extended with original ideas
 §1-§9 across later batches): **also fully resolved** as of v0.87.31 —
 every checklist item across §0-§9 is either shipped, confirmed
@@ -422,7 +427,20 @@ EMA smoothing produces a much narrower realized range than the raw
 jitter suggests. If a threshold-gated event "never seems to happen,"
 first verify the threshold is *reachable* against measured smoothed
 output (snow, sky bands, wind bands, storms, heatwave, frost were all
-this bug class) — don't just raise the roll chance.
+this bug class) — don't just raise the roll chance. **v1.34.64 added
+two hard rules to this.** (a) **Measure over a full year, all twelve
+months.** At 100 ticks/day a 9,000-tick probe covers ~90 days —
+spring only, the driest quarter — and that sample produced two wrong
+conclusions in this very pass before being caught. Drive
+`compute_weather` directly with a real `SimClock` (fast, faithful)
+rather than ticking a world; note `SimClock.month_name` is
+capitalized while `_MONTH_BASELINES` is lowercase-keyed, a mismatch
+that silently empties a per-month table instead of erroring. (b)
+**When a fix changes two variables, verify each is load-bearing
+separately** — v0.88.0's flood fix raised a threshold AND rebalanced
+gain/decay; only the second was needed, and the first swapped a
+ratchet bug for its exact inverse (an unreachable one) that then went
+unnoticed for dozens of versions.
 
 ## Workflow rules
 
@@ -491,6 +509,66 @@ Single-writer tick loop + queued interventions; fallback-on-every-LLM-
 call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
+
+## Current state (v1.34.64)
+
+Explicit user request: "audit the whole codebase and the docs as well.
+Find and fix errors that have not been noticed, obvious bugs and subtle
+bugs. Moreover, clean up the written documents, there are so many and
+so confusing... Finally, update the roadmap file with a checklist of
+remaining open tasks." Full detail: CHANGELOG.md's [1.34.64] entry;
+root-cause writeups in docs/DECISIONS.md.
+
+**Two real bugs, both long-lived.** (1) Floods were structurally
+impossible: `FLOOD_HEAVY_RAIN_PRECIPITATION=0.65` is cleared on 0.01%
+of ticks, so `flood_pressure` never left zero and the entire flood
+subsystem (submersion, damage, A11 recurrence erosion, M2/M8's
+terrain reshaping) was dead code. v0.88.0 fixed a genuine ratchet bug
+but changed two variables at once — only the `GAIN/DECAY` rebalance
+was needed; the threshold raise overshot past what `compute_weather`'s
+EMA smoothing can reach. Re-derived to **0.50** (2.44% of ticks
+pressure-elevated, ~13 flood events/year); 0.55 is also dead, 0.45 and
+below re-ratchet. (2) The `verify_native_soak.py` seed-3 MISMATCH
+annotated since v1.34.0 as "a set-ordering quirk" was **not** set
+ordering: it was a 1-ULP float difference in `hydrology_field.
+moisture`, traced to `cpp/src/weather.cpp` fusing its EMA blend into
+an FMA under GCC's default `-ffp-contract=fast`. Fixed with
+**`-ffp-contract=off`** in `setup.py` — load-bearing for every native
+module doing `a*b + c*d`. Seed 3 now MATCHes for the first time since
+v1.34.0.
+
+**Standing lesson added (the sharper form of the "unreachable
+threshold" rule).** Threshold work against `compute_weather` must
+sample **all twelve months**. This pass's own first probes used 9,000
+ticks = ~90 days = spring only, the driest quarter, and reached two
+wrong conclusions from it — including a proposed `weather.py` sky-band
+retune that would have made the world rain 43% of the time instead of
+23%. Re-measured over 3 seeds x 3 full years, the existing sky bands
+match v0.87.12's stated intent almost exactly; **the retune was
+reverted, the originals were correct.** Drive `compute_weather`
+directly with a real `SimClock` rather than ticking a world, and note
+`SimClock.month_name` is capitalized while `_MONTH_BASELINES` is
+lowercase-keyed (that mismatch silently emptied a diagnostic table).
+
+Also: dead code removed across four modules (verified unreferenced,
+pyflakes clean); four custom AST checkers written for this pass
+(closure late-binding, `to_dict`/`from_dict` key asymmetry, mutation
+during iteration, out-of-range probability constants) came back clean
+or false-positive-only.
+
+**Docs: `docs/` went 20 top-level files -> 11 + `archive/`.** Nothing
+deleted — nine finished documents `git mv`'d to `docs/archive/`. New
+**`docs/README.md` is the index to read first**: which document
+answers which question, which are still authoritative, which are
+finished history. Live-document path references updated; references
+inside `CHANGELOG.md` and the archives deliberately left as-is (they
+are historical statements about where a file was).
+
+**Roadmap: `docs/ROADMAP-2026-07-REMAINING.md` gained an "Open-task
+checklist" near the top** — only open items, grouped by its existing
+tiers, plus two new sections: "Known scope trims" (real deliberate
+decisions, recorded so they are not rediscovered as gaps) and
+"Standing verification debt."
 
 ## Current state (v1.3.35)
 
@@ -3662,7 +3740,7 @@ remain open; see the vision doc.
 ## Current state (v1.3.17)
 
 Explicit user request: implement items from an uploaded audit,
-`docs/DEFINITIVECHECKLIST-2026-07-21.md` — a dependency-ordered,
+`docs/archive/DEFINITIVECHECKLIST-2026-07-21.md` — a dependency-ordered,
 tiered rewrite plan whose central finding is that interpersonal state
 (feuds, debts, grievances) ambiently decays to zero exactly like mood
 does, and disputes (the one interpersonal LLM job) are throttled to a
@@ -3840,7 +3918,7 @@ seeds x 3000 ticks) byte-identical.
 
 ## Current state (v1.3.16)
 
-Explicit user request: "try finishing FT" — docs/AUDIT-2026-07-20.md's
+Explicit user request: "try finishing FT" — docs/archive/AUDIT-2026-07-20.md's
 fine-tuning roadmap, FT.3-FT.7. Ships everything buildable without a
 second "teacher" model or real GPU training infra (neither exists in
 this environment) — FT.3's teacher-distillation half and FT.6 (the
@@ -3923,7 +4001,7 @@ the fit-target change.
 
 ## Current state (v1.3.13)
 
-Explicit user follow-up: "try FT.2" — docs/AUDIT-2026-07-20.md's
+Explicit user follow-up: "try FT.2" — docs/archive/AUDIT-2026-07-20.md's
 fine-tuning roadmap, third item.
 
 New `llm/quality_labels.py`: a read-only post-hoc labeler over the
@@ -3939,7 +4017,7 @@ label_archive()`/`export_sft_filter()` are the entry points —
 
 ## Current state (v1.3.12)
 
-Explicit user follow-up: "ship FT0 and FT1" — docs/AUDIT-2026-07-20.md's
+Explicit user follow-up: "ship FT0 and FT1" — docs/archive/AUDIT-2026-07-20.md's
 fine-tuning roadmap, first two items.
 
 FT.0: `llm/json_schemas.py` gives the eleven highest-volume LLM tasks
@@ -3962,7 +4040,7 @@ tag" gap that was previously purely aspirational.
 ## Current state (v1.3.11)
 
 Explicit user follow-up: "Do the eyeball pass and make the call [on
-P1.4] and also finish P3." Closes `docs/AUDIT-2026-07-20.md`
+P1.4] and also finish P3." Closes `docs/archive/AUDIT-2026-07-20.md`
 entirely — every P0/P1/P2/P3 item shipped, only the FT fine-tuning
 roadmap remains (a scoped future effort, not a checklist item). Full
 detail: CHANGELOG.md.
@@ -3990,7 +4068,7 @@ already polls.
 
 Explicit user follow-up: "Continue with P2 items from the audit and
 P1.3." Ships P1.3 (previously flagged v1.3.7 — explicit instruction
-now supersedes that flag) and all five P2 items from `docs/AUDIT-
+now supersedes that flag) and all five P2 items from `docs/archive/AUDIT-
 2026-07-20.md`. Full detail: CHANGELOG.md.
 
 P1.3: forced-choice cognition (hunger/energy past their survival
@@ -4022,7 +4100,7 @@ the rationale to cite an actual number.
 ## Current state (v1.3.9)
 
 Explicit user follow-up: "Complete P1 fully" — the three remaining
-`docs/AUDIT-2026-07-20.md` P1 items. P1.3 stays deliberately flagged,
+`docs/archive/AUDIT-2026-07-20.md` P1 items. P1.3 stays deliberately flagged,
 not shipped (reverses an earlier explicit design decision, needs a
 user call). Full detail: CHANGELOG.md.
 
@@ -4080,7 +4158,7 @@ that doesn't pass map area.
 ## Current state (v1.3.7)
 
 Explicit user follow-up: "do the next part from audit" — continuing
-`docs/AUDIT-2026-07-20.md`'s P1 backlog. Shipped P1.1 (three
+`docs/archive/AUDIT-2026-07-20.md`'s P1 backlog. Shipped P1.1 (three
 simulation-scaffolding leaks into the fiction: raw tile coordinates
 recited in speech, `faded_memory_text`'s "I only vaguely recall:"
 prefix quoted/laundered as literal dialogue, `grounded_event` always
@@ -4097,7 +4175,7 @@ audit doc rather than changed unilaterally. Full detail: CHANGELOG.md.
 ## Current state (v1.3.6)
 
 Explicit user request: implement an uploaded external audit
-(`docs/AUDIT-2026-07-20.md`, added this pass — full P0-P3/FT backlog,
+(`docs/archive/AUDIT-2026-07-20.md`, added this pass — full P0-P3/FT backlog,
 checkboxes updated as items ship) and check off shipped items. All
 four P0 items landed: (1) mood pinned negative — `tick_mood`'s
 `signal = avg*2-1` mapped calm to -1 on every axis, fixed to
@@ -4740,18 +4818,18 @@ stale items and clean all documents") — no code/behavior changes.
 Full detail: CHANGELOG.md.
 
 Found and fixed genuinely stale (not just verbose) status claims:
-`docs/VISION-2026-07.md`'s "nothing implemented yet" header and this
+`docs/archive/VISION-2026-07.md`'s "nothing implemented yet" header and this
 file's own "Nothing from this vision is implemented yet" (both false —
 Phases I-N have been fully shipped since v0.84.4) and the §8 summary
 below ("not-yet-scoped... work from it only on future explicit
-direction" — false, two of three items shipped). Trimmed docs/
-VISION-2026-07.md and docs/VISION-2026-07-LEARNING.md to status
-pointers, same treatment docs/ROADMAP.md already had. Consolidated
+direction" — false, two of three items shipped). Trimmed docs/archive/
+VISION-2026-07.md and docs/archive/VISION-2026-07-LEARNING.md to status
+pointers, same treatment docs/archive/ROADMAP.md already had. Consolidated
 this file's own "Current state" history (v0.82.0-v0.87.26 folded into
 the existing "Consolidated history" section, which now spans v0.65.2-
 v0.87.26 as one themed block) — 3013 -> ~1040 lines, same periodic
-maintenance as the v0.63.0/v0.85.0 passes. docs/IDEAS-2026-07-
-EMERGENCE.md/docs/REFACTOR-2026-07.md/docs/REVIEW-2026-07.md/docs/
+maintenance as the v0.63.0/v0.85.0 passes. docs/archive/IDEAS-2026-07-
+EMERGENCE.md/docs/REFACTOR-2026-07.md/docs/archive/REVIEW-2026-07.md/docs/
 DECISIONS.md audited and left as-is — all confirmed accurate,
 genuinely still-referenced records, not stale backlogs.
 
@@ -4769,7 +4847,7 @@ inspector. Full detail: CHANGELOG.md.
 ## Current state (v0.87.31)
 
 Explicit user request ("Complete all the items of 9") — implements
-every remaining unchecked item in docs/IDEAS-2026-07-EMERGENCE.md §9
+every remaining unchecked item in docs/archive/IDEAS-2026-07-EMERGENCE.md §9
 (9 of 12; the other 3 were already shipped/confirmed under other
 names). Full detail: CHANGELOG.md.
 
@@ -4814,7 +4892,7 @@ no native module touched.
 
 ## Current state (v0.87.30)
 
-§9's last item (docs/IDEAS-2026-07-EMERGENCE.md, "stalled era
+§9's last item (docs/archive/IDEAS-2026-07-EMERGENCE.md, "stalled era
 progression"), explicit user request. Confirmed root cause: era
 advanced purely from `tech_level`, itself incremented only by a rare
 seasonal invention roll — a settlement could sit at `industrial`
@@ -4881,7 +4959,7 @@ byte-identical — no native module or persisted field touched.
 
 ## Current state (v0.87.28)
 
-§8's third item (LoRA/QLoRA fine-tuning, docs/IDEAS-2026-07-
+§8's third item (LoRA/QLoRA fine-tuning, docs/archive/IDEAS-2026-07-
 EMERGENCE.md) per explicit user request, implementing a user-supplied
 "Permanent LLM Training Recorder & Dataset Pipeline Specification" —
 the data-collection prerequisite only; **no fine-tuning run itself is
@@ -4943,7 +5021,7 @@ preference over a sidebar panel) plus a "Mining scars" stat tile.
 
 Full narrative/verification detail for every entry below lives in
 CHANGELOG.md and docs/DECISIONS.md (and, for anything under an
-IDEAS-doc section number, docs/IDEAS-2026-07-EMERGENCE.md's own
+IDEAS-doc section number, docs/archive/IDEAS-2026-07-EMERGENCE.md's own
 per-item writeup) — this section keeps only durable facts (mechanisms
 still active, constants still in force) so CLAUDE.md stays a working
 reference, not an archive. Consolidated/extended 2026-07 per explicit
@@ -4951,13 +5029,13 @@ user requests ("trim all the docs..." then later "clean up stale docs
 and stale items").
 
 **"The LLM learns like a human" (v0.87.0–.4)**: fully shipped, see
-docs/VISION-2026-07-LEARNING.md (trimmed to a status pointer) for the
+docs/archive/VISION-2026-07-LEARNING.md (trimmed to a status pointer) for the
 complete mechanism list — `Agent.lessons`, memory drift, salience
 fade, cross-generational lesson inheritance, LLM-narrated skill
 mastery, settlement pattern-beliefs, consciousness player-theory
 revision, trait-consequence nudges.
 
-**docs/IDEAS-2026-07-EMERGENCE.md §1-§9 implementation (v0.87.7–.31,
+**docs/archive/IDEAS-2026-07-EMERGENCE.md §1-§9 implementation (v0.87.7–.31,
 spanning most of this range)**: every checklist item across all nine
 original-idea sections is shipped — see that document itself (kept as
 a historical decision record, like docs/DECISIONS.md) for the full
@@ -5366,7 +5444,7 @@ remain in the decision log:
   auto-revive an empty world") stood from early in the project through
   v0.85.0; do not reintroduce it without a similarly explicit
   instruction.
-- The full architecture review lives in `docs/REVIEW-2026-07.md`; its
+- The full architecture review lives in `docs/archive/REVIEW-2026-07.md`; its
   recommendations were implemented across v0.40.0–v0.41.0.
 
 ## Known architectural gaps (not yet built)

@@ -20,7 +20,7 @@ first real slice *together* (including a genuine cross-pillar wire,
 not four isolated slivers), Phase 3 deepens all four together a second
 time, rather than pillar-by-pillar phases.
 
-**Relationship to `docs/DEFINITIVECHECKLIST-2026-07-21.md`**: explicit
+**Relationship to `docs/archive/DEFINITIVECHECKLIST-2026-07-21.md`**: explicit
 user instruction — **additional layer, not a replacement**. That
 checklist's still-open Tiers (1 ledger, 2.1/2.3, 3-7) are largely
 *prerequisite infrastructure* this vision consumes rather than a

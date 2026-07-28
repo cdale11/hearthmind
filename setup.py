@@ -29,7 +29,25 @@ from setuptools.command.build_ext import build_ext as _build_ext
 # machine and copied to a different CPU could crash on an unsupported
 # instruction, which is why this isn't done for portable wheel builds.
 # MSVC uses different flag syntax entirely, so these are skipped there.
-_EXTRA_COMPILE_ARGS = [] if sys.platform == "win32" else ["-O3", "-march=native", "-mtune=native"]
+#
+# -ffp-contract=off is load-bearing, not tidiness (v1.34.64). The note
+# above was right to worry about floating-point semantics but stopped at
+# -Ofast: GCC's DEFAULT is -ffp-contract=fast, and -march=native enables
+# FMA, so an expression like `prev * s + target * (1 - s)` (weather.cpp's
+# EMA blend) gets contracted into a single fused multiply-add. FMA keeps
+# more intermediate precision than two separately-rounded IEEE doubles,
+# so the native path produced a result 1 ULP off from the pure-Python
+# fallback computing the same formula. That tiny difference propagated —
+# weather feeds `HydrologyField.moisture`, whose values are serialized
+# unrounded — and surfaced as a permanent `scripts/verify_native_soak.py`
+# MISMATCH on seed 3 that had been mis-attributed to set-ordering and
+# annotated as "a known pre-existing quirk" since v1.34.0. Turning
+# contraction off makes C++ round at each step exactly as Python does.
+# Any future native module doing `a*b + c*d` depends on this flag.
+_EXTRA_COMPILE_ARGS = (
+    [] if sys.platform == "win32"
+    else ["-O3", "-march=native", "-mtune=native", "-ffp-contract=off"]
+)
 
 def _build_jobs() -> int:
     """Usable core count for this build process — `os.sched_getaffinity(0)`

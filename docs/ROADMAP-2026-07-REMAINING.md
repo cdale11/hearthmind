@@ -14,7 +14,7 @@ substantially shipped from CLAUDE.md's history — not something the user
 asked for. Corrected on request: B/C are shipped-a-first-version in
 most places, not fully closed, and the actual open items are worth
 recording just like Part A's.) Vision/audit docs outside the Master
-Checklist (`docs/VISION-*`, `docs/IDEAS-2026-07-EMERGENCE.md`, `docs/
+Checklist (`docs/VISION-*`, `docs/archive/IDEAS-2026-07-EMERGENCE.md`, `docs/archive/
 AUDIT-2026-07-20.md`) remain out of scope — each already internally
 marked "fully resolved" or "historical record" per CLAUDE.md. As of
 v1.34.2, `docs/HEARTHBENCH-RUNTIME-2026-07-23.md` (a separately
@@ -28,6 +28,203 @@ nothing here is guessed. Where a status changed mid-session (A3, A20,
 A21), that's already reflected. Standing convention carries over
 unchanged: work from this doc only on a future explicit "next
 step"/item-naming instruction, never auto-chained.
+
+---
+
+## Open-task checklist (filed v1.34.64)
+
+The fast read. Everything below is **open**; anything closed has been
+left out entirely, so an empty section means that tier is done. Each
+line links to the detailed entry further down by item name. Derived by
+re-reading this document's own per-item status notes against current
+source in the v1.34.64 audit — two stale "still open" notes were caught
+and corrected in that pass, so treat these as accurate-as-of-filing and
+re-verify against code before building on one.
+
+Standing convention unchanged: a checked-off list is not a queue. Work
+starts on an explicit instruction naming an item.
+
+### Tier 0 — pillar refactor (the biggest single lever)
+
+- [ ] Convert the remaining **~52 mirror-write sites** from "write into
+      `pillar.world_model`/`memory`" to a genuine **pillar-authored
+      decision**. The reusable primitive exists (`Pillar.subject_
+      confidence`, v1.34.46); three sites are converted (town_brain
+      priority, era_branch tiebreak, COUNCIL institution objective).
+      Each further site is real judgment work — find a soft/tiebreak
+      point a pillar's accumulated belief can legitimately weigh, never
+      hand a pillar a whole decision.
+
+### Tier 0.5 — live-diagnostic findings
+
+- [ ] **D10** — long-horizon soak re-verification at **60k+ ticks**.
+      Attempted at v1.34.21 and honestly incomplete: per-tick cost
+      grows with population and the run was killed ~10k ticks in with
+      no failure seen. Needs wall-clock budget, not a design decision.
+- [ ] **D1/D2/D3/D4/D9** — closed by *code-level re-audit only*; this
+      environment has no live LLM server. Re-measure against real
+      inference traffic when one is available, before changing any of
+      the thresholds they concern.
+
+### Tier 1 — substrate
+
+- [ ] **A1** — eight of the twelve named continuous fields are still
+      unbuilt (fertility-as-field, nutrients, scent, heat, cultural
+      influence, ownership, beauty, noise). Four are real
+      (`population_density`, `disease_pressure`, `pollution`,
+      `traffic`, plus `scarcity` from A4).
+- [ ] **A1** — migrate `mining_scars`/`disaster_scars`/the 3x3 climate
+      grid onto `FieldGrid` properly instead of staying separate stores.
+- [ ] **A2** — `reaction_diffuse` and `cellular_step` still have no
+      second real consumer (`diffuse` has four).
+
+### Tier 1.5 — The Living Map
+
+Closed as a tier (v1.34.51). One residual named example never built:
+
+- [ ] **M1/M9** — field boundaries drawn on the map, and a labeled
+      "environmental stress"/degradation reading. Same scar-dict /
+      overlay mechanism as the six shipped axes; a future slice.
+
+### Tier 2 — self-contained mechanism gaps
+
+- [ ] **A17** — two of three named pieces remain, each with a real
+      flagged blocker (audited v1.34.59, not forced): a **fitness-vs-
+      truth axis for rumors** would need a ground-truth value per rumor,
+      contradicting Phase G's "belief never has to reconcile with
+      objective reality"; a **shared decay/compete step** has no safe
+      site (`Settlement.lexicon` has no live consumer, `recent_topics`
+      risks destabilizing v0.87.35's topic-diversity tuning without a
+      live read first). Resumes only on an explicit decision naming a
+      path. The third piece (a second `memetics.weighted_spread_target`
+      consumer) shipped v1.34.60.
+
+### Tier 3 — deepen an already-real mechanism
+
+- [ ] **A5/A6** — per-instance `Entity.affordances`/`Entity.properties`
+      (today: class-level `dict[BuildingKind, ...]` only).
+- [ ] **A7** — layout and architecture grammars stay single-application
+      scoring biases / fixed-slot productions; a real graph grammar over
+      terrain+roads and a real shape grammar with recursive subdivision
+      are each a genuinely bigger lift than dialect's fix was. Rules
+      becoming LLM-proposable also unattempted. (Ritual/recipe grammar
+      is *deliberately* not on this list — it contradicts a prior design
+      decision to keep that domain LLM-authored.)
+- [ ] **A8** — sandbox forward-simulation as a fitness input; grammar-
+      based mutation as an alternate generate path.
+- [ ] **A10** — migration, competition, decomposition, pollination,
+      habitat formation; folding the food web onto A1's field substrate.
+- [ ] **A12** — per-instance `Entity.material` generalized beyond
+      buildings (per-*building*-instance material shipped v1.34.58).
+- [ ] **A16** — trade-as-network-flow, tech-as-DAG, information-
+      propagation-as-graph-algorithm (only centrality is shipped).
+- [ ] **B4** — reverse-direction disagreement classification: only the
+      Nature→Village arrow checks whether the receiver already
+      disagrees; every other arrow defaults to a flat kind tag.
+- [ ] **B8** — `reinforce`/`reinterpret` (only `consolidate`/forget
+      exist); needs per-note salience/access tracking in all five
+      pillars.
+- [ ] **C2** — most spec-named pillar-emitted intentions (invent tech,
+      set custom, change law, reorganize institution, shift land use,
+      domesticate, build, propose experiment) aren't pillar-emitted at
+      all. Mostly waits on Tier 0.
+- [ ] **C3** — "pillars may initiate contact" (today: player-initiated
+      only, via `/ask/{pillar}`).
+
+### Tier 4 — standing discipline (never "finished")
+
+- [ ] **A23** — composability-over-content, enforced at review time on
+      every new subsystem.
+- [ ] **A24** — physical-consistency validation stays inviolable as
+      Part B/C gain power; re-confirm on every new intention-writing
+      capability.
+- [ ] **A25** — periodically re-audit LLM call sites: has anything that
+      needed genuine judgment become mechanically deterministic?
+- [ ] **Per-agent cognition's volume-safe mirroring design** (Tier 0.5
+      D11). The design question is *what the volume gate is*, not
+      whether to mirror. Three candidates to evaluate together —
+      (a) mirror only a goal CHANGE with a novel reason, (b) a
+      significance threshold reusing `_is_significant_moment`, (c) one
+      settlement-level daily digest. Note v1.34.34 shipped (a) for
+      core-cast goal changes specifically; the general design is still
+      open.
+
+### Tier 5 — HearthBench & the Adaptive Runtime
+
+- [ ] **The whole of `HEARTHBENCH-RUNTIME-2026-07-23.md`**, both
+      tracks, sequenced strictly after Tiers 0–4. Nothing started.
+
+### C++ native-porting backlog (R6/R7)
+
+- [ ] **First step, before any porting:** a direct read pass confirming
+      which of `weather.py`/`terrain_evolution.py`/`disasters.py`/
+      `hydrology_field.py` still run hot per-tick loops in pure Python.
+      This list is inherited from an older CLAUDE.md snapshot, not
+      freshly verified.
+- [ ] `world/weather.py` — spatial-region handling (the blend function
+      is ported).
+- [ ] `world/terrain_evolution.py` — local-activity / climate-drift-
+      adjacent hot loops.
+- [ ] `world/disasters.py` — not ported.
+- [ ] `world/hydrology.py` / `world/hydrology_field.py` — not ported.
+- [ ] `economy/farms.py` — confirm nutrient cycling and the A11
+      moisture-yield coupling haven't reintroduced pure-Python hot path.
+- [ ] `settlement/buildings.py` — confirm ruin-scar / layout-grammar /
+      architecture-grammar additions are metadata-only, not per-tick
+      decay math.
+- [ ] **R8** — agent tick *logic* (`population.py`'s methods) is still
+      Python reading/writing through the native `AgentStore`. The
+      largest remaining port.
+
+### Known scope trims — real, deliberate, not bugs
+
+Recorded so they aren't rediscovered as "gaps" later:
+
+- [ ] **Districts are not folded into `carrying_capacity()`** (v1.34.22)
+      — collectivized population is an additive figure so existing
+      growth tuning stays undisturbed. Folding it in needs live-test
+      ability.
+- [ ] **A19's "battles" axis** has no data source — no combat mechanic
+      exists. A18's "raid" example is likewise scoped to relationship-
+      rupture, not real combat.
+- [ ] **A13's automatic reactor is reachable only for clay/fiber** — no
+      `BuildingKind` defaults to `ore`.
+- [ ] **`§8` LoRA fine-tuning** stays data-collection-only; a real
+      training pipeline is outside `SimulationEngine`'s scope.
+- [ ] **A21/A7's ritual/recipe structure grammar** and **Humans-vs-
+      Village ontology origination split** — both deliberately left,
+      each contradicting or predating a real prior design decision.
+
+### Standing verification debt (found in the v1.34.64 audit)
+
+- [x] **The long-standing native/fallback soak divergence — FIXED,
+      v1.34.64, and it was not what it had been recorded as.** First
+      noted v1.34.0 and annotated as "a pre-existing `river_tiles`/
+      `roads.ever_established` set-ordering quirk" in every release's
+      verification notes since. That attribution was wrong. Sorting
+      both sets at their `to_dict` sites (done anyway — a set's
+      iteration order is not semantically meaningful) did **not** clear
+      it. Bisecting the actual `World.to_dict()` diff at the first
+      diverging tick showed a single field, `hydrology_field.moisture`,
+      differing by exactly 1 ULP. Traced upstream: `cpp/src/weather.cpp`
+      compiled with `-march=native` and GCC's default
+      `-ffp-contract=fast` fuses the EMA blend `prev*s + target*(1-s)`
+      into an FMA, which keeps more intermediate precision than the two
+      separately-rounded multiplies Python performs. Weather feeds
+      moisture, which is serialized unrounded, so the 1-ULP difference
+      became a visible full-state mismatch. Fixed by adding
+      `-ffp-contract=off` in `setup.py`. Seed 3 (the reference failing
+      case) now MATCHes at 1500 ticks. **This flag is load-bearing for
+      every current and future native module doing `a*b + c*d`.**
+- [ ] **Threshold constants must be re-measured over a FULL year.** The
+      v1.34.64 audit initially reached two wrong conclusions from a
+      9,000-tick probe — at 100 ticks/day that is ~90 days, i.e. spring
+      only, the driest quarter. Any future work touching
+      `weather.py`'s bands, `disasters.py`'s thresholds, or
+      `population.WEATHER_HARSH_PRECIPITATION` must sample all twelve
+      months (drive `compute_weather` directly with a real `SimClock`;
+      note `SimClock.month_name` is capitalized and `_MONTH_BASELINES`
+      is lowercase-keyed).
 
 ---
 

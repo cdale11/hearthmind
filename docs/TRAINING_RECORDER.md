@@ -4,7 +4,7 @@ Permanent, production-grade infrastructure for recording every real LLM
 task the simulation runs into a durable, append-only JSONL corpus —
 built for future SFT/DPO/evaluation/regression/prompt-research use, and
 as the data-collection prerequisite for §8's LoRA/QLoRA idea
-(docs/IDEAS-2026-07-EMERGENCE.md). The LoRA fine-tuning run itself is
+(docs/archive/IDEAS-2026-07-EMERGENCE.md). The LoRA fine-tuning run itself is
 NOT implemented here — only the recorder that would feed it.
 
 Implements the user-supplied "Hearthmind Permanent LLM Training

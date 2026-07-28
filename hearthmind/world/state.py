@@ -32,7 +32,6 @@ from hearthmind.world.terrain_evolution import (
     decay_ruin_scars,
     decay_road_scars,
     decay_migration_trails,
-    apply_dry_lakebed_scar,
     decay_dry_lakebed_scars,
     maybe_reclaim,
     nature_adaptation_bias,
@@ -1528,7 +1527,11 @@ class World:
             "roads": self.roads.to_dict(),
             "climate": self.climate.to_dict(),
             "lakes": [lake.to_dict() for lake in self.lakes],
-            "river_tiles": [list(pos) for pos in self.river_tiles],
+            # Sorted for the same reason `roads.ever_established` is: a set's
+            # iteration order reflects insertion history, not content, so an
+            # unsorted dump produced a permanent false mismatch in
+            # `scripts/verify_native_soak.py` that masked real divergence.
+            "river_tiles": [list(pos) for pos in sorted(self.river_tiles)],
             "river_sources": [list(pos) for pos in self.river_sources],
             "hydrology_field": self.hydrology_field.to_dict(),
             "disasters": self.disasters.to_dict(),
