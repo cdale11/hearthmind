@@ -4,6 +4,67 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.72] — A1: cultural_influence field (11th) + correction of v1.34.71's own scope note
+
+Explicit user instruction: "Continue A1 and ask questions if your are
+stuck." Asked via `AskUserQuestion` whether to design a mechanical
+meaning for `beauty` and whether to attempt the mining_scars/disaster_
+scars/climate-grid `FieldGrid` migration flagged open at v1.34.71 —
+**both questions went unanswered**. Proceeded on the stated
+recommended defaults: `beauty` stays unbuilt (skipped, not attempted),
+the store migration stays deferred. Neither is a user-confirmed
+decision; re-raise both on a future pass rather than treating this as
+settled.
+
+While investigating those two, found that v1.34.71's own claim about
+`cultural-influence` — "no real data source anywhere in this codebase
+without inventing a new subjective-scoring mechanic from scratch" —
+was wrong. `world/ontology.py`'s `InventedConcept.adopter_ids: set[int]`
+is a real, already-tracked, already-capped set of agent IDs per
+invented concept (any origin category — technology, custom, law,
+ecological relationship). This correction supersedes that specific
+claim in v1.34.71's CHANGELOG/CLAUDE.md entries below; the rest of
+that entry stands.
+
+Shipped the field for real. `FieldGrid.step_cultural_influence`
+(`world/fields.py`): every living agent who has adopted at least one
+invented concept counts once toward their current tile's region,
+normalized against the most culturally active region, spread via
+`ca_operators.diffuse` — same "live census, not an accumulating
+quantity" shape `step_population_density` established (an agent who
+stops adopting, or dies, simply stops being counted; no new tracked
+state). `World.tick()` (`world/state.py`) computes the union of
+`adopter_ids` across `World.invented_concepts` each tick and calls it
+with living agents' positions. Real consumer:
+`Population._maybe_welcome_migrant` gains a fifth optional region-field
+term, `region_cultural_influence` (`MIGRANT_CULTURAL_PULL=0.25`) — a
+third POSITIVE pull alongside `ownership`/`heat`'s siblings (density/
+scarcity/heat all only ever dampen), "word travels that a place has
+real ideas." UI: 11th "🗺️ fields" overlay mode ("cultural influence"),
+own violet/lavender color ramp distinct from `ownership`'s warm-gold
+"roots" ramp — this is intellectual/cultural presence, not physical
+settledness.
+
+Verified: 2 direct unit tests for `step_cultural_influence` (region
+with more adopters peaks vs. its neighbors; empty adopter set stays
+all-zero), a production-path test through the real `World.tick()` with
+forced adopters confirming organic formation plus a clean `to_dict`/
+`from_dict` round-trip, a 4000-tick LLM-disabled soak with clean
+round-trip (field stays legitimately zero — no invented concepts form
+organically with LLM disabled over that horizon; the forced-adopter
+test above already proves the formation path), `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical — pure Python, no native
+module touched — and a live dev server + Playwright pass confirming
+the overlay cycles to "cultural influence" with a matching legend
+("no adopters" -> "cultural hub") and zero console errors.
+
+Honest accounting, same discipline as v1.34.71: this still does not
+close A1. `fertility`-as-a-`FieldGrid`-aggregate and `beauty` remain
+unbuilt (`beauty`'s AskUserQuestion went unanswered, defaulted to
+skip); migrating `mining_scars`/`disaster_scars`/the climate grid onto
+`FieldGrid` remains unbuilt (same unanswered-question default: leave
+deferred). Real field count is now 11.
+
 ## [1.34.71] — A1: three more fields (heat/nutrients/scent) + honest scope note
 
 Explicit user instruction: "Finish building A1 this turn." Ships three

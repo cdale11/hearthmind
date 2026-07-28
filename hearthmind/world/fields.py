@@ -170,6 +170,11 @@ SCENT_DIFFUSE_RATE = 0.35
 radiates into neighboring regions, not just the exact tiles a predator
 pack currently stands on."""
 
+CULTURAL_INFLUENCE_DIFFUSE_RATE = 0.3
+"""Same role as `TRAFFIC_DIFFUSE_RATE` — a region bordering a
+culturally active one reads as somewhat influenced too, not just the
+exact tiles where an adopter happens to be standing this tick."""
+
 
 def _normalize_peak(raw: list[list[float]]) -> list[list[float]]:
     """Scales a raw non-negative grid to 0..1 against its own peak cell
@@ -423,6 +428,27 @@ class FieldGrid:
             rx, ry = self.region_of(pos, width, height)
             raw[ry][rx] += count
         self.fields["scent"] = diffuse(_normalize_peak(raw), SCENT_DIFFUSE_RATE)
+
+    def step_cultural_influence(self, adopter_positions: list[tuple[int, int]], width: int, height: int) -> None:
+        """Eleventh concrete field (A1). Sourced from `World.invented_
+        concepts`' already-real `InventedConcept.adopter_ids` — every
+        living agent who has adopted at least one invented concept
+        (technology, custom, law, ecological relationship, whatever
+        origin) counts once toward their current tile's region,
+        normalized against the most culturally active region, spread
+        via `ca_operators.diffuse`. Same "re-read already-real slow-
+        changing state" shape `step_population_density` established
+        (a live census, not an accumulating quantity — an agent who
+        stops being an adopter, or dies, simply stops being counted).
+        Real consumer: `Population._maybe_welcome_migrant`'s new
+        `region_cultural_influence` term (`MIGRANT_CULTURAL_PULL`) — a
+        third POSITIVE region-field pull alongside `ownership`/`heat`'s
+        siblings, "word travels that a place has real ideas.\""""
+        raw = [[0.0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+        for pos in adopter_positions:
+            rx, ry = self.region_of(pos, width, height)
+            raw[ry][rx] += 1
+        self.fields["cultural_influence"] = diffuse(_normalize_peak(raw), CULTURAL_INFLUENCE_DIFFUSE_RATE)
 
     def to_dict(self) -> dict:
         return {name: [list(row) for row in grid] for name, grid in self.fields.items()}

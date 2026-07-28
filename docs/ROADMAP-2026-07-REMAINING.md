@@ -69,22 +69,26 @@ starts on an explicit instruction naming an item.
 ### Tier 1 — substrate
 
 - [ ] **A1** — `ownership`/`noise` (v1.34.67/.70), then `heat`/
-      `nutrients`/`scent` (v1.34.71) shipped — ten of the twelve named
-      continuous fields are now real (`population_density`, `disease_
-      pressure`, `pollution`, `traffic`, `scarcity` (A4), `ownership`,
-      `noise`, `heat`, `nutrients`, `scent`). Three remain unbuilt:
-      `fertility`-as-a-FieldGrid-aggregate (would duplicate an axis
-      `location_character` already reads from `FarmGrid` directly),
-      `cultural-influence`/`beauty` (no real data source anywhere in
-      this codebase without inventing a new subjective-scoring
-      mechanic — a genuinely separate design task, flagged not
-      forced).
+      `nutrients`/`scent` (v1.34.71), then `cultural_influence`
+      (v1.34.72, sourced from `InventedConcept.adopter_ids` — real
+      data source, correcting v1.34.71's own claim that one didn't
+      exist) shipped — eleven of the twelve named continuous fields
+      are now real (`population_density`, `disease_pressure`,
+      `pollution`, `traffic`, `scarcity` (A4), `ownership`, `noise`,
+      `heat`, `nutrients`, `scent`, `cultural_influence`). Two remain
+      unbuilt: `fertility`-as-a-FieldGrid-aggregate (would duplicate an
+      axis `location_character` already reads from `FarmGrid`
+      directly), `beauty` (an `AskUserQuestion` about its mechanical
+      meaning went unanswered at v1.34.72 — defaulted to skip, not a
+      user-confirmed decision, re-raise on a future pass).
 - [ ] **A1** — migrate `mining_scars`/`disaster_scars`/the 3x3 climate
       grid onto `FieldGrid` properly instead of staying separate stores
       — explicitly considered and deferred at v1.34.71 (a real refactor
       of three already-tuned, already-consumed stores for no behavior
       change, judged too large/risky to bundle with a field-adding
-      batch).
+      batch); re-asked via `AskUserQuestion` at v1.34.72 and again went
+      unanswered — still deferred on the same recommended-default
+      judgment, not a user-confirmed decision.
 - [ ] **A2** — `cellular_step` gained its first real consumer,
       v1.34.68 (`compute_forest_contiguity`, weighting `tick_wildfire`'s
       ignition-site draw by local forest density). `reaction_diffuse`
@@ -1423,16 +1427,17 @@ conclusions" framing:
    blocking A3's rivers-re-carve item; **that item itself shipped,
    v1.34.25** (see A3's own entry below — this line was stale, caught
    during a v1.34.50 docs-accuracy pass).
-3. **A1** — **ten real fields as of v1.34.71** (`ownership`/`noise`
-   at v1.34.67/.70, then `heat`/`nutrients`/`scent` at v1.34.71,
-   joining `population_density`/`disease_pressure`/`pollution`/
-   `traffic`/`scarcity`). `fertility`-as-a-FieldGrid-aggregate and
-   `cultural-influence`/`beauty` remain unbuilt (each with a concrete
-   reason, not silently dropped — see the item's own entry below),
-   plus migrating `mining_scars`/`disaster_scars`/the climate grid onto
-   `FieldGrid` properly instead of staying separate stores (explicitly
-   considered and deferred at v1.34.71, too large/risky to bundle with
-   a field-adding batch).
+3. **A1** — **eleven real fields as of v1.34.72** (`ownership`/`noise`
+   at v1.34.67/.70, `heat`/`nutrients`/`scent` at v1.34.71,
+   `cultural_influence` at v1.34.72, joining `population_density`/
+   `disease_pressure`/`pollution`/`traffic`/`scarcity`).
+   `fertility`-as-a-FieldGrid-aggregate and `beauty` remain unbuilt
+   (each with a concrete reason, not silently dropped — see the item's
+   own entry below), plus migrating `mining_scars`/`disaster_scars`/the
+   climate grid onto `FieldGrid` properly instead of staying separate
+   stores (explicitly considered and deferred at v1.34.71, re-asked and
+   again deferred at v1.34.72 — too large/risky to bundle with a
+   field-adding batch).
 4. **A2** — **`diffuse`'s fifth consumer shipped, v1.34.67**
    (`ownership`'s `diffuse` call, joining `traffic`'s/`disease_
    pressure`'s/`pollution`'s); **`cellular_step`'s first real consumer
@@ -1865,16 +1870,17 @@ context/rationale on any item — this is the "what's left" extract.
 ### A1 — Continuous environmental fields
 **Sixth field shipped (v1.34.67): `ownership`. Seventh shipped
 (v1.34.70): `noise`. Eighth/ninth/tenth shipped (v1.34.71): `heat`/
-`nutrients`/`scent`.** `population_density`/`disease_pressure`/
-`pollution`/`traffic`/`scarcity` (A4) were the only five real fields
-before `ownership`; three of the remaining named fields (`fertility`-
-as-a-FieldGrid-aggregate, cultural-influence, beauty — moisture is
-really A11's, already shipped there) are still unbuilt, each with a
-concrete reason (see the v1.34.71 entries below) rather than silently
-dropped. `terrain_activity`/`disaster_scars` and the climate grid
-remain separate stores, not migrated onto `FieldGrid` — considered and
-explicitly deferred at v1.34.71 as a real refactor of three already-
-tuned stores, too large/risky to bundle with a field-adding batch.
+`nutrients`/`scent`. Eleventh shipped (v1.34.72): `cultural_
+influence`.** `population_density`/`disease_pressure`/`pollution`/
+`traffic`/`scarcity` (A4) were the only five real fields before
+`ownership`; two of the remaining named fields (`fertility`-as-a-
+FieldGrid-aggregate, `beauty` — moisture is really A11's, already
+shipped there) are still unbuilt, each with a concrete reason (see
+below) rather than silently dropped. `terrain_activity`/`disaster_
+scars` and the climate grid remain separate stores, not migrated onto
+`FieldGrid` — considered and explicitly deferred at v1.34.71, re-asked
+via `AskUserQuestion` at v1.34.72 and again went unanswered, still
+deferred on the same recommended-default judgment.
 
 `ownership` sources from `World.ownership_history` (A19, v1.34.55 —
 already-real permanent per-tile count of how many times a HUT has
@@ -1930,16 +1936,31 @@ avoidance in `Population._step_toward`/`_maybe_move`. All three given
 real map overlays (11th/12th/13th "🗺️ fields" modes) in the same
 batch.
 
-**Explicitly NOT attempted at v1.34.71, each with a concrete reason:**
+**`cultural_influence` (v1.34.72)** — corrects v1.34.71's own claim
+that this field had no real data source: `world/ontology.py`'s
+`InventedConcept.adopter_ids: set[int]` is real, already-tracked,
+already-capped state. `FieldGrid.step_cultural_influence` tallies every
+living agent who has adopted at least one invented concept (any origin
+category) into their current tile's region — a live census, zero new
+tracked state, same shape `step_population_density` established —
+normalized against the most culturally active region, spread via
+`ca_operators.diffuse`. Real consumer: `Population._maybe_welcome_
+migrant`'s fifth optional region-field term, `region_cultural_
+influence` (`MIGRANT_CULTURAL_PULL=0.25`) — a third POSITIVE pull
+alongside `ownership`/`heat`'s siblings, "word travels that a place has
+real ideas." Given a real map overlay (11th "🗺️ fields" mode) in the
+same batch.
+
+**Explicitly NOT attempted, each with a concrete reason:**
 `fertility` as a genuine FieldGrid region aggregate (distinct from
 `FarmGrid.soil_fertility`'s existing dense per-farmed-tile dict) would
 largely duplicate an axis `location_character` already reads directly
 from `FarmGrid` — no clear new value over the existing read path.
-`cultural-influence`/`beauty` have no real data source anywhere in
-this codebase to read from without inventing a wholly new subjective-
-scoring mechanic from scratch — a genuinely separate, larger design
-task than this batch's other three same-shape slices, correctly left
-open rather than forced through with a fabricated signal.
+`beauty` was asked about via `AskUserQuestion` at v1.34.72 (what would
+its mechanical meaning even be) and went unanswered — defaulted to
+skip on the recommended-default judgment stated at the time, not a
+user-confirmed decision; re-raise on a future pass rather than treating
+this as settled design.
 
 **Fourth field shipped (v1.34.36): `traffic`.** See above for the
 fifth; `traffic` sources from `World.roads.wear` (already-real per-tile

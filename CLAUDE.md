@@ -510,6 +510,45 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.72)
+
+Explicit user instruction: "Continue A1 and ask questions if your are
+stuck." `AskUserQuestion` was used on two genuinely open design
+decisions carried from v1.34.71 (`beauty`'s mechanical meaning; attempt
+vs. defer the mining_scars/disaster_scars/climate-grid `FieldGrid`
+migration) — **both went unanswered**, so both proceeded on the
+recommended-default judgment call stated at the time (skip `beauty`,
+leave the migration deferred), not a user-confirmed decision; re-raise
+either on a future pass rather than treating this as settled.
+
+**Correction to v1.34.71's own record**: that entry's claim that
+`cultural-influence` "has no real data source anywhere in this
+codebase without inventing a new subjective-scoring mechanic from
+scratch" was wrong — `world/ontology.py`'s `InventedConcept.
+adopter_ids: set[int]` is real, already-tracked, already-capped state.
+Shipped it: `FieldGrid.step_cultural_influence` (`world/fields.py`)
+tallies every living agent who has adopted at least one invented
+concept into their current tile's region (a live census, zero new
+tracked state, same shape `step_population_density` established),
+`World.tick()` computes the adopter-id union each tick. Real consumer:
+`Population._maybe_welcome_migrant`'s fifth optional region-field term,
+`region_cultural_influence` (`MIGRANT_CULTURAL_PULL=0.25`) — a third
+POSITIVE pull ("word travels that a place has real ideas") alongside
+`ownership`/`heat`'s siblings. Real-field count now 11, plus an 11th
+"🗺️ fields" UI mode.
+
+Verified: 2 direct unit tests, a production-path test through the real
+`World.tick()` with forced adopters confirming organic formation + a
+clean round-trip, a 4000-tick LLM-disabled soak with clean round-trip,
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical,
+and a live dev server + Playwright pass confirming the overlay cycles
+correctly with a matching legend.
+
+**Still does not close A1**: `fertility`-as-a-FieldGrid-aggregate and
+`beauty` remain unbuilt (per the unanswered-question default above);
+the mining_scars/disaster_scars/climate-grid migration remains
+deferred (same reason).
+
 ## Current state (v1.34.71)
 
 Explicit user instruction: "Finish building A1 this turn." Shipped

@@ -967,6 +967,13 @@ class World:
             [((h.x, h.y), h.count) for h in self.wildlife.herds.values() if h.species is Species.PREDATOR],
             self.config.width, self.config.height,
         )
+        adopter_ids: set[int] = set()
+        for concept in self.invented_concepts.values():
+            adopter_ids |= concept.adopter_ids
+        self.fields.step_cultural_influence(
+            [(a.x, a.y) for a in self.population.agents if a.id in adopter_ids],
+            self.config.width, self.config.height,
+        )
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (
             wildlife_events + settlement_events + population_events + terrain_events + disaster_events
