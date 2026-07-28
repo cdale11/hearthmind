@@ -199,6 +199,33 @@ def effective_material_name(building) -> str | None:
     return building.material if building.material is not None else BUILDING_MATERIALS.get(building.kind)
 
 
+MATERIAL_REPAIR_FACTOR_BASE = 0.5
+MATERIAL_REPAIR_FACTOR_WORKABILITY_WEIGHT = 1.0
+"""A5/A6's other named gap, closed here: `Entity.properties` as a
+genuine per-instance driver of a real mechanic, distinct from
+`building_instance_affordances`' boolean capability tags above. A
+material's numeric `workability` (already tracked, never consumed by
+anything until now) directly scales how fast `Population._maybe_
+repair` restores a damaged building's `condition` — wood/fiber
+(workability 0.8/0.9) repair meaningfully faster than stone/ore/
+ceramic (0.25/0.15/0.1), the same real-world intuition "you can patch
+a wooden hut faster than you can re-lay stonework" made mechanical.
+Range with these constants: ~0.6 (ceramic) to ~1.4 (fiber), centered
+near 1.0 for wood/metal so the previously-flat repair rate stays close
+to its old tuned value for the two most common kinds."""
+
+
+def material_repair_factor(name: str | None) -> float:
+    """A kind with no assigned material (SCHOOL/UNIVERSITY/MARKET/
+    LIBRARY) or an unrecognized name returns exactly 1.0 — the old
+    flat-rate behavior, unchanged. `effective_material_name(building)`
+    is the intended caller for a real per-instance value."""
+    material = MATERIALS.get(name) if name else None
+    if material is None:
+        return 1.0
+    return MATERIAL_REPAIR_FACTOR_BASE + material.workability * MATERIAL_REPAIR_FACTOR_WORKABILITY_WEIGHT
+
+
 def building_instance_affordances(building) -> frozenset[str]:
     """`building_affordances(kind)`'s per-INSTANCE counterpart — reads
     `effective_material_name` instead of always the per-kind default,

@@ -3482,6 +3482,18 @@ const BUILDING_MATERIAL = {
   hatchery: "fiber", dock: "wood", oil_rig: "metal", bridge: "stone", forge: "stone",
 };
 
+// A5/A6's "Entity.properties" half (world/materials.py's material_
+// repair_factor): a material's real workability now genuinely scales
+// how fast a damaged instance repairs, not just its affordance tags —
+// same "small constant mirrored client-side" precedent as BUILDING_
+// MATERIAL above, bucketed from the backend's own factor ranges
+// (~0.6-1.4) into plain language a player can read at a glance.
+const MATERIAL_REPAIR_HINT = {
+  wood: "quick to repair", fiber: "quick to repair", clay: "quick to repair",
+  metal: "repairs at an ordinary pace", cured_fiber: "repairs at an ordinary pace",
+  stone: "slow to repair", ore: "slow to repair", ceramic: "slow to repair",
+};
+
 function renderTargetInspector() {
   if (!inspectedTarget || !latest) return;
   const { x, y } = inspectedTarget;
@@ -3527,7 +3539,8 @@ function renderTargetInspector() {
         const material = b.material || BUILDING_MATERIAL[b.kind];
         if (!material) return "";
         const converted = b.material && b.material !== BUILDING_MATERIAL[b.kind];
-        return `<div class="npc-section"><h4>Built of</h4><div>${material}${converted ? " (converted from its original material)" : ""}</div></div>`;
+        const repairHint = MATERIAL_REPAIR_HINT[material];
+        return `<div class="npc-section"><h4>Built of</h4><div>${material}${converted ? " (converted from its original material)" : ""}${repairHint ? ` — ${repairHint}` : ""}</div></div>`;
       })()}
       ${b.descriptor ? `<div class="npc-section"><h4>Character</h4><div>${b.descriptor}</div></div>` : ""}
       ${(() => {

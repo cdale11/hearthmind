@@ -446,6 +446,7 @@ from hearthmind.world.terrain_evolution import (
 )
 from hearthmind.world.fields import FieldGrid
 from hearthmind.world.layout_grammar import layout_site_bonus, settlement_layout_style
+from hearthmind.world.materials import effective_material_name, material_repair_factor
 from hearthmind.world.spatial_memory import location_character_from_dicts
 from hearthmind.world.weather import WeatherState
 from hearthmind.world.wildlife import (
@@ -5441,7 +5442,15 @@ class Population:
                 sum(BUILDER_WORK_BONUS if a.occupation == OCCUPATION_BUILDER else 1.0 for a in present),
                 float(MAX_WORKERS),
             )
-            repair = REPAIR_WORK_PER_TICK * workers * _tech_factor(settlement) * _specialization_factor(settlement, "structural")
+            # A5/A6's "Entity.properties" half: a material's real
+            # numeric workability (not just its boolean affordance
+            # tags) scales how fast this specific instance repairs —
+            # see material_repair_factor's docstring.
+            repair = (
+                REPAIR_WORK_PER_TICK * workers * _tech_factor(settlement)
+                * _specialization_factor(settlement, "structural")
+                * material_repair_factor(effective_material_name(building))
+            )
             building.condition = min(1.0, building.condition + repair)
             if building.condition >= REPAIR_THRESHOLD:
                 # Discrete "repair completed" count (v0.86.7) — how many

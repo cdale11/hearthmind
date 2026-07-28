@@ -139,8 +139,14 @@ starts on an explicit instruction naming an item.
 
 ### Tier 3 — deepen an already-real mechanism
 
-- [ ] **A5/A6** — per-instance `Entity.affordances`/`Entity.properties`
-      (today: class-level `dict[BuildingKind, ...]` only).
+- [x] **A5/A6 — CLOSED, v1.34.78.** Affordances half already real
+      (`building_instance_affordances`, A13 v1.34.58). Properties half
+      shipped: `world/materials.py`'s `material_repair_factor` — a
+      material's real `workability` now scales `Population._maybe_
+      repair`'s repair speed per instance, reading `effective_material_
+      name(building)`. Decay itself deliberately left untouched (native
+      fast path takes one shared scalar for the whole batch — a real
+      native-module change, flagged, not attempted).
 - [ ] **A7** — layout and architecture grammars stay single-application
       scoring biases / fixed-slot productions; a real graph grammar over
       terrain+roads and a real shape grammar with recursive subdivision
@@ -1724,11 +1730,25 @@ in this document; nothing in either was started this pass)
     layer" half the doc's own A6 entry flagged as unattempted.
     `mercantile`/`general` have no meaningful affordance mapping (same
     "MARKET/BANK correctly carry no affordance tag" reasoning `world/
-    affordances.py` already documents) and stay unchecked. Still open:
-    per-instance `Entity.affordances`/`Entity.properties` as a genuine
-    per-instance field generalized beyond buildings (today: class-level
-    `dict[BuildingKind, ...]` only, unchanged this pass) — a larger,
-    separate piece of this item, not attempted.
+    affordances.py` already documents) and stay unchecked.
+
+    **A5/A6 — CLOSED, v1.34.78.** Explicit user instruction "Start
+    A5/A6." Direct code inspection found the per-instance affordances
+    half already genuinely real (`building_instance_affordances`, A13
+    v1.34.58 — reads a real per-instance material via `effective_
+    material_name`, wired live into Innovation's discovery query). The
+    other named half, `Entity.properties`, had zero real consumer: new
+    `world/materials.py`'s `material_repair_factor(name)` scales
+    `Population._maybe_repair`'s repair rate by a material's real
+    `workability` (wood/fiber/clay repair faster than stone/ore/
+    ceramic), reading the same per-instance resolution point. Decay
+    itself deliberately left untouched — `Settlement.tick`'s decay loop
+    has a native fast path (`_native_building_decay_tick`) taking one
+    shared scalar for the whole batch; per-instance-izing it needs a
+    real native-module signature change, a genuinely bigger/riskier
+    lift, flagged as follow-up. Repair is pure Python (agent-mediated,
+    never native-backed), zero parity risk. UI: the "Built of"
+    inspector line gained a plain-language repair-speed suffix.
 18. **A7 — dialect domain made genuinely recursive, v1.34.63.**
     `world/dialect_grammar.py`'s `drift_term` gained a `steps` param: a
     chain of rule applications, each round re-seeded off the STRING THE
@@ -2144,10 +2164,12 @@ remains a real but purely structural follow-up, not required to
 satisfy the item's own stated intent.
 
 ### A5/A6 — Affordances
-`Entity.properties`/per-instance `Entity.affordances` (today: class-
-level `dict[BuildingKind, frozenset[str]]` only). A6's validate-step
-half (re-checking a PROPOSED concept against the affordance layer,
-distinct from the shipped generate-step grounding) not attempted.
+**CLOSED, v1.34.78.** Per-instance affordances real since A13
+(`building_instance_affordances`, v1.34.58). Validate-step half real
+since v1.34.62 (`llm/ontology.py`'s `validate_hook`). Per-instance
+`Entity.properties` shipped v1.34.78 (`material_repair_factor`,
+`Population._maybe_repair`). Decay's own native-fast-path parity risk
+remains explicitly open, flagged, not attempted.
 
 ### A7 — Grammar-based procedural systems
 None of the three shipped domains is a full graph/shape grammar

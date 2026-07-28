@@ -4,6 +4,69 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.78] — A5/A6: per-instance Entity.properties, closing the item's other named half
+
+Explicit user instruction: "Start A5/A6" (docs/ROADMAP-2026-07-
+REMAINING.md's Tier 3). The item names two halves: per-instance
+`Entity.affordances` and per-instance `Entity.properties`. Direct code
+inspection found the affordances half already genuinely closed —
+`world/materials.py`'s `building_instance_affordances` (shipped
+alongside A13's per-instance material conversion, v1.34.58) already
+resolves a real per-INSTANCE material via `effective_material_name`
+and derives boolean capability tags from it, wired live into
+Innovation's discovery-combination query (`SimulationEngine`'s
+`_maybe_schedule_ontology_proposal`, `present_tags`). This ships the
+other half, which had zero real consumer: `Entity.properties` — a
+material's raw NUMERIC properties (hardness/workability/durability/
+etc.), as opposed to the boolean affordance tags derived from them.
+
+Root gap found while surveying for a safe consumer: `Material.
+workability`/`decay_rate` have existed since A12 (v1.17.0) and were
+never read by anything — every building decayed and repaired at
+identical flat rates regardless of whether it was wood, stone, metal,
+or fiber, even though the property values needed to differentiate
+them were sitting right there. Decay itself was deliberately left
+alone — `Settlement.tick`'s decay loop has a native fast path
+(`_native_building_decay_tick`, modules 9-10) that takes one shared
+scalar decay rate for the whole batch; correctly per-instance-izing it
+would mean either a real native-module signature change (a genuinely
+bigger, riskier lift) or grouping buildings by material before calling
+into the native function — both flagged as real follow-up, not
+attempted this pass.
+
+Repair, by contrast, is agent-mediated (`Population._maybe_repair`),
+pure Python, and was never native-backed — zero parity risk. New
+`world/materials.py`'s `material_repair_factor(name)`: a material's
+`workability` scales `_maybe_repair`'s existing `REPAIR_WORK_PER_TICK`
+rate — wood/fiber/clay (workability 0.75-0.9) repair meaningfully
+faster than stone/ore/ceramic (0.1-0.25), matching the real intuition
+that patching a wooden hut is quicker than re-laying stonework. Reads
+`effective_material_name(building)` (A13's existing per-instance
+resolution point), so a chemically-converted building's real new
+material genuinely changes its own repair speed, not just its
+affordance tags. A kind with no assigned material (SCHOOL/UNIVERSITY/
+MARKET/LIBRARY) or an unrecognized name returns exactly 1.0 — the old
+flat-rate behavior, byte-identical.
+
+UI: the building click-inspector's existing "Built of" line (A13,
+v1.34.58) gained a plain-language repair-speed suffix ("slow to
+repair"/"repairs at an ordinary pace"/"quick to repair"), mirroring
+the backend's factor buckets client-side same as `BUILDING_MATERIAL`
+already does for the material name itself.
+
+Verified: direct unit tests for `material_repair_factor` (ordering
+across all eight materials, `None`/unrecognized-name no-op); a
+production-path test through the real `Population._maybe_repair`
+comparing a ceramic SHRINE against a fiber HATCHERY at identical
+starting damage, confirming the fiber building genuinely repairs
+faster; a 4000-tick LLM-disabled soak with clean round-trip (no new
+persisted state — `material_repair_factor` is a pure read of already-
+persisted `Building.material`); `scripts/verify_native_soak.py` (3
+seeds x 3000 ticks) byte-identical — the native decay fast path itself
+is untouched, only the pure-Python repair path changed; a live dev
+server + Playwright pass confirming the inspector renders the new
+repair-speed line correctly with no new console errors.
+
 ## [1.34.77] — A17: fitness-vs-truth axis for rumors + shared decay/compete step
 
 Explicit user instruction: "A17", resolved via `AskUserQuestion` into

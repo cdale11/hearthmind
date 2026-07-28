@@ -510,6 +510,34 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.78)
+
+Explicit user instruction: "Start A5/A6" (docs/ROADMAP-2026-07-
+REMAINING.md's Tier 3). The affordances half was already closed
+(`world/materials.py`'s `building_instance_affordances`, A13,
+v1.34.58) — this ships the other named half, `Entity.properties`,
+which had zero real consumer until now.
+
+New `world/materials.py`'s `material_repair_factor(name)`: a
+material's `workability` scales `Population._maybe_repair`'s repair
+rate — wood/fiber/clay repair meaningfully faster than stone/ore/
+ceramic, reading `effective_material_name(building)` (A13's existing
+per-instance resolution point) so a chemically-converted building's
+real new material changes its own repair speed. Decay itself was
+deliberately left untouched — the native fast path
+(`_native_building_decay_tick`) takes one shared scalar for the whole
+batch; correctly per-instance-izing it needs a real native-module
+change, flagged as a bigger follow-up, not attempted. Repair is pure
+Python (agent-mediated, never native-backed), zero parity risk. UI:
+the "Built of" inspector line gained a plain-language repair-speed
+suffix.
+
+Verified: direct unit tests, a production-path test through the real
+`_maybe_repair` (ceramic vs. fiber building, confirming genuinely
+different repair speed), a 4000-tick soak with clean round-trip,
+`scripts/verify_native_soak.py` (3 seeds x 3000 ticks) byte-identical,
+a live dev server + Playwright pass.
+
 ## Current state (v1.34.77)
 
 Explicit user instruction: "A17", resolved via `AskUserQuestion` into
