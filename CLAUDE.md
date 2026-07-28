@@ -510,6 +510,47 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.75)
+
+Explicit user instruction: "Build A2 and A1 migrate mining_scars/
+disaster_scars/the 3x3 climate grid onto FieldGrid" (docs/ROADMAP-
+2026-07-REMAINING.md). Full detail: CHANGELOG.md's [1.34.75] entry.
+
+A2: `ca_operators.reaction_diffuse` (mass-conserving two-grid
+exchange, zero real consumers since v1.14.0) gets its first —
+`moisture <-> snowpack`, literally the same water liquid vs. frozen.
+New `HydrologyField.snowpack`, `hydrology_field.tick_snowpack`
+(weekly, freezes below `SNOWPACK_FREEZE_TEMP_C` / melts above it).
+Real consumer: `WildlifeGrid.tick`'s GRAZER reproduce chance is
+dampened under deep snow (`SNOWPACK_REPRODUCE_DAMPENING_MAX=0.3`) —
+real winter forage scarcity. UI: "Soil moisture" stat tile gained a
+conditional snowpack suffix.
+
+A1 migration: scoped as "coarse region-scale `FieldGrid` companion
+reading, not a replacement" — `World.mining_scars`/`disaster_scars`/
+`weather_regions` all remain the source of truth for their existing
+tile-precise/full-`WeatherState` consumers. Two new fields (14th/15th):
+`hazard` (region-summed `disaster_scars`) and `storminess` (region
+`precipitation`/`wind` from `weather_regions`, the "3x3 climate grid").
+Real consumers: `_choose_fission_site` avoids a heavily hazard-scarred
+region when an alternative exists; `_maybe_schedule_caravan` dampens
+chance in a stormy region (`STORMINESS_CARAVAN_CHANCE_DAMPENING=0.4`,
+the negative counterpart to `traffic`'s positive pull). **Bug found
+and fixed while wiring this**: one of two `set_terrain(...)` call
+sites had been missing `beauty=` entirely since v1.34.74 shipped — the
+`beauty` overlay never refreshed on the weekly `week_end` resync every
+sibling field relies on, only on `TERRAIN_CHANGING_CATEGORIES` events.
+UI: `hazard`/`storminess` as the 16th/17th "🗺️ fields" overlay modes.
+
+Verified: direct unit tests, a production-path test through the real
+`World.tick()` (weather monkeypatched to force sustained freezing
+temperatures — `World.tick()` recomputes weather every tick, so a
+direct `weather.temperature_c` override is silently discarded)
+confirming organic snowpack formation + clean round-trip, a 4000-tick
+LLM-disabled soak with clean round-trip, `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) byte-identical, and a live dev server +
+Playwright pass confirming both new overlay modes render correctly.
+
 ## Current state (v1.34.74)
 
 Explicit user instruction: "Ask the beauty phase of A1 and finish

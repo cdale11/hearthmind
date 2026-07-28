@@ -1181,7 +1181,7 @@ detailsToggle.addEventListener("click", () => {
 // naturally faint/rare) — showing them all at once would fight the
 // map's own readability, the same reasoning the Observatory UI
 // direction already applies to the details panel.
-const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic", "scarcity", "ownership", "noise", "heat", "nutrients", "scent", "cultural_influence", "fertility", "beauty"];
+const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic", "scarcity", "ownership", "noise", "heat", "nutrients", "scent", "cultural_influence", "fertility", "beauty", "hazard", "storminess"];
 const FIELD_OVERLAY_LABELS = {
   off: "off", moisture: "soil moisture", soil_fertility: "soil fertility",
   population_density: "population density", disease_pressure: "disease pressure",
@@ -1190,6 +1190,7 @@ const FIELD_OVERLAY_LABELS = {
   heat: "heat", nutrients: "wild forage", scent: "predator scent",
   cultural_influence: "cultural influence", fertility: "regional fertility",
   beauty: "beauty (villagers' own opinion)",
+  hazard: "disaster hazard", storminess: "storminess",
 };
 let fieldOverlayMode = "off";
 const fieldCanvas = document.getElementById("field-canvas");
@@ -1219,6 +1220,8 @@ const FIELD_LEGEND_LABELS = {
   cultural_influence: { min: "no adopters", max: "cultural hub" },
   fertility: { min: "no farmland", max: "prime farmland" },
   beauty: { min: "no opinion", max: "beloved" },
+  hazard: { min: "unscarred", max: "disaster-scarred" },
+  storminess: { min: "calm", max: "stormy" },
 };
 const fieldLegend = document.getElementById("field-legend");
 const fieldLegendTitle = document.getElementById("field-legend-title");
@@ -1360,6 +1363,22 @@ const FIELD_COLOR_STOPS = {
   // other mode, since this is the one field literally measuring the
   // village's own feelings about a place.
   beauty: [[210, 195, 195], [225, 155, 140], [200, 90, 120]],
+  // A1's migration of `disaster_scars` onto `FieldGrid` (`hazard`).
+  // Unscarred reads as a neutral pale grey-green, scarred shifts
+  // through a scorched umber toward a stark blackened-red char —
+  // deliberately close to `scent`'s own danger-red family (both are
+  // real physical-risk readings) but shifted through brown/char tones
+  // instead of amber, since this is scar/burn damage, not a live
+  // predator threat.
+  hazard: [[205, 205, 195], [150, 100, 65], [90, 30, 25]],
+  // A1's migration of the 3x3 climate grid onto `FieldGrid`
+  // (`storminess` — precipitation+wind). Calm reads as a pale open
+  // sky blue-white, stormy shifts through a slate grey-blue toward a
+  // dark thunderhead indigo — a cool "weather" hue family distinct
+  // from `heat`'s own warm cold-to-hot ramp (this is turbulence, not
+  // temperature) and from every danger-red mode above (a storm is
+  // hazardous to travel, not to the land itself).
+  storminess: [[220, 230, 235], [130, 150, 175], [55, 55, 95]],
 };
 
 function lerpColorStops(stops, t) {
@@ -1624,7 +1643,7 @@ function renderFieldOverlay() {
         if (!peak || v > peak.value) peak = { x: rx, y: ry, w: regionW * CELL, h: regionH * CELL, value: v };
       }
     }
-  } else if (fieldOverlayMode === "heat" || fieldOverlayMode === "nutrients" || fieldOverlayMode === "scent" || fieldOverlayMode === "cultural_influence" || fieldOverlayMode === "fertility" || fieldOverlayMode === "beauty") {
+  } else if (fieldOverlayMode === "heat" || fieldOverlayMode === "nutrients" || fieldOverlayMode === "scent" || fieldOverlayMode === "cultural_influence" || fieldOverlayMode === "fertility" || fieldOverlayMode === "beauty" || fieldOverlayMode === "hazard" || fieldOverlayMode === "storminess") {
     const grid = terrain[fieldOverlayMode];
     if (!grid || !grid.length) return;
     const regionW = Math.ceil(terrain.width / grid[0].length);
@@ -4054,10 +4073,13 @@ function renderStats(summary) {
         const h = summary.hydrology || {};
         const pct = ((h.avg_moisture ?? 0.35) * 100).toFixed(0);
         const gwPct = ((h.avg_groundwater ?? 0.3) * 100).toFixed(0);
-        return `${pct}% surface, ${gwPct}% groundwater`;
+        const snowPct = (h.avg_snowpack ?? 0) * 100;
+        const snowSuffix = snowPct >= 1 ? `, ${snowPct.toFixed(0)}% snowpack` : "";
+        return `${pct}% surface, ${gwPct}% groundwater${snowSuffix}`;
       })(),
       "A real per-tile water field — rain soaks in, then flows downhill toward low ground, then evaporates, updated weekly. A planted field's yield depends on how wet its own tile actually is, not just soil fertility. " +
-      "Groundwater is a separate, slower subsurface reservoir: sustained wet weather infiltrates into it, and it seeps back out during a dry stretch — land that was recently wet resists drying out faster than land that never was, even at the same surface reading right now.",
+      "Groundwater is a separate, slower subsurface reservoir: sustained wet weather infiltrates into it, and it seeps back out during a dry stretch — land that was recently wet resists drying out faster than land that never was, even at the same surface reading right now. " +
+      "Snowpack (A2) is a genuine mass-conserving exchange with surface moisture — freezing weeks convert moisture into accumulated snow, thawing weeks melt it back; deep snow cover measurably dampens grazer herd reproduction, real winter forage scarcity.",
     ],
     [
       "Erosion",

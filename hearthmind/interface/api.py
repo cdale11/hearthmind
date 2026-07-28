@@ -83,6 +83,8 @@ class WorldBroadcaster:
         cultural_influence: "list[list[float]] | None" = None,
         fertility: "list[list[float]] | None" = None,
         beauty: "list[list[float]] | None" = None,
+        hazard: "list[list[float]] | None" = None,
+        storminess: "list[list[float]] | None" = None,
         road_scars: dict | None = None,
         migration_trails: dict | None = None,
         dry_lakebed_scars: dict | None = None,
@@ -234,6 +236,12 @@ class WorldBroadcaster:
             ),
             "beauty": (
                 [[round(v, 3) for v in row] for row in beauty] if beauty else []
+            ),
+            "hazard": (
+                [[round(v, 3) for v in row] for row in hazard] if hazard else []
+            ),
+            "storminess": (
+                [[round(v, 3) for v in row] for row in storminess] if storminess else []
             ),
         }
 

@@ -76,6 +76,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
+from hearthmind.world.ca_operators import reaction_diffuse
 from hearthmind.world.terrain import Biome, Tile, classify_with_bias
 
 MOISTURE_MIN = 0.0
@@ -161,18 +162,52 @@ biome-band crossing to several real years of sustained erosive
 conditions at one tile, not less."""
 
 
+SNOWPACK_MIN = 0.0
+SNOWPACK_MAX = 1.0
+SNOWPACK_DEFAULT = 0.0
+"""Unlike `MOISTURE_DEFAULT`/`GROUNDWATER_DEFAULT`'s "real room to move
+either way" starting point, a fresh world starts with zero snowpack —
+worlds always begin in spring (see CLAUDE.md's calendar section), so
+"no accumulated snow yet" is the honest default, not a neutral
+midpoint."""
+
+SNOWPACK_FREEZE_TEMP_C = 0.0
+"""At or below this regional temperature, a tick's exchange runs in
+the freezing direction (moisture -> snowpack); above it, thawing
+(snowpack -> moisture)."""
+
+SNOWPACK_FREEZE_RATE = 0.12
+"""A2 "CA / diffusion / reaction-diffusion operators" (docs/ROADMAP-
+2026-07-REMAINING.md, Tier 1): `ca_operators.reaction_diffuse`'s first
+real consumer — `moisture`/`snowpack` are a genuine mass-conserving
+pair (literally the same water in two states), the textbook shape that
+operator's own docstring calls for, unlike every `FieldGrid` field
+(independent quantities, never meant to trade mass with each other).
+Fraction of a freezing tile's surface moisture converted to snowpack
+per week."""
+
+SNOWPACK_MELT_RATE = 0.25
+"""Fraction of a thawing tile's snowpack converted back to surface
+moisture per week — melts faster than it accumulates, matching the
+real seasonal asymmetry: snow builds slowly over a whole winter, melts
+within a much shorter spring window."""
+
+
 @dataclass
 class HydrologyField:
-    """Per-tile surface-moisture (`moisture`) and subsurface-reservoir
-    (`groundwater`) values for every tile on the map. Water-biome tiles
-    are always pinned to `MOISTURE_MAX` (they ARE the water, not land
-    holding moisture) — everything else is a real, continuously-updated
-    quantity. `groundwater` is not pinned for water tiles — a lake/
-    river bed still has a real subsurface reservoir underneath it,
-    distinct from the surface water itself."""
+    """Per-tile surface-moisture (`moisture`), subsurface-reservoir
+    (`groundwater`), and accumulated-snow (`snowpack`) values for every
+    tile on the map. Water-biome tiles are always pinned to `MOISTURE_
+    MAX` (they ARE the water, not land holding moisture) — everything
+    else is a real, continuously-updated quantity. `groundwater` is not
+    pinned for water tiles — a lake/river bed still has a real
+    subsurface reservoir underneath it, distinct from the surface water
+    itself. `snowpack` IS pinned to 0 for water tiles (open water
+    doesn't accumulate snow cover the way land does)."""
 
     moisture: list[list[float]] = field(default_factory=list)
     groundwater: list[list[float]] = field(default_factory=list)
+    snowpack: list[list[float]] = field(default_factory=list)
 
     def at(self, x: int, y: int) -> float:
         if 0 <= y < len(self.moisture) and 0 <= x < len(self.moisture[y]):
@@ -184,6 +219,11 @@ class HydrologyField:
             return self.groundwater[y][x]
         return GROUNDWATER_DEFAULT
 
+    def snowpack_at(self, x: int, y: int) -> float:
+        if 0 <= y < len(self.snowpack) and 0 <= x < len(self.snowpack[y]):
+            return self.snowpack[y][x]
+        return SNOWPACK_DEFAULT
+
     def average(self) -> float:
         flat = [v for row in self.moisture for v in row]
         return sum(flat) / len(flat) if flat else MOISTURE_DEFAULT
@@ -192,10 +232,15 @@ class HydrologyField:
         flat = [v for row in self.groundwater for v in row]
         return sum(flat) / len(flat) if flat else GROUNDWATER_DEFAULT
 
+    def average_snowpack(self) -> float:
+        flat = [v for row in self.snowpack for v in row]
+        return sum(flat) / len(flat) if flat else SNOWPACK_DEFAULT
+
     def to_dict(self) -> dict:
         return {
             "moisture": [list(row) for row in self.moisture],
             "groundwater": [list(row) for row in self.groundwater],
+            "snowpack": [list(row) for row in self.snowpack],
         }
 
     @classmethod
@@ -207,7 +252,14 @@ class HydrologyField:
             # same "derived state gets rebuilt on load" treatment
             # `create_hydrology_field` already gives a brand-new world.
             groundwater = [[GROUNDWATER_DEFAULT] * len(row) for row in moisture]
-        return cls(moisture=moisture, groundwater=groundwater)
+        snowpack = [list(row) for row in data.get("snowpack", [])]
+        if not snowpack and moisture:
+            # Legacy pre-snowpack snapshot: backfill at zero, same
+            # "derived state gets rebuilt on load" treatment above —
+            # SNOWPACK_DEFAULT is 0, not a neutral midpoint, so this is
+            # the same value a brand-new world would start with anyway.
+            snowpack = [[SNOWPACK_DEFAULT] * len(row) for row in moisture]
+        return cls(moisture=moisture, groundwater=groundwater, snowpack=snowpack)
 
 
 def create_hydrology_field(terrain: list[list[Tile]]) -> HydrologyField:
@@ -221,7 +273,8 @@ def create_hydrology_field(terrain: list[list[Tile]]) -> HydrologyField:
         for row in terrain
     ]
     groundwater = [[GROUNDWATER_DEFAULT for _ in row] for row in terrain]
-    return HydrologyField(moisture=moisture, groundwater=groundwater)
+    snowpack = [[SNOWPACK_DEFAULT for _ in row] for row in terrain]
+    return HydrologyField(moisture=moisture, groundwater=groundwater, snowpack=snowpack)
 
 
 def tick_hydrology(
@@ -307,6 +360,38 @@ def tick_groundwater(field: HydrologyField, terrain: list[list[Tile]]) -> None:
                 g -= seep
                 moisture[y][x] = min(MOISTURE_MAX, m + seep)
             ground[y][x] = max(GROUNDWATER_MIN, min(GROUNDWATER_MAX, g - GROUNDWATER_PERCOLATION_LOSS))
+
+
+def tick_snowpack(field: HydrologyField, terrain: list[list[Tile]], temperature_c: float) -> None:
+    """One weekly step, called immediately after `tick_groundwater`
+    (reads/writes `field.moisture` together with the new `field.
+    snowpack`, same weekly cadence as every other hydrology tick). A2's
+    real `ca_operators.reaction_diffuse` consumer: below `SNOWPACK_
+    FREEZE_TEMP_C`, surface moisture freezes into snowpack; at or above
+    it, snowpack thaws back into moisture — genuinely mass-conserving
+    (whatever a tile's snowpack gains, its moisture loses that same
+    tick, and vice versa), the textbook case that operator was built
+    for and unlike every `FieldGrid` field (independent quantities,
+    never meant to trade mass). Water-biome tiles are excluded from the
+    exchange and re-pinned afterward (moisture stays `MOISTURE_MAX`,
+    snowpack stays `SNOWPACK_MIN`) — open water doesn't accumulate a
+    snow cover the way land does."""
+    height = len(terrain)
+    width = len(terrain[0]) if height else 0
+    if width == 0 or height == 0:
+        return
+    if temperature_c <= SNOWPACK_FREEZE_TEMP_C:
+        rate_a_to_b, rate_b_to_a = SNOWPACK_FREEZE_RATE, 0.0
+    else:
+        rate_a_to_b, rate_b_to_a = 0.0, SNOWPACK_MELT_RATE
+    new_moisture, new_snowpack = reaction_diffuse(field.moisture, field.snowpack, rate_a_to_b, rate_b_to_a)
+    for y in range(height):
+        for x in range(width):
+            if terrain[y][x].biome in _WATER_BIOMES:
+                new_moisture[y][x] = MOISTURE_MAX
+                new_snowpack[y][x] = SNOWPACK_MIN
+    field.moisture = new_moisture
+    field.snowpack = new_snowpack
 
 
 def tick_erosion(

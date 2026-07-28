@@ -189,6 +189,23 @@ smooths a region's opinion over TIME as new votes arrive, this diffuse
 call smooths across SPACE so a lovely region's neighbors read as a
 little lovely too, not just the exact region where the vote landed."""
 
+HAZARD_DIFFUSE_RATE = 0.35
+"""Same role as `DISEASE_PRESSURE_DIFFUSE_RATE` — a sense of recent
+disaster damage radiates into neighboring regions, not just the exact
+scarred tiles."""
+
+STORMINESS_DIFFUSE_RATE = 0.3
+"""Same role as `HEAT_DIFFUSE_RATE` — a region's own weather reading
+softened toward its neighbors, same treatment every other
+`weather_regions`-sourced field gets."""
+
+STORMINESS_PRECIPITATION_WEIGHT = 0.6
+STORMINESS_WIND_WEIGHT = 0.4
+"""`storminess` blends both real weather axes rather than reading only
+one — a genuinely windy-but-dry region and a rainy-but-still region
+both read as somewhat stormy, weighted toward precipitation (the more
+immediately disruptive of the two for travel)."""
+
 
 def _normalize_peak(raw: list[list[float]]) -> list[list[float]]:
     """Scales a raw non-negative grid to 0..1 against its own peak cell
@@ -510,6 +527,53 @@ class FieldGrid:
         via `ca_operators.diffuse` so a lovely region's neighbors read
         as a little lovely too."""
         self.fields["beauty"] = diffuse([list(row) for row in aesthetic_appraisal], BEAUTY_DIFFUSE_RATE)
+
+    def step_hazard(
+        self, disaster_scar_items: list[tuple[tuple[int, int], float]], width: int, height: int,
+    ) -> None:
+        """Fourteenth field (A1) — part of migrating `World.mining_
+        scars`/`disaster_scars`/the 3x3 climate grid onto `FieldGrid`
+        properly (docs/ROADMAP-2026-07-REMAINING.md's own explicitly-
+        deferred item, finally attempted). `mining_scars` already had a
+        real region-aggregate representation (it's one of `step_
+        pollution`'s two sources); `disaster_scars` never did — this is
+        that missing half, same "re-read already-real slow-changing
+        state" shape `step_pollution` established, normalized against
+        the region with the most raw scarring, spread via `ca_
+        operators.diffuse`. Deliberately NOT merged into `pollution`
+        itself (disaster damage and industrial pollution are different
+        stories) and deliberately NOT a replacement for `World.
+        disaster_scars`'s own per-tile dict, which stays the source of
+        truth for tile-precise consumers (`location_character`, the
+        bare-tile inspector) — this is the coarse REGION-scale reading
+        those consumers were never meant to answer."""
+        raw = [[0.0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+        for pos, intensity in disaster_scar_items:
+            rx, ry = self.region_of(pos, width, height)
+            raw[ry][rx] += intensity
+        self.fields["hazard"] = diffuse(_normalize_peak(raw), HAZARD_DIFFUSE_RATE)
+
+    def step_storminess(self, weather_region_states: dict) -> None:
+        """Fifteenth field (A1) — the other half of the same migration:
+        `World.weather_regions` (the "3x3 climate grid" the roadmap's
+        own note names) already fed `heat` (`temperature_c` alone);
+        this reads its other two axes (`precipitation`/`wind`,
+        `STORMINESS_PRECIPITATION_WEIGHT`/`_WIND_WEIGHT`) into a second
+        real field. Same direct-index shape `step_heat` established (
+        `WEATHER_REGION_GRID` == `FIELD_GRID_SIZE`, no resampling
+        needed) — NOT a replacement for `weather_regions` itself, which
+        stays the source of truth for `weather_at()` and every other
+        full-`WeatherState` consumer; this is a coarse SCALAR reading
+        of it for region-field consumers that only need "how stormy,"
+        not the full weather state."""
+        raw = [[0.0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+        for (rx, ry), ws in weather_region_states.items():
+            if 0 <= rx < FIELD_GRID_SIZE and 0 <= ry < FIELD_GRID_SIZE:
+                raw[ry][rx] = max(0.0, min(1.0, (
+                    ws.precipitation * STORMINESS_PRECIPITATION_WEIGHT
+                    + ws.wind * STORMINESS_WIND_WEIGHT
+                )))
+        self.fields["storminess"] = diffuse(raw, STORMINESS_DIFFUSE_RATE)
 
     def to_dict(self) -> dict:
         return {name: [list(row) for row in grid] for name, grid in self.fields.items()}

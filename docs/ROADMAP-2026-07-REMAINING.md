@@ -81,18 +81,26 @@ starts on an explicit instruction naming an item.
       `heat`, `nutrients`, `scent`, `cultural_influence`, `fertility`,
       `beauty`), each with a real consumer and a real map overlay.
       **A1 is closed.**
-- [ ] **A1** — migrate `mining_scars`/`disaster_scars`/the 3x3 climate
-      grid onto `FieldGrid` properly instead of staying separate stores
-      — explicitly considered and deferred at v1.34.71 (a real refactor
-      of three already-tuned, already-consumed stores for no behavior
-      change, judged too large/risky to bundle with a field-adding
-      batch); re-asked via `AskUserQuestion` at v1.34.72 and again went
-      unanswered — still deferred on the same recommended-default
-      judgment, not a user-confirmed decision.
-- [ ] **A2** — `cellular_step` gained its first real consumer,
+- [x] **A1** — migrate `mining_scars`/`disaster_scars`/the 3x3 climate
+      grid onto `FieldGrid`, v1.34.75, explicit user instruction after
+      two prior deferrals (v1.34.71/72). Scoped as "coarse region-scale
+      `FieldGrid` companion reading, not a replacement" — the
+      per-tile/full-`WeatherState` source stores are untouched, still
+      the source of truth for their existing tile-precise consumers.
+      Two new fields (14th/15th): `hazard` (region-summed `disaster_
+      scars`) and `storminess` (region `precipitation`/`wind` from
+      `weather_regions`). Real consumers: `_choose_fission_site` avoids
+      a heavily hazard-scarred region when an alternative exists;
+      `_maybe_schedule_caravan` dampens chance in a stormy region.
+      **All fifteen named continuous fields are now real.**
+- [x] **A2** — `cellular_step` gained its first real consumer,
       v1.34.68 (`compute_forest_contiguity`, weighting `tick_wildfire`'s
       ignition-site draw by local forest density). `reaction_diffuse`
-      still has none (`diffuse` has five).
+      gained its first, v1.34.75 (`moisture <-> snowpack`, `world/
+      hydrology_field.py`'s `tick_snowpack` — a genuinely mass-
+      conserving pair, real consumer: dampens GRAZER reproduction under
+      deep snow cover). **A2 is closed — every named CA primitive now
+      has at least one real production consumer.**
 
 ### Tier 1.5 — The Living Map
 
@@ -1427,25 +1435,30 @@ conclusions" framing:
    blocking A3's rivers-re-carve item; **that item itself shipped,
    v1.34.25** (see A3's own entry below — this line was stale, caught
    during a v1.34.50 docs-accuracy pass).
-3. **A1** — **CLOSED, v1.34.74.** All thirteen named fields are real
+3. **A1** — **CLOSED, v1.34.74/.75.** All fifteen named fields are real
    (`ownership`/`noise` at v1.34.67/.70, `heat`/`nutrients`/`scent` at
    v1.34.71, `cultural_influence` at v1.34.72, `fertility` at v1.34.73,
    `beauty` at v1.34.74 — explicit `AskUserQuestion` answer, "New
    subjective agent-vote signal," see the item's own entry below —
-   joining `population_density`/`disease_pressure`/`pollution`/
-   `traffic`/`scarcity`), each with a real consumer and a real map
-   overlay. Migrating `mining_scars`/`disaster_scars`/the climate grid
-   onto `FieldGrid` properly instead of staying separate stores remains
-   a SEPARATE open item (explicitly considered and deferred at
-   v1.34.71, re-asked and again deferred at v1.34.72 — too large/risky
-   to bundle with a field-adding batch).
-4. **A2** — **`diffuse`'s fifth consumer shipped, v1.34.67**
-   (`ownership`'s `diffuse` call, joining `traffic`'s/`disease_
-   pressure`'s/`pollution`'s); **`cellular_step`'s first real consumer
-   shipped, v1.34.68** (`compute_forest_contiguity`, weighting
-   wildfire ignition-site selection by local forest density).
-   `reaction_diffuse` is now the only primitive still without a real
-   consumer — see the item's own entry below.
+   `hazard`/`storminess` at v1.34.75, joining `population_density`/
+   `disease_pressure`/`pollution`/`traffic`/`scarcity`), each with a
+   real consumer and a real map overlay. Migrating `mining_scars`/
+   `disaster_scars`/the climate grid onto `FieldGrid` — explicitly
+   considered and deferred at v1.34.71, re-asked and again deferred at
+   v1.34.72 — **shipped at v1.34.75** as the `hazard`/`storminess`
+   fields above, per explicit user instruction; scoped as a coarse
+   region-scale companion reading, the tile-precise source stores
+   themselves are unchanged.
+4. **A2** — **CLOSED, v1.34.75.** `diffuse`'s fifth consumer shipped,
+   v1.34.67 (`ownership`'s `diffuse` call, joining `traffic`'s/
+   `disease_pressure`'s/`pollution`'s); `cellular_step`'s first real
+   consumer shipped, v1.34.68 (`compute_forest_contiguity`, weighting
+   wildfire ignition-site selection by local forest density);
+   `reaction_diffuse`'s first real consumer shipped, v1.34.75
+   (`moisture <-> snowpack`, `world/hydrology_field.py`'s `tick_
+   snowpack`, dampening GRAZER reproduction under deep snow cover) —
+   every named CA primitive now has at least one real production
+   consumer.
 
 **Tier 1.5 — The Living Map (filed v1.34.4, full detail docs/VISION-
 2026-07-24-LIVINGMAP.md, explicit user vision)**, sequenced after
@@ -2026,7 +2039,9 @@ batch mechanism, which is a genuinely different data shape (sparse
 tile sets, not a dense `Grid`) and too large a rewrite risk for what
 this item asks for; this pass's ignition-site reweight is a
 deliberately smaller, safe surface within the same function.
-`reaction_diffuse` is now the only primitive with zero real consumers.
+`reaction_diffuse` gained its first real consumer at v1.34.75
+(`moisture <-> snowpack` — see A2's entry above); every named CA
+primitive now has at least one.
 
 ### A3 — Procedural generation as continuous runtime
 **Rivers re-carving shipped (v1.34.25).** `hydrology.recarve_rivers`

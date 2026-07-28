@@ -59,7 +59,7 @@ from hearthmind.world.hydrology import (
     tick_wetlands,
 )
 from hearthmind.world.hydrology_field import (
-    HydrologyField, create_hydrology_field, tick_erosion, tick_groundwater, tick_hydrology,
+    HydrologyField, create_hydrology_field, tick_erosion, tick_groundwater, tick_hydrology, tick_snowpack,
 )
 from hearthmind.world.minerals import MineralGrid
 from hearthmind.world.affordances import discover_combinations
@@ -890,6 +890,7 @@ class World:
             temperament=self.settlement.temperament, season=self.clock.season,
             migration_trails=self.migration_trails, noise=self.fields.fields.get("noise"),
             nutrients=self.fields.fields.get("nutrients"),
+            snowpack=self.hydrology_field.snowpack,
         )
         settlement_events: list[tuple[str, str]] = []
         self.newly_named_settlement_ids = []
@@ -972,6 +973,10 @@ class World:
         )
         self.fields.step_noise()
         self.fields.step_heat({pos: ws.temperature_c for pos, ws in self.weather_regions.items()})
+        self.fields.step_storminess(self.weather_regions)
+        self.fields.step_hazard(
+            list(self.disaster_scars.items()), self.config.width, self.config.height,
+        )
         self.fields.step_nutrients(
             [(pos, n.amount) for pos, n in self.resources.nodes.items() if n.kind is ResourceKind.FOOD],
             self.config.width, self.config.height,
@@ -1070,6 +1075,7 @@ class World:
                 self.hydrology_field, self.terrain, self.weather.precipitation, self.clock.season, hydro_rng,
             )
             tick_groundwater(self.hydrology_field, self.terrain)
+            tick_snowpack(self.hydrology_field, self.terrain, self.weather.temperature_c)
             erosion_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "erosion")
             eroded_tiles = tick_erosion(self.hydrology_field, self.terrain, erosion_rng)
             if eroded_tiles:
@@ -1306,6 +1312,7 @@ class World:
             "hydrology": {
                 "avg_moisture": round(self.hydrology_field.average(), 3),
                 "avg_groundwater": round(self.hydrology_field.average_groundwater(), 3),
+                "avg_snowpack": round(self.hydrology_field.average_snowpack(), 3),
                 "tiles_eroded_recorded": self.tiles_eroded_total,
                 "river_tiles_shifted_recorded": self.river_tiles_shifted_total,
                 "tiles_flood_eroded_recorded": self.tiles_flood_eroded_total,

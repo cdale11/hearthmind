@@ -4,6 +4,105 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.75] — A2's first `reaction_diffuse` consumer + A1's mining_scars/disaster_scars/climate-grid FieldGrid migration
+
+Explicit user instruction: "Build A2 and A1 migrate mining_scars/
+disaster_scars/the 3x3 climate grid onto FieldGrid" (docs/ROADMAP-
+2026-07-REMAINING.md).
+
+**A2** — `world/ca_operators.py`'s `reaction_diffuse` (strictly mass-
+conserving two-grid exchange) had zero real consumers since it shipped
+at v1.14.0, unlike `diffuse` (many) and `cellular_step` (one). Ships
+its first: `moisture <-> snowpack`, the one genuinely honest pairing
+in this codebase — literally the same water in liquid vs. frozen form,
+reusing the already-tracked `HydrologyField.moisture` full-resolution
+grid as one half. New `HydrologyField.snowpack` (same full-tile-
+resolution shape as `moisture`/`groundwater`, zero at genesis — worlds
+always start in spring, so "no accumulated snow yet" is the honest
+default, not a neutral midpoint). New weekly `hydrology_field.
+tick_snowpack`: below `SNOWPACK_FREEZE_TEMP_C` moisture converts to
+snowpack at `SNOWPACK_FREEZE_RATE`; above it, snowpack melts back to
+moisture at the faster `SNOWPACK_MELT_RATE` — `reaction_diffuse`'s
+`rate_a_to_b`/`rate_b_to_a` are simply zeroed in the direction not
+currently active, so the exchange is one-directional per week but the
+underlying primitive stays genuinely bidirectional. Water-biome tiles
+are pinned to full moisture / zero snowpack after the exchange, same
+discipline `tick_hydrology` already holds.
+
+Real consumer: `world/wildlife.py`'s `WildlifeGrid.tick()` gained a
+`snowpack` param — `SNOWPACK_REPRODUCE_DAMPENING_MAX=0.3` dampens a
+GRAZER herd's reproduce chance under deep accumulated snow cover
+(direct per-tile lookup via new `_full_grid_value`, distinct from
+every other field consumer wired into this function so far, which all
+read the coarse 3x3 `FieldGrid` via `_field_region_value` — snowpack
+matches `terrain`'s full resolution, not the coarse region grid).
+"Real winter forage scarcity," stacking with (not replacing) the
+existing nutrients/hardiness/season terms in the same formula. UI: the
+existing "Soil moisture" stat tile gained a conditional snowpack
+percentage suffix, shown only once real snow has accumulated.
+
+**A1's mining_scars/disaster_scars/climate-grid migration** — the item
+explicitly deferred at v1.34.71/72 (re-asked, unanswered), now
+directly instructed. Scoped as "give each store a genuine coarse
+REGION-scale `FieldGrid` companion reading, not a literal replacement"
+— `World.mining_scars`/`disaster_scars` (sparse per-TILE dicts) and
+`World.weather_regions` (already region-scale) all remain the source
+of truth for their existing tile-precise or full-`WeatherState`
+consumers; nothing about them changed. `mining_scars` already had a
+partial region-aggregate reading via `step_pollution`; this closes the
+two genuinely missing halves.
+
+Two new `FieldGrid` fields (14th/15th): `hazard` (`step_hazard`,
+`World.disaster_scars` summed per region, spread via `diffuse`) and
+`storminess` (`step_storminess`, `World.weather_regions`'
+`precipitation`/`wind` — the "3x3 climate grid" the roadmap's own note
+names — weighted-combined per region, spread via `diffuse`). Two new,
+non-overlapping real consumers, chosen for variety rather than piling
+onto the already-heavily-used `_maybe_welcome_migrant`:
+`SimulationEngine._choose_fission_site` now avoids a region reading
+`hazard >= HAZARD_FISSION_AVOID_THRESHOLD` (0.5) when a less
+disaster-scarred alternative exists — "don't rebuild where the last
+settlement kept burning down" — applied after the existing density/
+scent/fertility filters, never a hard block. `_maybe_schedule_caravan`
+gained `STORMINESS_CARAVAN_CHANCE_DAMPENING=0.4`, the real negative
+counterpart to `traffic`'s existing positive pull on the same `chance`
+value — "traders avoid storms."
+
+**Bug fix found while wiring this batch**: one of the two `set_
+terrain(...)` call sites in `simulation/engine.py` (the `week_end`
+periodic-resync path) had been missing `beauty=world.fields.ensure_
+field("beauty")` entirely since v1.34.74 shipped — a real omission
+that batch's own verification didn't catch. Practical consequence: the
+`beauty` map overlay only ever refreshed on `TERRAIN_CHANGING_
+CATEGORIES` events, never on the weekly resync every sibling
+continuous field relies on to stay visually fresh. Fixed in the same
+edit that added `hazard=`/`storminess=` to that call site.
+
+UI: `hazard`/`storminess` added as the 16th/17th "🗺️ fields" overlay
+modes, each with its own 3-stop color ramp (hazard: neutral grey-green
+through scorched umber to blackened char-red, distinct from `scent`'s
+amber-toned danger ramp since this is scar/burn damage, not a live
+predator threat; storminess: pale sky-blue through slate-grey to dark
+thunderhead indigo, a cool "weather" hue family distinct from `heat`'s
+warm ramp) and matching legend min/max labels.
+
+Verified: direct unit tests (`tick_snowpack`'s freeze/thaw exchange
+via a forced-temperature scenario; `step_hazard`/`step_storminess`'
+region-aggregation math); a production-path test through the real
+`World.tick()` with `state.compute_weather` monkeypatched to force
+sustained freezing weather, confirming organic snowpack formation
+through the actual tick path (not reachable by simply setting `weather.
+temperature_c`, since `World.tick()` recomputes weather at the top of
+every tick) plus a clean round-trip; a 4000-tick LLM-disabled soak
+with clean round-trip; `scripts/verify_native_soak.py` (2 seeds x 800
+ticks) byte-identical — pure Python, no native module touched; a live
+dev server + Playwright pass confirming both new overlay modes render
+with correct gradients/legends/hotspot markers and no new console
+errors (screenshots confirmed visually — a stray `textContent` read of
+the hidden per-mode threshold line during scripted verification was a
+test-tooling artifact, not a real rendering bug, confirmed via direct
+screenshot inspection).
+
 ## [1.34.74] — A1: beauty field (13th, closes A1 entirely)
 
 Explicit user instruction: "Ask the beauty phase of A1 and finish it."

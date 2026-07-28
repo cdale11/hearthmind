@@ -641,6 +641,16 @@ anywhere yet" default) falls through to the unfiltered candidate list
 exactly like every other filter here. Applied LAST, after density/
 scent, so it only narrows what survives those two."""
 
+HAZARD_FISSION_AVOID_THRESHOLD = 0.5
+"""A1 FieldGrid `hazard` field's real consumer (`FieldGrid.step_
+hazard`, regional average of `World.disaster_scars` — part of
+migrating mining/disaster scars/the climate grid onto `FieldGrid`,
+docs/ROADMAP-2026-07-REMAINING.md): a candidate fission site in a
+region at or above this reading is avoided when a less disaster-prone
+alternative exists — same "never a hard block" shape `SCENT_FISSION_
+AVOID_THRESHOLD` established. Applied after density/scent/fertility,
+so it only narrows what survives all three."""
+
 REFLECTION_COHERENCE_MIN_TOTAL = 10
 REFLECTION_COHERENCE_ABANDONED_RATIO = 0.5
 """Vision doc item 5.3 ("Coherence/drift detection... the immune system
@@ -1614,6 +1624,8 @@ class SimulationEngine:
                 cultural_influence=world.fields.ensure_field("cultural_influence"),
                 fertility=world.fields.ensure_field("fertility"),
                 beauty=world.fields.ensure_field("beauty"),
+                hazard=world.fields.ensure_field("hazard"),
+                storminess=world.fields.ensure_field("storminess"),
                 road_scars=world.road_scars,
                 migration_trails=world.migration_trails,
                 dry_lakebed_scars=world.dry_lakebed_scars,
@@ -7190,6 +7202,14 @@ class SimulationEngine:
     "meaningful, never dominant" scale `caravan_relation_factor`/
     `MARKET_CARAVAN_CHANCE_MULTIPLIER` already apply to this value."""
 
+    STORMINESS_CARAVAN_CHANCE_DAMPENING = 0.4
+    """A1's `storminess` field (part of migrating the 3x3 climate grid
+    onto `FieldGrid`, docs/ROADMAP-2026-07-REMAINING.md): the maximum
+    dampening a fully-stormy region applies to `_maybe_schedule_
+    caravan`'s monthly visit chance — "traders avoid storms," the real
+    negative counterpart to `TRAFFIC_CARAVAN_CHANCE_WEIGHT`'s positive
+    pull on the same `chance` value."""
+
     def _maybe_schedule_caravan(self, events: list[str]) -> None:
         """Integration milestone (docs/ROADMAP.md): a rare monthly
         contact with the wider world — see llm/caravan.py's module
@@ -7228,6 +7248,14 @@ class SimulationEngine:
                 self.world.config.width, self.world.config.height,
             )
             chance = min(1.0, chance * (1.0 + traffic * self.TRAFFIC_CARAVAN_CHANCE_WEIGHT))
+            # A1's `storminess` field, part of migrating the 3x3
+            # climate grid onto FieldGrid — the real negative
+            # counterpart to traffic's own positive pull above.
+            storminess = self.world.fields.get_at(
+                "storminess", (settlement.center_x, settlement.center_y),
+                self.world.config.width, self.world.config.height,
+            )
+            chance = max(0.0, chance * (1.0 - storminess * self.STORMINESS_CARAVAN_CHANCE_DAMPENING))
         if _namespaced_roll(
             self.world.config.seed, self.world.clock.tick_count, "caravan_roll",
         ) >= chance:
@@ -9490,6 +9518,17 @@ class SimulationEngine:
             ]
             if fertile:
                 spots = fertile
+            # A1 FieldGrid: avoid a region the live `hazard` field
+            # already reads as heavily disaster-scarred, when a safer
+            # alternative exists — never a hard block.
+            unscarred = [
+                pos for pos in spots
+                if self.world.fields.get_at(
+                    "hazard", pos, self.world.config.width, self.world.config.height,
+                ) < HAZARD_FISSION_AVOID_THRESHOLD
+            ]
+            if unscarred:
+                spots = unscarred
         if origin is not None and spots:
             # Never point the party at land it can't walk to — rivers/
             # lakes genuinely disconnect regions on this generator.
@@ -10254,6 +10293,9 @@ class SimulationEngine:
                 scent=self.world.fields.ensure_field("scent"),
                 cultural_influence=self.world.fields.ensure_field("cultural_influence"),
                 fertility=self.world.fields.ensure_field("fertility"),
+                beauty=self.world.fields.ensure_field("beauty"),
+                hazard=self.world.fields.ensure_field("hazard"),
+                storminess=self.world.fields.ensure_field("storminess"),
                 road_scars=self.world.road_scars,
                 migration_trails=self.world.migration_trails,
                 dry_lakebed_scars=self.world.dry_lakebed_scars,

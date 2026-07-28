@@ -55,6 +55,16 @@ def _field_region_value(grid: "list[list[float]] | None", x: int, y: int, width:
     return grid[ry][rx]
 
 
+def _full_grid_value(grid: "list[list[float]] | None", x: int, y: int) -> float:
+    """Direct per-tile lookup for a FULL width x height grid (unlike
+    `_field_region_value`'s coarse 3x3 `FieldGrid` bucketing) — used for
+    `World.hydrology_field.snowpack`, which already matches `terrain`'s
+    exact resolution. `grid=None`/out-of-bounds both read as 0.0."""
+    if not grid or not (0 <= y < len(grid)) or not (0 <= x < len(grid[y])):
+        return 0.0
+    return grid[y][x]
+
+
 class Species(str, Enum):
     GRAZER = "grazer"
     PREDATOR = "predator"
@@ -115,6 +125,16 @@ not the same signal as `grazer_reproduce_penalty`'s predator-pressure
 term below) — a region genuinely rich in forage supports faster herd
 growth, a real positive ecological signal distinct from the existing
 penalty-only pressure terms."""
+
+SNOWPACK_REPRODUCE_DAMPENING_MAX = 0.3
+"""A2's `ca_operators.reaction_diffuse` (`world/hydrology_field.py`'s
+`tick_snowpack`, moisture<->snowpack) first real consumer: a GRAZER
+herd standing under deep accumulated snow cover has its `reproduce_
+chance` dampened up to this fraction — real winter forage scarcity
+under snow, distinct from `NUTRIENTS_REPRODUCE_BONUS_MAX`'s own
+standing wild-food-abundance signal (a snow-covered tile can still show
+a real food node underneath; this dampens how readily the herd can
+actually reach it)."""
 PREDATOR_HUNT_CHANCE = 0.05
 """Rolled when a predator pack is colocated with a live grazer herd —
 predation isn't guaranteed just from proximity."""
@@ -509,6 +529,7 @@ class WildlifeGrid:
         migration_trails: "dict[tuple[int, int], float] | None" = None,
         noise: "list[list[float]] | None" = None,
         nutrients: "list[list[float]] | None" = None,
+        snowpack: "list[list[float]] | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every herd/pack by one tick. Returns (category,
         description) events for a successful hunt or a pack/herd going
@@ -534,7 +555,16 @@ class WildlifeGrid:
         predator-pressure PENALTY above. Both read one tick stale, same
         as every other `World.fields` consumer (`Population`'s
         migrant-welcome chance, etc.) — this tick's `fields.step_*`
-        calls haven't run yet when `tick()` is called."""
+        calls haven't run yet when `tick()` is called.
+
+        `snowpack` (A2, `World.hydrology_field.snowpack`, optional —
+        `None` reproduces the exact pre-A2 behavior): dampens a GRAZER
+        herd's `reproduce_chance` under deep accumulated snow cover
+        (`SNOWPACK_REPRODUCE_DAMPENING_MAX`) — real winter forage
+        scarcity, read via direct per-tile lookup (`_full_grid_value`),
+        not the coarse `_field_region_value` bucketing `noise`/
+        `nutrients` use, since `snowpack` already matches `terrain`'s
+        exact resolution."""
         rng = _wildlife_tick_rng(seed, tick)
         height = len(terrain)
         width = len(terrain[0]) if height else 0
@@ -619,10 +649,12 @@ class WildlifeGrid:
                 node = resources.get(herd.x, herd.y) if resources is not None else None
                 grazing_food = node is not None and node.kind is ResourceKind.FOOD
                 nutrients_at = _field_region_value(nutrients, herd.x, herd.y, width, height)
+                snowpack_at = _full_grid_value(snowpack, herd.x, herd.y)
                 reproduce_chance = (
                     GRAZER_REPRODUCE_CHANCE * SEASON_GRAZER_REPRODUCE_MULTIPLIER.get(season, 1.0)
                     * grazer_reproduce_penalty * hardiness_reproduce_factor(herd.hardiness)
                     * (1.0 + nutrients_at * NUTRIENTS_REPRODUCE_BONUS_MAX)
+                    * (1.0 - snowpack_at * SNOWPACK_REPRODUCE_DAMPENING_MAX)
                 )
                 reproduce_roll = rng.random()
                 if _native_grazer_tick_step is not None:
