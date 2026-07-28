@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 
 from hearthmind.economy.farms import FarmGrid, FarmStage
 from hearthmind.settlement.buildings import BuildingStage, Settlement
+from hearthmind.world.ca_operators import Grid, cellular_step
 from hearthmind.world.terrain import Biome, Tile, classify_with_bias
 from hearthmind.world.terrain_evolution import _is_developed
 from hearthmind.world.weather import WeatherState
@@ -186,6 +187,20 @@ WILDFIRE_IGNITION_HISTORY_MAX = 20
 """Cap on `World.wildfire_ignition_ticks` — only the gap between
 consecutive ignitions matters for drift detection, so this stays a
 small bounded rolling window, not a growing history."""
+
+WILDFIRE_CONTIGUITY_WEIGHT = 1.0
+"""A2's first real `ca_operators.cellular_step` consumer. The ignition
+tile among all forest tiles used to be picked by flat uniform choice —
+`compute_forest_contiguity` instead scores each forest tile by how much
+forest surrounds it (`_forest_contiguity_rule`, 1x for an isolated
+stand up to 2x for one fully boxed in by forest neighbors at this
+weight), and `tick_wildfire` draws the ignition site weighted by that
+score: a real fire needs continuous fuel to catch and hold, so a dense
+forest cluster is genuinely more likely to be where the next one
+starts. Reweights WHICH forest tile catches first only — a non-forest
+tile scores exactly 0 and stays excluded from the candidate list
+up front, same as before this change; nothing here alters WHETHER or
+HOW OFTEN a wildfire starts (`WILDFIRE_CHANCE_PER_WEEK` untouched)."""
 
 STORM_WIND_THRESHOLD = 0.55
 STORM_CHANCE_PER_TICK = 0.01
@@ -444,6 +459,25 @@ def tick_flood(
     return events
 
 
+def _forest_contiguity_rule(own: float, neighbors: list[float]) -> float:
+    """`cellular_step`'s rule callback for `compute_forest_contiguity`.
+    A non-forest tile (`own <= 0`) always scores 0, regardless of its
+    neighbors — this only ever reweights among forest tiles, never adds
+    a non-forest one to the ignition candidate pool."""
+    if own <= 0.0:
+        return 0.0
+    neighbor_density = sum(neighbors) / len(neighbors) if neighbors else 0.0
+    return own * (1.0 + neighbor_density * WILDFIRE_CONTIGUITY_WEIGHT)
+
+
+def compute_forest_contiguity(terrain: list[list[Tile]]) -> Grid:
+    """A2's first real `ca_operators.cellular_step` consumer — see
+    `WILDFIRE_CONTIGUITY_WEIGHT`'s docstring. Builds a plain 0/1 forest
+    indicator grid, then applies `_forest_contiguity_rule` once."""
+    indicator: Grid = [[1.0 if t.biome is Biome.FOREST else 0.0 for t in row] for row in terrain]
+    return cellular_step(indicator, _forest_contiguity_rule)
+
+
 def tick_wildfire(
     state: DisasterState, terrain: list[list[Tile]], weather: WeatherState, season: str,
     temperament: float, settlements: list[Settlement], is_week_end: bool, rng: random.Random,
@@ -529,7 +563,12 @@ def tick_wildfire(
     forest_tiles = [(t.x, t.y) for row in terrain for t in row if t.biome is Biome.FOREST]
     if not forest_tiles:
         return events
-    x, y = forest_tiles[rng.randrange(len(forest_tiles))]
+    contiguity = compute_forest_contiguity(terrain)
+    weights = [contiguity[ty][tx] for (tx, ty) in forest_tiles]
+    if sum(weights) <= 0.0:
+        x, y = forest_tiles[rng.randrange(len(forest_tiles))]
+    else:
+        x, y = rng.choices(forest_tiles, weights=weights, k=1)[0]
     tile = terrain[y][x]
     terrain[y][x] = Tile(x=x, y=y, elevation=tile.elevation, biome=Biome.GRASSLAND)
     state.active_wildfire_tiles = {(x, y)}

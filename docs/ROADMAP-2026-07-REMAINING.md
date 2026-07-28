@@ -75,8 +75,10 @@ starts on an explicit instruction naming an item.
       `pollution`, `traffic`, `ownership`, plus `scarcity` from A4).
 - [ ] **A1** — migrate `mining_scars`/`disaster_scars`/the 3x3 climate
       grid onto `FieldGrid` properly instead of staying separate stores.
-- [ ] **A2** — `reaction_diffuse` and `cellular_step` still have no
-      second real consumer (`diffuse` has five).
+- [ ] **A2** — `cellular_step` gained its first real consumer,
+      v1.34.68 (`compute_forest_contiguity`, weighting `tick_wildfire`'s
+      ignition-site draw by local forest density). `reaction_diffuse`
+      still has none (`diffuse` has five).
 
 ### Tier 1.5 — The Living Map
 
@@ -1415,10 +1417,13 @@ conclusions" framing:
    `mining_scars`/`disaster_scars`/the climate grid onto `FieldGrid`
    properly instead of staying separate stores — see the item's own
    entry below.
-4. **A2** — **fifth real consumer shipped, v1.34.67** (`ownership`'s
-   `diffuse` call, joining `traffic`'s/`disease_pressure`'s/
-   `pollution`'s). `reaction_diffuse`/`cellular_step` still have no
-   second consumer — see the item's own entry below.
+4. **A2** — **`diffuse`'s fifth consumer shipped, v1.34.67**
+   (`ownership`'s `diffuse` call, joining `traffic`'s/`disease_
+   pressure`'s/`pollution`'s); **`cellular_step`'s first real consumer
+   shipped, v1.34.68** (`compute_forest_contiguity`, weighting
+   wildfire ignition-site selection by local forest density).
+   `reaction_diffuse` is now the only primitive still without a real
+   consumer — see the item's own entry below.
 
 **Tier 1.5 — The Living Map (filed v1.34.4, full detail docs/VISION-
 2026-07-24-LIVINGMAP.md, explicit user vision)**, sequenced after
@@ -1868,19 +1873,28 @@ multipliers on the same `chance` value — "trade follows roads" is now
 a mechanical fact, not flavor text.
 
 ### A2 — CA / diffusion / reaction-diffusion operators
-**Fifth real consumer shipped (v1.34.67).** `diffuse`/`reaction_
-diffuse`/`cellular_step` already had four consumers (forest succession
-since v1.14.0; `disease_pressure` since v1.34.24; `pollution` since
-v1.34.35; `traffic` since v1.34.36); `FieldGrid.step_ownership` (A1,
-above) is the fifth, spreading a raw per-region inheritance-history
-census into neighboring regions — a region bordering deep-rooted
-settlement reads as settled too, not just the exact tiles that changed
-hands. `reaction_diffuse`/`cellular_step` still have no second
-consumer; the doc's other named example (fire spread) remains open —
-deliberately not forced onto the existing native-backed, tuned
-`tick_wildfire` roll-batch mechanism, which is a genuinely different
-data shape (sparse tile sets, not a dense `Grid`) and too large a
-rewrite risk for what this item asks for.
+**Fifth `diffuse` consumer shipped (v1.34.67); `cellular_step`'s first
+real consumer shipped (v1.34.68).** `diffuse` has five real consumers
+now (forest succession since v1.14.0; `disease_pressure` since
+v1.34.24; `pollution` since v1.34.35; `traffic` since v1.34.36;
+`ownership` since v1.34.67, spreading `FieldGrid.step_ownership`'s raw
+per-region inheritance-history census into neighboring regions — a
+region bordering deep-rooted settlement reads as settled too, not just
+the exact tiles that changed hands). `world/disasters.py`'s `compute_
+forest_contiguity` is `cellular_step`'s first real use anywhere:
+`_forest_contiguity_rule` scores each forest tile by local forest
+density (1x isolated stand, up to 2x fully boxed in by forest
+neighbors), and `tick_wildfire`'s weekly ignition roll now draws its
+ignition site weighted by that score instead of flat uniform choice —
+deliberately scoped to WHICH forest tile catches, never WHETHER/HOW
+OFTEN a fire starts or how it spreads once burning. The doc's fuller
+"fire spread" example remains open — deliberately not forced onto the
+existing native-backed, tuned `tick_wildfire` spread/frontier roll-
+batch mechanism, which is a genuinely different data shape (sparse
+tile sets, not a dense `Grid`) and too large a rewrite risk for what
+this item asks for; this pass's ignition-site reweight is a
+deliberately smaller, safe surface within the same function.
+`reaction_diffuse` is now the only primitive with zero real consumers.
 
 ### A3 — Procedural generation as continuous runtime
 **Rivers re-carving shipped (v1.34.25).** `hydrology.recarve_rivers`

@@ -4,6 +4,46 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.68] — A2: `cellular_step`'s first real consumer (Tier 1)
+
+Explicit user instruction: "Continue with roadmap." Shipped `world/
+disasters.py`'s `compute_forest_contiguity` — `ca_operators.
+cellular_step`'s first real consumer (`diffuse` has five, `reaction_
+diffuse` still has none).
+
+`_forest_contiguity_rule(own, neighbors)` scores a forest tile 1x (an
+isolated stand) up to 2x (`WILDFIRE_CONTIGUITY_WEIGHT=1.0`, fully
+boxed in by forest neighbors) by local forest density; a non-forest
+tile always scores exactly 0. `tick_wildfire`'s weekly ignition roll
+used to pick its ignition tile by flat uniform choice among every
+forest tile on the map — it now weights the draw by this score
+(`rng.choices`, falling back to the old uniform `randrange` only if
+every candidate somehow scores 0), so a dense, continuous forest
+cluster is genuinely more likely to be where the next wildfire starts
+than an isolated single tree, the way a real fire actually needs
+continuous fuel to catch. Deliberately scoped to WHICH tile ignites,
+never WHETHER or HOW OFTEN — `WILDFIRE_CHANCE_PER_WEEK` and the
+existing temperament/heatwave/`chance_multiplier` terms are untouched,
+and the native-backed spread-roll/frontier mechanic once a fire is
+already burning is untouched too (the roadmap's own note: forcing this
+onto `tick_wildfire`'s sparse-tile-set roll-batch mechanic would be too
+large a rewrite for what this item asks — this only reweights the
+existing uniform ignition-site pick, a genuinely small, safe surface).
+
+Verified: a direct unit test of `compute_forest_contiguity` (center of
+a forest cross scores highest, an isolated single stand scores exactly
+1.0, an all-grassland grid scores all-zero); a 2000-trial production-
+path test driving the real `tick_wildfire` against a terrain with one
+dense forest cluster and one isolated forest tile, forcing ignition
+every trial (`chance_multiplier=1e6`), confirming the cluster's center
+tile ignites markedly more often than the isolated tile; a 4000-tick
+LLM-disabled engine soak with clean round-trip; `scripts/verify_
+native_soak.py` (2 seeds x 800 ticks) byte-identical — pure Python, no
+native module touched, and this module isn't native-ported for the
+ignition-site pick either way, so no native/fallback parity risk.
+`reaction_diffuse` remains the one primitive still without a real
+consumer.
+
 ## [1.34.67] — A1/A2: fifth continuous field, `ownership` (Tier 1)
 
 Explicit user instruction: "Continue with roadmap." Shipped Tier 1's

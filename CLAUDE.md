@@ -510,6 +510,29 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.68)
+
+Explicit user instruction: "Continue with roadmap." Shipped A2's
+`ca_operators.cellular_step` first real consumer. `world/disasters.py`'s
+`compute_forest_contiguity` scores each forest tile by local forest
+density (1x isolated, up to 2x fully-surrounded at `WILDFIRE_
+CONTIGUITY_WEIGHT=1.0`); `tick_wildfire`'s weekly ignition roll now
+draws its ignition site weighted by this score instead of flat uniform
+choice — a dense forest cluster genuinely catches more often than an
+isolated tree, matching how real fires need continuous fuel. Scoped to
+WHICH tile ignites only — ignition chance/frequency and the already
+native-backed spread-roll mechanic are untouched (the roadmap's own
+note against forcing this onto `tick_wildfire`'s sparse-tile-set
+roll-batch mechanic still holds; this is a genuinely smaller, safe
+surface). `reaction_diffuse` remains the one `ca_operators` primitive
+with no real consumer.
+
+Verified: a direct unit test of `compute_forest_contiguity`, a
+2000-trial production-path test through the real `tick_wildfire`
+confirming weighted ignition-site selection, a 4000-tick LLM-disabled
+soak with clean round-trip, `scripts/verify_native_soak.py` (2 seeds x
+800 ticks) byte-identical.
+
 ## Current state (v1.34.67)
 
 Explicit user instruction: "Continue with roadmap." Shipped Tier 1's
