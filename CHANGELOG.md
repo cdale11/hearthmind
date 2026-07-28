@@ -4,6 +4,61 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.67] — A1/A2: fifth continuous field, `ownership` (Tier 1)
+
+Explicit user instruction: "Continue with roadmap." Shipped Tier 1's
+next `FieldGrid` field + `ca_operators.diffuse` consumer, `ownership`
+— joining `population_density`/`disease_pressure`/`pollution`/
+`traffic`.
+
+`world/fields.py`'s `FieldGrid.step_ownership` sources from `World.
+ownership_history` (A19, v1.34.55 — an already-real, permanent,
+non-decaying per-tile count of how many times a HUT has passed to a
+living heir), summed per region, normalized against the busiest
+region, then spread via `ca_operators.diffuse` — same "re-read
+already-real slow-changing state" shape `traffic`/`pollution`
+established, no new tracked state invented.
+
+Real consumer: `Population._maybe_welcome_migrant` gained a new
+`region_ownership` parameter and `MIGRANT_OWNERSHIP_PULL=0.3` — a
+region with deep inheritance history draws up to 30% MORE migrants at
+its peak reading. This is the first genuinely POSITIVE region-field
+pull in that function; `region_population_density`/`region_scarcity`
+both only ever dampen. The framing is the plausible inverse of
+scarcity's own docstring ("word travels that a place is struggling"):
+word also travels that a place has real roots.
+
+UI: 7th "🗺️ fields" overlay mode (labeled "settledness" — the plain-
+language framing a player would actually ask, "where has this village
+put down roots"), own color ramp (pale frontier grey-tan through
+wood-brown to a heritage gold), legend entry, all wired through the
+existing generic field-overlay/legend machinery — no new frontend
+plumbing needed beyond the mode's own entries.
+
+Also corrected a stale roadmap note: A12's checklist text still said
+per-instance `Entity.material` was unbuilt ("class-level... not per
+physical instance") after A13's chemistry reactor (v1.34.58) had
+already shipped exactly that for buildings, as a side effect of that
+pass. Generalizing beyond buildings (e.g. `Vehicle.material`) is
+genuinely still open but was NOT attempted here — audited first, no
+real consumer mechanism exists for it yet, and inventing one purely to
+fill the slot would be an unmotivated addition.
+
+Verified: 3 direct unit tests (`step_ownership` region aggregation/
+normalization, empty-history no-op, `get_at` region resolution); a
+deterministic threshold-crossing test of the migrant consumer using a
+`random.Random` subclass whose first `.random()` call is fixed (so the
+real chance formula's exact boundary is tested without RNG sampling
+noise, real `.shuffle()`/`.randrange()` intact for the rest of the
+call); 3 production-path tests through the real `World.tick()`/
+`to_dict()`/`from_dict()` path; pyflakes clean; 4,000-tick LLM-disabled
+soak with clean round-trip; `scripts/verify_native_soak.py` (2 seeds x
+800 ticks) byte-identical; a live dev server + Playwright pass
+confirming the new overlay mode cycles correctly with a matching
+legend and no new console errors (one pre-existing unrelated
+`favicon.ico` 404 confirmed present independently via `curl`, not
+caused by this change).
+
 ## [1.34.66] — B8 reinforce/reinterpret (Tier 3 item 24)
 
 Explicit user instruction: "Continue with open items in roadmap." Shipped

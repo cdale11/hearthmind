@@ -510,6 +510,31 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.67)
+
+Explicit user instruction: "Continue with roadmap." Shipped Tier 1's
+fifth `FieldGrid` field + `ca_operators.diffuse` consumer, `ownership`.
+`FieldGrid.step_ownership` sources from `World.ownership_history` (A19,
+already-real permanent per-tile inheritance-handoff count), summed per
+region, normalized, spread via `diffuse` — same shape `traffic`/
+`pollution` established. Real consumer: `Population._maybe_welcome_
+migrant` gained `region_ownership`/`MIGRANT_OWNERSHIP_PULL=0.3` — the
+first genuinely POSITIVE region-field pull in that function (density/
+scarcity both only dampen); a deeply-settled region draws up to 30%
+more migrants, "word travels that a place has real roots," the plausible
+inverse of scarcity's own framing. UI: 7th "🗺️ fields" mode
+("settledness"), own color ramp + legend. Also corrected a stale A12
+roadmap note (per-instance `Building.material` had already shipped as
+an A13 side effect, v1.34.58 — the checklist text still said unbuilt).
+Verified via unit tests, a deterministic threshold-crossing test using a
+`random.Random` subclass with a fixed first draw (isolates the exact
+chance-formula boundary without RNG sampling noise), production-path
+tests through real `World.tick()`/round-trip, and a live dev server +
+Playwright pass (screenshot confirmed the overlay/legend render
+correctly; one pre-existing unrelated `favicon.ico` 404 independently
+confirmed via `curl`, not caused by this change). Full detail:
+CHANGELOG.md's [1.34.67] entry.
+
 ## Current state (v1.34.66)
 
 Explicit user instruction: "Continue with open items in roadmap." Shipped

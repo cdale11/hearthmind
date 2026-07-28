@@ -721,6 +721,19 @@ magnitude `MIGRANT_DENSITY_DAMPENING` already established for
 population density (up to 30% dampening at maximum regional
 scarcity). "Word travels that a place is struggling" is the same
 plausible framing that field's own docstring uses."""
+MIGRANT_OWNERSHIP_PULL = 0.3
+"""A1 (Tier 1 item 3): a real consumer of `World.fields`'s new
+`ownership` region field — the first POSITIVE pull among the three
+region-field terms here (density/scarcity both only ever dampen).
+A region with deep inheritance history (`World.ownership_history`,
+A19) reads as visibly settled, not a frontier — up to 30% MORE likely
+to draw a migrant at the region's peak ownership reading, the
+plausible inverse framing of scarcity's "word travels that a place is
+struggling": word also travels that a place has real roots. Same
+magnitude as the two dampening terms, deliberately not larger — this
+is a modest pull toward stability, not the dominant factor in whether
+a migrant arrives at all (that's still the population-floor gate
+above)."""
 MIGRANT_TEMPERAMENT_INFLUENCE = 0.2
 """Fractional nudge to migrant-arrival chance from `Settlement.
 temperament` — a village that's lately had a run of good fortune draws
@@ -2276,6 +2289,7 @@ class Population:
         self._tick_weddings()
         region_density = None
         region_scarcity = None
+        region_ownership = None
         if fields is not None and terrain:
             region_density = fields.get_at(
                 "population_density", (primary.center_x, primary.center_y), len(terrain[0]), len(terrain),
@@ -2283,9 +2297,12 @@ class Population:
             region_scarcity = fields.get_at(
                 "scarcity", (primary.center_x, primary.center_y), len(terrain[0]), len(terrain),
             )
+            region_ownership = fields.get_at(
+                "ownership", (primary.center_x, primary.center_y), len(terrain[0]), len(terrain),
+            )
         life_events.extend(
             self._maybe_welcome_migrant(
-                rng, primary, core_cast_target, terrain, region_density, region_scarcity,
+                rng, primary, core_cast_target, terrain, region_density, region_scarcity, region_ownership,
             )
         )
         for stl in settlements:
@@ -5135,6 +5152,7 @@ class Population:
         terrain: list[list[Tile]] | None = None,
         region_population_density: float | None = None,
         region_scarcity: float | None = None,
+        region_ownership: float | None = None,
     ) -> list[tuple[str, str]]:
         """The population equivalent of wildlife's `_maybe_recolonize` —
         a settlement crashed down to a handful of survivors (predation,
@@ -5182,7 +5200,9 @@ class Population:
         0..1 read at this settlement's own center — see `MIGRANT_
         DENSITY_DAMPENING`'s docstring. `region_scarcity` (A4, Tier 1):
         `World.fields`'s `scarcity` region field, same shape — see
-        `MIGRANT_SCARCITY_DAMPENING`'s docstring."""
+        `MIGRANT_SCARCITY_DAMPENING`'s docstring. `region_ownership`
+        (A1, Tier 1 item 3): `World.fields`'s `ownership` region field,
+        same shape — see `MIGRANT_OWNERSHIP_PULL`'s docstring."""
         count = len(self.agents)
         floor = max(1, core_cast_target)
         if count >= floor:
@@ -5202,6 +5222,8 @@ class Population:
             chance *= 1.0 - region_population_density * MIGRANT_DENSITY_DAMPENING
         if region_scarcity is not None:
             chance *= 1.0 - region_scarcity * MIGRANT_SCARCITY_DAMPENING
+        if region_ownership is not None:
+            chance *= 1.0 + region_ownership * MIGRANT_OWNERSHIP_PULL
         chance = max(0.0, chance)
         if rng.random() >= chance:
             return []

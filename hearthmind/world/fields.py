@@ -131,6 +131,12 @@ a struggling settlement reads real, elevated scarcity too, not just
 the settlement's own home region. A hungry town's economic strain
 radiates outward the same way contagion risk does."""
 
+OWNERSHIP_DIFFUSE_RATE = 0.3
+"""Same role as `TRAFFIC_DIFFUSE_RATE` — a region bordering one with a
+long history of homes passing hand to hand through inheritance reads
+as measurably settled too, not just the exact tiles carrying the
+handoffs."""
+
 
 def _normalize_peak(raw: list[list[float]]) -> list[list[float]]:
     """Scales a raw non-negative grid to 0..1 against its own peak cell
@@ -283,6 +289,30 @@ class FieldGrid:
             for ry in range(FIELD_GRID_SIZE)
         ]
         self.fields["scarcity"] = diffuse(raw, SCARCITY_DIFFUSE_RATE)
+
+    def step_ownership(
+        self, ownership_history_items: list[tuple[tuple[int, int], int]], width: int, height: int,
+    ) -> None:
+        """Sixth concrete field (A1, roadmap Tier 1 item 3's "ownership"
+        entry). Same "re-read already-real slow-changing state" shape
+        `step_traffic` established: `World.ownership_history` (A19,
+        v1.34.55 — a permanent, non-decaying per-tile count of how many
+        times a HUT has passed to a living heir, written by `Population.
+        _apply_inheritance`) is summed per region, normalized against
+        the region with the most, then spread via `ca_operators.
+        diffuse` — a region bordering one with deep inheritance history
+        reads as settled too, not just the exact tiles that changed
+        hands. Deliberately reads `ownership_history`, not the momentary
+        `Building.owner_agent_id` census a HUT happens to have right
+        now — a region can be freshly built (no inheritance yet) or
+        genuinely long-settled (many handoffs), and only the latter
+        should read as "established," which a live-ownership census
+        alone can't distinguish."""
+        raw = [[0.0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+        for pos, count in ownership_history_items:
+            rx, ry = self.region_of(pos, width, height)
+            raw[ry][rx] += count
+        self.fields["ownership"] = diffuse(_normalize_peak(raw), OWNERSHIP_DIFFUSE_RATE)
 
     def to_dict(self) -> dict:
         return {name: [list(row) for row in grid] for name, grid in self.fields.items()}

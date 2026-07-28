@@ -68,15 +68,15 @@ starts on an explicit instruction naming an item.
 
 ### Tier 1 — substrate
 
-- [ ] **A1** — eight of the twelve named continuous fields are still
-      unbuilt (fertility-as-field, nutrients, scent, heat, cultural
-      influence, ownership, beauty, noise). Four are real
-      (`population_density`, `disease_pressure`, `pollution`,
-      `traffic`, plus `scarcity` from A4).
+- [ ] **A1** — `ownership` shipped, v1.34.67 (see below) — seven of
+      the twelve named continuous fields are still unbuilt (fertility-
+      as-field, nutrients, scent, heat, cultural influence, beauty,
+      noise). Five are real (`population_density`, `disease_pressure`,
+      `pollution`, `traffic`, `ownership`, plus `scarcity` from A4).
 - [ ] **A1** — migrate `mining_scars`/`disaster_scars`/the 3x3 climate
       grid onto `FieldGrid` properly instead of staying separate stores.
 - [ ] **A2** — `reaction_diffuse` and `cellular_step` still have no
-      second real consumer (`diffuse` has four).
+      second real consumer (`diffuse` has five).
 
 ### Tier 1.5 — The Living Map
 
@@ -1408,17 +1408,17 @@ conclusions" framing:
    blocking A3's rivers-re-carve item; **that item itself shipped,
    v1.34.25** (see A3's own entry below — this line was stale, caught
    during a v1.34.50 docs-accuracy pass).
-3. **A1** — **fourth field shipped, v1.34.36** (`traffic`, joining
-   `population_density`/`disease_pressure`/`pollution`). Eight of the
-   other nine named fields (fertility/nutrients/scent/heat/cultural-
-   influence/ownership/beauty/noise) remain unbuilt, plus migrating
+3. **A1** — **fifth field shipped, v1.34.67** (`ownership`, joining
+   `population_density`/`disease_pressure`/`pollution`/`traffic`).
+   Seven of the other eleven named fields (fertility/nutrients/scent/
+   heat/cultural-influence/beauty/noise) remain unbuilt, plus migrating
    `mining_scars`/`disaster_scars`/the climate grid onto `FieldGrid`
    properly instead of staying separate stores — see the item's own
    entry below.
-4. **A2** — **fourth real consumer shipped, v1.34.36** (`traffic`'s
-   `diffuse` call, joining `disease_pressure`'s/`pollution`'s).
-   `reaction_diffuse`/`cellular_step` still have no second consumer —
-   see the item's own entry below.
+4. **A2** — **fifth real consumer shipped, v1.34.67** (`ownership`'s
+   `diffuse` call, joining `traffic`'s/`disease_pressure`'s/
+   `pollution`'s). `reaction_diffuse`/`cellular_step` still have no
+   second consumer — see the item's own entry below.
 
 **Tier 1.5 — The Living Map (filed v1.34.4, full detail docs/VISION-
 2026-07-24-LIVINGMAP.md, explicit user vision)**, sequenced after
@@ -1833,38 +1833,54 @@ drift from the source of truth. Consult that doc directly for full
 context/rationale on any item — this is the "what's left" extract.
 
 ### A1 — Continuous environmental fields
-**Fourth field shipped (v1.34.36): `traffic`.** `population_density`/
-`disease_pressure`/`pollution` were the only three real fields before;
-eight of the remaining nine named (fertility, nutrients, scent, heat,
-cultural-influence, ownership, beauty, noise — moisture is really
+**Fifth field shipped (v1.34.67): `ownership`.** `population_density`/
+`disease_pressure`/`pollution`/`traffic` were the only four real fields
+before; seven of the remaining eight named (fertility, nutrients,
+scent, heat, cultural-influence, beauty, noise — moisture is really
 A11's, already shipped there) are still unbuilt. `terrain_activity`/
 `disaster_scars` and the climate grid remain separate stores, not
-migrated onto `FieldGrid`. `traffic` sources from `World.roads.wear`
-(already-real per-tile road-wear state, `RoadNetwork.tick`'s own
-accumulator) summed per region, normalized against the busiest region,
-then spread via `ca_operators.diffuse` (`TRAFFIC_DIFFUSE_RATE=0.3`) —
-same "re-read already-real slow-changing state" shape `pollution`
-established, a region just off a busy corridor reads real elevated
-traffic too, not just the exact wear-bearing tiles. Real consumer:
+migrated onto `FieldGrid`. `ownership` sources from `World.ownership_
+history` (A19, v1.34.55 — already-real permanent per-tile count of how
+many times a HUT has passed to a living heir) summed per region,
+normalized against the busiest region, then spread via `ca_operators.
+diffuse` (`OWNERSHIP_DIFFUSE_RATE=0.3`) — same "re-read already-real
+slow-changing state" shape `traffic`/`pollution` established. Real
+consumer: `Population._maybe_welcome_migrant`'s chance gained an
+`ownership`-scaled multiplier (`MIGRANT_OWNERSHIP_PULL=0.3` — a fully-
+settled region draws up to 1.3x as many migrants as a bare frontier
+one), the first POSITIVE region-field pull in that function (density/
+scarcity both only ever dampen) — "word travels that a place has real
+roots," the plausible inverse of scarcity's "word travels that a place
+is struggling." Also given a real map overlay (7th "🗺️ fields" mode,
+labeled "settledness", `interface/static/app.js`) in the same batch,
+per the standing workflow rule.
+
+**Fourth field shipped (v1.34.36): `traffic`.** See above for the
+fifth; `traffic` sources from `World.roads.wear` (already-real per-tile
+road-wear state, `RoadNetwork.tick`'s own accumulator) summed per
+region, normalized against the busiest region, then spread via
+`ca_operators.diffuse` (`TRAFFIC_DIFFUSE_RATE=0.3`). Real consumer:
 `simulation.engine._maybe_schedule_caravan`'s monthly visit chance
 gained a `traffic`-scaled multiplier (`TRAFFIC_CARAVAN_CHANCE_WEIGHT=
 0.5` — a fully-trafficked region draws 1.5x as often as one with none),
 stacking with the existing `has_market()`/`caravan_relation_factor`
 multipliers on the same `chance` value — "trade follows roads" is now
-a mechanical fact, not flavor text. Also given a real map overlay (6th
-"🗺️ fields" mode, `interface/static/app.js`) in the same batch, per
-the standing workflow rule.
+a mechanical fact, not flavor text.
 
 ### A2 — CA / diffusion / reaction-diffusion operators
-**Fourth real consumer shipped (v1.34.36).** `diffuse`/`reaction_
-diffuse`/`cellular_step` already had three consumers (forest succession
+**Fifth real consumer shipped (v1.34.67).** `diffuse`/`reaction_
+diffuse`/`cellular_step` already had four consumers (forest succession
 since v1.14.0; `disease_pressure` since v1.34.24; `pollution` since
-v1.34.35); `FieldGrid.step_traffic` (A1, above) is the fourth,
-spreading a raw per-region road-wear census into neighboring regions —
-real trade pull from a busy corridor isn't confined to the exact
-region carrying the wear. `reaction_diffuse`/`cellular_step` still
-have no second consumer; the doc's other named example (fire spread)
-remains open.
+v1.34.35; `traffic` since v1.34.36); `FieldGrid.step_ownership` (A1,
+above) is the fifth, spreading a raw per-region inheritance-history
+census into neighboring regions — a region bordering deep-rooted
+settlement reads as settled too, not just the exact tiles that changed
+hands. `reaction_diffuse`/`cellular_step` still have no second
+consumer; the doc's other named example (fire spread) remains open —
+deliberately not forced onto the existing native-backed, tuned
+`tick_wildfire` roll-batch mechanism, which is a genuinely different
+data shape (sparse tile sets, not a dense `Grid`) and too large a
+rewrite risk for what this item asks for.
 
 ### A3 — Procedural generation as continuous runtime
 **Rivers re-carving shipped (v1.34.25).** `hydrology.recarve_rivers`
@@ -2063,8 +2079,17 @@ Living Map items (M2/M8) that were blocked on mutable elevation are
 now unblocked, not yet attempted.
 
 ### A12 — Material science
-Per-instance `Entity.material` (today: one material per `BuildingKind`
-at the class level, not per physical instance).
+**Per-BUILDING-instance material shipped, v1.34.58** (a side effect of
+A13's chemistry reactor — `Building.material`, real per-instance state,
+not the class-level default). Stale note corrected v1.34.67: this
+item's checklist text still read "class-level, not per-instance" after
+that shipped. What's genuinely still open is generalizing per-instance
+material BEYOND buildings (e.g. `Vehicle`) — audited and deliberately
+not attempted: no real consumer mechanism exists for a vehicle's
+material to convert or matter yet (A13's chemistry reactor is
+building-condition-specific), and inventing one just to fill this slot
+would be exactly the kind of unmotivated addition the standing
+"mechanically real, not a stub" discipline warns against.
 
 ### A13 — Chemistry / reaction system
 **CLOSED, second slice, v1.34.58** (explicit user instruction: "Start

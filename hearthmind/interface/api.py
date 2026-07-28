@@ -75,6 +75,7 @@ class WorldBroadcaster:
         pollution: "list[list[float]] | None" = None,
         traffic: "list[list[float]] | None" = None,
         scarcity: "list[list[float]] | None" = None,
+        ownership: "list[list[float]] | None" = None,
         road_scars: dict | None = None,
         migration_trails: dict | None = None,
         dry_lakebed_scars: dict | None = None,
@@ -128,12 +129,13 @@ class WorldBroadcaster:
         since none of them fire a `TERRAIN_CHANGING_CATEGORIES` event
         of their own.
 
-        `pollution`/`traffic`/`scarcity` (Tier 1, docs/ROADMAP-2026-07-
-        REMAINING.md): same tiny 3x3 `World.fields` shape as
-        `population_density`/`disease_pressure`, riding the same
-        `week_end` resync — "industry chokes the fields nearby"/"trade
-        follows roads"/"a struggling town draws fewer newcomers" as
-        real map overlays, not just numbers nothing on screen shows.
+        `pollution`/`traffic`/`scarcity`/`ownership` (Tier 1, docs/
+        ROADMAP-2026-07-REMAINING.md): same tiny 3x3 `World.fields`
+        shape as `population_density`/`disease_pressure`, riding the
+        same `week_end` resync — "industry chokes the fields nearby"/
+        "trade follows roads"/"a struggling town draws fewer
+        newcomers"/"a settled region draws more" as real map overlays,
+        not just numbers nothing on screen shows.
 
         `elevation` (M2/M8 follow-up, explicit user request: "Make
         elevation render on the map... hence the erosion, irrespective
@@ -200,6 +202,9 @@ class WorldBroadcaster:
             ),
             "scarcity": (
                 [[round(v, 3) for v in row] for row in scarcity] if scarcity else []
+            ),
+            "ownership": (
+                [[round(v, 3) for v in row] for row in ownership] if ownership else []
             ),
         }
 
