@@ -225,3 +225,51 @@ def location_character_text(character: dict[str, float]) -> str:
     strongest = sorted(character.items(), key=lambda kv: -kv[1])[:2]
     labels = [LOCATION_CHARACTER_LABELS.get(axis, axis) for axis, _ in strongest]
     return " and ".join(labels)
+
+
+ENVIRONMENTAL_STRESS_AXES: tuple[str, ...] = ("mining", "disaster", "pollution", "fertility")
+"""The subset of `LOCATION_HISTORY_CATEGORIES` that represents genuine
+HARM to the land, not just accumulated history — M1/M9's own explicit
+residual ask (docs/VISION-2026-07-24-LIVINGMAP.md's M7: "pollution/
+degradation -> environmental stress... closest existing analog is the
+scar dicts, just not labeled or overlaid as one"). `ritual`/`ruin`/
+`road`/`migration`/`dry_lakebed`/`traffic`/`construction`/`ownership`
+are all real accumulated history too, but none of them represent the
+land being WORSE OFF the way a mining scar, disaster damage, nearby
+industrial pollution, or worn-out soil do — folding them into one
+composite score would blur "this place has a past" with "this place is
+hurting," the exact ambiguity M7 asks to resolve."""
+
+ENVIRONMENTAL_STRESS_BANDS: tuple[tuple[float, str], ...] = (
+    (0.75, "severely degraded"),
+    (0.4, "under real strain"),
+    (0.0, "showing early signs of strain"),
+)
+"""Checked highest-first by `environmental_stress_label`. Same "never a
+raw number, always ONE plain-language reading" discipline the field-
+overlay legends already hold (CLAUDE.md's Living Map direction) — a
+caller never has to interpret a bare float itself."""
+
+
+def compute_environmental_stress(character: dict[str, float]) -> float | None:
+    """The one composite reading `location_character` doesn't already
+    provide: the mean of whichever `ENVIRONMENTAL_STRESS_AXES` entries
+    are present in `character` (each already past its own individual
+    notability threshold, since `character` only ever holds notable
+    readings to begin with) — `None` when the tile shows no
+    degradation at all, so a caller can tell "pristine ground" apart
+    from a literal-zero reading the same "absence means neutral"
+    convention every other axis here already holds."""
+    present = [character[axis] for axis in ENVIRONMENTAL_STRESS_AXES if axis in character]
+    if not present:
+        return None
+    return sum(present) / len(present)
+
+
+def environmental_stress_label(stress: float) -> str:
+    """Plain-language band for a composite `compute_environmental_
+    stress` reading, per `ENVIRONMENTAL_STRESS_BANDS`."""
+    for threshold, label in ENVIRONMENTAL_STRESS_BANDS:
+        if stress >= threshold:
+            return label
+    return ENVIRONMENTAL_STRESS_BANDS[-1][1]

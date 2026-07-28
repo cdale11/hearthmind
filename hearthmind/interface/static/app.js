@@ -1407,6 +1407,19 @@ function drawFieldContour(grid, threshold, color) {
   fieldCtx.restore();
 }
 
+function fieldRegionValue(grid, x, y, width, height) {
+  // Mirrors FieldGrid.get_at/region_of exactly (world/fields.py) — a
+  // region-grid field (moisture/population_density/pollution/traffic/
+  // scarcity/ownership) is a coarse FIELD_GRID_SIZE=3 grid, not a
+  // per-tile one, so a single-tile reading needs the same bucketing
+  // math the backend uses, not a direct [y][x] index.
+  if (!grid || !grid.length || width == null || height == null || width <= 0 || height <= 0) return null;
+  const size = grid.length;
+  const rx = Math.min(size - 1, Math.max(0, Math.floor((x * size) / width)));
+  const ry = Math.min(size - 1, Math.max(0, Math.floor((y * size) / height)));
+  return grid[ry][rx];
+}
+
 function renderFieldOverlay() {
   if (!terrain || fieldCanvas.width === 0) return;
   fieldCtx.clearRect(0, 0, fieldCanvas.width, fieldCanvas.height);
@@ -3422,6 +3435,33 @@ function renderTargetInspector() {
   const lakebed = (terrain && terrain.dry_lakebed_scars && terrain.dry_lakebed_scars[`${x}:${y}`]) || 0;
   if (lakebed > 0) {
     bits.push(`<div class="npc-section"><h4>Dry lakebed</h4><div>a lake's shoreline once reached here (${Math.round(lakebed * 100)}% still visible)</div></div>`);
+  }
+  const miningScar = (terrain && terrain.mining_scars && terrain.mining_scars[`${x}:${y}`]) || 0;
+  if (miningScar > 0) {
+    bits.push(`<div class="npc-section"><h4>Mining scar</h4><div>torn-up ground from past extraction (${Math.round(miningScar * 100)}% still visible)</div></div>`);
+  }
+  const disasterScar = (terrain && terrain.disaster_scars && terrain.disaster_scars[`${x}:${y}`]) || 0;
+  if (disasterScar > 0) {
+    bits.push(`<div class="npc-section"><h4>Disaster scar</h4><div>lingering damage from a past disaster (${Math.round(disasterScar * 100)}% still visible)</div></div>`);
+  }
+  // M1/M9's residual "labeled environmental stress/degradation
+  // reading" ask — mirrors hearthmind.world.spatial_memory's
+  // compute_environmental_stress/environmental_stress_label exactly
+  // (mean of mining/disaster/pollution/fertility-depletion, whichever
+  // are actually present), same intentional client-side mirror as
+  // MIN_LIFESPAN_TICKS above. Never fabricates a reading when the
+  // tile shows no real degradation.
+  const pollutionHere = fieldRegionValue(terrain && terrain.pollution, x, y, terrain && terrain.width, terrain && terrain.height);
+  const fertilityHere = terrain && terrain.soil_fertility ? terrain.soil_fertility[`${x}:${y}`] : undefined;
+  const stressAxes = [];
+  if (miningScar > 0) stressAxes.push(miningScar);
+  if (disasterScar > 0) stressAxes.push(disasterScar);
+  if (pollutionHere !== null && pollutionHere >= 0.5) stressAxes.push(pollutionHere);
+  if (fertilityHere !== undefined && fertilityHere < 0.5) stressAxes.push(1 - fertilityHere);
+  if (stressAxes.length) {
+    const stress = stressAxes.reduce((a, b) => a + b, 0) / stressAxes.length;
+    const label = stress >= 0.75 ? "severely degraded" : stress >= 0.4 ? "under real strain" : "showing early signs of strain";
+    bits.push(`<div class="npc-section"><h4>Environmental stress</h4><div>${label} (${Math.round(stress * 100)}%)</div></div>`);
   }
   npcContent.innerHTML = `
     <h3>${biome.replace(/_/g, " ")}</h3>

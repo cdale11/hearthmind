@@ -84,9 +84,12 @@ starts on an explicit instruction naming an item.
 
 Closed as a tier (v1.34.51). One residual named example never built:
 
-- [ ] **M1/M9** — field boundaries drawn on the map, and a labeled
-      "environmental stress"/degradation reading. Same scar-dict /
-      overlay mechanism as the six shipped axes; a future slice.
+- [ ] **M1/M9** — field boundaries drawn on the map. The labeled
+      "environmental stress"/degradation reading shipped, v1.34.69
+      (`world/spatial_memory.py`'s `compute_environmental_stress`, a
+      composite of mining/disaster/pollution/fertility axes, plus new
+      bare-tile-inspector sections). Field boundaries remain open — a
+      genuinely larger UI-redesign lift, not attempted.
 
 ### Tier 2 — self-contained mechanism gaps
 
@@ -1529,9 +1532,18 @@ forest reclaim). Real gaps, roughly by leverage:
   (already fraction- or `inset`-based, not buffer-pixel-based).
 - **M1/M9** — **old-road-beds slice shipped, v1.34.26** (extends the
   scar-shaped-dict pattern, already proven 4x: mining/disaster/ritual/
-  ruin, to a 5th axis). Field boundaries and a labeled "environmental
-  stress"/degradation reading remain unbuilt — same mechanism, future
-  slices, not attempted this pass.
+  ruin, to a 5th axis). **Labeled environmental stress reading shipped,
+  v1.34.69**: `world/spatial_memory.py`'s `compute_environmental_
+  stress`/`environmental_stress_label` compose a mean of whichever of
+  `mining`/`disaster`/`pollution`/`fertility` (the subset of `location_
+  character`'s twelve axes that represents real harm to the land, not
+  just accumulated history) a given tile actually has, banded into
+  three plain-language readings; the bare-tile click inspector shows it
+  plus two closed gaps (mining/disaster scars had never been shown
+  per-tile before, only as a map color + aggregate stat tile — unlike
+  ruin/road/migration/dry-lakebed, which already had inspector lines).
+  Field boundaries remain unbuilt — a genuinely larger UI-redesign
+  lift, not attempted this pass.
 - **M4** — **shipped, v1.34.27-.28** (migration-trail slice: `World.
   migration_trails`, gained from GRAZER movement, a real feedback loop
   via move-candidate weighting rather than a downstream consumer;

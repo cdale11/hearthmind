@@ -510,6 +510,31 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.69)
+
+Explicit user instruction: "Continue with roadmap." Shipped Tier 1.5's
+residual M1/M9 ask: a labeled "environmental stress"/degradation
+reading. `world/spatial_memory.py`'s `compute_environmental_stress`
+averages whichever of `mining`/`disaster`/`pollution`/`fertility`
+(the subset of `location_character`'s twelve axes that represents real
+harm, not just history) a tile actually has, banded via `environmental_
+stress_label` into three plain-language readings — pure read-side
+unification, no new tracked data. UI: the bare-tile inspector gained
+Mining scar/Disaster scar sections (closing a real pre-existing gap —
+unlike ruin/road/migration/dry-lakebed, these two scars had never been
+shown per-tile, only as a map color + aggregate stat tile) plus the
+composite Environmental stress reading itself. `app.js`'s new `field
+RegionValue` mirrors `FieldGrid.get_at`'s bucketing math client-side to
+read the region-level pollution field for one specific tile. Field
+boundaries (M1/M9's other, larger ask) remain open.
+
+Verified: 5 direct unit tests for the composite formula, a live dev
+server + Playwright pass (forced-stress tile shows all three new
+sections; a pristine tile shows none — the pristine check also
+incidentally confirmed the region-bucketing mirror is byte-exact, not
+just close), a 4000-tick LLM-disabled soak with clean round-trip,
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical.
+
 ## Current state (v1.34.68)
 
 Explicit user instruction: "Continue with roadmap." Shipped A2's

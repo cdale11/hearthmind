@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.69] — M1/M9: labeled environmental stress reading (Tier 1.5)
+
+Explicit user instruction: "Continue with roadmap." Ships the one
+residual named example Tier 1.5's own M1/M9 entry left open since
+v1.34.51: "a labeled 'environmental stress'/degradation reading"
+(docs/VISION-2026-07-24-LIVINGMAP.md's M7: "pollution/degradation ->
+environmental stress... closest existing analog is the scar dicts,
+just not labeled or overlaid as one").
+
+`world/spatial_memory.py` gains `ENVIRONMENTAL_STRESS_AXES` (`mining`,
+`disaster`, `pollution`, `fertility` — the subset of `location_
+character`'s existing twelve axes that represents genuine HARM to the
+land, not just accumulated history) and `compute_environmental_
+stress`/`environmental_stress_label`: the mean of whichever stress axes
+a tile actually has (`None` when a tile shows no degradation at all,
+same "absence means neutral" discipline every other axis here holds),
+banded into three plain-language readings. Pure read-side unification
+over already-real state — no new tracked data.
+
+UI: the bare-tile click inspector gains three new sections. Two close
+a real pre-existing gap (mining/disaster scars were only ever visible
+as a map color and an aggregate stat tile, never per-tile — unlike
+ruin/road/migration/dry-lakebed scars, which already had inspector
+lines). The third is the composite "Environmental stress" reading
+itself, shown only past real degradation. `app.js`'s new `fieldRegion
+Value` helper mirrors `FieldGrid.get_at`/`region_of`'s exact bucketing
+math client-side (same intentional formula mirror as `MIN_LIFESPAN_
+TICKS` already established) so the composite can read the region-level
+`pollution` field for the specific tile clicked. Field boundaries (the
+other, larger M1/M9 ask) remain open — a genuinely bigger UI-redesign
+lift, not attempted this pass.
+
+Verified: 5 direct unit tests for `compute_environmental_stress`/
+`environmental_stress_label` (no-degradation, single-axis, multi-axis
+averaging excluding non-degrading axes, band boundaries, a production-
+path case through the real `location_character_from_dicts`); a live
+dev server + Playwright pass forcing a mining+disaster+pollution+
+depleted-soil tile and confirming all three new inspector sections
+render correctly, plus a regression check on a pristine tile showing
+none of them (the pristine check also incidentally confirmed `field
+RegionValue`'s bucketing matches the backend exactly — an initially
+too-close comparison tile fell in the SAME field-grid region as the
+forced tile, exposing the correct behavior rather than a bug); a
+4000-tick LLM-disabled engine soak with clean round-trip; `scripts/
+verify_native_soak.py` (2 seeds x 800 ticks) byte-identical — pure
+Python/JS, no native module touched.
+
 ## [1.34.68] — A2: `cellular_step`'s first real consumer (Tier 1)
 
 Explicit user instruction: "Continue with roadmap." Shipped `world/
