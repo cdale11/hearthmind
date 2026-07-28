@@ -68,11 +68,11 @@ starts on an explicit instruction naming an item.
 
 ### Tier 1 — substrate
 
-- [ ] **A1** — `ownership` shipped, v1.34.67 (see below) — seven of
-      the twelve named continuous fields are still unbuilt (fertility-
-      as-field, nutrients, scent, heat, cultural influence, beauty,
-      noise). Five are real (`population_density`, `disease_pressure`,
-      `pollution`, `traffic`, `ownership`, plus `scarcity` from A4).
+- [ ] **A1** — `ownership` (v1.34.67) and `noise` (v1.34.70) shipped —
+      six of the twelve named continuous fields are still unbuilt
+      (fertility-as-field, nutrients, scent, heat, cultural influence,
+      beauty). Seven are real (`population_density`, `disease_pressure`,
+      `pollution`, `traffic`, `scarcity` (A4), `ownership`, `noise`).
 - [ ] **A1** — migrate `mining_scars`/`disaster_scars`/the 3x3 climate
       grid onto `FieldGrid` properly instead of staying separate stores.
 - [ ] **A2** — `cellular_step` gained its first real consumer,
@@ -1413,13 +1413,13 @@ conclusions" framing:
    blocking A3's rivers-re-carve item; **that item itself shipped,
    v1.34.25** (see A3's own entry below — this line was stale, caught
    during a v1.34.50 docs-accuracy pass).
-3. **A1** — **fifth field shipped, v1.34.67** (`ownership`, joining
-   `population_density`/`disease_pressure`/`pollution`/`traffic`).
-   Seven of the other eleven named fields (fertility/nutrients/scent/
-   heat/cultural-influence/beauty/noise) remain unbuilt, plus migrating
-   `mining_scars`/`disaster_scars`/the climate grid onto `FieldGrid`
-   properly instead of staying separate stores — see the item's own
-   entry below.
+3. **A1** — **sixth and seventh fields shipped, v1.34.67/v1.34.70**
+   (`ownership`, then `noise`, joining `population_density`/`disease_
+   pressure`/`pollution`/`traffic`/`scarcity`). Six of the remaining
+   named fields (fertility/nutrients/scent/heat/cultural-influence/
+   beauty) remain unbuilt, plus migrating `mining_scars`/`disaster_
+   scars`/the climate grid onto `FieldGrid` properly instead of staying
+   separate stores — see the item's own entry below.
 4. **A2** — **`diffuse`'s fifth consumer shipped, v1.34.67**
    (`ownership`'s `diffuse` call, joining `traffic`'s/`disease_
    pressure`'s/`pollution`'s); **`cellular_step`'s first real consumer
@@ -1850,27 +1850,41 @@ drift from the source of truth. Consult that doc directly for full
 context/rationale on any item — this is the "what's left" extract.
 
 ### A1 — Continuous environmental fields
-**Fifth field shipped (v1.34.67): `ownership`.** `population_density`/
-`disease_pressure`/`pollution`/`traffic` were the only four real fields
-before; seven of the remaining eight named (fertility, nutrients,
-scent, heat, cultural-influence, beauty, noise — moisture is really
-A11's, already shipped there) are still unbuilt. `terrain_activity`/
-`disaster_scars` and the climate grid remain separate stores, not
-migrated onto `FieldGrid`. `ownership` sources from `World.ownership_
-history` (A19, v1.34.55 — already-real permanent per-tile count of how
-many times a HUT has passed to a living heir) summed per region,
-normalized against the busiest region, then spread via `ca_operators.
-diffuse` (`OWNERSHIP_DIFFUSE_RATE=0.3`) — same "re-read already-real
-slow-changing state" shape `traffic`/`pollution` established. Real
-consumer: `Population._maybe_welcome_migrant`'s chance gained an
-`ownership`-scaled multiplier (`MIGRANT_OWNERSHIP_PULL=0.3` — a fully-
-settled region draws up to 1.3x as many migrants as a bare frontier
-one), the first POSITIVE region-field pull in that function (density/
-scarcity both only ever dampen) — "word travels that a place has real
-roots," the plausible inverse of scarcity's "word travels that a place
-is struggling." Also given a real map overlay (7th "🗺️ fields" mode,
-labeled "settledness", `interface/static/app.js`) in the same batch,
-per the standing workflow rule.
+**Sixth field shipped (v1.34.67): `ownership`. Seventh shipped
+(v1.34.70): `noise`.** `population_density`/`disease_pressure`/
+`pollution`/`traffic`/`scarcity` (A4) were the only five real fields
+before `ownership`; six of the remaining named fields (fertility,
+nutrients, scent, heat, cultural-influence, beauty — moisture is
+really A11's, already shipped there) are still unbuilt. `terrain_
+activity`/`disaster_scars` and the climate grid remain separate
+stores, not migrated onto `FieldGrid`.
+
+`ownership` sources from `World.ownership_history` (A19, v1.34.55 —
+already-real permanent per-tile count of how many times a HUT has
+passed to a living heir) summed per region, normalized against the
+busiest region, then spread via `ca_operators.diffuse` (`OWNERSHIP_
+DIFFUSE_RATE=0.3`) — same "re-read already-real slow-changing state"
+shape `traffic`/`pollution` established. Real consumer: `Population.
+_maybe_welcome_migrant`'s chance gained an `ownership`-scaled
+multiplier (`MIGRANT_OWNERSHIP_PULL=0.3` — a fully-settled region
+draws up to 1.3x as many migrants as a bare frontier one), the first
+POSITIVE region-field pull in that function (density/scarcity both
+only ever dampen) — "word travels that a place has real roots," the
+plausible inverse of scarcity's "word travels that a place is
+struggling." Given a real map overlay (7th "🗺️ fields" mode, labeled
+"settledness") in the same batch, per the standing workflow rule.
+
+`noise` is deliberately NOT sourced from any new tracked state —
+genuinely composite, `FieldGrid.step_noise` is the mean of the
+already-computed `population_density`/`traffic` fields, spread via
+`ca_operators.diffuse` same as every other field. Real consumer:
+`WildlifeGrid._maybe_recolonize` (the sole path back from local
+wildlife extinction) weights its recolonization-site draw away from
+noisy regions (`RECOLONIZE_NOISE_DAMPENING=0.6`, `noise=None`
+reproduces the exact old uniform-choice behavior) — "wildlife
+resettles the quiet corners of the map first, not the busy ones."
+Given a real map overlay (10th "🗺️ fields" mode, labeled
+"disturbance") in the same batch.
 
 **Fourth field shipped (v1.34.36): `traffic`.** See above for the
 fifth; `traffic` sources from `World.roads.wear` (already-real per-tile

@@ -4,6 +4,50 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.70] — A1: sixth `FieldGrid` field, `noise` (Tier 1)
+
+Explicit user instruction: "Tier 1 A1 and Tick off completed items."
+Ships Tier 1's sixth `FieldGrid` field, `noise` — deliberately NOT
+sourced from any new tracked state, genuinely composite: `world/
+fields.py`'s `FieldGrid.step_noise` is the mean of two fields this
+class already computes every tick (`population_density`/`traffic`,
+both already 0..1), then spread via `ca_operators.diffuse` same as
+every other field here.
+
+Real consumer: `world/wildlife.py`'s `WildlifeGrid._maybe_recolonize`
+(the sole path back from local wildlife extinction) used to pick its
+recolonization site by flat uniform choice among every eligible
+biome tile on the map — it now weights that draw by `noise` via a new
+`_choose_spot` helper (`RECOLONIZE_NOISE_DAMPENING=0.6`, floored so a
+region is never fully excluded, falling back to uniform `rng.choice`
+if every candidate somehow lands at zero weight): "wildlife resettles
+the quiet corners of the map first, not the busy ones," a real
+ecological consequence neither source field had on its own.
+`noise=None` (the default) reproduces the exact pre-this-feature
+uniform-choice behavior. New `_field_region_value` helper mirrors
+`FieldGrid.get_at`/`region_of`'s bucketing math without importing
+`FieldGrid` itself (wildlife.py has no other reason to depend on it).
+Read one tick stale, same as every other `World.fields` consumer
+(`WildlifeGrid.tick` runs before this same tick's `fields.step_*`
+calls).
+
+UI: 10th "🗺️ fields" mode ("disturbance"), own violet-to-magenta color
+ramp distinct from every warning-red mode and from `traffic`'s own
+blue-cyan ramp (noise is downstream of traffic, not a restatement).
+
+Verified: 2 direct unit tests for `step_noise` (empty-input degrades
+to all-zero; composite genuinely peaks where its two source fields
+peak), a 3000-trial production-path test through the real
+`_maybe_recolonize` confirming a quiet region draws markedly more
+recolonization arrivals than a noisy one, a smoke test confirming
+`noise=None` still runs the old uniform-choice path unchanged, a
+4000-tick LLM-disabled engine soak with clean round-trip,
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical
+(pure Python, no native module touched — `_maybe_recolonize` was
+never natively ported, only the per-tick grazer step was), and a live
+dev server + Playwright pass confirming the new overlay mode cycles
+correctly with a matching "quiet -> disturbed" legend.
+
 ## [1.34.69] — M1/M9: labeled environmental stress reading (Tier 1.5)
 
 Explicit user instruction: "Continue with roadmap." Ships the one

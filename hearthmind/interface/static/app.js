@@ -1181,12 +1181,12 @@ detailsToggle.addEventListener("click", () => {
 // naturally faint/rare) — showing them all at once would fight the
 // map's own readability, the same reasoning the Observatory UI
 // direction already applies to the details panel.
-const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic", "scarcity", "ownership"];
+const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic", "scarcity", "ownership", "noise"];
 const FIELD_OVERLAY_LABELS = {
   off: "off", moisture: "soil moisture", soil_fertility: "soil fertility",
   population_density: "population density", disease_pressure: "disease pressure",
   pollution: "pollution", traffic: "traffic", scarcity: "economic scarcity",
-  ownership: "settledness",
+  ownership: "settledness", noise: "disturbance",
 };
 let fieldOverlayMode = "off";
 const fieldCanvas = document.getElementById("field-canvas");
@@ -1209,6 +1209,7 @@ const FIELD_LEGEND_LABELS = {
   traffic: { min: "quiet", max: "busy" },
   scarcity: { min: "abundant", max: "struggling" },
   ownership: { min: "frontier", max: "settled" },
+  noise: { min: "quiet", max: "disturbed" },
 };
 const fieldLegend = document.getElementById("field-legend");
 const fieldLegendTitle = document.getElementById("field-legend-title");
@@ -1300,6 +1301,13 @@ const FIELD_COLOR_STOPS = {
   // "roots," deliberately distinct from every warning/danger hue
   // family above since this field is unambiguously a positive one.
   ownership: [[210, 205, 195], [175, 140, 95], [175, 130, 40]],
+  // A1 (Tier 1 item 3, "noise" — composite of population_density/
+  // traffic). Quiet reads as a calm, cool slate-blue; disturbed shifts
+  // through a dusty violet toward a jarring magenta-red — an
+  // "unsettling" hue family distinct from traffic's own cool blue-cyan
+  // ramp (noise is downstream of traffic, not a restatement of it) and
+  // from every warning-red mode above (this is disturbance, not risk).
+  noise: [[80, 95, 140], [140, 100, 150], [200, 60, 110]],
 };
 
 function lerpColorStops(stops, t) {
@@ -1543,6 +1551,22 @@ function renderFieldOverlay() {
         if (!(v > 0)) continue;
         paintFieldCell(
           "ownership", rx * regionW * CELL, ry * regionH * CELL, regionW * CELL, regionH * CELL,
+          v, (v) => v * 0.4,
+        );
+        if (!peak || v > peak.value) peak = { x: rx, y: ry, w: regionW * CELL, h: regionH * CELL, value: v };
+      }
+    }
+  } else if (fieldOverlayMode === "noise") {
+    const grid = terrain.noise;
+    if (!grid || !grid.length) return;
+    const regionW = Math.ceil(terrain.width / grid[0].length);
+    const regionH = Math.ceil(terrain.height / grid.length);
+    for (let ry = 0; ry < grid.length; ry++) {
+      for (let rx = 0; rx < grid[ry].length; rx++) {
+        const v = grid[ry][rx];
+        if (!(v > 0)) continue;
+        paintFieldCell(
+          "noise", rx * regionW * CELL, ry * regionH * CELL, regionW * CELL, regionH * CELL,
           v, (v) => v * 0.4,
         );
         if (!peak || v > peak.value) peak = { x: rx, y: ry, w: regionW * CELL, h: regionH * CELL, value: v };

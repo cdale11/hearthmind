@@ -41,6 +41,20 @@ stay in Python either way. `None` when the extension wasn't built."""
 _NEIGHBOR_OFFSETS = ((0, -1), (0, 1), (-1, 0), (1, 0))
 
 
+def _field_region_value(grid: "list[list[float]] | None", x: int, y: int, width: int, height: int) -> float:
+    """Same bucketing math as `FieldGrid.get_at`/`region_of` (`world/
+    fields.py`) — kept deliberately in lockstep rather than importing
+    `FieldGrid` itself, since this module has no other reason to depend
+    on it. `grid=None`/an empty grid/non-positive dimensions all read
+    as 0.0 (neutral, no dampening) rather than erroring."""
+    if not grid or width <= 0 or height <= 0:
+        return 0.0
+    size = len(grid)
+    rx = min(size - 1, max(0, x * size // width))
+    ry = min(size - 1, max(0, y * size // height))
+    return grid[ry][rx]
+
+
 class Species(str, Enum):
     GRAZER = "grazer"
     PREDATOR = "predator"
@@ -162,6 +176,18 @@ predator pack, within this Chebyshev radius — animal-vs-animal
 awareness, not just a passive victim of whatever tile a predator
 wanders onto. Mirrors Population._maybe_move's agent-vs-predator
 avoidance. See docs/DECISIONS.md, "LLM-as-brain batch.\""""
+
+RECOLONIZE_NOISE_DAMPENING = 0.6
+"""A1's `noise` `FieldGrid` field's first real consumer: a candidate
+recolonization site in a region at peak noise (`World.fields`'s
+`noise`, `population_density`/`traffic` averaged) has its selection
+weight cut by up to this fraction — "wildlife resettles the quiet
+corners of the map first, not the busy ones," a real ecological
+consequence neither source field had on its own. Never zeroes a
+candidate out entirely (floored via `max(0.0, 1.0 - noise * this)`,
+and the whole weighted draw falls back to a uniform `rng.choice` if
+every candidate somehow lands at zero weight) — noise nudges WHICH
+tile gets picked, never whether recolonization can happen at all."""
 
 WILDLIFE_RECOLONIZE_CHECK_CHANCE = 0.002
 WILDLIFE_TEMPERAMENT_INFLUENCE = 0.2
@@ -472,6 +498,7 @@ class WildlifeGrid:
         self, seed: int, tick: int, terrain: list[list[Tile]], resources: ResourceGrid | None = None,
         temperament: float = 0.0, season: str = "summer",
         migration_trails: "dict[tuple[int, int], float] | None" = None,
+        noise: "list[list[float]] | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every herd/pack by one tick. Returns (category,
         description) events for a successful hunt or a pack/herd going
@@ -485,7 +512,15 @@ class WildlifeGrid:
         position (see `terrain_evolution.apply_migration_trail`) and,
         when choosing among move candidates, weights toward tiles that
         already carry trail intensity — the two halves of one real
-        feedback loop, not just a one-way cosmetic overlay."""
+        feedback loop, not just a one-way cosmetic overlay.
+
+        `noise` (A1, `World.fields`'s `noise` field, optional — `None`
+        reproduces the exact pre-this-feature behavior): dampens
+        `_maybe_recolonize`'s site-selection weight toward quieter
+        regions. Read one tick stale, same as every other `World.fields`
+        consumer (`Population`'s migrant-welcome chance, etc.) — this
+        tick's `fields.step_*` calls haven't run yet when `tick()` is
+        called."""
         rng = _wildlife_tick_rng(seed, tick)
         height = len(terrain)
         width = len(terrain[0]) if height else 0
@@ -640,25 +675,40 @@ class WildlifeGrid:
             * SEASON_RECOLONIZE_MULTIPLIER.get(season, 1.0)
         )
         if rng.random() < recolonize_chance:
-            events += self._maybe_recolonize(rng, terrain)
+            events += self._maybe_recolonize(rng, terrain, noise, width, height)
 
         self._refresh_native_index()
         return events
 
-    def _maybe_recolonize(self, rng: random.Random, terrain: list[list[Tile]]) -> list[tuple[str, str]]:
+    def _maybe_recolonize(
+        self, rng: random.Random, terrain: list[list[Tile]],
+        noise: "list[list[float]] | None" = None, width: int = 0, height: int = 0,
+    ) -> list[tuple[str, str]]:
         """A locally-extinct (or thin) species can be recolonized from
         beyond the map's edge — without this, a species that ever hits
         exactly 0 herds/packs stays extinct forever, since
         `WildlifeGrid.generate` only runs once at world creation. See
-        WILDLIFE_RECOLONIZE_CHECK_CHANCE."""
+        WILDLIFE_RECOLONIZE_CHECK_CHANCE. `noise=None` (default)
+        reproduces the exact pre-A1 uniform `rng.choice` selection."""
         events: list[tuple[str, str]] = []
         grazer_herds = [h for h in self.herds.values() if h.species is Species.GRAZER]
         predator_packs = [h for h in self.herds.values() if h.species is Species.PREDATOR]
 
+        def _choose_spot(spots: list[tuple[int, int]]) -> tuple[int, int]:
+            if noise is None:
+                return rng.choice(spots)
+            weights = [
+                max(0.0, 1.0 - _field_region_value(noise, sx, sy, width, height) * RECOLONIZE_NOISE_DAMPENING)
+                for sx, sy in spots
+            ]
+            if sum(weights) <= 0.0:
+                return rng.choice(spots)
+            return rng.choices(spots, weights=weights, k=1)[0]
+
         grazer_spots = [(t.x, t.y) for row in terrain for t in row if t.biome in GRAZER_BIOMES]
         target_herds = max(1, int(len(grazer_spots) * HERD_DENSITY * GRAZER_RECOLONIZE_TARGET_HERDS_FRACTION))
         if len(grazer_herds) < target_herds and grazer_spots:
-            x, y = rng.choice(grazer_spots)
+            x, y = _choose_spot(grazer_spots)
             # A15: the new herd inherits its hardiness from the
             # surviving (count > 0) local gene pool (founder-effect
             # realism), not a flat reset — see _inherit_hardiness's
@@ -690,7 +740,7 @@ class WildlifeGrid:
             # just starve out again immediately.
             predator_spots = [(t.x, t.y) for row in terrain for t in row if t.biome in PREDATOR_BIOMES]
             if predator_spots:
-                x, y = rng.choice(predator_spots)
+                x, y = _choose_spot(predator_spots)
                 hardiness = _inherit_hardiness(rng, [h.hardiness for h in predator_packs if h.count > 0])
                 self.herds[self._next_id] = AnimalHerd(
                     id=self._next_id, species=Species.PREDATOR, x=x, y=y,

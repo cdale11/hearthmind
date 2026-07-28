@@ -875,7 +875,7 @@ class World:
         wildlife_events = self.wildlife.tick(
             seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain, resources=self.resources,
             temperament=self.settlement.temperament, season=self.clock.season,
-            migration_trails=self.migration_trails,
+            migration_trails=self.migration_trails, noise=self.fields.fields.get("noise"),
         )
         settlement_events: list[tuple[str, str]] = []
         self.newly_named_settlement_ids = []
@@ -956,6 +956,7 @@ class World:
         self.fields.step_ownership(
             list(self.ownership_history.items()), self.config.width, self.config.height,
         )
+        self.fields.step_noise()
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (
             wildlife_events + settlement_events + population_events + terrain_events + disaster_events

@@ -137,6 +137,11 @@ long history of homes passing hand to hand through inheritance reads
 as measurably settled too, not just the exact tiles carrying the
 handoffs."""
 
+NOISE_DIFFUSE_RATE = 0.3
+"""Same role as `TRAFFIC_DIFFUSE_RATE`/`OWNERSHIP_DIFFUSE_RATE` — a
+region bordering a genuinely busy one reads as somewhat disturbed too,
+not just the exact region carrying the people/traffic."""
+
 
 def _normalize_peak(raw: list[list[float]]) -> list[list[float]]:
     """Scales a raw non-negative grid to 0..1 against its own peak cell
@@ -313,6 +318,30 @@ class FieldGrid:
             rx, ry = self.region_of(pos, width, height)
             raw[ry][rx] += count
         self.fields["ownership"] = diffuse(_normalize_peak(raw), OWNERSHIP_DIFFUSE_RATE)
+
+    def step_noise(self) -> None:
+        """Seventh concrete field (A1, roadmap Tier 1 item 3's "noise"
+        entry). Deliberately NOT sourced from any new tracked state —
+        genuinely composite, the mean of two fields this class already
+        computes every tick (`population_density`/`traffic`, both
+        already 0..1 by construction), then spread via `ca_operators.
+        diffuse` same as every other field here. Must run AFTER both
+        source fields are stepped in the same tick (see `World._tick_
+        disasters`'s ordering) — reads whatever they hold via `ensure_
+        field`, which zero-fills on first use rather than erroring, so
+        a call before either exists degrades to an all-zero noise field
+        instead of crashing. Real consumer: `WildlifeGrid._maybe_
+        recolonize` dampens site selection toward quieter regions —
+        "wildlife avoids resettling in the busy, well-trodden parts of
+        the map," a real ecological consequence neither source field
+        had on its own."""
+        density = self.ensure_field("population_density")
+        traffic = self.ensure_field("traffic")
+        raw = [
+            [(density[ry][rx] + traffic[ry][rx]) / 2.0 for rx in range(FIELD_GRID_SIZE)]
+            for ry in range(FIELD_GRID_SIZE)
+        ]
+        self.fields["noise"] = diffuse(raw, NOISE_DIFFUSE_RATE)
 
     def to_dict(self) -> dict:
         return {name: [list(row) for row in grid] for name, grid in self.fields.items()}

@@ -76,6 +76,7 @@ class WorldBroadcaster:
         traffic: "list[list[float]] | None" = None,
         scarcity: "list[list[float]] | None" = None,
         ownership: "list[list[float]] | None" = None,
+        noise: "list[list[float]] | None" = None,
         road_scars: dict | None = None,
         migration_trails: dict | None = None,
         dry_lakebed_scars: dict | None = None,
@@ -205,6 +206,9 @@ class WorldBroadcaster:
             ),
             "ownership": (
                 [[round(v, 3) for v in row] for row in ownership] if ownership else []
+            ),
+            "noise": (
+                [[round(v, 3) for v in row] for row in noise] if noise else []
             ),
         }
 

@@ -510,6 +510,36 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.70)
+
+Explicit user instruction: "Tier 1 A1 and Tick off completed items."
+Shipped Tier 1's sixth `FieldGrid` field, `noise` — a genuinely
+composite field with no new tracked state (`world/fields.py`'s
+`FieldGrid.step_noise` is the mean of `population_density`/`traffic`,
+both already computed each tick, spread via `ca_operators.diffuse`).
+Real consumer: `world/wildlife.py`'s `WildlifeGrid._maybe_recolonize`
+(the sole path back from local wildlife extinction) now weights its
+recolonization-site draw away from noisy regions
+(`RECOLONIZE_NOISE_DAMPENING=0.6`, `noise=None` reproduces the exact
+old uniform-choice behavior) — "wildlife resettles the quiet corners
+of the map first." UI: 10th "🗺️ fields" overlay mode ("disturbance").
+
+Verified: 2 direct unit tests for `step_noise`, a 3000-trial
+production-path test through the real `_maybe_recolonize` confirming
+a quiet region draws markedly more arrivals than a noisy one, a
+4000-tick LLM-disabled soak with clean round-trip, `scripts/verify_
+native_soak.py` (2 seeds x 800 ticks) byte-identical, and a live dev
+server + Playwright pass confirming the overlay cycles correctly with
+a matching legend.
+
+Also, per the second half of the instruction: re-verified every
+open-task checkbox in `docs/ROADMAP-2026-07-REMAINING.md`'s "Open-task
+checklist" against current code and ticked/updated everything this
+session actually closed since the checklist was last touched (A1's
+`ownership`/`noise` fields, A2's `cellular_step` consumer, M1/M9's
+environmental-stress reading) — see that file's own per-item notes for
+detail; no further stale items found beyond what this session shipped.
+
 ## Current state (v1.34.69)
 
 Explicit user instruction: "Continue with roadmap." Shipped Tier 1.5's
