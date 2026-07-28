@@ -4,6 +4,48 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.76] — M1/M9: field boundaries drawn on the map
+
+Explicit user instruction: "Build M1/M9 and ask questions if stuck"
+(docs/ROADMAP-2026-07-REMAINING.md's Tier 1.5). Closes Tier 1.5 "The
+Living Map" entirely — "field boundaries" was the one residual named
+example left unbuilt since v1.34.50, flagged both times as "a
+genuinely larger UI-redesign lift, not attempted this pass." Turned
+out not to need one: a real, self-contained frontend-only slice.
+
+Root gap: `latest.farms` was already real per-tile data reaching the
+client every broadcast, but each farm tile was drawn as an
+individually-tinted square — a cluster of farmed tiles never read as
+an actual FIELD, a bounded plot a farmer works, the way a building's
+own outline already reads as a real structure.
+
+New `app.js` `drawFieldBoundaries(farms)`: traces a thin hedgerow-
+style line around the outer edge of every contiguous cluster of farm
+tiles — for each farmed tile, any of its 4 neighbors NOT also farmed
+gets a boundary segment on the shared edge. Same "one segment per
+crossing" technique `drawFieldContour` already established for the
+moisture wetland threshold isoline (v1.34.32), just over a binary
+membership set instead of an interpolated value, so no new drawing
+primitive was needed. Zero new backend state, zero new payload field —
+pure client-side rendering over data already flowing. Drawn on the
+main map canvas immediately after the farm fill loop, always on (not
+a togglable overlay mode), matching the standing Observatory UI
+discipline that ordinary continuous state belongs on the map itself,
+not gated behind a mode switch.
+
+No `AskUserQuestion` was needed — the roadmap's own prior entries
+already scoped the item precisely enough ("field boundaries drawn on
+the map," M9's own named example list) that the smallest honest
+reading (a real boundary line around real farm-tile clusters, reusing
+an already-proven contour-tracing technique) was unambiguous.
+
+Verified: `node --check` clean; a live dev server + Playwright pass —
+zoomed screenshot of a real isolated single-tile farm plot confirms a
+distinct thin brown boundary line rendering around the farm fill,
+visually separate from the tile's own inset color fill, with no new
+console errors. Pure frontend change, no Python file touched — no
+native soak needed this pass.
+
 ## [1.34.75] — A2's first `reaction_diffuse` consumer + A1's mining_scars/disaster_scars/climate-grid FieldGrid migration
 
 Explicit user instruction: "Build A2 and A1 migrate mining_scars/

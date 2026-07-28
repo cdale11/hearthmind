@@ -510,6 +510,28 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.76)
+
+Explicit user instruction: "Build M1/M9 and ask questions if stuck"
+(docs/ROADMAP-2026-07-REMAINING.md's Tier 1.5). Closes Tier 1.5 "The
+Living Map" entirely — "field boundaries" was the one residual named
+example, flagged unbuilt twice before (v1.34.50/69) as a genuinely
+larger UI-redesign lift. Turned out to be a small, self-contained
+frontend-only slice: new `app.js` `drawFieldBoundaries` traces a thin
+hedgerow line around the outer edge of every contiguous cluster of
+`latest.farms` tiles (any farmed tile's neighbor NOT also farmed gets
+a boundary segment on the shared edge) — the same edge-crossing
+technique `drawFieldContour` already established for the moisture
+threshold isoline, applied to a binary membership set instead of an
+interpolated value. Zero new backend state or payload field. No
+`AskUserQuestion` needed — the roadmap's own item description was
+unambiguous enough to implement directly.
+
+Verified: `node --check` clean, a live dev server + Playwright pass
+(zoomed screenshot confirms a real isolated farm plot renders a
+distinct boundary line around its fill). Pure frontend change, no
+native soak needed.
+
 ## Current state (v1.34.75)
 
 Explicit user instruction: "Build A2 and A1 migrate mining_scars/

@@ -104,14 +104,19 @@ starts on an explicit instruction naming an item.
 
 ### Tier 1.5 — The Living Map
 
-Closed as a tier (v1.34.51). One residual named example never built:
+**Fully closed, v1.34.76** (tier itself closed v1.34.51).
 
-- [ ] **M1/M9** — field boundaries drawn on the map. The labeled
-      "environmental stress"/degradation reading shipped, v1.34.69
-      (`world/spatial_memory.py`'s `compute_environmental_stress`, a
-      composite of mining/disaster/pollution/fertility axes, plus new
-      bare-tile-inspector sections). Field boundaries remain open — a
-      genuinely larger UI-redesign lift, not attempted.
+- [x] **M1/M9** — field boundaries drawn on the map, v1.34.76.
+      The labeled "environmental stress"/degradation reading shipped,
+      v1.34.69 (`world/spatial_memory.py`'s `compute_environmental_
+      stress`, a composite of mining/disaster/pollution/fertility axes,
+      plus new bare-tile-inspector sections). Field boundaries —
+      flagged unbuilt twice as a genuinely larger UI-redesign lift —
+      shipped as a small, self-contained frontend-only slice: `app.js`'s
+      `drawFieldBoundaries` traces a hedgerow line around the outer
+      edge of every contiguous cluster of farm tiles, reusing `drawField
+      Contour`'s edge-crossing technique over a binary membership set.
+      Zero new backend state.
 
 ### Tier 2 — self-contained mechanism gaps
 
@@ -1562,20 +1567,23 @@ forest reclaim). Real gaps, roughly by leverage:
   auto-tracks the new CSS canvas size with no separate panel-sizing
   code needed; the minimap/season-vignette overlays needed no change
   (already fraction- or `inset`-based, not buffer-pixel-based).
-- **M1/M9** — **old-road-beds slice shipped, v1.34.26** (extends the
-  scar-shaped-dict pattern, already proven 4x: mining/disaster/ritual/
-  ruin, to a 5th axis). **Labeled environmental stress reading shipped,
-  v1.34.69**: `world/spatial_memory.py`'s `compute_environmental_
-  stress`/`environmental_stress_label` compose a mean of whichever of
-  `mining`/`disaster`/`pollution`/`fertility` (the subset of `location_
-  character`'s twelve axes that represents real harm to the land, not
-  just accumulated history) a given tile actually has, banded into
-  three plain-language readings; the bare-tile click inspector shows it
-  plus two closed gaps (mining/disaster scars had never been shown
-  per-tile before, only as a map color + aggregate stat tile — unlike
-  ruin/road/migration/dry-lakebed, which already had inspector lines).
-  Field boundaries remain unbuilt — a genuinely larger UI-redesign
-  lift, not attempted this pass.
+- **M1/M9** — **CLOSED, v1.34.76.** Old-road-beds slice shipped,
+  v1.34.26 (extends the scar-shaped-dict pattern, already proven 4x:
+  mining/disaster/ritual/ruin, to a 5th axis). Labeled environmental
+  stress reading shipped, v1.34.69: `world/spatial_memory.py`'s
+  `compute_environmental_stress`/`environmental_stress_label` compose
+  a mean of whichever of `mining`/`disaster`/`pollution`/`fertility`
+  (the subset of `location_character`'s twelve axes that represents
+  real harm to the land, not just accumulated history) a given tile
+  actually has, banded into three plain-language readings; the
+  bare-tile click inspector shows it plus two closed gaps (mining/
+  disaster scars had never been shown per-tile before, only as a map
+  color + aggregate stat tile — unlike ruin/road/migration/dry-
+  lakebed, which already had inspector lines). Field boundaries
+  shipped v1.34.76: `app.js`'s `drawFieldBoundaries` — turned out to
+  be a small, self-contained frontend-only slice reusing `drawField
+  Contour`'s edge-crossing technique, not the larger UI-redesign lift
+  it was twice flagged as.
 - **M4** — **shipped, v1.34.27-.28** (migration-trail slice: `World.
   migration_trails`, gained from GRAZER movement, a real feedback loop
   via move-candidate weighting rather than a downstream consumer;

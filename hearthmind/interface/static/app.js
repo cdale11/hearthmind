@@ -2156,6 +2156,37 @@ window.addEventListener("resize", () => {
   mapResizeRAF = requestAnimationFrame(resizeCanvasDisplay);
 });
 
+// M1/M9 "The Living Map" — the one residual named example left unbuilt
+// (flagged since v1.34.50, docs/ROADMAP-2026-07-REMAINING.md's own
+// Tier 1.5 note). Individually-tinted farm tiles never read as an
+// actual FIELD — a real bounded plot a farmer works — the way a
+// building's own outline reads as a real structure. Traces a thin
+// hedgerow-style line around the outer edge of every contiguous
+// cluster of `latest.farms` tiles: for each farmed tile, any of its
+// 4 neighbors NOT also farmed gets a boundary segment on the shared
+// edge — the same "one segment per crossing" technique `drawField
+// Contour` already established for the moisture threshold isoline,
+// just over a binary membership set instead of an interpolated value.
+// Zero new backend state — `latest.farms` was already real per-tile
+// data flowing to the client every broadcast.
+function drawFieldBoundaries(farms) {
+  if (!farms || !farms.length) return;
+  const positions = new Set(farms.map((f) => `${f.x},${f.y}`));
+  ctx.save();
+  ctx.strokeStyle = "rgba(122, 92, 42, 0.6)";
+  ctx.lineWidth = Math.max(1, CELL * 0.1);
+  ctx.beginPath();
+  for (const f of farms) {
+    const px = f.x * CELL, py = f.y * CELL;
+    if (!positions.has(`${f.x},${f.y - 1}`)) { ctx.moveTo(px, py); ctx.lineTo(px + CELL, py); }
+    if (!positions.has(`${f.x},${f.y + 1}`)) { ctx.moveTo(px, py + CELL); ctx.lineTo(px + CELL, py + CELL); }
+    if (!positions.has(`${f.x - 1},${f.y}`)) { ctx.moveTo(px, py); ctx.lineTo(px, py + CELL); }
+    if (!positions.has(`${f.x + 1},${f.y}`)) { ctx.moveTo(px + CELL, py); ctx.lineTo(px + CELL, py + CELL); }
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawFrame() {
   if (!staticCanvas) return;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -2268,6 +2299,7 @@ function drawFrame() {
     ctx.fillStyle = FARM_COLORS[farm.stage] || "#888";
     ctx.fillRect(farm.x * CELL + 2, farm.y * CELL + 2, CELL - 4, CELL - 4);
   }
+  drawFieldBoundaries(latest.farms);
 
   const architectureStyles = latest.architecture_styles || {};
   for (const b of latest.buildings) {
