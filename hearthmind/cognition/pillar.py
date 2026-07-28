@@ -210,13 +210,24 @@ class Pillar:
         cycle_stage: str = "observe", working_memory: list[str] | None = None,
         last_turn_tick: int = -1, conversation_log: list[dict] | None = None,
         last_question: str = "", last_answer: str = "", last_answer_tick: int = -1,
-        turns_processed: int = 0,
+        turns_processed: int = 0, memory_access: list[int] | None = None,
     ) -> None:
         self.name = name
         self.description = description
         self.self_model = self_model if self_model is not None else {}
         self.world_model = world_model if world_model is not None else []
         self.memory = memory if memory is not None else []
+        self.memory_access = memory_access if memory_access is not None else [0] * len(self.memory)
+        """B8's `reinforce`/`reinterpret` half (see `remember()`): an
+        access/reinforcement count parallel to `memory`, same index for
+        index — kept as a SEPARATE list rather than upgrading `memory`
+        entries to dicts, so `memory` itself stays the plain
+        `list[str]` every existing consumer (`llm/pillar_chat.py`'s
+        prompt builder, `to_dict`'s persisted shape) already expects.
+        `0` for a note that has only ever been formed once; every
+        `remember()` call that reinforces or reinterprets an existing
+        note bumps its count, which `consolidate()` reads to fold the
+        LEAST-reinforced notes first instead of blindly the oldest."""
         self.objectives = objectives if objectives is not None else []
         self.inbox = inbox if inbox is not None else []
         self.outbox = outbox if outbox is not None else []
@@ -294,15 +305,77 @@ class Pillar:
         self.world_model.append(entry)
         return entry
 
+    MEMORY_REINFORCE_SCAN = 8
+    """`remember()`'s reinforce/reinterpret half only compares a new
+    note against this many of the MOST RECENT existing notes, not the
+    whole `memory` list — a reinforcement/reinterpretation is "the
+    pillar noticing this connects to something on its mind lately," not
+    a full-history similarity search (which would also risk merging two
+    genuinely unrelated notes that happen to share common words after
+    enough entries accumulate)."""
+
+    MEMORY_REINFORCE_OVERLAP = 0.55
+    """`remember()`'s Jaccard word-overlap bar for treating a new note
+    as a near-restatement of an existing one — same value class as
+    `llm/beliefs.py`'s `BELIEF_NOOP_REVISION_OVERLAP` (0.6, "says
+    essentially the same thing" over full sentences), fractionally
+    lower since memory notes are shorter/more telegraphic than belief
+    sentences. At/above this: pure reinforcement — the existing note
+    already captures it, so only its `memory_access` count is bumped,
+    no duplicate is appended."""
+
+    MEMORY_REINTERPRET_OVERLAP = 0.35
+    """Lower bar than `MEMORY_REINFORCE_OVERLAP`: a new note clearly
+    about the same subject as a recent one, but phrased differently
+    enough to carry real new information (a fuller or updated
+    understanding), REPLACES that note's text in place rather than
+    reinforcing the old wording or appending a near-duplicate — the
+    "reinterpret" half of B8. Below this: genuinely a new, distinct
+    memory, appended as usual. `word_overlap` isn't stopword-filtered
+    (by design — see its own docstring, shared with `disagrees_with`),
+    so two short, GENUINELY UNRELATED full sentences can still cross
+    0.2-0.3 purely on shared "a"/"the"/"was"/"to" — empirically checked
+    against a batch of deliberately unrelated notes (max observed
+    ~0.29) before picking this value, comfortably above that noise
+    floor and still below `MEMORY_REINFORCE_OVERLAP`."""
+
     def remember(self, note: str) -> None:
-        """Appends one consolidated-memory note. `consolidate()` (B8,
-        called once per closed cognitive cycle) is what actually keeps
-        this bounded in the common case; `MEMORY_MAX` below is only a
-        defense-in-depth hard FIFO cap for the case a pillar's cycle
-        stalls for a long stretch and consolidation never runs."""
+        """Appends one consolidated-memory note — or, per B8's
+        `reinforce`/`reinterpret` (the roadmap's own named remaining
+        gap over `consolidate()`'s pure fold-and-forget), strengthens
+        or revises an existing recent one instead, when the new note is
+        clearly about the same thing:
+
+        - Near-restatement (`>= MEMORY_REINFORCE_OVERLAP`): REINFORCE —
+          bump that note's `memory_access` count, keep its wording.
+        - Related but distinct (`>= MEMORY_REINTERPRET_OVERLAP`):
+          REINTERPRET — replace that note's text with the new one (a
+          more current understanding of the same experience), also
+          bumping `memory_access`.
+        - Otherwise: append as a genuinely new, distinct note.
+
+        Only the most recent `MEMORY_REINFORCE_SCAN` notes are checked,
+        newest first, so a fresh but related note always wins over an
+        older tangential match. `consolidate()` (B8, called once per
+        closed cognitive cycle) is what actually keeps this bounded in
+        the common case; `MEMORY_MAX` below is only a defense-in-depth
+        hard FIFO cap for the case a pillar's cycle stalls for a long
+        stretch and consolidation never runs."""
+        window_start = max(0, len(self.memory) - self.MEMORY_REINFORCE_SCAN)
+        for i in range(len(self.memory) - 1, window_start - 1, -1):
+            overlap = word_overlap(note, self.memory[i])
+            if overlap >= self.MEMORY_REINFORCE_OVERLAP:
+                self.memory_access[i] += 1
+                return
+            if overlap >= self.MEMORY_REINTERPRET_OVERLAP:
+                self.memory[i] = note
+                self.memory_access[i] += 1
+                return
         self.memory.append(note)
+        self.memory_access.append(0)
         if len(self.memory) > self.MEMORY_MAX:
             self.memory = self.memory[-self.MEMORY_MAX:]
+            self.memory_access = self.memory_access[-self.MEMORY_MAX:]
 
     def record_conversation(self, question: str, answer: str, tick: int) -> None:
         """C3 "Player <-> Pillar chat": appends one Q&A exchange to the
@@ -408,25 +481,43 @@ class Pillar:
         return best
 
     def consolidate(self) -> bool:
-        """B8 "Living memory & consolidation": folds the oldest `MEMORY_
-        CONSOLIDATE_BATCH` raw notes into one condensed digest note once
-        `memory` reaches `MEMORY_CONSOLIDATE_THRESHOLD` — real periodic
+        """B8 "Living memory & consolidation": folds `MEMORY_CONSOLIDATE_
+        BATCH` raw notes into one condensed digest note once `memory`
+        reaches `MEMORY_CONSOLIDATE_THRESHOLD` — real periodic
         forgetting-of-trivia plus concept-formation, not just a cap. See
         the threshold/batch constants' docstring. Returns True if a
         consolidation actually happened this call (the common no-op case
-        below threshold returns False, cheap to call unconditionally)."""
+        below threshold returns False, cheap to call unconditionally).
+
+        Which notes get folded is now `memory_access`-aware (B8's
+        `reinforce` half paying off, not just the write side): the
+        `MEMORY_CONSOLIDATE_BATCH` notes with the LOWEST access count
+        are folded first (ties broken oldest-first), not blindly the
+        oldest `MEMORY_CONSOLIDATE_BATCH` regardless of position — a
+        note `remember()` has reinforced or reinterpreted survives
+        longer than one that was only ever noted once, the same
+        "preserving identity" the spec's own language asks for. The
+        resulting digest inherits the highest access count among the
+        notes it folded, so a digest that absorbed a reinforced note
+        isn't itself immediately the next thing folded away."""
         if len(self.memory) < self.MEMORY_CONSOLIDATE_THRESHOLD:
             return False
-        batch = self.memory[: self.MEMORY_CONSOLIDATE_BATCH]
-        remaining = self.memory[self.MEMORY_CONSOLIDATE_BATCH :]
+        order = sorted(range(len(self.memory)), key=lambda i: (self.memory_access[i], i))
+        fold = set(order[: self.MEMORY_CONSOLIDATE_BATCH])
+        batch = [self.memory[i] for i in range(len(self.memory)) if i in fold]
+        batch_access = [self.memory_access[i] for i in range(len(self.memory)) if i in fold]
+        remaining = [self.memory[i] for i in range(len(self.memory)) if i not in fold]
+        remaining_access = [self.memory_access[i] for i in range(len(self.memory)) if i not in fold]
         digest = f"[{len(batch)} earlier memories, folded together] " + " | ".join(batch)
         self.memory = [digest[:280]] + remaining
+        self.memory_access = [max(batch_access, default=0)] + remaining_access
         return True
 
     def to_dict(self) -> dict:
         return {
             "name": self.name, "description": self.description, "self_model": dict(self.self_model),
             "world_model": [dict(e) for e in self.world_model], "memory": list(self.memory),
+            "memory_access": list(self.memory_access),
             "objectives": list(self.objectives), "inbox": [dict(m) for m in self.inbox],
             "outbox": [dict(m) for m in self.outbox],
             "next_world_model_id": self.next_world_model_id, "next_message_id": self.next_message_id,
@@ -447,6 +538,13 @@ class Pillar:
             self_model=dict(data.get("self_model", {})),
             world_model=[dict(e) for e in data.get("world_model", [])],
             memory=list(data.get("memory", [])),
+            # Legacy backfill: a snapshot saved before B8's reinforce/
+            # reinterpret slice has no `memory_access` at all — default
+            # every existing note to 0 (never yet reinforced), same
+            # length as `memory` so `remember()`/`consolidate()`'s
+            # index-parallel invariant holds from the first tick after
+            # load.
+            memory_access=list(data["memory_access"]) if "memory_access" in data else [0] * len(data.get("memory", [])),
             objectives=list(data.get("objectives", [])),
             cycle_stage=data.get("cycle_stage", "observe"),
             working_memory=list(data.get("working_memory", [])),

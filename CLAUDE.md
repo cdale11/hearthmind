@@ -510,6 +510,25 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.66)
+
+Explicit user instruction: "Continue with open items in roadmap." Shipped
+Tier 3 item 24, B8 `reinforce`/`reinterpret` — CLOSED. `Pillar.
+remember()` gained a parallel `memory_access: list[int]` (legacy-
+backfilled to zeros): a near-restatement of a recent note (`word_
+overlap >= 0.55`) reinforces it (bumps access, no duplicate); a
+related-but-differently-phrased note (`>= 0.35`) reinterprets it
+(replaces the text in place, also bumps access); otherwise appends as
+before. `consolidate()` now folds the LEAST-reinforced notes first
+instead of blindly the oldest — a note the pillar keeps returning to
+survives longer. One shared method reaches all five pillars at once.
+The 0.35 reinterpret threshold was picked empirically (`word_overlap`
+isn't stopword-filtered, so unrelated short sentences can hit 0.2-0.3
+on shared "a"/"the"/"was" alone — measured against a deliberately-
+unrelated batch, max ~0.29, before settling on 0.35). Verified via 7
+direct unit tests + 2 production-path tests through the real engine-
+attached `village_pillar`. Full detail: CHANGELOG.md's [1.34.66] entry.
+
 ## Current state (v1.34.65)
 
 Explicit user instruction: "Start completing items from roadmap." Shipped

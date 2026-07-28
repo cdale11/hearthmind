@@ -130,9 +130,15 @@ Closed as a tier (v1.34.51). One residual named example never built:
       competing one about — so this closes every arrow where the check
       is actually meaningful, not just the two named in the item's
       original text.
-- [ ] **B8** — `reinforce`/`reinterpret` (only `consolidate`/forget
-      exist); needs per-note salience/access tracking in all five
-      pillars.
+- [x] **B8** — `reinforce`/`reinterpret` — **CLOSED, v1.34.66.**
+      `Pillar.remember()` now checks a new note against its
+      `MEMORY_REINFORCE_SCAN` most recent notes: a near-restatement
+      reinforces (bumps a new parallel `memory_access` count, no
+      duplicate appended), a related-but-distinct note reinterprets
+      (replaces the old note's text in place), otherwise it appends as
+      before. `consolidate()` now folds the LEAST-reinforced notes
+      first instead of blindly the oldest. Applies to all five pillars
+      for free — one shared method, not five copies.
 - [ ] **C2** — most spec-named pillar-emitted intentions (invent tech,
       set custom, change law, reorganize institution, shift land use,
       domesticate, build, propose experiment) aren't pillar-emitted at
@@ -1701,9 +1707,44 @@ in this document; nothing in either was started this pass)
     theory (confirmed `disagreement`), one without (confirmed the
     original flat `discovery` still applies) — same real gating/RNG/
     season-boundary path a live world uses, no gate bypassed.
-24. **B8** — `reinforce`/`reinterpret` (today: `consolidate`/forget
-    only) — needs per-note salience/access tracking across all five
-    pillars.
+24. **B8 — CLOSED, v1.34.66.** `Pillar.remember()` (`cognition/
+    pillar.py`) gained the per-note access tracking the item's own text
+    named as the missing prerequisite: a new parallel `memory_access:
+    list[int]`, index-matched to `memory`, defaulting to 0 and
+    legacy-backfilled on load. `remember()` now checks a new note
+    against its `MEMORY_REINFORCE_SCAN` (8) most recent notes via the
+    same `word_overlap` primitive `disagrees_with` (B4) already
+    established: a near-restatement (`>= MEMORY_REINFORCE_OVERLAP`,
+    0.55) REINFORCES — bumps the existing note's access count, no
+    duplicate appended; a related-but-differently-phrased note (`>=
+    MEMORY_REINTERPRET_OVERLAP`, 0.35) REINTERPRETS — replaces the old
+    note's text with the new one in place, also bumping access;
+    otherwise the note is appended as a genuinely new, distinct memory,
+    exactly as before. `consolidate()` (B8's existing fold-and-forget
+    half) is now access-count-aware: it folds the `MEMORY_CONSOLIDATE_
+    BATCH` LEAST-reinforced notes first (ties broken oldest-first)
+    instead of blindly the oldest positions regardless of how many
+    times a note has been reinforced — a note the pillar keeps
+    returning to now genuinely survives consolidation longer, the
+    "preserving identity" language the spec's own text uses. The
+    resulting digest inherits the highest access count among the notes
+    it folded, so it isn't immediately the next thing folded away
+    either. One shared method on `Pillar` means this reaches all five
+    pillars at once, same as `consolidate()` itself did originally —
+    not five separate implementations. `MEMORY_REINTERPRET_OVERLAP`'s
+    value (0.35, not a more obvious-looking 0.2-0.25) was picked after
+    an empirical check: `word_overlap` isn't stopword-filtered by
+    design (shared with `disagrees_with`), so short unrelated sentences
+    can cross 0.2-0.3 purely on shared "a"/"the"/"was"/"to" — measured
+    against a batch of deliberately-unrelated notes (max observed
+    ~0.29) before settling on 0.35 as a safe floor above that noise.
+    Verified: seven direct unit tests (reinforce collapse, reinterpret-
+    in-place, genuinely-distinct append, scan-window boundedness,
+    access-aware consolidation sparing a reinforced note, `to_dict`/
+    `from_dict` round-trip, legacy-snapshot backfill with no
+    `memory_access` key at all); two production-path tests through the
+    real engine-attached `village_pillar` and a real `World.to_dict()`/
+    `from_dict()` round-trip.
 25. **C2** — most of the spec's named pillar-emitted intentions (invent
     tech, set custom, change law, reorganize institution, shift land
     use, domesticate, build, propose experiment) still aren't pillar-

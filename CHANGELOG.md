@@ -4,6 +4,61 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.66] — B8 reinforce/reinterpret (Tier 3 item 24)
+
+Explicit user instruction: "Continue with open items in roadmap." Shipped
+Tier 3 item 24 — B8's own named remaining gap: `Pillar.consolidate()`
+(B8, shipped earlier) folds/forgets old memory notes but nothing ever
+strengthened or revised one, so a memory the pillar kept returning to
+had no advantage over one noted once and never touched again.
+
+`cognition/pillar.py`'s `Pillar` gains a new parallel `memory_access:
+list[int]`, index-matched to `memory`, defaulting to 0 and legacy-
+backfilled on load for snapshots saved before this change.
+`remember()` now checks a new note against its `MEMORY_REINFORCE_SCAN`
+(8) most recent notes via the same `word_overlap` Jaccard primitive
+`disagrees_with` (B4) already established:
+
+- Near-restatement (`>= MEMORY_REINFORCE_OVERLAP`, 0.55) — REINFORCE:
+  bump the existing note's access count, no duplicate appended.
+- Related but distinct (`>= MEMORY_REINTERPRET_OVERLAP`, 0.35) —
+  REINTERPRET: replace the old note's text with the new one, also
+  bumping access.
+- Otherwise: append as a genuinely new, distinct memory, unchanged
+  from before.
+
+`consolidate()` is now access-count-aware: it folds the `MEMORY_
+CONSOLIDATE_BATCH` LEAST-reinforced notes first (ties broken oldest-
+first) instead of blindly the oldest positions — a note the pillar
+keeps returning to now genuinely resists being folded away, the
+"preserving identity" language B8's own spec text uses. The resulting
+digest inherits the highest access count among the notes it folded,
+so it isn't immediately the next thing consolidated either.
+
+One shared method on `Pillar` means this reaches all five pillars
+(Village/Humans/Innovation/Nature/Reflection) at once — not five
+separate implementations, same as `consolidate()` itself originally.
+
+`MEMORY_REINTERPRET_OVERLAP`'s value (0.35) was picked empirically,
+not guessed: `word_overlap` is deliberately not stopword-filtered (a
+documented tradeoff shared with `disagrees_with`), so two genuinely
+unrelated short sentences can still cross 0.2-0.3 purely on shared
+"a"/"the"/"was"/"to" — confirmed by running a batch of deliberately
+unrelated notes through the actual function (max observed overlap
+~0.29) before settling on 0.35 as a safe floor above that noise; an
+initial 0.25 attempt collapsed a full test's worth of distinct filler
+notes into one entry before this was caught.
+
+Verified: seven direct unit tests (reinforce collapse, reinterpret-
+in-place, genuinely-distinct append, scan-window boundedness, access-
+aware consolidation sparing a reinforced note, `to_dict`/`from_dict`
+round-trip, legacy-snapshot backfill with no `memory_access` key at
+all); two production-path tests through the real engine-attached
+`village_pillar` and a real `World.to_dict()`/`from_dict()` round-trip;
+pyflakes clean; 4,000-tick LLM-disabled soak with clean round-trip;
+`scripts/verify_native_soak.py` (2 seeds x 800 ticks) byte-identical
+— pure Python, no native module touched.
+
 ## [1.34.65] — B4 reverse-direction disagreement classification (Tier 3 item 23)
 
 Explicit user instruction: "Start completing items from roadmap." Picked
