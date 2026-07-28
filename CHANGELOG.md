@@ -46,6 +46,13 @@ sequences at the current gain/decay:
 (The last column is an upper bound — the model omits the
 `flood_pressure *= 0.5` relief a real flood applies on firing.)
 
+Confirmed end-to-end against the real function, not just the model:
+driving `tick_flood` on a real world for a full sim year (36,500 ticks,
+907 water tiles) at 0.50 produced peak pressure 1.63, **4 genuine flood
+events**, and 78 ticks with a tile actually submerged — rare and
+consequential, and comfortably below the model's upper bound exactly as
+the omitted pressure relief predicts.
+
 `0.55` is also structurally dead (a 2.9% duty cycle never accumulates
 25 net gains in a row); `0.45` and below re-create the original
 ratchet. **Set to `0.50`** — the only value producing a real,

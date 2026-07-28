@@ -526,9 +526,10 @@ subsystem (submersion, damage, A11 recurrence erosion, M2/M8's
 terrain reshaping) was dead code. v0.88.0 fixed a genuine ratchet bug
 but changed two variables at once — only the `GAIN/DECAY` rebalance
 was needed; the threshold raise overshot past what `compute_weather`'s
-EMA smoothing can reach. Re-derived to **0.50** (2.44% of ticks
-pressure-elevated, ~13 flood events/year); 0.55 is also dead, 0.45 and
-below re-ratchet. (2) The `verify_native_soak.py` seed-3 MISMATCH
+EMA smoothing can reach. Re-derived to **0.50**; 0.55 is also dead,
+0.45 and below re-ratchet. Confirmed on the real `tick_flood` over a
+full sim year: peak pressure 1.63, 4 genuine flood events, 78 ticks
+with a tile submerged. (2) The `verify_native_soak.py` seed-3 MISMATCH
 annotated since v1.34.0 as "a set-ordering quirk" was **not** set
 ordering: it was a 1-ULP float difference in `hydrology_field.
 moisture`, traced to `cpp/src/weather.cpp` fusing its EMA blend into

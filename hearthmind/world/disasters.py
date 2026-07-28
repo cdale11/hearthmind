@@ -122,7 +122,10 @@ current GAIN/DECAY:
 
 (The "flood rolls" column is an upper bound: the model above omits the
 `flood_pressure *= 0.5` relief a real flood applies when it fires, so
-live rates land somewhat lower. The relative ordering is what matters.)
+live rates land lower. Confirmed against the real function: driving
+`tick_flood` on a real world for a full sim year (36,500 ticks, 907
+water tiles) at 0.50 gave peak pressure 1.63, **4 genuine flood
+events**, and 78 ticks with a tile actually submerged.)
 
 0.65 and 0.55 are both structurally dead (a 2.9% duty cycle never
 accumulates 25 net gains in a row). 0.45 and below re-create the
