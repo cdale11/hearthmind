@@ -77,6 +77,9 @@ class WorldBroadcaster:
         scarcity: "list[list[float]] | None" = None,
         ownership: "list[list[float]] | None" = None,
         noise: "list[list[float]] | None" = None,
+        heat: "list[list[float]] | None" = None,
+        nutrients: "list[list[float]] | None" = None,
+        scent: "list[list[float]] | None" = None,
         road_scars: dict | None = None,
         migration_trails: dict | None = None,
         dry_lakebed_scars: dict | None = None,
@@ -209,6 +212,15 @@ class WorldBroadcaster:
             ),
             "noise": (
                 [[round(v, 3) for v in row] for row in noise] if noise else []
+            ),
+            "heat": (
+                [[round(v, 3) for v in row] for row in heat] if heat else []
+            ),
+            "nutrients": (
+                [[round(v, 3) for v in row] for row in nutrients] if nutrients else []
+            ),
+            "scent": (
+                [[round(v, 3) for v in row] for row in scent] if scent else []
             ),
         }
 

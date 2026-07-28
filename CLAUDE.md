@@ -510,6 +510,35 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.71)
+
+Explicit user instruction: "Finish building A1 this turn." Shipped
+three more `FieldGrid` fields with real consumers — `heat` (region
+`WeatherState.temperature_c`, dampens `Population._maybe_welcome_
+migrant`'s chance in scorching regions), `nutrients` (region wild-FOOD
+abundance, bonuses `WildlifeGrid` grazer reproduction), `scent`
+(region live-predator-pack presence, steers `SimulationEngine._choose_
+fission_site` away from dangerous regions when an alternative exists)
+— bringing the real-field count to ten, plus 3 more "🗺️ fields" UI
+modes (13 total). **Does not literally close A1**, stated plainly
+rather than glossed over: `fertility`-as-a-FieldGrid-aggregate,
+`cultural-influence`, and `beauty` remain unbuilt (the first would
+duplicate an axis `location_character` already reads from `FarmGrid`
+directly; the latter two have no real data source anywhere in this
+codebase without inventing a new subjective-scoring mechanic from
+scratch — a genuinely separate design task); migrating `mining_scars`/
+`disaster_scars`/the climate grid onto `FieldGrid` also remains
+unbuilt (a real refactor of three already-tuned stores, correctly
+judged too large/risky to bundle into this batch).
+
+Verified: unit tests for all three fields, a 6000-trial production-
+path test confirming the nutrients reproduce bonus through the real
+`WildlifeGrid.tick`, a 200-trial production-path test confirming the
+scent avoidance through the real `_choose_fission_site` (0/200 sites
+landed in a forced-dangerous region), a 4000-tick LLM-disabled soak
+with clean round-trip, `scripts/verify_native_soak.py` (2 seeds x 800
+ticks) byte-identical, and a live dev server + Playwright pass.
+
 ## Current state (v1.34.70)
 
 Explicit user instruction: "Tier 1 A1 and Tick off completed items."

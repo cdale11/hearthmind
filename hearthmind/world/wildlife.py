@@ -106,6 +106,15 @@ is unaffected — grazing pressure only exists where the two food sources
 actually overlap. See docs/DECISIONS.md, "vegetation depletion" pass."""
 
 GRAZER_REPRODUCE_CHANCE = 0.01
+
+NUTRIENTS_REPRODUCE_BONUS_MAX = 0.4
+"""A1's `nutrients` field first real consumer: a GRAZER herd's
+`reproduce_chance` gains up to this fractional bonus scaled by the
+local region's `nutrients` reading (raw standing wild-FOOD abundance,
+not the same signal as `grazer_reproduce_penalty`'s predator-pressure
+term below) — a region genuinely rich in forage supports faster herd
+growth, a real positive ecological signal distinct from the existing
+penalty-only pressure terms."""
 PREDATOR_HUNT_CHANCE = 0.05
 """Rolled when a predator pack is colocated with a live grazer herd —
 predation isn't guaranteed just from proximity."""
@@ -499,6 +508,7 @@ class WildlifeGrid:
         temperament: float = 0.0, season: str = "summer",
         migration_trails: "dict[tuple[int, int], float] | None" = None,
         noise: "list[list[float]] | None" = None,
+        nutrients: "list[list[float]] | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every herd/pack by one tick. Returns (category,
         description) events for a successful hunt or a pack/herd going
@@ -514,13 +524,17 @@ class WildlifeGrid:
         already carry trail intensity — the two halves of one real
         feedback loop, not just a one-way cosmetic overlay.
 
-        `noise` (A1, `World.fields`'s `noise` field, optional — `None`
-        reproduces the exact pre-this-feature behavior): dampens
+        `noise`/`nutrients` (A1, `World.fields`, both optional — `None`
+        reproduces the exact pre-A1 behavior for each): `noise` dampens
         `_maybe_recolonize`'s site-selection weight toward quieter
-        regions. Read one tick stale, same as every other `World.fields`
-        consumer (`Population`'s migrant-welcome chance, etc.) — this
-        tick's `fields.step_*` calls haven't run yet when `tick()` is
-        called."""
+        regions; `nutrients` gives a GRAZER herd's reproduce chance a
+        small bonus in a nutrient-rich region (`NUTRIENTS_REPRODUCE_
+        BONUS_MAX`) — a genuine positive signal from raw wild-food
+        abundance, distinct from `grazer_reproduce_penalty`'s existing
+        predator-pressure PENALTY above. Both read one tick stale, same
+        as every other `World.fields` consumer (`Population`'s
+        migrant-welcome chance, etc.) — this tick's `fields.step_*`
+        calls haven't run yet when `tick()` is called."""
         rng = _wildlife_tick_rng(seed, tick)
         height = len(terrain)
         width = len(terrain[0]) if height else 0
@@ -604,9 +618,11 @@ class WildlifeGrid:
                     continue
                 node = resources.get(herd.x, herd.y) if resources is not None else None
                 grazing_food = node is not None and node.kind is ResourceKind.FOOD
+                nutrients_at = _field_region_value(nutrients, herd.x, herd.y, width, height)
                 reproduce_chance = (
                     GRAZER_REPRODUCE_CHANCE * SEASON_GRAZER_REPRODUCE_MULTIPLIER.get(season, 1.0)
                     * grazer_reproduce_penalty * hardiness_reproduce_factor(herd.hardiness)
+                    * (1.0 + nutrients_at * NUTRIENTS_REPRODUCE_BONUS_MAX)
                 )
                 reproduce_roll = rng.random()
                 if _native_grazer_tick_step is not None:

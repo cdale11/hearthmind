@@ -68,13 +68,23 @@ starts on an explicit instruction naming an item.
 
 ### Tier 1 — substrate
 
-- [ ] **A1** — `ownership` (v1.34.67) and `noise` (v1.34.70) shipped —
-      six of the twelve named continuous fields are still unbuilt
-      (fertility-as-field, nutrients, scent, heat, cultural influence,
-      beauty). Seven are real (`population_density`, `disease_pressure`,
-      `pollution`, `traffic`, `scarcity` (A4), `ownership`, `noise`).
+- [ ] **A1** — `ownership`/`noise` (v1.34.67/.70), then `heat`/
+      `nutrients`/`scent` (v1.34.71) shipped — ten of the twelve named
+      continuous fields are now real (`population_density`, `disease_
+      pressure`, `pollution`, `traffic`, `scarcity` (A4), `ownership`,
+      `noise`, `heat`, `nutrients`, `scent`). Three remain unbuilt:
+      `fertility`-as-a-FieldGrid-aggregate (would duplicate an axis
+      `location_character` already reads from `FarmGrid` directly),
+      `cultural-influence`/`beauty` (no real data source anywhere in
+      this codebase without inventing a new subjective-scoring
+      mechanic — a genuinely separate design task, flagged not
+      forced).
 - [ ] **A1** — migrate `mining_scars`/`disaster_scars`/the 3x3 climate
-      grid onto `FieldGrid` properly instead of staying separate stores.
+      grid onto `FieldGrid` properly instead of staying separate stores
+      — explicitly considered and deferred at v1.34.71 (a real refactor
+      of three already-tuned, already-consumed stores for no behavior
+      change, judged too large/risky to bundle with a field-adding
+      batch).
 - [ ] **A2** — `cellular_step` gained its first real consumer,
       v1.34.68 (`compute_forest_contiguity`, weighting `tick_wildfire`'s
       ignition-site draw by local forest density). `reaction_diffuse`
@@ -1413,13 +1423,16 @@ conclusions" framing:
    blocking A3's rivers-re-carve item; **that item itself shipped,
    v1.34.25** (see A3's own entry below — this line was stale, caught
    during a v1.34.50 docs-accuracy pass).
-3. **A1** — **sixth and seventh fields shipped, v1.34.67/v1.34.70**
-   (`ownership`, then `noise`, joining `population_density`/`disease_
-   pressure`/`pollution`/`traffic`/`scarcity`). Six of the remaining
-   named fields (fertility/nutrients/scent/heat/cultural-influence/
-   beauty) remain unbuilt, plus migrating `mining_scars`/`disaster_
-   scars`/the climate grid onto `FieldGrid` properly instead of staying
-   separate stores — see the item's own entry below.
+3. **A1** — **ten real fields as of v1.34.71** (`ownership`/`noise`
+   at v1.34.67/.70, then `heat`/`nutrients`/`scent` at v1.34.71,
+   joining `population_density`/`disease_pressure`/`pollution`/
+   `traffic`/`scarcity`). `fertility`-as-a-FieldGrid-aggregate and
+   `cultural-influence`/`beauty` remain unbuilt (each with a concrete
+   reason, not silently dropped — see the item's own entry below),
+   plus migrating `mining_scars`/`disaster_scars`/the climate grid onto
+   `FieldGrid` properly instead of staying separate stores (explicitly
+   considered and deferred at v1.34.71, too large/risky to bundle with
+   a field-adding batch).
 4. **A2** — **`diffuse`'s fifth consumer shipped, v1.34.67**
    (`ownership`'s `diffuse` call, joining `traffic`'s/`disease_
    pressure`'s/`pollution`'s); **`cellular_step`'s first real consumer
@@ -1851,13 +1864,17 @@ context/rationale on any item — this is the "what's left" extract.
 
 ### A1 — Continuous environmental fields
 **Sixth field shipped (v1.34.67): `ownership`. Seventh shipped
-(v1.34.70): `noise`.** `population_density`/`disease_pressure`/
+(v1.34.70): `noise`. Eighth/ninth/tenth shipped (v1.34.71): `heat`/
+`nutrients`/`scent`.** `population_density`/`disease_pressure`/
 `pollution`/`traffic`/`scarcity` (A4) were the only five real fields
-before `ownership`; six of the remaining named fields (fertility,
-nutrients, scent, heat, cultural-influence, beauty — moisture is
-really A11's, already shipped there) are still unbuilt. `terrain_
-activity`/`disaster_scars` and the climate grid remain separate
-stores, not migrated onto `FieldGrid`.
+before `ownership`; three of the remaining named fields (`fertility`-
+as-a-FieldGrid-aggregate, cultural-influence, beauty — moisture is
+really A11's, already shipped there) are still unbuilt, each with a
+concrete reason (see the v1.34.71 entries below) rather than silently
+dropped. `terrain_activity`/`disaster_scars` and the climate grid
+remain separate stores, not migrated onto `FieldGrid` — considered and
+explicitly deferred at v1.34.71 as a real refactor of three already-
+tuned stores, too large/risky to bundle with a field-adding batch.
 
 `ownership` sources from `World.ownership_history` (A19, v1.34.55 —
 already-real permanent per-tile count of how many times a HUT has
@@ -1885,6 +1902,44 @@ reproduces the exact old uniform-choice behavior) — "wildlife
 resettles the quiet corners of the map first, not the busy ones."
 Given a real map overlay (10th "🗺️ fields" mode, labeled
 "disturbance") in the same batch.
+
+`heat` sources from `World.weather_regions`' already-real per-region
+`WeatherState.temperature_c` (no new tracked state — `WEATHER_REGION_
+GRID` already equals `FIELD_GRID_SIZE`), normalized against `HEAT_
+COLD_C`/`HEAT_WARM_C` — mirrored floats matching `disasters.FROST_
+TEMP_THRESHOLD`/`HEATWAVE_BUILD_TEMP` rather than inventing new
+thresholds. Real consumer: `Population._maybe_welcome_migrant`'s new
+`region_heat` term (`MIGRANT_HEAT_DAMPENING=0.25`) — a scorching
+region draws newcomers a bit less readily.
+
+`nutrients` sums `World.resources`' standing FOOD-node amounts per
+region (already-real wild-food state). Real consumer: `WildlifeGrid`'s
+grazer `reproduce_chance` gains a bonus in nutrient-rich regions
+(`NUTRIENTS_REPRODUCE_BONUS_MAX=0.4`) — a genuine positive signal from
+raw forage abundance, distinct from the existing predator-pressure
+penalty term; computed before reaching the native `_native_grazer_
+tick_step` fast path, zero parity risk.
+
+`scent` sums live predator-pack sizes per region (already-real
+`WildlifeGrid.herds` state). Real consumer: `SimulationEngine._choose_
+fission_site` prefers a low-scent region when an alternative exists
+(`SCENT_FISSION_AVOID_THRESHOLD=0.6`), same "never a hard block" shape
+its existing `population_density` filter already uses — a region-scale
+danger reading distinct from the existing TILE-level predator
+avoidance in `Population._step_toward`/`_maybe_move`. All three given
+real map overlays (11th/12th/13th "🗺️ fields" modes) in the same
+batch.
+
+**Explicitly NOT attempted at v1.34.71, each with a concrete reason:**
+`fertility` as a genuine FieldGrid region aggregate (distinct from
+`FarmGrid.soil_fertility`'s existing dense per-farmed-tile dict) would
+largely duplicate an axis `location_character` already reads directly
+from `FarmGrid` — no clear new value over the existing read path.
+`cultural-influence`/`beauty` have no real data source anywhere in
+this codebase to read from without inventing a wholly new subjective-
+scoring mechanic from scratch — a genuinely separate, larger design
+task than this batch's other three same-shape slices, correctly left
+open rather than forced through with a fabricated signal.
 
 **Fourth field shipped (v1.34.36): `traffic`.** See above for the
 fifth; `traffic` sources from `World.roads.wear` (already-real per-tile

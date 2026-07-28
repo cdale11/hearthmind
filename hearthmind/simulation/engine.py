@@ -619,6 +619,15 @@ made real. Never a hard block (see `_choose_fission_site`'s fallback):
 a map where every walkable region is this crowded still lets fission
 proceed, just without the density preference."""
 
+SCENT_FISSION_AVOID_THRESHOLD = 0.6
+"""A1 FieldGrid `scent` field's real consumer: a candidate fission site
+in a region at or above this reading (real predator-pack presence,
+`FieldGrid.step_scent`) is avoided when a less dangerous alternative
+exists — same "never a hard block" shape `POPULATION_DENSITY_FISSION_
+AVOID_THRESHOLD` established. Applied AFTER the density filter, so a
+founding party first avoids crowding, then (among what's left) avoids
+visibly dangerous ground."""
+
 REFLECTION_COHERENCE_MIN_TOTAL = 10
 REFLECTION_COHERENCE_ABANDONED_RATIO = 0.5
 """Vision doc item 5.3 ("Coherence/drift detection... the immune system
@@ -1586,6 +1595,9 @@ class SimulationEngine:
                 scarcity=world.fields.ensure_field("scarcity"),
                 ownership=world.fields.ensure_field("ownership"),
                 noise=world.fields.ensure_field("noise"),
+                heat=world.fields.ensure_field("heat"),
+                nutrients=world.fields.ensure_field("nutrients"),
+                scent=world.fields.ensure_field("scent"),
                 road_scars=world.road_scars,
                 migration_trails=world.migration_trails,
                 dry_lakebed_scars=world.dry_lakebed_scars,
@@ -9439,6 +9451,17 @@ class SimulationEngine:
             ]
             if uncrowded:
                 spots = uncrowded
+            # A1 FieldGrid: prefer a region the live `scent` field
+            # doesn't already read as dangerous, when an alternative
+            # exists — never a hard block.
+            safe = [
+                pos for pos in spots
+                if self.world.fields.get_at(
+                    "scent", pos, self.world.config.width, self.world.config.height,
+                ) < SCENT_FISSION_AVOID_THRESHOLD
+            ]
+            if safe:
+                spots = safe
         if origin is not None and spots:
             # Never point the party at land it can't walk to — rivers/
             # lakes genuinely disconnect regions on this generator.
@@ -10198,6 +10221,9 @@ class SimulationEngine:
                 scarcity=self.world.fields.ensure_field("scarcity"),
                 ownership=self.world.fields.ensure_field("ownership"),
                 noise=self.world.fields.ensure_field("noise"),
+                heat=self.world.fields.ensure_field("heat"),
+                nutrients=self.world.fields.ensure_field("nutrients"),
+                scent=self.world.fields.ensure_field("scent"),
                 road_scars=self.world.road_scars,
                 migration_trails=self.world.migration_trails,
                 dry_lakebed_scars=self.world.dry_lakebed_scars,

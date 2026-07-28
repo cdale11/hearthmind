@@ -16,7 +16,7 @@ from hearthmind.economy.farms import FarmGrid, apply_nutrient_cycling
 from hearthmind.settlement.buildings import BuildingKind, BuildingStage, Settlement, compute_resource_fill
 from hearthmind.settlement.naming import generate_settlement_name
 from hearthmind.time_system import SimClock
-from hearthmind.world.resources import ResourceGrid
+from hearthmind.world.resources import ResourceGrid, ResourceKind
 from hearthmind.world.roads import RoadNetwork
 from hearthmind.world.terrain import Biome, TerrainGrid, Tile, biome_counts, generate_terrain
 from hearthmind.world.terrain_evolution import (
@@ -68,7 +68,7 @@ from hearthmind.world.materials import BUILDING_MATERIALS, building_affordances
 from hearthmind.world.ontology import CausalThread, CompositeEntity, InventedConcept, TriggerRule
 from hearthmind.world.reactions import CompositeReaction, default_composite_reactions
 from hearthmind.world.weather import WeatherState, compute_weather
-from hearthmind.world.wildlife import SpeciesVariant, WildlifeGrid
+from hearthmind.world.wildlife import Species, SpeciesVariant, WildlifeGrid
 from hearthmind.world import culture_aggregate
 from hearthmind.util import namespaced_rng
 
@@ -876,6 +876,7 @@ class World:
             seed=self.config.seed, tick=self.clock.tick_count, terrain=self.terrain, resources=self.resources,
             temperament=self.settlement.temperament, season=self.clock.season,
             migration_trails=self.migration_trails, noise=self.fields.fields.get("noise"),
+            nutrients=self.fields.fields.get("nutrients"),
         )
         settlement_events: list[tuple[str, str]] = []
         self.newly_named_settlement_ids = []
@@ -957,6 +958,15 @@ class World:
             list(self.ownership_history.items()), self.config.width, self.config.height,
         )
         self.fields.step_noise()
+        self.fields.step_heat({pos: ws.temperature_c for pos, ws in self.weather_regions.items()})
+        self.fields.step_nutrients(
+            [(pos, n.amount) for pos, n in self.resources.nodes.items() if n.kind is ResourceKind.FOOD],
+            self.config.width, self.config.height,
+        )
+        self.fields.step_scent(
+            [((h.x, h.y), h.count) for h in self.wildlife.herds.values() if h.species is Species.PREDATOR],
+            self.config.width, self.config.height,
+        )
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (
             wildlife_events + settlement_events + population_events + terrain_events + disaster_events

@@ -142,6 +142,34 @@ NOISE_DIFFUSE_RATE = 0.3
 region bordering a genuinely busy one reads as somewhat disturbed too,
 not just the exact region carrying the people/traffic."""
 
+HEAT_DIFFUSE_RATE = 0.2
+"""Smaller than most — `weather_regions` already blends smoothly
+region-to-region on its own (each region's `compute_weather` shares
+the same monthly baseline, just independently jittered), so this only
+needs to soften hard region-boundary edges slightly, not spread far."""
+
+HEAT_COLD_C = 2.0
+HEAT_WARM_C = 18.5
+"""Normalization endpoints for `step_heat`, deliberately reusing two
+already-real, already-tuned thresholds rather than inventing new ones:
+`HEAT_COLD_C` mirrors `disasters.FROST_TEMP_THRESHOLD` (a hard freeze),
+`HEAT_WARM_C` mirrors `disasters.HEATWAVE_BUILD_TEMP` (sustained-heat
+onset) — 0.0 reads as "cold enough to trigger a frost event," 1.0 reads
+as "hot enough to build heatwave pressure." Not imported directly (a
+plain float mirror, same discipline `CLAUDE.md`'s `MIN_LIFESPAN_TICKS`
+JS mirror already uses) since `disasters.py` has no other reason to be
+a dependency of this module."""
+
+NUTRIENTS_DIFFUSE_RATE = 0.3
+"""Same role as `TRAFFIC_DIFFUSE_RATE` — a region bordering rich wild
+foraging reads as somewhat nutrient-rich too, not just the exact tiles
+carrying food nodes."""
+
+SCENT_DIFFUSE_RATE = 0.35
+"""Same role as `DISEASE_PRESSURE_DIFFUSE_RATE` — a sense of danger
+radiates into neighboring regions, not just the exact tiles a predator
+pack currently stands on."""
+
 
 def _normalize_peak(raw: list[list[float]]) -> list[list[float]]:
     """Scales a raw non-negative grid to 0..1 against its own peak cell
@@ -342,6 +370,59 @@ class FieldGrid:
             for ry in range(FIELD_GRID_SIZE)
         ]
         self.fields["noise"] = diffuse(raw, NOISE_DIFFUSE_RATE)
+
+    def step_heat(self, weather_region_temps: dict[tuple[int, int], float]) -> None:
+        """Eighth concrete field (A1). Sourced from `World.weather_
+        regions` (already-real per-region `WeatherState.temperature_c`,
+        `WEATHER_REGION_GRID` == `FIELD_GRID_SIZE` == 3, so no resampling
+        needed) — a genuinely new READING of existing state, not new
+        tracked data. Normalized against `HEAT_COLD_C`/`HEAT_WARM_C`,
+        then softened via `ca_operators.diffuse`. Real consumer:
+        `Population._maybe_welcome_migrant`'s `region_heat` term —
+        migrants are less drawn to a scorching region, same bounded
+        "never a hard block" shape as `region_scarcity`."""
+        raw = [[0.0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+        for (rx, ry), temp_c in weather_region_temps.items():
+            if 0 <= rx < FIELD_GRID_SIZE and 0 <= ry < FIELD_GRID_SIZE:
+                span = HEAT_WARM_C - HEAT_COLD_C
+                raw[ry][rx] = max(0.0, min(1.0, (temp_c - HEAT_COLD_C) / span)) if span else 0.0
+        self.fields["heat"] = diffuse(raw, HEAT_DIFFUSE_RATE)
+
+    def step_nutrients(self, food_node_items: list[tuple[tuple[int, int], float]], width: int, height: int) -> None:
+        """Ninth concrete field (A1). Sums `World.resources`' standing
+        FOOD-kind node amounts (already-real, already-tracked wild-food
+        supply) per region, normalized against the richest region, then
+        spread via `ca_operators.diffuse` — same "re-read already-real
+        state" shape `step_traffic` established. Real consumer:
+        `WildlifeGrid`'s grazer reproduction chance gains a small bonus
+        in nutrient-rich regions (`NUTRIENTS_REPRODUCE_BONUS_MAX`) —
+        distinct from the existing prey-scarcity PENALTY (predator
+        pressure), this is a genuine positive signal from raw forage
+        abundance."""
+        raw = [[0.0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+        for pos, amount in food_node_items:
+            rx, ry = self.region_of(pos, width, height)
+            raw[ry][rx] += amount
+        self.fields["nutrients"] = diffuse(_normalize_peak(raw), NUTRIENTS_DIFFUSE_RATE)
+
+    def step_scent(self, predator_positions: list[tuple[tuple[int, int], int]], width: int, height: int) -> None:
+        """Tenth concrete field (A1). Sums live predator-pack sizes
+        (already-real `WildlifeGrid.herds` state) per region, normalized
+        against the most dangerous region, then spread via `ca_operators.
+        diffuse` — a region-scale "how much danger is in the air" reading,
+        distinct from the existing TILE-level predator avoidance
+        (`Population._step_toward`/`_maybe_move`'s `predator_tiles` set,
+        which only reacts once an agent is already adjacent). Real
+        consumer: `SimulationEngine._choose_fission_site` prefers a
+        low-scent region when an alternative exists, same "never a hard
+        block" shape its existing `population_density` filter already
+        uses — a founding party avoids visibly dangerous ground, not
+        just crowded ground."""
+        raw = [[0.0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+        for pos, count in predator_positions:
+            rx, ry = self.region_of(pos, width, height)
+            raw[ry][rx] += count
+        self.fields["scent"] = diffuse(_normalize_peak(raw), SCENT_DIFFUSE_RATE)
 
     def to_dict(self) -> dict:
         return {name: [list(row) for row in grid] for name, grid in self.fields.items()}

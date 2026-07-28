@@ -1181,12 +1181,13 @@ detailsToggle.addEventListener("click", () => {
 // naturally faint/rare) — showing them all at once would fight the
 // map's own readability, the same reasoning the Observatory UI
 // direction already applies to the details panel.
-const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic", "scarcity", "ownership", "noise"];
+const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic", "scarcity", "ownership", "noise", "heat", "nutrients", "scent"];
 const FIELD_OVERLAY_LABELS = {
   off: "off", moisture: "soil moisture", soil_fertility: "soil fertility",
   population_density: "population density", disease_pressure: "disease pressure",
   pollution: "pollution", traffic: "traffic", scarcity: "economic scarcity",
   ownership: "settledness", noise: "disturbance",
+  heat: "heat", nutrients: "wild forage", scent: "predator scent",
 };
 let fieldOverlayMode = "off";
 const fieldCanvas = document.getElementById("field-canvas");
@@ -1210,6 +1211,9 @@ const FIELD_LEGEND_LABELS = {
   scarcity: { min: "abundant", max: "struggling" },
   ownership: { min: "frontier", max: "settled" },
   noise: { min: "quiet", max: "disturbed" },
+  heat: { min: "cold", max: "sweltering" },
+  nutrients: { min: "sparse", max: "bountiful" },
+  scent: { min: "safe", max: "dangerous" },
 };
 const fieldLegend = document.getElementById("field-legend");
 const fieldLegendTitle = document.getElementById("field-legend-title");
@@ -1308,6 +1312,23 @@ const FIELD_COLOR_STOPS = {
   // ramp (noise is downstream of traffic, not a restatement of it) and
   // from every warning-red mode above (this is disturbance, not risk).
   noise: [[80, 95, 140], [140, 100, 150], [200, 60, 110]],
+  // A1 (Tier 1, "heat"). A conventional cold-to-hot ramp — icy blue
+  // through neutral straw to a scorching red-orange — distinct from
+  // population_density's own pink-to-red heat ramp by staying in cool
+  // hues at the low end (population density has no "cold" state to
+  // contrast against).
+  heat: [[80, 140, 210], [225, 210, 150], [220, 90, 40]],
+  // A1 (Tier 1, "nutrients"). Sparse ground reads as a tired dusty tan,
+  // bountiful forage shifts through olive to a rich living green —
+  // an organic, food-coded ramp distinct from soil_fertility's own
+  // bidirectional red-tan-green (nutrients is one-directional, always
+  // "more is better").
+  nutrients: [[190, 175, 140], [160, 175, 90], [70, 160, 60]],
+  // A1 (Tier 1, "scent"). Safe reads as a calm pale green, dangerous
+  // shifts through amber to a stark blood-red warning — the one mode
+  // that deliberately borrows the "danger" hue family other modes
+  // avoid, since predator scent genuinely IS a danger reading.
+  scent: [[200, 220, 190], [220, 160, 60], [180, 30, 30]],
 };
 
 function lerpColorStops(stops, t) {
@@ -1567,6 +1588,22 @@ function renderFieldOverlay() {
         if (!(v > 0)) continue;
         paintFieldCell(
           "noise", rx * regionW * CELL, ry * regionH * CELL, regionW * CELL, regionH * CELL,
+          v, (v) => v * 0.4,
+        );
+        if (!peak || v > peak.value) peak = { x: rx, y: ry, w: regionW * CELL, h: regionH * CELL, value: v };
+      }
+    }
+  } else if (fieldOverlayMode === "heat" || fieldOverlayMode === "nutrients" || fieldOverlayMode === "scent") {
+    const grid = terrain[fieldOverlayMode];
+    if (!grid || !grid.length) return;
+    const regionW = Math.ceil(terrain.width / grid[0].length);
+    const regionH = Math.ceil(terrain.height / grid.length);
+    for (let ry = 0; ry < grid.length; ry++) {
+      for (let rx = 0; rx < grid[ry].length; rx++) {
+        const v = grid[ry][rx];
+        if (!(v > 0)) continue;
+        paintFieldCell(
+          fieldOverlayMode, rx * regionW * CELL, ry * regionH * CELL, regionW * CELL, regionH * CELL,
           v, (v) => v * 0.4,
         );
         if (!peak || v > peak.value) peak = { x: rx, y: ry, w: regionW * CELL, h: regionH * CELL, value: v };
