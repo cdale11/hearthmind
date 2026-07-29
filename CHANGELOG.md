@@ -4,6 +4,28 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.110] — Tier 0's fifteenth conversion: letter's sender pick
+
+Explicit user instruction: "Continue." `_maybe_schedule_letter`'s
+cross-settlement letter-writer search previously stopped at the FIRST
+eligible core-cast sender in `Population.agents`' plain iteration
+order — an accident of storage order, not a meaningful choice. Now
+every eligible sender in the target settlement is collected (still
+each sender's own first qualifying recipient, unchanged), then
+`humans_pillar.subject_confidence(sender.name)` picks among them via
+`max` — the sender Humans' own attention already returns to is
+somewhat more likely to write this month's letter. `max`'s first-max-
+wins tiebreak means with no lean anywhere (the common case) this
+reproduces the exact prior first-found pick byte-for-byte, verified
+directly.
+
+Verified: a production-path test through the real `_maybe_schedule_
+letter` (a synthetic two-settlement, two-eligible-sender scenario — the
+no-lean case picks the original first-found sender; a seeded Humans
+belief about the second sender flips the pick to them), a 4000-tick
+LLM-disabled soak with a clean round-trip, `pyflakes`/syntax clean.
+Tier 0 now has fifteen real converted sites.
+
 ## [1.34.109] — Tier 0's fourteenth conversion: personal_belief's monthly picks
 
 Explicit user instruction: "Continue tier 0." A self-referential site,

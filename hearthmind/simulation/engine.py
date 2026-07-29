@@ -9919,7 +9919,19 @@ class SimulationEngine:
         if not self._monthly_gate(events, "letter") or not target.name:
             return
         core_ids = self.world.population.core_agent_ids
-        sender, recipient = None, None
+        # Tier 0's fifteenth conversion (docs/ROADMAP-2026-07-
+        # REMAINING.md): previously the FIRST eligible core-cast sender
+        # in `population.agents` iteration order won outright (an
+        # accident of storage order, not a meaningful choice) — now
+        # every eligible sender in the target settlement is collected
+        # (still each sender's own first qualifying recipient, same as
+        # before), then `humans_pillar.subject_confidence(sender.name)`
+        # picks among them: the sender Humans' own attention already
+        # returns to is somewhat more likely to be this month's letter-
+        # writer. `max`'s first-max-wins tiebreak means with no lean
+        # anywhere (the common case) this reproduces the exact prior
+        # first-found pick byte-for-byte.
+        candidates: list[tuple] = []
         for agent in self.world.population.agents:
             if agent.settlement_id != target.id or agent.id not in core_ids:
                 continue
@@ -9931,10 +9943,14 @@ class SimulationEngine:
                     continue
                 other_settlement = self._settlement_by_id(other.settlement_id)
                 if other_settlement is not None and other_settlement.name:
-                    sender, recipient = agent, other
+                    candidates.append((agent, other))
                     break
-            if sender is not None:
-                break
+        if candidates:
+            sender, recipient = max(
+                candidates, key=lambda pair: self.world.humans_pillar.subject_confidence(pair[0].name),
+            )
+        else:
+            sender, recipient = None, None
         if sender is None:
             return
         if self._pillar_interpret_backpressured("humans"):

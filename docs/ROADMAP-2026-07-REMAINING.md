@@ -46,10 +46,10 @@ starts on an explicit instruction naming an item.
 
 ### Tier 0 — pillar refactor (the biggest single lever)
 
-- [ ] Convert the remaining **~45 mirror-write sites** from "write into
+- [ ] Convert the remaining **~44 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); fourteen sites are now converted
+      confidence`, v1.34.46); fifteen sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -58,12 +58,12 @@ starts on an explicit instruction naming an item.
       multi-settlement tiebreak (Reflection pillar's first site,
       v1.34.106), `species_variant`'s herd pick (Nature pillar's first
       site, v1.34.107), `_voice_narrative_extra_scores`'s Humans-pillar
-      lean into the weekly voice-pair protagonist pick (v1.34.108), and
-      — v1.34.109 — `personal_belief`'s own monthly candidate draw,
-      self-referentially weighted by the same Humans pillar it writes
-      into). Each further site is real judgment work — find a soft/
-      tiebreak point a pillar's accumulated belief can legitimately
-      weigh, never hand a pillar a whole decision.
+      lean into the weekly voice-pair protagonist pick (v1.34.108),
+      `personal_belief`'s own monthly candidate draw (v1.34.109), and
+      — v1.34.110 — `letter`'s cross-settlement sender pick). Each
+      further site is real judgment work — find a soft/tiebreak point a
+      pillar's accumulated belief can legitimately weigh, never hand a
+      pillar a whole decision.
 
 ### Tier 0.5 — live-diagnostic findings
 
@@ -1472,6 +1472,26 @@ the target's pick rate well above the uniform baseline), a 6,000-trial
 no-lean production-path regression test, a 4000-tick LLM-disabled soak
 with a clean round-trip, `pyflakes`/syntax clean. Tier 0 now has
 fourteen real converted sites.
+
+**Fifteenth site (v1.34.110, explicit user instruction: "Continue").**
+`_maybe_schedule_letter`'s cross-settlement letter-writer search
+previously stopped at the FIRST eligible core-cast sender in
+`Population.agents`' plain iteration order — an accident of storage
+order, not a meaningful choice. Every eligible sender in the target
+settlement is now collected (still each sender's own first qualifying
+recipient, unchanged), then `humans_pillar.subject_confidence(sender.
+name)` picks among them via `max` — the sender Humans' own attention
+already returns to is somewhat more likely to write this month's
+letter. `max`'s first-max-wins tiebreak means with no lean anywhere
+(the common case) this reproduces the exact prior first-found pick
+byte-for-byte, verified directly.
+
+Verified: a production-path test through the real `_maybe_schedule_
+letter` (a synthetic two-settlement, two-eligible-sender scenario —
+no-lean picks the original first-found sender, a seeded belief about
+the second sender flips the pick to them), a 4000-tick LLM-disabled
+soak with a clean round-trip, `pyflakes`/syntax clean. Tier 0 now has
+fifteen real converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

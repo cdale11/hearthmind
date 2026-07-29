@@ -617,6 +617,23 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.110)
+
+Explicit user instruction: "Continue." Fifteenth conversion.
+`_maybe_schedule_letter`'s cross-settlement letter-writer search
+previously stopped at the FIRST eligible core-cast sender in
+`Population.agents`' plain iteration order. Now every eligible sender
+in the target settlement is collected (still each sender's own first
+qualifying recipient, unchanged), then `humans_pillar.subject_
+confidence(sender.name)` picks among them via `max` — first-max-wins
+means no lean anywhere reproduces the exact prior first-found pick.
+
+Verified: a production-path test through the real `_maybe_schedule_
+letter` (a synthetic two-sender scenario — no-lean picks the original
+first-found sender, a seeded belief flips it), a 4000-tick LLM-
+disabled soak with clean round-trip, `pyflakes` clean. Tier 0 now has
+fifteen real converted sites.
+
 ## Current state (v1.34.109)
 
 Explicit user instruction: "Continue tier 0." Fourteenth conversion, a
