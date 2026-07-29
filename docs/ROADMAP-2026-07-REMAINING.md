@@ -1145,6 +1145,38 @@ its own judgment call about where in an existing decision a pillar
 lean can enter without overriding a hard/urgent branch — not another
 item at this checklist's own minimum step size.
 
+**Re-audit (explicit user instruction: "Start tier 0 and try finishing
+it"), no new site found safe to ship this pass.** Checked every
+remaining deterministic `compute_*`/`choose_*` function in the
+codebase for a genuine tie/soft slot shaped like the three already-
+converted sites: `institutions.compute_objective`'s FAMILY/GUILD
+branches (both fully deterministic top-to-bottom, no unresolved tie —
+inserting a pillar lean there would override real state, not fill a
+gap); `narrative_direction.compute_themes` (the `max()` mood-axis pick
+has no ambiguous tie in practice, and its "an ordinary season"
+fallback is itself a real threshold read, not arbitrary); `buildings.
+choose_building_kind` (already indirectly carries Village pillar lean
+via `current_priority`/`branch`, both of which already flow through
+Tier 0's first two conversions — a third direct weight term here would
+double-count the same signal, not add a new one); `Population._maybe_
+assign_occupations`'s `min(..., key=counts.get)` (ties resolve by
+`ALL_OCCUPATIONS`' fixed list order, not randomness — no occupation
+maps cleanly onto a growth/safety pillar lean without inventing a new
+category scheme, a bigger design call than this checklist's minimum
+step). One real candidate flagged, not shipped:
+`_maybe_schedule_ontology_evolution`'s `concept_fitness_weight`-
+weighted parent pick could plausibly take an Innovation-pillar-lean
+multiplier, but unlike the three shipped sites this would multiply
+into the PRIMARY selection signal (fitness) rather than only fill a
+final catchall — risks diluting the one real signal this mechanism
+already has. Needs an explicit design decision (does Innovation's own
+world_model confidence about a concept's category get to bias
+evolve/merge parent selection, and if so, how without weakening
+fitness) before it can ship — not attempted this pass. **Tier 0 is not
+closable by more mechanical passes; it stays real, un-scoped, per-site
+judgment work, queued for future explicit direction naming a specific
+new site or approving the ontology_evolution design question.**
+
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0
 and before Tier 1: these are correctness/tuning questions about
