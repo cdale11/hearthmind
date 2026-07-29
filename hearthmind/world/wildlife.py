@@ -132,6 +132,19 @@ same crossings over time, a real feedback loop (movement creates the
 trail, the trail then draws more movement) rather than a one-way
 cosmetic. Scoped to GRAZER only — predators track prey, not paths."""
 
+MIGRATION_NUTRIENT_PULL_WEIGHT = 2.0
+"""A10 "Ecology / food webs," migration slice: a GRAZER herd choosing
+among its move candidates also weights toward a candidate tile with a
+better `World.fields` `nutrients` reading — real resource-pressure-
+driven migration (herds drift toward richer forage regions over time),
+distinct from every other GRAZER movement bias already in this
+function: `MIGRATION_TRAIL_PREFERENCE_WEIGHT` is a habit (reuse a
+known crossing) and predator-avoidance is a threat response, neither
+reads actual resource abundance the way this does. Combines
+multiplicatively with the trail-preference weight when both are
+present — a candidate that's both an established crossing AND
+nutrient-rich is doubly preferred, not an either/or choice."""
+
 GRAZE_CONSUMPTION_PER_TICK = 0.015
 GRAZE_REPRODUCE_MIN_FOOD = 0.1
 """A grazer herd colocated with a wild FOOD `ResourceNode` (world/
@@ -689,13 +702,21 @@ class WildlifeGrid:
                     if safe:
                         candidates = safe
                 if candidates:
-                    if herd.species is Species.GRAZER and migration_trails:
-                        # M4: reuse an established crossing over a fresh
-                        # one when several are otherwise equally valid —
-                        # the trail-preference half of the feedback loop
-                        # (the gain half is right below).
+                    # A10, migration slice: real resource-pressure-driven
+                    # movement — weight toward candidate tiles with a
+                    # richer `nutrients` reading, combined multiplicatively
+                    # with M4's existing trail-reuse preference when both
+                    # apply. `nutrients=None` (the pre-slice default)
+                    # reproduces the exact prior behavior: trail-only
+                    # weights if `migration_trails` is set, else a plain
+                    # uniform `rng.choice` — same RNG-consumption shape as
+                    # before for every caller not yet passing `nutrients`.
+                    if herd.species is Species.GRAZER and (migration_trails or nutrients is not None):
                         weights = [
-                            1.0 + migration_trails.get(c, 0.0) * MIGRATION_TRAIL_PREFERENCE_WEIGHT
+                            (1.0 + migration_trails.get(c, 0.0) * MIGRATION_TRAIL_PREFERENCE_WEIGHT
+                             if migration_trails else 1.0)
+                            * (1.0 + _field_region_value(nutrients, c[0], c[1], width, height)
+                               * MIGRATION_NUTRIENT_PULL_WEIGHT)
                             for c in candidates
                         ]
                         herd.x, herd.y = rng.choices(candidates, weights=weights, k=1)[0]

@@ -194,24 +194,23 @@ starts on an explicit instruction naming an item.
       based mutation as an alternate generate path (A8's other named
       piece, depends on A7 reaching a genuine shape-grammar stage
       first) remains open.
-- [ ] **A10, decomposition + pollination + competition + habitat-
-      formation slices shipped v1.34.87-.90** — `World.carcass_
-      decomposition` (a real predator-kill carcass, distinct from the
-      already-shipped live-herd nutrient cycling) enriches nearby
-      soil fertility via `economy.farms.apply_carcass_decomposition_
-      bonus`. `terrain_evolution.compute_succession_pressure`'s new
-      `grazer_positions` param gives a live GRAZER herd's presence a
-      real, capped, additive bonus to nearby succession pressure
-      ("animals carry seeds and pollen as they move"), threaded
-      through `maybe_reclaim`. `WildlifeGrid.tick`'s new `grazer_
-      tile_counts` aggregate makes multiple GRAZER herds sharing a
-      tile genuinely compete for the same forage. `wildlife.habitat_
-      capacity` reads the same `nutrients` field to raise (never
-      lower) a region's real herd-size carrying capacity — det_sys's
-      own "reads fields, writes carrying capacity" wording, closing
-      the one A10 axis that had zero implementation before this
-      batch. Only migration and folding the whole food web onto A1's
-      field substrate remain open.
+- [x] **A10, all five named det_sys.md pieces shipped, v1.34.87-.91**
+      — `World.carcass_decomposition` (a real predator-kill carcass,
+      distinct from the already-shipped live-herd nutrient cycling)
+      enriches nearby soil fertility via `economy.farms.apply_
+      carcass_decomposition_bonus`. `terrain_evolution.compute_
+      succession_pressure`'s `grazer_positions` param gives a live
+      GRAZER herd's presence a real, capped, additive bonus to nearby
+      succession pressure. `WildlifeGrid.tick`'s `grazer_tile_counts`
+      aggregate makes multiple GRAZER herds sharing a tile genuinely
+      compete for the same forage. `wildlife.habitat_capacity` reads
+      the `nutrients` field to raise a region's real herd-size
+      carrying capacity. `WildlifeGrid.tick`'s move-candidate
+      weighting now also pulls toward nutrient-rich candidate tiles —
+      real resource-pressure-driven migration, combined
+      multiplicatively with M4's existing trail-reuse preference.
+      Only "fold the whole food web onto A1's field substrate as one
+      coupled system" remains open — a larger, unscoped follow-up.
 - [ ] **A12** — per-instance `Entity.material` generalized beyond
       buildings (per-*building*-instance material shipped v1.34.58).
 - [ ] **A16** — trade-as-network-flow, tech-as-DAG, information-
@@ -2375,9 +2374,21 @@ almost verbatim. Wired at both the native and pure-Python reproduce-
 cap check sites via one shared `effective_max_herd_size`. This was
 the one A10 axis with zero prior implementation of any kind.
 
-Only migration remains unbuilt as a named A10 piece. Folding the
-whole food web onto A1's field substrate as one coupled system is
-real follow-up work, not yet scoped.
+**Migration slice shipped, v1.34.91 — closes A10's named checklist.**
+`WildlifeGrid.tick`'s existing move-candidate weighting (previously
+only M4's trail-reuse preference) now also pulls toward candidate
+tiles with a richer `nutrients` reading (`MIGRATION_NUTRIENT_PULL_
+WEIGHT=2.0`), combined multiplicatively with trail preference when
+both apply — real population redistribution toward better resource
+areas, the actual ecological sense of "migration," distinct from the
+pre-existing seasonal leave-the-map/recolonize abstraction and M4's
+habit-reuse mechanic. `nutrients=None` reproduces the exact prior
+RNG-consumption pattern byte-for-byte.
+
+**A10 is now closed on every named det_sys.md piece.** Folding the
+whole food web onto A1's field substrate as one coupled system
+remains open — real follow-up work, not yet scoped, deliberately
+larger than any single slice above.
 
 ### A11 — Continuous hydrology
 **Shipped, second slice (v1.34.23).** Groundwater and erosion, the two

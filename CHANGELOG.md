@@ -4,6 +4,48 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.91] — A10: migration (resource-pressure-driven movement)
+
+Explicit user instruction: "Continue A10." Ships A10's migration
+slice — the last of the five named pieces (decomposition/pollination/
+competition/habitat-formation shipped v1.34.87-.90). Before this
+pass, GRAZER movement already had two real biases (M4's trail-reuse
+preference, predator-avoidance) plus a separate seasonal leave-the-
+map/recolonize abstraction, but nothing modeling real population
+redistribution toward better resource areas — the actual ecological
+sense of "migration" det_sys.md names.
+
+`WildlifeGrid.tick`'s existing move-candidate weighting (already
+used for M4's trail preference) now also weights each candidate tile
+by its own `World.fields` `nutrients` reading — new `MIGRATION_
+NUTRIENT_PULL_WEIGHT=2.0` — combined MULTIPLICATIVELY with the trail-
+preference weight when both apply, so a candidate that's both an
+established crossing and nutrient-rich is doubly preferred rather
+than an either/or choice. `nutrients=None` (the pre-slice default —
+still the shape most direct callers use) reproduces the EXACT prior
+RNG-consumption pattern: trail-only weights if `migration_trails` is
+set, otherwise a plain uniform `rng.choice`, verified directly rather
+than assumed.
+
+Verified: a direct parity test confirming `nutrients=None`/
+`migration_trails=None` produces byte-identical herd trajectories to
+omitting both params entirely across 500 ticks; a direct weight-
+formula check; a production-path statistical test through the real
+`WildlifeGrid.tick()` on a 60x60 map with a genuine nutrient gradient
+(a rich corner vs. flat/poor elsewhere) — herds given the real
+gradient ended up in the rich region more than twice as often (13/40
+seeds) as herds given a flat field with no pull (6/40), a real,
+reproducible drift effect, not noise; a 4000-tick `World.tick()`
+production soak (LLM disabled) with a clean round-trip. `pyflakes`
+clean. No native module touched — movement selection has never been
+natively ported.
+
+**A10 "Ecology / food webs" is now closed on every named piece from
+det_sys.md's own spec** (migration, competition, decomposition,
+pollination, habitat formation) — only "fold the whole food web onto
+A1's field substrate as one coupled system" remains, an explicitly
+larger, unscoped follow-up, not attempted.
+
 ## [1.34.90] — A10: habitat formation (fields write carrying capacity)
 
 Explicit user instruction: "Continue A10." Ships A10's habitat-

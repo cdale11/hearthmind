@@ -510,6 +510,29 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.91)
+
+Explicit user instruction: "Continue A10." Ships migration — the
+last of A10's five named pieces. `WildlifeGrid.tick`'s existing move-
+candidate weighting (previously only M4's trail-reuse preference) now
+also weights toward candidate tiles with a richer `nutrients` reading
+(`MIGRATION_NUTRIENT_PULL_WEIGHT=2.0`), combined multiplicatively
+with trail preference when both apply. `nutrients=None` reproduces
+the exact prior RNG-consumption pattern byte-for-byte, verified
+directly.
+
+Verified: a direct parity test (500-tick identical trajectories with
+both params omitted vs. explicit `None`), a weight-formula check, a
+production-path statistical test on a 60x60 map with a real nutrient
+gradient (herds ended up in the rich region more than twice as often
+as a no-pull control across 40 seeds each), a 4000-tick soak with
+clean round-trip. No native module touched.
+
+**A10 is now closed on every named det_sys.md piece** (migration,
+competition, decomposition, pollination, habitat formation) — only
+folding the whole food web onto A1's field substrate remains, a
+larger unscoped follow-up.
+
 ## Current state (v1.34.90)
 
 Explicit user instruction: "Continue A10." Ships habitat formation —
