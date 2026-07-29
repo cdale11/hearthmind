@@ -4,6 +4,42 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.107] — Tier 0's twelfth conversion: Nature's first site
+
+Explicit user instruction, following v1.34.106's `AskUserQuestion`:
+"Species-keyed theory producer (Recommended)." Builds the new Nature
+content the prior pass found genuinely missing.
+
+New deterministic mirror inside `_maybe_schedule_nature_mind`'s
+apply(): whenever the job's already-computed `wildlife_summary` shows
+real pressure (`prey_scarce`, or `predator_pressure_ratio > 0.25`), it
+also upserts a SECOND `nature_pillar.world_model` entry keyed by the
+literal species word (`"grazer"`/`"predator"`) — computed from Body
+state, never the LLM's own free-text answer, so it's a reliable
+subject unlike Nature's ordinary belief text. Revised in place via
+`find_world_model_entry` across repeated firings rather than piling up
+near-duplicates.
+
+Real consumer: `_maybe_schedule_species_variant`'s herd-candidate pick
+(previously flatly `min(candidates, key=lambda h: h.id)`) now sorts by
+`nature_pillar.subject_confidence(herd.species.value)` (descending),
+lowest id as the tiebreak — a species Nature has lately been "worried
+about" is now measurably more likely to be the one that gets a named
+variant. With no lean anywhere (the common case, since the species
+entries only exist after a real pressure signal fired) this reproduces
+the exact prior lowest-id pick byte-for-byte.
+
+Verified: a direct test of the producer (writes both entries, revises
+in place with no duplicate growth) and the consumer's no-lean/seeded-
+lean ordering; a production-path test through the real `_maybe_
+schedule_nature_mind` (forced pressure signals, confirmed both mirror
+entries form) and the real `_maybe_schedule_species_variant` (seeded
+predator lean picks the higher-id predator herd over the lower-id
+grazer herd); a separate production-path no-lean test confirming the
+exact prior lowest-id pick is preserved; a 4000-tick LLM-disabled soak
+with a clean round-trip; `pyflakes`/syntax clean. Nature pillar's
+first-ever Tier 0 site. Tier 0 now has twelve real converted sites.
+
 ## [1.34.106] — Tier 0's eleventh conversion: Reflection's first site
 
 Explicit user instruction: "Invent new content ask me if needed and

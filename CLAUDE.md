@@ -617,6 +617,35 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.107)
+
+Explicit user instruction, following v1.34.106's `AskUserQuestion`:
+"Species-keyed theory producer (Recommended)." Twelfth Tier 0
+conversion, Nature pillar's first-ever site. New deterministic mirror
+inside `_maybe_schedule_nature_mind`'s apply(): whenever the job's own
+already-computed `wildlife_summary` shows real pressure (`prey_
+scarce`, or `predator_pressure_ratio > 0.25`), it also upserts a
+second `nature_pillar.world_model` entry keyed by the literal species
+word (`"grazer"`/`"predator"`) — computed from Body state, not the
+LLM's free text, so it's a reliable subject unlike Nature's ordinary
+belief content. Revised in place via `find_world_model_entry` so
+repeated firings don't pile up near-duplicates.
+
+Real consumer: `_maybe_schedule_species_variant`'s herd pick
+(previously flatly lowest-id) now sorts by `nature_pillar.subject_
+confidence(herd.species.value)` descending, lowest id as the
+tiebreak — a species Nature has lately been "worried about" is now
+measurably more likely to get a named variant next. No lean anywhere
+(the common case) reproduces the exact prior lowest-id pick.
+
+Verified: direct tests of the producer (writes/revises in place) and
+consumer ordering, production-path tests through the real `_maybe_
+schedule_nature_mind`/`_maybe_schedule_species_variant` (forced
+pressure signals; a seeded predator lean flips the pick to the
+higher-id predator herd), a no-lean regression test, a 4000-tick
+LLM-disabled soak with clean round-trip, `pyflakes` clean. Tier 0 now
+has twelve real converted sites.
+
 ## Current state (v1.34.106)
 
 Explicit user instruction: "Invent new content ask me if needed and

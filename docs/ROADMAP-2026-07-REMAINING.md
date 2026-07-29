@@ -46,19 +46,20 @@ starts on an explicit instruction naming an item.
 
 ### Tier 0 — pillar refactor (the biggest single lever)
 
-- [ ] Convert the remaining **~48 mirror-write sites** from "write into
+- [ ] Convert the remaining **~47 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); eleven sites are now converted (town_brain
+      confidence`, v1.34.46); twelve sites are now converted (town_brain
       priority, era_branch tiebreak, COUNCIL institution objective,
       ontology_evolution parent-fitness weighting, institution_belief/
       memory_drift/noncore_nudge target selection, `invention`/
       `ontology_proposal`'s inventor-selection sites, `dream`'s monthly
-      dreamer pick, and — v1.34.106 — `_detect_reflection_pattern`'s
-      multi-settlement tiebreak, Reflection pillar's first site). Each
-      further site is real judgment work — find a soft/tiebreak point a
-      pillar's accumulated belief can legitimately weigh, never hand a
-      pillar a whole decision.
+      dreamer pick, `_detect_reflection_pattern`'s multi-settlement
+      tiebreak (Reflection pillar's first site, v1.34.106), and —
+      v1.34.107 — `species_variant`'s herd pick, Nature pillar's first
+      site). Each further site is real judgment work — find a soft/
+      tiebreak point a pillar's accumulated belief can legitimately
+      weigh, never hand a pillar a whole decision.
 
 ### Tier 0.5 — live-diagnostic findings
 
@@ -1391,16 +1392,36 @@ LLM-disabled soak with a clean round-trip, `pyflakes` clean.
 Reflection pillar's first-ever Tier 0 site. Tier 0 now has eleven real
 converted sites.
 
-- [ ] **Nature's species-keyed theory producer** (approved v1.34.106,
-      not yet built): a new Nature-owned mirror where a job (most
-      naturally `nature_mind`) occasionally writes a `world_model`
-      belief keyed by literal species type (`"grazer"`/`"predator"`)
-      rather than free text. Real consumer:
-      `_maybe_schedule_species_variant`'s currently flat `herd = min(
-      candidates, key=lambda h: h.id)` pick should weigh `nature_
-      pillar.subject_confidence(herd.species.value)`, falling back to
-      the existing lowest-id behavior when no lean exists — Nature
-      pillar's first-ever Tier 0 site.
+**Twelfth site (v1.34.107, explicit user instruction following
+v1.34.106's `AskUserQuestion`: "Species-keyed theory producer
+(Recommended)").** Built the approved design. `_maybe_schedule_
+nature_mind`'s apply() now also mirrors a SECOND, deterministic
+`nature_pillar.world_model` entry keyed by the literal species word
+(`"grazer"`/`"predator"`) whenever its own already-computed `wildlife_
+summary` shows real pressure (`prey_scarce`, or `predator_pressure_
+ratio > 0.25`) — computed from Body state, never the LLM's free text,
+so it's a reliable subject unlike Nature's ordinary belief content.
+Revised in place via `find_world_model_entry` across repeated firings.
+
+Real consumer: `_maybe_schedule_species_variant`'s herd pick
+(previously flatly `min(candidates, key=lambda h: h.id)`) now sorts by
+`nature_pillar.subject_confidence(herd.species.value)` (descending),
+lowest id as the tiebreak — a species Nature has lately been "worried
+about" is now measurably more likely to get a named variant next. With
+no lean anywhere (the common case, since the species entries only
+exist after a real pressure signal fired) this reproduces the exact
+prior lowest-id pick byte-for-byte.
+
+Verified: direct tests of the producer (writes/revises both entries in
+place, no duplicate growth) and the consumer's no-lean/seeded-lean
+ordering; production-path tests through the real `_maybe_schedule_
+nature_mind` (forced pressure signals, confirmed both mirror entries
+form) and `_maybe_schedule_species_variant` (a seeded predator lean
+flips the pick to the higher-id predator herd over the lower-id grazer
+herd); a separate no-lean production-path regression test; a 4000-tick
+LLM-disabled soak with a clean round-trip; `pyflakes`/syntax clean.
+Nature pillar's first-ever Tier 0 site. Tier 0 now has twelve real
+converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

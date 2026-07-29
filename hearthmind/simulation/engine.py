@@ -5345,6 +5345,35 @@ class SimulationEngine:
                     category="ecological", origin_settlement_id=origin_settlement_id, tick=tick,
                 )
                 self._log("ontology", f"The land itself gave rise to {concept.name}: {concept.description}")
+            # Tier 0's species-keyed theory producer (docs/ROADMAP-
+            # 2026-07-REMAINING.md, v1.34.107, explicit user-approved
+            # design): Nature's real `world_model` content is otherwise
+            # free text ("the hunting grounds", "the abandoned fields")
+            # that never reliably matches a WHICH-candidate site's own
+            # subject vocabulary — the same fragile-dead-end shape
+            # Humans hit before v1.34.98's real per-agent producer.
+            # This mirrors a SECOND, deterministic entry (computed from
+            # `wildlife_summary`, already read above — never the LLM's
+            # own free-text answer) keyed by the literal species word
+            # whenever that species is under genuine real pressure,
+            # revised in place across repeated firings via `find_
+            # world_model_entry` rather than piling up near-duplicates.
+            # Real consumer: `_maybe_schedule_species_variant`'s herd-
+            # candidate ordering, below.
+            if wildlife_summary.get("prey_scarce"):
+                existing = self.world.nature_pillar.find_world_model_entry("grazer")
+                self.world.nature_pillar.upsert_world_model(
+                    tick, "grazer", "The grazing herds are under real, lately-measured pressure.",
+                    0.6, status="observation", source="nature_mind",
+                    revises_id=existing["id"] if existing else None,
+                )
+            if wildlife_summary.get("predator_pressure_ratio", 0.0) > 0.25:
+                existing = self.world.nature_pillar.find_world_model_entry("predator")
+                self.world.nature_pillar.upsert_world_model(
+                    tick, "predator", "The predator packs are pressing harder than usual right now.",
+                    0.6, status="observation", source="nature_mind",
+                    revises_id=existing["id"] if existing else None,
+                )
             # B2: interpret/remember/plan/act/reflect all completed
             # synchronously above — close the cycle, freeing the
             # working memory this turn consumed.
@@ -5368,14 +5397,29 @@ class SimulationEngine:
         texture with a real deterministic fallback name, same tier as
         `_maybe_schedule_composite_entity`. Never touches `AnimalHerd`'s
         own mechanics/native-index parity (R7) — identity only this
-        pass, see `wildlife.SPECIES_VARIANT_TRAITS`'s docstring."""
+        pass, see `wildlife.SPECIES_VARIANT_TRAITS`'s docstring.
+
+        Tier 0's twelfth conversion (docs/ROADMAP-2026-07-REMAINING.md,
+        v1.34.107), Nature pillar's first-ever site: the herd pick
+        below used to be flatly deterministic (always the lowest id) —
+        now sorted by `nature_pillar.subject_confidence(herd.species.
+        value)` first (descending), lowest id as the tiebreak. Nature's
+        `world_model` only carries a species-keyed entry
+        (`"grazer"`/`"predator"`) when `_maybe_schedule_nature_mind`'s
+        own deterministic mirror wrote one — see that method's apply()
+        — so with no lean anywhere (the common case) every candidate
+        reads confidence 0.0 and this reproduces the exact prior
+        lowest-id pick byte-for-byte."""
         if not self._season_year_gate(events, "species_variant", "year_end"):
             return
         named_herd_ids = {v.herd_id for v in self.world.species_variants.values()}
         candidates = [h for h in self.world.wildlife.herds.values() if h.id not in named_herd_ids]
         if not candidates:
             return
-        herd = min(candidates, key=lambda h: h.id)
+        herd = min(
+            candidates,
+            key=lambda h: (-self.world.nature_pillar.subject_confidence(h.species.value), h.id),
+        )
         if self._pillar_interpret_backpressured("nature"):
             return
         self._mark_season_year_resolved("species_variant")
