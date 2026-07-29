@@ -4,6 +4,63 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.95] — Tier 0.5 D10 soak + Tier 0's fourth conversion site
+
+Explicit user instruction: "Start tier 0 and try finishing it," then
+"Continue and ask questions if you are blocked." Two independent
+pieces of real progress; Tier 0's own remaining ~52 mirror-write sites
+stay genuinely un-scoped follow-up (see the previous commit's re-audit
+— no further safe candidate found without either inventing a new
+soft-decision point or the explicit design call this pass resolves).
+
+**Tier 0.5 D10, long-horizon soak re-verification, closed for the
+deterministic substrate.** Ran a real 60,000-tick `World.tick()` soak
+(LLM disabled, this environment has no live LLM server — same standing
+limitation D1-D4/D9 already carry). Pace held flat at ~11.5ms/tick
+with no growth trend across the full run (checkpointed every 5,000
+ticks), and a full `to_dict()`/`from_dict()` round-trip matched byte-
+for-byte at the end — the previous attempt (v1.34.21) was killed at
+~10k ticks with no wall-clock budget to finish; this run completed all
+60k cleanly. Honest limitation found and recorded, not glossed over:
+every pillar's `memory` stayed empty for the entire 60k ticks, because
+`_schedule_llm_job` never fires at all with `llm_enabled=False` — an
+LLM-disabled soak genuinely cannot exercise D10's real question
+("does `Pillar.consolidate()`'s digest-of-a-digest folding stay
+coherent after many real consolidation rounds?"), only the
+deterministic substrate underneath it. That half of D10 still needs a
+live LLM server, same as D1-D4/D9.
+
+**Tier 0's fourth mirror-write -> pillar-authored conversion**
+(explicit `AskUserQuestion` answer: "yes, as an additional multiplier
+alongside fitness"). `_maybe_schedule_ontology_evolution`'s parent
+selection for evolve/merge was a pure `concept_fitness_weight`-
+weighted pick; unlike the first three sites (each a final catchall
+tiebreak that never touches a harder-computed branch), this one
+multiplies a new `innovation_pillar.subject_confidence(concept.name)`
+lean directly into the primary fitness signal itself — a genuinely
+different shape, deliberately kept low (`INNOVATION_EVOLUTION_LEAN_
+WEIGHT=0.3`) so fitness (real "did adopters prosper" measurement)
+stays dominant; the lean can only ever ADD up to 30% on top, never
+subtract or override. The two signals are real and distinct, not a
+duplicate: `fitness_history` reflects measured adoption outcomes,
+while the pillar lean reflects Innovation's OWN recorded confidence
+about that specific concept (a fresh proposal's initial 0.4, or a
+later confirmed/refuted revision from `_record_hypothesis_outcome`) —
+a concept can carry one without the other. `pillar_lean=0.0` (the
+default, and the only value every prior caller ever used) reproduces
+`concept_fitness_weight`'s exact prior output.
+
+Verified: direct unit tests (parity at `pillar_lean=0.0`, monotonic
+increase at higher leans, the no-fitness-history neutral-base case
+still combines correctly with a lean); a production-path smoke test
+through the real `_maybe_schedule_ontology_evolution` scheduling
+(two real registered concepts, one given a genuine recent pillar
+world_model entry, confirmed to read a higher weight and get
+correctly favored); a 20,000-trial statistical test confirming the
+real weighted-pick ratio matches the expected weight ratio; a
+4000-tick soak with a clean round-trip. `pyflakes` clean. No native
+module touched.
+
 ## [1.34.94] — A10: closes the field-substrate fold-in
 
 Explicit user instruction: "Complete and finish A10 with all remaining

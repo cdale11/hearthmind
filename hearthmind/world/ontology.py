@@ -685,7 +685,21 @@ def fit_established_concepts(world) -> list[InventedConcept]:
     )
 
 
-def concept_fitness_weight(concept: InventedConcept) -> float:
+INNOVATION_EVOLUTION_LEAN_WEIGHT = 0.3
+"""Tier 0's mirror-write -> pillar-authored conversion, fourth site
+(docs/ROADMAP-2026-07-REMAINING.md; explicit user `AskUserQuestion`
+answer: "yes, as an additional multiplier alongside fitness"). Unlike
+the first three sites (each a final catchall tiebreak that never
+touches a harder-computed branch above it), this one multiplies
+directly into `concept_fitness_weight`'s own PRIMARY selection signal
+— deliberately kept low so real fitness (the "did adopters prosper"
+measurement) stays dominant; a pillar lean can only ever ADD up to
+this fraction on top, never subtract or override it. `pillar_
+lean=0.0` (the default, and every call site that doesn't pass one)
+reproduces `concept_fitness_weight`'s exact prior output."""
+
+
+def concept_fitness_weight(concept: InventedConcept, pillar_lean: float = 0.0) -> float:
     """Selection weight for `fit_established_concepts`' pool — a
     concept with no fitness reading yet reads as perfectly neutral
     (weight 1.0, the same as if `evaluate_fitness` returned exactly
@@ -693,11 +707,26 @@ def concept_fitness_weight(concept: InventedConcept) -> float:
     chance to be measured. Floored well above 0 so an unlucky/unfit
     concept can still occasionally become a parent (real evolutionary
     diversity, not a hard cutoff duplicating `run_selection`'s own
-    retirement threshold)."""
+    retirement threshold).
+
+    `pillar_lean` (0..1, typically `innovation_pillar.subject_
+    confidence(concept.name)` — see `INNOVATION_EVOLUTION_LEAN_
+    WEIGHT`'s docstring): how confident Innovation's own accumulated
+    `world_model` currently reads about THIS SPECIFIC concept, whether
+    that's a fresh proposal's initial 0.4 confidence or a later
+    confirmed/refuted revision from `_record_hypothesis_outcome` — a
+    real signal distinct from `fitness_history` (adoption-measured
+    prosperity): a concept can be freshly proposed with zero fitness
+    history yet already carry a pillar lean, and an old concept with a
+    settled fitness reading can have long since scrolled out of the
+    pillar's own bounded recent-attention window (reads 0.0 there,
+    same "absence means neutral" discipline as everywhere else)."""
     if not concept.fitness_history:
-        return 1.0
-    mean_fitness = sum(concept.fitness_history) / len(concept.fitness_history)
-    return max(0.1, 1.0 + mean_fitness)
+        base = 1.0
+    else:
+        mean_fitness = sum(concept.fitness_history) / len(concept.fitness_history)
+        base = max(0.1, 1.0 + mean_fitness)
+    return base * (1.0 + pillar_lean * INNOVATION_EVOLUTION_LEAN_WEIGHT)
 
 
 def _referenced_ids(world) -> set[int]:

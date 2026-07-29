@@ -510,6 +510,41 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.95)
+
+Explicit user instruction: "Start tier 0 and try finishing it," then
+"Continue and ask questions if you are blocked." Tier 0's ~52
+remaining mirror-write sites stay real, un-scoped, per-site judgment
+work (re-audited this pass, no new safe candidate found beyond what's
+recorded below — see docs/ROADMAP-2026-07-REMAINING.md's Tier 0
+section for the per-function reasoning). Two pieces of real progress
+landed instead.
+
+Tier 0.5's D10 (long-horizon soak re-verification, previously killed
+at ~10k ticks for lack of wall-clock budget): ran a real 60,000-tick
+`World.tick()` soak to completion, flat ~11.5ms/tick pace, clean
+round-trip. Closes D10's deterministic-substrate half only — every
+pillar's `memory` stayed empty the entire run since `_schedule_llm_
+job` never fires with LLM disabled (this environment's standing
+limitation, same as D1-D4/D9); the "does digest-of-a-digest folding
+stay coherent after many real rounds" question still needs a live
+LLM server.
+
+Tier 0's fourth conversion site, via explicit `AskUserQuestion`:
+`_maybe_schedule_ontology_evolution`'s fitness-weighted parent pick
+now also multiplies in `innovation_pillar.subject_confidence(concept.
+name)` (`INNOVATION_EVOLUTION_LEAN_WEIGHT=0.3`) — a real, distinct
+signal from `fitness_history` (measured adoption outcomes) since it
+reads Innovation's OWN recorded confidence about that specific
+concept. Unlike the first three sites (a final catchall tiebreak),
+this multiplies into the primary selection signal itself — the
+riskier shape the user explicitly approved, kept bounded so fitness
+stays dominant. `pillar_lean=0.0` reproduces prior output exactly.
+
+Verified: direct unit tests, a production-path smoke test through the
+real scheduling function, a 20,000-trial statistical weighting test,
+a 4000-tick soak with clean round-trip, `pyflakes` clean.
+
 ## Current state (v1.34.94)
 
 Explicit user instruction: "Complete and finish A10 with all remaining

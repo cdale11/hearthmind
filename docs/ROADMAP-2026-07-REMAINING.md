@@ -57,10 +57,16 @@ starts on an explicit instruction naming an item.
 
 ### Tier 0.5 — live-diagnostic findings
 
-- [ ] **D10** — long-horizon soak re-verification at **60k+ ticks**.
-      Attempted at v1.34.21 and honestly incomplete: per-tick cost
-      grows with population and the run was killed ~10k ticks in with
-      no failure seen. Needs wall-clock budget, not a design decision.
+- [x] **D10 (deterministic-substrate half only)** — v1.34.95, a real
+      60,000-tick `World.tick()` soak completed clean (flat ~11.5ms/
+      tick pace, no growth trend, byte-identical round-trip). The
+      other half — whether `Pillar.consolidate()`'s digest-of-a-digest
+      folding stays coherent after many REAL consolidation rounds —
+      stayed untested: with `llm_enabled=False` (this environment has
+      no live LLM server), `_schedule_llm_job` never fires at all, so
+      every pillar's `memory` stayed empty for the full 60k ticks.
+      Re-run against real inference traffic when a live LLM server is
+      available, same standing limitation as D1/D2/D3/D4/D9 below.
 - [ ] **D1/D2/D3/D4/D9** — closed by *code-level re-audit only*; this
       environment has no live LLM server. Re-measure against real
       inference traffic when one is available, before changing any of
@@ -1176,6 +1182,27 @@ fitness) before it can ship — not attempted this pass. **Tier 0 is not
 closable by more mechanical passes; it stays real, un-scoped, per-site
 judgment work, queued for future explicit direction naming a specific
 new site or approving the ontology_evolution design question.**
+
+**Fourth site (v1.34.95, explicit `AskUserQuestion` answer: "yes, as
+an additional multiplier alongside fitness"), the flagged candidate
+above, resolved and shipped.** `ontology.concept_fitness_weight`
+gained an optional `pillar_lean: float = 0.0` param, multiplied
+straight into its existing base weight
+(`base * (1.0 + pillar_lean * INNOVATION_EVOLUTION_LEAN_WEIGHT)`,
+weight 0.3) — deliberately low so fitness stays the dominant term.
+`_maybe_schedule_ontology_evolution`'s `weighted_pick` now passes
+`innovation_pillar.subject_confidence(c.name)` as that lean for each
+candidate. Genuinely a different signal from `fitness_history`, not a
+restatement of it: a freshly-proposed concept can carry a pillar lean
+(its own initial 0.4 world_model confidence) before it has ANY
+fitness_history at all, and an old, fitness-tracked concept can have
+long since scrolled out of the pillar's bounded 6-entry recent-
+attention window (reading 0.0 there, same "absence means neutral"
+discipline). `pillar_lean=0.0` — the default, and the only value every
+prior call site ever used — reproduces the function's exact prior
+output. This is Tier 0's fourth converted site and, unlike the first
+three, the first to multiply into a PRIMARY signal rather than only a
+final catchall — the explicit product decision this pass resolved.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

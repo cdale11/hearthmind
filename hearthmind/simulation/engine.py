@@ -4696,7 +4696,13 @@ class SimulationEngine:
         # more likely to become a parent (see `ontology.concept_
         # fitness_weight`'s docstring for why an un-evaluated or
         # mildly-below-average concept still gets a real, non-zero
-        # chance).
+        # chance). Tier 0's fourth mirror-write -> pillar-authored
+        # conversion (docs/ROADMAP-2026-07-REMAINING.md): each
+        # candidate's weight also folds in `innovation_pillar.subject_
+        # confidence(c.name)` as a bounded multiplier on top of
+        # fitness — see `ontology.INNOVATION_EVOLUTION_LEAN_WEIGHT`'s
+        # docstring for why this is a real, distinct signal from
+        # fitness, not a duplicate of it.
         established = ontology.fit_established_concepts(self.world)
         if not established:
             return
@@ -4707,7 +4713,12 @@ class SimulationEngine:
             pool = list(established)
             picked = []
             for _ in range(min(count, len(pool))):
-                weights = [ontology.concept_fitness_weight(c) for c in pool]
+                weights = [
+                    ontology.concept_fitness_weight(
+                        c, pillar_lean=self.world.innovation_pillar.subject_confidence(c.name),
+                    )
+                    for c in pool
+                ]
                 choice = rng.choices(pool, weights=weights, k=1)[0]
                 picked.append(choice)
                 pool.remove(choice)
