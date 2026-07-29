@@ -398,6 +398,14 @@ inventory quantities move, capped by the recipient's own capacity),
 not narration-only — matching the deterministic-engine-provides-
 reality design priority even for a Phase G-tier nudge."""
 
+INSTITUTION_BELIEF_TARGET_LEAN_WEIGHT = 0.4
+"""Tier 0's fifth mirror-write -> pillar-authored conversion (docs/
+ROADMAP-2026-07-REMAINING.md) — see `SimulationEngine._maybe_schedule_
+institution_belief`'s docstring. Bounds how much `village_pillar.
+subject_confidence(institution.name)` can multiply an institution's
+base weight of 1.0 in the monthly target draw; kept modest so every
+eligible institution still keeps a real, substantial chance."""
+
 OBSERVER_ATTENTION_MAX_TRACKED = 25
 """§4 "observer attention as a signal into the Town Consciousness"
 (docs/IDEAS-2026-07-EMERGENCE.md): cap on `World.observer_attention`'s
@@ -9191,7 +9199,27 @@ class SimulationEngine:
         """Institutions Stage 3: once a month, ONE institution with
         living members forms/revises a theory of its own — no longer
         only mirrored copies of settlement beliefs. See
-        beliefs.INSTITUTION_SYSTEM_PROMPT for the design note."""
+        beliefs.INSTITUTION_SYSTEM_PROMPT for the design note.
+
+        Tier 0's fifth mirror-write -> pillar-authored conversion
+        (docs/ROADMAP-2026-07-REMAINING.md): unlike the first four
+        sites (which bias WHAT a decision concludes), this one biases
+        WHICH institution gets examined this month — the village's own
+        accumulated attention (institutions it already holds a
+        confident recent theory about, via `village_pillar.subject_
+        confidence(institution.name)`) makes that institution somewhat
+        more likely to be picked again, layered as a weighted draw over
+        the same uniform candidate pool rather than narrowing it. Never
+        a hard filter — every eligible institution keeps a real, non-
+        zero chance (`INSTITUTION_BELIEF_TARGET_LEAN_WEIGHT` bounds how
+        much a lean can multiply the base weight of 1.0). A candidate
+        with an empty `name` (COUNCIL has none) or no matching recent
+        world_model entry reads as a flat 1.0 — every-candidate-tied
+        weights, so `rng.choices` draws uniformly, the same real
+        distribution `rng.choice` gave before (determinism/RNG-
+        consumption-order parity is explicitly not a project
+        requirement, per CLAUDE.md; only the resulting behavior needs
+        to match, and it does)."""
         inst_target = self._job_target()
         if not self._monthly_gate(events, "institution_belief"):
             return
@@ -9208,7 +9236,11 @@ class SimulationEngine:
             return
         self._mark_monthly_resolved("institution_belief")
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "institution_belief")
-        institution = rng.choice(candidates)
+        weights = [
+            1.0 + self.world.village_pillar.subject_confidence(c.name) * INSTITUTION_BELIEF_TARGET_LEAN_WEIGHT
+            for c in candidates
+        ]
+        institution = rng.choices(candidates, weights=weights, k=1)[0]
         if institution.kind is InstitutionKind.COUNCIL:
             label = "council of elders"
         elif institution.kind is InstitutionKind.GUILD:

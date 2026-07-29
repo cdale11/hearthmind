@@ -4,6 +4,52 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.96] — Tier 0's fifth conversion site: institution target selection
+
+Explicit user request: "fresh candidate spotted by inspection." Found
+by re-scanning every `rng.choice(` call site in `simulation/engine.py`
+for one shaped like the four already-converted sites — a genuine
+draw among several eligible options a pillar's own accumulated
+attention could plausibly weigh, without ever narrowing the pool or
+overriding a harder-computed branch.
+
+`_maybe_schedule_institution_belief`'s `institution = rng.choice(
+candidates)` — picking WHICH institution gets examined this month —
+fit the pattern, but from a different angle than the first four sites
+(which all bias WHAT a decision concludes): this one biases WHICH
+target gets picked at all. `village_pillar.subject_confidence(
+institution.name)` now multiplies each candidate's base weight of 1.0
+(`INSTITUTION_BELIEF_TARGET_LEAN_WEIGHT=0.4`) — an institution the
+village already holds a confident recent theory about is somewhat
+more likely to be examined again, "the village's own attention
+naturally returns to what it's already been thinking about." Every
+eligible institution keeps a real, substantial chance regardless; a
+candidate with no name (COUNCIL) or no matching entry reads as a flat
+1.0, same weight as before.
+
+One honest correction made while implementing this: the site switches
+`rng.choice` to `rng.choices(..., weights=...)`, which does NOT
+consume the RNG identically even at uniform weights (verified
+directly — different draw, different resulting state) — unlike the
+first four sites, which only added a multiplicative factor onto an
+already-`rng.choices`-based or RNG-free computation. This does not
+violate any project discipline: CLAUDE.md's workflow rules explicitly
+state determinism/reproducibility is not a requirement here. The
+docstring is worded to make the actual guarantee precise (uniform
+weights -> uniform *distribution*, not byte-identical draws) rather
+than overclaiming parity it doesn't have.
+
+Verified: a direct check that `rng.choices` with equal weights and
+`rng.choice` consume the RNG differently (documented, not "fixed" —
+it's an accepted, explicitly-permitted difference); a 30,000-trial
+statistical test confirming uniform weights give a genuinely uniform
+distribution and a real lean shifts it in the expected direction; a
+production-path smoke test through the real `_maybe_schedule_
+institution_belief` (two real institutions, one given a genuine
+recent Village world_model entry via its name, confirmed to read a
+higher lean); a 4000-tick soak with a clean round-trip. `pyflakes`
+clean. No native module touched.
+
 ## [1.34.95] — Tier 0.5 D10 soak + Tier 0's fourth conversion site
 
 Explicit user instruction: "Start tier 0 and try finishing it," then

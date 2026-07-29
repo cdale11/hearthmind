@@ -510,6 +510,32 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.96)
+
+Explicit user request: "fresh candidate spotted by inspection" (Tier
+0). Found by re-scanning every `rng.choice(` in `simulation/engine.py`
+for the tiebreak/soft-decision shape the first four sites use.
+`_maybe_schedule_institution_belief`'s uniform target pick (which
+institution gets examined this month) now weighs `village_pillar.
+subject_confidence(institution.name)` — a different angle from the
+first four sites (which all bias WHAT a decision concludes; this
+biases WHICH candidate gets picked at all), same "never narrow the
+pool, only weight it" discipline. `INSTITUTION_BELIEF_TARGET_LEAN_
+WEIGHT=0.4` keeps every eligible institution's chance real.
+
+One honest note: switching `rng.choice` to `rng.choices(weights=...)`
+does NOT preserve exact RNG-consumption parity even at uniform
+weights (verified directly) — a real difference from the first four
+sites. Not a violation of anything: CLAUDE.md's own workflow rules
+say determinism/reproducibility isn't required here; the docstring is
+worded to claim only what's actually true (uniform distribution, not
+byte-identical draws).
+
+Verified: a direct RNG-consumption-difference check (documented, not
+"fixed"), a 30,000-trial statistical distribution test, a production-
+path smoke test through the real scheduling function, a 4000-tick
+soak with clean round-trip, `pyflakes` clean.
+
 ## Current state (v1.34.95)
 
 Explicit user instruction: "Start tier 0 and try finishing it," then

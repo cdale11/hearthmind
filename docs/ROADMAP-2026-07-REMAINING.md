@@ -1204,6 +1204,32 @@ output. This is Tier 0's fourth converted site and, unlike the first
 three, the first to multiply into a PRIMARY signal rather than only a
 final catchall — the explicit product decision this pass resolved.
 
+**Fifth site (v1.34.96, explicit user request: "fresh candidate
+spotted by inspection").** Found by re-scanning every `rng.choice(`
+call site in `simulation/engine.py` for the tiebreak/soft-decision
+shape the prior sites use. `_maybe_schedule_institution_belief`'s
+`institution = rng.choice(candidates)` (uniform pick of WHICH
+institution gets examined this month) is a different angle from the
+first four sites — those all bias WHAT a decision concludes; this one
+biases WHICH candidate gets picked at all. `village_pillar.subject_
+confidence(institution.name)` now multiplies each candidate's base
+weight of 1.0 (`INSTITUTION_BELIEF_TARGET_LEAN_WEIGHT=0.4`) via `rng.
+choices` — "the village's own attention naturally returns to what
+it's already been thinking about," never narrowing the pool, every
+eligible institution keeping a real chance. A candidate with no name
+(COUNCIL) or no matching recent world_model entry reads as a flat 1.0.
+
+Honest correction made while implementing this one: `rng.choice` ->
+`rng.choices(weights=...)` does NOT preserve exact RNG-consumption
+parity even at uniform weights (verified directly — a real, different
+draw sequence) — unlike the first four sites, whose lean only
+multiplied into an already-`rng.choices`-based or RNG-free
+computation. This is not a discipline violation: CLAUDE.md's workflow
+rules explicitly say determinism/reproducibility isn't required here.
+The site's docstring is worded to claim only what's actually
+guaranteed (uniform weights give a uniform *distribution*, not
+byte-identical draws) rather than overclaiming byte-parity.
+
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0
 and before Tier 1: these are correctness/tuning questions about
