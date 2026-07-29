@@ -617,6 +617,35 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.106)
+
+Explicit user instruction: "Invent new content ask me if needed and
+continue tier 0." Eleventh conversion, Reflection pillar's first-ever
+Tier 0 site — needed no invented content, unlike Nature (see below):
+`_detect_reflection_pattern`'s subjects are already settlement-name-
+keyed, so its own multi-settlement-crosses-threshold-same-cycle
+tiebreak was a real, immediately usable site. Settlements are now
+checked in order of `reflection_pillar.subject_confidence(settlement.
+name)` (descending) before the existing per-settlement threshold scan
+— "the settlement Reflection already has a standing theory about" is
+examined first; `list.sort`'s stability reproduces the exact prior
+list-order result when no lean exists anywhere.
+
+Nature pillar investigated and found genuinely blocked — its real
+`world_model` content (free-text ecological phrases, fixed hypothesis
+strings) doesn't reliably match any existing WHICH-candidate site,
+the same fragile-dead-end shape Humans hit before v1.34.98's real
+producer. Asked via `AskUserQuestion` rather than forcing a decorative
+site; user chose "species-keyed theory producer" — a new mechanism
+where Nature mirrors a belief keyed by literal species type
+("grazer"/"predator"), consumed by `_maybe_schedule_species_variant`'s
+currently flat-lowest-id herd pick. Not yet built — next up.
+
+Verified: a direct production-path test (two settlements forced to
+cross the same threshold the same cycle, no-lean vs. seeded-lean
+cases), a 4000-tick LLM-disabled soak with clean round-trip,
+`pyflakes` clean. Tier 0 now has eleven real converted sites.
+
 ## Current state (v1.34.105)
 
 Explicit user instruction: "Continue Tier 0." Tenth conversion:

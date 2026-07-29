@@ -6932,8 +6932,30 @@ class SimulationEngine:
         5.B item 1). Checked in a fixed priority order; returns the
         first pattern that clears a real threshold, or `None` if
         nothing does this cycle — reflection genuinely has "nothing
-        notable to say" most cycles, which is correct, not a gap."""
-        for settlement in self.world.settlements:
+        notable to say" most cycles, which is correct, not a gap.
+
+        Tier 0 mirror-write -> pillar-authored conversion (docs/
+        ROADMAP-2026-07-REMAINING.md), Reflection's first real site:
+        when more than one named settlement independently crosses its
+        pattern threshold the SAME cycle, the settlement loop below
+        used to pick whichever came first in `World.settlements`' own
+        list order — an accident of insertion history, not a
+        meaningful tiebreak. Reflection's own existing subjects are
+        already settlement-name-keyed (`f"{label} in {settlement.
+        name}"`, see the loop body) — no new content needed, unlike
+        the earlier Humans dead-end. Settlements are now checked in
+        order of `reflection_pillar.subject_confidence(settlement.
+        name)` (descending) first: "the settlement Reflection already
+        has a standing theory about" is examined first, a real
+        "attention returns to what's already on your mind" tiebreak.
+        `list.sort` is stable, so with no lean anywhere (the common
+        case) this reproduces the exact prior list-order behavior."""
+        settlements = self.world.settlements
+        if len(settlements) > 1:
+            settlements = sorted(
+                settlements, key=lambda s: self.world.reflection_pillar.subject_confidence(s.name), reverse=True,
+            )
+        for settlement in settlements:
             counts = settlement.pattern_signal_counts
             for category, count in counts.items():
                 if count >= PATTERN_SIGNAL_BELIEF_THRESHOLD:

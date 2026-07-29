@@ -4,6 +4,40 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.106] — Tier 0's eleventh conversion: Reflection's first site
+
+Explicit user instruction: "Invent new content ask me if needed and
+continue tier 0." Investigated both pillars still stuck at zero
+conversions. Nature's real `world_model` content is free-text
+ecological phrases or fixed hypothesis strings with no reliable match
+against any existing WHICH-candidate site — forcing one would repeat
+the exact fragile-dead-end shape Humans pillar hit before v1.34.98's
+real per-agent producer, so Nature was NOT forced this pass (see the
+`AskUserQuestion` below). Reflection turned out to need no invention
+at all: `_detect_reflection_pattern`'s subjects are already
+settlement-name-keyed (`f"{label} in {settlement.name}"`), so its own
+settlement loop was a real, immediately-usable WHICH-candidate site.
+
+When more than one settlement crosses its pattern threshold the same
+cycle, the loop used to examine `World.settlements` in plain list
+order — an accident of settlement-creation history, not a meaningful
+tiebreak. Settlements are now sorted by `reflection_pillar.subject_
+confidence(settlement.name)` (descending) before the loop runs: "the
+settlement Reflection already has a standing theory about" is examined
+first. `list.sort`'s stability means with no lean anywhere (the common
+case) this reproduces the exact prior list-order result byte-for-byte
+— verified directly, not assumed.
+
+Verified: a direct production-path test (two settlements forced to
+cross the same threshold the same cycle; no-lean case picks the
+original first-in-list settlement; seeding a Reflection belief about
+the second settlement flips the pick to it), a 4000-tick LLM-disabled
+soak with a clean round-trip, `pyflakes` clean. Reflection pillar's
+first-ever Tier 0 site; Tier 0 now has eleven real converted sites.
+Via `AskUserQuestion`, the user approved a genuinely new Nature
+content mechanism ("species-keyed theory producer") to unblock
+Nature's own first site next.
+
 ## [1.34.105] — Tier 0's tenth conversion: dream's dreamer pick
 
 Explicit user instruction: "Continue Tier 0." `_maybe_schedule_dream`'s

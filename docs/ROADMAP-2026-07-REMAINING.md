@@ -46,18 +46,19 @@ starts on an explicit instruction naming an item.
 
 ### Tier 0 — pillar refactor (the biggest single lever)
 
-- [ ] Convert the remaining **~49 mirror-write sites** from "write into
+- [ ] Convert the remaining **~48 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); ten sites are now converted (town_brain
+      confidence`, v1.34.46); eleven sites are now converted (town_brain
       priority, era_branch tiebreak, COUNCIL institution objective,
       ontology_evolution parent-fitness weighting, institution_belief/
       memory_drift/noncore_nudge target selection, `invention`/
-      `ontology_proposal`'s inventor-selection sites, and — v1.34.105
-      — `dream`'s monthly dreamer pick). Each further site is real
-      judgment work — find a soft/tiebreak point a pillar's
-      accumulated belief can legitimately weigh, never hand a pillar a
-      whole decision.
+      `ontology_proposal`'s inventor-selection sites, `dream`'s monthly
+      dreamer pick, and — v1.34.106 — `_detect_reflection_pattern`'s
+      multi-settlement tiebreak, Reflection pillar's first site). Each
+      further site is real judgment work — find a soft/tiebreak point a
+      pillar's accumulated belief can legitimately weigh, never hand a
+      pillar a whole decision.
 
 ### Tier 0.5 — live-diagnostic findings
 
@@ -1354,6 +1355,52 @@ dream` (forced gates, a max-weight fake RNG, confirmed the favored
 agent's own name appears in the built prompt — i.e. genuinely became
 the chosen dreamer, not just eligible); a 4000-tick LLM-disabled soak
 with a clean round-trip. Tier 0 now has ten real converted sites.
+
+**Eleventh site (v1.34.106, explicit user instruction: "Invent new
+content ask me if needed and continue tier 0").** Nature and
+Reflection were the two pillars still stuck at zero conversions.
+Nature was investigated first and found genuinely blocked: its real
+`world_model` content is free-text ecological phrases (`"the hunting
+grounds"`, `"the herds"`) or fixed hypothesis strings (`"the vanished
+predator packs"`) with no reliable, consistent match against any
+existing WHICH-candidate site — forcing a loose substring match here
+would repeat the exact fragile-dead-end shape Humans pillar hit before
+v1.34.98's real per-agent producer fixed it properly. Rather than ship
+a decorative near-always-0.0 signal, asked via `AskUserQuestion`; user
+approved a genuinely new mechanism ("species-keyed theory producer",
+not yet built — see the next open item below).
+
+Reflection needed no invention at all: `_detect_reflection_pattern`'s
+own subjects are already settlement-name-keyed (`f"{label} in
+{settlement.name}"`), making its per-settlement threshold scan a real,
+immediately usable WHICH-candidate site with zero new content. When
+more than one settlement crosses its pattern threshold the same
+cycle, the loop used to walk `World.settlements` in plain list order
+— an accident of settlement-creation history. Settlements are now
+sorted by `reflection_pillar.subject_confidence(settlement.name)`
+(descending) before the scan: "the settlement Reflection already has
+a standing theory about" is examined first. `list.sort`'s stability
+means with no lean anywhere (the common case) this reproduces the
+exact prior list-order result byte-for-byte.
+
+Verified: a direct production-path test (two settlements forced to
+cross the same pattern threshold the same cycle — no-lean case picks
+the original first-in-list settlement; seeding a Reflection belief
+about the second settlement flips the pick to it), a 4000-tick
+LLM-disabled soak with a clean round-trip, `pyflakes` clean.
+Reflection pillar's first-ever Tier 0 site. Tier 0 now has eleven real
+converted sites.
+
+- [ ] **Nature's species-keyed theory producer** (approved v1.34.106,
+      not yet built): a new Nature-owned mirror where a job (most
+      naturally `nature_mind`) occasionally writes a `world_model`
+      belief keyed by literal species type (`"grazer"`/`"predator"`)
+      rather than free text. Real consumer:
+      `_maybe_schedule_species_variant`'s currently flat `herd = min(
+      candidates, key=lambda h: h.id)` pick should weigh `nature_
+      pillar.subject_confidence(herd.species.value)`, falling back to
+      the existing lowest-id behavior when no lean exists — Nature
+      pillar's first-ever Tier 0 site.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0
