@@ -4,6 +4,43 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.86] — Fix: A8's dual-fork froze the real event loop for seconds
+
+Direct user follow-up question on v1.34.85: "Would this worsen the
+back pressure drop or slow the simulation down? The forking." A live
+investigation, not a guess: `evaluate_concept_dual_fork`'s (and the
+pre-existing `run_counterfactual`'s) inner `for _ in range(ticks):
+engine._tick_once()` loop had no `await` point anywhere inside it.
+Measured `_tick_once()` at ~12ms/tick on a small forked population —
+the dual-fork's two 150-tick forks meant ~3.5 real seconds where the
+loop never returned control to the event loop at all. Confirmed via a
+direct benchmark: because Python/asyncio is single-threaded, this
+fully froze the REAL engine's tick loop (its own `run_forever` yields
+between ticks via `await asyncio.wait_for(...)`, so it genuinely can't
+run until the fork's loop yields something back), any pending LLM I/O
+completion, and the WebSocket broadcaster — not a backpressure-counter
+effect (LLM is disabled inside the fork, so `CognitionRunner`'s
+concurrency/backlog counters are untouched), but a real multi-second
+stall of the live simulation and its API surface each time a concept
+retirement fires the dual-fork check.
+
+Fixed by adding one `await asyncio.sleep(0)` per tick inside BOTH
+loops (`run_counterfactual`, which had the identical shape at half the
+cost, and the new `evaluate_concept_dual_fork`) — negligible overhead
+against a ~12ms tick, but turns a hard freeze into cooperative
+interleaving: the real engine's own scheduled wakeups can now run
+between fork ticks instead of only after all of them finish. Doesn't
+change the fork's own total wall-clock cost, only stops it from also
+freezing everything else.
+
+Verified: a direct concurrency test (`asyncio.gather`'d the dual-fork
+against a 2000-iteration counter coroutine that also yields every
+iteration) confirmed the counter now completes all 2000 iterations
+DURING the fork's run — before the fix this would have been ~0
+(frozen until the fork finished); a 4000-tick LLM-disabled soak with
+clean round-trip; the existing dual-fork/reinstatement unit tests
+re-run unmodified, all still passing.
+
 ## [1.34.85] — A8: the comparative dual-fork (causal concept-retirement check)
 
 Explicit user instruction: "Take dual fork of A8" — the heavier

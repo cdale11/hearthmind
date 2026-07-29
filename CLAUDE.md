@@ -510,6 +510,22 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.86)
+
+Direct user follow-up question on v1.34.85: "Would this worsen the
+back pressure drop or slow the simulation down? The forking." Measured
+rather than guessed — found `evaluate_concept_dual_fork`'s (and the
+pre-existing `run_counterfactual`'s) inner tick loop had no `await`
+inside it; at ~12ms/tick this meant ~3.5 real seconds where the dual-
+fork's two 150-tick forks fully froze the real event loop (tick loop,
+LLM I/O completion, WebSocket broadcasts) each time a concept
+retirement fired the check — not a backpressure-counter effect (LLM
+disabled inside the fork), but a real live-simulation stall. Fixed
+with one `await asyncio.sleep(0)` per tick in both loops — same wall-
+clock cost, but the real engine can now interleave instead of freezing.
+Verified via a direct concurrency test proving real interleaving now
+happens, plus a clean 4000-tick soak and the existing unit tests.
+
 ## Current state (v1.34.85)
 
 Explicit user instruction: "Take dual fork of A8" — the heavier

@@ -90,6 +90,18 @@ async def run_counterfactual(world: World, config, ticks: int = SANDBOX_TICKS) -
         try:
             for _ in range(ticks):
                 engine._tick_once()
+                # `_tick_once` is fully synchronous — with no yield point
+                # in this loop, a real-world ~1.7s/150-tick sandbox run
+                # (measured) would freeze the ENTIRE event loop for that
+                # whole stretch: the real tick loop can't advance, no LLM
+                # I/O can resolve, no broadcast can go out. One `sleep(0)`
+                # per tick costs negligible overhead against a ~ms-scale
+                # tick but turns a hard freeze into cooperative
+                # interleaving — the real engine's own `run_forever` gets
+                # a chance to run between fork ticks instead of after all
+                # of them (found via live measurement, v1.34.86, after a
+                # user question about A8's dual-fork cost).
+                await asyncio.sleep(0)
         except Exception as exc:
             return {
                 "safe": False, "reason": f"raised {type(exc).__name__}: {exc}",
@@ -202,6 +214,15 @@ async def evaluate_concept_dual_fork(
             try:
                 for _ in range(ticks):
                     engine._tick_once()
+                    # See `run_counterfactual`'s matching comment — this
+                    # fork runs 2x `ticks` total (both `_run_fork` calls)
+                    # with no yield point in the loop; measured at ~12ms/
+                    # tick, an unyielded pair of 150-tick forks freezes
+                    # the real event loop for several real seconds. This
+                    # doesn't shrink the fork's own wall-clock cost, it
+                    # just stops it from also freezing the real tick loop
+                    # and any in-flight LLM I/O while it runs.
+                    await asyncio.sleep(0)
             except Exception:
                 return None
         finally:
