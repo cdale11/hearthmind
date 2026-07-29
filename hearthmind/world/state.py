@@ -1010,6 +1010,13 @@ class World:
             [((h.x, h.y), h.count) for h in self.wildlife.herds.values() if h.species is Species.PREDATOR],
             self.config.width, self.config.height,
         )
+        # A10, field-substrate fold-in, second slice: the positive
+        # counterpart to `scent` immediately above — see `FieldGrid.
+        # step_wildlife`'s own docstring.
+        self.fields.step_wildlife(
+            [((h.x, h.y), h.count) for h in self.wildlife.herds.values() if h.species is Species.GRAZER],
+            self.config.width, self.config.height,
+        )
         adopter_ids: set[int] = set()
         for concept in self.invented_concepts.values():
             adopter_ids |= concept.adopter_ids

@@ -1182,13 +1182,14 @@ detailsToggle.addEventListener("click", () => {
 // naturally faint/rare) — showing them all at once would fight the
 // map's own readability, the same reasoning the Observatory UI
 // direction already applies to the details panel.
-const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic", "scarcity", "ownership", "noise", "heat", "nutrients", "scent", "cultural_influence", "fertility", "beauty", "hazard", "storminess"];
+const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic", "scarcity", "ownership", "noise", "heat", "nutrients", "scent", "wildlife", "cultural_influence", "fertility", "beauty", "hazard", "storminess"];
 const FIELD_OVERLAY_LABELS = {
   off: "off", moisture: "soil moisture", soil_fertility: "soil fertility",
   population_density: "population density", disease_pressure: "disease pressure",
   pollution: "pollution", traffic: "traffic", scarcity: "economic scarcity",
   ownership: "settledness", noise: "disturbance",
   heat: "heat", nutrients: "wild forage", scent: "predator scent",
+  wildlife: "game presence",
   cultural_influence: "cultural influence", fertility: "regional fertility",
   beauty: "beauty (villagers' own opinion)",
   hazard: "disaster hazard", storminess: "storminess",
@@ -1218,6 +1219,7 @@ const FIELD_LEGEND_LABELS = {
   heat: { min: "cold", max: "sweltering" },
   nutrients: { min: "sparse", max: "bountiful" },
   scent: { min: "safe", max: "dangerous" },
+  wildlife: { min: "no game", max: "rich hunting" },
   cultural_influence: { min: "no adopters", max: "cultural hub" },
   fertility: { min: "no farmland", max: "prime farmland" },
   beauty: { min: "no opinion", max: "beloved" },
@@ -1338,6 +1340,14 @@ const FIELD_COLOR_STOPS = {
   // that deliberately borrows the "danger" hue family other modes
   // avoid, since predator scent genuinely IS a danger reading.
   scent: [[200, 220, 190], [220, 160, 60], [180, 30, 30]],
+  // A10 (field-substrate fold-in, second slice, "wildlife" —
+  // GRAZER-herd presence, the deliberate POSITIVE counterpart to
+  // `scent` immediately above). No game reads as a neutral pale
+  // sage-grey, real herd presence shifts through a warm gold toward a
+  // rich forest green — an "opportunity" hue family that deliberately
+  // avoids scent's danger-red family, since this is good hunting, not
+  // a threat.
+  wildlife: [[205, 210, 195], [210, 175, 90], [50, 130, 60]],
   // A1 (Tier 1, "cultural_influence" — `InventedConcept.adopter_ids`).
   // No adopters reads as a neutral pale grey, a real cultural hub
   // shifts through a soft lavender toward a vivid violet-magenta — an
@@ -1644,7 +1654,7 @@ function renderFieldOverlay() {
         if (!peak || v > peak.value) peak = { x: rx, y: ry, w: regionW * CELL, h: regionH * CELL, value: v };
       }
     }
-  } else if (fieldOverlayMode === "heat" || fieldOverlayMode === "nutrients" || fieldOverlayMode === "scent" || fieldOverlayMode === "cultural_influence" || fieldOverlayMode === "fertility" || fieldOverlayMode === "beauty" || fieldOverlayMode === "hazard" || fieldOverlayMode === "storminess") {
+  } else if (fieldOverlayMode === "heat" || fieldOverlayMode === "nutrients" || fieldOverlayMode === "scent" || fieldOverlayMode === "wildlife" || fieldOverlayMode === "cultural_influence" || fieldOverlayMode === "fertility" || fieldOverlayMode === "beauty" || fieldOverlayMode === "hazard" || fieldOverlayMode === "storminess") {
     const grid = terrain[fieldOverlayMode];
     if (!grid || !grid.length) return;
     const regionW = Math.ceil(terrain.width / grid[0].length);

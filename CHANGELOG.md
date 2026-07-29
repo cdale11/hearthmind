@@ -4,6 +4,52 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.93] — A10: second slice of the field-substrate fold-in
+
+Explicit user instruction: "Continue A10." Closes the other direction
+of the bidirectional coupling v1.34.92 started — that slice made
+wildlife READ a human-written field (`population_density`); this one
+makes humans READ a wildlife-written field back.
+
+New `FieldGrid.step_wildlife` (`world/fields.py`): sums live GRAZER-
+herd sizes per region (same shape `step_scent` already established for
+PREDATOR positions), normalized against the richest region, spread via
+`ca_operators.diffuse`. Deliberately the POSITIVE counterpart to
+`scent`'s existing danger signal — `scent` sources from predator packs
+and reads as a threat `_choose_fission_site` avoids; `wildlife` sources
+from grazer herds and reads as an opportunity. Wired into `World.tick()`
+right after the existing `step_scent` call.
+
+Real consumer: `Population._maybe_welcome_migrant` gained a
+`region_wildlife` param + `MIGRANT_WILDLIFE_PULL=0.2` — a fifth
+positive region-field pull alongside `ownership`/`cultural_influence`/
+`beauty`'s siblings, "word travels that a place has good hunting."
+`region_wildlife=None` (the default, and every existing/legacy call
+path) is a genuine no-op — the chance formula only applies the term
+when the field is present, matching every sibling pull's own
+discipline.
+
+UI: new "wildlife" (labeled "game presence") mode on the existing
+"🗺️ fields" overlay toggle, own gold-to-forest-green "opportunity"
+color ramp deliberately distinct from `scent`'s danger-red family, plus
+a matching legend entry. Threaded through both `WorldBroadcaster.
+set_terrain`'s two real call sites in `simulation/engine.py` (checked
+deliberately — this project's own standing "one call site missing a
+field" bug class, first caught at v1.34.75) and `interface/api.py`'s
+payload dict.
+
+Verified: direct unit tests for `step_wildlife` (no-grazer neutral
+parity, real gradient formation, normalized-peak shape); a production-
+path test through the real `World.tick()` confirming the field forms
+organically from real grazer herds over 1500 ticks; a legacy-backfill
+test (a snapshot missing the `wildlife` key entirely loads clean, reads
+neutral, and repopulates on the next tick without crashing); a 4000-
+tick soak with a clean `to_dict()`/`from_dict()` round-trip; a direct
+`WorldBroadcaster.set_terrain` test confirming the payload key is
+present with real values and gracefully empty when the kwarg is
+omitted; `node --check` and `pyflakes` clean on every touched file. No
+native module touched, no native soak needed.
+
 ## [1.34.92] — A10: first slice of the field-substrate fold-in
 
 Explicit user instruction: "Continue A10." With all five named

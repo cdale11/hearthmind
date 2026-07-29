@@ -510,6 +510,28 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.93)
+
+Explicit user instruction: "Continue A10." Second field-substrate
+fold-in slice, closing the other direction of the bidirectional
+coupling v1.34.92 started (wildlife reading a human-written field) —
+this one makes humans read a wildlife-written field back. New
+`FieldGrid.step_wildlife` sums live GRAZER-herd presence per region
+(the deliberate positive counterpart to `scent`'s predator-danger
+signal), wired into `World.tick()`. Real consumer: `Population.
+_maybe_welcome_migrant` gained `MIGRANT_WILDLIFE_PULL=0.2` — a fifth
+positive region-field pull, "word travels that a place has good
+hunting," `None` a genuine no-op. UI: new "wildlife" (game presence)
+overlay mode + legend; both `WorldBroadcaster.set_terrain` call sites
+in `simulation/engine.py` updated together (the project's own
+standing "one call site missing a field" bug class).
+
+Verified: direct unit tests for `step_wildlife`, a production-path
+`World.tick()` test confirming organic field formation from real
+grazer herds, a legacy-backfill test, a 4000-tick soak with clean
+round-trip, a direct broadcaster-payload test (present + omitted-kwarg
+parity), `node --check`/`pyflakes` clean. No native module touched.
+
 ## Current state (v1.34.92)
 
 Explicit user instruction: "Continue A10." All five named det_sys.md

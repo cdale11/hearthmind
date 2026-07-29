@@ -2415,6 +2415,24 @@ real wildlife-presence field of its own (for other systems to read
 back), and deeper predator/prey coupling into more fields, remain
 open.
 
+**Field-substrate fold-in, second slice shipped, v1.34.93.** Closes
+the flagged gap above — the missing wildlife-presence field, now
+reading BACK toward the human side. New `FieldGrid.step_wildlife`
+sums live GRAZER-herd presence per region (the deliberate positive
+counterpart to `scent`'s predator-danger signal), wired into `World.
+tick()` right after `step_scent`. Real consumer: `Population._maybe_
+welcome_migrant` gained `region_wildlife`/`MIGRANT_WILDLIFE_PULL=0.2`
+— a fifth positive region-field pull alongside `ownership`/`cultural_
+influence`/`beauty`'s siblings, "word travels that a place has good
+hunting." `region_wildlife=None` is a genuine no-op. New "wildlife"
+(game presence) map overlay mode + legend; both `WorldBroadcaster.
+set_terrain` call sites updated together (checked deliberately). This
+closes the second of the two directions flagged above; deeper
+predator/prey coupling into more fields (a predator-danger field
+already exists as `scent` but has no OTHER wildlife-side consumer
+besides its original human-side one) remains the one genuinely open
+piece of this fold-in.
+
 ### A11 — Continuous hydrology
 **Shipped, second slice (v1.34.23).** Groundwater and erosion, the two
 pieces flagged unbuilt above, both landed in `world/hydrology_field.

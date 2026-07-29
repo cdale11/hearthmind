@@ -80,6 +80,7 @@ class WorldBroadcaster:
         heat: "list[list[float]] | None" = None,
         nutrients: "list[list[float]] | None" = None,
         scent: "list[list[float]] | None" = None,
+        wildlife: "list[list[float]] | None" = None,
         cultural_influence: "list[list[float]] | None" = None,
         fertility: "list[list[float]] | None" = None,
         beauty: "list[list[float]] | None" = None,
@@ -231,6 +232,9 @@ class WorldBroadcaster:
             ),
             "scent": (
                 [[round(v, 3) for v in row] for row in scent] if scent else []
+            ),
+            "wildlife": (
+                [[round(v, 3) for v in row] for row in wildlife] if wildlife else []
             ),
             "cultural_influence": (
                 [[round(v, 3) for v in row] for row in cultural_influence]

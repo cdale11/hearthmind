@@ -206,6 +206,11 @@ one — a genuinely windy-but-dry region and a rainy-but-still region
 both read as somewhat stormy, weighted toward precipitation (the more
 immediately disruptive of the two for travel)."""
 
+WILDLIFE_DIFFUSE_RATE = 0.3
+"""A10 "Ecology / food webs," field-substrate fold-in, second slice:
+same role as `SCENT_DIFFUSE_RATE`'s spread, for the positive-signal
+sibling field below."""
+
 
 def _normalize_peak(raw: list[list[float]]) -> list[list[float]]:
     """Scales a raw non-negative grid to 0..1 against its own peak cell
@@ -459,6 +464,30 @@ class FieldGrid:
             rx, ry = self.region_of(pos, width, height)
             raw[ry][rx] += count
         self.fields["scent"] = diffuse(_normalize_peak(raw), SCENT_DIFFUSE_RATE)
+
+    def step_wildlife(self, grazer_positions: list[tuple[tuple[int, int], int]], width: int, height: int) -> None:
+        """A10 "Ecology / food webs," field-substrate fold-in, second
+        slice. Sums live GRAZER-herd sizes (already-real `WildlifeGrid.
+        herds` state, same shape `step_scent` reads for predators) per
+        region, normalized against the richest region, spread via
+        `ca_operators.diffuse` — a region-scale "how much game is
+        here" reading. Deliberately the POSITIVE counterpart to
+        `scent`'s danger signal, not a duplicate of it: `scent` sources
+        from PREDATOR packs and reads as a threat `_choose_fission_
+        site` avoids; `wildlife` sources from GRAZER herds and reads as
+        an opportunity. Real consumer: `Population._maybe_welcome_
+        migrant`'s new `region_wildlife` term (`MIGRANT_WILDLIFE_
+        PULL`) — "word travels that a place has good hunting," a
+        fifth positive region-field pull alongside `ownership`/
+        `cultural_influence`/`beauty`'s siblings — closing the second
+        half of a genuinely bidirectional wildlife<->settlement field
+        coupling (the first half, wildlife reading `population_
+        density`, shipped as this fold-in's first slice)."""
+        raw = [[0.0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+        for pos, count in grazer_positions:
+            rx, ry = self.region_of(pos, width, height)
+            raw[ry][rx] += count
+        self.fields["wildlife"] = diffuse(_normalize_peak(raw), WILDLIFE_DIFFUSE_RATE)
 
     def step_cultural_influence(self, adopter_positions: list[tuple[int, int]], width: int, height: int) -> None:
         """Eleventh concrete field (A1). Sourced from `World.invented_
