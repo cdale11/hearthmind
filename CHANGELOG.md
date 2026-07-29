@@ -4,6 +4,26 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.105] — Tier 0's tenth conversion: dream's dreamer pick
+
+Explicit user instruction: "Continue Tier 0." `_maybe_schedule_dream`'s
+monthly round-robin dreamer selection had the exact same WHICH-
+candidate `rng.choice(candidates)` shape as `memory_drift`/`noncore_
+nudge` — reused the SAME `HUMANS_PERSONAL_TARGET_LEAN_WEIGHT` constant
+rather than inventing a fourth Humans-specific weight with no live-
+diagnostic reason to tune it differently. "The person Humans' own
+accumulated attention already returns to" is now measurably (never
+certainly) more likely to be this month's dreamer — a real thematic
+fit (dreams surfacing what a community's mind keeps returning to)
+while staying mechanically identical to the pattern's other instances.
+
+Verified: a production-path test through the real `_maybe_schedule_
+dream` (forced monthly gate/backpressure, a max-weight fake RNG,
+confirmed the favored agent's own name appears in the built prompt —
+genuinely the chosen dreamer, not merely eligible); a 4000-tick
+LLM-disabled soak with a clean round-trip. Tier 0 now has ten real
+converted sites.
+
 ## [1.34.104] — A12 status answered; Tier 0's eighth/ninth conversions
 
 Explicit user instruction: "Check A12 why it is shown as not done and

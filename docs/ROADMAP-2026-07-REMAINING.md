@@ -46,17 +46,18 @@ starts on an explicit instruction naming an item.
 
 ### Tier 0 — pillar refactor (the biggest single lever)
 
-- [ ] Convert the remaining **~50 mirror-write sites** from "write into
+- [ ] Convert the remaining **~49 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); nine sites are now converted (town_brain
+      confidence`, v1.34.46); ten sites are now converted (town_brain
       priority, era_branch tiebreak, COUNCIL institution objective,
       ontology_evolution parent-fitness weighting, institution_belief/
-      memory_drift/noncore_nudge target selection, and — v1.34.104 —
-      both `invention`/`ontology_proposal`'s inventor-selection sites).
-      Each further site is real judgment work — find a soft/tiebreak
-      point a pillar's accumulated belief can legitimately weigh, never
-      hand a pillar a whole decision.
+      memory_drift/noncore_nudge target selection, `invention`/
+      `ontology_proposal`'s inventor-selection sites, and — v1.34.105
+      — `dream`'s monthly dreamer pick). Each further site is real
+      judgment work — find a soft/tiebreak point a pillar's
+      accumulated belief can legitimately weigh, never hand a pillar a
+      whole decision.
 
 ### Tier 0.5 — live-diagnostic findings
 
@@ -1335,6 +1336,24 @@ real `_maybe_schedule_invention` (forced gates/roll, a fake
 max-weight RNG confirming the favored agent actually becomes the
 recorded knower); a 4000-tick LLM-disabled soak with a clean
 round-trip. Tier 0 now has nine real converted sites.
+
+**Tenth site (v1.34.105, explicit user instruction: "Continue Tier
+0").** `_maybe_schedule_dream`'s monthly round-robin dreamer pick had
+the exact same WHICH-candidate `rng.choice(candidates)` shape as
+`memory_drift`/`noncore_nudge` — reused the SAME `HUMANS_PERSONAL_
+TARGET_LEAN_WEIGHT` constant rather than inventing a fourth Humans-
+specific weight value with no live-diagnostic reason to tune it
+differently. "The person Humans' own accumulated attention already
+returns to" is now measurably (never certainly) more likely to be
+this month's dreamer, a real thematic fit — dreams surfacing what a
+community's mind keeps returning to — while staying mechanically
+identical to the pattern's other instances.
+
+Verified: a production-path test through the real `_maybe_schedule_
+dream` (forced gates, a max-weight fake RNG, confirmed the favored
+agent's own name appears in the built prompt — i.e. genuinely became
+the chosen dreamer, not just eligible); a 4000-tick LLM-disabled soak
+with a clean round-trip. Tier 0 now has ten real converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

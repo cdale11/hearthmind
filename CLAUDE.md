@@ -617,6 +617,20 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.105)
+
+Explicit user instruction: "Continue Tier 0." Tenth conversion:
+`_maybe_schedule_dream`'s monthly dreamer pick had the same WHICH-
+candidate shape as `memory_drift`/`noncore_nudge` — reused the same
+`HUMANS_PERSONAL_TARGET_LEAN_WEIGHT` (no reason to tune a fourth
+Humans site differently). The person Humans' own attention already
+returns to is now measurably more likely to be this month's dreamer.
+
+Verified: a production-path test through the real `_maybe_schedule_
+dream` (forced gates, max-weight fake RNG, confirmed the favored
+agent's name appears in the built prompt), a 4000-tick soak with
+clean round-trip. Ten real Tier 0 sites converted.
+
 ## Current state (v1.34.104)
 
 Explicit user instruction: "Check A12 why it is shown as not done and

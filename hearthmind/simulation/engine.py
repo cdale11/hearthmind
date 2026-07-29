@@ -8272,7 +8272,18 @@ class SimulationEngine:
             return
         self._mark_monthly_resolved("dream")
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "dream")
-        agent = rng.choice(candidates)
+        # Tier 0 mirror-write -> pillar-authored conversion (docs/
+        # ROADMAP-2026-07-REMAINING.md): same WHICH-candidate shape as
+        # `memory_drift`/`noncore_nudge`/the inventor-selection sites —
+        # "the person Humans' own accumulated attention already returns
+        # to" is measurably (never certainly) more likely to be this
+        # month's dreamer. An agent with no standing Humans theory
+        # reads a flat 1.0, same never-narrow-the-pool discipline.
+        weights = [
+            1.0 + self.world.humans_pillar.subject_confidence(a.name) * HUMANS_PERSONAL_TARGET_LEAN_WEIGHT
+            for a in candidates
+        ]
+        agent = rng.choices(candidates, weights=weights, k=1)[0]
         agent_id = agent.id
         latest_folklore = ""
         home = self._settlement_by_id(agent.settlement_id)
