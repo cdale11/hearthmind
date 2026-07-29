@@ -4,6 +4,48 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.88] — A10: pollination (wildlife-fed succession pressure)
+
+Explicit user instruction: "Continue A10." Ships A10's pollination
+slice — det_sys.md's own "pollination (→ vegetation)" line, the third
+of A10's five named unbuilt pieces (migration/competition/
+decomposition/pollination/habitat-formation), following v1.34.87's
+decomposition slice.
+
+Extended the existing A2 succession-pressure mechanism
+(`terrain_evolution.compute_succession_pressure`, already blending
+forest density + moisture to modulate how fast an abandoned tile
+returns to forest) with a new optional `grazer_positions` param: a
+live GRAZER herd's current tile diffuses outward into a small
+"pollination/seed-dispersal" field (`ca_operators.diffuse`, same
+composition `forest_density` already uses) and adds a genuine, capped
+bonus (`POLLINATION_BONUS_MAX=0.15`) on top of the existing reading —
+"animals carry seeds and pollen as they move through a landscape."
+Threaded through `maybe_reclaim` to `World._tick_terrain`'s call site,
+sourced from `self.wildlife.herds` (live GRAZER herds only).
+
+**Real bug caught and fixed during this slice's own verification,
+before shipping**: the first implementation blended pollination in as
+a weighted average (`base*(1-w) + pollination*w`) rather than an
+additive bonus — since "no wildlife here" reads as `pollination=0`,
+that blend silently LOWERED succession pressure by 15% on every tile
+with no nearby wildlife, not just leave unaffected tiles alone. A
+direct test asserting "a far tile should be ~unaffected" caught this
+immediately (a 0.03 unexpected delta on a tile nowhere near the test
+herd). Fixed to a straightforward additive+capped bonus — a tile with
+no nearby grazer now reads EXACTLY as it did before this param
+existed, verified directly.
+
+Verified: direct unit tests (no-grazer-positions parity against the
+pre-pollination result, a real bump at/near a herd's tile with a
+verified-unaffected far tile, result bounds, the `moisture=None`
+fallback path unaffected by `grazer_positions`); a production-path
+test through the real `World.tick()`/`_tick_terrain` call chain (real
+grazer herds present, no crash, clean round-trip) over a 4000-tick
+LLM-disabled soak. `pyflakes` clean. No native module touched — this
+extends an already-pure-Python R2 mechanism (`compute_succession_
+pressure` has never been natively ported).
+
 ## [1.34.87] — A10: decomposition (carcass-fed nutrient pulse)
 
 Explicit user instruction: "Check for other performance implications

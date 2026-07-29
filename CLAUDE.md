@@ -510,6 +510,34 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.88)
+
+Explicit user instruction: "Continue A10." Ships the pollination
+slice — det_sys.md's "pollination (→ vegetation)" line. Extended the
+existing A2 succession-pressure mechanism (`terrain_evolution.compute_
+succession_pressure`) with an optional `grazer_positions` param: a
+live GRAZER herd's tile diffuses outward (same `ca_operators.diffuse`
+composition `forest_density` already uses) and adds a genuine, capped
+bonus to nearby succession pressure — "animals carry seeds and pollen
+as they move." Threaded through `maybe_reclaim` to `World._tick_
+terrain`'s call site.
+
+Real bug caught and fixed during this slice's own verification (not
+by the user): the first implementation blended pollination in as a
+weighted average, which silently LOWERED succession pressure on every
+wildlife-free tile (since "no wildlife" reads as 0, diluting the base
+reading by the blend weight everywhere, not just adding a bonus where
+wildlife is present). A direct "far tile should be unaffected" test
+caught it immediately; fixed to a straightforward additive+capped
+bonus, re-verified a wildlife-free tile now reads byte-identical to
+before this param existed.
+
+Verified: direct unit tests (no-grazer parity, real bump near a herd
+with a confirmed-unaffected far tile, bounds, `moisture=None`
+untouched), a production-path test through the real `World.tick()`
+with genuine grazer herds present, a 4000-tick soak with clean round-
+trip. No native module touched.
+
 ## Current state (v1.34.87)
 
 Explicit user instruction: "Check for other performance implications

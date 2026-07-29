@@ -194,13 +194,17 @@ starts on an explicit instruction naming an item.
       based mutation as an alternate generate path (A8's other named
       piece, depends on A7 reaching a genuine shape-grammar stage
       first) remains open.
-- [ ] **A10, decomposition slice shipped v1.34.87** — `World.carcass_
-      decomposition` (a real predator-kill carcass, distinct from the
-      already-shipped live-herd nutrient cycling) enriches nearby
-      soil fertility via `economy.farms.apply_carcass_decomposition_
-      bonus`. Migration, competition, pollination, habitat formation,
-      and folding the whole food web onto A1's field substrate remain
-      open.
+- [ ] **A10, decomposition + pollination slices shipped v1.34.87-.88**
+      — `World.carcass_decomposition` (a real predator-kill carcass,
+      distinct from the already-shipped live-herd nutrient cycling)
+      enriches nearby soil fertility via `economy.farms.apply_
+      carcass_decomposition_bonus`. `terrain_evolution.compute_
+      succession_pressure`'s new `grazer_positions` param gives a
+      live GRAZER herd's presence a real, capped, additive bonus to
+      nearby succession pressure ("animals carry seeds and pollen as
+      they move"), threaded through `maybe_reclaim`. Migration,
+      competition, habitat formation, and folding the whole food web
+      onto A1's field substrate remain open.
 - [ ] **A12** — per-instance `Entity.material` generalized beyond
       buildings (per-*building*-instance material shipped v1.34.58).
 - [ ] **A16** — trade-as-network-flow, tech-as-DAG, information-
@@ -2321,10 +2325,27 @@ already-shipped `apply_nutrient_cycling` (an ongoing per-tick trickle
 from a LIVE grazing herd) — a real carcass genuinely enriches nearby
 farmland (`economy.farms.apply_carcass_decomposition_bonus`), stronger
 per-unit-intensity but faster-decaying (~5 weeks) than a live herd's
-steady dung. Migration, competition, pollination (→ vegetation), and
-habitat formation (reads fields, writes carrying capacity) all remain
-unbuilt. Folding the whole food web onto A1's field substrate as one
-coupled system is real follow-up work.
+steady dung.
+
+**Pollination slice shipped, v1.34.88.** `terrain_evolution.compute_
+succession_pressure` (A2's already-shipped forest-succession
+mechanism, forest density + moisture) gained an optional `grazer_
+positions` param: a live GRAZER herd's tile diffuses outward into a
+pollination/seed-dispersal field and adds a genuine, capped bonus
+(`POLLINATION_BONUS_MAX=0.15`) to nearby succession pressure —
+"animals carry seeds and pollen as they move through a landscape,"
+speeding a nearby abandoned tile's return to forest. Threaded through
+`maybe_reclaim`, sourced from `World.wildlife.herds` at `World._tick_
+terrain`'s call site. A tile with no nearby wildlife reads byte-
+identical to before this param existed (additive, not a blend — an
+initial blend-based implementation was caught diluting the reading
+everywhere and fixed before shipping, see CHANGELOG.md's [1.34.88]
+entry).
+
+Migration, competition, and habitat formation (reads fields, writes
+carrying capacity) all remain unbuilt. Folding the whole food web
+onto A1's field substrate as one coupled system is real follow-up
+work.
 
 ### A11 — Continuous hydrology
 **Shipped, second slice (v1.34.23).** Groundwater and erosion, the two

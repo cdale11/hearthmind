@@ -798,8 +798,31 @@ def apply_local_activity(
     return events
 
 
+POLLINATION_DIFFUSE_RATE = 0.5
+"""A10 "Ecology / food webs," pollination slice: how strongly a live
+GRAZER herd's presence smooths outward into a "pollination/seed-
+dispersal" field before blending into succession pressure — same
+`ca_operators.diffuse` composition `compute_succession_pressure`
+already uses for `forest_density`, slightly less spread since a
+herd's own immediate grazing range (not a whole neighborhood) is what
+plausibly carries seeds/pollen onward as it moves."""
+
+POLLINATION_BONUS_MAX = 0.15
+"""A genuine ADDITIVE bonus (never a blend/dilution of the existing
+forest-density/moisture reading) capped at this much — a tile far from
+any grazer must read EXACTLY as it did before this slice existed (a
+weighted-average blend would have quietly lowered succession pressure
+on every wildlife-free tile too, since "no pollination" would pull the
+result toward 0 rather than leaving it alone; caught during this
+slice's own verification and fixed before shipping). Deliberately
+minor next to the two already-tuned primary factors — wildlife
+dispersing seeds/pollen as it moves genuinely helps, but shouldn't
+dominate the reading."""
+
+
 def compute_succession_pressure(
     terrain: list[list[Tile]], moisture: list[list[float]] | None,
+    grazer_positions: "list[tuple[int, int]] | None" = None,
 ) -> list[list[float]] | None:
     """A2 "CA / diffusion / reaction-diffusion operators" (roadmap
     Stage IV step 16): forest succession as the worked first consumer.
@@ -809,7 +832,17 @@ def compute_succession_pressure(
     averages it against the (also real, per-tile) `moisture` field from
     `world/hydrology_field.py` (A11). Returns `None` when no moisture
     field is available (a caller with legacy/absent hydrology data) so
-    `_tick_fallow` can cleanly fall back to the flat, unmodulated rate."""
+    `_tick_fallow` can cleanly fall back to the flat, unmodulated rate.
+
+    `grazer_positions` (A10 "Ecology / food webs," pollination slice,
+    optional — `None`/empty reproduces the exact pre-pollination
+    result): the tile a live GRAZER herd currently stands on, one entry
+    per herd (`World._tick_terrain`'s call site). Diffused the same way
+    `forest_density` is, then added on top of the base reading (capped
+    at `POLLINATION_BONUS_MAX`) — real wildlife presence measurably
+    speeds a nearby abandoned tile's return to forest, "animals carry
+    seeds and pollen as they move," while a tile with no nearby
+    wildlife reads EXACTLY as it did before this param existed."""
     if moisture is None:
         return None
     height = len(terrain)
@@ -821,9 +854,23 @@ def compute_succession_pressure(
         for y in range(height)
     ]
     forest_density = diffuse(forest_indicator, SUCCESSION_FOREST_DIFFUSE_RATE)
-    return [
+    base = [
         [
             clamp((forest_density[y][x] + moisture[y][x]) / 2.0, 0.0, 1.0)
+            for x in range(width)
+        ]
+        for y in range(height)
+    ]
+    if not grazer_positions:
+        return base
+    wildlife_indicator = [[0.0 for _ in range(width)] for _ in range(height)]
+    for (gx, gy) in grazer_positions:
+        if 0 <= gx < width and 0 <= gy < height:
+            wildlife_indicator[gy][gx] = 1.0
+    pollination = diffuse(wildlife_indicator, POLLINATION_DIFFUSE_RATE)
+    return [
+        [
+            clamp(base[y][x] + pollination[y][x] * POLLINATION_BONUS_MAX, 0.0, 1.0)
             for x in range(width)
         ]
         for y in range(height)
@@ -892,17 +939,20 @@ def maybe_reclaim(
     settlements, farms, excluded: set[tuple[int, int]], rng: random.Random,
     fallow_ticks: dict[tuple[int, int], int],
     moisture: list[list[float]] | None = None,
+    grazer_positions: "list[tuple[int, int]] | None" = None,
 ) -> list[tuple[str, str]]:
     """Called once per week. An abandoned grassland tile bordered by
     enough forest, and fallow for its own effective fallow requirement
     (A2: modulated by local succession pressure when `moisture` is
-    given), can revert to forest — nature reclaiming unused land, the
-    inverse of `apply_local_activity`'s deforestation."""
+    given, now also `grazer_positions` — A10's pollination slice, see
+    `compute_succession_pressure`), can revert to forest — nature
+    reclaiming unused land, the inverse of `apply_local_activity`'s
+    deforestation."""
     events: list[tuple[str, str]] = []
     height = len(terrain)
     width = len(terrain[0]) if height else 0
 
-    succession_pressure = compute_succession_pressure(terrain, moisture)
+    succession_pressure = compute_succession_pressure(terrain, moisture, grazer_positions)
     eligible = _tick_fallow(terrain, heat, settlements, farms, excluded, fallow_ticks, succession_pressure)
     if not eligible:
         return events
