@@ -4,6 +4,45 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.94] — A10: closes the field-substrate fold-in
+
+Explicit user instruction: "Complete and finish A10 with all remaining
+items." The one item still flagged after v1.34.93 was the fold-in's
+own one-directional gap: `scent` (predator-pack presence, `World.
+fields`) had exactly one consumer anywhere — the human-side
+`_choose_fission_site` avoidance — no wildlife-side field folded
+predator danger back into GRAZER behavior at region scale.
+
+New `SCENT_REGIONAL_AVOIDANCE_MAX=0.4` (`world/wildlife.py`):
+`WildlifeGrid.tick`'s existing GRAZER move-candidate weighting gains a
+fourth multiplicative term, weighting away from a region with a high
+`scent` reading. Deliberately layered ON TOP of (not replacing) the
+existing hard `GRAZER_FLEE_RADIUS` local flee response — that stays a
+tile-local, immediate reaction to a live predator pack; this is a
+softer, region-scale sense of "a generally dangerous stretch of
+country" extending beyond the flee radius's hard cutoff. `scent=None`
+(the default, and every existing/legacy call path) reproduces the
+exact prior RNG-consumption pattern byte-for-byte.
+
+This closes both flagged directions of the field-substrate fold-in:
+wildlife reads `population_density` (v1.34.92), humans read the new
+`wildlife` field (v1.34.93), and now wildlife reads `scent` back too
+— every field the fold-in named has a real, verified, reciprocal
+consumer. **A10 is now fully closed**, including the field-substrate
+extension beyond the five originally-named det_sys.md pieces.
+
+Verified: a direct parity test (500-tick identical trajectories with
+`scent` omitted vs. explicit `None`); a direct weight-formula
+statistical test (20,000 trials, safe/dangerous pick ratio matched the
+expected weight ratio to within noise); a production-path statistical
+test through the real `WildlifeGrid.tick()` on a synthetic uniform-
+grassland terrain (a herd placed at a region boundary crossed into a
+scent-flagged region measurably less often than a no-scent control —
+0.169 vs. 0.244 crossing rate over 3000 trials); a 4000-tick soak
+through the real `World.tick()` with a clean `to_dict()`/`from_dict()`
+round-trip; `pyflakes` clean. No native module touched, no native soak
+needed.
+
 ## [1.34.93] — A10: second slice of the field-substrate fold-in
 
 Explicit user instruction: "Continue A10." Closes the other direction

@@ -161,6 +161,27 @@ weight terms above; `population_density=None`/empty (no field data)
 reads as a component of exactly 1.0 — neutral, no avoidance, same
 discipline as every sibling field consumer's absence case."""
 
+SCENT_REGIONAL_AVOIDANCE_MAX = 0.4
+"""A10 "Ecology / food webs" — the flagged remaining gap in the
+field-substrate fold-in: `scent` (predator-pack presence, `World.
+fields`) had exactly one consumer anywhere in the codebase, the
+HUMAN-side `_choose_fission_site` avoidance — no wildlife-side field
+folded predator danger back into GRAZER behavior at region scale.
+GRAZER herds already flee a live predator pack within `GRAZER_FLEE_
+RADIUS` (a hard, immediate, tile-local response); this is a softer,
+regional layer on top — move candidates in a generally dangerous
+region are down-weighted up to this fraction, smoothly extending
+avoidance beyond the flee radius's hard cutoff ("the herd senses a
+bad stretch of country, not just the pack three tiles over").
+Combines multiplicatively with the other movement weight terms;
+`scent=None`/empty reads as a component of exactly 1.0 — neutral, no
+avoidance, same discipline as every sibling field consumer's absence
+case. Closes A10's field-substrate fold-in: both fields it named
+(`population_density` read by wildlife, `wildlife` read by humans)
+now have real reciprocal consumers, and `scent` — the pre-existing
+field the fold-in explicitly flagged as one-directional — now does
+too."""
+
 GRAZE_CONSUMPTION_PER_TICK = 0.015
 GRAZE_REPRODUCE_MIN_FOOD = 0.1
 """A grazer herd colocated with a wild FOOD `ResourceNode` (world/
@@ -604,6 +625,7 @@ class WildlifeGrid:
         snowpack: "list[list[float]] | None" = None,
         carcass_decomposition: "dict[tuple[int, int], float] | None" = None,
         population_density: "list[list[float]] | None" = None,
+        scent: "list[list[float]] | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every herd/pack by one tick. Returns (category,
         description) events for a successful hunt or a pack/herd going
@@ -655,7 +677,13 @@ class WildlifeGrid:
         GRAZER herd's move candidates are down-weighted in a heavily
         populated region (see `WILDLIFE_POPULATION_AVOIDANCE_MAX`) —
         the first wildlife behavior in this module driven by a field
-        the human/settlement side writes, not an ecology-internal one."""
+        the human/settlement side writes, not an ecology-internal one.
+
+        `scent` (A10, closing the field-substrate fold-in's flagged
+        gap, `World.fields`' `scent`, optional — `None` reproduces the
+        exact pre-this-slice behavior): a softer, region-scale layer of
+        predator avoidance on top of the existing hard `GRAZER_FLEE_
+        RADIUS` local flee — see `SCENT_REGIONAL_AVOIDANCE_MAX`."""
         rng = _wildlife_tick_rng(seed, tick)
         height = len(terrain)
         width = len(terrain[0]) if height else 0
@@ -741,6 +769,7 @@ class WildlifeGrid:
                     # either field.
                     if herd.species is Species.GRAZER and (
                         migration_trails or nutrients is not None or population_density is not None
+                        or scent is not None
                     ):
                         weights = [
                             (1.0 + migration_trails.get(c, 0.0) * MIGRATION_TRAIL_PREFERENCE_WEIGHT
@@ -751,6 +780,11 @@ class WildlifeGrid:
                                 0.0,
                                 1.0 - _field_region_value(population_density, c[0], c[1], width, height)
                                 * WILDLIFE_POPULATION_AVOIDANCE_MAX,
+                            )
+                            * max(
+                                0.0,
+                                1.0 - _field_region_value(scent, c[0], c[1], width, height)
+                                * SCENT_REGIONAL_AVOIDANCE_MAX,
                             )
                             for c in candidates
                         ]

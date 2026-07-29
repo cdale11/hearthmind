@@ -194,7 +194,7 @@ starts on an explicit instruction naming an item.
       based mutation as an alternate generate path (A8's other named
       piece, depends on A7 reaching a genuine shape-grammar stage
       first) remains open.
-- [x] **A10, all five named det_sys.md pieces shipped, v1.34.87-.91**
+- [x] **A10, fully closed, v1.34.87-.94**
       — `World.carcass_decomposition` (a real predator-kill carcass,
       distinct from the already-shipped live-herd nutrient cycling)
       enriches nearby soil fertility via `economy.farms.apply_
@@ -214,9 +214,16 @@ starts on an explicit instruction naming an item.
       reads `population_density` (a field the human/settlement side
       writes, not ecology-internal) to avoid heavily populated
       regions — the first genuine bidirectional link between the
-      ecology and settlement halves of the field substrate. The rest
-      of the fold-in (a wildlife-presence field of its own, etc.)
-      remains open — explicitly a first slice, not closure.
+      ecology and settlement halves of the field substrate. Second
+      slice, v1.34.93: a new `wildlife` field (GRAZER-herd presence,
+      the positive counterpart to `scent`) feeds a real `MIGRANT_
+      WILDLIFE_PULL` term in `Population._maybe_welcome_migrant`.
+      Third slice, v1.34.94: `WildlifeGrid.tick`'s GRAZER weighting
+      also avoids high-`scent` regions at region scale, layered on the
+      existing hard local flee radius — `scent`'s previously
+      one-directional (human-only) consumption now has a real
+      wildlife-side consumer too. **Every field the fold-in named now
+      has a real reciprocal consumer — A10 is closed in full.**
 - [ ] **A12** — per-instance `Entity.material` generalized beyond
       buildings (per-*building*-instance material shipped v1.34.58).
 - [ ] **A16** — trade-as-network-flow, tech-as-DAG, information-
@@ -2427,11 +2434,23 @@ influence`/`beauty`'s siblings, "word travels that a place has good
 hunting." `region_wildlife=None` is a genuine no-op. New "wildlife"
 (game presence) map overlay mode + legend; both `WorldBroadcaster.
 set_terrain` call sites updated together (checked deliberately). This
-closes the second of the two directions flagged above; deeper
-predator/prey coupling into more fields (a predator-danger field
-already exists as `scent` but has no OTHER wildlife-side consumer
-besides its original human-side one) remains the one genuinely open
-piece of this fold-in.
+closes the second of the two directions flagged above.
+
+**Field-substrate fold-in closed, v1.34.94 — A10 fully closed.** The
+one remaining flagged piece — `scent` had no wildlife-side consumer,
+only the original human-side `_choose_fission_site` avoidance — is
+now closed too. `WildlifeGrid.tick`'s GRAZER move-candidate weighting
+gained a fourth multiplicative term (`SCENT_REGIONAL_AVOIDANCE_
+MAX=0.4`) weighting away from a high-`scent` region, layered on top of
+(not replacing) the existing hard `GRAZER_FLEE_RADIUS` local flee — a
+softer, region-scale sense of danger beyond the flee radius's hard
+cutoff. `scent=None` reproduces the exact prior behavior byte-for-
+byte. Confirmed via a production-path statistical test on synthetic
+uniform terrain (0.169 vs. 0.244 crossing rate into a scent-flagged
+region over 3000 trials). Every field the fold-in named now has a
+real, verified, reciprocal consumer — **A10 is closed in full**,
+including this extension beyond the five originally-named det_sys.md
+pieces.
 
 ### A11 — Continuous hydrology
 **Shipped, second slice (v1.34.23).** Groundwater and erosion, the two

@@ -912,6 +912,10 @@ class World:
             # writes, same one-tick-stale convention as nutrients/noise
             # immediately above.
             population_density=self.fields.fields.get("population_density"),
+            # A10, closing the fold-in's flagged gap: `scent` previously
+            # had exactly one consumer (human-side fission-site
+            # avoidance) — this gives it a real wildlife-side one too.
+            scent=self.fields.fields.get("scent"),
         )
         settlement_events: list[tuple[str, str]] = []
         self.newly_named_settlement_ids = []

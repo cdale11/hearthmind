@@ -510,6 +510,31 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.94)
+
+Explicit user instruction: "Complete and finish A10 with all remaining
+items." Closes the field-substrate fold-in's last flagged gap: `scent`
+(predator presence) had exactly one consumer, the human-side fission-
+site avoidance — no wildlife-side field folded predator danger back
+into GRAZER behavior at region scale. New `SCENT_REGIONAL_AVOIDANCE_
+MAX=0.4`: `WildlifeGrid.tick`'s GRAZER move-candidate weighting now
+also avoids high-`scent` regions, layered on top of (not replacing)
+the existing hard-radius local flee response — a softer, region-scale
+"bad stretch of country" sense beyond the flee radius's hard cutoff.
+`scent=None` reproduces the exact prior behavior byte-for-byte.
+
+**A10 is now fully closed** — all five named det_sys.md pieces plus
+the field-substrate fold-in (both directions of `population_density`/
+`wildlife`, plus `scent`'s reciprocal consumer) are real, verified,
+shipped mechanics.
+
+Verified: a direct parity test, a direct weight-formula statistical
+test (20,000 trials), a production-path statistical test through the
+real `WildlifeGrid.tick()` on synthetic terrain (0.169 vs. 0.244
+crossing rate into a scent-flagged region over 3000 trials), a
+4000-tick soak with clean round-trip, `pyflakes` clean. No native
+module touched.
+
 ## Current state (v1.34.93)
 
 Explicit user instruction: "Continue A10." Second field-substrate
