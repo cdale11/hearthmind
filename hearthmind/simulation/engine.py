@@ -88,7 +88,7 @@ from hearthmind.world import memetics
 from hearthmind.world import ontology
 from hearthmind.world import reactions
 from hearthmind.world.architecture_grammar import building_descriptor
-from hearthmind.world.layout_grammar import settlement_layout_style
+from hearthmind.world.layout_grammar import drift_layout_style
 from hearthmind.world.dialect_grammar import drift_term
 from hearthmind.world import emergence
 from hearthmind.world import graph_algorithms
@@ -9794,6 +9794,16 @@ class SimulationEngine:
             # compounding rounds, not the same single mutation no matter
             # how many fissions removed from the original coinage.
             new_settlement.lineage_depth = home.lineage_depth + 1
+            # A7 (roadmap Tier 3), layout domain: closes the item's own
+            # "layout stays a single-application scoring bias with zero
+            # lineage awareness" critique — a fission daughter's layout
+            # style genuinely descends from its parent's (usually
+            # unchanged, occasionally a real production-rule rewrite to
+            # the next style in the fixed cycle), not an independent
+            # `settlement_id % 3` hash uncorrelated with lineage.
+            new_settlement.layout_style = drift_layout_style(
+                home.effective_layout_style, seed=f"{new_id}:layout",
+            )
             for entry in home.lexicon[-LEXICON_FISSION_DRIFT_COUNT:]:
                 drifted = drift_term(entry["term"], steps=new_settlement.lineage_depth)
                 if narrative_direction.validate_coined_term(drifted, new_settlement.lexicon):
@@ -10505,7 +10515,7 @@ class SimulationEngine:
                     # line (which reads identically for every HUT).
                     "descriptor": building_descriptor(
                         b.id, b.kind.value, effective_material_name(b) or "wood",
-                        settlement_layout_style(s.id),
+                        s.effective_layout_style,
                     ),
                 }
                 for s in settlements for b in s.buildings

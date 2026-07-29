@@ -4,6 +4,76 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.84] — A7: layout-domain lineage grammar; A8 investigated, not shipped
+
+Explicit user instruction: "Start A7 and A8" (docs/ROADMAP-2026-07-
+REMAINING.md's Tier 3).
+
+**A7, layout domain — closed.** Of the three A7 domains, layout was
+the one flagged as having zero lineage awareness: `settlement_layout_
+style(settlement_id)` was (and, for a settlement with no lineage,
+still is) a flat `settlement_id % 3` hash, completely uncorrelated
+with fission ancestry — unlike dialect's already-recursive `drift_
+term`(`steps`) or architecture's per-instance descriptor. New
+`Settlement.layout_style: str | None` (persisted; `None` — the
+default for the founding settlement and every legacy snapshot — reads
+through `effective_layout_style` as the exact original hash, zero
+migration needed) and `world/layout_grammar.py`'s `drift_layout_style`:
+a real one-generation production rule over the same small closed
+`LAYOUT_STYLES` alphabet — usually keeps the parent's style exactly
+(`LAYOUT_DRIFT_STAY_WEIGHT=2`, ~2:1 odds), occasionally rewrites to
+the next style in the fixed cycle. Wired at the one real site with
+lineage, fission's apply() (`_maybe_schedule_fission`): `new_
+settlement.layout_style = drift_layout_style(home.effective_layout_
+style, seed=f"{new_id}:layout")` — a lineage several fissions deep can
+now end up visibly further from its founding settlement's spatial
+tradition, applied incrementally generation-by-generation (each
+fission reads its own immediate parent's already-resolved style)
+rather than a single steps-scaled reapplication. All three existing
+consumers (`Population._choose_build_site`'s site-scoring, `Settlement.
+summary()`'s "Layout" stat tile, the building-descriptor diagnostics
+line) switched from calling the bare hash function to reading `.
+effective_layout_style` — no UI change needed, the same existing "Layout"
+tile now reflects real lineage-derived data instead of an id hash.
+
+**A8 — investigated, not shipped.** Wiring `simulation/sandbox.py`'s
+`run_counterfactual` as an acceptance gate on `ontology.register_
+concept` (the literal, cheapest reading of "sandbox forward-simulation
+as a fitness input," mirroring `TriggerRule`/`CompositeReaction`'s
+existing pre-registration sandbox pattern) turns out to be a real-code-
+but-vacuous-signal problem, not a scoping problem: `InventedConcept.
+mechanical_hook` is validated at generation time (A5/A6) but never
+actually consumed/applied to `World` state anywhere — unlike its
+sibling proposal systems, nothing calls `_apply_trigger_rule_hook` for
+it. Even granting it that consumption, `_apply_trigger_rule_hook`'s
+own docstring already documents only `belief_confidence_bonus` as a
+real numeric effect (the rest are explicitly narrative-only by prior
+deliberate decision) — a one-time belief-confidence bump structurally
+cannot trip the sandbox's population-crash/-explosion or materials-
+explosion invariants within `SANDBOX_TICKS` (50), so the gate would
+report "safe" unconditionally regardless of what's proposed. Shipping
+that would be worse than not shipping it — a rubber stamp dressed as a
+real safety check. A genuinely meaningful version needs a different
+mechanism (a comparative dual-fork: run forward WITH vs. WITHOUT a
+concept's current adopters, diff a real prosperity/carrying-capacity
+outcome) — a materially larger lift, explicitly flagged rather than
+attempted. Grammar-based mutation as an alternate generate path (A8's
+other named piece) depends on A7 reaching a genuine shape-grammar
+stage first, which it hasn't — also open. Filed as an explicit
+investigation finding in the roadmap, same "don't force vacuous code
+through a real-looking gate" discipline as A17's v1.34.59 entry.
+
+Verified (A7 only — A8 shipped no code): direct unit tests for `drift_
+layout_style` (stay/drift ratio ~2:1 over 3000 trials, cycle wrap
+correctness, invalid-style fallback); `Settlement.layout_style`/
+`effective_layout_style` round-trip tests (real value preserved,
+`None` falls back to the hash function, a legacy snapshot missing the
+key entirely backfills correctly); a direct test of the exact fission-
+site code shape (parent's `effective_layout_style` feeding `drift_
+layout_style` into the daughter's own `layout_style`); `pyflakes`
+clean; a 4000-tick LLM-disabled soak with a clean round-trip. Pure
+Python, no native module touched.
+
 ## [1.34.83] — Tune: lower LLM_PRESSURE_SLOWDOWN_START_RATIO 0.75 -> 0.5
 
 Explicit user directive, continuing the same backpressure-drop

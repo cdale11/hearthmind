@@ -2503,6 +2503,17 @@ class SettlementCulture:
     in a granddaughter's own lexicon, not just one flat mutation no
     matter how far removed. See `SimulationEngine._maybe_schedule_
     fission`'s apply()."""
+    layout_style: str | None = None
+    """A7 (roadmap Tier 3): `None` means "no lineage recorded" — the
+    founding settlement, or a legacy snapshot predating this field —
+    and reads as `layout_grammar.settlement_layout_style(id)` (the
+    original flat hash) via `Settlement.effective_layout_style`, byte-
+    identical to pre-A7 behavior. A fission daughter gets a REAL value
+    here, written by `layout_grammar.drift_layout_style` from its
+    parent's own `effective_layout_style` — closes the item's own
+    critique that layout stayed "a single-application scoring bias"
+    with zero lineage awareness, unlike dialect's already-recursive
+    `drift_term`/architecture's per-instance descriptor."""
 
     def record_topic(self, topic: str) -> None:
         if not topic:
@@ -2692,6 +2703,7 @@ class Settlement:
         lexicon: list[dict] | None = None,
         recent_topics: list[str] | None = None,
         lineage_depth: int = 0,
+        layout_style: str | None = None,
         pending_letters: list[dict] | None = None,
         prophecy: dict | None = None, last_intervention_tick: int = -1,
         predecessor_id: int | None = None,
@@ -2768,6 +2780,7 @@ class Settlement:
             lexicon=lexicon if lexicon is not None else [],
             recent_topics=recent_topics if recent_topics is not None else [],
             lineage_depth=lineage_depth,
+            layout_style=layout_style,
             explored_tiles=set(tuple(t) for t in explored_tiles) if explored_tiles is not None else set(),
             exploration_findings=exploration_findings if exploration_findings is not None else [],
         )
@@ -3164,6 +3177,24 @@ class Settlement:
     @lineage_depth.setter
     def lineage_depth(self, value: int) -> None:
         self.culture.lineage_depth = value
+
+    @property
+    def layout_style(self) -> str | None:
+        return self.culture.layout_style
+
+    @layout_style.setter
+    def layout_style(self, value: str | None) -> None:
+        self.culture.layout_style = value
+
+    @property
+    def effective_layout_style(self) -> str:
+        """The real value to actually use — `layout_style` if this
+        settlement has a real lineage-derived one (a fission daughter),
+        else the original id-derived hash (the founding settlement, or
+        a legacy snapshot). See `layout_style`'s own docstring."""
+        if self.culture.layout_style is not None:
+            return self.culture.layout_style
+        return settlement_layout_style(self.id)
 
     @property
     def recent_topics(self) -> list[str]:
@@ -3713,7 +3744,7 @@ class Settlement:
         return {
             "id": self.id,
             "center": self.center(),
-            "layout_style": settlement_layout_style(self.id),
+            "layout_style": self.effective_layout_style,
             "total": len(self.buildings),
             "under_construction": under_construction,
             "standing": len(standing),
@@ -3955,6 +3986,7 @@ class Settlement:
             "thefts_committed": self.thefts_committed,
             "lexicon": list(self.lexicon),
             "lineage_depth": self.lineage_depth,
+            "layout_style": self.layout_style,
             "recent_topics": list(self.recent_topics),
             "pending_letters": list(self.pending_letters),
             "prophecy": dict(self.prophecy) if self.prophecy is not None else None,
@@ -4035,6 +4067,7 @@ class Settlement:
             thefts_committed=data.get("thefts_committed", 0),
             lexicon=list(data.get("lexicon", [])),
             lineage_depth=data.get("lineage_depth", 0),
+            layout_style=data.get("layout_style"),
             recent_topics=list(data.get("recent_topics", [])),
             pending_letters=list(data.get("pending_letters", [])),
             prophecy=dict(data["prophecy"]) if data.get("prophecy") is not None else None,

@@ -14,6 +14,8 @@ introduce any native-soak-parity risk when wired into a hot path."""
 
 from __future__ import annotations
 
+import hashlib
+
 LAYOUT_STYLES: tuple[str, ...] = ("radial", "linear", "clustered")
 """radial: buildings prefer a consistent ring-distance from the
 settlement's center, echoing a wheel/hub layout. linear: buildings
@@ -34,8 +36,59 @@ token nudge nor a score-dominating override."""
 
 
 def settlement_layout_style(settlement_id: int) -> str:
-    """Deterministic, stable for the settlement's whole lifetime."""
+    """Deterministic, stable for the settlement's whole lifetime. Used
+    only for a settlement with no lineage to inherit from (the founding
+    settlement, or any legacy snapshot predating `Settlement.layout_
+    style`'s existence) — see `drift_layout_style` for the real
+    generational production rule a fission daughter goes through
+    instead."""
     return LAYOUT_STYLES[settlement_id % len(LAYOUT_STYLES)]
+
+
+LAYOUT_DRIFT_STAY_WEIGHT = 2
+"""A7 follow-up (roadmap Tier 3, layout domain — dialect_grammar's
+`drift_term` and architecture_grammar's per-instance descriptor already
+had their own recursive/varying mechanisms; layout was the one domain
+still a flat `settlement_id % 3` hash with zero lineage awareness).
+`drift_layout_style` is the real one-generation production rule: with
+weight `LAYOUT_DRIFT_STAY_WEIGHT` the daughter keeps its parent's style
+exactly (most fissions shouldn't visibly change a village's spatial
+character), otherwise the style rewrites to the NEXT style in `LAYOUT_
+STYLES`' fixed cycle — a small, closed alphabet, so "rotate to the next
+option" is the natural production rule (mirrors `dialect_grammar`'s own
+small-alphabet rewrite shape, just discrete-cycle instead of string-
+mutation). Called once per fission (a real generational step), so a
+lineage several fissions deep can end up several styles removed from
+its founding settlement's tradition — the same "further-removed
+lineages drift further" effect `dialect_grammar.drift_term`'s `steps`
+parameter gives coined terms, achieved here by simple repeated
+one-step application across generations rather than a single call with
+a `steps` count, since (unlike a coined word) each generation's style
+is itself real persisted state a later fission reads directly."""
+
+
+def _pick(seed_text: str, options: tuple[str, ...]) -> str:
+    """Same deterministic hash-pick shape `architecture_grammar.py`
+    already established — sha256 the seed, index into a small closed
+    option pool by its first byte."""
+    digest = hashlib.sha256(seed_text.encode()).digest()
+    return options[digest[0] % len(options)]
+
+
+def drift_layout_style(style: str, seed: str) -> str:
+    """One real production-rule application: a fission daughter's
+    layout style is (usually) its parent's, occasionally rewritten to
+    the next style in the cycle. `seed` must be unique per fission
+    event (the caller passes the new settlement's id) so two daughters
+    fissioning from the same parent in the same tick can still draw
+    independently."""
+    if style not in LAYOUT_STYLES:
+        style = LAYOUT_STYLES[0]
+    pool = ("stay",) * LAYOUT_DRIFT_STAY_WEIGHT + ("drift",)
+    if _pick(f"{seed}:layout_drift", pool) == "stay":
+        return style
+    idx = LAYOUT_STYLES.index(style)
+    return LAYOUT_STYLES[(idx + 1) % len(LAYOUT_STYLES)]
 
 
 def layout_site_bonus(

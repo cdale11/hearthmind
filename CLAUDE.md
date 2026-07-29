@@ -510,6 +510,37 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.84)
+
+Explicit user instruction: "Start A7 and A8" (docs/ROADMAP-2026-07-
+REMAINING.md's Tier 3). A7's layout domain closed: unlike dialect
+(recursive `steps`) and architecture (per-instance descriptor), layout
+was a flat `settlement_id % 3` hash with zero lineage awareness. New
+`Settlement.layout_style` (persisted, `None` = fall back to the
+original hash — zero migration) + `layout_grammar.drift_layout_style`
+(a real one-generation production rule, ~2:1 stay-vs-rewrite-to-next-
+style-in-cycle) wired at fission: a daughter's style now genuinely
+descends from its parent's, so a lineage several fissions deep can end
+up visibly further from its founding settlement's tradition. All three
+existing consumers (build-site scoring, the "Layout" stat tile,
+building-descriptor diagnostics) now read `effective_layout_style`.
+
+A8 investigated, not shipped: wiring the existing sandbox as an
+ontology-proposal acceptance gate (mirroring TriggerRule/
+CompositeReaction) would be real code but a vacuous signal —
+`InventedConcept.mechanical_hook` is never actually applied to World
+state, and even the one hook type anywhere in the codebase that IS a
+real numeric effect (`belief_confidence_bonus`) can't plausibly trip
+the sandbox's population/materials invariants. Shipping it would be a
+rubber stamp, not a real check. A genuinely meaningful version needs a
+comparative dual-fork (with vs. without a concept's adoption) — a
+materially larger lift, flagged rather than forced through.
+
+Verified (A7 only): direct unit tests (drift ratio, cycle wrap,
+invalid-style fallback), round-trip tests (real value, `None`
+fallback, legacy-snapshot backfill), a direct fission-site-shape test,
+`pyflakes` clean, a 4000-tick soak with clean round-trip.
+
 ## Current state (v1.34.83)
 
 Explicit user directive: "I am okay with occasional slow world

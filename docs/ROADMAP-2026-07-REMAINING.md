@@ -147,15 +147,57 @@ starts on an explicit instruction naming an item.
       speed) — the latter required and got the real native-module
       signature change `_native_building_decay_tick` was flagged as
       needing; both slices verified byte-identical native-vs-fallback.
-- [ ] **A7** — layout and architecture grammars stay single-application
-      scoring biases / fixed-slot productions; a real graph grammar over
-      terrain+roads and a real shape grammar with recursive subdivision
-      are each a genuinely bigger lift than dialect's fix was. Rules
-      becoming LLM-proposable also unattempted. (Ritual/recipe grammar
-      is *deliberately* not on this list — it contradicts a prior design
-      decision to keep that domain LLM-authored.)
-- [ ] **A8** — sandbox forward-simulation as a fitness input; grammar-
-      based mutation as an alternate generate path.
+- [x] **A7 — layout domain closed, v1.34.84.** Layout was the one A7
+      domain with zero lineage awareness (a flat `settlement_id % 3`
+      hash, uncorrelated with fission ancestry) — architecture's per-
+      instance descriptor and dialect's recursive `drift_term` both
+      already had real generational/varying mechanisms. New `Settlement.
+      layout_style` (persisted, `None` = "use the old hash" — zero
+      migration, byte-identical for the founding settlement and every
+      legacy snapshot); a fission daughter now gets a REAL value via
+      `layout_grammar.drift_layout_style` — usually its parent's style
+      unchanged, occasionally a real production-rule rewrite to the
+      next style in the fixed cycle, applied once per generation so a
+      lineage several fissions deep can end up visibly further from
+      its founding settlement's spatial tradition. A full graph grammar
+      over terrain+roads (the item's own stretch goal) remains
+      unattempted — this closes the specific gap (zero lineage
+      awareness), not a rewrite of the whole mechanism. Architecture's
+      "real shape grammar with recursive subdivision" also remains
+      unattempted, flagged unchanged from before. Rules becoming LLM-
+      proposable also unattempted. (Ritual/recipe grammar stays
+      deliberately off this list — contradicts a prior design decision
+      to keep that domain LLM-authored.)
+- [ ] **A8 — investigated, not shipped, v1.34.84.** Explicit user
+      instruction "Start A7 and A8." `simulation/sandbox.py`'s `run_
+      counterfactual` genuinely could be wired to gate `ontology.
+      register_concept` (mirroring exactly how `TriggerRule`/
+      `CompositeReaction` proposals are already sandboxed before going
+      live) — but doing so would be a rubber-stamp no-op, not a real
+      fitness/safety signal, and shipping it anyway would be worse than
+      not shipping it. Root cause: `InventedConcept.mechanical_hook`
+      is validated at generation-time (A5/A6) but never actually
+      APPLIED to World state — unlike `TriggerRule`/`CompositeReaction`,
+      nothing calls `_apply_trigger_rule_hook` for it. Even if it were
+      applied before sandboxing, `_apply_trigger_rule_hook`'s own
+      docstring already documents that only `belief_confidence_bonus`
+      is a real numeric effect (the others are explicitly narrative-
+      only by prior deliberate decision) — a one-time belief-confidence
+      bump can't plausibly trip the sandbox's population-crash/
+      -explosion or materials-explosion invariants within `SANDBOX_
+      TICKS` (50) regardless of what gets proposed, so the gate would
+      report "safe" unconditionally, every time. A genuinely meaningful
+      version needs a DIFFERENT mechanism than the existing accept/
+      reject sandbox gate — e.g. a comparative dual-fork (run WITH the
+      concept's adopters vs a counterfactual fork WITHOUT them, diff a
+      real prosperity/carrying-capacity outcome) — a materially larger
+      lift than this pass's scope, not attempted. Grammar-based
+      mutation as an alternate generate path (A8's other named piece,
+      depends on A7 reaching a genuine shape-grammar stage first) also
+      remains open. Filed as an explicit finding rather than forcing
+      vacuous code through the existing gate, matching this doc's own
+      standing "investigate first, don't force it" discipline (see
+      A17's v1.34.59 entry for precedent).
 - [ ] **A10** — migration, competition, decomposition, pollination,
       habitat formation; folding the food web onto A1's field substrate.
 - [ ] **A12** — per-instance `Entity.material` generalized beyond
@@ -2191,16 +2233,34 @@ since v1.34.62 (`llm/ontology.py`'s `validate_hook`). Per-instance
 tick` signature change) — no flagged pieces remain.
 
 ### A7 — Grammar-based procedural systems
-None of the three shipped domains is a full graph/shape grammar
-(layout = scoring bias, architecture = fixed three-slot production,
-dialect = one-rule-per-call, not recursive). Ritual/recipe-structure
-grammar (the spec's fourth domain) deliberately left LLM-authored.
-Rules being themselves LLM-proposable not attempted.
+**Layout domain closed, v1.34.84** — see the Tier 3 checklist entry
+above. Dialect (recursive `steps`, v1.34.63) and architecture (per-
+instance descriptor) already had real generational/varying mechanisms;
+layout was the one with none, now fixed via `Settlement.layout_style`
++ `layout_grammar.drift_layout_style`. None of the three is a full
+graph/shape grammar (layout = a real one-step-per-fission production
+rule over a small closed style alphabet, not a rewrite over an
+explicit settlement graph; architecture = fixed three-slot production;
+dialect = recursive but still string-mutation, not a shape grammar).
+Ritual/recipe-structure grammar (the spec's fourth domain)
+deliberately left LLM-authored. Rules being themselves LLM-proposable
+not attempted.
 
 ### A8 — Evolutionary Innovation loop
-Sandbox forward-simulation as a fitness input; grammar-based mutation
-(A7) as an alternate *generate* path alongside the existing LLM
-propose/evolve/merge — both open.
+**Investigated, not shipped, v1.34.84** — see the Tier 3 checklist
+entry above for the full finding. Sandbox forward-simulation as an
+ontology-proposal ACCEPTANCE gate (mirroring `TriggerRule`/
+`CompositeReaction`'s existing pattern) would be real code but a
+vacuous signal: `InventedConcept.mechanical_hook` is never actually
+applied to `World` state (unlike its siblings), and even the one hook
+type that IS a real numeric effect anywhere in this codebase
+(`belief_confidence_bonus`) can't plausibly trip the sandbox's
+population/materials invariants. A genuinely meaningful version needs
+a comparative dual-fork (with vs. without a concept's adoption,
+diffing a real prosperity outcome) — a materially larger lift,
+flagged, not attempted. Grammar-based mutation as an alternate
+*generate* path depends on A7 reaching a genuine shape-grammar stage
+first — also open.
 
 ### A9 — Producer/consumer feedback loops
 **CLOSED, v1.34.0-v1.34.2.** 15 named state stores checked; most

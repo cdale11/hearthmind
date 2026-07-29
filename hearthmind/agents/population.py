@@ -445,7 +445,7 @@ from hearthmind.world.terrain_evolution import (
     apply_road_scar,
 )
 from hearthmind.world.fields import FieldGrid
-from hearthmind.world.layout_grammar import layout_site_bonus, settlement_layout_style
+from hearthmind.world.layout_grammar import layout_site_bonus
 from hearthmind.world.materials import effective_material_name, material_repair_factor
 from hearthmind.world.spatial_memory import location_character_from_dicts
 from hearthmind.world.weather import WeatherState
@@ -5624,7 +5624,7 @@ class Population:
         layout_style = None
         standing_positions: frozenset[tuple[int, int]] = frozenset()
         if settlement is not None:
-            layout_style = settlement_layout_style(settlement.id)
+            layout_style = settlement.effective_layout_style
             standing_positions = frozenset(
                 (b.x, b.y) for b in settlement.buildings if b.stage is BuildingStage.STANDING
             )
