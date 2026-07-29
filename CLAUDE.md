@@ -510,6 +510,27 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.97)
+
+Explicit user instruction: "Continue tier 0 52 mirror sites." Docs-
+only — the honest finding this pass is a real dead-end, not a new
+site. Extended the fifth site's search technique codebase-wide and
+found two candidates sharing its exact shape (`_maybe_schedule_
+memory_drift`/`_maybe_schedule_noncore_nudge`, both Humans-pillar-
+owned uniform per-agent picks). Before implementing, enumerated every
+`humans_pillar.upsert_world_model` call site directly and found
+exactly one, whose subject is always the settlement's mood theme,
+never an agent's name — unlike Village/Innovation pillars, Humans'
+`world_model` has zero per-agent-keyed content anywhere. Weighting
+either candidate by `subject_confidence(agent.name)` would be a
+silent, permanent no-op, so neither was shipped. Re-confirmed (not
+assumed) that this environment still can't empirically test pillar
+content live: a 20,000-tick LLM-disabled soak produces zero pillar
+world_model entries and zero institutions, since `_schedule_llm_job`
+never fires without a live LLM server. Tier 0 stays at five real
+converted sites; a genuinely different Humans-owned site, or a first
+per-agent Humans world_model producer, remains open.
+
 ## Current state (v1.34.96)
 
 Explicit user request: "fresh candidate spotted by inspection" (Tier

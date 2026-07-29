@@ -4,6 +4,46 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.97] — Tier 0: a real dead-end found and correctly not shipped
+
+Explicit user instruction: "Continue tier 0 52 mirror sites." Docs-only
+— no code shipped this pass, and that itself is the honest finding.
+
+Extended the fifth site's search technique (every `rng.choice(`/`rng.
+choices(` codebase-wide, not just `simulation/engine.py`) to two
+candidates sharing the exact same shape as the already-shipped
+`institution_belief` conversion: `_maybe_schedule_memory_drift` and
+`_maybe_schedule_noncore_nudge` (both a uniform pick among per-agent
+candidates, Humans-pillar-owned).
+
+Before implementing either, enumerated EVERY `humans_pillar.upsert_
+world_model` call site directly (grep, not assumption) and found
+exactly one — `narrative_direction`'s mood-theme mirror, whose subject
+is always the settlement's dominant mood theme, never an agent's name.
+Unlike Village pillar (real per-person/family-name-keyed subjects via
+the `beliefs` job, plus guild/faction names) and Innovation pillar
+(concept names via `ontology_proposal`/`invention`/merge/evolve),
+Humans pillar's `world_model` currently has NO per-agent-keyed content
+anywhere in the codebase. Weighting either candidate site by `humans_
+pillar.subject_confidence(agent.name)` would read as a permanent,
+silent 0.0 in every real case — a decorative no-op wearing the shape
+of a real mechanism, not an actual signal. Correctly not shipped.
+
+This environment still has no live LLM server to empirically confirm
+subject content in a real run — re-confirmed directly rather than
+assumed: a 20,000-tick LLM-disabled soak produces zero pillar world_
+model entries and zero institutions at all, since `_schedule_llm_job`
+never fires without a live server (the same standing limitation
+D1-D4/D9/D10 already carry). The finding above rests on exhaustive
+code-reading of every real call site, not a live measurement, and is
+recorded as such.
+
+A genuinely different Humans-pillar-owned target-selection site — or
+a first per-agent-keyed Humans world_model producer that would unblock
+these two candidates — remains open, not attempted. Tier 0 total
+stays at five real converted sites (docs/ROADMAP-2026-07-REMAINING.md
+has the full per-site record).
+
 ## [1.34.96] — Tier 0's fifth conversion site: institution target selection
 
 Explicit user request: "fresh candidate spotted by inspection." Found

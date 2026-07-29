@@ -1230,6 +1230,36 @@ The site's docstring is worded to claim only what's actually
 guaranteed (uniform weights give a uniform *distribution*, not
 byte-identical draws) rather than overclaiming byte-parity.
 
+**Continued re-audit (explicit user instruction: "Continue tier 0 52
+mirror sites"), a real dead-end correctly identified and NOT shipped.**
+Extended the fifth site's search pattern (every `rng.choice(`/`rng.
+choices(` site codebase-wide, not just engine.py) to `agents/
+population.py`'s `_maybe_schedule_memory_drift`/`_maybe_schedule_
+noncore_nudge` — both a uniform pick among per-agent candidates,
+Humans-pillar-owned, the same shape `institution_belief`'s already-
+shipped conversion uses. Before implementing, enumerated EVERY
+`humans_pillar.upsert_world_model` call site in the codebase (grep,
+not assumption) and found exactly ONE, at `narrative_direction`'s
+mood-theme mirror — its subject is always the settlement's dominant
+mood theme, never an agent's name. Unlike Village pillar (which gets
+real per-person/family-name-keyed subjects via the `beliefs` job's
+`entry["subject"]`, plus guild/faction names) and Innovation pillar
+(concept names via `ontology_proposal`/`invention`/merge/evolve),
+Humans pillar's `world_model` currently has NO per-agent-keyed content
+anywhere. Weighting either site by `humans_pillar.subject_confidence(
+agent.name)` would read as a permanent, silent 0.0 in every real case
+— a decorative no-op, not a real signal — so neither was shipped.
+This environment also has no live LLM server to empirically confirm
+subject content in a real run (re-confirmed directly: a 20,000-tick
+LLM-disabled soak produces zero pillar world_model entries and zero
+institutions at all, since `_schedule_llm_job` never fires without a
+live server — the same standing limitation D1-D4/D9/D10 already
+carry), so this finding rests on exhaustive code-reading (every
+`upsert_world_model` call site enumerated directly), not a live
+measurement. A genuinely different Humans-pillar-owned target-
+selection site — or a first per-agent-keyed Humans world_model
+producer to unblock these two — remains open, not attempted.
+
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0
 and before Tier 1: these are correctness/tuning questions about
