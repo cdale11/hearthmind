@@ -208,9 +208,15 @@ starts on an explicit instruction naming an item.
       carrying capacity. `WildlifeGrid.tick`'s move-candidate
       weighting now also pulls toward nutrient-rich candidate tiles —
       real resource-pressure-driven migration, combined
-      multiplicatively with M4's existing trail-reuse preference.
-      Only "fold the whole food web onto A1's field substrate as one
-      coupled system" remains open — a larger, unscoped follow-up.
+      multiplicatively with M4's existing trail-reuse preference. A
+      first slice of "fold the whole food web onto A1's field
+      substrate" also shipped, v1.34.92: `WildlifeGrid.tick` now also
+      reads `population_density` (a field the human/settlement side
+      writes, not ecology-internal) to avoid heavily populated
+      regions — the first genuine bidirectional link between the
+      ecology and settlement halves of the field substrate. The rest
+      of the fold-in (a wildlife-presence field of its own, etc.)
+      remains open — explicitly a first slice, not closure.
 - [ ] **A12** — per-instance `Entity.material` generalized beyond
       buildings (per-*building*-instance material shipped v1.34.58).
 - [ ] **A16** — trade-as-network-flow, tech-as-DAG, information-
@@ -2387,8 +2393,27 @@ RNG-consumption pattern byte-for-byte.
 
 **A10 is now closed on every named det_sys.md piece.** Folding the
 whole food web onto A1's field substrate as one coupled system
-remains open — real follow-up work, not yet scoped, deliberately
-larger than any single slice above.
+remains the one open larger item — real follow-up work, deliberately
+bigger than any single slice above.
+
+**Field-substrate fold-in, first slice shipped, v1.34.92.** Audited
+every existing wildlife-side field consumer (`nutrients`/`scent`/
+`noise`) and found none read a field the human/settlement side
+writes — a genuinely one-directional coupling so far (humans already
+read `scent`, a wildlife-adjacent field, back via fission-site
+avoidance). New: `WildlifeGrid.tick`'s move-candidate weighting also
+avoids heavily populated regions via `World.fields`' `population_
+density` (`WILDLIFE_POPULATION_AVOIDANCE_MAX=0.6`, floored, combines
+multiplicatively with the existing trail/nutrient weight terms) —
+"wildlife shies from busy human areas," the first genuinely
+bidirectional link. `population_density=None` reproduces the exact
+prior RNG-consumption pattern byte-for-byte. Confirmed via a
+production-path statistical test (herds avoided a genuinely crowded
+region markedly more often than a no-pressure control, 2/40 vs. 6/40
+seeds across 40 trials each). This is a first slice, not closure — a
+real wildlife-presence field of its own (for other systems to read
+back), and deeper predator/prey coupling into more fields, remain
+open.
 
 ### A11 — Continuous hydrology
 **Shipped, second slice (v1.34.23).** Groundwater and erosion, the two

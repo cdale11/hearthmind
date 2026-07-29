@@ -4,6 +4,52 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.92] — A10: first slice of the field-substrate fold-in
+
+Explicit user instruction: "Continue A10." With all five named
+det_sys.md pieces shipped (v1.34.87-.91), the only A10 item left is
+"fold the existing food web onto A1's field substrate as one coupled
+system" — explicitly flagged as larger/unscoped. Ships a real first
+slice rather than attempting the whole thing at once.
+
+Audited every existing wildlife-side field consumer (`nutrients`,
+`scent`, `noise`) and found each reads a field that's either ecology-
+internal or generic — none read a field the HUMAN/settlement side
+writes. `World.fields`' `population_density` (A1's own first-shipped
+field) had no wildlife-side consumer at all. New `WildlifeGrid.tick`'s
+`population_density` param: a GRAZER herd's move candidates are now
+down-weighted in a heavily populated region (`WILDLIFE_POPULATION_
+AVOIDANCE_MAX=0.6`, floored so the combined weight is never zero),
+combined multiplicatively with the existing trail-preference and
+nutrient-pull terms. "Wildlife shies from busy human areas" closes a
+real two-way coupling — humans already read a wildlife-adjacent field
+back (`scent`, fed by predator positions, dampens `_choose_fission_
+site`'s odds of landing near a dangerous pack) — the first genuine
+bidirectional link between the two sides of "the food web" and "the
+field substrate," not just wildlife consuming ecology-internal
+signals.
+
+`population_density=None` (the pre-this-slice default) reproduces the
+exact prior RNG-consumption pattern byte-for-byte — verified directly,
+same discipline every sibling field param in this function already
+holds.
+
+Verified: a direct parity test (500-tick identical trajectories with
+`population_density` omitted vs. explicit `None`); a weight-floor
+check (never reaches zero even at full saturation); a production-path
+statistical test through the real `WildlifeGrid.tick()` on a 60x60
+map with a genuine population-density gradient — herds given the real
+gradient ended up in the crowded region less than a third as often
+(2/40 seeds) as herds given a flat field with no avoidance pressure
+(6/40), a real, reproducible avoidance effect; a 4000-tick `World.
+tick()` production soak (LLM disabled) with a clean round-trip.
+`pyflakes` clean. No native module touched.
+
+Folding the REST of the food web onto the field substrate (a wildlife-
+presence field of its own, predator/prey coupling into more fields,
+etc.) remains open — this is a first slice, not a claim of closure on
+the larger item.
+
 ## [1.34.91] — A10: migration (resource-pressure-driven movement)
 
 Explicit user instruction: "Continue A10." Ships A10's migration

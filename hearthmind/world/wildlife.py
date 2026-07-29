@@ -145,6 +145,22 @@ multiplicatively with the trail-preference weight when both are
 present — a candidate that's both an established crossing AND
 nutrient-rich is doubly preferred, not an either/or choice."""
 
+WILDLIFE_POPULATION_AVOIDANCE_MAX = 0.6
+"""A10 "Ecology / food webs" — "fold the existing food web onto A1's
+field substrate as one coupled system." Every other wildlife-side
+field consumer in this module (`nutrients`, `scent`, `noise`) reads a
+field that is itself ecology-internal or generic; this is the first
+wildlife behavior to react to a field the HUMAN settlement side
+writes (`World.fields`' `population_density`) — a GRAZER herd's move
+candidates are down-weighted up to this fraction in a heavily
+populated region, "wildlife shies from busy human areas," closing a
+real two-way coupling: humans already read wildlife-adjacent fields
+(`scent` feeds fission-site avoidance) and now wildlife reads a
+human-adjacent one back. Combines multiplicatively with the other two
+weight terms above; `population_density=None`/empty (no field data)
+reads as a component of exactly 1.0 — neutral, no avoidance, same
+discipline as every sibling field consumer's absence case."""
+
 GRAZE_CONSUMPTION_PER_TICK = 0.015
 GRAZE_REPRODUCE_MIN_FOOD = 0.1
 """A grazer herd colocated with a wild FOOD `ResourceNode` (world/
@@ -587,6 +603,7 @@ class WildlifeGrid:
         nutrients: "list[list[float]] | None" = None,
         snowpack: "list[list[float]] | None" = None,
         carcass_decomposition: "dict[tuple[int, int], float] | None" = None,
+        population_density: "list[list[float]] | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every herd/pack by one tick. Returns (category,
         description) events for a successful hunt or a pack/herd going
@@ -630,7 +647,15 @@ class WildlifeGrid:
         decomposition`) — distinct from `NUTRIENT_CYCLING`'s ongoing
         live-herd dung enrichment, this is a discrete, faster-decaying
         pulse from the actual carcass, consumed by `economy.farms.
-        apply_carcass_decomposition_bonus`."""
+        apply_carcass_decomposition_bonus`.
+
+        `population_density` (A10, "fold the food web onto A1's field
+        substrate," `World.fields`' `population_density`, optional —
+        `None` reproduces the exact pre-field-fold-in behavior): a
+        GRAZER herd's move candidates are down-weighted in a heavily
+        populated region (see `WILDLIFE_POPULATION_AVOIDANCE_MAX`) —
+        the first wildlife behavior in this module driven by a field
+        the human/settlement side writes, not an ecology-internal one."""
         rng = _wildlife_tick_rng(seed, tick)
         height = len(terrain)
         width = len(terrain[0]) if height else 0
@@ -702,21 +727,31 @@ class WildlifeGrid:
                     if safe:
                         candidates = safe
                 if candidates:
-                    # A10, migration slice: real resource-pressure-driven
-                    # movement — weight toward candidate tiles with a
-                    # richer `nutrients` reading, combined multiplicatively
-                    # with M4's existing trail-reuse preference when both
-                    # apply. `nutrients=None` (the pre-slice default)
-                    # reproduces the exact prior behavior: trail-only
-                    # weights if `migration_trails` is set, else a plain
-                    # uniform `rng.choice` — same RNG-consumption shape as
-                    # before for every caller not yet passing `nutrients`.
-                    if herd.species is Species.GRAZER and (migration_trails or nutrients is not None):
+                    # A10, migration + field-substrate-fold-in slices: real
+                    # resource-pressure-driven movement (weight toward a
+                    # richer `nutrients` reading) plus avoidance of heavily
+                    # populated regions (`population_density`, the human-
+                    # side field), combined multiplicatively with M4's
+                    # existing trail-reuse preference. `nutrients=None` AND
+                    # `population_density=None` (the pre-these-slices
+                    # default) reproduces the exact prior behavior: trail-
+                    # only weights if `migration_trails` is set, else a
+                    # plain uniform `rng.choice` — same RNG-consumption
+                    # shape as before for every caller not yet passing
+                    # either field.
+                    if herd.species is Species.GRAZER and (
+                        migration_trails or nutrients is not None or population_density is not None
+                    ):
                         weights = [
                             (1.0 + migration_trails.get(c, 0.0) * MIGRATION_TRAIL_PREFERENCE_WEIGHT
                              if migration_trails else 1.0)
                             * (1.0 + _field_region_value(nutrients, c[0], c[1], width, height)
                                * MIGRATION_NUTRIENT_PULL_WEIGHT)
+                            * max(
+                                0.0,
+                                1.0 - _field_region_value(population_density, c[0], c[1], width, height)
+                                * WILDLIFE_POPULATION_AVOIDANCE_MAX,
+                            )
                             for c in candidates
                         ]
                         herd.x, herd.y = rng.choices(candidates, weights=weights, k=1)[0]

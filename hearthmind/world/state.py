@@ -907,6 +907,11 @@ class World:
             nutrients=self.fields.fields.get("nutrients"),
             snowpack=self.hydrology_field.snowpack,
             carcass_decomposition=self.carcass_decomposition,
+            # A10, "fold the food web onto A1's field substrate": the
+            # first wildlife behavior reading a field the human side
+            # writes, same one-tick-stale convention as nutrients/noise
+            # immediately above.
+            population_density=self.fields.fields.get("population_density"),
         )
         settlement_events: list[tuple[str, str]] = []
         self.newly_named_settlement_ids = []

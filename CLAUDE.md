@@ -510,6 +510,32 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.92)
+
+Explicit user instruction: "Continue A10." All five named det_sys.md
+pieces already shipped (v1.34.87-.91) — this ships a real first slice
+of the remaining, explicitly-larger "fold the food web onto A1's
+field substrate" item rather than attempting it whole. Audited every
+wildlife-side field consumer (`nutrients`/`scent`/`noise`) and found
+none read a field the human/settlement side writes — `population_
+density` (A1's own first field) had zero wildlife-side consumer.
+`WildlifeGrid.tick`'s move-candidate weighting now also avoids
+heavily populated regions (`WILDLIFE_POPULATION_AVOIDANCE_MAX=0.6`,
+floored, combined multiplicatively with trail/nutrient terms) —
+"wildlife shies from busy human areas," the first genuine
+bidirectional link between the ecology and settlement field halves
+(humans already read a wildlife-adjacent field, `scent`, back).
+`population_density=None` reproduces the exact prior RNG-consumption
+pattern byte-for-byte, verified directly.
+
+Verified: a direct parity test, a weight-floor check, a production-
+path statistical test on a 60x60 map with a real population-density
+gradient (herds avoided the crowded region markedly more often — 2/40
+vs. 6/40 seeds — than a no-pressure control), a 4000-tick soak with
+clean round-trip. No native module touched. The rest of the field-
+substrate fold-in (a wildlife-presence field of its own, etc.) remains
+open — explicitly a first slice, not closure.
+
 ## Current state (v1.34.91)
 
 Explicit user instruction: "Continue A10." Ships migration — the
