@@ -1701,6 +1701,7 @@ class SimulationEngine:
                 road_scars=world.road_scars,
                 migration_trails=world.migration_trails,
                 dry_lakebed_scars=world.dry_lakebed_scars,
+                carcass_decomposition=world.carcass_decomposition,
             )
             self._broadcaster.set_diagnostics_provider(self.full_diagnostics)
             self._broadcaster.set_knowledge_tree_provider(self.world.knowledge_tree)
@@ -10518,6 +10519,7 @@ class SimulationEngine:
                 road_scars=self.world.road_scars,
                 migration_trails=self.world.migration_trails,
                 dry_lakebed_scars=self.world.dry_lakebed_scars,
+                carcass_decomposition=self.world.carcass_decomposition,
             )
         tick_events = [
             {"category": category, "description": description}

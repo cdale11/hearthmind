@@ -4,6 +4,68 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.87] — A10: decomposition (carcass-fed nutrient pulse)
+
+Explicit user instruction: "Check for other performance implications
+and fix them. Start A10 after that." Performance audit: grepped every
+`_tick_once()` call site across the codebase — confirmed `simulation/
+sandbox.py`'s two loops (both fixed in v1.34.86) were the ONLY place
+in the whole tree looping a synchronous tick multiple times inside an
+async function; no other instance of that bug class exists. Nothing
+further found or changed.
+
+A10 "Ecology / food webs" (roadmap Stage IV step 17), decomposition
+slice — the doc's own named gap distinct from the already-shipped
+predator-prey feedback and live-herd nutrient cycling
+(`economy.farms.apply_nutrient_cycling`, an ongoing, small, per-tick
+dung enrichment from a grazing herd). Decomposition is a different
+nutrient SOURCE: a real carcass left by a successful predator kill,
+a discrete one-time pulse rather than an ongoing trickle.
+
+New `world/terrain_evolution.py`'s `apply_carcass_decomposition`/
+`decay_carcass_decomposition` — same additive-capped/weekly-decay
+scar-shaped-dict pattern as `road_scars`/`migration_trails`/
+`dry_lakebed_scars`, but a single kill already clears the visible
+threshold on its own gain (unlike `migration_trails`' tiny per-step
+gain needing many reused crossings) since a kill is a genuinely
+discrete event, and decays faster (~5 weeks vs. migration trails'
+~9) since an actual carcass is consumed away quicker than a worn
+habit fades. New `World.carcass_decomposition` (persisted, legacy-
+backfill-safe via `dict.get(..., {})`), gained via `WildlifeGrid.
+tick`'s new optional `carcass_decomposition` param (`None` reproduces
+the exact prior RNG stream and behavior byte-for-byte — verified
+directly) at the real predator-kill site. New `economy/farms.py`'s
+`apply_carcass_decomposition_bonus` — the decomposition-side
+counterpart to `apply_nutrient_cycling`, same weekly cadence
+(`World._tick_disasters`), reading the position-keyed decomposition
+dict directly rather than iterating live herds, scaled stronger
+per-unit-intensity than the live-herd rate to reflect a real carcass
+being a concentrated source, still bounded per tick.
+
+UI: new rust-red `paintCarcassDecomposition` map layer (distinct
+color from every other scar), "Carcass decomposition" main-UI stat
+tile, bare-tile inspector "Carcass" section — `interface/api.py`'s
+`set_terrain` payload and BOTH of `engine.py`'s call sites gained the
+new field together (the exact "one call site missing a field" bug
+class v1.34.75 found and fixed once already, checked deliberately
+this time rather than repeated).
+
+Verified: direct unit tests (`apply_carcass_decomposition`'s single-
+kill-crosses-threshold/additive/capped behavior, `decay_carcass_
+decomposition`'s decay-then-delete, `apply_carcass_decomposition_
+bonus`'s radius-gated bonus and no-op-on-empty-input cases); a
+production-path test through the real `WildlifeGrid.tick()` (forced
+predator/grazer colocation, confirmed a real kill populates
+decomposition through the actual mechanism) plus a direct `None`-vs-
+omitted parity test confirming byte-identical RNG stream/behavior; a
+real 4000-tick `World.tick()` production soak (LLM disabled)
+confirming organic formation (1 site) through the actual engine, a
+clean `to_dict`/`from_dict` round-trip, and a legacy-snapshot
+backfill test (`carcass_decomposition` key absent entirely); a live
+dev server + `curl` pass confirming `carcass_decomposition` reaches
+both `/terrain` and `/state`'s `summary` in the real payload shape.
+`node --check` clean. No native module touched.
+
 ## [1.34.86] — Fix: A8's dual-fork froze the real event loop for seconds
 
 Direct user follow-up question on v1.34.85: "Would this worsen the

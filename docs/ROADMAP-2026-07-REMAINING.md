@@ -194,8 +194,13 @@ starts on an explicit instruction naming an item.
       based mutation as an alternate generate path (A8's other named
       piece, depends on A7 reaching a genuine shape-grammar stage
       first) remains open.
-- [ ] **A10** — migration, competition, decomposition, pollination,
-      habitat formation; folding the food web onto A1's field substrate.
+- [ ] **A10, decomposition slice shipped v1.34.87** — `World.carcass_
+      decomposition` (a real predator-kill carcass, distinct from the
+      already-shipped live-herd nutrient cycling) enriches nearby
+      soil fertility via `economy.farms.apply_carcass_decomposition_
+      bonus`. Migration, competition, pollination, habitat formation,
+      and folding the whole food web onto A1's field substrate remain
+      open.
 - [ ] **A12** — per-instance `Entity.material` generalized beyond
       buildings (per-*building*-instance material shipped v1.34.58).
 - [ ] **A16** — trade-as-network-flow, tech-as-DAG, information-
@@ -2308,10 +2313,17 @@ via `git stash` to predate this pass — a real open native/fallback
 divergence needing its own diagnostic pass.
 
 ### A10 — Ecology / food webs
-Migration, competition, decomposition, pollination (→ vegetation), and
+**Decomposition slice shipped, v1.34.87.** A real carcass from a
+successful predator kill (`World.carcass_decomposition`, `world/
+terrain_evolution.py`'s `apply_carcass_decomposition`/`decay_carcass_
+decomposition`) is a distinct, discrete nutrient source from the
+already-shipped `apply_nutrient_cycling` (an ongoing per-tick trickle
+from a LIVE grazing herd) — a real carcass genuinely enriches nearby
+farmland (`economy.farms.apply_carcass_decomposition_bonus`), stronger
+per-unit-intensity but faster-decaying (~5 weeks) than a live herd's
+steady dung. Migration, competition, pollination (→ vegetation), and
 habitat formation (reads fields, writes carrying capacity) all remain
-unbuilt beyond the shipped predator-prey feedback and nutrient
-cycling. Folding the whole food web onto A1's field substrate as one
+unbuilt. Folding the whole food web onto A1's field substrate as one
 coupled system is real follow-up work.
 
 ### A11 — Continuous hydrology

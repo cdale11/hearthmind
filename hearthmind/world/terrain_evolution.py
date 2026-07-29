@@ -570,6 +570,50 @@ def decay_migration_trails(trails: dict[tuple[int, int], float]) -> None:
             del trails[pos]
 
 
+CARCASS_DECOMPOSITION_GAIN_PER_ANIMAL = 0.4
+"""A10 "Ecology as interacting populations / food webs" (roadmap Stage
+IV step 17), decomposition slice: a single successful predator kill is
+a discrete, real event (unlike `MIGRATION_TRAIL_GAIN_PER_STEP`'s tiny
+per-step gain, which needs a herd to reuse the same crossing many
+times before a trail is even visible) — one kill (`PREDATOR_KILL_SIZE`
+animals, currently 1) already clears `CARCASS_DECOMPOSITION_VISIBLE_
+THRESHOLD` on its own, since a single carcass genuinely is a real,
+locatable enrichment source, not a cumulative habit."""
+
+CARCASS_DECOMPOSITION_DECAY_PER_WEEK = 0.08
+"""~5 weeks for a single kill's mark to fully clear — faster than
+`MIGRATION_TRAIL_DECAY_PER_WEEK` (~9 weeks): a carcass is consumed/
+decomposed away by scavengers and weather far quicker than a wildlife
+crossing habit fades."""
+
+CARCASS_DECOMPOSITION_VISIBLE_THRESHOLD = 0.2
+"""Same role as the other scar dicts' visible thresholds."""
+
+
+def apply_carcass_decomposition(
+    pos: tuple[int, int], decomposition: dict[tuple[int, int], float], kill_size: int = 1,
+) -> None:
+    """Called for the tile a predator pack just made a kill on (see
+    `WildlifeGrid.tick`'s `carcass_decomposition` param) — mutates
+    `decomposition` in place, same additive-capped shape as every
+    other scar dict here. `kill_size` scales the gain per animal
+    actually killed (mirrors `economy.farms.NUTRIENT_CYCLING_BONUS_
+    PER_ANIMAL`'s own per-animal scaling), so a larger kill leaves a
+    proportionally larger, still-capped mark."""
+    decomposition[pos] = min(
+        1.0, decomposition.get(pos, 0.0) + CARCASS_DECOMPOSITION_GAIN_PER_ANIMAL * max(1, kill_size)
+    )
+
+
+def decay_carcass_decomposition(decomposition: dict[tuple[int, int], float]) -> None:
+    """Called once per week, same cadence as the other scar-shaped
+    dicts."""
+    for pos in list(decomposition.keys()):
+        decomposition[pos] -= CARCASS_DECOMPOSITION_DECAY_PER_WEEK
+        if decomposition[pos] <= 0.0:
+            del decomposition[pos]
+
+
 DEFOREST_CHANCE_PER_TICK = 0.02
 """Rolled only once a tile's heat clears the threshold — deforestation
 isn't instant even under sustained pressure."""

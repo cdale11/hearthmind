@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from hearthmind.agents.agent import AgentGoal, AgentState
 from hearthmind.agents.population import Population
 from hearthmind.config import Config
-from hearthmind.economy.farms import FarmGrid, apply_nutrient_cycling
+from hearthmind.economy.farms import FarmGrid, apply_carcass_decomposition_bonus, apply_nutrient_cycling
 from hearthmind.settlement.buildings import BuildingKind, BuildingStage, Settlement, compute_resource_fill
 from hearthmind.settlement.naming import generate_settlement_name
 from hearthmind.time_system import SimClock
@@ -33,6 +33,7 @@ from hearthmind.world.terrain_evolution import (
     decay_road_scars,
     decay_migration_trails,
     decay_dry_lakebed_scars,
+    decay_carcass_decomposition,
     maybe_reclaim,
     nature_adaptation_bias,
     tick_climate,
@@ -301,6 +302,18 @@ class World:
     herds tend to reuse the same crossings, which is what makes the
     mark a real "trail" rather than a scattered record of every step
     ever taken."""
+
+    carcass_decomposition: dict[tuple[int, int], float] = field(default_factory=dict)
+    """A10 "Ecology / food webs" (roadmap Stage IV step 17), the
+    decomposition slice — same additive-decaying-dict shape as `road_
+    scars`/`migration_trails`, gained from `WildlifeGrid.tick`'s
+    predator-kill events (see `terrain_evolution.apply_carcass_
+    decomposition`/`decay_carcass_decomposition`) rather than agent or
+    herd traffic. Distinct from the pre-existing `economy.farms.apply_
+    nutrient_cycling` (an ongoing, low, per-tick bonus from a LIVE
+    herd's dung while grazing nearby) — this is a discrete, stronger,
+    faster-decaying pulse from an actual carcass at the kill site,
+    consumed by `economy.farms.apply_carcass_decomposition_bonus`."""
 
     dry_lakebed_scars: dict[tuple[int, int], float] = field(default_factory=dict)
     """M1/M9 "The Living Map" — the vision doc's own explicit "dried
@@ -893,6 +906,7 @@ class World:
             migration_trails=self.migration_trails, noise=self.fields.fields.get("noise"),
             nutrients=self.fields.fields.get("nutrients"),
             snowpack=self.hydrology_field.snowpack,
+            carcass_decomposition=self.carcass_decomposition,
         )
         settlement_events: list[tuple[str, str]] = []
         self.newly_named_settlement_ids = []
@@ -1096,6 +1110,10 @@ class World:
             # into nearby farmland — weekly cadence, same reasoning as
             # the hydrology tick immediately above.
             apply_nutrient_cycling(self.farms, self.wildlife.herds.values())
+            # A10, decomposition slice: the carcass-pulse counterpart to
+            # the live-herd enrichment immediately above — same weekly
+            # cadence, same reasoning.
+            apply_carcass_decomposition_bonus(self.farms, self.carcass_decomposition)
         return events
 
     def _tick_terrain(self, calendar_events: list[str]) -> list[tuple[str, str]]:
@@ -1148,6 +1166,7 @@ class World:
             decay_road_scars(self.road_scars)
             decay_migration_trails(self.migration_trails)
             decay_dry_lakebed_scars(self.dry_lakebed_scars)
+            decay_carcass_decomposition(self.carcass_decomposition)
 
         if "month_end" in calendar_events:
             climate_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "climate_drift")
@@ -1306,6 +1325,13 @@ class World:
                 "avg_intensity": (
                     round(sum(self.dry_lakebed_scars.values()) / len(self.dry_lakebed_scars), 3)
                     if self.dry_lakebed_scars else 0.0
+                ),
+            },
+            "carcass_decomposition": {
+                "sites": len(self.carcass_decomposition),
+                "avg_intensity": (
+                    round(sum(self.carcass_decomposition.values()) / len(self.carcass_decomposition), 3)
+                    if self.carcass_decomposition else 0.0
                 ),
             },
             "disaster_scars": {
@@ -1600,6 +1626,9 @@ class World:
             "road_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.road_scars.items()},
             "migration_trails": {f"{x}:{y}": round(v, 4) for (x, y), v in self.migration_trails.items()},
             "dry_lakebed_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.dry_lakebed_scars.items()},
+            "carcass_decomposition": {
+                f"{x}:{y}": round(v, 4) for (x, y), v in self.carcass_decomposition.items()
+            },
             "mining_scar_sustained_ticks": {
                 f"{x}:{y}": v for (x, y), v in self.mining_scar_sustained_ticks.items()
             },
@@ -1890,6 +1919,11 @@ class World:
             x_str, y_str = key.split(":")
             dry_lakebed_scars[(int(x_str), int(y_str))] = value
 
+        carcass_decomposition: dict[tuple[int, int], float] = {}
+        for key, value in data.get("carcass_decomposition", {}).items():
+            x_str, y_str = key.split(":")
+            carcass_decomposition[(int(x_str), int(y_str))] = value
+
         mining_scar_sustained_ticks: dict[tuple[int, int], int] = {}
         for key, value in data.get("mining_scar_sustained_ticks", {}).items():
             x_str, y_str = key.split(":")
@@ -1931,6 +1965,7 @@ class World:
             road_scars=road_scars,
             migration_trails=migration_trails,
             dry_lakebed_scars=dry_lakebed_scars,
+            carcass_decomposition=carcass_decomposition,
             mining_scar_sustained_ticks=mining_scar_sustained_ticks,
             flood_recurrence_counts=flood_recurrence_counts,
             construction_history=construction_history,

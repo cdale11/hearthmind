@@ -17,7 +17,7 @@ from enum import Enum
 
 from hearthmind.world.resources import ResourceGrid, ResourceKind
 from hearthmind.world.terrain import Biome, Tile
-from hearthmind.world.terrain_evolution import apply_migration_trail
+from hearthmind.world.terrain_evolution import apply_carcass_decomposition, apply_migration_trail
 
 try:
     from hearthmind._native import GrazerHerdIndex as _NativeGrazerHerdIndex
@@ -530,6 +530,7 @@ class WildlifeGrid:
         noise: "list[list[float]] | None" = None,
         nutrients: "list[list[float]] | None" = None,
         snowpack: "list[list[float]] | None" = None,
+        carcass_decomposition: "dict[tuple[int, int], float] | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every herd/pack by one tick. Returns (category,
         description) events for a successful hunt or a pack/herd going
@@ -564,7 +565,16 @@ class WildlifeGrid:
         scarcity, read via direct per-tile lookup (`_full_grid_value`),
         not the coarse `_field_region_value` bucketing `noise`/
         `nutrients` use, since `snowpack` already matches `terrain`'s
-        exact resolution."""
+        exact resolution.
+
+        `carcass_decomposition` (A10 "Ecology / food webs," `World.
+        carcass_decomposition`, optional — `None` reproduces the exact
+        pre-A10-decomposition behavior): a successful predator kill
+        marks the kill site (see `terrain_evolution.apply_carcass_
+        decomposition`) — distinct from `NUTRIENT_CYCLING`'s ongoing
+        live-herd dung enrichment, this is a discrete, faster-decaying
+        pulse from the actual carcass, consumed by `economy.farms.
+        apply_carcass_decomposition_bonus`."""
         rng = _wildlife_tick_rng(seed, tick)
         height = len(terrain)
         width = len(terrain[0]) if height else 0
@@ -688,7 +698,10 @@ class WildlifeGrid:
                 None,
             )
             if prey is not None and rng.random() < PREDATOR_HUNT_CHANCE:
-                prey.count -= min(PREDATOR_KILL_SIZE, prey.count)
+                kill_size = min(PREDATOR_KILL_SIZE, prey.count)
+                prey.count -= kill_size
+                if carcass_decomposition is not None:
+                    apply_carcass_decomposition((herd.x, herd.y), carcass_decomposition, kill_size)
                 herd.ticks_since_meal = 0
                 reproduce_chance = GRAZER_REPRODUCE_CHANCE * (
                     PREY_SCARCITY_REPRODUCE_PENALTY if prey_scarce else 1.0

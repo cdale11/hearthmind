@@ -205,6 +205,55 @@ def apply_nutrient_cycling(farms: "FarmGrid", herds) -> None:
         farms.soil_fertility[pos] = min(1.0, farms.fertility_at(fx, fy) + bonus)
 
 
+CARCASS_DECOMPOSITION_RADIUS = 2
+"""A10 "Ecology as interacting populations / food webs," decomposition
+slice — same Manhattan radius as `NUTRIENT_CYCLING_RADIUS`, local
+enrichment only."""
+
+CARCASS_DECOMPOSITION_BONUS_SCALE = 0.003
+"""Fertility gained per tick, per unit of nearby carcass-decomposition
+intensity (`World.carcass_decomposition`, 0..1 per site) — a real
+carcass is a concentrated one-time nutrient source, unlike a live
+herd's steady trickle of dung, so this is scaled well above `NUTRIENT_
+CYCLING_BONUS_PER_ANIMAL`'s per-tick-per-animal rate; still bounded by
+the max below and by the site's own real decay
+(`terrain_evolution.decay_carcass_decomposition`, ~5 weeks to clear)."""
+
+CARCASS_DECOMPOSITION_MAX_BONUS_PER_TICK = 0.003
+"""Cap on the summed per-tile bonus from `apply_carcass_decomposition_
+bonus` in a single call — same bounding discipline as `NUTRIENT_
+CYCLING_MAX_BONUS_PER_TICK`, scaled up to match the stronger per-site
+intensity above."""
+
+
+def apply_carcass_decomposition_bonus(
+    farms: "FarmGrid", decomposition: "dict[tuple[int, int], float]",
+) -> None:
+    """The decomposition-side counterpart to `apply_nutrient_cycling`
+    immediately above — same "read-only, additive-on-top-of-soil_
+    fertility, only touches already-farmed tiles" shape, but reads
+    `World.carcass_decomposition` (already position-keyed intensity)
+    directly rather than iterating live herds. Distinct nutrient
+    SOURCE (an actual kill site's carcass, not ongoing live-herd
+    dung), so it's a genuinely separate mechanism rather than folded
+    into the function above, even though both ultimately land on the
+    same `soil_fertility` state. Intended to be called at the same
+    week_end cadence as `apply_nutrient_cycling` (see `World.tick`)."""
+    if not farms.soil_fertility or not decomposition:
+        return
+    for pos in list(farms.soil_fertility):
+        fx, fy = pos
+        bonus = 0.0
+        for (dx, dy), intensity in decomposition.items():
+            if abs(dx - fx) + abs(dy - fy) > CARCASS_DECOMPOSITION_RADIUS:
+                continue
+            bonus += intensity * CARCASS_DECOMPOSITION_BONUS_SCALE
+        if bonus <= 0.0:
+            continue
+        bonus = min(bonus, CARCASS_DECOMPOSITION_MAX_BONUS_PER_TICK)
+        farms.soil_fertility[pos] = min(1.0, farms.fertility_at(fx, fy) + bonus)
+
+
 IRRIGATION_GROWTH_MULTIPLIER = 1.35
 """Integration milestone ("infrastructure networks"): a plot adjacent
 to water (`world/resources.is_adjacent_to_water` — the same helper H-

@@ -2065,6 +2065,22 @@ function paintDryLakebedScars(sctx, scars) {
   }
 }
 
+// A10 "Ecology / food webs," decomposition slice: a rust-red mark at a
+// predator kill site, distinct from every other scar color (dull
+// red/brown reads as "carrion," not human/civic or watery) — fades
+// faster than the others (~5 weeks) since a carcass decomposes quickly.
+function paintCarcassDecomposition(sctx, decomposition) {
+  if (!decomposition) return;
+  for (const key in decomposition) {
+    const intensity = decomposition[key];
+    if (!(intensity > 0)) continue;
+    const [xs, ys] = key.split(":");
+    const x = parseInt(xs, 10), y = parseInt(ys, 10);
+    sctx.fillStyle = `rgba(140,60,45,${(0.12 + intensity * 0.28).toFixed(3)})`;
+    sctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+  }
+}
+
 // Explicit user request, following M2/M8: elevation should render on
 // the map irrespective of biome boundary, so gradual erosion (quarry
 // formation, flood-recurrence erosion, A11's own weekly hydrology
@@ -2111,6 +2127,7 @@ function drawStaticTerrain() {
   paintRoadScars(sctx, terrain.road_scars);
   paintMigrationTrails(sctx, terrain.migration_trails);
   paintDryLakebedScars(sctx, terrain.dry_lakebed_scars);
+  paintCarcassDecomposition(sctx, terrain.carcass_decomposition);
   canvas.width = staticCanvas.width;
   canvas.height = staticCanvas.height;
   weatherCanvas.width = staticCanvas.width;
@@ -3593,6 +3610,10 @@ function renderTargetInspector() {
   if (lakebed > 0) {
     bits.push(`<div class="npc-section"><h4>Dry lakebed</h4><div>a lake's shoreline once reached here (${Math.round(lakebed * 100)}% still visible)</div></div>`);
   }
+  const carcass = (terrain && terrain.carcass_decomposition && terrain.carcass_decomposition[`${x}:${y}`]) || 0;
+  if (carcass > 0) {
+    bits.push(`<div class="npc-section"><h4>Carcass</h4><div>a predator's kill is decomposing here, enriching the ground (${Math.round(carcass * 100)}% still visible)</div></div>`);
+  }
   const miningScar = (terrain && terrain.mining_scars && terrain.mining_scars[`${x}:${y}`]) || 0;
   if (miningScar > 0) {
     bits.push(`<div class="npc-section"><h4>Mining scar</h4><div>torn-up ground from past extraction (${Math.round(miningScar * 100)}% still visible)</div></div>`);
@@ -4096,6 +4117,14 @@ function renderStats(summary) {
         return dl.sites ? `${dl.sites} site${dl.sites === 1 ? "" : "s"} (avg ${dl.avg_intensity.toFixed(2)})` : "none yet";
       })(),
       "When a lake's shoreline recedes, the vacated ground doesn't just vanish into bare land without a trace — the site keeps a faint memory of once being underwater, fading over several months if the water never returns.",
+    ],
+    [
+      "Carcass decomposition",
+      (() => {
+        const cd = summary.carcass_decomposition || {};
+        return cd.sites ? `${cd.sites} site${cd.sites === 1 ? "" : "s"} (avg ${cd.avg_intensity.toFixed(2)})` : "none yet";
+      })(),
+      "A successful predator kill leaves a real carcass behind — the site genuinely enriches nearby farmland's soil as it decomposes, on top of (and stronger than) a live herd's ordinary grazing enrichment. Fades within a few weeks as the carcass is consumed away.",
     ],
     [
       "Wetlands",

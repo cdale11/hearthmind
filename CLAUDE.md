@@ -510,6 +510,38 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.87)
+
+Explicit user instruction: "Check for other performance implications
+and fix them. Start A10 after that." Performance re-audit: grepped
+every `_tick_once()` call site codebase-wide — confirmed sandbox.py's
+two loops (fixed v1.34.86) were the only instance of the "synchronous
+multi-tick loop inside an async function" bug class; nothing else
+found.
+
+A10 "Ecology / food webs," decomposition slice: a real carcass from a
+successful predator kill is a distinct, discrete nutrient source from
+the already-shipped live-herd `apply_nutrient_cycling` (an ongoing
+per-tick dung trickle). New `World.carcass_decomposition` (same scar-
+shaped-dict pattern as `migration_trails`/`road_scars`) gained via
+`WildlifeGrid.tick`'s real kill site (`terrain_evolution.apply_
+carcass_decomposition`, `None`-default reproduces prior behavior
+byte-for-byte — verified), decays weekly (~5 weeks to clear, faster
+than migration trails since a carcass rots quicker than a habit
+fades), consumed by `economy.farms.apply_carcass_decomposition_bonus`
+— a real, stronger-than-live-grazing soil-fertility bump near a kill
+site. UI: new map overlay color, main-UI stat tile, bare-tile
+inspector line; both `set_terrain` call sites updated together
+(v1.34.75's "one call site missing a field" bug class, checked
+deliberately this time).
+
+Verified: direct unit tests for all three new functions, a
+production-path test through the real `WildlifeGrid.tick()` (forced
+kill, confirmed decomposition forms; `None`-vs-omitted RNG/behavior
+parity), a 4000-tick engine soak with clean round-trip + legacy
+backfill, and a live dev server + `curl` pass confirming the field
+reaches both `/terrain` and `/state`.
+
 ## Current state (v1.34.86)
 
 Direct user follow-up question on v1.34.85: "Would this worsen the
