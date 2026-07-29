@@ -46,10 +46,10 @@ starts on an explicit instruction naming an item.
 
 ### Tier 0 — pillar refactor (the biggest single lever)
 
-- [ ] Convert the remaining **~46 mirror-write sites** from "write into
+- [ ] Convert the remaining **~45 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); thirteen sites are now converted
+      confidence`, v1.34.46); fourteen sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -57,11 +57,13 @@ starts on an explicit instruction naming an item.
       `dream`'s monthly dreamer pick, `_detect_reflection_pattern`'s
       multi-settlement tiebreak (Reflection pillar's first site,
       v1.34.106), `species_variant`'s herd pick (Nature pillar's first
-      site, v1.34.107), and — v1.34.108 — `_voice_narrative_extra_
-      scores`'s Humans-pillar lean into the weekly voice-pair
-      protagonist pick). Each further site is real judgment work — find
-      a soft/tiebreak point a pillar's accumulated belief can
-      legitimately weigh, never hand a pillar a whole decision.
+      site, v1.34.107), `_voice_narrative_extra_scores`'s Humans-pillar
+      lean into the weekly voice-pair protagonist pick (v1.34.108), and
+      — v1.34.109 — `personal_belief`'s own monthly candidate draw,
+      self-referentially weighted by the same Humans pillar it writes
+      into). Each further site is real judgment work — find a soft/
+      tiebreak point a pillar's accumulated belief can legitimately
+      weigh, never hand a pillar a whole decision.
 
 ### Tier 0.5 — live-diagnostic findings
 
@@ -1447,6 +1449,29 @@ max-confidence belief about a different core-cast member flips the
 protagonist pick to them), a 4000-tick LLM-disabled soak with a clean
 round-trip, `pyflakes`/syntax clean. Tier 0 now has thirteen real
 converted sites.
+
+**Fourteenth site (v1.34.109, explicit user instruction: "Continue
+tier 0").** A self-referential site, same shape as `ontology_
+evolution`'s Innovation self-lean: `_maybe_schedule_personal_belief`
+WRITES `humans_pillar.world_model` (via `_run_personal_belief`'s
+apply(), v1.34.98) but its own monthly candidate draw — `rng.sample`,
+uniform without replacement — never READ it. Converted to a sequential
+weighted draw without replacement: each remaining candidate's weight
+is `1.0 + humans_pillar.subject_confidence(agent.name) * HUMANS_
+PERSONAL_TARGET_LEAN_WEIGHT`, the same constant every sibling Humans-
+lean site uses. `rng.sample` -> sequential `rng.choices` changes the
+RNG-consumption pattern (documented, same acknowledged class as
+v1.34.96/108's analogous conversions) but preserves the distribution —
+confirmed statistically.
+
+Verified: a 20,000-trial statistical test (near-uniform with no lean,
+a seeded 0.9-confidence candidate picked noticeably more often), a
+production-path test through the real `_maybe_schedule_personal_
+belief` (300 forced-gate trials, a max-confidence seeded belief raised
+the target's pick rate well above the uniform baseline), a 6,000-trial
+no-lean production-path regression test, a 4000-tick LLM-disabled soak
+with a clean round-trip, `pyflakes`/syntax clean. Tier 0 now has
+fourteen real converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

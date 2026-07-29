@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.109] — Tier 0's fourteenth conversion: personal_belief's monthly picks
+
+Explicit user instruction: "Continue tier 0." A self-referential site,
+same shape as `ontology_evolution`'s Innovation self-lean:
+`_maybe_schedule_personal_belief` WRITES `humans_pillar.world_model`
+(via `_run_personal_belief`'s apply(), v1.34.98) but its own monthly
+candidate draw — `rng.sample(candidates, k=PERSONAL_BELIEF_PICKS_
+PER_MONTH)`, uniform without replacement — never READ it.
+
+Converted to a sequential weighted draw without replacement: each
+remaining candidate's pick weight is `1.0 + humans_pillar.subject_
+confidence(agent.name) * HUMANS_PERSONAL_TARGET_LEAN_WEIGHT`, the
+exact same constant every sibling Humans-lean site already uses — no
+reason to tune this one differently. `rng.sample` -> sequential
+`rng.choices` is a real RNG-consumption-pattern change (documented,
+not a violation — same acknowledgment as v1.34.96/108's analogous
+conversions) but preserves the DISTRIBUTION: a 20,000-trial check
+confirmed near-uniform picks with no lean anywhere.
+
+Verified: a 20,000-trial statistical test (uniform with no lean, a
+seeded 0.9-confidence candidate picked noticeably more often), a
+production-path test through the real `_maybe_schedule_personal_
+belief` (300 forced-gate trials, a max-confidence seeded belief raised
+the target's pick rate well above the uniform baseline), a 6,000-trial
+no-lean production-path regression test (near-uniform across all core-
+cast candidates), a 4000-tick LLM-disabled soak with a clean
+round-trip, `pyflakes`/syntax clean. Tier 0 now has fourteen real
+converted sites.
+
 ## [1.34.108] — Tier 0's thirteenth conversion: voice-pair protagonist pick
 
 Explicit user instruction: "Continue." Audited for a next real site

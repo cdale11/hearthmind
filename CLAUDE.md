@@ -617,6 +617,26 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.109)
+
+Explicit user instruction: "Continue tier 0." Fourteenth conversion, a
+self-referential site (same shape as `ontology_evolution`'s Innovation
+self-lean): `_maybe_schedule_personal_belief` writes `humans_pillar.
+world_model` but its own monthly candidate draw (`rng.sample`, uniform
+without replacement) never read it. Converted to a sequential weighted
+draw without replacement using the same `HUMANS_PERSONAL_TARGET_LEAN_
+WEIGHT` every sibling Humans-lean site already uses. Preserves the
+DISTRIBUTION with no lean (verified statistically) even though the
+RNG-consumption pattern itself changes (documented, same acknowledged
+class as prior `rng.choice`->`rng.choices` conversions).
+
+Verified: a 20,000-trial statistical test (uniform baseline, seeded-
+lean bump), a production-path test through the real scheduling
+function (forced gate, seeded belief raises pick rate), a 6,000-trial
+no-lean production-path regression test, a 4000-tick LLM-disabled soak
+with clean round-trip, `pyflakes` clean. Tier 0 now has fourteen real
+converted sites.
+
 ## Current state (v1.34.108)
 
 Explicit user instruction: "Continue." Thirteenth Tier 0 conversion,

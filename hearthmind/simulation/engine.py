@@ -8140,7 +8140,28 @@ class SimulationEngine:
         # "one per agent") — stays within the "settlement-scoped jobs...
         # give those to the LLM freely" allowance (CLAUDE.md), not the
         # per-agent-gated category.
-        picks = rng.sample(candidates, k=min(PERSONAL_BELIEF_PICKS_PER_MONTH, len(candidates)))
+        # Tier 0's fourteenth conversion (docs/ROADMAP-2026-07-
+        # REMAINING.md): a self-referential site, same shape as
+        # `ontology_evolution`'s Innovation self-lean — this job WRITES
+        # `humans_pillar.world_model` (via `_run_personal_belief`'s
+        # apply(), v1.34.98) and now also READS it to help pick who
+        # gets this month's picks, weighted (never narrowed) toward
+        # whoever Humans' own accumulated attention already returns to.
+        # `rng.sample`'s uniform-without-replacement draw becomes a
+        # sequential weighted draw without replacement — the same
+        # `HUMANS_PERSONAL_TARGET_LEAN_WEIGHT` every sibling Humans-
+        # lean site already uses, no reason to tune this one
+        # differently.
+        pool = list(candidates)
+        picks = []
+        for _ in range(min(PERSONAL_BELIEF_PICKS_PER_MONTH, len(pool))):
+            weights = [
+                1.0 + self.world.humans_pillar.subject_confidence(a.name) * HUMANS_PERSONAL_TARGET_LEAN_WEIGHT
+                for a in pool
+            ]
+            chosen = rng.choices(pool, weights=weights, k=1)[0]
+            picks.append(chosen)
+            pool.remove(chosen)
         for agent in picks:
             self._run_personal_belief(agent)
 
