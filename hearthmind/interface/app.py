@@ -449,7 +449,9 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
         if payload is None:
             return JSONResponse({"error": "no tick has completed yet"}, status_code=503)
         pillars = payload.get("summary", {}).get("pillars", {})
-        return JSONResponse(pillars.get(pillar, {"question": "", "answer": "", "tick": -1, "pending": False}))
+        return JSONResponse(
+            pillars.get(pillar, {"question": "", "answer": "", "tick": -1, "pending": False, "initiated_messages": []}),
+        )
 
     @app.post("/ask/{pillar}")
     async def ask_pillar(pillar: str, payload: dict) -> JSONResponse:

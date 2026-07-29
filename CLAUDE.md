@@ -617,6 +617,28 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.103)
+
+Explicit user instruction: "Let's complete tier 2 first." Tier 2 turned
+out already fully closed (every item CLOSED, nothing open). Via
+`AskUserQuestion`, moved to Tier 3's open items: C2 (large, mostly
+blocked on Tier 0's own unfinished refactor — left flagged) and C3
+("pillars may initiate contact," shipped).
+
+New `Pillar.initiated_messages`/`push_initiated_message`: the pillar-
+to-player direction the existing `conversation_log` (player-initiated
+Q&A) doesn't cover. Zero new LLM cost — always surfaces an already-
+formed `world_model` belief, never generates fresh text. New
+`SimulationEngine._maybe_pillar_initiates_contact` (monthly): a
+pillar's newest belief crossing a real confidence threshold gets a
+real monthly roll to volunteer it, deduped by entry id. `GET /pillar/
+{pillar}` and the "ask a pillar" main-UI panel both surface it.
+
+Verified: direct unit tests (cap, round-trip, legacy backfill), a
+production-path test through the real scheduling function (fires
+once, no duplicate, no-op off month_end, no-op below confidence), a
+4000-tick soak with clean round-trip. No native module touched.
+
 ## Current state (v1.34.102)
 
 Explicit user instruction: "Can we build some from tier 5?" — starts

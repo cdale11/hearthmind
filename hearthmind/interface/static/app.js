@@ -204,6 +204,7 @@ const CATEGORY_META = {
   prophecy_forgotten: { icon: "🔮" },
   chronicler_answer: { icon: "📖" },
   pillar_answer: { icon: "🗣" },
+  pillar_initiated: { icon: "💭" },
   mining_scarred: { icon: "⛏️" },
   disaster_scarred: { icon: "🌋" },
   terrain_eroded: { icon: "🏞️" },
@@ -250,7 +251,7 @@ const EVENT_GROUP_OF = {
   institution_belief: "mind", ritual_formed: "mind", religion_formed: "mind",
   narrative_direction: "mind", consciousness_intervention: "mind", dialect_coined: "mind",
   prophecy_formed: "mind", prophecy_confirmed: "mind", prophecy_forgotten: "mind", chronicler_answer: "mind",
-  pillar_answer: "mind",
+  pillar_answer: "mind", pillar_initiated: "mind",
 };
 let activeEventGroup = "all";
 
@@ -660,6 +661,8 @@ const pillarChatInput = document.getElementById("pillar-chat-input");
 const pillarChatStatus = document.getElementById("pillar-chat-status");
 const pillarChatQuestionEcho = document.getElementById("pillar-chat-question-echo");
 const pillarChatAnswer = document.getElementById("pillar-chat-answer");
+const pillarChatInitiated = document.getElementById("pillar-chat-initiated");
+const pillarChatInitiatedText = document.getElementById("pillar-chat-initiated-text");
 let pillarChatPollTimer = null;
 
 function renderPillarChat(pillar, data) {
@@ -674,6 +677,17 @@ function renderPillarChat(pillar, data) {
     pillarChatQuestionEcho.classList.remove("hidden");
   }
   if (data.answer) pillarChatAnswer.textContent = data.answer;
+  // C3 "pillars may initiate contact": the newest unprompted message
+  // this pillar has volunteered on its own, if any — distinct from the
+  // question/answer exchange above.
+  const initiated = data.initiated_messages || [];
+  if (initiated.length) {
+    const latest = initiated[initiated.length - 1];
+    pillarChatInitiatedText.textContent = `"${latest.text}" (tick ${latest.tick})`;
+    pillarChatInitiated.classList.remove("hidden");
+  } else {
+    pillarChatInitiated.classList.add("hidden");
+  }
 }
 
 async function loadPillarChat() {

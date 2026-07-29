@@ -4,6 +4,49 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.103] — C3 CLOSED: pillars may initiate contact
+
+Explicit user instruction: "Let's complete tier 2 first." Investigation
+found Tier 2 ("self-contained mechanism gaps") already fully closed —
+every item (A3/A4/A15/A14/A18/A19/A21/A20/A13/A17/B5/C4) is marked
+CLOSED, nothing open. Via `AskUserQuestion`, moved to Tier 3's open
+items instead: C2 (most spec-named pillar-emitted intentions aren't
+pillar-emitted at all — genuinely large, explicitly noted as mostly
+blocked on Tier 0's own still-unfinished refactor, ~45 sites
+remaining) and C3 ("pillars may initiate contact," the one flagged-
+not-attempted half of the player<->pillar chat feature, v1.8.0 shipped
+only the player-initiated `/ask/{pillar}` direction). Shipped C3; C2
+left flagged rather than forcing a shallow slice through a mechanism
+this large.
+
+New `Pillar.initiated_messages` (bounded, same shape as `conversation_
+log`) + `push_initiated_message(subject, text, tick, world_model_
+entry_id)`: the pillar-to-player direction `record_conversation`
+doesn't cover. Zero new LLM cost by construction — `text` is always an
+already-formed `world_model` belief's own text, never a fresh
+generation; the mechanism is entirely about WHETHER/WHEN to surface an
+existing thought, not authoring a new one. New `SimulationEngine.
+_maybe_pillar_initiates_contact` (monthly): for each of the five
+pillars, if its newest `world_model` entry's confidence crosses
+`PILLAR_INITIATE_CONFIDENCE_THRESHOLD` (0.75) and hasn't already been
+shared (deduped by `world_model_entry_id`), a real independent monthly
+roll (`PILLAR_INITIATE_CHANCE_PER_MONTH`, 0.3) decides whether it
+volunteers it this month — same "meaningful, never a certainty" shape
+`CARAVAN_CHANCE_PER_MONTH` already uses elsewhere. `GET /pillar/
+{pillar}` gained `initiated_messages` in its payload; the existing
+"ask a pillar" main-UI panel gained an "unprompted" section showing
+the latest one, distinct from the question/answer exchange above it.
+New `pillar_initiated` event category (💭 icon, "mind" filter group).
+
+Verified: direct unit tests of `push_initiated_message` (cap, round-
+trip, legacy-snapshot backfill with the new fields absent); a
+production-path test through the real `_maybe_pillar_initiates_
+contact` (a seeded high-confidence belief triggers exactly once, a
+repeat call doesn't duplicate, a non-`month_end` tick is a no-op, a
+low-confidence belief never triggers); a 4000-tick LLM-disabled soak
+with a clean round-trip; `node --check` on the frontend change. No
+native module touched.
+
 ## [1.34.102] — Tier 5 started: B15.1 replay-hash equivalence test
 
 Explicit user instruction: "Can we build some from tier 5?" Tier 5

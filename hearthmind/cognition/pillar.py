@@ -194,6 +194,11 @@ class Pillar:
     genuinely needs to pause between them, not yet exercised as
     separate persisted stops."""
 
+    INITIATED_MESSAGES_MAX = 10
+    """C3 "pillars may initiate contact": same bound as `CONVERSATION_
+    LOG_MAX` for the same reason — a long-running world's unprompted-
+    message history shouldn't grow unbounded."""
+
     CONVERSATION_LOG_MAX = 10
     """C3 "Player <-> Pillar chat" (roadmap Stage III step 10): "a light
     per-pillar player-model" — bounded so a long-running world's chat
@@ -211,6 +216,7 @@ class Pillar:
         last_turn_tick: int = -1, conversation_log: list[dict] | None = None,
         last_question: str = "", last_answer: str = "", last_answer_tick: int = -1,
         turns_processed: int = 0, memory_access: list[int] | None = None,
+        initiated_messages: list[dict] | None = None, last_initiated_tick: int = -1,
     ) -> None:
         self.name = name
         self.description = description
@@ -265,6 +271,20 @@ class Pillar:
         summary_pending` (see `to_dict`'s comment); always loads back
         `False`, since a generation left in flight at shutdown never
         resolves after restart."""
+        self.initiated_messages = initiated_messages if initiated_messages is not None else []
+        """C3 "pillars may initiate contact" (docs/ROADMAP-2026-07-
+        REMAINING.md): the reverse direction from `conversation_log`
+        (which only ever holds a player-asked/pillar-answered pair) —
+        an unprompted message this pillar pushed to the player on its
+        own initiative, via `push_initiated_message`. Bounded, same
+        `INITIATED_MESSAGES_MAX` cap discipline as every other pillar
+        list."""
+        self.last_initiated_tick = last_initiated_tick
+        """The tick of this pillar's own most recent `push_initiated_
+        message` call, `-1` until its first — `SimulationEngine._maybe_
+        pillar_initiates_contact`'s cooldown gate reads this so a
+        pillar can't spam the player every time a fresh high-confidence
+        belief happens to form."""
 
     def note_observation(self, text: str) -> None:
         """B2's `observe` stage: appends one curated observation (a
@@ -410,6 +430,25 @@ class Pillar:
         self.last_answer = answer
         self.last_answer_tick = tick
 
+    def push_initiated_message(self, subject: str, text: str, tick: int, world_model_entry_id: int | None) -> None:
+        """C3 "pillars may initiate contact": the pillar-to-player
+        direction `record_conversation` doesn't cover — this pillar
+        volunteering something unprompted, rather than answering a
+        question. Zero new LLM cost by construction: `text` is always
+        an already-formed `world_model` belief's own text (see
+        `SimulationEngine._maybe_pillar_initiates_contact`), never a
+        fresh generation — the mechanism is WHETHER/WHEN to surface an
+        existing thought, not authoring a new one. `world_model_entry_
+        id` lets the caller dedupe (never re-announce the same belief
+        twice) without this method needing to know the dedupe policy
+        itself."""
+        self.initiated_messages.append({
+            "subject": subject, "text": text, "tick": tick, "world_model_entry_id": world_model_entry_id,
+        })
+        if len(self.initiated_messages) > self.INITIATED_MESSAGES_MAX:
+            self.initiated_messages = self.initiated_messages[-self.INITIATED_MESSAGES_MAX:]
+        self.last_initiated_tick = tick
+
     def send_message(self, message: dict) -> None:
         """B4: appends to this pillar's own `outbox` (its sent-message
         record), capped at `OUTBOX_MAX`. Call via `SimulationEngine.
@@ -549,6 +588,8 @@ class Pillar:
             # `pending` deliberately NOT persisted — same "in-flight
             # state never survives a restart" reasoning as `World.
             # chronicler_pending`/`sim_summary_pending`.
+            "initiated_messages": [dict(m) for m in self.initiated_messages],
+            "last_initiated_tick": self.last_initiated_tick,
         }
 
     @classmethod
@@ -578,6 +619,8 @@ class Pillar:
             last_question=data.get("last_question", ""),
             last_answer=data.get("last_answer", ""),
             last_answer_tick=data.get("last_answer_tick", -1),
+            initiated_messages=[dict(m) for m in data.get("initiated_messages", [])],
+            last_initiated_tick=data.get("last_initiated_tick", -1),
         )
 
 

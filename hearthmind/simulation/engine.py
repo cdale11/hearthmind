@@ -2408,6 +2408,7 @@ class SimulationEngine:
         ("_maybe_schedule_omen", _JOB_EVENTS),
         ("_maybe_tick_market_prices", _JOB_EVENTS),
         ("_maybe_tick_settlement_trade", _JOB_EVENTS),
+        ("_maybe_pillar_initiates_contact", _JOB_EVENTS),
         ("_maybe_schedule_record", _JOB_NO_ARGS),
         ("_maybe_schedule_dispute", _JOB_NO_ARGS),
         ("_maybe_schedule_guild_founding", _JOB_EVENTS),
@@ -3969,6 +3970,51 @@ class SimulationEngine:
             pillar.note_observation(f"A visitor asked: \"{question}\" — I answered: {answer}")
 
         self._schedule_llm_job(f"pillar_chat_{pillar_name}", prompt, system_prompt, fallback, apply)
+
+    PILLAR_INITIATE_CONFIDENCE_THRESHOLD = 0.75
+    """C3 "pillars may initiate contact" (docs/ROADMAP-2026-07-
+    REMAINING.md) — the one half of the player<->pillar chat feature
+    v1.8.0 explicitly flagged as not attempted (only the player-
+    initiated `/ask/{pillar}` direction shipped). Only a genuinely
+    confident belief is worth a pillar volunteering unprompted — a
+    fresh `hypothesis`-status entry stays private until it's actually
+    been reasoned about enough to earn real confidence, same bar this
+    codebase already uses elsewhere for "confident enough to act on"
+    (e.g. `TRUST_SKEPTICISM_THRESHOLD`'s sibling reasoning)."""
+
+    PILLAR_INITIATE_CHANCE_PER_MONTH = 0.3
+    """Once a pillar has a qualifying belief, it doesn't announce it the
+    very first month it crosses the confidence bar — a real independent
+    roll each month keeps the timing from reading as a mechanical
+    trigger, same "meaningful, never a certainty" shape `CARAVAN_
+    CHANCE_PER_MONTH`/`FESTIVAL_CHANCE_PER_MONTH` already use."""
+
+    def _maybe_pillar_initiates_contact(self, events: list[str]) -> None:
+        """C3's other half: monthly, zero NEW LLM cost by construction
+        — this only ever surfaces a belief a pillar's own real cognition
+        has ALREADY formed (`Pillar.world_model`'s newest entry), never
+        generates fresh text. The mechanism is entirely deterministic:
+        WHETHER/WHEN a pillar volunteers a thought it already holds
+        unprompted, not what it says. Deduped by `world_model_entry_id`
+        (`Pillar.push_initiated_message`'s own docstring) so the same
+        belief is never announced twice, even across many months of it
+        staying the pillar's newest/most-confident entry."""
+        if "month_end" not in events:
+            return
+        rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "pillar_initiate")
+        for name in emergence.PILLARS:
+            pillar = getattr(self.world, f"{name}_pillar")
+            if not pillar.world_model:
+                continue
+            entry = pillar.world_model[-1]
+            if entry.get("confidence", 0.0) < self.PILLAR_INITIATE_CONFIDENCE_THRESHOLD:
+                continue
+            if any(m.get("world_model_entry_id") == entry["id"] for m in pillar.initiated_messages):
+                continue
+            if rng.random() >= self.PILLAR_INITIATE_CHANCE_PER_MONTH:
+                continue
+            pillar.push_initiated_message(entry["subject"], entry["belief"], self.world.clock.tick_count, entry["id"])
+            self._log("pillar_initiated", f"{name.capitalize()} wanted to tell you something: \"{entry['belief']}\"")
 
     def _review_advisory(self, advisory_id, status: str) -> None:
         """B6 "Reflection as meta-scientist" (roadmap Stage III step

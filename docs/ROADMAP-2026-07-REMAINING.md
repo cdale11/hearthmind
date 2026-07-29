@@ -265,9 +265,20 @@ starts on an explicit instruction naming an item.
 - [ ] **C2** — most spec-named pillar-emitted intentions (invent tech,
       set custom, change law, reorganize institution, shift land use,
       domesticate, build, propose experiment) aren't pillar-emitted at
-      all. Mostly waits on Tier 0.
-- [ ] **C3** — "pillars may initiate contact" (today: player-initiated
-      only, via `/ask/{pillar}`).
+      all. Mostly waits on Tier 0 (still ~45 unconverted mirror-write
+      sites, per that tier's own tracking) — genuinely large, not
+      attempted this pass.
+- [x] **C3 — CLOSED, v1.34.103.** "Pillars may initiate contact," the
+      one flagged-not-attempted half of the player<->pillar chat
+      feature (v1.8.0 shipped only the player-initiated `/ask/{pillar}`
+      direction). New `Pillar.initiated_messages`/`push_initiated_
+      message` + `SimulationEngine._maybe_pillar_initiates_contact`
+      (monthly, zero NEW LLM cost — surfaces a pillar's own already-
+      formed newest `world_model` belief once it crosses a real
+      confidence threshold, deduped by entry id so the same belief is
+      never announced twice). `GET /pillar/{pillar}` gained `initiated_
+      messages`; the existing "ask a pillar" main-UI panel gained an
+      "unprompted" section showing the latest one.
 
 ### Tier 4 — standing discipline (never "finished")
 
@@ -3275,9 +3286,12 @@ gap that mostly waits on Tier 0's bigger refactor to even become
 relevant.
 
 ### C3 — Player ↔ Pillar chat
-"Pillars may initiate contact" (today: strictly player-initiated via
-`/ask/{pillar}`) — flagged as real future scope in the doc itself, not
-silently dropped.
+**CLOSED, v1.34.103.** "Pillars may initiate contact" shipped: `Pillar.
+initiated_messages`/`push_initiated_message` + `SimulationEngine._maybe_
+pillar_initiates_contact` (monthly, zero new LLM cost — surfaces a
+pillar's own already-formed newest `world_model` belief once it
+crosses a real confidence threshold, deduped by entry id). `GET
+/pillar/{pillar}` and the "ask a pillar" main-UI panel both surface it.
 
 ### C4 — The acceptance gate as law
 **CLOSED (second real instance), v1.34.61.** The runtime auditor half

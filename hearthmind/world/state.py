@@ -1440,6 +1440,12 @@ class World:
                     "answer": getattr(self, f"{name}_pillar").last_answer,
                     "tick": getattr(self, f"{name}_pillar").last_answer_tick,
                     "pending": getattr(self, f"{name}_pillar").pending,
+                    # C3 "pillars may initiate contact": the reverse
+                    # direction — messages this pillar volunteered
+                    # unprompted, newest last, same shape the UI's
+                    # existing "ask a pillar" panel already renders
+                    # conversation_log entries in.
+                    "initiated_messages": list(getattr(self, f"{name}_pillar").initiated_messages),
                 }
                 for name in emergence.PILLARS
             },
