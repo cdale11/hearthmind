@@ -510,6 +510,45 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.85)
+
+Explicit user instruction: "Take dual fork of A8" — the heavier
+comparative mechanism v1.34.84's investigation flagged as the only
+way to make A8's "sandbox forward-simulation as a fitness input" ask
+genuinely meaningful, rather than the naive acceptance-gate approach
+that pass correctly declined to ship as a vacuous rubber stamp
+(`InventedConcept.mechanical_hook` is never consumed).
+
+Before building on it, re-confirmed that finding wasn't a blanket
+"adoption has zero effect" — `adopter_ids` (distinct from
+`mechanical_hook`) DOES causally shape simulation dynamics via
+`FieldGrid.step_cultural_influence` -> `Population._maybe_welcome_
+migrant`'s `MIGRANT_CULTURAL_PULL` (v1.34.62). New `simulation/
+sandbox.py`'s `evaluate_concept_dual_fork`: forks the world twice
+from one shared snapshot (with vs. without a concept's real
+`adopter_ids`, both LLM-disabled, 150 ticks) and returns the
+population delta — meaningful rather than noise because both forks
+share the identical seed/RNG stream, so a nonzero delta is a real
+migrant-threshold tipping point, not independent sampling variance.
+New `world/ontology.py`'s `reinstate_concept` is a SECOND, slower
+causal opinion layered on top of (never replacing) `run_selection`'s
+existing immediate correlational retirement — `SimulationEngine.
+_confirm_concept_retirement` diffs retired-concept-ids before/after
+each `run_selection` call and schedules an async dual-fork check per
+newly-retired concept; a positive delta reinstates (status back to
+`established`, `fitness_history` cleared, the mirrored Innovation
+belief re-confirmed), zero/negative leaves the retirement standing.
+UI: new `ontology_reinstated` event (♻️).
+
+Verified: direct unit tests (`evaluate_concept_dual_fork`'s no-
+adopters/nonexistent-concept `None` cases, a real with-adopters fork
+pair, non-mutation of the real world; `reinstate_concept`'s non-
+retired no-op and real-retirement reinstatement), a production-path
+test through the real `_confirm_concept_retirement` background-task
+wiring (positive delta reinstates, negative stays retired), a direct
+test of the real `run_selection` retired-diff detection, a 4000-tick
+LLM-disabled soak with clean round-trip. No native module touched.
+
 ## Current state (v1.34.84)
 
 Explicit user instruction: "Start A7 and A8" (docs/ROADMAP-2026-07-

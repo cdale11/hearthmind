@@ -127,3 +127,93 @@ async def run_counterfactual(world: World, config, ticks: int = SANDBOX_TICKS) -
         "safe": True, "reason": "within invariants",
         "population_start": population_start, "population_end": population_end,
     }
+
+
+CONCEPT_FITNESS_SANDBOX_TICKS = 150
+"""A8's dual-fork causal check (`evaluate_concept_dual_fork`) runs
+3x longer than `SANDBOX_TICKS` — a population-mediated effect (a
+concept's adopters attracting more migrants via `FieldGrid.
+cultural_influence`) needs real time to compound into a visible
+headcount difference, unlike the fast crash/explosion invariant
+checks `run_counterfactual` looks for. Still bounded/synchronous
+enough to run inline from an LLM job's `apply` callback (this
+function is only ever awaited from inside a background task, never
+blocking a real tick)."""
+
+
+async def evaluate_concept_dual_fork(
+    world: World, config, concept_id: int, ticks: int = CONCEPT_FITNESS_SANDBOX_TICKS,
+) -> float | None:
+    """A8 "Evolutionary Innovation," the comparative dual-fork the
+    roadmap's own audit (v1.34.84) flagged as the only way to make
+    "sandbox forward-simulation as a fitness input" genuinely
+    meaningful rather than a rubber stamp: `InventedConcept.
+    mechanical_hook` is never consumed as a numeric effect
+    (`_apply_trigger_rule_hook`'s own docstring), so a naive
+    with-vs-without-the-CONCEPT fork would always diff to zero. The
+    one real causal pathway concept adoption has on simulation
+    dynamics instead runs through `adopter_ids`: `World.tick()` unions
+    every concept's adopters into `FieldGrid.step_cultural_influence`,
+    which gives `Population._maybe_welcome_migrant` a real positive
+    `MIGRANT_CULTURAL_PULL` pull in the region(s) adopters stand in.
+
+    Forks the world TWICE — once with the concept's real current
+    `adopter_ids`, once with that set stripped to empty for this
+    concept only — and runs both forward for `ticks` (LLM disabled,
+    same disposable-fork discipline as `run_counterfactual`). Returns
+    `population_with - population_without`, or `None` if the concept
+    has no adopters to strip (nothing to compare) or doesn't exist.
+
+    Why a nonzero delta is a genuine causal signal and not just two
+    independent noisy runs: every RNG draw in this codebase is
+    `_namespaced_rng`/`_namespaced_roll`, keyed by `(seed, tick_count,
+    ...)` — never by call order or any state that differs between the
+    two forks before their first divergent roll. Both forks share the
+    exact same seed and start from the exact same `World.to_dict()`
+    snapshot, so every roll VALUE is identical between them up until a
+    roll that itself reads `cultural_influence` (a migrant-arrival
+    chance check) actually straddles a threshold the two forks'
+    differing field values put on opposite sides. A population
+    difference is that threshold tipping, not sampling noise — the
+    same "shared-RNG-stream forks make a diff meaningful" property
+    `run_counterfactual`'s single-fork invariant checks don't need
+    but a genuine A-vs-B comparison does.
+
+    A raised exception in either fork is treated as "nothing learned"
+    (`None`), same as an unevaluable `evaluate_fitness` reading —
+    never propagated into the caller's async task."""
+    concept = world.invented_concepts.get(concept_id)
+    if concept is None or not concept.adopter_ids:
+        return None
+    from hearthmind.simulation.engine import SimulationEngine  # local: avoid an import cycle at module load
+
+    sandbox_config = replace(config, llm_enabled=False)
+    base_snapshot = world.to_dict()
+
+    async def _run_fork(strip_adoption: bool) -> int | None:
+        forked_world = World.from_dict(base_snapshot, sandbox_config)
+        if strip_adoption:
+            forked_concept = forked_world.invented_concepts.get(concept_id)
+            if forked_concept is not None:
+                forked_concept.adopter_ids = set()
+        conn = connect(":memory:")
+        engine = SimulationEngine(conn, sandbox_config, forked_world)
+        try:
+            try:
+                for _ in range(ticks):
+                    engine._tick_once()
+            except Exception:
+                return None
+        finally:
+            if engine._background_tasks:
+                for task in engine._background_tasks:
+                    task.cancel()
+                await asyncio.gather(*engine._background_tasks, return_exceptions=True)
+            conn.close()
+        return len(forked_world.population.agents)
+
+    population_with = await _run_fork(strip_adoption=False)
+    population_without = await _run_fork(strip_adoption=True)
+    if population_with is None or population_without is None:
+        return None
+    return float(population_with - population_without)

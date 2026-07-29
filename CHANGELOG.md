@@ -4,6 +4,96 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.85] — A8: the comparative dual-fork (causal concept-retirement check)
+
+Explicit user instruction: "Take dual fork of A8" — the heavier
+mechanism v1.34.84's investigation flagged as the only way to make
+"sandbox forward-simulation as a fitness input" genuinely meaningful,
+rather than the vacuous acceptance-gate approach that pass correctly
+declined to ship.
+
+Re-audited the "mechanical_hook is never consumed" finding before
+building anything on top of it, since a provably-zero-effect state
+would make ANY dual-fork comparison always diff to zero — found it
+was incomplete, not wrong: `mechanical_hook` genuinely is inert, but
+`InventedConcept.adopter_ids` is NOT — `World.tick()` unions every
+concept's adopters settlement-wide into `FieldGrid.step_cultural_
+influence`, which gives `Population._maybe_welcome_migrant` a real
+positive `MIGRANT_CULTURAL_PULL` pull in the region(s) adopters stand
+in (v1.34.62). A concept's real adoption footprint DOES causally
+shape simulation dynamics — just diffusely, through migration
+pressure, not through the hook vocabulary.
+
+New `simulation/sandbox.py`'s `evaluate_concept_dual_fork(world,
+config, concept_id, ticks=CONCEPT_FITNESS_SANDBOX_TICKS=150)`: forks
+the world twice from one shared `World.to_dict()` snapshot — once
+with a concept's real current `adopter_ids`, once with that one
+concept's adopters stripped to empty — and runs both forward
+(LLM disabled, same disposable-fork discipline as the existing
+`run_counterfactual`), returning `population_with - population_
+without`. The reasoning for why a nonzero delta is a genuine causal
+signal rather than two independently noisy runs: every RNG draw in
+this codebase is `_namespaced_rng`/`_namespaced_roll`, keyed by
+`(seed, tick_count, ...)`, never call order — both forks share the
+identical seed and starting snapshot, so every roll VALUE is
+identical between them right up until a roll that itself reads
+`cultural_influence` straddles a threshold the two forks' differing
+field values put on opposite sides. A population difference is that
+threshold tipping, not sampling noise. `ticks=150` (3x `SANDBOX_
+TICKS`) gives a population-mediated effect real time to compound into
+a visible headcount difference, unlike the fast crash/explosion
+invariant checks the existing single-fork sandbox looks for.
+
+New `world/ontology.py`'s `reinstate_concept(world, concept_id, tick)`:
+deliberately does NOT touch `run_selection`'s existing correlational
+retirement (adopter reputation vs. settlement average, immediate/
+synchronous) — that stays exactly as it was, load-bearing behavior
+left unregressed. This is a SLOWER, SECOND opinion that can reverse a
+retirement after the fact: flips `status` back to `established`,
+resets `fitness_history` to empty (the readings that triggered the
+retirement are now known, by this stronger causal check, to have been
+misleading — letting them count toward a second future retirement
+would trust the same discredited signal twice), and re-runs `_record_
+hypothesis_outcome(..., confirmed=True)`, which revises the SAME
+mirrored Innovation `world_model` entry the original retirement's
+`confirmed=False` call wrote (both key off `concept.world_model_
+entry_id`) — the belief ends up reading as confirmed, not stuck on
+its own earlier refutation. Only acts on a concept that is currently
+`"retired"`; a no-op (`None`) otherwise (already re-evaluated into a
+different status by a later sweep, or no longer exists).
+
+Wiring, `simulation/engine.py`'s `_maybe_schedule_ontology_proposal`:
+snapshots the set of `retired` concept ids immediately before and
+after the existing synchronous `ontology.run_selection(...)` call
+(unchanged itself); each id newly present in the "after" set gets a
+new `_confirm_concept_retirement(concept_id)` fire-and-forget
+background task scheduled, same `_background_tasks`/`add_done_
+callback` lifecycle every other sandboxed proposal (`rule_propose`,
+`composite_reaction_propose`) already uses. The task awaits the dual-
+fork check; a positive delta (measurably worse off without the
+concept's real adopters) reinstates and logs a new `ontology_
+reinstated` event + Innovation pillar memory + Emergence API entry;
+zero or negative leaves the correlational retirement standing. UI:
+new `ontology_reinstated` entry in `app.js`'s `CATEGORY_META`
+(♻️, "mind" filter group) — the standing per-batch UI-surfacing rule.
+
+Verified: direct unit tests for `evaluate_concept_dual_fork` (no-
+adopters case returns `None`, nonexistent-concept case returns
+`None`, a real with-adopters fork pair runs end-to-end and returns a
+float, neither fork mutates the real `world`/its `concept.
+adopter_ids`) and `reinstate_concept` (non-retired concept is a
+no-op, a real retired concept reinstates with `fitness_history`
+cleared); a production-path test through the real `_confirm_concept_
+retirement` wiring (a forced positive delta reinstates end-to-end
+through the actual background-task/`asyncio.gather` path, a forced
+negative delta leaves the concept retired); a direct test of the
+real `run_selection`-retirement-diff detection logic (a concept
+engineered to cross the unfitness threshold is correctly captured in
+`newly_retired`); a 4000-tick LLM-disabled engine soak with a clean
+`World.to_dict()`/`from_dict()` round-trip. No native module or its
+call signature touched, so `scripts/verify_native_soak.py` wasn't run
+this pass.
+
 ## [1.34.84] — A7: layout-domain lineage grammar; A8 investigated, not shipped
 
 Explicit user instruction: "Start A7 and A8" (docs/ROADMAP-2026-07-

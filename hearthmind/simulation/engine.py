@@ -100,7 +100,7 @@ from hearthmind.cognition.pillar import make_message
 from hearthmind.world.disasters import GOVERNOR_TUNING_BAND, WILDFIRE_CHANCE_PER_WEEK
 from hearthmind.world.terrain_evolution import REFOREST_MIN_FALLOW_WEEKS
 from hearthmind.world.wildlife import HARDINESS_VARIANT_BUMP, MAX_SPECIES_VARIANTS_STORED, SpeciesVariant
-from hearthmind.simulation.sandbox import run_counterfactual
+from hearthmind.simulation.sandbox import evaluate_concept_dual_fork, run_counterfactual
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
 from hearthmind.llm.json_schemas import schema_for_task
@@ -4481,8 +4481,22 @@ class SimulationEngine:
         ontology.abandon_stale(self.world, self.world.clock.tick_count)
         # A8 "Evolutionary Innovation" (roadmap Stage IV step 21): the
         # real *evaluate* step, same monthly cadence/call site as
-        # abandon_stale immediately above.
+        # abandon_stale immediately above. `run_selection`'s retirement
+        # is correlational (adopter reputation vs. settlement average)
+        # and stays immediate/synchronous, unchanged — see
+        # `_confirm_concept_retirement` for the slower causal SECOND
+        # opinion (the dual-fork check) that can reverse a retirement
+        # this call makes, without altering this call itself.
+        retired_before = {
+            c.id for c in self.world.invented_concepts.values() if c.status == "retired"
+        }
         ontology.run_selection(self.world, self.world.clock.tick_count)
+        newly_retired = [
+            c.id for c in self.world.invented_concepts.values()
+            if c.status == "retired" and c.id not in retired_before
+        ]
+        for concept_id in newly_retired:
+            self._confirm_concept_retirement(concept_id)
         chance = min(1.0, INVENTION_CHANCE_PER_SEASON * education_invention_bonus(settlement.education_level))
         # Vision item 5.3: self-tuning's bounded nudge on ontology
         # coherence, if any has ever been applied.
@@ -4610,6 +4624,54 @@ class SimulationEngine:
             "ontology_proposal", prompt, ontology_llm.SYSTEM_PROMPT_PROPOSE, fallback, apply,
             deep_reasoning=True,
         )
+
+    def _confirm_concept_retirement(self, concept_id: int) -> None:
+        """A8's comparative dual-fork (roadmap Stage IV step 21,
+        explicit user instruction "Take dual fork of A8" following the
+        v1.34.84 audit that found a naive sandbox-as-acceptance-gate
+        approach would be vacuous — `InventedConcept.mechanical_hook`
+        is never consumed as a numeric effect). `run_selection`'s own
+        retirement (correlational: adopter reputation vs. settlement
+        average) fires synchronously and is left completely unchanged
+        by this — this schedules a slower, genuinely causal SECOND
+        opinion (`simulation.sandbox.evaluate_concept_dual_fork`,
+        with-vs-without-this-concept's-adopters, same shared-RNG-fork
+        reasoning that makes the delta meaningful rather than noise —
+        see that function's own docstring) that can reverse the
+        retirement after the fact if it disagrees.
+
+        Fire-and-forget background task, same `_background_tasks`
+        lifecycle every other sandboxed proposal (`rule_propose`,
+        `composite_reaction_propose`) already uses. A positive delta
+        (the settlement is genuinely worse off, population-wise,
+        without this concept's real adopters) reinstates; zero or
+        negative doesn't — `run_selection`'s correlational verdict
+        stands unless the causal check actively contradicts it."""
+        async def _dual_fork_and_maybe_reinstate() -> None:
+            delta = await evaluate_concept_dual_fork(self.world, self.world.config, concept_id)
+            if delta is None or delta <= 0:
+                return
+            concept = ontology.reinstate_concept(self.world, concept_id, self.world.clock.tick_count)
+            if concept is None:
+                return
+            self._log(
+                "ontology_reinstated",
+                f"{concept.name} was retired but a causal dual-fork check found the settlement measurably "
+                f"worse off without its adopters (population delta {delta:+.0f}) — reinstated.",
+            )
+            self.world.innovation_pillar.remember(
+                f"{concept.name} was retired, then reinstated once a deeper causal check "
+                "showed real harm from losing it."
+            )
+            self._append_emergence(
+                "opportunity", "innovation",
+                f"{concept.name} was reinstated after a causal dual-fork check found real harm in its loss",
+                ('innovation',),
+            )
+
+        task = asyncio.create_task(_dual_fork_and_maybe_reinstate())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     def _maybe_schedule_ontology_evolution(self, events: list[str]) -> None:
         """Rare (year_end), world-scoped (not per-settlement — an idea

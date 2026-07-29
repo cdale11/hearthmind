@@ -142,6 +142,7 @@ const CATEGORY_META = {
   tradition: { icon: "🎭" },
   legend: { icon: "🐉" },
   invention: { icon: "💡" },
+  ontology_reinstated: { icon: "♻️" }, // A8 dual-fork: a retired concept's causal (not just correlational) fitness check found real harm in its loss and reversed the retirement
   festival: { icon: "🎉" },
   predator_attack: { icon: "🐺" },
   chronicle: { icon: "📜" },
@@ -245,7 +246,7 @@ const EVENT_GROUP_OF = {
   river_recarved: "nature", road_scarred: "nature", wetland_formed: "nature", wetland_dried: "nature",
   quarry_formed: "nature", flood_eroded: "nature",
   chronicle: "mind", documentary: "mind", sim_summary: "mind", tradition: "mind", invention: "mind",
-  festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind",
+  festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind", ontology_reinstated: "mind",
   institution_belief: "mind", ritual_formed: "mind", religion_formed: "mind",
   narrative_direction: "mind", consciousness_intervention: "mind", dialect_coined: "mind",
   prophecy_formed: "mind", prophecy_confirmed: "mind", prophecy_forgotten: "mind", chronicler_answer: "mind",

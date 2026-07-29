@@ -168,36 +168,32 @@ starts on an explicit instruction naming an item.
       proposable also unattempted. (Ritual/recipe grammar stays
       deliberately off this list — contradicts a prior design decision
       to keep that domain LLM-authored.)
-- [ ] **A8 — investigated, not shipped, v1.34.84.** Explicit user
-      instruction "Start A7 and A8." `simulation/sandbox.py`'s `run_
-      counterfactual` genuinely could be wired to gate `ontology.
-      register_concept` (mirroring exactly how `TriggerRule`/
-      `CompositeReaction` proposals are already sandboxed before going
-      live) — but doing so would be a rubber-stamp no-op, not a real
-      fitness/safety signal, and shipping it anyway would be worse than
-      not shipping it. Root cause: `InventedConcept.mechanical_hook`
-      is validated at generation-time (A5/A6) but never actually
-      APPLIED to World state — unlike `TriggerRule`/`CompositeReaction`,
-      nothing calls `_apply_trigger_rule_hook` for it. Even if it were
-      applied before sandboxing, `_apply_trigger_rule_hook`'s own
-      docstring already documents that only `belief_confidence_bonus`
-      is a real numeric effect (the others are explicitly narrative-
-      only by prior deliberate decision) — a one-time belief-confidence
-      bump can't plausibly trip the sandbox's population-crash/
-      -explosion or materials-explosion invariants within `SANDBOX_
-      TICKS` (50) regardless of what gets proposed, so the gate would
-      report "safe" unconditionally, every time. A genuinely meaningful
-      version needs a DIFFERENT mechanism than the existing accept/
-      reject sandbox gate — e.g. a comparative dual-fork (run WITH the
-      concept's adopters vs a counterfactual fork WITHOUT them, diff a
-      real prosperity/carrying-capacity outcome) — a materially larger
-      lift than this pass's scope, not attempted. Grammar-based
-      mutation as an alternate generate path (A8's other named piece,
-      depends on A7 reaching a genuine shape-grammar stage first) also
-      remains open. Filed as an explicit finding rather than forcing
-      vacuous code through the existing gate, matching this doc's own
-      standing "investigate first, don't force it" discipline (see
-      A17's v1.34.59 entry for precedent).
+- [x] **A8, comparative dual-fork — closed, v1.34.85.** Explicit user
+      instruction "Take dual fork of A8," the heavier mechanism
+      v1.34.84 flagged (see that entry, kept above for the full "why a
+      naive accept/reject sandbox gate would be vacuous" investigation).
+      Found `InventedConcept.mechanical_hook` really is inert but
+      `adopter_ids` is not: `World.tick()` unions concept adopters into
+      `FieldGrid.step_cultural_influence`, giving `Population._maybe_
+      welcome_migrant` a real `MIGRANT_CULTURAL_PULL` (v1.34.62) —
+      concept adoption causally shapes simulation dynamics through
+      migration pressure, just diffusely, not through the hook
+      vocabulary. New `simulation/sandbox.py`'s `evaluate_concept_
+      dual_fork`: forks the world twice off one shared snapshot (with
+      vs. without a concept's real `adopter_ids`, 150 ticks,
+      LLM-disabled) and returns the population delta — meaningful
+      because both forks share the identical seed/RNG stream, so a
+      nonzero delta is a real migrant-threshold tip, not noise. New
+      `world/ontology.py`'s `reinstate_concept` is a second, slower
+      causal opinion layered on top of (never replacing) `run_
+      selection`'s existing immediate correlational retirement;
+      `SimulationEngine._confirm_concept_retirement` diffs retired-ids
+      before/after each `run_selection` call and schedules an async
+      dual-fork check per newly-retired concept, reinstating on a
+      positive delta. UI: `ontology_reinstated` event (♻️). Grammar-
+      based mutation as an alternate generate path (A8's other named
+      piece, depends on A7 reaching a genuine shape-grammar stage
+      first) remains open.
 - [ ] **A10** — migration, competition, decomposition, pollination,
       habitat formation; folding the food web onto A1's field substrate.
 - [ ] **A12** — per-instance `Entity.material` generalized beyond
@@ -2247,20 +2243,23 @@ deliberately left LLM-authored. Rules being themselves LLM-proposable
 not attempted.
 
 ### A8 — Evolutionary Innovation loop
-**Investigated, not shipped, v1.34.84** — see the Tier 3 checklist
-entry above for the full finding. Sandbox forward-simulation as an
-ontology-proposal ACCEPTANCE gate (mirroring `TriggerRule`/
-`CompositeReaction`'s existing pattern) would be real code but a
-vacuous signal: `InventedConcept.mechanical_hook` is never actually
-applied to `World` state (unlike its siblings), and even the one hook
-type that IS a real numeric effect anywhere in this codebase
-(`belief_confidence_bonus`) can't plausibly trip the sandbox's
-population/materials invariants. A genuinely meaningful version needs
-a comparative dual-fork (with vs. without a concept's adoption,
-diffing a real prosperity outcome) — a materially larger lift,
-flagged, not attempted. Grammar-based mutation as an alternate
-*generate* path depends on A7 reaching a genuine shape-grammar stage
-first — also open.
+**Comparative dual-fork CLOSED, v1.34.85** — see the Tier 3 checklist
+entry above for the full mechanism. v1.34.84 first investigated a
+naive sandbox-as-ACCEPTANCE-gate approach (mirroring `TriggerRule`/
+`CompositeReaction`'s pattern) and correctly declined to ship it —
+real code but a vacuous signal, since `InventedConcept.mechanical_hook`
+is never applied to `World` state. v1.34.85 built the genuinely
+meaningful version instead: `simulation/sandbox.py`'s `evaluate_
+concept_dual_fork` runs a settlement forward twice from one shared
+snapshot (with vs. without a concept's real `adopter_ids` — the actual
+causal pathway, via `FieldGrid.step_cultural_influence`'s migrant-pull
+effect, not the inert hook vocabulary) and diffs the resulting
+population; `world/ontology.py`'s `reinstate_concept` + `Simulation
+Engine._confirm_concept_retirement` use it as a second, causal opinion
+that can reverse `run_selection`'s existing correlational retirement
+after the fact, without changing that existing mechanism. Grammar-
+based mutation as an alternate *generate* path depends on A7 reaching
+a genuine shape-grammar stage first — remains open.
 
 ### A9 — Producer/consumer feedback loops
 **CLOSED, v1.34.0-v1.34.2.** 15 named state stores checked; most

@@ -634,6 +634,40 @@ def run_selection(world, tick: int) -> None:
             _record_hypothesis_outcome(world, concept, tick, confirmed=False)
 
 
+def reinstate_concept(world, concept_id: int, tick: int) -> InventedConcept | None:
+    """A8's dual-fork confirmation step (`SimulationEngine._confirm_
+    concept_retirement`, `simulation.sandbox.evaluate_concept_dual_
+    fork`): `run_selection`'s correlational retirement (adopter
+    reputation vs. settlement average, immediate/synchronous) stays
+    exactly as it was — this is a SECOND, slower, causal opinion that
+    can reverse it after the fact, not a replacement. Reinstating only
+    makes sense against a concept this exact function's caller just
+    retired and that hasn't since been re-evaluated into some other
+    status by a later `run_selection` sweep (rare — the async dual-
+    fork check resolves well within one monthly cadence — but checked
+    explicitly rather than assumed); returns `None` and does nothing
+    in that case, or if the concept no longer exists at all.
+
+    Resets `fitness_history` to empty on reinstatement — the readings
+    that triggered the retirement `run_selection` is judging are now
+    known (by this stronger causal check) to have been misleading, so
+    letting them count toward a second future retirement would be
+    trusting the same discredited signal twice. Re-runs `_record_
+    hypothesis_outcome(..., confirmed=True)`, which revises the SAME
+    mirrored Innovation world_model entry `_record_hypothesis_
+    outcome(..., confirmed=False)` wrote at retirement time (both key
+    off the concept's own persistent `world_model_entry_id`), so the
+    belief ends up reading as confirmed, not stuck on its own earlier
+    refutation."""
+    concept = world.invented_concepts.get(concept_id)
+    if concept is None or concept.status != "retired":
+        return None
+    concept.status = "established"
+    concept.fitness_history = []
+    _record_hypothesis_outcome(world, concept, tick, confirmed=True)
+    return concept
+
+
 def fit_established_concepts(world) -> list[InventedConcept]:
     """A8's *select* step, second half: the pool `_maybe_schedule_
     ontology_evolution`'s evolve/merge should draw parents from —
