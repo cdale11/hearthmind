@@ -2407,6 +2407,7 @@ class SimulationEngine:
         ("_maybe_tick_temperament", _JOB_EVENTS),
         ("_maybe_schedule_omen", _JOB_EVENTS),
         ("_maybe_tick_market_prices", _JOB_EVENTS),
+        ("_maybe_tick_settlement_trade", _JOB_EVENTS),
         ("_maybe_schedule_record", _JOB_NO_ARGS),
         ("_maybe_schedule_dispute", _JOB_NO_ARGS),
         ("_maybe_schedule_guild_founding", _JOB_EVENTS),
@@ -8858,6 +8859,77 @@ class SimulationEngine:
             return
         for stl in self.world.settlements:
             tick_market_prices(stl)
+
+    SETTLEMENT_TRADE_SURPLUS_THRESHOLD = 0.7
+    """A16 "trade-as-network-flow": a named settlement above this
+    fraction of `MATERIALS_CAPACITY` is a real trade SOURCE this
+    month. Deliberately the mirror of `INVENTION_MATERIALS_FRACTION`-
+    style thresholds elsewhere in this file — genuinely well-off, not
+    merely non-critical."""
+
+    SETTLEMENT_TRADE_DEFICIT_THRESHOLD = 0.3
+    """The mirror threshold below which a named settlement is a real
+    trade SINK — the same 0.3 fraction `Population._maybe_repair`'s
+    materials-critical check (agents/population.py) already uses for
+    "genuinely struggling," reused rather than inventing a second
+    scarcity line."""
+
+    SETTLEMENT_TRADE_CAPACITY_SCALE = 0.3
+    """Scales a `Settlement.relations` edge (0..1, already clamped
+    non-negative by `build_settlement_trade_graph`) into a real
+    materials-flow capacity for that edge, in `MATERIALS_CAPACITY`
+    units: a fully warm (1.0) direct relation can carry up to 30% of
+    one settlement's full capacity per month; a cold or absent
+    relation carries none. Deliberately small — trade is real help,
+    never enough on its own to instantly erase either settlement's
+    surplus or deficit in one month."""
+
+    def _maybe_tick_settlement_trade(self, events: list[str]) -> None:
+        """A16 "trade-as-network-flow" (docs/ROADMAP-2026-07-
+        REMAINING.md), closing A16 entirely. Monthly, deterministic
+        (objective economic reality, same domain as `_maybe_tick_
+        market_prices`/caravan's own unconditional exchange — never
+        gated behind the LLM). `Settlement.relations` was already a
+        real weighted inter-settlement graph (seeded at fission, nudged
+        by cross-settlement dialogue), but every prior consumer
+        (`market_relation_factor`/`caravan_relation_factor`) only ever
+        read a flat AVERAGE across it. This is the first genuine PER-
+        PAIR routing question: the settlement in the deepest materials
+        surplus supplies the one in the deepest deficit, routed through
+        `graph_algorithms.max_flow` over the real relations graph — a
+        cold DIRECT relation between them doesn't necessarily block
+        trade if a third settlement they're both warm toward can carry
+        it, the genuinely distinct thing a flow algorithm proves that a
+        flat pairwise multiplier structurally cannot express."""
+        if "month_end" not in events:
+            return
+        named = [s for s in self.world.settlements if s.name]
+        if len(named) < 2:
+            return
+        surplus_threshold = MATERIALS_CAPACITY * self.SETTLEMENT_TRADE_SURPLUS_THRESHOLD
+        deficit_threshold = MATERIALS_CAPACITY * self.SETTLEMENT_TRADE_DEFICIT_THRESHOLD
+        source = max(named, key=lambda s: s.materials - surplus_threshold)
+        sink = min(named, key=lambda s: s.materials - deficit_threshold)
+        if source.id == sink.id or source.materials <= surplus_threshold or sink.materials >= deficit_threshold:
+            return
+        graph = graph_algorithms.build_settlement_trade_graph(named)
+        capacity_scale = MATERIALS_CAPACITY * self.SETTLEMENT_TRADE_CAPACITY_SCALE
+        scaled_graph = {
+            node: {other: weight * capacity_scale for other, weight in edges.items()}
+            for node, edges in graph.items()
+        }
+        flow_capacity = graph_algorithms.max_flow(scaled_graph, source.id, sink.id)
+        if flow_capacity <= 0.0:
+            return  # no route with any real relations warmth connects them, even indirectly
+        transfer = min(flow_capacity, source.materials - surplus_threshold, deficit_threshold - sink.materials)
+        if transfer <= 0.0:
+            return
+        source.materials -= transfer
+        sink.materials = min(MATERIALS_CAPACITY, sink.materials + transfer)
+        self._log("caravan", f"{source.name} sent aid to {sink.name} — {transfer:.0f} materials, along the trade routes between them.")
+        self._append_emergence(
+            "opportunity", "economy", f"{source.name} sent materials aid to {sink.name}.", ("village",),
+        )
 
     def _maybe_schedule_record(self) -> None:
         """Written artifacts: `Population._apply_deaths` decided this

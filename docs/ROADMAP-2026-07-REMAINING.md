@@ -232,17 +232,15 @@ starts on an explicit instruction naming an item.
       has a real reciprocal consumer — A10 is closed in full.**
 - [ ] **A12** — per-instance `Entity.material` generalized beyond
       buildings (per-*building*-instance material shipped v1.34.58).
-- [ ] **A16** — trade-as-network-flow remains unbuilt (no existing
-      inter-settlement goods-flow mechanic to build the first algorithm
-      over — caravans are settlement-vs-outside-world, not settlement-
-      to-settlement). Tech-as-DAG shipped v1.34.99 (`graph_algorithms.
-      ancestor_ids`/`shares_lineage`, blocks `_maybe_schedule_ontology_
-      evolution`'s merge-pair selection from combining a concept with
-      its own kin). Information-propagation-as-graph-algorithm shipped
-      v1.34.100: `graph_algorithms.bfs_distances`, a real BFS traversal
-      of the relationship graph, biases `Population.spread_rumor`'s
-      listener selection toward whoever's socially closer to the
-      caravan's point of contact.
+- [x] **A16** — **CLOSED, v1.34.101.** All three named pieces shipped:
+      tech-as-DAG (v1.34.99, `graph_algorithms.ancestor_ids`/`shares_
+      lineage`), information-propagation-as-graph-algorithm (v1.34.100,
+      `bfs_distances`), trade-as-network-flow (v1.34.101, `build_
+      settlement_trade_graph`/`max_flow`, a real Edmonds-Karp max-flow
+      over `Settlement.relations` — `SimulationEngine._maybe_tick_
+      settlement_trade` routes a materials surplus to a deficit
+      settlement, able to route AROUND a hostile direct relation via a
+      third settlement both are warm toward).
 - [x] **B4** — reverse-direction disagreement classification —
       **CLOSED, v1.34.65.** Extended to the Village→Innovation `theory`
       arrow and all four Innovation→Village `discovery` arrows
@@ -2008,8 +2006,9 @@ in this document; nothing in either was started this pass)
     field substrate as one coupled system.
 21. **A12** — per-instance `Entity.material` (today: class-level, one
     material per `BuildingKind`).
-22. **A16** — trade-as-network-flow only (tech-as-DAG and information-
-    propagation-as-graph-algorithm both shipped, v1.34.99/v1.34.100).
+22. **A16 — CLOSED, v1.34.101.** All three named pieces shipped
+    (tech-as-DAG v1.34.99, information-propagation-as-graph-algorithm
+    v1.34.100, trade-as-network-flow v1.34.101).
 23. **B4 — CLOSED, v1.34.65.** Reverse-direction disagreement
     classification, previously only on the Nature→Village site, now
     also covers the Village→Innovation `theory` arrow and the four
@@ -2902,10 +2901,46 @@ the bias); edge-case tests (single-agent, empty population, count=1,
 count > population); a 4000-tick LLM-disabled soak with a clean
 round-trip. No native module touched.
 
-**A16 is now fully closed on two of its three named pieces** (tech-
-as-DAG, information-propagation-as-graph-algorithm); trade-as-network-
-flow remains the one genuinely open piece — a larger lift needing a
-real inter-settlement goods-flow mechanic built first.
+**Trade-as-network-flow shipped, v1.34.101 — A16 is now fully closed.**
+`Settlement.relations` (settlement/buildings.py) was already a real
+weighted inter-settlement graph, seeded at fission and nudged by
+cross-settlement dialogue — but every prior consumer (`market_
+relation_factor`/`caravan_relation_factor`) only ever read a flat
+AVERAGE across it, never a genuine per-pair routing question. New
+`graph_algorithms.build_settlement_trade_graph` (weight = `max(0.0,
+relation)`, only named settlements) + `max_flow` (a real Edmonds-Karp
+max-flow: BFS augmenting paths over a residual graph, works over any
+directed dict-of-dicts capacity graph) are A16's fourth and last named
+algorithm. Real consumer: `SimulationEngine._maybe_tick_settlement_
+trade` (monthly, deterministic, zero LLM cost — same domain as
+`_maybe_tick_market_prices`/caravan's own unconditional exchange):
+finds the named settlement in the deepest materials surplus (above
+`SETTLEMENT_TRADE_SURPLUS_THRESHOLD`, 70% of `MATERIALS_CAPACITY`) and
+the one in the deepest deficit (below `SETTLEMENT_TRADE_DEFICIT_
+THRESHOLD`, 30%), computes the max flow between them over the relation
+graph (edges scaled by `SETTLEMENT_TRADE_CAPACITY_SCALE`), and
+transfers `min(flow_capacity, surplus_amount, deficit_gap)` materials.
+The genuinely distinct case a flat pairwise multiplier structurally
+cannot express: a settlement can supply another it's directly HOSTILE
+toward, routed through a third settlement both are warm toward — real
+network routing, not just "warmer relation, better trade."
+
+Verified: a direct unit test of `build_settlement_trade_graph`
+(negative relations clamped to 0, unnamed settlements excluded); a
+direct unit test of `max_flow` (direct edge, source==sink, no path,
+unknown node, and the multi-hop routing case — flow correctly bounded
+by the bottleneck edge along the only available route); a production-
+path test through the real `_maybe_tick_settlement_trade` with three
+settlements (source/sink directly hostile, both warm toward a third
+"router" settlement whose own materials stay untouched — confirming
+flow, not a direct transfer, actually occurred); edge-case tests (zero
+relations anywhere → zero transfer, a single named settlement → safe
+no-op, a non-`month_end` tick → no-op); a 4000-tick LLM-disabled soak
+with a clean round-trip. No native module touched (pure Python, at
+most 3 settlements per `MAX_SETTLEMENTS`, no per-tick hot loop). No
+new UI surface needed — the transfer logs through the existing
+"caravan" event category/feed, same precedent as diplomacy's own
+narrated economic contact.
 
 ### A17 — Information ecosystem
 **CLOSED, v1.34.77.** Rumor/tradition/belief/song/technique each stay

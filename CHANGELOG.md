@@ -4,6 +4,55 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.101] — A16 CLOSED: trade-as-network-flow
+
+Explicit user instruction: "Continue A16." Ships the last of A16's
+three named pieces (tech-as-DAG v1.34.99, information-propagation
+v1.34.100) — **A16 is now fully closed.**
+
+`Settlement.relations` (settlement/buildings.py) was already a real
+weighted inter-settlement graph, seeded at fission and nudged by
+cross-settlement dialogue — but every prior consumer (`market_
+relation_factor`/`caravan_relation_factor`) only ever read a flat
+AVERAGE across it, never a genuine per-pair routing question. New
+`world/graph_algorithms.py`'s `build_settlement_trade_graph` (weight
+= `max(0.0, relation)`, named settlements only) + `max_flow` (a real
+Edmonds-Karp max-flow: repeated BFS augmenting-path search over a
+residual graph, generic over any directed dict-of-dicts capacity
+graph) are A16's fourth and final algorithm. Real consumer: new
+`SimulationEngine._maybe_tick_settlement_trade` (monthly,
+deterministic, zero LLM cost — same domain as `_maybe_tick_market_
+prices`/caravan's own unconditional trade exchange): finds the named
+settlement in the deepest materials surplus (above `SETTLEMENT_TRADE_
+SURPLUS_THRESHOLD`, 70% of `MATERIALS_CAPACITY`) and the one in the
+deepest deficit (below `SETTLEMENT_TRADE_DEFICIT_THRESHOLD`, 30%),
+computes the max flow between them over the relation graph (edges
+scaled by `SETTLEMENT_TRADE_CAPACITY_SCALE`), and transfers `min(flow_
+capacity, surplus_amount, deficit_gap)` materials from source to sink.
+
+The genuinely distinct case a flat pairwise multiplier structurally
+cannot express: a settlement can now supply another it's directly
+HOSTILE toward, routed through a third settlement both are warm
+toward — real network routing, not just "warmer relation, better
+trade." No new UI surface — the transfer logs through the existing
+"caravan" event category/feed, same precedent as diplomacy's own
+narrated economic contact between settlements.
+
+Verified: a direct unit test of `build_settlement_trade_graph`
+(negative relations clamped to 0, unnamed settlements excluded); a
+direct unit test of `max_flow` (direct edge, `source == sink`, no
+path, unknown node, and the multi-hop routing case — flow correctly
+bounded by the bottleneck edge along the only available route); a
+production-path test through the real `_maybe_tick_settlement_trade`
+with three settlements (source/sink directly hostile, both warm
+toward a third "router" settlement whose own materials stayed
+untouched — confirming genuine flow, not a direct transfer,
+occurred); edge-case tests (zero relations anywhere -> zero transfer,
+a single named settlement -> safe no-op, a non-`month_end` tick ->
+no-op); a 4000-tick LLM-disabled soak with a clean round-trip. No
+native module touched (pure Python, at most `MAX_SETTLEMENTS`=3
+nodes, no per-tick hot loop).
+
 ## [1.34.100] — A16: information-propagation-as-graph-algorithm
 
 Explicit user instruction: "Continue A16." Ships the second of A16's

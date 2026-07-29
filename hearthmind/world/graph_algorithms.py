@@ -18,6 +18,17 @@ traversal over it, consumed by `SimulationEngine._maybe_schedule_
 ontology_evolution`'s merge-pair selection to block a concept from
 being merged with its own kin.
 
+Third algorithm (roadmap A16's "information-propagation-as-graph-
+algorithm" piece): `bfs_distances` below, consumed by `Population.
+spread_rumor`'s listener selection.
+
+Fourth and last algorithm (roadmap A16's "trade-as-network-flow"
+piece, closing A16 entirely): `build_settlement_trade_graph`/
+`max_flow` below, a real Edmonds-Karp max-flow over `Settlement.
+relations` (already a real weighted inter-settlement graph, previously
+only ever read as a flat average multiplier), consumed by
+`SimulationEngine._maybe_tick_settlement_trade`.
+
 Deliberately reuses `Agent.relationships` (the ledger's fondness view)
 directly rather than materializing a separate adjacency structure:
 degree centrality only needs each node's own edge weights, never a
@@ -134,6 +145,87 @@ def bfs_distances(graph: dict[str, dict[str, float]], source: str) -> dict[str, 
             distances[neighbor] = distances[node] + 1
             frontier.append(neighbor)
     return distances
+
+
+def build_settlement_trade_graph(settlements: list) -> dict[int, dict[int, float]]:
+    """A16's last named algorithm ("trade-as-network-flow"): the
+    settlement-pair `Settlement.relations` walk (settlement/buildings.py,
+    seeded at fission, nudged by cross-settlement dialogue) is already a
+    real weighted graph over named settlements — it just had no
+    consumer beyond flat AVERAGE-relation multipliers on price/caravan
+    chance (`market_relation_factor`/`caravan_relation_factor`), never
+    a genuine per-PAIR routing question. `weight = max(0.0, relation)`:
+    a cold or hostile relation carries no trade capacity at all — goods
+    don't flow along a route the settlements themselves refuse."""
+    named = [s for s in settlements if s.name]
+    graph: dict[int, dict[int, float]] = {s.id: {} for s in named}
+    named_ids = {s.id for s in named}
+    for settlement in named:
+        for other_id, relation in settlement.relations.items():
+            if other_id not in named_ids:
+                continue
+            graph[settlement.id][other_id] = max(0.0, relation)
+    return graph
+
+
+def max_flow(capacity: dict, source, sink) -> float:
+    """A real Edmonds-Karp max-flow: repeatedly finds an augmenting
+    path via BFS over the residual graph and pushes flow along it until
+    none remains. `capacity` is a directed dict-of-dicts (an undirected
+    graph like `build_settlement_trade_graph`'s just has matching
+    entries both ways); this deliberately doesn't mutate the caller's
+    `capacity` — it works over its own residual copy. Returns 0.0 if
+    `source == sink`, either is absent from the graph, or no path
+    exists between them at all.
+
+    Real consumer: `SimulationEngine._maybe_tick_settlement_trade` — a
+    settlement in materials surplus can supply one in deficit not only
+    directly, but ALSO through a third settlement they're both on warm
+    terms with even if the surplus and deficit settlements themselves
+    are cold toward each other. That "route around a hostile direct
+    link" case is the genuinely distinct thing a flow algorithm proves
+    that a flat pairwise multiplier (`market_relation_factor`, etc.)
+    structurally cannot express."""
+    if source == sink or source not in capacity or sink not in capacity:
+        return 0.0
+    residual: dict = {u: dict(edges) for u, edges in capacity.items()}
+    for u in list(residual.keys()):
+        for v in list(residual[u].keys()):
+            residual.setdefault(v, {})
+            residual[v].setdefault(u, 0.0)
+
+    def _augmenting_path():
+        parent = {source: None}
+        frontier = deque([source])
+        while frontier:
+            u = frontier.popleft()
+            if u == sink:
+                return parent
+            for v, cap in residual.get(u, {}).items():
+                if cap > 1e-9 and v not in parent:
+                    parent[v] = u
+                    frontier.append(v)
+        return None
+
+    total = 0.0
+    while True:
+        parent = _augmenting_path()
+        if parent is None or sink not in parent:
+            break
+        bottleneck = float("inf")
+        node = sink
+        while node != source:
+            prev = parent[node]
+            bottleneck = min(bottleneck, residual[prev][node])
+            node = prev
+        node = sink
+        while node != source:
+            prev = parent[node]
+            residual[prev][node] -= bottleneck
+            residual[node][prev] += bottleneck
+            node = prev
+        total += bottleneck
+    return total
 
 
 def shares_lineage(world, id_a: int, id_b: int) -> bool:

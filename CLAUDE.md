@@ -617,6 +617,31 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.101)
+
+Explicit user instruction: "Continue A16." Ships A16's last piece,
+trade-as-network-flow — **A16 is now fully closed** (tech-as-DAG
+v1.34.99, information-propagation v1.34.100, this).
+
+`Settlement.relations` was already a real weighted inter-settlement
+graph, but every prior consumer only read a flat average across it.
+New `world/graph_algorithms.py`'s `build_settlement_trade_graph`/
+`max_flow` (a real Edmonds-Karp max-flow) are consumed by new
+`SimulationEngine._maybe_tick_settlement_trade` (monthly,
+deterministic, zero LLM cost): the settlement in the deepest materials
+surplus supplies the one in the deepest deficit, routed through the
+real relations graph — a settlement can now supply another it's
+directly HOSTILE toward, via a third settlement both are warm toward,
+the genuinely distinct case a flat pairwise multiplier can't express.
+No new UI surface — reuses the existing "caravan" event category.
+
+Verified: direct unit tests of both new graph functions (including
+the multi-hop routing case), a production-path test through the real
+`_maybe_tick_settlement_trade` (hostile source/sink routed via a warm
+third settlement, confirming genuine flow occurred and the router's
+own materials stayed untouched), edge-case tests, a 4000-tick
+LLM-disabled soak with clean round-trip. No native module touched.
+
 ## Current state (v1.34.100)
 
 Explicit user instruction: "Continue A16." Ships A16's second
