@@ -1260,6 +1260,27 @@ measurement. A genuinely different Humans-pillar-owned target-
 selection site — or a first per-agent-keyed Humans world_model
 producer to unblock these two — remains open, not attempted.
 
+**Sixth/seventh sites (v1.34.98, explicit user instruction: "Continue
+tier 0, try humans pillar per-agent producer") — the flagged dead-end
+resolved, not worked around.** Built the missing producer: `_run_
+personal_belief`'s apply() (Reflect()) now also mirrors into `humans_
+pillar.world_model`, subject deliberately `target.name` itself (not
+`parsed["subject"]`, whatever specific topic the reflection was
+about) — Humans' own standing theory ABOUT a specific person, revised
+in place across repeated Reflect() calls via `Pillar.find_world_
+model_entry` (v1.34.80's exact-match lookup). Humans pillar's first
+per-agent-keyed `world_model` content ever, closing the exact gap
+v1.34.97 found. This unblocked both flagged sites: `_maybe_schedule_
+memory_drift`/`_maybe_schedule_noncore_nudge` now weight their
+monthly target draw by `humans_pillar.subject_confidence(agent.
+name)` (`HUMANS_PERSONAL_TARGET_LEAN_WEIGHT=0.4`, same shape/value as
+`institution_belief`'s conversion). `noncore_nudge`'s non-core
+candidates genuinely can carry this signal because `personal_belief`'s
+own candidate pool falls back to ANY agent with memories (not only
+core cast) once no core-cast agent is having a significant moment —
+confirmed by direct code inspection, not assumed. Tier 0 now has
+seven real converted sites plus this new producer.
+
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0
 and before Tier 1: these are correctness/tuning questions about

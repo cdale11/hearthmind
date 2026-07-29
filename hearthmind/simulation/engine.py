@@ -406,6 +406,17 @@ subject_confidence(institution.name)` can multiply an institution's
 base weight of 1.0 in the monthly target draw; kept modest so every
 eligible institution still keeps a real, substantial chance."""
 
+HUMANS_PERSONAL_TARGET_LEAN_WEIGHT = 0.4
+"""Tier 0's sixth/seventh mirror-write -> pillar-authored conversions
+(docs/ROADMAP-2026-07-REMAINING.md) — see `SimulationEngine._maybe_
+schedule_memory_drift`/`_maybe_schedule_noncore_nudge`'s docstrings.
+Bounds how much `humans_pillar.subject_confidence(agent.name)` can
+multiply an agent's base weight of 1.0 in each job's monthly target
+draw; kept modest so every eligible agent still keeps a real,
+substantial chance. Same value as `INSTITUTION_BELIEF_TARGET_LEAN_
+WEIGHT` — no reason for the two pillars' analogous mechanisms to tune
+differently without a live-diagnostic reason to."""
+
 OBSERVER_ATTENTION_MAX_TRACKED = 25
 """§4 "observer attention as a signal into the Town Consciousness"
 (docs/IDEAS-2026-07-EMERGENCE.md): cap on `World.observer_attention`'s
@@ -8028,6 +8039,27 @@ class SimulationEngine:
                     self.conn, tick, target.id, "belief", f"(re: {parsed['subject']}) {parsed['belief']}",
                 )
                 self.world.humans_pillar.remember(f"{target.name} came to believe: {parsed['belief']}")
+                # Tier 0's first per-agent-keyed Humans world_model
+                # producer (docs/ROADMAP-2026-07-REMAINING.md,
+                # explicit user request: "try humans pillar per-agent
+                # producer") — every other Humans mirror before this
+                # only ever appended to `.memory` (episodic), never
+                # `.world_model` (revisable theory); the pillar had no
+                # accumulated per-agent-keyed content at all, a real
+                # gap found and left correctly unshipped-around at
+                # v1.34.97. Subject is deliberately `target.name`
+                # itself (not `parsed["subject"]`, which is whatever
+                # specific topic this reflection happened to be
+                # about) — this is Humans' own standing theory ABOUT
+                # this specific person, revised in place across
+                # repeated Reflect() calls via `find_world_model_
+                # entry`, same shape `_reactive_pillar_backpressured`'s
+                # callers already use for a recurring subject.
+                existing_pillar_entry = self.world.humans_pillar.find_world_model_entry(target.name)
+                self.world.humans_pillar.upsert_world_model(
+                    tick, target.name, parsed["belief"], parsed["confidence"], source="personal_belief",
+                    revises_id=existing_pillar_entry["id"] if existing_pillar_entry else None,
+                )
                 self._append_emergence(
                     "opportunity", "belief", f"{target.name} came to believe: {parsed['belief']}",
                     ('humans',),
@@ -8222,7 +8254,18 @@ class SimulationEngine:
         belief/semantic-memory formation, this has a genuinely sensible
         fallback (leave the memory exactly as it was — ambient texture,
         not crucial cognition), so a spent budget or failed call simply
-        means no drift this month, same as every other ambient job."""
+        means no drift this month, same as every other ambient job.
+
+        Tier 0's sixth mirror-write -> pillar-authored conversion
+        (docs/ROADMAP-2026-07-REMAINING.md): unblocked by `personal_
+        belief`'s new `humans_pillar.world_model` mirror (the pillar's
+        first per-agent-keyed producer) — target selection now weighs
+        `humans_pillar.subject_confidence(agent.name)`, same "the
+        collective mind's attention returns to who it already has a
+        standing theory about" framing `institution_belief`'s own
+        conversion uses. Never narrows the candidate pool; every
+        eligible agent keeps a real chance (`HUMANS_PERSONAL_TARGET_
+        LEAN_WEIGHT`)."""
         if not self._monthly_gate(events, "memory_drift"):
             return
         core_ids = list(self.world.population.core_agent_ids)
@@ -8235,7 +8278,11 @@ class SimulationEngine:
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "memory_drift")
         if rng.random() >= self.MEMORY_DRIFT_CHANCE:
             return
-        agent = rng.choice(candidates)
+        weights = [
+            1.0 + self.world.humans_pillar.subject_confidence(c.name) * HUMANS_PERSONAL_TARGET_LEAN_WEIGHT
+            for c in candidates
+        ]
+        agent = rng.choices(candidates, weights=weights, k=1)[0]
         agent_id = agent.id
         drift_index = rng.randrange(0, len(agent.memories) - 1)  # never the single freshest entry
         old_memory = agent.memories[drift_index]
@@ -9490,7 +9537,18 @@ class SimulationEngine:
         docstring — exactly one call a month for the entire world
         (round-robin `_job_target`, one random non-core agent), never
         per-agent-scaled. Non-critical: the fallback is a genuine no-op,
-        same discipline as memory_drift."""
+        same discipline as memory_drift.
+
+        Tier 0's seventh mirror-write -> pillar-authored conversion
+        (docs/ROADMAP-2026-07-REMAINING.md): same `humans_pillar.
+        subject_confidence(agent.name)` weighting `_maybe_schedule_
+        memory_drift` gained — `_maybe_schedule_personal_belief`'s own
+        candidate pool falls back to ANY agent with memories (not only
+        core cast) once no core-cast agent is having a significant
+        moment, so a non-core agent can genuinely already carry a
+        `humans_pillar.world_model` entry of their own; when they do,
+        they're somewhat more likely to be this month's nudge target
+        too. Never narrows the pool."""
         target = self._job_target()
         if not self._monthly_gate(events, "noncore_nudge") or not target.name:
             return
@@ -9505,7 +9563,11 @@ class SimulationEngine:
             return
         self._mark_monthly_resolved("noncore_nudge")
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "noncore_nudge")
-        agent = rng.choice(candidates)
+        weights = [
+            1.0 + self.world.humans_pillar.subject_confidence(c.name) * HUMANS_PERSONAL_TARGET_LEAN_WEIGHT
+            for c in candidates
+        ]
+        agent = rng.choices(candidates, weights=weights, k=1)[0]
         agent_id = agent.id
         occupation = self._occupation_for(agent)
         recent = list(agent.memories[-3:])

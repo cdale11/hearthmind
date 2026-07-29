@@ -510,6 +510,31 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.98)
+
+Explicit user instruction: "Continue tier 0, try humans pillar
+per-agent producer" — resolved v1.34.97's flagged dead-end by
+building the missing piece instead of working around it. `_run_
+personal_belief`'s apply() now mirrors into `humans_pillar.
+world_model` (not just `.memory`), subject deliberately `target.
+name` itself — Humans' own standing theory about a specific person,
+revised in place across repeated Reflect() calls via `Pillar.find_
+world_model_entry`. Humans pillar's first per-agent-keyed `world_
+model` content ever. This unblocked two sites flagged unshippable at
+v1.34.97: `_maybe_schedule_memory_drift`/`_maybe_schedule_noncore_
+nudge` now weight target selection by `humans_pillar.subject_
+confidence(agent.name)` (`HUMANS_PERSONAL_TARGET_LEAN_WEIGHT=0.4`,
+same shape as `institution_belief`'s conversion). Tier 0 now at
+seven real converted sites plus this new producer.
+
+Verified: direct unit tests (revision-in-place, non-match neutral), a
+production-path smoke test through the real `_run_personal_belief`
+apply() confirming both formation and revision-in-place, a 30,000-
+trial statistical weighting test, production-path smoke tests
+through both scheduling functions driven via the real async tick
+loop until each genuinely fired, a 4000-tick soak with clean
+round-trip, `pyflakes` clean.
+
 ## Current state (v1.34.97)
 
 Explicit user instruction: "Continue tier 0 52 mirror sites." Docs-

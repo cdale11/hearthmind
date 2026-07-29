@@ -4,6 +4,52 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.98] — Tier 0: Humans pillar's first per-agent producer, closing two sites
+
+Explicit user instruction: "Continue tier 0, try humans pillar
+per-agent producer" — resolving v1.34.97's flagged dead-end by
+building the missing piece instead of working around it.
+
+**New producer.** `_run_personal_belief`'s apply() (Reflect(), the
+job every agent's own private belief revision goes through) now also
+mirrors into `humans_pillar.world_model`, not just `.memory` as
+before. Subject is deliberately `target.name` itself — not `parsed
+["subject"]`, whatever specific topic the reflection happened to be
+about — so this becomes Humans' own standing theory ABOUT a specific
+person, distinct from that person's own private beliefs (`Agent.
+beliefs`) and from Village's public per-person beliefs (`Settlement.
+beliefs`). Revises in place across repeated Reflect() calls for the
+same agent via `Pillar.find_world_model_entry` (v1.34.80's exact-
+match lookup), so a recurring theory about someone doesn't pile up
+near-duplicates. This is Humans pillar's first per-agent-keyed
+`world_model` content ever — closes the exact gap v1.34.97 found and
+declined to work around.
+
+**Two sites unblocked.** `_maybe_schedule_memory_drift` and
+`_maybe_schedule_noncore_nudge` (Tier 0's sixth and seventh
+conversions) now weight their monthly target draw by `humans_pillar.
+subject_confidence(agent.name)` (`HUMANS_PERSONAL_TARGET_LEAN_
+WEIGHT=0.4`, same value and shape as `institution_belief`'s own
+conversion) — an agent Humans already holds a standing theory about
+is somewhat more likely to be this month's drift/nudge target.
+`noncore_nudge`'s candidate can genuinely carry this signal because
+`personal_belief`'s own candidate pool falls back to ANY agent with
+memories (not only core cast) once no core-cast agent is having a
+significant moment — verified directly, not assumed.
+
+Verified: direct unit tests (`upsert_world_model`/`find_world_model_
+entry` revision-in-place, non-match reads 0.0); a production-path
+smoke test through the real `_run_personal_belief` apply() (a fake-
+LLM-result-driven call confirming genuine formation, then a second
+call for the same agent confirming revision-in-place rather than a
+duplicate entry); a 30,000-trial statistical weighting test for both
+target-selection sites; production-path smoke tests through the real
+`_maybe_schedule_memory_drift`/`_maybe_schedule_noncore_nudge`
+scheduling, driven via the actual async tick loop (`_tick_once()`
+under `asyncio.run`) until each genuinely fired; a 4000-tick soak
+with a clean round-trip; `pyflakes` clean. No native module touched.
+Tier 0 now has seven real converted sites plus this one new producer.
+
 ## [1.34.97] — Tier 0: a real dead-end found and correctly not shipped
 
 Explicit user instruction: "Continue tier 0 52 mirror sites." Docs-only
