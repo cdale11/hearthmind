@@ -445,6 +445,7 @@ from hearthmind.world.terrain_evolution import (
     apply_road_scar,
 )
 from hearthmind.world.fields import FieldGrid
+from hearthmind.world.graph_algorithms import bfs_distances, build_relationship_graph
 from hearthmind.world.layout_grammar import layout_site_bonus
 from hearthmind.world.materials import effective_material_name, material_repair_factor
 from hearthmind.world.spatial_memory import location_character_from_dicts
@@ -487,6 +488,15 @@ nearby. SOCIALIZE has no equivalent cap — see docs/DECISIONS.md, D4."""
 GATHER_SEARCH_RADIUS = 6
 """Same rationale as FORAGE_SEARCH_RADIUS — local, plausible awareness of
 nearby forest/hills, not map-wide. See D8."""
+
+RUMOR_BFS_BASELINE_WEIGHT = 0.15
+"""A16 "information-propagation-as-graph-algorithm" (docs/ROADMAP-
+2026-07-REMAINING.md): the floor weight `Population.spread_rumor`
+gives a listener candidate with no real social path (via `graph_
+algorithms.bfs_distances`) to the point of contact at all — matching
+`memetics.PROPAGATION_BASELINE_WEIGHT`'s same "news travels beyond a
+closed social circle" discipline, so a stranger can still occasionally
+hear it, just far less often than someone genuinely socially close."""
 
 SOCIALIZE_RELATIONSHIP_RADIUS = 12
 SOCIALIZE_DISTANCE_PENALTY = 0.02
@@ -8085,12 +8095,40 @@ class Population:
         mechanism ordinary in-village events already use, so it can
         propagate further through the *existing* dialogue gossip/trust
         contagion rather than a bespoke broadcast. Returns the names of
-        who heard it firsthand, for event logging. Listeners need not
-        be colocated with each other — a caravan's news reaches whoever
-        happened to deal with it, not the whole village at once."""
+        who heard it firsthand, for event logging.
+
+        A16 "information-propagation-as-graph-algorithm": the FIRST
+        listener is still a genuine uniform draw (the caravan's point
+        of contact could be anyone) — but every listener after that is
+        now chosen via `graph_algorithms.bfs_distances` from the first,
+        weighted toward whoever's socially CLOSER (fewer hops) to that
+        point of contact, not independently uniform over the whole
+        population. Previously a caravan's news reaching four total
+        strangers with no connection to each other was exactly as
+        likely as it rippling outward through one person's actual
+        friends — a real gap for a mechanism whose own docstring
+        already claimed the news "propagates further through the
+        existing... gossip contagion." Listeners still need not end up
+        colocated with each other; this only biases WHO among the
+        living population is more likely to be one, never requires it."""
         if not self.agents:
             return []
-        listeners = rng.sample(self.agents, k=min(count, len(self.agents)))
+        first = rng.choice(self.agents)
+        listeners = [first]
+        remaining = min(count, len(self.agents)) - 1
+        if remaining > 0:
+            graph = build_relationship_graph(self.agents)
+            distances = bfs_distances(graph, first.id)
+            pool = [a for a in self.agents if a.id != first.id]
+            for _ in range(min(remaining, len(pool))):
+                weights = [
+                    RUMOR_BFS_BASELINE_WEIGHT + 1.0 / (1 + distances[a.id])
+                    if a.id in distances else RUMOR_BFS_BASELINE_WEIGHT
+                    for a in pool
+                ]
+                choice = rng.choices(pool, weights=weights, k=1)[0]
+                listeners.append(choice)
+                pool.remove(choice)
         for agent in listeners:
             _remember(agent, text)
             _nudge_trait(agent, TRAIT_OPENNESS, TRAIT_OPENNESS_CARAVAN_NUDGE)

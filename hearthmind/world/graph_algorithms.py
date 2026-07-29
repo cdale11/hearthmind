@@ -25,6 +25,8 @@ full traversal, so there's nothing a real graph object would buy here
 that the existing per-agent dict doesn't already give for free."""
 from __future__ import annotations
 
+from collections import deque
+
 
 def build_relationship_graph(agents: list) -> dict[str, dict[str, float]]:
     """Living-agent-only view of the pairwise relationship ledger as an
@@ -98,6 +100,40 @@ def ancestor_ids(world, concept_id: int, _seen: "set[int] | None" = None) -> "se
         ancestors.add(parent_id)
         ancestors |= ancestor_ids(world, parent_id, seen)
     return ancestors
+
+
+def bfs_distances(graph: dict[str, dict[str, float]], source: str) -> dict[str, int]:
+    """A16's third algorithm ("information-propagation-as-graph-
+    algorithm"): shortest-hop-distance from `source` to every other
+    reachable node, via a real breadth-first traversal of the same
+    weighted relationship graph `build_relationship_graph` produces —
+    only a genuine positive tie (`weight > 0`) counts as a social path;
+    an absent or zero-weight edge doesn't carry news. `source` itself
+    is distance 0; an unreachable node is simply absent from the
+    result (no path exists, not an infinite distance to represent).
+
+    Real consumer: `Population.spread_rumor`'s listener selection (see
+    its own docstring) — previously every listener was drawn by pure
+    `rng.sample` over the WHOLE population, with no notion that news
+    should ripple outward through a social circle rather than
+    teleporting to unconnected strangers. This is deliberately BFS
+    (unweighted hop count), not a weighted shortest-path — "how many
+    people does this have to pass through" is the real epidemiological
+    quantity a rumor's reach should track, not cumulative tie
+    strength (`propagation_weight` already covers strength-of-a-single-
+    hop; this covers a genuinely different axis, distance)."""
+    if source not in graph:
+        return {}
+    distances: dict[str, int] = {source: 0}
+    frontier: deque = deque([source])
+    while frontier:
+        node = frontier.popleft()
+        for neighbor, weight in graph.get(node, {}).items():
+            if weight <= 0.0 or neighbor in distances:
+                continue
+            distances[neighbor] = distances[node] + 1
+            frontier.append(neighbor)
+    return distances
 
 
 def shares_lineage(world, id_a: int, id_b: int) -> bool:

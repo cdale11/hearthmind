@@ -4,6 +4,49 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.100] — A16: information-propagation-as-graph-algorithm
+
+Explicit user instruction: "Continue A16." Ships the second of A16's
+two remaining pieces (tech-as-DAG shipped last pass, v1.34.99).
+
+`Population.spread_rumor` — a caravan's outside news, the only rumor
+path that seeds several listeners in one call — previously drew every
+listener via pure `rng.sample` over the WHOLE living population, with
+no regard for who was already close to whoever first heard it, despite
+the function's own docstring claiming the news "propagates further
+through the existing... gossip contagion." New `world/graph_
+algorithms.py`'s `bfs_distances`: a real breadth-first traversal of
+the relationship graph (`build_relationship_graph`, only positive-
+weight edges count as a social path), returning shortest-hop-distance
+from a source to every reachable node — A16's third named algorithm.
+`spread_rumor` now draws its first listener uniformly (a genuine point
+of contact — could be anyone), then every listener after that via a
+distance-weighted draw from `bfs_distances(graph, first.id)`: closer
+(fewer hops) is more likely, with a new `RUMOR_BFS_BASELINE_WEIGHT`
+floor so a total stranger can still occasionally hear it (matching
+`memetics.PROPAGATION_BASELINE_WEIGHT`'s same "news travels beyond a
+closed circle" discipline). Deliberately BFS (unweighted hop count)
+rather than a weighted shortest-path — a genuinely different axis from
+`memetics.propagation_weight`'s single-hop tie STRENGTH; this is "how
+many people does it pass through," not "how close is any one tie."
+
+**A16 is now closed on two of its three named pieces** (tech-as-DAG,
+information-propagation-as-graph-algorithm); trade-as-network-flow
+remains open — a larger lift needing a real inter-settlement
+goods-flow mechanic built first (caravans today are settlement-vs-
+outside-world, not settlement-to-settlement).
+
+Verified: direct unit tests of `bfs_distances` (chain/branch
+transitive reachability over a hand-built graph, zero-weight edges
+correctly excluded as non-paths, unknown source); a production-path
+statistical test through the real `Population.spread_rumor` (a seeded
+10-agent population with a real friend clique vs. isolated strangers —
+friends included in 82% of 3000 trials vs. 58% for strangers despite
+being outnumbered, confirming the bias); edge-case tests (single-agent,
+empty population, count=1, count > population); a 4000-tick
+LLM-disabled soak with a clean round-trip. No native module touched
+(pure Python, small dict traversal, no per-tick hot loop).
+
 ## [1.34.99] — A16: tech-as-DAG, the first real traversal over the Innovation lineage graph
 
 Explicit user instruction: "Start A12." Investigation found A12 as

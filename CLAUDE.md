@@ -617,6 +617,32 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.100)
+
+Explicit user instruction: "Continue A16." Ships A16's second
+remaining piece (tech-as-DAG shipped last pass, v1.34.99):
+information-propagation-as-graph-algorithm.
+
+`Population.spread_rumor` (a caravan's outside news) previously drew
+every listener via pure `rng.sample` over the whole living population
+— no regard for social closeness, despite its own docstring claiming
+the news propagates through existing gossip contagion. New `world/
+graph_algorithms.py`'s `bfs_distances` (real BFS over the relationship
+graph, positive-weight edges only) now backs a distance-weighted draw
+for every listener after the first (a genuine uniform point of
+contact): closer is more likely, with a real baseline floor so a
+stranger can still occasionally hear it.
+
+**A16 is now closed on two of its three pieces** — trade-as-network-
+flow remains open, a larger lift with no existing inter-settlement
+goods-flow mechanic to build over yet.
+
+Verified: direct unit tests of `bfs_distances`, a production-path
+statistical test through the real `spread_rumor` (friend clique vs.
+strangers, 82% vs. 58% inclusion over 3000 trials), edge-case tests,
+a 4000-tick LLM-disabled soak with clean round-trip. No native module
+touched.
+
 ## Current state (v1.34.99)
 
 Explicit user instruction: "Start A12." Investigation (docs/ROADMAP-

@@ -232,12 +232,17 @@ starts on an explicit instruction naming an item.
       has a real reciprocal consumer — A10 is closed in full.**
 - [ ] **A12** — per-instance `Entity.material` generalized beyond
       buildings (per-*building*-instance material shipped v1.34.58).
-- [ ] **A16** — trade-as-network-flow and information-propagation-as-
-      graph-algorithm remain unbuilt. Tech-as-DAG shipped v1.34.99:
-      `graph_algorithms.ancestor_ids`/`shares_lineage`, a real
-      traversal over the Innovation ontology's existing lineage DAG,
-      blocks `_maybe_schedule_ontology_evolution`'s merge-pair
-      selection from combining a concept with its own kin.
+- [ ] **A16** — trade-as-network-flow remains unbuilt (no existing
+      inter-settlement goods-flow mechanic to build the first algorithm
+      over — caravans are settlement-vs-outside-world, not settlement-
+      to-settlement). Tech-as-DAG shipped v1.34.99 (`graph_algorithms.
+      ancestor_ids`/`shares_lineage`, blocks `_maybe_schedule_ontology_
+      evolution`'s merge-pair selection from combining a concept with
+      its own kin). Information-propagation-as-graph-algorithm shipped
+      v1.34.100: `graph_algorithms.bfs_distances`, a real BFS traversal
+      of the relationship graph, biases `Population.spread_rumor`'s
+      listener selection toward whoever's socially closer to the
+      caravan's point of contact.
 - [x] **B4** — reverse-direction disagreement classification —
       **CLOSED, v1.34.65.** Extended to the Village→Innovation `theory`
       arrow and all four Innovation→Village `discovery` arrows
@@ -2003,8 +2008,8 @@ in this document; nothing in either was started this pass)
     field substrate as one coupled system.
 21. **A12** — per-instance `Entity.material` (today: class-level, one
     material per `BuildingKind`).
-22. **A16** — trade-as-network-flow, tech-as-DAG, information-
-    propagation-as-graph-algorithm (today: only centrality is shipped).
+22. **A16** — trade-as-network-flow only (tech-as-DAG and information-
+    propagation-as-graph-algorithm both shipped, v1.34.99/v1.34.100).
 23. **B4 — CLOSED, v1.34.65.** Reverse-direction disagreement
     classification, previously only on the Nature→Village site, now
     also covers the Village→Innovation `theory` arrow and the four
@@ -2864,6 +2869,43 @@ seeded sibling pair, confirming the scheduled prompt actually names
 the unrelated pair, not the rejected sibling pair; a 4000-tick
 LLM-disabled soak with a clean round-trip. No native module touched
 (pure Python, small dict traversal, no per-tick hot loop).
+
+**Information-propagation-as-graph-algorithm shipped, v1.34.100.**
+`Population.spread_rumor` (a caravan's outside news, the only rumor
+path that seeds many listeners in one call) previously drew every
+listener via pure `rng.sample` over the WHOLE living population — no
+regard for who was already close to whoever first heard it, despite
+the function's own docstring claiming the news "propagates further
+through the existing... gossip contagion." New `graph_algorithms.
+bfs_distances`: a real breadth-first traversal of the relationship
+graph (`build_relationship_graph`, only positive-weight edges count as
+a social path), returning shortest-hop-distance from a source to every
+reachable node. `spread_rumor` now draws its first listener uniformly
+(a genuine point of contact — could be anyone) and every listener
+after that via a distance-weighted draw from `bfs_distances(graph,
+first.id)` — closer (fewer hops) is more likely, with a real
+`RUMOR_BFS_BASELINE_WEIGHT` floor so a total stranger can still
+occasionally hear it (matching `memetics.PROPAGATION_BASELINE_WEIGHT`'s
+same discipline). Deliberately BFS (unweighted hop count) rather than
+a weighted shortest-path — this is a genuinely different axis from
+`memetics.propagation_weight`'s single-hop tie STRENGTH; distance is
+"how many people does this pass through," not "how close is any one
+tie."
+
+Verified: direct unit tests of `bfs_distances` (chain/branch
+transitive reachability, zero-weight edges correctly excluded as
+non-paths, unknown source); a production-path statistical test through
+the real `Population.spread_rumor` (a seeded 10-agent population with
+a real friend clique vs. isolated strangers — friends were included in
+82% of trials vs. 58% for strangers despite fewer of them, confirming
+the bias); edge-case tests (single-agent, empty population, count=1,
+count > population); a 4000-tick LLM-disabled soak with a clean
+round-trip. No native module touched.
+
+**A16 is now fully closed on two of its three named pieces** (tech-
+as-DAG, information-propagation-as-graph-algorithm); trade-as-network-
+flow remains the one genuinely open piece — a larger lift needing a
+real inter-settlement goods-flow mechanic built first.
 
 ### A17 — Information ecosystem
 **CLOSED, v1.34.77.** Rumor/tradition/belief/song/technique each stay
