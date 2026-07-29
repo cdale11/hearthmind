@@ -46,20 +46,22 @@ starts on an explicit instruction naming an item.
 
 ### Tier 0 — pillar refactor (the biggest single lever)
 
-- [ ] Convert the remaining **~47 mirror-write sites** from "write into
+- [ ] Convert the remaining **~46 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); twelve sites are now converted (town_brain
-      priority, era_branch tiebreak, COUNCIL institution objective,
-      ontology_evolution parent-fitness weighting, institution_belief/
-      memory_drift/noncore_nudge target selection, `invention`/
-      `ontology_proposal`'s inventor-selection sites, `dream`'s monthly
-      dreamer pick, `_detect_reflection_pattern`'s multi-settlement
-      tiebreak (Reflection pillar's first site, v1.34.106), and —
-      v1.34.107 — `species_variant`'s herd pick, Nature pillar's first
-      site). Each further site is real judgment work — find a soft/
-      tiebreak point a pillar's accumulated belief can legitimately
-      weigh, never hand a pillar a whole decision.
+      confidence`, v1.34.46); thirteen sites are now converted
+      (town_brain priority, era_branch tiebreak, COUNCIL institution
+      objective, ontology_evolution parent-fitness weighting,
+      institution_belief/memory_drift/noncore_nudge target selection,
+      `invention`/`ontology_proposal`'s inventor-selection sites,
+      `dream`'s monthly dreamer pick, `_detect_reflection_pattern`'s
+      multi-settlement tiebreak (Reflection pillar's first site,
+      v1.34.106), `species_variant`'s herd pick (Nature pillar's first
+      site, v1.34.107), and — v1.34.108 — `_voice_narrative_extra_
+      scores`'s Humans-pillar lean into the weekly voice-pair
+      protagonist pick). Each further site is real judgment work — find
+      a soft/tiebreak point a pillar's accumulated belief can
+      legitimately weigh, never hand a pillar a whole decision.
 
 ### Tier 0.5 — live-diagnostic findings
 
@@ -1421,6 +1423,29 @@ flips the pick to the higher-id predator herd over the lower-id grazer
 herd); a separate no-lean production-path regression test; a 4000-tick
 LLM-disabled soak with a clean round-trip; `pyflakes`/syntax clean.
 Nature pillar's first-ever Tier 0 site. Tier 0 now has twelve real
+converted sites.
+
+**Thirteenth site (v1.34.108, explicit user instruction: "Continue").**
+Found by re-auditing existing call sites for a WHICH-candidate shape
+with a reliable content match, rather than inventing anything new.
+`_voice_narrative_extra_scores` (feeds `Population.select_voice_pair`'s
+"who's the weekly protagonist" significance ranking, alongside a
+recent-inventor and active-COUNCIL bonus) had a third real signal
+sitting unused: Humans pillar's own per-agent-name-keyed `world_model`
+content, already proven reliable across five prior sites (`memory_
+drift`/`noncore_nudge`/`invention`/`ontology_proposal`/`dream`). New
+`VOICE_NARRATIVE_HUMANS_LEAN_MAX = 2000.0` bounds how much `humans_
+pillar.subject_confidence(agent.name)` can add to a core-cast agent's
+bonus, kept below the inventor (4000)/council (3500) bonuses so a
+standing Humans theory nudges the pick without ever outweighing a
+genuinely dramatic recent event.
+
+Verified: a direct test of the score computation (no-lean baseline,
+exact seeded-confidence bump, non-core agents unaffected), a
+production-path test through the real `select_voice_pair` (a seeded
+max-confidence belief about a different core-cast member flips the
+protagonist pick to them), a 4000-tick LLM-disabled soak with a clean
+round-trip, `pyflakes`/syntax clean. Tier 0 now has thirteen real
 converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world

@@ -4,6 +4,36 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.108] — Tier 0's thirteenth conversion: voice-pair protagonist pick
+
+Explicit user instruction: "Continue." Audited for a next real site
+found by inspection rather than an invented-content design.
+`_voice_narrative_extra_scores` (feeds `Population.select_voice_pair`'s
+significance ranking — "who's the story about right now") already had
+two engine-computed signals (a recent inventor, active COUNCIL
+membership); a third real signal was sitting unused: Humans pillar's
+own per-agent-name-keyed `world_model` content, already proven
+reliable across five prior sites (`memory_drift`/`noncore_nudge`/
+`invention`/`ontology_proposal`/`dream`).
+
+New `VOICE_NARRATIVE_HUMANS_LEAN_MAX = 2000.0` bounds how much
+`humans_pillar.subject_confidence(agent.name)` (0..1) can add to a
+core-cast agent's bonus, same magnitude family as (and deliberately
+below) the inventor (4000)/council (3500) bonuses — a standing Humans
+theory nudges the weekly protagonist pick, never outweighs a genuinely
+dramatic recent event. Scoped to the core cast only, the same pool
+`select_voice_pair` filters to. An agent with no standing Humans
+theory contributes 0.0, a true no-op.
+
+Verified: a direct test of the extra-scores computation (no-lean
+baseline, a seeded 0.8-confidence belief adding exactly 1600.0, non-
+core agents unaffected); a production-path test through the real
+`Population.select_voice_pair` (baseline pick with no seeded lean, a
+max-confidence seeded belief about a different core-cast member
+flipping the protagonist pick to them); a 4000-tick LLM-disabled soak
+with a clean round-trip; `pyflakes`/syntax clean. Tier 0 now has
+thirteen real converted sites.
+
 ## [1.34.107] — Tier 0's twelfth conversion: Nature's first site
 
 Explicit user instruction, following v1.34.106's `AskUserQuestion`:

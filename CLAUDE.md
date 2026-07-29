@@ -617,6 +617,26 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.108)
+
+Explicit user instruction: "Continue." Thirteenth Tier 0 conversion,
+found by re-auditing existing call sites rather than a new content
+design — `_voice_narrative_extra_scores` (feeds `Population.select_
+voice_pair`'s "who's the weekly protagonist" ranking, alongside a
+recent-inventor and active-COUNCIL bonus) now also folds in `humans_
+pillar.subject_confidence(agent.name)` for the core cast, reusing the
+same proven per-agent-name-keyed content five prior sites already
+established. New `VOICE_NARRATIVE_HUMANS_LEAN_MAX = 2000.0` keeps it
+below the inventor (4000)/council (3500) bonuses — a standing Humans
+theory nudges the pick, never overrides a genuinely dramatic event.
+
+Verified: a direct test of the score computation (no-lean baseline,
+exact seeded-confidence bump, non-core agents unaffected), a
+production-path test through the real `select_voice_pair` (a seeded
+max-confidence belief flips the protagonist to a different core-cast
+member), a 4000-tick LLM-disabled soak with clean round-trip,
+`pyflakes` clean. Tier 0 now has thirteen real converted sites.
+
 ## Current state (v1.34.107)
 
 Explicit user instruction, following v1.34.106's `AskUserQuestion`:

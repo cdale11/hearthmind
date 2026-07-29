@@ -894,6 +894,15 @@ VOICE_NARRATIVE_COUNCIL_BONUS = 3500.0
 """`_voice_narrative_extra_scores`'s bonus for a living COUNCIL member —
 the explicit "a council elder" example."""
 
+VOICE_NARRATIVE_HUMANS_LEAN_MAX = 2000.0
+"""Tier 0's thirteenth conversion (docs/ROADMAP-2026-07-REMAINING.md):
+the ceiling `humans_pillar.subject_confidence(agent.name)` (0..1) can
+add to `_voice_narrative_extra_scores`'s per-agent bonus dict — same
+magnitude family as the inventor/council bonuses above, deliberately
+kept below both so a standing Humans theory nudges the weekly
+protagonist pick without ever outweighing a genuinely dramatic recent
+event."""
+
 DIALOGUE_BACKPRESSURE_FRACTION = 0.6
 RUMOR_INTERPRET_BACKPRESSURE_FRACTION = 0.35
 """docs/AUDIT-2026-07-20.md, P1.2(ii): dialogue and rumor_interpret were
@@ -3547,6 +3556,27 @@ class SimulationEngine:
             for member_id in council.member_agent_ids:
                 if member_id in alive_ids:
                     scores[member_id] = max(scores.get(member_id, 0.0), VOICE_NARRATIVE_COUNCIL_BONUS)
+        # Tier 0's thirteenth conversion (docs/ROADMAP-2026-07-
+        # REMAINING.md): a third "who's the story about right now"
+        # signal, reusing Humans pillar's already-proven per-agent-
+        # name-keyed content (the same `subject_confidence(agent.name)`
+        # match that `memory_drift`/`noncore_nudge`/`invention`/
+        # `ontology_proposal`/`dream` already rely on) rather than
+        # inventing anything new. Scoped to the core cast only, same
+        # candidate pool `select_voice_pair` itself filters to — a
+        # cheap, bounded scan, not O(population). Additive alongside
+        # (never replacing) the inventor/council bonuses above; an
+        # agent with no standing Humans theory contributes 0.0, a true
+        # no-op for the common case.
+        for agent_id in self.world.population.core_agent_ids:
+            if agent_id not in alive_ids:
+                continue
+            agent = self.world.population.get(agent_id)
+            if agent is None:
+                continue
+            lean = self.world.humans_pillar.subject_confidence(agent.name) * VOICE_NARRATIVE_HUMANS_LEAN_MAX
+            if lean > 0.0:
+                scores[agent_id] = scores.get(agent_id, 0.0) + lean
         return scores
 
     def _schedule_due_dialogue(self) -> None:
