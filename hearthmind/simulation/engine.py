@@ -1971,9 +1971,22 @@ class SimulationEngine:
         helper generically correct if a future season/year job wants the
         old shape). Opens (or re-opens, for a fresh season/year) a
         `SEASON_YEAR_JOB_RETRY_WINDOW_DAYS`-day window the instant
-        `boundary_event` is crossed; stays True on every tick within that
-        window until `_mark_season_year_resolved` records this ordinal as
-        done."""
+        `boundary_event` is crossed; True on `"day_end"` ticks within
+        that window (once per day, not every tick — see below) until
+        `_mark_season_year_resolved` records this ordinal as done.
+
+        Live-diagnostic finding (the same class `_reactive_pillar_
+        backpressured` closes for the three per-tick reactive Nature
+        triggers): this window used to have no `"day_end"` restriction
+        at all, unlike `_monthly_gate`'s already-correct once-per-day
+        shape — so a backpressured job in `SEASON_YEAR_JOBS_WITH_RETRY`
+        re-attempted (and, on failure, re-incremented `calls_dropped_
+        backpressure`) on literally every tick of its `SEASON_YEAR_JOB_
+        RETRY_WINDOW_DAYS`-day window instead of once a day, needlessly
+        inflating the drop counter for no scheduling benefit (the
+        window's OPENING tick always coincides with a real `day_end`
+        anyway — a season/year boundary is itself a day boundary — so
+        this costs nothing on the tick that matters)."""
         if job not in SEASON_YEAR_JOBS_WITH_RETRY:
             return boundary_event in events
         clock = self.world.clock
@@ -1985,6 +1998,8 @@ class SimulationEngine:
             self._season_year_job_window[job] = (clock.tick_count, ordinal)
         window = self._season_year_job_window.get(job)
         if window is None:
+            return False
+        if "day_end" not in events:
             return False
         open_tick, ordinal = window
         ticks_per_day = self.world.config.minutes_per_day // self.world.config.sim_minutes_per_tick

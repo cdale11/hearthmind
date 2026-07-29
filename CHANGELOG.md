@@ -4,6 +4,43 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.82] — Fix: season/year retry-window jobs also re-checked every tick, not once/day
+
+Explicit user follow-up: "Any more things we can do to reduce
+backpressure drop [rate]?" — continuing the same investigation as
+v1.34.81, looking for the same bug CLASS at other call sites rather
+than assuming the nature triggers were the only instance.
+
+Found a second, structurally identical instance: `_season_year_gate`
+(the season/year-cadence counterpart to `_monthly_gate`, backing
+`SEASON_YEAR_JOBS_WITH_RETRY` — `tradition`/`religion`/`narrative_
+direction`/`culture_digest`/`documentary`/`institution_culture`/
+`invention`/`ontology_proposal`/`ontology_evolution`) opens a
+`SEASON_YEAR_JOB_RETRY_WINDOW_DAYS`-day (5) retry window on a season/
+year boundary but — unlike `_monthly_gate`, which correctly restricts
+its own retry window to `"day_end"` ticks only, once per day — had no
+such restriction: once open, the window returned True (and, on
+failure, incremented `calls_dropped_backpressure`) on literally EVERY
+tick for up to 5 days, for nine different jobs. Same bug class as
+v1.34.81's nature triggers, just bounded to a fixed window instead of
+open-ended, and spread across more jobs.
+
+Fix: `_season_year_gate` now also requires `"day_end" in events`
+before evaluating the retry window, matching `_monthly_gate`'s already
+-correct shape. Costs nothing on the window's own OPENING tick — a
+season/year boundary is itself always a day boundary (`SimClock.
+advance` sets `season_end`/`year_end` and `day_end` on the same tick
+by construction), so the first, most time-sensitive check is
+unaffected; only the subsequent every-tick re-checks during the
+window are now once-a-day instead.
+
+Verified: a direct unit test against a real `SimulationEngine`/`World`
+(opening tick with `day_end` present returns True; a later in-window
+tick WITHOUT `day_end` now returns False, where it used to return
+True; the next real `day_end` tick inside the window still retries
+correctly); `pyflakes` clean; a 4000-tick LLM-disabled soak with clean
+round-trip. Pure Python, no native module or persisted state touched.
+
 ## [1.34.81] — Fix: reactive nature triggers re-spamming backpressure drops every tick
 
 Explicit user follow-up: "check that [pacing reachability] first, and do

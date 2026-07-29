@@ -510,6 +510,29 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.82)
+
+Explicit user follow-up: "Any more things we can do to reduce
+backpressure drop [rate]?" — looked for the same bug class v1.34.81
+fixed at other call sites. Found `_season_year_gate` (backing
+`SEASON_YEAR_JOBS_WITH_RETRY`'s 9 jobs — tradition/religion/
+narrative_direction/culture_digest/documentary/institution_culture/
+invention/ontology_proposal/ontology_evolution) had the identical gap:
+unlike `_monthly_gate`, which correctly restricts its retry window to
+`"day_end"` ticks only, `_season_year_gate`'s retry window returned
+True on literally every tick for up to `SEASON_YEAR_JOB_RETRY_WINDOW_
+DAYS` (5) days, re-incrementing `calls_dropped_backpressure` on every
+one of those ticks while still saturated. Fixed by requiring
+`"day_end" in events` inside the window, matching `_monthly_gate` —
+free on the window's own opening tick (a season/year boundary is
+always also a day boundary by construction), only the subsequent
+every-tick re-checks are now once-a-day.
+
+Verified: a direct unit test against a real engine/world (opening tick
+still True, a non-day_end tick inside the window now False where it
+used to be True, the next real day_end tick inside the window still
+retries), `pyflakes` clean, a 4000-tick soak with clean round-trip.
+
 ## Current state (v1.34.81)
 
 Explicit user follow-up on v1.34.80's diagnostic fix: "check [pacing
