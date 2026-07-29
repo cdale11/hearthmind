@@ -290,7 +290,17 @@ starts on an explicit instruction naming an item.
 ### Tier 5 — HearthBench & the Adaptive Runtime
 
 - [ ] **The whole of `HEARTHBENCH-RUNTIME-2026-07-23.md`**, both
-      tracks, sequenced strictly after Tiers 0–4. Nothing started.
+      tracks. Explicit user instruction ("Continue A16" was followed by
+      "Can we build some from tier 5?") started this tier ahead of the
+      doc's own "sequenced strictly after Tiers 0–4" note — Tiers 0–4
+      aren't fully finished (Tier 4 is standing discipline by design;
+      C2/C3 remain open), but this is a genuine user decision to begin
+      in parallel, not an oversight. **B15.1 shipped, v1.34.102**
+      (`scripts/verify_replay_hash.py`) — the doc's own first Runtime
+      item, chosen via `AskUserQuestion` over starting HearthBench's A1
+      skeleton or the C5 model passport. Both tracks otherwise remain
+      unstarted; see the doc for the full 30+-item checklist and its
+      own two-track SEQUENCE.
 
 ### C++ native-porting backlog (R6/R7)
 

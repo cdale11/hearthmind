@@ -4,6 +4,47 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.102] — Tier 5 started: B15.1 replay-hash equivalence test
+
+Explicit user instruction: "Can we build some from tier 5?" Tier 5
+(docs/HEARTHBENCH-RUNTIME-2026-07-23.md, HearthBench + the Adaptive
+Runtime) is nominally sequenced strictly after Tiers 0-4, but the user
+directly asked to begin it now — a genuine decision, not skipping the
+sequencing by oversight. Via `AskUserQuestion`, chose the doc's own
+first-recommended Runtime item (B15.1) over starting HearthBench's A1
+package skeleton or the C5 model passport: "the safety net every later
+[runtime] change leans on," and independently useful on its own before
+any of the runtime's greenfield scheduling/budget/dormancy machinery
+exists.
+
+New `scripts/verify_replay_hash.py`: mechanical proof that, today, the
+same seed with the LLM disabled produces byte-identical `World.
+to_dict()` state across two fully INDEPENDENT process runs (subprocess
+isolation by default — a real process boundary is what a genuine
+"same seed on a different run/machine" claim needs to survive; Python
+hash randomization, OS scheduling, or any accidental object-identity-
+order reliance could only ever surface across that boundary, never
+within one process). Mirrors `scripts/verify_native_soak.py`'s
+established structure exactly (per-tick hashing via `sort_keys=True`
+JSON, standalone script per CLAUDE.md's standing "no automated test
+suite" rule) but compares two independent runs of the SAME code path
+rather than native-vs-fallback of one run. `--in-process` flag trades
+rigor for speed when a quick check is enough.
+
+This is the doc's B15.2 "strict Body, adaptive cognition-breadth"
+boundary's actual floor: nothing in Part B (task scheduling, budgets,
+dormancy) exists yet to toggle, so this ships the baseline the doc
+itself says every later runtime feature must be re-checked against
+once one does. Both tracks (HearthBench, the rest of the Adaptive
+Runtime) remain otherwise unstarted.
+
+Verified: real subprocess-isolated runs at 400 ticks (2 seeds) and a
+full-scale 3000-tick run (matching `verify_native_soak.py`'s own
+default ticks), both `MATCH`; an `--in-process` run confirmed the
+faster mode also works; a direct check of the divergence-index logic
+against a hand-injected mismatched hash sequence, confirming the
+failure-reporting path (not just the happy path) is correct.
+
 ## [1.34.101] — A16 CLOSED: trade-as-network-flow
 
 Explicit user instruction: "Continue A16." Ships the last of A16's

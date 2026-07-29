@@ -617,6 +617,27 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.102)
+
+Explicit user instruction: "Can we build some from tier 5?" — starts
+Tier 5 (docs/HEARTHBENCH-RUNTIME-2026-07-23.md) ahead of its own
+"sequenced strictly after Tiers 0-4" note, a genuine user decision.
+Via `AskUserQuestion`, picked B15.1 (replay-hash equivalence test)
+over HearthBench's A1 skeleton or the C5 model passport — the doc's
+own first-recommended Runtime item, "the safety net every later
+[runtime] change leans on."
+
+New `scripts/verify_replay_hash.py`: mechanical proof that the same
+seed with the LLM disabled produces byte-identical `World.to_dict()`
+state across two fully independent PROCESS runs (subprocess isolation
+by default, matching the real "different run/machine" claim B15.1
+makes) — mirrors `scripts/verify_native_soak.py`'s structure but
+compares two independent runs of the same code path rather than
+native-vs-fallback. Confirmed MATCH at 400 and 3000 ticks. Nothing
+else in Part B (task scheduling, budgets, dormancy) exists yet — this
+is the floor those features will be checked against once they do.
+Both Tier 5 tracks otherwise remain unstarted.
+
 ## Current state (v1.34.101)
 
 Explicit user instruction: "Continue A16." Ships A16's last piece,
