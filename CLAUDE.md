@@ -510,6 +510,26 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.83)
+
+Explicit user directive: "I am okay with occasional slow world
+progression so do that" — accepting the pacing tradeoff flagged after
+v1.34.81/.82's structural backpressure-drop fixes. `LLM_PRESSURE_
+SLOWDOWN_START_RATIO` lowered 0.75 -> 0.5: at low integer concurrency
+(`llm_max_concurrent=1` gives limit 3), `llm_pressure_ratio()` only
+takes values `k/3`, and 0.75 sat strictly between 0.67 (backlog 2 —
+already effectively saturated for a single-slot server) and 1.0
+(backlog 3 — the exact point drops start), so a backlog of 2 engaged
+no slowdown at all. 0.5 makes backlog=2 engage real pacing (~1.56x
+tick-gap stretch, verified) before the queue is completely full,
+trading world-progression speed under sustained pressure for fewer
+wasted attempts — the explicit tradeoff requested. Speedup band and
+the "just right" zone (now 0.15-0.5) otherwise unchanged.
+
+Verified: a direct check of the interval-multiplier curve across the
+concurrency=1 backlog range, `pyflakes` clean, a 4000-tick soak with
+clean round-trip. Pure constant/docstring change.
+
 ## Current state (v1.34.82)
 
 Explicit user follow-up: "Any more things we can do to reduce

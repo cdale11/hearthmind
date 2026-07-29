@@ -904,7 +904,7 @@ observed p95, SEVERE sits just under the observed max, so a genuinely
 struggling server (not just ordinary load) is what triggers the
 tightest tier."""
 
-LLM_PRESSURE_SLOWDOWN_START_RATIO = 0.75
+LLM_PRESSURE_SLOWDOWN_START_RATIO = 0.5
 LLM_PRESSURE_PAUSE_RATIO = 2.0
 
 REASONING_LOAD_SHED_RATIO = 0.9
@@ -918,8 +918,9 @@ above this ratio silently runs WITHOUT a reasoning trace this one call
 deferring or dropping — the decision still gets made, just without the
 extra trace, shedding load exactly where it's most expensive. Sized
 just under `LLM_PRESSURE_SLOWDOWN_START_RATIO`'s own pacing kicking in
-(0.75) is too eager (would strip reasoning from routine minor load);
-just under `LLM_PRESSURE_PAUSE_RATIO` (2.0) is too late (the queue is
+(0.5 as of v1.34.83, was 0.75) is too eager (would strip reasoning from
+routine minor load); just under `LLM_PRESSURE_PAUSE_RATIO` (2.0) is
+too late (the queue is
 already stalling by then) — 0.9 sheds the single most expensive job
 class right as the queue starts genuinely backing up, before pacing/
 pause even engage."""
@@ -940,7 +941,7 @@ regardless of whether the 12 already-in-flight calls (each taking
 opportunity was born already-doomed to be dropped.
 
 Ratio = `_effective_backlog() / _current_backpressure_limit()`.
-Below `LLM_PRESSURE_SLOWDOWN_START_RATIO` (0.75, i.e. comfortably under
+Below `LLM_PRESSURE_SLOWDOWN_START_RATIO` (0.5, i.e. comfortably under
 the adaptive limit): no change, ticks run at the configured/user-
 selected speed. **Lowered 1.0 -> 0.75 in v1.3.14** after a live
 diagnostic on a much slower model (gemma-4-e4b, ~2.6 tok/s, per-call
@@ -961,7 +962,35 @@ reads as ~1.0/0.75 into the slowdown band and stretches the tick gap
 draining the wasteful churn and letting more calls land on fresh state.
 Still well clear of a healthy fast-model run (backlog ~2 against limit
 6 = ratio 0.33, no slowdown), so this only engages under real
-saturation, never normal operation. Between START_RATIO and `LLM_
+saturation, never normal operation.
+
+**Lowered 0.75 -> 0.5 in v1.34.83**, explicit user directive ("I am
+okay with occasional slow world progression") following a live-
+diagnostic backpressure-drop investigation (v1.34.80-.82, same
+deployment: `llm_max_concurrent=1`, `BACKPRESSURE_BACKLOG_PER_SLOT=3`
+giving a static limit of 3). At integer concurrency this low, `llm_
+pressure_ratio()` only ever takes values `k/3` (0, 0.33, 0.67, 1.0,
+...) — 0.75 sits strictly BETWEEN 0.67 and 1.0, so a backlog of 2
+(already effectively saturated for a single-slot server — one call
+executing, one queued) read as ratio 0.67 and never engaged slowdown
+at all; only a backlog of 3 (already at the point new attempts get
+dropped) crossed 0.75. By the time v1.34.81/.82's fixes closed the
+two structural bugs that had been re-counting the SAME still-
+saturated queue as a fresh drop every tick, this reachability gap
+became the dominant remaining source of drops: genuinely distinct
+scheduling attempts landing on a backlog of 2, engaging no pacing,
+and immediately queuing into a backlog of 3 where they're now the
+one that gets dropped. 0.5 makes a backlog of 2 (ratio 0.67 > 0.5)
+engage a real, if modest, slowdown BEFORE the queue is completely
+full, giving in-flight calls more real time to drain before the next
+wave of scheduling attempts arrives — trading some world-progression
+speed for fewer wasted attempts, the explicit tradeoff requested.
+Still comfortably above `LLM_PRESSURE_SPEEDUP_START_RATIO` (0.15), so
+the speedup band and a real "just right" zone (0.15-0.5) both survive
+unchanged; a healthy multi-slot deployment (e.g. `llm_max_concurrent
+=2`, limit 6) is affected the same directional way but less sharply,
+since its ratio granularity (`k/6`) resolves 0.5 exactly rather than
+straddling it. Between START_RATIO and `LLM_
 PRESSURE_PAUSE_RATIO` (2.0): the
 real-time gap between ticks stretches linearly, up to `LLM_PRESSURE_
 MAX_SLOWDOWN`x slower — fewer new ticks means fewer new agents becoming
@@ -995,10 +1024,11 @@ configured/selected speed, leaving real spare LLM/CPU capacity unused
 even though nothing was competing for it. `_llm_pressure_interval_
 multiplier()` now mirrors the slowdown shape on the low side too:
 below `LLM_PRESSURE_SPEEDUP_START_RATIO` (0.15 — comfortably under
-`LLM_PRESSURE_SLOWDOWN_START_RATIO`'s own 0.75 floor, so the two bands
-never overlap and there's a real "just right" zone at ratio 0.15-0.75
-that stays at exactly 1.0x, matching a normal healthy-but-not-idle
-run), the multiplier scales linearly DOWN to `LLM_PRESSURE_MIN_
+`LLM_PRESSURE_SLOWDOWN_START_RATIO`'s own floor (0.5 as of v1.34.83,
+was 0.75), so the two bands never overlap and there's a real "just
+right" zone at ratio 0.15-0.5 that stays at exactly 1.0x, matching a
+normal healthy-but-not-idle run), the multiplier scales linearly DOWN
+to `LLM_PRESSURE_MIN_
 SPEEDUP_MULTIPLIER` (0.4, i.e. up to 2.5x faster ticks) as the ratio
 approaches 0. Faster ticks mean agents become cognition/dialogue-due
 sooner in real time (staggered-daily eligibility is tick-count-based,
@@ -1803,7 +1833,7 @@ class SimulationEngine:
         `LLM_PRESSURE_SPEEDUP_START_RATIO`: scales linearly DOWN to
         `LLM_PRESSURE_MIN_SPEEDUP_MULTIPLIER` as pressure approaches 0
         (a genuinely idle queue) — see that constant's docstring. Between
-        the two thresholds (0.15-0.75 by default): exactly 1.0, the
+        the two thresholds (0.15-0.5 by default): exactly 1.0, the
         normal healthy-load rate."""
         ratio = self.llm_pressure_ratio()
         if ratio > LLM_PRESSURE_SLOWDOWN_START_RATIO:

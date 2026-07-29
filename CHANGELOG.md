@@ -4,6 +4,50 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.83] — Tune: lower LLM_PRESSURE_SLOWDOWN_START_RATIO 0.75 -> 0.5
+
+Explicit user directive, continuing the same backpressure-drop
+investigation: "I am okay with occasional slow world progression so
+do that" — accepting the tradeoff CLAUDE.md flagged after v1.34.81/
+.82's structural fixes: the remaining lever is genuinely a pacing
+knob, not a bug.
+
+Root issue: at low integer concurrency (`llm_max_concurrent=1` gives
+a static `_backpressure_limit` of `BACKPRESSURE_BACKLOG_PER_SLOT * 1`
+= 3), `llm_pressure_ratio()` can only take values `k/3` (0, 0.33,
+0.67, 1.0, ...). The old 0.75 threshold sits strictly between 0.67
+and 1.0 — a backlog of 2 (already effectively saturated for a single-
+inference-slot server: one call executing, one queued) read as ratio
+0.67 and engaged NO slowdown at all; only a backlog of 3 — the exact
+point new attempts start getting dropped — crossed 0.75. Once
+v1.34.81/.82 closed the two structural over-counting bugs, this
+reachability gap became the dominant remaining source of genuinely
+distinct drops: a fresh scheduling attempt landing on backlog=2 saw
+no pacing, immediately pushed the backlog to 3, and became the very
+next attempt that gets rejected.
+
+`LLM_PRESSURE_SLOWDOWN_START_RATIO` 0.75 -> 0.5: now a backlog of 2
+(ratio 0.67 > 0.5) engages real slowdown (~1.56x tick-gap stretch at
+this concurrency, verified directly) BEFORE the queue is completely
+full, giving in-flight calls genuine extra real time to drain before
+the next wave of scheduling attempts lands — the explicit tradeoff
+requested (slower world-time progression under sustained pressure, in
+exchange for fewer wasted/dropped attempts). The speedup band (`LLM_
+PRESSURE_SPEEDUP_START_RATIO=0.15`) and a real "just right" 1.0x zone
+(0.15-0.5, was 0.15-0.75) both survive unchanged; a healthy idle or
+lightly-loaded run is unaffected. `REASONING_LOAD_SHED_RATIO`'s
+docstring (which referenced the old 0.75 as a sizing anchor) updated
+to match — its own value (0.9) is untouched, still comfortably clear
+of the new 0.5.
+
+Verified: a direct check of `_llm_pressure_interval_multiplier()`
+across the concurrency=1 backlog curve (0/1/2/3/4 -> ratio 0/0.33/
+0.67/1.0/1.33 -> multiplier 0.40/1.00/1.56/2.67/3.78), confirming
+backlog=2 now genuinely slows ticking where it previously didn't;
+`pyflakes` clean; a 4000-tick LLM-disabled soak with clean round-trip
+(a pure constant/docstring change — no persisted state, no native
+module touched).
+
 ## [1.34.82] — Fix: season/year retry-window jobs also re-checked every tick, not once/day
 
 Explicit user follow-up: "Any more things we can do to reduce
