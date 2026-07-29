@@ -4,6 +4,46 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.90] — A10: habitat formation (fields write carrying capacity)
+
+Explicit user instruction: "Continue A10." Ships A10's habitat-
+formation slice — det_sys.md's own wording, "habitat formation (reads
+fields, writes carrying capacity)" — following v1.34.87-.89's
+decomposition/pollination/competition slices. The one A10 axis that
+had NO real implementation of any kind before this pass (every other
+named piece had at least a partial slice).
+
+New `world/wildlife.py`'s `habitat_capacity(nutrients_at, base=
+MAX_HERD_SIZE)`: a region's real standing wild-food abundance
+(`World.fields`'s `nutrients` field — the same signal `NUTRIENTS_
+REPRODUCE_BONUS_MAX` already reads for reproduce CHANCE) now also
+raises how large a herd that habitat can sustain before crowding
+stops growth, up to `HABITAT_CAPACITY_BONUS_MAX=0.5` (50%) past the
+flat `MAX_HERD_SIZE` baseline in a fully nutrient-rich region.
+Deliberately a pure bonus, never a penalty below baseline:
+`nutrients_at=0` (no field data, or a genuinely barren region)
+reproduces the exact flat cap, byte-for-byte — the same "field
+absence means neutral, never worse" discipline every other `World.
+fields` consumer in this module already holds, verified directly.
+Wired at both cap-check sites (the native fast path's `MAX_HERD_SIZE`
+argument and the pure-Python fallback's `herd.count <
+MAX_HERD_SIZE` check) via one shared `effective_max_herd_size`, so
+both paths stay in lockstep — no native-module signature change
+needed, since `effective_max_herd_size` is just a differently-valued
+plain int handed to the same existing native call.
+
+Verified: direct unit tests (`nutrients_at=0` exact-parity with the
+flat baseline, the full-bonus value at `nutrients_at=1`, monotonic
+in between, a floor-of-1 defensive check); a production-path test
+through the real `WildlifeGrid.tick()` (a herd starting AT the flat
+cap in a fully nutrient-rich region genuinely grows past it — 12 to
+13 — over 4000 ticks with movement frozen to isolate the effect; a
+control run with no `nutrients` field passed confirmed the herd never
+exceeds the flat cap, proving the bonus is genuinely additive, not a
+silent baseline shift); a 4000-tick `World.tick()` production soak
+(LLM disabled) with a clean round-trip. `pyflakes` clean. No native
+module touched.
+
 ## [1.34.89] — A10: competition (intraspecies crowding penalty)
 
 Explicit user instruction: "Continue A10." Ships A10's competition

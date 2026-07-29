@@ -82,7 +82,36 @@ map."""
 INITIAL_HERD_SIZE = 4
 MAX_HERD_SIZE = 12
 """A herd stops reproducing at this size — reproduction resumes once
-hunting/predation brings it back below the cap."""
+hunting/predation brings it back below the cap. This is the BASELINE
+cap; see `habitat_capacity` for A10's per-region modulation of it."""
+
+HABITAT_CAPACITY_BONUS_MAX = 0.5
+"""A10 "Ecology / food webs," habitat-formation slice ("reads fields,
+writes carrying capacity" — det_sys.md's own wording): a region's real
+standing wild-food abundance (`World.fields`'s `nutrients` field, the
+same signal `NUTRIENTS_REPRODUCE_BONUS_MAX` already reads for
+reproduce CHANCE) also raises how large a herd that habitat can
+actually sustain before crowding stops growth — a nutrient-rich
+region lets herds grow up to 50% past the flat baseline. Deliberately
+a pure BONUS (`nutrients_at=0` — no field data, or a genuinely barren
+region — reproduces the exact flat `MAX_HERD_SIZE` baseline, never
+lower) so a legacy/fields-absent caller sees byte-identical behavior,
+same "absence means neutral" discipline every other `World.fields`
+consumer in this module already holds. Distinct from `NUTRIENTS_
+REPRODUCE_BONUS_MAX`: that's "how fast," this is "how much" — a
+genuinely separate axis of the same underlying field, per the spec's
+"writes carrying capacity" framing rather than just another
+reproduce-rate nudge."""
+
+
+def habitat_capacity(nutrients_at: float, base: int = MAX_HERD_SIZE) -> int:
+    """The real per-region carrying capacity a GRAZER herd's own
+    habitat supports, given `nutrients_at` (0..1, `World.fields`'
+    `nutrients` reading at the herd's tile — same call already made
+    for `NUTRIENTS_REPRODUCE_BONUS_MAX`, reused rather than re-read).
+    `nutrients_at=0` returns exactly `base`; a fully nutrient-rich
+    region reaches `base * (1 + HABITAT_CAPACITY_BONUS_MAX)`."""
+    return max(1, round(base * (1.0 + nutrients_at * HABITAT_CAPACITY_BONUS_MAX)))
 
 MIN_PREDATOR_PACK = 2
 MAX_PREDATOR_PACK = 6
@@ -707,6 +736,11 @@ class WildlifeGrid:
                     * (1.0 - snowpack_at * SNOWPACK_REPRODUCE_DAMPENING_MAX)
                     * competition_factor
                 )
+                # A10, habitat-formation slice: this region's real
+                # carrying capacity, not the flat `MAX_HERD_SIZE` — see
+                # `habitat_capacity`'s docstring for why `nutrients_at
+                # =0` reproduces the exact flat baseline.
+                effective_max_herd_size = habitat_capacity(nutrients_at)
                 reproduce_roll = rng.random()
                 if _native_grazer_tick_step is not None:
                     # Native fast path (module 22): bundles the node-
@@ -717,7 +751,7 @@ class WildlifeGrid:
                     new_count, new_amount, grazed = _native_grazer_tick_step(
                         herd.count, grazing_food, node.amount if grazing_food else 0.0,
                         GRAZE_CONSUMPTION_PER_TICK, GRAZE_REPRODUCE_MIN_FOOD,
-                        MAX_HERD_SIZE, reproduce_chance, reproduce_roll,
+                        effective_max_herd_size, reproduce_chance, reproduce_roll,
                     )
                     herd.count = new_count
                     if grazed:
@@ -728,7 +762,7 @@ class WildlifeGrid:
                     node.amount = max(0.0, node.amount - GRAZE_CONSUMPTION_PER_TICK)
                     resources.mark_regenerating(herd.x, herd.y)
                 overgrazed = grazing_food and node.amount < GRAZE_REPRODUCE_MIN_FOOD
-                if herd.count < MAX_HERD_SIZE and not overgrazed and reproduce_roll < reproduce_chance:
+                if herd.count < effective_max_herd_size and not overgrazed and reproduce_roll < reproduce_chance:
                     herd.count += 1
                 continue
 

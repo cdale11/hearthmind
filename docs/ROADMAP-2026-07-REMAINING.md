@@ -194,21 +194,24 @@ starts on an explicit instruction naming an item.
       based mutation as an alternate generate path (A8's other named
       piece, depends on A7 reaching a genuine shape-grammar stage
       first) remains open.
-- [ ] **A10, decomposition + pollination + competition slices shipped
-      v1.34.87-.89** — `World.carcass_decomposition` (a real predator-
-      kill carcass, distinct from the already-shipped live-herd
-      nutrient cycling) enriches nearby soil fertility via `economy.
-      farms.apply_carcass_decomposition_bonus`. `terrain_evolution.
-      compute_succession_pressure`'s new `grazer_positions` param
-      gives a live GRAZER herd's presence a real, capped, additive
-      bonus to nearby succession pressure ("animals carry seeds and
-      pollen as they move"), threaded through `maybe_reclaim`.
-      `WildlifeGrid.tick`'s new `grazer_tile_counts` aggregate makes
-      multiple GRAZER herds sharing a tile genuinely compete for the
-      same forage (`COMPETITION_PENALTY_PER_RIVAL` per rival,
-      `COMPETITION_MIN_REPRODUCE_FACTOR` floor). Migration, habitat
-      formation, and folding the whole food web onto A1's field
-      substrate remain open.
+- [ ] **A10, decomposition + pollination + competition + habitat-
+      formation slices shipped v1.34.87-.90** — `World.carcass_
+      decomposition` (a real predator-kill carcass, distinct from the
+      already-shipped live-herd nutrient cycling) enriches nearby
+      soil fertility via `economy.farms.apply_carcass_decomposition_
+      bonus`. `terrain_evolution.compute_succession_pressure`'s new
+      `grazer_positions` param gives a live GRAZER herd's presence a
+      real, capped, additive bonus to nearby succession pressure
+      ("animals carry seeds and pollen as they move"), threaded
+      through `maybe_reclaim`. `WildlifeGrid.tick`'s new `grazer_
+      tile_counts` aggregate makes multiple GRAZER herds sharing a
+      tile genuinely compete for the same forage. `wildlife.habitat_
+      capacity` reads the same `nutrients` field to raise (never
+      lower) a region's real herd-size carrying capacity — det_sys's
+      own "reads fields, writes carrying capacity" wording, closing
+      the one A10 axis that had zero implementation before this
+      batch. Only migration and folding the whole food web onto A1's
+      field substrate remain open.
 - [ ] **A12** — per-instance `Entity.material` generalized beyond
       buildings (per-*building*-instance material shipped v1.34.58).
 - [ ] **A16** — trade-as-network-flow, tech-as-DAG, information-
@@ -2361,9 +2364,20 @@ real intraspecies competition effect confirmed via a production-path
 test (solo herds averaged ~3x the growth of 4-rival-crowded herds
 over 60 seeds with movement frozen to isolate the effect).
 
-Migration and habitat formation (reads fields, writes carrying
-capacity) remain unbuilt. Folding the whole food web onto A1's field
-substrate as one coupled system is real follow-up work.
+**Habitat-formation slice shipped, v1.34.90.** New `wildlife.habitat_
+capacity(nutrients_at, base=MAX_HERD_SIZE)` reads the same real
+`nutrients` field `NUTRIENTS_REPRODUCE_BONUS_MAX` already consumes
+and raises (never lowers — `nutrients_at=0` reproduces the flat
+`MAX_HERD_SIZE` baseline exactly) how large a herd its region can
+sustain, up to 50% past the flat cap in a genuinely rich habitat —
+det_sys's own "reads fields, writes carrying capacity" wording,
+almost verbatim. Wired at both the native and pure-Python reproduce-
+cap check sites via one shared `effective_max_herd_size`. This was
+the one A10 axis with zero prior implementation of any kind.
+
+Only migration remains unbuilt as a named A10 piece. Folding the
+whole food web onto A1's field substrate as one coupled system is
+real follow-up work, not yet scoped.
 
 ### A11 — Continuous hydrology
 **Shipped, second slice (v1.34.23).** Groundwater and erosion, the two

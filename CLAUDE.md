@@ -510,6 +510,28 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.90)
+
+Explicit user instruction: "Continue A10." Ships habitat formation —
+det_sys.md's "reads fields, writes carrying capacity" — the one A10
+axis with no prior implementation at all. New `world/wildlife.py`'s
+`habitat_capacity(nutrients_at, base=MAX_HERD_SIZE)`: the same
+`nutrients` field `NUTRIENTS_REPRODUCE_BONUS_MAX` already reads for
+reproduce chance now also raises how large a herd its region can
+sustain, up to 50% past the flat baseline in a nutrient-rich region.
+Pure bonus, never a penalty — `nutrients_at=0` reproduces the exact
+flat `MAX_HERD_SIZE` cap byte-for-byte (verified directly), matching
+this module's "field absence means neutral" discipline. Wired at both
+the native fast path's cap argument and the pure-Python fallback's
+cap check via one shared `effective_max_herd_size`.
+
+Verified: direct unit tests (zero-parity, full-bonus value,
+monotonicity, floor), a production-path test through the real
+`WildlifeGrid.tick()` (a herd at the flat cap genuinely grows past it
+in a nutrient-rich region; a no-nutrients control confirmed it never
+exceeds the flat cap), a 4000-tick soak with clean round-trip. No
+native module touched.
+
 ## Current state (v1.34.89)
 
 Explicit user instruction: "Continue A10." Ships the competition
