@@ -417,6 +417,16 @@ substantial chance. Same value as `INSTITUTION_BELIEF_TARGET_LEAN_
 WEIGHT` — no reason for the two pillars' analogous mechanisms to tune
 differently without a live-diagnostic reason to."""
 
+INVENTOR_HUMANS_LEAN_WEIGHT = 0.4
+"""Tier 0's eighth/ninth mirror-write -> pillar-authored conversions
+(docs/ROADMAP-2026-07-REMAINING.md) — the two `_maybe_schedule_
+invention`/`_maybe_schedule_ontology_proposal` sites that pick WHICH
+candidate agent gets credited as an invention's inventor/first knower.
+Same value and "never narrow the pool, only weight it" discipline as
+`HUMANS_PERSONAL_TARGET_LEAN_WEIGHT`/`INSTITUTION_BELIEF_TARGET_LEAN_
+WEIGHT` — no reason to tune this site differently without a live-
+diagnostic reason to."""
+
 OBSERVER_ATTENTION_MAX_TRACKED = 25
 """§4 "observer attention as a signal into the Town Consciousness"
 (docs/IDEAS-2026-07-EMERGENCE.md): cap on `World.observer_attention`'s
@@ -4459,7 +4469,20 @@ class SimulationEngine:
             inventor_id = None
             if candidates:
                 rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "invention_inventor")
-                inventor = rng.choice(candidates)
+                # Tier 0 mirror-write -> pillar-authored conversion
+                # (docs/ROADMAP-2026-07-REMAINING.md): who becomes
+                # credited as the inventor is a real WHICH-candidate
+                # pick, the same shape `institution_belief`/`memory_
+                # drift`/`noncore_nudge` already convert — "the person
+                # already notable in the community's own accumulated
+                # sense of them" is a genuine, distinct lean toward
+                # recognizing a real invention. An agent Humans pillar
+                # has no standing theory about reads a flat 1.0.
+                weights = [
+                    1.0 + self.world.humans_pillar.subject_confidence(a.name) * INVENTOR_HUMANS_LEAN_WEIGHT
+                    for a in candidates
+                ]
+                inventor = rng.choices(candidates, weights=weights, k=1)[0]
                 inventor_id = inventor.id
                 settlement.invention_knowledge[entry] = {"knowers": [inventor.id], "dormant": False}
                 if len(settlement.invention_knowledge) > INVENTION_KNOWLEDGE_MAX_TRACKED:
@@ -4643,7 +4666,14 @@ class SimulationEngine:
             inventor_id = None
             if candidates:
                 rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "ontology_inventor")
-                inventor_id = rng.choice(candidates).id
+                # Tier 0's inventor-selection conversion, second real
+                # instance (same shape as `invention`'s own site above —
+                # C4's "give a pattern a second instance" precedent).
+                weights = [
+                    1.0 + self.world.humans_pillar.subject_confidence(a.name) * INVENTOR_HUMANS_LEAN_WEIGHT
+                    for a in candidates
+                ]
+                inventor_id = rng.choices(candidates, weights=weights, k=1)[0].id
             # B1 Pillar abstraction, generalized: always-additive
             # mirror into Innovation's own world_model (no revision
             # path exists for concepts — name/description -> subject/

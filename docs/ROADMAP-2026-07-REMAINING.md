@@ -46,11 +46,14 @@ starts on an explicit instruction naming an item.
 
 ### Tier 0 — pillar refactor (the biggest single lever)
 
-- [ ] Convert the remaining **~52 mirror-write sites** from "write into
+- [ ] Convert the remaining **~50 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); three sites are converted (town_brain
-      priority, era_branch tiebreak, COUNCIL institution objective).
+      confidence`, v1.34.46); nine sites are now converted (town_brain
+      priority, era_branch tiebreak, COUNCIL institution objective,
+      ontology_evolution parent-fitness weighting, institution_belief/
+      memory_drift/noncore_nudge target selection, and — v1.34.104 —
+      both `invention`/`ontology_proposal`'s inventor-selection sites).
       Each further site is real judgment work — find a soft/tiebreak
       point a pillar's accumulated belief can legitimately weigh, never
       hand a pillar a whole decision.
@@ -1308,6 +1311,30 @@ own candidate pool falls back to ANY agent with memories (not only
 core cast) once no core-cast agent is having a significant moment —
 confirmed by direct code inspection, not assumed. Tier 0 now has
 seven real converted sites plus this new producer.
+
+**Eighth/ninth sites (v1.34.104, explicit user instruction: "progress
+through tier 0").** `_maybe_schedule_invention`'s and `_maybe_schedule_
+ontology_proposal`'s inventor/first-knower selection — both had the
+exact same `rng.choice(candidates)` shape as the fifth/sixth/seventh
+sites (a uniform WHICH-candidate pick among agents, not a WHAT-the-
+decision-concludes tiebreak). New `INVENTOR_HUMANS_LEAN_WEIGHT=0.4`:
+`humans_pillar.subject_confidence(agent.name)` now multiplies each
+candidate's base weight of 1.0 via `rng.choices` at both sites —
+"the person already notable in the community's own accumulated sense
+of them" measurably (not certainly) becomes the one credited as an
+invention's inventor. Second real instance shipped in the same batch
+as the first, same "give a pattern a second instance immediately, not
+as separate future work" precedent C4 established. An agent Humans
+pillar holds no standing theory about reads a flat 1.0, same "never
+narrow the pool" discipline as every prior conversion.
+
+Verified: a direct statistical test of the weighting formula (3000
+trials, an agent with a seeded 0.9-confidence Humans belief picked
+~48% more often than average); a production-path test through the
+real `_maybe_schedule_invention` (forced gates/roll, a fake
+max-weight RNG confirming the favored agent actually becomes the
+recorded knower); a 4000-tick LLM-disabled soak with a clean
+round-trip. Tier 0 now has nine real converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

@@ -617,6 +617,31 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.104)
+
+Explicit user instruction: "Check A12 why it is shown as not done and
+progress through tier 0."
+
+A12: per-building-instance material shipped v1.34.58; the checklist
+stays unchecked because the item's literal scope (generalizing beyond
+buildings, e.g. `Vehicle`) is still genuinely unbuilt — correctly so,
+since no real consumer exists for a vehicle's material yet and
+inventing one just to close the box would violate the standing
+"mechanically real, not a stub" discipline. Not a bug.
+
+Tier 0's eighth/ninth conversions: `_maybe_schedule_invention`/
+`_maybe_schedule_ontology_proposal`'s inventor-selection sites (same
+WHICH-candidate `rng.choice` shape as the fifth/sixth/seventh sites)
+now weight by `humans_pillar.subject_confidence(agent.name)` via new
+`INVENTOR_HUMANS_LEAN_WEIGHT=0.4` — the community's own notable person
+becomes measurably more likely to be credited as an invention's
+inventor. Nine real Tier 0 sites now converted.
+
+Verified: a direct statistical weighting test (3000 trials), a
+production-path test through the real `_maybe_schedule_invention`
+confirming the favored agent becomes the recorded knower, a 4000-tick
+soak with clean round-trip.
+
 ## Current state (v1.34.103)
 
 Explicit user instruction: "Let's complete tier 2 first." Tier 2 turned

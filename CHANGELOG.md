@@ -4,6 +4,40 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.104] — A12 status answered; Tier 0's eighth/ninth conversions
+
+Explicit user instruction: "Check A12 why it is shown as not done and
+progress through tier 0."
+
+A12 answered: per-BUILDING-instance material shipped v1.34.58 (a side
+effect of A13's chemistry reactor). The checklist stays unchecked
+because the item's own literal scope — per-instance material
+GENERALIZED BEYOND buildings (e.g. `Vehicle`) — remains genuinely
+unbuilt, and correctly so: no real consumer mechanism exists for a
+vehicle's material to convert or matter yet, and inventing one just to
+close the checkbox would be exactly the kind of unmotivated addition
+the standing "mechanically real, not a stub" discipline warns against.
+Not a bug, a deliberately-scoped-open item.
+
+Tier 0: `_maybe_schedule_invention`'s and `_maybe_schedule_ontology_
+proposal`'s inventor/first-knower selection converted — both had the
+exact `rng.choice(candidates)` WHICH-candidate shape the fifth/sixth/
+seventh sites already established. New `INVENTOR_HUMANS_LEAN_WEIGHT=
+0.4`: `humans_pillar.subject_confidence(agent.name)` now multiplies
+each candidate's base weight of 1.0 via `rng.choices` at both sites —
+"the person already notable in the community's own accumulated sense
+of them" becomes measurably (never certainly) more likely to be
+credited as an invention's inventor. Second real instance shipped
+alongside the first in the same batch, same precedent C4 established
+for giving a pattern its second instance immediately.
+
+Verified: a direct statistical test of the weighting formula (3000
+trials, ~48% lift for a seeded 0.9-confidence agent); a production-
+path test through the real `_maybe_schedule_invention` (forced gates/
+roll, a max-weight fake RNG confirming the favored agent actually
+becomes the recorded knower); a 4000-tick LLM-disabled soak with a
+clean round-trip. Tier 0 now has nine real converted sites.
+
 ## [1.34.103] — C3 CLOSED: pillars may initiate contact
 
 Explicit user instruction: "Let's complete tier 2 first." Investigation
