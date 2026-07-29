@@ -65,7 +65,9 @@ from hearthmind.world.minerals import MineralGrid
 from hearthmind.world.affordances import discover_combinations
 from hearthmind.world.chemistry import discover_reactions
 from hearthmind.world import chemistry
-from hearthmind.world.materials import BUILDING_MATERIALS, building_affordances
+from hearthmind.world.materials import (
+    BUILDING_MATERIALS, building_affordances, effective_material_name, material_decay_factor,
+)
 from hearthmind.world.ontology import CausalThread, CompositeEntity, InventedConcept, TriggerRule
 from hearthmind.world.reactions import CompositeReaction, default_composite_reactions
 from hearthmind.world.weather import WeatherState, compute_weather
@@ -895,8 +897,12 @@ class World:
         settlement_events: list[tuple[str, str]] = []
         self.newly_named_settlement_ids = []
         for stl in self.settlements:
+            material_decay_factors = {
+                b.id: material_decay_factor(effective_material_name(b)) for b in stl.buildings
+            }
             settlement_events += stl.tick(
                 weather=self.weather_at(stl.center()), season=self.clock.season, ruin_scars=self.ruin_scars,
+                material_decay_factors=material_decay_factors,
             )
             # A13's real automatic reactor: runs every tick (progress is
             # a CONSECUTIVE-tick counter, so a coarser cadence would

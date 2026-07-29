@@ -226,6 +226,33 @@ def material_repair_factor(name: str | None) -> float:
     return MATERIAL_REPAIR_FACTOR_BASE + material.workability * MATERIAL_REPAIR_FACTOR_WORKABILITY_WEIGHT
 
 
+MATERIAL_DECAY_FACTOR_BASE = 0.5
+MATERIAL_DECAY_FACTOR_DECAY_RATE_WEIGHT = 1.0
+"""A5/A6's remaining flagged follow-up, now closed: `Material.decay_
+rate` (tracked since A12, never consumed by anything until now) scales
+`Settlement.tick`'s per-tick building decay — stone/ore/ceramic
+(decay_rate 0.05/0.2/0.08) weather far slower than wood/fiber
+(0.5/0.7), matching real-world intuition. Wired through the native
+`building_decay_tick` fast path directly (a real native-module
+signature change, not a Python-fallback-only shortcut — see `world/
+state.py`'s call site for why this module can't compute the factor
+itself). Same base/weight shape as `material_repair_factor`: ~0.55
+(stone) to ~1.2 (fiber), centered near 1.0 for wood so the previously-
+flat decay rate stays close to its old tuned value for the most
+common kind."""
+
+
+def material_decay_factor(name: str | None) -> float:
+    """A kind with no assigned material or an unrecognized name returns
+    exactly 1.0 — the old flat-rate behavior, unchanged. `effective_
+    material_name(building)` is the intended caller for a real
+    per-instance value."""
+    material = MATERIALS.get(name) if name else None
+    if material is None:
+        return 1.0
+    return MATERIAL_DECAY_FACTOR_BASE + material.decay_rate * MATERIAL_DECAY_FACTOR_DECAY_RATE_WEIGHT
+
+
 def building_instance_affordances(building) -> frozenset[str]:
     """`building_affordances(kind)`'s per-INSTANCE counterpart — reads
     `effective_material_name` instead of always the per-kind default,

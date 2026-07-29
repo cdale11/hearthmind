@@ -4,6 +4,138 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.80] — Fix: reactive pillar beliefs piling up as near-duplicate entries
+
+Explicit user request: diagnose a real 40k-tick live run (with LLM,
+`nemotron-4b-q5_k_m`, `hearthmind_version` reads `1.34.69` in its own
+`training_recorder.dataset` — an older deployment, not this session's
+in-progress work) and fix any real bugs found.
+
+Real bug found: `nature_pillar.world_model` showed the SAME subject
+("the vanished predator packs") re-hypothesized 5 separate times
+across ticks 29334-36364, each a near-identical restatement, never
+consolidating; `reflection_pillar.world_model` showed the SAME subject
+("a change in whispering stone") with the SAME belief text
+("false_memory: rustle near the road") appended as 9 separate entries
+across ticks 5393-37582. Root cause: `_maybe_react_to_predator_
+extinction`/`_maybe_react_to_grazer_extinction`/`_maybe_react_to_
+succession_stall` (`nature_causal_reasoning`'s three reactive
+triggers, v1.34.10/34/43) and the `consciousness` job's Reflection
+mirror (v1.34.9) all call `Pillar.upsert_world_model(...)` with no
+`revises_id` — `upsert_world_model` only revises in place when the
+CALLER already knows which entry to revise; every other call site in
+the codebase gets that from the LLM's own `revises` field, but these
+four sites have no such field (their subject is a fixed string picked
+by the trigger, not the model) and never looked up whether an entry
+with that exact subject already existed, so every re-firing of the
+same still-unresolved anomaly (ecology naturally flaps — packs go
+locally extinct, recolonize, go extinct again) or the same repeated
+consciousness intervention silently appended a fresh near-duplicate
+instead of revising the pillar's one standing belief about it.
+
+New `Pillar.find_world_model_entry(subject)` (`cognition/pillar.py`):
+exact (case/whitespace-insensitive) subject match, most recent first —
+deliberately NOT `disagrees_with`'s fuzzy substring/overlap match,
+since these callers already hold their own subject string verbatim
+and a loose match risks merging two genuinely different anomalies.
+Wired at all four sites (`engine.py`): each now looks up any existing
+entry with the same subject and passes its id as `revises_id`, so a
+recurring anomaly updates ONE evolving belief (`nature_pillar`'s "the
+vanished predator packs" now tracks the LATEST cause, not five stale
+snapshots) instead of an ever-growing pile of near-copies. A genuinely
+different anomaly (a different subject string) still appends a new
+entry, unaffected.
+
+No other clear code bug found in this pack: the very high `calls_
+dropped_backpressure` (10022 vs. 2043 attempted) reflects this
+deployment's own `llm_max_concurrent=1` override under a slow model,
+not a defect — CLAUDE.md already documents this exact concurrency
+constant's tuning history extensively; re-tuning it from one report
+without a fresh live re-measurement would repeat a mistake this
+project has explicitly corrected before (see `Config.llm_max_
+concurrent`'s docstring). `village_pillar`/`humans_pillar`/`innovation_
+pillar`'s world_model entries mixing content from both `whispering
+stone` and its fissioned daughter `Stonehaven` is expected, not a bug —
+the five pillars are genuinely world-scoped singletons, not per-
+settlement, by design (see "The Pillar abstraction," v1.5.0).
+
+Verified: direct unit tests of `find_world_model_entry`/`upsert_world_
+model`'s revise-in-place behavior (same-subject revision, distinct-
+subject still appends, case/whitespace-insensitive match, no-match
+cases); `pyflakes` clean; a 4000-tick LLM-disabled engine soak with a
+clean `World.to_dict`/`from_dict` round-trip (no persisted-shape
+change — `world_model` entries already round-tripped; this only
+changes how many accumulate). Pure Python, no native module touched,
+so no native-soak run needed for this fix specifically (though the
+same session's A5/A6 native soak below already ran clean on the
+current tree).
+
+## [1.34.79] — A5/A6: decay's native fast path, closing the item entirely
+
+Explicit user instruction: "Do the native module change and ask me
+when in doubt" — the one piece v1.34.78 explicitly flagged and did not
+attempt: `Settlement.tick`'s decay loop has a native C++ fast path
+(`_native_building_decay_tick`, modules 9-10 of the R6 port) that took
+one flat scalar decay rate for the whole batch, so `material_repair_
+factor`'s real-material-sensitivity trick (pure Python, agent-mediated
+repair, zero parity risk) had no equivalent on the decay side without
+either grouping buildings by material before calling into the native
+function (awkward, loses the native path's whole-batch efficiency) or
+a genuine native-module signature change. Ships the real signature
+change, no ambiguity arose worth asking about.
+
+`cpp/src/settlement_decay.cpp`'s `building_decay_tick` input tuple
+gained a 5th field, `material_decay_factor` — multiplied directly into
+the existing `hut_decay`/`civic_decay` scalar before the condition
+subtraction. The factor itself is computed entirely in Python, once
+per building, at `World.tick`'s call site (`world/state.py`) rather
+than inside `settlement/buildings.py` — `world/materials.py` already
+imports `BuildingKind` FROM `settlement/buildings.py`, so the reverse
+import would be circular; `world/state.py` already imports both
+modules cleanly, the same "compute where both dependencies already
+meet" shape `nature_adaptation_bias`'s feed into `decay_disaster_
+scars` established. New `world/materials.py`'s `material_decay_factor
+(name)` mirrors `material_repair_factor`'s exact shape (`MATERIAL_
+DECAY_FACTOR_BASE=0.5` + `Material.decay_rate * MATERIAL_DECAY_
+FACTOR_DECAY_RATE_WEIGHT` (1.0)) but reads `Material.decay_rate`
+instead of `workability` — a property tracked since A12 (v1.17.0) with
+zero real consumer until now. Stone/ore/ceramic (`decay_rate` 0.05/
+0.2/0.08) now weather at ~0.55-0.7x the old flat rate; wood/fiber
+(0.5/0.7) at ~1.0-1.2x, wood staying close to its old tuned value since
+it's the most common kind. `name=None`/unrecognized returns exactly
+1.0, the old flat rate, unchanged.
+
+`Settlement.tick` gained an optional `material_decay_factors: dict[
+int, float] | None = None` param (keyed by `Building.id`), threaded
+into both the native call site's now-5-tuple `inputs` list and the
+pure-Python fallback loop (`building_decay *= material_decay_factors.
+get(building.id, 1.0)` when provided) — `None` reproduces the exact
+pre-A5/A6 flat rate on both paths, byte-for-byte. `scripts/verify_
+native_soak.py`'s `_NATIVE_TOGGLES` already listed `(_buildings,
+"_native_building_decay_tick")` from the original module-9 port — no
+new toggle entry needed, the existing one now exercises the extended
+signature directly. No new UI surfacing needed — v1.34.78's "Built of"
+inspector repair-speed suffix already reads the same per-instance
+material and now implicitly covers the decay-speed reading too (a
+material that repairs fast/slow is the same one that decays slow/fast
+by construction, so a second redundant line was judged unnecessary).
+
+Verified: the native extension was rebuilt from the modified `.cpp`
+source and confirmed to load and accept the new 5-tuple; direct
+`material_decay_factor` unit checks across every registered material
+confirming the expected stone/ore/ceramic-slower-than-wood/fiber
+ordering; a production-path test through the real, native-backed
+`Settlement.tick()` (fiber vs. stone buildings, 50 ticks, identical
+weather/season) confirming genuinely differential decay plus a
+byte-identical `None`-path regression check; a 4000-tick LLM-disabled
+engine soak with a clean `World.to_dict`/`from_dict` round-trip (no
+new persisted state — the factor dict is recomputed fresh every tick,
+never stored); `scripts/verify_native_soak.py` (3 seeds x 3000 ticks)
+confirming native and fallback produce byte-identical `World.to_dict()`
+output at every tick — the load-bearing check for a native-module
+signature change. **A5/A6 is now fully closed** — no flagged pieces
+remain under either half of the item.
+
 ## [1.34.78] — A5/A6: per-instance Entity.properties, closing the item's other named half
 
 Explicit user instruction: "Start A5/A6" (docs/ROADMAP-2026-07-

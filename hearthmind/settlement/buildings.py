@@ -3496,6 +3496,7 @@ class Settlement:
     def tick(
         self, weather: WeatherState, season: str = "summer",
         ruin_scars: dict[tuple[int, int], float] | None = None,
+        material_decay_factors: dict[int, float] | None = None,
     ) -> list[tuple[str, str]]:
         """Weather- and season-driven decay of standing buildings into
         ruins, and eventual removal of long-abandoned ruins. Returns
@@ -3509,7 +3510,20 @@ class Settlement:
         behavior for any caller without a `World` in scope) records a
         real, slow-decaying mark at a building's position the instant
         it's fully reclaimed, so a dead settlement's ground keeps a
-        trace long after its last ruin physically crumbles away."""
+        trace long after its last ruin physically crumbles away.
+
+        A5/A6 (roadmap Tier 3): `material_decay_factors` (optional,
+        keyed by `Building.id`, `None` reproducing the exact pre-A5/A6
+        flat rate) is the per-instance material-driven decay multiplier
+        `world/materials.py`'s `material_decay_factor` computes — this
+        module can't compute it directly (`world.materials` imports
+        `BuildingKind` FROM here, so the reverse import would be
+        circular), so the caller (`World.tick`, which already imports
+        both) resolves it once per building and passes the finished
+        dict down, same "compute where both dependencies already meet"
+        shape `nature_adaptation_bias` uses for `decay_disaster_scars`.
+        A building with no entry (or `None` outright) decays at exactly
+        1.0x — the old flat rate, unchanged."""
         events: list[tuple[str, str]] = []
         survivors: list[Building] = []
 
@@ -3553,7 +3567,10 @@ class Settlement:
             _bstage_out = {0: BuildingStage.UNDER_CONSTRUCTION, 1: BuildingStage.STANDING, 2: BuildingStage.RUINED}
             _bstage_in = {BuildingStage.UNDER_CONSTRUCTION: 0, BuildingStage.STANDING: 1, BuildingStage.RUINED: 2}
             inputs = [
-                (_bstage_in[b.stage], b.condition, b.kind is BuildingKind.HUT, b.ruined_ticks)
+                (
+                    _bstage_in[b.stage], b.condition, b.kind is BuildingKind.HUT, b.ruined_ticks,
+                    material_decay_factors.get(b.id, 1.0) if material_decay_factors is not None else 1.0,
+                )
                 for b in self.buildings
             ]
             results = _native_building_decay_tick(inputs, decay, civic_decay, RUIN_REMOVAL_TICKS)
@@ -3575,6 +3592,8 @@ class Settlement:
             for building in self.buildings:
                 if building.stage is BuildingStage.STANDING:
                     building_decay = decay if building.kind is BuildingKind.HUT else civic_decay
+                    if material_decay_factors is not None:
+                        building_decay *= material_decay_factors.get(building.id, 1.0)
                     building.condition = max(0.0, building.condition - building_decay)
                     if building.condition <= 0.0:
                         building.stage = BuildingStage.RUINED

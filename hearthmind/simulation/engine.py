@@ -6533,9 +6533,12 @@ class SimulationEngine:
                 # log` itself, is dev-console-depth state, never
                 # surfaced in the main UI — the public `_log` line
                 # above stays exactly as vague as before this change.
+                subject = f"a change in {target.name}"
+                existing = self.world.reflection_pillar.find_world_model_entry(subject)
                 self.world.reflection_pillar.upsert_world_model(
-                    tick, f"a change in {target.name}", f"{kind}: {detail}",
+                    tick, subject, f"{kind}: {detail}",
                     0.4, status="hypothesis", source="consciousness",
+                    revises_id=existing["id"] if existing is not None else None,
                 )
                 self.world.reflection_pillar.remember(f"Something shifted in {target.name}: {kind} — {detail}")
 
@@ -8228,8 +8231,10 @@ class SimulationEngine:
             if not cause:
                 return
             subject = "the vanished predator packs"
+            existing = self.world.nature_pillar.find_world_model_entry(subject)
             entry = self.world.nature_pillar.upsert_world_model(
                 tick, subject, cause, 0.4, status="hypothesis", source="nature_causal_reasoning",
+                revises_id=existing["id"] if existing is not None else None,
             )
             self.world.nature_pillar.remember(f"Wondered why the predator packs vanished: {cause}")
             ontology.register_causal_thread(
@@ -8288,8 +8293,10 @@ class SimulationEngine:
             if not cause:
                 return
             subject = "the vanished grazing herds"
+            existing = self.world.nature_pillar.find_world_model_entry(subject)
             entry = self.world.nature_pillar.upsert_world_model(
                 tick, subject, cause, 0.4, status="hypothesis", source="nature_causal_reasoning",
+                revises_id=existing["id"] if existing is not None else None,
             )
             self.world.nature_pillar.remember(f"Wondered why the grazing herds vanished: {cause}")
             ontology.register_causal_thread(
@@ -8357,8 +8364,10 @@ class SimulationEngine:
             if not cause:
                 return
             subject = f"the stalled clearing at ({x}, {y})"
+            existing = self.world.nature_pillar.find_world_model_entry(subject)
             entry = self.world.nature_pillar.upsert_world_model(
                 tick, subject, cause, 0.4, status="hypothesis", source="nature_causal_reasoning",
+                revises_id=existing["id"] if existing is not None else None,
             )
             self.world.nature_pillar.remember(f"Wondered why the clearing at ({x}, {y}) hasn't regrown: {cause}")
             ontology.register_causal_thread(

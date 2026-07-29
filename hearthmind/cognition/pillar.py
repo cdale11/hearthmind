@@ -283,6 +283,26 @@ class Pillar:
             raise ValueError(f"unknown cycle stage {stage!r}, expected one of {self.CYCLE_STAGES}")
         self.cycle_stage = stage
 
+    def find_world_model_entry(self, subject: str) -> dict | None:
+        """Exact (case/whitespace-insensitive) subject match, most
+        recent first — the lookup a reactive same-subject trigger needs
+        before calling `upsert_world_model` so a recurring anomaly
+        (e.g. a predator-pack extinction that keeps re-firing as packs
+        repeatedly vanish and recolonize) revises its one standing
+        entry in place instead of piling up near-duplicate hypotheses
+        forever. Deliberately exact-match, not `disagrees_with`'s
+        fuzzy substring/overlap check — a caller here already knows
+        its own fixed subject string verbatim, so a loose match would
+        risk merging two genuinely different anomalies that happen to
+        share wording."""
+        subject_norm = subject.strip().lower()
+        if not subject_norm:
+            return None
+        for entry in reversed(self.world_model):
+            if str(entry.get("subject", "")).strip().lower() == subject_norm:
+                return entry
+        return None
+
     def upsert_world_model(
         self, tick: int, subject: str, belief: str, confidence: float,
         status: str = "hypothesis", source: str = "", revises_id: int | None = None,

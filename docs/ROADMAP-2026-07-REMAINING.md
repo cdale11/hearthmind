@@ -139,14 +139,14 @@ starts on an explicit instruction naming an item.
 
 ### Tier 3 — deepen an already-real mechanism
 
-- [x] **A5/A6 — CLOSED, v1.34.78.** Affordances half already real
+- [x] **A5/A6 — CLOSED, v1.34.79.** Affordances half already real
       (`building_instance_affordances`, A13 v1.34.58). Properties half
-      shipped: `world/materials.py`'s `material_repair_factor` — a
-      material's real `workability` now scales `Population._maybe_
-      repair`'s repair speed per instance, reading `effective_material_
-      name(building)`. Decay itself deliberately left untouched (native
-      fast path takes one shared scalar for the whole batch — a real
-      native-module change, flagged, not attempted).
+      shipped in two slices: `world/materials.py`'s `material_repair_
+      factor` (v1.34.78, `workability` scales repair speed) and
+      `material_decay_factor` (v1.34.79, `decay_rate` scales decay
+      speed) — the latter required and got the real native-module
+      signature change `_native_building_decay_tick` was flagged as
+      needing; both slices verified byte-identical native-vs-fallback.
 - [ ] **A7** — layout and architecture grammars stay single-application
       scoring biases / fixed-slot productions; a real graph grammar over
       terrain+roads and a real shape grammar with recursive subdivision
@@ -1749,6 +1749,24 @@ in this document; nothing in either was started this pass)
     lift, flagged as follow-up. Repair is pure Python (agent-mediated,
     never native-backed), zero parity risk. UI: the "Built of"
     inspector line gained a plain-language repair-speed suffix.
+
+    **Decay's native fast path, v1.34.79.** Explicit user instruction:
+    "Do the native module change and ask me when in doubt." Ships the
+    flagged follow-up above. `cpp/src/settlement_decay.cpp`'s
+    `building_decay_tick` input tuple gained a 5th field,
+    `material_decay_factor` — computed once per building at `World.
+    tick`'s call site (`world/state.py`, the one layer that already
+    imports both `settlement.buildings` and `world.materials` without
+    a cycle) via new `world/materials.py`'s `material_decay_factor(
+    name)`, mirroring `material_repair_factor`'s shape exactly but
+    keyed off `Material.decay_rate` instead of `workability` — stone/
+    ore/ceramic now decay measurably slower (~0.55-0.7x) than wood/
+    fiber (~1.0-1.2x). `Settlement.tick` gained an optional
+    `material_decay_factors: dict[int, float] | None` param, `None`
+    reproducing the exact old flat rate; the pure-Python fallback loop
+    applies the identical multiplication. No new UI surfacing needed
+    (the repair-speed suffix already covers this instance's material
+    reading). **A5/A6 is now fully closed** — no flagged pieces remain.
 18. **A7 — dialect domain made genuinely recursive, v1.34.63.**
     `world/dialect_grammar.py`'s `drift_term` gained a `steps` param: a
     chain of rule applications, each round re-seeded off the STRING THE
@@ -2164,12 +2182,13 @@ remains a real but purely structural follow-up, not required to
 satisfy the item's own stated intent.
 
 ### A5/A6 — Affordances
-**CLOSED, v1.34.78.** Per-instance affordances real since A13
+**FULLY CLOSED, v1.34.79.** Per-instance affordances real since A13
 (`building_instance_affordances`, v1.34.58). Validate-step half real
 since v1.34.62 (`llm/ontology.py`'s `validate_hook`). Per-instance
-`Entity.properties` shipped v1.34.78 (`material_repair_factor`,
-`Population._maybe_repair`). Decay's own native-fast-path parity risk
-remains explicitly open, flagged, not attempted.
+`Entity.properties` shipped in two slices: repair speed (v1.34.78,
+`material_repair_factor`, `Population._maybe_repair`) and decay speed
+(v1.34.79, `material_decay_factor`, a real `_native_building_decay_
+tick` signature change) — no flagged pieces remain.
 
 ### A7 — Grammar-based procedural systems
 None of the three shipped domains is a full graph/shape grammar

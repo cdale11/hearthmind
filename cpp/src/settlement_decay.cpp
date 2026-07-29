@@ -30,14 +30,23 @@ constexpr int BSTAGE_RUINED = 2;
 
 }  // namespace
 
-// Input per building: (stage, condition, is_hut, ruined_ticks).
+// Input per building: (stage, condition, is_hut, ruined_ticks,
+// material_decay_factor). `material_decay_factor` is A5/A6's
+// per-instance material-driven multiplier (world/materials.py's
+// `material_decay_factor`, computed by the caller since resolving a
+// building's effective material lives in world/materials.py, which
+// itself imports BuildingKind from settlement/buildings.py — computing
+// it here would be circular) — 1.0 reproduces the pre-A5/A6 flat rate
+// exactly, a real per-instance value scales it (stone/ore/ceramic
+// decay slower, wood/fiber faster, matching material_repair_factor's
+// own real-world-intuition direction).
 // Output per building, same order/length as input:
 // (stage, condition, ruined_ticks, removed, just_ruined).
 // A `removed` building's other fields are meaningless (dropped from
 // `Settlement.buildings` entirely) — mirrors the pure-Python version's
 // `continue` (never appended to `survivors`).
 std::vector<std::tuple<int, double, int, bool, bool>> building_decay_tick(
-    const std::vector<std::tuple<int, double, bool, int>> &buildings,
+    const std::vector<std::tuple<int, double, bool, int, double>> &buildings,
     double hut_decay, double civic_decay, int ruin_removal_ticks
 ) {
     std::vector<std::tuple<int, double, int, bool, bool>> results;
@@ -48,11 +57,12 @@ std::vector<std::tuple<int, double, int, bool, bool>> building_decay_tick(
         double condition = std::get<1>(b);
         bool is_hut = std::get<2>(b);
         int ruined_ticks = std::get<3>(b);
+        double material_decay_factor = std::get<4>(b);
         bool removed = false;
         bool just_ruined = false;
 
         if (stage == BSTAGE_STANDING) {
-            double decay = is_hut ? hut_decay : civic_decay;
+            double decay = (is_hut ? hut_decay : civic_decay) * material_decay_factor;
             condition = std::max(0.0, condition - decay);
             if (condition <= 0.0) {
                 stage = BSTAGE_RUINED;

@@ -510,6 +510,73 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.80)
+
+Explicit user request: diagnose a real 40k-tick live LLM-enabled run
+(pasted `/diagnostics`, `hearthmind_version` "1.34.69" — an older
+deployment) and fix bugs found. Real bug: `nature_pillar.world_model`/
+`reflection_pillar.world_model` accumulated near-duplicate entries for
+the SAME recurring subject (e.g. "the vanished predator packs"
+re-hypothesized 5 times, a repeated consciousness intervention
+appended 9 times) instead of revising in place — `nature_causal_
+reasoning`'s three reactive triggers and `consciousness`'s Reflection
+mirror all call `upsert_world_model` with no `revises_id`, and unlike
+every other belief-forming job (which gets a revision target from the
+LLM's own `revises` field) these four have no such field, so a
+same-subject re-firing always appended fresh. New `Pillar.find_world_
+model_entry(subject)` (exact-match lookup, distinct from `disagrees_
+with`'s fuzzy one) wired at all four sites — a recurring anomaly now
+updates one evolving belief instead of piling up near-copies. No other
+clear bug found; the report's large `calls_dropped_backpressure`
+reflects that deployment's own `llm_max_concurrent=1` choice, not a
+defect, and the pillar world_model mixing both settlements' history is
+expected (pillars are world-scoped singletons by design).
+
+Verified: direct unit tests (revise-in-place, distinct-subject-still-
+appends, case-insensitive match, no-match), `pyflakes` clean, a
+4000-tick LLM-disabled soak with clean round-trip. Pure Python, no
+native soak needed for this slice.
+
+## Current state (v1.34.79)
+
+Explicit user instruction: "Do the native module change and ask me
+when in doubt" — the one A5/A6 piece v1.34.78 explicitly flagged and
+left unattempted: `Settlement.tick`'s decay loop has a native fast
+path (`_native_building_decay_tick`) that took one flat scalar decay
+rate for the whole batch, so `material_repair_factor`'s real-material
+sensitivity had no decay-side equivalent without a genuine native-
+module signature change. No ambiguity arose worth asking about.
+
+`cpp/src/settlement_decay.cpp`'s `building_decay_tick` input tuple
+gained a 5th field, `material_decay_factor`, multiplied directly into
+the existing `hut_decay`/`civic_decay` scalar. The factor is computed
+in Python at `World.tick`'s call site (`world/state.py` — the layer
+that already imports both `settlement.buildings` and `world.materials`
+without a cycle, since `materials.py` imports `BuildingKind` FROM
+`buildings.py`), same "compute where both dependencies meet" shape
+`nature_adaptation_bias` uses. New `world/materials.py`'s `material_
+decay_factor(name)` mirrors `material_repair_factor`'s shape exactly
+but reads `Material.decay_rate` instead of `workability` — stone/ore/
+ceramic now weather at ~0.55-0.7x the old flat rate, wood/fiber at
+~1.0-1.2x. `Settlement.tick` gained an optional `material_decay_
+factors: dict[int, float] | None` param threaded through both the
+native call site and the pure-Python fallback loop identically; `None`
+reproduces the exact pre-A5/A6 flat rate on both paths. No new UI
+needed — the existing "Built of" repair-speed suffix already implies
+the same material's decay-speed reading. **A5/A6 is now fully
+closed.**
+
+Verified: the native extension was rebuilt and confirmed to accept the
+new 5-tuple; direct `material_decay_factor` unit checks confirming
+correct ordering across every material; a production-path test
+through the real native-backed `Settlement.tick()` (fiber vs. stone,
+50 ticks, confirming genuinely differential decay, plus a `None`-path
+regression check); a 4000-tick soak with clean round-trip (no new
+persisted state); `scripts/verify_native_soak.py` (3 seeds x 3000
+ticks) confirming native and fallback produce byte-identical `World.
+to_dict()` output every tick — the load-bearing check for this native-
+module signature change.
+
 ## Current state (v1.34.78)
 
 Explicit user instruction: "Start A5/A6" (docs/ROADMAP-2026-07-
