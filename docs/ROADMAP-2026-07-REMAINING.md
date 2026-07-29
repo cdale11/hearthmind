@@ -194,17 +194,21 @@ starts on an explicit instruction naming an item.
       based mutation as an alternate generate path (A8's other named
       piece, depends on A7 reaching a genuine shape-grammar stage
       first) remains open.
-- [ ] **A10, decomposition + pollination slices shipped v1.34.87-.88**
-      — `World.carcass_decomposition` (a real predator-kill carcass,
-      distinct from the already-shipped live-herd nutrient cycling)
-      enriches nearby soil fertility via `economy.farms.apply_
-      carcass_decomposition_bonus`. `terrain_evolution.compute_
-      succession_pressure`'s new `grazer_positions` param gives a
-      live GRAZER herd's presence a real, capped, additive bonus to
-      nearby succession pressure ("animals carry seeds and pollen as
-      they move"), threaded through `maybe_reclaim`. Migration,
-      competition, habitat formation, and folding the whole food web
-      onto A1's field substrate remain open.
+- [ ] **A10, decomposition + pollination + competition slices shipped
+      v1.34.87-.89** — `World.carcass_decomposition` (a real predator-
+      kill carcass, distinct from the already-shipped live-herd
+      nutrient cycling) enriches nearby soil fertility via `economy.
+      farms.apply_carcass_decomposition_bonus`. `terrain_evolution.
+      compute_succession_pressure`'s new `grazer_positions` param
+      gives a live GRAZER herd's presence a real, capped, additive
+      bonus to nearby succession pressure ("animals carry seeds and
+      pollen as they move"), threaded through `maybe_reclaim`.
+      `WildlifeGrid.tick`'s new `grazer_tile_counts` aggregate makes
+      multiple GRAZER herds sharing a tile genuinely compete for the
+      same forage (`COMPETITION_PENALTY_PER_RIVAL` per rival,
+      `COMPETITION_MIN_REPRODUCE_FACTOR` floor). Migration, habitat
+      formation, and folding the whole food web onto A1's field
+      substrate remain open.
 - [ ] **A12** — per-instance `Entity.material` generalized beyond
       buildings (per-*building*-instance material shipped v1.34.58).
 - [ ] **A16** — trade-as-network-flow, tech-as-DAG, information-
@@ -2342,10 +2346,24 @@ initial blend-based implementation was caught diluting the reading
 everywhere and fixed before shipping, see CHANGELOG.md's [1.34.88]
 entry).
 
-Migration, competition, and habitat formation (reads fields, writes
-carrying capacity) all remain unbuilt. Folding the whole food web
-onto A1's field substrate as one coupled system is real follow-up
-work.
+**Competition slice shipped, v1.34.89.** `WildlifeGrid.tick`'s new
+`grazer_tile_counts` aggregate (built once up front, same discipline
+as the existing `total_grazers`/`predator_pressure_ratio` reads)
+feeds a `competition_factor` into each GRAZER herd's `reproduce_
+chance` — every additional rival herd sharing its tile shaves off
+`COMPETITION_PENALTY_PER_RIVAL` (0.15), floored at `COMPETITION_MIN_
+REPRODUCE_FACTOR` (0.4) so crowding pressures reproduction without a
+hard lock. A herd alone on its tile (the common case) sees the factor
+at exactly 1.0 — a genuine no-op, verified directly. Distinct from
+the existing food-SOURCE-depletion mechanics (`grazing_food`/
+`overgrazed`) — this is herds crowding each other out for access, a
+real intraspecies competition effect confirmed via a production-path
+test (solo herds averaged ~3x the growth of 4-rival-crowded herds
+over 60 seeds with movement frozen to isolate the effect).
+
+Migration and habitat formation (reads fields, writes carrying
+capacity) remain unbuilt. Folding the whole food web onto A1's field
+substrate as one coupled system is real follow-up work.
 
 ### A11 — Continuous hydrology
 **Shipped, second slice (v1.34.23).** Groundwater and erosion, the two

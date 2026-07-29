@@ -135,6 +135,20 @@ under snow, distinct from `NUTRIENTS_REPRODUCE_BONUS_MAX`'s own
 standing wild-food-abundance signal (a snow-covered tile can still show
 a real food node underneath; this dampens how readily the herd can
 actually reach it)."""
+
+COMPETITION_PENALTY_PER_RIVAL = 0.15
+"""A10 "Ecology / food webs," competition slice: each ADDITIONAL live
+GRAZER herd sharing a tile with this one shaves this much off its
+`reproduce_chance` multiplier — genuine intraspecies competition for
+the same limited forage, distinct from `grazing_food`/`overgrazed`
+(which model the food SOURCE depleting, not herds crowding each
+other out for it). A single herd alone on its tile pays nothing."""
+
+COMPETITION_MIN_REPRODUCE_FACTOR = 0.4
+"""Floor on how far `COMPETITION_PENALTY_PER_RIVAL` can suppress
+reproduction, regardless of how many rival herds share a tile — real
+pressure, never a hard population lock the way a multiplicative
+penalty with no floor eventually would."""
 PREDATOR_HUNT_CHANCE = 0.05
 """Rolled when a predator pack is colocated with a live grazer herd —
 predation isn't guaranteed just from proximity."""
@@ -597,6 +611,17 @@ class WildlifeGrid:
             PREDATOR_PRESSURE_REPRODUCE_PENALTY if predator_pressure_ratio > PREDATOR_PRESSURE_RATIO_THRESHOLD
             else 1.0
         )
+        # A10 "Ecology / food webs," competition slice: how many live
+        # GRAZER herds currently share each tile — a per-herd O(1)
+        # lookup below instead of an O(n) rival scan per herd. Computed
+        # from PRE-movement positions, same one-tick-stale acceptance
+        # every other `World.fields`-shaped aggregate here already
+        # documents (this tick's movement hasn't happened yet when this
+        # runs).
+        grazer_tile_counts: dict[tuple[int, int], int] = {}
+        for h in self.herds.values():
+            if h.species is Species.GRAZER and h.count > 0:
+                grazer_tile_counts[(h.x, h.y)] = grazer_tile_counts.get((h.x, h.y), 0) + 1
         expected_grazer_herds = predator_pack_count * GRAZER_TO_PREDATOR_RATIO
         prey_scarce = (
             predator_pack_count > 0
@@ -606,6 +631,12 @@ class WildlifeGrid:
         for herd in self.herds.values():
             if herd.count <= 0:
                 continue
+            # A10, competition slice: this herd's tile as it stood when
+            # `grazer_tile_counts` was built, captured before movement
+            # below can change `herd.x`/`herd.y` — the rival lookup
+            # further down must key off the SAME snapshot the aggregate
+            # itself was built from, not this herd's post-move position.
+            pre_move_pos = (herd.x, herd.y)
             biomes = GRAZER_BIOMES if herd.species is Species.GRAZER else PREDATOR_BIOMES
             if rng.random() < MOVE_CHANCE:
                 candidates = []
@@ -660,11 +691,21 @@ class WildlifeGrid:
                 grazing_food = node is not None and node.kind is ResourceKind.FOOD
                 nutrients_at = _field_region_value(nutrients, herd.x, herd.y, width, height)
                 snowpack_at = _full_grid_value(snowpack, herd.x, herd.y)
+                # A10, competition slice: rivals sharing THIS herd's own
+                # pre-movement tile (`pre_move_pos`, not the possibly-
+                # already-moved `herd.x`/`herd.y`) — see `grazer_tile_
+                # counts`'s docstring above for why one aggregate is
+                # precomputed rather than scanned per-herd.
+                rivals = grazer_tile_counts.get(pre_move_pos, 1) - 1
+                competition_factor = max(
+                    COMPETITION_MIN_REPRODUCE_FACTOR, 1.0 - rivals * COMPETITION_PENALTY_PER_RIVAL,
+                )
                 reproduce_chance = (
                     GRAZER_REPRODUCE_CHANCE * SEASON_GRAZER_REPRODUCE_MULTIPLIER.get(season, 1.0)
                     * grazer_reproduce_penalty * hardiness_reproduce_factor(herd.hardiness)
                     * (1.0 + nutrients_at * NUTRIENTS_REPRODUCE_BONUS_MAX)
                     * (1.0 - snowpack_at * SNOWPACK_REPRODUCE_DAMPENING_MAX)
+                    * competition_factor
                 )
                 reproduce_roll = rng.random()
                 if _native_grazer_tick_step is not None:

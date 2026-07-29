@@ -4,6 +4,51 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.89] — A10: competition (intraspecies crowding penalty)
+
+Explicit user instruction: "Continue A10." Ships A10's competition
+slice — det_sys.md's own "competition" line, following v1.34.87's
+decomposition and v1.34.88's pollination slices. Intraspecies
+competition: multiple live GRAZER herds sharing the same tile are
+genuinely competing for the same limited forage, distinct from
+`grazing_food`/`overgrazed` (which model the food SOURCE depleting,
+not herds crowding each other out for access to it).
+
+New `WildlifeGrid.tick`'s `grazer_tile_counts` (computed once up
+front from PRE-movement herd positions, same "cheap O(n) aggregate,
+not a new per-herd hot loop" discipline the existing trophic-pressure
+aggregates in this function already use): each GRAZER herd's own
+`reproduce_chance` now carries an additional `competition_factor`
+term — `COMPETITION_PENALTY_PER_RIVAL=0.15` shaved off per rival herd
+sharing its tile, floored at `COMPETITION_MIN_REPRODUCE_FACTOR=0.4` so
+crowding pressures reproduction without ever hard-locking it. A herd
+alone on its own tile (the overwhelming common case) gets `rivals=0`
+→ `competition_factor` exactly `1.0`, a genuine mathematical no-op —
+verified directly rather than assumed. Folded into the single
+`reproduce_chance` float both the native fast path (module 22) and
+the pure-Python fallback already consume identically, so this needed
+no native-module signature change and carries zero native/fallback
+parity risk.
+
+One real design bug caught and fixed during this slice's own
+implementation (not by the user): the rival lookup initially keyed
+off `herd.x`/`herd.y` AFTER this tick's own movement step, but
+`grazer_tile_counts` was built from PRE-movement positions — a
+mismatched snapshot. Fixed by capturing `pre_move_pos = (herd.x,
+herd.y)` at the top of the per-herd loop, before movement can change
+it, and keying the rival lookup off that instead.
+
+Verified: direct unit tests (competition-factor formula bounds, floor
+respected under many rivals, solo herd reads exactly 1.0); a
+production-path test through the real `WildlifeGrid.tick()` (movement
+frozen via a monkeypatched `MOVE_CHANCE=0` to isolate the effect,
+solo vs. 4-rival herds compared over 60 seeds each — solo averaged
+3.03 growth vs. crowded's 1.07, a clear, real, reproducible effect);
+a 4000-tick `World.tick()` production soak (LLM disabled) with a
+clean `to_dict`/`from_dict` round-trip. `pyflakes` clean. No native
+module touched — `reproduce_chance` stays a plain float handed to the
+existing native fast path unchanged.
+
 ## [1.34.88] — A10: pollination (wildlife-fed succession pressure)
 
 Explicit user instruction: "Continue A10." Ships A10's pollination

@@ -510,6 +510,32 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.89)
+
+Explicit user instruction: "Continue A10." Ships the competition
+slice, following decomposition (v1.34.87) and pollination (v1.34.88).
+Multiple live GRAZER herds sharing a tile now genuinely compete for
+the same limited forage — `WildlifeGrid.tick`'s new `grazer_tile_
+counts` aggregate (same cheap-up-front-O(n) discipline as the
+existing trophic-pressure reads) feeds a `competition_factor` into
+each herd's `reproduce_chance` (`COMPETITION_PENALTY_PER_RIVAL=0.15`
+per rival, floored at `COMPETITION_MIN_REPRODUCE_FACTOR=0.4`). A herd
+alone on its tile — the common case — sees `competition_factor`
+exactly `1.0`, verified as a genuine no-op. Folds into the same float
+both the native fast path and pure-Python fallback already share, so
+no native-module change was needed.
+
+Real bug caught and fixed during implementation: the rival lookup
+initially keyed off a herd's POST-movement position while the
+aggregate itself was built pre-movement — a mismatched snapshot.
+Fixed by capturing `pre_move_pos` before movement runs.
+
+Verified: direct unit tests (formula bounds, floor, solo-herd no-op),
+a production-path test through the real `WildlifeGrid.tick()` (frozen
+movement to isolate the effect — solo herds averaged ~3x the growth
+of 4-rival-crowded herds over 60 seeds), a 4000-tick soak with clean
+round-trip. No native module touched.
+
 ## Current state (v1.34.88)
 
 Explicit user instruction: "Continue A10." Ships the pollination
