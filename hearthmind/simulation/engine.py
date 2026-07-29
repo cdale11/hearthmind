@@ -808,6 +808,29 @@ inventing a parallel one. Deliberately coarse/settlement-agnostic, same
 looseness `_detect_ritual_signals`'s `shrine_mourning` pattern already
 accepts."""
 
+REACTIVE_TRIGGER_BACKPRESSURE_RETRY_TICKS = 50
+"""Live-diagnostic finding: `_maybe_schedule_nature_causal_reasoning`'s
+three triggers (predator/grazer extinction, succession stall) are
+checked UNCONDITIONALLY every tick while their own anomaly persists and
+their edge-trigger flag stays unset — unlike every cadence-gated
+settlement job (month/season/year boundary, or a bounded retry window),
+there is no natural pacing between attempts. A real 40k-tick run showed
+`nature_causal_reasoning` succeeding only 6 times total while `calls_
+dropped_backpressure` reached 10022 — cross-referencing the anomaly
+windows in that run's own `nature_pillar.world_model` timestamps against
+its `llm_backpressure_limit_effective` (3, from a `llm_max_concurrent=1`
+deployment) makes clear the bulk of those drops were the SAME still-
+unresolved anomaly's backpressure check re-firing every single tick for
+thousands of consecutive ticks, not thousands of genuinely distinct
+scheduling attempts. `_reactive_pillar_backpressured` backs a rejected
+trigger off for this many ticks before checking again — the anomaly
+itself is still noticed the instant it starts (the cheap non-LLM state
+read stays unconditional every tick), only the expensive/counted
+backpressure re-check is throttled. 50 ticks is a small fraction of the
+thousands-of-ticks anomaly durations observed, so it costs at most a
+negligible delay before the eventual successful call; it just stops
+counting the same still-saturated queue thousands of times over."""
+
 BACKPRESSURE_BACKLOG_PER_SLOT = 3
 """Scheduling gate: no new routine LLM jobs while the runner's backlog
 (in-flight + queued) exceeds `llm_max_concurrent * this`. On the target
@@ -1444,6 +1467,13 @@ class SimulationEngine:
         dropped from `World.fallow_ticks`, or its moisture/weeks no
         longer qualify). Never persisted, same reasoning as every other
         edge-trigger flag here."""
+        self._reactive_trigger_next_retry_tick: dict[str, int] = {}
+        """Backoff state for `_reactive_pillar_backpressured` — see its
+        docstring. Keyed by a short trigger name (e.g. `"predator_
+        extinction"`), never persisted (re-baselines to "eligible right
+        now" on restart, same as every edge-trigger flag above; at worst
+        this costs one redundant backpressure check on the first tick
+        after a resume, not a correctness issue)."""
         self._monthly_job_scheduled_month: dict[str, int] = {}
         """job name -> absolute month ordinal (year * months_per_year +
         month_index) it last got past its own backpressure check — lets
@@ -4866,6 +4896,28 @@ class SimulationEngine:
             return True
         return False
 
+    def _reactive_pillar_backpressured(self, pillar_name: str, trigger_key: str) -> bool:
+        """Same check as `_pillar_interpret_backpressured`, wrapped with
+        a short cooldown for triggers that are (unlike every cadence-
+        gated settlement job) polled UNCONDITIONALLY every tick while
+        their own anomaly persists — see `REACTIVE_TRIGGER_
+        BACKPRESSURE_RETRY_TICKS`'s docstring for the live-diagnostic
+        evidence this closes. While backed off, returns True WITHOUT
+        touching `calls_dropped_backpressure` — the counter should
+        reflect genuinely distinct attempts, not the same still-
+        saturated queue re-observed every tick. `trigger_key` is a
+        short, stable string identifying the caller (e.g. `"predator_
+        extinction"`) — must be unique per reactive trigger, shared
+        across a pillar's several triggers only if they should share
+        one backoff clock (none currently do)."""
+        tick = self.world.clock.tick_count
+        if tick < self._reactive_trigger_next_retry_tick.get(trigger_key, 0):
+            return True
+        if self._pillar_interpret_backpressured(pillar_name):
+            self._reactive_trigger_next_retry_tick[trigger_key] = tick + REACTIVE_TRIGGER_BACKPRESSURE_RETRY_TICKS
+            return True
+        return False
+
     def _pillar_close_cycle(self, pillar_name: str) -> None:
         """Closes a pillar's `interpret` turn, freeing `working_memory`
         and returning `cycle_stage` to `observe` for the next season/
@@ -8201,7 +8253,7 @@ class SimulationEngine:
             return False
         if self._nature_predator_extinction_flagged:
             return False  # already scheduled/reasoned about this same extinction
-        if self._pillar_interpret_backpressured("nature"):
+        if self._reactive_pillar_backpressured("nature", "predator_extinction"):
             # Backpressured this tick — flag stays False, so this same
             # still-zero-packs anomaly gets re-checked (and a real
             # chance at scheduling) on a later tick instead of being
@@ -8272,7 +8324,7 @@ class SimulationEngine:
             return False
         if self._nature_grazer_extinction_flagged:
             return False
-        if self._pillar_interpret_backpressured("nature"):
+        if self._reactive_pillar_backpressured("nature", "grazer_extinction"):
             return False
         self._nature_grazer_extinction_flagged = True
         wildlife_summary = self.world.wildlife.summary()
@@ -8340,7 +8392,7 @@ class SimulationEngine:
             return False
         if self._nature_succession_stall_flagged:
             return False
-        if self._pillar_interpret_backpressured("nature"):
+        if self._reactive_pillar_backpressured("nature", "succession_stall"):
             return False
         self._nature_succession_stall_flagged = True
         (x, y), weeks = max(candidates, key=lambda item: item[1])

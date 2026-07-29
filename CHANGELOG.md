@@ -4,6 +4,73 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.81] — Fix: reactive nature triggers re-spamming backpressure drops every tick
+
+Explicit user follow-up: "check that [pacing reachability] first, and do
+whatever you can to fix the [backpressure] drop rate without reducing
+simulation quality."
+
+Confirmed the pacing mechanism (`LLM_PRESSURE_SLOWDOWN_START_RATIO`)
+was reachable and firing correctly given the diagnostic's own numbers
+— not the problem. The real problem, found by tracing where `calls_
+dropped_backpressure` actually comes from: `_maybe_schedule_nature_
+causal_reasoning`'s three triggers (predator/grazer extinction,
+succession stall) are the only jobs in the codebase checked
+UNCONDITIONALLY every single tick while their own anomaly persists —
+every other LLM job is cadence-gated (month/season/year boundary) or
+resolves via a graceful deterministic fallback the same tick
+(`voice_dialogue`, the other candidate suspect, was checked and
+confirmed to never drop — it degrades to fallback dialogue instead).
+Cross-referencing the diagnostic's own `nature_pillar.world_model`
+timestamps (this run's `nature_causal_reasoning` succeeded only 6
+times total) against its `llm_backpressure_limit_effective` (3, from
+a `llm_max_concurrent=1` deployment) shows the SAME still-unresolved
+anomaly's backpressure check re-firing — and re-incrementing the drop
+counter — on literally every tick for thousands of consecutive ticks,
+not thousands of genuinely distinct attempts.
+
+New `SimulationEngine._reactive_pillar_backpressured(pillar_name,
+trigger_key)`: wraps the existing `_pillar_interpret_backpressured`
+with a short per-trigger backoff (`REACTIVE_TRIGGER_BACKPRESSURE_
+RETRY_TICKS=50`) — while backed off, returns "still pressured" WITHOUT
+touching the counter or the LLM queue at all; once the window elapses,
+one real check happens (and re-arms the backoff if still saturated).
+The anomaly-detection itself (the cheap non-LLM state read) stays
+fully unconditional every tick — only the expensive, countable
+backpressure re-check is throttled — so this costs at most a
+negligible (≤50-tick) delay before the eventual successful call
+against anomaly windows already observed running thousands of ticks
+long; nothing about WHAT gets scheduled, HOW OFTEN a genuine call
+succeeds, or any narrative content changes. Wired at all three
+triggers (`predator_extinction`/`grazer_extinction`/`succession_
+stall`, each its own backoff clock via `trigger_key`).
+
+Also checked, per the explicit request to move low-priority calls to
+deterministic systems where sensible: no further clear candidate
+found this pass. The other high-volume jobs in the diagnostic
+(`cognition` 818, `voice_dialogue` 562, `record` 153, `musing` 214)
+are each already core-cast/significance/novelty-gated and are
+deliberately LLM-authored texture per this project's own explicit,
+repeatedly-reaffirmed priority order (Emergence > Memory efficiency >
+Performance, docs/CONSTITUTION.md) — several structurally similar
+jobs were already converted to "deterministic decision + LLM
+narration only" in the v1.3.35 batch; these four don't fit that
+shape (there's no already-deterministic decision underneath them to
+extract, the LLM call IS the content). Converting them further would
+trade genuine emergence for a metric this pass's actual fix already
+addresses more precisely — flagged as checked, not silently skipped.
+
+Verified: a direct unit test of `_reactive_pillar_backpressured`
+against a real `SimulationEngine` instance (forced-saturated backlog:
+first check increments the counter once, ten immediate re-checks
+during the backoff window increment it zero further times, a check
+after the window elapses increments it exactly once more and can
+succeed once pressure genuinely clears); `pyflakes` clean; a 4000-tick
+LLM-disabled soak with a clean round-trip (no new persisted state —
+the backoff dict lives on `SimulationEngine`, not `World`, same as
+every sibling edge-trigger flag). Pure Python, no native module
+touched.
+
 ## [1.34.80] — Fix: reactive pillar beliefs piling up as near-duplicate entries
 
 Explicit user request: diagnose a real 40k-tick live run (with LLM,

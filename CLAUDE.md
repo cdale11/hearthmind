@@ -510,6 +510,37 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## Current state (v1.34.81)
+
+Explicit user follow-up on v1.34.80's diagnostic fix: "check [pacing
+constant reachability] first, and do whatever you can to fix the
+[backpressure] drop rate without reducing simulation quality." The
+pacing mechanism itself was reachable and correct; the real cause was
+`_maybe_schedule_nature_causal_reasoning`'s three triggers (predator/
+grazer extinction, succession stall) — unlike every other LLM job,
+these are checked UNCONDITIONALLY every tick while their anomaly
+persists, so the same still-saturated queue got counted as a fresh
+drop on every single tick for thousands of consecutive ticks (that
+run's `nature_causal_reasoning` succeeded only 6 times total against
+a large share of the 10022 drops). New `SimulationEngine._reactive_
+pillar_backpressured(pillar, trigger_key)` backs a rejected trigger
+off for `REACTIVE_TRIGGER_BACKPRESSURE_RETRY_TICKS=50` ticks before
+re-checking (and re-counting) — the cheap anomaly-detection stays
+unconditional every tick, only the expensive/counted backpressure
+check is throttled, so this costs at most a negligible delay before
+the eventual real call, never changes what gets scheduled or narrated.
+Also checked, per the request to move low-priority calls to
+deterministic systems: no further clear candidate found — the other
+high-volume jobs (`cognition`/`voice_dialogue`/`record`/`musing`) are
+each already gated and are deliberately LLM-authored texture per this
+project's own priority order, not a "decision + narration" shape the
+v1.3.35 batch's conversions apply to.
+
+Verified: a direct unit test against a real `SimulationEngine`
+(backoff suppresses repeat increments, a fresh check after the window
+elapses re-attempts, clearing pressure returns cleanly), `pyflakes`
+clean, a 4000-tick LLM-disabled soak with clean round-trip.
+
 ## Current state (v1.34.80)
 
 Explicit user request: diagnose a real 40k-tick live LLM-enabled run
