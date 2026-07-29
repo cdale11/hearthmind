@@ -617,6 +617,35 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.99)
+
+Explicit user instruction: "Start A12." Investigation (docs/ROADMAP-
+2026-07-REMAINING.md) found A12 as literally scoped (per-instance
+`Entity.material` generalized beyond `Building`) was already audited
+(v1.34.67) and correctly left unattempted — no real consumer exists
+for a `Vehicle`'s material, and inventing one would violate the
+standing "mechanically real, not a stub" discipline. Moved to A16, a
+genuinely open item with a concrete unbuilt piece.
+
+`InventedConcept.lineage` has been a real DAG since v1.3.19, but no
+genuine graph traversal had ever run over it. New `world/graph_
+algorithms.py`'s `ancestor_ids`/`shares_lineage` (transitive-closure
+walk up the DAG, cycle-guarded) are A16's "tech-as-DAG" piece. Real
+consumer: `_maybe_schedule_ontology_evolution`'s merge-pair selection
+now rejects a pair that already shares lineage (bounded 4 retries,
+then merges the original pair rather than silently no-op'ing) —
+previously nothing stopped a concept from being merged with its own
+parent or sibling. Trade-as-network-flow and information-propagation-
+as-graph-algorithm (A16's other two pieces) remain open — larger
+lifts, no existing flow/contagion graph structure to build over yet.
+
+Verified: direct unit tests of both new functions over a hand-built
+5-concept lineage, a production-path test through the real
+`_maybe_schedule_ontology_evolution` (forced-merge RNG + seeded
+sibling pair, confirming the scheduled prompt names the unrelated pair
+instead), a 4000-tick LLM-disabled soak with clean round-trip. No
+native module touched.
+
 ## Current state (v1.34.94)
 
 Explicit user instruction: "Complete and finish A10 with all remaining

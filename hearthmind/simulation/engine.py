@@ -4746,6 +4746,19 @@ class SimulationEngine:
         settlement = self._settlement_by_id(established[0].origin_settlement_id) or self._job_target()
         if do_merge:
             a, b = weighted_pick(2)
+            # A16 "tech-as-DAG" (docs/ROADMAP-2026-07-REMAINING.md): a real
+            # traversal over the lineage DAG, not just its single-hop parent
+            # pointers — reject a merge pair that's already kin (one an
+            # ancestor of the other, or a shared common ancestor), the
+            # degenerate "the idea absorbs itself" case that was previously
+            # entirely unguarded. Retried a bounded few times against the
+            # weighted pool before giving up and merging the original pair
+            # anyway (a real, if unlikely, small settlement may have no
+            # unrelated established concept at all).
+            attempts = 0
+            while graph_algorithms.shares_lineage(self.world, a.id, b.id) and attempts < 4:
+                a, b = weighted_pick(2)
+                attempts += 1
             prompt = ontology_llm.build_merge_prompt(a.name, a.description, b.name, b.description, settlement.name or "The village")
             fallback = ontology_llm.fallback_merge(a.name, b.name)
             system_prompt = ontology_llm.SYSTEM_PROMPT_MERGE

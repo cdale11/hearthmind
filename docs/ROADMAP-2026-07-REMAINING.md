@@ -232,8 +232,12 @@ starts on an explicit instruction naming an item.
       has a real reciprocal consumer — A10 is closed in full.**
 - [ ] **A12** — per-instance `Entity.material` generalized beyond
       buildings (per-*building*-instance material shipped v1.34.58).
-- [ ] **A16** — trade-as-network-flow, tech-as-DAG, information-
-      propagation-as-graph-algorithm (only centrality is shipped).
+- [ ] **A16** — trade-as-network-flow and information-propagation-as-
+      graph-algorithm remain unbuilt. Tech-as-DAG shipped v1.34.99:
+      `graph_algorithms.ancestor_ids`/`shares_lineage`, a real
+      traversal over the Innovation ontology's existing lineage DAG,
+      blocks `_maybe_schedule_ontology_evolution`'s merge-pair
+      selection from combining a concept with its own kin.
 - [x] **B4** — reverse-direction disagreement classification —
       **CLOSED, v1.34.65.** Extended to the Village→Innovation `theory`
       arrow and all four Innovation→Village `discovery` arrows
@@ -2828,10 +2832,38 @@ Human genetics (`Agent.genome`) unchanged. A15 is now closed for both
 domains this project models population-level heritability for.
 
 ### A16 — Graph algorithms
-Trade-as-network-flow, tech-as-DAG, and information-propagation-as-
-graph-algorithm (A17) are unbuilt — only weighted-degree centrality is
-shipped (plus community detection, already present under the `FACTION`
-name).
+Trade-as-network-flow and information-propagation-as-graph-algorithm
+(A17) remain unbuilt. Weighted-degree centrality was already shipped
+(plus community detection, present under the `FACTION` name).
+
+**Tech-as-DAG shipped, v1.34.99.** `InventedConcept.lineage` (world/
+ontology.py) has been a real DAG since v1.3.19 (`evolved_from`/
+`merged_from`), but nothing had ever run a genuine traversal over it —
+`_referenced_ids` (pruning-protection) only reads one hop. New `world/
+graph_algorithms.py`'s `ancestor_ids` (full transitive-closure walk
+up the DAG, cycle-guarded even though `register_concept` should never
+produce one) and `shares_lineage` (true if one concept is any-distance
+kin of the other, or they share a common ancestor) are the first real
+algorithm over this graph. Real consumer: `SimulationEngine._maybe_
+schedule_ontology_evolution`'s merge-pair selection now rejects a pair
+that already shares lineage (bounded to 4 retries against the
+fitness/pillar-lean-weighted pool before giving up and merging the
+original pair anyway) — previously nothing stopped a concept from
+being merged with its own parent or a sibling, a degenerate "the idea
+absorbs itself" case with no narrative sense. Trade-flow and
+information-propagation-as-graph-algorithm remain open, genuinely
+larger lifts (no existing flow-network or contagion-graph structure to
+build the first algorithm over yet).
+
+Verified: a direct unit test of `ancestor_ids`/`shares_lineage` over a
+hand-built 5-concept lineage (chain + merge, confirming correct
+transitive closure and both the "direct ancestor" and "shared
+ancestor" kinship cases); a production-path test through the real
+`_maybe_schedule_ontology_evolution` with a forced-merge RNG and a
+seeded sibling pair, confirming the scheduled prompt actually names
+the unrelated pair, not the rejected sibling pair; a 4000-tick
+LLM-disabled soak with a clean round-trip. No native module touched
+(pure Python, small dict traversal, no per-tick hot loop).
 
 ### A17 — Information ecosystem
 **CLOSED, v1.34.77.** Rumor/tradition/belief/song/technique each stay

@@ -4,6 +4,47 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.99] — A16: tech-as-DAG, the first real traversal over the Innovation lineage graph
+
+Explicit user instruction: "Start A12." Investigation found A12 as
+literally scoped (per-instance `Entity.material` generalized beyond
+`Building`) was already audited (v1.34.67) and correctly left
+unattempted — no real consumer mechanism exists for a `Vehicle`'s
+material to convert or matter, and inventing one just to fill the slot
+would violate the standing "mechanically real, not a stub" discipline.
+Nothing left to ship under A12's stated scope, so moved to A16, a
+genuinely open item with a concrete unbuilt piece.
+
+`InventedConcept.lineage` has been a real DAG since v1.3.19
+(`evolved_from`/`merged_from`), but nothing had ever run a genuine
+graph *algorithm* over it — `world/ontology.py`'s `_referenced_ids`
+(pruning-protection) only reads one hop, never a real traversal. New
+`world/graph_algorithms.py`'s `ancestor_ids` (full transitive-closure
+walk up the DAG, cycle-guarded) and `shares_lineage` (true if one
+concept is any-distance kin of the other, or they share a common
+ancestor) are the first real algorithm over this graph — A16's
+"tech-as-DAG" piece. Real consumer: `SimulationEngine._maybe_schedule_
+ontology_evolution`'s merge-pair selection now rejects a pair that
+already shares lineage (bounded 4 retries against the existing
+fitness/pillar-lean-weighted pool, then merges the original pair
+anyway rather than silently doing nothing) — previously nothing
+stopped a concept from being merged with its own parent or sibling, a
+degenerate "the idea absorbs itself" case with no narrative sense.
+Trade-as-network-flow and information-propagation-as-graph-algorithm
+(A16's other two named pieces) remain open — genuinely larger lifts,
+since neither has an existing flow-network or contagion-graph
+structure to build a first algorithm over yet.
+
+Verified: a direct unit test of `ancestor_ids`/`shares_lineage` over a
+hand-built 5-concept lineage (chain + merge, confirming correct
+transitive closure and both the "direct ancestor" and "shared
+ancestor" kinship cases); a production-path test through the real
+`_maybe_schedule_ontology_evolution` with a forced-merge RNG and a
+seeded sibling pair, confirming the scheduled prompt actually names
+the unrelated pair, not the rejected sibling pair; a 4000-tick
+LLM-disabled soak with a clean round-trip. No native module touched
+(pure Python, small dict traversal, no per-tick hot loop).
+
 ## [1.34.98] — Tier 0: Humans pillar's first per-agent producer, closing two sites
 
 Explicit user instruction: "Continue tier 0, try humans pillar
