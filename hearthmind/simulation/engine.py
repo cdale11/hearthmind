@@ -903,6 +903,17 @@ kept below both so a standing Humans theory nudges the weekly
 protagonist pick without ever outweighing a genuinely dramatic recent
 event."""
 
+GUILD_FOUNDER_HUMANS_LEAN_MAX = 0.2
+"""Tier 0's sixteenth conversion (docs/ROADMAP-2026-07-REMAINING.md):
+the ceiling `humans_pillar.subject_confidence(agent.name)` (0..1) can
+add to a candidate master's `TRAIT_AMBITION` reading in `Population.
+deliberate_guild_candidate`'s founder pick. Traits live in [-1, 1]
+(`GENOME_FOUNDER_ALLELE_STDDEV=0.35`) — a max 0.2 lean can plausibly
+edge out a close rival but can't manufacture a founder from a
+genuinely unambitious master, since the eligibility floor (`DELIBERATE_
+GUILD_FOUNDER_AMBITION`) is checked against the real trait afterward,
+never the lean-boosted score."""
+
 DIALOGUE_BACKPRESSURE_FRACTION = 0.6
 RUMOR_INTERPRET_BACKPRESSURE_FRACTION = 0.35
 """docs/AUDIT-2026-07-20.md, P1.2(ii): dialogue and rumor_interpret were
@@ -9470,12 +9481,24 @@ class SimulationEngine:
         """Deliberate institution founding — see llm/founding.py and
         Population.deliberate_guild_candidate/found_guild. Monthly roll
         cadence: an ambitious master mulling this over is a rare,
-        deliberate act, not a per-tick scan."""
+        deliberate act, not a per-tick scan.
+
+        Tier 0's sixteenth conversion (docs/ROADMAP-2026-07-REMAINING.
+        md): the founder pick among tied-eligible masters now also
+        weighs `humans_pillar.subject_confidence(agent.name)` —
+        computed here (not in `population.py`, which deliberately
+        doesn't reference pillar state) and passed as `humans_lean`,
+        same "compute at the call site" shape `_voice_narrative_extra_
+        scores` already established."""
         guild_target = self._job_target()
         if not self._monthly_gate(events, "guild_founding") or not guild_target.name:
             return
         members = [a for a in self.world.population.agents if a.settlement_id == guild_target.id]
-        candidate = self.world.population.deliberate_guild_candidate(guild_target, members)
+        humans_lean = {
+            a.id: self.world.humans_pillar.subject_confidence(a.name) * GUILD_FOUNDER_HUMANS_LEAN_MAX
+            for a in members
+        }
+        candidate = self.world.population.deliberate_guild_candidate(guild_target, members, humans_lean=humans_lean)
         if candidate is None:
             return
         if self._pillar_interpret_backpressured("village"):

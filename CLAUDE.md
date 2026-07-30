@@ -617,6 +617,27 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.111)
+
+Explicit user instruction: "Continue tier 0." Sixteenth conversion:
+`Population.deliberate_guild_candidate`'s founder pick among tied-
+eligible masters (previously purely `TRAIT_AMBITION`-driven) gains an
+optional `humans_lean` param — the master Humans' own attention
+already returns to can edge out a marginally-more-ambitious rival.
+New `GUILD_FOUNDER_HUMANS_LEAN_MAX = 0.2` bounds the lean against
+traits' `[-1, 1]` range; `_maybe_schedule_guild_founding` computes it
+from `humans_pillar.subject_confidence(agent.name)`. The eligibility
+floor (`DELIBERATE_GUILD_FOUNDER_AMBITION`) still reads each
+candidate's REAL, unmodified trait afterward — a lean can shift who's
+considered, never manufacture an unqualified founder.
+
+Verified: a direct test (no-lean picks the more-ambitious master, a
+seeded lean flips it, a large lean can't approve a founder below the
+real ambition floor), a production-path test through the real
+scheduling function, a 4000-tick LLM-disabled soak with clean
+round-trip, `pyflakes` clean. Tier 0 now has sixteen real converted
+sites.
+
 ## Current state (v1.34.110)
 
 Explicit user instruction: "Continue." Fifteenth conversion.

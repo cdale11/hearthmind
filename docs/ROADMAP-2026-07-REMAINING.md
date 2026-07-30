@@ -46,10 +46,10 @@ starts on an explicit instruction naming an item.
 
 ### Tier 0 — pillar refactor (the biggest single lever)
 
-- [ ] Convert the remaining **~44 mirror-write sites** from "write into
+- [ ] Convert the remaining **~43 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); fifteen sites are now converted
+      confidence`, v1.34.46); sixteen sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -59,11 +59,12 @@ starts on an explicit instruction naming an item.
       v1.34.106), `species_variant`'s herd pick (Nature pillar's first
       site, v1.34.107), `_voice_narrative_extra_scores`'s Humans-pillar
       lean into the weekly voice-pair protagonist pick (v1.34.108),
-      `personal_belief`'s own monthly candidate draw (v1.34.109), and
-      — v1.34.110 — `letter`'s cross-settlement sender pick). Each
-      further site is real judgment work — find a soft/tiebreak point a
-      pillar's accumulated belief can legitimately weigh, never hand a
-      pillar a whole decision.
+      `personal_belief`'s own monthly candidate draw (v1.34.109),
+      `letter`'s cross-settlement sender pick (v1.34.110), and — 
+      v1.34.111 — `deliberate_guild_candidate`'s founder pick among
+      tied-eligible masters). Each further site is real judgment
+      work — find a soft/tiebreak point a pillar's accumulated belief
+      can legitimately weigh, never hand a pillar a whole decision.
 
 ### Tier 0.5 — live-diagnostic findings
 
@@ -1492,6 +1493,31 @@ no-lean picks the original first-found sender, a seeded belief about
 the second sender flips the pick to them), a 4000-tick LLM-disabled
 soak with a clean round-trip, `pyflakes`/syntax clean. Tier 0 now has
 fifteen real converted sites.
+
+**Sixteenth site (v1.34.111, explicit user instruction: "Continue tier
+0").** `Population.deliberate_guild_candidate`'s founder pick among
+tied-eligible masters (`max(masters, key=lambda a: a.traits.get(
+TRAIT_AMBITION, 0.0))`) was purely trait-driven with no pillar input.
+New optional `humans_lean` param (agent_id -> a small bounded bonus,
+computed by the caller since `Population` deliberately doesn't
+reference pillar state) lets the master Humans' own attention already
+returns to edge out a marginally-more-ambitious rival. New `GUILD_
+FOUNDER_HUMANS_LEAN_MAX = 0.2` bounds the lean against traits' `[-1,
+1]` range (`GENOME_FOUNDER_ALLELE_STDDEV = 0.35`). Critically, the
+eligibility floor (`DELIBERATE_GUILD_FOUNDER_AMBITION`) is still
+checked against each candidate's REAL, unmodified trait after the
+pick — a lean can shift WHO gets considered but can never manufacture
+a founder who wasn't genuinely ambitious enough on their own.
+`_maybe_schedule_guild_founding` computes the lean dict from `humans_
+pillar.subject_confidence(agent.name)` and passes it through.
+
+Verified: a direct test (no-lean picks the more-ambitious master, a
+seeded lean flips the pick to the less-ambitious one, a large lean
+cannot approve a founder whose real ambition sits below the floor), a
+production-path test through the real `_maybe_schedule_guild_founding`
+(no-lean vs. seeded-lean cases), a 4000-tick LLM-disabled soak with a
+clean round-trip, `pyflakes`/syntax clean. Tier 0 now has sixteen real
+converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

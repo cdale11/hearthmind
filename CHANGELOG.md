@@ -4,6 +4,32 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.111] — Tier 0's sixteenth conversion: guild founder pick
+
+Explicit user instruction: "Continue tier 0." `Population.deliberate_
+guild_candidate`'s founder pick among tied-eligible masters (`max(...,
+key=lambda a: a.traits.get(TRAIT_AMBITION, 0.0))`) was purely trait-
+driven with no pillar input. New optional `humans_lean` param (agent_id
+-> a small bounded bonus, computed by the caller — `Population`
+deliberately doesn't reference pillar state) lets the master Humans'
+own attention already returns to edge out a marginally-more-ambitious
+rival. New `GUILD_FOUNDER_HUMANS_LEAN_MAX = 0.2` bounds the lean
+against traits' `[-1, 1]` range. Critically, the eligibility floor
+(`DELIBERATE_GUILD_FOUNDER_AMBITION`) is still checked against each
+candidate's REAL, unmodified trait after the pick — a lean can shift
+WHO gets considered but can never manufacture a founder who wasn't
+genuinely ambitious enough on their own. `_maybe_schedule_guild_
+founding` computes the lean dict from `humans_pillar.subject_
+confidence(agent.name)` and passes it through.
+
+Verified: a direct test (no-lean picks the more-ambitious master; a
+seeded lean flips the pick to the less-ambitious one; a large lean
+cannot approve a founder whose real ambition sits below the floor), a
+production-path test through the real `_maybe_schedule_guild_founding`
+(no-lean vs. seeded-lean cases), a 4000-tick LLM-disabled soak with a
+clean round-trip, `pyflakes`/syntax clean. Tier 0 now has sixteen real
+converted sites.
+
 ## [1.34.110] — Tier 0's fifteenth conversion: letter's sender pick
 
 Explicit user instruction: "Continue." `_maybe_schedule_letter`'s

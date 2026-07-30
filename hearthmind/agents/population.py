@@ -7763,12 +7763,24 @@ class Population:
 
     def deliberate_guild_candidate(
         self, settlement: Settlement, members: "list[Agent] | None" = None,
+        humans_lean: "dict[int, float] | None" = None,
     ) -> tuple[Agent, str, list[Agent]] | None:
         """An ambitious master who might push a guild into existence
         early — see DELIBERATE_GUILD_MIN_MASTERS. Returns (founder,
         skill, current masters) for the first qualifying trade, or None.
         Pure query; the founding itself only happens if the LLM decision
-        (or its fallback) says so — see found_guild."""
+        (or its fallback) says so — see found_guild.
+
+        Tier 0's sixteenth conversion (docs/ROADMAP-2026-07-REMAINING.
+        md): `humans_lean` (agent_id -> a small bounded bonus, computed
+        by the caller from `humans_pillar.subject_confidence` since
+        `Population` deliberately doesn't reference pillar state) lets
+        the master Humans' own attention already returns to edge out a
+        marginally-more-ambitious rival for the founder pick — never
+        the eligibility gate itself, which still reads each candidate's
+        REAL, unmodified `TRAIT_AMBITION` below, so a lean can shift WHO
+        gets considered but never manufacture a founder who wasn't
+        genuinely ambitious enough on their own."""
         existing_skills = {
             inst.name for inst in settlement.institutions if inst.kind is InstitutionKind.GUILD
         }
@@ -7781,7 +7793,10 @@ class Population:
             ]
             if not (DELIBERATE_GUILD_MIN_MASTERS <= len(masters) < GUILD_FORMATION_MASTER_COUNT):
                 continue  # 0-1 masters is nothing to organize; 3+ auto-forms anyway
-            founder = max(masters, key=lambda a: a.traits.get(TRAIT_AMBITION, 0.0))
+            founder = max(
+                masters,
+                key=lambda a: a.traits.get(TRAIT_AMBITION, 0.0) + (humans_lean.get(a.id, 0.0) if humans_lean else 0.0),
+            )
             if founder.traits.get(TRAIT_AMBITION, 0.0) < DELIBERATE_GUILD_FOUNDER_AMBITION:
                 continue
             return founder, skill, masters
