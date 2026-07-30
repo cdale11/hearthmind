@@ -955,8 +955,20 @@ class World:
         )
         disaster_events = self._tick_disasters(events)
         storm_struck = any(category == "disaster_storm" for category, _ in disaster_events)
+        # Tier 0 (29th site, explicit user decision — a deliberately
+        # reopened, already-tuned system): computed once per tick here
+        # (not per candidate build site) since `Population` deliberately
+        # doesn't reference pillar state — a cheap bounded scan (last 6
+        # world_model entries) over a fixed small set of building kinds,
+        # not a per-site or per-agent cost. See `buildings.choose_
+        # building_kind`'s `pillar_lean` param and `BUILDING_KIND_
+        # PILLAR_LEAN_MAX`'s docstring for the full reasoning.
+        building_kind_pillar_lean = {
+            kind.value: self.village_pillar.subject_confidence(kind.value) for kind in BuildingKind
+        }
         population_events = self.population.tick(
             seed=self.config.seed, tick=self.clock.tick_count,
+            building_kind_pillar_lean=building_kind_pillar_lean,
             terrain=self.terrain, resources=self.resources, minerals=self.minerals,
             settlements=self.settlements, farms=self.farms, wildlife=self.wildlife, roads=self.roads,
             weather=self.weather, night_factor=night, heatwave_active=self.disasters.heatwave_active,

@@ -617,6 +617,37 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.122)
+
+Explicit user decision via `AskUserQuestion`: "Reopen choose_
+building_kind" — the one remaining big Tier 0-adjacent lever, a
+deliberately reopened, already live-diagnostic-tuned system.
+`buildings.choose_building_kind` gained a `pillar_lean` param applied
+AFTER `PRIORITY_KIND_BOOST`/`ERA_BRANCH_BOOST` via a new, deliberately
+smaller `BUILDING_KIND_PILLAR_LEAN_MAX=1.15` — real cultural momentum
+("the village keeps building what it tends to build"), subordinate to
+both existing tuned signals. `pillar_lean=None` reproduces the exact
+prior weights/RNG-consumption pattern byte-for-byte.
+
+New producer: `Population._maybe_start_construction`'s real
+`"construction_started"` life event is the one place engine.py can
+recover WHICH kind was chosen (parsed off its own stable shared
+description template, since `Population` doesn't reference pillar
+state) — mirrored into `village_pillar.world_model` keyed by the
+literal kind value, revised in place. `World.tick()` computes the
+full lean dict once per tick (cheap, bounded), threaded through
+`Population.tick` -> `_maybe_start_construction` -> `choose_building_
+kind`.
+
+Verified: a direct RNG-parity test, a direct statistical test (leaned
+kind's share rises), a production-path statistical test through the
+real `_maybe_start_construction` on real world terrain, a production-
+path test through the real `_tick_once` (mirror forms/revises), a
+real `World.tick()` smoke test, a 4000-tick LLM-disabled soak with
+clean round-trip, `pyflakes` clean across all four touched files. No
+native module touched. Tier 0 now has twenty-nine real converted
+sites.
+
 ## Current state (v1.34.121)
 
 Explicit user instruction: "Convert more sites and ask if you get

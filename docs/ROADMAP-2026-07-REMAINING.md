@@ -49,7 +49,7 @@ starts on an explicit instruction naming an item.
 - [ ] Convert the remaining **~39 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); twenty-eight sites are now converted
+      confidence`, v1.34.46); twenty-nine sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -87,11 +87,15 @@ starts on an explicit instruction naming an item.
       real priority signal existed here to preserve), v1.34.120 —
       Village pillar's third category subject (materials_bottleneck),
       a genuine third *candidate* (not just a tiebreak) in `_maybe_
-      schedule_laws`, and v1.34.121 — `deliberate_guild_candidate`'s
+      schedule_laws`, v1.34.121 — `deliberate_guild_candidate`'s
       skill pick (fixed a farming/construction/medicine tuple-order
       bias, reusing this job's own existing `"the {skill} guild"`
-      mirror as the lean's content source — no new producer needed).
-      Each further site is real judgment work —
+      mirror as the lean's content source — no new producer needed),
+      and v1.34.122 (explicit user decision: "Reopen choose_building_
+      kind") — `choose_building_kind` itself gains a `pillar_lean`
+      param, deliberately the smallest of its three multiplicative
+      steers, plus a new construction-kind producer. Each further
+      site is real judgment work —
       find a soft/tiebreak point a pillar's accumulated belief can
       legitimately weigh, never hand a pillar a whole decision.
 
@@ -1824,6 +1828,41 @@ schedule_guild_founding` (no-lean prompt names farming; a real prior
 `"the construction guild"` mirror entry flips the prompt to name
 construction), a 4000-tick LLM-disabled soak with a clean round-trip,
 `pyflakes` clean. Tier 0 now has twenty-eight real converted sites.
+
+**Twenty-ninth site (v1.34.122), explicit user decision via
+`AskUserQuestion`: "Reopen choose_building_kind."** The one remaining
+big Tier 0-adjacent lever — a deliberately reopened, already live-
+diagnostic-tuned system (`PRIORITY_KIND_BOOST=2.5`, `ERA_BRANCH_
+BOOST=1.35`). New `pillar_lean: dict[str, float] | None` param on
+`buildings.choose_building_kind`, applied AFTER both existing
+multiplicative boosts via a new, deliberately smaller `BUILDING_KIND_
+PILLAR_LEAN_MAX=1.15` — "the village keeps building what it tends to
+build," real cultural momentum, subordinate to both town_brain's real
+decided priority and era_branch's LLM-authored character. `pillar_
+lean=None` (the default) reproduces the exact prior weights/RNG-
+consumption pattern byte-for-byte.
+
+New producer: `Population._maybe_start_construction`'s real
+`"construction_started"` life event is the one place engine.py can
+recover WHICH kind was chosen (parsed off its own stable shared
+description template, since `Population` doesn't reference pillar
+state by design) — mirrored into `village_pillar.world_model` keyed
+by the literal kind value, revised in place. `World.tick()` computes
+the full `building_kind_pillar_lean` dict once per tick (cheap,
+bounded — a fixed dozen-ish kinds, not per-candidate-site or per-
+agent), threaded through `Population.tick` -> `_maybe_start_
+construction` -> `choose_building_kind`.
+
+Verified: a direct RNG-parity test (`pillar_lean=None` byte-identical
+to the prior behavior), a direct statistical test (a leaned kind's
+share rises measurably, 3000 trials), a production-path statistical
+test through the real `_maybe_start_construction` on real world
+terrain (400 trials), a production-path test through the real `_tick_
+once` (the construction mirror forms/revises in place), a real `World.
+tick()` smoke test with a seeded pillar lean present, a 4000-tick
+LLM-disabled soak with a clean round-trip, `pyflakes` clean across all
+four touched files. No native module touched (pure Python throughout).
+Tier 0 now has twenty-nine real converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

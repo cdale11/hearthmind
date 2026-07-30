@@ -683,6 +683,21 @@ settlement's current civic priority — a real, measurable steer, not
 just flavor text, but not so dominant that other kinds stop appearing
 entirely (see docs/DECISIONS.md, "LLM-as-brain batch")."""
 
+BUILDING_KIND_PILLAR_LEAN_MAX = 1.15
+"""Tier 0 (29th site, explicit user decision — a deliberately reopened,
+already-tuned system): the maximum multiplier `choose_building_kind`'s
+`pillar_lean` can apply to one kind's weight, from `village_pillar.
+subject_confidence(kind_value)` — "the village keeps building what it
+tends to build," real cultural momentum. Deliberately the SMALLEST of
+the three multiplicative steers here (PRIORITY_KIND_BOOST=2.5 for
+town_brain's real decided priority, ERA_BRANCH_BOOST=1.35 for the
+LLM-authored era character) so a pillar's accumulated lean can nudge
+which of several already-eligible kinds gets built, never override
+either of the two live-diagnostic-tuned signals above it. `pillar_
+lean=None` (the default) reproduces the exact prior weights/RNG-
+consumption pattern byte-for-byte — the roll itself is untouched,
+only the weights feeding it gain one more multiplicative term."""
+
 _PRIORITY_TO_KIND = {
     "growth": "hut", "food": "granary", "commerce": "workshop",
     "education": "school", "health": "hospital", "defense": "hut",
@@ -973,6 +988,7 @@ long-running world."""
 def choose_building_kind(
     rng, current_priority: str, era: str = "stone_age", has_tradition: bool = False,
     caravans_visited: int = 0, water_adjacent: bool = False, branch: str = "",
+    pillar_lean: "dict[str, float] | None" = None,
 ) -> "BuildingKind":
     """Weighted pick among the foundable civic kinds (not UNIVERSITY,
     which upgrades an existing school instead) — base odds nudged
@@ -1016,6 +1032,11 @@ def choose_building_kind(
     for kind_value in ERA_BRANCH_KIND_WEIGHTS.get(branch, {}):
         if kind_value in weights:
             weights[kind_value] *= ERA_BRANCH_BOOST
+    if pillar_lean:
+        for kind_value in weights:
+            lean = pillar_lean.get(kind_value, 0.0)
+            if lean > 0.0:
+                weights[kind_value] *= 1.0 + lean * (BUILDING_KIND_PILLAR_LEAN_MAX - 1.0)
     total = sum(weights.values())
     roll = rng.random() * total
     upto = 0.0

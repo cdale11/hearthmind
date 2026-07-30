@@ -2489,6 +2489,7 @@ class SimulationEngine:
                 commit=False,  # one commit per tick, at the end of _tick_once
             )
         theft_count_this_tick = 0
+        built_kinds_this_tick: list[str] = []
         for category, description in self.world.last_life_events:
             log_event(
                 self.conn, tick=self.world.clock.tick_count,
@@ -2497,6 +2498,26 @@ class SimulationEngine:
             )
             if category == "theft":
                 theft_count_this_tick += 1
+            elif category == "construction_started":
+                # Tier 0 (29th site's producer half): `Population.
+                # _maybe_start_construction`'s description always starts
+                # "{Kind} construction ..." (both its own branches share
+                # this exact template) — the one place engine.py can
+                # recover WHICH kind was chosen without threading a new
+                # structured field through `last_life_events`. Feeds
+                # `choose_building_kind`'s `pillar_lean` (computed once
+                # per tick in `World.tick`) — real cultural momentum,
+                # "the village keeps building what it's been building."
+                built_kinds_this_tick.append(description.split(" construction", 1)[0].lower())
+        for kind_value in built_kinds_this_tick:
+            existing_kind_signal = self.world.village_pillar.find_world_model_entry(kind_value)
+            prior_kind_confidence = existing_kind_signal["confidence"] if existing_kind_signal else 0.3
+            self.world.village_pillar.upsert_world_model(
+                self.world.clock.tick_count, kind_value,
+                f"the village keeps returning to {kind_value.replace('_', ' ')} construction.",
+                min(1.0, prior_kind_confidence + 0.05), status="observation", source="construction",
+                revises_id=existing_kind_signal["id"] if existing_kind_signal else None,
+            )
         if theft_count_this_tick:
             # Tier 0 (25th site, new producer's second half): the
             # `Population.law_signal_counts["theft"]` increment happens

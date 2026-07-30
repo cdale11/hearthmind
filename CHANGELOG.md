@@ -4,6 +4,48 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.122] — Tier 0's twenty-ninth conversion: choose_building_kind gains a pillar lean
+
+Explicit user decision via `AskUserQuestion`: "Reopen choose_building_
+kind" — the one remaining big Tier 0-adjacent lever, a deliberately
+reopened, already live-diagnostic-tuned system (`PRIORITY_KIND_
+BOOST=2.5`, `ERA_BRANCH_BOOST=1.35`). New `pillar_lean: dict[str,
+float] | None` param on `buildings.choose_building_kind`, applied
+AFTER both existing multiplicative boosts via a new, deliberately
+smaller `BUILDING_KIND_PILLAR_LEAN_MAX=1.15` — "the village keeps
+building what it tends to build," real cultural momentum, subordinate
+to both town_brain's real decided priority and era_branch's LLM-
+authored character. `pillar_lean=None` (the default) reproduces the
+exact prior weights and RNG-consumption pattern byte-for-byte —
+verified directly, not just asserted.
+
+New producer: `Population._maybe_start_construction`'s real "{Kind}
+construction began/was staked out..." life event (category `"
+construction_started"`) is the one place engine.py can recover WHICH
+kind was actually chosen without threading a new structured field
+through `World.last_life_events` — `_tick_once`'s per-tick loop
+parses the kind off that description's own stable shared template and
+mirrors `village_pillar.world_model` keyed by the literal kind value,
+revised in place, same shape as every other category-keyed producer
+this session. `World.tick()` computes the full `building_kind_pillar_
+lean` dict ONCE per tick (a cheap bounded scan over a fixed dozen-ish
+kinds, not per-candidate-site or per-agent) since `Population`
+deliberately doesn't reference pillar state, threaded through `Population.
+tick` -> `_maybe_start_construction` -> `choose_building_kind`.
+
+Verified: a direct RNG-parity test (`pillar_lean=None` reproduces the
+exact prior pick), a direct statistical test (a leaned kind's share
+rises measurably, 3000 trials), a production-path statistical test
+through the real `Population._maybe_start_construction` on real
+world terrain (a leaned eligible kind's real construction share rises
+measurably, 400 trials), a production-path test through the real
+`_tick_once` (the construction mirror forms and revises in place), a
+real `World.tick()` call with a seeded pillar lean present confirming
+no crash, a 4000-tick LLM-disabled soak with clean round-trip,
+`pyflakes` clean across all four touched files. No native module
+touched (pure Python throughout). Tier 0 now has twenty-nine real
+converted sites.
+
 ## [1.34.121] — Tier 0's twenty-eighth conversion: deliberate guild founding's skill pick
 
 Explicit user instruction: "Convert more sites and ask if you get

@@ -2006,6 +2006,7 @@ class Population:
         fields: "FieldGrid | None" = None,
         construction_history: "dict[tuple[int, int], int] | None" = None,
         ownership_history: "dict[tuple[int, int], int] | None" = None,
+        building_kind_pillar_lean: "dict[str, float] | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -2309,6 +2310,7 @@ class Population:
                 by_position, settlements, farms, rng, roads, resources, terrain, ruin_scars=ruin_scars,
                 mining_scars=mining_scars, disaster_scars=disaster_scars, road_scars=road_scars,
                 construction_history=construction_history,
+                building_kind_pillar_lean=building_kind_pillar_lean,
             )
         )
         life_events.extend(
@@ -5520,6 +5522,7 @@ class Population:
         disaster_scars: dict[tuple[int, int], float] | None = None,
         road_scars: dict[tuple[int, int], float] | None = None,
         construction_history: dict[tuple[int, int], int] | None = None,
+        building_kind_pillar_lean: "dict[str, float] | None" = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         settlements_by_id = {s.id: s for s in settlements}
@@ -5577,6 +5580,7 @@ class Population:
                 caravans_visited=settlement.caravans_visited,
                 water_adjacent=terrain is not None and is_adjacent_to_water(terrain, bx, by),
                 branch=settlement.era_branch,
+                pillar_lean=building_kind_pillar_lean,
             )
             cost = MATERIALS_COST_BY_KIND[kind]
             if settlement.materials < cost:
