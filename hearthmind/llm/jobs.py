@@ -30,6 +30,11 @@ _LATENCY_WINDOW = 200
 stats (see `stats()`) — a rolling window, not a full history, so this
 stays bounded on a long soak run."""
 
+NEAR_TIMEOUT_FRACTION = 0.85
+"""A succeeded reasoning call within this fraction of its own timeout
+ceiling counts toward `CognitionRunner.reasoning_calls_near_timeout` —
+see that field's docstring for the live-diagnostic motivation."""
+
 
 def _diag(
     fallback_reason: str | None, raw_model_output: str | None = None,
@@ -125,6 +130,23 @@ class CognitionRunner:
         counters rather than being invisible inside the aggregate totals
         above. `_reasoning_latencies_ms` is the reasoning-only latency
         percentile counterpart to `_latencies_ms`."""
+        self.reasoning_calls_near_timeout = 0
+        """A live diagnostic (42,013-tick run) showed reasoning p50/p95/
+        max latency (87.9s/171.1s/192.2s) sitting right against this
+        deployment's own scaled timeout ceilings (`DEEP_REASONING_
+        TIMEOUT_MULT`/`num_predict_mult`-derived) — but `latency_ms_p50/
+        p95/max` only ever reflect calls that SUCCEEDED, a survivorship
+        gap: a deployment where most reasoning calls are timing out
+        would show the same "healthy-looking" percentiles from just the
+        few that happened to finish in time, with the timeout-out
+        majority invisible except as a rising `reasoning.calls_timed_
+        out` count elsewhere in the same payload. This counts a
+        SUCCEEDED reasoning call as "near timeout" once its own latency
+        crossed `NEAR_TIMEOUT_FRACTION` of the exact ceiling `_run_gated`
+        used for that call (not a flat guess) — a rising share of
+        near-miss successes is the leading indicator that the timeout
+        (or the model/hardware) needs headroom, visible before the
+        first real timeout ever fires."""
         self._latencies_ms: deque[float] = deque(maxlen=_LATENCY_WINDOW)
         self._reasoning_latencies_ms: deque[float] = deque(maxlen=_LATENCY_WINDOW)
         self._queue_wait_ms: deque[float] = deque(maxlen=_LATENCY_WINDOW)
@@ -172,6 +194,7 @@ class CognitionRunner:
                 "calls_succeeded": self.reasoning_calls_succeeded,
                 "calls_timed_out": self.reasoning_calls_timed_out,
                 "calls_errored": self.reasoning_calls_errored,
+                "calls_near_timeout": self.reasoning_calls_near_timeout,
                 "latency_ms_p50": self._percentile(self._reasoning_latencies_ms, 0.5),
                 "latency_ms_p95": self._percentile(self._reasoning_latencies_ms, 0.95),
                 "latency_ms_max": round(max(self._reasoning_latencies_ms), 1) if self._reasoning_latencies_ms else 0.0,
@@ -291,6 +314,8 @@ class CognitionRunner:
                 if reasoning:
                     self._reasoning_latencies_ms.append(elapsed_ms)
                     self.reasoning_calls_succeeded += 1
+                    if elapsed_ms >= NEAR_TIMEOUT_FRACTION * effective_timeout * 1000:
+                        self.reasoning_calls_near_timeout += 1
                 raw = capture.get("raw")
                 return result, False, raw, _diag(None, raw, result, [])
             except asyncio.TimeoutError as exc:

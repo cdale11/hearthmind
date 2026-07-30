@@ -162,7 +162,25 @@ WILDFIRE_TEMPERAMENT_INFLUENCE = 0.5
 WILDFIRE_SPREAD_CHANCE = 0.35
 WILDFIRE_MAX_TILES = 14
 WILDFIRE_BUILDING_DAMAGE = 0.5
-WILDFIRE_DRY_PRECIPITATION = 0.1
+WILDFIRE_DRY_PRECIPITATION = 0.25
+"""The exact "unreachable threshold" bug class CLAUDE.md documents for
+flood/snow/wind (v0.88.0/v1.34.64 et al.), found via a live diagnostic
+showing `wildfire_ignition_ticks_recorded: 0` after 42,013 ticks. The
+old value (0.1) sat BELOW `compute_weather`'s own realized minimum
+summer precipitation — measured directly (10 seeds x 4 years, driven
+with a real `SimClock`, same technique CLAUDE.md's weather lesson
+prescribes): summer week-boundary precipitation never dropped below
+~0.145, so `weather.precipitation >= WILDFIRE_DRY_PRECIPITATION` was
+true on literally every summer week and `tick_wildfire` always
+returned before ever rolling `WILDFIRE_CHANCE_PER_WEEK` — wildfires
+were structurally impossible regardless of chance/temperament/
+heatwave tuning. 0.25 sits at the same measurement's ~19th percentile
+of summer precipitation (below 0.18: ~1%, below 0.22: ~7%, below 0.25:
+~19%, below 0.3: ~49%) — a real "drier than typical" gate, reachable
+on a genuine minority of summer weeks, not the unreachable floor the
+old value was. Combined with `WILDFIRE_CHANCE_PER_WEEK`'s own 1.5%
+weekly roll this still makes ignition a rare, multi-year event, not a
+free retune of how OFTEN a fire starts once the gate opens."""
 
 """A dry summer forest tile can ignite (rare weekly roll, chance nudged
 by ill-fortune temperament the same way TEMPERAMENT_KILL_CHANCE_INFLUENCE

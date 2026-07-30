@@ -4,6 +4,79 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.123] — Live-diagnostic pass: unreachable wildfire threshold fixed + backpressure/reasoning-timeout diagnostics
+
+Explicit user request: a pasted live "long live run diagnostics" report
+(42,013 ticks) with "expose more diagnostics if you think it would
+help debugging things deeper and also fix issues from this report."
+
+**Real bug fixed**: `wildfire_ignition_ticks_recorded: 0` over the
+whole 42,013-tick run — the exact "unreachable threshold" bug class
+CLAUDE.md documents for flood/snow/wind (v0.88.0/v1.34.64). `world/
+disasters.py`'s `tick_wildfire` only rolls its 1.5%/week ignition
+chance when `weather.precipitation < WILDFIRE_DRY_PRECIPITATION`
+(0.1) on a summer week boundary — but `compute_weather`'s EMA
+smoothing never actually produces that low a summer reading. Measured
+directly (10 seeds x 4 years, driven with a real `SimClock`, same
+technique CLAUDE.md's own weather lesson prescribes): summer
+week-boundary precipitation's realized minimum is ~0.145, its 5th
+percentile ~0.217 — 0.1 sat below the floor of what's reachable,
+making wildfires structurally impossible regardless of chance/
+temperament/heatwave tuning. Raised `WILDFIRE_DRY_PRECIPITATION` to
+0.25 (this measurement's own ~19th percentile — a real "drier than
+typical" gate, not the unreachable one). Verified: a direct 20-seed
+x 20-year `tick_wildfire` production-path run over solid forest
+terrain produced 20 real ignitions against 15 expected from the
+measured qualifying-week count x the unchanged 1.5% weekly roll —
+confirming the fix is reachable at roughly the intended rate, not
+just "no longer literally zero."
+
+**New diagnostics, both grounded in specific fields the pasted report
+made hard to interpret by hand**:
+
+1. `CognitionRunner.reasoning_calls_near_timeout` (`llm/jobs.py`) — the
+   report's reasoning latency percentiles (p50 87.9s/p95 171.1s/max
+   192.2s) sat right against this deployment's own scaled timeout
+   ceilings, but `latency_ms_p50/p95/max` only ever reflect calls that
+   SUCCEEDED — a deployment where most reasoning calls are timing out
+   would show the same "healthy-looking" percentiles from just the few
+   that happened to finish, with the timed-out majority invisible
+   except as a separately-read `calls_timed_out` count. A succeeded
+   reasoning call within `NEAR_TIMEOUT_FRACTION` (0.85) of the exact
+   ceiling `_run_gated` used for that specific call now increments this
+   counter — a leading indicator visible before the first real timeout.
+   Surfaced as `llm_stats.reasoning.calls_near_timeout`.
+2. `SimulationEngine._backpressure_pressure_band()` — the report showed
+   `llm_backpressure_limit_effective: 1` (== `llm_max_concurrent`, the
+   adaptive floor) alongside `calls_dropped_backpressure` far exceeding
+   `calls_attempted`; confirming that was `_current_backpressure_
+   limit()` correctly tightening under severe measured p95 latency
+   (not a scheduling bug) required manually cross-referencing `latency_
+   ms_p95` against `ADAPTIVE_LATENCY_SEVERE_MS`. Now surfaced directly
+   as `llm_backpressure_pressure_band` ("healthy"/"elevated"/"severe")
+   in `/diagnostics`.
+
+**Investigated, not changed** (both explicitly NOT guessed at, per this
+project's own standing "don't silently re-tune without a live A/B"
+discipline for `llm_max_concurrent`): the backpressure-drop volume
+itself is `_current_backpressure_limit()` working as designed once
+`llm_max_concurrent=1` (its own floor) can't be tightened further under
+sustained severe latency — a hardware/model-size lever, not a code bug,
+and `llm_max_concurrent` has flip-flopped many times in this project's
+history based on exactly this kind of live measurement; changing it
+again needs the user's own call, not a guess from one report. The empty
+`reflection_notebook` alongside a populated `reflection_pillar.
+world_model` matches v1.23.1's already-documented Reflection cold-start
+latency (first real output needs ~70k ticks) — not a bug, the report's
+own 42,013 ticks simply hasn't reached it yet.
+
+Verified: direct unit tests for both new diagnostics (near-timeout
+counter via a fake slow/fast adapter; pressure band via a real engine
+with synthetic forced latency), a direct 20-seed x 20-year `tick_
+wildfire` production-path test confirming the fix's reachability and
+rate, `pyflakes` clean, a 4000-tick LLM-disabled soak with a clean
+round-trip. No native module touched (pure Python throughout).
+
 ## [1.34.122] — Tier 0's twenty-ninth conversion: choose_building_kind gains a pillar lean
 
 Explicit user decision via `AskUserQuestion`: "Reopen choose_building_

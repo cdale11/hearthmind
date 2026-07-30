@@ -617,6 +617,50 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.123)
+
+Explicit user request: a pasted live "long live run diagnostics"
+report (42,013 ticks) — "expose more diagnostics if you think it
+would help debugging things deeper and also fix issues from this
+report."
+
+Real bug fixed, the exact "unreachable threshold" bug class this file
+already documents for flood/snow/wind (v0.88.0/v1.34.64):
+`wildfire_ignition_ticks_recorded: 0` for the whole run traced to
+`WILDFIRE_DRY_PRECIPITATION=0.1` sitting below `compute_weather`'s own
+realized summer-minimum precipitation (~0.145, measured directly via
+10 seeds x 4 years driven with a real `SimClock`) — wildfires were
+structurally impossible regardless of chance/temperament/heatwave
+tuning. Raised to 0.25 (this measurement's own ~19th percentile);
+verified via a 20-seed x 20-year production-path run producing 20 real
+ignitions against 15 expected.
+
+Two new diagnostics, both closing a specific "had to hand-derive this"
+gap the report exposed rather than a speculative add: `llm_stats.
+reasoning.calls_near_timeout` (`llm/jobs.py`) — succeeded-only latency
+percentiles can't show a deployment where most reasoning calls are
+timing out (survivorship gap), so a succeeded call within 85% of its
+own real timeout ceiling now increments a leading-indicator counter;
+`llm_backpressure_pressure_band` ("healthy"/"elevated"/"severe",
+`_backpressure_pressure_band()`) surfaces WHY `llm_backpressure_
+limit_effective` sits where it does instead of requiring a manual
+cross-reference against `ADAPTIVE_LATENCY_ELEVATED/SEVERE_MS`.
+
+Investigated, deliberately not changed: the report's large backpressure-
+drop count is `_current_backpressure_limit()` correctly tightening to
+its `llm_max_concurrent` floor under genuinely severe measured
+latency, not a scheduling bug — re-tuning `llm_max_concurrent` again
+needs the user's own live-comparison call, per this project's own
+repeated history on that exact constant, not a guess from one report.
+The empty `reflection_notebook` matches v1.23.1's already-documented
+Reflection cold-start latency (~70k ticks for first output) — not a
+bug, this report's 42,013 ticks hasn't reached it yet.
+
+Verified: direct unit tests for both new diagnostics, a direct 20-seed
+x 20-year `tick_wildfire` production-path test, `pyflakes` clean, a
+4000-tick LLM-disabled soak with clean round-trip. No native module
+touched.
+
 ## Current state (v1.34.122)
 
 Explicit user decision via `AskUserQuestion`: "Reopen choose_

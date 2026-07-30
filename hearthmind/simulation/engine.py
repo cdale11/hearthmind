@@ -1865,6 +1865,26 @@ class SimulationEngine:
             return max(floor, self._backpressure_limit // 2)
         return self._backpressure_limit
 
+    def _backpressure_pressure_band(self) -> str:
+        """"healthy"/"elevated"/"severe" — the WHY behind `llm_
+        backpressure_limit_effective`'s number, not just the number
+        itself. A live diagnostic showed `llm_backpressure_limit_
+        effective: 1` (== `llm_max_concurrent`, the adaptive floor)
+        alongside `calls_dropped_backpressure` far exceeding `calls_
+        attempted`; confirming that was `_current_backpressure_limit()`
+        correctly tightening under severe measured p95 latency (not a
+        scheduling bug) required cross-referencing `latency_ms_p95`
+        against `ADAPTIVE_LATENCY_SEVERE_MS` by hand. Surfacing the band
+        directly means a saturated-and-adaptively-throttled deployment
+        reads as "severe" at a glance instead of requiring that lookup
+        every time."""
+        p95 = self._cognition_runner.stats()["latency_ms_p95"]
+        if p95 >= ADAPTIVE_LATENCY_SEVERE_MS:
+            return "severe"
+        if p95 >= ADAPTIVE_LATENCY_ELEVATED_MS:
+            return "elevated"
+        return "healthy"
+
     def llm_pressure_ratio(self) -> float:
         """`_effective_backlog() / _current_backpressure_limit()` — 1.0
         means the queue is exactly at the (already-adaptive) limit, 2.0
@@ -11496,6 +11516,7 @@ class SimulationEngine:
             "llm_backlog_reserved_this_tick": self._reserved_this_tick,
             "llm_backpressure_limit": self._backpressure_limit,
             "llm_backpressure_limit_effective": self._current_backpressure_limit(),
+            "llm_backpressure_pressure_band": self._backpressure_pressure_band(),
             # LLM-pressure tick pacing (v0.81.2, see LLM_PRESSURE_SLOWDOWN_
             # START_RATIO's docstring): `llm_pressure_ratio` is how far over
             # the adaptive limit the backlog currently sits (>1.0 = ticks
