@@ -4,6 +4,38 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.124] — Tier 0's thirtieth conversion: HUT-owner pick gains a pillar lean
+
+Explicit user instruction: "Continue tier 0." `Population._maybe_start_
+construction`'s HUT-owner pick was already ambition-weighted
+(`TRAIT_AMBITION_FOUNDER_SELECTION_WEIGHT`) — the same shape as
+`deliberate_guild_candidate`'s founder pick and `fission_candidate`'s
+leader pick, both already converted. New `Population.HUT_OWNER_HUMANS_
+LEAN_MAX = 0.2` (half the trait's own weight, same scale `GUILD_
+FOUNDER_HUMANS_LEAN_MAX` uses for the analogous guild-founder site)
+adds `humans_pillar.subject_confidence(agent.name)` as a second,
+smaller term — real ambition stays dominant.
+
+`Population` is deliberately decoupled from pillar state, and this
+site fires every tick for every colocated founder group (rare to
+actually reach the HUT branch, but the surrounding scan runs
+constantly) — so the pillar lookup is threaded as a LAZY callable
+(`humans_lean: Callable[[Agent], float] | None`), same technique
+`due_for_dispute` established (v1.34.114): `World.tick()` passes
+`lambda a: self.humans_pillar.subject_confidence(a.name)` through
+`Population.tick()` -> `_maybe_start_construction`, only ever invoked
+against the small `eligible` founder list actually being weighed, not
+the whole population.
+
+Verified: a direct weight-formula test (no-lean favors ambition,
+lean raises the leaned agent's weight), a 400-trial production-path
+statistical test through the real `_maybe_start_construction` (no-lean:
+high-ambition agent wins ownership 240/400; a seeded lean toward the
+low-ambition agent raises their win rate from 179/400 baseline to
+202/400), a 4000-tick LLM-disabled soak with clean round-trip,
+`pyflakes` clean. No native module touched. Tier 0 now has thirty real
+converted sites.
+
 ## [1.34.123] — Live-diagnostic pass: unreachable wildfire threshold fixed + backpressure/reasoning-timeout diagnostics
 
 Explicit user request: a pasted live "long live run diagnostics" report

@@ -49,7 +49,7 @@ starts on an explicit instruction naming an item.
 - [ ] Convert the remaining **~39 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); twenty-nine sites are now converted
+      confidence`, v1.34.46); thirty sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -94,7 +94,11 @@ starts on an explicit instruction naming an item.
       and v1.34.122 (explicit user decision: "Reopen choose_building_
       kind") — `choose_building_kind` itself gains a `pillar_lean`
       param, deliberately the smallest of its three multiplicative
-      steers, plus a new construction-kind producer. Each further
+      steers, plus a new construction-kind producer, and v1.34.124 —
+      `_maybe_start_construction`'s HUT-owner pick gains a Humans-
+      pillar lean (same ambition-weighted-founder shape as the guild/
+      fission sites), threaded as a lazy per-agent callable since this
+      site runs every tick. Each further
       site is real judgment work —
       find a soft/tiebreak point a pillar's accumulated belief can
       legitimately weigh, never hand a pillar a whole decision.

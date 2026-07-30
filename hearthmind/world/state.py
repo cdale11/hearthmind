@@ -969,6 +969,7 @@ class World:
         population_events = self.population.tick(
             seed=self.config.seed, tick=self.clock.tick_count,
             building_kind_pillar_lean=building_kind_pillar_lean,
+            humans_lean=lambda a: self.humans_pillar.subject_confidence(a.name),
             terrain=self.terrain, resources=self.resources, minerals=self.minerals,
             settlements=self.settlements, farms=self.farms, wildlife=self.wildlife, roads=self.roads,
             weather=self.weather, night_factor=night, heatwave_active=self.disasters.heatwave_active,

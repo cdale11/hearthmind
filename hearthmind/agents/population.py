@@ -2007,6 +2007,7 @@ class Population:
         construction_history: "dict[tuple[int, int], int] | None" = None,
         ownership_history: "dict[tuple[int, int], int] | None" = None,
         building_kind_pillar_lean: "dict[str, float] | None" = None,
+        humans_lean: "Callable[[Agent], float] | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -2311,6 +2312,7 @@ class Population:
                 mining_scars=mining_scars, disaster_scars=disaster_scars, road_scars=road_scars,
                 construction_history=construction_history,
                 building_kind_pillar_lean=building_kind_pillar_lean,
+                humans_lean=humans_lean,
             )
         )
         life_events.extend(
@@ -5512,6 +5514,17 @@ class Population:
                 settlement.buildings_repaired += 1
         return []  # repair progress isn't eventful enough on its own to log per-tick
 
+    HUT_OWNER_HUMANS_LEAN_MAX = 0.2
+    """Tier 0's thirtieth conversion: `_maybe_start_construction`'s HUT-
+    owner pick was already ambition-weighted (`TRAIT_AMBITION_FOUNDER_
+    SELECTION_WEIGHT=0.4`); this adds `humans_pillar.subject_
+    confidence(agent.name)` as a smaller second term (half the trait's
+    own weight, same scale `GUILD_FOUNDER_HUMANS_LEAN_MAX` uses for an
+    analogous founder pick) — the person Humans' own attention already
+    returns to is a little more likely to be the one who ends up
+    owning the new HUT, real ambition still dominant. `humans_lean=
+    None` reproduces the exact prior weight formula."""
+
     @classmethod
     def _maybe_start_construction(
         cls, by_position: dict[tuple[int, int], list[Agent]], settlements: list[Settlement],
@@ -5523,6 +5536,7 @@ class Population:
         road_scars: dict[tuple[int, int], float] | None = None,
         construction_history: dict[tuple[int, int], int] | None = None,
         building_kind_pillar_lean: "dict[str, float] | None" = None,
+        humans_lean: "Callable[[Agent], float] | None" = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         settlements_by_id = {s.id: s for s in settlements}
@@ -5594,7 +5608,8 @@ class Population:
             # (owner_agent_id=None), see Building.owner_agent_id.
             if kind is BuildingKind.HUT:
                 weights = [
-                    max(0.05, 1.0 + a.traits.get(TRAIT_AMBITION, 0.0) * TRAIT_AMBITION_FOUNDER_SELECTION_WEIGHT)
+                    max(0.05, 1.0 + a.traits.get(TRAIT_AMBITION, 0.0) * TRAIT_AMBITION_FOUNDER_SELECTION_WEIGHT
+                        + (humans_lean(a) if humans_lean else 0.0) * cls.HUT_OWNER_HUMANS_LEAN_MAX)
                     for a in eligible
                 ]
                 owner_agent_id = rng.choices(eligible, weights=weights, k=1)[0].id

@@ -617,6 +617,29 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.124)
+
+Explicit user instruction: "Continue tier 0." Thirtieth conversion:
+`_maybe_start_construction`'s HUT-owner pick (already ambition-
+weighted, same shape as `deliberate_guild_candidate`'s founder pick
+and `fission_candidate`'s leader pick) now also weighs `humans_pillar.
+subject_confidence(agent.name)` via new `Population.HUT_OWNER_HUMANS_
+LEAN_MAX=0.2` — real ambition stays dominant. Since `Population` stays
+decoupled from pillar state and this site's surrounding scan runs
+every tick (only rarely reaching the HUT branch itself), the pillar
+lookup is threaded as a lazy callable, same technique `due_for_
+dispute` established — `World.tick()` passes `lambda a: self.
+humans_pillar.subject_confidence(a.name)` through `Population.tick()`,
+only ever invoked against the small eligible founder list actually
+being weighed.
+
+Verified: a direct weight-formula test, a 400-trial production-path
+statistical test through the real `_maybe_start_construction` (no-lean
+favors ambition 240/400; a seeded lean toward the low-ambition agent
+raises their win rate 179/400 -> 202/400), a 4000-tick LLM-disabled
+soak with clean round-trip, `pyflakes` clean. No native module
+touched. Tier 0 now has thirty real converted sites.
+
 ## Current state (v1.34.123)
 
 Explicit user request: a pasted live "long live run diagnostics"
