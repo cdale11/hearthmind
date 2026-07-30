@@ -9631,7 +9631,18 @@ class SimulationEngine:
             a.id: self.world.humans_pillar.subject_confidence(a.name) * GUILD_FOUNDER_HUMANS_LEAN_MAX
             for a in members
         }
-        candidate = self.world.population.deliberate_guild_candidate(guild_target, members, humans_lean=humans_lean)
+        # Tier 0 (28th site): reuses this job's own existing mirror
+        # ("the {skill} guild", written below in apply() since v0.64.0-
+        # era work) — no new producer needed, `subject_confidence`'s
+        # substring match already catches a bare skill name against
+        # that subject.
+        skill_lean = {
+            skill: self.world.village_pillar.subject_confidence(skill)
+            for skill in (SKILL_FARMING, SKILL_CONSTRUCTION, SKILL_MEDICINE)
+        }
+        candidate = self.world.population.deliberate_guild_candidate(
+            guild_target, members, humans_lean=humans_lean, skill_lean=skill_lean,
+        )
         if candidate is None:
             return
         if self._pillar_interpret_backpressured("village"):

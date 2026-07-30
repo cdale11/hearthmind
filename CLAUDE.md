@@ -617,6 +617,25 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.121)
+
+Explicit user instruction: "Convert more sites and ask if you get
+stuck." `Population.deliberate_guild_candidate`'s skill pick had a
+fixed `(farming, construction, medicine)` tuple-order bias — whichever
+skill came first won outright whenever two qualified the same month.
+No new producer needed: `_maybe_schedule_guild_founding`'s existing
+`"the {skill} guild"` mirror (v0.64.0-era) already gives `subject_
+confidence` real content to match a bare skill name against. New
+`skill_lean: dict[str, float] | None` param; collect every qualifying
+skill first, then `max` by lean — first-max-wins reproduces the exact
+prior fixed-order pick with no lean anywhere.
+
+Verified: a direct test (two simultaneously-qualifying skills, no-lean
+picks farming, a seeded lean flips to construction), a production-path
+test through the real `_maybe_schedule_guild_founding`, a 4000-tick
+LLM-disabled soak with clean round-trip, `pyflakes` clean. Tier 0 now
+has twenty-eight real converted sites.
+
 ## Current state (v1.34.120)
 
 Explicit user decision via `AskUserQuestion`: "Yes new producer"

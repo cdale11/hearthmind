@@ -4,6 +4,37 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.121] — Tier 0's twenty-eighth conversion: deliberate guild founding's skill pick
+
+Explicit user instruction: "Convert more sites and ask if you get
+stuck," continuing after v1.34.120's producer. Found by re-auditing
+`Population.deliberate_guild_candidate`: a fixed `(farming,
+construction, medicine)` tuple order meant whichever skill happened
+to come first in that order won outright whenever two skills
+qualified for deliberate founding the same month — a structural bias,
+not a meaningful choice.
+
+No new producer needed this time — `_maybe_schedule_guild_founding`'s
+own apply() has mirrored `village_pillar.world_model` with subject
+`"the {skill} guild"` since v0.64.0-era work; `subject_confidence`'s
+substring match already catches a bare skill name (`"farming"`)
+against that existing subject (`"the farming guild"`). Rewrote
+`deliberate_guild_candidate` to collect every qualifying skill first,
+then pick via a new `skill_lean: dict[str, float] | None` param
+(`skill_lean.get(skill, 0.0)`, computed by the caller from `village_
+pillar.subject_confidence(skill)` over the three real skill names) —
+first-max-wins reproduces the exact prior fixed-order pick when no
+lean exists anywhere.
+
+Verified: a direct test (two simultaneously-qualifying skills,
+no-lean picks farming first as before, a seeded lean flips the pick
+to construction), a production-path test through the real `_maybe_
+schedule_guild_founding` (no-lean prompt names farming; a real prior
+`"the construction guild"` mirror entry flips the prompt to name
+construction instead), a 4000-tick LLM-disabled soak with clean
+round-trip, `pyflakes` clean. Tier 0 now has twenty-eight real
+converted sites.
+
 ## [1.34.120] — Tier 0's twenty-seventh conversion: Village's third category subject (materials_bottleneck)
 
 Explicit user decision via `AskUserQuestion`: "Another new producer."

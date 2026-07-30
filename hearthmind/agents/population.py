@@ -7807,12 +7807,13 @@ class Population:
     def deliberate_guild_candidate(
         self, settlement: Settlement, members: "list[Agent] | None" = None,
         humans_lean: "dict[int, float] | None" = None,
+        skill_lean: "dict[str, float] | None" = None,
     ) -> tuple[Agent, str, list[Agent]] | None:
         """An ambitious master who might push a guild into existence
         early — see DELIBERATE_GUILD_MIN_MASTERS. Returns (founder,
-        skill, current masters) for the first qualifying trade, or None.
-        Pure query; the founding itself only happens if the LLM decision
-        (or its fallback) says so — see found_guild.
+        skill, current masters) for a qualifying trade, or None. Pure
+        query; the founding itself only happens if the LLM decision (or
+        its fallback) says so — see found_guild.
 
         Tier 0's sixteenth conversion (docs/ROADMAP-2026-07-REMAINING.
         md): `humans_lean` (agent_id -> a small bounded bonus, computed
@@ -7823,10 +7824,20 @@ class Population:
         the eligibility gate itself, which still reads each candidate's
         REAL, unmodified `TRAIT_AMBITION` below, so a lean can shift WHO
         gets considered but never manufacture a founder who wasn't
-        genuinely ambitious enough on their own."""
+        genuinely ambitious enough on their own.
+
+        Tier 0's 28th site: previously ANY qualifying skill won purely
+        by being first in a fixed (farming, construction, medicine)
+        tuple order — a structural bias, not a meaningful choice, if
+        two skills qualified the same tick. Now every qualifying skill
+        is collected first, then `skill_lean` (skill name ->
+        `village_pillar.subject_confidence(skill)`, computed by the
+        caller) picks among them via `max` — first-max-wins reproduces
+        the exact prior fixed-order pick when no lean exists anywhere."""
         existing_skills = {
             inst.name for inst in settlement.institutions if inst.kind is InstitutionKind.GUILD
         }
+        qualifying: list[tuple[Agent, str, list[Agent]]] = []
         for skill in (SKILL_FARMING, SKILL_CONSTRUCTION, SKILL_MEDICINE):
             if skill in existing_skills:
                 continue
@@ -7842,8 +7853,10 @@ class Population:
             )
             if founder.traits.get(TRAIT_AMBITION, 0.0) < DELIBERATE_GUILD_FOUNDER_AMBITION:
                 continue
-            return founder, skill, masters
-        return None
+            qualifying.append((founder, skill, masters))
+        if not qualifying:
+            return None
+        return max(qualifying, key=lambda c: skill_lean.get(c[1], 0.0) if skill_lean else 0.0)
 
     def found_guild(self, settlement: Settlement, skill: str, founder_id: int, tick: int) -> tuple[str, str] | None:
         """Actually found the guild a deliberate-founding decision

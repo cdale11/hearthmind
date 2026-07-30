@@ -49,7 +49,7 @@ starts on an explicit instruction naming an item.
 - [ ] Convert the remaining **~39 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); twenty-seven sites are now converted
+      confidence`, v1.34.46); twenty-eight sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -84,10 +84,14 @@ starts on an explicit instruction naming an item.
       producer does), consumed by `_maybe_schedule_laws`'s pattern_key
       tiebreak, v1.34.119 — `_maybe_tick_composite_reactions`'s
       feuding-pair pick (a genuine first-max-wins uniform pick, no
-      real priority signal existed here to preserve), and v1.34.120 —
+      real priority signal existed here to preserve), v1.34.120 —
       Village pillar's third category subject (materials_bottleneck),
       a genuine third *candidate* (not just a tiebreak) in `_maybe_
-      schedule_laws`. Each further site is real judgment work —
+      schedule_laws`, and v1.34.121 — `deliberate_guild_candidate`'s
+      skill pick (fixed a farming/construction/medicine tuple-order
+      bias, reusing this job's own existing `"the {skill} guild"`
+      mirror as the lean's content source — no new producer needed).
+      Each further site is real judgment work —
       find a soft/tiebreak point a pillar's accumulated belief can
       legitimately weigh, never hand a pillar a whole decision.
 
@@ -1796,6 +1800,30 @@ resets only its own counter), a regression test confirming theft-wins
 still resets correctly and leaves the other two counters untouched, a
 4000-tick LLM-disabled soak with a clean round-trip, `pyflakes` clean.
 Tier 0 now has twenty-seven real converted sites.
+
+**Twenty-eighth site (v1.34.121), explicit user instruction: "Convert
+more sites and ask if you get stuck."** Found by re-auditing
+`Population.deliberate_guild_candidate`: a fixed `(farming,
+construction, medicine)` tuple order meant whichever skill happened
+to come first in that order won outright whenever two skills
+qualified for deliberate founding the same month — a structural bias,
+not a meaningful choice. No new producer content was needed —
+`_maybe_schedule_guild_founding`'s own apply() has mirrored `village_
+pillar.world_model` with subject `"the {skill} guild"` since v0.64.0-
+era work; `subject_confidence`'s substring match already catches a
+bare skill name (`"farming"`) against that existing subject. Rewrote
+`deliberate_guild_candidate` to collect every qualifying skill first,
+then pick via a new `skill_lean: dict[str, float] | None` param —
+first-max-wins reproduces the exact prior fixed-order pick when no
+lean exists anywhere.
+
+Verified: a direct test (two simultaneously-qualifying skills, no-lean
+picks farming first as before, a seeded lean flips the pick to
+construction), a production-path test through the real `_maybe_
+schedule_guild_founding` (no-lean prompt names farming; a real prior
+`"the construction guild"` mirror entry flips the prompt to name
+construction), a 4000-tick LLM-disabled soak with a clean round-trip,
+`pyflakes` clean. Tier 0 now has twenty-eight real converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0
