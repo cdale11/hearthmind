@@ -4,6 +4,49 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.116] — Tier 0's twenty-second/twenty-third conversions: faction cluster + consciousness target tiebreaks
+
+Explicit user decision via `AskUserQuestion` on the two sites flagged
+as needing a call: both approved.
+
+**Faction cluster pick (twenty-second site).** `Population._detect_
+faction_candidate`'s cluster selection already had a real primary
+signal (cohesion) plus a real tiebreak (cluster size) — the safest
+Tier 0 shape. A genuine tie between two equally-cohesive, equally-sized
+clusters (rare, but possible) previously fell to Python dict/union-find
+iteration order. New optional `humans_lean: dict[int, float] | None`
+param; `max`'s key is now `(cohesion(c), len(c), cluster_lean(c))`
+where `cluster_lean` averages `humans_pillar.subject_confidence` over
+the cluster's own members. `_maybe_schedule_faction` (`simulation/
+engine.py`) computes the lean dict from settlement members before
+calling detection. Real cohesion/size signals stay the sole
+determinant except in a genuine tie.
+
+**Consciousness target pick (twenty-third site).** Explicit user
+decision extending v1.34.9/v1.34.114's Phase G carve-out (previously
+scoped to omen's own subject pick) to `_observer_favorite_agent`'s
+tie-break — this helper selects WHO a monthly consciousness
+intervention (false memory, omen subject, misplaced object) targets
+among core-cast agents tied for most player-viewed. The `sorted(...)`
+key gained a second element, `humans_pillar.subject_confidence(agent.
+name)`, both descending — real view count stays the sole determinant
+except in a genuine tie, at which point the tied agent Humans already
+has a standing theory about wins. Never changes WHETHER an
+intervention happens or its content, only which equally-viewed core-
+cast agent it targets.
+
+Verified: a direct test of `_detect_faction_candidate` (no-lean picks
+whichever cluster union-find finds first, a seeded lean flips a
+genuine tie, a large lean on a strictly smaller cluster can never
+override real cluster size), a direct test of `_observer_favorite_
+agent` (tie broken toward the leaned agent, a strictly higher real
+view count is never overridden by lean), a production-path test
+through the real `_maybe_schedule_faction` (two disjoint same-size
+same-cohesion clusters, a seeded `humans_pillar` belief flips which
+cluster gets named), a 4000-tick LLM-disabled soak with clean
+round-trip, `pyflakes` clean. Tier 0 now has twenty-three real
+converted sites.
+
 ## [1.34.115] — Tier 0's twenty-first conversion: rule_propose's stuck-institution tiebreak
 
 Explicit user instruction: "Convert as many sites as you can." Found

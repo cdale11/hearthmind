@@ -3464,14 +3464,27 @@ class SimulationEngine:
         or their favorite(s) have all since died/aged out of the core
         cast. Falls back to the most-RECENTLY inspected living core
         agent if the top-count one no longer qualifies, so a long-lived
-        favorite doesn't permanently lock out a fresher one."""
+        favorite doesn't permanently lock out a fresher one.
+
+        Tier 0 (23rd site, explicit user decision via `AskUserQuestion`
+        — extends v1.34.9/v1.34.114's Phase G carve-out for this exact
+        target-selection role): a genuine tie in view count breaks
+        toward whichever tied agent `humans_pillar` already has a
+        standing theory about — never changes WHETHER an intervention
+        happens or what it says, only which equally-viewed agent it
+        targets. Real view count stays the sole determinant otherwise."""
         attention = self.world.observer_attention
         counts = attention.get("agent_view_counts", {}) if attention else {}
         if not counts:
             return None
         core_ids = self.world.population.core_agent_ids
         by_id = {a.id: a for a in self.world.population.agents}
-        ranked = sorted(counts, key=lambda aid: counts[aid], reverse=True)
+        ranked = sorted(
+            counts,
+            key=lambda aid: (counts[aid], self.world.humans_pillar.subject_confidence(
+                by_id[aid].name) if aid in by_id else 0.0),
+            reverse=True,
+        )
         for aid in ranked:
             agent = by_id.get(aid)
             if agent is not None and aid in core_ids:
@@ -9474,7 +9487,12 @@ class SimulationEngine:
         if not self._monthly_gate(events, "faction") or not faction_target.name:
             return
         members = [a for a in self.world.population.agents if a.settlement_id == faction_target.id]
-        candidate = self.world.population._detect_faction_candidate(faction_target, members)
+        humans_lean = {
+            a.id: self.world.humans_pillar.subject_confidence(a.name) for a in members
+        }
+        candidate = self.world.population._detect_faction_candidate(
+            faction_target, members, humans_lean=humans_lean,
+        )
         if candidate is None:
             return
         if self._pillar_interpret_backpressured("village"):

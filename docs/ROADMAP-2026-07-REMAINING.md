@@ -49,7 +49,7 @@ starts on an explicit instruction naming an item.
 - [ ] Convert the remaining **~39 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); twenty-one sites are now converted
+      confidence`, v1.34.46); twenty-three sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -69,7 +69,11 @@ starts on an explicit instruction naming an item.
       pick (extending v1.34.9's one-time Phase G carve-out) — and
       `_maybe_schedule_rule_proposal`'s `stuck_institution` tiebreak
       (v1.34.115, same real-primary-signal-plus-pure-tiebreak shape as
-      the first two sites). Each further site is real judgment work —
+      the first two sites), and v1.34.116 (both by explicit user
+      decision) — `_detect_faction_candidate`'s cluster tiebreak and
+      `_observer_favorite_agent`'s tiebreak (extending the Phase G
+      carve-out again, this time into consciousness-intervention
+      targeting). Each further site is real judgment work —
       find a soft/tiebreak point a pillar's accumulated belief can
       legitimately weigh, never hand a pillar a whole decision.
 
@@ -1627,6 +1631,44 @@ institutions grounds the prompt; a fresh no-lean call reproduces the
 original first-found pick), a 4000-tick LLM-disabled soak with a
 clean round-trip, `pyflakes` clean. Tier 0 now has twenty-one real
 converted sites.
+
+**Twenty-second and twenty-third sites (v1.34.116), explicit user
+decision via `AskUserQuestion` on the two sites flagged as needing a
+call.** Both approved.
+
+Faction cluster pick: `Population._detect_faction_candidate` already
+had a real primary signal (cohesion) plus a real tiebreak (cluster
+size) — the safest Tier 0 shape, same as sites 1, 2, and 21. A genuine
+tie between two equally-cohesive, equally-sized clusters (rare, but
+possible) previously fell to union-find/dict iteration order. New
+optional `humans_lean: dict[int, float] | None` param; `max`'s key is
+now `(cohesion(c), len(c), cluster_lean(c))`, `cluster_lean` averaging
+`humans_pillar.subject_confidence` over the cluster's own members.
+`_maybe_schedule_faction` computes the lean dict from settlement
+members. Real cohesion/size stay the sole determinant except in a
+genuine tie.
+
+Consciousness target pick: explicit user decision extending
+v1.34.9/v1.34.114's Phase G carve-out (previously scoped to omen's own
+subject pick) to `_observer_favorite_agent`'s tie-break — this helper
+picks WHO a monthly consciousness intervention (false memory, omen
+subject, misplaced object) targets among core-cast agents tied for
+most player-viewed. `sorted`'s key gained a second, tie-break-only
+element, `humans_pillar.subject_confidence(agent.name)`, both
+descending. Real view count stays the sole determinant; never changes
+whether an intervention happens or its content, only which tied agent
+it targets.
+
+Verified: a direct test of `_detect_faction_candidate` (no-lean picks
+whichever cluster union-find finds first, a seeded lean flips a
+genuine tie, a large lean on a strictly smaller cluster can never
+override real cluster size), a direct test of `_observer_favorite_
+agent` (tie broken toward the leaned agent, a strictly higher real
+view count is never overridden by lean), a production-path test
+through the real `_maybe_schedule_faction` (two disjoint same-size
+same-cohesion clusters, a seeded belief flips which cluster gets
+named), a 4000-tick LLM-disabled soak with a clean round-trip,
+`pyflakes` clean. Tier 0 now has twenty-three real converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

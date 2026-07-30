@@ -617,6 +617,35 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.116)
+
+Explicit user decision via `AskUserQuestion` on both sites flagged
+last turn as needing a call — both approved.
+
+Twenty-second conversion: `Population._detect_faction_candidate`'s
+cluster pick (which trust-graph cluster gets named as a new faction)
+gained the same "real primary signal, pillar lean only as pure
+tiebreak" shape as sites 1, 2, and 21 — `max`'s key is now `(cohesion
+(c), len(c), cluster_lean(c))`, where `cluster_lean` averages `humans_
+pillar.subject_confidence` over the cluster's own members. Real
+cohesion/size stay the sole determinant except in a genuine tie.
+
+Twenty-third conversion: `_observer_favorite_agent`'s tie-break among
+equally-most-viewed core-cast agents (which feeds Phase G's monthly
+consciousness interventions — false memories, omen subjects,
+misplaced objects) extends v1.34.9/v1.34.114's Phase G carve-out:
+`sorted`'s key gained `humans_pillar.subject_confidence(agent.name)`
+as a second, tie-breaking-only element. Real view count stays the
+sole determinant; never changes whether an intervention happens or
+its content, only which tied agent it targets.
+
+Verified: direct tests for both sites (faction tiebreak flip +
+real-size-never-overridden; consciousness tiebreak flip +
+real-view-count-never-overridden), a production-path test through the
+real `_maybe_schedule_faction`, a 4000-tick LLM-disabled soak with
+clean round-trip, `pyflakes` clean. Tier 0 now has twenty-three real
+converted sites.
+
 ## Current state (v1.34.115)
 
 Explicit user instruction: "Convert as many sites as you can."

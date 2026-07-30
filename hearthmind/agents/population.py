@@ -5039,6 +5039,7 @@ class Population:
 
     def _detect_faction_candidate(
         self, settlement: Settlement, members: "list[Agent] | None" = None,
+        humans_lean: "dict[int, float] | None" = None,
     ) -> list[Agent] | None:
         """Phase L "Factions" (docs/VISION-2026-07.md, "Society &
         Power") — the deterministic detection half, same candidacy/
@@ -5057,7 +5058,12 @@ class Population:
         legible rather than an overlapping tangle). Returns the
         highest-cohesion cluster clearing both FACTION_MIN_SIZE and
         FACTION_MIN_COHESION, or None if no such cluster exists — an
-        expected, common outcome, not a failure."""
+        expected, common outcome, not a failure.
+
+        Tier 0 (22nd site, explicit user decision via `AskUserQuestion`):
+        `humans_lean` (agent id -> confidence) only ever breaks a
+        genuine tie between equally-cohesive, equally-sized clusters —
+        real cohesion and size stay the sole determinant otherwise."""
         pool_source = self.agents if members is None else members
         existing_members: set[int] = {
             aid for inst in settlement.institutions
@@ -5104,7 +5110,14 @@ class Population:
         candidates = [c for c in clusters.values() if len(c) >= FACTION_MIN_SIZE]
         if not candidates:
             return None
-        best = max(candidates, key=lambda c: (cohesion(c), len(c)))
+
+        def cluster_lean(c: list[Agent]) -> float:
+            if not humans_lean:
+                return 0.0
+            values = [humans_lean.get(a.id, 0.0) for a in c]
+            return sum(values) / len(values) if values else 0.0
+
+        best = max(candidates, key=lambda c: (cohesion(c), len(c), cluster_lean(c)))
         if cohesion(best) < FACTION_MIN_COHESION:
             return None
         return sorted(best, key=lambda a: a.id)
