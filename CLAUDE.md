@@ -617,6 +617,33 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.118)
+
+Explicit user instruction: "Yes new producer" — resolves the flagged
+dead end (a broad sweep found no further genuinely-reachable tiebreak
+site) by building Village's own category-keyed `world_model` producer,
+the same shape Nature's species-keyed producer (v1.34.106/107)
+established but Village had never had (only settlement/institution/
+agent-keyed subjects so far). Two touch points: `_maybe_schedule_
+dispute`'s real `apply()` mirrors keyed by the literal word `"dispute_
+feud"` on a genuine feud outcome; `_tick_once`'s per-tick `last_life_
+events` loop mirrors keyed by `"theft"` whenever a theft occurs
+(`Population.law_signal_counts["theft"]`'s own increment lives in
+`population.py`, decoupled from pillar access — `last_life_events` is
+the one place engine.py sees it). Both revise in place via `find_
+world_model_entry`. Real consumer: `_maybe_schedule_laws`'s `pattern_
+key = max(candidates, key=candidates.get)` — a real occurrence-count
+tie between `"theft"` and `"dispute_feud"` now breaks toward whichever
+category `village_pillar` already has a standing theory about.
+
+Verified: a direct test of the revise-in-place mechanics, production-
+path tests through the real `_tick_once` (theft mirror forms/revises),
+the real `_maybe_schedule_dispute` apply() (a forced feud outcome
+forms the mirror), and the real `_maybe_schedule_laws` (a genuine tie,
+no-lean picks theft, a seeded belief flips it to dispute_feud), a
+4000-tick LLM-disabled soak with clean round-trip, `pyflakes` clean.
+Tier 0 now has twenty-five real converted sites.
+
 ## Current state (v1.34.117)
 
 Explicit user instruction: "Keep converting as many sites as you can,

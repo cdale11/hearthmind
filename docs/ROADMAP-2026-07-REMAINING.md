@@ -49,7 +49,7 @@ starts on an explicit instruction naming an item.
 - [ ] Convert the remaining **~39 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); twenty-four sites are now converted
+      confidence`, v1.34.46); twenty-five sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -77,8 +77,12 @@ starts on an explicit instruction naming an item.
       `_apply_consciousness_intervention`'s `false_memory` contagion-
       partner tiebreak (a third Phase G carve-out extension, flagged
       as likely-always-a-no-op since it tiebreaks a continuously-
-      nudged float, converted anyway for consistency). Each further
-      site is real judgment work —
+      nudged float, converted anyway for consistency), and v1.34.118
+      (explicit user instruction: "Yes new producer") — Village
+      pillar's first category-keyed `world_model` producer (mirroring
+      "dispute_feud"/"theft" the same way Nature's species-keyed
+      producer does), consumed by `_maybe_schedule_laws`'s pattern_key
+      tiebreak. Each further site is real judgment work —
       find a soft/tiebreak point a pillar's accumulated belief can
       legitimately weigh, never hand a pillar a whole decision.
 
@@ -1701,6 +1705,36 @@ memory), a 4000-tick LLM-disabled soak with a clean round-trip,
 broad sweep found no further genuinely-reachable tiebreak site;
 further sites need either new content design or another explicit
 decision naming a specific site.
+
+**Twenty-fifth site (v1.34.118), explicit user instruction: "Yes new
+producer."** Village pillar's `world_model` had only ever been keyed
+by settlement/institution/agent names — never by an abstract signal
+category, the gap Nature had before v1.34.106/107's species-keyed
+producer. Two new producer touch points, both revise-in-place via
+`find_world_model_entry`: `_maybe_schedule_dispute`'s real `apply()`
+mirrors keyed by the literal word `"dispute_feud"` on a genuine feud
+outcome, alongside the existing `pattern_signal_counts` increment;
+`_tick_once`'s per-tick `last_life_events` loop mirrors keyed by
+`"theft"` whenever the tick carries a theft entry (`Population.law_
+signal_counts["theft"]`'s own increment lives in `population.py`,
+decoupled from pillar access by design — `last_life_events` is the one
+place engine.py sees it). Real consumer: `_maybe_schedule_laws`'s
+`pattern_key = max(candidates, key=candidates.get)` gained `village_
+pillar.subject_confidence(k)` as a tie-break-only second element —
+real occurrence count stays the sole determinant except in a genuine
+tie.
+
+Verified: a direct test of the generic revise-in-place mechanics, a
+production-path test through the real `_tick_once` (a synthetic theft
+entry forms then revises the `"theft"` mirror in place across two
+real ticks), a production-path test through the real `_maybe_
+schedule_dispute`'s `apply()` (a forced `feud` outcome forms the
+`"dispute_feud"` mirror), a production-path test through the real
+`_maybe_schedule_laws` (a genuine count tie, no-lean picks theft, a
+seeded belief flips it to dispute_feud), a 4000-tick LLM-disabled
+soak with a clean round-trip, `pyflakes` clean. Tier 0 now has
+twenty-five real converted sites, and Village pillar has its first
+category-keyed producer.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

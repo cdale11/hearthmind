@@ -2488,11 +2488,31 @@ class SimulationEngine:
                 description=_CALENDAR_EVENT_DESCRIPTIONS.get(event, event),
                 commit=False,  # one commit per tick, at the end of _tick_once
             )
+        theft_count_this_tick = 0
         for category, description in self.world.last_life_events:
             log_event(
                 self.conn, tick=self.world.clock.tick_count,
                 category=category, description=description,
                 commit=False,
+            )
+            if category == "theft":
+                theft_count_this_tick += 1
+        if theft_count_this_tick:
+            # Tier 0 (25th site, new producer's second half): the
+            # `Population.law_signal_counts["theft"]` increment happens
+            # in population.py, decoupled from pillar access by design
+            # — `World.last_life_events` (already read every tick right
+            # above) is the one place engine.py sees a theft occur.
+            # Same category-keyed subject shape as the dispute_feud
+            # mirror; real consumer: `_maybe_schedule_laws`.
+            existing_theft_signal = self.world.village_pillar.find_world_model_entry("theft")
+            prior_theft_confidence = existing_theft_signal["confidence"] if existing_theft_signal else 0.3
+            self.world.village_pillar.upsert_world_model(
+                self.world.clock.tick_count, "theft",
+                "The village has been seeing theft among its own people.",
+                min(1.0, prior_theft_confidence + theft_count_this_tick * 0.05),
+                status="observation", source="theft",
+                revises_id=existing_theft_signal["id"] if existing_theft_signal else None,
             )
         if _pending_memory_evictions:
             # Durable per-agent memory history (Constitution §6, v0.86.3)
@@ -9460,6 +9480,20 @@ class SimulationEngine:
                 if dispute_settlement is not None:
                     counts = dispute_settlement.pattern_signal_counts
                     counts["dispute_feud"] = counts.get("dispute_feud", 0) + 1
+                    # Tier 0 (25th site, new producer): a category-keyed
+                    # (not agent/institution-keyed) Village belief, same
+                    # shape as Nature's species-keyed producer (v1.34.
+                    # 106/107) — the literal word "dispute_feud" is the
+                    # subject, revised in place across repeated firings.
+                    # Real consumer: `_maybe_schedule_laws`'s pattern_
+                    # key pick.
+                    existing_signal = self.world.village_pillar.find_world_model_entry("dispute_feud")
+                    self.world.village_pillar.upsert_world_model(
+                        self.world.clock.tick_count, "dispute_feud",
+                        f"{dispute_settlement.name or 'the village'} keeps seeing disputes harden into feuds.",
+                        min(1.0, 0.3 + counts["dispute_feud"] * 0.1), status="observation", source="dispute",
+                        revises_id=existing_signal["id"] if existing_signal else None,
+                    )
                     # Vision doc item 1.2: a feud is the real, concrete
                     # `on_feud` detection point for trigger rules.
                     self._apply_trigger_rules_for("on_feud", dispute_settlement)
@@ -9863,7 +9897,14 @@ class SimulationEngine:
             "theft": target.law_signal_counts.get("theft", 0),
             "dispute_feud": target.pattern_signal_counts.get("dispute_feud", 0),
         }
-        pattern_key = max(candidates, key=candidates.get)
+        # Tier 0 (25th site): a genuine tie in real occurrence count
+        # breaks toward whichever category village_pillar's new
+        # category-keyed producer (see the dispute_feud/theft mirrors
+        # above) already has a standing theory about — real
+        # occurrences stay the sole determinant except in a tie.
+        pattern_key = max(
+            candidates, key=lambda k: (candidates[k], self.world.village_pillar.subject_confidence(k)),
+        )
         occurrences = candidates[pattern_key]
         if occurrences < LAW_SIGNAL_THRESHOLD:
             return

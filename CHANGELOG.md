@@ -4,6 +4,46 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.118] — Tier 0's twenty-fifth conversion: Village's category-keyed producer + laws tiebreak
+
+Explicit user instruction: "Yes new producer" (following a report that
+a broad sweep had found no further genuinely-reachable tiebreak
+site). Village pillar's `world_model` has so far only ever been keyed
+by settlement/institution/agent names — never by an abstract signal
+category, the same gap Nature had before v1.34.106/107's species-keyed
+producer. This ships Village's own version of that shape.
+
+Two new producer touch points, both revise-in-place via `find_world_
+model_entry` (same discipline as every prior category-keyed producer):
+(1) `_maybe_schedule_dispute`'s real `apply()`, on a genuine `outcome
+== "feud"` — mirrors `village_pillar.world_model` keyed by the literal
+word `"dispute_feud"`, alongside the existing `pattern_signal_counts`
+increment. (2) `_tick_once`'s per-tick `last_life_events` loop (the one
+place engine.py sees a theft occur — `Population.law_signal_counts
+["theft"]`'s own increment lives in `population.py`, decoupled from
+pillar access by design) — mirrors keyed by `"theft"` whenever the tick
+carries at least one theft entry.
+
+Real consumer: `_maybe_schedule_laws`'s `pattern_key = max(candidates,
+key=candidates.get)` picked between `{"theft": count, "dispute_feud":
+count}` with no tiebreak — `max`'s key gained `village_pillar.subject_
+confidence(k)` as a second, tie-break-only element. Real occurrence
+count stays the sole determinant except in a genuine tie.
+
+Verified: a direct test of the generic revise-in-place mechanics, a
+production-path test through the real `_tick_once` (a synthetic theft
+`last_life_events` entry forms then revises the `"theft"` mirror
+in-place across two real ticks), a production-path test through the
+real `_maybe_schedule_dispute`'s `apply()` (a forced `feud` outcome
+forms the `"dispute_feud"` mirror), a production-path test through the
+real `_maybe_schedule_laws` (a genuine count tie between theft and
+dispute_feud, no-lean picks theft, a seeded `village_pillar` belief
+flips the pick to dispute_feud), a 4000-tick LLM-disabled soak with
+clean round-trip, `pyflakes` clean. Tier 0 now has twenty-five real
+converted sites, and Village pillar has its first category-keyed
+producer (joining Humans' agent-keyed and Nature's species-keyed
+producers).
+
 ## [1.34.117] — Tier 0's twenty-fourth conversion: false_memory contagion partner tiebreak
 
 Explicit user instruction: "Keep converting as many sites as you can,
