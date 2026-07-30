@@ -4,6 +4,36 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.117] — Tier 0's twenty-fourth conversion: false_memory contagion partner tiebreak
+
+Explicit user instruction: "Keep converting as many sites as you can,
+if ever stuck ask." A broad re-sweep across `simulation/engine.py`,
+`agents/population.py`, and the `world`/`settlement`/`llm` modules
+found no further site with a genuinely reachable tie except one
+Phase-G-adjacent candidate, flagged via `AskUserQuestion` rather than
+guessed: `_apply_consciousness_intervention`'s `false_memory` branch
+picks the recipient's strongest-bonded partner for emotional
+contagion — `partner_id = max(primary.relationships, key=lambda aid:
+primary.relationships[aid])`. Unlike the faction/omen/observer sites,
+relationship strength is a continuously-nudged float, so an exact tie
+is rare — flagged honestly as likely-permanent-no-op rather than
+converted silently. Explicit user decision: convert anyway, for
+consistency with the other Phase G carve-out sites.
+
+`max`'s key gained a second, tie-break-only element: `humans_pillar.
+subject_confidence(partner.name)`. Real bond strength stays the sole
+determinant; the lean only matters in the rare case of an exact float
+tie.
+
+Verified: a direct test (no-lean picks the first-max bond, a seeded
+tie is broken toward the leaned partner, real bond strength is never
+overridden), a production-path test through the real `_apply_
+consciousness_intervention("false_memory", ...)` (a genuine tie seeded
+between two bonds, confirming the leaned partner — not the other —
+receives the planted memory), a 4000-tick LLM-disabled soak with
+clean round-trip, `pyflakes` clean. Tier 0 now has twenty-four real
+converted sites.
+
 ## [1.34.116] — Tier 0's twenty-second/twenty-third conversions: faction cluster + consciousness target tiebreaks
 
 Explicit user decision via `AskUserQuestion` on the two sites flagged

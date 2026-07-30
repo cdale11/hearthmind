@@ -6993,7 +6993,22 @@ class SimulationEngine:
             # free. Opportunistic: skipped if no living bonded agent
             # exists this month.
             if primary.relationships:
-                partner_id = max(primary.relationships, key=lambda aid: primary.relationships[aid])
+                # Tier 0 (24th site, explicit user decision via
+                # `AskUserQuestion` — a third extension of the omen/
+                # observer Phase G carve-out): real bond strength stays
+                # the sole determinant; humans_pillar only breaks a
+                # genuine tie, which relationship floats rarely produce
+                # in practice — kept for consistency with the other
+                # carve-out sites, not because ties are common here.
+                by_id_local = {a.id: a for a in self.world.population.agents}
+                partner_id = max(
+                    primary.relationships,
+                    key=lambda aid: (
+                        primary.relationships[aid],
+                        self.world.humans_pillar.subject_confidence(by_id_local[aid].name)
+                        if aid in by_id_local else 0.0,
+                    ),
+                )
                 # `population.agents` only ever holds the living (deaths
                 # remove the agent outright, see Population.tick) — no
                 # separate liveness check needed here.

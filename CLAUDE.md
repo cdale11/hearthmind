@@ -617,6 +617,30 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.117)
+
+Explicit user instruction: "Keep converting as many sites as you can,
+if ever stuck ask." A broad re-sweep across `simulation/engine.py`,
+`agents/population.py`, and the `world`/`settlement`/`llm` modules
+found one further Phase-G-adjacent candidate, flagged via
+`AskUserQuestion` rather than guessed since it's likely a near-
+permanent no-op: `_apply_consciousness_intervention`'s `false_memory`
+emotional-contagion partner pick (`max(primary.relationships, key=...)`
+over a continuously-nudged float, so an exact tie is rare, unlike the
+faction/omen/observer sites). Explicit user decision: convert anyway,
+for consistency. `max`'s key gained `humans_pillar.subject_confidence
+(partner.name)` as a tie-break-only second element — real bond
+strength stays the sole determinant.
+
+Verified: a direct test (tie-break flip, real-signal-never-overridden),
+a production-path test through the real `_apply_consciousness_
+intervention("false_memory", ...)`, a 4000-tick LLM-disabled soak with
+clean round-trip, `pyflakes` clean. Tier 0 now has twenty-four real
+converted sites — a broad sweep found no further genuinely-reachable
+tiebreak site; remaining unconverted sites need either new content
+design (like Nature's species-keyed producer) or another explicit
+decision naming a specific site.
+
 ## Current state (v1.34.116)
 
 Explicit user decision via `AskUserQuestion` on both sites flagged

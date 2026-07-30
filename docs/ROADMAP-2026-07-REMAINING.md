@@ -49,7 +49,7 @@ starts on an explicit instruction naming an item.
 - [ ] Convert the remaining **~39 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); twenty-three sites are now converted
+      confidence`, v1.34.46); twenty-four sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -73,7 +73,12 @@ starts on an explicit instruction naming an item.
       decision) — `_detect_faction_candidate`'s cluster tiebreak and
       `_observer_favorite_agent`'s tiebreak (extending the Phase G
       carve-out again, this time into consciousness-intervention
-      targeting). Each further site is real judgment work —
+      targeting), and v1.34.117 (explicit user decision) —
+      `_apply_consciousness_intervention`'s `false_memory` contagion-
+      partner tiebreak (a third Phase G carve-out extension, flagged
+      as likely-always-a-no-op since it tiebreaks a continuously-
+      nudged float, converted anyway for consistency). Each further
+      site is real judgment work —
       find a soft/tiebreak point a pillar's accumulated belief can
       legitimately weigh, never hand a pillar a whole decision.
 
@@ -1669,6 +1674,33 @@ through the real `_maybe_schedule_faction` (two disjoint same-size
 same-cohesion clusters, a seeded belief flips which cluster gets
 named), a 4000-tick LLM-disabled soak with a clean round-trip,
 `pyflakes` clean. Tier 0 now has twenty-three real converted sites.
+
+**Twenty-fourth site (v1.34.117), explicit user instruction: "Keep
+converting as many sites as you can, if ever stuck ask."** A broad
+re-sweep across `simulation/engine.py`, `agents/population.py`, and
+the `world`/`settlement`/`llm` modules found no further site with a
+genuinely reachable tie except one Phase-G-adjacent candidate, flagged
+via `AskUserQuestion` rather than guessed: `_apply_consciousness_
+intervention`'s `false_memory` branch picks the recipient's strongest-
+bonded partner for emotional contagion (`max(primary.relationships,
+key=...)` over a continuously-nudged float — an exact tie is rare,
+unlike the faction/omen/observer sites where ties were genuinely
+reachable). Explicit user decision: convert anyway, for consistency
+with the other Phase G carve-out sites, even knowing it will rarely if
+ever change the outcome. `max`'s key gained `humans_pillar.subject_
+confidence(partner.name)` as a tie-break-only second element — real
+bond strength stays the sole determinant.
+
+Verified: a direct test (no-lean picks the first-max bond, a seeded
+tie is broken toward the leaned partner, real bond strength is never
+overridden), a production-path test through the real `_apply_
+consciousness_intervention("false_memory", ...)` (a genuine tie seeded
+between two bonds, confirming the leaned partner receives the planted
+memory), a 4000-tick LLM-disabled soak with a clean round-trip,
+`pyflakes` clean. Tier 0 now has twenty-four real converted sites — a
+broad sweep found no further genuinely-reachable tiebreak site;
+further sites need either new content design or another explicit
+decision naming a specific site.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0
