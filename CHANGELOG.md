@@ -4,6 +4,39 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.120] — Tier 0's twenty-seventh conversion: Village's third category subject (materials_bottleneck)
+
+Explicit user decision via `AskUserQuestion`: "Another new producer."
+Extends v1.34.118's Village category-keyed producer with a third
+subject — `_detect_settlement_bottlenecks`'s existing edge-trigger
+(a settlement genuinely crossing INTO a materials shortage) now also
+mirrors `village_pillar.world_model` keyed by the literal word
+`"materials_bottleneck"`, revised in place, same shape as the
+dispute_feud/theft mirrors.
+
+Unlike those two (added purely as a tiebreak input), this is a genuine
+THIRD *candidate* in `_maybe_schedule_laws`'s `candidates` dict — its
+own real occurrence count can now win the `pattern_key` pick outright
+and produce an actual law about the shortage, not just break a tie.
+New `_LAW_PATTERN_TEXT["materials_bottleneck"]` label. Real bug caught
+and fixed while wiring the third candidate: the post-formation reset
+(`if pattern_key == "theft": reset theft; else: reset dispute_feud`)
+was hardcoded for exactly two non-theft candidates — with a third
+candidate this would have reset the WRONG signal whenever materials_
+bottleneck won, leaving it un-reset (immediate re-fire risk) while
+incorrectly zeroing an untouched dispute_feud count. Generalized to
+`stl.pattern_signal_counts[pattern_key] = 0` for any non-theft winner.
+
+Verified: a production-path test through the real `_detect_settlement_
+bottlenecks` (forced materials shortage, confirms the mirror forms),
+a production-path test through the real `_maybe_schedule_laws` (
+materials_bottleneck as the sole eligible candidate wins outright, the
+prompt names it, a real `forms: true` apply() resets only its own
+counter), a regression test confirming theft-wins still resets
+correctly and leaves the other two counters untouched, a 4000-tick
+LLM-disabled soak with clean round-trip, `pyflakes` clean. Tier 0 now
+has twenty-seven real converted sites.
+
 ## [1.34.119] — Tier 0's twenty-sixth conversion: composite-reaction feuding-pair pick
 
 Explicit user instruction: "Convert more sites and ask if you get

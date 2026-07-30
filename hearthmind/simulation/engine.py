@@ -9895,6 +9895,7 @@ class SimulationEngine:
     _LAW_PATTERN_TEXT = {
         "theft": "repeated theft among its own people",
         "dispute_feud": "repeated bitter disputes boiling into feuds",
+        "materials_bottleneck": "running short on materials again and again",
     }
 
     def _maybe_schedule_laws(self, events: list[str]) -> None:
@@ -9915,12 +9916,18 @@ class SimulationEngine:
         candidates = {
             "theft": target.law_signal_counts.get("theft", 0),
             "dispute_feud": target.pattern_signal_counts.get("dispute_feud", 0),
+            # Tier 0 (27th site, new producer): materials_bottleneck is
+            # a genuine THIRD option here, not just a tiebreak input —
+            # see `_detect_settlement_bottlenecks`'s mirror for the
+            # producer half.
+            "materials_bottleneck": target.pattern_signal_counts.get("materials_bottleneck", 0),
         }
         # Tier 0 (25th site): a genuine tie in real occurrence count
         # breaks toward whichever category village_pillar's new
-        # category-keyed producer (see the dispute_feud/theft mirrors
-        # above) already has a standing theory about — real
-        # occurrences stay the sole determinant except in a tie.
+        # category-keyed producer (see the dispute_feud/theft/
+        # materials_bottleneck mirrors above) already has a standing
+        # theory about — real occurrences stay the sole determinant
+        # except in a tie.
         pattern_key = max(
             candidates, key=lambda k: (candidates[k], self.world.village_pillar.subject_confidence(k)),
         )
@@ -9946,10 +9953,13 @@ class SimulationEngine:
             stl.laws.append({"text": parsed["text"], "kind": parsed["kind"], "formed_tick": tick})
             # Reset the signal that triggered this so it doesn't
             # immediately re-fire on the very next eligible month.
+            # Generalized to 3+ candidates (Tier 0's 27th site added
+            # materials_bottleneck) — theft lives in a separate dict
+            # from every other pattern-signal-sourced candidate.
             if pattern_key == "theft":
                 stl.law_signal_counts["theft"] = 0
             else:
-                stl.pattern_signal_counts["dispute_feud"] = 0
+                stl.pattern_signal_counts[pattern_key] = 0
             self._log("law_enacted", f"{stl.name} has come to hold a {parsed['kind']}: {parsed['text']}")
             # Tier 0 seventh slice (docs/ROADMAP-2026-07-REMAINING.md):
             # laws becomes Village pillar's FIFTH real wired job,
@@ -10846,6 +10856,23 @@ class SimulationEngine:
                 # adaptation` elsewhere in this file.
                 settlement.pattern_signal_counts["materials_bottleneck"] = (
                     settlement.pattern_signal_counts.get("materials_bottleneck", 0) + 1
+                )
+                # Tier 0 (27th site, new producer): Village pillar's
+                # THIRD category-keyed subject, same shape as the
+                # dispute_feud/theft mirrors — revised in place across
+                # repeated crossings. Real new consumer: `_maybe_
+                # schedule_laws`'s candidates dict, a genuine third
+                # option (not just a tiebreak) that can now win the
+                # pattern_key pick outright and produce a real law.
+                existing_bottleneck_signal = self.world.village_pillar.find_world_model_entry("materials_bottleneck")
+                prior_bottleneck_confidence = (
+                    existing_bottleneck_signal["confidence"] if existing_bottleneck_signal else 0.3
+                )
+                self.world.village_pillar.upsert_world_model(
+                    self.world.clock.tick_count, "materials_bottleneck",
+                    f"{settlement.name or 'the village'} keeps running short on materials.",
+                    min(1.0, prior_bottleneck_confidence + 0.1), status="observation", source="bottleneck",
+                    revises_id=existing_bottleneck_signal["id"] if existing_bottleneck_signal else None,
                 )
             elif not critical and was_flagged:
                 self._materials_critical_flagged.discard(settlement.id)

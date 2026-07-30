@@ -49,7 +49,7 @@ starts on an explicit instruction naming an item.
 - [ ] Convert the remaining **~39 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); twenty-six sites are now converted
+      confidence`, v1.34.46); twenty-seven sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -82,10 +82,12 @@ starts on an explicit instruction naming an item.
       pillar's first category-keyed `world_model` producer (mirroring
       "dispute_feud"/"theft" the same way Nature's species-keyed
       producer does), consumed by `_maybe_schedule_laws`'s pattern_key
-      tiebreak, and v1.34.119 — `_maybe_tick_composite_reactions`'s
+      tiebreak, v1.34.119 — `_maybe_tick_composite_reactions`'s
       feuding-pair pick (a genuine first-max-wins uniform pick, no
-      real priority signal existed here to preserve). Each further
-      site is real judgment work —
+      real priority signal existed here to preserve), and v1.34.120 —
+      Village pillar's third category subject (materials_bottleneck),
+      a genuine third *candidate* (not just a tiebreak) in `_maybe_
+      schedule_laws`. Each further site is real judgment work —
       find a soft/tiebreak point a pillar's accumulated belief can
       legitimately weigh, never hand a pillar a whole decision.
 
@@ -1762,6 +1764,38 @@ picks the first-found pair, a seeded `village_pillar` belief on the
 second pair's family names flips the pick), a 4000-tick LLM-disabled
 soak with a clean round-trip, `pyflakes` clean. Tier 0 now has
 twenty-six real converted sites.
+
+**Twenty-seventh site (v1.34.120), explicit user decision via
+`AskUserQuestion`: "Another new producer."** Extends v1.34.118's
+Village category-keyed producer with a third subject.
+`_detect_settlement_bottlenecks`'s existing edge-trigger (a settlement
+genuinely crossing INTO a materials shortage) now also mirrors
+`village_pillar.world_model` keyed by the literal word `"materials_
+bottleneck"`, revised in place. Unlike dispute_feud/theft (added
+purely as a tiebreak input), this is a genuine THIRD *candidate* in
+`_maybe_schedule_laws`'s `candidates` dict — its own real occurrence
+count can now win the `pattern_key` pick outright and produce an
+actual law about the shortage, not just break a tie. New `_LAW_
+PATTERN_TEXT["materials_bottleneck"]` label.
+
+Real bug caught and fixed while wiring the third candidate: the post-
+formation reset (`if pattern_key == "theft": reset theft; else: reset
+dispute_feud`) was hardcoded for exactly two non-theft candidates —
+with a third candidate this would have reset the WRONG signal
+whenever materials_bottleneck won, leaving it un-reset (immediate
+re-fire risk) while incorrectly zeroing an untouched dispute_feud
+count. Generalized to `stl.pattern_signal_counts[pattern_key] = 0`
+for any non-theft winner.
+
+Verified: a production-path test through the real `_detect_
+settlement_bottlenecks` (forced materials shortage, confirms the
+mirror forms), a production-path test through the real `_maybe_
+schedule_laws` (materials_bottleneck as the sole eligible candidate
+wins outright, the prompt names it, a real `forms: true` apply()
+resets only its own counter), a regression test confirming theft-wins
+still resets correctly and leaves the other two counters untouched, a
+4000-tick LLM-disabled soak with a clean round-trip, `pyflakes` clean.
+Tier 0 now has twenty-seven real converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

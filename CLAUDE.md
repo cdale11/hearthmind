@@ -617,6 +617,32 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.120)
+
+Explicit user decision via `AskUserQuestion`: "Yes new producer"
+(Recommended) — extends v1.34.118's Village category-keyed producer
+with a third subject. `_detect_settlement_bottlenecks`'s existing
+edge-trigger now also mirrors `village_pillar.world_model` keyed by
+the literal word `"materials_bottleneck"`, revised in place. Unlike
+dispute_feud/theft (tiebreak inputs only), this is a genuine THIRD
+*candidate* in `_maybe_schedule_laws`'s `candidates` dict — its own
+real occurrence count can win the `pattern_key` pick outright and
+produce an actual law, not just break a tie.
+
+Real bug caught and fixed while wiring the third candidate: the post-
+formation reset was hardcoded `if pattern_key == "theft": ... else:
+reset dispute_feud` — with three real candidates this would reset the
+WRONG signal whenever materials_bottleneck won. Generalized to
+`stl.pattern_signal_counts[pattern_key] = 0` for any non-theft winner.
+
+Verified: production-path tests through the real `_detect_settlement_
+bottlenecks` (mirror forms) and `_maybe_schedule_laws` (materials_
+bottleneck wins outright as sole eligible candidate, a real `forms:
+true` apply() resets only its own counter), a regression test
+confirming theft-wins still resets correctly, a 4000-tick LLM-disabled
+soak with clean round-trip, `pyflakes` clean. Tier 0 now has
+twenty-seven real converted sites.
+
 ## Current state (v1.34.119)
 
 Explicit user instruction: "Convert more sites and ask if you get
