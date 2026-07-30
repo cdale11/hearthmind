@@ -617,6 +617,29 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.129)
+
+Explicit user instruction: "Continue tier 0." Thirty-sixth
+conversion: `_maybe_schedule_ontology_proposal`'s pressure-signal pick
+(which of a settlement's crossed-threshold `pattern_signal_counts`
+categories names the "problem" Innovation's proposal is grounded in,
+feeding `llm/ontology.py`'s real prompt content) was a flat `max` over
+counts alone — a real, not rare, tie whenever two categories cross the
+threshold the same season, previously resolved by dict-iteration
+order. Now `max`'s key is `(count, innovation_pillar.subject_
+confidence(label))` — the real occurrence count stays the sole
+determinant except on a genuine tie, where the category Innovation's
+own attention already leans toward wins. No lean anywhere reproduces
+the exact prior dict-order pick.
+
+Verified: a direct tuple-key test (no-lean/tiebreak-flip/real-signal-
+never-overridden), a production-path test through the real
+`_maybe_schedule_ontology_proposal` (a genuine two-category tie; the
+leaned run's prompt names "bitter disputes and feuding," the unleaned
+control still names "a shortage of building materials"), a 4000-tick
+LLM-disabled soak with clean round-trip, `pyflakes` clean. Tier 0 now
+has thirty-six real converted sites.
+
 ## Current state (v1.34.128)
 
 Explicit user instruction: "Continue tier 0 ... keep building more

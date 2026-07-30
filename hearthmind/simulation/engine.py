@@ -4766,7 +4766,19 @@ class SimulationEngine:
         # fired on prosperity (nothing specifically pressured).
         pressure_signal = None
         if settlement.pattern_signal_counts:
-            top_signal, top_value = max(settlement.pattern_signal_counts.items(), key=lambda kv: kv[1])
+            # Tier 0 conversion (docs/ROADMAP-2026-07-REMAINING.md):
+            # `max`'s tiebreak among equally-pressured signal categories
+            # (a real, not rare, case — several counters commonly cross
+            # the threshold the same month) previously fell to dict-
+            # iteration order. `innovation_pillar.subject_confidence`
+            # now breaks the tie toward whichever category Innovation's
+            # own attention already leans toward; the real occurrence
+            # count is still the sole primary key and is never
+            # overridden by it.
+            top_signal, top_value = max(
+                settlement.pattern_signal_counts.items(),
+                key=lambda kv: (kv[1], self.world.innovation_pillar.subject_confidence(kv[0].replace("_", " "))),
+            )
             if top_value >= PATTERN_SIGNAL_BELIEF_THRESHOLD:
                 pressure_signal = top_signal
         # A5/A6 "Affordances + discovery query layer" (roadmap Stage IV
