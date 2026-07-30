@@ -46,10 +46,10 @@ starts on an explicit instruction naming an item.
 
 ### Tier 0 — pillar refactor (the biggest single lever)
 
-- [ ] Convert the remaining **~41 mirror-write sites** from "write into
+- [ ] Convert the remaining **~39 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); eighteen sites are now converted
+      confidence`, v1.34.46); twenty sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -62,8 +62,11 @@ starts on an explicit instruction naming an item.
       `personal_belief`'s own monthly candidate draw (v1.34.109),
       `letter`'s cross-settlement sender pick (v1.34.110), `deliberate_
       guild_candidate`'s founder pick (v1.34.111), `fission_candidate`'s
-      leader pick (v1.34.112), and — v1.34.113 — `migration_decision`'s
-      candidate pick, same first-max-wins shape as `letter`). Each
+      leader pick (v1.34.112), `migration_decision`'s candidate pick
+      (v1.34.113), and — v1.34.114, both by explicit user decision —
+      `due_for_dispute`'s pair pick (a real per-tick cost tradeoff the
+      user accepted) and `_maybe_schedule_omen`'s subject-candidate
+      pick (extending v1.34.9's one-time Phase G carve-out)). Each
       further site is real judgment work — find a soft/tiebreak point a
       pillar's accumulated belief can legitimately weigh, never hand a
       pillar a whole decision.
@@ -1558,6 +1561,44 @@ no-lean picks whichever agent iteration order favors, a seeded belief
 about the other agent flips the pick), a 4000-tick LLM-disabled soak
 with a clean round-trip, `pyflakes`/syntax clean. Tier 0 now has
 eighteen real converted sites.
+
+**Nineteenth and twentieth sites (v1.34.114, explicit user decision
+via `AskUserQuestion` on the two sites flagged last turn as needing a
+call).** Both approved.
+
+Dispute pair pick: `Population.due_for_dispute` previously returned
+the FIRST eligible festering pair found each tick and stopped
+scanning — cheap, but structurally incapable of weighing candidates
+(this runs every tick, unlike every other Tier 0 site so far, all
+monthly). Explicit user decision to accept the added per-tick cost:
+now every eligible pair is collected, then a lazy `humans_lean`
+callable (an `Agent -> confidence` lookup FUNCTION, not a precomputed
+dict — keeps the actual `humans_pillar.subject_confidence` scan
+bounded to the typically-small candidate set, never the whole
+population every tick) picks among them via `max`. `max`'s first-max-
+wins tiebreak reproduces the exact prior first-found pick when no
+lean exists anywhere; only the chosen pair's cooldown is set, same as
+before.
+
+Omen subject pick: explicit user decision extending v1.34.9's one-time
+Phase G carve-out (previously scoped only to omen's own `world_model`
+mirror write) to the subject-candidate pick itself. The uniform
+`rng`-index pick among omen subject candidates (living agents, "the
+council of elders") is now a weighted `rng.choices` pick via new
+`NATURE_OMEN_SUBJECT_LEAN_MAX = 0.4`, leaning toward whichever
+candidate `nature_pillar` already has standing confidence about.
+Every other Phase G ambiguity rule stays unchanged — this only shifts
+WHICH already-eligible candidate an omen might center on, never
+whether anything supernatural is confirmed. Honestly often a no-op in
+practice since Nature's own content is ecological, not usually agent-
+or-institution-named.
+
+Verified: a direct test of `due_for_dispute` (two synthetic festering
+pairs, no-lean picks pair-in-scan-order, a seeded lean flips the pick,
+only the chosen pair's cooldown is set), production-path tests
+through both real scheduling functions (no-lean and seeded-lean cases
+for each), a 4000-tick LLM-disabled soak with a clean round-trip,
+`pyflakes`/syntax clean. Tier 0 now has twenty real converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

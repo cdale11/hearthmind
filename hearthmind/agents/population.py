@@ -11,6 +11,7 @@ from __future__ import annotations
 import itertools
 import random
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from hearthmind.util import clamp, namespaced_rng
@@ -7615,7 +7616,10 @@ class Population:
 
     # --- disputes: rare LLM-mediated resolution of a festered feud (v0.64.0) ----
 
-    def due_for_dispute(self, tick: int, cooldown_ticks: int) -> tuple[Agent, Agent] | None:
+    def due_for_dispute(
+        self, tick: int, cooldown_ticks: int,
+        humans_lean: "Callable[[Agent], float] | None" = None,
+    ) -> tuple[Agent, Agent] | None:
         """At most one deeply-soured pair per tick (EITHER side's
         relationship at or below DISPUTE_RELATIONSHIP_THRESHOLD, both
         alive, cooldown expired) whose feud is ripe for a rare
@@ -7635,7 +7639,24 @@ class Population:
         at all. Now either direction crossing the threshold is enough —
         one-sided resentment is exactly the case `apply_dispute`'s
         "ostracism" outcome and grievance tagging (Agent.grievances)
-        exist to dramatize."""
+        exist to dramatize.
+
+        Tier 0's nineteenth conversion (docs/ROADMAP-2026-07-
+        REMAINING.md), explicit user decision to accept the added
+        per-tick cost: previously returned the FIRST eligible pair
+        found and stopped scanning. Now every eligible pair this tick
+        is collected, then `humans_lean` (an Agent -> confidence LOOKUP
+        FUNCTION, not a precomputed dict — `Population` deliberately
+        doesn't reference pillar state, and this keeps the actual
+        `humans_pillar.subject_confidence` scan bounded to the
+        typically-small candidate set rather than every living agent
+        every tick) picks among them via `max`, keyed by whichever
+        party of the pair Humans' own attention already returns to
+        more. `max`'s first-max-wins tiebreak reproduces the exact
+        prior first-found pick when no lean exists anywhere. Only the
+        CHOSEN pair's cooldown is set, same as before (every other
+        candidate stays eligible next tick, unaffected by this tick's
+        scan)."""
         alive_ids = {a.id for a in self.agents}
         prune_horizon = cooldown_ticks * 4
         stale_keys = [
@@ -7646,6 +7667,7 @@ class Population:
             del self.dispute_cooldowns[key]
 
         by_id = {a.id: a for a in self.agents}
+        candidates: list[tuple[Agent, Agent]] = []
         for agent in self.agents:
             for other_id, value in agent.relationships.items():
                 if other_id <= agent.id:
@@ -7660,9 +7682,17 @@ class Population:
                 last = self.dispute_cooldowns.get(key, -cooldown_ticks)
                 if tick - last < cooldown_ticks:
                     continue
-                self.dispute_cooldowns[key] = tick
-                return agent, other
-        return None
+                candidates.append((agent, other))
+        if not candidates:
+            return None
+        if humans_lean is not None:
+            chosen = max(
+                candidates, key=lambda pair: max(humans_lean(pair[0]), humans_lean(pair[1])),
+            )
+        else:
+            chosen = candidates[0]
+        self.dispute_cooldowns[(chosen[0].id, chosen[1].id)] = tick
+        return chosen
 
     def apply_dispute(
         self, a_id: int, b_id: int, outcome: str, tick: int = 0, ostracized_id: int | None = None,

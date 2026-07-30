@@ -617,6 +617,33 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.114)
+
+Explicit user decision via `AskUserQuestion` on both sites flagged
+last turn as needing a call — both approved.
+
+Nineteenth conversion: `Population.due_for_dispute` previously
+returned the FIRST eligible festering pair found each tick. Explicit
+user decision to accept the added per-tick cost: now every eligible
+pair is collected, then a lazy `humans_lean` callable (bounds the
+`humans_pillar.subject_confidence` scan to actual candidates, not the
+whole population) picks among them via `max`. Only the chosen pair's
+cooldown is set.
+
+Twentieth conversion: `_maybe_schedule_omen`'s subject-candidate pick
+now leans toward whichever candidate `nature_pillar` already has
+confidence about (`NATURE_OMEN_SUBJECT_LEAN_MAX=0.4`), extending
+v1.34.9's one-time Phase G carve-out from omen's own mirror write to
+this pick specifically. Every other Phase G ambiguity rule stays
+unchanged; honestly often a no-op since Nature's content is
+ecological, not usually agent-named.
+
+Verified: a direct `due_for_dispute` test (no-lean vs. seeded-lean,
+cooldown-only-on-chosen-pair), production-path tests through both real
+scheduling functions, a 4000-tick LLM-disabled soak with clean
+round-trip, `pyflakes` clean. Tier 0 now has twenty real converted
+sites.
+
 ## Current state (v1.34.113)
 
 Explicit user instruction: "Build as many sites as possible in this

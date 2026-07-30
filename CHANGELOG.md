@@ -4,6 +4,45 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.114] — Tier 0's nineteenth/twentieth conversions: dispute pair + omen subject
+
+Explicit user decision via `AskUserQuestion` on the two sites flagged
+as needing a call: both approved.
+
+**Dispute pair pick (nineteenth site).** `Population.due_for_dispute`
+previously returned the FIRST eligible festering pair found each tick
+and stopped scanning — cheap, but structurally incapable of weighing
+candidates. Explicit user decision to accept the added per-tick cost:
+now every eligible pair this tick is collected, then a lazy `humans_
+lean` callable (an Agent -> confidence lookup, not a precomputed dict
+— keeps the actual `humans_pillar.subject_confidence` scan bounded to
+the typically-small candidate set, never the whole population every
+tick) picks among them via `max`. `max`'s first-max-wins tiebreak
+reproduces the exact prior first-found pick when no lean exists
+anywhere. Only the chosen pair's cooldown is set, same as before.
+
+**Omen subject pick (twentieth site).** Explicit user decision
+extending v1.34.9's one-time Phase G carve-out (previously scoped only
+to omen's own `world_model` mirror write) to the subject-candidate
+pick itself: the uniform `rng`-index pick among omen subject
+candidates (living agents, "the council of elders") is now a weighted
+`rng.choices` pick, leaning toward whichever candidate `nature_pillar`
+already has standing confidence about (`NATURE_OMEN_SUBJECT_LEAN_MAX
+= 0.4`, uniform weight-1.0 floor). Every other Phase G ambiguity rule
+is unchanged — this only shifts WHICH already-eligible candidate an
+omen might center on, never whether anything supernatural is
+confirmed. Honestly often a no-op in practice since Nature's own
+content is ecological, not usually agent-or-institution-named — real
+when a genuine overlap exists.
+
+Verified: a direct test of `due_for_dispute` (two synthetic festering
+pairs, no-lean picks pair-in-scan-order, a seeded lean flips the pick,
+only the chosen pair's cooldown is set), production-path tests through
+both real scheduling functions (`_maybe_schedule_dispute`/`_maybe_
+schedule_omen`, no-lean and seeded-lean cases for each), a 4000-tick
+LLM-disabled soak with a clean round-trip, `pyflakes`/syntax clean.
+Tier 0 now has twenty real converted sites.
+
 ## [1.34.113] — Tier 0's eighteenth conversion: migration decision pick
 
 Explicit user instruction: "Build as many sites as possible in this

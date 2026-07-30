@@ -916,6 +916,16 @@ never the lean-boosted score. Reused unchanged (same trait scale, same
 "no reason to tune differently" discipline) by Tier 0's seventeenth
 conversion, `Population.fission_candidate`'s leader pick."""
 
+NATURE_OMEN_SUBJECT_LEAN_MAX = 0.4
+"""Tier 0's twentieth conversion (docs/ROADMAP-2026-07-REMAINING.md),
+explicit user decision extending v1.34.9's one-time Phase G carve-out:
+the ceiling `nature_pillar.subject_confidence(candidate_name)` (0..1)
+can add to an omen subject candidate's `rng.choices` weight (base
+1.0), same magnitude family as the other Tier 0 lean weights. Honestly
+often a no-op in practice — Nature's own `world_model` content is
+ecological, not usually agent- or institution-named — but real when a
+genuine overlap exists."""
+
 DIALOGUE_BACKPRESSURE_FRACTION = 0.6
 RUMOR_INTERPRET_BACKPRESSURE_FRACTION = 0.35
 """docs/AUDIT-2026-07-20.md, P1.2(ii): dialogue and rumor_interpret were
@@ -8977,8 +8987,26 @@ class SimulationEngine:
         if subject_candidates and _namespaced_roll(
             self.world.config.seed, self.world.clock.tick_count, "omen_subject_roll",
         ) < 0.5:
-            pick_roll = _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "omen_subject_pick")
-            subject_name = subject_candidates[min(len(subject_candidates) - 1, int(pick_roll * len(subject_candidates)))]
+            # Tier 0's twentieth conversion (docs/ROADMAP-2026-07-
+            # REMAINING.md), explicit user decision extending v1.34.9's
+            # one-time Phase G carve-out (that pass scoped it to
+            # omen's own world_model mirror only): the WHICH-subject
+            # pick among candidates now also leans toward whichever
+            # subject `nature_pillar` already has a standing theory
+            # about, via the same `subject_confidence` primitive every
+            # other Tier 0 site uses — never a certainty (uniform
+            # weight 1.0 floor), and honestly often a true no-op since
+            # Nature's own content is ecological, not usually agent-
+            # or-institution-named. Phase G's own ambiguity discipline
+            # is otherwise completely unchanged — this only shifts
+            # WHICH already-eligible candidate an omen might center on,
+            # never whether one is confirmed as real.
+            rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "omen_subject_pick")
+            weights = [
+                1.0 + self.world.nature_pillar.subject_confidence(name) * NATURE_OMEN_SUBJECT_LEAN_MAX
+                for name in subject_candidates
+            ]
+            subject_name = rng.choices(subject_candidates, weights=weights, k=1)[0]
         past_omens = [entry["omen"] for entry in omen_target.omen_history]
         # Further supernatural emergence (v0.67.0): occasionally blend in
         # a past omen from a *different* named settlement, using the same
@@ -9279,10 +9307,22 @@ class SimulationEngine:
         """LLM-mediated dispute resolution — see llm/dispute.py and
         Population.due_for_dispute/apply_dispute. Backpressure is
         checked *before* selection so a saturated queue doesn't burn a
-        pair's cooldown on a job that never got scheduled."""
+        pair's cooldown on a job that never got scheduled.
+
+        Tier 0's nineteenth conversion (docs/ROADMAP-2026-07-
+        REMAINING.md), explicit user decision: `due_for_dispute` now
+        collects every eligible festering pair each tick instead of
+        stopping at the first, then leans the pick toward whichever
+        pair Humans' own attention already returns to. The pillar
+        lookup itself is passed as a lazy callable so it only ever
+        runs against the candidates `due_for_dispute` actually finds
+        (typically zero or a handful), never the whole population."""
         if self._effective_backlog() >= self._current_backpressure_limit():
             return
-        pair = self.world.population.due_for_dispute(self.world.clock.tick_count, DISPUTE_COOLDOWN_TICKS)
+        pair = self.world.population.due_for_dispute(
+            self.world.clock.tick_count, DISPUTE_COOLDOWN_TICKS,
+            humans_lean=lambda a: self.world.humans_pillar.subject_confidence(a.name),
+        )
         if pair is None:
             return
         agent_a, agent_b = pair
