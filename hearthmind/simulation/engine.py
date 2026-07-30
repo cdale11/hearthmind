@@ -912,7 +912,9 @@ deliberate_guild_candidate`'s founder pick. Traits live in [-1, 1]
 edge out a close rival but can't manufacture a founder from a
 genuinely unambitious master, since the eligibility floor (`DELIBERATE_
 GUILD_FOUNDER_AMBITION`) is checked against the real trait afterward,
-never the lean-boosted score."""
+never the lean-boosted score. Reused unchanged (same trait scale, same
+"no reason to tune differently" discipline) by Tier 0's seventeenth
+conversion, `Population.fission_candidate`'s leader pick."""
 
 DIALOGUE_BACKPRESSURE_FRACTION = 0.6
 RUMOR_INTERPRET_BACKPRESSURE_FRACTION = 0.35
@@ -10197,11 +10199,21 @@ class SimulationEngine:
         build from nothing — first hut, placeholder name, background
         LLM naming, and the monthly job rotation all then happen
         through the exact machinery the founding settlement already
-        uses. Declining is a real outcome."""
+        uses. Declining is a real outcome.
+
+        Tier 0's seventeenth conversion (docs/ROADMAP-2026-07-
+        REMAINING.md): the leader pick among already-eligible would-be
+        leaders now also weighs `humans_pillar.subject_confidence(
+        agent.name)`, same shape as `_maybe_schedule_guild_founding`'s
+        `humans_lean`."""
         if not self._monthly_gate(events, "fission"):
             return
+        humans_lean = {
+            a.id: self.world.humans_pillar.subject_confidence(a.name) * GUILD_FOUNDER_HUMANS_LEAN_MAX
+            for a in self.world.population.agents
+        }
         candidate = self.world.population.fission_candidate(
-            self.world.settlements, self.world.clock.tick_count,
+            self.world.settlements, self.world.clock.tick_count, humans_lean=humans_lean,
         )
         if candidate is None:
             return

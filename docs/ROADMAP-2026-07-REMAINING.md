@@ -46,10 +46,10 @@ starts on an explicit instruction naming an item.
 
 ### Tier 0 — pillar refactor (the biggest single lever)
 
-- [ ] Convert the remaining **~43 mirror-write sites** from "write into
+- [ ] Convert the remaining **~42 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); sixteen sites are now converted
+      confidence`, v1.34.46); seventeen sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -60,11 +60,12 @@ starts on an explicit instruction naming an item.
       site, v1.34.107), `_voice_narrative_extra_scores`'s Humans-pillar
       lean into the weekly voice-pair protagonist pick (v1.34.108),
       `personal_belief`'s own monthly candidate draw (v1.34.109),
-      `letter`'s cross-settlement sender pick (v1.34.110), and — 
-      v1.34.111 — `deliberate_guild_candidate`'s founder pick among
-      tied-eligible masters). Each further site is real judgment
-      work — find a soft/tiebreak point a pillar's accumulated belief
-      can legitimately weigh, never hand a pillar a whole decision.
+      `letter`'s cross-settlement sender pick (v1.34.110), `deliberate_
+      guild_candidate`'s founder pick (v1.34.111), and — v1.34.112 —
+      `fission_candidate`'s leader pick, reusing the same `humans_lean`
+      shape). Each further site is real judgment work — find a soft/
+      tiebreak point a pillar's accumulated belief can legitimately
+      weigh, never hand a pillar a whole decision.
 
 ### Tier 0.5 — live-diagnostic findings
 
@@ -1518,6 +1519,27 @@ production-path test through the real `_maybe_schedule_guild_founding`
 (no-lean vs. seeded-lean cases), a 4000-tick LLM-disabled soak with a
 clean round-trip, `pyflakes`/syntax clean. Tier 0 now has sixteen real
 converted sites.
+
+**Seventeenth site (v1.34.112, explicit user instruction: "Build as
+many sites as possible in this turn").** `Population.fission_
+candidate`'s leader pick among already-`FISSION_LEADER_AMBITION`-
+eligible candidates (`max(leaders, key=lambda a: a.traits.get(
+TRAIT_AMBITION, 0.0))`) had the exact same shape as `deliberate_guild_
+candidate`'s founder pick — gained the same `humans_lean` param,
+reusing `GUILD_FOUNDER_HUMANS_LEAN_MAX` unchanged (same trait scale,
+no reason to tune differently). Simpler than the guild site: the
+eligibility filter here already runs BEFORE the pick (`leaders` is
+pre-filtered), so a lean can only reorder among candidates already
+known to be ambitious enough — no separate floor re-check needed.
+`_maybe_schedule_fission` computes the lean dict from `humans_pillar.
+subject_confidence(agent.name)` over all living agents.
+
+Verified: a direct test against a real `Population` built via `spawn_
+initial` (no-lean picks the more-ambitious leader, a seeded lean flips
+the pick), a production-path test through the real `_maybe_schedule_
+fission` (forced monthly gate, same no-lean/seeded-lean cases), a
+4000-tick LLM-disabled soak with a clean round-trip, `pyflakes`/syntax
+clean. Tier 0 now has seventeen real converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

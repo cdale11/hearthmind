@@ -7841,12 +7841,23 @@ class Population:
 
     def fission_candidate(
         self, settlements: list[Settlement], tick: int,
+        humans_lean: "dict[int, float] | None" = None,
     ) -> tuple[Agent, Settlement] | None:
         """An ambitious member of a crowded, established settlement who
         might lead a founding party out — the deterministic candidacy
         half; whether they actually go is an LLM decision
         (llm/fission.py), same candidacy/decision split as deliberate
-        guild founding. Pure query, no state change."""
+        guild founding. Pure query, no state change.
+
+        Tier 0's seventeenth conversion (docs/ROADMAP-2026-07-
+        REMAINING.md), same shape as `deliberate_guild_candidate`'s
+        `humans_lean`: the leader pick among already-`FISSION_LEADER_
+        AMBITION`-eligible candidates can be edged toward whoever
+        Humans' own attention already returns to. Unlike the guild
+        site, the eligibility filter runs BEFORE this pick (`leaders`
+        below is already threshold-filtered), so no separate floor
+        re-check is needed — a lean can only reorder among candidates
+        already known to be ambitious enough."""
         if len(settlements) >= MAX_SETTLEMENTS:
             return None
         if tick - self.last_fission_tick < FISSION_COOLDOWN_TICKS:
@@ -7871,7 +7882,10 @@ class Population:
             ]
             if not leaders:
                 continue
-            leader = max(leaders, key=lambda a: a.traits.get(TRAIT_AMBITION, 0.0))
+            leader = max(
+                leaders,
+                key=lambda a: a.traits.get(TRAIT_AMBITION, 0.0) + (humans_lean.get(a.id, 0.0) if humans_lean else 0.0),
+            )
             return leader, stl
         return None
 

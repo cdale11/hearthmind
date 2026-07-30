@@ -617,6 +617,26 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.112)
+
+Explicit user instruction: "Build as many sites as possible in this
+turn." Seventeenth conversion: `Population.fission_candidate`'s
+leader pick among already-eligible would-be leaders had the exact
+same shape as `deliberate_guild_candidate`'s founder pick — gained the
+same `humans_lean` treatment, reusing `GUILD_FOUNDER_HUMANS_LEAN_MAX`
+unchanged (same trait scale, no reason to tune differently). Simpler
+than the guild site: the eligibility filter here already runs BEFORE
+the pick, so a lean can only reorder among candidates already known to
+be ambitious enough — no separate floor re-check needed. `_maybe_
+schedule_fission` computes the lean dict from `humans_pillar.subject_
+confidence(agent.name)` over all living agents.
+
+Verified: a direct test against a real `Population` built via `spawn_
+initial` (no-lean picks the more-ambitious leader, a seeded lean flips
+it), a production-path test through the real `_maybe_schedule_
+fission`, a 4000-tick LLM-disabled soak with clean round-trip,
+`pyflakes` clean. Tier 0 now has seventeen real converted sites.
+
 ## Current state (v1.34.111)
 
 Explicit user instruction: "Continue tier 0." Sixteenth conversion:

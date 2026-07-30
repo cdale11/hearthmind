@@ -4,6 +4,29 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.112] — Tier 0's seventeenth conversion: fission leader pick
+
+Explicit user instruction: "Build as many sites as possible in this
+turn." `Population.fission_candidate`'s leader pick among already-
+`FISSION_LEADER_AMBITION`-eligible candidates (`max(leaders, key=
+lambda a: a.traits.get(TRAIT_AMBITION, 0.0))`) had the exact same
+shape as `deliberate_guild_candidate`'s founder pick — gained an
+optional `humans_lean` param, reusing `GUILD_FOUNDER_HUMANS_LEAN_MAX`
+unchanged (same trait scale, no reason to tune differently). Simpler
+than the guild site: the eligibility filter here already runs BEFORE
+the pick (`leaders` is pre-filtered), so a lean can only reorder among
+candidates already known to be ambitious enough — no separate floor
+re-check needed. `_maybe_schedule_fission` computes the lean dict from
+`humans_pillar.subject_confidence(agent.name)` over all living agents
+and passes it through.
+
+Verified: a direct test against a real `Population` built via `spawn_
+initial` (no-lean picks the more-ambitious leader; a seeded lean flips
+the pick), a production-path test through the real `_maybe_schedule_
+fission` (forced monthly gate, same no-lean/seeded-lean cases), a
+4000-tick LLM-disabled soak with a clean round-trip, `pyflakes`/syntax
+clean. Tier 0 now has seventeen real converted sites.
+
 ## [1.34.111] — Tier 0's sixteenth conversion: guild founder pick
 
 Explicit user instruction: "Continue tier 0." `Population.deliberate_
