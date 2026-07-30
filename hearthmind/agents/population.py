@@ -2335,7 +2335,7 @@ class Population:
         life_events.extend(
             self._apply_deaths(
                 killed_by_predator, settlements, died_of_disease, tick=tick, rng=rng,
-                ownership_history=ownership_history,
+                ownership_history=ownership_history, humans_lean=humans_lean,
             )
         )
         self._tick_mourning()
@@ -6493,10 +6493,24 @@ class Population:
             ))
         return life_events
 
+    HEIR_HUMANS_LEAN_MAX = 0.15
+    """Tier 0's thirty-first conversion: `_apply_inheritance`'s heir
+    pick is `max(candidates, key=(bond, -id))` — a real relationship-
+    strength signal, `-id` a total-order tiebreak only reached when
+    two candidates' bond is EXACTLY equal, the common case for family
+    who never interacted with the deceased (both default to 0.0).
+    `humans_pillar.subject_confidence(agent.name)` is folded in as a
+    small SECOND key, ahead of `-id` but never able to override a real
+    bond difference (max's tuple comparison is lexicographic) — real
+    affection always wins; only the arbitrary highest-id fallback is
+    replaced with something meaningful. `humans_lean=None` reproduces
+    the exact prior tiebreak."""
+
     def _apply_inheritance(
         self, agent: Agent, settlement: Settlement, dying_ids: set[int], tick: int = 0,
         rng: random.Random | None = None,
         ownership_history: dict[tuple[int, int], int] | None = None,
+        humans_lean: "Callable[[Agent], float] | None" = None,
     ) -> list[tuple[str, str]]:
         """H7 (docs/ROADMAP.md "Phase H"): a death moves what a person
         had to a living heir instead of it simply vanishing — land
@@ -6521,7 +6535,14 @@ class Population:
         ]
         if not candidates:
             return []
-        heir = max(candidates, key=lambda a: (agent.relationships.get(a.id, 0.0), -a.id))
+        heir = max(
+            candidates,
+            key=lambda a: (
+                agent.relationships.get(a.id, 0.0),
+                (humans_lean(a) if humans_lean else 0.0) * self.HEIR_HUMANS_LEAN_MAX,
+                -a.id,
+            ),
+        )
 
         inherited: list[str] = []
         homes_inherited = 0
@@ -6643,6 +6664,7 @@ class Population:
         self, killed_by_predator: set[int] = frozenset(), settlements: list[Settlement] | None = None,
         died_of_disease: set[int] = frozenset(), tick: int = 0, rng: random.Random | None = None,
         ownership_history: dict[tuple[int, int], int] | None = None,
+        humans_lean: "Callable[[Agent], float] | None" = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         settlements = settlements or []
@@ -6803,6 +6825,7 @@ class Population:
                 life_events.extend(
                     self._apply_inheritance(
                         agent, home, dying_ids, tick, rng, ownership_history=ownership_history,
+                        humans_lean=humans_lean,
                     )
                 )
         self.agents = survivors

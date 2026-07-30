@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.125] — Tier 0's thirty-first conversion: inheritance heir pick gains a pillar lean
+
+Explicit user instruction: "Continue tier 0." `Population._apply_
+inheritance`'s heir pick was `max(candidates, key=(bond, -id))` — a
+real relationship-strength signal, but its `-id` tiebreak fires
+whenever two family candidates have EXACTLY equal bond, the common
+case for relatives who never actually interacted with the deceased
+(both default to 0.0). New `Population.HEIR_HUMANS_LEAN_MAX = 0.15`
+folds `humans_pillar.subject_confidence(agent.name)` in as a second
+key, ahead of `-id` but behind the real bond value (max's tuple
+comparison is lexicographic, so a genuine bond difference can never
+be overridden) — only the arbitrary highest-id fallback is replaced
+with something meaningful.
+
+No new wiring needed: `_apply_deaths`/`_apply_inheritance` gained the
+same `humans_lean: Callable[[Agent], float] | None` param already
+threaded through `Population.tick()` for the HUT-owner site
+(v1.34.124) — `World.tick()`'s existing lazy lambda reaches this site
+for free.
+
+Verified: a direct tuple-key test (no-lean ties toward lowest id, a
+seeded lean flips the tie, a genuine bond difference is never
+overridden by the lean), a production-path test through the real
+`_apply_inheritance` (a HUT's `owner_agent_id` transfers to the
+lowest-id tied candidate with no lean, to the leaned candidate with
+one), a 4000-tick LLM-disabled soak with clean round-trip, `pyflakes`
+clean. No native module touched. Tier 0 now has thirty-one real
+converted sites.
+
 ## [1.34.124] — Tier 0's thirtieth conversion: HUT-owner pick gains a pillar lean
 
 Explicit user instruction: "Continue tier 0." `Population._maybe_start_

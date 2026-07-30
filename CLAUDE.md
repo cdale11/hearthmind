@@ -617,6 +617,30 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.125)
+
+Explicit user instruction: "Continue tier 0." Thirty-first conversion:
+`_apply_inheritance`'s heir pick (`max(candidates, key=(bond, -id))`)
+had a real primary signal (relationship strength) but an arbitrary
+`-id` tiebreak that fires whenever two family candidates never
+actually interacted with the deceased (both default to 0.0 bond —
+the common case). New `Population.HEIR_HUMANS_LEAN_MAX=0.15` folds
+`humans_pillar.subject_confidence(agent.name)` in as a second tuple
+key, ahead of `-id` but behind the real bond value — a genuine bond
+difference can never be overridden, only the arbitrary fallback is
+replaced with something meaningful. No new wiring needed: `_apply_
+deaths`/`_apply_inheritance` reuse the same `humans_lean` callable
+already threaded through `Population.tick()` for v1.34.124's HUT-owner
+site — `World.tick()`'s existing lazy lambda reaches this site free.
+
+Verified: a direct tuple-key test (no-lean ties toward lowest id, a
+seeded lean flips the tie, a genuine bond difference stays dominant),
+a production-path test through the real `_apply_inheritance` (a HUT's
+owner transfers to the tied lowest-id candidate with no lean, to the
+leaned candidate with one), a 4000-tick LLM-disabled soak with clean
+round-trip, `pyflakes` clean. No native module touched. Tier 0 now has
+thirty-one real converted sites.
+
 ## Current state (v1.34.124)
 
 Explicit user instruction: "Continue tier 0." Thirtieth conversion:
