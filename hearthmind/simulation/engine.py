@@ -789,6 +789,19 @@ ecosystem unification"): per-tick, per-named-settlement roll driving
 CHANCE_PER_TICK` above, deliberately unchanged from it rather than
 independently tuned (no live signal yet to justify a different rate)."""
 
+TRADITION_PILLAR_LEAN_WEIGHT = 0.4
+"""Tier 0 conversion (docs/ROADMAP-2026-07-REMAINING.md): `_maybe_
+spread_tradition_keeping`'s WHICH-tradition-to-spread-this-tick pick
+was flat `rng.choice(settlement.traditions)` — now a weighted draw
+folding in `village_pillar.subject_confidence(tradition)`, same shape
+`HUMANS_PERSONAL_TARGET_LEAN_WEIGHT` already uses at its own sibling
+site. `weight=None`/all-zero-confidence reproduces a uniform draw
+(verified statistically); the underlying RNG-consumption pattern
+itself is NOT byte-identical to `rng.choice` (same acknowledged,
+documented class of change as v1.34.109's `_maybe_schedule_personal_
+belief` conversion — determinism/reproducibility isn't a project
+requirement, only the distribution needs to hold)."""
+
 KEPT_TRADITIONS_CAP = 5
 """Cap on `Agent.kept_traditions` — a person can meaningfully hold onto
 a handful of traditions as their own, not the whole settlement list;
@@ -5697,7 +5710,11 @@ class SimulationEngine:
         for settlement in named_with_traditions:
             if rng.random() >= TRADITION_KEEPING_SPREAD_CHANCE_PER_TICK:
                 continue
-            tradition = rng.choice(settlement.traditions)
+            weights = [
+                1.0 + self.world.village_pillar.subject_confidence(t) * TRADITION_PILLAR_LEAN_WEIGHT
+                for t in settlement.traditions
+            ]
+            tradition = rng.choices(settlement.traditions, weights=weights, k=1)[0]
             candidates = [
                 a for a in self.world.population.agents
                 if a.settlement_id == settlement.id and tradition not in a.kept_traditions

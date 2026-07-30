@@ -617,6 +617,31 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.128)
+
+Explicit user instruction: "Continue tier 0 ... keep building more
+sites." Thirty-fifth conversion: `_maybe_spread_tradition_keeping`'s
+WHICH-tradition-to-spread-this-tick pick was flat `rng.choice(
+settlement.traditions)` — no real signal ever consulted, unlike the
+prior "real signal + arbitrary tiebreak" sites. New `TRADITION_
+PILLAR_LEAN_WEIGHT=0.4` folds `village_pillar.subject_confidence
+(tradition)` into a weighted `rng.choices` draw — the tradition
+Village's own accumulated theory already favors is now measurably
+more likely to spread to a new personal keeper. All-zero-confidence
+(the common case for a fresh tradition) reproduces a uniform draw,
+verified statistically; the RNG-consumption pattern itself is NOT
+byte-identical to plain `rng.choice` (same acknowledged, documented
+class of change as v1.34.109's `_maybe_schedule_personal_belief`
+conversion — this project doesn't require determinism, only that the
+distribution holds).
+
+Verified: a direct 20,000-trial statistical test (uniform baseline,
+seeded-lean bump), a production-path smoke test through the real
+`_maybe_spread_tradition_keeping` (a seeded village belief measurably
+produces a keeper for the favored tradition within 4000 ticks), a
+4000-tick LLM-disabled soak with clean round-trip, `pyflakes` clean.
+Tier 0 now has thirty-five real converted sites.
+
 ## Current state (v1.34.127)
 
 Explicit user instruction: "Continue tier 0," resolved via `AskUserQuestion`
