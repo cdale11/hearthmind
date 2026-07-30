@@ -7041,7 +7041,27 @@ class Population:
             self.core_agent_ids.add(agent.id)
         return added
 
-    def _maybe_rotate_core_cast(self, rng: random.Random) -> tuple[Agent, Agent] | None:
+    CORE_CAST_ROTATION_HUMANS_LEAN_MAX = 0.15
+    """Tier 0's thirty-second conversion: `_maybe_rotate_core_cast`'s
+    outgoing (`min`)/incoming (`max`) picks were both `(prominence,
+    -id)` — an arbitrary highest-id tiebreak whenever two candidates
+    land on the exact same prominence score (common at the extremes:
+    several freshly-arrived core members with near-zero prominence, or
+    several outsiders who've never had a bond/skill/reputation event).
+    `humans_pillar.subject_confidence(agent.name)` is folded in as a
+    shared middle key, same sign both directions — under `min`
+    (outgoing/weakest) a HIGHER lean makes a tied candidate LESS likely
+    to be picked (Humans' attention protects them from demotion); under
+    `max` (incoming/strongest) a HIGHER lean makes a tied candidate
+    MORE likely to be picked (Humans' attention favors them for
+    promotion) — the pillar's existing regard for someone is a real
+    reason to keep or gain their protagonist slot, only ever reached
+    when the real prominence signal is genuinely tied. `humans_lean=
+    None` reproduces the exact prior tiebreak."""
+
+    def _maybe_rotate_core_cast(
+        self, rng: random.Random, humans_lean: "Callable[[Agent], float] | None" = None,
+    ) -> tuple[Agent, Agent] | None:
         """Called once a month (see CORE_CAST_ROTATION_MARGIN's
         docstring for why this exists). At most one swap per call: finds
         the weakest living core member and the strongest living
@@ -7056,11 +7076,25 @@ class Population:
         core_members = [a for a in self.agents if a.id in self.core_agent_ids]
         if not core_members:
             return None
-        outgoing = min(core_members, key=lambda a: (self._prominence(a), -a.id))
+        outgoing = min(
+            core_members,
+            key=lambda a: (
+                self._prominence(a),
+                (humans_lean(a) if humans_lean else 0.0) * self.CORE_CAST_ROTATION_HUMANS_LEAN_MAX,
+                -a.id,
+            ),
+        )
         non_members = [a for a in self.agents if a.id not in self.core_agent_ids]
         if not non_members:
             return None
-        incoming = max(non_members, key=lambda a: (self._prominence(a), -a.id))
+        incoming = max(
+            non_members,
+            key=lambda a: (
+                self._prominence(a),
+                (humans_lean(a) if humans_lean else 0.0) * self.CORE_CAST_ROTATION_HUMANS_LEAN_MAX,
+                -a.id,
+            ),
+        )
         weakest_score = self._prominence(outgoing)
         strongest_score = self._prominence(incoming)
         # A non-positive weakest score has no meaningful multiplicative
@@ -8076,8 +8110,26 @@ class Population:
         settlement.next_district_id += 1
         return district
 
+    DISTRICT_HUMANS_LEAN_MAX = 0.15
+    """Tier 0's thirty-third conversion: `_maybe_collectivize_excess_
+    population`'s candidate-for-removal sort is pure `_prominence`
+    ascending — real signal, but every genuinely tied-at-zero agent
+    (the common case: new/unremarkable non-core people with no bonds,
+    skills, or reputation yet) is otherwise ordered arbitrarily by
+    whatever `self.agents` iteration happened to produce. `humans_
+    pillar.subject_confidence(agent.name)` is folded in as a positive
+    second sort key — a higher lean makes an agent's combined key
+    LARGER, sorting them LATER (further from the truncated `[:excess]`
+    removal slice), i.e. protects someone Humans' pillar already has a
+    standing theory about from being folded into a district. Real
+    prominence differences are never overridden (Python's `sorted` is
+    stable and compares tuples lexicographically, so this only ever
+    reorders genuine prominence ties). `humans_lean=None` reproduces
+    the exact prior ordering."""
+
     def _maybe_collectivize_excess_population(
         self, settlements: list[Settlement], tick: int,
+        humans_lean: "Callable[[Agent], float] | None" = None,
     ) -> list[tuple[Settlement, str]]:
         """D6 (docs/ROADMAP-2026-07-REMAINING.md): once a settlement's
         individually-simulated non-core population crosses `district.
@@ -8109,7 +8161,13 @@ class Population:
             excess = len(non_core) - DISTRICT_INDIVIDUAL_CAP
             if excess <= 0:
                 continue
-            candidates = sorted(non_core, key=lambda a: self._prominence(a))[:excess]
+            candidates = sorted(
+                non_core,
+                key=lambda a: (
+                    self._prominence(a),
+                    (humans_lean(a) if humans_lean else 0.0) * self.DISTRICT_HUMANS_LEAN_MAX,
+                ),
+            )[:excess]
             candidate_ids = {a.id for a in candidates}
             had_district = bool(settlement.districts)
             for _ in candidates:

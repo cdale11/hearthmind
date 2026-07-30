@@ -4,6 +4,48 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.126] — Tier 0's thirty-second/thirty-third conversions: core-cast rotation + district collectivization
+
+Explicit user instruction: "Convert as many sites of tier 0 as you can
+in this turn." Two more sites, both the same `(real signal, -id)`
+arbitrary-tiebreak shape as the two prior sessions' sites.
+
+**Thirty-second**: `_maybe_rotate_core_cast`'s outgoing (`min`)/
+incoming (`max`) picks were both `(prominence, -id)` — real signal,
+but an arbitrary highest-id tiebreak whenever two candidates land on
+the exact same prominence (common at the extremes: several freshly-
+arrived core members near-zero prominence, or several outsiders with
+no bond/skill/reputation event yet). New `Population.CORE_CAST_
+ROTATION_HUMANS_LEAN_MAX=0.15` folds `humans_pillar.subject_
+confidence(agent.name)` in as a shared-sign middle key: under `min`
+(outgoing) a higher lean makes a tied candidate LESS likely to be
+picked (protects them from demotion); under `max` (incoming) a higher
+lean makes a tied candidate MORE likely to be picked (favors them for
+promotion) — the same real regard, read two different ways depending
+on which side of the swap it's weighing. Wired directly at the engine.
+py call site (a monthly job, not a per-tick path) via a lazy lambda.
+
+**Thirty-third**: `_maybe_collectivize_excess_population`'s (D6)
+candidate-for-removal sort was pure `_prominence` ascending — real
+signal, but every tied-at-zero agent (common: new/unremarkable
+non-core people) was ordered arbitrarily by iteration order. Same
+`humans_lean` treatment, new `Population.DISTRICT_HUMANS_LEAN_MAX=
+0.15` — a higher lean sorts an agent LATER (protects them from being
+folded into a district). `humans_lean=None` reproduces the exact
+prior ordering on both sites, verified directly (Python's tuple-key
+comparison never lets the lean term override a real prominence
+difference — it only ever resolves genuine ties).
+
+Verified: direct tuple-key tests for both sites (tie-break flip, real
+signal never overridden), production-path tests through the real
+`_maybe_rotate_core_cast` (a forced tied-prominence scenario flips
+both outgoing and incoming) and `_maybe_collectivize_excess_
+population` (a small monkeypatched `DISTRICT_INDIVIDUAL_CAP`, three
+tied agents, a seeded lean shifts which one gets collectivized), a
+4000-tick LLM-disabled soak with clean round-trip, `pyflakes` clean.
+No native module touched. Tier 0 now has thirty-three real converted
+sites.
+
 ## [1.34.125] — Tier 0's thirty-first conversion: inheritance heir pick gains a pillar lean
 
 Explicit user instruction: "Continue tier 0." `Population._apply_

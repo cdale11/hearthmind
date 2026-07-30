@@ -9032,7 +9032,9 @@ class SimulationEngine:
         # deterministic (no LLM call, no added volume) — see CORE_CAST_
         # ROTATION_MARGIN's docstring for why this exists.
         rotation_rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "core_cast_rotation")
-        swap = self.world.population._maybe_rotate_core_cast(rotation_rng)
+        swap = self.world.population._maybe_rotate_core_cast(
+            rotation_rng, humans_lean=lambda a: self.world.humans_pillar.subject_confidence(a.name),
+        )
         if swap is not None:
             outgoing, incoming = swap
             detail = f"{outgoing.name} has stepped back from prominence in the town's story; {incoming.name} has come to the fore."
@@ -10263,6 +10265,7 @@ class SimulationEngine:
         flagged future work, not an oversight."""
         newly_founded = self.world.population._maybe_collectivize_excess_population(
             self.world.settlements, self.world.clock.tick_count,
+            humans_lean=lambda a: self.world.humans_pillar.subject_confidence(a.name),
         )
         for settlement, district_name in newly_founded:
             self._log(

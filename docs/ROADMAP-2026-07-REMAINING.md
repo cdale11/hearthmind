@@ -49,7 +49,7 @@ starts on an explicit instruction naming an item.
 - [ ] Convert the remaining **~39 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); thirty-one sites are now converted
+      confidence`, v1.34.46); thirty-three sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -98,10 +98,16 @@ starts on an explicit instruction naming an item.
       `_maybe_start_construction`'s HUT-owner pick gains a Humans-
       pillar lean (same ambition-weighted-founder shape as the guild/
       fission sites), threaded as a lazy per-agent callable since this
-      site runs every tick, and v1.34.125 — `_apply_inheritance`'s
+      site runs every tick, v1.34.125 — `_apply_inheritance`'s
       heir pick gains the same lean as a tiebreak ahead of its old
       arbitrary highest-id fallback, reusing that same lazy callable
-      for free. Each further
+      for free, and v1.34.126 (both by explicit user instruction:
+      "Convert as many sites of tier 0 as you can in this turn") —
+      `_maybe_rotate_core_cast`'s outgoing/incoming picks (same lean,
+      opposite-direction meaning depending on which side of the swap)
+      and `_maybe_collectivize_excess_population`'s (D6) removal-
+      candidate sort, both the same real-signal-plus-arbitrary-`-id`-
+      tiebreak shape. Each further
       site is real judgment work —
       find a soft/tiebreak point a pillar's accumulated belief can
       legitimately weigh, never hand a pillar a whole decision.

@@ -617,6 +617,37 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.126)
+
+Explicit user instruction: "Convert as many sites of tier 0 as you can
+in this turn." Two more sites, same real-signal-plus-arbitrary-`-id`-
+tiebreak shape as the prior two sessions.
+
+Thirty-second: `_maybe_rotate_core_cast`'s outgoing (`min`)/incoming
+(`max`) picks were both `(prominence, -id)` — real signal, arbitrary
+tiebreak on ties (common: several near-zero-prominence candidates).
+New `Population.CORE_CAST_ROTATION_HUMANS_LEAN_MAX=0.15` folds
+`humans_pillar.subject_confidence(agent.name)` in with the SAME sign
+both directions: under `min` a higher lean protects a tied candidate
+from demotion, under `max` it favors a tied candidate for promotion —
+same regard, read oppositely depending on which side of the swap.
+Wired directly at the engine.py monthly-job call site via a lazy
+lambda (no per-tick cost).
+
+Thirty-third: `_maybe_collectivize_excess_population`'s (D6) removal-
+candidate sort was pure `_prominence` ascending, same arbitrary-tie
+shape. New `Population.DISTRICT_HUMANS_LEAN_MAX=0.15` — a higher lean
+sorts a tied agent later, protecting them from being folded into a
+district. Both sites' `humans_lean=None` reproduce the exact prior
+ordering.
+
+Verified: direct tuple-key tests for both (tie flip, real signal never
+overridden), production-path tests through both real scheduling
+functions (a forced tied-prominence rotation swap; a monkeypatched
+small `DISTRICT_INDIVIDUAL_CAP` with three tied agents), a 4000-tick
+LLM-disabled soak with clean round-trip, `pyflakes` clean. No native
+module touched. Tier 0 now has thirty-three real converted sites.
+
 ## Current state (v1.34.125)
 
 Explicit user instruction: "Continue tier 0." Thirty-first conversion:
