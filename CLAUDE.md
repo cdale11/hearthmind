@@ -617,6 +617,34 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.127)
+
+Explicit user instruction: "Continue tier 0," resolved via `AskUserQuestion`
+following a codebase-wide re-scan finding no more real-signal-plus-
+arbitrary-tiebreak sites: "Design a new producer (Recommended)."
+
+Village pillar's fourth category-keyed `world_model` producer, this
+one keyed by a literal `occupations.py` occupation string. New
+`SimulationEngine._detect_occupation_shortage` (daily-metrics cadence,
+edge-triggered): a settlement with real population (>= `OCCUPATION_
+SHORTAGE_POPULATION_THRESHOLD=15`) and zero living holders of some
+occupation (MAYOR excluded — its 1-holder cap makes zero normal, not
+scarce) mirrors/revises a village belief keyed by that occupation.
+
+New real consumer: `_maybe_assign_occupations`'s least-represented-
+occupation pick gains `Population.OCCUPATION_PILLAR_LEAN_MAX=0.5` as a
+tuple-key tiebreak — real counts always dominate, the lean only
+resolves genuine ties among equally-scarce occupations (the common
+early-game case). `occupation_pillar_lean` computed once per tick in
+`World.tick()` over `ALL_OCCUPATIONS` (~13 entries), same "compute
+once over a small fixed set" pattern as `building_kind_pillar_lean`.
+
+Verified: direct production-path tests for both the producer (forms/
+revises/stays-silent/clears-on-recovery) and the consumer (no-lean vs.
+seeded-lean pick), a 4000-tick LLM-disabled soak with clean round-trip,
+`pyflakes` clean. No native module touched. Tier 0 now has thirty-four
+real converted sites.
+
 ## Current state (v1.34.126)
 
 Explicit user instruction: "Convert as many sites of tier 0 as you can

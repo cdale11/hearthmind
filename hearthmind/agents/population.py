@@ -2008,6 +2008,7 @@ class Population:
         ownership_history: "dict[tuple[int, int], int] | None" = None,
         building_kind_pillar_lean: "dict[str, float] | None" = None,
         humans_lean: "Callable[[Agent], float] | None" = None,
+        occupation_pillar_lean: "dict[str, float] | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -2281,7 +2282,9 @@ class Population:
         for a in self.agents:
             members_by_settlement.get(home_of(a).id, members_by_settlement[primary.id]).append(a)
         for stl in settlements:
-            self._maybe_assign_occupations(stl, members_by_settlement[stl.id])
+            self._maybe_assign_occupations(
+                stl, members_by_settlement[stl.id], occupation_pillar_lean=occupation_pillar_lean,
+            )
             life_events.extend(self._advance_construction(by_position, stl, self.last_skill_masteries))
             life_events.extend(self._maybe_repair(by_position, stl))
             self._maybe_stock_granaries(by_position, stl)
@@ -6116,8 +6119,27 @@ class Population:
                 income *= POWER_GRID_INDUSTRY_MULTIPLIER
             settlement.currency = min(CURRENCY_CAPACITY, settlement.currency + income)
 
+    OCCUPATION_PILLAR_LEAN_MAX = 0.5
+    """Tier 0, new producer: `_maybe_assign_occupations`'s least-
+    represented-occupation pick was pure `counts[o]` ascending — real
+    signal, but every occupation genuinely tied at the same count
+    (the common early-game case: several occupations still at zero)
+    was resolved by whatever fixed order `ALL_OCCUPATIONS` happens to
+    iterate in. `village_pillar.subject_confidence(occupation)` (fed
+    by the new `_detect_occupation_shortage` producer) is folded in as
+    a tiebreak: an occupation the village already has a standing
+    "we could use one of these" theory about is picked FIRST among
+    equally-represented options. The lean is a SECOND tuple key
+    (`(counts[o], -lean_term)`), never blended into the count itself —
+    Python's tuple comparison checks `counts[o]` first, so a real
+    count difference always wins regardless of this constant's
+    magnitude; it only ever resolves a genuine tie."""
+
     @classmethod
-    def _maybe_assign_occupations(cls, settlement: Settlement, members: list[Agent]) -> None:
+    def _maybe_assign_occupations(
+        cls, settlement: Settlement, members: list[Agent],
+        occupation_pillar_lean: "dict[str, float] | None" = None,
+    ) -> None:
         """v0.87.44 jobs/economy batch: every mature, healthy, still-
         occupationless member of `settlement` gets assigned whichever
         occupation the settlement currently has the fewest of (MAYOR
@@ -6145,7 +6167,14 @@ class Population:
                 occ for occ in ALL_OCCUPATIONS
                 if occ != OCCUPATION_MAYOR or counts[OCCUPATION_MAYOR] == 0
             ]
-            chosen = min(candidates, key=lambda o: counts[o])
+            chosen = min(
+                candidates,
+                key=lambda o: (
+                    counts[o],
+                    -(occupation_pillar_lean.get(o, 0.0) if occupation_pillar_lean else 0.0)
+                    * cls.OCCUPATION_PILLAR_LEAN_MAX,
+                ),
+            )
             a.occupation = chosen
             counts[chosen] += 1
 

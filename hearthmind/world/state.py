@@ -13,6 +13,7 @@ from hearthmind.agents.agent import AgentGoal, AgentState
 from hearthmind.agents.population import Population
 from hearthmind.config import Config
 from hearthmind.economy.farms import FarmGrid, apply_carcass_decomposition_bonus, apply_nutrient_cycling
+from hearthmind.agents.occupations import ALL_OCCUPATIONS
 from hearthmind.settlement.buildings import BuildingKind, BuildingStage, Settlement, compute_resource_fill
 from hearthmind.settlement.naming import generate_settlement_name
 from hearthmind.time_system import SimClock
@@ -966,10 +967,20 @@ class World:
         building_kind_pillar_lean = {
             kind.value: self.village_pillar.subject_confidence(kind.value) for kind in BuildingKind
         }
+        # Tier 0, new producer: same "compute once per tick over a
+        # fixed small set" shape as building_kind_pillar_lean above —
+        # ALL_OCCUPATIONS is a similarly small fixed tuple, fed by
+        # `_detect_occupation_shortage`'s (engine.py) village_pillar
+        # mirror. See `Population.OCCUPATION_PILLAR_LEAN_MAX`'s
+        # docstring for the consumer.
+        occupation_pillar_lean = {
+            occ: self.village_pillar.subject_confidence(occ) for occ in ALL_OCCUPATIONS
+        }
         population_events = self.population.tick(
             seed=self.config.seed, tick=self.clock.tick_count,
             building_kind_pillar_lean=building_kind_pillar_lean,
             humans_lean=lambda a: self.humans_pillar.subject_confidence(a.name),
+            occupation_pillar_lean=occupation_pillar_lean,
             terrain=self.terrain, resources=self.resources, minerals=self.minerals,
             settlements=self.settlements, farms=self.farms, wildlife=self.wildlife, roads=self.roads,
             weather=self.weather, night_factor=night, heatwave_active=self.disasters.heatwave_active,

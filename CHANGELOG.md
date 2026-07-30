@@ -4,6 +4,43 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.127] — Tier 0's thirty-fourth conversion: a new occupation-shortage Village producer
+
+Explicit user decision via `AskUserQuestion` (following a codebase-wide
+re-scan that found no more sites with the established real-signal-plus-
+arbitrary-tiebreak shape and existing pillar content to lean on):
+"Design a new producer." Village pillar's fourth category-keyed
+`world_model` subject (after dispute_feud/theft/materials_bottleneck),
+this one keyed by a literal `occupations.py` occupation string.
+
+New `SimulationEngine._detect_occupation_shortage` (riding the existing
+daily-metrics cadence, edge-triggered like `_detect_settlement_
+bottlenecks`): a settlement whose living population is at or above
+`OCCUPATION_SHORTAGE_POPULATION_THRESHOLD` (15) with zero living
+holders of some occupation (MAYOR excluded — its cap of one holder
+makes "zero" a normal steady state, not a shortage) mirrors/revises a
+`village_pillar.world_model` entry keyed by that occupation's name.
+
+Real consumer: `_maybe_assign_occupations`'s least-represented-
+occupation pick (`min(candidates, key=counts[o])`) gains `Population.
+OCCUPATION_PILLAR_LEAN_MAX = 0.5` as a second tuple key — an occupation
+the village already has a standing "we could use one" theory about is
+picked FIRST among occupations tied at the same count (the common
+early-game case, several occupations at zero). Real counts always
+dominate (tuple comparison checks `counts[o]` first); the lean only
+ever resolves a genuine tie. Wired via the same "compute once per tick
+over a small fixed set" pattern `building_kind_pillar_lean` already
+established, new `occupation_pillar_lean` dict computed once in
+`World.tick()` over `ALL_OCCUPATIONS` (~13 entries).
+
+Verified: a direct production-path test of the producer (forms,
+revises in place, stays silent on repeat firings, clears on recovery),
+a direct production-path test of the consumer through the real
+`_maybe_assign_occupations` (no-lean picks the first tied occupation,
+a seeded lean flips the pick), a 4000-tick LLM-disabled soak with
+clean round-trip, `pyflakes` clean. No native module touched. Tier 0
+now has thirty-four real converted sites.
+
 ## [1.34.126] — Tier 0's thirty-second/thirty-third conversions: core-cast rotation + district collectivization
 
 Explicit user instruction: "Convert as many sites of tier 0 as you can

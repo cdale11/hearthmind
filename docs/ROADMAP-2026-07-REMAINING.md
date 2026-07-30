@@ -49,7 +49,7 @@ starts on an explicit instruction naming an item.
 - [ ] Convert the remaining **~39 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); thirty-three sites are now converted
+      confidence`, v1.34.46); thirty-four sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -107,7 +107,13 @@ starts on an explicit instruction naming an item.
       opposite-direction meaning depending on which side of the swap)
       and `_maybe_collectivize_excess_population`'s (D6) removal-
       candidate sort, both the same real-signal-plus-arbitrary-`-id`-
-      tiebreak shape. Each further
+      tiebreak shape, and v1.34.127 (explicit user decision via
+      `AskUserQuestion`: "Design a new producer") — Village pillar's
+      fourth category-keyed producer, `_detect_occupation_shortage`,
+      keyed by a literal occupation string; real new consumer:
+      `_maybe_assign_occupations`'s least-represented-occupation pick
+      gains the lean as a tuple-key tiebreak among equally-scarce
+      occupations. Each further
       site is real judgment work —
       find a soft/tiebreak point a pillar's accumulated belief can
       legitimately weigh, never hand a pillar a whole decision.

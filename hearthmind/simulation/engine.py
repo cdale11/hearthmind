@@ -133,6 +133,8 @@ from hearthmind.agents.population import (
     _walkable_tiles,
 )
 from hearthmind.agents.occupations import (
+    ALL_OCCUPATIONS,
+    OCCUPATION_MAYOR,
     OCCUPATION_SHOPKEEPER,
     OCCUPATION_SURVEYOR,
     SHOPKEEPER_CARAVAN_YIELD_BONUS,
@@ -691,6 +693,15 @@ least `_MIN_TOTAL` concepts ever registered (a small sample reads as
 noise, same "enough real data" gate every other Reflection branch
 uses) before the abandoned fraction is trusted as a real pattern, not
 early-game normal churn."""
+
+OCCUPATION_SHORTAGE_POPULATION_THRESHOLD = 15
+"""Tier 0, new producer: `_detect_occupation_shortage` only flags a
+settlement whose living population is at or above this bar — with
+`ALL_OCCUPATIONS` (~13 entries, MAYOR capped separately) assigned to
+whoever's fewest-represented, a small/young settlement will trivially
+have several occupations at zero simply because it hasn't grown into
+needing them yet. Past this size a persistent zero reads as a real
+gap, not early-game normal."""
 
 HYDROLOGY_DROUGHT_THRESHOLD = 0.15
 """A11 (roadmap Stage IV step 15): a tile below this `HydrologyField.
@@ -1527,6 +1538,17 @@ class SimulationEngine:
         materials-poor. Never persisted — a restart re-baselines from
         the first post-restart reading, same reasoning as `_prev_
         population_total`."""
+        self._occupation_shortage_flagged: "set[tuple[int, str]]" = set()
+        """Tier 0, new producer (explicit user decision via
+        `AskUserQuestion`: "Design a new producer"): (settlement_id,
+        occupation) pairs currently flagged short — edge-triggered,
+        same shape as `_materials_critical_flagged`. Backs `_detect_
+        occupation_shortage`, Village pillar's fourth category-keyed
+        `world_model` producer (after dispute_feud/theft/materials_
+        bottleneck), this one keyed by a literal `occupations.py`
+        occupation string rather than a fixed pattern-signal label.
+        Never persisted — same re-baseline-on-restart reasoning as
+        every other edge-trigger flag here."""
         self._hydrology_drought_flagged: bool = False
         """A11 (roadmap Stage IV step 15): edge-trigger flag for
         `_detect_hydrology_drought`, same "one observation on the
@@ -10831,6 +10853,7 @@ class SimulationEngine:
         log_metrics(self.conn, tick=self.world.clock.tick_count, metrics=metrics, commit=False)
         self._detect_metric_highlights(pop_summary["total"])
         self._detect_settlement_bottlenecks()
+        self._detect_occupation_shortage()
 
     def _detect_metric_highlights(self, population_total: int) -> None:
         """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md):
@@ -10931,6 +10954,57 @@ class SimulationEngine:
                 )
             elif not critical and was_flagged:
                 self._materials_critical_flagged.discard(settlement.id)
+
+    def _detect_occupation_shortage(self) -> None:
+        """Tier 0, new producer (docs/ROADMAP-2026-07-REMAINING.md,
+        explicit user decision via `AskUserQuestion`: "Design a new
+        producer"). Village pillar's fourth category-keyed `world_
+        model` subject (after dispute_feud/theft/materials_
+        bottleneck), this one keyed by a literal `occupations.py`
+        occupation string rather than a fixed pattern-signal label.
+
+        Real signal: a settlement with a real, established labor force
+        (living population at or above `OCCUPATION_SHORTAGE_
+        POPULATION_THRESHOLD`) has zero living holders of some
+        occupation — MAYOR excluded (its cap of one living holder
+        makes "zero" the expected steady state half the time, not a
+        real shortage). Same edge-triggered discipline as `_detect_
+        settlement_bottlenecks`/`_detect_hydrology_drought`: one
+        `bottleneck` observation the tick a (settlement, occupation)
+        pair first crosses into shortage, silence while it stays
+        there, silent recovery once anyone takes up the trade. Riding
+        the same daily-metrics cadence, no new polling loop."""
+        for settlement in self.world.settlements:
+            if not settlement.name:
+                continue
+            living = [a for a in self.world.population.agents if a.settlement_id == settlement.id]
+            if len(living) < OCCUPATION_SHORTAGE_POPULATION_THRESHOLD:
+                continue
+            held = {a.occupation for a in living if a.occupation}
+            for occ in ALL_OCCUPATIONS:
+                if occ == OCCUPATION_MAYOR:
+                    continue
+                key = (settlement.id, occ)
+                shortage = occ not in held
+                was_flagged = key in self._occupation_shortage_flagged
+                if shortage and not was_flagged:
+                    self._occupation_shortage_flagged.add(key)
+                    self._append_emergence(
+                        "bottleneck", "settlement",
+                        f"{settlement.name} has no {occ} to speak of, despite its size.",
+                        pillars=("village",), magnitude=0.6, settlement=settlement.name,
+                        data={"occupation": occ, "population": len(living)},
+                    )
+                    existing = self.world.village_pillar.find_world_model_entry(occ)
+                    prior_confidence = existing["confidence"] if existing else 0.3
+                    self.world.village_pillar.upsert_world_model(
+                        self.world.clock.tick_count, occ,
+                        f"{settlement.name} could use a {occ} — nobody has taken up the trade.",
+                        min(1.0, prior_confidence + 0.1), status="observation", source="occupation_shortage",
+                        revises_id=existing["id"] if existing else None,
+                    )
+                elif not shortage and was_flagged:
+                    self._occupation_shortage_flagged.discard(key)
 
     def _detect_hydrology_drought(self) -> None:
         """A22 Emergence API, A11's real consumer beyond farm yield
