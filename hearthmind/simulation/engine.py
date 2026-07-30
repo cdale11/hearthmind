@@ -5779,14 +5779,33 @@ class SimulationEngine:
             fill = (sum(b.stored_food for b in granaries) / capacity) if capacity else 0.0
             food_shortage_now = fill < reactions.FOOD_SHORTAGE_FILL_THRESHOLD
             families = [i for i in settlement.institutions if i.kind is InstitutionKind.FAMILY]
-            feuding_pair = next(
-                (
-                    (fam_a, fam_b)
-                    for fam_a in families for fam_b in families
-                    if fam_a.id < fam_b.id and Population.families_feuding(fam_a, fam_b)
-                ),
-                None,
-            )
+            feuding_pairs = [
+                (fam_a, fam_b)
+                for fam_a in families for fam_b in families
+                if fam_a.id < fam_b.id and Population.families_feuding(fam_a, fam_b)
+            ]
+            if not feuding_pairs:
+                feuding_pair = None
+            elif len(feuding_pairs) == 1:
+                feuding_pair = feuding_pairs[0]
+            else:
+                # Tier 0 (26th site): more than one settlement-wide
+                # feuding family pair is rare, but when it happens,
+                # village_pillar's own attention (never a real priority
+                # signal here — there isn't one — so this is a genuine
+                # first-max-wins pick, same shape as several earlier
+                # sites) decides which pair the composite reaction's
+                # relationship_rupture effect actually lands on. The
+                # pillar lookup only ever runs against this small,
+                # already-computed candidate set, never every tick's
+                # common single-or-zero-pair case.
+                feuding_pair = max(
+                    feuding_pairs,
+                    key=lambda p: (
+                        self.world.village_pillar.subject_confidence(p[0].name)
+                        + self.world.village_pillar.subject_confidence(p[1].name)
+                    ),
+                )
             active: set[str] = set()
             if drought_now:
                 active.add("drought")

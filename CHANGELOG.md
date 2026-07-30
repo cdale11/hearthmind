@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.119] — Tier 0's twenty-sixth conversion: composite-reaction feuding-pair pick
+
+Explicit user instruction: "Convert more sites and ask if you get
+stuck." Found by re-auditing `_maybe_tick_composite_reactions` (per-
+tick job, unlike most Tier 0 sites) for a WHICH-candidate pick: when
+more than one settlement-wide feuding FAMILY pair exists (rare, but
+possible), `feuding_pair = next(...)` picked the first one found in
+nested iteration order — the pair a matching `relationship_rupture`
+composite reaction (e.g. "Desperate Times") actually escalates.
+
+Rewritten to collect every feuding pair first (same O(families²) cost
+the original generator already paid every tick — no new complexity in
+the common 0-or-1-pair case), then, only when 2+ pairs exist, pick via
+`village_pillar.subject_confidence` summed over both family names —
+the pillar lookup is bounded to this already-small candidate set and
+never runs at all on the common single-or-zero-pair tick. No real
+priority signal exists here (unlike faction/rule_propose's magnitude-
+based picks) — this is a genuine first-max-wins uniform pick, the same
+shape as several earlier Humans-lean sites (inventor selection,
+dream, migration_decision).
+
+Verified: a production-path test through the real `_maybe_tick_
+composite_reactions` (two synthetic feuding family pairs, a forced
+matching reaction, real `_apply_composite_reaction` call — no-lean
+picks the first-found pair, a seeded `village_pillar` belief on the
+second pair's family names flips the pick), a 4000-tick LLM-disabled
+soak with clean round-trip, `pyflakes` clean. Tier 0 now has
+twenty-six real converted sites.
+
 ## [1.34.118] — Tier 0's twenty-fifth conversion: Village's category-keyed producer + laws tiebreak
 
 Explicit user instruction: "Yes new producer" (following a report that

@@ -617,6 +617,25 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.119)
+
+Explicit user instruction: "Convert more sites and ask if you get
+stuck." Twenty-sixth conversion: `_maybe_tick_composite_reactions`'s
+`feuding_pair` pick (which settlement-wide feuding FAMILY pair a
+matching `relationship_rupture` composite reaction escalates) never
+had a real priority signal to preserve — `next(...)` just returned
+whichever pair nested iteration found first. Rewritten to collect
+every feuding pair, then pick via `village_pillar.subject_confidence`
+summed over both family names ONLY when 2+ pairs exist (the common
+0-or-1-pair tick pays no new cost) — a genuine first-max-wins uniform
+pick, same shape as several earlier Humans-lean sites.
+
+Verified: a production-path test through the real `_maybe_tick_
+composite_reactions` (two synthetic feuding pairs, a forced matching
+reaction, no-lean picks first-found, a seeded belief flips the pick),
+a 4000-tick LLM-disabled soak with clean round-trip, `pyflakes` clean.
+Tier 0 now has twenty-six real converted sites.
+
 ## Current state (v1.34.118)
 
 Explicit user instruction: "Yes new producer" — resolves the flagged

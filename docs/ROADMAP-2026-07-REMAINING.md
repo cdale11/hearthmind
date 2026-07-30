@@ -49,7 +49,7 @@ starts on an explicit instruction naming an item.
 - [ ] Convert the remaining **~39 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); twenty-five sites are now converted
+      confidence`, v1.34.46); twenty-six sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -82,7 +82,10 @@ starts on an explicit instruction naming an item.
       pillar's first category-keyed `world_model` producer (mirroring
       "dispute_feud"/"theft" the same way Nature's species-keyed
       producer does), consumed by `_maybe_schedule_laws`'s pattern_key
-      tiebreak. Each further site is real judgment work —
+      tiebreak, and v1.34.119 — `_maybe_tick_composite_reactions`'s
+      feuding-pair pick (a genuine first-max-wins uniform pick, no
+      real priority signal existed here to preserve). Each further
+      site is real judgment work —
       find a soft/tiebreak point a pillar's accumulated belief can
       legitimately weigh, never hand a pillar a whole decision.
 
@@ -1735,6 +1738,30 @@ seeded belief flips it to dispute_feud), a 4000-tick LLM-disabled
 soak with a clean round-trip, `pyflakes` clean. Tier 0 now has
 twenty-five real converted sites, and Village pillar has its first
 category-keyed producer.
+
+**Twenty-sixth site (v1.34.119), explicit user instruction: "Convert
+more sites and ask if you get stuck."** A broad re-sweep across
+`simulation/engine.py`, `agents/population.py`, and the `world`/
+`settlement`/`llm` modules found one further candidate:
+`_maybe_tick_composite_reactions`'s `feuding_pair` pick (which
+settlement-wide feuding FAMILY pair a matching `relationship_rupture`
+composite reaction — e.g. the original "Desperate Times" — escalates)
+had no real priority signal to preserve; `next(...)` returned
+whichever pair nested iteration found first. Rewritten to collect
+every feuding pair, then pick via `village_pillar.subject_confidence`
+summed over both family names ONLY when 2+ pairs exist — the common
+0-or-1-pair tick pays no new cost, since building the candidate list
+itself already cost the same as the original generator scan. A
+genuine first-max-wins uniform pick, same shape as several earlier
+Humans-lean sites (inventor selection, dream, migration_decision).
+
+Verified: a production-path test through the real `_maybe_tick_
+composite_reactions` (two synthetic feuding family pairs, a forced
+matching reaction, real `_apply_composite_reaction` call — no-lean
+picks the first-found pair, a seeded `village_pillar` belief on the
+second pair's family names flips the pick), a 4000-tick LLM-disabled
+soak with a clean round-trip, `pyflakes` clean. Tier 0 now has
+twenty-six real converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0
