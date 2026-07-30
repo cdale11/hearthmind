@@ -617,6 +617,22 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.113)
+
+Explicit user instruction: "Build as many sites as possible in this
+turn." Eighteenth conversion, simpler than the letter site since
+`Population.core_migration_candidates` already returns the FULL
+eligible list — only `_maybe_schedule_migration_decision`'s own
+`candidates[0]` pick needed to change. Now `max(candidates, key=
+lambda c: humans_pillar.subject_confidence(c[0].name))`, same
+first-max-wins-preserves-no-lean-behavior discipline as `letter`.
+
+Verified: a production-path test through the real `_maybe_schedule_
+migration_decision` (two core-cast agents forced eligible, the
+decision roll forced to pass; no-lean picks iteration order, a seeded
+belief flips it), a 4000-tick LLM-disabled soak with clean round-trip,
+`pyflakes` clean. Tier 0 now has eighteen real converted sites.
+
 ## Current state (v1.34.112)
 
 Explicit user instruction: "Build as many sites as possible in this

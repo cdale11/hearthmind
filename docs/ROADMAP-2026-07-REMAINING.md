@@ -46,10 +46,10 @@ starts on an explicit instruction naming an item.
 
 ### Tier 0 — pillar refactor (the biggest single lever)
 
-- [ ] Convert the remaining **~42 mirror-write sites** from "write into
+- [ ] Convert the remaining **~41 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); seventeen sites are now converted
+      confidence`, v1.34.46); eighteen sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -61,11 +61,12 @@ starts on an explicit instruction naming an item.
       lean into the weekly voice-pair protagonist pick (v1.34.108),
       `personal_belief`'s own monthly candidate draw (v1.34.109),
       `letter`'s cross-settlement sender pick (v1.34.110), `deliberate_
-      guild_candidate`'s founder pick (v1.34.111), and — v1.34.112 —
-      `fission_candidate`'s leader pick, reusing the same `humans_lean`
-      shape). Each further site is real judgment work — find a soft/
-      tiebreak point a pillar's accumulated belief can legitimately
-      weigh, never hand a pillar a whole decision.
+      guild_candidate`'s founder pick (v1.34.111), `fission_candidate`'s
+      leader pick (v1.34.112), and — v1.34.113 — `migration_decision`'s
+      candidate pick, same first-max-wins shape as `letter`). Each
+      further site is real judgment work — find a soft/tiebreak point a
+      pillar's accumulated belief can legitimately weigh, never hand a
+      pillar a whole decision.
 
 ### Tier 0.5 — live-diagnostic findings
 
@@ -1540,6 +1541,23 @@ the pick), a production-path test through the real `_maybe_schedule_
 fission` (forced monthly gate, same no-lean/seeded-lean cases), a
 4000-tick LLM-disabled soak with a clean round-trip, `pyflakes`/syntax
 clean. Tier 0 now has seventeen real converted sites.
+
+**Eighteenth site (v1.34.113, same instruction, continued).**
+`_maybe_schedule_migration_decision`'s candidate pick (`candidates[0]`,
+the first in `Population.agents` iteration order) was simpler to
+convert than the letter site: `core_migration_candidates` already
+returns the FULL eligible list, so only the engine's own pick needed
+to change — `max(candidates, key=lambda c: humans_pillar.subject_
+confidence(c[0].name))`, same first-max-wins-preserves-no-lean-
+behavior shape as `letter`.
+
+Verified: a production-path test through the real `_maybe_schedule_
+migration_decision` (two core-cast agents forced eligible via
+`standing_penalty`, the migration-decision roll forced to pass —
+no-lean picks whichever agent iteration order favors, a seeded belief
+about the other agent flips the pick), a 4000-tick LLM-disabled soak
+with a clean round-trip, `pyflakes`/syntax clean. Tier 0 now has
+eighteen real converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

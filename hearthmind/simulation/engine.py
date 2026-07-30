@@ -10373,7 +10373,15 @@ class SimulationEngine:
         migration already cost before this pass — it only changes WHO
         decides for the core cast specifically. Non-core agents keep
         the original flat-roll path in `Population._maybe_migrate`
-        entirely unchanged."""
+        entirely unchanged.
+
+        Tier 0's eighteenth conversion (docs/ROADMAP-2026-07-
+        REMAINING.md): the "first found" pick below now goes through
+        `humans_pillar.subject_confidence(agent.name)` via `max` —
+        the candidate Humans' own attention already returns to is
+        somewhat more likely to be this tick's considered candidate.
+        `max`'s first-max-wins tiebreak reproduces the exact prior
+        first-found pick when no lean exists anywhere."""
         candidates = self.world.population.core_migration_candidates(self.world.settlements)
         if not candidates:
             return
@@ -10383,7 +10391,9 @@ class SimulationEngine:
             self.world.config.seed, self.world.clock.tick_count, "migration_decision_roll",
         ) >= MIGRATION_CHANCE_PER_TICK:
             return
-        agent, target, push_reason = candidates[0]
+        agent, target, push_reason = max(
+            candidates, key=lambda c: self.world.humans_pillar.subject_confidence(c[0].name),
+        )
         home = self._settlement_by_id(agent.settlement_id)
         if home is None:
             return

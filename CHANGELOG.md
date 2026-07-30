@@ -4,6 +4,28 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.113] — Tier 0's eighteenth conversion: migration decision pick
+
+Explicit user instruction: "Build as many sites as possible in this
+turn." `_maybe_schedule_migration_decision`'s candidate pick
+(`candidates[0]`, the first in `Population.agents` iteration order)
+was simpler to convert than the letter site — `core_migration_
+candidates` already returns the FULL eligible list, so only the
+engine's pick itself needed to change. Now `max(candidates, key=
+lambda c: humans_pillar.subject_confidence(c[0].name))` — the
+candidate Humans' own attention already returns to is somewhat more
+likely to be this tick's considered migration decision. `max`'s
+first-max-wins tiebreak reproduces the exact prior first-found pick
+when no lean exists anywhere.
+
+Verified: a production-path test through the real `_maybe_schedule_
+migration_decision` (two core-cast agents forced eligible via
+`standing_penalty`, the migration-decision roll forced to pass — no-
+lean picks whichever agent iteration order favors, a seeded belief
+about the other agent flips the pick to them), a 4000-tick LLM-
+disabled soak with a clean round-trip, `pyflakes`/syntax clean. Tier 0
+now has eighteen real converted sites.
+
 ## [1.34.112] — Tier 0's seventeenth conversion: fission leader pick
 
 Explicit user instruction: "Build as many sites as possible in this
