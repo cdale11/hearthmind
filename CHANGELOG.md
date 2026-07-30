@@ -4,6 +4,36 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.115] — Tier 0's twenty-first conversion: rule_propose's stuck-institution tiebreak
+
+Explicit user instruction: "Convert as many sites as you can." Found
+by re-auditing `_maybe_schedule_rule_proposal` (`simulation/engine.py`)
+for the "real primary signal + pure tiebreak" shape the first two Tier
+0 sites (`town_brain.compute_priority`, `era_branch.compute_branch`)
+established — the safest category, since a lean can only ever break a
+genuine tie in real state, never override it.
+
+`stuck_institution = max(..., key=lambda i: i.objective_ticks_unmet, default=None)`
+picked whichever institution has gone longest without its objective
+being met, but never once used any second key when two institutions
+were equally stuck — Python's plain iteration order silently decided.
+The `max` key is now `(i.objective_ticks_unmet, village_pillar.
+subject_confidence(i.name))`: `objective_ticks_unmet` stays the sole
+determinant except in a genuine tie, at which point the institution
+`village_pillar` already has a standing theory about wins. No lean
+anywhere reproduces the exact prior first-found tie-break (Python's
+`max` picks the first max encountered).
+
+Verified: a direct logic test (tie broken toward the leaned
+institution, no-lean reproduces first-found, a large lean on a
+LOWER-`objective_ticks_unmet` institution can never win — the real
+signal is never overridden), a production-path test through the real
+`_maybe_schedule_rule_proposal` (a seeded `village_pillar` belief about
+one of two equally-stuck institutions flips which one grounds the
+prompt; a fresh no-lean call reproduces the original first-found
+pick), a 4000-tick LLM-disabled soak with clean round-trip, `pyflakes`
+clean. Tier 0 now has twenty-one real converted sites.
+
 ## [1.34.114] — Tier 0's nineteenth/twentieth conversions: dispute pair + omen subject
 
 Explicit user decision via `AskUserQuestion` on the two sites flagged

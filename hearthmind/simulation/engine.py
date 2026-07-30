@@ -5834,9 +5834,14 @@ class SimulationEngine:
         # Vision item 2.2: ground the proposal in whichever institution
         # has wanted the same thing longest, if any has stuck around
         # long enough to count as real (not fresh-noise) frustration.
+        # Tier 0 (21st site): a tie in objective_ticks_unmet breaks
+        # toward whichever institution village_pillar already has a
+        # standing theory about — never overrides the real primary
+        # signal, only a tiebreak among equally-stuck institutions.
         stuck_institution = max(
             (i for i in settlement.institutions if i.objective_ticks_unmet >= institutions.INSTITUTION_OBJECTIVE_PERSISTENCE_THRESHOLD),
-            key=lambda i: i.objective_ticks_unmet, default=None,
+            key=lambda i: (i.objective_ticks_unmet, self.world.village_pillar.subject_confidence(i.name)),
+            default=None,
         )
         institution_grounding = ""
         stuck_label = ""

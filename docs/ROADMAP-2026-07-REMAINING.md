@@ -49,7 +49,7 @@ starts on an explicit instruction naming an item.
 - [ ] Convert the remaining **~39 mirror-write sites** from "write into
       `pillar.world_model`/`memory`" to a genuine **pillar-authored
       decision**. The reusable primitive exists (`Pillar.subject_
-      confidence`, v1.34.46); twenty sites are now converted
+      confidence`, v1.34.46); twenty-one sites are now converted
       (town_brain priority, era_branch tiebreak, COUNCIL institution
       objective, ontology_evolution parent-fitness weighting,
       institution_belief/memory_drift/noncore_nudge target selection,
@@ -63,13 +63,15 @@ starts on an explicit instruction naming an item.
       `letter`'s cross-settlement sender pick (v1.34.110), `deliberate_
       guild_candidate`'s founder pick (v1.34.111), `fission_candidate`'s
       leader pick (v1.34.112), `migration_decision`'s candidate pick
-      (v1.34.113), and — v1.34.114, both by explicit user decision —
+      (v1.34.113), v1.34.114 (both by explicit user decision) —
       `due_for_dispute`'s pair pick (a real per-tick cost tradeoff the
       user accepted) and `_maybe_schedule_omen`'s subject-candidate
-      pick (extending v1.34.9's one-time Phase G carve-out)). Each
-      further site is real judgment work — find a soft/tiebreak point a
-      pillar's accumulated belief can legitimately weigh, never hand a
-      pillar a whole decision.
+      pick (extending v1.34.9's one-time Phase G carve-out) — and
+      `_maybe_schedule_rule_proposal`'s `stuck_institution` tiebreak
+      (v1.34.115, same real-primary-signal-plus-pure-tiebreak shape as
+      the first two sites). Each further site is real judgment work —
+      find a soft/tiebreak point a pillar's accumulated belief can
+      legitimately weigh, never hand a pillar a whole decision.
 
 ### Tier 0.5 — live-diagnostic findings
 
@@ -1599,6 +1601,32 @@ only the chosen pair's cooldown is set), production-path tests
 through both real scheduling functions (no-lean and seeded-lean cases
 for each), a 4000-tick LLM-disabled soak with a clean round-trip,
 `pyflakes`/syntax clean. Tier 0 now has twenty real converted sites.
+
+**Twenty-first site (v1.34.115), explicit user instruction: "Convert
+as many sites as you can."** Found by re-auditing for the same "real
+primary signal, pillar lean only as pure tiebreak" shape the very
+first two Tier 0 sites (`town_brain.compute_priority`/`era_branch.
+compute_branch`) established — the safest category, since a lean can
+only ever break a genuine tie in real state, never override it.
+`_maybe_schedule_rule_proposal`'s `stuck_institution` pick (which
+institution's unmet objective grounds a proposed trigger-rule) never
+used any second key when two institutions were equally stuck —
+`max`'s key is now `(objective_ticks_unmet, village_pillar.
+subject_confidence(institution.name))`: the real unmet-objective
+duration stays the sole determinant except in a genuine tie, at which
+point the institution Village already has a standing theory about
+wins. No lean anywhere reproduces the exact prior first-found tie-
+break.
+
+Verified: a direct logic test (tie broken toward the leaned
+institution, no-lean reproduces first-found, a large lean on a
+lower-`objective_ticks_unmet` institution can never win), a
+production-path test through the real `_maybe_schedule_rule_proposal`
+(a seeded `village_pillar` belief flips which of two equally-stuck
+institutions grounds the prompt; a fresh no-lean call reproduces the
+original first-found pick), a 4000-tick LLM-disabled soak with a
+clean round-trip, `pyflakes` clean. Tier 0 now has twenty-one real
+converted sites.
 
 **Tier 0.5 — live-diagnostic findings from a real long-running world
 (filed v1.34.3, explicit user report)**, sequenced right after Tier 0

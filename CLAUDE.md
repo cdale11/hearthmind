@@ -617,6 +617,27 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.115)
+
+Explicit user instruction: "Convert as many sites as you can."
+Twenty-first Tier 0 conversion: `_maybe_schedule_rule_proposal`'s
+`stuck_institution` pick (which institution's unmet objective grounds
+a proposed rule) gained the same "real primary signal, pillar lean
+only as pure tiebreak" shape as the very first two Tier 0 sites
+(`town_brain.compute_priority`/`era_branch.compute_branch`) —
+`max`'s key is now `(objective_ticks_unmet, village_pillar.
+subject_confidence(institution.name))`, so the real unmet-objective
+duration stays the sole determinant except when two institutions are
+genuinely tied, at which point the one Village's own accumulated
+theory already leans toward wins. No lean anywhere reproduces the
+exact prior first-found tie-break.
+
+Verified: a direct logic test (tie-break, no-lean parity, real signal
+never overridden), a production-path test through the real
+`_maybe_schedule_rule_proposal`, a 4000-tick LLM-disabled soak with
+clean round-trip, `pyflakes` clean. Tier 0 now has twenty-one real
+converted sites.
+
 ## Current state (v1.34.114)
 
 Explicit user decision via `AskUserQuestion` on both sites flagged
