@@ -95,7 +95,7 @@ const BUILDING_COLORS = {
   hospital: "#e0473c", university: "#2f7fc9", factory: "#5c5c66", shrine: "#c9a3e0",
   power_plant: "#e0c93c", market: "#3ccf9e", bridge: "#b08968",
   pasture: "#8fbf5e", hatchery: "#4ab5cf", dock: "#5c9ead", oil_rig: "#3c3c46",
-  forge: "#b5651d", library: "#7a5c3e",
+  forge: "#b5651d", library: "#7a5c3e", smelter: "#8a4a2c",
 };
 const FARM_COLORS = { growing: "#7fae4a", ready: "#e0c34a" };
 
@@ -219,6 +219,8 @@ const CATEGORY_META = {
   quarry_formed: { icon: "⛏️" },
   flood_eroded: { icon: "🌊" },
   composite_reaction: { icon: "💥" },
+  battle: { icon: "⚔️" },
+  battle_scarred: { icon: "🗡️" },
   // P2.3 (docs/AUDIT-2026-07-20.md): 296/16k events (18%) in a live run —
   // routine background texture already surfaced via the Exploration stat
   // tile (v0.87.45), same "recorded internally, not the main feed"
@@ -241,7 +243,7 @@ const EVENT_GROUP_OF = {
   settlement_named: "town", guild_formed: "town", guild_joined: "town", faction_formed: "town",
   council_formed: "town", council_seat_filled: "town", council_seat_contested: "town", family_formed: "town",
   intervention: "town", town_brain: "town", caravan: "town", founding: "town", genesis: "town",
-  law_enacted: "town", diplomacy_event: "town",
+  law_enacted: "town", diplomacy_event: "town", battle: "town",
   terrain_thinned: "nature", terrain_reclaimed: "nature", climate_drift: "nature",
   wildlife_hunt: "nature", wildlife_extinct: "nature", wildlife_recolonized: "nature",
   wildlife_migrated: "nature", disaster_flood: "nature", disaster_wildfire: "nature",
@@ -249,7 +251,7 @@ const EVENT_GROUP_OF = {
   lake_rose: "nature", lake_receded: "nature", season_end: "nature", year_end: "nature",
   place_named: "nature", mining_scarred: "nature", disaster_scarred: "nature", terrain_eroded: "nature",
   river_recarved: "nature", road_scarred: "nature", wetland_formed: "nature", wetland_dried: "nature",
-  quarry_formed: "nature", flood_eroded: "nature",
+  quarry_formed: "nature", flood_eroded: "nature", battle_scarred: "nature",
   chronicle: "mind", documentary: "mind", sim_summary: "mind", tradition: "mind", invention: "mind",
   festival: "mind", belief_formed: "mind", belief_revised: "mind", omen: "mind", ontology_reinstated: "mind",
   institution_belief: "mind", ritual_formed: "mind", religion_formed: "mind",
@@ -767,6 +769,10 @@ function renderKnowledgeTreeEntry(row) {
   // A8 "Evolutionary Innovation" (roadmap Stage IV step 21): a real
   // generation marker on a descendant concept, same lineage-bits slot.
   if (row.generation) lineageBits.push(`generation ${row.generation}`);
+  // Humans-vs-Village ontology origination split (explicit user
+  // delegation, 2026-07-31): which pillar is credited as having
+  // actually originated a concept — only concepts carry this field.
+  if (row.origin_pillar) lineageBits.push(`${row.origin_pillar}-originated`);
   const lineageText = lineageBits.length ? ` <span class="muted">(${lineageBits.join(", ")})</span>` : "";
   const confText = typeof row.confidence === "number" ? ` <span class="muted">(confidence ${row.confidence.toFixed(2)})</span>` : "";
   // 5.4 "provenance for everything": who/what originated this entry, next
@@ -2109,6 +2115,30 @@ function paintCarcassDecomposition(sctx, decomposition) {
   }
 }
 
+// A19's "battles" axis (world/combat.py): same scar-overlay shape as
+// paintMiningScars/paintDisasterScars — a dark, blood-red streaked mark
+// distinct from either (this is conflict damage, not resource extraction
+// or a natural disaster).
+function paintBattleScars(sctx, scars) {
+  if (!scars) return;
+  for (const key in scars) {
+    const intensity = scars[key];
+    if (!(intensity > 0)) continue;
+    const [xs, ys] = key.split(":");
+    const x = parseInt(xs, 10), y = parseInt(ys, 10);
+    sctx.fillStyle = `rgba(90,10,15,${(0.15 + intensity * 0.35).toFixed(3)})`;
+    sctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    sctx.strokeStyle = `rgba(120,15,15,${(0.25 + intensity * 0.35).toFixed(3)})`;
+    sctx.lineWidth = Math.max(1, CELL * 0.08);
+    sctx.beginPath();
+    sctx.moveTo(x * CELL + CELL * 0.15, y * CELL + CELL * 0.15);
+    sctx.lineTo(x * CELL + CELL * 0.85, y * CELL + CELL * 0.85);
+    sctx.moveTo(x * CELL + CELL * 0.85, y * CELL + CELL * 0.15);
+    sctx.lineTo(x * CELL + CELL * 0.15, y * CELL + CELL * 0.85);
+    sctx.stroke();
+  }
+}
+
 // Explicit user request, following M2/M8: elevation should render on
 // the map irrespective of biome boundary, so gradual erosion (quarry
 // formation, flood-recurrence erosion, A11's own weekly hydrology
@@ -2156,6 +2186,7 @@ function drawStaticTerrain() {
   paintMigrationTrails(sctx, terrain.migration_trails);
   paintDryLakebedScars(sctx, terrain.dry_lakebed_scars);
   paintCarcassDecomposition(sctx, terrain.carcass_decomposition);
+  paintBattleScars(sctx, terrain.battle_scars);
   canvas.width = staticCanvas.width;
   canvas.height = staticCanvas.height;
   weatherCanvas.width = staticCanvas.width;
@@ -3526,6 +3557,7 @@ const BUILDING_MATERIAL = {
   hut: "wood", granary: "wood", workshop: "wood", hospital: "stone",
   factory: "metal", shrine: "clay", power_plant: "metal", pasture: "fiber",
   hatchery: "fiber", dock: "wood", oil_rig: "metal", bridge: "stone", forge: "stone",
+  smelter: "ore",
 };
 
 // A5/A6's "Entity.properties" half (world/materials.py's material_
@@ -3649,6 +3681,10 @@ function renderTargetInspector() {
   const disasterScar = (terrain && terrain.disaster_scars && terrain.disaster_scars[`${x}:${y}`]) || 0;
   if (disasterScar > 0) {
     bits.push(`<div class="npc-section"><h4>Disaster scar</h4><div>lingering damage from a past disaster (${Math.round(disasterScar * 100)}% still visible)</div></div>`);
+  }
+  const battleScar = (terrain && terrain.battle_scars && terrain.battle_scars[`${x}:${y}`]) || 0;
+  if (battleScar > 0) {
+    bits.push(`<div class="npc-section"><h4>Battle scar</h4><div>the ground still bears the marks of a past battle (${Math.round(battleScar * 100)}% still visible)</div></div>`);
   }
   // M1/M9's residual "labeled environmental stress/degradation
   // reading" ask — mirrors hearthmind.world.spatial_memory's
@@ -3857,7 +3893,9 @@ function renderStats(summary) {
       "Each gates a real mechanical bonus at their matching building (staffing weight, extra income, or a direct yield boost).",
     ],
     [
-      "Deaths", `${p.deaths_starvation} starvation, ${p.deaths_old_age} old age, ${p.deaths_predator || 0} predator`,
+      "Deaths",
+      `${p.deaths_starvation} starvation, ${p.deaths_old_age} old age, ${p.deaths_predator || 0} predator` +
+      (p.deaths_battle ? `, ${p.deaths_battle} battle` : ""),
       null,
     ],
     [
@@ -4010,9 +4048,12 @@ function renderStats(summary) {
       "Oil rigs: offshore extraction (era: electrical+), double a dock's income rate — the water-infrastructure batch's industrial-scale building.",
     ],
     [
-      "Historical infrastructure", `${s.forges || 0} forge${(s.forges || 0) === 1 ? "" : "s"}, ${s.libraries || 0} librar${(s.libraries || 0) === 1 ? "y" : "ies"}`,
+      "Historical infrastructure",
+      `${s.forges || 0} forge${(s.forges || 0) === 1 ? "" : "s"}, ${s.libraries || 0} librar${(s.libraries || 0) === 1 ? "y" : "ies"}, ` +
+      `${s.smelters || 0} smelter${(s.smelters || 0) === 1 ? "" : "s"}`,
       "Forges: the bronze_age+ economic building, this era's business before workshop/factory exist. " +
-      "Libraries: the classical+ knowledge building, boosts settlement education exactly like a school.",
+      "Libraries: the classical+ knowledge building, boosts settlement education exactly like a school. " +
+      "Smelters: built of raw ore, genuinely convert into real worked metal after sustained heat (A13's automatic reactor, world/chemistry.py) — the smelter itself supplies its own heat, so it never needs a separate forge to eventually harden.",
     ],
     [
       "Repairs & upkeep", `${s.buildings_repaired || 0} buildings, ${s.vehicles_repaired || 0} vehicles`,
@@ -4153,6 +4194,14 @@ function renderStats(summary) {
         return cd.sites ? `${cd.sites} site${cd.sites === 1 ? "" : "s"} (avg ${cd.avg_intensity.toFixed(2)})` : "none yet";
       })(),
       "A successful predator kill leaves a real carcass behind — the site genuinely enriches nearby farmland's soil as it decomposes, on top of (and stronger than) a live herd's ordinary grazing enrichment. Fades within a few weeks as the carcass is consumed away.",
+    ],
+    [
+      "Battle scars",
+      (() => {
+        const bs = summary.battle_scars || {};
+        return bs.sites ? `${bs.sites} site${bs.sites === 1 ? "" : "s"} (avg ${bs.avg_intensity.toFixed(2)})` : "none yet";
+      })(),
+      "A19's real full combat subsystem (world/combat.py): sustained, severe hostility between two named settlements can erupt into an actual battle — a real fraction of each side's living, mature, healthy population fights, real bounded casualties on both sides, the winner plunders real materials/currency from the loser, and the fight leaves a lasting mark on the ground near the defender's site (see the map itself). Fades over time if the site sees no further conflict.",
     ],
     [
       "Wetlands",

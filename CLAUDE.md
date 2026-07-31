@@ -617,6 +617,148 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.159)
+
+Explicit user instruction: "build these next and ask question when in
+doubt: districts not folded into carrying_capacity(), A19's 'battles'
+axis (no combat mechanic exists), A13's reactor only reachable for
+clay/fiber, §8 LoRA fine-tuning staying data-collection-only, and the
+ritual/recipe grammar + Humans-vs-Village ontology split both left on
+purpose," plus a request to expose more diagnostics for an overnight
+real-hardware run. Resolved via `AskUserQuestion` on the first four
+items (districts un-flagged already shipped separately this pass;
+A19 battles -> "Full combat subsystem"; A13 -> "New BuildingKind
+defaulting to ore"; §8 -> "Keep data-collection-only, extend the
+tooling instead"); the ritual/recipe-vs-Humans/Village question was
+explicitly delegated ("you decide this one") — my own decision,
+recorded below.
+
+**Districts folded into `carrying_capacity()`.** `Population.tick()`'s
+per-settlement capacity now subtracts `sum(d.population for d in
+s.districts)` before comparing against individually-simulated
+population — a settlement's collectivized district population (D6,
+v1.34.22) previously consumed no real headroom at all, so total real
+population (individual + district) could grow unbounded even while
+the individually-simulated half sat right at capacity. `carrying_
+capacity`'s own tuned formula is untouched; only what districts
+consume against it changed.
+
+**A19's "battles" axis — new `world/combat.py`, a real, deterministic,
+cross-settlement combat subsystem.** Deliberately scoped to
+settlement-vs-settlement war, not intra-FACTION civil war (plunder
+only makes sense between two separately-resourced communities).
+`World._maybe_resolve_battle` (called each tick, before `Population.
+tick()` so real casualties reach `_apply_deaths` the SAME tick):
+checks every named-settlement pair's `Settlement.relations` against a
+new `BATTLE_TRIGGER_THRESHOLD=-0.75` (deeper than the existing
+diplomatic-hostility threshold, -0.5) plus a small per-tick roll
+(`BATTLE_CHANCE_PER_TICK=0.0015`); a triggered pair draws real war
+parties (`BATTLE_ROSTER_FRACTION=0.3` of each side's living/mature/
+healthy population, floor `BATTLE_MIN_ROSTER_SIZE=2`), resolves via
+`combat.resolve_battle` (winner picked probabilistically by
+`roster_strength` — real headcount scaled by the party's average
+`TRAIT_AMBITION`/`TRAIT_RESILIENCE`, reusing H6 psychology rather than
+inventing a sixth "combat skill" axis), applies real bounded casualties
+on both sides (never a wipeout — `BATTLE_CASUALTY_MAX_FRACTION=0.4`),
+real plunder (`BATTLE_PLUNDER_FRACTION=0.2` of the loser's materials/
+currency), real relation damage (`BATTLE_RELATION_PENALTY=0.3`), and a
+new decaying `World.battle_scars` map mark at the defender's site
+(`terrain_evolution.apply_battle_scar`/`decay_battle_scars`, the same
+scar-dict pattern mining/disaster/road/etc. scars already established)
+— the first real feed for A19's previously permanently-empty "battles"
+axis. New `Population.deaths_battle` counter + `killed_in_battle`
+death-cause branch in `_apply_deaths`. UI: 🗺️ battle-scar map overlay
+(dark blood-red streaked mark, distinct from mining/disaster scars),
+⚔️/🗡️ event icons, a "Battle scars" stat tile, and battle deaths
+folded into the existing "Deaths" tile.
+
+**A13's ore-reachable reactor — new `BuildingKind.SMELTER`.**
+`world.chemistry.REACTION_RULES`' `ore + heat -> metal` rule existed
+since A13 shipped but was structurally unreachable through the real
+automatic reactor (`tick_building_reactions`) — no `BuildingKind` ever
+defaulted to `ore` in `BUILDING_MATERIALS`, so nothing ever held ore
+long enough to react. SMELTER's default material IS `ore`
+(`world.materials.BUILDING_MATERIALS[SMELTER]="ore"`) and it carries
+`can_conduct_heat`/`can_burn` itself (`world.affordances.
+BUILDING_AFFORDANCES`, same tags as OIL_RIG/FORGE) — a furnace
+supplies its own heat, so a lone standing SMELTER genuinely converts
+to worked metal under sustained operation with no separate FORGE
+needed. Foundable from `bronze_age` onward (`_ERA_UNLOCKS_BRONZE`,
+same gate as FORGE), `SMELTER_MATERIALS_COST=4.5`. UI: map color,
+"Historical infrastructure" stat tile gained a smelter count, "Built
+of" inspector line reads `ore`.
+
+**§8 LoRA fine-tuning — tooling extended, no new ML dependency
+(explicit scope: no torch/peft/transformers, this environment has no
+training infrastructure and none was added).** New `llm/eval_
+harness.py`'s `training_readiness_report(archive_dir)`: combines FT.2's
+per-task quality labels (`review_pack.label_archive`) with a volume
+floor (`MIN_SFT_EXAMPLES_PER_TASK=200`, an honestly-flagged
+conventional order-of-magnitude estimate, not tuned against a real
+Hearthmind run) and two quality floors (`MAX_ACCEPTABLE_LEAK_RATE=
+0.05`, `MAX_ACCEPTABLE_FALLBACK_RATE=0.5`) into a per-task "ready for a
+first LoRA slice yet?" verdict. New `scripts/recorder_tools.py
+training-readiness [--archive-dir DIR]` CLI subcommand — read-only,
+prints a report, never runs or configures training.
+
+**Ritual/recipe structure grammar — explicitly SKIPPED, not silently
+dropped.** My own judgment call on the delegated decision: A7's own
+prior design entry already states ritual/recipe "stays LLM-authored...
+closer to meaning" — building a deterministic grammar for it would
+reverse that standing decision and cuts against CLAUDE.md's own
+repeated priority ("everything involving judgement, interpretation,
+creativity... should default to the local LLM"). Left alone.
+
+**Humans-vs-Village ontology origination split — built, the other half
+of the same delegated decision.** New `InventedConcept.origin_pillar`
+(one of `world.ontology.ONTOLOGY_ORIGIN_PILLARS = ("village", "humans",
+"nature", "innovation")`, default `"village"` — legacy concepts read
+correctly with zero backfill logic, since Village was the only job
+that ever ran for these categories). `llm/ontology.py`'s new
+`HUMANS_PROPOSE_CATEGORIES = {"custom", "saying", "profession"}` +
+`origin_pillar_for_category()` implement CLAUDE.md's own standing
+correction ("Humans originate customs/professions/social roles...
+Village originates institutions/laws/festivals...") as real,
+persisted, per-concept attribution — previously NOTHING distinguished
+a Humans-flavor concept from a Village-flavor one at the data level.
+`_maybe_schedule_ontology_proposal`'s apply() now computes `origin_
+pillar` from the registered category and, when Humans-attributed,
+mirrors a SECOND real signal into `humans_pillar.world_model` (Village/
+Innovation's own existing mirrors are untouched either way — Innovation
+still authors/discovers every concept through this job's machinery
+regardless of who it's attributed to). `_maybe_schedule_invention`'s
+technology bridge and `_maybe_schedule_nature_mind`'s ecological bridge
+now pass `origin_pillar` explicitly too (`"innovation"`/`"nature"`),
+closing the attribution gap for every category, not just the newly
+split ones. Deliberately NOT a second parallel scheduling job (its own
+budget/backpressure/gating) — a genuinely large lift beyond the actual
+gap CLAUDE.md named; this is a bounded, real attribution fix. UI: the
+knowledge-tree panel's lineage line now shows e.g. "(humans-
+originated)" for a concept attributed to Humans.
+
+**Diagnostics expansion for the planned overnight real-hardware run.**
+`_diagnostics_snapshot()` (cheap, per-tick) gained `invented_concepts_
+by_origin_pillar`, `battle_deaths_total`, `battle_scars_active_sites`,
+`smelters_standing`. Deliberately did NOT add a full quality-label scan
+to `/diagnostics` itself (would run `training_readiness_report`'s full
+per-example scan on every poll against a potentially large overnight
+archive) — that stays a separate, explicitly on-demand CLI tool.
+
+Verified: direct unit tests (combat casualty/plunder math bounds,
+`origin_pillar_for_category` over all six proposable categories,
+`InventedConcept.origin_pillar` round-trip + legacy backfill,
+`training_readiness_report` against a synthetic archive), production-
+path tests through the real `World._maybe_resolve_battle` (forced
+hostile relation, confirmed casualties/plunder/relation-damage/scar
+all landed) and through the real `World.tick()`/`Population._apply_
+deaths` pipeline (a genuine battle death counted, population dropped
+correctly), a direct test of `tick_building_reactions` converting a
+standalone SMELTER to metal end-to-end, a production-path test through
+the real `_maybe_schedule_ontology_proposal` (confirmed the naturally-
+fired concept's `origin_pillar` matched `origin_pillar_for_category`),
+a 4000-tick LLM-disabled soak with clean round-trip, `pyflakes` clean
+(only the four known pre-existing findings). No native module touched.
+
 ## Current state (v1.34.158) — Tier 3 A12 closed
 
 Explicit user instruction: "continue tier 3 with A12 and build the

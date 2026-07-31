@@ -90,6 +90,7 @@ class WorldBroadcaster:
         migration_trails: dict | None = None,
         dry_lakebed_scars: dict | None = None,
         carcass_decomposition: dict | None = None,
+        battle_scars: dict | None = None,
     ) -> None:
         """Called when the engine starts, and again on any tick where
         terrain evolution changed a tile's biome (see
@@ -193,6 +194,10 @@ class WorldBroadcaster:
             "carcass_decomposition": (
                 {f"{x}:{y}": round(v, 3) for (x, y), v in carcass_decomposition.items()}
                 if carcass_decomposition else {}
+            ),
+            "battle_scars": (
+                {f"{x}:{y}": round(v, 3) for (x, y), v in battle_scars.items()}
+                if battle_scars else {}
             ),
             "moisture": (
                 [[round(v, 3) for v in row] for row in moisture] if moisture else []

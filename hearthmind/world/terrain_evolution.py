@@ -343,6 +343,46 @@ def decay_disaster_scars(scars: dict[tuple[int, int], float], adaptation_bias: f
             del scars[pos]
 
 
+BATTLE_SCAR_GAIN_PER_HIT = 0.4
+"""A19's "battles" axis (docs/ROADMAP-2026-07-REMAINING.md, "Known
+scope trims") — its first real feed, via `world/combat.py`'s new
+battle resolution. A single real battle leaves a substantial mark
+(higher than `DISASTER_SCAR_GAIN_PER_HIT`'s 0.2 — a battlefield is a
+more violent, concentrated event than one flood/fire tick), full
+scarring reachable in 2-3 real battles at the same site."""
+
+BATTLE_SCAR_DECAY_PER_WEEK = 0.03
+"""Slower recovery than a disaster scar's own 0.04 — the ground a real
+battle was fought on plausibly carries its memory (and its literal
+debris) a little longer than one flood/fire cycle."""
+
+BATTLE_SCAR_VISIBLE_THRESHOLD = 0.35
+"""Same role as `DISASTER_SCAR_VISIBLE_THRESHOLD` — fired once per
+tile crossing this, not on every threshold-crossing tick."""
+
+
+def apply_battle_scar(pos: tuple[int, int], scars: dict[tuple[int, int], float]) -> bool:
+    """Called once per real battle resolution (`world.combat.resolve_
+    battle`), at the defending settlement's own site — war is fought on
+    someone's home ground. Returns True the tick this specific mark
+    first crosses `BATTLE_SCAR_VISIBLE_THRESHOLD`, for the caller's own
+    one-time event log line. Cosmetic-only, same discipline as every
+    other scar dict here — the tile stays its normal biome/walkable."""
+    before = scars.get(pos, 0.0)
+    after = min(1.0, before + BATTLE_SCAR_GAIN_PER_HIT)
+    scars[pos] = after
+    return before < BATTLE_SCAR_VISIBLE_THRESHOLD <= after
+
+
+def decay_battle_scars(scars: dict[tuple[int, int], float]) -> None:
+    """Called once per week, same cadence as `decay_disaster_scars`/
+    `decay_mining_scars`."""
+    for pos in list(scars.keys()):
+        scars[pos] -= BATTLE_SCAR_DECAY_PER_WEEK
+        if scars[pos] <= 0.0:
+            del scars[pos]
+
+
 RITUAL_ACTIVITY_GAIN_PER_FESTIVAL = 0.15
 """A19 "Persistent spatial memory," first slice (roadmap Stage IV step
 26, docs/MASTERCHECKLIST-2026-07-22.md): intensity (0..1) a tile gains

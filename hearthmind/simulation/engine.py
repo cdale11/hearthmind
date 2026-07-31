@@ -2000,6 +2000,7 @@ class SimulationEngine:
                 migration_trails=world.migration_trails,
                 dry_lakebed_scars=world.dry_lakebed_scars,
                 carcass_decomposition=world.carcass_decomposition,
+                battle_scars=world.battle_scars,
             )
             self._broadcaster.set_diagnostics_provider(self.full_diagnostics)
             self._broadcaster.set_knowledge_tree_provider(self.world.knowledge_tree)
@@ -4909,6 +4910,7 @@ class SimulationEngine:
                     {"type": "invention_specialization_category", "target": category, "magnitude": INVENTION_SPECIALIZATION_STEP}
                     if category != "general" else None
                 ),
+                origin_pillar="innovation",
             )
             # Tier 0 first slice (docs/ROADMAP-2026-07-REMAINING.md):
             # invention becomes Innovation pillar's SECOND real wired
@@ -5155,12 +5157,29 @@ class SimulationEngine:
             entry = self.world.innovation_pillar.upsert_world_model(
                 self.world.clock.tick_count, parsed["name"], parsed["description"], 0.4, source="ontology_proposal",
             )
+            # Humans-vs-Village ontology origination split (explicit
+            # user delegation, 2026-07-31 — see `ontology_llm.origin_
+            # pillar_for_category`'s docstring for the full rationale):
+            # a genuine per-concept attribution, not just prompt
+            # wording. Innovation's own mirror above is untouched
+            # either way (Innovation still authors/discovers every
+            # concept through this job's machinery) — this is a SECOND,
+            # additional real signal for whichever pillar is actually
+            # credited with caring about the idea.
+            origin_pillar = ontology_llm.origin_pillar_for_category(parsed["category"])
             concept = ontology.register_concept(
                 self.world, name=parsed["name"], description=parsed["description"], category=parsed["category"],
                 origin_settlement_id=settlement_id, tick=self.world.clock.tick_count,
                 inventor_agent_id=inventor_id, mechanical_hook=parsed["hook"],
                 hypothesis=parsed["hypothesis"], world_model_entry_id=entry["id"],
+                origin_pillar=origin_pillar,
             )
+            if origin_pillar == "humans":
+                self.world.humans_pillar.upsert_world_model(
+                    self.world.clock.tick_count, parsed["name"], parsed["description"], 0.4,
+                    source="ontology_proposal_humans_origin",
+                )
+                self.world.humans_pillar.remember(f"The people themselves gave rise to {concept.name}: {concept.description}")
             self._log("ontology", f"{target.name or 'The village'} originated {concept.name}: {concept.description}")
             # C2 "Intention channel": if this custom was genuinely
             # FORCED by village_pillar's own conviction, that conviction
@@ -5841,6 +5860,7 @@ class SimulationEngine:
                 concept = ontology.register_concept(
                     self.world, name=concept_data["name"], description=concept_data["description"],
                     category="ecological", origin_settlement_id=origin_settlement_id, tick=tick,
+                    origin_pillar="nature",
                 )
                 self._log("ontology", f"The land itself gave rise to {concept.name}: {concept.description}")
             # Tier 0's species-keyed theory producer (docs/ROADMAP-
@@ -12522,6 +12542,7 @@ class SimulationEngine:
                 migration_trails=self.world.migration_trails,
                 dry_lakebed_scars=self.world.dry_lakebed_scars,
                 carcass_decomposition=self.world.carcass_decomposition,
+                battle_scars=self.world.battle_scars,
             )
         tick_events = [
             {"category": category, "description": description}
@@ -12722,6 +12743,35 @@ class SimulationEngine:
                 for cat in ontology.ONTOLOGY_CATEGORIES
                 if any(c.category == cat for c in self.world.invented_concepts.values())
             },
+            # Humans-vs-Village ontology origination split (explicit
+            # user delegation, 2026-07-31): same dev-console depth as
+            # invented_concepts_by_category above — the live signal
+            # that the split is actually distributing attribution
+            # across pillars, not silently defaulting everything to
+            # village.
+            "invented_concepts_by_origin_pillar": {
+                pillar: sum(1 for c in self.world.invented_concepts.values() if c.origin_pillar == pillar)
+                for pillar in ontology.ONTOLOGY_ORIGIN_PILLARS
+                if any(c.origin_pillar == pillar for c in self.world.invented_concepts.values())
+            },
+            # A19 "battles" axis (world/combat.py): real, cheap, in-
+            # memory counters — no disk I/O, safe every tick. A live
+            # run showing 0 for a long stretch is expected (the
+            # trigger threshold is deliberately severe); a nonzero
+            # count with battle_scars_active_sites staying near 0 would
+            # point at the scar-decay rate outrunning the battle rate,
+            # worth knowing on an overnight soak.
+            "battle_deaths_total": self.world.population.deaths_battle,
+            "battle_scars_active_sites": len(self.world.battle_scars),
+            # A13 "Chemistry / reaction system": how many SMELTER
+            # buildings actually stand right now — the live signal that
+            # the ore-reachable reactor has real fuel, distinct from
+            # `discoverable_reactions` above (which only shows what's
+            # currently reachable, not standing-instance counts).
+            "smelters_standing": sum(
+                1 for stl in self.world.settlements for b in stl.buildings
+                if b.kind is BuildingKind.SMELTER and b.stage is BuildingStage.STANDING
+            ),
             # Vision doc item 1.2 — same dev-console depth as the
             # ontology fields above.
             "trigger_rules_total": len(self.world.trigger_rules),

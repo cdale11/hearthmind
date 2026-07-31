@@ -7,10 +7,12 @@ which is what makes snapshotting trivial (see persistence/snapshot.py).
 from __future__ import annotations
 
 import dataclasses
+import itertools
 from dataclasses import dataclass, field
 
-from hearthmind.agents.agent import AgentGoal, AgentState
+from hearthmind.agents.agent import AgentGoal, AgentState, TRAIT_AMBITION, TRAIT_RESILIENCE
 from hearthmind.agents.population import Population
+from hearthmind.world import combat
 from hearthmind.config import Config
 from hearthmind.economy.farms import FarmGrid, apply_carcass_decomposition_bonus, apply_nutrient_cycling
 from hearthmind.agents.occupations import ALL_OCCUPATIONS
@@ -29,9 +31,11 @@ from hearthmind.world.terrain_evolution import (
     apply_climate_drift,
     apply_local_activity,
     apply_disaster_scars,
+    apply_battle_scar,
     apply_mining_scars,
     maybe_form_quarries,
     decay_disaster_scars,
+    decay_battle_scars,
     decay_mining_scars,
     decay_ritual_activity,
     decay_ruin_scars,
@@ -146,7 +150,7 @@ TERRAIN_CHANGING_CATEGORIES = frozenset({
     "terrain_thinned", "terrain_reclaimed", "climate_drift",
     "disaster_flood", "disaster_wildfire", "lake_rose", "lake_receded",
     "mining_scarred", "disaster_scarred", "building_reclaimed", "terrain_eroded", "river_recarved",
-    "road_scarred", "wetland_formed", "wetland_dried", "quarry_formed", "flood_eroded",
+    "road_scarred", "wetland_formed", "wetland_dried", "quarry_formed", "flood_eroded", "battle_scarred",
 })
 """Life-event categories that mean at least one tile's biome changed
 this tick. Canonical home for this set (it used to live only in
@@ -249,6 +253,13 @@ class World:
     repeatedly caught in a flood/wildfire accumulates a visible scar
     instead of always fully healing. See world/terrain_evolution.py
     `apply_disaster_scars`/`decay_disaster_scars`."""
+    battle_scars: dict[tuple[int, int], float] = field(default_factory=dict)
+    """A19's "battles" axis (docs/ROADMAP-2026-07-REMAINING.md, "Known
+    scope trims") — same shape as `mining_scars`/`disaster_scars`
+    (cosmetic-only intensity, no biome mutation), fed by `world.combat.
+    resolve_battle`'s real deterministic combat resolution. See
+    `world/terrain_evolution.py`'s `apply_battle_scar`/`decay_battle_
+    scars`, `World._maybe_resolve_battle`."""
     fallow_ticks: dict[tuple[int, int], int] = field(default_factory=dict)
     """Phase 3.D "succession — real intermediate stages, not an instant
     biome flip" — consecutive weeks a tile has qualified for reforesting
@@ -1008,6 +1019,13 @@ class World:
             "week_end" in events
             and self.village_pillar.subject_confidence("prosperity") >= VILLAGE_CIVIC_BUILD_CONVICTION_THRESHOLD
         )
+        # A19's "battles" axis: computed here, BEFORE `self.population.
+        # tick(...)`, since real casualties must reach `_apply_deaths`
+        # THIS tick via `killed_in_battle` — engine.py's own daily-
+        # metrics detector cluster only runs after `World.tick()`
+        # completes, same "compute in state.py, not engine.py" shape
+        # `land_use_override_kind`/`civic_build_convicted` above use.
+        killed_in_battle, battle_events = self._maybe_resolve_battle()
         population_events = self.population.tick(
             seed=self.config.seed, tick=self.clock.tick_count,
             building_kind_pillar_lean=building_kind_pillar_lean,
@@ -1032,6 +1050,7 @@ class World:
             ownership_history=self.ownership_history,
             land_use_override_kind=land_use_override_kind,
             civic_build_convicted=civic_build_convicted,
+            killed_in_battle=killed_in_battle,
         )
         # C2 "Intention channel" close-the-loop, "build": a genuine
         # civic construction reinforces "prosperity" to full confidence
@@ -1129,7 +1148,8 @@ class World:
         self.fields.step_beauty(self.aesthetic_appraisal)
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (
-            wildlife_events + settlement_events + population_events + terrain_events + disaster_events
+            wildlife_events + settlement_events + population_events + terrain_events
+            + disaster_events + battle_events
         )
         self.last_calendar_events = events
         if self._biome_counts_cache is not None and any(
@@ -1137,6 +1157,73 @@ class World:
         ):
             self._biome_counts_cache = None  # a tile's biome changed this tick — see the field's docstring
         return events
+
+    def _maybe_resolve_battle(self) -> tuple[set[int], list[tuple[str, str]]]:
+        """A19's "battles" axis (world/combat.py): checks every named-
+        settlement pair for a real war trigger and, if one fires,
+        resolves it fully this same tick — real casualties (returned
+        for `Population._apply_deaths` to actually apply), real
+        plunder, real relation damage, and a real decaying map scar at
+        the defender's site. Cross-settlement only (see combat.py's
+        module docstring for why); with fewer than two named
+        settlements this is a cheap no-op, same shape `_diplomacy_
+        pair_target` establishes for every other cross-settlement
+        mechanic."""
+        named = [s for s in self.settlements if s.name]
+        if len(named) < 2:
+            return set(), []
+        rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "battle")
+        killed: set[int] = set()
+        events: list[tuple[str, str]] = []
+        for stl_a, stl_b in itertools.combinations(named, 2):
+            relation = min(
+                stl_a.relations.get(stl_b.id, 0.0), stl_b.relations.get(stl_a.id, 0.0),
+            )
+            if relation > combat.BATTLE_TRIGGER_THRESHOLD:
+                continue
+            if rng.random() > combat.BATTLE_CHANCE_PER_TICK:
+                continue
+            roster_a = [
+                a for a in self.population.agents
+                if a.settlement_id == stl_a.id and self.population._is_mature(a) and self.population._is_healthy(a)
+            ]
+            roster_b = [
+                a for a in self.population.agents
+                if a.settlement_id == stl_b.id and self.population._is_mature(a) and self.population._is_healthy(a)
+            ]
+            roster_a = rng.sample(roster_a, k=max(1, round(len(roster_a) * combat.BATTLE_ROSTER_FRACTION))) \
+                if roster_a else []
+            roster_b = rng.sample(roster_b, k=max(1, round(len(roster_b) * combat.BATTLE_ROSTER_FRACTION))) \
+                if roster_b else []
+            if len(roster_a) < combat.BATTLE_MIN_ROSTER_SIZE or len(roster_b) < combat.BATTLE_MIN_ROSTER_SIZE:
+                continue  # a real war party can't be fielded this tick — re-checked on a future roll
+            result = combat.resolve_battle(roster_a, roster_b, rng, TRAIT_AMBITION, TRAIT_RESILIENCE)
+            killed |= result.attacker_casualty_ids | result.defender_casualty_ids
+            winner_stl, loser_stl = (
+                (stl_a, stl_b) if result.winner == "attacker" else (stl_b, stl_a)
+            )
+            plunder_materials = loser_stl.materials * combat.BATTLE_PLUNDER_FRACTION
+            plunder_currency = loser_stl.currency * combat.BATTLE_PLUNDER_FRACTION
+            loser_stl.materials -= plunder_materials
+            loser_stl.currency -= plunder_currency
+            winner_stl.materials += plunder_materials
+            winner_stl.currency += plunder_currency
+            new_relation = max(-1.0, relation - combat.BATTLE_RELATION_PENALTY)
+            stl_a.relations[stl_b.id] = new_relation
+            stl_b.relations[stl_a.id] = new_relation
+            total_casualties = len(result.attacker_casualty_ids) + len(result.defender_casualty_ids)
+            events.append((
+                "battle",
+                f"{winner_stl.name} routed {loser_stl.name} in open battle — "
+                f"{total_casualties} dead, {winner_stl.name} plundered {round(plunder_materials)} "
+                f"materials and {round(plunder_currency)} currency.",
+            ))
+            defender_site = stl_b.center()
+            if defender_site is not None and apply_battle_scar(defender_site, self.battle_scars):
+                events.append((
+                    "battle_scarred", f"The ground near {stl_b.name} still bears the marks of battle.",
+                ))
+        return killed, events
 
     def _tick_disasters(self, calendar_events: list[str]) -> list[tuple[str, str]]:
         """Flood/heatwave/wildfire/storm/frost — see world/disasters.py.
@@ -1281,6 +1368,7 @@ class World:
             decay_migration_trails(self.migration_trails)
             decay_dry_lakebed_scars(self.dry_lakebed_scars)
             decay_carcass_decomposition(self.carcass_decomposition)
+            decay_battle_scars(self.battle_scars)
 
         if "month_end" in calendar_events:
             climate_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "climate_drift")
@@ -1455,6 +1543,13 @@ class World:
                     if self.disaster_scars else 0.0
                 ),
             },
+            "battle_scars": {
+                "sites": len(self.battle_scars),
+                "avg_intensity": (
+                    round(sum(self.battle_scars.values()) / len(self.battle_scars), 3)
+                    if self.battle_scars else 0.0
+                ),
+            },
             "hydrology": {
                 "avg_moisture": round(self.hydrology_field.average(), 3),
                 "avg_groundwater": round(self.hydrology_field.average_groundwater(), 3),
@@ -1604,6 +1699,12 @@ class World:
                 # 21): 0 for an original proposal, so only a genuine
                 # evolve/merge descendant surfaces a generation marker.
                 "generation": concept.generation if concept.generation > 0 else None,
+                # Humans-vs-Village ontology origination split (explicit
+                # user delegation, 2026-07-31): which pillar is credited
+                # as having actually cared about/originated this idea —
+                # distinct from `kind`/category (what KIND of thing it
+                # is) and `who` (which specific agent/settlement).
+                "origin_pillar": concept.origin_pillar,
             })
         for settlement in self.settlements:
             for i, law in enumerate(settlement.laws):
@@ -1740,6 +1841,7 @@ class World:
             "terrain_activity": {f"{x}:{y}": v for (x, y), v in self.terrain_activity.items()},
             "mining_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.mining_scars.items()},
             "disaster_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.disaster_scars.items()},
+            "battle_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.battle_scars.items()},
             "fallow_ticks": {f"{x}:{y}": v for (x, y), v in self.fallow_ticks.items()},
             "ritual_activity": {f"{x}:{y}": round(v, 4) for (x, y), v in self.ritual_activity.items()},
             "ruin_scars": {f"{x}:{y}": round(v, 4) for (x, y), v in self.ruin_scars.items()},
@@ -2009,6 +2111,11 @@ class World:
             x_str, y_str = key.split(":")
             disaster_scars[(int(x_str), int(y_str))] = value
 
+        battle_scars: dict[tuple[int, int], float] = {}
+        for key, value in data.get("battle_scars", {}).items():
+            x_str, y_str = key.split(":")
+            battle_scars[(int(x_str), int(y_str))] = value
+
         fallow_ticks: dict[tuple[int, int], int] = {}
         for key, value in data.get("fallow_ticks", {}).items():
             x_str, y_str = key.split(":")
@@ -2079,6 +2186,7 @@ class World:
             terrain_activity=terrain_activity,
             mining_scars=mining_scars,
             disaster_scars=disaster_scars,
+            battle_scars=battle_scars,
             fallow_ticks=fallow_ticks,
             ritual_activity=ritual_activity,
             ruin_scars=ruin_scars,

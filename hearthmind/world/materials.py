@@ -123,6 +123,7 @@ BUILDING_MATERIALS: dict[BuildingKind, str] = {
     BuildingKind.OIL_RIG: "metal",
     BuildingKind.BRIDGE: "stone",
     BuildingKind.FORGE: "stone",
+    BuildingKind.SMELTER: "ore",
 }
 """Deliberately the same tagged-kind set `world.affordances.BUILDING_
 AFFORDANCES` covers — SCHOOL/UNIVERSITY/MARKET/LIBRARY carry no

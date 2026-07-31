@@ -409,20 +409,43 @@ starts on an explicit instruction naming an item.
 
 Recorded so they aren't rediscovered as "gaps" later:
 
-- [ ] **Districts are not folded into `carrying_capacity()`** (v1.34.22)
-      — collectivized population is an additive figure so existing
-      growth tuning stays undisturbed. Folding it in needs live-test
-      ability.
-- [ ] **A19's "battles" axis** has no data source — no combat mechanic
-      exists. A18's "raid" example is likewise scoped to relationship-
-      rupture, not real combat.
-- [ ] **A13's automatic reactor is reachable only for clay/fiber** — no
-      `BuildingKind` defaults to `ore`.
-- [ ] **`§8` LoRA fine-tuning** stays data-collection-only; a real
-      training pipeline is outside `SimulationEngine`'s scope.
-- [ ] **A21/A7's ritual/recipe structure grammar** and **Humans-vs-
-      Village ontology origination split** — both deliberately left,
-      each contradicting or predating a real prior design decision.
+- [x] **Districts folded into `carrying_capacity()` — CLOSED, v1.34.159.**
+      `Population.tick()` now subtracts each settlement's collectivized
+      district population before comparing individually-simulated
+      population against capacity — real headroom is now consumed by
+      districts too, `carrying_capacity`'s own tuned formula untouched.
+- [x] **A19's "battles" axis — CLOSED, v1.34.159.** New `world/
+      combat.py`: a real, deterministic, cross-settlement combat
+      subsystem (real war parties, real bounded casualties, real
+      plunder, real relation damage, a real decaying `battle_scars` map
+      mark). Explicit user decision: "Full combat subsystem" over the
+      smaller relationship-rupture-only shape A18's "raid" example
+      already covers.
+- [x] **A13's automatic reactor — CLOSED, v1.34.159.** New `BuildingKind.
+      SMELTER` defaults to material `ore` (explicit user decision: "New
+      BuildingKind defaulting to ore") and carries its own heat
+      affordance, so `ore + heat -> metal` is now genuinely reachable
+      through the real automatic reactor, not just the query half.
+- [x] **`§8` LoRA fine-tuning tooling extended — CLOSED (as tooling),
+      v1.34.159.** Kept data-collection-only per explicit user decision
+      (no new ML dependency, no training infrastructure added). New
+      `llm/eval_harness.py`'s `training_readiness_report` + `scripts/
+      recorder_tools.py training-readiness` — a per-task "enough good
+      data for a first LoRA slice yet?" report. A real training
+      pipeline itself remains outside `SimulationEngine`'s scope.
+- [x] **A21/A7's ritual/recipe structure grammar — explicitly SKIPPED
+      (not built), v1.34.159.** Delegated decision ("you decide this
+      one"); building it would reverse A7's own standing "stays
+      LLM-authored, closer to meaning" decision.
+- [x] **Humans-vs-Village ontology origination split — CLOSED,
+      v1.34.159.** New `InventedConcept.origin_pillar` (`world.
+      ontology.ONTOLOGY_ORIGIN_PILLARS`), `llm/ontology.py`'s `HUMANS_
+      PROPOSE_CATEGORIES`/`origin_pillar_for_category` — a real,
+      persisted per-concept attribution closing the gap CLAUDE.md
+      flagged ("today both routes go through the same Village-
+      imagination job"). Deliberately NOT a second parallel scheduling
+      job — see CLAUDE.md's v1.34.159 entry for the full scoping
+      rationale.
 
 ### Standing verification debt (found in the v1.34.64 audit)
 

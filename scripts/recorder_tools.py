@@ -40,6 +40,11 @@ Usage:
         (FT.4: writes N synthesized town_brain structured_input+prompt
         pairs as JSONL — no gold output attached, see llm/rejection_
         sampling.py or scripts/rejection_sample.py to attach one)
+    python3 scripts/recorder_tools.py training-readiness [--archive-dir DIR]
+        (§8, kept data-collection-only per explicit user decision: a
+        per-task "enough GOOD data for a first LoRA slice yet?" report
+        combining FT.2's quality labels with a volume floor — never
+        runs or configures any training job, prints a report only)
 """
 from __future__ import annotations
 
@@ -50,7 +55,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from hearthmind.llm.eval_harness import check_regressions, freeze_eval_set
+from hearthmind.llm.eval_harness import check_regressions, freeze_eval_set, training_readiness_report
 from hearthmind.llm.prompt_synthesis import synthesize_town_brain_batch
 from hearthmind.llm.review_pack import (
     archive_stats, export_random_subset, export_review_pack, export_sft_filter,
@@ -64,7 +69,7 @@ def main() -> None:
         "command",
         choices=[
             "validate", "stats", "export-review-pack", "export-random", "label", "export-sft",
-            "freeze-eval-set", "check-regressions", "synthesize-town-brain",
+            "freeze-eval-set", "check-regressions", "synthesize-town-brain", "training-readiness",
         ],
     )
     parser.add_argument("--archive-dir", default="training_archive")
@@ -137,6 +142,8 @@ def main() -> None:
             for ex in batch:
                 fh.write(json.dumps(ex, ensure_ascii=False) + "\n")
         print(f"Wrote {len(batch)} synthesized town_brain prompts to {out_path}")
+    elif args.command == "training-readiness":
+        print(json.dumps(training_readiness_report(args.archive_dir), indent=2))
 
 
 if __name__ == "__main__":

@@ -37,7 +37,42 @@ Village-flavored mechanism. `ecological` concepts are now exclusively
 (wildlife/disaster/succession/climate signals), not village prosperity.
 Every other category stays here — this job is genuinely "the village's
 collective imagination," and a custom/law/ritual/saying/profession/
-institution-flavor idea IS naturally village-grounded."""
+institution-flavor idea IS naturally village-grounded.
+
+Still true at the PROMPT/scheduling level: one job, one settlement-
+grounded prompt, proposing across all seven of these categories. What
+changed (explicit user delegation, 2026-07-31 — "you decide this one"
+on the Humans-vs-Village origination split flagged in CLAUDE.md) is
+ATTRIBUTION, not scheduling: `HUMANS_PROPOSE_CATEGORIES` below names
+which of these seven the result should be credited to Humans rather
+than Village once it's actually registered — see `origin_pillar_for_
+category`. A second, fully independent Humans-grounded scheduling job
+(its own prompt/budget/backpressure gate) was deliberately NOT built —
+that's a materially larger lift than the actual gap CLAUDE.md named
+(today NOTHING distinguishes a Humans-flavor concept from a Village-
+flavor one at the data level), so this stays a bounded, real
+attribution fix rather than a second Innovation-sized subsystem."""
+
+HUMANS_PROPOSE_CATEGORIES = frozenset({"custom", "saying", "profession"})
+"""CLAUDE.md's own standing correction: "Humans originate customs/
+professions/social roles/myths/traditions... Village originates
+institutions/laws/festivals/political structures." Mapped onto
+`ONTOLOGY_CATEGORIES`' actual seven non-ecological entries: `custom`
+(a lived social practice), `saying` (folk wisdom/myth-adjacent), and
+`profession` (a social role) are genuinely person-and-culture-scale,
+Humans' natural territory. `law`/`ritual`/`institution_flavor` stay
+Village-attributed (collective/institutional in character) — see
+`origin_pillar_for_category`."""
+
+
+def origin_pillar_for_category(category: str) -> str:
+    """`world.ontology.InventedConcept.origin_pillar`'s real source of
+    truth for `_maybe_schedule_ontology_proposal`'s registered
+    concepts — `"humans"` for `HUMANS_PROPOSE_CATEGORIES`, `"village"`
+    for everything else this job can produce (technology/ecological
+    never reach this function; their own call sites pass `origin_
+    pillar` explicitly)."""
+    return "humans" if category in HUMANS_PROPOSE_CATEGORIES else "village"
 
 _VALID_SKILL_TARGETS = (SKILL_FARMING, SKILL_CONSTRUCTION, SKILL_MEDICINE)
 _VALID_GOAL_TARGETS = ("forage", "gather", "socialize", "wander", "rest")

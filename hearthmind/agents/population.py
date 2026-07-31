@@ -1723,12 +1723,17 @@ class Population:
     deaths_old_age: int = 0
     deaths_predator: int = 0
     deaths_disease: int = 0
+    deaths_battle: int = 0
+    """A19's "battles" axis (world/combat.py): a real, counted death
+    cause distinct from the others above — see `_apply_deaths`'s
+    `killed_in_battle` parameter."""
     """Cumulative counts since world creation, for diagnosis — the
     inhabitant listing only shows who's alive *now*, so without these a
     population crash (many deaths between two snapshots) is invisible in
     `inspect_world` unless you happened to be watching the event log at
     the time. See docs/DECISIONS.md, D5 (deaths_predator added in the
     danger pass)."""
+
     rumors_seeded_total: int = 0
     """Rumor-epidemiology instrumentation (docs/DECISIONS.md "continue
     expanding" pass): cumulative count of distinct rumors that have
@@ -2029,6 +2034,7 @@ class Population:
         occupation_pillar_lean: "dict[str, float] | None" = None,
         land_use_override_kind: "BuildingKind | None" = None,
         civic_build_convicted: bool = False,
+        killed_in_battle: "set[int] | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -2354,11 +2360,28 @@ class Population:
         )
         established_roads = roads.summary()["established_roads"]
         capacity_by_id = {
-            s.id: self.carrying_capacity(
-                s, housing_by_id[s.id], weather_harsh, bool(predator_tiles),
-                established_roads=established_roads,
-                members=[a for a in self.agents if home_of(a).id == s.id],
-                map_tiles=map_tiles,
+            s.id: max(
+                0.0,
+                self.carrying_capacity(
+                    s, housing_by_id[s.id], weather_harsh, bool(predator_tiles),
+                    established_roads=established_roads,
+                    members=[a for a in self.agents if home_of(a).id == s.id],
+                    map_tiles=map_tiles,
+                )
+                # "Known scope trim" fix (v1.34.22's own docstring): a
+                # settlement's collectivized district population is
+                # real people consuming the same real capacity as
+                # individually-simulated ones — it was previously a
+                # purely additive figure with no bearing on `_maybe_
+                # reproduce`'s headroom check at all, so a settlement
+                # could grow unbounded via districts even while its
+                # individually-simulated population sat right at
+                # capacity. Subtracting it here means TOTAL real
+                # population (individual + collectivized) respects one
+                # real ceiling, without touching `carrying_capacity`'s
+                # own tuned formula — districts consume headroom, they
+                # don't change what determines it.
+                - sum(d.population for d in s.districts),
             )
             for s in settlements
         }
@@ -2370,6 +2393,7 @@ class Population:
             self._apply_deaths(
                 killed_by_predator, settlements, died_of_disease, tick=tick, rng=rng,
                 ownership_history=ownership_history, humans_lean=humans_lean,
+                killed_in_battle=killed_in_battle or frozenset(),
             )
         )
         self._tick_mourning()
@@ -6859,6 +6883,7 @@ class Population:
         died_of_disease: set[int] = frozenset(), tick: int = 0, rng: random.Random | None = None,
         ownership_history: dict[tuple[int, int], int] | None = None,
         humans_lean: "Callable[[Agent], float] | None" = None,
+        killed_in_battle: set[int] = frozenset(),
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         settlements = settlements or []
@@ -6886,6 +6911,7 @@ class Population:
             if (
                 agent.id in killed_by_predator
                 or agent.id in died_of_disease
+                or agent.id in killed_in_battle
                 or agent.starving_ticks >= _starvation_threshold(agent)
                 or agent.age_ticks >= agent.max_age_ticks
             ):
@@ -6906,6 +6932,14 @@ class Population:
                 life_events.append(("death", f"{agent.name} died of illness."))
                 self.deaths_disease += 1
                 cause = "died of illness"
+            elif agent.id in killed_in_battle:
+                # Already logged by the real battle-resolution call site
+                # (world.combat.resolve_battle's caller) — the event
+                # there can name the settlement/foe; just count it here,
+                # same "already logged elsewhere" shape as the predator
+                # arm above.
+                self.deaths_battle += 1
+                cause = "died in battle"
             # Same resilience-adjusted threshold the dying_ids check above
             # used — audit fix: this arm previously compared against the
             # raw STARVATION_TICKS_TO_DEATH, so a fragile (negative-
@@ -8570,6 +8604,7 @@ class Population:
             "deaths_old_age": self.deaths_old_age,
             "deaths_predator": self.deaths_predator,
             "deaths_disease": self.deaths_disease,
+            "deaths_battle": self.deaths_battle,
             "avg_affinity": round(avg_affinity, 3),
             "close_bonds": bonds,
             "rivalries": rivalries,
@@ -8619,6 +8654,7 @@ class Population:
             "deaths_old_age": self.deaths_old_age,
             "deaths_predator": self.deaths_predator,
             "deaths_disease": self.deaths_disease,
+            "deaths_battle": self.deaths_battle,
             "rumors_seeded_total": self.rumors_seeded_total,
             "rumor_listener_exposures_total": self.rumor_listener_exposures_total,
             "dialogue_cooldowns": {
@@ -8663,6 +8699,7 @@ class Population:
             deaths_old_age=data.get("deaths_old_age", 0),
             deaths_predator=data.get("deaths_predator", 0),
             deaths_disease=data.get("deaths_disease", 0),
+            deaths_battle=data.get("deaths_battle", 0),
             rumors_seeded_total=data.get("rumors_seeded_total", 0),
             rumor_listener_exposures_total=data.get("rumor_listener_exposures_total", 0),
             dialogue_cooldowns=dialogue_cooldowns,

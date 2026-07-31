@@ -36,6 +36,13 @@ category the pre-existing `llm/invention.py` job already produces
 invention`, not duplicated — see its docstring); the other seven are
 new, produced by `SimulationEngine._maybe_schedule_ontology_proposal`."""
 
+ONTOLOGY_ORIGIN_PILLARS: tuple[str, ...] = ("village", "humans", "nature", "innovation")
+"""Closed vocabulary for `InventedConcept.origin_pillar` — which of the
+five cognitive pillars (Reflection has no origination role) actually
+cares about/originated a concept, distinct from `category` (what KIND
+of thing it is). See that field's own docstring for the full
+Humans-vs-Village origination-split rationale."""
+
 MECHANICAL_HOOK_TYPES: tuple[str, ...] = (
     "invention_specialization_category", "skill_yield_bonus", "goal_flavor_bias",
     "belief_confidence_bonus", "custom_text_only",
@@ -184,6 +191,31 @@ class InventedConcept:
     `generation` param) — a real, walkable "how many rounds of
     selection produced this idea" counter alongside the existing
     `lineage` DAG."""
+    origin_pillar: str = "village"
+    """Explicit user delegation (2026-07-31, "you decide this one" on
+    the Humans-vs-Village ontology origination split): CLAUDE.md's own
+    standing correction says "every pillar expands the shared
+    ontology... Humans originate customs/professions/social roles/
+    myths/traditions... Village originates institutions/laws/
+    festivals/political structures" — but before this field, NOTHING
+    distinguished a Humans-flavor concept from a Village-flavor one at
+    the data level; both categories of concept were registered
+    identically, with no record of which pillar actually cares about
+    it. One of `ONTOLOGY_ORIGIN_PILLARS`. `"village"` default matches
+    every pre-existing call site's real behavior (the only job that
+    ever ran for these categories was Village-grounded), so legacy
+    concepts read correctly with zero backfill logic needed. `llm/
+    ontology.py`'s `HUMANS_PROPOSE_CATEGORIES`/`VILLAGE_PROPOSE_
+    CATEGORIES` split decides which pillar a NEWLY proposed custom/
+    law/ritual/saying/profession/institution_flavor concept is
+    attributed to; `"technology"` (`_maybe_schedule_invention`'s
+    bridge) and `"ecological"` (`_maybe_schedule_nature_mind`) were
+    already effectively pillar-owned by category alone and now pass
+    `origin_pillar` explicitly too, closing the gap for every category
+    at once, not just the split ones. Deliberately NOT a new parallel
+    scheduling job (own budget/backpressure/gating) — a real, bounded
+    slice: attribution plus feeding the correctly-attributed pillar's
+    own `world_model`, not a second Innovation-sized subsystem."""
 
     def to_dict(self) -> dict:
         return {
@@ -202,6 +234,7 @@ class InventedConcept:
             "world_model_entry_id": self.world_model_entry_id,
             "fitness_history": list(self.fitness_history),
             "generation": self.generation,
+            "origin_pillar": self.origin_pillar,
         }
 
     @classmethod
@@ -222,6 +255,7 @@ class InventedConcept:
             world_model_entry_id=data.get("world_model_entry_id"),
             fitness_history=list(data.get("fitness_history", [])),
             generation=data.get("generation", 0),
+            origin_pillar=data.get("origin_pillar", "village"),
         )
 
 
@@ -456,7 +490,7 @@ def register_concept(
     world, name: str, description: str, category: str, origin_settlement_id: int,
     tick: int, inventor_agent_id: int | None = None, mechanical_hook: dict | None = None,
     lineage: dict | None = None, hypothesis: str = "", world_model_entry_id: int | None = None,
-    generation: int = 0,
+    generation: int = 0, origin_pillar: str = "village",
 ) -> InventedConcept:
     """Mints a new `InventedConcept` with the next id, seeds the
     inventor as its first adopter (if any), and prunes the registry if
@@ -476,7 +510,7 @@ def register_concept(
         origin_settlement_id=origin_settlement_id, tick_invented=tick,
         inventor_agent_id=inventor_agent_id, mechanical_hook=mechanical_hook,
         lineage=lineage or {}, hypothesis=hypothesis, world_model_entry_id=world_model_entry_id,
-        generation=generation,
+        generation=generation, origin_pillar=origin_pillar,
     )
     if inventor_agent_id is not None:
         concept.adopter_ids.add(inventor_agent_id)

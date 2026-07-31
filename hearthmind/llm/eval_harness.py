@@ -194,3 +194,78 @@ def freeze_eval_set(
         "train_count": len(train), "holdout_count": len(holdout), "golden_count": len(golden),
         "baseline_diagnostics": baseline,
     }
+
+
+MIN_SFT_EXAMPLES_PER_TASK = 200
+"""§8 LoRA fine-tuning, kept data-collection-only per explicit user
+decision ("keep data-collection-only, extend the tooling instead" — no
+new ML dependency like torch/peft/transformers, this environment can't
+run a real training job anyway). A conventional order-of-magnitude
+floor for a per-task LoRA slice (widely-cited community guidance for a
+narrow single-task adapter, not a number measured against a real
+Hearthmind training run in this environment — flagged honestly, not
+presented as tuned). Below this, a task's SFT-eligible pool is
+probably too thin to fine-tune on usefully; above it, readiness is
+gated by quality (schema/leak rates), not volume."""
+
+MAX_ACCEPTABLE_LEAK_RATE = 0.05
+MAX_ACCEPTABLE_FALLBACK_RATE = 0.5
+"""§8: a task whose recorded examples are mostly fallback output (never
+a real LLM answer) has nothing worth imitating; a task with meaningful
+scaffolding-leak contamination (`quality_labels.check_leaks`) needs a
+prompt fix before its archive is trustworthy training material, not a
+bigger archive."""
+
+
+def training_readiness_report(archive_dir: "str | Path") -> dict:
+    """§8's real "extend the tooling instead" deliverable: a single
+    read-only report answering "is there enough GOOD data to attempt a
+    first LoRA pass on task X yet?" — combining `review_pack.label_
+    archive`'s per-task quality rates (FT.2) with a volume floor
+    (`MIN_SFT_EXAMPLES_PER_TASK`) and the two quality floors above.
+    Deliberately does NOT run or configure any actual training job —
+    per the explicit "no new ML dependency" scope, this module stays
+    stdlib-only; a `ready` task here is a real, actionable target for
+    an external training pipeline (see docs/TRAINING_RECORDER.md),
+    never training run itself. `archive_dir` is passed straight to
+    `review_pack.label_archive`, so no separate example list needs
+    loading here."""
+    from hearthmind.llm.review_pack import label_archive  # local import: avoids a review_pack<->eval_harness cycle
+
+    labeled = label_archive(archive_dir)
+    per_task_verdicts: dict[str, dict] = {}
+    ready_tasks: list[str] = []
+    not_ready_tasks: list[str] = []
+    for task, stats in labeled["per_task"].items():
+        count = stats["count"]
+        fallback_rate = round(stats["fallback_used"] / count, 3) if count else 0.0
+        reasons = []
+        if count < MIN_SFT_EXAMPLES_PER_TASK:
+            reasons.append(f"only {count} examples, below the {MIN_SFT_EXAMPLES_PER_TASK}-example floor")
+        if stats["leak_rate"] > MAX_ACCEPTABLE_LEAK_RATE:
+            reasons.append(f"leak rate {stats['leak_rate']:.1%} exceeds {MAX_ACCEPTABLE_LEAK_RATE:.0%}")
+        if fallback_rate > MAX_ACCEPTABLE_FALLBACK_RATE:
+            reasons.append(f"fallback rate {fallback_rate:.1%} exceeds {MAX_ACCEPTABLE_FALLBACK_RATE:.0%}")
+        ready = not reasons
+        per_task_verdicts[task] = {
+            "count": count,
+            "sft_eligible_rate": stats["sft_eligible_rate"],
+            "leak_rate": stats["leak_rate"],
+            "fallback_rate": fallback_rate,
+            "ready": ready,
+            "reasons": reasons,
+        }
+        (ready_tasks if ready else not_ready_tasks).append(task)
+    return {
+        "total_examples": labeled["total_examples"],
+        "tasks_ready": sorted(ready_tasks),
+        "tasks_not_ready": sorted(not_ready_tasks),
+        "per_task": per_task_verdicts,
+        "verdict": (
+            f"{len(ready_tasks)}/{len(labeled['per_task'])} task(s) have enough good data for a first "
+            "LoRA slice; no training run was attempted — this environment has no training infrastructure "
+            "and none was added (explicit scope)."
+            if labeled["per_task"] else
+            "no recorded examples found — nothing to assess yet."
+        ),
+    }

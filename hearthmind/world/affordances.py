@@ -77,6 +77,7 @@ BUILDING_AFFORDANCES: dict[BuildingKind, frozenset[str]] = {
     BuildingKind.OIL_RIG: frozenset({"can_burn", "can_conduct_heat"}),
     BuildingKind.BRIDGE: frozenset({"can_support_weight"}),
     BuildingKind.FORGE: frozenset({"can_conduct_heat", "can_sharpen", "can_burn"}),
+    BuildingKind.SMELTER: frozenset({"can_conduct_heat", "can_burn"}),
 }
 """Kinds absent from this dict (SCHOOL/UNIVERSITY/MARKET/LIBRARY) carry
 no physical affordance tag — their real identity is informational/

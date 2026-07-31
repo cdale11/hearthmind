@@ -198,6 +198,21 @@ class BuildingKind(str, Enum):
     library IS this era's schoolhouse, mechanically. Foundable once the
     settlement's era has advanced past `iron_age` (see `_ERA_UNLOCKS_
     CLASSICAL`). Staffed preferentially by the new SCRIBE occupation."""
+    SMELTER = "smelter"
+    """A13's real ore-reachable reactor (explicit user decision, "New
+    BuildingKind defaulting to ore"): `world.materials.BUILDING_
+    MATERIALS[SMELTER] = "ore"` is the missing precondition `world.
+    chemistry.REACTION_RULES`' `ore + heat -> metal` rule needed — no
+    prior `BuildingKind` ever defaulted to ore, so that rule was
+    reachable only through `discover_reactions`' query half, never the
+    real automatic reactor (`tick_building_reactions`). A standing
+    SMELTER genuinely holds raw ore, and (like FORGE) itself carries
+    `can_conduct_heat`/`can_burn` in `world.affordances.BUILDING_
+    AFFORDANCES` — a furnace supplies its own heat, so a lone SMELTER
+    is self-sufficient; it doesn't need a separate FORGE standing to
+    eventually convert. Foundable from `bronze_age` onward, same
+    `_ERA_UNLOCKS_BRONZE` gate as FORGE — ore smelting is bronze-age
+    metallurgy, not a founding-day structure."""
 
 
 CONSTRUCTION_WORK_PER_TICK = 0.05
@@ -613,6 +628,11 @@ it eventually stands alongside."""
 LIBRARY_MATERIALS_COST = 5.5
 """Between GRANARY/SHRINE (5.0) and SCHOOL (6.0) — a classical-era
 knowledge building, mechanically SCHOOL's peer."""
+SMELTER_MATERIALS_COST = 4.5
+"""Between FORGE (3.5) and WORKSHOP (4.0)'s neighbor SHRINE/GRANARY
+(5.0) — a bronze_age building, same tier as FORGE, priced a touch
+higher since it needs a real sustained-heat commitment (`world.
+chemistry.tick_building_reactions`) to pay off, not immediate income."""
 BRIDGE_MATERIALS_COST_PER_SPAN_TILE = 2.5
 """Bridges cost scales with how much water they actually cross
 (`len(Building.bridge_span)`) rather than a flat price like every other
@@ -660,6 +680,7 @@ MATERIALS_COST_BY_KIND: dict[BuildingKind, float] = {
     BuildingKind.OIL_RIG: OIL_RIG_MATERIALS_COST,
     BuildingKind.FORGE: FORGE_MATERIALS_COST,
     BuildingKind.LIBRARY: LIBRARY_MATERIALS_COST,
+    BuildingKind.SMELTER: SMELTER_MATERIALS_COST,
 }
 
 def cheapest_founding_cost() -> float:
@@ -680,7 +701,7 @@ BUILDING_KIND_BASE_WEIGHTS: dict[str, float] = {
     "hut": 0.42, "granary": 0.23, "workshop": 0.15, "school": 0.12, "hospital": 0.08,
     "factory": 0.10, "shrine": 0.07, "power_plant": 0.06, "market": 0.07,
     "pasture": 0.14, "hatchery": 0.10, "dock": 0.09, "oil_rig": 0.07,
-    "forge": 0.13, "library": 0.10,
+    "forge": 0.13, "library": 0.10, "smelter": 0.09,
 }
 """Baseline odds a new civic building is each kind, before
 `Settlement.current_priority` (the seasonal "town brain" LLM
@@ -1029,6 +1050,7 @@ def choose_building_kind(
     weights = dict(BUILDING_KIND_BASE_WEIGHTS)
     if era not in _ERA_UNLOCKS_BRONZE:
         weights.pop("forge", None)
+        weights.pop("smelter", None)
     if era not in _ERA_UNLOCKS_CLASSICAL:
         weights.pop("library", None)
     if era not in _ERA_UNLOCKS_ELECTRICAL:
@@ -3898,7 +3920,7 @@ class Settlement:
                 BuildingKind.UNIVERSITY, BuildingKind.FACTORY, BuildingKind.SHRINE,
                 BuildingKind.POWER_PLANT, BuildingKind.MARKET,
                 BuildingKind.DOCK, BuildingKind.OIL_RIG,
-                BuildingKind.FORGE, BuildingKind.LIBRARY,
+                BuildingKind.FORGE, BuildingKind.LIBRARY, BuildingKind.SMELTER,
             )
         }
         vehicle_summary = self._vehicle_summary()
@@ -3965,6 +3987,7 @@ class Settlement:
             "oil_rigs": kind_counts["oil_rig"],
             "forges": kind_counts["forge"],
             "libraries": kind_counts["library"],
+            "smelters": kind_counts["smelter"],
             "caravans_visited": self.caravans_visited,
             "fish_caught": self.fish_caught,
             "buildings_repaired": self.buildings_repaired,
