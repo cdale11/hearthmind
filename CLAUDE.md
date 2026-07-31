@@ -617,6 +617,28 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.140)
+
+Explicit user instruction: "Continue tier 0." A ninth law candidate
+needing no new producer, same pattern as `disease_outbreak`'s
+conversion: `starvation_death` already had a real `pattern_signal_
+counts` counter and a real `village_pillar` mirror (same `_bump_
+village_pattern_signal` call site as `disease_outbreak`/`wildlife_
+recolonization`), previously consumed only by the ontology-proposal
+pressure-signal tiebreak. Added as `candidates`' eighth entry plus a
+`_LAW_PATTERN_TEXT` line — a settlement repeatedly losing people to
+hunger can now produce a real famine-relief/rationing law outright,
+or win a tie via the existing `village_pillar.subject_confidence`
+tiebreak. `PRESSURE_SIGNAL_LABELS` already had a `starvation_death`
+entry from earlier work, no change needed there.
+
+Verified: a production-path test confirming a lone `starvation_death`
+signal at threshold wins outright and grounds the real `laws` prompt,
+a 4000-tick LLM-disabled soak with clean round-trip, `pyflakes`
+clean. No native module touched. Tier 0 now has forty-four real
+converted sites (pure consumer-side — no new producer, since a real
+one already existed).
+
 ## Current state (v1.34.139)
 
 Explicit user instruction: "Continue tier 0 and ask me question for

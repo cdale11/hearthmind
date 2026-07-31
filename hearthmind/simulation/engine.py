@@ -10132,6 +10132,7 @@ class SimulationEngine:
         "food_shortage": "the granaries running dangerously low",
         "disease_outbreak": "sickness taking hold again and again",
         "currency_shortage": "the coffers running dangerously bare",
+        "starvation_death": "hunger claiming lives again and again",
     }
 
     def _maybe_schedule_laws(self, events: list[str]) -> None:
@@ -10180,6 +10181,15 @@ class SimulationEngine:
             # shape — see `_detect_currency_shortage`'s mirror for the
             # producer half.
             "currency_shortage": target.pattern_signal_counts.get("currency_shortage", 0),
+            # Tier 0: a genuine EIGHTH option needing no new producer,
+            # same shape as `disease_outbreak`'s conversion —
+            # `starvation_death` already has a real `pattern_signal_
+            # counts` counter and a real `village_pillar` mirror (same
+            # `_bump_village_pattern_signal` call site), previously
+            # consumed only by the ontology-proposal pressure-signal
+            # tiebreak. A settlement repeatedly losing people to hunger
+            # can now produce a real famine-relief/rationing law.
+            "starvation_death": target.pattern_signal_counts.get("starvation_death", 0),
         }
         # Tier 0 (25th site): a genuine tie in real occurrence count
         # breaks toward whichever category village_pillar's new
