@@ -3912,7 +3912,7 @@ flagged in case a fresh audit disagrees.
 CLOSED. Salience-ranking (the one real gap found) is shipped.
 
 ### C2 — Intention channel (Mind → Body)
-**Started, v1.34.149-.153.** Four of eight named intentions shipped.
+**Started, v1.34.149-.154.** Five of eight named intentions shipped.
 
 "Invent tech" (v1.34.149): Innovation pillar's own leading open
 (`status="hypothesis"`) `world_model` belief genuinely INITIATES an
@@ -3967,25 +3967,41 @@ See `Population._maybe_start_construction`'s `land_use_override_kind`,
 `buildings.VILLAGE_LAND_USE_CONVICTION_THRESHOLD`/`LAND_USE_SHIFT_
 TARGET_KIND`.
 
-All four slices share the same real distinction from every Tier 0
-site — Tier 0 only ever broke a tie or nudged an outcome that would
-happen anyway; C2 changes WHETHER (or, for "shift land use," WHAT)
-the event is.
+"Set custom" (v1.34.154): `village_pillar`'s own persisted conviction
+about one of `laws.py`'s hardship subjects can now genuinely FORCE
+`_maybe_schedule_ontology_proposal`'s category to `"custom"` —
+overriding whatever the LLM itself would freely pick among `VILLAGE_
+PROPOSE_CATEGORIES`'s six options — when the job's existing Body-
+driven pressure check found nothing fresh to name this cycle. Reuses
+`_LAW_PATTERN_TEXT`'s closed vocabulary directly: a custom is the
+informal, not-yet-codified sibling of a law about the same lived
+hardship. Only ever fills a MISSING `pressure_signal` — a real fresh
+occurrence-driven signal is never overridden by an unrelated strong
+conviction (verified directly). The override applies in `apply()`,
+after the LLM responds, not merely as a prompt hint. Closes the loop
+the same way: a real custom that registers from a conviction-initiated
+override reinforces the driving hardship subject to full confidence in
+place. See `SimulationEngine._maybe_schedule_ontology_proposal`,
+`VILLAGE_CUSTOM_CONVICTION_THRESHOLD`.
 
-Four of the spec's eight named pillar-emitted intentions remain
-unbuilt: set custom, reorganize institution, domesticate, build. A
-v1.34.151 audit found no equally clean next slice for any of these —
-"build" is baked into a continuous per-tick physical mechanic
-(`_maybe_start_construction`'s colocation-triggered roll) rather than
-a discrete gated cognition job; "domesticate" has no existing
-mechanism to extend at all (a genuine new-mechanism build, not a
-slice); "set custom"/"reorganize institution" each map onto jobs
-(`_maybe_schedule_ontology_proposal`, `_maybe_schedule_institution_
-belief`) that already fire unconditionally every cycle with no real
-WHETHER-gate left to bypass — a genuine slice there needs its own
-design decision. Not a validation gap (every Body-touching write that
-DOES exist today is validated) — a coverage gap. Resume on future
-explicit direction naming a specific intention.
+All five slices share the same real distinction from every Tier 0
+site — Tier 0 only ever broke a tie or nudged an outcome that would
+happen anyway; C2 changes WHETHER (or, for "shift land use"/"set
+custom," WHAT) the event is.
+
+Three of the spec's eight named pillar-emitted intentions remain
+unbuilt: reorganize institution, domesticate, build. A v1.34.151 audit
+found no equally clean next slice for any of these — "build" is baked
+into a continuous per-tick physical mechanic (`_maybe_start_
+construction`'s colocation-triggered roll) rather than a discrete
+gated cognition job; "domesticate" has no existing mechanism to extend
+at all (a genuine new-mechanism build, not a slice); "reorganize
+institution" maps onto `_maybe_schedule_institution_belief`, which
+already fires unconditionally every cycle with no real WHETHER-gate
+left to bypass — a genuine slice there needs its own design decision.
+Not a validation gap (every Body-touching write that DOES exist today
+is validated) — a coverage gap. Resume on future explicit direction
+naming a specific intention.
 
 ### C3 — Player ↔ Pillar chat
 **CLOSED, v1.34.103.** "Pillars may initiate contact" shipped: `Pillar.

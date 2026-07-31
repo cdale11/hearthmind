@@ -646,6 +646,28 @@ own `confidence` to be above `REFLECTION_REJECTED_THRESHOLD` (evidence
 stays authoritative: an idea already trending toward rejection can
 never be force-tested purely on stale initial conviction)."""
 
+VILLAGE_CUSTOM_CONVICTION_THRESHOLD = 0.85
+"""C2 "Intention channel" (Mind -> Body, docs/MASTERCHECKLIST-2026-07-
+22.md's Part C, Tier 3, "set custom"): the bar `village_pillar`'s own
+confidence about one of `_LAW_PATTERN_TEXT`'s hardship subjects must
+clear before `_maybe_schedule_ontology_proposal` genuinely FORCES the
+proposal's category to `"custom"` — overriding whatever category the
+LLM itself would otherwise freely pick among `VILLAGE_PROPOSE_
+CATEGORIES`'s six options. Reuses `laws.py`'s own closed pattern
+vocabulary rather than inventing a second one: a custom is the
+informal, not-yet-codified sibling of a law — the same lived hardship
+that can (independently) cross `_maybe_schedule_laws`'s own bar for a
+formal rule can also, on its own persisted conviction, make Village
+originate an informal custom about it. Deliberately the same bar as
+`VILLAGE_LAND_USE_CONVICTION_THRESHOLD`/`REFLECTION_PILLAR_CONVICTION_
+EXPERIMENT_THRESHOLD` — every C2 slice that overrides an already-
+decided outcome (not merely initiates a call) holds to this stricter
+bar than the two that only initiate (`VILLAGE_PATTERN_CONVICTION_LAW_
+THRESHOLD`=0.75). Only ever supplies a MISSING `pressure_signal` (see
+`_maybe_schedule_ontology_proposal`'s existing Body-driven derivation)
+— a real, fresh, threshold-crossing occurrence count is never
+overridden by conviction, only the "no specific problem" fallback is."""
+
 GOVERNOR_DRIFT_MIN_SAMPLES = 5
 GOVERNOR_DRIFT_RATIO = 2.0
 """Vision doc item 1.4's own worked example ("wildfires feel too rare
@@ -4986,6 +5008,28 @@ class SimulationEngine:
             )
             if top_value >= PATTERN_SIGNAL_BELIEF_THRESHOLD:
                 pressure_signal = top_signal
+        # C2 "Intention channel" (Mind -> Body, docs/MASTERCHECKLIST-
+        # 2026-07-22.md's Part C, Tier 3, "set custom"): when the Body-
+        # driven check above found no FRESH pressure this cycle,
+        # village_pillar's own persisted conviction about one of laws.
+        # py's hardship subjects can still genuinely FORCE this proposal
+        # into being a "custom" — the informal, not-yet-codified sibling
+        # of a law about the same lived hardship. Never overrides a
+        # real, fresh occurrence count (only fills the gap when
+        # `pressure_signal` is still `None`) — Body stays authoritative.
+        custom_conviction_subject = None
+        if pressure_signal is None:
+            candidate_subject = max(
+                self._LAW_PATTERN_TEXT,
+                key=lambda s: self.world.village_pillar.subject_confidence(s), default=None,
+            )
+            if (
+                candidate_subject is not None
+                and self.world.village_pillar.subject_confidence(candidate_subject)
+                >= VILLAGE_CUSTOM_CONVICTION_THRESHOLD
+            ):
+                pressure_signal = candidate_subject
+                custom_conviction_subject = candidate_subject
         # A5/A6 "Affordances + discovery query layer" (roadmap Stage IV
         # step 18): a real query into what's physically standing right
         # now, not just prosperity/pressure — Innovation's generate-step
@@ -5035,6 +5079,13 @@ class SimulationEngine:
             # generate-step's grounding — a closure capture, not a
             # second query.
             parsed = ontology_llm.parse_propose(result, fallback, present_tags=present_tags)
+            # C2 "Intention channel": village_pillar's own conviction
+            # (see the scheduling site above) FORCES this proposal into
+            # a "custom" — overriding whatever category the LLM itself
+            # picked, the real intention rather than a mere hint via the
+            # prompt's grounding text.
+            if custom_conviction_subject is not None:
+                parsed["category"] = "custom"
             if ontology.is_near_duplicate(self.world, parsed["name"], parsed["description"]):
                 self._pillar_close_cycle("innovation")
                 return  # "nothing new" — same discipline as folklore's duplicate-tale guard
@@ -5072,6 +5123,20 @@ class SimulationEngine:
                 hypothesis=parsed["hypothesis"], world_model_entry_id=entry["id"],
             )
             self._log("ontology", f"{target.name or 'The village'} originated {concept.name}: {concept.description}")
+            # C2 "Intention channel": if this custom was genuinely
+            # FORCED by village_pillar's own conviction, that conviction
+            # is now confirmed — a real custom followed from it, so its
+            # own mirror entry is reinforced to full confidence in
+            # place, closing the conviction -> action -> confirmation
+            # loop the same way every other C2 slice does.
+            if custom_conviction_subject is not None:
+                conviction_entry = self.world.village_pillar.find_world_model_entry(custom_conviction_subject)
+                if conviction_entry is not None:
+                    self.world.village_pillar.upsert_world_model(
+                        self.world.clock.tick_count, custom_conviction_subject, conviction_entry["belief"], 1.0,
+                        status="observation", source="custom_conviction_confirmed",
+                        revises_id=conviction_entry["id"],
+                    )
             self.world.innovation_pillar.remember(f"Originated {concept.name}: {concept.description}")
             self._append_emergence(
                 "novel_combination", "innovation", f"Originated {concept.name}: {concept.description}",

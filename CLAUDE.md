@@ -617,6 +617,55 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.154)
+
+Explicit user instruction: "continue tier 3 c2 with the next intention"
+— C2's fifth slice, "set custom," resolved without a fresh
+`AskUserQuestion` (a prior turn's question on this exact choice went
+unanswered/interrupted; "set custom" was already the flagged
+recommended default with a concrete design). `village_pillar`'s own
+persisted conviction about one of `laws.py`'s hardship subjects can
+now genuinely FORCE `_maybe_schedule_ontology_proposal`'s category to
+`"custom"` — overriding whatever the LLM itself would freely pick
+among `VILLAGE_PROPOSE_CATEGORIES`'s six options — when the job's
+existing Body-driven pressure check found nothing fresh to name this
+cycle. Reuses `_LAW_PATTERN_TEXT`'s closed vocabulary directly rather
+than inventing a second one: a custom is the informal, not-yet-
+codified sibling of a law about the same lived hardship.
+
+New `VILLAGE_CUSTOM_CONVICTION_THRESHOLD=0.85` (engine.py, same bar as
+`VILLAGE_LAND_USE_CONVICTION_THRESHOLD`/`REFLECTION_PILLAR_CONVICTION_
+EXPERIMENT_THRESHOLD` — every C2 slice that overrides an already-
+decided outcome holds to this stricter bar than the two that only
+initiate a call). Deliberately scoped narrower than "shift land use":
+only ever fills a MISSING `pressure_signal` (the job's real Body-
+driven occurrence count, when it crosses `PATTERN_SIGNAL_BELIEF_
+THRESHOLD`, is never overridden — verified directly with an unrelated
+strong conviction present at the same time). The category override
+itself happens in `apply()`, after the LLM responds, not merely as a
+prompt hint — genuinely forces `parsed["category"] = "custom"`
+regardless of what the model said. Closes the loop the same way every
+other C2 slice does: a real custom that registers from a conviction-
+initiated override reinforces the driving hardship subject to full
+confidence in place.
+
+Verified: a production-path test confirming a prosperous-but-not-
+fresh-pressured settlement still grounds the prompt from conviction
+alone and the registered concept's category is forced to "custom"
+regardless of the LLM's own claimed category; a production-path test
+confirming a below-threshold conviction leaves the category untouched;
+a regression test confirming a real fresh occurrence-driven pressure
+signal is never overridden by an unrelated strong conviction; the
+conviction-confirmation reinforcement verified to revise in place (no
+duplicate); a 4000-tick LLM-disabled soak with clean round-trip;
+`pyflakes` clean (only the four known pre-existing findings remain).
+No native module touched.
+
+C2 now has five of eight named intentions shipped (invent tech, change
+law, propose experiment, shift land use, set custom). Three remain
+open: reorganize institution, domesticate, build — each still needing
+its own design decision per the v1.34.151 audit.
+
 ## Current state (v1.34.153)
 
 Explicit user instruction: "continue tier 3 c2 with the next intention,"
